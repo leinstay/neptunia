@@ -30,8 +30,3 @@ export function routeNamesText(backends: ReadonlyArray<RouteBackend>): string {
   const last = names.pop();
   return names.length === 0 ? (last ?? '') : `${names.join(', ')} or ${last ?? ''}`;
 }
-
-/** The name of a route given as a plain stored word; a word that is no route stays as it is. */
-export function routeNameOfWord(word: string): string {
-  return Object.hasOwn(ROUTE_NAMES, word) ? ROUTE_NAMES[word as RouteBackend] : word;
-}

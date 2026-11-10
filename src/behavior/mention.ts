@@ -19,18 +19,6 @@ export function detectTrigger({
 }
 
 /**
- * Length of the message text without `@selfName` and without every `<@id>`
- * token (any member's, not only the persona's) -- an empty rest means a bare
- * ping, so "@persona @friend" with nothing else counts as one too.
- */
-export function strippedLength(content: string, selfName: string): number {
-  return content
-    .replaceAll(`@${selfName}`, '')
-    .replace(/<@!?\d+>/g, '')
-    .trim().length;
-}
-
-/**
  * Remembers when a turn started under a key, for the per-author rail (decideTurn). Deliberately in-memory only: a
  * restart forgiving everyone is fine.
  */
@@ -144,15 +132,6 @@ const ADDRESS_ANSWERS: ReadonlySet<unknown> = new Set(['yes', 'overheard', 'no']
 export function parseAddressAnswer(text: unknown): 'yes' | 'overheard' | 'no' | null {
   const answer = strictJsonObject(text)?.answer;
   return ADDRESS_ANSWERS.has(answer) ? (answer as 'yes' | 'overheard' | 'no') : null;
-}
-
-/**
- * The two-way projection of parseAddressAnswer: `overheard` counts as `yes`,
- * and an answer it cannot read counts as `no`.
- */
-export function parseFollowUpVerdict(text: unknown): 'yes' | 'no' {
-  const answer = parseAddressAnswer(text);
-  return answer === 'yes' || answer === 'overheard' ? 'yes' : 'no';
 }
 
 /**

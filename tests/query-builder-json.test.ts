@@ -1,13 +1,12 @@
-// Tests for the query builder's strict JSON answer (src/behavior/query-builder.ts): the request hands the client
-// QUERY_PLAN_FORMAT as `responseFormat`, and parseQueryPlan reads the object text with one field per label of the old
+// Tests for the query builder's strict JSON answer (src/behavior/query-builder.ts): QUERY_PLAN_FORMAT is the answer's
+// schema, and parseQueryPlan reads the object text with one field per label of the old
 // lines, each null when unused: `web`, `history` and `who` (comma-separated forms), `when` (`YYYY-MM-DD[ HH:MM]` on each
 // side of `..`), `when_role` (`scope` or `locator`), `recent` (`yes` or `no`) and `skills` (`inventory` or names). The
 // values read as the lines' values did. An answer that is not the object, the old labelled lines and the bare `none`
 // included, plans nothing with the reason `unparsed`; a blank answer stays `empty`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { QUERY_PLAN_FORMAT, createQueryBuilder, parseQueryPlan } from '../src/behavior/query-builder.ts';
-import { labels } from './fixtures/labels.ts';
+import { QUERY_PLAN_FORMAT, parseQueryPlan } from '../src/behavior/query-builder.ts';
 
 const NOW = Date.parse('2026-11-06T12:00:00Z');
 const OPTIONS = { timezone: 'UTC', now: NOW, maxForms: 8 };
@@ -34,36 +33,6 @@ type Schema = {
   required?: Array<string>;
   properties?: Record<string, unknown>;
 };
-
-/** One builder over a fake model that answers `text`, with the options of each request. */
-function builder(text: string) {
-  const sent: Array<Record<string, unknown>> = [];
-  const build = createQueryBuilder({
-    hot: {
-      config: { bot: { timezone: 'UTC' }, llm: {}, models: {}, recall: { maxForms: 8 } },
-      prompts: { labels, 'query-builder': 'For {{name}} on {{today}}, skills {{skills}}.' },
-    },
-    llm: {
-      complete: (_messages: Array<{ role: string; content: unknown }>, options: Record<string, unknown>) => {
-        sent.push(options);
-        return Promise.resolve({ text });
-      },
-    },
-    now: () => NOW,
-  });
-  return { build, sent };
-}
-
-const QUESTION = { authorName: 'Eleni', content: 'τι έγινε με τις ντομάτες;' };
-
-test('the query-builder request hands the client QUERY_PLAN_FORMAT as its responseFormat', async () => {
-  // Bug: the schema is defined and never sent, so the model writes lines the parser no longer reads.
-  const { build, sent } = builder(answer({ history: 'tomate' }));
-  const plan = await build({ selfName: 'Nova', question: QUESTION });
-  assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0]?.responseFormat, QUERY_PLAN_FORMAT);
-  assert.deepEqual(plan.history?.forms, ['tomate']);
-});
 
 test('QUERY_PLAN_FORMAT is a closed object that requires one field per label', () => {
   // Bug: a field left out of `required` is dropped by a strict provider, and every answer then reads as unparsed.
@@ -161,11 +130,4 @@ test('an answer that is not the object, the old lines and the bare none included
   for (const raw of UNREADABLE) {
     assert.deepEqual(parseQueryPlan(raw, { ...OPTIONS, skillNames: ['garden'] }), NOTHING_READ, raw);
   }
-});
-
-test('the builder resolves an unreadable answer as unparsed, never as a web query', async () => {
-  // Bug: the old fallback reads a sentence of the model as the query and searches the web for it.
-  const { build } = builder('I think she should look up the tomato frost date.');
-  const plan = await build({ selfName: 'Nova', question: QUESTION });
-  assert.deepEqual(plan, NOTHING_READ);
 });

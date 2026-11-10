@@ -80,8 +80,6 @@ export const ERRAND_STATES: ReadonlyArray<ErrandState> = Object.freeze([
 ] as const);
 /** The states of an errand still under way. */
 export const OPEN_STATES: ReadonlyArray<string> = Object.freeze(['queued', 'running'] as const);
-/** Who asked for an errand. */
-export const REQUESTER_KINDS: ReadonlyArray<RequesterKind> = Object.freeze(['owner', 'member', 'persona'] as const);
 /** `errands.maxOpen` when it is missing (config.json carries the same). */
 export const DEFAULT_MAX_OPEN = 3;
 /** The finished errands the list in memory keeps besides the open ones (the board keeps every errand). */

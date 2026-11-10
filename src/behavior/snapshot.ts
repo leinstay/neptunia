@@ -94,11 +94,6 @@ export function isReadable(entry: ChatInfo): boolean {
   return entry.kind === 'channel' && entry.permissions.read;
 }
 
-/** Whether the persona may speak there unasked or on someone's behalf: readable, and she can send. */
-export function isWritable(entry: ChatInfo): boolean {
-  return isReadable(entry) && entry.permissions.send;
-}
-
 /**
  * Whether content of `source` may enter a turn in `destination`. A private chat (a destination with no root) has
  * one reader: the source must be a chat its `partnerId` can view, whatever `context.pull.sameAudience` says;

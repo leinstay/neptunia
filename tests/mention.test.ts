@@ -4,12 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   detectTrigger,
-  strippedLength,
   createTagHistory,
   decideTurn,
   inAttention,
   followUpPreFilter,
-  parseFollowUpVerdict,
   parseAddressAnswer,
   followUpTriggerKind,
   isTaggedCall,
@@ -28,18 +26,6 @@ test('detectTrigger: a line with no flag has no kind', () => {
 });
 
 // --- strippedLength -----------------------------------------------------------
-
-test('strippedLength: a bare @name mention leaves nothing', () => {
-  assert.equal(strippedLength('@Νεπτούνια', 'Νεπτούνια'), 0);
-});
-
-test('strippedLength: a bare Discord <@id> mention leaves nothing', () => {
-  assert.equal(strippedLength('<@123456>', 'Νεπτούνια'), 0);
-});
-
-test('strippedLength: counts the remaining text after removing the mention', () => {
-  assert.equal(strippedLength('@Νεπτούνια πώς είσαι;', 'Νεπτούνια'), 'πώς είσαι;'.length);
-});
 
 // --- createTagHistory -----------------------------------------------------------
 
@@ -138,19 +124,6 @@ test('followUpPreFilter: mentionedAccountIds omitted is treated as empty', () =>
   for (const [label, normalized] of rows) {
     // The omitted field is the case under test, so the row is passed as the full shape it stands in for.
     assert.equal(followUpPreFilter(normalized as Parameters<typeof followUpPreFilter>[0], 'self1'), false, label);
-  }
-});
-
-// The lead: the address classifier answers in strict JSON (owner, 2026-11-06). The parser reads the object's `answer`;
-// a bare word, a fenced object or anything else is unreadable (null), and the verdict of an unreadable answer is no.
-test('parseFollowUpVerdict: yes and overheard objects are yes', () => {
-  assert.equal(parseFollowUpVerdict('{"answer":"yes"}'), 'yes');
-  assert.equal(parseFollowUpVerdict('{"answer":"overheard"}'), 'yes');
-});
-
-test('parseFollowUpVerdict: a no object and anything unreadable are no', () => {
-  for (const text of ['{"answer":"no"}', 'yes', 'no', 'not sure', '', null, undefined]) {
-    assert.equal(parseFollowUpVerdict(text), 'no', JSON.stringify(text));
   }
 });
 

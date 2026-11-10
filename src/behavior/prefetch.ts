@@ -344,28 +344,6 @@ export function indexedPlan(
 }
 
 /**
- * The relevant record hits of one lane from every index searched (`lists`, each
- * src/memory/record-index.js#searchRecordIndex's, best first): merged by score (then the newer),
- * each message once, at most `limit`, as the rows matchRecord reads around (`{ id, placeId,
- * occurredAt, sourceIds }`). Pure.
- */
-export function indexRows(
-  lists: Array<Array<{ messageId: string; placeId: string | null; occurredAt: string; ts: number; score: number }>>,
-  limit: number
-): Array<{ id: string; placeId: string; occurredAt: string; sourceIds: Array<never> }> {
-  const seen = new Set();
-  const out = [];
-  const all = (Array.isArray(lists) ? lists : []).flat().sort((a, b) => b.score - a.score || b.ts - a.ts);
-  for (const hit of all) {
-    if (out.length >= limit) break;
-    if (!hit?.messageId || !hit.placeId || seen.has(hit.messageId)) continue;
-    seen.add(hit.messageId);
-    out.push({ id: hit.messageId, placeId: hit.placeId, occurredAt: hit.occurredAt, sourceIds: [] });
-  }
-  return out;
-}
-
-/**
  * Whether a word hit of the record index (src/memory/record-index.js#searchRecordIndex's: `terms`
  * and `phrases` matched) is relevant. Without the meaning search (`cosines` null): a phrase or at
  * least two terms. With it (`cosines`: the hits' cosines to the lane's text, a message without a

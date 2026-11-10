@@ -105,9 +105,6 @@ function prefetchKey({
   return JSON.stringify([memoryContext?.id ?? null, historyRef?.iface ?? null, historyRef?.chatId ?? null, triggerKey]);
 }
 
-/** The request's `lookup` input: the web search's result, with what the server search found. */
-export type LookupInput = Record<string, unknown> | null;
-
 export type Lookup = {
   startPrefetch: (args: {
     historyRef?: ChatRef;

@@ -4,16 +4,8 @@
 // reply (`lookup: skipped`, reason `core-tools`, in src/turn/phases/request/lookup.ts). The callers are the replay and the
 // two evaluation scripts, and every other caller of the plan takes it from here.
 
-import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { strictJsonObject } from '../llm/parse.ts';
-import { roleModel } from '../llm/roles.ts';
-import { log } from '../log.ts';
 import { oneLine } from '../memory/clamp.ts';
-import { zonedDay } from '../time.ts';
-import { lookupClassifierInput } from '../turn/lookup-input.ts';
-import { objOf } from '../tools/types.ts';
-import type { Untyped } from '../tools/types.ts';
-import { fillPromptTemplate } from './prompt.ts';
 import { parseLookupLines } from './recall.ts';
 import type { SkillsLines } from '../tools/discovery.ts';
 
@@ -100,69 +92,3 @@ export type QueryInput = {
   skills?: string;
   skillNames?: Array<string>;
 };
-
-/**
- * The builder every caller shares: one request on the analyzer under the purpose `query-builder`, `hot` read at the moment
- * of use, naming no place. A question with no text and a missing prompt cost no request. Resolves the plan, with `reason`
- * `failed` for a failed request, and never rejects.
- */
-export function createQueryBuilder({
-  hot,
-  llm,
-  now = Date.now,
-}: {
-  hot: { config: Record<string, Untyped>; prompts: Record<string, unknown> | null | undefined };
-  llm: { complete(messages: Array<{ role: string; content: unknown }>, options: Record<string, unknown>): unknown };
-  now?: () => number;
-}): (input: QueryInput) => Promise<QueryPlan> {
-  return async function buildQuery({ selfName, question, lines = [], skills = '', skillNames }) {
-    const text = String(question?.content ?? '');
-    if (!text.trim()) return NO_PLAN('empty');
-    const prompt: unknown = hot.prompts?.['query-builder'];
-    if (typeof prompt !== 'string' || !prompt.trim()) {
-      log.info('query-builder: skipped', { reason: 'no-prompt' });
-      return NO_PLAN('no-prompt');
-    }
-    const config = hot.config;
-    const zone = objOf(config.bot).timezone;
-    const timezone = typeof zone === 'string' ? zone : 'UTC';
-    const maxForms = objOf(config.recall).maxForms;
-    const at = now();
-    const { user } = lookupClassifierInput({
-      config,
-      labels: objOf(hot.prompts).labels,
-      selfName,
-      history: lines,
-      trigger: { id: '', authorName: question.authorName, content: text, ts: at },
-    } as unknown as Parameters<typeof lookupClassifierInput>[0]);
-    try {
-      const completion = await llm.complete(
-        [
-          {
-            role: 'system',
-            content: fillPromptTemplate(prompt, { name: selfName, today: zonedDay(at, timezone), skills }),
-          },
-          { role: 'user', content: user },
-        ],
-        {
-          model: roleModel(config, 'analyzer', 'query-builder'),
-          ...roleRequestOptions(config, {
-            role: 'analyzer',
-            maxOutputTokens: Number(objOf(objOf(config.web).quickSearch).classifierMaxOutputTokens ?? 2000),
-            purpose: 'query-builder',
-          }),
-          responseFormat: QUERY_PLAN_FORMAT,
-        }
-      );
-      return parseQueryPlan(objOf(completion).text, {
-        timezone,
-        now: at,
-        maxForms: typeof maxForms === 'number' ? maxForms : undefined,
-        skillNames,
-      });
-    } catch (err) {
-      log.warn('query-builder: failed', { reason: railReason(err), name: objOf(err).name ?? null });
-      return NO_PLAN('failed');
-    }
-  };
-}

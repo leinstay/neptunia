@@ -4,21 +4,11 @@
 // destination pick and the jump link. No I/O; the clock is passed in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  audienceCovers,
-  markSeen,
-  messageLink,
-  pingStatus,
-  pingsIn,
-  recordPing,
-  settleDueAt,
-} from '../src/behavior/elsewhere.ts';
+import { audienceCovers, markSeen, messageLink } from '../src/behavior/elsewhere.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
-const SEC = 1000;
 const MIN = 60_000;
-const DAY = 24 * 60 * MIN;
 
 /** An audience record: who can view one channel. */
 function audience({
@@ -51,164 +41,11 @@ function audience({
   };
 }
 
-const RING_OPTS = { cap: 20, maxAgeMs: 7 * DAY, now: NOW };
-
 // ---- settings -------------------------------------------------------------------
 
 // ---- settle -----------------------------------------------------------------------
 
-test('settleDueAt: a new message pushes the due time by settleMs', () => {
-  const firstAt = NOW;
-  assert.equal(settleDueAt({ firstAt, lastAt: firstAt, settleMs: 90 * SEC, maxMs: 300 * SEC }), NOW + 90 * SEC);
-  assert.equal(
-    settleDueAt({ firstAt, lastAt: firstAt + 60 * SEC, settleMs: 90 * SEC, maxMs: 300 * SEC }),
-    NOW + 150 * SEC
-  );
-});
-
-test('settleDueAt: never later than firstAt plus maxMs', () => {
-  const firstAt = NOW;
-  assert.equal(
-    settleDueAt({ firstAt, lastAt: firstAt + 280 * SEC, settleMs: 90 * SEC, maxMs: 300 * SEC }),
-    NOW + 300 * SEC
-  );
-  assert.equal(
-    settleDueAt({ firstAt, lastAt: firstAt, settleMs: 90 * SEC, maxMs: 30 * SEC }),
-    NOW + 30 * SEC,
-    'a max below the settle caps it'
-  );
-  assert.equal(
-    settleDueAt({ firstAt, lastAt: firstAt + 5 * SEC, settleMs: 0, maxMs: 300 * SEC }),
-    NOW + 5 * SEC,
-    'no settle acts at the last message'
-  );
-});
-
-test('settleDueAt: a missing lastAt counts from firstAt', () => {
-  assert.equal(settleDueAt({ firstAt: NOW, settleMs: 90 * SEC, maxMs: 300 * SEC }), NOW + 90 * SEC);
-  assert.equal(settleDueAt({ firstAt: NOW, lastAt: Number.NaN, settleMs: 90 * SEC, maxMs: 300 * SEC }), NOW + 90 * SEC);
-});
-
 // ---- the ring of calls ----------------------------------------------------------------
-
-test('recordPing: a new entry is unanswered and unskipped, the stored ring is not mutated', () => {
-  const ring: Array<Untyped> = [];
-  const next = recordPing(ring, { messageId: 'm1', placeId: 'src', ts: NOW - MIN }, RING_OPTS);
-  assert.deepEqual(ring, []);
-  assert.deepEqual(next, [{ messageId: 'm1', placeId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: null }]);
-  assert.equal(pingStatus(next[0]), 'unanswered');
-});
-
-test('recordPing: keeps the newest cap entries and drops expired ones', () => {
-  let ring: ReturnType<typeof recordPing> = [
-    { messageId: 'old', placeId: 'src', ts: NOW - 8 * DAY, answeredAt: null, skippedAt: null },
-  ];
-  for (let i = 1; i <= 4; i += 1) {
-    ring = recordPing(
-      ring,
-      { messageId: `m${i}`, placeId: 'src', ts: NOW - (10 - i) * MIN },
-      { cap: 3, maxAgeMs: 7 * DAY, now: NOW }
-    );
-  }
-  assert.deepEqual(
-    ring.map((p) => p.messageId),
-    ['m2', 'm3', 'm4'],
-    'oldest first, the expired one and the oldest beyond the cap gone'
-  );
-  const tooOld = recordPing([], { messageId: 'x', placeId: 'src', ts: NOW - 8 * DAY }, RING_OPTS);
-  assert.deepEqual(tooOld, [], 'a call already past its lifetime is never recorded');
-  const older = recordPing(
-    ring,
-    { messageId: 'early', placeId: 'src', ts: NOW - 60 * MIN },
-    { cap: 3, maxAgeMs: 7 * DAY, now: NOW }
-  );
-  assert.deepEqual(
-    older.map((p) => p.messageId),
-    ['m2', 'm3', 'm4'],
-    'an older call than the whole full ring does not push out a newer one'
-  );
-  assert.deepEqual(
-    recordPing(ring, { messageId: 'm5', placeId: 'src', ts: NOW }, { cap: 0, maxAgeMs: 7 * DAY, now: NOW }),
-    [],
-    'a cap of 0 keeps nothing'
-  );
-});
-
-test('recordPing: an expired stored entry is dropped in a ring below its cap', () => {
-  const stale = { messageId: 'old', placeId: 'src', ts: NOW - 8 * DAY, answeredAt: null, skippedAt: null };
-  const ring = recordPing([stale], { messageId: 'm1', placeId: 'src', ts: NOW }, RING_OPTS);
-  assert.deepEqual(
-    ring.map((p) => p.messageId),
-    ['m1'],
-    'only the lifetime removes it: the cap of 20 is far away'
-  );
-  const edge = { messageId: 'edge', placeId: 'src', ts: NOW - 7 * DAY, answeredAt: null, skippedAt: null };
-  assert.deepEqual(
-    recordPing([edge], { messageId: 'm1', placeId: 'src', ts: NOW }, RING_OPTS).map((p) => p.messageId),
-    ['edge', 'm1'],
-    'a call exactly pingMaxAgeDays old is kept'
-  );
-});
-
-test('recordPing: a pingMaxAgeDays of 0 keeps calls of any age', () => {
-  const ring = recordPing(
-    [{ messageId: 'old', placeId: 'src', ts: NOW - 400 * DAY, answeredAt: null, skippedAt: null }],
-    { messageId: 'm1', placeId: 'src', ts: NOW },
-    { cap: 20, maxAgeMs: 0, now: NOW }
-  );
-  assert.deepEqual(
-    ring.map((p) => p.messageId),
-    ['old', 'm1']
-  );
-});
-
-test('recordPing: one entry per message id, the first record and its state kept', () => {
-  // The answered stamp is written into the stored ring: markPingAnswered left with the old producers in slice 7.
-  const stored = [{ messageId: 'm1', placeId: 'src', ts: NOW - 2 * MIN, answeredAt: NOW - MIN, skippedAt: null }];
-  const ring = recordPing(stored, { messageId: 'm1', placeId: 'src', ts: NOW - MIN }, RING_OPTS);
-  assert.equal(ring.length, 1);
-  assert.equal(ring[0].ts, NOW - 2 * MIN);
-  assert.equal(ring[0].answeredAt, NOW - MIN);
-});
-
-test('recordPing: garbage in the stored ring or the new call is dropped, never thrown on', () => {
-  const stored = [
-    null,
-    'm0',
-    { messageId: 'm1' },
-    { messageId: 'm2', placeId: 'src', ts: NOW - MIN, answeredAt: 'yes', skippedAt: null },
-    { messageId: 'm4', placeId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: 'yes' },
-  ];
-  const ring = recordPing(stored, { messageId: '', placeId: 'src', ts: NOW }, RING_OPTS);
-  assert.deepEqual(ring, [
-    { messageId: 'm2', placeId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: null },
-    { messageId: 'm4', placeId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: null },
-  ]);
-  assert.equal(pingStatus(ring[1]), 'unanswered', 'a garbage skip stamp is no skip');
-  assert.deepEqual(
-    recordPing(undefined, { messageId: 'm3', placeId: 'src', ts: NOW }, RING_OPTS).map((p) => p.messageId),
-    ['m3']
-  );
-});
-
-test('pingsIn: only this channel, only unexpired, oldest first', () => {
-  const ring = [
-    { messageId: 'b', placeId: 'src', ts: NOW - 2 * MIN, answeredAt: null, skippedAt: null },
-    { messageId: 'a', placeId: 'src', ts: NOW - 5 * MIN, answeredAt: NOW - MIN, skippedAt: null },
-    { messageId: 'x', placeId: 'other', ts: NOW - 3 * MIN, answeredAt: null, skippedAt: null },
-    { messageId: 'gone', placeId: 'src', ts: NOW - 8 * DAY, answeredAt: null, skippedAt: null },
-  ];
-  assert.deepEqual(
-    pingsIn(ring, 'src', { now: NOW, maxAgeMs: 7 * DAY }).map((p) => p.messageId),
-    ['a', 'b']
-  );
-  assert.deepEqual(
-    pingsIn(ring, 'src', { now: NOW, maxAgeMs: 0 }).map((p) => p.messageId),
-    ['gone', 'a', 'b'],
-    'no age limit'
-  );
-  assert.deepEqual(pingsIn(undefined, 'src', { now: NOW, maxAgeMs: 7 * DAY }), []);
-});
 
 // ---- seen marks ---------------------------------------------------------------------
 

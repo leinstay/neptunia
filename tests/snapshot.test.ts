@@ -1,14 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Audience, ChatInfo } from '../src/protocol/adapter.ts';
-import {
-  audienceAllows,
-  isReadable,
-  isWritable,
-  railAudience,
-  snapshotOf,
-  takeSnapshot,
-} from '../src/behavior/snapshot.ts';
+import { audienceAllows, isReadable, railAudience, snapshotOf, takeSnapshot } from '../src/behavior/snapshot.ts';
 import { world } from './fixtures/turn-world.ts';
 
 const ZOE = '730000000000000001';
@@ -80,18 +73,6 @@ test('isReadable refuses a thread, a private chat and an unreadable chat', () =>
   assert.equal(isReadable(info('dm', { kind: 'dm', rootId: null })), false);
   assert.equal(
     isReadable(info('hidden', { permissions: { read: false, send: true, attach: true, react: true } })),
-    false
-  );
-});
-
-test('isWritable needs a readable chat she can send in', () => {
-  assert.equal(isWritable(info('open')), true);
-  assert.equal(
-    isWritable(info('selfreflection', { permissions: { read: true, send: false, attach: true, react: true } })),
-    false
-  );
-  assert.equal(
-    isWritable(info('blind', { permissions: { read: false, send: true, attach: true, react: true } })),
     false
   );
 });

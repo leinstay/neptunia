@@ -11,16 +11,6 @@ import {
   isDescribable,
 } from '../media/classify.ts';
 
-// Protocol tokens of the re-watch classifier (docs/prompt-contract.md), not wording:
-// the kind and status columns of a `<media>` line. The answer's parser
-// (parseRewatchPickDetailed) lives in src/turn/rewatch.ts; it is re-exported from src/behavior/turn.ts.
-// A watched GIF: listed to the classifier as a video; `gif` is the internal
-// candidate kind and the log's code, never written into `<media>`.
-export const REWATCH_KIND_GIF = 'gif';
-export const REWATCH_STATUS_WATCHED = 'watched';
-export const REWATCH_STATUS_NOT_LOADED = 'not loaded';
-export const REWATCH_STATUS_DESCRIBED = 'described';
-
 /** A normalized message (src/protocol/events.ts#Message), as the media collectors read it. */
 type MediaMessage = object;
 
@@ -43,33 +33,6 @@ export function readableLinkCandidates(
   const out: Array<ReadableLink> = [];
   for (let i = history.length - 1; i >= 0; i -= 1) {
     out.push(...collectReadableLinks(history[i], { videoSites: sites ?? [] }));
-  }
-  return out;
-}
-
-/**
- * The pictures of `history` a second look on a question may be offered for
- *: every `image` item of collectPictures -- an attached
- * picture, the persona's own posted drawings included -- newest message first.
- */
-export function relookCandidates(history: ReadonlyArray<MediaMessage>): Array<Picture> {
-  const out: Array<Picture> = [];
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    for (const item of collectPictures(history[i])) if (item.kind === 'image') out.push(item);
-  }
-  return out;
-}
-
-/**
- * The GIFs of `history` a second look on a question may be offered for
- *: every `gif` item of collectPictures -- an
- * attached .gif, a tenor/giphy embed -- newest message first. Which of them
- * were watched is the describer's to say (describer.watchedGifs).
- */
-export function gifRewatchItems(history: ReadonlyArray<MediaMessage>): Array<Picture> {
-  const out: Array<Picture> = [];
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    for (const item of collectPictures(history[i])) if (item.kind === 'gif') out.push(item);
   }
   return out;
 }
