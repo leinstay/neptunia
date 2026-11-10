@@ -37,7 +37,7 @@ import {
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyErrandWrite } from '../src/memory/db/errand-write.ts';
 import { readOnlyMemory } from '../scripts/lib/memory-read.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -130,16 +130,18 @@ function scratchData(t: TestContext, tasksJson: unknown) {
   const dir = path.join(dataDir, 'guilds', GUILD);
   fs.mkdirSync(dir, { recursive: true });
   if (tasksJson) {
-    // The tasks as the live engine keeps them: tasks of the board's errand lane, written by the errand store's op
-    // `errand` (PR 6d, errands on the board; they were the errands unit before).
+    // The tasks as the live engine keeps them: tasks of the board's errand lane, written by the errand store's write
+    // kind `errand` (PR 6d, errands on the board).
     const handle = openMemoryDb(path.join(dataDir, 'memory.db'));
     try {
       for (const errand of (tasksJson as { tasks: Array<Record<string, unknown> & { id: string }> }).tasks) {
-        applyUnitWrite(handle, {
-          kind: 'unit',
-          op: 'errand',
-          owner: `board/errands/${errand.id}`,
-          value: { id: errand.id, placeId: GUILD, at: NOW, errand, delivered: false, closing: null },
+        applyErrandWrite(handle, {
+          kind: 'errand',
+          id: errand.id,
+          at: NOW,
+          errand,
+          delivered: false,
+          closing: null,
           now: NOW,
         });
       }

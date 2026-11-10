@@ -17,7 +17,9 @@ import { fillStems } from '../../../src/memory/db/stems.ts';
 import { projectPending } from '../../../src/memory/db/graph.ts';
 
 /** The JSONL kinds the writers take line by line. */
-const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'errands']);
+const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions']);
+/** Units no unit write takes: the errands live on the task board, the GIF library is rows of its own write kind. */
+const NOT_UNITS = new Set(['errands', 'gifs']);
 /** The operational files whose memory rows the store sends too (store.js#dbPlace). */
 const SENT = /^guilds\/[^/]+\/(?:participation|media)\.json$/;
 /** Written after the rest: an archived item that is no hot claim needs the hot claims in first, as do the links. */
@@ -50,7 +52,7 @@ export function unitsOf(dataDir: string): Array<Unit> {
     // A data directory of an older release names the errand units `tasks.json` and `tasks.jsonl`: they are the current units.
     const info = classify(currentUnitPath(rel));
     if (!info || 'skipped' in info || info.guildId === undefined) continue;
-    if (info.kind === 'requests' || info.format === 'text') continue;
+    if (info.kind === 'requests' || info.format === 'text' || NOT_UNITS.has(info.kind)) continue;
     if (info.format === 'jsonl' && !LINE_KINDS.has(info.kind)) continue;
     const owner = `guilds/${info.guildId}/${info.unit}`;
     if (!units.has(owner)) units.set(owner, { owner, kind: info.kind, format: info.format, files: [] });

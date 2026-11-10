@@ -1111,10 +1111,10 @@ export function applyMediaEntryWrite(connection: Connection, update: Row): { wri
   });
 }
 
-/** Fields a library's mapper does not hold, which its write must not lose: the row is an item too. */
+/** Fields of a row's `extra` a library entry does not hold, which its write must not lose: the row is an item too. */
 const ITEM_EXTRA = ['textOrigin', 'frame', 'watched', 'cache'];
 
-/** What an item's row keeps across a write of its GIF library, added to the row the mapper made. */
+/** What an item's row keeps across a write of its GIF library entry, added to the row the entry makes. */
 export function keepItemFields(db: Db, rows: ReadonlyArray<Row>): void {
   for (const row of rows) {
     const held = db.prepare('SELECT extra FROM media WHERE id = ?').get(row.id);
@@ -1125,32 +1125,28 @@ export function keepItemFields(db: Db, rows: ReadonlyArray<Row>): void {
   }
 }
 
-/** A GIF library's row and an observed item of the same reference become one: the library's row takes its links and its text. */
-export function adoptLibraryRows(db: Db, owner: string, at: unknown): void {
-  const rows = db
-    .prepare(
-      "SELECT id, native_ref, scope_iface FROM media WHERE owner_key = ? AND kind = 'gif' AND native_ref IS NOT NULL"
-    )
-    .all(owner);
-  for (const snapshot of rows) {
-    // An earlier iteration may have adopted this row into another and deleted it.
-    const row = db.prepare('SELECT id, native_ref, scope_iface FROM media WHERE id = ?').get(snapshot.id);
-    if (!row) continue;
-    for (const other of db
-      .prepare('SELECT * FROM media WHERE native_ref = ? AND scope_iface IS ? AND id <> ?')
-      .all(row.native_ref, row.scope_iface, row.id)) {
-      db.prepare('UPDATE OR IGNORE media_links SET media_id = ? WHERE media_id = ?').run(row.id, other.id);
-      if (filled(other.description)) {
-        const held = db.prepare('SELECT * FROM media WHERE id = ?').get(row.id) as Row;
-        writeText(db, held, {
-          text: other.description,
-          origin: (parsedObject(other.extra).textOrigin as MediaOrigin | undefined) ?? 'retelling',
-          at,
-        });
-      }
-      db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(other.id));
-      db.prepare('DELETE FROM media WHERE id = ?').run(other.id);
+/**
+ * The GIF library's row `id` and every other row of its item (the same reference on the same interface) become one: the
+ * library's row takes their links and their text, and they go. An observation made such a row before the library held
+ * the item, and an entry that moved to a new key leaves its old row behind (gif-library.ts).
+ */
+export function adoptSameItem(db: Db, id: string, at: unknown): void {
+  const row = db.prepare('SELECT id, native_ref, scope_iface FROM media WHERE id = ?').get(id);
+  if (!row || row.native_ref === null) return;
+  for (const other of db
+    .prepare('SELECT * FROM media WHERE native_ref = ? AND scope_iface IS ? AND id <> ?')
+    .all(row.native_ref, row.scope_iface, row.id)) {
+    db.prepare('UPDATE OR IGNORE media_links SET media_id = ? WHERE media_id = ?').run(row.id, other.id);
+    if (filled(other.description)) {
+      const held = db.prepare('SELECT * FROM media WHERE id = ?').get(row.id) as Row;
+      writeText(db, held, {
+        text: other.description,
+        origin: (parsedObject(other.extra).textOrigin as MediaOrigin | undefined) ?? 'retelling',
+        at,
+      });
     }
+    db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(other.id));
+    db.prepare('DELETE FROM media WHERE id = ?').run(other.id);
   }
 }
 

@@ -13,22 +13,17 @@ import { storageMapper } from './map/index.ts';
 import { classify } from '../migration/classify.ts';
 import { legacyStorageKey, currentUnitPath } from '../migration/paths.ts';
 import type { StorageKey } from './storage-keys.ts';
-import type { MapContext } from './map/common.ts';
 
 import { ifaceOrLegacy as ifaceOf, namedIface } from './legacy-namespace.ts';
 import { qualify, retireAbsent, writeMapping } from './upsert.ts';
 import { graphPending, projectPending, projectRow } from './graph.ts';
-import { storeHeld } from './media-stems.ts';
-import { fillStems, markStemsPending, stemsPending } from './stems.ts';
-import { adoptLibraryRows, keepItemFields } from './media-store.ts';
-import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
+import { fillStems, stemsPending } from './stems.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 import type { MappedPath } from '../migration/classify.ts';
 import { SCOPE_INTERNAL, audienceOf, groupScope } from './scope.ts';
 import type { Scope } from './scope.ts';
 import { ensureAudience } from './rows.ts';
-import { writeGifVector } from './gif-vectors.ts';
 import { intentionsOfUnit, writeIntentions } from './intentions-write.ts';
 import { monthLines, writeLineVectors } from './line-vectors.ts';
 import { writeRecordDay } from './record-lines.ts';
@@ -61,9 +56,6 @@ const POSITIONED = [
   'work',
   'work_events',
 ];
-/** The kinds of JSONL unit op `lines` writes. */
-const LINE_KINDS = new Set(['errands']);
-
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const isoOf = (ms: unknown): string => new Date(isFiniteNumber(ms) ? ms : Date.now()).toISOString();
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
@@ -151,50 +143,6 @@ export function noteUnit(
   ).run(owner, kind, offset, at, lines);
 }
 
-/** Whether a task transition line is one the unit already holds (the same line: a retried write). */
-function transitionHeld(db: Db, owner: string, line: unknown): boolean {
-  return (
-    db
-      .prepare('SELECT 1 AS ok FROM work_events WHERE owner_key = ? AND record = ? AND retired_at IS NULL LIMIT 1')
-      .get(owner, JSON.stringify(line)) !== undefined
-  );
-}
-
-function duplicateLine(db: Db, unit: Unit, line: Row): boolean {
-  return unit.kind === 'errands' && transitionHeld(db, unit.full, line);
-}
-
-function writeLine(
-  db: Db,
-  { unit, line, ctx, position, at }: { unit: Unit; line: Row; ctx: MapContext; position: number; at: string }
-) {
-  const mapping = unit.mapper.toRows(unit.rel, line, { ...ctx, position });
-  if (duplicateLine(db, unit, line)) return { written: 0, duplicates: 1, adopted: 0, advance: 0 };
-  writeMapping(db, qualify(mapping, unit), unit.full, { at });
-  return { written: 1, duplicates: 0, adopted: 0, advance: 1 };
-}
-
-function writeLines(db: Db, update: Row, at: string): { written: number; duplicates: number; adopted: number } {
-  const unit = updateUnit(db, update);
-  if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
-  const lines = (Array.isArray(update.lines) ? (update.lines as Array<unknown>) : []).filter(
-    (line): line is Row => line !== null && typeof line === 'object' && !Array.isArray(line)
-  );
-  const result = { written: 0, duplicates: 0, adopted: 0 };
-  let position = nextPosition(db, unit.full);
-  const ctx = { iface: ifaceOf(update) };
-  for (const line of lines) {
-    const done = writeLine(db, { unit, line, ctx, position, at });
-    result.written += done.written;
-    result.duplicates += done.duplicates;
-    result.adopted += done.adopted;
-    position += done.advance;
-  }
-  noteUnit(db, unit.full, unit.kind, { lines: position, at });
-  if (result.written > 0) markStemsPending(db);
-  return result;
-}
-
 /** The kinds of JSON unit op `value` does not write (the request dumps: a step source needs its turn's answer). */
 const NOT_VALUE_KINDS = new Set(['requests']);
 
@@ -202,16 +150,8 @@ function writeValue(db: Db, update: Row, at: string): Row {
   const unit = updateUnit(db, update);
   if (unit.format !== 'json' || NOT_VALUE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
   const mapping = qualify(unit.mapper.toRows(unit.rel, update.value ?? {}, { iface: ifaceOf(update) }), unit);
-  if (unit.kind === 'gifs' && storeHeld(db)) {
-    keepItemFields(db, mapping.media ?? []);
-    // The library's rows name it as their writer, held by the subject of its unit (media-owner.ts).
-    const subject = unit.key?.subject;
-    const holder = subject?.id ?? null;
-    for (const row of mapping.media ?? []) Object.assign(row, { writer: 'gifs', holder_id: holder });
-  }
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
-  if (unit.kind === 'gifs' && storeHeld(db)) adoptLibraryRows(db, unit.full, at);
   noteUnit(db, unit.full, unit.kind, { at });
   return { upserted, retired };
 }
@@ -452,18 +392,10 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
   // A record or journal day or an archive month, such as a write kept pending by an older release, is that kind's write.
   if (op === 'lines' && keyed && dayKindOf(db, keyed)) return handle.transaction(() => writeDay(db, update, keyed, at));
   const runs: Record<string, (() => unknown) | undefined> = {
-    lines: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeLines(db, update, at),
-    value: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeValue(db, update, at),
+    value: () => writeValue(db, update, at),
     selfreflection: () => writeSelfreflection(db, update, at),
     vectors: () => writeVectors(db, update, at),
-    'gif-vector': () => writeGifVector(db, update, at),
     'owner-name': () => writeOwnerName(db, update, at),
-    errand: () =>
-      applyErrandUnit(db, update, at, (closing) => {
-        const keyedClosing = withKey(db, closing);
-        if (keyedClosing && dayKindOf(db, keyedClosing)) writeDay(db, closing, keyedClosing, at);
-        else writeLines(db, closing, at);
-      }),
   };
   const run = typeof op === 'string' ? runs[op] : undefined;
   if (!run) throw coded('UNIT_BAD_OP');

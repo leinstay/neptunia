@@ -141,6 +141,9 @@ import { applyPlaceNotesWrite } from './place-notes.ts';
 import { applyChannelEntryWrite } from './channel-entry.ts';
 import { applyPlaceLoreWrite } from './place-lore.ts';
 import { applyMediaEntryWrite } from './media-store.ts';
+import { applyGifLibraryWrite } from './gif-library.ts';
+import { applyGifVectorWrite } from './gif-vectors.ts';
+import { applyErrandWrite } from './errand-write.ts';
 import { applyParticipationWrite } from './participation-episodes.ts';
 import { applyRecentLinesWrite } from './recent-lines.ts';
 import { applySelfreflectionWrite } from './selfreflection-entries.ts';
@@ -1003,6 +1006,11 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['selfreflection-entries', applySelfreflectionWrite],
   // One entry of the describer's cache, put on its row or dropped (media-store.ts).
   ['media-entry', applyMediaEntryWrite],
+  // The entries of the GIF library and their caption vectors (gif-library.ts, gif-vectors.ts).
+  ['gif-library', applyGifLibraryWrite],
+  ['gif-vector', applyGifVectorWrite],
+  // An errand on the task board, with the closing journal line of its end (errand-write.ts).
+  ['errand', applyErrandWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',

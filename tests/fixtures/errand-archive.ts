@@ -1,10 +1,10 @@
-// A memory database whose errands are in the `work` archive: the units `guilds/g1/errands.json` and `errands.jsonl`
-// written by the unit writer as the engine before the board wrote them, into a database at the baseline. Four errands, one per path through the states: done and read, failed and unread, cancelled in a private chat
+// A memory database whose errands are in the `work` archive: one `work` row per errand and one `work_events` row per
+// transition, as the engine wrote them before the board held errands, in a database at the baseline. Four errands, one per path through the states: done and read, failed and unread, cancelled in a private chat
 // and resolved, running on the `server` agent. Synthetic data only.
 import fs from 'node:fs';
 import path from 'node:path';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
-import { applyUnitWrite } from '../../src/memory/db/unit-write.ts';
+import { dbOf } from '../../src/memory/db/types.ts';
 import type { ErrandRecord, ErrandState } from '../../src/errands/types.ts';
 import { tempDir } from './tmp.ts';
 
@@ -143,26 +143,35 @@ export function archived(id: string): ErrandRecord {
   return JSON.parse(JSON.stringify(found)) as ErrandRecord;
 }
 
-/** Writes the archive into `file`: the errand units through the unit writer, and closes the database again. */
+/** Writes the archive into `file`: the `work` and `work_events` rows, and closes the database again. */
 export function writeArchive(file: string, errands: ReadonlyArray<ErrandRecord> = ARCHIVE): void {
   const handle = openMemoryDb(file);
   try {
-    const now = T0 + 10 * MINUTE;
-    applyUnitWrite(handle, {
-      kind: 'unit',
-      op: 'value',
-      owner: `guilds/${GUILD}/errands.json`,
-      value: { errands: errands.map((errand) => JSON.parse(JSON.stringify(errand)) as ErrandRecord) },
-      now,
+    const db = dbOf(handle);
+    const work = db.prepare(
+      `INSERT INTO work (id, kind, state, record, created_ms, updated_ms, outcome, seen, position)
+       VALUES (?, 'errand', ?, ?, ?, ?, ?, ?, ?)`
+    );
+    errands.forEach((errand, position) => {
+      const record = JSON.parse(JSON.stringify(errand)) as ErrandRecord;
+      work.run(
+        record.id,
+        record.state,
+        JSON.stringify(record),
+        record.createdAt ?? null,
+        record.endedAt ?? record.startedAt ?? record.createdAt ?? null,
+        typeof record.error === 'string' ? record.error : null,
+        typeof record.seen === 'boolean' ? Number(record.seen) : null,
+        position
+      );
     });
     const ids = new Set(errands.map((errand) => errand.id));
-    applyUnitWrite(handle, {
-      kind: 'unit',
-      op: 'lines',
-      owner: `guilds/${GUILD}/errands.jsonl`,
-      lines: archiveLines().filter((line) => ids.has(String(line.id))),
-      now,
-    });
+    const event = db.prepare('INSERT INTO work_events (id, work_id, at_ms, record, position) VALUES (?, ?, ?, ?, ?)');
+    archiveLines()
+      .filter((line) => ids.has(String(line.id)))
+      .forEach((line, position) => {
+        event.run(`${String(line.id)}:${String(line.at)}:${position}`, String(line.id), Number(line.at), JSON.stringify(line), position);
+      });
   } finally {
     handle.close();
   }

@@ -2,7 +2,7 @@
 // lines belong to its DM place, and the engine's own lines to the persona. Retries run from the key chosen at the write, so
 // they need no ambient interface.
 // Contract, plan 2026-11-04-cli-and-memory task 5:
-//   journal.start(placeId, input), journal.actionLine(placeId, record), journal.system(record): persona collection
+//   journal.start(placeId, input), journal.system(record): persona collection
 //   record.append(placeId, lines, opts?), record.iterate(placeId, query?)
 //   archive.append(placeId, entries), archive.iterate(placeId, query?)
 //   `privateAccountId` leaves all three: the DM place is the private address.
@@ -51,20 +51,6 @@ async function scene() {
   const read = (): Db => dbOf(wrongly<Parameters<typeof dbOf>[0]>(mem.memoryDb.readHandle()));
   return { mem, read };
 }
-
-test('a journal line of a DM goes to a collection of its DM place, and a private flag changes nothing', async () => {
-  // Bug: `rootKey` wraps the id, and `privateAccountId` moves the line to an account's collection, away from its place.
-  const { mem } = await scene();
-  try {
-    const journal = createJournal({ dataDir: mem.dataDir, memoryDb: mem.memoryDb, now: () => NOW, log: quiet });
-    const plain = journal.actionLine(DM, { turnId: 't1', event: 'x' });
-    assert.deepEqual(plain.key.subject, { type: 'place', id: DM });
-    assert.equal(plain.key.scopePlaceId, undefined);
-    assert.equal(plain.key.partition, '2026-11-03');
-  } finally {
-    await mem.close();
-  }
-});
 
 test('the engine lines of the journal belong to the persona', async () => {
   // Bug: a start line with no root is written under `<iface>:guild:`, an address shared by nobody and everybody.

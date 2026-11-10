@@ -46,12 +46,13 @@ import type { StorageKind, StorageSelector } from './db/storage-keys.ts';
 import { entryPictureDescriptions } from './db/media-store.ts';
 import type { MediaDescriptionEntry } from './db/media-store.ts';
 import { createStoreMedia } from './store-media.ts';
+import { createStoreGifs } from './store-gifs.ts';
 import type { InterfaceNames } from './db/roots.ts';
 
 import { linkedProfileUnit } from './db/person-links.ts';
 import { profileOfAccount } from './db/meta-person.ts';
 
-import { isRecord, propOf, isFiniteNumber, isIntegerNumber, canWriteUnits, readSeamOf } from './types.ts';
+import { isRecord, propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import { log } from '../log.ts';
 import { HOUR_MS, utcDay } from '../time.ts';
 import { emptyAffinity, applyDelta, decayAffinity } from './affinity.ts';
@@ -77,7 +78,6 @@ import { mergeEmojiUsage, normalizeEmojiUsage } from './emoji-usage.ts';
 import { normalizePings, pingStateOf, withPingState } from './pings.ts';
 import type { PingState } from './pings.ts';
 import {
-  emptyGifs,
   findGif,
   markOwnGif,
   mergeGifs,
@@ -85,7 +85,6 @@ import {
   withGifCaption,
   withGifFile,
   normalizeBackfillStamp,
-  normalizeGifs,
   resetGifCounts,
 } from './gifs.ts';
 import type { GifLibrary } from './gifs.ts';
@@ -1169,6 +1168,8 @@ function buildStore({
   const { address, collection, entry } = writes;
   // The describer's cache, one row of `media` per entry (src/memory/store-media.ts).
   const media = createStoreMedia({ memoryDb, seam });
+  // The GIF library, one row of `media` per entry (src/memory/store-gifs.ts).
+  const gifs = createStoreGifs({ memoryDb, seam });
 
   // ---- The archive (src/memory/archive.ts): nothing leaves a hot list without a copy ----
   //
@@ -1564,6 +1565,7 @@ function buildStore({
   /** Every changed value sent to the writer (store-writes.ts#flushAll); how many were written, failed and held. */
   function flushAll({ force = false } = {}) {
     media.flush();
+    gifs.flush();
     return track('store.flushAll', () => writes.flushAll({ force }));
   }
 
@@ -1601,7 +1603,6 @@ function buildStore({
   const channelFile = (placeId: string) => address(placeCollection('channel', placeId));
   const placeUnitFile = (kind: StorageKind, placeId: string) => address(placeCollection(kind, placeId));
   const loreFile = (placeId: string) => placeUnitFile('lore', placeId);
-  const gifsFile = () => address(personaKey('gifs'));
   const emojiRailsFile = (placeId: string) => placeUnitFile('emoji_rails', placeId);
   const privateDir = () => collection('private');
   const privateFile = (accountId: string) => address(accountCollection('private', accountId));
@@ -1814,15 +1815,6 @@ function buildStore({
   function hasChannel(placeId: string) {
     const file = channelFile(placeId);
     return known(file);
-  }
-
-  /** The value in use of the shared GIF library, created empty when missing, normalised in place of
-   * the cached value (src/memory/gifs.ts#normalizeGifs); never marked dirty by reading. */
-  function gifsEntry() {
-    // Kept for the life of the store: its callers change the library they were given.
-    const item = writes.pin(gifsFile(), emptyGifs);
-    item.value = normalizeGifs(item.value);
-    return item;
   }
 
   let gifVectors: Map<string, { model: string | null; vector: Float32Array }> | null = null;
@@ -2815,7 +2807,7 @@ function buildStore({
      * reset implicitly.
      */
     getGifs(): GifLibrary {
-      return gifsEntry().value;
+      return gifs.library();
     },
 
     /**
@@ -2823,7 +2815,7 @@ function buildStore({
      * or null (src/memory/gifs.ts#findGif). Creates nothing on disk.
      */
     findGif(handle: string): ReturnType<typeof findGif> {
-      return findGif(gifsEntry().value, handle);
+      return findGif(gifs.library(), handle);
     },
 
     /**
@@ -2839,14 +2831,10 @@ function buildStore({
       messages: Array<StoredRecord>,
       opts: { storeMax?: number; halfLifeDays?: number } = {}
     ): number {
-      const item = gifsEntry();
       const placed = messages.map((message) => (message?.placeId ? message : { ...message, placeId }));
-      const { gifs, counted } = mergeGifs(item.value, placed, opts);
-      if (counted > 0) {
-        item.value = gifs;
-        item.dirty = true;
-      }
-      return counted;
+      const merged = mergeGifs(gifs.library(), placed, opts);
+      if (merged.counted > 0) gifs.set(merged.gifs);
+      return merged.counted;
     },
 
     /**
@@ -2857,13 +2845,9 @@ function buildStore({
      * @returns Whether an entry was stamped.
      */
     recordOwnGif(placeId: string, key: string, ts: number): boolean {
-      const item = gifsEntry();
-      const { gifs, marked } = markOwnGif(item.value, key, ts, placeId);
-      if (marked) {
-        item.value = gifs;
-        item.dirty = true;
-      }
-      return marked;
+      const own = markOwnGif(gifs.library(), key, ts, placeId);
+      if (own.marked) gifs.set(own.gifs);
+      return own.marked;
     },
 
     /**
@@ -2872,9 +2856,7 @@ function buildStore({
      * right after. Entries, handles, `nextId`, the stamps and the other places' counters are kept.
      */
     resetGifCounts(placeId: string) {
-      const item = gifsEntry();
-      item.value = resetGifCounts(item.value, placeId);
-      item.dirty = true;
+      gifs.set(resetGifCounts(gifs.library(), placeId));
     },
 
     /**
@@ -2885,18 +2867,14 @@ function buildStore({
       placeId: string,
       stamp: { at: string; channels: number; messages: number }
     ): { at: string; channels: number; messages: number } | null {
-      const item = gifsEntry();
-      const library = stampGifBackfill(item.value, placeId, stamp);
-      item.value = library;
-      item.dirty = true;
+      const library = stampGifBackfill(gifs.library(), placeId, stamp);
+      gifs.set(library);
       return library.backfills[placeId] ?? null;
     },
 
     /** The cached file of the entry under `key` (a library key or a native id), which moves it under the content hash. */
     setGifFile(key: string, file: { hash: string; file: string }) {
-      const item = gifsEntry();
-      item.value = withGifFile(item.value, key, file);
-      item.dirty = true;
+      gifs.set(withGifFile(gifs.library(), key, file));
     },
 
     /**
@@ -2907,18 +2885,17 @@ function buildStore({
       key: string,
       { caption, vector, model = null }: { caption: string; vector: ArrayLike<number> | null; model?: string | null }
     ) {
-      const item = gifsEntry();
-      item.value = withGifCaption(item.value, key, { caption, vector: null });
-      item.dirty = true;
-      const entries: GifLibrary['entries'] = item.value.entries;
+      const library = withGifCaption(gifs.library(), key, { caption, vector: null });
+      gifs.set(library);
+      const entries: GifLibrary['entries'] = library.entries;
       const entry = Object.entries(entries).find(([held, one]) => held === key || one.nativeIds.includes(key));
       if (!vector || !entry) return;
       const { itemId } = entry[1];
       const values = Array.from(vector);
       heldGifVectors().set(itemId, { model, vector: Float32Array.from(values) });
-      if (!canWriteUnits(memoryDb)) return;
-      void Promise.resolve(memoryDb.writeUnit({ op: 'gif-vector', itemId, model, vector: values })).catch(
-        (error: unknown) => log.warn('store: gif vector write failed', { error })
+      if (typeof memoryDb.writeGifVector !== 'function') return;
+      void Promise.resolve(memoryDb.writeGifVector({ itemId, model, vector: values })).catch((error: unknown) =>
+        log.warn('store: gif vector write failed', { error })
       );
     },
 
@@ -3270,6 +3247,8 @@ function buildStore({
         const lost = await media.settle({ final, ...(isFiniteNumber(timeoutMs) ? { timeoutMs } : {}) });
         counts.waiting = Number(counts.waiting ?? 0) + lost;
       }
+      const lostGifs = await gifs.settle({ final, ...(isFiniteNumber(timeoutMs) ? { timeoutMs } : {}) });
+      if (lostGifs > 0) counts.waiting = Number(counts.waiting ?? 0) + lostGifs;
       return counts;
     },
 

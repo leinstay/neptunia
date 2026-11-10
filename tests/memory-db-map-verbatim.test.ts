@@ -176,8 +176,11 @@ test('classify names the mapper and format of every memory path', () => {
     // layers, the notes of a place, a channel's entry, a lorebook, a participation, recent lines and her selfreflection
     // have their own write kinds and no mapper (src/memory/db/intentions-write.ts, line-vectors.ts, record-lines.ts,
     // journal-lines.ts, archive-lines.ts, account-profile.ts, prose-versions.ts, private-layer.ts, place-notes.ts,
-    // channel-entry.ts, place-lore.ts, participation-episodes.ts, recent-lines.ts, selfreflection-entries.ts).
+    // channel-entry.ts, place-lore.ts, participation-episodes.ts, recent-lines.ts, selfreflection-entries.ts); the
+    // errands live on the task board and the GIF library is rows of its own write kind (gif-library.ts).
     const direct = [
+      'errands',
+      'gifs',
       'intentions',
       'vectors',
       'record',

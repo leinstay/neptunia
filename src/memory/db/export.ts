@@ -83,8 +83,6 @@ function linesOf(kind: string, mapper: Mapper, rows: Rows): Array<unknown> {
   switch (kind) {
     case 'intentions':
       return rows.intentions.map((row) => one('intentions', row));
-    case 'errands':
-      return rows.work_events.map((row) => one('work_events', row));
     case 'verbatim':
       return [...rows.operational]
         .sort((a, b) => positionOfOwner(a) - positionOfOwner(b))

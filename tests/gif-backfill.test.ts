@@ -5,9 +5,8 @@
 // are Discord-shaped and read into events as the Discord package does.
 
 import { placeOfRoot } from '../src/memory/addresses.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import { unitValue } from '../src/memory/db/readers/common.ts';
+import { gifLibraryValue } from '../src/memory/db/gif-library.ts';
 import { MEMORY_OF, memDataDir, memoryAt } from './fixtures/store-kit.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -497,8 +496,10 @@ test('store setGifBackfill / resetGifCounts: the stamp is normalised and persist
     store.flush();
     await wrongly<{ flushSettled(options: object): Promise<void> }>(store).flushSettled({});
     // B7: the library is one unit of the persona.
-    const found = unitValue(dbOf(wrongly(MEMORY_OF.get(memoryDir)?.readHandle())), personaKey('gifs'));
-    const onDisk = (found as { value: { nextId: number; entries: Record<string, GifEntry>; backfill: unknown } }).value;
+    const found = gifLibraryValue(dbOf(wrongly(MEMORY_OF.get(memoryDir)?.readHandle())));
+    const onDisk = (
+      found as unknown as { value: { nextId: number; entries: Record<string, GifEntry>; backfill: unknown } }
+    ).value;
     assert.deepEqual(Object.keys(onDisk.entries), ['m#e0']);
     assert.equal(onDisk.entries['m#e0'].id, 'g1');
     assert.equal(onDisk.entries['m#e0'].count, 0);

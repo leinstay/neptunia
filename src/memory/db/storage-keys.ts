@@ -125,9 +125,3 @@ export const placeOrPersona = (
 /** A journal day of one place. */
 export const journalKey = (placeId: string, day: string): StorageKey =>
   placeCollection('journal', placeId, { partition: day });
-
-/** One board-backed errand: a collection of the persona, with its item identity. */
-export const errandKey = (itemId: string): StorageKey => ({
-  ...personaKey('errands'),
-  selector: { collection: 'value', itemId },
-});

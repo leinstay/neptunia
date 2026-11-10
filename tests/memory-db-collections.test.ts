@@ -5,7 +5,6 @@
 //   personCollection(kind, personId, options?): StorageKey       subject { type: 'person', id }
 //   placeCollection(kind, placeId, options?): StorageKey         subject { type: 'place', id }
 //   journalKey(placeId, day): StorageKey
-//   errandKey(itemId): StorageKey                                a persona collection
 // `options` is { partition?, selector? }. An empty id throws code `BAD_COLLECTION_ID`.
 // Appendix entries: src/memory/db/storage-keys.ts, src/memory/db/storage-units.ts, src/memory/db/unit-write.ts,
 // src/memory/db/upsert.ts.
@@ -16,7 +15,6 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import * as keys from '../src/memory/db/storage-keys.ts';
 import {
   accountCollection,
-  errandKey,
   journalKey,
   keyText,
   personCollection,
@@ -79,15 +77,13 @@ test('an empty id is refused with a code', () => {
   );
 });
 
-test('the journal of a day belongs to its place, an errand to the persona, vectors to a place', () => {
+test('the journal of a day belongs to its place', () => {
   // Bug: the three keyed helpers keep asking a service for its namespace and a root for its scope.
   assert.deepEqual(journalKey('place:dm-a11', '2026-11-01'), {
     kind: 'journal',
     subject: { type: 'place', id: 'place:dm-a11' },
     partition: '2026-11-01',
   });
-  assert.equal(errandKey('task-1').subject.type, 'persona');
-  assert.deepEqual(errandKey('task-1').selector, { collection: 'value', itemId: 'task-1' });
 });
 
 test('no constructor that takes a root remains', () => {

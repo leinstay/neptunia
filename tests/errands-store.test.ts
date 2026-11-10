@@ -523,8 +523,8 @@ test('task store: a board write that failed is sent again by the next flush', as
     let down = true;
     const memoryDb = {
       ...service,
-      writeUnit: (update: unknown) =>
-        down ? Promise.reject(Object.assign(new Error('down'), { code: 'DB_CLOSED' })) : service.writeUnit(update),
+      writeErrand: (write: Parameters<typeof service.writeErrand>[0]) =>
+        down ? Promise.reject(Object.assign(new Error('down'), { code: 'DB_CLOSED' })) : service.writeErrand(write),
     };
     const store = createErrandStore({
       memoryDb,
@@ -579,19 +579,19 @@ async function ticks(n = 20): Promise<void> {
 }
 
 /**
- * `memoryDb` with its unit writes held after they commit: each write lands in the database at once, and its promise
+ * `memoryDb` with its errand writes held after they commit: each write lands in the database at once, and its promise
  * settles only while the gate is open (`hold` closes it, `release` opens it).
  */
 function gated(memoryDb: MemoryDb): { memoryDb: MemoryDb; hold: () => void; release: () => void } {
   let gate: Promise<void> = Promise.resolve();
   let open: () => void = () => {};
-  const writeUnit = async (update: unknown): Promise<unknown> => {
-    const written: unknown = await memoryDb.writeUnit(update);
+  const writeErrand = async (write: Parameters<MemoryDb['writeErrand']>[0]): Promise<unknown> => {
+    const written: unknown = await memoryDb.writeErrand(write);
     await gate;
     return written;
   };
-  // The fixture's service is a plain object of functions; the gated one differs from it in `writeUnit` alone.
-  const wrapped: MemoryDb = { ...memoryDb, writeUnit };
+  // The fixture's service is a plain object of functions; the gated one differs from it in `writeErrand` alone.
+  const wrapped: MemoryDb = { ...memoryDb, writeErrand };
   return {
     memoryDb: wrapped,
     hold: () => {
