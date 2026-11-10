@@ -14,6 +14,8 @@ The planner goes first, on the `analyzer` role with the purpose `selfreflection-
 
 The writer is the turn's own request, of the kind `selfreflection`, with `prompts/selfreflection.md` as its `<task>`. Its `<inner>` holds her past entries, then the `<plan>` as lines: the kind, the brief, the picture, the owner's topic and what the plan's search found. A set kind adds its `<seeds>`, two or more mirrors add the list to choose among, and `<feedback>` names the audiences she has not heard were refused.
 
+The writer's `draw.create` and `voice.say` calls post nothing. Their picture or voice message is kept for the entry, which its mirrors publish. A place she names in such a call is set aside by `planToolCall` in `src/turn/skill-calls.ts`, so the call is checked and kept exactly as one without it, and the log line `selfreflection: named place set aside` names the skill.
+
 Both requests carry what a turn with no place reads. Her last `context.memory.serviceMessages` (100) lines over the rooms of every group fill `<meanwhile>` with the lines around them, and no direct chat does. The people, places and lore those lines raise fill `<memory>`, people by name with no mention handle, since an entry mentions nobody. The world is `prompts/world.md` in `<virtual_world>` whenever the file is not empty. Her newest `selfreflection.entries` (150) entries make `<selfreflection>`, oldest first, read from the `selfreflection` table by `readSelfreflection` in `src/memory/db/selfreflection-past.ts`. No mirror place and no message is read for it.
 
 ## How a kind is chosen
