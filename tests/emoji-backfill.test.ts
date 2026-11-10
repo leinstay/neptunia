@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 import { createEmojiBackfill } from '../src/memory/emoji-backfill.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
+import { placeCollection } from '../src/memory/db/unit-keys.ts';
 import { createStore } from '../src/memory/store.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';

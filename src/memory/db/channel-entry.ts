@@ -25,9 +25,9 @@ import {
   stampPlaceRows,
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
-import { placeCollection, keyText, storageId } from './storage-keys.ts';
+import { placeCollection, keyText, collectionId } from './unit-keys.ts';
 import { namedIface } from './live-iface.ts';
-import type { StorageKey } from './storage-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { writeMapping } from './upsert.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -54,7 +54,7 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
 /** The rows of the entry `value` of the unit `key`, owned by `holder`, `owner` the unit's id. */
 function channelEntryRows(
   db: Db,
-  key: StorageKey,
+  key: UnitKey,
   value: Row,
   owner: string,
   holder: PlaceOwner,
@@ -137,11 +137,11 @@ function channelEntryOf(rows: Rows): Row {
  */
 export function writeChannelEntry(
   db: Db,
-  key: StorageKey,
+  key: UnitKey,
   value: Row,
   { at, iface }: { at: string; iface?: string }
 ): ChannelEntryResult {
-  const id = storageId(key);
+  const id = collectionId(key);
   const holder = placeOwnerOf(key)!; // a `channel` unit always has its owner columns (place-owner.ts)
   const mapping = channelEntryRows(db, key, value, id, holder, iface);
   const upserted = writeMapping(db, mapping, { at });
@@ -157,11 +157,11 @@ export function channelEntryWriteOf(update: Row): ChannelEntryWrite {
 }
 
 /** Whether `key` names a channel's entry. */
-export const isChannelEntryKey = (key: StorageKey | undefined): boolean => key?.kind === 'channel';
+export const isChannelEntryKey = (key: UnitKey | undefined): boolean => key?.kind === 'channel';
 
 /** The write of a unit update of a channel's entry (a value write of the place's own `channel` unit), else null. */
 export function channelEntryOfUnit(update: Row): ChannelEntryWrite | null {
-  const key = update.key as StorageKey | undefined;
+  const key = update.key as UnitKey | undefined;
   if (update.op !== 'value' || !key || !isChannelEntryKey(key) || key.subject?.type !== 'place') return null;
   if (keyText(placeCollection('channel', key.subject.id)) !== keyText(key)) return null;
   return channelEntryWriteOf({ placeId: key.subject.id, value: update.value ?? {} });
@@ -178,13 +178,13 @@ export function applyChannelEntryWrite(handle: MemoryHandle, update: Row): Chann
 }
 
 /** Whether the database holds the channel's entry the unit `key` names. */
-export function channelEntryHeld(db: Db, key: StorageKey): boolean {
+export function channelEntryHeld(db: Db, key: UnitKey): boolean {
   const holder = placeOwnerOf(key);
   return holder !== null && holdsPlace(db, holder, 'operational');
 }
 
 /** The entry the unit `key` holds (a place's `channel` unit), or not found when the database holds none. */
-export function channelEntryValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
+export function channelEntryValue(db: Db, key: UnitKey): { found: true; value: unknown } | { found: false } {
   const holder = placeOwnerOf(key);
   if (!holder || !channelEntryHeld(db, key)) return { found: false };
   return { found: true, value: channelEntryOf(heldPlaceRows(db, holder, TABLES)) };

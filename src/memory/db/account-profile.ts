@@ -30,9 +30,9 @@ import { storageContext } from './storage-context.ts';
 import { mintMetaPerson } from './meta-person-write.ts';
 import { ensureAccountPerson, linkedProfileUnit } from './person-links.ts';
 import { addSessionRows } from './session-rows.ts';
-import { accountCollection, keyText } from './storage-keys.ts';
+import { accountCollection, keyText } from './unit-keys.ts';
 import { namedIface } from './live-iface.ts';
-import type { StorageKey } from './storage-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { writeMapping } from './upsert.ts';
 import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
 import type { ProfileOwner } from './profile-owner.ts';
@@ -101,7 +101,7 @@ function membershipOf(db: Db, accountId: string): ProfileContext['membership'] {
  * account with no person, and an account no row holds, gets a meta-person first, never one spelled from its native id.
  * The account row keeps the link the database holds.
  */
-function profileContext(db: Db, key: StorageKey, holder: ProfileOwner, at: string, iface?: string): ProfileContext {
+function profileContext(db: Db, key: UnitKey, holder: ProfileOwner, at: string, iface?: string): ProfileContext {
   const accountId = key.subject.id;
   const base: MapContext = storageContext(db, key, iface);
   const subjectIface = ifaceOf(base);
@@ -226,7 +226,7 @@ export function accountProfileOf(rows: Rows): Row {
  */
 export function writeAccountProfile(
   db: Db,
-  key: StorageKey,
+  key: UnitKey,
   value: Row,
   { at, iface }: { at: string; iface?: string }
 ): AccountProfileResult {
@@ -245,7 +245,7 @@ export function accountProfileWriteOf(update: Row): AccountProfileWrite {
 }
 
 /** Whether `key` names an account's profile. */
-export const isAccountProfileKey = (key: StorageKey | undefined): boolean =>
+export const isAccountProfileKey = (key: UnitKey | undefined): boolean =>
   key?.kind === 'user' && key.subject?.type === 'account';
 
 /**
@@ -253,7 +253,7 @@ export const isAccountProfileKey = (key: StorageKey | undefined): boolean =>
  * key with a root or a partition of an older layout stays a unit write, which the writer stores through the same path.
  */
 export function accountProfileOfUnit(update: Row): AccountProfileWrite | null {
-  const key = update.key as StorageKey | undefined;
+  const key = update.key as UnitKey | undefined;
   if (update.op !== 'value' || !key || !isAccountProfileKey(key)) return null;
   if (keyText(accountCollection('user', key.subject.id)) !== keyText(key)) return null;
   return accountProfileWriteOf({ accountId: key.subject.id, value: update.value ?? {} });
@@ -270,13 +270,13 @@ export function applyAccountProfileWrite(handle: MemoryHandle, update: Row): Acc
 }
 
 /** Whether the database holds the profile the unit `key` names. */
-export function accountProfileHeld(db: Db, key: StorageKey): boolean {
+export function accountProfileHeld(db: Db, key: UnitKey): boolean {
   const holder = profileOwnerOf(key);
   return holder !== null && (holdsAny(db, holder, 'accounts') || holdsAny(db, holder, 'people'));
 }
 
 /** The profile the unit `key` holds (an account's `user` unit), or not found when the database holds no such unit. */
-export function accountProfileValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
+export function accountProfileValue(db: Db, key: UnitKey): { found: true; value: unknown } | { found: false } {
   const holder = profileOwnerOf(key);
   if (!holder || !accountProfileHeld(db, key)) return { found: false };
   const rows = heldRows(db, holder, TABLES);

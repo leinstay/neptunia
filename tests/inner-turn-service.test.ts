@@ -16,7 +16,7 @@ import { DESTINATION_REQUIRED } from '../src/behavior/inner-output.ts';
 import type { SelfimprovementFacts } from '../src/behavior/selfimprovement-view.ts';
 
 import { formatDate } from '../src/format.ts';
-import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { useIface } from './fixtures/turn-world.ts';

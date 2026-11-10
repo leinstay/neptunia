@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { OBSERVATION_VERSION } from '../src/memory/db/observe.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
+import { placeCollection } from '../src/memory/db/unit-keys.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 

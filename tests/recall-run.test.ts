@@ -39,7 +39,7 @@ import {
 } from './fixtures/recall-run-kit.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
 import { unitLines } from '../src/memory/db/readers/common.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
+import { placeCollection } from '../src/memory/db/unit-keys.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 

@@ -4,7 +4,7 @@
 // end closes.
 
 import { currentIface } from '../../memory/db/current-iface.ts';
-import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../../memory/db/ids.ts';
 import { sharedPlaceOf } from '../../memory/addresses.ts';
 import { currentRequestMeta } from '../../llm/archive.ts';
 import { createPrepLedger } from '../../behavior/turn-parts.ts';

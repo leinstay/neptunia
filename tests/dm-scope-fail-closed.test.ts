@@ -7,7 +7,7 @@ import { personaJournal, personaRecord } from '../src/behavior/inner/persona-sou
 import { recentGroupLines } from '../src/memory/db/chat-lines.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { SCOPE_INTERNAL, groupScope, scopeColumns } from '../src/memory/db/scope.ts';
-import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { tempDir } from './fixtures/tmp.ts';

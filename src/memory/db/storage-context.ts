@@ -13,7 +13,7 @@ import {
   storedDmPlace,
 } from './meta-person.ts';
 import { nativeRows } from './native-rows.ts';
-import type { StorageKey } from './storage-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 
 /** The stored identity of an account, a person or a place: its row's interface, native id and person; nothing without a row. */
 function identityOf(
@@ -51,7 +51,7 @@ const TABLE_OF_SUBJECT = { account: 'accounts', place: 'places', person: 'people
  * Context passed to the existing field mappers for a semantic collection. `iface` is the interface of the write, which
  * names the subject's interface while no row holds the subject yet.
  */
-export function storageContext(db: Db, key: StorageKey, iface?: string): MapContext {
+export function storageContext(db: Db, key: UnitKey, iface?: string): MapContext {
   // The persona has no row to read, and its selector still says which of its collections this is.
   if (key.subject.type === 'persona')
     return {

@@ -11,7 +11,7 @@
 // An entry whose item hot memory does not hold (upsert.ts#hotClaimIds) brings a claim of that item with `retired_at`
 // set and truth `historical`, its text from the entry. A claim of the item already stored stays as it is.
 
-import { shortHash } from './ids.ts';
+import { shortHash, PERSONA_ID } from './ids.ts';
 import { mintedChannel } from './native-rows.ts';
 import { scopeColumns } from './scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, split } from './row-columns.ts';
@@ -20,8 +20,8 @@ import { storageContext } from './storage-context.ts';
 import { dmPlaceScope, memberDmOf, storedDmOf } from './scope-parts.ts';
 import { requiredIface } from './live-iface.ts';
 import { markStemsPending } from './stems.ts';
-import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
-import type { StorageKey } from './storage-keys.ts';
+import { placeOrPersona } from './unit-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { lineColumns, lineOwnerOf, linePeriods, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { hotClaimIds, writeMapping } from './upsert.ts';
@@ -169,7 +169,7 @@ export function archiveEntryOf(row: Row): unknown {
  */
 export function writeArchiveMonth(
   db: Db,
-  key: StorageKey,
+  key: UnitKey,
   lines: ReadonlyArray<unknown>,
   { iface, at }: { iface: string; at: string }
 ): ArchiveLinesResult {
@@ -222,7 +222,7 @@ export function archiveLines(db: Db, placeId: string | null, month: string): Arr
 }
 
 /** The entries (JSON text) of one archive month's unit `key`, in the order they were written. */
-export function archiveUnitLines(db: Db, key: StorageKey): Array<string> {
+export function archiveUnitLines(db: Db, key: UnitKey): Array<string> {
   const owner = lineOwnerOf(key);
   if (!owner) return [];
   return lineRows(db, owner, 'claim_versions').map((row) => JSON.stringify(archiveEntryOf(row)));

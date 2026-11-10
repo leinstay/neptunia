@@ -8,7 +8,7 @@ import path from 'node:path';
 import { dbOf } from '../src/memory/db/types.ts';
 import { emptyState } from '../src/behavior/inner.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { personaKey } from '../src/memory/db/unit-keys.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { startUnitsCore, until, withRig } from './fixtures/core-units.ts';

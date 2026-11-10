@@ -21,9 +21,9 @@ import { storageContext } from './storage-context.ts';
 import { dmPlaceScope } from './scope-parts.ts';
 import { dmOfAccount } from './meta-person.ts';
 import { addSessionRows } from './session-rows.ts';
-import { accountCollection, keyText } from './storage-keys.ts';
+import { accountCollection, keyText } from './unit-keys.ts';
 import { namedIface } from './live-iface.ts';
-import type { StorageKey } from './storage-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { writeMapping } from './upsert.ts';
 import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
@@ -47,14 +47,14 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
  * The person of a layer whose account names none: the stored account's meta-person, made when it has none, or a new
  * meta-person for an account no row holds; never one spelled from the account's native id.
  */
-function personOfLayer(db: Db, key: StorageKey, at: string): string {
+function personOfLayer(db: Db, key: UnitKey, at: string): string {
   const account = key.subject.type === 'account' ? key.subject.id : null;
   const stored = account !== null && db.prepare('SELECT 1 FROM accounts WHERE id = ?').get(account) !== undefined;
   return (account !== null && stored ? ensureAccountPerson(db, account, at) : null) ?? mintMetaPerson(db, at);
 }
 
 /** The rows of a private layer `value` of the unit `key`, written at `at`. */
-function privateLayerRows(db: Db, key: StorageKey, value: Row, at: string, writeIface?: string): Rows {
+function privateLayerRows(db: Db, key: UnitKey, value: Row, at: string, writeIface?: string): Rows {
   const ctx = storageContext(db, key, writeIface);
   const iface = ifaceOf(ctx);
   const person = ctx.subjectPersonId ?? personOfLayer(db, key, at);
@@ -107,7 +107,7 @@ function privateLayerOf(rows: Rows): Row {
  */
 export function writePrivateLayer(
   db: Db,
-  key: StorageKey,
+  key: UnitKey,
   value: Row,
   { at, iface }: { at: string; iface?: string }
 ): PrivateLayerResult {
@@ -125,14 +125,14 @@ export function privateLayerWriteOf(update: Row): PrivateLayerWrite {
 }
 
 /** Whether `key` names a private layer. */
-export const isPrivateLayerKey = (key: StorageKey): boolean => key.kind === 'private';
+export const isPrivateLayerKey = (key: UnitKey): boolean => key.kind === 'private';
 
 /**
  * The write of a unit update of a private layer (a value write of the account's own `private` unit), else null. Any
  * other key of the kind stays a unit write, which the writer stores through the same path.
  */
 export function privateLayerOfUnit(update: Row): PrivateLayerWrite | null {
-  const key = update.key as StorageKey | undefined;
+  const key = update.key as UnitKey | undefined;
   if (update.op !== 'value' || key?.kind !== 'private' || key.subject?.type !== 'account') return null;
   if (keyText(accountCollection('private', key.subject.id)) !== keyText(key)) return null;
   return privateLayerWriteOf({ accountId: key.subject.id, value: update.value ?? {} });
@@ -149,13 +149,13 @@ export function applyPrivateLayerWrite(handle: MemoryHandle, update: Row): Priva
 }
 
 /** Whether the database holds the private layer the unit `key` names. */
-export function privateLayerHeld(db: Db, key: StorageKey): boolean {
+export function privateLayerHeld(db: Db, key: UnitKey): boolean {
   const holder = profileOwnerOf(key);
   return holder !== null && holdsAny(db, holder, 'operational');
 }
 
 /** The private layer the unit `key` holds, or not found when the database holds no such unit. */
-export function privateLayerValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
+export function privateLayerValue(db: Db, key: UnitKey): { found: true; value: unknown } | { found: false } {
   const holder = profileOwnerOf(key);
   if (!holder || !privateLayerHeld(db, key)) return { found: false };
   const rows = heldRows(db, holder, TABLES);

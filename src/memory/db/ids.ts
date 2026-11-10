@@ -17,6 +17,9 @@ import { CORE_AUTHORITY, nativeAuthorityOf } from '../../protocol/identity.ts';
 
 export const SELF_PERSON = 'person:self';
 
+/** The persona's own id as a place id: a turn or a write of hers that happens nowhere. */
+export const PERSONA_ID = 'persona:local';
+
 type Row = Record<string, unknown>;
 type Db = {
   prepare(sql: string): { all(...params: Array<string>): Array<Row>; get(...params: Array<string>): Row | undefined };

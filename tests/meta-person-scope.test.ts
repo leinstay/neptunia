@@ -16,7 +16,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { allowedAudience, dmAudienceId, dmUserOf, issueContext, readContextSpec } from '../src/memory/db/scope.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { journalKey, placeCollection } from '../src/memory/db/storage-keys.ts';
+import { journalKey, placeCollection } from '../src/memory/db/unit-keys.ts';
 import { resolveRow } from '../src/memory/db/rows.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf } from '../src/memory/db/types.ts';

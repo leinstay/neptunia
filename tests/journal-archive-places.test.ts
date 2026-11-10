@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { archiveEntry, createArchive } from '../src/memory/archive.ts';
 import { withIface } from '../src/memory/db/current-iface.ts';
-import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createJournal } from '../src/memory/journal.ts';

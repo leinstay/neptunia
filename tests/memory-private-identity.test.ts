@@ -3,7 +3,7 @@
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   store.getPrivate(accountId: string): object | null
 //   store.applyPrivateOps(accountId: string, ops: PrivateOpsOptions, opts?): object | null
-// Appendix entries: src/memory/store.ts (private collection), src/memory/db/current-iface.ts, src/memory/db/storage-keys.ts,
+// Appendix entries: src/memory/store.ts (private collection), src/memory/db/current-iface.ts, src/memory/db/unit-keys.ts,
 // src/memory/root.ts, src/pipeline/private-gate.ts.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';

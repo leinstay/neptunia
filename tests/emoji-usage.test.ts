@@ -14,7 +14,7 @@ import {
   normalizeEmojiUsage,
   rankEmojiUsage,
 } from '../src/memory/emoji-usage.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
+import { placeCollection } from '../src/memory/db/unit-keys.ts';
 import { createStore } from '../src/memory/store.ts';
 import { createMemoryUpdater } from '../src/memory/update.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';

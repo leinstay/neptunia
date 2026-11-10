@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { linkedProfileUnit } from '../src/memory/db/person-links.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { accountCollection, placeCollection } from '../src/memory/db/storage-keys.ts';
+import { accountCollection, placeCollection } from '../src/memory/db/unit-keys.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { NOW, fixture, personOf } from './fixtures/memory-db/session-rig.ts';
 

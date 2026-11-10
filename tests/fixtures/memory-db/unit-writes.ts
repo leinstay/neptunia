@@ -17,7 +17,7 @@ import { proseVersionsOfUnit } from '../../../src/memory/db/prose-versions.ts';
 import { recentLinesOfUnit } from '../../../src/memory/db/recent-lines.ts';
 import { selfreflectionOfUnit } from '../../../src/memory/db/selfreflection-entries.ts';
 import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';
-import type { StorageKey } from '../../../src/memory/db/storage-keys.ts';
+import type { UnitKey } from '../../../src/memory/db/unit-keys.ts';
 import { dbOf } from '../../../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../../../src/memory/db/types.ts';
 import { writeRecordDay } from '../../../src/memory/db/record-lines.ts';
@@ -26,7 +26,7 @@ import { writeArchiveMonth } from '../../../src/memory/db/archive-lines.ts';
 
 /** The writers of a day or a month of lines by the kind of its unit. */
 const DAY_WRITERS: Partial<
-  Record<string, (db: Db, key: StorageKey, lines: Array<Row>, opts: { iface: string; at: string }) => unknown>
+  Record<string, (db: Db, key: UnitKey, lines: Array<Row>, opts: { iface: string; at: string }) => unknown>
 > = {
   record: writeRecordDay,
   journal: writeJournalDay,
@@ -49,10 +49,10 @@ const VALUE_KINDS: ReadonlyArray<[string, (update: Row) => object | null]> = [
   ['selfreflection-entries', selfreflectionOfUnit],
 ];
 
-const placeOf = (key: StorageKey): string | null => (key.subject.type === 'persona' ? null : key.subject.id);
+const placeOf = (key: UnitKey): string | null => (key.subject.type === 'persona' ? null : key.subject.id);
 
 /** The write of a month of line vectors a fixture spells as its month files. */
-function vectorsWrite(update: Row, key: StorageKey): Row {
+function vectorsWrite(update: Row, key: UnitKey): Row {
   const files = (update.value ?? update.delta ?? {}) as Row;
   const manifest = (files.manifest ?? {}) as Row;
   return {
@@ -66,7 +66,7 @@ function vectorsWrite(update: Row, key: StorageKey): Row {
 }
 
 /** The write of a day of the record or the journal, or a month of the archive; null for a unit of another kind. */
-function linesWrite(update: Row, key: StorageKey): Row | null {
+function linesWrite(update: Row, key: UnitKey): Row | null {
   if (update.op !== 'lines') return null;
   if (key.kind === 'record' || key.kind === 'journal')
     return { placeId: placeOf(key), lines: update.lines, kind: `${key.kind}-lines` };
@@ -93,7 +93,7 @@ export function unitAsWrite(update: Row): Row {
   if (update.op === 'selfreflection')
     return { append: update.post, max: update.max, updatedAt: update.updatedAt, ...stamp, kind: 'selfreflection-entries' };
   const iface = typeof update.iface === 'string' ? update.iface : undefined;
-  const key = (update.key as StorageKey | undefined) ?? legacyStorageKey(String(update.owner), iface);
+  const key = (update.key as UnitKey | undefined) ?? legacyStorageKey(String(update.owner), iface);
   const write = update.op === 'vectors' ? vectorsWrite(update, key) : (linesWrite(update, key) ?? ownWrite({ ...update, key }));
   if (write) return { ...write, ...stamp };
   throw Object.assign(new Error('UNIT_UNMAPPED'), { code: 'UNIT_UNMAPPED' });
@@ -105,7 +105,7 @@ export function unitAsWrite(update: Row): Row {
  */
 export function applyUnitUpdate(handle: MemoryHandle, update: Row): unknown {
   const key =
-    (update.key as StorageKey | undefined) ??
+    (update.key as UnitKey | undefined) ??
     (typeof update.owner === 'string'
       ? legacyStorageKey(update.owner, typeof update.iface === 'string' ? update.iface : undefined)
       : null);

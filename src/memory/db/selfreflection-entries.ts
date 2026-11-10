@@ -32,8 +32,8 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { assignSelfreflectionDestination } from './publish.ts';
-import { personaKey, storageId } from './storage-keys.ts';
-import type { StorageKey } from './storage-keys.ts';
+import { personaKey, collectionId } from './unit-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { writeMapping } from './upsert.ts';
 import { dbOf, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -162,8 +162,8 @@ export function writeSelfreflectionValue(
   value: Row,
   { at, iface, destination }: { at: string; iface: string; destination?: unknown }
 ): { upserted: number; retired: number; destinations: number } {
-  const key: StorageKey = personaKey('selfreflection');
-  const id = storageId(key);
+  const key: UnitKey = personaKey('selfreflection');
+  const id = collectionId(key);
   const holder = placeOwnerOf(key)!; // her selfreflection unit always has its owner columns (place-owner.ts)
   const mapping = selfreflectionRows(db, value, iface, id, holder);
   const upserted = writeMapping(db, mapping, { at });
@@ -209,9 +209,9 @@ export function selfreflectionWriteOf(update: Row): SelfreflectionWrite {
 
 /** The write of a unit update of her selfreflection (a value write of her own unit), else null. */
 export function selfreflectionOfUnit(update: Row): SelfreflectionWrite | null {
-  const key = update.key as StorageKey | undefined;
+  const key = update.key as UnitKey | undefined;
   if (update.op !== 'value' || key?.kind !== 'selfreflection' || key.subject?.type !== 'persona') return null;
-  if (key.selector || key.partition || key.scopePlaceId) return null;
+  if (key.selector || key.partition) return null;
   return selfreflectionWriteOf({ value: update.value ?? {}, destination: update.destination });
 }
 
@@ -229,7 +229,7 @@ export function applySelfreflectionWrite(handle: MemoryHandle, update: Row): unk
 }
 
 /** Her selfreflection, or not found when the database holds none. */
-export function selfreflectionValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
+export function selfreflectionValue(db: Db, key: UnitKey): { found: true; value: unknown } | { found: false } {
   const holder = placeOwnerOf(key);
   if (!holder || !holdsPlace(db, holder, 'operational')) return { found: false };
   return { found: true, value: selfreflectionOf(heldSelfreflectionRows(db, holder)) };

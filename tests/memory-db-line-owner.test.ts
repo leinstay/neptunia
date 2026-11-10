@@ -8,7 +8,7 @@ import { observationOf } from '../src/memory/db/observe-event.ts';
 import { recordDays, recordHolders, recordLines, recordMonths, recordStats } from '../src/memory/db/record-lines.ts';
 import { journalLines } from '../src/memory/db/journal-lines.ts';
 import { archiveHolders, archiveLines, archiveMonths } from '../src/memory/db/archive-lines.ts';
-import { placeOrPersona } from '../src/memory/db/storage-keys.ts';
+import { placeOrPersona } from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';

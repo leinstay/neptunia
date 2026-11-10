@@ -17,9 +17,9 @@ import { SELF_PERSON, survivorOf } from './ids.ts';
 import { personOfAccount } from './meta-person.ts';
 import { followAccount, hasMetaSchema, mintMetaPerson, syncPersonAccount } from './meta-person-write.ts';
 import type { AccountAddress } from '../../protocol/identity.ts';
-import { storageId } from './storage-keys.ts';
+import { collectionId } from './unit-keys.ts';
 import { profileKeyOf } from './profile-owner.ts';
-import type { StorageKey } from './storage-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import type { Db, MemoryHandle } from './types.ts';
 import { dbOf } from './types.ts';
 
@@ -204,7 +204,7 @@ export function accountLinks(
  * person's `people` row. Null for an account with no person, a person whose row no unit owns, and a row its own account
  * owns in another root. What a linked account writes through its own unit stays account-specific (account-profile.ts).
  */
-export function linkedProfileUnit(db: Db, accountId: string): { id: string; key: StorageKey } | null {
+export function linkedProfileUnit(db: Db, accountId: string): { id: string; key: UnitKey } | null {
   const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id;
   if (typeof person !== 'string' || !person) return null;
   // The profile that holds the person's row names its account (profile-owner.ts).
@@ -213,7 +213,7 @@ export function linkedProfileUnit(db: Db, accountId: string): { id: string; key:
     .get(survivorOf(db, person))?.holder_id;
   if (typeof holder !== 'string') return null;
   const key = profileKeyOf(holder);
-  return key.subject.id === accountId ? null : { id: storageId(key), key };
+  return key.subject.id === accountId ? null : { id: collectionId(key), key };
 }
 
 /** The account a legacy person id spells: `person:<account id>`, which S10's conversion retires. Opaque ids name none. */

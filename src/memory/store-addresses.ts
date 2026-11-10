@@ -6,15 +6,14 @@
 import { currentIface } from './db/current-iface.ts';
 import { placeRefOf } from './db/frame-reads.ts';
 import type { PlaceRef } from './db/frame-reads.ts';
-import { interfaceAccountId, interfacePlaceOf, nativeAuthorityOf, topPlaceSpelled } from './db/ids.ts';
+import { interfaceAccountId, interfacePlaceOf, nativeAuthorityOf, topPlaceSpelled, PERSONA_ID } from './db/ids.ts';
 import { chatPlaceKey } from './db/observe-event.ts';
 import { accountNodeOf } from './db/person-links.ts';
 import { placeChainInDb, rootPlaceInDb } from './db/place-tree.ts';
 import type { PlaceChainLink } from './db/place-tree.ts';
 import { linkedPrivateClaims } from './db/private-read.ts';
 import { lineNumberOf } from './db/chat-lines.ts';
-import { PERSONA_ID } from './db/storage-keys.ts';
-import type { StorageKind } from './db/storage-keys.ts';
+import type { UnitKind } from './db/unit-keys.ts';
 import { isOperationalKind, operationalSubjects } from './db/operational.ts';
 import type { Db } from './db/types.ts';
 
@@ -285,13 +284,13 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     },
 
     /** The subjects that hold a row of an operational `kind`, for a registry kept in one place; none for another kind. */
-    placesHolding(kind: StorageKind): Array<string> {
+    placesHolding(kind: UnitKind): Array<string> {
       if (!readable() || !isOperationalKind(kind)) return [];
       return seam.run(() => operationalSubjects(seam.db(), kind));
     },
 
     /** The first subject that holds a row of an operational `kind`, else null. */
-    placeHolding(kind: StorageKind): string | null {
+    placeHolding(kind: UnitKind): string | null {
       if (!readable() || !isOperationalKind(kind)) return null;
       return seam.run(() => operationalSubjects(seam.db(), kind)[0] ?? null);
     },

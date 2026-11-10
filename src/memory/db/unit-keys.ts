@@ -1,10 +1,13 @@
-// Semantic addresses of storage collections. A collection belongs to the persona, an account, a person or a place, and its
-// key holds that id as given: nothing is read from the air, and nothing here takes an id apart.
+// The addresses of the values the store reads and writes. A value belongs to the persona, an account, a person or a
+// place, and its key holds that id as given: nothing is read from the air, and nothing here takes an id apart. A key
+// registers nothing: the readers find a value by its kind and subject (readers/common.ts), and its rows name their
+// owner in their own columns.
 
 import { createHash } from 'node:crypto';
+import { PERSONA_ID } from './ids.ts';
 
-export type StorageSubject = Readonly<{ type: 'persona' | 'account' | 'person' | 'place' | 'authority'; id: string }>;
-export type StorageKind =
+export type UnitSubject = Readonly<{ type: 'persona' | 'account' | 'person' | 'place'; id: string }>;
+export type UnitKind =
   | 'record'
   | 'journal'
   | 'user'
@@ -41,27 +44,25 @@ export type StorageKind =
   | 'journal_running'
   | 'backfill'
   | 'request_tools';
-export type StorageSelector = Readonly<{
+export type UnitSelector = Readonly<{
   collection?: 'active' | 'archive' | 'value' | 'history';
   requestId?: string;
   versionKind?: 'users' | 'channels' | 'place' | 'lore' | 'media';
   itemId?: string;
 }>;
-export type StorageKey = Readonly<{
-  kind: StorageKind;
-  subject: StorageSubject;
-  scopePlaceId?: string;
+export type UnitKey = Readonly<{
+  kind: UnitKind;
+  subject: UnitSubject;
   partition?: string;
-  selector?: StorageSelector;
+  selector?: UnitSelector;
 }>;
 
-/** A canonical semantic key, including only fields that identify a collection. */
-export function keyText(key: StorageKey): string {
+/** A key as canonical JSON, the fields that identify a value only: the store's name of it. */
+export function keyText(key: UnitKey): string {
   const selector = key.selector;
   return JSON.stringify({
     kind: key.kind,
     subject: { type: key.subject.type, id: key.subject.id },
-    ...(key.scopePlaceId ? { scopePlaceId: key.scopePlaceId } : {}),
     ...(key.partition ? { partition: key.partition } : {}),
     ...(selector
       ? { selector: Object.fromEntries(Object.entries(selector).sort(([a], [b]) => a.localeCompare(b))) }
@@ -69,27 +70,27 @@ export function keyText(key: StorageKey): string {
   });
 }
 
-/** The catalog's opaque identity of one semantic collection. */
-export const storageId = (key: StorageKey): string =>
+/**
+ * A fixed opaque id of a value, from its key: the `owner` of the `operational` row a new history, participation, recent
+ * lines or selfreflection writes.
+ */
+export const collectionId = (key: UnitKey): string =>
   `unit:${createHash('sha256').update(keyText(key)).digest('hex').slice(0, 32)}`;
 
-/** The persona's own id as a place id: a turn or a write of hers that happens nowhere. */
-export const PERSONA_ID = 'persona:local';
-
 /** A root core-state collection belongs to this database's persona storage subject. */
-export const personaKey = (kind: StorageKind): StorageKey => ({
+export const personaKey = (kind: UnitKind): UnitKey => ({
   kind,
   subject: { type: 'persona', id: PERSONA_ID },
 });
 
-export type CollectionOptions = { partition?: string; selector?: StorageSelector };
+export type CollectionOptions = { partition?: string; selector?: UnitSelector };
 
 function collectionOf(
-  kind: StorageKind,
+  kind: UnitKind,
   type: 'account' | 'person' | 'place',
   id: string,
   { partition, selector }: CollectionOptions = {}
-): StorageKey {
+): UnitKey {
   if (typeof id !== 'string' || id === '')
     throw Object.assign(new Error('BAD_COLLECTION_ID'), { code: 'BAD_COLLECTION_ID' });
   return {
@@ -101,27 +102,23 @@ function collectionOf(
 }
 
 /** A collection of one concrete account. */
-export const accountCollection = (kind: StorageKind, accountId: string, options?: CollectionOptions): StorageKey =>
+export const accountCollection = (kind: UnitKind, accountId: string, options?: CollectionOptions): UnitKey =>
   collectionOf(kind, 'account', accountId, options);
 
 /** A collection of one person. */
-export const personCollection = (kind: StorageKind, personId: string, options?: CollectionOptions): StorageKey =>
+export const personCollection = (kind: UnitKind, personId: string, options?: CollectionOptions): UnitKey =>
   collectionOf(kind, 'person', personId, options);
 
 /** A collection of one place: a server, a channel, a thread, a group or a DM. */
-export const placeCollection = (kind: StorageKind, placeId: string, options?: CollectionOptions): StorageKey =>
+export const placeCollection = (kind: UnitKind, placeId: string, options?: CollectionOptions): UnitKey =>
   collectionOf(kind, 'place', placeId, options);
 
 /** A collection of one place, or of the persona when no place holds it. */
-export const placeOrPersona = (
-  kind: StorageKind,
-  placeId: string | null,
-  options: CollectionOptions = {}
-): StorageKey =>
+export const placeOrPersona = (kind: UnitKind, placeId: string | null, options: CollectionOptions = {}): UnitKey =>
   placeId === null || placeId === PERSONA_ID
     ? { ...personaKey(kind), ...options }
     : placeCollection(kind, placeId, options);
 
 /** A journal day of one place. */
-export const journalKey = (placeId: string, day: string): StorageKey =>
+export const journalKey = (placeId: string, day: string): UnitKey =>
   placeCollection('journal', placeId, { partition: day });

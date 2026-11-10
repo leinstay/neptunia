@@ -6,7 +6,7 @@ import { accountOf } from '../../../memory/addresses.ts';
 import { isCliOwner } from '../../../behavior/core-pause.ts';
 import { forcedPictureRefusal } from '../../../behavior/selfreflection-turn.ts';
 import { refreshEmojiIfOn } from '../../../behavior/emoji-index.ts';
-import { PERSONA_ID } from '../../../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../../../memory/db/ids.ts';
 import { takeSnapshotOf } from '../../../behavior/snapshot.ts';
 import type { Snapshot } from '../../../behavior/snapshot.ts';
 import { createDeadline } from '../../../behavior/turn-parts.ts';

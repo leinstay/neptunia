@@ -48,8 +48,9 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { PERSONA_ID, placeOrPersona } from './db/storage-keys.ts';
-import type { StorageKey } from './db/storage-keys.ts';
+import { PERSONA_ID } from './db/ids.ts';
+import { placeOrPersona } from './db/unit-keys.ts';
+import type { UnitKey } from './db/unit-keys.ts';
 
 import { log as defaultLog } from '../log.ts';
 import { oneLine } from './clamp.ts';
@@ -882,7 +883,7 @@ export function createJournal({
   const inner = (placeId: string, record: StoredRecord) => write(placeId, 'inner', record);
 
   /** The lines (text) of one day's unit in the database. */
-  function* dayLines(db: Untyped, key: StorageKey) {
+  function* dayLines(db: Untyped, key: UnitKey) {
     for (const line of seam.run(() => journalLines(db, key))) yield line;
   }
 

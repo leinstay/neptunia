@@ -32,7 +32,7 @@
 // existed counts as read when it was `seen`.
 // Logs carry ids and codes, never text.
 
-import { PERSONA_ID } from '../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../memory/db/ids.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';

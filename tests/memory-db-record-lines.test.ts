@@ -11,7 +11,7 @@ import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { BASELINE_VERSION } from '../src/memory/db/schema-baseline.ts';
 import { recordLines } from '../src/memory/db/record-lines.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { placeOrPersona } from '../src/memory/db/storage-keys.ts';
+import { placeOrPersona } from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Row } from '../src/memory/db/types.ts';
 import { addAccount, addChannelPlace } from './fixtures/memory-db/opaque-people.ts';

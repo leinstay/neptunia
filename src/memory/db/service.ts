@@ -109,7 +109,7 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { keyText, placeCollection } from './storage-keys.ts';
+import { keyText, placeCollection } from './unit-keys.ts';
 import type { IntentionsWrite } from './intentions-write.ts';
 import type { LineVectorsWrite } from './line-vectors.ts';
 import type { RecordLinesWrite } from './record-lines.ts';

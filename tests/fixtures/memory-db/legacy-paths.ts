@@ -3,7 +3,7 @@
 // (`legacyStorageKey`). The engine reads no such folder. Pure: no I/O. Synthetic fixtures only.
 
 import { accountId, channelPlaceId, dmPlaceId } from '../../../src/memory/db/ids.ts';
-import type { StorageKey, StorageKind, StorageSelector, StorageSubject } from '../../../src/memory/db/storage-keys.ts';
+import type { UnitKey, UnitKind, UnitSelector, UnitSubject } from '../../../src/memory/db/unit-keys.ts';
 import { asText } from '../../../src/memory/db/types.ts';
 import { classify } from './legacy-classify.ts';
 
@@ -157,9 +157,9 @@ function operationalKindOf(rel: string): string {
 }
 
 /** The semantic identity of a historical collection without merging its existing replacement boundary. */
-export function legacyStorageKey(owner: string, iface = LEGACY_IFACE, legacyKind?: string): StorageKey {
+export function legacyStorageKey(owner: string, iface = LEGACY_IFACE, legacyKind?: string): UnitKey {
   const root = rootStateKind(owner);
-  if (root) return { kind: root as StorageKind, subject: { type: 'persona', id: 'persona:local' } };
+  if (root) return { kind: root as UnitKind, subject: { type: 'persona', id: 'persona:local' } };
   // An earlier release kept this marker at the data root, and its retired row stays with the persona.
   if (owner === 'journal/.running')
     return { kind: 'journal_running', subject: { type: 'persona', id: 'persona:local' } };
@@ -171,7 +171,7 @@ export function legacyStorageKey(owner: string, iface = LEGACY_IFACE, legacyKind
     throw Object.assign(new Error('UNIT_UNMAPPED'), { code: 'UNIT_UNMAPPED' });
   const scopePlaceId = legacyServerPlaceId(iface, info.guildId);
   const stored = info.kind === 'verbatim' ? operationalKindOf(info.unit) : info.kind;
-  const kind = stored as StorageKind;
+  const kind = stored as UnitKind;
   const rel = info.unit;
   const selector = legacySelector(kind, rel);
   const subject = legacySubject(kind, rel, iface, scopePlaceId, selector);
@@ -191,14 +191,14 @@ function historicalTaskUnit(owner: string, kind?: string): { kind: 'errands'; un
 }
 
 /** Selectors retain distinct legacy collections and individual request and version records. */
-function legacySelector(kind: StorageKind, rel: string): StorageSelector | undefined {
+function legacySelector(kind: UnitKind, rel: string): UnitSelector | undefined {
   if (kind === 'intentions') return { collection: rel.endsWith('.jsonl') ? 'archive' : 'active' };
   if (kind === 'errands') return { collection: rel.endsWith('.jsonl') ? 'history' : 'value' };
   if (kind === 'requests') return { requestId: /([^/]+)\.json$/.exec(rel)![1] };
   if (kind === 'versions') {
     const [, versionKind, itemId] = /^versions\/([^/]+)\/(.+)\.json$/.exec(rel)!;
     const named = versionKind === 'guild' ? 'place' : versionKind;
-    return { versionKind: named as NonNullable<StorageSelector['versionKind']>, itemId };
+    return { versionKind: named as NonNullable<UnitSelector['versionKind']>, itemId };
   }
   if (['backfill', 'forgetting', 'request_tools', 'archive_pending'].includes(kind))
     return {
@@ -215,12 +215,12 @@ export const isLegacySelfreflectionFile = (owner: string): boolean => /\/diary\.
 
 /** A legacy wrapper's community scope stays separate from its exact account or place subject. */
 function legacySubject(
-  kind: StorageKind,
+  kind: UnitKind,
   rel: string,
   iface: string,
   scope: string,
-  selector?: StorageSelector
-): StorageSubject {
+  selector?: UnitSelector
+): UnitSubject {
   if (['selfreflection', 'intentions', 'errands', 'inner'].includes(kind))
     return { type: 'persona', id: 'persona:local' };
   const itemId = /([^/]+)\.json$/.exec(rel)?.[1];

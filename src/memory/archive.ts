@@ -24,7 +24,7 @@
 import * as nodeFs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { keyText, placeOrPersona } from './db/storage-keys.ts';
+import { keyText, placeOrPersona } from './db/unit-keys.ts';
 
 import { isRecord, propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import { log as defaultLog } from '../log.ts';

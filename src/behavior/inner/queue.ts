@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { operationalValue } from '../../memory/db/operational.ts';
-import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../../memory/db/ids.ts';
 
 import { createReadSeam } from '../../memory/db/readers/common.ts';
 import { writeJsonAtomic } from '../../memory/index.ts';

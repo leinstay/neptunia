@@ -28,8 +28,8 @@ import { proseVersionsOfUnit } from './db/prose-versions.ts';
 import { unitHeld, unitSubjects, unitValue } from './db/readers/common.ts';
 import { recentLinesOfUnit } from './db/recent-lines.ts';
 import { selfreflectionOfUnit } from './db/selfreflection-entries.ts';
-import { keyText } from './db/storage-keys.ts';
-import type { StorageKey, StorageKind } from './db/storage-keys.ts';
+import { keyText } from './db/unit-keys.ts';
+import type { UnitKey, UnitKind } from './db/unit-keys.ts';
 import type { Db, Row } from './db/types.ts';
 import type { MemoryDb, Untyped } from './types.ts';
 import { log } from '../log.ts';
@@ -72,8 +72,8 @@ const takesWrites = (memoryDb: MemoryDb): boolean =>
 
 /** What a store asks of its reads and writes (see the head of this file). */
 export type StoreWrites = {
-  address: (key: StorageKey) => string;
-  collection: (kind: StorageKind) => string;
+  address: (key: UnitKey) => string;
+  collection: (kind: UnitKind) => string;
   entry: (file: string, fallback: () => unknown) => StoreItem;
   pin: (file: string, fallback: () => unknown) => StoreItem;
   inUse: (file: string) => StoreItem | undefined;
@@ -86,9 +86,9 @@ export type StoreWrites = {
   drop: (keep: string) => number;
   reload: (file: string, item: StoreItem) => void;
   writable: () => boolean;
-  lines: (key: StorageKey, list: Array<unknown>) => boolean;
+  lines: (key: UnitKey, list: Array<unknown>) => boolean;
   push: () => void;
-  holds: (owner: StorageKey | string) => boolean;
+  holds: (owner: UnitKey | string) => boolean;
 };
 
 /** The reads and writes over `memoryDb`, reading through `seam`. See the head of this file. */
@@ -99,8 +99,8 @@ export function createStoreWrites({ memoryDb, seam }: { memoryDb: MemoryDb; seam
   // The values kept for the whole life of the store (her state, the GIF library, a place's media cache).
   const pinned = new Set<string>();
   const lanes = new Map<string, Lane>();
-  const unitKeys = new Map<string, StorageKey>();
-  const directoryKinds = new Map<string, StorageKind>();
+  const unitKeys = new Map<string, UnitKey>();
+  const directoryKinds = new Map<string, UnitKind>();
   // The last read of each unit with the stamp it was read at (`stampOf`).
   const lastRead = new Map<string, { stamp: string; found: boolean; value: unknown }>();
   // The stamp each value in use was read at.
@@ -111,14 +111,14 @@ export function createStoreWrites({ memoryDb, seam }: { memoryDb: MemoryDb; seam
   let swept = true;
 
   /** The name of a unit, registered so its write goes to the database. */
-  function address(key: StorageKey): string {
+  function address(key: UnitKey): string {
     const name = keyText(key);
     unitKeys.set(name, key);
     return name;
   }
 
   /** The name of a directory of units (`idsUnder`). */
-  function collection(kind: StorageKind): string {
+  function collection(kind: UnitKind): string {
     const name = JSON.stringify({ kind });
     directoryKinds.set(name, kind);
     return name;
@@ -444,7 +444,7 @@ export function createStoreWrites({ memoryDb, seam }: { memoryDb: MemoryDb; seam
     /** Whether a unit can be written: false without a writer. */
     writable: (): boolean => writer !== null,
     /** Lines appended to a unit, sent behind any write of it under way; false (nothing queued) without a writer. */
-    lines(key: StorageKey, list: Array<unknown>): boolean {
+    lines(key: UnitKey, list: Array<unknown>): boolean {
       if (!writer) return false;
       if (list.length === 0) return true;
       laneOf(address(key)).lines.push(...list);
@@ -455,6 +455,6 @@ export function createStoreWrites({ memoryDb, seam }: { memoryDb: MemoryDb; seam
       for (const file of lanes.keys()) sendLines(file);
     },
     /** Whether a write of the unit is under way or lines of it wait. */
-    holds: (owner: StorageKey | string): boolean => holds(typeof owner === 'string' ? owner : keyText(owner)),
+    holds: (owner: UnitKey | string): boolean => holds(typeof owner === 'string' ? owner : keyText(owner)),
   };
 }

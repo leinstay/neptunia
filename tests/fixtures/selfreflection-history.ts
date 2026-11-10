@@ -8,7 +8,7 @@
 // voice's media rows with their attachment ids, the picture's description in the media cache, and Alice's line in the
 // record. The diary's one enabled mirror is on `d1`. Synthetic text only.
 import { placeOfRoot, placeOfChat } from '../../src/memory/addresses.ts';
-import { placeCollection } from '../../src/memory/db/storage-keys.ts';
+import { placeCollection } from '../../src/memory/db/unit-keys.ts';
 import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror } from './selfreflection-mirror.ts';
 import { ROOT, NOW, sceneHot } from './selfreflection-requests-recorded.ts';

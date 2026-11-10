@@ -21,7 +21,7 @@ import { search } from '../src/memory/db/recall.ts';
 import { groupsContext, internalContext, scopeWhere } from '../src/memory/db/scope.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import type { MemoryDbService } from '../src/memory/db/service.ts';
-import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createJournal } from '../src/memory/journal.ts';

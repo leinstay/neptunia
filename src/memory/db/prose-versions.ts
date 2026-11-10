@@ -16,8 +16,8 @@
 import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
 import type { Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import { accountCollection, keyText, placeCollection, storageId } from './storage-keys.ts';
-import type { StorageKey } from './storage-keys.ts';
+import { accountCollection, keyText, placeCollection, collectionId } from './unit-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { writeMapping } from './upsert.ts';
 import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
@@ -49,7 +49,7 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
 const isProseKind = (value: unknown): value is ProseKind => PROSE_KINDS.includes(value as ProseKind);
 
 /** The unit of one prose owner's history. */
-export function proseVersionsKey({ versionKind, subjectId, itemId }: Omit<ProseVersionsWrite, 'value'>): StorageKey {
+export function proseVersionsKey({ versionKind, subjectId, itemId }: Omit<ProseVersionsWrite, 'value'>): UnitKey {
   const selector = { versionKind, itemId };
   return versionKind === 'users'
     ? accountCollection('versions', subjectId, { selector })
@@ -68,7 +68,7 @@ function profilePersonOf(db: Db, accountId: string): string | null {
  * subject's own writer keeps. An account's history is filed under the person its profile holds, else the account's
  * person. A unit of an older layout without an item or a kind falls back to what its subject or its id name.
  */
-function descriptionPrefix(db: Db, key: StorageKey, id: string): string {
+function descriptionPrefix(db: Db, key: UnitKey, id: string): string {
   const ctx = storageContext(db, key);
   const kind = key.selector?.versionKind;
   if (!kind) return `desc:unknown:${id}`;
@@ -127,8 +127,8 @@ function proseVersionsOf(rows: Rows): Row {
 /**
  * Stores the whole history the unit `key` holds inside the caller's transaction and retires what it no longer holds.
  */
-export function writeProseVersions(db: Db, key: StorageKey, value: Row, { at }: { at: string }): ProseVersionsResult {
-  const id = storageId(key); // a new history's operational row and an older layout's prefix name it
+export function writeProseVersions(db: Db, key: UnitKey, value: Row, { at }: { at: string }): ProseVersionsResult {
+  const id = collectionId(key); // a new history's operational row and an older layout's prefix name it
   const holder = profileOwnerOf(key)!; // a `versions` unit always has its owner columns (profile-owner.ts)
   const mapping = stampProfileRows(proseVersionsRows(value, descriptionPrefix(db, key, id), id), holder);
   // The history's operational row keeps the owner it was first stored under (an older release's path).
@@ -163,7 +163,7 @@ export function proseVersionsWriteOf(update: Row): ProseVersionsWrite {
  * Any other key of the kind stays a unit write, which the writer stores through the same path.
  */
 export function proseVersionsOfUnit(update: Row): ProseVersionsWrite | null {
-  const key = update.key as StorageKey | undefined;
+  const key = update.key as UnitKey | undefined;
   if (update.op !== 'value' || key?.kind !== 'versions') return null;
   const { versionKind, itemId } = key.selector ?? {};
   if (!isProseKind(versionKind) || !filled(itemId)) return null;
@@ -183,7 +183,7 @@ export function applyProseVersionsWrite(handle: MemoryHandle, update: Row): Pros
  * The history the unit `key` holds, or not found when the database holds no such unit. A picture's versions read the
  * same way: their rows have the same shape.
  */
-export function proseVersionsValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
+export function proseVersionsValue(db: Db, key: UnitKey): { found: true; value: unknown } | { found: false } {
   const holder = profileOwnerOf(key);
   if (!holder || !holdsAny(db, holder, 'operational')) return { found: false };
   return { found: true, value: proseVersionsOf(heldRows(db, holder, ['description_versions', 'operational'])) };
