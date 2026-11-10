@@ -50,7 +50,7 @@ export const TOOLS: ReadonlyArray<SchemaEntry> = [
     'key': 'tools.loop.timeBudgetMs',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
-    'default': 300000,
+    'default': 150000,
     'text': 'How long the calls and follow-ups may run',
   },
   {

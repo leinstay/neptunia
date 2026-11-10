@@ -354,7 +354,7 @@ The engine proxy is described in [Proxy](proxy.md).
 | `tools.callTimeoutMs` | number | `120000` | How long a skill call may run before its outcome is `unknown` | `src/behavior/sandbox.ts` |
 | `tools.transport` | string | `"native"` | How tools reach the model. `native`: structured tool calls. `text`: tools described in the prompt, calls as `<tool_call>` blocks | `src/behavior/sandbox.ts` |
 | `tools.loop.maxSteps` | number | `100` | Most further requests one turn makes after her calls | `src/turn/tool-round.ts` |
-| `tools.loop.timeBudgetMs` | number | `300000` | How long the calls and follow-ups may run | `src/turn/settings.ts` |
+| `tools.loop.timeBudgetMs` | number | `150000` | How long the calls and follow-ups may run | `src/turn/settings.ts` |
 | `tools.loop.maxCallsPerStep` | number | `8` | Most calls of one answer that run | `src/turn/settings.ts` |
 | `tools.loop.stepReserveTokens` | number | `6000` | Tokens the first request leaves for the follow-up requests. `0` = no reserve | `src/turn/request/head.ts` |
 

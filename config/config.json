@@ -349,7 +349,7 @@
     "transport": "native",
     "loop": {
       "maxSteps": 100,
-      "timeBudgetMs": 300000,
+      "timeBudgetMs": 150000,
       "maxCallsPerStep": 8,
       "stepReserveTokens": 6000
     }

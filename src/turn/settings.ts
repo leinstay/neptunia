@@ -77,7 +77,7 @@ export function paceSettings(config: unknown): PaceSettings {
 /** tools.loop's values when a key is missing (config.json's). */
 const LOOP_FALLBACK = Object.freeze({
   maxSteps: 100,
-  timeBudgetMs: 300000,
+  timeBudgetMs: 150000,
   maxCallsPerStep: 8,
   stepReserveTokens: 6000,
 });
