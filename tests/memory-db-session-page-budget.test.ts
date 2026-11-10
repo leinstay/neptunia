@@ -31,10 +31,13 @@ function crowd(env: Fixture): void {
     [CY, 'Κύρος'],
     [DORA, 'Dóra'],
   ]) {
-    env.db.prepare("INSERT INTO people (id, kind, affinity) VALUES (?, 'member', 1)").run(personOf(native));
-    env.db
-      .prepare("INSERT INTO accounts (id, iface, native_id, person_id, names) VALUES (?, 'discord', ?, ?, ?)")
-      .run(`discord:${native}`, native, personOf(native), JSON.stringify([name]));
+    const { db } = env;
+    const person = db.prepare("INSERT INTO people (id, kind, affinity) VALUES (?, 'member', 1)");
+    person.run(personOf(native));
+    const account = db.prepare(
+      "INSERT INTO accounts (id, iface, native_id, person_id, names) VALUES (?, 'discord', ?, ?, ?)"
+    );
+    account.run(`discord:${native}`, native, personOf(native), JSON.stringify([name]));
   }
   let minutes = 120;
   for (const native of [ADA, BOB, CY, DORA]) {
@@ -65,13 +68,14 @@ const shownPeople = (messages: unknown): Array<string> => {
   return [...user.matchAll(/^id: <@([^>]+)>$/gm)].map((match) => match[1]);
 };
 
-const cursorOf = (env: Fixture): number =>
-  Number(env.db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey('apply', SCOPE))?.value ?? 0);
+const metaRow = ({ db }: Fixture) => db.prepare('SELECT value FROM meta WHERE key = ?');
+const cursorOf = (env: Fixture): number => Number(metaRow(env).get(cursorKey('apply', SCOPE))?.value ?? 0);
 
 /** The batch at cursor 0, and the estimate and people of each of its two pages under `config`. */
 function pagesNow(env: Fixture, config: Record<string, unknown>) {
   const scope = scopesOf(env.db).find((entry) => entry.key === SCOPE)!;
-  const batch = batchOf(env.db, scope.scope, { cursor: 0, since: null, maxMessages: 200, settleBefore: NOW });
+  const { scope: where } = scope;
+  const batch = batchOf(env.db, where, { cursor: 0, since: null, maxMessages: 200, settleBefore: NOW });
   const page = (n: number) => {
     const built = buildSessionRequest({
       db: env.db,
@@ -154,15 +158,17 @@ test('a page sent in parts keeps its parts on the next try: an applied part is n
     const split = fakeLlm((_messages, _options, n) => (n === 1 ? memoryBlock({}) : new Error('timeout')));
     await sweep(ctxOf(env, { llm: split, config: apply({ maxPageTokens: pages[0].estimate - 1 }) }));
     assert.ok(split.calls.length >= 2, 'page 0 went out in parts');
-    const appliedPart = shownPeople(split.calls[0].messages);
+    const [first] = split.calls;
+    const appliedPart = shownPeople(first.messages);
     assert.equal(cursorOf(env), 0, 'a failed part holds the cursor');
 
     const retry = fakeLlm(memoryBlock({}));
     await sweep(ctxOf(env, { llm: retry, config: apply() }));
+    const open = pages[0].people;
     const resent = retry.calls.flatMap((call) => shownPeople(call.messages));
     assert.deepEqual(
       [...resent].sort(),
-      pages[0].people.filter((native) => !appliedPart.includes(native)).sort(),
+      open.filter((native) => !appliedPart.includes(native)).sort(),
       'only the people of the parts not applied'
     );
     assert.equal(cursorOf(env), Math.max(...batch.map((line) => line.rowid)), 'the cursor moves past the batch');
