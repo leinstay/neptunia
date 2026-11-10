@@ -211,6 +211,8 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   // Events are held until open(): the core's door has no handlers before it.
   let held: Array<{ kind: string; event: Obj }> | null = [];
   let dropped = 0;
+  // Set by stop(): the link is closed, so the shard disconnect that client.destroy() fires has nowhere to go.
+  let stopped = false;
 
   function deliver(kind: string, event: Obj): void {
     void served.emit(event).then((status) => {
@@ -219,6 +221,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   }
 
   function inbound(kind: string, build: () => unknown): void {
+    if (stopped) return;
     let event: Obj;
     try {
       event = obj(build());
@@ -349,6 +352,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       served = await serve();
     },
     async stop(): Promise<void> {
+      stopped = true;
       served.close();
       await client.destroy();
     },

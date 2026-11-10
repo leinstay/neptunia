@@ -6,7 +6,7 @@ An interface connects a platform to the persona. It translates platform messages
 
 Start with [InterfaceHost](../src/protocol/host.ts), [events](../src/protocol/events.ts) and the [adapter types](../src/protocol/adapter.ts). A package exports `start(host)` and returns a `RunningInterface` with `iface`, `open()` and `stop()`. It may provide `reconnect()`.
 
-The host supplies a connection, client token, live settings, logger and a directory for interface state. `open()` releases incoming events after the core has installed its handlers. Declare capabilities such as history, reactions, attachments and search honestly; unsupported operations return an explicit result.
+The host supplies a connection, client token, live settings, logger and a directory for interface state. `open()` releases incoming events after the core has installed its handlers. `stop()` closes the link first, and the interface sends no event after it. The Discord session drops the `connection.changed` lost that `client.destroy()` fires while it stops, since no link is left to carry it. Declare capabilities such as history, reactions, attachments and search honestly; unsupported operations return an explicit result.
 
 Keep platform SDK imports in the interface package. The interface imports only the shared protocol from the engine. It never opens `memory.db`. Use [the fake interface package](../tests/fixtures/interfaces/fake/) for a small executable reference, [Discord](../interfaces/discord/) for a full implementation, and [the command line](../interfaces/cli/) for one that lives in the owner's terminal, with no data folder, no outbox and no unit.
 
