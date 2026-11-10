@@ -125,6 +125,8 @@ A handle to read a place and a way to write there are two facts. `conversation.r
 | `written` | its `text` is her writing, rendered as a `<msg>` of hers | `src/tools/executors.ts`, `WRITTEN_SKILLS` |
 | `publishes` | the turn's publication boundary may refuse it | `src/tools/executors.ts` |
 
+The owner's narrow reads of one subject, `memory.profile.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `lore.list` and `lore.show`, stay registered, grantable operations that run when called, and `REPLACED_BY_MEMORY_READ` in `src/tools/discovery.ts` leaves them out of the list she is offered. Her read of one subject is `memory.read`, which runs only inside a turn (`src/turn/in-turn-tools.ts`). Its operation in `src/tools/operations/search.ts` answers `unsupported` anywhere else. A stored grant or wake envelope under one of the six names opens `memory.read` through `grantNamesFor` in `src/tools/operations/grants.ts`.
+
 `effectsOf(name)` reads a tool's effect class from its row, and the turn's outcome in `src/turn/phases/outcome.ts` counts an executed `read` call as one that changed nothing. A change to a tool's traits changes who may run it, so `src/development/risk.ts` counts `src/tools/definitions.ts` among the `permissions` paths.
 
 ## Boundaries

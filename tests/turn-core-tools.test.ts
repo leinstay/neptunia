@@ -324,14 +324,15 @@ test('no search classifier before her reply, her tools go with the request as it
   assert.ok(!stable.text.includes('<tools>'), 'the native transport describes no tools in text');
   const [sent] = on.llm.options;
   assert.equal(sent.toolChoice, 'auto');
-  // Sorted by name: the errand tool sits between draw_create and lore_list.
+  // Sorted by name: the errand tool sits between draw_create and memory_read.
+  // Changed: the six narrow reads leave her offered list, and the grant of lore.list opens memory.read in its place (lookup loop slice 12).
   assert.deepEqual(
     asRecord(sent.tools).map((tool: Untyped) => tool.function.name),
     // PR 7d: features.speech is code, so voice.say is carried over with the others.
     [
       'draw_create',
       'errand_run',
-      'lore_list',
+      'memory_read',
       'memory_search',
       'message_create',
       'message_react_add',

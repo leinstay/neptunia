@@ -6,6 +6,7 @@
 
 import { fill, formatDate } from '../../format.ts';
 import { factStateWords } from '../../memory/retrieval-input.ts';
+import { EVIDENCE_ORDER } from '../../memory/db/mind-read.ts';
 import type {
   ClaimEntry,
   EpisodeEntry,
@@ -18,7 +19,7 @@ import type {
 import type { PersonAccount } from '../../memory/db/meta-person.ts';
 import type { Frame } from './frame.ts';
 import { block, escapeStored, pathText } from './text.ts';
-import type { LabelGroup, Labels, MemoryRead, NameOf } from './types.ts';
+import type { LabelGroup, Labels, MemoryLabels, MemoryRead, NameOf } from './types.ts';
 
 /** The subtags of `<memory>`, in their order. */
 export const MEMORY_SUBTAGS = ['people', 'places', 'lore', 'recent', 'found'] as const;
@@ -211,7 +212,7 @@ export function factItemsOf(facts: ReadonlyArray<StoredFact>, labels: Labels): A
  */
 export function memoryItemsOf(
   mind: Mind,
-  frame: Frame,
+  frame: FrameView,
   labels: Labels,
   nameOf: NameOf,
   live: LiveOf | null = null,
@@ -299,5 +300,52 @@ export function peopleMemoryOf(
     reads: readsOf(person),
   }));
   const body = renderMemory(items, leftOut > 0 ? { people: leftOut } : {}, labels);
+  return body === '' ? '' : block('memory', body);
+}
+
+/** One change of her attitude toward a person, as memory.read's section `changes` renders it. */
+export type AttitudeChange = { readonly at: string; readonly applied: number; readonly reason: string };
+
+/**
+ * One change as a line: `memory.warmer` or `memory.cooler` (`{date}`, `{amount}`, the move without its sign), inside
+ * `memory.changeReason` (`{change}`, `{reason}`) when it has a stated reason.
+ */
+function changeLine(w: Words, change: AttitudeChange): string {
+  const at = Date.parse(change.at);
+  const date = Number.isFinite(at) ? formatDate(at, w.frame.timezone, w.locale) : '';
+  const amount = Math.round(Math.abs(change.applied) * 100) / 100;
+  const line = fill((change.applied < 0 ? w.l.cooler : w.l.warmer) ?? '{date}: {amount}', { date, amount });
+  const reason = change.reason.trim();
+  return reason !== '' && typeof w.l.changeReason === 'string'
+    ? fill(w.l.changeReason, { change: line, reason: escapeStored(reason) })
+    : line;
+}
+
+/**
+ * A `<memory>` of what memory.read found for one subject: every entry of `mind` as memoryItemsOf renders it, none marked
+ * as the one she answers, each with the read's own origin (`memory.origin.read`) in its heading. With `changes` the
+ * people of `mind` render as their heading alone followed by those changes, newest first. '' with nothing.
+ */
+export function subjectMemoryOf(
+  mind: Mind,
+  view: FrameView,
+  labels: Labels,
+  nameOf: NameOf,
+  changes: ReadonlyArray<AttitudeChange> | null = null
+): string {
+  const l = labels.memory ?? {};
+  const read = l.origin?.read ?? '';
+  const origin = Object.fromEntries(EVIDENCE_ORDER.map((evidence) => [evidence, read]));
+  // MemoryLabels is a group of strings with one nested group, which no object literal satisfies as written.
+  const told: Labels = { ...labels, memory: { ...l, origin } as MemoryLabels };
+  const frame: FrameView = { ...view, counterpart: null };
+  const people = changes === null ? mind.people : mind.people.map((person) => ({ ...person, detail: 'name' as const }));
+  const items = memoryItemsOf({ ...mind, people }, frame, told, nameOf);
+  const w: Words = { l, origin, frame, nameOf, locale: labels.locale };
+  const lines = (changes ?? []).map((change) => changeLine(w, change));
+  const withChanges = items.map((item) =>
+    item.subtag === 'people' && lines.length > 0 ? { ...item, text: [item.text, ...lines].join('\n') } : item
+  );
+  const body = renderMemory(withChanges, {}, labels);
   return body === '' ? '' : block('memory', body);
 }

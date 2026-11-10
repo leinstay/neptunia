@@ -3989,6 +3989,61 @@
    }
   },
   {
+   "tool": "memory.read",
+   "effect": "read",
+   "costClass": "free",
+   "feature": null,
+   "result": "data",
+   "ownerOnly": false,
+   "grantedByDefault": false,
+   "carriedOver": false,
+   "grantableToPersona": true,
+   "nested": [],
+   "reply": {
+    "on": "unknown-skill:memory.read",
+    "off": "unknown-skill:memory.read"
+   },
+   "rights": {
+    "owner": "ok",
+    "member": "ok",
+    "member-granted": "ok",
+    "member-commands-off": "ok"
+   },
+   "envelope": {
+    "intention_due": "ok",
+    "review": "ok",
+    "errand_deadline": "ok",
+    "attend": "ok",
+    "feedback": "ok",
+    "heartbeat": "ok"
+   },
+   "verdicts": {
+    "owner-here": "ok",
+    "member-here": "ok",
+    "member-granted-here": "ok",
+    "owner-there": "ok",
+    "member-there": "ok",
+    "ungranted-owner-here": "not-allowed:memory.read",
+    "shipped-owner-here": "not-allowed:memory.read",
+    "no-requester": "ok",
+    "own-initiative": "ok",
+    "wake-intention_due": "ok",
+    "wake-review": "ok",
+    "wake-errand_deadline": "ok",
+    "wake-attend": "ok",
+    "wake-feedback": "ok",
+    "wake-heartbeat": "ok",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
+    "mixed-requesters": "ok",
+    "cooldown": "ok",
+    "budget-spent": "ok",
+    "budget-unknown": "ok",
+    "unknown-principal": "unknown-principal:member"
+   }
+  },
+  {
    "tool": "person.link",
    "effect": "write",
    "costClass": "free",

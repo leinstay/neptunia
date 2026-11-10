@@ -338,7 +338,8 @@
         "place": "where lines you see were written",
         "edge": "tied to something in the lines you see",
         "word": "a word in the lines you see matches its name",
-        "prose": "named in what you know of someone here"
+        "prose": "named in what you know of someone here",
+        "read": "you looked this up in your memory"
       },
       "counterpart": "you are answering this person",
       "candidate": "a possible match for a name in the chat, not a sure one",
@@ -356,6 +357,9 @@
       "ownLines": "you wrote {count} messages here, the last on {date}",
       "ownNone": "you have not written here",
       "episode": "{date}: {what}",
+      "warmer": "{date}: you grew warmer toward them by {amount}",
+      "cooler": "{date}: you grew cooler toward them by {amount}",
+      "changeReason": "{change}: {reason}",
       "excerpt": "{date}, {path}: \"{text}\"",
       "fact": "stored fact ({state}): \"{text}\"",
       "selfreflection": "Your diary.",
@@ -815,6 +819,13 @@
           "found": "Nobody is called \"{given}\". By what you remember of them, these people fit it best, best first. Read the chat of the one that was meant. When you cannot tell which one was meant, ask which person by their name, never for an id or a link:",
           "line": "{name}, written as {ref}",
           "lineAbout": "{name}, written as {ref}: {about}"
+        },
+        "subject": {
+          "none": "Your memory holds nothing under \"{given}\".",
+          "several": "\"{given}\" fits {count} things in your memory. Call again with one of these:",
+          "line": "{name}, written as {ref}",
+          "sections": "There is no section \"{given}\" here. The sections are {sections}, and changes is for a person.",
+          "noChanges": "Your memory holds no change of your attitude toward them."
         },
         "look": {
           "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",

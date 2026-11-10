@@ -19,7 +19,7 @@ import { createIntentionStores } from '../src/intentions/store.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { selfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
 import type { SelfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
-import { PROMPT_MARK, WAKE_NOW, requestText, wakeOfKind, wakeTurn } from './fixtures/wake-turn.ts';
+import { ANCHOR_LINE, PROMPT_MARK, WAKE_NOW, requestText, wakeOfKind, wakeTurn } from './fixtures/wake-turn.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const THINK = '<think>I looked at it.</think>';
@@ -38,12 +38,17 @@ const nameOf = (skill: string): string => apiNameOf(skill) ?? skill;
 test('selfimprovement wake: an ok task.propose ends the turn even when a read in the same step left a fresh result', async (t) => {
   // Bug: the fresh read earns another request after the filing, so the deciding wake goes on and may file or act again.
   const world = selfimprovementWorld(t);
+  // Changed: lore.list is no wake read since memory.read took the narrow reads (lookup loop slice 12), so the read here is
+  // conversation.read, a granted read the wake accepts.
   const run = await wakeTurn({
     wake: IMPROVE,
-    answers: [toolAnswer(THINK, [call('lore.list'), call('task.propose', TASK)]), PROPOSE],
+    answers: [
+      toolAnswer(THINK, [call('conversation.read', { place: '#general', last: 1 }), call('task.propose', TASK)]),
+      PROPOSE,
+    ],
     board: world.caller,
   });
-  assert.deepEqual(run.actions, ['lore.list:executed:ok', 'task.propose:executed:ok']);
+  assert.deepEqual(run.actions, ['conversation.read:executed:ok', 'task.propose:executed:ok']);
   assert.equal(run.requests.length, 1);
   assert.equal((await herTasks(world)).length, 1);
 });
@@ -58,15 +63,16 @@ test('guard: selfimprovement wake: a skip is one request and files nothing', asy
 
 test('guard: selfimprovement wake: a recall that finds something comes first, she reads it, and then she files', async (t) => {
   const world = selfimprovementWorld(t);
+  // Changed: lore.list is no wake read since memory.read took the narrow reads (lookup loop slice 12), so the read here is
+  // conversation.read, a granted read the wake accepts.
   const run = await wakeTurn({
     wake: IMPROVE,
-    answers: [toolAnswer(THINK, [call('lore.list')]), PROPOSE],
+    answers: [toolAnswer(THINK, [call('conversation.read', { place: '#general', last: 1 })]), PROPOSE],
     board: world.caller,
-    lore: [{ id: 'l1', title: 'the digest ritual', text: 'every week', keys: ['digest'], always: false }],
   });
-  assert.deepEqual(run.actions, ['lore.list:executed:ok', 'task.propose:executed:ok']);
+  assert.deepEqual(run.actions, ['conversation.read:executed:ok', 'task.propose:executed:ok']);
   assert.equal(run.requests.length, 2);
-  assert.ok(requestText(run.requests[1] ?? []).includes('the digest ritual'));
+  assert.ok(requestText(run.requests[1] ?? []).includes(ANCHOR_LINE));
   assert.equal((await herTasks(world)).length, 1);
 });
 
@@ -194,7 +200,8 @@ test('selfimprovement wake: the request offers her task operations and memory re
   // Bug: the wake cannot file or answer a task because its operations are missing from the array.
   const world = selfimprovementWorld(t);
   const run = await wakeTurn({ wake: IMPROVE, answers: ['<skip/>'], board: world.caller });
-  for (const name of ['task.propose', 'task.status', 'task.cancel', 'task.comment', 'task.answer', 'lore.list'])
+  // Changed: the grant of lore.list offers memory.read in its place (lookup loop slice 12).
+  for (const name of ['task.propose', 'task.status', 'task.cancel', 'task.comment', 'task.answer', 'memory.read'])
     assert.ok(run.offered.includes(nameOf(name)), `${name} is offered`);
 });
 

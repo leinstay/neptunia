@@ -1,5 +1,5 @@
 // Her in-turn tools for one turn: `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`,
-// `conversation.read`, `draw.create`, `person.link` and a selfreflection post's `voice.say`, each run over the turn's own context in place of
+// `conversation.read`, `memory.read` (src/turn/memory-read.ts), `draw.create`, `person.link` and a selfreflection post's `voice.say`, each run over the turn's own context in place of
 // the operation's command (src/tools/executors.ts#executeCall). createTurnRunner (src/behavior/turn.ts) builds it once
 // per runner with createInTurnTools; the attempt hands the tools to its calls.
 
@@ -19,6 +19,7 @@ import type { FrameLine, FrameReads } from '../memory/db/frame-reads.ts';
 import type { FindMeaningSource } from '../memory/db/graph-find.ts';
 import type { Seeds } from '../memory/db/mind-read.ts';
 import { peopleMemoryOf } from './request/memory-block.ts';
+import { runMemoryRead } from './memory-read.ts';
 import type { Labels } from './request/types.ts';
 import { nativeChatOf } from '../memory/db/frame-reads.ts';
 import { lineItemParts } from '../memory/db/media-store.ts';
@@ -89,7 +90,15 @@ export type InTurnToolsContext = {
   /** The memory's reads of a place by its id, on any interface (src/memory/db/frame-reads.ts); null while closed. */
   placeReads?: Pick<
     FrameReads,
-    'placeReadable' | 'around' | 'directChats' | 'mind' | 'account' | 'placeRef' | 'mediaTexts'
+    | 'placeReadable'
+    | 'around'
+    | 'directChats'
+    | 'mind'
+    | 'account'
+    | 'placeRef'
+    | 'mediaTexts'
+    | 'subject'
+    | 'affinityChanges'
   > | null;
   linkCalls: JournalNotes['linkCalls'];
   drawTool: DrawGif['drawTool'];
@@ -317,6 +326,17 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         };
         return readChat({ args, channel, snapshot, placeId, partner, selfName, draft, scene });
       },
+      // What memory holds about one subject, under the turn's memory context, rendered as `<memory>` renders it.
+      'memory.read': (args) =>
+        runMemoryRead({
+          args,
+          reads: placeReads,
+          context: turnContextOf(draft, channel) as Context | null,
+          here: { iface: chatOf(channel).iface, rootNative: channel.rootId ?? null },
+          labels: hot.prompts?.labels ?? {},
+          timezone: hot.config.bot?.timezone ?? 'UTC',
+          now: clock(),
+        }),
     };
   }
 

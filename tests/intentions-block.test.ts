@@ -184,10 +184,11 @@ test('skills: the intent skills are hers once granted', () => {
       (row) => row.name
     );
   assert.equal(listed(config()).filter((name) => name.startsWith('intention.')).length, 4);
+  // Changed: the six narrow reads leave her offered list, and the grant of lore.list opens memory.read in its place (lookup loop slice 12).
   assert.deepEqual(grantedSkillNames({ config: config(), selfId: SELF, registry }), [
     'intention.list',
     'intention.set',
-    'lore.list',
+    'memory.read',
   ]);
   // Nobody asked: her own intention is a write, refused like every write of an unasked turn.
   const verdict = checkSkill({

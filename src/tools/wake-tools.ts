@@ -11,16 +11,11 @@ export const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intention.set', 'intentio
 /** Memory inspection available while deciding; external reads and other effects remain deferred. */
 export const HEARTBEAT_READ_SKILLS = Object.freeze([
   'memory.search',
-  'memory.profile.read',
-  'memory.channel.read',
-  'memory.server.read',
-  'memory.recent.read',
+  'memory.read',
   'memory.archive.read',
   'memory.journal.read',
   'conversation.read',
   'intention.list',
-  'lore.list',
-  'lore.show',
   'tools.describe',
 ]);
 /** Her answers on a task of hers: they do not end the wake, and only this wake has them. */

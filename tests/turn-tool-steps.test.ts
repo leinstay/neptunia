@@ -676,8 +676,10 @@ test('[text] no tools field is sent, the tools are described in the <tools> bloc
   const first = requestText(turn.llm, 0);
   assert.ok(first.includes('<tools>'), 'the <tools> block');
   assert.ok(first.includes(labels.tools.toolsText.lead) && first.includes(labels.tools.toolsText.protocol));
-  assert.ok(first.includes('"name":"lore.list"') && first.includes('"name":"memory.server.read"'), 'dotted names');
-  assert.ok(!first.includes('"name":"lore_list"'));
+  // Changed: lore.list and memory.server.read leave her offered list and their grants offer memory.read in their place
+  // (lookup loop slice 12); the two calls still run below.
+  assert.ok(first.includes('"name":"memory.read"') && first.includes('"name":"message.create"'), 'dotted names');
+  assert.ok(!first.includes('"name":"memory_read"'));
   assert.deepEqual(
     resultsOf(turn.llm, 1, 'text').map((item) => item.id),
     ['s1c1', 's1c2']

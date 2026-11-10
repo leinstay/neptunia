@@ -883,6 +883,17 @@ const ENTRIES: Array<Definition> = [
       };
     },
   }),
+  def('memory.read', {
+    params: obj({ subject: str(200), section: oneOf(['summary', 'episodes', 'changes']), limit: int(1, 100) }, [
+      'subject',
+    ]),
+    effects: 'read',
+    toArgs: (a) => ({
+      subject: val(a, 'subject'),
+      ...(val(a, 'section') === null ? {} : { section: val(a, 'section') }),
+      ...(val(a, 'limit') === null ? {} : { limit: val(a, 'limit') }),
+    }),
+  }),
   def('person.link', {
     params: obj({ person: str(200) }, ['person']),
     effects: 'write',
