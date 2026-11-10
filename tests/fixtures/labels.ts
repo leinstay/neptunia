@@ -461,10 +461,8 @@ export const labels = {
       'carried-over': 'allowed here',
       'not-allowed': 'not allowed: the owner switches it on',
       'safe-mode': 'not allowed: safe mode',
-      'requester-denied': 'not allowed for this member',
     },
     proposedOff: 'proposed but off: {names}',
-    proposedDenied: 'proposed but not for the asker: {names}',
     result: {
       coerced: '{arg} read as {value}',
       untaggedNote: '{name} tagged nobody; handle @{handle}',
@@ -479,7 +477,6 @@ export const labels = {
         'target-ambiguous': 'channel name shared',
         'not-own-message': 'not her message',
         'no-own-message': 'no recent message of hers',
-        'requester-denied': 'asker may not',
         'turn-cap': 'no more looks this turn',
         'no-media': 'nothing to look at',
         'not-video-site': 'not a video site',

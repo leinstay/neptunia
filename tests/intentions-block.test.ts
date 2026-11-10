@@ -190,7 +190,7 @@ test('skills: the intent skills are hers once granted', () => {
     'intention.set',
     'memory.read',
   ]);
-  // Nobody asked: her own intention is a write, refused like every write of an unasked turn.
+  // Nobody asked: her own intention runs on her grant. Changed: the owner's decision of 2026-11-10 lifted the refusal of an unasked write.
   const verdict = checkSkill({
     skill: 'intention.set',
     args: { text: 'κάτι' },
@@ -199,7 +199,7 @@ test('skills: the intent skills are hers once granted', () => {
     audience,
     context: { config: config(), selfId: SELF, registry },
   });
-  assert.equal('code' in verdict ? verdict.code : undefined, 'no-requester');
+  assert.deepEqual(verdict, { ok: true });
   // The index a classifier reads has every registered skill; the turn filters it by the switch (src/behavior/turn.ts).
   assert.ok(skillsIndex(registry, {}).includes('intention.set'));
 });

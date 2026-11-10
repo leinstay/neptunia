@@ -207,7 +207,7 @@ export function grantedToPersona(config: unknown, selfId: string | null | undefi
  * `currentChatId`), `safe-mode` (tools.safeMode: nothing else passes), `not-grantable`
  * (NOT_GRANTABLE_TO_PERSONA, whatever is stored), `allowed` (a
  * grant to her user id under its name, grantedToPersona), else `not-allowed`. An
- * owner-only skill is granted like any other: who may have it run is the requester's right
+ * owner-only skill is granted like any other, and the grant decides whoever asked
  * (src/tools/gateway.ts). On an inner turn (`wakeKind`) the wake envelope goes before the carried-over tags
  * (wakeEnvelopeRefusal over `wakeActions`, the turn's calls so far): `not-allowed` with its `detail`.
  */

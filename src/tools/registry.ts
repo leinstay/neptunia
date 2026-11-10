@@ -85,8 +85,8 @@ export function loadSkills(
     if (dispatch !== null && (typeof dispatch.op !== 'string' || typeof dispatch.toOp !== 'function'))
       throw new Error(`skill ${name}: dispatch needs an op and toOp`);
 
-    // An operation's skill inherits both, an owner-only operation included: who may run it is the
-    // requester's right (the gateway). Without an operation the kind follows the effects.
+    // An operation's skill inherits both, an owner-only operation included, and her grant alone decides
+    // whether she runs it (the gateway). Without an operation the kind follows the effects.
     let kind: 'read' | 'write' = definition.effects === 'read' ? 'read' : 'write';
     let ownerOnly = false;
     if (op !== null && op !== undefined) {

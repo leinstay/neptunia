@@ -259,9 +259,6 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `not-granted` | denied | - | `tools.result.reasons.not-granted` |
 | `owner-only` | denied | - | `tools.result.reasons.owner-only` |
 | `unknown-principal` | denied | - | `tools.result.reasons.unknown-principal` |
-| `no-requester` | denied | - | `tools.result.reasons.no-requester` |
-| `mixed-requesters` | denied | - | `tools.result.reasons.mixed-requesters` |
-| `requester-denied` | denied | - | `tools.result.reasons.requester-denied` |
 | `self-grant` | denied | - | `tools.result.reasons.self-grant` |
 | `not-self-owned` | denied | - | `tools.result.reasons.not-self-owned` |
 | `not-requester` | denied | - | `tools.result.reasons.not-requester` |

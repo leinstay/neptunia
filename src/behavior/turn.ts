@@ -243,10 +243,9 @@ export { fallbackLookupPlan };
  * callEnvelope; journaled `proposed` with its invocation id and tool call id, repaired where the
  * schema allows (coerceArgs), resolved on the server's side, checked) and made in segments (runCall:
  * checked again right before, then run by src/tools/executors.ts through `runOp(op, args,
- * context)` -- src/admin.ts#runSkillOp, the command's own path, the requester's rights checked
- * again; absent, a call is `not_configured`; her own expressive operations through
- * `runOwnOp`, src/admin.ts#runOwnSkillOp, her grant alone; an inner turn's calls through
- * `runInitiativeOp`, src/admin.ts#runInitiativeSkillOp, her grant alone). Her speech goes out after
+ * context)` -- src/admin.ts#runSkillOp, her grant alone, whoever asked; absent, a call is
+ * `not_configured`; her own expressive operations through `runOwnOp`, src/admin.ts#runOwnSkillOp;
+ * an inner turn's calls through `runInitiativeOp`, src/admin.ts#runInitiativeSkillOp). Her speech goes out after
  * the calls, when all of them worked and none gave her something to read; else it is held and the
  * results come back to her in one more request (runSteps), bounded by `tools.loop`.
  *

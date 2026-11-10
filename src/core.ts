@@ -1058,8 +1058,8 @@ async function buildCore(
     // Her active skills, each an entry of the tools array, and the sink of the use rows (src/skills/uses.ts).
     activeSkills: skillsWiring.active,
     recordSkillUses: skillsWiring.record,
-    // Her skills run by operation name, the requester's rights checked again
-    // (src/admin.ts#runSkillOp); read at call time, the admin being created below.
+    // Her skills run by operation name on her grant alone, whoever asked (src/admin.ts#runSkillOp with the
+    // actor `persona`); read at call time, the admin being created below.
     runOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runSkillOp(op, args, context),
     // Her own messages, drawings and selfreflection run on her grant alone (src/tools/definitions.ts, trait `self`).
     runOwnOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runOwnSkillOp(op, args, context),

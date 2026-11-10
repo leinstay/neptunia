@@ -467,8 +467,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         config: hot.config,
         selfId: selfIdOf() || null,
         registry: skills ?? defaultSkills(),
-        mixedRequesters: envelope.mixed,
-        // An inner turn, or the result turn of her own errand, is her own initiative: nobody asked, her grants alone decide.
+        // An inner turn, or the result turn of her own errand, is her own initiative: nobody asked, and the wake envelope applies.
         ...(draft?.inner || draft?.ownInitiative ? { ownInitiative: true } : {}),
         // An inner turn's wake envelope (wakes.kinds.<kind>): its wake kind and the calls it made so far.
         ...(wakeKind ? { wakeKind: String(wakeKind), wakeActions: draft?.innerActions ?? [] } : {}),

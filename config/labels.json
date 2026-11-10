@@ -562,11 +562,9 @@
         "allowed": "allowed",
         "carried-over": "allowed here, through your reply",
         "not-allowed": "not switched on",
-        "safe-mode": "safe mode",
-        "requester-denied": "not for this person"
+        "safe-mode": "safe mode"
       },
       "proposedOff": "Might fit here but not switched on for you: {names}.",
-      "proposedDenied": "Might also fit, but the person asking has no right to them: {names}.",
       "result": {
         "coerced": "{arg} was read as {value}.",
         "untaggedNote": "{name} tagged nobody; their handle is @{handle}. Editing the message fixes the tag.",
@@ -594,7 +592,6 @@
           "not-own-message": "that message is not yours",
           "no-own-message": "you have no recent message in that place",
           "unknown-member": "nobody by that name is in your memory",
-          "requester-denied": "the person asking may not see or do this",
           "daily-cap": "the limit for today is used up",
           "channel-not-visible": "you cannot see that place",
           "dm-disabled": "private chats are switched off, so you cannot write in one",
@@ -647,8 +644,6 @@
           "feature-off": "that feature is switched off",
           "not-granted": "you were not given that skill",
           "unknown-principal": "the caller is not known",
-          "no-requester": "no one asked for it",
-          "mixed-requesters": "more than one person asked for it",
           "not-self-owned": "that skill is not one of yours",
           "inner-stopped": "your inner life is stopped",
           "paused": "the bot is paused",

@@ -1065,7 +1065,7 @@ export function personaGrantsConfig(
 
 /**
  * The `<skills>` rows of a skill scenario, built as a live turn's skills discovery builds them
- * (src/behavior/turn.ts#discoverSkills) for `requester` in `chatId`: the catalogue
+ * (src/behavior/turn.ts#discoverSkills) in `chatId`: the catalogue
  * (src/tools/gateway.ts#listSkills over `config`, `selfId`, the skills layer `texts`) whole
  * when the search classifier would have answered `skills: inventory` (`discovery`
  * `'inventory'`), the rows of the skills it would have named (`discovery` a list of names:
@@ -1075,21 +1075,17 @@ export function scenarioInventory({
   config,
   selfId,
   texts,
-  requester,
   chatId,
   registry,
   discovery = 'inventory',
-  getOp,
 }: ScenarioInventoryInput): Array<Record<string, Untyped>> | null {
   if (discovery === 'none') return null;
   const rows = listSkills({
     config,
     selfId,
     texts,
-    requester,
     audience: { chatId: String(chatId) },
     registry,
-    ...(getOp ? { getOp } : {}),
   });
   if (discovery === 'inventory') return rows.length > 0 ? rows : null;
   return proposedRows(proposalVerdicts(Array.isArray(discovery) ? discovery : [], rows), rows);
@@ -1108,7 +1104,6 @@ export function simulateCall({
   now,
   images = null,
   tasks = null,
-  getOp,
   resultText = '',
 }: SimulateCallInput): SimulateCallResult {
   const skill = String(call?.skill ?? '');
@@ -1129,7 +1124,6 @@ export function simulateCall({
       config,
       selfId,
       registry: view.skills,
-      mixedRequesters: false,
       lastRunAt: null,
       now,
       ...(images ? { images } : {}),
@@ -1137,7 +1131,6 @@ export function simulateCall({
       speech: SANDBOX_SPEECH,
       // An errand's caps are its budget, as a live turn hands them in (src/behavior/turn.ts#checkCall).
       ...(tasks ? { tasks } : {}),
-      ...(getOp ? { getOp } : {}),
     },
   });
   if (!verdict.ok) return refused('gateway', verdict.code, verdict.reason);

@@ -5,9 +5,10 @@
 // runtime: live corrections always land in the data folder's prompts/.
 //
 // `createAdmin(deps)` runs the typed operations under src/tools/operations/ (one file per area) by their
-// names: `runSkillOp` with the requester's full rights check (the owner's console and her tool calls
-// for a person), `runOwnSkillOp` and `runInitiativeSkillOp` for her own calls, whose grant the skill
-// gateway checks. `run(op, args, context)` is the tests' entry: no rights check, and the result
+// names: `runSkillOp` with the caller's full rights check for a person's own command (the owner's
+// console) and with none for a call of hers (`actor` `persona`), `runOwnSkillOp` and
+// `runInitiativeSkillOp` for her own calls. A call of hers runs on the grant the skill gateway
+// checked, whoever asked. `run(op, args, context)` is the tests' entry: no rights check, and the result
 // rendered as the reply text, as `{ text, files }` with a picture or as `{ text, fields }` with the
 // status card, or a thrown `Error` with an operator-facing message on bad input. The pure functions
 // (listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary) live in
@@ -135,15 +136,19 @@ export function createAdmin(deps: OpsDeps): Admin {
   }
 
   /**
-   * One operation run for the persona by its name (src/tools/operations/index.ts#runOp), the requester's full
-   * rights check included. Never throws.
+   * One operation run by its name. A person's own command (any `context.actor` but `persona`) goes through
+   * src/tools/operations/index.ts#runOp, the caller's full rights check included. A call of the persona
+   * (`context.actor` `persona`, src/tools/executors.ts) runs without the requester's rights check: her grant,
+   * checked by the skill gateway, alone decides, and the requester's `accountId` rides along for the operation's own
+   * rules. Never throws.
    */
   async function runSkillOp(
     op: Untyped,
     args = {},
     context = {}
   ): Promise<{ status: string; code: string; summary: string; data: unknown }> {
-    return runOp(op, args, { ...context, env });
+    const run = 'actor' in context && context.actor === 'persona' ? runOpPrechecked : runOp;
+    return run(op, args, { ...context, env });
   }
 
   /**

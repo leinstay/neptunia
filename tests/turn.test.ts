@@ -5544,7 +5544,7 @@ test('skill call: edit and delete reach only her own message', async () => {
   }
 });
 
-test('skill call: the result turn of her own errand (requester kind persona, nobody behind it) is her own initiative: her grants decide, no requester-denied', async () => {
+test('skill call: the result turn of her own errand runs her write on her grants, and so does the same turn with nobody behind it', async () => {
   const task = {
     id: 'tabc',
     agent: 'scout',
@@ -5566,7 +5566,7 @@ test('skill call: the result turn of her own errand (requester kind persona, nob
     [['c9', 'να το']],
     String(own.logs.filter((e) => e.msg === 'skills: called').map((e) => e.code))
   );
-  // The same turn without the persona requester (the errand's origin lost its kind) is nobody's: a write is refused `no-requester`.
+  // The same turn without the persona requester (the errand's origin lost its kind) is nobody's.
   const nobody = await callTurn({
     answers: [answer, '<skip/>'],
     allowed: ['message.create'],
@@ -5577,10 +5577,15 @@ test('skill call: the result turn of her own errand (requester kind persona, nob
       taskResult: { ...task, requester: { accountId: null, kind: 'member' } },
     },
   });
-  assert.deepEqual(nobody.sends, [], 'no requester, no write');
+  // Changed: the owner's decision of 2026-11-10, a call of hers runs on her grant alone, so nobody asking refuses no write.
+  assert.deepEqual(
+    nobody.sends.map((send) => [send.to, send.text]),
+    [['c9', 'να το']],
+    String(nobody.logs.filter((e) => e.msg === 'skills: called').map((e) => e.code))
+  );
 });
 
-test("skill call: a read brings the operation's answer back in one more request; a member without the right is refused before it runs", async () => {
+test("skill call: a read brings the operation's answer back in one more request; a member without the right has it run on her grant", async () => {
   const store = fakeStore({ loreEntries: [] });
   const run = await callTurn({
     answers: [toolAnswer('', [call('lore.list')]), '<msg>τίποτα</msg>'],
@@ -5597,20 +5602,37 @@ test("skill call: a read brings the operation's answer back in one more request;
     run.sends.map((send) => send.text),
     ['τίποτα']
   );
-  // Alice not an owner and not granted lore.list: refused before anything runs, and told so.
-  const denied = await callTurn({
+  // Alice not an owner and not granted lore.list herself.
+  const member = await callTurn({
     answers: [toolAnswer('', [call('lore.list')]), '<skip/>'],
     allowed: ['lore.list'],
     owners: [],
     store,
   });
-  assert.equal(
-    followUpTool(denied.llm, 1),
-    fill(labels.tools.result.refused, { reason: labels.tools.result.reasons['requester-denied'] })
+  // Changed: the owner's decision of 2026-11-10, her grant alone decides, so the member's missing right refuses nothing.
+  assert.ok(
+    followUpTool(member.llm, 1).startsWith(labels.tools.result.ok),
+    String(member.logs.filter((e) => e.msg === 'skills: called').map((e) => e.code))
   );
 });
 
-test('skill call: a turn answering several people runs no write', async () => {
+test('skill call: a member who may not run an owner-only operation asks for it and her call runs on her grant', async () => {
+  // No owner person: Alice, who asks, is a member, and memory.private.read is owner-only.
+  const run = await callTurn({
+    answers: [toolAnswer('', [call('memory.private.read', { user: 'Alice' })]), '<skip/>'],
+    allowed: ['memory.private.read'],
+    owners: [],
+    store: fakeStore({ userProfiles: { u1: { id: 'u1', names: ['Alice'] } } }),
+  });
+  const result = followUpTool(run.llm, 1);
+  assert.ok(
+    result.startsWith(labels.tools.result.ok),
+    String(run.logs.filter((e) => e.msg === 'skills: called').map((e) => e.code))
+  );
+  assert.ok(result.includes('No private memory for this member'), result);
+});
+
+test('skill call: a turn answering several people runs a write she holds a grant for', async () => {
   const run = await callTurn({
     answers: [toolAnswer('', [call('message.create', { place: '#νέα', text: 'γεια' })]), '<skip/>'],
     allowed: ['message.create'],
@@ -5621,8 +5643,12 @@ test('skill call: a turn answering several people runs no write', async () => {
       ],
     },
   });
-  assert.deepEqual(run.sends, []);
-  assert.ok(run.logs.some((entry) => entry.msg === 'skill: refused' && entry.reason === 'mixed-requesters'));
+  // Changed: the owner's decision of 2026-11-10, who asked changes nothing, so several people asking refuses no write.
+  assert.deepEqual(
+    run.sends.map((send) => [send.to, send.text]),
+    [['c9', 'γεια']],
+    String(run.logs.filter((e) => e.msg === 'skills: called').map((e) => e.code))
+  );
 });
 
 test('skill call: safe mode lets only the carried-over reply through', async () => {

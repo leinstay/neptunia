@@ -577,7 +577,7 @@ test('inner turn, live: no count of posts refuses a post; a read still runs', as
   assert.equal(run.result.inner.actions[1].delivery, undefined);
 });
 
-test('gateway: with nobody asking only a read runs, unless the turn is her own initiative', () => {
+test('gateway: with nobody asking a write she holds runs, her own initiative or not; without her grant it is refused', () => {
   const config = {
     bot: { owners: ['u1'], access: personaGrants(['lore.add']) },
     tools: { safeMode: false },
@@ -590,13 +590,13 @@ test('gateway: with nobody asking only a read runs, unless the turn is her own i
     audience: { chatId: 'c1' },
   };
   const unasked = checkSkill({ ...call, context: { config, selfId: 'self-id', registry: skillRegistry() } });
-  assert.equal(unasked.ok, false);
-  assert.equal(unasked.reason, 'no-requester');
-  const own: Record<string, Untyped> = checkSkill({
+  // Changed: the owner's decision of 2026-11-10, a call of hers runs on her grant alone, so nobody asking refuses no write.
+  assert.deepEqual(unasked, { ok: true });
+  const own = checkSkill({
     ...call,
     context: { config, selfId: 'self-id', registry: skillRegistry(), ownInitiative: true },
   });
-  assert.notEqual(own.reason, 'no-requester');
+  assert.deepEqual(own, { ok: true });
   // Her grant still decides.
   const ungranted = checkSkill({
     ...call,
@@ -607,8 +607,7 @@ test('gateway: with nobody asking only a read runs, unless the turn is her own i
       ownInitiative: true,
     },
   });
-  assert.equal(ungranted.ok, false);
-  assert.notEqual(ungranted.reason, 'no-requester');
+  assert.equal('code' in ungranted ? ungranted.code : undefined, 'not-allowed');
 });
 
 // Slice 5: wakeBlockText is gone with `<wake>`; the kind lines are awakeLines, read into `<spatial_awareness>`, and the

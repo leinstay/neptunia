@@ -1,7 +1,7 @@
-// The one rights evaluation of an operation for a caller, shared by src/tools/operations/index.ts#runOp (an
-// owner command) and src/tools/gateway.ts (a member asking the persona to change shared state,
-// so she is never a way around the member's own rights). Pure over the live config the caller
-// reads at the moment of use; imports nothing that registers operations, so any module may use it.
+// The one rights evaluation of an operation for a caller, read by src/tools/operations/index.ts#runOp for a
+// person's own command. A call of the persona is never checked here: her grants decide it in src/tools/gateway.ts.
+// Pure over the live config the caller reads at the moment of use; imports nothing that registers operations, so any
+// module may use it.
 
 import { isAllowed, isOwnerId } from './grants.ts';
 import { listOf, objOf } from '../types.ts';

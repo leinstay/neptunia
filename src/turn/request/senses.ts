@@ -283,8 +283,7 @@ function skillArgsText(args: Array<SkillArg | null> | undefined, formsGiven: unk
  * title (no texts in the skills layer yet) is its name alone. Rows marked `proposed` (the skills
  * a classifier named for this turn, not the whole catalogue): a line for each allowed one, then
  * the names of the others in one `labels.tools.proposedOff` line (`{names}`; none without that
- * label), except those the asker has no right to (`requester-denied`), named in one
- * `labels.tools.proposedDenied` line after it (none without that label). '' without an allowed
+ * label). '' without an allowed
  * row and nothing to name, or without `labels.tools.line`.
  * Deterministic: the rows' order (the registry's) and their arguments' (the schema's) decide it.
  */
@@ -310,21 +309,13 @@ export function skillsInventoryText(rows: Array<SkillRow | null> | null | undefi
       : row.name;
   const open = byFamily(named.filter((row) => row.allowed === true)).map((group) => group.map(line).join('\n'));
   if (!named.every((row) => row.proposed === true)) return open.join('\n\n');
-  // A skill the asker has no right to is not a switched-off one: each is named through its own label.
   const closed = named.filter((row) => row.allowed !== true);
-  const note = (label: unknown, rows: Array<SkillRow>) =>
-    rows.length > 0 && typeof label === 'string' && label
-      ? fill(label, { names: rows.map((row) => row.name).join(', ') })
+  const label = l?.proposedOff;
+  const offLine =
+    closed.length > 0 && typeof label === 'string' && label
+      ? fill(label, { names: closed.map((row) => row.name).join(', ') })
       : '';
-  const offLine = note(
-    l?.proposedOff,
-    closed.filter((row) => row.reason !== 'requester-denied')
-  );
-  const deniedLine = note(
-    l?.proposedDenied,
-    closed.filter((row) => row.reason === 'requester-denied')
-  );
-  return [open.join('\n\n'), offLine, deniedLine].filter(Boolean).join('\n');
+  return [open.join('\n\n'), offLine].filter(Boolean).join('\n');
 }
 
 /** The senses of a turn and the options they were rendered with, her tools in text and the skills catalogue. */

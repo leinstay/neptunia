@@ -805,7 +805,7 @@
       "repeated": 0
     },
     "tests/prompt.test.ts": {
-      "deep": 42,
+      "deep": 41,
       "repeated": 0
     },
     "tests/prompts-shipped.test.ts": {
@@ -893,7 +893,7 @@
       "repeated": 5
     },
     "tests/replay-skills.test.ts": {
-      "deep": 36,
+      "deep": 33,
       "repeated": 0
     },
     "tests/rules-list.test.ts": {
@@ -1232,7 +1232,7 @@
   "files": {
     "src/behavior/recall.ts": 2357,
     "tests/openrouter.test.ts": 3545,
-    "tests/prompt.test.ts": 2366,
+    "tests/prompt.test.ts": 2334,
     "tests/recall.test.ts": 2366
   },
   "functions": {
@@ -1722,10 +1722,7 @@
     },
     "src/tools/gateway.ts": {
       "checkSkill": {
-        "complexity": 30
-      },
-      "requesterRefusal": {
-        "complexity": 21
+        "complexity": 29
       }
     },
     "src/tools/operations/draw.ts": {

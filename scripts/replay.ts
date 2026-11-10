@@ -124,7 +124,7 @@
 // `agents.<agent>.daily` (agents.scout, agents.server; the profile's defaults under them), from the guild's
 // data/guilds/<id>/errands.json of the data read (--snapshot's when given) and the config, read only
 // (sandboxErrandBudget, src/errands/store.ts#budget); nothing is ever queued.
-// Her `<skills>` block is the catalogue of that requester as the live turn
+// Her `<skills>` block is the catalogue as the live turn
 // lists it (src/behavior/sandbox.js#scenarioInventory): whole, as after
 // `skills: inventory` (`discovery` "inventory", the default), the named ones
 // (`discovery` a list of up to four names, as after `skills: <names>`), or
@@ -5436,7 +5436,7 @@ async function runSkills({
         args: { asOfMoment: args.asOfMoment, hideSelf: [], hideSelfAll: false },
         mods: viewMods,
       });
-      // One decision's request inputs: the requester's catalogue (the trigger's author), the media of the channel so far.
+      // One decision's request inputs: the requester (the trigger's author), her catalogue, the media of the channel so far.
       const turnInput = (turnMoment: Untyped, turnAt: Untyped, turnTrigger: Untyped) => {
         // An errand's end: who asked for it, as src/errands/turns.ts hands them in (no roles: src/behavior/turn.js#callEnvelope).
         const requester = task ? { id: task.requester.accountId, roleIds: [] } : requesterOf(turnTrigger, channel);
@@ -5447,7 +5447,6 @@ async function runSkills({
               config: scenarioConfig,
               selfId: self.id,
               texts: sideHot.prompts?.tools,
-              requester,
               chatId: channel.id,
               registry,
               discovery,

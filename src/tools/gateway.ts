@@ -1,9 +1,9 @@
 // The rights gateway every persona skill call passes before it may run. The persona is her own
-// principal; the requester (the member whose message led to the call), the current chat
-// and the audience come from the server, never from the model's arguments. A grant is not a
-// blanket pass: after access, the arguments, the requester's own right and the budget are
-// checked, in that order, right before execution (the operation then applies its own rules when
-// it runs). The effects of her ordinary reply pass `checkReplyEffect`, carried over. Pure: the
+// principal, and a call of hers runs on her grants alone: who asked for it, one person, several or
+// nobody, refuses nothing. The requester (the member whose message led to the call), the current
+// chat and the audience come from the server, never from the model's arguments. After access, the
+// arguments, a destructive skill's cooldown and the budget are checked, in that order, right before
+// execution, and the operation then applies its own rules when it runs. The effects of her ordinary reply pass `checkReplyEffect`, carried over. Pure: the
 // caller passes the live config (her grants included, `bot.access`) read at the moment of use,
 // the bot's own user id, the image client whose daily caps are the drawing budget, and the errand
 // tasks whose caps are an errand's budget (src/errands/store.ts#budget). Codes are
@@ -11,12 +11,8 @@
 // refusal code), never wording. `abilityRoute` decides where a call of a model role that runs as her tool goes when
 // the role is down (src/llm/role-health.ts): to the core model when it declares the role's ability, else nowhere.
 
-import { getOp as registryGetOp } from './operations/registry.ts';
-import type { Op } from './operations/registry.ts';
-import { rightsRefusal } from './operations/rights.ts';
 import { skillRegistry, describeSkill } from './registry.ts';
 import { CARRIED_OVER, skillAccess } from './access.ts';
-import { hasTrait } from './definitions.ts';
 import { schemaError } from './schema.ts';
 import { skillArgs } from './discovery.ts';
 import { MINUTE_MS } from '../time.ts';
@@ -61,8 +57,6 @@ export type GateContext = {
   speech?: { quota?: () => unknown };
   tasks?: { budget?: (agent: unknown) => unknown };
   registry?: SkillMap;
-  getOp?: (name: string) => Pick<Op, 'name' | 'rights'> | null;
-  mixedRequesters?: boolean;
   ownInitiative?: boolean;
   wakeKind?: string;
   wakeActions?: ReadonlyArray<WakeAction>;
@@ -78,62 +72,6 @@ function refused(code: string, reason: string): Refusal {
 function targetChat(args: unknown, audience: Audience | null): string | null {
   const given = isObj(args) ? args.place : undefined;
   return given === undefined || given === null ? (audience?.chatId ?? null) : idText(given);
-}
-
-/**
- * The one rule for a call nobody asked for (a spontaneous turn, the selfreflection): only a read (the
- * owner's decision, 2026-10-14). Her own initiative -- an inner turn, `context.ownInitiative` --
- * is lifted in requesterRefusal: there her grants alone decide (the owner's decision, 2026-10-18).
- * Null when `skill` may run, else the refusal.
- */
-function noRequesterRefusal(skill: Skill): Refusal | null {
-  return skill.kind === 'read' ? null : refused(CODE.NO_REQUESTER, CODE.NO_REQUESTER);
-}
-
-/** Whether `op` is one of the persona's own expressive operations (no requester's right asked). */
-const isSelfOwned = (op: string | null): boolean => op !== null && hasTrait(op, 'self');
-
-/**
- * Null when the requester may have this skill run for them, else the refusal (`requester-denied`
- * with the rights code). A skill on an owner's operation -- one backed by an operation (src/tools/definitions.ts)
- * or one on an owner-only operation -- runs only for a requester who may run that operation
- * themselves (src/tools/operations/rights.ts, the owner commands' own check: an owner passes everything, an
- * owner-only operation only an owner, a member as their grants say); with no requester (nobody
- * asked: a spontaneous turn, the selfreflection) only a read, and only one open to everyone (`no-requester`
- * for a write). Her own expressive operations (src/tools/definitions.ts, trait `self`) skip the
- * requester's right -- hers alone decides -- but not the two rules on who asked: no write for
- * several people, only a read for nobody. Any other shared-state skill checks a requester's right
- * on its operation; with none the persona acts on her own. A carried-over skill aimed at the current
- * chat (`carriedOver`) runs with no requester too, as the reply tags did.
- */
-function requesterRefusal(
-  skill: Skill,
-  requester: Requester | null,
-  context: GateContext | undefined,
-  carriedOver = false
-): Refusal | null {
-  // A turn answering several people at once: no write runs on their mixed authority.
-  if (context?.mixedRequesters === true && skill.kind !== 'read')
-    return refused(CODE.MIXED_REQUESTERS, CODE.MIXED_REQUESTERS);
-  const owners = skill.opBacked === true || skill.ownerOnly === true;
-  if (!owners && (!skill.sharedState || !requester)) return null;
-  // Her own initiative (an inner turn, src/behavior/inner.ts: nobody asked, the owner let her act
-  // unasked): her grants, checked before this, alone decide.
-  if (!requester && context?.ownInitiative === true) return null;
-  // A carried-over skill in the current chat (her reply tags of old) runs unasked as it always did.
-  if (!requester && carriedOver) return null;
-  const unasked = owners && !requester ? noRequesterRefusal(skill) : null;
-  if (unasked) return unasked;
-  if (isSelfOwned(skill.op)) return null;
-  const getOp = context?.getOp ?? registryGetOp;
-  const op = skill.op ? getOp(skill.op) : null;
-  if (!op) return refused(CODE.REQUESTER_DENIED, 'no-operation');
-  const code = rightsRefusal(op, {
-    accountId: requester?.id ?? null,
-    roleIds: requester?.roleIds ?? [],
-    config: context?.config,
-  });
-  return code ? refused(CODE.REQUESTER_DENIED, code) : null;
 }
 
 /**
@@ -184,9 +122,7 @@ function budgetRefusal(skill: Skill, requester: Requester | null, context: GateC
  * persona; `features.tools` is on (off: everything refused); the registry has the skill; she
  * may use it (src/tools/access.ts#skillAccess: a carried-over skill aimed at the current
  * chat -- no `channel` argument, or the current one -- else a grant to her user id, never
- * in safe mode); the arguments match its schema; the requester's own right (requesterRefusal:
- * every operation only for a requester who may run it, with no requester only a read open to
- * everyone, no write when the turn answers several people, `context.mixedRequesters`); a
+ * in safe mode); the arguments match its schema; a
  * destructive skill's cooldown in this channel (`context.lastRunAt`, `context.now`); a paid
  * skill's budget. Where a message may go and whose message may be changed is
  * the operation's own rule (src/tools/operations/message.ts), checked when it runs. Never throws.
@@ -242,11 +178,7 @@ export function checkSkill({
     : schemaError(args, skill.argsSchema);
   if (argsError) return refused(CODE.INVALID_ARGS, argsError);
 
-  return (
-    requesterRefusal(skill, requester, context, access.reason === 'carried-over') ??
-    cooldownRefusal(skill, context) ??
-    budgetRefusal(skill, requester, context, args) ?? { ok: true }
-  );
+  return cooldownRefusal(skill, context) ?? budgetRefusal(skill, requester, context, args) ?? { ok: true };
 }
 
 /**
@@ -268,24 +200,22 @@ export function checkReplyEffect({
 }
 
 /**
- * The catalogue as the persona would see it for `requester` in `audience`'s chat (the
- * discovery step: what she can do is what is granted to her): one row per registry skill whose
+ * The catalogue as the persona would see it in `audience`'s chat (the discovery step: what she
+ * can do is what is granted to her): one row per registry skill whose
  * feature switch is on (src/tools/access.ts#skillFeatureOn), in order, `{ name, title,
  * whenToUse, allowed, reason }`, the texts from the skills layer (`texts`: `hot.prompts.tools`,
  * '' when missing). `reason` is skillAccess's (`carried-over`, `allowed`, `not-allowed`,
- * `safe-mode`, `skills-off`), or `requester-denied` for an allowed skill this requester may not
- * have run (requesterRefusal). `args` is what the skill takes (src/tools/discovery.ts#skillArgs:
+ * `safe-mode`, `skills-off`). `args` is what the skill takes (src/tools/discovery.ts#skillArgs:
  * the command's option names, for `<skills>` to list); the arguments' values, targets and budget
- * are per call and left to `checkSkill`.
+ * are per call and left to `checkSkill`. The callers pass `requester` and `getOp`, and the rows
+ * read neither: they are the same for whoever asks.
  */
 export function listSkills({
   config,
   selfId = null,
   texts,
-  requester = null,
   audience = {},
   registry = skillRegistry(),
-  getOp,
 }: {
   config: unknown;
   selfId?: string | null;
@@ -293,23 +223,19 @@ export function listSkills({
   requester?: Requester | null;
   audience?: Audience;
   registry?: SkillMap;
-  getOp?: GateContext['getOp'];
+  getOp?: (name: string) => unknown;
 }): Array<ListedSkill> {
   const rows: Array<ListedSkill> = [];
   for (const skill of registry.values()) {
     const { title, whenToUse } = describeSkill(skill, texts);
     const current = audience?.chatId ?? null;
-    let { allowed, reason } = skillAccess({
+    const { allowed, reason } = skillAccess({
       skill,
       config,
       selfId,
       chatId: current,
       currentChatId: current,
     });
-    if (allowed && requesterRefusal(skill, requester, { config, ...(getOp ? { getOp } : {}) })) {
-      allowed = false;
-      reason = CODE.REQUESTER_DENIED;
-    }
     rows.push({ name: skill.name, title, whenToUse, allowed, reason, args: skillArgs(skill) });
   }
   return rows;
