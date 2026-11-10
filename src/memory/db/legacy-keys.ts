@@ -1,7 +1,7 @@
 // Version step 56: the `legacy/local` authority leaves the database. Its keys named each person, and each account and
-// place spelled the old Discord way, by the row's own id, and no reader asked for them: a lookup by key always names the
-// authority of the interface that sent the event (observe.ts#resolveAlias). The writers no longer add them, and the step
-// deletes the keys, the authority row and the authority's graph node.
+// place whose id kept the importer's readable spelling, by the row's own id, and no reader asked for them: a lookup by
+// key always names the authority of the interface that sent the event (observe.ts#resolveAlias). The writers no longer
+// add them, and the step deletes the keys, the authority row and the authority's graph node.
 
 import type { Db } from './types.ts';
 
