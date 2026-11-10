@@ -80,7 +80,7 @@ const LOOP_FALLBACK = Object.freeze({
   timeBudgetMs: 150000,
   maxCallsPerStep: 8,
   stepReserveTokens: 6000,
-  remindAfterSteps: 3,
+  remindAfterSteps: 2,
 });
 /** `selfreflection.loop`'s values when a key is missing (config.json's). */
 const SELFREFLECTION_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
