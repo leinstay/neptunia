@@ -357,7 +357,7 @@ The engine proxy is described in [Proxy](proxy.md).
 | `tools.loop.timeBudgetMs` | number | `150000` | How long the calls and follow-ups may run | `src/turn/settings.ts` |
 | `tools.loop.maxCallsPerStep` | number | `8` | Most calls of one answer that run | `src/turn/settings.ts` |
 | `tools.loop.stepReserveTokens` | number | `6000` | Tokens the first request leaves for the follow-up requests. `0` = no reserve | `src/turn/request/head.ts` |
-| `tools.loop.remindAfterSteps` | number | `3` | Answers with calls in a row after which every further request tells her how many she made. `0` = off | `src/turn/settings.ts` |
+| `tools.loop.remindAfterSteps` | number | `2` | Answers with calls in a row after which every further request tells her how many she made. `0` = off | `src/turn/settings.ts` |
 
 ## skills
 

@@ -71,7 +71,7 @@ export const TOOLS: ReadonlyArray<SchemaEntry> = [
     'key': 'tools.loop.remindAfterSteps',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
-    'default': 3,
+    'default': 2,
     'text': 'Answers with calls in a row after which every further request tells her how many she made. `0` = off',
   },
 ];
