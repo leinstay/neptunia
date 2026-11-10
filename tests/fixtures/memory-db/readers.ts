@@ -9,7 +9,7 @@ import path from 'node:path';
 import { dbOf } from '../../../src/memory/db/types.ts';
 import type { Log, MemoryHandle } from '../../../src/memory/db/types.ts';
 import { dmPlaceId } from '../../../src/memory/db/ids.ts';
-import { legacyServerPlaceId } from '../../../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './legacy-paths.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { createVectors } from '../../../src/memory/vectors.ts';
 import { openTestMemory } from './service.ts';

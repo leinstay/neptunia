@@ -5,7 +5,7 @@
 
 import { applyErrandSave } from '../../board/errands.ts';
 import { writeJournalLines } from './journal-lines.ts';
-import { ifaceOrLegacy } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { MemoryHandle, Row } from './types.ts';
 
@@ -22,7 +22,7 @@ export type ErrandWrite = {
 export function applyErrandWrite(handle: MemoryHandle, update: Row): { ended: boolean } {
   const now = isFiniteNumber(update.now) ? update.now : Date.now();
   const at = new Date(now).toISOString();
-  const iface = ifaceOrLegacy(update);
+  const iface = namedIface(update);
   return handle.transaction(() => {
     const db = dbOf(handle);
     return applyErrandSave(db, update, now, (closing) => {

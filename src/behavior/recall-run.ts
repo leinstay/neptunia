@@ -114,7 +114,6 @@ import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import { currentIface } from '../memory/db/current-iface.ts';
 import { isIssuedInternalContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
-import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
 import {
   hasRecallContext,
   historyExclusions,
@@ -481,7 +480,7 @@ export function createRecall({
   vectors = null,
   embed = null,
   memoryDb = null,
-  iface = LEGACY_IFACE,
+  iface = null,
   now = Date.now,
   timers = DEFAULT_TIMERS,
   track = untracked,

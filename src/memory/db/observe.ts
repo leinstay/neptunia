@@ -40,7 +40,7 @@
 //   - an account, place or source whose native tuple is already stored (authority, native key, generation; a source
 //     also by native kind, revision and subtype, matched on its columns whatever its id) is that row: observe never
 //     mints a second id for it. A node found by its columns and not yet in `external_keys` is registered there;
-//   - a tuple of the legacy layout (LEGACY_IFACE, generation 1) is created under the legacy spelling
+//   - a Discord tuple of the first generation is created under its readable spelling
 //     (ids.ts#legacyAccountIdOf, #legacyPlaceOf, #legacySourceIdOf), so a unit write that brings the same row adopts it
 //     (upsert.ts#writeRow) instead of writing a second one;
 //   - an envelope with `edited: true` and no revision takes the newest stored revision of its native key: the same

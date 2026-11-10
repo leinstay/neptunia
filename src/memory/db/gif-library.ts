@@ -17,7 +17,7 @@ import { adoptSameItem, keepItemFields } from './media-store.ts';
 import { PERSONA_ID } from './storage-keys.ts';
 import { audienceOf, groupScope } from './scope.ts';
 import { ensureAudience } from './rows.ts';
-import { ifaceOrLegacy } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 
@@ -179,7 +179,7 @@ function gifLibraryWriteOf(update: Row): GifLibraryWrite {
 export function applyGifLibraryWrite(handle: MemoryHandle, update: Row): { written: number; retired: number } {
   const write = gifLibraryWriteOf(update);
   const at = isFiniteNumber(update.now) ? update.now : Date.now();
-  const iface = ifaceOrLegacy(update);
+  const iface = namedIface(update);
   return handle.transaction(() => writeGifLibrary(dbOf(handle), write, { iface, at }));
 }
 

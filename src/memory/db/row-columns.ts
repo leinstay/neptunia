@@ -10,9 +10,8 @@
 //
 // Rows are plain objects of column -> value; JSON columns hold JSON text and booleans are 0/1, so a row can be
 // bound to SQLite as it is and read back without a conversion step.
-import { LEGACY_IFACE } from '../legacy-namespace.ts';
-import { isFiniteNumber } from '../types.ts';
-import type { Row, Rows } from '../types.ts';
+import { isFiniteNumber } from './types.ts';
+import type { Row, Rows } from './types.ts';
 
 export const isPlainObject = (value: unknown): value is Row =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -93,7 +92,7 @@ function decode(type: Spec['type'], value: unknown): unknown {
  * Splits can be chained (the remainder of one is the input of the next): a `$null` list in the input is carried on.
  * Returns `rest`, every key no column took, plus `$null` when needed.
  */
-export function split(obj: Row, spec: ReadonlyArray<Spec>, iface = LEGACY_IFACE): { cols: Row; rest: Row } {
+export function split(obj: Row, spec: ReadonlyArray<Spec>, iface: string | null = null): { cols: Row; rest: Row } {
   const rest: Row = { ...obj };
   const cols: Row = {};
   const nulls: Array<unknown> = Array.isArray(obj.$null) ? [...(obj.$null as Array<unknown>)] : [];
@@ -187,4 +186,4 @@ export function jsonEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-export { ifaceOrLegacy as ifaceOf } from '../legacy-namespace.ts';
+export { namedIface as ifaceOf } from './live-iface.ts';

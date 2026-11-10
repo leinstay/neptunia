@@ -1,7 +1,7 @@
 // The fixtures of the memory session tests (tests/memory-db-session.test.ts): the ids of the Discord namespace, the
 // prompts and the config of a session, the fake llm, a database with its lines and claims, the context of a sweep and the
 // request a scope gets. Synthetic Greek and accented Latin text only.
-import { legacyServerPlaceId } from '../../../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './legacy-paths.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { fillEnvAudiences } from './audiences.ts';
 import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';

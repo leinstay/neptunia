@@ -4,7 +4,7 @@
 // writer takes one through the write kind `gif-vector` (session-write.ts).
 
 import { dequantize, quantize } from '../vectors.ts';
-import { ifaceOrLegacy } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import { deriveRow } from './rows.ts';
 import { groupScope } from './scope.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
@@ -25,7 +25,7 @@ export function writeGifVector(db: Db, update: Row, at: string): Row {
     norm,
     bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
     occurred_at: at,
-    ...groupScope(ifaceOrLegacy(update)),
+    ...groupScope(namedIface(update)),
   });
   const columns = Object.keys(row);
   db.prepare(

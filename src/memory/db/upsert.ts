@@ -20,7 +20,7 @@ import { resolveParticipationSources } from './participation-sources.ts';
 import { sessionHold } from './session-rows.ts';
 import { isPlaceWriter, placeOfHolder, sharePlaceRow, unsharePlaceRow } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
-import { parseExtra } from './map/common.ts';
+import { parseExtra } from './row-columns.ts';
 import { hasMessageFamilies } from './message-family-catalog.ts';
 import { asText } from './types.ts';
 import type { Db, Row, Rows } from './types.ts';

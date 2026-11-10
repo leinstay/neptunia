@@ -1,6 +1,6 @@
 // Tests for src/memory/db/scope.ts and ids.js: scope columns of old scope objects, read contexts, the allowed matrix,
 // the SQL filter (checked against the same matrix over a real table), narrowest, and the deterministic ids.
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './fixtures/memory-db/legacy-paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';

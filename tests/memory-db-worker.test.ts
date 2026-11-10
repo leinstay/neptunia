@@ -2,7 +2,7 @@
 // equal the in-thread ones, the main thread reads through its own read-only connection, a crashed worker is restarted
 // at the next tick, and shutdown waits for a write under way (bounded) before it terminates the worker. Synthetic data
 // only.
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './fixtures/memory-db/legacy-paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -69,7 +69,7 @@ import {
 import { log } from '../../log.ts';
 import { foldText } from '../recent.ts';
 import { indexWords } from '../record-index.ts';
-import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
+import { namedIface as ifaceOf } from './live-iface.ts';
 import { canRead, scopeWhere, whereFor } from './scope.ts';
 import { loadStemmer } from './stems.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';

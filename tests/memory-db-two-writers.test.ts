@@ -13,7 +13,7 @@ import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf as sqlOfHandle } from '../src/memory/db/types.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { legacyStorageKey } from '../src/memory/migration/paths.ts';
+import { legacyStorageKey } from './fixtures/memory-db/legacy-paths.ts';
 import { applySelfreflectionUpdate } from '../src/memory/db/selfreflection-media.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { createStore } from '../src/memory/store.ts';

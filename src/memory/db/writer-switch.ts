@@ -41,7 +41,6 @@ import { descriptionIdFor, scopeOfContext } from './describe.ts';
 import { dmContext, groupContext } from './scope.ts';
 import type { Context } from './scope.ts';
 import { SELF_PERSON } from './ids.ts';
-import { LEGACY_IFACE } from './legacy-namespace.ts';
 import { closePeople } from './focus.ts';
 import type { SessionSettings } from './session.ts';
 import type { SweepScope } from './session-scopes.ts';
@@ -171,7 +170,7 @@ export type OpenFlag = {
  * the run's audience (`audiences.place_id`), since a meta-person names no place.
  */
 function flagContext(scope: Row, run: Row | undefined): Context {
-  const iface = typeof scope.scope_iface === 'string' && scope.scope_iface ? scope.scope_iface : LEGACY_IFACE;
+  const iface = typeof scope.scope_iface === 'string' && scope.scope_iface ? scope.scope_iface : null;
   if (scope.scope_kind !== 'dm' || !scope.scope_dm) return groupContext(iface);
   return dmContext(scope.scope_dm as string, iface, typeof run?.place_id === 'string' ? run.place_id : null);
 }

@@ -29,7 +29,7 @@
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { shortHash } from './ids.ts';
-import { ifaceOrLegacy } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { CODES, DESCRIPTION_FIELDS, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.ts';
@@ -419,7 +419,7 @@ export async function reviewDescription(
   )
     return { status: 'refused', code: 'bad_subject' };
   // Read through `audience_id`, as every context the core issues reads.
-  const readCtx: Context = { ...(ctx.readCtx ?? groupContext(ifaceOrLegacy(ctx))), audienceColumn: true };
+  const readCtx: Context = { ...(ctx.readCtx ?? groupContext(namedIface(ctx))), audienceColumn: true };
   const settings = sessionSettings(config);
   const cap = fieldCap(config, field);
   const selfName = ctx.selfName ?? '';

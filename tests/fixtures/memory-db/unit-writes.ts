@@ -32,7 +32,7 @@ const DAY_WRITERS: Partial<
   journal: writeJournalDay,
   archive: writeArchiveMonth,
 };
-import { legacyStorageKey } from '../../../src/memory/migration/paths.ts';
+import { legacyStorageKey } from './legacy-paths.ts';
 
 /** The value writes by kind: each converter answers the write of its kind, or null for a unit of another kind. */
 const VALUE_KINDS: ReadonlyArray<[string, (update: Row) => object | null]> = [

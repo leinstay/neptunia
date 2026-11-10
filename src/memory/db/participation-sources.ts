@@ -1,6 +1,6 @@
 // Resolves participation evidence before the unit writer replaces episode rows.
 
-import { parseExtra } from './map/common.ts';
+import { parseExtra } from './row-columns.ts';
 import type { Db, Row, Rows } from './types.ts';
 
 function capturedSource(db: Db, episode: Row, link: Row): unknown {

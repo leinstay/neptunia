@@ -1,37 +1,14 @@
-// What is a file under data/ and what is only a unit of the memory database (spec 2026-10-24-memory-authority, section
-// 0 and section 6 item 8): the path allowlist as code. Every path is relative to the data directory, with forward
-// slashes (`guilds/<g>/users/<u>.json`, `state.json`).
-//
-//   OPERATIONAL_PATTERNS  what is written as a file: the process's operational
-//                         state outside the inventoried root and guild units, the
-//                         recall trace, the journal's `.running` marker and request dumps (`journal/` is a mixed
-//                         directory: only its day files retire), the backfill folders and the backfill cursor
-//                         (`record/backfill.json`), the archive's pending queue, the vault, the snapshots, her
-//                         selfreflection media (`media/selfreflection/`, `media/diary/` until the migration moves it), the
-//                         database's own files (`memory.db*`), the tools' output folders, and the leftovers of any file
-//                         (`*.bak*`, `*.unreadable-*`, `*.tmp`, `*.tmp-*`, `*.torn-*`).
-//   MEMORY_PATTERNS       the memory paths, which no module writes as a file any more (the database holds their units;
-//                         the JSON memory they once were was deleted at the switch), by exact pattern: a guild's `users/`,
-//                         `channels/`, `versions/`, `vectors/`, `forgetting/` and `private/` trees (but the operational
-//                         paths of a private layer), `record/` (but the backfill cursor), `archive/` (but the pending
-//                         queue), the journal's day files only, `guild.json`, `lore.json`, `recent.json`, `diary.json`,
-//                         `buffer.json`, `voice.json`, `forgotten.json`, `intentions*.json[l]`, `errands*.json[l]` and `tasks*.json[l]` (the
-//                         names an errand unit had before `errands.json`), root `state.json`, `usage.json` and
-//                         `metrics.json`, and guild `inner.json`, `missed.json`, `participation.json`, `gifs.json` and `media.json`.
-// The two lists never share a path (tests/memory-db-paths.test.js enumerates every path the mappers map or skip and the
-// data layout, and fails on a path in neither or both). A path in neither is unknown: not memory the mappers map, and
-// not on the allowlist.
-//
-//   pathClass(rel)     'operational' | 'memory' | null
-//   isOperational(rel) / isMemoryPath(rel)
-//
-// Pure: no I/O.
+// The paths of the data folders of older releases, for the fixtures that build a database from such a folder: which
+// paths were memory and which stayed files (`pathClass`), and the storage key each memory path names
+// (`legacyStorageKey`). The engine reads no such folder. Pure: no I/O. Synthetic fixtures only.
 
-import { accountId, channelPlaceId, dmPlaceId } from '../db/ids.ts';
-import { LEGACY_IFACE } from '../db/legacy-namespace.ts';
-import type { StorageKey, StorageKind, StorageSelector, StorageSubject } from '../db/storage-keys.ts';
-import { asText } from '../db/types.ts';
-import { classify } from './classify.ts';
+import { accountId, channelPlaceId, dmPlaceId } from '../../../src/memory/db/ids.ts';
+import type { StorageKey, StorageKind, StorageSelector, StorageSubject } from '../../../src/memory/db/storage-keys.ts';
+import { asText } from '../../../src/memory/db/types.ts';
+import { classify } from './legacy-classify.ts';
+
+/** The interface the files of an older release were written by. */
+const LEGACY_IFACE = 'discord';
 
 /** The place id a shipped database gives a server. */
 export const legacyServerPlaceId = (iface: unknown, native: unknown): string =>

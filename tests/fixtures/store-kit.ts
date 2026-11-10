@@ -8,7 +8,7 @@ import { createMemoryDb } from '../../src/memory/db/service.ts';
 import { unitValue } from '../../src/memory/db/readers/common.ts';
 import { topPlaceSpelled } from '../../src/memory/db/ids.ts';
 import type { StorageKey } from '../../src/memory/db/storage-keys.ts';
-import { legacyStorageKey } from '../../src/memory/migration/paths.ts';
+import { legacyStorageKey } from './memory-db/legacy-paths.ts';
 import { asRecord } from './records.ts';
 import type { MemoryDbService } from '../../src/memory/db/service.ts';
 import type { createStore } from '../../src/memory/store.ts';

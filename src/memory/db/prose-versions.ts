@@ -13,8 +13,8 @@
 // `operational` row (kind versions) keeps `{ $has: { <field>: <description id> } }`, so a field with no versions stays
 // an empty list, and every field that is not a list of objects.
 
-import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
-import type { Spec } from './map/common.ts';
+import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
+import type { Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
 import { accountCollection, keyText, placeCollection } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';

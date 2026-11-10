@@ -1,8 +1,8 @@
-// How a line's old scope becomes its place and scope columns and back (src/memory/db/map/scope-parts.ts). The chat a
+// How a line's old scope becomes its place and scope columns and back (src/memory/db/scope-parts.ts). The chat a
 // line names is found by its row and read back from it; no id is taken apart.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scopeFrom, scopeInto } from '../src/memory/db/map/scope-parts.ts';
+import { scopeFrom, scopeInto } from '../src/memory/db/scope-parts.ts';
 import type { Row } from '../src/memory/db/types.ts';
 
 const reads = {

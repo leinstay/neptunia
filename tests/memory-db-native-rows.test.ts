@@ -2,7 +2,7 @@
 // interface's own authority, and the native id read back from the row. Nothing is cut out of an id. Synthetic ids only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { join, split } from '../src/memory/db/map/common.ts';
+import { join, split } from '../src/memory/db/row-columns.ts';
 import {
   accountOfMember,
   channelColumn,

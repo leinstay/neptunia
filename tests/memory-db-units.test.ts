@@ -3,7 +3,7 @@
 // reads never touch the disk, and a unit write that still fails at the shutdown leaves no file. A day of writes on a fixture whose memory files are gone and whose directories are
 // read-only leaves no memory file and writes every kind of unit. Synthetic data only (Greek or accented Latin for
 // non-ASCII); the ids are made up.
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './fixtures/memory-db/legacy-paths.ts';
 import { accountOf, placeOfRoot, placeOfChat } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
-import { isOperational } from '../src/memory/migration/paths.ts';
+import { isOperational } from './fixtures/memory-db/legacy-paths.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { createRecord } from '../src/memory/record.ts';
 import { createJournal } from '../src/memory/journal.ts';
@@ -24,7 +24,7 @@ import { createIntentionStore } from '../src/intentions/store.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { touchMemory } from '../src/memory/update.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, fileFixtureErrand } from './fixtures/memory-db/datadir.ts';
-import { legacyStorageKey } from '../src/memory/migration/paths.ts';
+import { legacyStorageKey } from './fixtures/memory-db/legacy-paths.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import {} from '../src/memory/db/ids.ts';
@@ -124,7 +124,7 @@ function prepared({ archived = false } = {}) {
   return { root, data };
 }
 
-/** The memory files of a data directory (every file but the database's own and the operational allowlist, src/memory/migration/paths.ts), relative. */
+/** The memory files of a data directory (every file but the database's own and the operational allowlist, fixtures/memory-db/legacy-paths.ts), relative. */
 function memoryFiles(data: string, rel = '', out: Array<string> = []): Array<string> {
   for (const entry of fs.readdirSync(path.join(data, rel), { withFileTypes: true })) {
     const child = rel ? `${rel}/${entry.name}` : entry.name;

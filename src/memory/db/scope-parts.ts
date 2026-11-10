@@ -4,14 +4,13 @@
 // columns cannot rebuild the old scope exactly, the old scope is kept verbatim in the remainder (`scope`), or `$noScope`
 // marks that the line had none, so the round trip is exact either way.
 
-import { LEGACY_IFACE } from '../legacy-namespace.ts';
-import { mintedChannel } from '../native-rows.ts';
-import { SCOPE_INTERNAL, dmAudienceId, dmUserOf, scopeColumns } from '../scope.ts';
-import type { DmScope } from '../scope.ts';
-import { jsonEqual } from './common.ts';
-import type { MapContext } from './common.ts';
-import { asText } from '../types.ts';
-import type { Row } from '../types.ts';
+import { mintedChannel } from './native-rows.ts';
+import { SCOPE_INTERNAL, dmAudienceId, dmUserOf, scopeColumns } from './scope.ts';
+import type { DmScope } from './scope.ts';
+import { jsonEqual } from './row-columns.ts';
+import type { MapContext } from './row-columns.ts';
+import { asText } from './types.ts';
+import type { Row } from './types.ts';
 
 /** The member id of a private layer path (`private/<id>.json`, `private/<id>/...`, under any prefix), else null. */
 export function privateUserOf(rel: string): string | null {
@@ -74,7 +73,7 @@ export function scopeInto(
   rest: Row,
   oldScope: OldScope | undefined,
   privateUser: string | null | undefined,
-  iface = LEGACY_IFACE,
+  iface: string | null = null,
   dmPlace: MapContext['dmPlace'] = null,
   members: MemberReads = {}
 ): Row {

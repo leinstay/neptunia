@@ -1430,13 +1430,7 @@
       "imports": ["node:*", "src/**"],
       "test": "required"
     },
-    {
-      "path": "src/memory/migration/",
-      "purpose": "The only decoders of the ids and paths a shipped database spells.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
+
     {
       "path": "src/memory/",
       "purpose": "The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills.",
@@ -1654,13 +1648,7 @@
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
-    {
-      "path": "src/memory/db/map/",
-      "purpose": "The mapping of memory rows to records and back.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "required"
-    },
+
     {
       "path": "src/memory/db/readers/",
       "purpose": "The read queries of the memory database.",

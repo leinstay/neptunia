@@ -14,11 +14,11 @@
 import { shortHash } from './ids.ts';
 import { mintedChannel } from './native-rows.ts';
 import { scopeColumns } from './scope.ts';
-import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, split } from './map/common.ts';
-import type { MapContext, Spec } from './map/common.ts';
+import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, split } from './row-columns.ts';
+import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import { dmPlaceScope, memberDmOf, storedDmOf } from './map/scope-parts.ts';
-import { LEGACY_IFACE, ifaceOrLegacy } from './legacy-namespace.ts';
+import { dmPlaceScope, memberDmOf, storedDmOf } from './scope-parts.ts';
+import { namedIface } from './live-iface.ts';
 import { markStemsPending } from './stems.ts';
 import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
@@ -59,23 +59,27 @@ const owned = (owner: Owner): Row => ({
   owner_key: owner.id,
 });
 
+/**
+ * The subject of an archived item: the person of the member its scope names, else the place of its channel, else none.
+ * The ids an entry's scope names are the platform's ids of the interface of the archive's place.
+ */
+function subjectOfEntry(scope: { user?: unknown; channel?: unknown }, ctx: MapContext): Row {
+  const iface = ifaceOf(ctx);
+  if (iface === null) return { subject_kind: null, subject_id: null };
+  const user = typeof scope.user === 'string' && scope.user ? scope.user : null;
+  const member = user === null ? null : (ctx.personOfMember?.(iface, user) ?? null);
+  if (member !== null) return { subject_kind: 'person', subject_id: member };
+  const channel = typeof scope.channel === 'string' && scope.channel ? scope.channel : null;
+  if (channel === null) return { subject_kind: null, subject_id: null };
+  return { subject_kind: 'place', subject_id: ctx.placeOfChannel?.(iface, channel) ?? mintedChannel(iface, channel) };
+}
+
 /** The retired claim of an archived item hot memory does not hold: historical, its text from the entry. */
 function claimStub(entry: Row, ctx: MapContext, owner: Owner): Row {
   const scope = (entry.scope ?? {}) as { user?: unknown; channel?: unknown };
   const entryText = entry.text as { text?: unknown } | undefined;
   const observedAt = entry.observedAt as { date?: unknown } | undefined;
-  const user = typeof scope.user === 'string' && scope.user ? scope.user : null;
-  const member = user === null ? null : (ctx.personOfMember?.(LEGACY_IFACE, user) ?? null);
-  const channel = typeof scope.channel === 'string' && scope.channel ? scope.channel : null;
-  const subject =
-    member !== null
-      ? { subject_kind: 'person', subject_id: member }
-      : channel !== null
-        ? {
-            subject_kind: 'place',
-            subject_id: ctx.placeOfChannel?.(LEGACY_IFACE, channel) ?? mintedChannel(LEGACY_IFACE, channel),
-          }
-        : { subject_kind: null, subject_id: null };
+  const subject = subjectOfEntry(scope, ctx);
   return {
     id: entry.itemId,
     ...subject,
@@ -96,8 +100,8 @@ function claimStub(entry: Row, ctx: MapContext, owner: Owner): Row {
       ? dmPlaceScope(ifaceOf(ctx), ctx.dmPlace)
       : scopeColumns(entry.scope, {
           privateUser: null,
-          dmOf: memberDmOf(LEGACY_IFACE, ctx.dmOfMember),
-          dmOfPlace: storedDmOf(LEGACY_IFACE, ctx.dmPlaceOf),
+          dmOf: memberDmOf(ifaceOf(ctx), ctx.dmOfMember),
+          dmOfPlace: storedDmOf(ifaceOf(ctx), ctx.dmPlaceOf),
         })),
     created_at: null,
     retired_at: typeof entry.recordedAt === 'string' ? entry.recordedAt : null,
@@ -216,9 +220,7 @@ export function applyArchiveLinesWrite(handle: MemoryHandle, update: Row): Archi
   const write = archiveLinesWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   const key = placeOrPersona('archive', write.placeId, { partition: write.month });
-  return handle.transaction(() =>
-    writeArchiveMonth(dbOf(handle), key, write.lines, { iface: ifaceOrLegacy(update), at })
-  );
+  return handle.transaction(() => writeArchiveMonth(dbOf(handle), key, write.lines, { iface: namedIface(update), at }));
 }
 
 /** The holder id of a place's archive (the persona's with null). */

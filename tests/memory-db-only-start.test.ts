@@ -1,11 +1,11 @@
 // The engine's memory starts from the memory database alone: a data directory that holds only `memory.db` and the
-// operational files (src/memory/migration/paths.ts), every memory file gone, wired the way src/index.ts wires its memory
+// operational files (fixtures/memory-db/legacy-paths.ts), every memory file gone, wired the way src/index.ts wires its memory
 // (the database service on its writer, the store, the record, the archive with its pending queue, the journal, the
 // meaning index and its queue, the intention and task stores). Everything the fixture held is read back from the
 // database, a day of writes goes into it, and after the shutdown no memory file was written and a fresh start reads the
 // new writes back. Synthetic data only; the ids are made up.
 import { accountOf, placeOfRoot, placeOfChat } from '../src/memory/addresses.ts';
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './fixtures/memory-db/legacy-paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { isMemoryPath, isOperational } from '../src/memory/migration/paths.ts';
+import { isMemoryPath, isOperational } from './fixtures/memory-db/legacy-paths.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { createStore } from '../src/memory/store.ts';
 import { createRecord, toRecordLine } from '../src/memory/record.ts';

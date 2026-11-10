@@ -1,10 +1,10 @@
 // The stored row of a member or a channel an interface names by its own id, and that id read back from the row. The
-// line and list writers name the authors and chats a value holds this way (map/scope-parts.ts, record-lines.ts,
+// line and list writers name the authors and chats a value holds this way (scope-parts.ts, record-lines.ts,
 // participation-episodes.ts, recent-lines.ts, archive-lines.ts). A member or a channel no row holds yet takes the id the
 // observation would give it (`mintedAccount`, `mintedChannel`) and reads back nothing: no id is taken apart.
 
 import { interfaceAccountId, interfacePlaceOf, nativeAuthorityOf } from './ids.ts';
-import type { Spec } from './map/common.ts';
+import type { Spec } from './row-columns.ts';
 import type { Db } from './types.ts';
 
 /** The statements of a connection, prepared once: a line write and a day read run them once per line. */

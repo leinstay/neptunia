@@ -14,8 +14,8 @@
 
 import { itemOrDerivedId, uniqueIds } from './ids.ts';
 import { groupScope } from './scope.ts';
-import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
-import type { Spec } from './map/common.ts';
+import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
+import type { Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
 import { channelColumn } from './native-rows.ts';
 import {
@@ -28,7 +28,7 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
-import { namedIface } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';

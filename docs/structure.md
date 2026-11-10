@@ -197,7 +197,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/keys/` | public | The model keys of a deployment: the key store of named keys (`keys.json`), the key ring read off the chains of routes, the probes that check a key and a model, and the owner's key and chain commands. | `node:*`, `src/keys/**`, `src/llm/openrouter.ts`, `src/llm/roles.ts`, `src/llm/route-text.ts`, `src/log.ts` | required |
 | `src/llm/` | public | The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing. | `node:*`, `src/**` | required |
 | `src/media/` | public | Pictures, video, audio, GIFs and drawing on the core side. | `node:*`, `src/**` | required |
-| `src/memory/migration/` | public | The only decoders of the ids and paths a shipped database spells. | `node:*`, `src/**` | none |
 | `src/memory/` | public | The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills. | `node:*`, `src/**` | required |
 | `src/memory/types.ts` | public | The types the memory modules share: untyped JSON, the settings handle, the logger and the memory database. Types and two small guards, tested through the modules that use them. | `node:*`, `src/**` | none |
 | `src/memory/pings.ts` | public | A member's ping state in a place as the store keeps it, and the earlier `pingsOff` list read as `off`. Tested through the store tests. | `node:*`, `src/**` | none |
@@ -229,7 +228,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/session-scopes.ts` | public | The scopes a memory session sweeps: the groups of an interface, and each DM alone by the place its lines' audience names. Tested through the session tests. | `node:*`, `src/**` | none |
 | `src/memory/db/dm-rescope.ts` | public | Gives every row of a DM's audience the partner person its place names, with the audience unchanged. Tested through the DM scope tests. | `node:*`, `src/**` | none |
 | `src/memory/db/semantic-types.ts` | public | The shapes of semantic memory: references, arguments, candidates, resolved writes and the retrieval page. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
-| `src/memory/db/map/` | public | The mapping of memory rows to records and back. | `node:*`, `src/**` | required |
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
 | `src/mnemonic/` | public | The word lists of the phrase codes, `bip-en` and `bip-ru`, with 2048 words each and one word per line. Data, read by `src/interface/phrase-codes.ts`. | nothing | none |
 | `src/tools/operations/` | public | The typed operations behind the owner's commands and the persona's tools. | `node:*`, `src/**` | required |

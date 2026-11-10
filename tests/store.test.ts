@@ -8,7 +8,7 @@ import path from 'node:path';
 import { createStore, writeJsonAtomic } from '../src/memory/store.ts';
 import { accountCollection, personaKey } from '../src/memory/db/storage-keys.ts';
 import type { AccountProfileWrite } from '../src/memory/db/account-profile.ts';
-import { legacyStorageKey } from '../src/memory/migration/paths.ts';
+import { legacyStorageKey } from './fixtures/memory-db/legacy-paths.ts';
 
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.ts';

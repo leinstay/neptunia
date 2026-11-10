@@ -15,10 +15,10 @@
 // An evicted vector (index-policy.ts: its `bytes` dropped) is left out of what the readers give.
 
 import { chunkKey } from '../chunks.ts';
-import { extraText, join, parseExtra, split } from './map/common.ts';
-import type { Spec } from './map/common.ts';
+import { extraText, join, parseExtra, split } from './row-columns.ts';
+import type { Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import { dmPlaceScope } from './map/scope-parts.ts';
+import { dmPlaceScope } from './scope-parts.ts';
 import { deriveRow } from './rows.ts';
 import { SCOPE_INTERNAL, groupScope } from './scope.ts';
 import { placeCollection } from './storage-keys.ts';

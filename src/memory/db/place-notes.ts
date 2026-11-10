@@ -15,12 +15,12 @@
 
 import { SELF_PERSON } from './ids.ts';
 import { groupScope } from './scope.ts';
-import { claimItems, claimRows } from './map/lists.ts';
-import type { ListDef } from './map/lists.ts';
-import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './map/common.ts';
-import type { MapContext, Spec } from './map/common.ts';
+import { claimItems, claimRows } from './profile-lists.ts';
+import type { ListDef } from './profile-lists.ts';
+import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './row-columns.ts';
+import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import { dmPlaceScope } from './map/scope-parts.ts';
+import { dmPlaceScope } from './scope-parts.ts';
 import {
   heldPlaceRows,
   holdsPlace,
@@ -31,7 +31,7 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
-import { namedIface } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -194,7 +194,7 @@ function placeNotesRows(
     value: JSON.stringify(rest),
     owner_key: owner,
   });
-  // The claim lists name their unit as `owner_file` (map/lists.ts): the unit's id is their owner.
+  // The claim lists name their unit as `owner_file` (profile-lists.ts): the unit's id is their owner.
   for (const row of rows.claims ?? []) {
     delete row.owner_file;
     row.owner_key = owner;

@@ -10,11 +10,10 @@
 import { projectRow } from './graph.ts';
 import { dmOfPlatformId } from './meta-person.ts';
 import { deriveRow } from './rows.ts';
-import { LEGACY_IFACE } from './legacy-namespace.ts';
 import { SCOPE_INTERNAL, groupScope, scopeColumns } from './scope.ts';
 import type { DmScope } from './scope.ts';
-import { memberDmOf } from './map/scope-parts.ts';
-import type { MemberReads } from './map/scope-parts.ts';
+import { memberDmOf } from './scope-parts.ts';
+import type { MemberReads } from './scope-parts.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 
@@ -46,12 +45,12 @@ export function intentionsWriteOf(update: Row): IntentionsWrite {
 /**
  * The scope of an intention by the scope word of its provenance and the people it concerns: 'dm' with exactly one person
  * is that member's DM scope, 'dm' otherwise is internal (never shown outward), anything else is group. The member's DM
- * is the stored one for the platform id, internal when none is stored (map/scope-parts.ts#memberDmOf).
+ * is the stored one for the platform id, internal when none is stored (scope-parts.ts#memberDmOf).
  */
 function stringScope(
   word: unknown,
   people: ReadonlyArray<unknown> | null | undefined,
-  iface = LEGACY_IFACE,
+  iface: string | null = null,
   members: MemberReads = {}
 ): DmScope {
   if (word === 'dm') {
