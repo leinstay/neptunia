@@ -8,7 +8,8 @@
 import type { MediaRow } from '../memory/db/media-store.ts';
 
 /**
- * A stored line as memory holds it. `nativeId` is the interface's message id, when it has one; `media` its items;
+ * A stored line as memory holds it. `nativeId` is the interface's message id, from the row's message route when it holds
+ * one, else the row's `native_id`, the id the chat client knows the line by; `media` its items;
  * `number` its place among all the stored lines of its place, the oldest being 1 (src/memory/db/chat-lines.ts).
  */
 export type SourceLine = {
