@@ -62,6 +62,30 @@ export function storedDmOf(
 /** The `scope` object of a line: the chat it names, the place it belongs to, or the user. */
 export type OldScope = { user?: unknown; channel?: unknown; place?: unknown };
 
+/** The stored DM of the member of a private layer, by its platform id on the interface of the write; null for none. */
+function memberDm(
+  privateUser: string | null | undefined,
+  iface: string | null,
+  members: MemberReads
+): MapContext['dmPlace'] {
+  if (!privateUser || iface === null) return null;
+  return members.dmOfMember?.(iface, privateUser) ?? null;
+}
+
+/**
+ * The place of the channel a line names by its platform id: the stored one, else the id the observation would mint.
+ * A channel of a write that names no interface is no place.
+ */
+function channelPlaces(
+  channel: string | null,
+  iface: string | null,
+  members: MemberReads
+): { storedPlace: string | null; channelPlace: string | null } {
+  if (channel === null || iface === null) return { storedPlace: null, channelPlace: null };
+  const storedPlace = members.placeOfChannel?.(iface, channel) ?? null;
+  return { storedPlace, channelPlace: storedPlace ?? mintedChannel(iface, channel) };
+}
+
 /**
  * The place and scope columns for an old scope. Notes in `rest` whatever the columns cannot rebuild. A unit of a DM place
  * (`dmPlace`) keeps its rows on that place and in its audience, whatever the partner's native id spells. A private layer
@@ -78,10 +102,8 @@ export function scopeInto(
   members: MemberReads = {}
 ): Row {
   const channel = typeof oldScope?.channel === 'string' && oldScope.channel ? oldScope.channel : null;
-  const placed = dmPlace ?? (privateUser && iface !== null ? (members.dmOfMember?.(iface, privateUser) ?? null) : null);
-  // A channel a line names by its platform id is a place of the interface of the write; with none it is no place.
-  const storedPlace = channel === null || iface === null ? null : (members.placeOfChannel?.(iface, channel) ?? null);
-  const channelPlace = channel === null || iface === null ? null : (storedPlace ?? mintedChannel(iface, channel));
+  const placed = dmPlace ?? memberDm(privateUser, iface, members);
+  const { storedPlace, channelPlace } = channelPlaces(channel, iface, members);
   const cols = {
     place_id: placed ? placed.id : privateUser ? null : channelPlace,
     ...(placed
