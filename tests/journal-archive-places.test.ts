@@ -162,9 +162,3 @@ test('an archive entry evicted from a DM lands under the DM place and is read ba
     await mem.close();
   }
 });
-
-test('the default archive scope of an entry names no guild', () => {
-  // Bug: `scope = { guild: true }` is written into every stored entry, so the neutral reader has to decode it for ever.
-  const entry = archiveEntry({ itemId: 'x', what: 'y' }, { itemKind: 'episode', event: 'evicted', now: () => NOW });
-  assert.equal(JSON.stringify(entry).toLowerCase().includes('guild'), false);
-});

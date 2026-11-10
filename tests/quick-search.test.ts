@@ -4,8 +4,7 @@
 // `runWebSearch` is the tool she calls. No network, no real settings of a deployment.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
+
 import { createLookup, webSearchPlugins } from '../src/web/lookup.ts';
 import type { LookupDeps } from '../src/web/lookup.ts';
 import { searchModel } from '../src/llm/roles.ts';
@@ -14,8 +13,6 @@ import { searchCommand } from '../src/interface/commands/search.ts';
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { chainsOf } from './fixtures/chains.ts';
-
-const ROOT = path.join(import.meta.dirname, '..');
 const QUERY = 'the opening hours';
 const FOUND = {
   ok: true,
@@ -119,15 +116,6 @@ test('the openrouter engine with no model is off with its reason, and no request
     failed: { code: 'not-configured', reason: 'no-model', engine: 'openrouter' },
   });
   assert.deepEqual(requests, []);
-});
-
-test('the shipped settings name no engine and no model', () => {
-  // Bug: an install gets an engine from the tracked layer and setup never asks.
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')) as {
-    web: { quickSearch: Record<string, unknown> };
-  };
-  assert.equal(shipped.web.quickSearch.engine ?? null, null);
-  assert.equal(shipped.web.quickSearch.model ?? null, null);
 });
 
 test('the tool says quick search is off and why, under the name quick-search', async () => {

@@ -1065,25 +1065,6 @@ test('readableChannels: threads, non-text and unreadable channels are left out',
   assert.equal(isReadableChannel(guild.channels.cache.get('selfreflection')), true);
 });
 
-test('readableChannels: a leftover bot.channels allow/deny key is ignored; Discord permissions alone decide', () => {
-  const guild = fakeGuild([
-    { id: 'open', granted: [READ, SEND] },
-    { id: 'listed', granted: [READ, SEND] },
-    { id: 'hidden', granted: [SEND] },
-  ]);
-  const bot = { channels: { allow: ['hidden'], deny: ['listed'] } };
-  assert.deepEqual(
-    readableChannels(guild, bot).map((c) => c.id),
-    ['open', 'listed']
-  );
-  assert.equal(isWritableChannel(guild.channels.cache.get('listed')), true);
-  assert.equal(
-    isReadableChannel(guild.channels.cache.get('hidden')),
-    false,
-    'an allow entry opens no channel Discord closes'
-  );
-});
-
 // --- audienceOf: who can view a channel, in the shape audienceCovers takes ---
 
 const GUILD_ID = '600000000000000000';

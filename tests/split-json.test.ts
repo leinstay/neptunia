@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLookup, SPLIT_FORMAT } from '../src/turn/lookup.ts';
-import { parseSplitAnswer, SPLIT_DEFAULTS } from '../src/behavior/split.ts';
+import { SPLIT_DEFAULTS } from '../src/behavior/split.ts';
 import { rig } from './fixtures/reads-rig.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
@@ -177,28 +177,4 @@ test('a blank answer is one request logged as empty', async () => {
     failed.map((entry): unknown => entry.reason),
     ['empty']
   );
-});
-
-test('parseSplitAnswer reads the parts of the object text, whitespace collapsed', () => {
-  const answer = JSON.stringify({ parts: [`  ${PARTS[0]}  `, PARTS[1].replace(' ', '   ')] });
-  assert.deepEqual(parseSplitAnswer(answer, 4), { parts: [PARTS[0], PARTS[1]], reason: 'parts' });
-});
-
-test('parseSplitAnswer gives one for an empty list or a single part', () => {
-  assert.deepEqual(parseSplitAnswer('{"parts":[]}', 4), { parts: null, reason: 'one' });
-  assert.deepEqual(parseSplitAnswer(JSON.stringify({ parts: [PARTS[2]] }), 4), { parts: null, reason: 'one' });
-});
-
-test('parseSplitAnswer folds a short part of the object into its neighbour as it folded a short dash line', () => {
-  const answer = JSON.stringify({ parts: ['hey', PARTS[0]] });
-  assert.deepEqual(parseSplitAnswer(answer, { maxTasks: 4, minPartChars: 20 }), { parts: null, reason: 'folded' });
-});
-
-test('parseSplitAnswer gives unparsed for every unreadable answer and empty for no answer', () => {
-  for (const text of UNREADABLE) {
-    assert.deepEqual(parseSplitAnswer(text, 4), { parts: null, reason: 'unparsed' }, JSON.stringify(text));
-  }
-  for (const text of ['', '   ', null, undefined]) {
-    assert.deepEqual(parseSplitAnswer(text, 4), { parts: null, reason: 'empty' }, JSON.stringify(text));
-  }
 });

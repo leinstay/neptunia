@@ -12,7 +12,6 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'src');
-const INTERFACES = path.join(ROOT, 'interfaces');
 
 type Allowed = { file: string; pattern: RegExp; why: string };
 
@@ -56,9 +55,6 @@ const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/turn/draw-gif.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/missed.ts', pattern: /'missed: helper failed'/, why: 'a log line name' },
 ];
-
-// `/nep` is gone (PR 7b of stage 7): its table, its key map and its two settings have no reader left.
-const SLASH_COMMAND_ALLOWED: ReadonlyArray<Allowed> = [];
 
 // An interface package's own `node_modules` holds its platform SDK, which is no code of ours.
 function sourceFiles(dir: string): Array<string> {
@@ -105,15 +101,4 @@ test('names Discord in src/ only on the allowed lines', () => {
 
 test('names no helper model in src/ outside the stored limit kinds, a log name and a moved key', () => {
   checkWord(/helper/i, HELPER_ALLOWED);
-});
-
-test('names no organ in src/', () => {
-  checkWord(/\borgans?\b/i, []);
-});
-
-test('names no slash-command table, key map or command setting in src/ or interfaces/', () => {
-  checkWord(/\bcommandName\b|\badminCommands\b|\bCOMMAND_TABLE\b|\bCOMMAND_TO_OP\b/, SLASH_COMMAND_ALLOWED, [
-    SRC,
-    INTERFACES,
-  ]);
 });

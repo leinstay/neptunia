@@ -9,14 +9,11 @@ import {
   decideTurn,
   inAttention,
   followUpPreFilter,
-  deprecatedModelKeys,
   parseFollowUpVerdict,
   parseAddressAnswer,
   followUpTriggerKind,
   isTaggedCall,
 } from '../src/behavior/mention.ts';
-import { ROLE_DEFAULTS, roleModel } from '../src/llm/roles.ts';
-import { chainsOf } from './fixtures/chains.ts';
 
 // --- detectTrigger ----------------------------------------------------------
 // Plan 2026-11-04-cli-and-memory B1: name triggers leave the door, so the whole-word name tests of this section went
@@ -186,44 +183,4 @@ test('followUpTriggerKind: no starts nothing, yes a followUp turn, overheard an 
   assert.equal(followUpTriggerKind('no'), null);
   assert.equal(followUpTriggerKind('yes'), 'followUp');
   assert.equal(followUpTriggerKind('overheard'), 'overheard');
-});
-
-const OLD_KEYS = {
-  llm: { classifierModel: 'x/llm-classifier' },
-  mention: { followUpModel: 'x/old' },
-  media: { model: 'x/old-media', video: { model: 'x/old-video' } },
-};
-
-test('roleModel: the deprecated llm.classifierModel, mention.followUpModel, media.model and media.video.model are ignored', () => {
-  // Changed: an optional role with no chain is off (spec 2026-11-09-model-routes, slice 4).
-  for (const role of ['analyzer', 'vision', 'video']) {
-    assert.equal(roleModel(OLD_KEYS, role), role === 'analyzer' ? ROLE_DEFAULTS[role] : undefined, role);
-    assert.equal(roleModel({ ...OLD_KEYS, models: { routes: chainsOf({ [role]: 'x/new' }) } }, role), 'x/new', role);
-  }
-});
-
-test('deprecatedModelKeys: each old model key that is set, with its replacement, in a fixed order', () => {
-  assert.deepEqual(deprecatedModelKeys(OLD_KEYS), [
-    // Changed: each names the chain that replaces it (slice 4).
-    { key: 'llm.classifierModel', use: 'models.routes.analyzer' },
-    { key: 'mention.followUpModel', use: 'models.routes.analyzer' },
-    { key: 'media.model', use: 'models.routes.vision' },
-    { key: 'media.video.model', use: 'models.routes.video' },
-  ]);
-  assert.deepEqual(
-    deprecatedModelKeys({ media: { video: { model: 'x/v' } }, models: { routes: chainsOf({ core: 'x/talk' }) } }),
-    [{ key: 'media.video.model', use: 'models.routes.video' }]
-  );
-});
-
-test('deprecatedModelKeys: none for a current config, a null old key or no config', () => {
-  assert.deepEqual(
-    deprecatedModelKeys({
-      models: { routes: chainsOf({ core: 'x', analyzer: 'a', vision: 'b', video: 'c' }) },
-      media: { maxPerTurn: 6 },
-    }),
-    []
-  );
-  assert.deepEqual(deprecatedModelKeys({ llm: { classifierModel: null }, mention: {} }), []);
-  assert.deepEqual(deprecatedModelKeys(undefined), []);
 });

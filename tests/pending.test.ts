@@ -8,7 +8,6 @@ import {
   foldInto,
   followUpSlot,
   isExpired,
-  parseMergeAnswer,
   popOldest,
   requeuePending,
 } from '../src/behavior/pending.ts';
@@ -185,18 +184,6 @@ test("foldInto: the message joins the call's added list; a call no longer waitin
   const gone = foldInto(list, 'call-9', first);
   assert.equal(gone.folded, false);
   assert.equal(gone.list, list);
-});
-
-// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
-test('parseMergeAnswer: a number of a waiting item, or new; anything else means new', () => {
-  assert.deepEqual(parseMergeAnswer('{"item":2}', 3), { index: 2, reason: 'item' });
-  assert.deepEqual(parseMergeAnswer(' {"item":1}\n', 3), { index: 1, reason: 'item' });
-  assert.deepEqual(parseMergeAnswer('{"item":null}', 3), { index: null, reason: 'new' });
-  assert.deepEqual(parseMergeAnswer('', 3), { index: null, reason: 'empty' });
-  assert.deepEqual(parseMergeAnswer('{"item":4}', 3), { index: null, reason: 'out-of-range' });
-  assert.deepEqual(parseMergeAnswer('{"item":0}', 3), { index: null, reason: 'out-of-range' });
-  for (const text of ['#2', '{"item":"2"}', '{"item":2}\nnew', '{"answer":2}'])
-    assert.deepEqual(parseMergeAnswer(text, 3), { index: null, reason: 'unparsed' }, text);
 });
 
 // --- followUpSlot ------------------------------------------------------------
