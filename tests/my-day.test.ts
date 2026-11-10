@@ -60,6 +60,8 @@ function world() {
   });
   addGroupPlace(db, CAFE, 'discord', 'discord/global');
   addGroupPlace(db, SALON, 'discord', 'discord/global');
+  // The DM is stored under its chat's key, so a call that names the chat finds the DM place.
+  db.prepare('UPDATE places SET native_key = ? WHERE id = ?').run(`channel:${CHAT[DM]}`, DM);
   seed.close();
   const memoryDb = createMemoryDb({
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },
@@ -88,7 +90,21 @@ function world() {
     await op.succeeded({ messageId: `m-${at}` });
     await settled();
   }
-  return { read, act };
+  /** A skill call of hers at `at` from a turn in `place` that acted in the chat `target` names, as a turn writes it. */
+  async function callInto(place: string, skill: string, target: string, at: number) {
+    clock.at = at;
+    const op = journal.op(place, {
+      placeId: CHAT[place],
+      turnId: `t-${at}`,
+      name: 'skill',
+      by: 'persona',
+      input: { skill },
+    });
+    await op.started({ target: { channel: target } });
+    await op.succeeded({ messageId: `m-${at}` });
+    await settled();
+  }
+  return { read, act, callInto };
 }
 
 test('lists one line per action of today, a post, a skill call, a GIF and a reaction, and none of yesterday', async () => {
@@ -132,4 +148,20 @@ test('a group turn lists no action she took in a DM today', async () => {
     lines.join('\n')
   );
   assert.ok(!lines.some((one) => one.includes('Zoé')), lines.join('\n'));
+});
+
+test('names the place a call acted in, not the chat its turn ran in', async () => {
+  // Bug: a post she made from the café into the salon is listed under the café, so she looks for it in the wrong place.
+  const w = world();
+  await w.callInto(CAFE, 'message.create', CHAT[SALON], NOW - 10 * MIN);
+  const [line] = myDayOf(w.read(), groupContext('discord'), placeNames, NOW, TZ, { lines: 12 });
+  assert.ok(line?.includes('salon') && !line.includes('café'), line);
+});
+
+test("names the turn's chat for a call into a place the group turn may not read", async () => {
+  // Bug: a group turn's line names the DM her call reached, and the group learns of a private chat.
+  const w = world();
+  await w.callInto(CAFE, 'message.create', CHAT[DM], NOW - 10 * MIN);
+  const [line] = myDayOf(w.read(), groupContext('discord'), placeNames, NOW, TZ, { lines: 12 });
+  assert.ok(line?.includes('café') && !line.includes('Zoé'), line);
 });
