@@ -322,8 +322,32 @@ function conversationLabels(labels: unknown): Record<string, string | undefined>
 }
 
 /**
+ * The date line a window of `kept` (the items of `items` the room kept) opens with when `asked`: the render's
+ * `labels.transcript.date`, the transcript's own mark of a new day, with the date of its first line in the render's
+ * timezone and locale, so a window of one day says which day it is. None when the first line kept already carries the
+ * date of its day (formatTranscript marks a day that changed from the line before), or without the label.
+ */
+function openingDate(
+  asked: boolean,
+  items: ReadonlyArray<TranscriptItem>,
+  kept: ReadonlyArray<TranscriptItem>,
+  options: Obj
+): Array<string> {
+  const first = kept[0];
+  const label = objOf(objOf(options.labels).transcript).date;
+  if (!asked || first === undefined || typeof label !== 'string' || label === '') return [];
+  const timezone = typeof options.timezone === 'string' ? options.timezone : 'UTC';
+  const locale = objOf(options.labels).locale;
+  const dateOf = (ts: number): string => formatDate(ts, timezone, typeof locale === 'string' ? locale : undefined);
+  const before = items[items.indexOf(first) - 1];
+  if (before !== undefined && dateOf(before.ts) !== dateOf(first.ts)) return [];
+  return [fill(label, { date: dateOf(first.ts) })];
+}
+
+/**
  * The text of a read: `labels.tools.tools.conversation.source` (`{channel}`), the lines as the
- * chat transcript renders them (formatTranscript, `render` its options), `.handles` when the
+ * chat transcript renders them (formatTranscript, `render` its options), with `openDate` under the
+ * date of the first one (openingDate), `.handles` when the
  * lines are numbered, `.cut` (`{dropped}`) when the room (`maxChars`) kept fewer than the span,
  * then `.earlier` / `.later` (`{n}`: the handle of the first / last line shown) as the ways to
  * read on; `.none` when the span is empty. With `refs` (`{ next(), take(shown) }`, the turn's
@@ -343,6 +367,7 @@ export function chatText(
     earlier = true,
     later = false,
     keep = 'oldest',
+    openDate = false,
   }: {
     labels: unknown;
     placeId: string;
@@ -353,6 +378,7 @@ export function chatText(
     earlier?: boolean;
     later?: boolean;
     keep?: 'newest' | 'oldest';
+    openDate?: boolean;
   }
 ): string {
   const l = conversationLabels(labels);
@@ -363,12 +389,10 @@ export function chatText(
     return lines.join('\n');
   }
   const offset = refs ? refs.next() - 1 : 0;
+  const options = typeof render === 'function' ? render(slice) : render;
   const items = formatTranscript(
     slice as Array<ReadMessage>,
-    {
-      ...(typeof render === 'function' ? render(slice) : render),
-      indexOffset: offset,
-    } as Parameters<typeof formatTranscript>[1]
+    { ...options, indexOffset: offset } as Parameters<typeof formatTranscript>[1]
   );
   const byId = new Map(slice.map((message) => [idText(message.id), message]));
   // The room: whole items, from the far end of the span (the newest are kept for a read of the newest lines).
@@ -388,6 +412,7 @@ export function chatText(
   }
   const dropped = items.length - kept.length;
   if (refs && l.handles) lines.push(l.handles);
+  lines.push(...openingDate(openDate, items, kept, options));
   lines.push(...kept.map((item) => item.text));
   if (dropped > 0 && l.cut) lines.push(fill(l.cut, { dropped: String(dropped) }));
   const first = kept[0]?.index;
@@ -504,8 +529,8 @@ function newestOf(lines: ReadonlyArray<ReadMessage>, prior: number | null): numb
 
 /**
  * A read's answer from its lines so far (`read`): as it is without `words` or `find`; else with the matches of
- * `find(window, words)` after it (matchLines, in the room `maxChars` leaves), or `partial` with the find's code when it
- * could not search.
+ * `find(window, words)` that `inBounds` takes by their time after it (matchLines, in the room `maxChars` leaves), or
+ * `partial` with the find's code when it could not search.
  */
 async function withFind(
   read: Array<string>,
@@ -514,15 +539,18 @@ async function withFind(
     words,
     find,
     maxChars,
+    inBounds,
     ...shown
   }: {
     words: string;
     find: ((window: ReadonlyArray<ReadMessage>, words: string) => Promise<ChatFind>) | null;
+    inBounds: (ts: number) => boolean;
     labels: unknown;
     placeId: string;
     render: Parameters<typeof chatText>[1]['render'];
     refs: HandleRefs | null;
     maxChars: number;
+    openDate: boolean;
   }
 ): Promise<ReadResult> {
   if (!words || typeof find !== 'function')
@@ -532,7 +560,7 @@ async function withFind(
     const { code, values } = found;
     return { status: 'partial', code, ...(values ? { values } : {}), data: { text: read.join('\n') } };
   }
-  const matches = found.lines as Array<ReadMessage>;
+  const matches = (found.lines as Array<ReadMessage>).filter((line) => inBounds(line.ts));
   const room = Math.max(0, maxChars - read.join('\n').length);
   const text = [...read, ...matchLines(matches, { ...shown, maxChars: room })].join('\n');
   return { status: 'ok', data: { text, authors: authorsOf([...window, ...matches]) } };
@@ -540,7 +568,7 @@ async function withFind(
 
 /**
  * The matches of a `find` as lines: `labels.tools.tools.conversation.found`, then the lines as the transcript renders
- * them, each with its `#N` registered in `refs` (chatText with no source line); `.findNone` alone when none matched.
+ * them (with `openDate` under the date of the first), each with its `#N` registered in `refs` (chatText with no source line); `.findNone` alone when none matched.
  */
 function matchLines(
   matches: ReadonlyArray<ReadMessage>,
@@ -550,6 +578,7 @@ function matchLines(
     render: Parameters<typeof chatText>[1]['render'];
     refs: HandleRefs | null;
     maxChars: number;
+    openDate: boolean;
   }
 ): Array<string> {
   const { found, findNone, cut } = conversationLabels(options.labels);
@@ -558,6 +587,24 @@ function matchLines(
   const bodyLabels = { tools: { tools: { conversation: { cut } } } };
   const shown = chatText(matches, { ...options, labels: bodyLabels, earlier: false, later: false });
   return [...(found ? [found] : []), shown];
+}
+
+/**
+ * Which times the matches of a `find` may have under a selection (`all`: the lines read, the anchor among them): with
+ * `since` that moment or later, before a message-valued `before` earlier than its line, after a message-valued `after`
+ * later. `around` and `last` take any time, so their `find` searches the whole place. Pure.
+ */
+function findBounds(all: ReadonlyArray<ReadMessage>, selection: ReadSelection): (ts: number) => boolean {
+  if (selection.mode === 'since') {
+    const from = selection.since ?? 0;
+    return (ts) => Number.isFinite(ts) && ts >= from;
+  }
+  if (selection.mode !== 'before' && selection.mode !== 'after') return () => true;
+  const anchor = all.find((message) => idText(message.id) === selection.anchor)?.ts;
+  if (anchor === undefined || !Number.isFinite(anchor)) return () => true;
+  return selection.mode === 'before'
+    ? (ts) => Number.isFinite(ts) && ts < anchor
+    : (ts) => Number.isFinite(ts) && ts > anchor;
 }
 
 /** How many lines a selection asks the interface for: both sides of the anchor and the anchor, or the newest `n`. */
@@ -591,7 +638,7 @@ function authorsOf(slice: ReadonlyArray<ReadMessage>): Array<string> {
  * One conversation.read. `args`: `placeId` (default the caller's `placeId`), `around`, `before`,
  * `after` (message ids or counts), `since`, `last`. The caller supplies what only it knows:
  * `allowed(id)` (the audience rule and her rights: false hides the channel), `readRecord({ placeId,
- * from })` (recordMessages over the turn's record), `fetchLive({ placeId, mode, anchor, limit,
+ * from, mode })` (recordMessages over the turn's record, `mode` the selection's), `fetchLive({ placeId, mode, anchor, limit,
  * minTs })` (the interface's history: `around`, `before`, `after`, `since` or the newest, normalized,
  * oldest first; `{ failed }` with the interface's code when it failed) `channelNameOf(id)` (the channel's name for the source line) and `render` (formatTranscript's options, or a function of the span giving them). The record is read
  * first, back through READ_LADDER_DAYS (a `since` from that moment); when it does not hold the span
@@ -602,7 +649,8 @@ function authorsOf(slice: ReadonlyArray<ReadMessage>): Array<string> {
  * else `ok` with chatText and `authors`, the platform ids of the other authors of the lines read. The window closes with
  * newestLine, the newest stored line's time from `newestAt()` or else the newest line the record reads met. With
  * `args.find` and `find(window, words)` (src/tools/tools.ts#runChatFind) the matches follow (matchLines); a find that
- * could not search leaves the window `partial` with its code. Never throws.
+ * could not search leaves the window `partial` with its code. With `openDate` the window and the matches each open with
+ * the date of their first line (openingDate). Never throws.
  */
 export async function runConversationRead({
   args,
@@ -620,6 +668,7 @@ export async function runConversationRead({
   maxChars = MAX_CHARS_FALLBACK,
   find = null,
   newestAt = null,
+  openDate = false,
 }: {
   args: unknown;
   labels: unknown;
@@ -627,7 +676,8 @@ export async function runConversationRead({
   placeId?: unknown;
   channelNameOf?: ((id: string) => string | null | undefined) | null;
   allowed?: ((id: string) => boolean) | null;
-  readRecord?: ((request: { placeId: string; from: number }) => Promise<Array<ReadMessage>>) | null;
+  readRecord?:
+    ((request: { placeId: string; from: number; mode: ReadSelection['mode'] }) => Promise<Array<ReadMessage>>) | null;
   fetchLive?:
     | ((request: {
         placeId: string;
@@ -644,6 +694,7 @@ export async function runConversationRead({
   maxChars?: number;
   find?: ((window: ReadonlyArray<ReadMessage>, words: string) => Promise<ChatFind>) | null;
   newestAt?: (() => number | null) | null;
+  openDate?: boolean;
 }): Promise<ReadResult> {
   try {
     const target = text(objOf(args).placeId) || idText(placeId);
@@ -660,7 +711,7 @@ export async function runConversationRead({
     // The newest stored line the reads met, when the caller has no read of its own for it.
     let newestSeen: number | null = null;
     for (const from of rungs) {
-      all = typeof readRecord === 'function' ? await readRecord({ placeId: target, from }) : [];
+      all = typeof readRecord === 'function' ? await readRecord({ placeId: target, from, mode: selection.mode }) : [];
       newestSeen = newestOf(all, newestSeen);
       picked = pickSpan(all, selection);
       if (picked.enough) break;
@@ -705,6 +756,7 @@ export async function runConversationRead({
       earlier,
       later,
       keep: selection.mode === 'last' || selection.mode === 'before' ? 'newest' : 'oldest',
+      openDate,
     });
     const read = [
       textOut,
@@ -713,11 +765,13 @@ export async function runConversationRead({
     return await withFind(read, picked.slice, {
       words: text(objOf(args).find),
       find,
+      inBounds: findBounds(all, selection),
       labels,
       placeId: target,
       render,
       refs,
       maxChars,
+      openDate,
     });
   } catch {
     return { status: 'failed', code: CODE.ERROR };

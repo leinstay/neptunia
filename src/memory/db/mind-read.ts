@@ -82,6 +82,8 @@ export type PlaceEntry = EntryBase & {
   topics: string | null;
   ownLines: number;
   ownLastAt: string | null;
+  /** True for a place the reader keeps whatever its room: the turn's own place and a place the answered line names. */
+  keep?: boolean;
 };
 export type InterfaceEntry = EntryBase & { iface: string; name: string | null };
 export type ClaimEntry = EntryBase & { claimId: string; subjectId: string; kind: string; text: string };
@@ -905,6 +907,7 @@ function placeOf(
     topics: descriptions.get('topics')?.text ?? null,
     ownLines: Number(mine?.n ?? 0),
     ownLastAt: text(mine?.last),
+    ...(raised.keep ? { keep: true } : {}),
     sources: [
       { table: 'places', id: placeId, version: null },
       ...[...descriptions.values()].map((one) => one.source),

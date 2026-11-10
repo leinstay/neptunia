@@ -175,6 +175,41 @@ export function linesAroundOf(db: Db, ctx: Context, placeId: string, at: number,
   return linesOf(db, ctx, firstOf([...before, ...after], messageIdOf));
 }
 
+/** The first `count` lines of `placeId` the context reads at or after epoch ms `from`, oldest first. */
+export function linesSinceOf(db: Db, ctx: Context, placeId: string, from: number, count: number): Array<FrameLine> {
+  const where = whereFor(ctx, 's');
+  const limit = Math.max(0, Math.floor(count));
+  // Twice the count: an edited message holds a row per revision, and only its newest one stays.
+  const rows = db
+    .prepare(
+      `SELECT ${LINE_COLUMNS} FROM ${LINE_FROM}
+       WHERE s.place_id = ? AND s.occurred_at >= ? AND ${LIVE_LINE} AND ${where.sql}
+       ORDER BY s.occurred_at ASC, s.revision DESC LIMIT ?`
+    )
+    .all(placeId, new Date(from).toISOString(), ...where.params, limit * 2);
+  return linesOf(db, ctx, firstOf(rows, messageIdOf).slice(0, limit));
+}
+
+/**
+ * The first stored name of the account an interface names by the platform id `native`, on `iface` first, else on any
+ * interface where one account alone holds that id: its person's profile account's first name, else its own. Null when
+ * no account row holds a name.
+ */
+export function accountNameOf(db: Db, iface: string, native: string): string | null {
+  const rows = db
+    .prepare(
+      `SELECT aa.iface, COALESCE(
+         (SELECT json_extract(pa.names, '$[0]') FROM people p JOIN accounts pa ON pa.id = p.holder_id
+          WHERE p.id = aa.person_id AND p.writer = 'profile'),
+         json_extract(aa.names, '$[0]')) AS name
+       FROM accounts aa WHERE aa.native_id = ? ORDER BY aa.iface = ? DESC, aa.generation DESC`
+    )
+    .all(native, iface);
+  const here = rows.find((row) => row.iface === iface);
+  if (here) return text(here.name);
+  return new Set(rows.map((row) => row.iface)).size === 1 ? text(rows[0]?.name) : null;
+}
+
 /**
  * The text forms of the media of the stored lines of `placeId` with these message ids (a message's route id and its
  * family key count as its id), by the item's platform reference: what a read of lines the platform gives renders for a picture the memory
@@ -244,6 +279,12 @@ export function placeRefOf(db: Db, placeId: string): PlaceRef | null {
     nativeId: text(row.native_id),
     partnerNativeId: text(row.partner_native),
   };
+}
+
+/** The stored name of a place, null for a one-to-one chat and a place that holds none. */
+export function placeNameOf(db: Db, placeId: string): string | null {
+  const row = db.prepare('SELECT kind, name FROM places WHERE id = ?').get(placeId);
+  return row === undefined || row.kind === 'dm' ? null : text(row.name);
 }
 
 /**
@@ -405,6 +446,10 @@ export type FrameReads = {
   mind(ctx: Context, seeds: Seeds, now: number): Mind;
   ownLines(ctx: Context, exceptPlace: string | null, limit: number): Array<FrameLine & PlacePath>;
   around(ctx: Context, placeId: string, at: number, count: number): Array<FrameLine>;
+  /** The first `count` lines of a place at or after a moment, oldest first (linesSinceOf). */
+  since?(ctx: Context, placeId: string, from: number, count: number): Array<FrameLine>;
+  /** The stored name of an account by its platform id, its interface first, then any (accountNameOf). */
+  accountName?(iface: string, native: string): string | null;
   line(ctx: Context, key: string): IdentityLine | null;
   /** Whether the line of the message a source row holds is gone (sourceRetiredOf). */
   sourceRetired?(ctx: Context, sourceId: string): boolean;
@@ -438,6 +483,8 @@ export type FrameReads = {
   chatPlaces?(): Array<{ id: string; nativeId: string | null }>;
   /** A stored place as its interface knows it, null without a row (placeRefOf). */
   placeRef?(placeId: string): PlaceRef | null;
+  /** The stored name of a place, null for a one-to-one chat (placeNameOf). */
+  placeName?(placeId: string): string | null;
   /** The owner's account on the interface of a stored place, by `bot.ownerPerson` (person-links.ts#ownerAccountOf). */
   ownerAccount?(placeId: string): string | null;
   /** The one thing memory.read's words name under the context, standing in `here` (subject.ts#subjectOf). */
@@ -467,6 +514,8 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     mind: (ctx, seeds, now) => over(NO_MIND, (db) => mindOf(db, ctx, seeds, mindSettingsOf(configOf()), now)),
     ownLines: (ctx, exceptPlace, limit) => over([], (db) => ownLinesOf(db, ctx, exceptPlace, limit)),
     around: (ctx, placeId, at, count) => over([], (db) => linesAroundOf(db, ctx, placeId, at, count)),
+    since: (ctx, placeId, from, count) => over([], (db) => linesSinceOf(db, ctx, placeId, from, count)),
+    accountName: (iface, native) => over(null, (db) => accountNameOf(db, iface, native)),
     line: (ctx, key) => over(null, (db) => lineOfIdentity(db, ctx, key)),
     sourceRetired: (ctx, sourceId) => over(true, (db) => sourceRetiredOf(db, ctx, sourceId)),
     placeFields: (ctx, placeId) => over({}, (db) => placeFieldsOf(db, ctx, placeId)),
@@ -491,6 +540,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     placeReadable: (ctx, placeId) => over(false, (db) => placeReadableOf(db, ctx, placeId)),
     chatPlaces: () => over([], (db) => chatPlacesOf(db)),
     placeRef: (placeId) => over(null, (db) => placeRefOf(db, placeId)),
+    placeName: (placeId) => over(null, (db) => placeNameOf(db, placeId)),
     ownerAccount: (placeId) => over(null, (db) => ownerAccountOfPlace(db, configOf(), placeId)),
     subject: (ctx, words, here) => over<Subject>({ kind: 'none' }, (db) => subjectOf(db, ctx, words, here)),
     affinityChanges: (ctx, personId, limit) => over([], (db) => affinityChangesOf(db, ctx, { personId, limit })),

@@ -92,6 +92,8 @@ export type InTurnToolsContext = {
     FrameReads,
     | 'placeReadable'
     | 'around'
+    | 'since'
+    | 'placeName'
     | 'directChats'
     | 'mind'
     | 'account'
@@ -449,7 +451,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
 
   /**
    * One conversation.read of a place named by its place id outside the turn's snapshot, on any interface: the stored
-   * lines the turn's memory context reads, each with its media, joined by the interface's own history through the router
+   * lines the turn's memory context reads (the first ones from the moment of a `since`, else the newest), each with its
+   * media, under a source line that names the place, joined by the interface's own history through the router
    * when the record lacks the span, whose pictures take the descriptions the memory holds through their lines. The context decides whether she may read the place at all, a gone room included; the owner's
    * command line reads every place. `not_configured` while the memory is closed. Never throws.
    */
@@ -485,17 +488,24 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     // The stored name of the author, else the name of a member the core has been told of.
     const authorNameOf = (line: FrameLine): string =>
       line.authorName ?? (line.authorId === null ? null : memberOf(placeId, line.authorId)?.name) ?? '-';
+    /** The stored lines a read takes: from the moment on for `since`, else the newest; the newest line noted either way. */
+    const storedLines = (from: number, mode: string): Array<FrameLine> => {
+      const newestLines = placeReads.around(context, placeId, clock(), mode === 'since' ? 0 : PLACE_READ_LINES);
+      for (const line of newestLines) if (newest === null || line.at > newest) newest = line.at;
+      return mode === 'since' ? (placeReads.since?.(context, placeId, from, PLACE_READ_LINES) ?? []) : newestLines;
+    };
     const answer = await runConversationRead({
       args: { ...args, placeId },
       labels,
       config,
       placeId,
+      // The source line names the place by its stored name, on whatever interface it is.
+      channelNameOf: (id) => placeReads.placeName?.(id) ?? null,
       allowed: (id) => isIssuedInternalContext(context) || Boolean(placeReads.placeReadable?.(context, id)),
-      readRecord: ({ from }) =>
+      readRecord: ({ from, mode }) =>
         Promise.resolve(
-          placeReads.around(context, placeId, clock(), PLACE_READ_LINES).flatMap((line) => {
+          storedLines(from, mode).flatMap((line) => {
             sources.set(line.id, line.sourceId);
-            if (newest === null || line.at > newest) newest = line.at;
             return line.at < from
               ? []
               : [
@@ -532,6 +542,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       now: clock(),
       timezone: config.bot?.timezone ?? 'UTC',
       newestAt: () => newest,
+      openDate: true,
       find: finderOf(scene, placeId, storedOf, ref.chatId === null ? null : { iface: ref.iface, chatId: ref.chatId }),
     });
     return withReadMemory(answer, { iface: ref.iface, placeId, channel, draft });
@@ -699,6 +710,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       now: clock(),
       timezone,
       maxChars: settings?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars,
+      openDate: true,
       find: finderOf(scene, place, windowIn(chatId), { iface, chatId }),
     });
     return withReadMemory(answer, {

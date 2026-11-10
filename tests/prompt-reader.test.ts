@@ -229,3 +229,32 @@ test('a place in <memory> takes the channel handle of the chat its row holds, ne
   assert.ok(chats.has('c-club'), [...chats].join(', '));
   assert.equal(chats.has('club'), false);
 });
+
+test('a place the answered line names keeps its entry in <places> when the section drops other places', () => {
+  // Bug (2026-11-10): the owner named a place by its name, the reader raised it by that word, and the budget of
+  // <places> kept the higher-ranked places first and dropped it, so she never saw the place she was asked about.
+  const crowd = Array.from({ length: 40 }, (_, i) =>
+    placeEntry(`place:room-${i}`, `αίθουσα-${String(i).padStart(2, '0')}`)
+  );
+  const kitchen = placeEntry('place:kitchen', 'κουζίνα', { evidence: 'word' });
+  const asked = makeMessage('m1', NOW - MIN, {
+    authorId: '111',
+    authorName: 'Ελένη',
+    content: 'τι φωτογραφήθηκε στην κουζίνα στις 8 Νοεμβρίου;',
+  });
+  const memory = {
+    budgetTokens: 400,
+    shares: { people: 0.5, places: 0.15, lore: 0.15, recent: 0.1, found: 0.1 },
+  };
+  const built = request({
+    config: fakeConfig({ context: { ...CONTEXT, memory } }),
+    history: [asked],
+    trigger: asked,
+    mind: mindOfEntries({ people: [ELENI], places: [...crowd, kitchen] }),
+  });
+  const places = /<places>([\s\S]*?)<\/places>/.exec(block(built, 'memory'))?.[1] ?? '';
+  const shown = crowd.filter((place) => places.includes(String(place.name)));
+  assert.ok(shown.length < crowd.length, `the section dropped places: ${places}`);
+  assert.ok(shown.length > 0, `the section kept places: ${places}`);
+  assert.ok(places.includes('κουζίνα'), places);
+});

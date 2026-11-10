@@ -774,7 +774,11 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     privateProfile: isDm && memoryOn && trigger ? privateProfileOf(store, accountOf(store, trigger.authorId)) : null,
     otherProfiles: memoryOn ? pickOtherProfiles(store, placeId, history, trigger?.authorId) : [],
     candidateProfiles: memoryOn ? store.listUserProfiles() : [],
-    nameOf: memoryOn ? (id: string) => store.getUser(accountOf(store, id))?.names?.[0] ?? null : null,
+    // A stored profile's name, else the name an account row holds on any interface: the command line reads them all.
+    nameOf: memoryOn
+      ? (id: string) =>
+          store.getUser(accountOf(store, id))?.names?.[0] ?? ctx.frameReads?.accountName?.(frame.interface, id) ?? null
+      : null,
     currentChannelId: channel.id,
     selfreflectionChannelIds: selfreflectionChatIds(store),
     descriptions: descriptions ?? null,
