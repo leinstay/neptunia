@@ -18,7 +18,7 @@ export const isPlainObject = (value: unknown): value is Row =>
 
 /** What a mapper is told about the unit it maps: the interface, the subject and the position a line holds in it. */
 export type MapContext = {
-  iface?: string;
+  iface?: string | null;
   position?: number;
   subjectId?: string;
   subjectNativeId?: string;
@@ -58,7 +58,7 @@ export type Spec = {
   col: string;
   key: string;
   type: 'text' | 'num' | 'bool' | 'json';
-  enc?: (value: unknown, iface: string) => unknown;
+  enc?: (value: unknown, iface: string | null) => unknown;
   dec?: (value: unknown) => unknown;
   ok?: (value: unknown) => boolean;
   /** The value is kept beside the column when `dec` cannot read it back from what `enc` stored, so it comes back exact. */
@@ -145,7 +145,7 @@ export function extraText(rest: Row | null | undefined): string | null {
 /** A remainder read back: an object (a copy), whatever the column held (JSON text, an object or nothing). */
 export function parseExtra(extra: unknown): Row {
   if (extra === null || extra === undefined || extra === '') return {};
-  const value: Row = typeof extra === 'string' ? JSON.parse(extra) : extra;
+  const value: unknown = typeof extra === 'string' ? JSON.parse(extra) : extra;
   return isPlainObject(value) ? { ...value } : {};
 }
 

@@ -480,7 +480,7 @@ export function createRecall({
   vectors = null,
   embed = null,
   memoryDb = null,
-  iface = null,
+  iface = '',
   now = Date.now,
   timers = DEFAULT_TIMERS,
   track = untracked,

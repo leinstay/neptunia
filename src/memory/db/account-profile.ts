@@ -78,7 +78,7 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
 
 /** What a profile's rows are written under: the account and its person, read from the database. */
 type ProfileContext = {
-  iface: string;
+  iface: string | null;
   accountId: string;
   person: string;
   accountOnly: boolean;

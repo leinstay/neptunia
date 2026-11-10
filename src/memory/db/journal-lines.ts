@@ -29,7 +29,7 @@ import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { lineColumns, lineOwnerOf, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
-import { namedIface } from './live-iface.ts';
+import { requiredIface } from './live-iface.ts';
 import { asText, dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 
@@ -67,7 +67,8 @@ const attitudeSpec = (ctx: MapContext): Array<Spec> => [
     col: 'person_id',
     key: 'accountId',
     type: 'text',
-    enc: (v: unknown, iface: string) => ctx.personOfMember?.(iface, String(v)) ?? null,
+    enc: (v: unknown, iface: string | null) =>
+      iface === null ? null : (ctx.personOfMember?.(iface, String(v)) ?? null),
     dec: () => null,
     exact: true,
   },
@@ -279,7 +280,7 @@ export function writeJournalLines(db: Db, write: JournalLinesWrite, iface: strin
 export function applyJournalLinesWrite(handle: MemoryHandle, update: Row): JournalLinesResult {
   const write = journalLinesWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
-  return handle.transaction(() => writeJournalLines(dbOf(handle), write, namedIface(update), at));
+  return handle.transaction(() => writeJournalLines(dbOf(handle), write, requiredIface(update), at));
 }
 
 /** The live rows of one journal day, table by table, in the order they were written. */

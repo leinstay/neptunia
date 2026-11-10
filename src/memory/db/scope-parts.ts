@@ -28,7 +28,7 @@ export type ScopeReads = Pick<MapContext, 'partnerOfDm' | 'channelOfPlace'>;
  * The scope of a row of a stored DM place: the place's own audience and the partner person the place names, the pair
  * rows.ts#resolveRow accepts. A place nobody linked names no partner person.
  */
-export function dmPlaceScope(iface: string, place: NonNullable<MapContext['dmPlace']>): DmScope {
+export function dmPlaceScope(iface: string | null, place: NonNullable<MapContext['dmPlace']>): DmScope {
   return { scope_kind: 'dm', scope_iface: iface, scope_dm: place.partnerPerson, audience_id: dmAudienceId(place.id) };
 }
 
@@ -37,10 +37,10 @@ export function dmPlaceScope(iface: string, place: NonNullable<MapContext['dmPla
  * `places.partner_account`), or null when none is stored, which `scopeColumns` makes internal.
  */
 export function memberDmOf(
-  iface: string,
+  iface: string | null,
   dmOfMember: MapContext['dmOfMember']
 ): ((platformId: string) => DmScope | null) | undefined {
-  if (!dmOfMember) return undefined;
+  if (!dmOfMember || iface === null) return undefined;
   return (platformId) => {
     const place = dmOfMember(iface, platformId);
     return place ? dmPlaceScope(iface, place) : null;
@@ -49,7 +49,7 @@ export function memberDmOf(
 
 /** How `scopeColumns` reads a place id an old scope names: the scope of the stored DM place, null for any other. */
 export function storedDmOf(
-  iface: string,
+  iface: string | null,
   dmPlaceOf: MapContext['dmPlaceOf']
 ): ((placeId: string) => DmScope | null) | undefined {
   if (!dmPlaceOf) return undefined;
@@ -78,9 +78,10 @@ export function scopeInto(
   members: MemberReads = {}
 ): Row {
   const channel = typeof oldScope?.channel === 'string' && oldScope.channel ? oldScope.channel : null;
-  const placed = dmPlace ?? (privateUser ? (members.dmOfMember?.(iface, privateUser) ?? null) : null);
-  const storedPlace = channel === null ? null : (members.placeOfChannel?.(iface, channel) ?? null);
-  const channelPlace = channel === null ? null : (storedPlace ?? mintedChannel(iface, channel));
+  const placed = dmPlace ?? (privateUser && iface !== null ? (members.dmOfMember?.(iface, privateUser) ?? null) : null);
+  // A channel a line names by its platform id is a place of the interface of the write; with none it is no place.
+  const storedPlace = channel === null || iface === null ? null : (members.placeOfChannel?.(iface, channel) ?? null);
+  const channelPlace = channel === null || iface === null ? null : (storedPlace ?? mintedChannel(iface, channel));
   const cols = {
     place_id: placed ? placed.id : privateUser ? null : channelPlace,
     ...(placed

@@ -1082,11 +1082,6 @@
       "count": 4
     }
   },
-  "src/memory/db/map/common.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
   "src/memory/db/map/errands.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1

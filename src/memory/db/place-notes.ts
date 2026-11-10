@@ -67,7 +67,10 @@ const learnedSpec = (ctx: MapContext): Array<Spec> => [
     key: 'from',
     type: 'text',
     ok: (v: unknown) => /^<@\d+>$/.test(String(v)),
-    enc: (v: unknown) => ctx.personOfMember?.(ifaceOf(ctx), String(v).slice(2, -1)) ?? null,
+    enc: (v: unknown) => {
+      const iface = ifaceOf(ctx);
+      return iface === null ? null : (ctx.personOfMember?.(iface, String(v).slice(2, -1)) ?? null);
+    },
     dec: () => null,
     exact: true,
   },
@@ -87,7 +90,7 @@ const listsOf = (ctx: MapContext): Array<ListDef & { subject: string }> => [
 ];
 
 /** What the notes of a place are shown to: its partner in a direct chat, the groups elsewhere. */
-function notesScope(iface: string, ctx: MapContext): Row {
+function notesScope(iface: string | null, ctx: MapContext): Row {
   if (!ctx.dmPlace) return groupScope(iface);
   return dmPlaceScope(iface, ctx.dmPlace);
 }
@@ -96,7 +99,7 @@ function notesScope(iface: string, ctx: MapContext): Row {
  * The place row of the notes: the stored row as it is, or a new one when no row holds the place yet. A new row knows no
  * native id: the observation of the place's interface gives it one.
  */
-function placeRow(ctx: MapContext, placeId: string, iface: string, owner: string): Row {
+function placeRow(ctx: MapContext, placeId: string, iface: string | null, owner: string): Row {
   if (ctx.subjectPlace) {
     // The unit owns the row it adopted, so a write that left it out would retire it.
     const stored: Row = { ...ctx.subjectPlace, owner_key: owner };

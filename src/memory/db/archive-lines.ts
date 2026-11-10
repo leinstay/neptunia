@@ -18,7 +18,7 @@ import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, split } from 
 import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
 import { dmPlaceScope, memberDmOf, storedDmOf } from './scope-parts.ts';
-import { namedIface } from './live-iface.ts';
+import { requiredIface } from './live-iface.ts';
 import { markStemsPending } from './stems.ts';
 import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
@@ -220,7 +220,9 @@ export function applyArchiveLinesWrite(handle: MemoryHandle, update: Row): Archi
   const write = archiveLinesWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   const key = placeOrPersona('archive', write.placeId, { partition: write.month });
-  return handle.transaction(() => writeArchiveMonth(dbOf(handle), key, write.lines, { iface: namedIface(update), at }));
+  return handle.transaction(() =>
+    writeArchiveMonth(dbOf(handle), key, write.lines, { iface: requiredIface(update), at })
+  );
 }
 
 /** The holder id of a place's archive (the persona's with null). */
