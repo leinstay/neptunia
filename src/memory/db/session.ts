@@ -13,7 +13,9 @@
 //   least `minMessages` new lines, at most `maxMessages` lines each, serial.
 //   The batch is the next lines by arrival (so none is ever skipped) shown in event time (`occurred_at`, then rowid);
 //   when it holds more people than `maxPeople`, the batch is sent again with the next page of people (the same lines, the
-//   next people), one request per page. The cursor moves, by compare-and-set and in the same transaction as the last
+//   next people), one request per page. A request fits the page budget (`memoryDb.session.maxPageTokens`, under the
+//   request cap): a batch is cut by lines until its pages fit (fitBatch), and a page of a batch whose lines are fixed
+//   goes out in parts of fewer people (partsOf). The cursor moves, by compare-and-set and in the same transaction as the last
 //   write, only when every page was written (or had been applied before); a failed request, an unreadable answer, a
 //   write that failed and an `all_dropped` answer leave the lines for the next sweep. An `all_dropped` batch is
 //   remembered as pending (`memory_session.pending.<mode>.<scope>`, with a retry count); after `retryLimit` tries it is
@@ -60,8 +62,9 @@ import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { ASSERTION_HOW } from './semantic-registry.ts';
 import { validateSemanticAnswer } from './semantic-answer.ts';
 import { episodeLinesOf, intentionLinesOf } from './session-blocks.ts';
-import { peopleOf, type BatchAccount, type BatchAuthor, type BatchPerson } from './session-people.ts';
-import { readRetrieved, requestCapOf, retrievedLines, sessionEmbedding } from './session-retrieved.ts';
+import { peopleOf, profileAsOf, type BatchAccount, type BatchAuthor, type BatchPerson } from './session-people.ts';
+import { readRetrieved, retrievedLines, sessionEmbedding } from './session-retrieved.ts';
+import { cutByArrival, fewestParts, pageBudgetOf, shareOf, unitsOf } from './session-size.ts';
 import type { MemoryPage } from './semantic-types.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import { sessionRequestId } from './request-archive.ts';
@@ -133,6 +136,7 @@ const DEFAULTS = Object.freeze({
   selfMax: 40,
   episodesMax: 20,
   maxOutputTokens: 8000,
+  maxPageTokens: 60000,
   timeoutMs: 300000,
   descriptionMaxOutputTokens: 1500,
   retryLimit: 3,
@@ -161,6 +165,8 @@ export type SessionSettings = {
   selfMax: number;
   episodesMax: number;
   maxOutputTokens: number;
+  /** The estimated tokens one request (one page, or one part of a page) may take, under the request cap. */
+  maxPageTokens: number;
   timeoutMs: number;
   descriptionMaxOutputTokens: number;
   retryLimit: number;
@@ -202,6 +208,7 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
     selfMax: posInt(given.selfMax, DEFAULTS.selfMax),
     episodesMax: posInt(given.episodesMax, DEFAULTS.episodesMax),
     maxOutputTokens: posInt(given.maxOutputTokens, DEFAULTS.maxOutputTokens),
+    maxPageTokens: posInt(given.maxPageTokens, DEFAULTS.maxPageTokens),
     timeoutMs: posInt(given.timeoutMs, DEFAULTS.timeoutMs),
     descriptionMaxOutputTokens: posInt(given.descriptionMaxOutputTokens, DEFAULTS.descriptionMaxOutputTokens),
     retryLimit: posInt(given.retryLimit, DEFAULTS.retryLimit),
@@ -505,40 +512,6 @@ export function pagesOf(db: Db, batch: ReadonlyArray<Row>, config: Config, selfN
   return Math.max(1, Math.ceil(peopleOf(db, batch, selfName).people.length / sessionSettings(config).maxPeople));
 }
 
-/** The claim / episode ids a profile may not show as of `cutoff` (created or last seen after it). */
-function lateIds(db: Db, ids: ReadonlyArray<string>, cutoff: unknown): Set<unknown> {
-  if (ids.length === 0) return new Set();
-  const marks = ids.map(() => '?').join(', ');
-  const late = new Set<unknown>();
-  for (const row of db
-    .prepare(`SELECT id FROM claims WHERE id IN (${marks}) AND (created_at > ? OR last_seen_at > ?)`)
-    .all(...ids, cutoff, cutoff))
-    late.add(row.id);
-  for (const row of db.prepare(`SELECT id FROM episodes WHERE id IN (${marks}) AND created_at > ?`).all(...ids, cutoff))
-    late.add(row.id);
-  return late;
-}
-
-/** A profile as of `cutoff`: the items whose claim or episode appeared or was seen again after it are left out. */
-function profileAsOf(db: Db, profile: Row, cutoff: unknown): Row {
-  const ids: Array<string> = [];
-  for (const value of Object.values(profile)) {
-    if (!Array.isArray(value)) continue;
-    for (const item of value as Array<Row | null>)
-      if (typeof item?.itemId === 'string' && item.itemId) ids.push(item.itemId);
-  }
-  const late = lateIds(db, [...new Set(ids)], cutoff);
-  if (late.size === 0) return profile;
-  const out: Row = { ...profile };
-  for (const [key, value] of Object.entries(profile)) {
-    if (Array.isArray(value))
-      out[key] = (value as Array<Row | null>).filter(
-        (item) => !(typeof item?.itemId === 'string' && late.has(item.itemId))
-      );
-  }
-  return out;
-}
-
 /** What the answer's local ids stand for (see `buildSessionRequest`). */
 export type RequestMaps = {
   sources: Map<string, string>;
@@ -586,6 +559,8 @@ export function buildSessionRequest({
   selfName,
   now,
   page = 0,
+  part = 0,
+  parts = 1,
   retrieved = null,
 }: {
   db: Db;
@@ -596,6 +571,9 @@ export function buildSessionRequest({
   selfName: unknown;
   now: number;
   page?: number;
+  /** A page sent in `parts` requests: this request shows the `part`-th share of the page's people (see `partsOf`). */
+  part?: number;
+  parts?: number;
   /** What the retrieval service found for this batch: rendered as `<retrieved>`, each item with its own handle. */
   retrieved?: MemoryPage | null;
 }): SessionRequest {
@@ -754,8 +732,8 @@ export function buildSessionRequest({
     placeLines.push(claimLine(`c${claimNumber}`, row));
   }
 
-  // <people>: this page's people (every person of the batch is on some page)
-  const shown = touched.people.slice(page * settings.maxPeople, (page + 1) * settings.maxPeople);
+  // <people>: this page's people (every person of the batch is on some page), or this part's share of them
+  const shown = shareOf(touched.people.slice(page * settings.maxPeople, (page + 1) * settings.maxPeople), part, parts);
   const profileOptions = {
     interlocutor: true,
     relationships: true,
@@ -1465,49 +1443,48 @@ export async function sweep(
   return { status: 'ok', runs };
 }
 
-/** The share of `llm.maxRequestTokens` a session request may take (the estimate is not the provider's count). */
-const CAP_SHARE = 0.85;
+/** The page budget of a session request under this config (session-size.ts). */
+const budgetOf = (config: Config): number => pageBudgetOf(config, sessionSettings(config).maxPageTokens);
+
+type SizeOptions = { config: Config; prompts: Row | null | undefined; selfName: string; now: number };
 
 /**
- * `batch` cut to the first lines by arrival (rowid) until the largest page of its request fits CAP_SHARE of the request
- * cap, halving each time, never below `min` lines (a batch that still does not fit is returned as it is and fails as
- * before). The lines stay in event time.
+ * How many requests one page of `batch` takes: the fewest near-equal parts of its people whose every request fits the
+ * page budget (session-size.ts#fewestParts). A batch is cut by lines first (`fitBatch`); a page is split only when its
+ * lines are fixed, as in a batch pinned by an applied page.
+ */
+export function partsOf(
+  db: Db,
+  scope: Pick<SweepScope, 'scope' | 'ctx'>,
+  batch: Array<BatchLine>,
+  page: number,
+  { config, prompts, selfName, now }: SizeOptions
+): number {
+  const { maxPeople } = sessionSettings(config);
+  const people = peopleOf(db, batch, selfName).people.slice(page * maxPeople, (page + 1) * maxPeople).length;
+  const request = (part: number, parts: number) =>
+    buildSessionRequest({ db, scope, batch, config, prompts, selfName, now, page, part, parts });
+  return fewestParts(people, (part, parts) => estimateMessages(request(part, parts).messages) <= budgetOf(config));
+}
+
+/**
+ * `batch` cut to the first lines by arrival until the largest page of its request fits the page budget, never below
+ * `min` lines (session-size.ts#cutByArrival). The lines stay in event time.
  */
 export function fitBatch(
   db: Db,
   scope: Pick<SweepScope, 'scope' | 'ctx'>,
   batch: Array<BatchLine>,
-  {
-    config,
-    prompts,
-    selfName,
-    now,
-    min = 1,
-  }: { config: Config; prompts: Row | null | undefined; selfName: string; now: number; min?: number }
+  { config, prompts, selfName, now, min = 1 }: SizeOptions & { min?: number }
 ): Array<BatchLine> {
-  const cap = Number(config?.llm?.maxRequestTokens);
-  if (!Number.isFinite(cap) || cap <= 0) return batch;
-  const budget = Math.floor(cap * CAP_SHARE);
-  const largest = (lines: Array<BatchLine>): number => {
-    const pages = pagesOf(db, lines, config, selfName);
-    let most = 0;
-    for (let page = 0; page < pages; page += 1) {
+  const fits = (lines: Array<BatchLine>): boolean => {
+    for (let page = 0; page < pagesOf(db, lines, config, selfName); page += 1) {
       const request = buildSessionRequest({ db, scope, batch: lines, config, prompts, selfName, now, page });
-      most = Math.max(most, estimateMessages(request.messages));
+      if (estimateMessages(request.messages) > budgetOf(config)) return false;
     }
-    return most;
+    return true;
   };
-  let lines = batch;
-  while (lines.length > Math.max(1, min) && largest(lines) > budget) {
-    const byArrival = [...lines].sort((a, b) => a.rowid - b.rowid);
-    const keep = new Set(
-      byArrival.slice(0, Math.max(Math.max(1, min), Math.ceil(byArrival.length / 2))).map((line) => line.rowid)
-    );
-    const next = lines.filter((line) => keep.has(line.rowid));
-    if (next.length === lines.length) break;
-    lines = next;
-  }
-  return lines;
+  return cutByArrival(batch, min, fits);
 }
 
 /**
@@ -1575,16 +1552,11 @@ async function runBatch(
   // The request must fit the request cap (`llm.maxRequestTokens`): a batch whose largest page would not is cut to its
   // first lines by arrival, halving until it fits or `minMessages` is reached; the lines after it wait for the next
   // batch (none is skipped: the cursor follows the cut). A batch pinned by an applied page above keeps its lines.
+  const sizes = { config, prompts: hot.prompts, selfName: ctx.selfName ?? '', now: (ctx.now ?? Date.now)() };
   if (!pinned) {
-    const fitted = fitBatch(db, swept, batch, {
-      config,
-      prompts: hot.prompts,
-      selfName: ctx.selfName ?? '',
-      now: (ctx.now ?? Date.now)(),
-      min: settings.minMessages,
-    });
+    const fitted = fitBatch(db, swept, batch, { ...sizes, min: settings.minMessages });
     if (fitted.length < batch.length) {
-      ctx.log?.info?.('memory session: batch cut to fit the request cap', {
+      ctx.log?.info?.('memory session: batch cut to fit the page budget', {
         scope: swept.scope.scope_kind,
         from: batch.length,
         to: fitted.length,
@@ -1598,21 +1570,24 @@ async function runBatch(
   if (tries >= settings.retryLimit)
     return [await skipBatch(ctx, { scope: swept, batch, cursor, cursorTo, key, holdKey, sweepId, settings, tries })];
 
-  const pages = pagesOf(db, batch, config, ctx.selfName ?? '');
+  const pages = pagesOf(db, batch, config, sizes.selfName);
   const results: Array<SweepRun> = [];
   const state: BatchState = { ok: true, dropped: false };
   let lastApplied = false;
-  for (let page = 0; page < pages; page += 1) {
-    const batchKey = [settings.mode, swept.key, cursor, cursorTo, page].join('|');
-    const last = page === pages - 1;
-    if (
-      settings.mode === 'apply' &&
-      db.prepare('SELECT 1 AS ok FROM session_runs WHERE batch_key = ? AND applied = 1').get(batchKey)
-    ) {
-      results.push({ scope: swept.key, outcome: 'applied_before', lines: batch.length, page });
+  const units = unitsOf(db, {
+    keyHead: [settings.mode, swept.key, cursor, cursorTo].join('|'),
+    pages,
+    applied: appliedBefore(db, settings.mode),
+    partsOfPage: (page) => partsOf(db, swept, batch, page, sizes),
+  });
+  for (const { page, part, parts, batchKey, last, applied } of units) {
+    if (applied) {
+      const where = parts > 1 ? { page, part } : { page };
+      results.push({ scope: swept.key, outcome: 'applied_before', lines: batch.length, ...where });
       lastApplied = last;
       continue;
     }
+    const unit = { page, pages, part, parts, last, batchKey };
     results.push(
       await runScope(ctx, {
         scope: swept,
@@ -1623,9 +1598,7 @@ async function runBatch(
         holdKey,
         sweepId,
         settings,
-        page,
-        pages,
-        batchKey,
+        ...unit,
         state,
         tries,
       })
@@ -1658,6 +1631,13 @@ async function runBatch(
   }
   return results;
 }
+
+/** Whether a batch key was applied in an earlier try (never outside `apply`). */
+const appliedBefore =
+  (db: Db, mode: string) =>
+  (batchKey: string): boolean =>
+    mode === 'apply' &&
+    db.prepare('SELECT 1 AS ok FROM session_runs WHERE batch_key = ? AND applied = 1').get(batchKey) !== undefined;
 
 /** What the end of a batch does to the cursor and to the pending mark, from how its pages went. */
 /** How the pages of a batch went so far: all fine, and whether an answer was dropped whole. */
@@ -1759,6 +1739,9 @@ async function runScope(
     settings,
     page,
     pages,
+    part,
+    parts,
+    last,
     batchKey,
     state,
     tries,
@@ -1773,6 +1756,11 @@ async function runScope(
     settings: SessionSettings;
     page: number;
     pages: number;
+    /** The part of the page this request shows, of `parts` (0 of 1 for a page sent whole). */
+    part: number;
+    parts: number;
+    /** Whether this is the batch's last request, whose write moves the cursor. */
+    last: boolean;
     batchKey: string;
     state: BatchState;
     tries: number;
@@ -1782,8 +1770,7 @@ async function runScope(
   const now = ctx.now ?? Date.now;
   const config = hot.config;
   const startedAt = now();
-  const runId = `run:${shortHash(sweepId, swept.key, page)}`;
-  const last = page === pages - 1;
+  const runId = `run:${parts > 1 ? shortHash(sweepId, swept.key, page, `${part}/${parts}`) : shortHash(sweepId, swept.key, page)}`;
   const run = {
     id: runId,
     sweepId,
@@ -1898,11 +1885,12 @@ async function runScope(
         selfName: ctx.selfName ?? '',
         now: startedAt,
         page,
+        part,
+        parts,
       };
       const whole = buildSessionRequest({ ...given, retrieved });
-      // The batch was fitted to the request cap without this block: the block gives way, never the batch.
-      const cap = requestCapOf(config, CAP_SHARE);
-      return retrieved && cap !== null && estimateMessages(whole.messages) > cap ? buildSessionRequest(given) : whole;
+      // The batch was fitted to the page budget without this block: the block gives way, never the batch.
+      return retrieved && estimateMessages(whole.messages) > budgetOf(config) ? buildSessionRequest(given) : whole;
     });
   } catch (error) {
     run.errors.push(`build:${codeOf(error)}`);
@@ -1953,6 +1941,7 @@ async function runScope(
     cacheRead: Number(promptDetails?.cached_tokens) || 0,
     page,
     pages,
+    ...(parts > 1 ? { part, parts } : {}),
     kept: counts.kept,
     dropped: counts.dropped,
     claims: plan.claims.length,

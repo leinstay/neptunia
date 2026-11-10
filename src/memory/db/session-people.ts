@@ -1,6 +1,7 @@
 // The people of a memory session's batch (session.ts): the accounts and participants that wrote its lines, the handles
-// `people:add` names, and the people the request shows in `<people>`. Her own account names her lines and is never one
-// of the people she reads about, nor an author to add (identity-links.ts). Pure reads on the connection it is given.
+// `people:add` names, the people the request shows in `<people>` and each one's profile as of the batch's cutoff. Her
+// own account names her lines and is never one of the people she reads about, nor an author to add (identity-links.ts).
+// Pure reads on the connection it is given.
 
 import type { Db, Row } from './types.ts';
 
@@ -109,4 +110,38 @@ export function peopleOf(
     people: [...byPerson.values()].sort((a, b) => b.count - a.count || a.id.localeCompare(b.id)),
     selfName,
   };
+}
+
+/** The claim / episode ids a profile may not show as of `cutoff` (created or last seen after it). */
+function lateIds(db: Db, ids: ReadonlyArray<string>, cutoff: unknown): Set<unknown> {
+  if (ids.length === 0) return new Set();
+  const marks = ids.map(() => '?').join(', ');
+  const late = new Set<unknown>();
+  for (const row of db
+    .prepare(`SELECT id FROM claims WHERE id IN (${marks}) AND (created_at > ? OR last_seen_at > ?)`)
+    .all(...ids, cutoff, cutoff))
+    late.add(row.id);
+  for (const row of db.prepare(`SELECT id FROM episodes WHERE id IN (${marks}) AND created_at > ?`).all(...ids, cutoff))
+    late.add(row.id);
+  return late;
+}
+
+/** A profile as of `cutoff`: the items whose claim or episode appeared or was seen again after it are left out. */
+export function profileAsOf(db: Db, profile: Row, cutoff: unknown): Row {
+  const ids: Array<string> = [];
+  for (const value of Object.values(profile)) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value as Array<Row | null>)
+      if (typeof item?.itemId === 'string' && item.itemId) ids.push(item.itemId);
+  }
+  const late = lateIds(db, [...new Set(ids)], cutoff);
+  if (late.size === 0) return profile;
+  const out: Row = { ...profile };
+  for (const [key, value] of Object.entries(profile)) {
+    if (Array.isArray(value))
+      out[key] = (value as Array<Row | null>).filter(
+        (item) => !(typeof item?.itemId === 'string' && late.has(item.itemId))
+      );
+  }
+  return out;
 }

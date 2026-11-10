@@ -106,6 +106,7 @@
       "selfMax": 40,
       "episodesMax": 20,
       "maxOutputTokens": 8000,
+      "maxPageTokens": 60000,
       "timeoutMs": 300000,
       "descriptionMaxOutputTokens": 1500,
       "mediaPass": false,

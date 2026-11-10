@@ -1628,6 +1628,13 @@
       "test": "none"
     },
     {
+      "path": "src/memory/db/session-size.ts",
+      "purpose": "The size of one memory session request: the page budget, the cut of a batch by lines and the split of a page into parts of fewer people. Tested through the page budget tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/session-scopes.ts",
       "purpose": "The scopes a memory session sweeps: the groups of an interface, and each DM alone by the place its lines' audience names. Tested through the session tests.",
       "layer": "public",
