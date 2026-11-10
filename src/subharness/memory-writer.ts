@@ -151,9 +151,9 @@ function streamOf(stdout: string): Array<Record<string, unknown>> {
   });
 }
 
-/** The `result` line that ends claude's stream, or null. */
+/** The `result` line that ends claude's stream, a stdout of one object taken as that line; else null. */
 const envelopeOf = (stream: ReadonlyArray<Record<string, unknown>>): Record<string, unknown> | null =>
-  stream.findLast((line) => line.type === 'result') ?? null;
+  stream.findLast((line) => line.type === 'result') ?? (stream.length === 1 ? stream[0] : null);
 
 /**
  * The text of every assistant message in the stream, in order. A run cut at `CLAUDE_CODE_MAX_OUTPUT_TOKENS` is resumed
@@ -164,9 +164,9 @@ function assistantText(stream: ReadonlyArray<Record<string, unknown>>): string |
   const messages = stream.filter((line) => line.type === 'assistant' && isRecord(line.message));
   if (messages.length === 0) return null;
   return messages
-    .flatMap((line) => {
-      const content = (line.message as Record<string, unknown>).content;
-      return Array.isArray(content) ? content : [];
+    .flatMap((line): Array<unknown> => {
+      const content: unknown = isRecord(line.message) ? line.message.content : null;
+      return Array.isArray(content) ? (content as Array<unknown>) : [];
     })
     .map((part: unknown) => (isRecord(part) && part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
     .join('');
