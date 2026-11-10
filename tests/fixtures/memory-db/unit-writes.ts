@@ -86,7 +86,8 @@ function ownWrite(update: Row): Row | null {
 
 /** The writer's update for a fixture's unit, with its `kind`; throws `UNIT_UNMAPPED` for a unit no kind takes. */
 export function unitAsWrite(update: Row): Row {
-  const stamp = { ...(update.now !== undefined ? { now: update.now } : {}), ...(update.iface ? { iface: update.iface } : {}) };
+  // The synthetic units speak Discord's ids, so a unit that names no interface is Discord's.
+  const stamp = { ...(update.now !== undefined ? { now: update.now } : {}), iface: update.iface ?? 'discord' };
   if (update.op === 'owner-name') return { ...update, kind: 'owner-name' };
   if (update.op === 'errand') return { ...(update.value as Row), ...stamp, kind: 'errand' };
   if (update.op === 'selfreflection')

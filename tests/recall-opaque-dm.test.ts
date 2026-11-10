@@ -76,6 +76,7 @@ function serviceOver(more: (db: Db) => void = () => {}): MemoryDbService {
   fillStems(db);
   seed.close();
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },
     dataDir,
     log: { info() {}, debug() {}, warn() {}, error() {} },

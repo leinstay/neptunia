@@ -66,6 +66,7 @@ await import(${JSON.stringify(REAL_WORKER)});
   const log = logs();
   let time = Date.UTC(2026, 9, 24, 12, 0, 0);
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot,
     dataDir: data,
     log,

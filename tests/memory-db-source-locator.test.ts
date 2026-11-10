@@ -9,7 +9,8 @@ import type { Row, Rows } from '../src/memory/db/types.ts';
 const recordRows = (rel: string, line: Row): Rows => ({
   sources: [
     {
-      ...recordSourceRow(line, { privateAccountId: /private\/([^/]+)\//.exec(rel)?.[1] ?? null }),
+      // The older release's record was Discord's.
+      ...recordSourceRow(line, { iface: 'discord', privateAccountId: /private\/([^/]+)\//.exec(rel)?.[1] ?? null }),
       owner_file: rel,
       position: null,
     },

@@ -62,7 +62,8 @@ export async function openTestMemory({
   seed = false,
   now = Date.now,
   log = silent,
-  iface,
+  // The live interface of the service, as the core gives it: the synthetic data speaks Discord's ids.
+  iface = () => 'discord',
 }: {
   dataDir?: string;
   config?: Config;
@@ -106,7 +107,7 @@ export function openTestMemorySync({
     config: { ...config, memoryDb: { session: { mode: 'off' }, ...(config.memoryDb ?? {}) } },
     prompts: {},
   };
-  const memoryDb = createMemoryDb({ hot, dataDir, log: log as Log, now, worker: false });
+  const memoryDb = createMemoryDb({ hot, dataDir, log: log as Log, now, worker: false, iface: () => 'discord' });
   memoryDb.tick();
   if (!memoryDb.readHandle()) throw new Error('the test memory database did not open');
   return { memoryDb, dataDir, hot, close: () => memoryDb.close() };

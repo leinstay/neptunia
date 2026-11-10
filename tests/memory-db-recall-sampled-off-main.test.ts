@@ -43,7 +43,7 @@ async function setup() {
     }),
     prompts: { labels },
   };
-  const service = createMemoryDb({ hot, dataDir: data, now: () => NOW });
+  const service = createMemoryDb({ iface: () => 'discord', hot, dataDir: data, now: () => NOW });
   await service.open();
   return {
     service,

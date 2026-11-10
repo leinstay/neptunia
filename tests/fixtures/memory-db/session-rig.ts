@@ -201,6 +201,8 @@ export function ctxOf(
     now: () => NOW + (clock += 1000),
     log: {},
     selfName: 'Nep',
+    // The interface a review reads in when it is given no read context, as the service names it.
+    iface: 'discord',
   } as unknown as Parameters<typeof sweep>[0]; // the context names the parts a sweep reads, and the llm may be absent
 }
 

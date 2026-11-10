@@ -70,7 +70,8 @@ const answerLine = (native: string): Row => ({
 /** A journal line's rows and the line back, in a day unit of a place, as the journal writer and reader build them. */
 const journalMapper = (db: Db) => {
   const key = journalKey('discord:channel:c1', '2026-11-08');
-  const ctx = storageContext(db, key);
+  // The interface of the write names the place's, since no row holds it.
+  const ctx = storageContext(db, key, 'discord');
   // A journal day's key always names its owner columns (line-owner.ts#lineOwnerOf).
   const owner = lineOwnerOf(key)!;
   return {
@@ -217,6 +218,7 @@ async function withService(
   seed(seeded);
   seeded.close();
   const service = createMemoryDb({
+    iface: () => 'discord',
     dataDir,
     hot: { config: {} },
     log: { info() {}, warn() {}, error() {} },

@@ -385,7 +385,14 @@ test('service: recordWake writes with no setting; an open interrupts the stale r
     startRun(before, { id: 'left', kind: 'heartbeat', startedAt: NOW - 30 * MINUTE });
     before.close();
     const hot = { config: { wakes: { loop: { timeBudgetMs: 3 * MINUTE } } } };
-    const service = createMemoryDb({ hot, dataDir: data, log: SILENT, worker: false, now: () => NOW });
+    const service = createMemoryDb({
+      iface: () => 'discord',
+      hot,
+      dataDir: data,
+      log: SILENT,
+      worker: false,
+      now: () => NOW,
+    });
     await service.tick();
     await settle();
     await service.recordWake({ kind: 'wake', op: 'start', run: { id: 'r1', kind: 'heartbeat', startedAt: NOW } });

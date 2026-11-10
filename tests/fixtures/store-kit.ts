@@ -38,6 +38,8 @@ function openMemoryAt(dir: string): MemoryDbService {
     dataDir: dir,
     log: SILENT,
     worker: false,
+    // The live interface of the service, as the core gives it: the synthetic data speaks Discord's ids.
+    iface: () => 'discord',
   });
   memoryDb.tick();
   if (!memoryDb.readHandle()) throw new Error('the test memory database did not open');

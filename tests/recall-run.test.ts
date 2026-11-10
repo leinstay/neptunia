@@ -177,6 +177,7 @@ function scene({
     prompts: { 'recall-summary': PROMPT, labels },
   };
   const recaller = createRecall({
+    iface: 'discord',
     reads,
     hot,
     store,

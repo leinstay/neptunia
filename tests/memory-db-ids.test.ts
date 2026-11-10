@@ -14,7 +14,6 @@ import {
   legacySourceIdOf,
   messageSourceId,
 } from '../src/memory/db/ids.ts';
-import { LEGACY_IFACE } from '../src/memory/db/live-iface.ts';
 
 test('names a Discord account and places with the spellings the database stores today', () => {
   assert.equal(accountId('discord', '100000000000000001'), 'discord:100000000000000001');
@@ -35,10 +34,6 @@ test('names a message source with its interface, message, revision and kind', ()
 });
 
 // The root-local authority `guildAuthorityOf` spelled is gone with the partition by root (plan task 5).
-
-test('keeps the legacy namespace as the stored discord spelling', () => {
-  assert.equal(LEGACY_IFACE, 'discord');
-});
 
 test('spells an observed Discord tuple the way the importer wrote it', () => {
   assert.equal(legacyAccountIdOf('discord/global', '100000000000000001'), 'discord:100000000000000001');

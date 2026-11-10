@@ -171,7 +171,7 @@ function seededDataDir(): string {
 const dbOf = (handle: unknown): Db => (handle as { db: Db }).db;
 
 /** The real service over `data`, on the calling thread, opened; `iface` is the live interface it stamps unit writes with. */
-async function openService(data: string, iface: string | null = null) {
+async function openService(data: string, iface: string | null = 'discord') {
   const hot = { config: { memoryDb: { session: { mode: 'off' } } }, prompts: {} };
   const service = createMemoryDb({
     hot,
@@ -191,7 +191,7 @@ async function openService(data: string, iface: string | null = null) {
 type Service = Awaited<ReturnType<typeof openService>>;
 
 /** One scene: the seeded data directory, the service over it and the store whose cached files the sync writes. */
-async function scene(iface: string | null = null) {
+async function scene(iface: string | null = 'discord') {
   const data = seededDataDir();
   const service = await openService(data, iface);
   let ids = 0;

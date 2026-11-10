@@ -106,6 +106,7 @@ function runner(env: ReturnType<typeof fixture>) {
     },
   };
   const recaller = createRecall({
+    iface: 'discord',
     reads: rig().reads,
     hot,
     // The DM partner `owner-42` has a stored person, which the store answers; no person is spelled from a member id.

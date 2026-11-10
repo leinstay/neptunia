@@ -166,7 +166,15 @@ async function modules(
   // A test's own `memoryDb` is a fake with the members the stores call, so it stands in for the service by a cast.
   const service =
     (memoryDb as Service | null) ??
-    createMemoryDb({ hot, dataDir: data, log, worker: false, now: () => NOW, defer: (fn) => setImmediate(fn) });
+    createMemoryDb({
+      iface: () => 'discord',
+      hot,
+      dataDir: data,
+      log,
+      worker: false,
+      now: () => NOW,
+      defer: (fn) => setImmediate(fn),
+    });
   // Root state loads eagerly from the database. Readiness precedes construction of its readers.
   if (!memoryDb) await service.open();
   const archiveStore = createAppendStore({ log: quiet, now: () => NOW });
@@ -420,6 +428,7 @@ test('a unit write that still fails at the shutdown is logged lost and leaves no
   const log = logs();
   const hot = { config: configOf() };
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot,
     dataDir: data,
     log,
@@ -500,6 +509,7 @@ test('an open applies nothing from a file in memory-pending/ and leaves the file
   fs.mkdirSync(pendingDir);
   fs.writeFileSync(path.join(pendingDir, name), kept);
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot,
     dataDir: data,
     log,
@@ -529,6 +539,7 @@ test('a task transition or an intention whose write committed and whose answer w
   retireFiles(data);
   const hot = { config: configOf() };
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot,
     dataDir: data,
     log: quiet,
@@ -646,6 +657,7 @@ test("her session's attitude move reaches the store's cached profile: a later fl
   retireFiles(data);
   const hot = { config: configOf() };
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot,
     dataDir: data,
     log: quiet,

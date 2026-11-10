@@ -1365,7 +1365,7 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
     keys: { brave: 'test-key' },
     now: () => NOW,
   });
-  const recall = createRecall({ reads: world().reads, hot, store, llm, describer, now: () => NOW });
+  const recall = createRecall({ iface: 'discord', reads: world().reads, hot, store, llm, describer, now: () => NOW });
   const turns = createTurnRunner({
     hot,
     store,

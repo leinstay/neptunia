@@ -29,7 +29,8 @@ import { dbOf, type Db, type Statement } from '../src/memory/db/types.ts';
 type RecallInput = Parameters<typeof createRecall>[0];
 const asReads = (reads: object) => reads as RecallInput['reads'];
 const asRecall = (input: (Omit<RecallInput, 'reads'> & { reads: RecallInput['reads'] }) | object) =>
-  createRecall(input as RecallInput) as unknown as {
+  // The core names its live interface on the recall.
+  createRecall({ iface: 'discord', ...input } as RecallInput) as unknown as {
     run(args: Record<string, unknown>): Promise<Found>;
     window(args: Record<string, unknown>): Promise<Found>;
     prefetch(args: Record<string, unknown>): Promise<{ status?: string } | null>;
@@ -1636,6 +1637,7 @@ test('search, window and prefetch retain one issued internal context rather than
     const s = runner(env);
     const issued: Array<Parameters<typeof issueContext>[0]> = [];
     const recaller = createRecall({
+      iface: 'discord',
       reads: rig().reads,
       hot: s.hot,
       store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [], personOfAccount: storedPersonOf },
@@ -1811,6 +1813,7 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
         throw new Error(`unexpected legacy guild read: ${name}`);
       };
       const recaller = createRecall({
+        iface: 'discord',
         reads: rig().reads,
         hot: s.hot,
         store: {

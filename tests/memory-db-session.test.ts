@@ -870,6 +870,7 @@ test('writes from the main thread go through the worker: a session write lands i
   buildDataDir(data);
   const hot = { config: { memoryDb: { session: { mode: 'off' } } } };
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot,
     dataDir: data,
     log: { info() {}, warn() {}, error() {}, debug() {} },

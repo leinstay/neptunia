@@ -162,14 +162,14 @@ export function externalTargetKey({
 /** The key of a relation's target named by our own source id: `source:<id>`. */
 export const sourceTargetKey = (sourceId: unknown): string => `source:${text(sourceId)}`;
 
-// ---------- the readable spelling of a Discord tuple ----------
-// Every account, place and line of Discord is stored under a readable id (`discord:<user id>`, `discord:channel:<id>`,
+// ---------- the readable spelling of a `discord` tuple ----------
+// Every account, place and line of `discord` is stored under a readable id (`discord:<user id>`, `discord:channel:<id>`,
 // `src:discord:<message id>:<revision>:<seen|said>`), and the record and the observation of one line land on that one id.
 // Only a first generation of the global authority has it; anything else (a thread, a later generation, another
 // interface) is a hashed id (`nodeId`).
 
 /** The interface whose tuples keep the readable spelling. */
-const SPELLED_IFACE = 'discord';
+const SPELLED_IFACE = `discord`;
 
 const LEGACY_AUTHORITY_OF_IFACE = `${SPELLED_IFACE}/global`;
 /** Place kinds the importer writes under their own id spelling, and the spelling. */

@@ -190,6 +190,7 @@ function toolRig(env: Env, { secret: secretId = SECRET }: { secret?: string } = 
     },
   };
   const recall = createRecall({
+    iface: 'discord',
     reads,
     hot: { config, prompts: { 'recall-summary': 'x', labels: toolLabels } },
     store,

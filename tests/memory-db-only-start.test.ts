@@ -72,7 +72,7 @@ async function engine(data: string, log = quiet) {
     agents: { scout: { daily: { tasks: 5 } } },
   };
   const hot = { config, prompts: {} };
-  const memoryDb = createMemoryDb({ hot, dataDir: data, log, now: () => NOW, worker: false });
+  const memoryDb = createMemoryDb({ iface: () => 'discord', hot, dataDir: data, log, now: () => NOW, worker: false });
   // Eager state readers require the database before store construction.
   await memoryDb.open();
   const archiveAppendStore = createAppendStore({ fsyncMs: 0, log });

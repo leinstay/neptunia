@@ -49,6 +49,7 @@ function rig(): { env: ReturnType<typeof createOpsEnv>; store: ReturnType<typeof
   addDmPlace(db, { id: DM, iface: 'one', authority: 'one/global', account: 'account:p1', person: 'person:p1' });
   seed.close();
   const memoryDb = createMemoryDb({
+    iface: () => 'discord',
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },
     dataDir,
     log: { info() {}, debug() {}, warn() {}, error() {} },

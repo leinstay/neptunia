@@ -135,6 +135,8 @@ const ctxOf = (
   now: () => NOW,
   log: {},
   selfName: 'Nep',
+  // The interface the review reads in when it is given no read context, as the service names it.
+  iface: 'discord',
   write: async (update: Record<string, Untyped>) => applyMemoryWrite(env.handle, update),
 });
 

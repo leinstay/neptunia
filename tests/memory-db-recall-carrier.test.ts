@@ -47,6 +47,7 @@ function runner(env: ReturnType<typeof fixture>) {
     prompts: { 'recall-summary': 'Summarize the stored evidence.', labels },
   };
   const recaller = createRecall({
+    iface: 'discord',
     reads: rig().reads,
     hot,
     store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },

@@ -1622,7 +1622,8 @@ export function createMemoryDb({
    * Issues an execution context for one turn, session or wake (scope.ts#issueContext); its row is written deferred.
    */
   function issueContext(spec: Parameters<typeof issuePureContext>[0] = {}): Context {
-    const ctx = linkedContext(issuePureContext({ ...spec, now }), handle ? database() : null);
+    // A spec that names no interface reads in the live one.
+    const ctx = linkedContext(issuePureContext({ ...withLiveIface(spec, iface), now }), handle ? database() : null);
     if (!handle || closing) return ctx;
     const update = { kind: 'context', context: contextRow(ctx) };
     defer(() => {

@@ -94,7 +94,15 @@ test('an archived item of a chat whose place id spells nothing is a claim about 
     const db = dbOf(handle);
     addChannelPlace(db, { id: 'place:9b22', iface: 'discord', authority: 'discord/global', native: 'room-n' });
     const line = entry('e1', 'claim:archived-1', NOV, { scope: { channel: 'room-n' }, participants: [] });
-    applyMemoryWrite(handle, { kind: 'archive-lines', placeId: null, month: '2026-11', lines: [line], now: NOW });
+    // The service names its live interface on the write.
+    applyMemoryWrite(handle, {
+      kind: 'archive-lines',
+      placeId: null,
+      month: '2026-11',
+      lines: [line],
+      iface: 'discord',
+      now: NOW,
+    });
     const claim = db.prepare('SELECT subject_kind, subject_id FROM claims WHERE id = ?').get('claim:archived-1');
     assert.deepEqual({ ...claim }, { subject_kind: 'place', subject_id: 'place:9b22' });
   } finally {

@@ -375,7 +375,14 @@ test('issueContext: an id, the mode, the DM place of the partner; contexts stay 
   let n = 0;
   const newId = () => `ctx:test-${(n += 1)}`;
   // The caller names the DM place it found in `places`: the partner's person id no longer spells it.
-  const dm = issueContext({ kind: 'dm', person: ALICE, place: dmPlaceId('discord', 'u-alice'), now: () => NOW, newId });
+  const dm = issueContext({
+    kind: 'dm',
+    iface: 'discord',
+    person: ALICE,
+    place: dmPlaceId('discord', 'u-alice'),
+    now: () => NOW,
+    newId,
+  });
   assert.deepEqual(
     [dm.id, dm.mode, dm.kind, dm.place, dm.destination, dm.issuedAt],
     [
@@ -390,6 +397,7 @@ test('issueContext: an id, the mode, the DM place of the partner; contexts stay 
   const group = issueContext(
     wrongly({
       kind: 'group',
+      iface: 'discord',
       destination: channelPlaceId('discord', 'c1'),
       now: () => NOW,
       newId,
