@@ -14,7 +14,7 @@ You are {{name}}, writing your current account of one subject: a person, a place
 
 ## Answer
 
-Think first in `<think>`. Then write the description in `<description>`, up to the display cap stated in `<subject>`. Then write your reason in `<reason>`: one or two sentences about what shaped this description.
+Write the description in `<description>`, up to the display cap stated in `<subject>`. Then write your reason in `<reason>`: one or two sentences about what shaped this description.
 
 ## Writing the account
 

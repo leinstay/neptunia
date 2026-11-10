@@ -312,3 +312,19 @@ test('an explicit disabled on a route wins over a default effort of llm.routeEff
   await client.complete(MESSAGES, { role: 'analyzer' });
   assert.equal(optionsOf(asked, 0).reasoning, undefined);
 });
+
+test('a harness route whose effort is a level asks its run for native thinking, and disabled does not', async () => {
+  // Catches: the memory writer unable to tell `disabled` from `low` once both reach it as `--effort low`, so a
+  // disabled role thinks, or a role at `medium` runs with its thinking switched off.
+  const route = { via: 'harness', backend: 'claude', model: 'claude-opus-4-6' };
+  const medium = rig({ models: { routes: { memory: [route] } }, llm: { routeEffort: { memory: 'medium' } } });
+  await medium.client.complete(MESSAGES, { role: 'memory' });
+  const asked = optionsOf(medium.asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
+  assert.equal(asked.effort, 'medium');
+  assert.equal(asked.isThinking, true);
+  const disabled = rig({ models: { routes: { memory: [route] } }, llm: { routeEffort: { memory: 'disabled' } } });
+  await disabled.client.complete(MESSAGES, { role: 'memory' });
+  const off = optionsOf(disabled.asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
+  assert.equal(off.effort, 'low');
+  assert.equal(off.isThinking, false);
+});

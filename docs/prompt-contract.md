@@ -173,7 +173,7 @@ A member's handle is `@u` and a channel's `#c` followed by base-36 digits of the
 
 ### Memory session answer
 
-A memory session answers `<think>`, then one `<memory>` block holding a JSON object. `parseSessionAnswer` in `src/memory/db/session.ts` reads the block and `validateAnswer` checks its groups: `claims`, `episodes`, `affinity`, `descriptions`, `people`, `entities` and `assertions`, as `prompts/memory-session.md` spells them. Any other group counts one `unknown_group`, and a dropped op counts its reason in `counts.dropped`.
+A memory session answers one `<memory>` block holding a JSON object, and no prompt asks it for a `<think>`. `parseSessionAnswer` in `src/memory/db/session.ts` drops a `<think>` block the model writes all the same, reads the `<memory>` block, and `validateAnswer` checks its groups: `claims`, `episodes`, `affinity`, `descriptions`, `people`, `entities` and `assertions`, as `prompts/memory-session.md` spells them. Any other group counts one `unknown_group`, and a dropped op counts its reason in `counts.dropped`.
 
 An author of a batch line carries a handle `aN` only while the account has no person. `buildSessionRequest` gives her own accounts no handle and leaves them out of `<people>`, and the account of the owner's command line holds his person from its first line, so `people` names neither. The prompt's "People" section says that both are known, and the writer refuses an add for either as `rejected:known_person` (`src/memory/db/session-write.ts`).
 
@@ -187,7 +187,7 @@ The writer refuses what only the database can judge, and each refusal is a `deci
 
 ### Description merge
 
-`/memory bind` asks the memory model to join two descriptions of one person when an account's own meta-person merges into the target and both hold a current description of one field in one audience (`bindAccount` in `src/memory/db/person-bind.ts`). The request goes out on the `memory` role with the purpose `description-merge` and the limit `memoryDb.session.descriptionMaxOutputTokens`. Its system message is the one her turns get with `prompts/description-merge.md` last, which takes `{{name}}`. The user message holds `<subject>` (the field and its display cap), `<kept>` (the target's current text) and `<merged>` (the text of the person who goes). The answer is `<think>`, `<description>` and `<reason>`, read by `parseDescriptionAnswer` in `src/memory/db/describe.ts`. A missing or empty `<description>` fails the bind as `bad_answer`, and nothing is written.
+`/memory bind` asks the memory model to join two descriptions of one person when an account's own meta-person merges into the target and both hold a current description of one field in one audience (`bindAccount` in `src/memory/db/person-bind.ts`). The request goes out on the `memory` role with the purpose `description-merge` and the limit `memoryDb.session.descriptionMaxOutputTokens`. Its system message is the one her turns get with `prompts/description-merge.md` last, which takes `{{name}}`. The user message holds `<subject>` (the field and its display cap), `<kept>` (the target's current text) and `<merged>` (the text of the person who goes). The answer is `<description>` and `<reason>`, read by `parseDescriptionAnswer` in `src/memory/db/describe.ts`, which drops a stray `<think>` block. A missing or empty `<description>` fails the bind as `bad_answer`, and nothing is written.
 
 ## Watcher answer
 

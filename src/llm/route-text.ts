@@ -40,7 +40,8 @@ export const isRouteEffort = (value: unknown): value is RouteEffort => ROUTE_EFF
 
 /**
  * The level a harness runs `effort` at: the level itself, and for `disabled` the lowest every CLI takes, `low`, since
- * neither claude nor codex can switch its thinking off. Null leaves the CLI at its own default.
+ * no CLI takes a `disabled` effort; the memory writer switches claude's thinking off apart. Null leaves
+ * the CLI at its own default.
  */
 export const harnessEffort = (effort: RouteEffort | null): EffortLevel | null =>
   effort === null ? null : effort === 'disabled' ? 'low' : effort;

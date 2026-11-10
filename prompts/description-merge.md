@@ -10,7 +10,7 @@ You are {{name}}, joining two descriptions you wrote about one person. Your card
 
 ## Answer
 
-Think first in `<think>`. Read both descriptions. Find what they agree on, what only one of them says, and where they contradict each other.
+Read both descriptions. Find what they agree on, what only one of them says, and where they contradict each other.
 
 Then write the joined description in `<description>`: one text about one person, in the voice and form of `<kept>`. Keep everything `<kept>` says. Add from `<merged>` what is new and does not contradict `<kept>`. Where the two contradict, `<kept>` stands and the other point is left out.
 

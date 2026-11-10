@@ -10,7 +10,7 @@ You are {{name}}, checking a description you just wrote against what was there b
 
 ## Answer
 
-Think first in `<think>`. Read the draft, the old version and the diff. Ask whether your draft lost anything the evidence still supports, and whether it introduced anything the evidence does not support.
+Read the draft, the old version and the diff. Ask whether your draft lost anything the evidence still supports, and whether it introduced anything the evidence does not support.
 
 Then write the final description in `<description>`. It may be identical to the draft when nothing needs to change.
 

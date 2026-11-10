@@ -157,6 +157,48 @@ test('claude gets --effort only when the path has an effort', async () => {
   assert.equal(without.seen[0].args.includes('--effort'), false);
 });
 
+/** One request of the memory role through the client, on the harness route the chain client chose. */
+async function throughChain(deps: MemoryWriterDeps, route: Record<string, unknown>, maxOutputTokens: number) {
+  const client = memoryWriterClient({ writer: deps, direct: fakeLlm(ANSWER) });
+  const messages = [
+    { role: 'system', content: INPUT.system },
+    { role: 'user', content: INPUT.user },
+  ];
+  await client.complete(messages, { chainRoute: { via: 'harness', ...route }, maxOutputTokens, timeoutMs: 120_000 });
+}
+
+test('claude thinks at the effort the route asks for, on a budget at most half the output cap', async () => {
+  // Catches: a memory role at `medium` run with its thinking off, or thinking left unbounded so it fills the cap and
+  // the answer is cut as `output-truncated`.
+  for (const [effort, cap] of [
+    ['medium', 10_000],
+    ['high', 6000],
+  ] as const) {
+    const { deps, seen } = rig(claudeAnswers(ANSWER));
+    await throughChain(deps, { backend: 'claude', model: 'm', effort, isThinking: true }, cap);
+    const [{ args, env }] = seen;
+    const budget = Number(env.MAX_THINKING_TOKENS);
+    assert.equal(after(args, '--effort'), effort);
+    assert.ok(budget > 0 && budget <= cap / 2, `${effort}: budget ${budget} under cap ${cap}`);
+  }
+});
+
+test('claude runs with no native thinking when the route effort is disabled', async () => {
+  // Catches: `disabled`, which reaches the writer as `--effort low`, taken as a request to think at low.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await throughChain(deps, { backend: 'claude', model: 'm', effort: 'low', isThinking: false }, 10_000);
+  const [{ env }] = seen;
+  assert.equal(env.MAX_THINKING_TOKENS, '0');
+});
+
+test('claude keeps its own thinking default when the route names no effort', async () => {
+  // Catches: a blanket switch that turns a helper's thinking off although its route asked for nothing.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await throughChain(deps, { backend: 'claude', model: 'm', effort: null }, 10_000);
+  const [{ env }] = seen;
+  assert.equal('MAX_THINKING_TOKENS' in env, false);
+});
+
 test('claude runs her own binary with her own home and no key of the core in its environment', async () => {
   // Catches: the writer run on the installing user's claude, or the child handed the core's OpenRouter key.
   const before = process.env.OPENROUTER_CORE_KEY;
