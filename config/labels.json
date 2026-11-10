@@ -394,7 +394,8 @@
         "lastInner": "This is your last step. One call still runs here: a post or an intention change. Nothing else will go through.",
         "rescue": "Your lookups could not go on, and their results are not here. Reply now from what you already have in front of you, or end with <skip/>. A call here will not run.",
         "cut": "This result is longer than what you see here. A narrower call reads the rest.",
-        "dropped": "The result of this {tool} call was taken out to make room. Make the call again if you still need it."
+        "dropped": "The result of this {tool} call was taken out to make room. Make the call again if you still need it.",
+        "long": "You have made calls in {n} answers in a row this turn. If what you are looking for has not turned up, stop looking and reply from what you have, saying what you looked at."
       }
     },
     "errands": {

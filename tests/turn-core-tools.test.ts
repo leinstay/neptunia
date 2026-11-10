@@ -42,11 +42,13 @@ test("loopSettings: a missing or unusable value takes config.json's", () => {
   const tracked = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')).tools.loop;
   assert.deepEqual(loopSettings({}), tracked);
   assert.deepEqual(loopSettings({ tools: { loop: { maxSteps: 0, timeBudgetMs: -1, maxCallsPerStep: 1.5 } } }), tracked);
+  // The ordinary loop carries every key of tools.loop, remindAfterSteps included.
   assert.deepEqual(loopSettings({ tools: { loop: { maxSteps: 5, timeBudgetMs: 900, maxCallsPerStep: 2 } } }), {
     maxSteps: 5,
     timeBudgetMs: 900,
     maxCallsPerStep: 2,
     stepReserveTokens: tracked.stepReserveTokens,
+    remindAfterSteps: tracked.remindAfterSteps,
   });
 });
 

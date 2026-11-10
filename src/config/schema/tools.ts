@@ -67,4 +67,11 @@ export const TOOLS: ReadonlyArray<SchemaEntry> = [
     'default': 6000,
     'text': 'Tokens the first request leaves for the follow-up requests. `0` = no reserve',
   },
+  {
+    'key': 'tools.loop.remindAfterSteps',
+    'types': ['number'],
+    'reader': 'src/turn/settings.ts',
+    'default': 3,
+    'text': 'Answers with calls in a row after which every further request tells her how many she made. `0` = off',
+  },
 ];

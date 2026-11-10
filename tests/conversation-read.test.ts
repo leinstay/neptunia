@@ -349,6 +349,22 @@ test('an anchor in neither the record nor the history is an unknown message; a h
   assert.deepEqual(await broken.run({ last: 3 }), { status: 'failed', code: 'error' });
 });
 
+test('a read whose interface link is closed is a failed call with its code, not one that may have gone through', async () => {
+  const closed = runner({
+    readRecord: () => Promise.resolve([]),
+    fetchLive: () => Promise.resolve({ failed: 'link-closed' }),
+  });
+  assert.deepEqual(await closed.run({ last: 3 }), { status: 'failed', code: 'link-closed' });
+});
+
+test('a read whose adapter threw is a failed call with its code, not one that may have gone through', async () => {
+  const threw = runner({
+    readRecord: () => Promise.resolve([]),
+    fetchLive: () => Promise.resolve({ failed: 'adapter-threw' }),
+  });
+  assert.deepEqual(await threw.run({ last: 3 }), { status: 'failed', code: 'adapter-threw' });
+});
+
 test('an empty span says so; arguments that do not fit are invalid; a hidden channel is denied before anything is read', async () => {
   const empty = runner({ readRecord: async () => [], fetchLive: async () => [] });
   assert.equal(loose((await empty.run({ last: 3 })).data).text, 'from conversation.read #general\nno messages');
