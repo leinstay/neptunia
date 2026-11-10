@@ -607,6 +607,16 @@ function episodeLines(found: Obj, labels: unknown): Array<string> {
     .map((one) => fill(line, { date: plain(one.date), text: plain(one.text) }));
 }
 
+/**
+ * The lines that open a search's text: `.far` when nothing found was close (the nearest lines below it may be
+ * unrelated), then `.degraded` when the meaning index was not reached. Pure.
+ */
+function leadLines(found: Obj, l: ToolLabels): Array<string> {
+  const far = found.far === true && l.far ? [l.far] : [];
+  const degraded = objOf(found.outcome).degraded === true && l.degraded ? [l.degraded] : [];
+  return [...far, ...degraded];
+}
+
 /** The persona's filters of the stored facts; a moment that is no date is refused by the caller. */
 function factFilters(
   given: Obj
@@ -770,7 +780,7 @@ export async function runMemorySearch({
         historyRef,
         candidate,
         terms: text(given.terms),
-        server: serverPlan(plan),
+        server: { ...serverPlan(plan), ...(given.mine === true ? { mine: true } : {}) },
         decorate,
         quotes: true,
         retrieval,
@@ -799,12 +809,101 @@ export async function runMemorySearch({
         ? { status: 'partial', code: CODE.TIMEOUT, values: { what: WHAT.search }, data: { text: shown() } }
         : { status: 'failed', code: CODE.TIMEOUT, values: { what: WHAT.search } };
     const l = toolLabels(labels, 'memory');
-    const lines: Array<string> = [];
-    if (outcome.degraded === true && l.degraded) lines.push(l.degraded);
-    lines.push(shown(), ...factLines(found, labels), ...episodeLines(found, labels));
+    const lines = [...leadLines(found, l), shown(), ...factLines(found, labels), ...episodeLines(found, labels)];
     if (typeof outcome.failed === 'number' && outcome.failed > 0 && l.partial)
       lines.push(fill(l.partial, { failed: String(outcome.failed), total: plain(outcome.total) }));
     return { status: 'ok', data: { text: lines.join('\n') } };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}
+
+/** The most lines a `find` of conversation.read returns. */
+export const CHAT_FIND_MAX = 8;
+
+/** What a `find` gives: the matching lines of the chat, best first, or the code of why it could not search. */
+export type ChatFind = { status: 'ok'; lines: Array<Obj> } | { status: 'failed'; code: string; values?: Obj };
+
+/**
+ * One `find` of conversation.read: her words as the `question` of a memory.search (memorySearchPlan, `recall.run` with
+ * `quotes`, over the turn's `placeId`: the same search, one embedding, words alone when the embedding fails), narrowed to the stored place `place`
+ * and run under the turn's `memoryContext`. The lines of the read's `window` are left out of the matches as the turn's
+ * history is left out of a search (recall-reads.ts#historyExclusions: a stored line by its `stored`, any other by its id
+ * in `windowRef`'s chat).
+ * Gives at most CHAT_FIND_MAX close lines, best first (src/memory/db/recall.ts#isClose), none when nothing is close.
+ * `failed` with `not-configured`, `daily-cap`, `timeout` or `error` when the search did not run. Never throws.
+ */
+export async function runChatFind({
+  recall,
+  store = null,
+  config,
+  placeId,
+  place,
+  words,
+  window,
+  windowRef,
+  channel,
+  snapshot = null,
+  partnerId = null,
+  selfId = null,
+  selfName = '',
+  asker = null,
+  memoryContext = null,
+  now = Date.now(),
+}: {
+  recall: RecallClient | null;
+  store?: { listUserProfiles: () => unknown } | null;
+  config: unknown;
+  placeId: string | null;
+  place: string;
+  words: string;
+  window: ReadonlyArray<Obj>;
+  windowRef?: ChatRef;
+  channel: { id?: unknown; rootId?: unknown } | null;
+  snapshot?: unknown;
+  partnerId?: string | null;
+  selfId?: string | null;
+  selfName?: string;
+  asker?: string | null;
+  memoryContext?: unknown;
+  now?: number;
+}): Promise<ChatFind> {
+  try {
+    if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
+      return { status: 'failed', code: CODE.NOT_CONFIGURED };
+    const settings = recallSettings(objOf(config));
+    const plan = memorySearchPlan({
+      question: words,
+      profiles: storedRecallProfiles(store, placeId),
+      selfId,
+      selfName,
+      maxForms: settings?.maxForms,
+      timezone: memoryTimezone(config),
+      now,
+    });
+    const found = objOf(
+      await recall.run({
+        placeId,
+        snapshot,
+        channel,
+        partnerId,
+        selfId,
+        selfName,
+        history: [...window],
+        ...(windowRef ? { historyRef: windowRef } : {}),
+        candidate: { id: null, content: words, authorId: asker },
+        server: { ...serverPlan(plan), place },
+        quotes: true,
+        lines: CHAT_FIND_MAX,
+        ...(memoryContext ? { memoryContext } : {}),
+      })
+    );
+    const kind = objOf(found.outcome).kind;
+    if (kind === 'daily-cap') return { status: 'failed', code: CODE.DAILY_CAP };
+    if (kind === 'not-configured') return { status: 'failed', code: CODE.NOT_CONFIGURED };
+    if (kind === 'timeout') return { status: 'failed', code: CODE.TIMEOUT, values: { what: WHAT.search } };
+    if (kind !== 'searched' && kind !== undefined) return { status: 'failed', code: CODE.ERROR };
+    return { status: 'ok', lines: listOf(found.lines).filter(isObj).slice(0, CHAT_FIND_MAX) };
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }

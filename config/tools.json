@@ -244,7 +244,7 @@
   "memory.journal.read": {
     "title": "Read journal",
     "whenToUse": "Reads your journal, the records the engine keeps of your own turns and calls: the last records of one day, of one kind or all, or with message the whole turn that posted that message of yours. It returns records of what you did, never the text of a post. It runs only when the owner asks, or in a turn of your own.",
-    "whenNotToUse": "For a post of yours in another place, conversation.read of that place or memory.search. For what people said, memory.search.",
+    "whenNotToUse": "For a post of yours, memory.search with mine, or conversation.read of its place with find. For what people said, memory.search.",
     "args": {
       "kind": "turn, action, memory, system, answer, inner or all (default).",
       "message": "#N or link of a message of yours. Returns the turn that posted it, whole.",
@@ -509,8 +509,8 @@
   },
   "memory.search": {
     "title": "Search memory",
-    "whenToUse": "Searches the lines of every place you can read, on every interface, by meaning and by words: what someone said, when something happened, a line of yours in another place, and pictures, GIFs and videos by what they show, in any language. Search before you reply whenever a message refers to something that is neither in the chat nor in your memory, and before you say you do not remember. Put what you want to find in question, in your own words, and exact words or a name in terms. Narrow with people, place and when. Returns stretches of quoted lines, each line with its time, author and a #N, then the stored facts and remembered moments that match. The lines of the chat in front of you are left out. A result is a sample, so an empty one means only that nothing matched these words. With only place or when it returns a sample of that place and time, and with entity the stored facts about one thing.",
-    "whenNotToUse": "To read a stretch of one chat in order, or the lines around a #N you already have, conversation.read. For what memory keeps about one person, memory.profile.read. Do not repeat a search with reworded terms: read around its best line with conversation.read.",
+    "whenToUse": "Searches the lines of every place you can read, on every interface, by meaning and by words: what someone said, when something happened, a line of yours in another place, and pictures, GIFs and videos by what they show, in any language. Search before you reply whenever a message refers to something that is neither in the chat nor in your memory, and before you say you do not remember. Put what you want to find in question, in your own words, and exact words or a name in terms. Narrow with people, place and when. Returns stretches of quoted lines, each line with its time, author and a #N, then the stored facts and remembered moments that match. The lines of the chat in front of you are left out. A result is a sample, so an empty one means only that nothing matched these words. With only place or when it returns a sample of that place and time, and with entity the stored facts about one thing. With mine it keeps to the lines you wrote yourself, in every place you can read, and with mine and when alone it returns your lines of that time, newest first. When a result opens by saying that nothing close was found, that is your answer: the few lines under it are only the nearest and may be unrelated, so do not search again in other words.",
+    "whenNotToUse": "To read a stretch of one chat in order, or the lines around a #N you already have, conversation.read. For what memory keeps about one person, memory.profile.read. To learn whether one place holds something, conversation.read of that place with find. Do not repeat a search with reworded terms: read around its best line with conversation.read.",
     "args": {
       "question": "What you want to find, in your own words. Matched by meaning, in any language.",
       "terms": "Exact words or a name that must appear, comma-separated.",
@@ -524,12 +524,13 @@
       "entity": "Entity id of a stored fact: its facts and neighbours.",
       "predicate": "Only facts of this predicate (project.works_on).",
       "as_of": "A date: facts as recorded at its start.",
-      "historical": "Also older and retired facts."
+      "historical": "Also older and retired facts.",
+      "mine": "true: only lines you wrote yourself."
     }
   },
   "conversation.read": {
     "title": "Read a place",
-    "whenToUse": "Reads the lines of one chat in the order they were written: this chat, another place you can read on any interface, or your newest direct chat with one person. Lines come from the stored record and, where it lacks them, from the interface's own history, with the descriptions of their pictures. Choose it when you know where something is: the lines around a #N from a search or from the chat, what was said in a place since a time, the last lines of a place. Without place or person it reads this chat. One call reads one window: around with before and after, before or after alone, since, or last. Returns numbered lines with time, author, replies and reactions, the #N to read earlier or later, then what memory holds about authors you were not shown this turn.",
+    "whenToUse": "Reads the lines of one chat in the order they were written: this chat, another place you can read on any interface, or your newest direct chat with one person. Lines come from the stored record and, where it lacks them, from the interface's own history, with the descriptions of their pictures. Choose it when you know where something is: the lines around a #N from a search or from the chat, what was said in a place since a time, the last lines of a place. Without place or person it reads this chat. One call reads one window: around with before and after, before or after alone, since, or last. Add find to learn in the same call whether the chat holds something: after the window come up to 8 lines of that chat that match it and are not in the window, best first, or a line saying nothing matches. Returns numbered lines with time, author, replies and reactions, the #N to read earlier or later, then what memory holds about authors you were not shown this turn. When a read says it reached the newest line of the chat, there is nothing newer, so do not read the chat again with since or after.",
     "whenNotToUse": "To find where something was said when you know neither the place nor the time, memory.search. To look closer at a picture of a line, media.look. A place you may not read answers with its reason, so do not retry it under another name.",
     "args": {
       "around": "#N or link of the middle line. before and after set the lines on each side, default 10, at most 30.",
@@ -538,7 +539,8 @@
       "before": "With around: lines before it. Alone: #N or link, and the last lines before it.",
       "after": "With around: lines after it. Alone: #N or link, and the lines after it.",
       "place": "#handle or place id, or the place in the words its people use: its name or what it is for.",
-      "person": "@handle or name: reads your newest direct chat with them other than this one, on any interface."
+      "person": "@handle or name: reads your newest direct chat with them other than this one, on any interface.",
+      "find": "What you look for in that chat, in your own words. Matched by meaning and by words."
     }
   },
   "intention.set": {

@@ -911,3 +911,23 @@ test('names the time of the newest line when a read with since returns nothing',
     world.close();
   }
 });
+
+test('returns at most 8 matches of find, all of them outside the window, when more lines of the place are close', async () => {
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const lines = Array.from({ length: 12 }, (_, i) => ({
+      row: `kite-${i + 1}`,
+      text: `kite note ${String(i + 1).padStart(2, '0')}`,
+      minute: i + 1,
+      vector: CLOSE,
+    }));
+    const room = findRoom(world, 'c7', lines);
+    const text = await read({ placeId: room, last: 2, find: 'маяк' });
+    const matches = text.slice(text.indexOf(FOUND_MARK));
+    assert.equal(countOf(matches, 'kite note'), 8, text);
+    assert.ok(!matches.includes('kite note 11') && !matches.includes('kite note 12'), text);
+  } finally {
+    world.close();
+  }
+});

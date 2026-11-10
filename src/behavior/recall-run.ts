@@ -213,7 +213,7 @@ function asksServer(server: Untyped, retrieval: Untyped = null) {
   if (typeof retrieval?.entity === 'string' && retrieval.entity !== '') return true;
   if (!server || typeof server !== 'object') return false;
   const some = (list: Untyped) => Array.isArray(list) && list.length > 0;
-  const named = typeof server.placeId === 'string' && server.placeId !== '';
+  const named = [server.placeId, server.place].some((id) => typeof id === 'string' && id !== '');
   return some(server.forms) || some(server.who) || Number.isFinite(server.from) || Number.isFinite(server.to) || named;
 }
 
@@ -1071,6 +1071,7 @@ export function createRecall({
     started,
     memoryContext = null,
     retrieval = null,
+    lines = 0,
   }: RunDbQuotesInput) {
     const stats = emptyStats();
     const reader = dbReader({
@@ -1132,6 +1133,7 @@ export function createRecall({
         // A sample of lines answers only a call that names no words: a search for words that found none says so.
         sampleTime: !asked && !termsText,
         mediaBar: settings.prefetch,
+        hitLines: lines,
         samplePlace: samplePlaceRule({ db, snapshot, channel, partnerId, config }),
       },
       controller.signal
@@ -1158,19 +1160,23 @@ export function createRecall({
     });
     stats.kept = quotes.length;
     stats.summary = 'quotes';
-    // The stored facts and episodes are met by the meaning of her question only, never of her terms.
+    // The stored facts and episodes are met by the meaning of her question only, never of her terms. A run for `lines`
+    // (a read's `find`) wants the lines alone.
     const factsVector = asked ? vector : null;
-    const page = await searchFacts({
-      db,
-      ctx: reader.ctx,
-      text: candidate?.content,
-      retrieval,
-      config,
-      prefetch: settings.prefetch,
-      now,
-      vector: factsVector,
-      model: reader.model,
-    });
+    const facts = lines === 0;
+    const page = !facts
+      ? null
+      : await searchFacts({
+          db,
+          ctx: reader.ctx,
+          text: candidate?.content,
+          retrieval,
+          config,
+          prefetch: settings.prefetch,
+          now,
+          vector: factsVector,
+          model: reader.model,
+        });
     log.info('recall: quoted', {
       channel: channel.id,
       windows: found.windows.length,
@@ -1186,11 +1192,14 @@ export function createRecall({
       quotes,
       hidden: found.hidden === true,
       sampled: found.sampled === true,
+      far: found.far === true,
+      lines: Array.isArray(found.lines) ? found.lines : [],
       hitIds: found.hits.map((hit: Untyped) => hit.messageId),
       people: [],
       assertions: page?.assertions ?? [],
       factsCut: page?.next != null,
-      episodes: db ? searchEpisodes({ db, ctx: reader.ctx, vector: factsVector, model: reader.model, config }) : [],
+      episodes:
+        db && facts ? searchEpisodes({ db, ctx: reader.ctx, vector: factsVector, model: reader.model, config }) : [],
       stats: { ...stats, ms: now() - started },
       outcome: { kind: 'searched', degraded, failed: 0, total: 1 },
     };
@@ -1794,6 +1803,7 @@ export function createRecall({
     quotes = false,
     memoryContext = null,
     retrieval = null,
+    lines = 0,
   }: RunInput) {
     const started = now();
     const chatId = channel?.id ?? null;
@@ -1867,6 +1877,7 @@ export function createRecall({
           started,
           memoryContext,
           retrieval,
+          lines,
         });
         if (found === null) return finish(await quotesTimedOut(chatId, op, empty));
         if (trace) trace.summary = { answer: 'quotes', stretch: null, text: null, note: null };
