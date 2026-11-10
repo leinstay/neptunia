@@ -859,7 +859,7 @@ export async function runChatFind({
   words: string;
   window: ReadonlyArray<Obj>;
   windowRef?: ChatRef;
-  channel: { id?: unknown; rootId?: unknown } | null;
+  channel: { rootId?: unknown } | null;
   snapshot?: unknown;
   partnerId?: string | null;
   selfId?: string | null;
