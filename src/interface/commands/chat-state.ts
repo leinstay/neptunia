@@ -11,9 +11,6 @@ import { createApprovalRelay } from '../../tools/approvals.ts';
 
 export type ChatStateAnswer = { text: string; status: string; code?: string };
 
-/** The one chat of the owner's command line, as memory places it (src/memory/db/ids.ts#dmPlaceId). */
-const CLI_PLACE = 'cli:dm:owner';
-
 const textOf = (value: unknown): string => (typeof value === 'string' ? value : '');
 const json = (value: unknown): ChatStateAnswer => ({ text: JSON.stringify(value), status: 'ok' });
 const refused = (code: string): ChatStateAnswer => ({ text: `refused: ${code}`, status: 'invalid', code });
@@ -70,12 +67,15 @@ export function createChatState({
   checkpoints,
   approvals,
   context,
+  place,
 }: {
   sessions: ChatSessions;
   checkpoints: CheckpointDesk;
   approvals: ApprovalBoard;
   /** What the core knows of a request: a number it does not hold is null. */
   context: () => { usedTokens: number | null; limitTokens: number | null; route: string | null; model: string | null };
+  /** The place of the owner's chat as memory stores it (identity-links.ts#ownerConsolePlace), null before his first line. */
+  place: () => string | null;
 }): ChatState {
   const relay = createApprovalRelay({ authorize: (answer) => approvals.answer(answer) });
 
@@ -102,9 +102,23 @@ export function createChatState({
     return { text: `The board moved the task to ${answer.result.taskStatus}.`, status: 'ok' };
   }
 
+  // A chat that opened before its place was stored starts at the root once the place is stored.
+  let rootAsked = false;
+
+  /** The chat's place now, its root opened and selected when the chat asked for it before the place was stored. */
+  function placeNow(): string | null {
+    const id = place();
+    if (id !== null && rootAsked) {
+      rootAsked = false;
+      sessions.select(sessions.open({ placeId: id }).session.id);
+    }
+    return id;
+  }
+
   /** The chat's stored lines as the current session shows them, one page at a time (interfaces/cli/chat-controller.ts). */
   function pageAnswer(args: Readonly<Record<string, unknown>>): ChatStateAnswer {
-    const current = sessions.current(CLI_PLACE);
+    const at = placeNow();
+    const current = at === null ? null : sessions.current(at);
     const shown = current === null ? null : sessions.resume(current.id);
     const count = Number.isInteger(args.count) && Number(args.count) > 0 ? Number(args.count) : PAGE_LINES;
     const lines = shown?.ok ? pageOf(shown.lines, textOf(args.before) || null, count) : [];
@@ -124,7 +138,8 @@ export function createChatState({
   /** A line by the number the chat draws, with its files and message id: over the whole stored chat, whatever the session shows. */
   function lineAnswer(args: Readonly<Record<string, unknown>>): ChatStateAnswer {
     const number = Number(args.number);
-    const line = Number.isInteger(number) ? sessions.line(CLI_PLACE, number) : null;
+    const at = placeNow();
+    const line = Number.isInteger(number) && at !== null ? sessions.line(at, number) : null;
     if (line === null) return refused('unknown-line');
     // The message id a reply to the line names as its parent, as the core's history reads give it.
     return json({ number, messageId: line.nativeId ?? line.id, files: filesOf(line) });
@@ -133,7 +148,13 @@ export function createChatState({
   function sessionCommand(name: string, args: Readonly<Record<string, unknown>>): ChatStateAnswer | null {
     switch (name) {
       case 'session.open': {
-        const root = sessions.open({ placeId: CLI_PLACE });
+        const at = place();
+        if (at === null) {
+          rootAsked = true;
+          return json({ session: null });
+        }
+        rootAsked = false;
+        const root = sessions.open({ placeId: at });
         sessions.select(root.session.id);
         return json({ session: root.session });
       }
@@ -143,8 +164,10 @@ export function createChatState({
         return lineAnswer(args);
       case 'session.list':
         return json(sessions.list());
-      case 'session.current':
-        return json(sessions.current(CLI_PLACE));
+      case 'session.current': {
+        const at = placeNow();
+        return json(at === null ? null : sessions.current(at));
+      }
       case 'session.inspect': {
         const answer = sessions.resume(textOf(args.id));
         return answer.ok

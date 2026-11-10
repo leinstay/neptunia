@@ -115,7 +115,7 @@ import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
 import { chatLines, recentGroupLines } from './memory/db/chat-lines.ts';
-import { ownerConsoleName } from './memory/db/identity-links.ts';
+import { ownerConsoleName, ownerConsolePlace } from './memory/db/identity-links.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
@@ -1426,6 +1426,7 @@ async function buildCore(
   // The chat's sessions and development checkpoints (docs/cli.md).
   chatState = createChatState({
     sessions: chatSessions,
+    place: () => ownerConsolePlace(memoryDb.database()),
     checkpoints: createCheckpointDesk({
       tasks: async () => (await board.command(OWNER_CLIENT.name, 'task.list', { lane: 'dev' })).data,
       worktreeRoot: () => {

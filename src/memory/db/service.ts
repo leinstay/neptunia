@@ -174,6 +174,7 @@ import type { Track } from '../../loop-watch.ts';
 import { untracked } from '../../loop-watch.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
+import { loreClaimId } from './place-lore.ts';
 import type { Context } from './scope.ts';
 
 const DEFAULT_FILE = 'memory.db';
@@ -304,7 +305,7 @@ export function turnReadRows(
     if (!id) continue;
     const direct = DIRECT_READS[asText(read.kind)];
     if (direct !== undefined) put(direct, id, read);
-    else if (read.kind === 'lore') put('claims', `lore:${id}`, read);
+    else if (read.kind === 'lore') put('claims', loreClaimId(id), read);
     else if (read.kind === 'channel') put('places', channelPlaceOf(db, authority, id), read);
     else if (read.kind === 'place_note' && placeId) put('descriptions', `desc:${placeId}:${id}`, read);
     else if (read.kind === 'item' && hasRow('claims', id)) put('claims', id, read);
@@ -1511,7 +1512,7 @@ export function createMemoryDb({
 
   // Her session's attitude moves, told to whoever caches the people they move (the store: a profile it holds would
   // otherwise write its older score over the move at its next flush). Each committed move is told once, after its
-  // apply, also when the apply's answer was lost (the move is read back from the database by its run).
+  // apply, also when the apply's answer was lost (the move is read back from the database by the run its row names).
   const affinityListeners = new Set<(moves: Array<Row>) => void>();
   const toldMoves = new Set<unknown>();
   const TOLD_MOVES_KEPT = 10_000;
@@ -1528,12 +1529,13 @@ export function createMemoryDb({
     if (affinityListeners.size === 0 || typeof runId !== 'string' || !runId || !handle) return;
     let moves: Array<Row> = [];
     try {
-      const prefix = `aff:${runId}:`;
+      // A move of her session names its run in `extra.run` (session-write.ts#applyAffinity).
       moves = dbOf(handle)
         .prepare(
-          'SELECT id, person_id AS personId, applied, score FROM affinity_events WHERE substr(id, 1, ?) = ? ORDER BY id'
+          `SELECT id, person_id AS personId, applied, score FROM affinity_events
+            WHERE writer = 'session' AND json_extract(extra, '$.run') = ? ORDER BY id`
         )
-        .all(prefix.length, prefix)
+        .all(runId)
         .filter((move) => !toldMoves.has(move.id));
     } catch (error) {
       log.warn('memory db: affinity moves unread', { code: codeOf(error) });

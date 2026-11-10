@@ -152,13 +152,13 @@ export function classify(
   let evicted = 0;
   for (const row of db
     .prepare(
-      `SELECT v.rowid AS rowid, v.chunk_key AS chunk_key, v.evicted_at AS evicted_at, v.bytes IS NULL AS empty,
+      `SELECT v.rowid AS rowid, v.kind AS kind, v.evicted_at AS evicted_at, v.bytes IS NULL AS empty,
       s.id AS source_id, s.occurred_at AS occurred_at, s.recorded_at AS recorded_at, s.authority_id AS authority_id, s.native_id AS native_id
     FROM vectors v LEFT JOIN sources s ON s.rowid = v.source_rowid WHERE v.retired_at IS NULL`
     )
     .iterate()) {
     let keep: string | null = null;
-    if (/^(?:private:[^:]+:)?archive:/.test(asText(row.chunk_key ?? ''))) keep = 'consolidated';
+    if (row.kind === 'archive') keep = 'consolidated';
     else if (!row.source_id) keep = 'unlinked';
     else if ((row.occurred_at ?? row.recorded_at ?? '') >= cutoff) keep = 'recent';
     else {

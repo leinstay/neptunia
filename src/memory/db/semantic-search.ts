@@ -109,8 +109,8 @@ function insertVector(db: Db, documentKey: string, row: Row): void {
   const lookup = (place: string) => db.prepare('SELECT iface, partner_person FROM places WHERE id = ?').get(place);
   const scope = scopeOfAudience(audience, lookup);
   db.prepare(
-    `INSERT OR REPLACE INTO vectors (${vectorColumns}, scope_kind, scope_iface, scope_dm, audience_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT OR REPLACE INTO vectors (${vectorColumns}, scope_kind, scope_iface, scope_dm, audience_id, kind)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'semantic')`
   ).run(
     documentKey,
     chunkKeyOf(documentKey, String(row.model)),

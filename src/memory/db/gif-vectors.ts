@@ -11,6 +11,8 @@ import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 
 const PREFIX = 'gif:';
+/** The `kind` of a GIF's vector. */
+const KIND = 'gif';
 
 /** One vector written over the one this item held: `{ itemId, model, vector }`, on the writer's connection. */
 export function writeGifVector(db: Db, update: Row, at: string): Row {
@@ -19,6 +21,7 @@ export function writeGifVector(db: Db, update: Row, at: string): Row {
   const row = deriveRow(db, 'vectors', {
     item_id: update.itemId,
     chunk_key: `${PREFIX}${String(update.itemId)}`,
+    kind: KIND,
     model: update.model ?? null,
     dims: vector.length,
     scale,
@@ -51,7 +54,7 @@ export function readGifVectors(db: Db): Map<string, { model: string | null; vect
   const found = new Map<string, { model: string | null; vector: Float32Array }>();
   const rows = db
     .prepare(
-      `SELECT item_id, model, scale, bytes FROM vectors WHERE chunk_key LIKE '${PREFIX}%' AND retired_at IS NULL AND bytes IS NOT NULL`
+      `SELECT item_id, model, scale, bytes FROM vectors WHERE kind = '${KIND}' AND retired_at IS NULL AND bytes IS NOT NULL`
     )
     .all();
   for (const row of rows) {

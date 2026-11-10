@@ -122,6 +122,7 @@ function memoryRows(line: Row, ctx: MapContext, privateUser: string | null, owne
       const part = split(entry, attitudeSpec(ctx), iface);
       put(rows, 'affinity_events', {
         id: `aff:${asText(line.id)}:${index}`,
+        decision_id: asText(line.id),
         ...part.cols,
         at: typeof line.occurredAt === 'string' ? line.occurredAt : null,
         score: null,
@@ -278,13 +279,13 @@ export function applyJournalLinesWrite(handle: MemoryHandle, update: Row): Journ
 function dayRows(db: Db, owner: LineOwner): Rows {
   const rows: Rows = {};
   for (const table of TABLES) rows[table] = lineRows(db, owner, table);
-  // A memory line's attitude rows are named after its decision (`aff:<line id>:<index>`): a range of the primary key.
+  // A memory line's attitude rows name its decision in `decision_id`.
   const attitude = db.prepare(
-    `SELECT * FROM affinity_events WHERE id >= ? AND id < ? AND writer = 'journal' AND retired_at IS NULL
+    `SELECT * FROM affinity_events WHERE decision_id = ? AND writer = 'journal' AND retired_at IS NULL
      ORDER BY position, rowid`
   );
   rows.affinity_events = rows.decisions.flatMap((decision) =>
-    attitude.all(`aff:${asText(decision.id)}:`, `aff:${asText(decision.id)};`).map((row) => ({ ...row }))
+    attitude.all(asText(decision.id)).map((row) => ({ ...row }))
   );
   addSourceMedia(db, rows.sources);
   return rows;
@@ -312,9 +313,7 @@ export function journalLines(db: Db, key: UnitKey): Array<string> {
         journalLineOf(
           {
             decisions: [row],
-            affinity_events: rows.affinity_events.filter((event) =>
-              String(event.id).startsWith(`aff:${asText(row.id)}:`)
-            ),
+            affinity_events: rows.affinity_events.filter((event) => event.decision_id === row.id),
           },
           ctx
         ),

@@ -201,6 +201,9 @@ type SessionRunRow = {
   scope?: Scope | null;
   audienceId?: string | null;
   batchKey?: string | null;
+  /** The page of its batch the run answered, and how many parts that page went out in (1 for a page sent whole). */
+  page?: number | null;
+  parts?: number | null;
   startedAt?: string;
   finishedAt?: string | null;
   cursorFrom?: unknown;
@@ -308,8 +311,8 @@ function insertRun(
 ): void {
   db.prepare(
     `INSERT OR REPLACE INTO session_runs (id, sweep_id, scope_key, scope_kind, scope_iface, scope_dm, mode, started_at, finished_at,
-       cursor_from, cursor_to, sources_n, tokens_prompt, tokens_completion, model, outcome, counts, errors, batch_key, applied, result, answer_source, audience_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`
+       cursor_from, cursor_to, sources_n, tokens_prompt, tokens_completion, model, outcome, counts, errors, batch_key, applied, result, answer_source, audience_id, page, parts)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`
   ).run(
     run.id,
     run.sweepId ?? null,
@@ -332,7 +335,9 @@ function insertRun(
     run.batchKey ?? null,
     applied ? 1 : 0,
     answerSource ?? null,
-    typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null)
+    typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null),
+    Number.isInteger(run.page) ? run.page : null,
+    Number.isInteger(run.parts) ? run.parts : null
   );
 }
 

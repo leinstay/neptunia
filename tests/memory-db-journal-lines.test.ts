@@ -59,3 +59,24 @@ test('the journal reads back what it wrote after the database is closed and open
     await second.close();
   }
 });
+
+test('a memory line reads back its own attitude, never that of a line whose id begins with its id', async () => {
+  // Bug: a line's attitude rows were found by the prefix `aff:<line id>:` of their ids, which the rows of line `<id>:2` share.
+  const dataDir = tempDataDir();
+  const memory = await openTestMemory({ dataDir, now: () => NOW, iface: () => 'synthetic' });
+  try {
+    const journal = createJournal({ dataDir, memoryDb: memory.memoryDb, now: () => Date.parse(DAY2) });
+    await journal.memory(ROOT, { id: 'line-a', batchId: 'b-1', attitude: [{ accountId: 'member', delta: 1 }] });
+    await journal.memory(ROOT, { id: 'line-a:2', batchId: 'b-2', attitude: [{ accountId: 'member', delta: 2 }] });
+    const read = (await journal.read(ROOT, { day: DAY2, n: 10 })) as Array<{
+      id?: string;
+      attitude?: Array<{ delta?: number }>;
+    }>;
+    assert.deepEqual(read.map((line) => [line.id, (line.attitude ?? []).map((move) => move.delta)]).sort(), [
+      ['line-a', [1]],
+      ['line-a:2', [2]],
+    ]);
+  } finally {
+    await memory.close();
+  }
+});

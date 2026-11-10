@@ -3,7 +3,8 @@
 // request cap is the provider's limit; the page budget is the size the memory model answers within the session's
 // timeout. A batch is cut by lines until its pages fit (`cutByArrival`); a page of a batch whose lines are fixed goes out
 // in parts of fewer people (`fewestParts`), each part under its page's batch key with `|<part>/<parts>` appended, and a
-// page split before keeps its split (`splitBefore`), so an applied part is never sent again.
+// page split before keeps its split (`splitBefore`, from the `page` and `parts` of an applied run of the same batch), so
+// an applied part is never sent again.
 
 import { requestCapOf } from './session-retrieved.ts';
 import type { Db } from './types.ts';
@@ -69,24 +70,27 @@ export type BatchUnit = {
   applied: boolean;
 };
 
+/** The batch a request belongs to: the session's mode, the scope it sweeps and the cursor range of its lines. */
+export type BatchOf = { mode: string; scopeKey: string; cursor: number; cursorTo: number };
+
 /**
- * The requests of a batch in order. `keyHead` is the batch key without its page; `applied` says whether a batch key was
- * applied before (always false outside `apply`); `partsOfPage` sizes a page that was neither applied nor split before.
+ * The requests of a batch in order. `applied` says whether a batch key was applied before (always false outside
+ * `apply`); `partsOfPage` sizes a page that was neither applied nor split before.
  */
 export function unitsOf(
   db: Db,
   {
-    keyHead,
     pages,
     applied,
     partsOfPage,
-  }: {
-    keyHead: string;
+    ...batch
+  }: BatchOf & {
     pages: number;
     applied: (batchKey: string) => boolean;
     partsOfPage: (page: number) => number;
   }
 ): Array<BatchUnit> {
+  const keyHead = [batch.mode, batch.scopeKey, batch.cursor, batch.cursorTo].join('|');
   const units: Array<BatchUnit> = [];
   for (let page = 0; page < pages; page += 1) {
     const pageKey = `${keyHead}|${page}`;
@@ -95,7 +99,7 @@ export function unitsOf(
       units.push({ page, part: 0, parts: 1, batchKey: pageKey, last: lastPage, applied: true });
       continue;
     }
-    const parts = splitBefore(db, pageKey) ?? partsOfPage(page);
+    const parts = splitBefore(db, batch, page) ?? partsOfPage(page);
     for (let part = 0; part < parts; part += 1) {
       const batchKey = parts === 1 ? pageKey : `${pageKey}|${part}/${parts}`;
       const done = parts > 1 && applied(batchKey);
@@ -105,12 +109,14 @@ export function unitsOf(
   return units;
 }
 
-/** The number of parts a page was sent in before (from the key of an applied part), or null. */
-function splitBefore(db: Db, pageKey: string): number | null {
-  const prefix = `${pageKey}|`;
+/** The number of parts a page of `batch` was sent in before (from an applied run of one of its parts), or null. */
+function splitBefore(db: Db, batch: BatchOf, page: number): number | null {
   const row = db
-    .prepare('SELECT batch_key FROM session_runs WHERE substr(batch_key, 1, ?) = ? AND applied = 1 LIMIT 1')
-    .get(prefix.length, prefix);
-  const parts = Number(/\/(\d+)$/.exec(typeof row?.batch_key === 'string' ? row.batch_key : '')?.[1]);
+    .prepare(
+      `SELECT parts FROM session_runs WHERE scope_key = ? AND mode = ? AND cursor_from = ? AND cursor_to = ? AND page = ?
+         AND parts > 1 AND applied = 1 LIMIT 1`
+    )
+    .get(batch.scopeKey, batch.mode, batch.cursor, batch.cursorTo, page);
+  const parts = Number(row?.parts);
   return Number.isInteger(parts) && parts > 1 ? parts : null;
 }

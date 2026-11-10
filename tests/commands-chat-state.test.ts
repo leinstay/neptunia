@@ -30,7 +30,7 @@ const noCheckpoints: CheckpointDesk = {
   restore: () => Promise.resolve({ status: 'refused', code: 'no-worktree' }),
 };
 
-function rig(lines: ReadonlyArray<SourceLine> = LINES) {
+function rig(lines: ReadonlyArray<SourceLine> = LINES, place: () => string | null = () => 'cli:dm:owner') {
   const rows: Array<SessionRow> = [];
   const store: ChatStore = {
     lines: (placeId) => lines.filter((line) => line.placeId === placeId),
@@ -50,6 +50,7 @@ function rig(lines: ReadonlyArray<SourceLine> = LINES) {
       answer: () => Promise.resolve({ status: 'refused', code: 'unused', message: '' }),
     },
     context: () => ({ usedTokens: null, limitTokens: 50000, route: 'zeta-route', model: 'zeta-model' }),
+    place,
   });
   const run = async (command: { name: string; args: Record<string, unknown> }) =>
     (await state.command(command.name, command.args)) ?? { text: 'no such command', status: 'failed' };
@@ -318,6 +319,7 @@ function approvalsRig(t: Context) {
       },
     },
     context: () => ({ usedTokens: null, limitTokens: 50000, route: 'zeta-route', model: 'zeta-model' }),
+    place: () => 'cli:dm:owner',
   });
   const run = async (command: { name: string; args: Record<string, unknown> }) =>
     (await state.command(command.name, command.args)) ?? { text: 'no such command', status: 'failed' };
@@ -365,4 +367,33 @@ test('/status full ends with the numbers the core holds of a request and names t
   assert.match(shown, /unknown of 50000 tokens/);
   assert.match(shown, /zeta-route/);
   assert.match(shown, /zeta-model/);
+});
+
+test("the chat's sessions read the command line's place from its stored row, whatever its id spells", async () => {
+  // Bug: the sessions named the place `cli:dm:owner`, so a stored place under another id showed no line.
+  const stored = LINES.map((line, index) => ({ ...line, placeId: 'place:cli-7f3a', number: index + 1 }));
+  const { run } = rig(stored, () => 'place:cli-7f3a');
+  await run({ name: 'session.open', args: {} });
+  const page = JSON.parse((await run({ name: 'session.page', args: {} })).text) as { lines: Array<{ id: string }> };
+  assert.deepEqual(
+    page.lines.map((line) => line.id),
+    ['s1', 's2', 's3']
+  );
+  const line = JSON.parse((await run({ name: 'session.line', args: { number: 1 } })).text) as { messageId?: string };
+  assert.equal(line.messageId, 'n1');
+});
+
+test('a chat opened before its place is stored starts at the root once the place is stored', async () => {
+  // Bug: the open named a place spelled from the chat id; with the row read instead, an open before the first line
+  // would leave the chat with no session, so its pages stayed empty after the first line was stored.
+  let place: string | null = null;
+  const stored = LINES.map((line) => ({ ...line, placeId: 'place:cli-late' }));
+  const { run } = rig(stored, () => place);
+  assert.equal((await run({ name: 'session.open', args: {} })).status, 'ok');
+  place = 'place:cli-late';
+  const page = JSON.parse((await run({ name: 'session.page', args: {} })).text) as { lines: Array<{ id: string }> };
+  assert.deepEqual(
+    page.lines.map((line) => line.id),
+    ['s1', 's2', 's3']
+  );
 });

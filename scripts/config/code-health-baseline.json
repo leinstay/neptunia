@@ -1584,7 +1584,7 @@
     },
     "src/memory/db/index-policy.ts": {
       "classify": {
-        "complexity": 23
+        "complexity": 22
       }
     },
     "src/memory/db/observe-event.ts": {

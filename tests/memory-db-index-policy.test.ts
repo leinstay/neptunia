@@ -79,12 +79,16 @@ function fixture() {
     );
     return id;
   };
-  const vector = (native: Untyped, values: Untyped, { chunk = `record:${native}:1`, sourceIds = [native] } = {}) => {
+  const vector = (
+    native: Untyped,
+    values: Untyped,
+    { chunk = `record:${native}:1`, kind = 'record', sourceIds = [native] } = {}
+  ) => {
     const source = db.prepare('SELECT rowid FROM sources WHERE native_id = ?').get(native);
     const { bytes, scale, norm } = quantize(values);
     db.prepare(
-      `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm)
-      VALUES (?, ?, ?, 'test/embedder', ?, ?, ?, ?, ?, ?, 'group', 'discord', NULL)`
+      `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm, kind)
+      VALUES (?, ?, ?, 'test/embedder', ?, ?, ?, ?, ?, ?, 'group', 'discord', NULL, ?)`
     ).run(
       source?.rowid ?? null,
       native,
@@ -94,7 +98,8 @@ function fixture() {
       norm,
       bytes,
       JSON.stringify({ kind: 'record', sourceIds }),
-      new Date(NOW).toISOString()
+      new Date(NOW).toISOString(),
+      kind
     );
   };
   const ids = {
@@ -126,7 +131,7 @@ function fixture() {
     ['m-recent', [1, 0, 1, 0]],
   ])
     vector(native, values);
-  vector('none', [1, 0, 0, 1], { chunk: 'archive:ep-1:1' });
+  vector('none', [1, 0, 0, 1], { chunk: 'archive:ep-1:1', kind: 'archive' });
   return { handle, db, ids };
 }
 

@@ -587,3 +587,48 @@ test("an observation's account kind and place times survive a flush of the membe
     await service.close();
   }
 });
+
+test("a listener hears the moves of the run just applied, never those of a run whose id begins with that run's id", async () => {
+  // Bug: the moves of run `r` were read by the prefix `aff:r:` of their ids, which the moves of run `r:2` share.
+  const env = await scene();
+  try {
+    const line = env.sourceOf(GROUP_LINE);
+    const apply = (id: string, delta: number, reason: string) =>
+      env.service.memoryWrite({
+        kind: 'session',
+        mode: 'apply',
+        now: NOW,
+        maxDelta: 5,
+        run: {
+          id,
+          sweepId: `sweep-${id}`,
+          scopeKey: 'group:discord',
+          scope: GROUP,
+          batchKey: `apply|${id}`,
+          startedAt: AT,
+          finishedAt: AT,
+          outcome: 'ok',
+          counts: {},
+          errors: [],
+        },
+        plan: {
+          claims: [],
+          episodes: [],
+          affinity: [{ personId: PERSON, delta, reason, sources: [line] }],
+          descriptions: [],
+          people: [],
+        },
+      });
+    await apply('run-heard:2', 2, 'carried the oars');
+    const heard: Array<Record<string, unknown>> = [];
+    const stop = env.service.onAffinityMoves((moves) => heard.push(...moves));
+    await apply('run-heard', 1, 'shared the catch');
+    stop();
+    assert.deepEqual(
+      heard.map((move) => move.applied),
+      [1]
+    );
+  } finally {
+    await env.done();
+  }
+});

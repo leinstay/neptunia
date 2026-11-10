@@ -165,3 +165,20 @@ export function ownerConsoleName(db: Db | null): string | null {
   const real: unknown = db.prepare('SELECT real_name FROM people WHERE id = ?').get(person)?.real_name;
   return typeof real === 'string' && real !== '' ? real : null;
 }
+
+/**
+ * The owner's chat at the command line: the live DM place of the verified command line account that goes by `owner`, as
+ * its row holds it, or null while none is stored (before his first line).
+ */
+export function ownerConsolePlace(db: Db | null): string | null {
+  if (db === null) return null;
+  const row = db
+    .prepare(
+      `SELECT p.id FROM places p JOIN accounts a ON a.id = p.partner_account
+        WHERE p.iface = ? AND p.chat = 'dm' AND p.retired_at IS NULL
+          AND a.iface = ? AND a.native_id = 'owner' AND a.link = 'verified'
+        ORDER BY p.rowid LIMIT 1`
+    )
+    .get(OWNER_CONSOLE_IFACE, OWNER_CONSOLE_IFACE);
+  return typeof row?.id === 'string' ? row.id : null;
+}
