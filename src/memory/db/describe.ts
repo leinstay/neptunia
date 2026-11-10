@@ -12,7 +12,7 @@
 // A claim "is shown" by a text when the text carries most of the claim's words (the claim-level diff is a text match,
 // not a model call). The draft and the final go into one `description_versions` row (the draft rides in `extra`, with
 // the exact evidence and claim ids both calls were given, the model, the hash of both prompts and the `sources` rows
-// that hold her two whole answers, `<think>` included). A final over the display cap is stored as it came with
+// that hold her two whole answers as they came). A final over the display cap is stored as it came with
 // `extra.overCap`; nothing is cut or rewritten by the engine.
 //   - shadow: origin `shadow`, never current, and it does not move the "last reviewed" mark the next review reads.
 //   - apply (`memoryDb.session.mode` `apply`): origin `review`, and the same

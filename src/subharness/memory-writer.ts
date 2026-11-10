@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import nodePath from 'node:path';
 import { childEnvOf, outputLimitEnv, tokensOf } from '../agent-runner/backend.ts';
-import { isListedEffort } from '../llm/roles.ts';
+import { isEffortLevel, isListedEffort } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
 import type { MemoryBackend } from './routing.ts';
@@ -26,7 +26,8 @@ import type { RunOutcome } from './login-state.ts';
 import { memoryPath } from './memory-path.ts';
 import type { MemoryPath, SubharnessMemoryPath } from './memory-path.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
-import { nativeThinkingCodexArgs, nativeThinkingEnv } from './thinking.ts';
+import { nativeThinkingCodexArgs, nativeThinkingEnv, thinkingBudget } from './thinking.ts';
+import type { ThinkingLevel } from './thinking.ts';
 
 /** The shape of codex's final message (`--output-schema`): the whole answer the request's prompt asks for, thinking and tags included, as one string. */
 export const MEMORY_ANSWER_SCHEMA = {
@@ -223,7 +224,14 @@ function codexCompletion(final: string, outcome: ChildOutcome): Completion {
 /** One run of the writer through `path`. Resolves the completion the sweep reads; rejects with an Error whose `code` says why. */
 export async function runMemoryWriter(
   path: SubharnessMemoryPath,
-  input: { system: string; user: string; timeoutMs: number; maxOutputTokens?: number },
+  input: {
+    system: string;
+    user: string;
+    timeoutMs: number;
+    maxOutputTokens?: number;
+    /** The level the route's effort asks claude to think at; absent runs it with its thinking off. */
+    thinkingLevel?: ThinkingLevel;
+  },
   deps: MemoryWriterDeps
 ): Promise<Completion> {
   const ran = { backend: path.backend, model: path.model };
@@ -243,7 +251,9 @@ export async function runMemoryWriter(
         args: codex ? codexArgs(path, schemaFile, outFile, thinking) : claudeArgs(path, input.system),
         env: childEnvOf({
           ...place.env,
-          ...nativeThinkingEnv(path.backend, thinking),
+          ...(path.backend === 'claude' && !thinking && input.thinkingLevel !== undefined
+            ? { MAX_THINKING_TOKENS: String(thinkingBudget(input.thinkingLevel, input.maxOutputTokens)) }
+            : nativeThinkingEnv(path.backend, thinking)),
           ...outputLimitEnv(path.backend, input.maxOutputTokens),
         }),
         stdin: codex ? `${input.system}\n\n${input.user}` : input.user,
@@ -306,6 +316,13 @@ function chainPathOf(value: unknown): MemoryPath | null {
   };
 }
 
+/** The level a harness route of the chain client asks the run to think at (`isThinking`), as the writer's input. */
+function thinkingOf(value: unknown, path: SubharnessMemoryPath): { thinkingLevel?: ThinkingLevel } {
+  return isRecord(value) && value.isThinking === true && isEffortLevel(path.effort)
+    ? { thinkingLevel: path.effort }
+    : {};
+}
+
 /**
  * The memory role's model client: the direct client or the subharness, by the path in config.json at each call. Every
  * request of the role takes the path: the sweep's (purpose `memory-session`), the description review's draft and check
@@ -346,6 +363,7 @@ export function memoryWriterClient(deps: {
               ...splitMessages(messages),
               timeoutMs: timeout > 0 ? timeout : FALLBACK_TIMEOUT_MS,
               ...(typeof options.maxOutputTokens === 'number' ? { maxOutputTokens: options.maxOutputTokens } : {}),
+              ...thinkingOf(options.chainRoute, path),
             },
             writer
           );

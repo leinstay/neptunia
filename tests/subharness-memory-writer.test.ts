@@ -195,6 +195,44 @@ test('codex is asked for no reasoning summary only while llm.subscription.thinki
   assert.equal(onArgs.includes('model_reasoning_summary="none"'), false);
 });
 
+/** One request of the memory role through the client, on the harness route the chain client chose. */
+async function throughChain(deps: MemoryWriterDeps, route: Record<string, unknown>, maxOutputTokens: number) {
+  const client = memoryWriterClient({ writer: deps, direct: fakeLlm(ANSWER) });
+  const messages = [
+    { role: 'system', content: INPUT.system },
+    { role: 'user', content: INPUT.user },
+  ];
+  await client.complete(messages, { chainRoute: { via: 'harness', ...route }, maxOutputTokens, timeoutMs: 120_000 });
+}
+
+test('claude thinks at the effort the route asks for, on a budget at most half the output cap', async () => {
+  // Catches: a memory role at `medium` run with its thinking off, or thinking left unbounded so it fills the cap and
+  // the answer is cut as `output-truncated`.
+  for (const [effort, cap] of [
+    ['medium', 10_000],
+    ['high', 6000],
+  ] as const) {
+    const { deps, seen } = rig(claudeAnswers(ANSWER));
+    await throughChain(
+      { ...deps, thinking: () => false },
+      { backend: 'claude', model: 'm', effort, isThinking: true },
+      cap
+    );
+    const [{ args, env }] = seen;
+    const budget = Number(env.MAX_THINKING_TOKENS);
+    assert.equal(after(args, '--effort'), effort);
+    assert.ok(budget > 0 && budget <= cap / 2, `${effort}: budget ${budget} under cap ${cap}`);
+  }
+});
+
+test('claude runs with its thinking off when the route effort asks for none', async () => {
+  // Catches: `disabled`, which reaches the writer as `--effort low`, taken as a request to think at low.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await throughChain({ ...deps, thinking: () => false }, { backend: 'claude', model: 'm', effort: 'low' }, 10_000);
+  const [{ env }] = seen;
+  assert.equal(env.MAX_THINKING_TOKENS, '0');
+});
+
 test('claude runs her own binary with her own home and no key of the core in its environment', async () => {
   // Catches: the writer run on the installing user's claude, or the child handed the core's OpenRouter key.
   const before = process.env.OPENROUTER_CORE_KEY;

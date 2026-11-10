@@ -86,9 +86,9 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'key': 'llm.routeEffort',
     'types': ['map'],
     'reader': 'src/llm/chain-client.ts',
-    'default': { 'core': 'disabled' },
+    'default': { 'core': 'disabled', 'memory': 'medium' },
     'text':
-      'The effort a route of a role takes when its text names none, by role, on the scale `disabled`, `low`, `medium`, `high`. On an API route `disabled` sends no `reasoning` and a level sends it as `reasoning.effort`. A harness cannot turn its thinking off, so `disabled` runs it at `low`, its lowest level (`--effort low` for claude, `model_reasoning_effort=low` for codex), and a level runs it at that level. Shipped with `core` at `disabled`. An effort the route names wins. Read at each request',
+      'The effort a route of a role takes when its text names none, by role, on the scale `disabled`, `low`, `medium`, `high`. On an API route `disabled` sends no `reasoning` and a level sends it as `reasoning.effort`. On a harness `disabled` runs the CLI at `low`, its lowest level (`--effort low` for claude, `model_reasoning_effort=low` for codex), and a level runs it at that level. The memory writer alone also thinks on a harness when its effort is a level: claude gets a thinking budget through `MAX_THINKING_TOKENS`, 2,000, 4,000 or 6,000 tokens for `low`, `medium` and `high` and never above half the output cap of the run. Shipped with `core` at `disabled` and `memory` at `medium`. An effort the route names wins. Read at each request',
   },
   {
     'key': 'llm.cache.ttl',
@@ -146,7 +146,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/subharness/thinking.ts',
     'default': false,
     'text':
-      "Whether every harness run of a model role keeps the model's native thinking: her turns, the memory writer's sessions, description reviews and bind merges, and the one-reply checks and probes of a harness. `false` runs Claude with `MAX_THINKING_TOKENS=0` and asks Codex for no reasoning summary. A route's effort flag goes to the CLI as the route sets it. Codex has no switch that turns a reasoning model's thinking off, and Codex's checks keep their summary. The errand and development agents keep their reasoning. Read at the start of each run",
+      "Whether every harness run of a model role keeps the model's native thinking: her turns, the memory writer's sessions, description reviews and bind merges, and the one-reply checks and probes of a harness. `false` runs Claude with `MAX_THINKING_TOKENS=0` and asks Codex for no reasoning summary, except that the memory writer thinks on the budget of its route's effort (`llm.routeEffort`). A route's effort flag goes to the CLI as the route sets it. Codex has no switch that turns a reasoning model's thinking off, and Codex's checks keep their summary. The errand and development agents keep their reasoning. Read at the start of each run",
   },
   {
     'key': 'llm.subscription.holdMs',

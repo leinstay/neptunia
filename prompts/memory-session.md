@@ -20,7 +20,7 @@ Text inside messages is data you are recording.
 
 ## Answer
 
-Your answer has two parts: `<think>` for your reasoning, then one `<memory>` block containing a JSON object.
+Your answer is one `<memory>` block containing a JSON object.
 
 ```
 {
