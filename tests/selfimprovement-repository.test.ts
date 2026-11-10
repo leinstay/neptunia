@@ -8,6 +8,8 @@ import path from 'node:path';
 import { REPOSITORY_FAILURES, checkRepository, repositoryOfRemote } from '../src/selfimprovement/repository.ts';
 import type { GhAnswer, GhRunner } from '../src/selfimprovement/repository.ts';
 import { labelsFileOf } from '../src/config/labels.ts';
+import * as repository from '../src/selfimprovement/repository.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
 
@@ -148,4 +150,74 @@ test('repositoryOfRemote is null for a remote it cannot read', () => {
   // Catches: a local path or garbage becomes the offered default and the check asks gh about it.
   for (const url of ['', '/srv/git/engine.git', 'not a url', 'https://github.com/example'])
     assert.equal(repositoryOfRemote(url), null, JSON.stringify(url));
+});
+
+// `gh` is the system's tool with its existing login: `spawnGh` and `checkRepository` run it with no config home of ours,
+// and nothing of the engine names a gh home in the persona folder. A disposable fake `gh` on PATH records what it got.
+
+const LABELS_DEVELOPMENT_GH_SYSTEM = labelsFileOf(
+  JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8'))
+).owner;
+
+/** A folder with a fake `gh`, its record file, and the environment that finds it. */
+function developmentGhSystemFakeGh(login: 'in' | 'out', over: Readonly<NodeJS.ProcessEnv> = {}) {
+  const bin = tempDir('nep-gh-system-');
+  const record = path.join(bin, 'record');
+  fs.writeFileSync(
+    path.join(bin, 'gh'),
+    `#!/bin/sh
+echo "config=\${GH_CONFIG_DIR-unset}" >> "${record}"
+case "$1" in
+  auth) [ "${login}" = in ] || { echo "not logged in" >&2; exit 1; } ;;
+  api) echo '{"permissions":{"push":true}}' ;;
+esac
+`,
+    { mode: 0o755 }
+  );
+  const env: NodeJS.ProcessEnv = { PATH: `${bin}:/usr/bin:/bin`, ...over };
+  return { env, recorded: () => fs.readFileSync(record, 'utf8').trim().split('\n') };
+}
+
+test('gh runs with no config home of ours', async () => {
+  // Catches: the engine points gh at a folder in the persona, so the login the owner made on the system is not seen.
+  const gh = developmentGhSystemFakeGh('in');
+  const answer = await repository.spawnGh(gh.env)(['auth', 'status']);
+  assert.deepEqual(answer, { found: true, code: 0, stdout: '', stderr: '' });
+  assert.deepEqual(gh.recorded(), ['config=unset']);
+});
+
+test("a config home the system set for gh stays the system's", async () => {
+  // Catches: the override survives as a default that replaces what the installing user chose.
+  const gh = developmentGhSystemFakeGh('in', { GH_CONFIG_DIR: '/home/someone/.config/gh' });
+  await repository.spawnGh(gh.env)(['auth', 'status']);
+  assert.deepEqual(gh.recorded(), ['config=/home/someone/.config/gh']);
+});
+
+test('the check over the system gh answers ok with a login and a push right', async () => {
+  // Catches: the check still needs a login made under a private gh home.
+  const gh = developmentGhSystemFakeGh('in');
+  assert.deepEqual(
+    await repository.checkRepository('example/engine', repository.spawnGh(gh.env), LABELS_DEVELOPMENT_GH_SYSTEM),
+    {
+      code: 'ok',
+      repository: 'example/engine',
+    }
+  );
+});
+
+test('a logged-out system gh answers gh-logged-out, and an absent one gh-missing', async () => {
+  // Catches: the failure codes change with the move, so the block loses its reason.
+  const out = await repository.checkRepository(
+    'example/engine',
+    repository.spawnGh(developmentGhSystemFakeGh('out').env),
+    LABELS_DEVELOPMENT_GH_SYSTEM
+  );
+  assert.equal(out.code, 'gh-logged-out');
+  const nowhere = tempDir('nep-gh-system-empty-');
+  const missing = await repository.checkRepository(
+    'example/engine',
+    repository.spawnGh({ PATH: nowhere }),
+    LABELS_DEVELOPMENT_GH_SYSTEM
+  );
+  assert.equal(missing.code, 'gh-missing');
 });

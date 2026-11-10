@@ -9,6 +9,7 @@ import { createBackend } from '../src/agent-runner/backend.ts';
 import type { BackendName } from '../src/agent-runner/backend.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { STUB, alive, reportOf, scratch } from './fixtures/backend-rig.ts';
+import type { EffortLevel } from '../src/llm/roles.ts';
 
 const NAMES: Array<BackendName> = ['codex', 'claude'];
 
@@ -137,4 +138,111 @@ test('logs the backend, exit code, duration and tokens of a run, never the brief
   } finally {
     cleanup();
   }
+});
+
+// The `claude` backend of src/agent-runner/backend.ts: `claude -p` as a child process, the stub as its binary.
+
+const claude = () => createBackend('claude', { binary: STUB });
+
+test('runs claude -p with the brief and returns the trimmed stdout as the text', async () => {
+  // Bug: the claude backend started the codex command line (exec, -o) or kept the trailing newline in the answer.
+  const { dir, cleanup } = scratch();
+  try {
+    const result = await claude().run('hello', { cwd: dir, timeoutMs: 20_000, env: { FAKE_FINAL: 'an answer' } });
+    assert.equal(result.ok, true);
+    assert.equal(result.text, 'an answer');
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.tokens, undefined);
+    const seen = reportOf(
+      (await claude().run('hello', { cwd: dir, timeoutMs: 20_000, env: { FAKE_MODE: 'report' } })).text
+    );
+    assert.ok(seen.argv.includes('-p'));
+    assert.notEqual(seen.argv[0], 'exec');
+    assert.ok(seen.stdin === 'hello' || seen.last === 'hello');
+    assert.equal(seen.cwd, dir);
+  } finally {
+    cleanup();
+  }
+});
+
+test('reports a failed claude run with its exit code', async () => {
+  // Bug: a non-zero exit read as an answer made of whatever reached stdout.
+  const { dir, cleanup } = scratch();
+  try {
+    const result = await claude().run('x', { cwd: dir, timeoutMs: 20_000, env: { FAKE_MODE: 'fail' } });
+    assert.equal(result.ok, false);
+    assert.equal(result.exitCode, 3);
+  } finally {
+    cleanup();
+  }
+});
+
+test('claude takes the step limit as --max-turns, and without one runs with no such flag', async () => {
+  // Bug: the scout's profile says 25 steps and nothing enforces it, so a run that loops spends until its timeout.
+  const { dir, cleanup } = scratch();
+  try {
+    const env = { FAKE_MODE: 'report' };
+    const limited = reportOf((await claude().run('x', { cwd: dir, timeoutMs: 20_000, env, maxSteps: 25 })).text);
+    const free = reportOf((await claude().run('x', { cwd: dir, timeoutMs: 20_000, env })).text);
+    assert.deepEqual(limited.argv.slice(limited.argv.indexOf('--max-turns'), limited.argv.indexOf('--max-turns') + 2), [
+      '--max-turns',
+      '25',
+    ]);
+    assert.equal(free.argv.includes('--max-turns'), false);
+  } finally {
+    cleanup();
+  }
+});
+
+// The effort of a run as each backend's own flag (src/agent-runner/backend.ts, spec 2026-11-02 PR 5 "A path per
+// role"): codex takes `-c model_reasoning_effort=<level>`, claude `--effort <level>`, opencode the model variant
+// `--variant <level>`. Against the stub binary (tests/fixtures/fake-cli.ts) in mode `report`, which answers with the argv
+// it was given.
+
+/** The argv one run of `name` on the stub is given, with `effort` when there is one. */
+async function argvOf(name: BackendName, effort?: EffortLevel): Promise<Array<string>> {
+  const { dir, cleanup } = scratch();
+  try {
+    const backend = createBackend(name, { binary: STUB });
+    const run = await backend.run('x', {
+      cwd: dir,
+      timeoutMs: 20_000,
+      env: { FAKE_MODE: 'report' },
+      model: 'some-model',
+      ...(effort === undefined ? {} : { effort }),
+    });
+    return reportOf(run.text).argv;
+  } finally {
+    cleanup();
+  }
+}
+
+test('codex gets the effort as -c model_reasoning_effort, and no -c without one', async () => {
+  // Catches: the effort never reaches codex, or "model_reasoning_effort=undefined" on a run without an effort.
+  const argv = await argvOf('codex', 'high');
+  assert.equal(argv[argv.indexOf('-c') + 1], 'model_reasoning_effort=high');
+  assert.equal((await argvOf('codex')).includes('-c'), false);
+});
+
+test('claude gets the effort as --effort, and no --effort without one', async () => {
+  // Catches: claude given the codex form, which it refuses, or "--effort undefined" on a run without an effort.
+  const argv = await argvOf('claude', 'low');
+  assert.equal(argv[argv.indexOf('--effort') + 1], 'low');
+  assert.equal(argv.includes('-c'), false);
+  assert.equal((await argvOf('claude')).includes('--effort'), false);
+});
+
+test('opencode gets the effort as its model variant, and no variant without one', async () => {
+  // Catches: opencode run without the variant, or "--variant undefined" on a run without an effort.
+  const argv = await argvOf('opencode', 'medium');
+  assert.equal(argv[argv.indexOf('--variant') + 1], 'medium');
+  assert.equal((await argvOf('opencode')).includes('--variant'), false);
+});
+
+// What is left of the choice of a backend (src/agent-runner/backend.ts, src/agent-runner/profiles.ts): the names, and
+// the refusal of a name that is none. The choice itself is the owner's subharness switch (tests/subharness-control.test.ts).
+
+test('createBackend refuses a backend name that is none, so a typo never reaches a spawn', () => {
+  // Bug: a typo such as "codx" becomes a command name that is looked up on the PATH.
+  assert.throws(() => createBackend('codx' as unknown as BackendName), /codx/);
 });

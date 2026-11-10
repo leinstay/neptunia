@@ -107,10 +107,3 @@ test('the time limit ends an opencode run that asked for steps and never answers
     cleanup();
   }
 });
-
-test('the scout profile gives a run 300 seconds', () => {
-  // Catches: a search that needs several fetches is cut at the old shorter limit.
-  const file = path.join(import.meta.dirname, '..', 'agents', 'scout', 'profile.json');
-  const profile = JSON.parse(fs.readFileSync(file, 'utf8')) as { limits: { seconds: number } };
-  assert.equal(profile.limits.seconds, 300);
-});

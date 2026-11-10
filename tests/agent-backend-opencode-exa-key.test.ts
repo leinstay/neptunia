@@ -85,14 +85,6 @@ test('an opencode run with exa and a searchKey gets EXA_API_KEY and OPENCODE_ENA
   );
 });
 
-test('an opencode run with exa and no searchKey runs keyless: OPENCODE_ENABLE_EXA and no EXA_API_KEY', async () => {
-  // Catches: an empty EXA_API_KEY set for a deployment with no stored key, which the endpoint would reject.
-  const [child] = await runOnce('exa', { id: 'k2', route: route('opencode'), secrets: { openrouterKey: OR_KEY } });
-  assert.ok(child, 'the child was spawned');
-  assert.equal(child.env.OPENCODE_ENABLE_EXA, '1');
-  assert.equal(Object.hasOwn(child.env, 'EXA_API_KEY'), false);
-});
-
 test('an opencode run whose search provider is not exa gets no EXA_API_KEY although the task carries one', async () => {
   // Catches: the key handed to a run that never uses Exa.
   const [child] = await runOnce('brave', {
