@@ -1,11 +1,13 @@
 // Version step 52 (src/memory/db/media-owner.ts): the rows of a media cache and of the GIF library take their owner
 // columns and last use from their units, the describer's saved descriptions move onto their rows and their own rows and
-// graph nodes go, and a live row with no graph node gets one. Synthetic rows over a test memory database.
+// graph nodes go, and a live row with no graph node gets one. Synthetic rows over a database seeded at version 51 and
+// migrated to the latest version.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { ownMediaRows } from '../src/memory/db/media-owner.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { MIGRATIONS } from '../src/memory/db/schema.ts';
+import { BASELINE_VERSION } from '../src/memory/db/schema-baseline.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -68,13 +70,18 @@ function atVersion51(handle: MemoryHandle): Db {
 }
 
 test('version step 52 names each row of a media cache and of the GIF library by its unit and folds the descriptions', async () => {
+  // Catches: a cache row or a library row left without its writer and holder, or a saved description left beside its
+  // row, once the database migrates past the step, the drop of the units (step 55) included.
   const dataDir = tempDataDir('nep-media-cache-v52-');
-  const first = await openTestMemory({ dataDir, now: () => NOW, iface: () => 'discord' });
-  await first.close();
-  const handle = openMemoryDb(path.join(dataDir, 'memory.db'));
+  const old = openMemoryDb(path.join(dataDir, 'memory.db'), { migrations: MIGRATIONS.slice(0, 51 - BASELINE_VERSION) });
   try {
-    const db = atVersion51(handle);
-    ownMediaRows(db);
+    atVersion51(old);
+  } finally {
+    old.close();
+  }
+  const second = await openTestMemory({ dataDir, now: () => NOW, iface: () => 'discord' });
+  try {
+    const db = dbOf(second.memoryDb.readHandle()!);
     const owners = db
       .prepare('SELECT id, writer, holder_id, used_at FROM media ORDER BY id')
       .all()
@@ -96,11 +103,6 @@ test('version step 52 names each row of a media cache and of the GIF library by 
       db.prepare("SELECT kind FROM graph_nodes WHERE id = 'media:media:discord:att-1'").get()?.kind,
       'media'
     );
-  } finally {
-    handle.close();
-  }
-  const second = await openTestMemory({ dataDir, now: () => NOW, iface: () => 'discord' });
-  try {
     const store = createStore({ dataDir, memoryDb: second.memoryDb });
     // The row's own entry stays what the cache read gave; the saved description of a key no row held is a row now.
     assert.deepEqual(store.mediaEntry(ROOT, 'att-1'), { text: 'a watched cat', ts: 10 });

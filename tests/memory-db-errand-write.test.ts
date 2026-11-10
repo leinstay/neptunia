@@ -71,7 +71,6 @@ test('an errand write files the task, and its end moves it and writes the closin
     assert.deepEqual(answer, { ended: true });
     assert.equal(statusOf(db, 'errand-1'), 'done');
     assert.equal(journalDays(db), 1);
-    assert.equal(db.prepare("SELECT count(*) AS n FROM storage_units WHERE kind = 'errands'").get()?.n, 0);
   } finally {
     handle.close();
   }

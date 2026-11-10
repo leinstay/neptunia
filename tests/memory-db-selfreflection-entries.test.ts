@@ -1,7 +1,7 @@
 // The write kind `selfreflection-entries` (src/memory/db/selfreflection-entries.ts): her dated entries, the message ids
 // each was mirrored as and their publications, written as their rows directly instead of through the selfreflection
-// mapper of a unit write, each row naming its writer and holder (place-owner.ts). The tests read without the units,
-// retire a dropped entry's mirror and publication, refuse an empty write, and read the store over a reopen and an
+// mapper of a unit write, each row naming its writer and holder (place-owner.ts). The tests retire a dropped entry's
+// mirror and publication, refuse an empty write, and read the store over a reopen and an
 // append.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,8 +15,6 @@ import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 import { CHANNEL, NOW, copyOf, seededPlaces } from './fixtures/memory-db/place-writes.ts';
 
 const KEY = personaKey('selfreflection');
-const OWNED = ['selfreflection', 'selfreflection_mirrors', 'operational', 'publications', 'co_owners'];
-
 const post = (n: number, extra: Row = {}): Row => ({
   itemId: `sr-${n}`,
   at: NOW - n * 60_000,
@@ -60,24 +58,6 @@ function writeDirectWay(handle: MemoryHandle, step: Step): unknown {
 }
 
 const read = (handle: MemoryHandle): unknown => unitValue(dbOf(handle), KEY);
-
-test('the entries read the same once no unit owns their rows', () => {
-  const handle = copyOf(seededPlaces());
-  try {
-    for (const step of STEPS) writeDirectWay(handle, step);
-    const before = read(handle);
-    const stored = (before as { value?: { posts?: Array<Row> } }).value;
-    assert.deepEqual(
-      (stored?.posts ?? []).map((entry) => entry.messageIds ?? null),
-      [null, ['m4', 'm5']]
-    );
-    for (const table of OWNED)
-      dbOf(handle).exec(`UPDATE "${table}" SET owner_key = NULL WHERE writer = 'selfreflection'`);
-    assert.deepEqual(read(handle), before);
-  } finally {
-    handle.close();
-  }
-});
 
 test("a dropped entry retires its mirror and its mirror's publication", () => {
   const handle = copyOf(seededPlaces());

@@ -874,14 +874,7 @@ test('v9 contracts: a replay of the unit writes projects the same rows; reprojec
     assert.match(hashed.text, /nope +no such table/);
     const stats = run('stats', '--db', env.file);
     assert.equal(stats.code, 0);
-    for (const table of [
-      'graph_edges',
-      'node_access',
-      'claim_version_sources',
-      'participants',
-      'capture_bundles',
-      'execution_contexts',
-    ])
+    for (const table of ['graph_edges', 'node_access', 'claim_version_sources', 'participants', 'execution_contexts'])
       assert.match(stats.text, new RegExp(`^${table} `, 'm'), table);
   } finally {
     env.done();

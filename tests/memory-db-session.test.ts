@@ -1423,31 +1423,27 @@ test('a revised or confirmed claim takes its scope from the evidence of the new 
   }
 });
 
-test('child links: a retired link is not a link; the links the database writes carry no owner file', () => {
+test('child links: a retired link is not a link; a link is not added twice', () => {
   const env = fixture();
   try {
     const ids = chat(env);
     env.claim({ id: 'cl-ada', subjectId: personOf(ADA), text: 'likes café mornings' });
     env.db
       .prepare(
-        "INSERT INTO claim_sources (claim_id, source_id, position, retired_at, owner_file) VALUES ('cl-ada', ?, 0, '2026-10-01T00:00:00.000Z', 'guilds/G/users/x.json')"
+        "INSERT INTO claim_sources (claim_id, source_id, position, retired_at) VALUES ('cl-ada', ?, 0, '2026-10-01T00:00:00.000Z')"
       )
       .run(ids.a);
-    env.db
-      .prepare(
-        "INSERT INTO claim_sources (claim_id, source_id, position, owner_file) VALUES ('cl-ada', ?, 1, 'guilds/G/users/x.json')"
-      )
-      .run(ids.b);
+    env.db.prepare("INSERT INTO claim_sources (claim_id, source_id, position) VALUES ('cl-ada', ?, 1)").run(ids.b);
     applyOf(env, { plan: emptyPlan({ claims: [{ op: 'confirm', id: 'cl-ada', sources: [ids.a, ids.b] }] }) });
     const links = env.db
-      .prepare("SELECT source_id, retired_at, owner_file FROM claim_sources WHERE claim_id = 'cl-ada' ORDER BY rowid")
+      .prepare("SELECT source_id, retired_at FROM claim_sources WHERE claim_id = 'cl-ada' ORDER BY rowid")
       .all();
     assert.deepEqual(
-      links.map((row) => [row.source_id, row.retired_at === null, row.owner_file]),
+      links.map((row) => [row.source_id, row.retired_at === null]),
       [
-        [ids.a, false, 'guilds/G/users/x.json'],
-        [ids.b, true, 'guilds/G/users/x.json'],
-        [ids.a, true, null],
+        [ids.a, false],
+        [ids.b, true],
+        [ids.a, true],
       ],
       'the retired link did not count as existing; the live one was not added twice'
     );

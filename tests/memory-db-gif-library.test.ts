@@ -54,7 +54,6 @@ test('a put writes one row per entry with the library as its writer, the persona
     const row = rowOf(db, 'media:gif:k1');
     assert.equal(row?.writer, 'gifs');
     assert.equal(row?.holder_id, HOLDER);
-    assert.equal(row?.owner_key, null);
     assert.equal(row?.kind, 'gif');
     assert.equal(row?.native_ref, 'ref-1');
     assert.equal(row?.path, 'media/gifs/k1.gif');

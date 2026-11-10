@@ -265,7 +265,6 @@ test('retired, unshown and unowned rows are read by default', () => {
     const retired = rows.find((row) => isText(cell(row, 'id'), 'claim:retired'));
     assert.ok(retired);
     assert.deepEqual(cell(retired, 'retired_at'), text('2026-11-03T00:00:00.000Z'));
-    assert.deepEqual(cell(retired, 'owner_file'), { kind: 'null' });
   });
 });
 

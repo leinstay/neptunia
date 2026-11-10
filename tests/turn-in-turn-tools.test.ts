@@ -379,17 +379,8 @@ test("a read of another interface's place names a linked account by its person's
         { id: 'fake:5678', iface: 'fake', native: '5678', names: ['zz-second'] },
       ],
     });
-    world.db
-      .prepare(
-        "INSERT INTO storage_units (id, kind, subject_type, subject_id, key_json) VALUES ('unit:zoe', 'user', 'account', 'tele:9999', '[\"user\",\"tele:9999\"]')"
-      )
-      .run();
     // The profile that holds the person names its account (profile-owner.ts).
-    world.db
-      .prepare(
-        "UPDATE people SET owner_key = 'unit:zoe', writer = 'profile', holder_id = 'tele:9999' WHERE id = 'person:zoe'"
-      )
-      .run();
+    world.db.prepare("UPDATE people SET writer = 'profile', holder_id = 'tele:9999' WHERE id = 'person:zoe'").run();
     world.db
       .prepare("INSERT INTO accounts (id, iface, native_id, kind) VALUES ('fake:3333', 'fake', '3333', 'user')")
       .run();

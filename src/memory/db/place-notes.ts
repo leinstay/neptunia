@@ -102,8 +102,6 @@ function placeRow(ctx: MapContext, placeId: string, iface: string | null): Row {
   if (ctx.subjectPlace) {
     // The notes own the row they adopted (its owner columns), so a write that left it out would retire it.
     const stored: Row = { ...ctx.subjectPlace };
-    delete stored.owner_key;
-    delete stored.owner_file;
     return stored;
   }
   return {
