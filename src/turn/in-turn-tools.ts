@@ -430,6 +430,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
                     bot: false,
                     content: line.text,
                     ts: line.at,
+                    // A line with no platform id is no anchor the interface can take (runConversationRead).
+                    ...(line.platformId ? {} : { liveAnchor: false }),
                     ...lineItemParts(line.media, line.id),
                   },
                 ]
