@@ -346,21 +346,26 @@ function familyOfVector(row: Row, families: ReadonlyArray<Row>): Row | undefined
   return narrowed.length === 1 ? narrowed[0] : undefined;
 }
 
-const CHUNK_KEY = /^(?:private:[^:]+:)?record:(.+):([^:]*?)(?:#\d+)?$/;
+/** The message id and revision of a record vector row, from its line's fields: `item_id` and `revision` in `context`. */
+function lineOfVector(row: Row): { id: string; revision: number } | null {
+  if (row.kind !== 'record' || typeof row.item_id !== 'string' || row.item_id === '') return null;
+  const revision = parseExtra(row.context).revision;
+  return Number.isInteger(revision) ? { id: row.item_id, revision: revision as number } : null;
+}
 
 /**
- * Sets each vector row's `source_rowid` from its chunk key, `record:<message id>:<revision>`. An observed line holds its
- * family's key in `native_id`, so the message id goes through `message_families`; a line with no family holds the id
- * itself.
+ * Sets each record vector row's `source_rowid` from the line it was made from: its message id in `item_id` and its
+ * revision in `context`. An observed line holds its family's key in `native_id`, so the message id goes through
+ * `message_families`; a line with no family holds the id itself.
  */
 export function linkVectors(db: Db, rows: ReadonlyArray<Row>): void {
-  const keys = rows.map((row) => CHUNK_KEY.exec(String(row.chunk_key)));
-  const families = familiesOf(db, [...new Set(keys.flatMap((match) => (match && match[2] !== '' ? [match[1]] : [])))]);
+  const lines = rows.map(lineOfVector);
+  const families = familiesOf(db, [...new Set(lines.flatMap((line) => (line ? [line.id] : [])))]);
   rows.forEach((row, index) => {
-    const match = keys[index];
-    if (!match || match[2] === '') return;
-    const revision = Number(match[2]);
-    const family = familyOfVector(row, families.get(match[1]) ?? []);
+    const line = lines[index];
+    if (!line) return;
+    const { revision } = line;
+    const family = familyOfVector(row, families.get(line.id) ?? []);
     const found = family
       ? prepared(
           db,
@@ -373,7 +378,7 @@ export function linkVectors(db: Db, rows: ReadonlyArray<Row>): void {
       prepared(
         db,
         "SELECT rowid FROM sources WHERE native_id = ? AND revision = ? AND kind IN ('seen', 'said') ORDER BY kind LIMIT 1"
-      ).get(match[1], revision);
+      ).get(line.id, revision);
     if (direct) row.source_rowid = direct.rowid;
   });
 }

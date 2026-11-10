@@ -68,3 +68,28 @@ test('the generated profiles with every key path of the live user files come bac
     }
   }
 });
+
+test("a move of the store's own whose id begins with aff: comes back with its id, as no session row holds it", async () => {
+  // Bug: a move was taken for her session's by the `aff:` prefix of its id, so the row took that id, the item lost it,
+  // and the store read back a move without the id it wrote.
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'discord' });
+  try {
+    const value = {
+      id: '901',
+      names: ['Wren'],
+      affinity: {
+        score: 3,
+        history: [{ itemId: 'aff:imported-7', ts: '2026-11-01T10:00:00.000Z', delta: 3, reason: 'brought the maps' }],
+      },
+    };
+    await memory.memoryDb.writeAccountProfile({ accountId: 'discord:901', value });
+    const read = unitValue(dbOf(memory.memoryDb.readHandle()!), accountCollection('user', 'discord:901'));
+    const affinity = (read.found ? (read.value as Row) : {}).affinity as { history?: Array<Row> } | undefined;
+    assert.deepEqual(
+      affinity?.history?.map((move) => move.itemId),
+      ['aff:imported-7']
+    );
+  } finally {
+    await memory.close();
+  }
+});

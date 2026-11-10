@@ -7,7 +7,8 @@
 // `revision`, `placeId`, `by`, `participants`, `sourceIds`), with `$keys` when its keys were not in the index's own
 // order. Its chunk key is `<kind>:<id>:<revision>`, `private:<partner>:` before it in a DM place, `-<n>` after it for
 // the n-th line of one key in a month, and `#<n>` when another month holds the key. A DM place's rows take its audience,
-// any other place's the interface's group. `source_rowid` links the line's stored message (upsert.ts#linkVectors).
+// any other place's the interface's group. `source_rowid` links the line's stored message, found from the line's id and
+// revision (upsert.ts#linkVectors).
 //
 //   op `append`   the lines after the month's stored ones
 //   op `month`    the month whole: a stored line it does not name is retired

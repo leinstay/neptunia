@@ -12,7 +12,9 @@ import { recountDaily } from '../src/memory/db/focus.ts';
 import { linkVectors } from '../src/memory/db/upsert.ts';
 import { groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { topPlaceSpelled } from '../src/memory/db/ids.ts';
-import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
+import { DatabaseSync } from 'node:sqlite';
+import path from 'node:path';
 import type { Db, Row } from '../src/memory/db/types.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -206,10 +208,79 @@ test('a vector of an observed line links to its row by the protocol id in its ch
   try {
     const sourceId = await observeLine(memory, { id: 'member-1', author: MEMBER });
     const db = database(memory);
-    const row: Row = { chunk_key: 'record:member-1:1' };
+    // The row as writeLineVectors builds it: the line's message id in `item_id`, its revision in `context`.
+    const row: Row = { chunk_key: 'record:member-1:1', kind: 'record', item_id: 'member-1', context: '{"revision":1}' };
     linkVectors(db, [row]);
     assert.equal(row.source_rowid, db.prepare('SELECT rowid FROM sources WHERE id = ?').get(sourceId)?.rowid);
   } finally {
     await memory.close();
+  }
+});
+
+test("a line's second vector in a month, whose chunk key carries the writer's -2, links to the line too", async () => {
+  // Bug: the link read the revision out of the chunk key, `1-2` is no number, so the second vector of a line linked to
+  // nothing and a search by meaning never reached the line through it.
+  const memory = await openTestMemory({ now: () => NOW, iface: () => IFACE });
+  try {
+    const sourceId = await observeLine(memory, { id: 'member-2', author: MEMBER });
+    const line = {
+      row: 0,
+      kind: 'record',
+      id: 'member-2',
+      revision: 1,
+      occurredAt: new Date(SENT).toISOString(),
+      placeId: ROOM,
+      sourceIds: ['member-2'],
+      scale: 0.01,
+      norm: 2,
+    };
+    const write = { op: 'append' as const, placeId: TOP, month: '2026-10', model: 'test/embedder' };
+    await memory.memoryDb.writeLineVectors({ ...write, lines: [{ line, bytes: Uint8Array.from([1, 2, 3, 4]) }] });
+    await memory.memoryDb.writeLineVectors({ ...write, lines: [{ line, bytes: Uint8Array.from([4, 3, 2, 1]) }] });
+    const db = database(memory);
+    const own = db.prepare('SELECT rowid FROM sources WHERE id = ?').get(sourceId)?.rowid;
+    const links = db
+      .prepare("SELECT chunk_key, source_rowid FROM vectors WHERE item_id = 'member-2' ORDER BY chunk_key")
+      .all()
+      .map((row) => [row.chunk_key, row.source_rowid]);
+    assert.deepEqual(links, [
+      ['record:member-2:1', own],
+      ['record:member-2:1-2', own],
+    ]);
+  } finally {
+    await memory.close();
+  }
+});
+
+test('a database from before step 58 links every record vector whose line it holds, the -2 ones included', async () => {
+  // Bug: vectors stored before the link read the line from its own fields keep no source, so a search by meaning
+  // never reaches the line through them.
+  const dataDir = tempDataDir();
+  const first = await openTestMemory({ dataDir, now: () => NOW, iface: () => IFACE });
+  let own: unknown;
+  try {
+    const sourceId = await observeLine(first, { id: 'member-3', author: MEMBER });
+    own = database(first).prepare('SELECT rowid FROM sources WHERE id = ?').get(sourceId)?.rowid;
+    const line = { row: 0, kind: 'record', id: 'member-3', revision: 1, occurredAt: new Date(SENT).toISOString() };
+    const write = { op: 'append' as const, placeId: TOP, month: '2026-10', model: 'test/embedder' };
+    for (const fill of [1, 2])
+      await first.memoryDb.writeLineVectors({ ...write, lines: [{ line, bytes: Uint8Array.from([fill, 2, 3, 4]) }] });
+  } finally {
+    await first.close();
+  }
+  const raw = new DatabaseSync(path.join(dataDir, 'memory.db'));
+  raw.exec(
+    "UPDATE vectors SET source_rowid = NULL WHERE kind = 'record'; DELETE FROM schema_version WHERE version > 57;"
+  );
+  raw.close();
+  const second = await openTestMemory({ dataDir, now: () => NOW, iface: () => IFACE });
+  try {
+    const links = database(second)
+      .prepare("SELECT source_rowid FROM vectors WHERE item_id = 'member-3' ORDER BY chunk_key")
+      .all()
+      .map((row) => row.source_rowid);
+    assert.deepEqual(links, [own, own]);
+  } finally {
+    await second.close();
   }
 });

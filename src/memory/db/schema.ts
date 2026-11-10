@@ -51,8 +51,53 @@ function rowLinks(db: Db): void {
   db.exec('CREATE INDEX vectors_kind ON vectors(kind)');
 }
 
+/**
+ * Version 58: every record vector with no `source_rowid` links to the line it was made from, read from the row's own
+ * fields (its message id in `item_id`, its revision in `context`) through `message_families` and then `native_id`, as
+ * the line vectors' writer links a new row. A vector whose line no `sources` row holds stays unlinked.
+ */
+function vectorSources(db: Db): void {
+  const ofFamily = db.prepare(
+    `SELECT rowid FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?
+       AND revision = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY kind LIMIT 1`
+  );
+  const ofNative = db.prepare(
+    "SELECT rowid FROM sources WHERE native_id = ? AND revision = ? AND kind IN ('seen', 'said') ORDER BY kind LIMIT 1"
+  );
+  const link = db.prepare('UPDATE vectors SET source_rowid = ? WHERE rowid = ?');
+  const unlinked = db
+    .prepare(
+      `SELECT rowid, item_id, scope_iface, json_extract(context, '$.revision') AS revision,
+         json_extract(context, '$.placeId') AS chat FROM vectors WHERE kind = 'record' AND source_rowid IS NULL`
+    )
+    .all();
+  // The catalog's key starts at the interface, so one scan answers every message id at once.
+  const ids = [...new Set(unlinked.map((row) => row.item_id).filter((id) => typeof id === 'string'))];
+  const families = new Map<unknown, Array<Record<string, unknown>>>();
+  for (const family of db
+    .prepare('SELECT * FROM message_families WHERE generation = 1 AND message_id IN (SELECT value FROM json_each(?))')
+    .all(JSON.stringify(ids)))
+    families.set(family.message_id, [...(families.get(family.message_id) ?? []), family]);
+  for (const row of unlinked) {
+    if (typeof row.item_id !== 'string' || !Number.isInteger(row.revision)) continue;
+    let held = families.get(row.item_id) ?? [];
+    if (held.length > 1)
+      held = held.filter(
+        (family) =>
+          (row.chat === null || family.conversation_id === row.chat) &&
+          (row.scope_iface === null || family.iface === row.scope_iface)
+      );
+    const family = held.length === 1 ? held[0] : undefined;
+    const found =
+      (family
+        ? ofFamily.get(family.authority_id, family.native_kind, family.native_key, family.generation, row.revision)
+        : undefined) ?? ofNative.get(row.item_id, row.revision);
+    if (found) link.run(found.rowid, row.rowid);
+  }
+}
+
 /** The steps above the baseline, version 57 first. */
-export const MIGRATIONS: Array<Migration> = [rowLinks];
+export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources];
 
 /** The tables that carry a scope and its `audience_id`. */
 export const SCOPED_TABLES = [

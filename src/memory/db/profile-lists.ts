@@ -9,13 +9,13 @@
 // claim's remainder says so (`$derived`), which is what keeps the old item without an `itemId` after the round trip.
 //
 // The rows her memory session wrote come back like the profile's own: a claim and an episode with their id as the
-// `itemId`, an attitude move with its event id as the `itemId` (`aff:<run>:<n>`), so the value the store writes back
+// `itemId`, an attitude move with its event id as the `itemId`, known by its row's `writer` `session`, so the value the store writes back
 // names the same rows and the write leaves them alone (upsert.ts). A description is its current version (`current_version`), whichever writer wrote it.
 
 import { SELF_PERSON, itemOrDerivedId, shortHash, uniqueIds } from './ids.ts';
 import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
 import { asText } from './types.ts';
-import type { Row, Rows } from './types.ts';
+import type { Db, Row, Rows } from './types.ts';
 import type { Spec } from './row-columns.ts';
 
 const BASE_SPEC: Array<Spec> = [
@@ -52,7 +52,17 @@ export type ProfileOwner = {
   tag: string;
   scope: Row;
   descFields: ReadonlyArray<string>;
+  /** Whether `id` names an attitude move her memory session wrote (`sessionMoveOf`). */
+  sessionMove: (id: string) => boolean;
 };
+
+/** Whether `id` is the row of an attitude move her memory session wrote, by its stored `writer`. */
+export function sessionMoveOf(db: Db): (id: string) => boolean {
+  let row: ReturnType<Db['prepare']> | null = null;
+  return (id) =>
+    (row ??= db.prepare("SELECT 1 AS ok FROM affinity_events WHERE id = ? AND writer = 'session'")).get(id) !==
+    undefined;
+}
 
 /** The claim lists of a member's file (public or private). */
 export const MEMBER_LISTS: Array<ListDef> = [
@@ -112,12 +122,10 @@ export const AFFINITY_SPEC: Array<Spec> = [
   { col: 'affinity_decayed_at', key: 'decayedAt', type: 'text' },
 ];
 
-/**
- * The event id of an attitude move her session wrote, carried as the move's `itemId` (the store's own are `mv-`).
- */
-function sessionMoveId(item: Row): string | null {
+/** The event id of an attitude move her session wrote, carried as the move's `itemId`, when its row says so. */
+function sessionMoveId(item: Row, o: ProfileOwner): string | null {
   const id = item.itemId;
-  return typeof id === 'string' && id.startsWith('aff:') ? id : null;
+  return typeof id === 'string' && id !== '' && o.sessionMove(id) ? id : null;
 }
 
 const listOfObjects = (value: unknown): value is Array<Row> => Array.isArray(value) && value.every(isPlainObject);
@@ -277,7 +285,7 @@ export function profileRows(rows: Rows, value: Row, o: ProfileOwner): { rest: Ro
       has.push('affinity.history');
       history.forEach((item: Row, position: number) => {
         const part = split(item, HISTORY_SPEC);
-        const sessionId = sessionMoveId(item);
+        const sessionId = sessionMoveId(item, o);
         if (sessionId) delete part.rest.itemId;
         put(rows, 'affinity_events', {
           id: sessionId ?? `aff:${o.owner}:${position}:${shortHash(item.ts ?? '')}`,
