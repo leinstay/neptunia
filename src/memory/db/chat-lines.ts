@@ -5,6 +5,7 @@
 
 import { LINE_HOLDS_MEDIA, lineMedia } from './media-store.ts';
 import type { MediaRow } from './media-store.ts';
+import { replyMessageSql, routeMessageSql } from './message-locator.ts';
 import { CURRENT_SOURCE } from './recall.ts';
 import { internalContext } from './scope.ts';
 import { asText } from './types.ts';
@@ -19,6 +20,7 @@ export type ChatLine = {
   at: number;
   who: 'owner' | 'her';
   text: string;
+  /** The line's message id (`MESSAGE_ID`). */
   nativeId?: string;
   media?: Array<MediaRow>;
   /** The line's place among all the stored lines of its place, in the order of this read, the oldest being 1. */
@@ -30,12 +32,27 @@ export type ChatLine = {
 };
 
 const HOLDS_SOMETHING = `(length(COALESCE(s.text, '')) > 0 OR ${LINE_HOLDS_MEDIA})`;
+/**
+ * A line's message id: the platform's from its message route, else its `native_id`. A line written through message
+ * families keeps a key of the core's own in `native_id`, and the chat client knows the line by the platform's id.
+ */
+const MESSAGE_ID = `COALESCE(${routeMessageSql('s')}, s.native_id)`;
 
-/** The reply fields of a line whose `reply_to` is `parent`: its message id, and its number when the read holds it. */
-function replyOf(parent: unknown, numberOf: ReadonlyMap<unknown, number>): Pick<ChatLine, 'replyToId' | 'replyNumber'> {
-  if (typeof parent !== 'string' || parent === '') return {};
-  const number = numberOf.get(parent);
-  return number === undefined ? { replyToId: parent } : { replyToId: parent, replyNumber: number };
+const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
+
+/**
+ * The reply fields of a line that replies to the stored key `parent`, or to the platform message `routed`: the parent's
+ * message id as this read gives it, else the platform's, else the key, and its number when the read holds it.
+ */
+function replyOf(
+  parent: unknown,
+  routed: unknown,
+  byKey: ReadonlyMap<unknown, { id: string; number: number }>
+): Pick<ChatLine, 'replyToId' | 'replyNumber'> {
+  const held = filled(parent) ? byKey.get(parent) : undefined;
+  if (held !== undefined) return { replyToId: held.id, replyNumber: held.number };
+  if (filled(routed)) return { replyToId: routed };
+  return filled(parent) ? { replyToId: parent } : {};
 }
 
 /** The stored lines of `placeId`, oldest first, each with its number; none without a database. */
@@ -46,7 +63,8 @@ export function chatLines(db: Db | null, placeId: string): Array<ChatLine> {
     .get(placeId);
   const rows = db
     .prepare(
-      `SELECT s.id, s.kind, s.text, s.occurred_at, s.native_id, s.reply_to FROM sources s
+      `SELECT s.id, s.kind, s.text, s.occurred_at, s.native_id, ${MESSAGE_ID} AS message_id, s.reply_to,
+         ${replyMessageSql('s')} AS reply_message FROM sources s
        WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING}
        ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
     )
@@ -59,31 +77,34 @@ export function chatLines(db: Db | null, placeId: string): Array<ChatLine> {
   // A read past LINES_MAX starts after the lines it leaves out, so the numbers stay those of the whole place.
   const skipped = Number(counted?.n ?? rows.length) - rows.length;
   const ordered = rows.toReversed();
-  const numberOf = new Map(ordered.map((row, index) => [row.native_id, skipped + index + 1]));
+  const byKey = new Map(
+    ordered.map((row, index) => [row.native_id, { id: asText(row.message_id), number: skipped + index + 1 }])
+  );
   return ordered.map((row, index) => ({
     id: asText(row.id),
     placeId,
     at: Date.parse(asText(row.occurred_at)),
     who: row.kind === 'said' ? 'her' : 'owner',
     text: asText(row.text),
-    ...(typeof row.native_id === 'string' ? { nativeId: row.native_id } : {}),
+    ...(typeof row.message_id === 'string' ? { nativeId: row.message_id } : {}),
     ...(media.has(asText(row.id)) ? { media: media.get(asText(row.id)) } : {}),
     number: skipped + index + 1,
-    ...replyOf(row.reply_to, numberOf),
+    ...replyOf(row.reply_to, row.reply_message, byKey),
   }));
 }
 
 /**
- * The number `chatLines` gives the line of `placeId` whose message id is `nativeId`: how many of the place's lines come
- * up to it in the same order. Null when the place holds no such line.
+ * The number `chatLines` gives the line of `placeId` whose message id is `nativeId`, the platform's or the row's own:
+ * how many of the place's lines come up to it in the same order. Null when the place holds no such line.
  */
 export function lineNumberOf(db: Db, placeId: string, nativeId: string): number | null {
   const line = db
     .prepare(
       `SELECT s.occurred_at, s.rowid AS r FROM sources s
-       WHERE s.place_id = ? AND s.native_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING} LIMIT 1`
+       WHERE s.place_id = ? AND (s.native_id = ? OR ${routeMessageSql('s')} = ?) AND ${CURRENT_SOURCE}
+         AND ${HOLDS_SOMETHING} LIMIT 1`
     )
-    .get(placeId, nativeId);
+    .get(placeId, nativeId, nativeId);
   if (!line) return null;
   const counted = db
     .prepare(

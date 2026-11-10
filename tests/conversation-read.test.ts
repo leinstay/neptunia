@@ -14,6 +14,16 @@ import {
   sinceMoment,
 } from '../src/tools/conversation-read.ts';
 import { labels } from './fixtures/labels.ts';
+import { createInTurnTools, type InTurnDraft } from '../src/turn/in-turn-tools.ts';
+import { callViewOf } from '../src/turn/calls.ts';
+import { executeCall, resolveCall } from '../src/tools/executors.ts';
+import { turnRoutes } from '../src/behavior/turn-ability-route.ts';
+import { frameReadsOver } from '../src/memory/db/frame-reads.ts';
+import { internalContext } from '../src/memory/db/scope.ts';
+import { addLine, addPerson, addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
+import type { World } from './fixtures/memory-db/mind-world.ts';
+import { channel, message as eventOf, rig } from './fixtures/reads-rig.ts';
+import type { HistoryQuery } from '../src/protocol/adapter.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
@@ -357,4 +367,205 @@ test('an empty span says so; arguments that do not fit are invalid; a hidden cha
   const hidden = runner({ allowed: (id: string) => id !== 'c9' });
   assert.deepEqual(await hidden.run({ placeId: 'c9' }), { status: 'denied', code: 'channel-not-visible' });
   assert.equal(hidden.calls.record.length + hidden.calls.live.length, 0, 'nothing was read');
+});
+
+// A stored place read through the in-turn tools: the memory's lines, a line of which carries two ids as production rows
+// do (`sources.native_id`, a uuid, and the platform's id in `extra.$messageLocator.messageId`), joined by the fake
+// interface's history. Synthetic names.
+const PLACE_NOW = Date.parse('2026-11-02T10:00:00.000Z');
+const PLACE_AT = (minute: number): number => Date.parse('2026-11-02T09:00:00.000Z') + minute * 60_000;
+
+/** One stored line of the room: its row id, a uuid-shaped `native_id`, and the platform's message id when it has one. */
+type Row = { row: string; uuid: string; platform: string | null; text: string; minute: number };
+
+function seedRoom(world: World, rows: ReadonlyArray<Row>): string {
+  noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+  const room = addRoom(world.db, { iface: 'fake', native: 'c7', root: rootId('fake', 'g1'), name: 'garden' });
+  addPerson(world.db, {
+    id: 'person:eleni',
+    accounts: [{ id: 'fake:u1', iface: 'fake', native: 'u1', names: ['Eleni'] }],
+  });
+  for (const one of rows) {
+    addLine(world.db, {
+      id: one.row,
+      iface: 'fake',
+      place: room,
+      author: 'fake:u1',
+      text: one.text,
+      at: new Date(PLACE_AT(one.minute)).toISOString(),
+    });
+    const extra =
+      one.platform === null
+        ? null
+        : JSON.stringify({
+            $messageLocator: { v: 1, origin: 'protocol-message', iface: 'fake', chatId: 'c7', messageId: one.platform },
+          });
+    world.db.prepare('UPDATE sources SET native_id = ?, extra = ? WHERE id = ?').run(one.uuid, extra, one.row);
+  }
+  return room;
+}
+
+function placeScene(world: World) {
+  const io = rig();
+  io.fake.seedChat(channel('c7'));
+  const draft: InTurnDraft = {};
+  const hot = { config: { bot: { timezone: 'UTC' }, features: { coreTools: true } }, prompts: { labels } };
+  const tools = createInTurnTools({
+    hot,
+    store: { listUserProfiles: () => [] },
+    recall: null,
+    speech: null,
+    record: null,
+    routes: turnRoutes(hot, null),
+    clock: () => PLACE_NOW,
+    ifaceReads: io.reads,
+    lookup: undefined,
+    describer: undefined,
+    memberOf: () => null,
+    chatOf: (current) => ({ iface: 'tele', chatId: current.id }),
+    turnContextOf: () => internalContext(),
+    placeReads: frameReadsOver(
+      () => world.db,
+      () => hot.config
+    ),
+    linkCalls: (lines) => lines,
+    drawTool: () => Promise.reject(new Error('drawing is outside this fixture')),
+  });
+  const handlers = tools.inTurnTools({
+    channel: channel('here'),
+    placeId: 'tele-root',
+    selfId: 'self',
+    selfName: 'Synthetic persona',
+    history: [],
+    draft,
+  });
+  const { calls } = io.fake;
+  const seedPlatform = (id: string, minute: number, text: string): void =>
+    io.fake.seedEvent(eventOf(channel('c7'), id, PLACE_AT(minute), text, { authorId: 'u1', authorName: 'Eleni' }));
+  /** The queries that reached the interface's history read, in order. */
+  const historyQueries = (): Array<HistoryQuery> =>
+    calls.filter((call) => call.op === 'history').map((call) => call.args[1] as HistoryQuery);
+  /** The number a read handed out for the line with `text`: her `#N`. */
+  const numberOf = (text: string): number => {
+    const { searchRefs } = draft;
+    const found = [...(searchRefs?.byNumber.entries() ?? [])].filter(([, ref]) =>
+      String(loose(ref.message).content).includes(text)
+    );
+    assert.equal(found.length, 1, `one number for ${text}`);
+    return found[0]?.[0] ?? -1;
+  };
+  const read = async (args: Record<string, unknown>): Promise<{ status: string; data?: { text: string } }> =>
+    (await handlers['conversation.read'](args)) as { status: string; data?: { text: string } };
+  /** `conversation.read` as her call writes it, `after` a `#N`, resolved and executed as a turn does. */
+  const readAfter = async (n: number) => {
+    const view = callViewOf({
+      channel: { id: 'here', rootId: 'g1' },
+      currentIface: 'tele',
+      skills: skillRegistry(),
+      searchRefs: draft.searchRefs,
+    });
+    const resolved = resolveCall({ skill: 'conversation.read', args: { after: `#${n}` } }, view);
+    if (!resolved.ok) assert.fail(`the call was refused: ${JSON.stringify(resolved)}`);
+    return (await executeCall(resolved, {
+      inTurn: handlers,
+      port: { send: () => Promise.reject(new Error('a read never sends')) },
+      refOf: () => ({ iface: 'tele', chatId: 'here' }),
+      here: { iface: 'tele', chatId: 'here' },
+      opContext: { placeId: 'tele-root' },
+    })) as { status: string; data?: { text: string } };
+  };
+  return { seedPlatform, historyQueries, numberOf, read, readAfter };
+}
+
+const ROWS: ReadonlyArray<Row> = [
+  { row: 'row-1', uuid: '3f2a9c1e-7b44-4d0a-9e21-5c8b6a1d0f01', platform: 'p1', text: 'the olive harvest', minute: 1 },
+  { row: 'row-2', uuid: '8d5e0b72-1c93-4f6e-a3b8-2e47d9c5a102', platform: 'p2', text: 'the wine press', minute: 2 },
+  { row: 'row-3', uuid: 'c1b7f4a8-62de-4a35-8f19-7a03e6d8b203', platform: 'p3', text: 'the first frost', minute: 3 },
+];
+
+test('returns a line once when the stored row and the platform hold the same message under a uuid and a platform id', async () => {
+  // Bug (2026-11-09): `after: #145` of a place gave each later line twice, with two consecutive numbers, because the
+  // stored row's id (a uuid) and the platform's id of the same message never matched.
+  const world = openWorld();
+  try {
+    const room = seedRoom(world, ROWS);
+    const scene = placeScene(world);
+    for (const one of ROWS) scene.seedPlatform(one.platform ?? '', one.minute, one.text);
+    const answer = await scene.read({ placeId: room, last: 10 });
+    assert.equal(answer.status, 'ok');
+    const shown = answer.data?.text ?? '';
+    assert.equal(shown.split('the wine press').length - 1, 1, shown);
+  } finally {
+    world.close();
+  }
+});
+
+test('sends the platform message id as the anchor when after names a number of an earlier result', async () => {
+  // Bug (2026-11-09): the number of a stored line stood for its uuid, and the uuid went to the platform as `after`.
+  const world = openWorld();
+  try {
+    const room = seedRoom(world, ROWS);
+    const scene = placeScene(world);
+    await scene.read({ placeId: room, last: 10 });
+    for (const one of ROWS) scene.seedPlatform(one.platform ?? '', one.minute, one.text);
+    await scene.readAfter(scene.numberOf('the olive harvest'));
+    const anchors = scene.historyQueries().flatMap((query) => (query.after === undefined ? [] : [query.after]));
+    assert.deepEqual(anchors, ['p1']);
+  } finally {
+    world.close();
+  }
+});
+
+test('answers from stored lines and sends no anchor when the anchored line has no platform id', async () => {
+  // A stored line the platform never held (a line written by the core itself) has no id the platform could take.
+  const world = openWorld();
+  try {
+    const rows = ROWS.map((one) => ({ ...one, platform: null }));
+    const room = seedRoom(world, rows);
+    const scene = placeScene(world);
+    await scene.read({ placeId: room, last: 10 });
+    const before = scene.historyQueries().length;
+    const answer = await scene.readAfter(scene.numberOf('the olive harvest'));
+    assert.equal(scene.historyQueries().length, before, 'the interface was asked again');
+    assert.equal(answer.status, 'ok');
+    assert.ok((answer.data?.text ?? '').includes('the wine press'));
+  } finally {
+    world.close();
+  }
+});
+
+test('a read after a number of a stored line that has a platform id reaches the interface with that id and shows what the platform holds beyond the store', async () => {
+  // Regression (2026-11-09, "the server returned 400"): the uuid of the anchor went to the platform, which refused it,
+  // so the lines after the anchor that only the platform held never came back.
+  const world = openWorld();
+  try {
+    const room = seedRoom(world, ROWS.slice(0, 2));
+    const scene = placeScene(world);
+    await scene.read({ placeId: room, last: 10 });
+    for (const one of ROWS) scene.seedPlatform(one.platform ?? '', one.minute, one.text);
+    const answer = await scene.readAfter(scene.numberOf('the olive harvest'));
+    const asked = scene.historyQueries().filter((query) => query.after !== undefined);
+    assert.equal(asked.at(-1)?.after, 'p1');
+    assert.equal(answer.status, 'ok');
+    assert.ok((answer.data?.text ?? '').includes('the first frost'));
+  } finally {
+    world.close();
+  }
+});
+
+test('a read after a number of a stored line with no route sends its native id as the anchor when that id is the platform one', async () => {
+  // Regression (2026-11-09): lines stored before message routes keep the platform's id in `native_id` and no route;
+  // their anchors went to the platform and worked, and must keep doing so.
+  const world = openWorld();
+  try {
+    const rows = ROWS.map((one, i) => ({ ...one, uuid: `11827364509182736${40 + i}`, platform: null }));
+    const room = seedRoom(world, rows);
+    const scene = placeScene(world);
+    await scene.read({ placeId: room, last: 10 });
+    await scene.readAfter(scene.numberOf('the olive harvest'));
+    const anchors = scene.historyQueries().flatMap((query) => (query.after === undefined ? [] : [query.after]));
+    assert.deepEqual(anchors, ['1182736450918273640']);
+  } finally {
+    world.close();
+  }
 });

@@ -142,3 +142,44 @@ test('a message id the place does not hold has no number', (t) => {
   assert.equal(lineNumberOf(db, 'cli:dm:owner', 'missing'), null);
   assert.equal(lineNumberOf(db, 'other:dm:x', 'n1'), null);
 });
+
+/** Gives the stored line `id` the message route a line written through message families holds, with `reply` its parent. */
+function routed(db: Db, id: string, messageId: string, reply: string | null = null): void {
+  const route = { v: 1, origin: 'protocol-message', iface: 'cli', chatId: 'cli:dm:owner' };
+  const extra = {
+    $messageLocator: { ...route, messageId },
+    ...(reply === null ? {} : { $messageReply: { iface: 'cli', chatId: 'cli:dm:owner', messageId: reply } }),
+  };
+  db.prepare('UPDATE sources SET extra = ? WHERE id = ?').run(JSON.stringify(extra), id);
+}
+
+test('a line written through message families goes by its platform id and names its parent by the parent platform id', (t) => {
+  // Bug (2026-11-08): the chat client knew a line by the platform's id and the store by the row's own key, so the line
+  // stood twice in her `<chat>` and a reply named a parent no client line held.
+  const { db, add } = rig(t);
+  add('s1', 'seen', 'key-1', '2026-11-05T00:00:01.000Z', 'question');
+  add('s2', 'said', 'key-2', '2026-11-05T00:00:02.000Z', 'answer');
+  add('s3', 'seen', 'key-3', '2026-11-05T00:00:03.000Z', 'late reply');
+  db.prepare("UPDATE sources SET reply_to = 'key-1' WHERE id = 's2'").run();
+  db.prepare("UPDATE sources SET reply_to = 'key-gone' WHERE id = 's3'").run();
+  routed(db, 's1', 'cli-1');
+  routed(db, 's2', 'cli-2', 'cli-1');
+  routed(db, 's3', 'cli-3', 'cli-gone');
+  assert.deepEqual(
+    chatLines(db, 'cli:dm:owner').map((line) => [line.nativeId, line.replyToId ?? null, line.replyNumber ?? null]),
+    [
+      ['cli-1', null, null],
+      ['cli-2', 'cli-1', 1],
+      ['cli-3', 'cli-gone', null],
+    ]
+  );
+});
+
+test("a line's number is found by its platform id when the row keeps a key of its own", (t) => {
+  // Bug: her `#N` of a stored line, whose history id is the platform's, drew no number in the owner's chat.
+  const { db, add } = rig(t);
+  add('s1', 'seen', 'key-1', '2026-11-05T00:00:01.000Z', 'one');
+  add('s2', 'said', 'key-2', '2026-11-05T00:00:02.000Z', 'two');
+  routed(db, 's2', 'cli-2');
+  assert.equal(lineNumberOf(db, 'cli:dm:owner', 'cli-2'), 2);
+});

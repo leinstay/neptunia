@@ -22,8 +22,11 @@ import type { Obj } from './types.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { ChatRef, HistoryQuery } from '../protocol/adapter.ts';
 
-/** One message of a channel as the transcript renders it: the record's or the interface's line. */
-export type ReadMessage = { id: unknown; ts: number; [key: string]: unknown };
+/**
+ * One message of a channel as the transcript renders it: the record's or the interface's line. `liveAnchor` false marks
+ * a stored line whose id the interface never gave, so a read anchored on it is answered from the stored lines alone.
+ */
+export type ReadMessage = { id: unknown; ts: number; liveAnchor?: boolean; [key: string]: unknown };
 
 /** What her arguments ask of a channel: how the span is picked and its size. */
 export type ReadSelection = {
@@ -463,6 +466,20 @@ function askedLines(selection: ReadSelection): number {
   return selection.mode === 'around' ? (selection.before ?? 0) + (selection.after ?? 0) + 1 : (selection.n ?? 0);
 }
 
+/**
+ * Whether the interface's read `fetchLive` is there to answer a selection: false without one, and when the selection's
+ * anchor is a stored line with no id the interface gave (`liveAnchor` false).
+ */
+function liveTakes<T>(
+  fetchLive: T | null | undefined,
+  all: ReadonlyArray<ReadMessage>,
+  selection: ReadSelection
+): fetchLive is T {
+  if (typeof fetchLive !== 'function') return false;
+  const { anchor } = selection;
+  return anchor === undefined || all.find((message) => idText(message.id) === anchor)?.liveAnchor !== false;
+}
+
 /** The platform ids of the other authors of the lines read, each once, for the memory of the read's people. */
 function authorsOf(slice: ReadonlyArray<ReadMessage>): Array<string> {
   const ids = slice.flatMap((message) =>
@@ -479,7 +496,7 @@ function authorsOf(slice: ReadonlyArray<ReadMessage>): Array<string> {
  * minTs })` (the interface's history: `around`, `before`, `after`, `since` or the newest, normalized,
  * oldest first; `{ failed }` with the interface's code when it failed) `channelNameOf(id)` (the channel's name for the source line) and `render` (formatTranscript's options, or a function of the span giving them). The record is read
  * first, back through READ_LADDER_DAYS (a `since` from that moment); when it does not hold the span
- * the interface's lines join it. `invalid` (`invalid-args`) for arguments that do not fit;
+ * the interface's lines join it, unless the anchor is a stored line the interface cannot take (`liveAnchor` false). `invalid` (`invalid-args`) for arguments that do not fit;
  * `invalid` (`unknown-message`) when the anchor is not in the channel; `denied`
  * (`channel-not-visible`) for a hidden channel; `failed` with the interface's code (`failedRead`) when nothing could
  * be read at all;
@@ -540,7 +557,7 @@ export async function runConversationRead({
     }
     let live: LiveLines = null;
     let asked = false;
-    if (!picked.enough && typeof fetchLive === 'function') {
+    if (!picked.enough && liveTakes(fetchLive, all, selection)) {
       asked = true;
       const limit = askedLines(selection);
       live = await fetchLive({
