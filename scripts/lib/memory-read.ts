@@ -5,7 +5,9 @@
 // `memoryDb` is null, and the modules find nothing (the store and the module stores keep their cache only; the
 // record's, the archive's and the index's reads answer `DB_CLOSED`).
 //
-//   readOnlyMemory(dataDir, { file }) -> { memoryDb, close(), found }
+//   readOnlyMemory(dataDir, { file, iface }) -> { memoryDb, close(), found }
+//
+// `iface` is the live interface the seam names (`namespace()`), as the core's service names the interface it serves.
 //
 // The database must be a copy or a quiet file (a live process may write it meanwhile; its readers still see whole
 // transactions).
@@ -18,13 +20,13 @@ import type { Untyped } from '../../src/tools/types.ts';
 /**
  * The read-only memory of `dataDir` (see the head of this file). `close()` closes the database; `found` says whether
  * there was one.
- * @param options `file`: the database, when not `<dataDir>/memory.db`
+ * @param options `file`: the database, when not `<dataDir>/memory.db`; `iface`: the live interface it names
  */
 export function readOnlyMemory(
   dataDir: string,
-  { file = null }: { file?: string | null } = {}
+  { file = null, iface = null }: { file?: string | null; iface?: string | null } = {}
 ): {
-  memoryDb: { readHandle: () => Untyped; database: () => Untyped } | null;
+  memoryDb: { readHandle: () => Untyped; database: () => Untyped; namespace: () => string | null } | null;
   close: () => void;
   found: boolean;
 } {
@@ -32,7 +34,9 @@ export function readOnlyMemory(
   const handle = fs.existsSync(dbFile) ? openMemoryDb(dbFile, { readOnly: true }) : null;
   let open = handle !== null;
   return {
-    memoryDb: handle ? { readHandle: () => (open ? handle : null), database: () => (open ? handle.db : null) } : null,
+    memoryDb: handle
+      ? { readHandle: () => (open ? handle : null), database: () => (open ? handle.db : null), namespace: () => iface }
+      : null,
     close: () => {
       if (!open) return;
       open = false;

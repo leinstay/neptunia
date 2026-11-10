@@ -296,7 +296,8 @@ export type Wired = {
 // health: allow function-length until 2027-02-01 -- one composition in the core's order, split it would hide which reader gets what
 export function buildTurnRunner(input: WiringInput): Wired {
   const { root, dataDir, hot, turnId, now, identity, port } = input;
-  const memory = readOnlyMemory(dataDir);
+  // The live interface the core's service would name.
+  const memory = readOnlyMemory(dataDir, { iface: identity.iface });
   const memoryDb = memory.memoryDb;
   if (memoryDb === null) throw new Error(`turn-replay: no memory.db in ${dataDir}`);
   const db = (): Db | null => memoryDb.database() as Db | null;
