@@ -848,10 +848,6 @@
       "deep": 5,
       "repeated": 0
     },
-    "tests/query-builder.test.ts": {
-      "deep": 5,
-      "repeated": 0
-    },
     "tests/reactor-store.test.ts": {
       "deep": 9,
       "repeated": 0

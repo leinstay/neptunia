@@ -8,7 +8,6 @@ import {
   fitExcerpts,
   focusHits,
   indexedPlan,
-  indexRows,
   isTrivialTrigger,
   lanePlan,
   lexicalKeep,
@@ -211,29 +210,6 @@ test("indexedPlan: the index's terms (rarest first) replace the forms, its phras
     1,
     'never more than the forms'
   );
-});
-
-test('indexRows: hits of every index merged by score, each message once, as rows to read around', () => {
-  const hit = (messageId: string, score: number, ts: number, placeId: string | null = 'c2') => ({
-    messageId,
-    placeId,
-    occurredAt: new Date(ts).toISOString(),
-    ts,
-    score,
-  });
-  const rows = indexRows(
-    [
-      [hit('a', 5, 1), hit('b', 2, 2)],
-      [hit('c', 5, 3), hit('a', 1, 1), hit('x', 9, 4, null)],
-    ],
-    2
-  );
-  assert.deepEqual(
-    rows.map((row) => row.id),
-    ['c', 'a'],
-    'equal scores: the newer first; a hit without a channel is no row'
-  );
-  assert.deepEqual(Object.keys(rows[0]).sort(), ['id', 'occurredAt', 'placeId', 'sourceIds']);
 });
 
 test('lexicalKeep: a phrase always; two terms unless the cosine is weak; one term only with a good cosine; words alone without the meaning search', () => {

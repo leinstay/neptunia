@@ -37,8 +37,6 @@ type LineOptions = {
 export const DEFAULT_INTENTIONS_CAP = 600;
 /** A purpose's length on a line (characters). */
 export const PURPOSE_LINE_CHARS = 200;
-/** A candidate's quoted span on a line (characters). */
-export const SPAN_LINE_CHARS = 160;
 
 /** A moment in words: the date and the clock in `timezone`. */
 function when(ts: number | null, timezone: string, locale: string): string {

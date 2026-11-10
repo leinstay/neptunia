@@ -56,29 +56,6 @@ export const elsewhereSettings: (config?: Config) => {
 
 // ---- settle ---------------------------------------------------------------------------
 
-/**
- * When a settle wait in a source channel is due: `settleMs` after the last
- * message observed there, never later than `maxMs` after the first one (the
- * call or the noticed message that armed it). The wait is a timer of the
- * caller and holds no attention; a restart during it loses the wait (the
- * ring keeps the call, unanswered).
- * @returns Epoch ms.
- */
-export function settleDueAt({
-  firstAt,
-  lastAt,
-  settleMs,
-  maxMs,
-}: {
-  firstAt: number;
-  lastAt?: number;
-  settleMs: number;
-  maxMs: number;
-}): number {
-  const last = lastAt !== undefined && Number.isFinite(lastAt) ? lastAt : firstAt;
-  return Math.min(last + settleMs, firstAt + maxMs);
-}
-
 // ---- the ring of calls ----------------------------------------------------------------
 
 /**
@@ -94,92 +71,6 @@ export type RingPing = {
   answeredAt: number | null;
   skippedAt: number | null;
 };
-
-/** Whether a call written at `ts` is past `maxAgeMs` at `now`; a `maxAgeMs` that is not positive is no limit. */
-function isExpired(ts: number, now: number, maxAgeMs: number): boolean {
-  return Number.isFinite(maxAgeMs) && maxAgeMs > 0 && now - ts > maxAgeMs;
-}
-
-/** The well-formed entries of a stored ring, each copied with its stamps normalised. */
-function ringEntries(ring: unknown): Array<RingPing> {
-  if (!Array.isArray(ring)) return [];
-  const entries: Array<RingPing> = [];
-  for (const entry of ring as Array<Record<string, unknown>>) {
-    if (!entry || typeof entry !== 'object') continue;
-    const messageId = idOf(entry.messageId);
-    const placeId = idOf(entry.placeId);
-    if (!messageId || !placeId || typeof entry.ts !== 'number' || !Number.isFinite(entry.ts)) continue;
-    entries.push({
-      messageId,
-      placeId,
-      ts: entry.ts,
-      answeredAt: finiteOrNull(entry.answeredAt),
-      skippedAt: finiteOrNull(entry.skippedAt),
-    });
-  }
-  return entries;
-}
-
-/** Entries oldest first; equal times keep their stored order. */
-function oldestFirst(entries: ReadonlyArray<RingPing>): Array<RingPing> {
-  return [...entries].sort((a, b) => a.ts - b.ts);
-}
-
-/**
- * Record a call in the ring. Expired entries are dropped, a message id
- * already present keeps its first record and its state, a new call starts
- * unanswered and unskipped, and the newest `cap` entries are kept (oldest
- * first). A malformed call or one already past `maxAgeMs` is not recorded.
- * Garbage in the stored ring is dropped, never thrown on.
- * `opts` are `elsewhereSettings`' `rememberPings` (`cap`) and `pingMaxAgeMs` (`maxAgeMs`). The stored ring is not mutated.
- */
-export function recordPing(
-  ring: unknown,
-  { messageId, placeId, ts }: { messageId: string; placeId: string; ts: number },
-  { cap, maxAgeMs, now }: { cap: number; maxAgeMs: number; now: number }
-): Array<RingPing> {
-  const entries = ringEntries(ring).filter((entry) => !isExpired(entry.ts, now, maxAgeMs));
-  const id = idOf(messageId);
-  const channel = idOf(placeId);
-  if (
-    id &&
-    channel &&
-    Number.isFinite(ts) &&
-    !isExpired(ts, now, maxAgeMs) &&
-    !entries.some((entry) => entry.messageId === id)
-  ) {
-    entries.push({ messageId: id, placeId: channel, ts, answeredAt: null, skippedAt: null });
-  }
-  const keep = Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : 0;
-  return keep === 0 ? [] : oldestFirst(entries).slice(-keep);
-}
-
-/**
- * The state of one ring entry: `'answered'` once answered (even after a
- * skip), else `'skipped'` once skipped, else `'unanswered'`.
- */
-export function pingStatus(
-  entry: Pick<RingPing, 'answeredAt' | 'skippedAt'> | null | undefined
-): 'answered' | 'skipped' | 'unanswered' {
-  if (Number.isFinite(entry?.answeredAt)) return 'answered';
-  if (Number.isFinite(entry?.skippedAt)) return 'skipped';
-  return 'unanswered';
-}
-
-/**
- * The ring's calls in one channel that are not past `maxAgeMs` at `now`,
- * oldest first (a `maxAgeMs` that is not positive is no limit).
- */
-export function pingsIn(
-  ring: unknown,
-  placeId: string,
-  { now, maxAgeMs }: { now: number; maxAgeMs: number }
-): Array<RingPing> {
-  const channel = idOf(placeId);
-  return oldestFirst(
-    ringEntries(ring).filter((entry) => entry.placeId === channel && !isExpired(entry.ts, now, maxAgeMs))
-  );
-}
 
 // ---- seen marks -----------------------------------------------------------------------
 

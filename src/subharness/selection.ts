@@ -20,11 +20,6 @@ const claims = new Map<string, symbol>();
 
 const claimKey = (privateDir: string, role: string): string => `${privateDir}\0${role}`;
 
-/** A running check of `role` can no longer save. */
-export function dropClaim(privateDir: string, role: string): void {
-  claims.delete(claimKey(privateDir, role));
-}
-
 const refused = (code: string, message: string): SubharnessResult => ({ ok: false, code, changed: false, message });
 
 /** Whether `backend` takes the effort flag: claude only when its `--help` lists `--effort`. */

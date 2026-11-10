@@ -10,7 +10,6 @@ import { roleModel } from '../../llm/roles.ts';
 import { sessionSettings } from '../../memory/db/session.ts';
 import type { RouteBackend } from '../../subharness/route-names.ts';
 import { routeName } from '../../subharness/route-names.ts';
-import { harnessPathOf } from '../../subharness/memory-path.ts';
 
 /** The path of a role as config.json holds it: the API, or one harness with the model it runs. */
 export type RolePath = { kind: 'direct' } | { kind: 'subharness'; backend: RouteBackend; model: string };
@@ -40,12 +39,6 @@ export type StatusBriefDeps = {
   runFailed: (role: BriefRole, backend: RouteBackend) => boolean;
   interfaces: () => ReadonlyArray<{ name: string; enabled: boolean; connected: boolean }>;
 };
-
-/** The path of the core or the memory writer in config.json now. */
-export function rolePath(privateDir: string, role: 'core' | 'memory'): RolePath {
-  const held = harnessPathOf(privateDir, role);
-  return held.kind === 'subharness' ? held : { kind: 'direct' };
-}
 
 function roleFacts(deps: StatusBriefDeps, role: BriefRole, path: RolePath): RoleFacts {
   if (path.kind === 'subharness')

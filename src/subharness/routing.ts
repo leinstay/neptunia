@@ -115,11 +115,6 @@ function withRouting(config: Tree, routing: Routing): Tree {
   return placed(config, 'models', placed(treeOf(config.models), 'agents', agents));
 }
 
-/** The routing nobody has chosen yet. */
-export function emptyRouting(): Routing {
-  return routingOf({});
-}
-
 /**
  * The routing in the private settings file now; a missing file reads as nothing chosen. Throws on JSON that does not
  * parse. The read takes the file where the settings loader does and, unlike a write, leaves the check of an old

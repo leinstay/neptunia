@@ -6,8 +6,6 @@ import path from 'node:path';
 
 /** The tracked folder of the settings, the labels and the tool texts, under the checkout. */
 export const CONFIG_DIR = 'config';
-/** The legacy private configuration folder, used by explicit offline converters. */
-export const LOCAL_CONFIG_DIR = 'config.local';
 /** The settings file's name in both folders. */
 export const CONFIG_FILE = 'config.json';
 /** The labels file's name in both folders. */

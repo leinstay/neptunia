@@ -6,15 +6,6 @@ import type { Reads } from '../interface/reads.ts';
 import { fill } from '../format.ts';
 import type { ChatInfo } from '../protocol/adapter.ts';
 
-/** Display name of the author of `messageId` in `history`, or null when the message is not there. */
-export function authorNameFor(
-  history: ReadonlyArray<{ id?: string; authorName?: string | null }>,
-  messageId: string | null | undefined
-): string | null {
-  const message = history.find((m) => m.id === messageId);
-  return message?.authorName ?? null;
-}
-
 /**
  * Where the model's `reply="#n"` points. `replyId`: a line of this chat, which
  * a post may quote as a platform reply. `pulledId`: a line of a pulled channel

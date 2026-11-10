@@ -1,10 +1,5 @@
-// The inventory of what the archive holds per service (src/watcher/coverage.ts), checked against the code as it is, and
-// the report's coverage block (`checkCoverage` of src/watcher/report.ts), which the validator requires of an inspection.
-// The audit behind the pins: `archivedLlm` wraps the chat client and the memory session's client in src/core.ts; every
-// wake and helper goes through that chat client; the embedder (src/llm/embed.ts) and the speech call
-// (src/speech/synth.ts) bypass `complete`. The agents' source is pinned in tests/watcher-transcripts.test.ts.
-// Changed: the agents' test here said a CLI run records through the writer or declares its transcript absent. A real run
-// of 2026-11-04 showed the transcripts hold those requests, so the coordinator moved that pin to the transcript source.
+// The report's coverage block (`checkCoverage` of src/watcher/report.ts), which the validator requires of an inspection.
+// The agents' source is pinned in tests/watcher-transcripts.test.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -25,28 +20,9 @@ import {
 } from './fixtures/watcher-inspection-rig.ts';
 import { HEADINGS, PLANTED_KEY, reportText } from './fixtures/watcher-rig.ts';
 
-const coverage = () => import('../src/watcher/coverage.ts');
 const inspection = () => import('../src/watcher/inspection.ts');
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-const FIELDS = ['request', 'toolResults', 'backend', 'model', 'runIdentity', 'timestamps', 'outcomeLink'] as const;
-
-test('each recorded field names a file and a symbol that exist', async () => {
-  // Bug: the table claims coverage the code lost in a refactor, and nothing says so.
-  const { ARCHIVE_COVERAGE } = await coverage();
-  for (const entry of ARCHIVE_COVERAGE) {
-    for (const name of FIELDS) {
-      const field = entry.fields[name];
-      if (field.state !== 'recorded') continue;
-      const [file, symbol] = field.where.split('#');
-      assert.ok(file !== undefined && symbol !== undefined, `${entry.service} ${name}: ${field.where}`);
-      assert.ok(
-        fs.readFileSync(path.join(REPO, file), 'utf8').includes(symbol),
-        `${entry.service} ${name}: ${field.where}`
-      );
-    }
-  }
-});
 
 // ---- the report's coverage block -------------------------------------------------------------------------------------
 

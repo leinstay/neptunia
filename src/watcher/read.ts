@@ -125,13 +125,6 @@ export function readReport(reportsDir: string, day?: string): ReadResult {
   return { ok: true, report: { day: wanted, text, ...(runId === undefined ? {} : { runId }) } };
 }
 
-/** The lines above a report the owner reads: which run this is and which other runs its day has. */
-export function runLines(reportsDir: string, report: ReportView): Array<string> {
-  if (report.runId === undefined) return [];
-  const ofDay = reportVersions(reportsDir, report.day).map((one) => one.runId);
-  return [`run: ${report.runId}`, `runs of this day: ${ofDay.join(', ')}`];
-}
-
 /** A reader over a reports folder; give a function to follow a setting that can change between two reads. */
 export function createReportReader(reportsDir: string | (() => string)): ReportReader {
   const dir = (): string => (typeof reportsDir === 'function' ? reportsDir() : reportsDir);

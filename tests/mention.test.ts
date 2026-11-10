@@ -4,12 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   detectTrigger,
-  strippedLength,
   createTagHistory,
   decideTurn,
   inAttention,
   followUpPreFilter,
-  parseFollowUpVerdict,
   parseAddressAnswer,
   followUpTriggerKind,
   isTaggedCall,
@@ -25,20 +23,6 @@ test('detectTrigger: a reply takes priority over a mention', () => {
 
 test('detectTrigger: a line with no flag has no kind', () => {
   assert.equal(detectTrigger({ mentionsSelf: false, repliesToSelf: false }), null);
-});
-
-// --- strippedLength -----------------------------------------------------------
-
-test('strippedLength: a bare @name mention leaves nothing', () => {
-  assert.equal(strippedLength('@Νεπτούνια', 'Νεπτούνια'), 0);
-});
-
-test('strippedLength: a bare Discord <@id> mention leaves nothing', () => {
-  assert.equal(strippedLength('<@123456>', 'Νεπτούνια'), 0);
-});
-
-test('strippedLength: counts the remaining text after removing the mention', () => {
-  assert.equal(strippedLength('@Νεπτούνια πώς είσαι;', 'Νεπτούνια'), 'πώς είσαι;'.length);
 });
 
 // --- createTagHistory -----------------------------------------------------------
@@ -90,7 +74,7 @@ test('isTaggedCall: a typed tag counts, the reply ping alone does not', () => {
   assert.equal(isTaggedCall({}, 's1'), false);
 });
 
-// --- The address classifier: inAttention / followUpPreFilter / parseFollowUpVerdict --
+// --- The address classifier: inAttention / followUpPreFilter ---------------------
 
 // PR 7d: the window (15 minutes) and the streak that closes it (5) are constants of src/behavior/mention.ts.
 
@@ -141,19 +125,6 @@ test('followUpPreFilter: mentionedAccountIds omitted is treated as empty', () =>
   }
 });
 
-// The lead: the address classifier answers in strict JSON (owner, 2026-11-06). The parser reads the object's `answer`;
-// a bare word, a fenced object or anything else is unreadable (null), and the verdict of an unreadable answer is no.
-test('parseFollowUpVerdict: yes and overheard objects are yes', () => {
-  assert.equal(parseFollowUpVerdict('{"answer":"yes"}'), 'yes');
-  assert.equal(parseFollowUpVerdict('{"answer":"overheard"}'), 'yes');
-});
-
-test('parseFollowUpVerdict: a no object and anything unreadable are no', () => {
-  for (const text of ['{"answer":"no"}', 'yes', 'no', 'not sure', '', null, undefined]) {
-    assert.equal(parseFollowUpVerdict(text), 'no', JSON.stringify(text));
-  }
-});
-
 test('parseAddressAnswer: the three objects read as their answers', () => {
   assert.equal(parseAddressAnswer('{"answer":"yes"}'), 'yes');
   assert.equal(parseAddressAnswer('{"answer":"overheard"}'), 'overheard');
@@ -178,7 +149,6 @@ test('parseAddressAnswer: bare words, other values and anything else are unreada
   }
 });
 
-// The lead: an overheard object counting as yes is the first parseFollowUpVerdict test above; the bare words are unreadable.
 test('followUpTriggerKind: no starts nothing, yes a followUp turn, overheard an overheard turn', () => {
   assert.equal(followUpTriggerKind('no'), null);
   assert.equal(followUpTriggerKind('yes'), 'followUp');
