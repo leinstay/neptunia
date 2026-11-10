@@ -80,10 +80,11 @@ test('after version step 53 the library reads the entry a media cache held, with
     ownGifRows(db);
     const read = gifLibraryValue(db) as { found: true; value: { nextId: number; entries: Record<string, Row> } };
     assert.equal(read.found, true);
-    assert.equal(read.value.nextId, 4);
-    assert.deepEqual(Object.keys(read.value.entries), ['k1', 'k2']);
-    assert.equal(read.value.entries.k2.id, 'g2');
-    assert.equal(read.value.entries.k2.cache, undefined);
+    const { nextId, entries } = read.value;
+    assert.equal(nextId, 4);
+    assert.deepEqual(Object.keys(entries), ['k1', 'k2']);
+    assert.equal(entries.k2.id, 'g2');
+    assert.equal(entries.k2.cache, undefined);
   } finally {
     handle.close();
   }

@@ -604,10 +604,6 @@
       "deep": 9,
       "repeated": 0
     },
-    "tests/memory-db-map-work.test.ts": {
-      "deep": 6,
-      "repeated": 0
-    },
     "tests/memory-db-observe-event.test.ts": {
       "deep": 3,
       "repeated": 0
@@ -1697,7 +1693,7 @@
         "complexity": 41
       },
       "createJournal": {
-        "function-length": 469
+        "function-length": 465
       },
       "journalLine": {
         "complexity": 22
@@ -1894,7 +1890,6 @@
       "src/memory/avatar-queue.ts",
       "src/memory/db/graph-manifest.ts",
       "src/memory/db/map/common.ts",
-      "src/memory/db/map/errands.ts",
       "src/memory/db/map/index.ts",
       "src/memory/db/map/lists.ts",
       "src/memory/db/map/requests.ts",

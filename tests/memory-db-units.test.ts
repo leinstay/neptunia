@@ -431,10 +431,12 @@ test('a unit write that still fails at the shutdown is logged lost and leaves no
     const down = {
       ...service,
       writeUnit: async (update: { op: string }) => {
-        if (update.op === 'value' || update.op === 'lines' || update.op === 'errand')
+        if (update.op === 'value' || update.op === 'lines')
           throw Object.assign(new Error('down'), { code: 'SQLITE_FULL' });
         return service.writeUnit(update);
       },
+      // The task store has its own write kind (src/memory/db/errand-write.ts), refused the same way.
+      writeErrand: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
       // A lorebook and her selfreflection have their own write kinds (src/memory/db/place-lore.ts,
       // selfreflection-entries.ts), refused the same way.
       writePlaceLore: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
@@ -547,6 +549,15 @@ test('a task transition or an intention whose write committed and whose answer w
         }
         return done;
       },
+      // The task store goes through its own write kind (src/memory/db/errand-write.ts), lost the same way.
+      writeErrand: async (update: Parameters<typeof service.writeErrand>[0]) => {
+        const done = await service.writeErrand(update);
+        if (lost > 0 && (lostOp === null || lostOp({ op: 'errand' }))) {
+          lost -= 1;
+          throw Object.assign(new Error('the answer was lost'), { code: 'WORKER_EXIT' });
+        }
+        return done;
+      },
       // Her intentions go through their own write kind (src/memory/db/intentions-write.ts), lost the same way.
       writeIntentions: async (update: Parameters<typeof service.writeIntentions>[0]) => {
         const done = await service.writeIntentions(update);
@@ -560,7 +571,7 @@ test('a task transition or an intention whose write committed and whose answer w
     const m = await modules(data, { memoryDb: flaky });
     const db = () => dbOf(service.readHandle()!);
     // PR 6d, errands on the board: the transitions are the task's status events and its end the outbox row to
-    // `persona`, written by op `errand` (they were `work_events` lines of op `lines` before).
+    // `persona`, written by the write kind `errand`.
     const rows = (id: unknown) => db().prepare(ROWS_OF_TASK).get(String(id), String(id));
     const transitions = (id: unknown) => rows(id)?.events;
     const ends = (id: unknown) => rows(id)?.ends;
