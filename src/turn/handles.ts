@@ -29,8 +29,11 @@ export type Handles = {
   take(n: number, kind: HandleKind, target: HandleTarget): void;
   /** The line `n` names, with the kind that issued it; null for a number nobody issued. */
   resolve(n: number): (HandleTarget & { kind: HandleKind }) | null;
-  /** `text` with every reference replaced by its line's identity and every unknown number cut. */
-  canonical(text: string): string;
+  /**
+   * `text` with every reference replaced by its line's identity and every unknown number cut. `count: false` leaves the
+   * cut out of `cut()`, for a second copy of a text whose cuts another call already counts.
+   */
+  canonical(text: string, options?: { count?: boolean }): string;
   /** How many numbers `canonical` cut since the registry was made, for the turn's log line. */
   cut(): number;
 };
@@ -94,13 +97,13 @@ export function createHandles(): Handles {
     },
     take,
     resolve: (n) => byNumber.get(n) ?? null,
-    canonical(text) {
+    canonical(text, { count = true } = {}) {
       if (typeof text !== 'string' || !text.includes('#')) return text;
       return text.replace(REFERENCE, (_match, space: string, digits: string) => {
         const target = byNumber.get(Number(digits));
         if (target) return `${space}${lineIdentity(target)}`;
         // A cut number takes the space before it along, so no double space is left behind.
-        cutCount += 1;
+        if (count) cutCount += 1;
         return '';
       });
     },
