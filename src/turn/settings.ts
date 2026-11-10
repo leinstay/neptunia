@@ -80,6 +80,7 @@ const LOOP_FALLBACK = Object.freeze({
   timeBudgetMs: 150000,
   maxCallsPerStep: 8,
   stepReserveTokens: 6000,
+  remindAfterSteps: 3,
 });
 /** `selfreflection.loop`'s values when a key is missing (config.json's). */
 const SELFREFLECTION_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
@@ -110,7 +111,12 @@ export type LoopSettings = {
   maxCallsPerStep: number;
   callTimeoutMs?: number;
   stepReserveTokens?: number;
+  remindAfterSteps?: number;
 };
+
+/** Whether `value` is a whole number of at least 0. */
+const isWholeOrZero = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
 /** Whether `value` is a whole number of at least 1. */
 const isWholeStep = (value: unknown): value is number =>
@@ -121,10 +127,12 @@ const isWholeStep = (value: unknown): value is number =>
  * most follow-up requests after her calls in one turn (a whole number of at least 1);
  * `timeBudgetMs`, how long the loop may run from its first call before the next request is
  * her last (a positive number); `maxCallsPerStep`, the most calls of one answer that run (a
- * whole number of at least 1; the rest are dropped and logged). A missing or unusable value
+ * whole number of at least 1; the rest are dropped and logged); `remindAfterSteps`, from which answer with calls on
+ * every further request that may still call carries the reminder with their count (a whole number, 0 for none). A
+ * missing or unusable value
  * takes config.json's. An inner turn (`inner`: mode `inner`, docs/inner-life.md) has its own
  * bounds, `wakes.loop` (src/behavior/inner.ts#innerSettings; nobody waits for it, so its
- * budget is generous): the same three, plus `callTimeoutMs`, the most one call of hers may run. A selfreflection
+ * budget is generous): the first three and no reminder, plus `callTimeoutMs`, the most one call of hers may run. A selfreflection
  * post (`selfreflection`) has `selfreflection.loop`, and its calls per step are `selfreflection.set.pictures[1]`.
  * `tools.loop` never
  * reaches an inner turn, `wakes.loop` never an ordinary one. Pure.
@@ -152,6 +160,7 @@ export function loopSettings(
     timeBudgetMs: isPositive(loop.timeBudgetMs) ? loop.timeBudgetMs : LOOP_FALLBACK.timeBudgetMs,
     maxCallsPerStep: whole(loop.maxCallsPerStep, LOOP_FALLBACK.maxCallsPerStep),
     stepReserveTokens: whole(loop.stepReserveTokens, LOOP_FALLBACK.stepReserveTokens),
+    remindAfterSteps: isWholeOrZero(loop.remindAfterSteps) ? loop.remindAfterSteps : LOOP_FALLBACK.remindAfterSteps,
   };
 }
 

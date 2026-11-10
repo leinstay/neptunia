@@ -804,13 +804,17 @@ test("loopSettings: an inner turn's bounds are wakes.loop's (config.json's when 
     wakes: { loop: { maxSteps: 9, timeBudgetMs: 99, maxCallsPerStep: 9, callTimeoutMs: 9 } },
   };
   assert.deepEqual(loopSettings(both, { inner: true }), both.wakes.loop);
+  // The ordinary loop carries every key of tools.loop, remindAfterSteps included.
+  const { remindAfterSteps: remindAfter } = (tracked as { tools: { loop: { remindAfterSteps: number } } }).tools.loop;
   assert.deepEqual(loopSettings(both), {
     ...both.tools.loop,
     stepReserveTokens: tracked.tools.loop.stepReserveTokens,
+    remindAfterSteps: remindAfter,
   });
   assert.deepEqual(loopSettings(both, { inner: false }), {
     ...both.tools.loop,
     stepReserveTokens: tracked.tools.loop.stepReserveTokens,
+    remindAfterSteps: remindAfter,
   });
 });
 

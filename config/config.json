@@ -351,7 +351,8 @@
       "maxSteps": 100,
       "timeBudgetMs": 150000,
       "maxCallsPerStep": 8,
-      "stepReserveTokens": 6000
+      "stepReserveTokens": 6000,
+      "remindAfterSteps": 3
     }
   },
   "skills": {

@@ -442,14 +442,20 @@ export async function fetchSpan(
 
 /**
  * A read that got no line, told by the interface's code: `http-404` is `http` with its status, a code of the catalogue
- * is itself under its own status, anything else `error`.
+ * is itself under its own status, anything else `error`. A read sends nothing, so a code whose status is `unknown` (an
+ * effect that may have happened, such as `link-closed` or `adapter-threw`) is `failed` here, as src/interface/link.ts
+ * answers a read.
  */
 function failedRead(live: LiveLines): ReadResult {
   const given = live !== null && !Array.isArray(live) ? live.failed : CODE.ERROR;
   const { code, values } = normalCode(given);
   if (!isCode(code)) return { status: 'failed', code: CODE.ERROR };
   const status: string = (CATALOGUE as Readonly<Record<string, { status: string }>>)[code]?.status ?? 'failed';
-  return { status: status === 'ok' ? 'failed' : status, code, ...(Object.keys(values).length > 0 ? { values } : {}) };
+  return {
+    status: status === 'ok' || status === 'unknown' ? 'failed' : status,
+    code,
+    ...(Object.keys(values).length > 0 ? { values } : {}),
+  };
 }
 
 /** What one conversation.read answers. */
