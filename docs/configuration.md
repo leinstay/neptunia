@@ -141,6 +141,7 @@ The chain of routes each model role runs on, the one place a role's key, harness
 | `memoryDb.session.selfMax` | number | `40` | Her own claims listed | `src/memory/db/session.ts` |
 | `memoryDb.session.episodesMax` | number | `20` | Episodes listed | `src/memory/db/session.ts` |
 | `memoryDb.session.maxOutputTokens` | number | `8000` | Token limit for a session request | `src/memory/db/session.ts` |
+| `memoryDb.session.maxPageTokens` | number | `60000` | Estimated tokens of one session request, under 0.85 of `llm.maxRequestTokens`. A larger batch is cut by lines, and a page of a batch whose lines are fixed is sent in parts of fewer people | `src/memory/db/session.ts` |
 | `memoryDb.session.timeoutMs` | number | `300000` | Timeout of a session request | `src/memory/db/session.ts` |
 | `memoryDb.session.descriptionMaxOutputTokens` | number | `1500` | Token limit for each call of a description review | `src/memory/db/session.ts` |
 | `memoryDb.session.mediaPass` | boolean | `false` | Whether a quiet scope's session reads old media-only lines its cursor passed, once the backfill told them | `src/memory/db/session.ts` |
