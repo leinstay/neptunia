@@ -14,7 +14,7 @@
 //   placeUndescribed   a live place with `describeAfterLines` live lines or more (`memory.describeAfterLines`, 20) has
 //                      all of `purpose`, `tone` and `topics` as live descriptions
 //   interfaceUnnamed   an interface with a live place has no name
-//   cliLineRetired     a line of the owner's command line (`cli:dm:owner`) retired with an `origin` other than `owner`,
+//   cliLineRetired     a line of the owner's command line (its DM place) retired with an `origin` other than `owner`,
 //                      the stamp his memory command leaves on a line it retires
 
 import { unlinkedLineItems } from './media-store.ts';
@@ -47,8 +47,8 @@ export type AuditSettings = { describeAfterLines: number };
 const DESCRIBE_AFTER_LINES = 20;
 /** The fields every place with lines carries (plan of the turn frame, "The fields of a place"). */
 const PLACE_FIELDS = ['purpose', 'tone', 'topics'] as const;
-/** The owner's chat at the command line, and the `origin` his memory command stamps on a line it retires. */
-const CLI_PLACE = 'cli:dm:owner';
+/** The interface of the owner's chat at the command line, and the `origin` his memory command stamps on a line it retires. */
+const CLI_IFACE = 'cli';
 const OWNER_ORIGIN = 'owner';
 
 /** The audit's settings from the live config (`memory.describeAfterLines`). */
@@ -248,8 +248,9 @@ function interfaceUnnamed(db: Db): number {
 function cliLineRetired(db: Db): number {
   return countOf(
     db,
-    `SELECT COUNT(*) AS n FROM sources WHERE place_id = ? AND retired_at IS NOT NULL AND origin IS NOT ?`,
-    CLI_PLACE,
+    `SELECT COUNT(*) AS n FROM sources WHERE place_id IN (SELECT id FROM places WHERE iface = ? AND chat = 'dm')
+       AND retired_at IS NOT NULL AND origin IS NOT ?`,
+    CLI_IFACE,
     OWNER_ORIGIN
   );
 }

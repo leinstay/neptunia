@@ -216,31 +216,25 @@ export function linkedProfileUnit(db: Db, accountId: string): { id: string; key:
   return key.subject.id === accountId ? null : { id: collectionId(key), key };
 }
 
-/** The account a legacy person id spells: `person:<account id>`, which S10's conversion retires. Opaque ids name none. */
-function spelledAccount(db: Db, person: string): Row | undefined {
-  return db.prepare('SELECT * FROM accounts WHERE id = substr(?, 8)').get(person);
-}
-
 const placeholders = (values: ReadonlyArray<unknown>): string => values.map(() => '?').join(', ');
 
 /**
  * Who `person` stands for: the survivor of its merges, every person merged into that survivor and their verified
  * accounts, joined through stored rows. `ownerMergesOnly` is for an outward context: a merge only counts there when
  * the owner wrote it or a one-time code proved it (`by` `code`, her link tool); any other neither moves the person nor
- * adds to it. An account that has no person yet belongs to the legacy id that spells it.
+ * adds to it. A person merged into another reaches it through `people_merges`, never through the text of its id.
  */
 export function personMembers(
   db: Db,
   person: string,
   { ownerMergesOnly }: { ownerMergesOnly: boolean }
 ): PersonMembers {
-  const own = spelledAccount(db, person);
   const whose = ownerMergesOnly ? " AND by IN ('owner', 'code')" : '';
   const forward = db.prepare(`SELECT into_person AS next FROM people_merges WHERE from_person = ?${whose}`);
   const backward = db.prepare(
     `SELECT from_person AS next FROM people_merges WHERE into_person = ?${whose} ORDER BY from_person`
   );
-  let survivor = own?.link === 'verified' && typeof own.person_id === 'string' ? own.person_id : person;
+  let survivor = person;
   const walked = new Set([survivor]);
   for (let row = forward.get(survivor); row && !walked.has(String(row.next)); row = forward.get(survivor)) {
     survivor = String(row.next);
@@ -255,8 +249,7 @@ export function personMembers(
        ORDER BY iface, id`
     )
     .all(...ids);
-  const unbound = own !== undefined && (own.person_id === null || own.person_id === '');
-  return { survivor, mergedFrom: ids.slice(1), accounts: unbound ? [...accounts, own] : accounts };
+  return { survivor, mergedFrom: ids.slice(1), accounts };
 }
 
 /** The live DM places whose stored partner is one of `accountIds`, whoever the place's partner person says it was. */

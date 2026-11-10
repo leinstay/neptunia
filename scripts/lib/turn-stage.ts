@@ -46,7 +46,10 @@ const textOr = (value: unknown, fallback: string | null = null): string | null =
 /** The turn whose id is `turnId`, or the only one whose id starts with it. Throws for none or several. */
 export function storedTurn(db: Db, turnId: string): StoredTurn {
   const rows = db
-    .prepare("SELECT turn_id, at, place_id, scope_iface, extra FROM day WHERE what = 'turn.start' AND turn_id LIKE ?")
+    .prepare(
+      `SELECT d.turn_id, d.at, d.place_id, d.scope_iface, d.extra, p.iface AS place_iface FROM day d
+       LEFT JOIN places p ON p.id = d.place_id WHERE d.what = 'turn.start' AND d.turn_id LIKE ?`
+    )
     .all(`${turnId.replaceAll('%', '')}%`);
   const ids = new Set(rows.map((row) => String(row.turn_id)));
   if (ids.size !== 1) throw new Error(`turn-replay: ${ids.size} stored turns start with ${turnId}`);
@@ -63,7 +66,7 @@ export function storedTurn(db: Db, turnId: string): StoredTurn {
     turnId: String(row.turn_id),
     at: Date.parse(String(row.at)),
     placeId,
-    iface: textOr(row.scope_iface, placeId.split(':')[0]) ?? '',
+    iface: textOr(row.scope_iface, textOr(row.place_iface)) ?? '',
     mode: textOr(extra.mode),
     triggerKind: textOr(trigger.kind),
     triggerId: textOr(trigger.messageId),
