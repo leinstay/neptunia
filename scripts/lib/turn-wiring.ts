@@ -43,6 +43,8 @@ import { createBraveSearch } from '../../src/web/brave.ts';
 import { createExaSearch } from '../../src/web/exa.ts';
 import { createLookup } from '../../src/web/lookup.ts';
 import { createReads } from '../../src/interface/reads.ts';
+import { useOwnerAccounts } from '../../src/tools/operations/grants.ts';
+import { createOwnerAccounts } from '../../src/memory/db/person-links.ts';
 import { createMemberDirectory } from '../../src/interface/members.ts';
 import { createIntentionStores } from '../../src/intentions/store.ts';
 import { createIntentionService } from '../../src/intentions/service.ts';
@@ -298,6 +300,9 @@ export function buildTurnRunner(input: WiringInput): Wired {
   const memoryDb = memory.memoryDb;
   if (memoryDb === null) throw new Error(`turn-replay: no memory.db in ${dataDir}`);
   const db = (): Db | null => memoryDb.database() as Db | null;
+  // The owner check of every tool call, installed as the core installs it: without it no requester is the owner, and
+  // a tool only the owner may ask for is refused in a turn the owner started.
+  const dropOwnerCheck = useOwnerAccounts(createOwnerAccounts({ database: db, home: () => identity.iface }));
   const appendStore = createAppendStore({ fsyncMs: 500, retryMax: 1000, log: quietLog });
   const recordReader = createRecord({ dataDir, log: quietLog, writerGate: () => Promise.resolve(), memoryDb });
   const record = { ...recordReader, append: () => Promise.resolve({ written: 0 }) };
@@ -508,7 +513,10 @@ export function buildTurnRunner(input: WiringInput): Wired {
     drawings,
     memoryContext,
     under: (work) => withIface(identity.iface, work),
-    close: () => memory.close(),
+    close: () => {
+      dropOwnerCheck();
+      memory.close();
+    },
   };
 }
 
