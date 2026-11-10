@@ -3,9 +3,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assembleDraft,
+  cutDraftRange,
   displayDraft,
   draftFromParts,
   draftFromText,
+  draftRangeText,
   pasteIntoDraft,
   removePart,
   restorePart,
@@ -129,4 +131,37 @@ test('the assembled attachments follow the parts, in draft order', () => {
       ['ref-a1', 'ref-a2']
     );
   }
+});
+
+/** `ab`, a paste chip over the limits, then `cd`: the shape a selection across a chip meets. */
+const chipBetween = (): Draft =>
+  typeIntoDraft(
+    pasteIntoDraft(draftFromText('d9', 'ab', 2), { id: 'paste-9', payload: 'one\ntwo\nthree\nfour' }, LIMITS),
+    'cd'
+  );
+
+test('cutting a range that reaches into a chip takes the whole chip with the covered text', () => {
+  // Bug: a selection ending inside a chip's label cuts the label in two and leaves a broken chip in the draft.
+  // From after `a` to three cells into the chip's label.
+  const cut = cutDraftRange(chipBetween(), 1, 2 + 3);
+  assert.equal(textOf(cut.draft), 'acd');
+  assert.deepEqual(
+    cut.removed.map((part) => part.id),
+    ['paste-9']
+  );
+  assert.equal(cut.draft.cursor, 1);
+});
+
+test('an empty range cuts nothing', () => {
+  // Bug: a click that selected no character deletes the one under the caret.
+  const draft = draftFromText('d10', 'keep', 2);
+  const cut = cutDraftRange(draft, 2, 2);
+  assert.equal(textOf(cut.draft), 'keep');
+  assert.deepEqual(cut.removed, []);
+});
+
+test("the text of a range carries a covered paste's whole payload, not its chip", () => {
+  // Bug: copying a selection over a collapsed paste puts `[pasted 4 lines]` on the clipboard.
+  const draft = chipBetween();
+  assert.equal(draftRangeText(draft, 1, displayDraft(draft).length - 1), 'bone\ntwo\nthree\nfourc');
 });

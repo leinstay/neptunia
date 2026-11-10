@@ -28,8 +28,10 @@ import {
   draftFromHistory,
   dropReply,
   markReply,
+  cutDraftRange,
   draftFromParts,
   draftFromText,
+  draftRangeText,
   moveInDraft,
   pasteIntoDraft,
   placeCaret,
@@ -266,6 +268,8 @@ export type Model = EditorState & {
   notice: string | null;
   /** the transcript text the mouse selected, gone with the next key, click or scroll */
   selection: Selection | null;
+  /** the selected part of the draft, `[from, to)` of what the input draws, gone with an edit, an arrow key or a click */
+  draftSelection: { from: number; to: number } | null;
   /** until when Enter is swallowed, after a question closed */
   enterHeldUntil: number;
   /** what the core said of the turns */
@@ -424,6 +428,8 @@ export class ChatController {
   recalled: Map<string, ReadonlyArray<ChatAttachment>>;
   // Images whose staged bytes were released: undo cannot bring them back.
   freed = new Set<string>();
+  // Where a drag that started in the draft went down, an offset of what the input draws; null with no such drag.
+  draftDrag: number | null = null;
   // The input as last drawn: what a row key and a click measure against.
   drawnInput = { safe: '', width: 1, first: 0, firstRow: 0, rowCount: 0 };
   // The transcript rows as last drawn and the one-based screen row of the first: what a selection measures against.
@@ -493,6 +499,7 @@ export class ChatController {
           ? null
           : conflicts.map((one) => `Key ${one.key} (${one.context}) not bound: ${one.reason}.`).join(' '),
       selection: null,
+      draftSelection: null,
       enterHeldUntil: 0,
       turns: emptyTurns(),
     };
@@ -878,12 +885,11 @@ export class ChatController {
   /** A key for the input. `renderedOwner` is who held the keys when the frame on the screen was drawn. */
   onKey(text: string, key: Key, renderedOwner: ReturnType<typeof focusOwner>): void {
     if (key.ctrl && text === 'c') {
-      const { selection } = this.model;
-      if (selection === null || selection.text === '') this.exit();
-      else this.copySelection(selection.text);
+      this.copyOrLeave();
       return;
     }
     if (renderedOwner !== 'input' || focusOwner(this.model) !== 'input' || this.keyTaken) return;
+    if (this.model.draftSelection !== null && this.onSelectedDraft(text, key)) return;
     // A held Enter can come as one chunk of returns, which Ink hands over as text.
     if (/^\r{2,}$/.test(text)) {
       for (let press = 0; press < text.length; press += 1) this.send();
@@ -896,7 +902,54 @@ export class ChatController {
     else if (name === null && text !== '' && !key.meta) this.typed(text);
   }
 
+  /** Ctrl+C: the draft's selection, else the transcript's, goes to the clipboard; with neither the chat ends. */
+  copyOrLeave(): void {
+    const { selection, draftSelection, draft, question, search } = this.model;
+    // The draft's selection counts only while the draft is what the input draws.
+    if (draftSelection !== null && question === null && search === null) this.copyDraftSelection(draft, draftSelection);
+    else if (selection === null || selection.text === '') this.exit();
+    else this.copySelection(selection.text);
+  }
+
+  /**
+   * A key while part of the draft is selected: typing replaces it, Backspace and Delete remove it, Esc drops it alone.
+   * Any other key drops it and does what it does; false lets it go on to do that.
+   */
+  onSelectedDraft(text: string, key: Key): boolean {
+    const now = this.model;
+    const name = keyNameOf(text, key);
+    const action = name === null ? null : this.keymap.resolve(this.contextOf(now), name);
+    const isText = name === null && text !== '' && !key.meta;
+    if (isText || action === 'composer.backspace' || action === 'composer.delete') {
+      this.cutDraftSelection(isText ? text.replaceAll('\r', '\n') : '');
+      return true;
+    }
+    this.update({ draftSelection: null, notice: null });
+    return action === 'composer.clear';
+  }
+
+  /** The selected part of the draft goes, and `replacement` stands in its place, as one step of undo. */
+  cutDraftSelection(replacement: string): void {
+    const { draft, draftSelection } = this.model;
+    if (draftSelection === null) return;
+    const cut = cutDraftRange(draft, draftSelection.from, draftSelection.to);
+    this.editDraft(typeIntoDraft(cut.draft, replacement));
+    for (const part of cut.removed) this.afterRemoval(part);
+  }
+
+  /** Ctrl+C over a selection in the draft: the text it stands for goes to the clipboard, and the selection stays. */
+  copyDraftSelection(draft: Draft, { from, to }: { from: number; to: number }): void {
+    const text = draftRangeText(draft, from, to);
+    this.copy(text);
+    this.update({ notice: `copied ${graphemes(text).length} chars to clipboard` });
+  }
+
   onPaste(payload: string): void {
+    if (
+      this.model.draftSelection !== null &&
+      this.keymap.resolve(this.contextOf(this.model), 'paste') === 'composer.paste'
+    )
+      this.cutDraftSelection('');
     const now = this.model;
     const action = this.keymap.resolve(this.contextOf(now), 'paste');
     if (action === 'question.paste') this.update({ answer: insert(now.answer, payload) });
@@ -936,6 +989,7 @@ export class ChatController {
       columns,
       maxRows: composerMaxRows(rows, fixed, isLinear),
       isLinear,
+      mark: asked === null && now.search === null ? now.draftSelection : null,
     });
     const choiceRows = Math.min(QUESTION_ROWS, Math.max(1, rows - fixed - FILTER_ROWS));
     const inputRows = hasChoices ? choiceRows + FILTER_ROWS : layout.height;
@@ -1456,7 +1510,7 @@ export class ChatController {
 
   /** A caret that moved ends the word being typed, so the next letter starts its own undo step. */
   placeDraftCaret(offset: number): void {
-    this.update({ draft: placeCaret(this.model.draft, offset), isTypingWord: false });
+    this.update({ draft: placeCaret(this.model.draft, offset), isTypingWord: false, draftSelection: null });
   }
 
   /** The caret to the start or the end of its row. */
@@ -1477,6 +1531,7 @@ export class ChatController {
       held: null,
       selected: 0,
       notice: null,
+      draftSelection: null,
     });
   }
 
@@ -1579,13 +1634,39 @@ export class ChatController {
     });
   }
 
-  /** Where a click lands in the draft, or nothing outside its rows. */
-  clickInDraft(report: MouseReport): void {
+  /** The draft's offset under a report, its row clamped to the drawn rows of the input. */
+  draftOffsetAt(report: MouseReport): number {
     const { safe, width, first, firstRow, rowCount } = this.drawnInput;
+    const row = Math.max(0, Math.min(rowCount - 1, report.row - firstRow));
+    const col = Math.max(0, report.column - DRAFT_FIRST_COLUMN);
+    return caretFromCell(safe, { row: first + row, col }, width);
+  }
+
+  /** Where a click lands in the draft, or nothing outside its rows. A drag from there selects in the draft alone. */
+  clickInDraft(report: MouseReport): void {
+    const { firstRow, rowCount } = this.drawnInput;
     const row = report.row - firstRow;
     if (row < 0 || row >= rowCount || this.model.search !== null) return;
-    const col = Math.max(0, report.column - DRAFT_FIRST_COLUMN);
-    this.placeDraftCaret(caretFromCell(safe, { row: first + row, col }, width));
+    const offset = this.draftOffsetAt(report);
+    this.placeDraftCaret(offset);
+    this.draftDrag = offset;
+  }
+
+  /**
+   * The drag of a selection in the draft: both the cell where it went down and the cell under the pointer are selected,
+   * whichever way it went, and the caret stands after the selection.
+   */
+  dragInDraft(report: MouseReport, anchor: number): void {
+    const { safe } = this.drawnInput;
+    const focus = this.draftOffsetAt(report);
+    if (focus === anchor) {
+      this.update({ draftSelection: null });
+      return;
+    }
+    const last = Math.max(anchor, focus);
+    const to = last + (graphemes(safe.slice(last))[0]?.length ?? 0);
+    const from = Math.min(anchor, focus);
+    this.update({ draft: placeCaret(this.model.draft, to), draftSelection: { from, to }, isTypingWord: false });
   }
 
   /** The area a screen row belongs to: the command window's rows and rule, else the chat. */
@@ -1619,13 +1700,18 @@ export class ChatController {
     const isInDraft = report.row >= firstRow && report.row < firstRow + rowCount;
     const area = this.areaAt(report.row);
     const cell = isInDraft ? null : this.cellIn(area, report, false);
-    this.update({ selection: cell === null ? null : { area, anchor: cell, focus: cell, dragging: true, text: '' } });
+    this.draftDrag = null;
+    this.update({
+      selection: cell === null ? null : { area, anchor: cell, focus: cell, dragging: true, text: '' },
+      draftSelection: null,
+    });
     // A live panel holds the keys, so a click leaves the caret of the input where it is.
     if (isInDraft && focusOwner(this.model) === 'input') this.clickInDraft(report);
   }
 
   /** The button up: a drag copies what it covers, and a click without one leaves nothing selected. */
   releaseAt(report: MouseReport): void {
+    this.draftDrag = null;
     const { selection } = this.model;
     if (selection?.dragging !== true) return;
     const focus = this.cellIn(selection.area, report, true) ?? selection.focus;
@@ -1671,6 +1757,7 @@ export class ChatController {
     if (focusOwner(now) === 'choices' || now.question !== null) return;
     const isLeft = report.button === 0;
     if (report.kind === 'press' && isLeft) this.pressAt(report);
+    else if (report.kind === 'drag' && isLeft && this.draftDrag !== null) this.dragInDraft(report, this.draftDrag);
     else if (report.kind === 'drag' && isLeft) {
       const { selection } = now;
       const cell = selection?.dragging === true ? this.cellIn(selection.area, report, true) : null;
@@ -1734,6 +1821,12 @@ export class ChatController {
       case 'cursor.right':
         this.update({ draft: moveInDraft(now.draft, 1), isTypingWord: false });
         return;
+      case 'draft.selectAll': {
+        const length = displayDraft(now.draft).length;
+        if (now.search === null && length > 0)
+          this.update({ draft: placeCaret(now.draft, length), draftSelection: { from: 0, to: length } });
+        return;
+      }
       case 'cursor.home':
         this.rowEdge('start');
         return;

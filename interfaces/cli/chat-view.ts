@@ -173,7 +173,8 @@ export function Menu({
   );
 }
 
-type DraftRow = { before: string; on: string | null; after: string };
+/** One drawn row of the draft as pieces of text, each plain, the caret's grapheme or part of a selection. */
+type DraftRow = ReadonlyArray<{ text: string; style: 'plain' | 'caret' | 'selection' }>;
 export type ComposerLayout = {
   rows: ReadonlyArray<DraftRow>;
   hiddenAbove: number;
@@ -190,11 +191,30 @@ export type ComposerLayout = {
 export const composerMaxRows = (rows: number, fixed: number, isLinear: boolean): number =>
   Math.max(1, Math.min(COMPOSER_MAX_ROWS, rows - fixed - (isLinear ? 0 : BORDER_ROWS) - 1));
 
-/** The draft cut into rows of cells, with the caret's row split around one whole grapheme. */
+/** The pieces of one row with the part of a selection `[from, to)` it holds marked; the caret hides behind a selection. */
+function markedRow(row: { text: string; start: number }, mark: { from: number; to: number }): DraftRow {
+  const from = Math.max(0, Math.min(row.text.length, mark.from - row.start));
+  const to = Math.max(from, Math.min(row.text.length, mark.to - row.start));
+  return [
+    { text: row.text.slice(0, from), style: 'plain' as const },
+    { text: row.text.slice(from, to), style: 'selection' as const },
+    { text: row.text.slice(to), style: 'plain' as const },
+  ].filter((piece) => piece.text !== '');
+}
+
+/**
+ * The draft cut into rows of cells, with the caret's row split around one whole grapheme, or with the cells of a
+ * selection marked in place of the caret.
+ */
 export function composerLayout(
   shown: string,
   cursor: number,
-  { columns, maxRows, isLinear }: { columns: number; maxRows: number; isLinear: boolean }
+  {
+    columns,
+    maxRows,
+    isLinear,
+    mark = null,
+  }: { columns: number; maxRows: number; isLinear: boolean; mark?: { from: number; to: number } | null }
 ): ComposerLayout {
   const width = Math.max(1, columns - (isLinear ? PROMPT_COLUMNS : BOX_COLUMNS));
   // One visible character for each control, so the offsets of the draft still hold here.
@@ -207,13 +227,21 @@ export function composerLayout(
   const rows: Array<DraftRow> = [];
   for (let index = view.first; index < view.first + view.rows; index += 1) {
     const row = wrapped[index] ?? { text: '', start: safe.length, end: safe.length };
+    if (mark !== null) {
+      rows.push(markedRow(row, mark));
+      continue;
+    }
     if (index !== caret.row) {
-      rows.push({ before: row.text, on: null, after: '' });
+      rows.push([{ text: row.text, style: 'plain' }]);
       continue;
     }
     const cut = index < wrapped.length ? Math.max(0, cursor - row.start) : 0;
     const rest = graphemes(row.text.slice(cut));
-    rows.push({ before: row.text.slice(0, cut), on: rest[0] ?? ' ', after: rest.slice(1).join('') });
+    rows.push([
+      { text: row.text.slice(0, cut), style: 'plain' },
+      { text: rest[0] ?? ' ', style: 'caret' },
+      { text: rest.slice(1).join(''), style: 'plain' },
+    ]);
   }
   const isCut = view.hiddenAbove > 0 || view.hiddenBelow > 0;
   return {
@@ -249,9 +277,11 @@ export function ComposerBox({
         Text,
         { key: String(index) },
         index === 0 ? '> ' : '  ',
-        row.before,
-        row.on === null ? null : h(Text, THEME.caret, row.on),
-        row.after
+        ...row.map((piece, at) =>
+          piece.style === 'plain'
+            ? piece.text
+            : h(Text, { key: String(at), ...(piece.style === 'caret' ? THEME.caret : THEME.selection) }, piece.text)
+        )
       )
     )
   );

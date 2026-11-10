@@ -242,6 +242,56 @@ export function deleteInDraft(draft: Draft): { draft: Draft; removed: DraftPart 
   return { draft: next, removed: null };
 }
 
+/** A range of what is drawn, ordered and clamped, and widened so it holds every chip it touches whole. */
+function wholeRange(draft: Draft, from: number, to: number): { start: number; end: number } {
+  const length = displayDraft(draft).length;
+  let start = Math.max(0, Math.min(from, to, length));
+  let end = Math.min(length, Math.max(from, to, 0));
+  if (start === end) return { start, end };
+  for (const span of spansOf(draft)) {
+    if (!isChip(span.part) || span.end <= start || span.start >= end) continue;
+    start = Math.min(start, span.start);
+    end = Math.max(end, span.end);
+  }
+  return { start, end };
+}
+
+/**
+ * Takes the range `[from, to)` of what is drawn out of the draft: the covered text, and every chip it touches whole, which
+ * are returned. The caret stands where the range started.
+ */
+export function cutDraftRange(
+  draft: Draft,
+  from: number,
+  to: number
+): { draft: Draft; removed: ReadonlyArray<DraftPart> } {
+  const { start, end } = wholeRange(draft, from, to);
+  if (start === end) return { draft, removed: [] };
+  const removed: Array<DraftPart> = [];
+  const parts: Array<DraftPart> = [];
+  for (const { part, start: at, end: until } of spansOf(draft)) {
+    if (until <= start || at >= end) parts.push(part);
+    else if (part.kind !== 'text') removed.push(part);
+    else {
+      const text = part.text.slice(0, Math.max(0, start - at)) + part.text.slice(end - at);
+      if (text !== '') parts.push({ ...part, text });
+    }
+  }
+  return { draft: withParts(draft, parts, start), removed };
+}
+
+/** The text a range of what is drawn stands for: the covered text, a touched paste's whole payload, another chip's label. */
+export function draftRangeText(draft: Draft, from: number, to: number): string {
+  const { start, end } = wholeRange(draft, from, to);
+  let text = '';
+  for (const { part, start: at, end: until } of spansOf(draft)) {
+    if (until <= start || at >= end) continue;
+    if (part.kind === 'text') text += part.text.slice(Math.max(0, start - at), end - at);
+    else text += part.kind === 'paste' && part.payload !== null ? part.payload : labelOf(part);
+  }
+  return text;
+}
+
 /** One step of the caret: a whole grapheme of text, or across a whole chip. */
 export function moveInDraft(draft: Draft, delta: -1 | 1): Draft {
   const spans = spansOf(draft);
