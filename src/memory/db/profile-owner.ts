@@ -4,8 +4,7 @@
 // which names one history among the subject's. A row her memory session writes, or takes over from a profile, is
 // `session` with no holder. The profile writers (account-profile.ts, private-layer.ts, prose-versions.ts) stamp these
 // columns beside the row's unit, and their readers, the retirement of
-// what a value no longer holds and her session's rows (session-rows.ts) run on them. Version step 47 derives them from
-// the units of the rows already stored, and from the units' absence for her session's rows (`ownProfileRows`).
+// what a value no longer holds and her session's rows (session-rows.ts) run on them.
 
 import { projectRow } from './graph.ts';
 import type { UnitKey } from './unit-keys.ts';
@@ -113,22 +112,3 @@ export function retireProfileAbsent(db: Db, owner: ProfileOwner, mapping: Rows, 
 
 /** The columns a row her memory session writes or takes over carries. */
 export const SESSION_COLUMNS: Row = { writer: 'session', holder_id: null };
-
-/**
- * Version step 47: every row an account's profile, a private layer or a history unit owns takes that unit's owner
- * columns; every row of the session's tables no unit owns is her session's; and the request dumps' lines take their
- * unit's writer, holder and day.
- */
-export function ownProfileRows(db: Db): void {
-  for (const table of PROFILE_TABLES)
-    db.exec(`UPDATE "${table}" SET
-        writer = CASE u.kind WHEN 'user' THEN 'profile' ELSE u.kind END,
-        holder_id = CASE u.kind WHEN 'versions'
-          THEN u.subject_id || '/' || COALESCE(json_extract(u.selector, '$.versionKind'), '') || '/' || COALESCE(json_extract(u.selector, '$.itemId'), '')
-          ELSE u.subject_id || COALESCE('@' || u.scope_place_id, '') || COALESCE('#' || u.partition, '') END
-      FROM storage_units u WHERE u.id = "${table}".owner_key AND u.kind IN ('user', 'private', 'versions')`);
-  for (const table of SESSION_TABLES)
-    db.exec(`UPDATE "${table}" SET writer = 'session', holder_id = NULL WHERE owner_key IS NULL AND writer IS NULL`);
-  db.exec(`UPDATE sources SET writer = 'requests', holder_id = u.subject_id, period = u.partition
-    FROM storage_units u WHERE u.id = sources.owner_key AND u.kind = 'requests'`);
-}

@@ -339,22 +339,3 @@ export function lineVectorShape(
   if (!row || Number(row.n) === 0) return null;
   return { dims: Number(row.dims), model: typeof row.model === 'string' ? row.model : null, rows: Number(row.n) };
 }
-
-/**
- * Schema version 45 (schema.ts): each line vector a month unit held names that unit's place in `place_id`, which an
- * index serves with the month, and loses `owner_key`. The months' `operational` manifests go, and their units are
- * retired.
- */
-export function placeLineVectors(db: Db): void {
-  db.exec('ALTER TABLE vectors ADD COLUMN place_id TEXT');
-  // The stamps of a place's months read from this index alone (`lineVectorStamps`), so a warm search costs no row read.
-  db.exec(
-    'CREATE INDEX IF NOT EXISTS vectors_place ON vectors(place_id, occurred_at, retired_at, evicted_at, scale) WHERE place_id IS NOT NULL'
-  );
-  db.exec(`UPDATE vectors SET place_id = (SELECT subject_id FROM storage_units s WHERE s.id = vectors.owner_key),
-    owner_key = NULL WHERE owner_key IN (SELECT id FROM storage_units WHERE kind = 'vectors')`);
-  db.exec("DELETE FROM operational WHERE kind = 'vectors'");
-  db.prepare("UPDATE storage_units SET retired_at = ? WHERE kind = 'vectors' AND retired_at IS NULL").run(
-    new Date().toISOString()
-  );
-}

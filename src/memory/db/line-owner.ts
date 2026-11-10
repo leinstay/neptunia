@@ -2,9 +2,8 @@
 // (`record`, `journal` or `archive`), `holder_id` (the place that holds the record, the journal or the archive, or
 // `persona:local` for hers) and `period` (the UTC day of a record or journal line, the month of an archive entry). The
 // writers stamp these columns beside the row's unit (record-lines.ts, journal-lines.ts, archive-lines.ts, observe.ts,
-// message-families.ts), and the readers and the next position of a day or a month run on them. Version step 46 derives
-// them from the units of the rows already stored (`ownLineRows`). An archive entry's retired claim carries `writer`
-// alone.
+// message-families.ts), and the readers and the next position of a day or a month run on them. An archive entry's
+// retired claim carries `writer` alone.
 
 import type { UnitKey } from './unit-keys.ts';
 import type { Db, Row } from './types.ts';
@@ -98,17 +97,4 @@ export function linePeriods(
     ORDER BY holder_id, period`;
   const rows = holder === null ? db.prepare(sql).all(writer) : db.prepare(sql).all(writer, holder);
   return rows.map((row) => ({ holder: String(row.holder), period: String(row.period) }));
-}
-
-/**
- * Version step 46: every row a record, journal or archive unit owns takes that unit's owner columns, and an archive
- * entry's retired claim its writer. Rows owned by no such unit stay as they are.
- */
-export function ownLineRows(db: Db): void {
-  const tables = new Set(Object.values(LINE_TABLES).flat());
-  for (const table of tables)
-    db.exec(`UPDATE "${table}" SET writer = u.kind, holder_id = u.subject_id, period = u.partition
-      FROM storage_units u WHERE u.id = "${table}".owner_key AND u.kind IN ('record', 'journal', 'archive')`);
-  db.exec(`UPDATE claims SET writer = 'archive'
-    FROM storage_units u WHERE u.id = claims.owner_key AND u.kind = 'archive'`);
 }

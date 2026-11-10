@@ -7,9 +7,7 @@
 // the same two columns: its value reads the row, its write leaves the row as the first place wrote it, and when the
 // first place's value drops the row it goes to the second instead of being retired. The writers stamp these columns
 // beside the row's unit, the shared write rules of upsert.ts#writeRow read them, and the readers, the retirement of what
-// a value no longer holds and the hand-over run on them. Version step 48 derives them from the units of the rows and
-// the `co_owners` rows already stored (`ownPlaceRows`), and version step 49 for the lorebooks, the participation and
-// the recent lines (`ownPlaceListRows`).
+// a value no longer holds and the hand-over run on them.
 
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
@@ -229,34 +227,4 @@ export function retirePlaceAbsent(db: Db, owner: PlaceOwner, mapping: Rows, at: 
   }
   const links = LINKS_OF[owner.writer];
   return links ? count + retireLinksAbsent(db, owner, links, mapping, at) : count;
-}
-
-/**
- * Version step 48: every row a place's notes or a channel's entry unit owns, and every `co_owners` row of such a unit,
- * takes that unit's owner columns.
- */
-export function ownPlaceRows(db: Db): void {
-  for (const table of ['places', 'claims', 'descriptions', 'description_versions', 'operational', 'co_owners'])
-    db.exec(`UPDATE "${table}" SET writer = u.kind, holder_id = u.subject_id
-      FROM storage_units u WHERE u.id = "${table}".owner_key AND u.kind IN ('place', 'channel')`);
-}
-
-/**
- * Version step 49: every row a lorebook, a participation or a recent lines unit owns, the message links of such a unit
- * and its `co_owners` rows take that unit's owner columns.
- */
-export function ownPlaceListRows(db: Db): void {
-  for (const table of ['claims', 'episodes', 'episode_sources', 'operational', 'co_owners'])
-    db.exec(`UPDATE "${table}" SET writer = u.kind, holder_id = u.subject_id
-      FROM storage_units u WHERE u.id = "${table}".owner_key AND u.kind IN ('lore', 'participation', 'recent')`);
-}
-
-/**
- * Version step 50: every row the selfreflection unit owns, its mirrors, the publications they derived and its
- * `co_owners` rows take that unit's owner columns.
- */
-export function ownSelfreflectionRows(db: Db): void {
-  for (const table of ['selfreflection', 'selfreflection_mirrors', 'operational', 'publications', 'co_owners'])
-    db.exec(`UPDATE "${table}" SET writer = u.kind, holder_id = u.subject_id
-      FROM storage_units u WHERE u.id = "${table}".owner_key AND u.kind = 'selfreflection'`);
 }

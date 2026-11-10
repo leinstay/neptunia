@@ -10,7 +10,7 @@
 // The writer (session-write.ts, write kind `gif-library`) takes the entries a change put and the keys it dropped, never
 // the whole library: a put row is revived and projected, and takes over a row an observation made for the same item
 // (media-store.ts#adoptSameItem); a dropped row is retired unless a line links it. `gifLibraryValue` reads the library
-// back in the order its rows were made. `ownGifRows` is version step 53, which moved the library off its unit.
+// back in the order its rows were made.
 
 import { projectRow } from './graph.ts';
 import { adoptSameItem, keepItemFields } from './media-store.ts';
@@ -181,23 +181,4 @@ export function applyGifLibraryWrite(handle: MemoryHandle, update: Row): { writt
   const at = isFiniteNumber(update.now) ? update.now : Date.now();
   const iface = namedIface(update);
   return handle.transaction(() => writeGifLibrary(dbOf(handle), write, { iface, at }));
-}
-
-/**
- * Version step 53: every row of a library entry (its id starts `media:gif:`) is the library's, held by the persona,
- * the rows a media cache's unit took included; the library's operational row is the persona's; and the GIF units go.
- */
-export function ownGifRows(db: Db): void {
-  db.prepare(
-    `UPDATE media SET writer = 'gifs', holder_id = ?, owner_key = NULL WHERE substr(id, 1, ${PREFIX.length}) = ?`
-  ).run(GIF_LIBRARY_HOLDER, PREFIX);
-  const units = "SELECT id FROM storage_units WHERE kind = 'gifs'";
-  db.prepare(
-    `UPDATE operational SET owner = ?, owner_key = NULL, writer = 'gifs', holder_id = ?
-     WHERE kind = 'gifs' AND owner_key IN (${units})
-       AND NOT EXISTS (SELECT 1 FROM operational o WHERE o.kind = 'gifs' AND o.owner = ?)`
-  ).run(GIF_LIBRARY_HOLDER, GIF_LIBRARY_HOLDER, GIF_LIBRARY_HOLDER);
-  db.exec(`DELETE FROM operational WHERE kind = 'gifs' AND owner_key IN (${units})`);
-  db.exec(`DELETE FROM legacy_unit_aliases WHERE unit_id IN (${units})`);
-  db.exec(`DELETE FROM storage_units WHERE kind = 'gifs'`);
 }
