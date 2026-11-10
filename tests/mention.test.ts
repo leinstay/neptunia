@@ -25,8 +25,6 @@ test('detectTrigger: a line with no flag has no kind', () => {
   assert.equal(detectTrigger({ mentionsSelf: false, repliesToSelf: false }), null);
 });
 
-// --- strippedLength -----------------------------------------------------------
-
 // --- createTagHistory -----------------------------------------------------------
 
 test('createTagHistory: counts hits within the window, this call included', () => {
@@ -76,7 +74,7 @@ test('isTaggedCall: a typed tag counts, the reply ping alone does not', () => {
   assert.equal(isTaggedCall({}, 's1'), false);
 });
 
-// --- The address classifier: inAttention / followUpPreFilter / parseFollowUpVerdict --
+// --- The address classifier: inAttention / followUpPreFilter ---------------------
 
 // PR 7d: the window (15 minutes) and the streak that closes it (5) are constants of src/behavior/mention.ts.
 
@@ -151,7 +149,6 @@ test('parseAddressAnswer: bare words, other values and anything else are unreada
   }
 });
 
-// The lead: an overheard object counting as yes is the first parseFollowUpVerdict test above; the bare words are unreadable.
 test('followUpTriggerKind: no starts nothing, yes a followUp turn, overheard an overheard turn', () => {
   assert.equal(followUpTriggerKind('no'), null);
   assert.equal(followUpTriggerKind('yes'), 'followUp');
