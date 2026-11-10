@@ -32,6 +32,7 @@ function serviceOver(seed: (handle: ReturnType<typeof openMemoryDb>) => void): M
   seed(handle);
   handle.close();
   const service = createMemoryDb({
+    iface: () => 'discord',
     dataDir,
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },
     log: { info() {}, debug() {}, warn() {}, error() {} },

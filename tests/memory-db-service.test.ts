@@ -48,6 +48,7 @@ function setup({
   const queue: Array<() => void> = [];
   let time = Date.UTC(2026, 9, 24, 12, 0, 0);
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot,
     dataDir: data,
     log,
@@ -385,7 +386,8 @@ test('turnReadRows: a guild note needs the guild; unknown kinds are ignored', ()
         { kind: 'claim', id: 'c1' },
         { kind: 'source', id: 'm1' },
       ],
-      { placeId: '5' }
+      // The turn's interface: a message id is read under its authority.
+      { placeId: '5', iface: 'discord' }
     );
     assert.deepEqual(
       rows.map((row) => [row.row_kind, row.version_id, row.revision, row.ord]),

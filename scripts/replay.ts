@@ -597,7 +597,8 @@ export { chatRef, guildListing, hiddenReads, requesterOfChannel, roleIdsOf } fro
 /** The memory of a data directory, read only (scripts/lib/memory-read.ts), one per directory for the whole run. */
 const memories = new Map<Untyped, Untyped>();
 function memoryFor(dataDir: string) {
-  if (!memories.has(dataDir)) memories.set(dataDir, readOnlyMemory(dataDir).memoryDb);
+  // The replayed turns are Discord's, the interface the core would name live.
+  if (!memories.has(dataDir)) memories.set(dataDir, readOnlyMemory(dataDir, { iface: 'discord' }).memoryDb);
   return memories.get(dataDir);
 }
 /** The memory a store of `dataDir` reads: a store needs its database, so a directory without `memory.db` is refused. */

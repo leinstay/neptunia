@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import type { Untyped } from '../../../src/tools/types.ts';
-import type { MapContext } from '../../../src/memory/db/map/common.ts';
+import type { MapContext } from '../../../src/memory/db/row-columns.ts';
 import type { Db, MemoryHandle, Rows } from '../../../src/memory/db/types.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { insertRows, readRows } from '../../../src/memory/db/rows.ts';

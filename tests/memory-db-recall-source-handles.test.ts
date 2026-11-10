@@ -14,7 +14,7 @@ import { lineEvent } from './fixtures/core-over-fake.ts';
 
 /**
  * A record row as an older release stored it: its day file's path in `owner_file`, and for a private layer the DM place
- * of its partner, which the record's unit context names (map/index.ts#storageContext).
+ * of its partner, which the record's unit context names (storage-context.ts#storageContext).
  */
 const recordRows = (rel: string, line: Row): Rows => {
   const partner = /private\/([^/]+)\//.exec(rel)?.[1] ?? null;
@@ -22,7 +22,8 @@ const recordRows = (rel: string, line: Row): Rows => {
   return {
     sources: [
       {
-        ...recordSourceRow(line, { privateAccountId: partner, dmPlace }),
+        // The older release's record was Discord's.
+        ...recordSourceRow(line, { iface: 'discord', privateAccountId: partner, dmPlace }),
         owner_file: rel,
         position: null,
       },

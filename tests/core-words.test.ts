@@ -21,7 +21,6 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
     pattern: /discord/i,
     why: 'the seed rows of the interfaces a new install knows',
   },
-  { file: 'src/memory/db/legacy-namespace.ts', pattern: /discord/i, why: 'the legacy namespace' },
   { file: 'src/memory/db/ids.ts', pattern: /`[^`]*discord[^`]*`/, why: 'stored legacy ids and the stored iface value' },
   // Qualified message writes keep the upsert module independent from a platform namespace.
   {

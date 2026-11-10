@@ -41,7 +41,7 @@ import { selfreflectionMetadataOf, selfreflectionPublicationRefusal } from '../.
 
 import { audienceRefusal } from './selfreflection-audience.ts';
 import { legacyNativeKind, nativeAuthorityOf } from './ids.ts';
-import { parseExtra } from './map/common.ts';
+import { parseExtra } from './row-columns.ts';
 import { contextRow } from './scope.ts';
 import { projectRow } from './graph.ts';
 import { dbOf, transactionOf, asText, isFiniteNumber } from './types.ts';

@@ -13,7 +13,7 @@ import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf as sqlOfHandle } from '../src/memory/db/types.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { legacyStorageKey } from '../src/memory/migration/paths.ts';
+import { legacyStorageKey } from './fixtures/memory-db/legacy-paths.ts';
 import { applySelfreflectionUpdate } from '../src/memory/db/selfreflection-media.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -171,7 +171,7 @@ function seededDataDir(): string {
 const dbOf = (handle: unknown): Db => (handle as { db: Db }).db;
 
 /** The real service over `data`, on the calling thread, opened; `iface` is the live interface it stamps unit writes with. */
-async function openService(data: string, iface: string | null = null) {
+async function openService(data: string, iface: string | null = 'discord') {
   const hot = { config: { memoryDb: { session: { mode: 'off' } } }, prompts: {} };
   const service = createMemoryDb({
     hot,
@@ -191,7 +191,7 @@ async function openService(data: string, iface: string | null = null) {
 type Service = Awaited<ReturnType<typeof openService>>;
 
 /** One scene: the seeded data directory, the service over it and the store whose cached files the sync writes. */
-async function scene(iface: string | null = null) {
+async function scene(iface: string | null = 'discord') {
   const data = seededDataDir();
   const service = await openService(data, iface);
   let ids = 0;

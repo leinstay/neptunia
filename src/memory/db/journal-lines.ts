@@ -12,14 +12,14 @@
 // `decisions` row), so the line is rebuilt exactly from its rows. `day.what` is the line's kind. An action line of an
 // errand (`name` `errand`) references its board task in `day.work_id`. The member an attitude entry is toward is the
 // stored person of the member's account, null when none is stored, and the platform id stays in the row's `extra`.
-// A line of a DM place takes the place's audience (map/scope-parts.ts).
+// A line of a DM place takes the place's audience (scope-parts.ts).
 
 import { answerSourceId } from './ids.ts';
-import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
-import type { MapContext, Spec } from './map/common.ts';
+import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
+import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import { privateUserOf, scopeFrom, scopeInto } from './map/scope-parts.ts';
-import type { OldScope } from './map/scope-parts.ts';
+import { privateUserOf, scopeFrom, scopeInto } from './scope-parts.ts';
+import type { OldScope } from './scope-parts.ts';
 import { errandIdOfLine } from '../../board/archive.ts';
 import { addSourceMedia } from './record-lines.ts';
 import { markStemsPending } from './stems.ts';
@@ -29,7 +29,7 @@ import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { lineColumns, lineOwnerOf, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
-import { ifaceOrLegacy } from './legacy-namespace.ts';
+import { requiredIface } from './live-iface.ts';
 import { asText, dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 
@@ -67,7 +67,8 @@ const attitudeSpec = (ctx: MapContext): Array<Spec> => [
     col: 'person_id',
     key: 'accountId',
     type: 'text',
-    enc: (v: unknown, iface: string) => ctx.personOfMember?.(iface, String(v)) ?? null,
+    enc: (v: unknown, iface: string | null) =>
+      iface === null ? null : (ctx.personOfMember?.(iface, String(v)) ?? null),
     dec: () => null,
     exact: true,
   },
@@ -279,7 +280,7 @@ export function writeJournalLines(db: Db, write: JournalLinesWrite, iface: strin
 export function applyJournalLinesWrite(handle: MemoryHandle, update: Row): JournalLinesResult {
   const write = journalLinesWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
-  return handle.transaction(() => writeJournalLines(dbOf(handle), write, ifaceOrLegacy(update), at));
+  return handle.transaction(() => writeJournalLines(dbOf(handle), write, requiredIface(update), at));
 }
 
 /** The live rows of one journal day, table by table, in the order they were written. */

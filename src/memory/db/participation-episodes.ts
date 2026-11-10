@@ -14,8 +14,8 @@
 
 import { itemOrDerivedId, uniqueIds } from './ids.ts';
 import { groupScope } from './scope.ts';
-import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
-import type { Spec } from './map/common.ts';
+import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
+import type { Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
 import { channelColumn } from './native-rows.ts';
 import {
@@ -28,7 +28,7 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
-import { namedIface } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -49,13 +49,20 @@ const specOf = (db: Db): Array<Spec> => [
 ];
 
 /** The reference of a message's line that participation-sources.ts resolves. */
-const messageSourceRef = (iface: string, messageId: unknown): string => `src:${iface}:${asText(messageId)}`;
+const messageSourceRef = (iface: string | null, messageId: unknown): string =>
+  `src:${iface ?? 'none'}:${asText(messageId)}`;
 
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
 /** The episode rows and message links of `episodes` into `rows`. */
-function putEpisodes(rows: Rows, episodes: ReadonlyArray<Row>, iface: string, owner: string, spec: Array<Spec>): void {
+function putEpisodes(
+  rows: Rows,
+  episodes: ReadonlyArray<Row>,
+  iface: string | null,
+  owner: string,
+  spec: Array<Spec>
+): void {
   const uniq = uniqueIds();
   episodes.forEach((episode: Row, position: number) => {
     const part = split(episode, spec, iface);

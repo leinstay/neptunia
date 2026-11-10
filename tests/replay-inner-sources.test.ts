@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import { innerSourcesOf } from '../scripts/replay.ts';
 import { createJournal } from '../src/memory/journal.ts';
 import { createRecord, toRecordLine } from '../src/memory/record.ts';
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './fixtures/memory-db/legacy-paths.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 const quiet = { info() {}, warn() {}, error() {} };

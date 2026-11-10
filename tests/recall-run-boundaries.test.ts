@@ -41,6 +41,7 @@ function scene(env: ReturnType<typeof fixture>, store: object = {}) {
   env.stem();
   fillEnvAudiences(env);
   return createRecall({
+    iface: 'discord',
     reads: rig().reads,
     hot,
     store,
@@ -108,6 +109,7 @@ for (const scope of ['dm', 'internal']) {
 
 test('prefetch returns stored lore when the database is unavailable for a valid root', async () => {
   const recall = createRecall({
+    iface: 'discord',
     reads: rig().reads,
     hot,
     now: () => NOW,
@@ -166,6 +168,7 @@ test('an internal summary request without a root performs no legacy reads when t
   let loreReads = 0;
   let requests = 0;
   const recall = createRecall({
+    iface: 'discord',
     reads: rig().reads,
     hot,
     now: () => NOW,

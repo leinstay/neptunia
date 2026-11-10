@@ -55,6 +55,7 @@ function rig() {
     ).run(e.id, e.person, e.at, e.applied, e.applied, e.score, e.reason, e.retired ? '2026-11-06T00:00:00.000Z' : null);
   seed.close();
   const memoryDb = createMemoryDb({
+    iface: () => 'discord',
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },
     dataDir,
     log: { info() {}, debug() {}, warn() {}, error() {} },

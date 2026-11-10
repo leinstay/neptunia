@@ -1,7 +1,7 @@
 // Tests for src/memory/record.ts: the record of every observed message, the persona's own lines
 // and her feelings, written to the memory database of a temporary directory (never the
 // deployment's data/).
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './fixtures/memory-db/legacy-paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

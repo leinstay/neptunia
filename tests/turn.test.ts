@@ -6430,7 +6430,8 @@ test('a cancelled internal turn cannot leave its read context on a subsequent or
       client: fakeClient(),
       lookup: fakeLookup(),
       recall,
-      memoryContext: issueContext,
+      // The core names the turn's interface on the context it issues.
+      memoryContext: (spec: Parameters<typeof issueContext>[0]) => issueContext({ iface: 'cli', ...spec }),
       now: () => NOW,
       schedule: timers.schedule,
     });

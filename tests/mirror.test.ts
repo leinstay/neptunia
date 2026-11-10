@@ -489,7 +489,7 @@ function grantFixture({ enabled }: { enabled: boolean }) {
   ).run(GENERAL, enabled ? 1 : 0, at);
   let n = 0;
   const context = (kind: 'group' | 'internal', destination: string | null = null) =>
-    issueContext({ kind, destination, now: () => NOW, newId: () => `ctx:${kind}:${(n += 1)}` });
+    issueContext({ kind, iface: 'discord', destination, now: () => NOW, newId: () => `ctx:${kind}:${(n += 1)}` });
   /** The diary entry, written in the wake's internal context, prepared for `destination` (or `rowKind` instead). */
   const prepare = (destination: string, rowKind = 'selfreflection'): Prepared =>
     // publish.js is untyped JS; it answers one of the two shapes of Prepared.

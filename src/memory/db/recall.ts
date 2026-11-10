@@ -69,7 +69,7 @@ import {
 import { log } from '../../log.ts';
 import { foldText } from '../recent.ts';
 import { indexWords } from '../record-index.ts';
-import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
+import { namedIface as ifaceOf } from './live-iface.ts';
 import { canRead, scopeWhere, whereFor } from './scope.ts';
 import { loadStemmer } from './stems.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
@@ -383,7 +383,7 @@ function nearness(placeId: unknown, context: unknown, ifaceOf: Reader['ifaceOf']
  * holds one, so a read narrowed to a chat nobody stored finds nothing (no place id is empty). The place only narrows:
  * the context's scope and the caller's allowed places still filter every stream (filters).
  */
-function chatNamed(db: Db, iface: string, given: string): string {
+function chatNamed(db: Db, iface: string | null, given: string): string {
   const stored = db.prepare(`SELECT id FROM places WHERE id = ? AND chat IS NOT 'dm'`).get(given)?.id;
   if (typeof stored === 'string') return stored;
   const found = db

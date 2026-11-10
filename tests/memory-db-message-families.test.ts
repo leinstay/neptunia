@@ -260,6 +260,7 @@ for (const worker of [false, true]) {
   test(`the normalized writer request preserves families with worker ${worker}`, async () => {
     const root = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'message-families-'));
     const service = createMemoryDb({
+      iface: () => 'discord',
       dataDir: root,
       hot: { config: { memoryDb: { session: { mode: 'off' } } } },
       worker,

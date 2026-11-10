@@ -132,7 +132,7 @@ import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
 import { nativeAuthorityOf } from './ids.ts';
-import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
+import { liveIface, withLiveIface } from './live-iface.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { linkedDmScopes } from './person-links.ts';
 import { createInspectionPort } from './inspection-snapshots.ts';
@@ -273,7 +273,7 @@ function readVersions(db: Db): (rowKind: string, rowId: string) => { version_id:
 export function turnReadRows(
   db: Db,
   reads: unknown,
-  { placeId = null, iface = LEGACY_IFACE }: { placeId?: string | null; iface?: string } = {}
+  { placeId = null, iface = null }: { placeId?: string | null; iface?: string | null } = {}
 ): Array<Row> {
   const authority = nativeAuthorityOf(iface);
   const rows = new Map<string, Row>();
@@ -1245,7 +1245,7 @@ export function createMemoryDb({
    * The focus sets for the heartbeat's people view (focus.ts#focusView, an internal read): `{ close, exploring,
    * exploringShare }` as member ids of the interface, each the best scored first; null while the database is closed.
    */
-  function focusPeople({ iface = LEGACY_IFACE }: { iface?: string } = {}) {
+  function focusPeople({ iface = null }: { iface?: string | null } = {}) {
     if (!handle) return null;
     try {
       const sets = focusView(dbOf(handle), { iface });
@@ -1459,7 +1459,7 @@ export function createMemoryDb({
     // Resolved now, from the rows as they are when the request is assembled; only the write waits for a quiet loop.
     let rows: Array<Row>;
     try {
-      rows = turnReadRows(dbOf(handle), carried, { placeId, iface: liveIface(iface) ?? LEGACY_IFACE });
+      rows = turnReadRows(dbOf(handle), carried, { placeId, iface: liveIface(iface) });
     } catch (error) {
       log.warn('memory db: turn reads failed', { code: codeOf(error) });
       return;
@@ -1622,7 +1622,8 @@ export function createMemoryDb({
    * Issues an execution context for one turn, session or wake (scope.ts#issueContext); its row is written deferred.
    */
   function issueContext(spec: Parameters<typeof issuePureContext>[0] = {}): Context {
-    const ctx = linkedContext(issuePureContext({ ...spec, now }), handle ? database() : null);
+    // A spec that names no interface reads in the live one.
+    const ctx = linkedContext(issuePureContext({ ...withLiveIface(spec, iface), now }), handle ? database() : null);
     if (!handle || closing) return ctx;
     const update = { kind: 'context', context: contextRow(ctx) };
     defer(() => {

@@ -1,7 +1,7 @@
 // Tests for src/memory/archive.ts: the archive of every memory item that left a hot list, written to the memory
 // database of a temporary directory (never the deployment's data/); the entries waiting for it are JSON lines
 // through a real append store.
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './fixtures/memory-db/legacy-paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

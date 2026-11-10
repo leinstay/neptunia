@@ -5,7 +5,7 @@
 // Two families live here (schema v7, spec 2026-10-24-memory-schema-v7 sections 1.2 and 11.3):
 //   - the legacy-shaped ids (`<iface>:<id>`, `<iface>:channel:<id>`, `src:<iface>:...`): every builder takes the
 //     interface as its first argument, so `discord` gives the strings stored today and another interface its own
-//     namespace. They are minted once for a new row and never taken apart (src/memory/db/legacy-namespace.ts);
+//     namespace. They are minted once for a new row and never taken apart;
 //   - the new ids: `nodeId(kind, parts)` (`<kind>:<32 hex of SHA-256 over the canonical key>`) and `newPersonId()`
 //     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.
 // Schema v8 adds the relation target keys (`externalTargetKey`, `sourceTargetKey`) and `survivorOf` (merged people).
@@ -14,7 +14,6 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { CORE_AUTHORITY, nativeAuthorityOf } from '../../protocol/identity.ts';
-import { LEGACY_IFACE } from './legacy-namespace.ts';
 
 export const SELF_PERSON = 'person:self';
 
@@ -132,7 +131,7 @@ export function survivorOf(db: unknown, person: unknown): string {
  * The interface's native kind of the objects its legacy record lines name (`message` for the legacy namespace: `sources.native_id`
  * is a message id); null for any other interface (an observation names its own kind).
  */
-export const legacyNativeKind = (iface: unknown): 'message' | null => (iface === LEGACY_IFACE ? 'message' : null);
+export const legacyNativeKind = (iface: unknown): 'message' | null => (iface === SPELLED_IFACE ? 'message' : null);
 
 /**
  * The key of a relation's target named by its native tuple (schema v8, `source_relations.target_key`): JSON of the
@@ -163,14 +162,16 @@ export function externalTargetKey({
 /** The key of a relation's target named by our own source id: `source:<id>`. */
 export const sourceTargetKey = (sourceId: unknown): string => `source:${text(sourceId)}`;
 
-// ---------- the legacy spelling of an observed tuple (stage 8a) ----------
-// An observation of the interface the legacy importer reads (LEGACY_IFACE) names the same accounts, places and lines the
-// JSON files do. While the files are the writer, both must land on ONE row: the observed node takes the importer's
-// spelling of its tuple, and the sync adopts the row when its file brings it (sync.js#writeRow). Only the tuples the
-// importer itself writes have a legacy spelling; anything else (a thread, a later generation, another interface) is a
-// new id (`nodeId`).
+// ---------- the readable spelling of a `discord` tuple ----------
+// Every account, place and line of `discord` is stored under a readable id (`discord:<user id>`, `discord:channel:<id>`,
+// `src:discord:<message id>:<revision>:<seen|said>`), and the record and the observation of one line land on that one id.
+// Only a first generation of the global authority has it; anything else (a thread, a later generation, another
+// interface) is a hashed id (`nodeId`).
 
-const LEGACY_AUTHORITY_OF_IFACE = `${LEGACY_IFACE}/global`;
+/** The interface whose tuples keep the readable spelling. */
+const SPELLED_IFACE = `discord`;
+
+const LEGACY_AUTHORITY_OF_IFACE = `${SPELLED_IFACE}/global`;
 /** Place kinds the importer writes under their own id spelling, and the spelling. */
 const LEGACY_PLACE_IDS: Record<string, (iface: unknown, id: unknown) => string> = {
   server: topPlaceSpelled,
@@ -182,7 +183,7 @@ const LEGACY_PLACE_IDS: Record<string, (iface: unknown, id: unknown) => string> 
 export function legacyAccountIdOf(authority: unknown, key: unknown, generation: unknown = 1): string | null {
   if (authority !== LEGACY_AUTHORITY_OF_IFACE || (generation ?? 1) !== 1 || typeof key !== 'string' || key === '')
     return null;
-  return accountId(LEGACY_IFACE, key);
+  return accountId(SPELLED_IFACE, key);
 }
 
 /**
@@ -198,7 +199,7 @@ export function legacyPlaceOf(
   const match = /^([a-z_]+):(.+)$/.exec(text(key ?? ''));
   const spell = match?.[1] ? LEGACY_PLACE_IDS[match[1]] : undefined;
   if (!match || !spell) return null;
-  return { id: spell(LEGACY_IFACE, match[2] ?? ''), native_id: match[1] === 'dm' ? null : (match[2] ?? null) };
+  return { id: spell(SPELLED_IFACE, match[2] ?? ''), native_id: match[1] === 'dm' ? null : (match[2] ?? null) };
 }
 
 /** The importer's source id of an observed line (`src:discord:<message id>:<revision>:<seen|said>`), or null. */
@@ -217,7 +218,7 @@ export function legacySourceIdOf({
   revision: unknown;
   subtype: unknown;
 }): string | null {
-  if (authority !== LEGACY_AUTHORITY_OF_IFACE || kind !== legacyNativeKind(LEGACY_IFACE) || (generation ?? 1) !== 1)
+  if (authority !== LEGACY_AUTHORITY_OF_IFACE || kind !== legacyNativeKind(SPELLED_IFACE) || (generation ?? 1) !== 1)
     return null;
   if (
     typeof revision !== 'number' ||
@@ -228,7 +229,7 @@ export function legacySourceIdOf({
     key === ''
   )
     return null;
-  return messageSourceId(LEGACY_IFACE, key, revision, subtype);
+  return messageSourceId(SPELLED_IFACE, key, revision, subtype);
 }
 
 /** A message source: `src:<iface>:<messageId>:<revision>:<kind>`. */

@@ -143,6 +143,7 @@ test('a DM context the service issues carries the DMs of the person, and a bind 
   addDm(dbOf(seed), 'telegram', '222');
   seed.close();
   const service = createMemoryDb({
+    iface: () => 'discord',
     dataDir,
     hot: { config: {} },
     log: { info() {}, warn() {}, error() {} },

@@ -1,7 +1,7 @@
 // The fixtures of the memory session tests (tests/memory-db-session.test.ts): the ids of the Discord namespace, the
 // prompts and the config of a session, the fake llm, a database with its lines and claims, the context of a sweep and the
 // request a scope gets. Synthetic Greek and accented Latin text only.
-import { legacyServerPlaceId } from '../../../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './legacy-paths.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { fillEnvAudiences } from './audiences.ts';
 import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';
@@ -201,6 +201,8 @@ export function ctxOf(
     now: () => NOW + (clock += 1000),
     log: {},
     selfName: 'Nep',
+    // The interface a review reads in when it is given no read context, as the service names it.
+    iface: 'discord',
   } as unknown as Parameters<typeof sweep>[0]; // the context names the parts a sweep reads, and the llm may be absent
 }
 

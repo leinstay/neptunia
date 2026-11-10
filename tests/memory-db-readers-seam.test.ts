@@ -22,6 +22,7 @@ test('service: the read connection opens with the first tick and closes with the
     fs.mkdirSync(dataDir);
     buildDataDir(dataDir);
     const service = createMemoryDb({
+      iface: () => 'discord',
       hot: { config: {} },
       dataDir,
       log: silent,

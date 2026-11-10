@@ -1,9 +1,9 @@
-// The context a writer of a stored value gives the row builders of its kind (src/memory/db/map/common.ts#MapContext):
+// The context a writer of a stored value gives the row builders of its kind (src/memory/db/row-columns.ts#MapContext):
 // the subject of the value's unit as the database holds it (its interface, native id, person and, for a place, its row
 // and the partner of a direct chat), and how a builder reaches a member's stored person, direct chat and account from
 // the platform id a value names.
 
-import type { MapContext } from './map/common.ts';
+import type { MapContext } from './row-columns.ts';
 import type { Db, Row } from './types.ts';
 import {
   dmOfPlatformId,

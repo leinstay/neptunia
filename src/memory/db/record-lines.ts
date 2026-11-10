@@ -6,7 +6,7 @@
 // A row holds the line's fields in its columns (`kind`, `native_id` for `messageId`, `revision`, `occurred_at`,
 // `recorded_at`, `text`, `media`, `mentions`, `direct`, `reply_to`, `author_account` for `by`, `turn_id`, `op_id`,
 // `origin`) and the rest in `extra`. `seen_at` is the `recordedAt` of a `seen` line, null for any other kind. The scope
-// comes from the line's old scope (map/scope-parts.ts): a line of a DM place takes the place's audience.
+// comes from the line's old scope (scope-parts.ts): a line of a DM place takes the place's audience.
 //
 // A line a write names in `messages` (`{ lineId, locator, observedSourceId? }`, src/memory/record.ts#RecordMessageRef)
 // takes the message family its locator resolves (message-families.ts), the one the live observation of the same
@@ -20,11 +20,11 @@ import { messageLocator } from './message-locator.ts';
 import type { MessageLocator } from './message-locator.ts';
 import { messageSourceId } from './ids.ts';
 import { mintedAccount } from './native-rows.ts';
-import { extraText, ifaceOf, join, parseExtra, split } from './map/common.ts';
-import type { MapContext, Spec } from './map/common.ts';
+import { extraText, ifaceOf, join, parseExtra, split } from './row-columns.ts';
+import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import type { OldScope } from './map/scope-parts.ts';
-import { privateUserOf, scopeFrom, scopeInto } from './map/scope-parts.ts';
+import type { OldScope } from './scope-parts.ts';
+import { privateUserOf, scopeFrom, scopeInto } from './scope-parts.ts';
 import { resolveMessageFamily } from './message-families.ts';
 import { familyError, hasMessageFamilies } from './message-family-catalog.ts';
 import { observedSourceId } from './observe.ts';
@@ -37,7 +37,7 @@ import { ensureUnit, noteUnit } from './storage-units.ts';
 import { lineColumns, lineOwnerOf, linePeriods, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { writeMapping } from './upsert.ts';
-import { LEGACY_IFACE, ifaceOrLegacy } from './legacy-namespace.ts';
+import { requiredIface } from './live-iface.ts';
 import { asText, dbOf, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 import type { NativeMessageLocator } from './recall.ts';
@@ -105,7 +105,8 @@ const lineSpec = (ctx: MapContext): Array<Spec> => [
     col: 'author_account',
     key: 'by',
     type: 'text',
-    enc: (v: unknown, iface: string) => ctx.accountOfMember?.(iface, String(v)) ?? mintedAccount(iface, String(v)),
+    enc: (v: unknown, iface: string | null) =>
+      iface === null ? null : (ctx.accountOfMember?.(iface, String(v)) ?? mintedAccount(iface, String(v))),
     dec: (v: unknown) => (typeof v === 'string' ? (ctx.memberOfAccount?.(v) ?? null) : null),
     exact: true,
   },
@@ -118,7 +119,9 @@ const coded = (code: string): Error & { code: string } => Object.assign(new Erro
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 const isRecord = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-function sourceIdOf(line: Row, iface: string): string {
+/** The id of a line's row; a line built with no interface spells `none` in its place. */
+function sourceIdOf(line: Row, given: string | null): string {
+  const iface = given ?? 'none';
   const kind = typeof line.kind === 'string' ? line.kind : 'unknown';
   const messageId = typeof line.messageId === 'string' ? line.messageId : null;
   if (REVISIONED_KINDS.has(kind) && messageId && isFiniteNumber(line.revision))
@@ -464,7 +467,7 @@ export function writeRecordLines(db: Db, write: RecordLinesWrite, iface: string,
 export function applyRecordLinesWrite(handle: MemoryHandle, update: Row): RecordLinesResult {
   const write = recordLinesWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
-  return handle.transaction(() => writeRecordLines(dbOf(handle), write, ifaceOrLegacy(update), at));
+  return handle.transaction(() => writeRecordLines(dbOf(handle), write, requiredIface(update), at));
 }
 
 /** The holder id of a place's record (the persona's with null). */
@@ -497,11 +500,11 @@ export function recordLines(db: Db, key: StorageKey): Array<string> {
   return rows.map((row) => JSON.stringify(recordLineOf(row, ctx)));
 }
 
-/** The interface of the place that holds a record: its stored one, else the legacy namespace's. */
-function ifaceOfHolder(db: Db, placeId: string | null): string {
-  if (placeId === null) return LEGACY_IFACE;
+/** The interface of the place that holds a record: its stored one, else none. */
+function ifaceOfHolder(db: Db, placeId: string | null): string | null {
+  if (placeId === null) return null;
   const stored = db.prepare('SELECT iface FROM places WHERE id = ?').get(placeId)?.iface;
-  return typeof stored === 'string' ? stored : LEGACY_IFACE;
+  return typeof stored === 'string' ? stored : null;
 }
 
 /** The highest revision the month holds of a message (a deletion does not count), or null when it holds none. */

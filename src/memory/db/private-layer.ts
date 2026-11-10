@@ -15,14 +15,14 @@
 import { mintMetaPerson } from './meta-person-write.ts';
 import { ensureAccountPerson } from './person-links.ts';
 import { dmScope } from './scope.ts';
-import { historyFrom, profileFrom, profileRows } from './map/lists.ts';
-import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './map/common.ts';
+import { historyFrom, profileFrom, profileRows } from './profile-lists.ts';
+import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import { dmPlaceScope } from './map/scope-parts.ts';
+import { dmPlaceScope } from './scope-parts.ts';
 import { dmOfAccount } from './meta-person.ts';
 import { addSessionRows } from './session-rows.ts';
 import { accountCollection, keyText } from './storage-keys.ts';
-import { namedIface } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -83,7 +83,7 @@ function privateLayerRows(db: Db, key: StorageKey, value: Row, owner: string, at
     value: JSON.stringify(rest),
     owner_key: owner,
   });
-  // The shared profile pieces name their unit as `owner_file` (map/lists.ts): the unit's id is their owner.
+  // The shared profile pieces name their unit as `owner_file` (profile-lists.ts): the unit's id is their owner.
   for (const list of Object.values(rows))
     for (const row of list) {
       if (row.owner_file === undefined) continue;

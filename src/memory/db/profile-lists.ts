@@ -13,11 +13,11 @@
 // `itemId` (`aff:<run>:<n>`), so the file the store writes back names the same rows and the unit write leaves them
 // alone (upsert.ts). A description is its current version (`current_version`), whichever writer wrote it.
 
-import { SELF_PERSON, itemOrDerivedId, shortHash, uniqueIds } from '../ids.ts';
-import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.ts';
-import { asText } from '../types.ts';
-import type { Row, Rows } from '../types.ts';
-import type { Spec } from './common.ts';
+import { SELF_PERSON, itemOrDerivedId, shortHash, uniqueIds } from './ids.ts';
+import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
+import { asText } from './types.ts';
+import type { Row, Rows } from './types.ts';
+import type { Spec } from './row-columns.ts';
 
 const BASE_SPEC: Array<Spec> = [
   { col: 'weight', key: 'weight', type: 'num' },

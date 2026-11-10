@@ -180,6 +180,7 @@ async function setup({
     prompts: { labels, 'recall-summary': 'Synthetic summary prompt' },
   };
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot,
     dataDir: data,
     now: () => NOW,
@@ -226,6 +227,7 @@ async function codeOfRejection(promise: Promise<unknown>): Promise<unknown> {
 type RecallInput = Parameters<typeof createRecall>[0];
 const recallOver = (hot: object, memoryDb: object) =>
   createRecall({
+    iface: 'discord',
     reads: rig().reads,
     hot,
     store: {},

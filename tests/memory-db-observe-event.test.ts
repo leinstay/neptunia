@@ -452,7 +452,8 @@ test("service: observe goes through the writer; an edit's revision survives a ne
   fs.mkdirSync(data);
   buildDataDir(data);
   const hot = { config: {} };
-  const start = () => createMemoryDb({ hot, dataDir: data, log: quiet, worker: false, now: () => NOW });
+  const start = () =>
+    createMemoryDb({ iface: () => 'discord', hot, dataDir: data, log: quiet, worker: false, now: () => NOW });
   const envelopeOf = (raw: Record<string, Untyped>, options?: Record<string, Untyped>) =>
     observationOf(eventOf(raw, options), { selfId: SELF });
   const first = message({ id: 'm-svc', content: 'πρώτη', at: T0 });
@@ -492,7 +493,14 @@ test('service: an observation that comes before the database opens is written on
   fs.mkdirSync(data);
   buildDataDir(data);
   const hot = { config: {} };
-  const service = createMemoryDb({ hot, dataDir: data, log: quiet, worker: false, now: () => NOW });
+  const service = createMemoryDb({
+    iface: () => 'discord',
+    hot,
+    dataDir: data,
+    log: quiet,
+    worker: false,
+    now: () => NOW,
+  });
   const envelopeOf = (raw: Record<string, Untyped>) => observationOf(eventOf(raw), { selfId: SELF });
   try {
     // the start's catch-up runs before the database opens

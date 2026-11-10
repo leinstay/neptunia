@@ -333,6 +333,7 @@ test('recall-eval: the local root runs the record stage of the real recall, surf
   };
   const channelNameOf = (cid: unknown) => (cid === C1 ? 'garden' : null);
   const recall = createRecall({
+    iface: 'discord',
     reads: localReads({ placeId: 'g1', channelNameOf }),
     hot: { config, prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels } },
     store,

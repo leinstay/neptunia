@@ -2,7 +2,7 @@
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   store.getUser(accountId): StoredRecord | null
 //   store.touchUser(accountId, name, at?): StoredRecord
-// Appendix entries: src/memory/store.ts (user collection), src/memory/db/map/index.ts (storage context).
+// Appendix entries: src/memory/store.ts (user collection), src/memory/db/storage-context.ts (storage context).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';

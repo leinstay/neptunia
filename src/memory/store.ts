@@ -1,7 +1,7 @@
 // Persistent memory: the memory database (src/memory/db/service.ts) holds it, this module reads and changes it -- it
 // survives restarts, hot reloads and prompt edits; nothing in the codebase ever wipes it. Each value is one unit of the
-// database, named by the path it had under data/ (`places/<g>/users/<u>.json`; the mappers of src/memory/db/map/
-// turn a unit into rows and back); the operational files beside it stay JSON files under data/. The units:
+// database, named by its storage key, and the writer of its kind turns it into rows and back; the operational files
+// beside it stay JSON files under data/. The units:
 //
 //   an account's      its profile (`user`) and what it said in private (`private`)
 //   a place's         its notes (`place`), its map entry (`channel`), lore, media, GIFs, recent lines, participation
@@ -94,7 +94,6 @@ import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizePa
 import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.ts';
 import { normalizeAvatar } from './avatars.ts';
 import { SNAPSHOTS_DIR, memoryRootOf } from './root.ts';
-import { isCoreStatePath } from './migration/paths.ts';
 import { createAddressing } from './store-addresses.ts';
 
 import { createStoreWrites } from './store-writes.ts';
@@ -348,7 +347,10 @@ function findInvalidJsonFiles(
  */
 export function operationalJsonPath(rel: string): boolean {
   const name = String(rel).replace(/\\/g, '/');
-  if (isCoreStatePath(name)) return false;
+  // Her state, the usage and the metrics, and a place's inner state, missed registry, participation and media caches
+  // live in database rows.
+  if (/^(?:state|usage|metrics)\.json$/.test(name)) return false;
+  if (/^(?:guilds|places)\/[^/]+\/(?:inner|missed|participation|gifs|media)\.json$/.test(name)) return false;
   if (/^(?:vault|snapshots)\//.test(name)) return true;
   const inPlace = /^places\/[^/]+\/(?:private\/[^/]+\/)?(.+)$/.exec(name)?.[1];
   if (!inPlace) return false;

@@ -130,6 +130,7 @@ async function scene(options: Scene = {}) {
   const prompts: Array<Array<{ content: string }>> = [];
   const data: Record<string, unknown> = {};
   const recaller = createRecall({
+    iface: 'discord',
     hot: {
       config: {
         ...SHIPPED,

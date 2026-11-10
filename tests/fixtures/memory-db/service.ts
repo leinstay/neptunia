@@ -12,9 +12,9 @@ import { dbOf, type Config, type Log } from '../../../src/memory/db/types.ts';
 import type { MemoryDbService } from '../../../src/memory/db/service.ts';
 import { createMemoryDb } from '../../../src/memory/db/service.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
-import { classify } from '../../../src/memory/migration/classify.ts';
+import { classify } from './legacy-classify.ts';
 import { seedUnits } from './seed.ts';
-import { legacyStorageKey } from '../../../src/memory/migration/paths.ts';
+import { legacyStorageKey } from './legacy-paths.ts';
 import { listUnits } from '../../../src/memory/db/storage-units.ts';
 import { isOperationalKind } from '../../../src/memory/db/operational.ts';
 import { unitValue, unitLines } from '../../../src/memory/db/readers/common.ts';
@@ -62,7 +62,8 @@ export async function openTestMemory({
   seed = false,
   now = Date.now,
   log = silent,
-  iface,
+  // The live interface of the service, as the core gives it: the synthetic data speaks Discord's ids.
+  iface = () => 'discord',
 }: {
   dataDir?: string;
   config?: Config;
@@ -106,7 +107,7 @@ export function openTestMemorySync({
     config: { ...config, memoryDb: { session: { mode: 'off' }, ...(config.memoryDb ?? {}) } },
     prompts: {},
   };
-  const memoryDb = createMemoryDb({ hot, dataDir, log: log as Log, now, worker: false });
+  const memoryDb = createMemoryDb({ hot, dataDir, log: log as Log, now, worker: false, iface: () => 'discord' });
   memoryDb.tick();
   if (!memoryDb.readHandle()) throw new Error('the test memory database did not open');
   return { memoryDb, dataDir, hot, close: () => memoryDb.close() };

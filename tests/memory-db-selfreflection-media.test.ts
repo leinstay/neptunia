@@ -466,6 +466,7 @@ test('the service runs the job once the database is open', async () => {
     env.handle.close();
     const hot = { config: { ...env.hot.config } };
     const service = createMemoryDb({
+      iface: () => 'discord',
       hot,
       dataDir: env.data,
       worker: false,

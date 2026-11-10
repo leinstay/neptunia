@@ -758,7 +758,7 @@ export function closePeople(db: Connection): Array<string> {
  */
 export function focusView(
   dbGiven: unknown,
-  { iface }: { iface: string }
+  { iface }: { iface: string | null }
 ): { close: Array<string>; exploring: Array<string> } {
   const db = dbGiven as Connection;
   const authority = nativeAuthorityOf(iface);

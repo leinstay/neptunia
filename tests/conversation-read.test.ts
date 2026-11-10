@@ -771,6 +771,7 @@ function findScene(world: World) {
     listUserProfiles: () => [],
   };
   const recall = createRecall({
+    iface: 'discord',
     reads: {
       searchMessages: () => Promise.resolve({ total: 0, hits: [] }),
       searchMembers: () => Promise.resolve({ members: [] }),

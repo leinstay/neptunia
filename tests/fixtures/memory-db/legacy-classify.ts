@@ -1,11 +1,5 @@
-// The paths a shipped data directory spelled and what each one is: the decoder of an old unit name, read by the pending
-// writes of an earlier release, the explicit legacy export and the shipped data steps. A path (relative to a server's data
-// directory, or to the data root with its `guilds/<id>/` prefix) becomes
-//   { kind, format, unit, guildId? }           a memory file: `format` says how to read and write it
-//                                              ('json' | 'jsonl' | 'text' | 'vectors'), `unit` is the key the rows
-//                                              are owned by (the path; a month directory for vectors)
-//   { skipped: true, reason }                  not memory (instance state, tools' output, backups)
-//   null                                       unknown: the walker reports it and leaves it alone
+// What each path of an older release's data folder is, for the fixtures that build a database from one: its kind, its
+// format and the unit it belongs to, or skipped, or null for an unknown path. Synthetic fixtures only.
 
 /** How a file is read: whole JSON, lines, text or a month of vectors. */
 export type FileFormat = 'json' | 'jsonl' | 'text' | 'vectors';

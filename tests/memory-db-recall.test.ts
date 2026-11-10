@@ -29,7 +29,7 @@ import { dbOf, type Db, type Statement } from '../src/memory/db/types.ts';
 type RecallInput = Parameters<typeof createRecall>[0];
 const asReads = (reads: object) => reads as RecallInput['reads'];
 const asRecall = (input: (Omit<RecallInput, 'reads'> & { reads: RecallInput['reads'] }) | object) =>
-  createRecall(input as RecallInput) as unknown as {
+  createRecall({ iface: 'discord', ...input } as RecallInput) as unknown as {
     run(args: Record<string, unknown>): Promise<Found>;
     window(args: Record<string, unknown>): Promise<Found>;
     prefetch(args: Record<string, unknown>): Promise<{ status?: string } | null>;
@@ -71,7 +71,6 @@ const run = (
   { plan: given = {}, ...rest }: { plan?: Record<string, unknown>; [key: string]: unknown } = {},
   ctx = group
 ) => search(env.db, { ctx, plan: plan(forms, given), now: NOW, ...rest });
-
 test('stems: the unit writes fill them, learns the endings from the database text and stamps again only what changed', () => {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-stems-'));
   const data = path.join(root, 'data');
@@ -121,7 +120,6 @@ test('stems: the unit writes fill them, learns the endings from the database tex
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
-
 test('stems: the learned stemmer gives the inflected forms of a word one key, the query side uses the same one', () => {
   const env = fixture();
   try {
@@ -1636,6 +1634,7 @@ test('search, window and prefetch retain one issued internal context rather than
     const s = runner(env);
     const issued: Array<Parameters<typeof issueContext>[0]> = [];
     const recaller = createRecall({
+      iface: 'discord',
       reads: rig().reads,
       hot: s.hot,
       store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [], personOfAccount: storedPersonOf },
@@ -1811,6 +1810,7 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
         throw new Error(`unexpected legacy guild read: ${name}`);
       };
       const recaller = createRecall({
+        iface: 'discord',
         reads: rig().reads,
         hot: s.hot,
         store: {

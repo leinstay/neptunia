@@ -1,6 +1,6 @@
 // Tests for src/memory/db/scope.ts and ids.js: scope columns of old scope objects, read contexts, the allowed matrix,
 // the SQL filter (checked against the same matrix over a real table), narrowest, and the deterministic ids.
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './fixtures/memory-db/legacy-paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
@@ -42,8 +42,10 @@ const ALICE = personId('discord', '100000000000000001');
 const BOB = personId('discord', '100000000000000002');
 
 test('scope columns from an old scope object', () => {
-  assert.deepEqual(scopeColumns({ channel: '200000000000000001' }), groupScope('discord'));
-  assert.deepEqual(scopeColumns({ place: 'discord:guild:1' }), groupScope('discord'));
+  assert.deepEqual(scopeColumns({ channel: '200000000000000001' }, { iface: 'discord' }), groupScope('discord'));
+  assert.deepEqual(scopeColumns({ place: 'discord:guild:1' }, { iface: 'discord' }), groupScope('discord'));
+  // A scope written with no interface names none, and no group's audience reads it.
+  assert.deepEqual(scopeColumns({ channel: '200000000000000001' }), groupScope(null));
   assert.deepEqual(scopeColumns({}), SCOPE_INTERNAL, 'an unknown legacy scope is never shown outward');
   assert.deepEqual(scopeColumns(undefined), SCOPE_INTERNAL);
   // A member's DM is the stored one its reader gives; with no reader nothing is stored and the scope is internal.

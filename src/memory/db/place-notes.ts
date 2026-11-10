@@ -15,12 +15,12 @@
 
 import { SELF_PERSON } from './ids.ts';
 import { groupScope } from './scope.ts';
-import { claimItems, claimRows } from './map/lists.ts';
-import type { ListDef } from './map/lists.ts';
-import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './map/common.ts';
-import type { MapContext, Spec } from './map/common.ts';
+import { claimItems, claimRows } from './profile-lists.ts';
+import type { ListDef } from './profile-lists.ts';
+import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './row-columns.ts';
+import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import { dmPlaceScope } from './map/scope-parts.ts';
+import { dmPlaceScope } from './scope-parts.ts';
 import {
   heldPlaceRows,
   holdsPlace,
@@ -31,7 +31,7 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
-import { namedIface } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -67,7 +67,10 @@ const learnedSpec = (ctx: MapContext): Array<Spec> => [
     key: 'from',
     type: 'text',
     ok: (v: unknown) => /^<@\d+>$/.test(String(v)),
-    enc: (v: unknown) => ctx.personOfMember?.(ifaceOf(ctx), String(v).slice(2, -1)) ?? null,
+    enc: (v: unknown) => {
+      const iface = ifaceOf(ctx);
+      return iface === null ? null : (ctx.personOfMember?.(iface, String(v).slice(2, -1)) ?? null);
+    },
     dec: () => null,
     exact: true,
   },
@@ -87,7 +90,7 @@ const listsOf = (ctx: MapContext): Array<ListDef & { subject: string }> => [
 ];
 
 /** What the notes of a place are shown to: its partner in a direct chat, the groups elsewhere. */
-function notesScope(iface: string, ctx: MapContext): Row {
+function notesScope(iface: string | null, ctx: MapContext): Row {
   if (!ctx.dmPlace) return groupScope(iface);
   return dmPlaceScope(iface, ctx.dmPlace);
 }
@@ -96,7 +99,7 @@ function notesScope(iface: string, ctx: MapContext): Row {
  * The place row of the notes: the stored row as it is, or a new one when no row holds the place yet. A new row knows no
  * native id: the observation of the place's interface gives it one.
  */
-function placeRow(ctx: MapContext, placeId: string, iface: string, owner: string): Row {
+function placeRow(ctx: MapContext, placeId: string, iface: string | null, owner: string): Row {
   if (ctx.subjectPlace) {
     // The unit owns the row it adopted, so a write that left it out would retire it.
     const stored: Row = { ...ctx.subjectPlace, owner_key: owner };
@@ -194,7 +197,7 @@ function placeNotesRows(
     value: JSON.stringify(rest),
     owner_key: owner,
   });
-  // The claim lists name their unit as `owner_file` (map/lists.ts): the unit's id is their owner.
+  // The claim lists name their unit as `owner_file` (profile-lists.ts): the unit's id is their owner.
   for (const row of rows.claims ?? []) {
     delete row.owner_file;
     row.owner_key = owner;

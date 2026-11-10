@@ -10,16 +10,15 @@
 //
 // Rows are plain objects of column -> value; JSON columns hold JSON text and booleans are 0/1, so a row can be
 // bound to SQLite as it is and read back without a conversion step.
-import { LEGACY_IFACE } from '../legacy-namespace.ts';
-import { isFiniteNumber } from '../types.ts';
-import type { Row, Rows } from '../types.ts';
+import { isFiniteNumber } from './types.ts';
+import type { Row, Rows } from './types.ts';
 
 export const isPlainObject = (value: unknown): value is Row =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** What a mapper is told about the unit it maps: the interface, the subject and the position a line holds in it. */
 export type MapContext = {
-  iface?: string;
+  iface?: string | null;
   position?: number;
   subjectId?: string;
   subjectNativeId?: string;
@@ -59,7 +58,7 @@ export type Spec = {
   col: string;
   key: string;
   type: 'text' | 'num' | 'bool' | 'json';
-  enc?: (value: unknown, iface: string) => unknown;
+  enc?: (value: unknown, iface: string | null) => unknown;
   dec?: (value: unknown) => unknown;
   ok?: (value: unknown) => boolean;
   /** The value is kept beside the column when `dec` cannot read it back from what `enc` stored, so it comes back exact. */
@@ -93,7 +92,7 @@ function decode(type: Spec['type'], value: unknown): unknown {
  * Splits can be chained (the remainder of one is the input of the next): a `$null` list in the input is carried on.
  * Returns `rest`, every key no column took, plus `$null` when needed.
  */
-export function split(obj: Row, spec: ReadonlyArray<Spec>, iface = LEGACY_IFACE): { cols: Row; rest: Row } {
+export function split(obj: Row, spec: ReadonlyArray<Spec>, iface: string | null = null): { cols: Row; rest: Row } {
   const rest: Row = { ...obj };
   const cols: Row = {};
   const nulls: Array<unknown> = Array.isArray(obj.$null) ? [...(obj.$null as Array<unknown>)] : [];
@@ -146,7 +145,7 @@ export function extraText(rest: Row | null | undefined): string | null {
 /** A remainder read back: an object (a copy), whatever the column held (JSON text, an object or nothing). */
 export function parseExtra(extra: unknown): Row {
   if (extra === null || extra === undefined || extra === '') return {};
-  const value: Row = typeof extra === 'string' ? JSON.parse(extra) : extra;
+  const value: unknown = typeof extra === 'string' ? JSON.parse(extra) : extra;
   return isPlainObject(value) ? { ...value } : {};
 }
 
@@ -187,4 +186,4 @@ export function jsonEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-export { ifaceOrLegacy as ifaceOf } from '../legacy-namespace.ts';
+export { namedIface as ifaceOf } from './live-iface.ts';

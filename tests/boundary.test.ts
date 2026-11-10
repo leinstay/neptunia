@@ -169,7 +169,7 @@ describe('one writer', () => {
   async function service() {
     const dataDir = tempDataDir('boundary-writer-');
     const hot = { config: { memoryDb: { session: { mode: 'off' } } }, prompts: {} };
-    const memoryDb = createMemoryDb({ hot, dataDir, log: SILENT, now: () => START });
+    const memoryDb = createMemoryDb({ iface: () => 'discord', hot, dataDir, log: SILENT, now: () => START });
     OPEN.push({ close: () => memoryDb.close() });
     await memoryDb.tick();
     return { memoryDb, dataDir };
@@ -203,7 +203,7 @@ describe('one writer', () => {
     fs.writeFileSync(lockPathOf(dbPath), JSON.stringify({ pid: process.ppid, startedAt: '2026-10-26T11:00:00.000Z' }));
     assert.throws(() => openMemoryDb(dbPath), /is locked by pid/);
     const hot = { config: { memoryDb: { session: { mode: 'off' } } }, prompts: {} };
-    const rival = createMemoryDb({ hot, dataDir, log: SILENT, now: () => START });
+    const rival = createMemoryDb({ iface: () => 'discord', hot, dataDir, log: SILENT, now: () => START });
     OPEN.push({ close: () => rival.close() });
     await rival.tick();
     assert.equal(rival.readHandle(), null, 'the service did not open the database');

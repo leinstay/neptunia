@@ -30,6 +30,7 @@ function rig(): { env: ReturnType<typeof createOpsEnv>; memoryDb: MemoryDbServic
   seedOpaqueWorld(dbOf(seed));
   seed.close();
   const memoryDb = createMemoryDb({
+    iface: () => 'discord',
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },
     dataDir,
     log: { info() {}, debug() {}, warn() {}, error() {} },

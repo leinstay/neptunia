@@ -7,7 +7,6 @@ import { currentIface } from './db/current-iface.ts';
 import { placeRefOf } from './db/frame-reads.ts';
 import type { PlaceRef } from './db/frame-reads.ts';
 import { interfaceAccountId, interfacePlaceOf, nativeAuthorityOf, topPlaceSpelled } from './db/ids.ts';
-import { LEGACY_IFACE } from './db/legacy-namespace.ts';
 import { chatPlaceKey } from './db/observe-event.ts';
 import { accountNodeOf } from './db/person-links.ts';
 import { placeChainInDb, rootPlaceInDb } from './db/place-tree.ts';
@@ -53,9 +52,9 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     minted.set(accountId, nativeId);
     if (minted.size > NAMED_MAX) minted.delete(minted.keys().next().value ?? accountId);
   };
-  const ifaceNow = (): string => {
+  const ifaceNow = (): string | null => {
     const named: unknown = typeof memoryDb?.namespace === 'function' ? memoryDb.namespace() : null;
-    return currentIface() ?? (typeof named === 'string' && named ? named : LEGACY_IFACE);
+    return currentIface() ?? (typeof named === 'string' && named ? named : null);
   };
 
   function rootPlaceOf(placeId: string): string | null {

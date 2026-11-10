@@ -3,7 +3,7 @@
 // (`createMirrors`) over them as the test wants, each new one standing for a restart or a second writer. A transport
 // wraps the fake adapter, so `posted` reads what reached the platform, whatever the publisher was told. Synthetic data
 // only.
-import { legacyServerPlaceId } from '../../src/memory/migration/paths.ts';
+import { legacyServerPlaceId } from './memory-db/legacy-paths.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';

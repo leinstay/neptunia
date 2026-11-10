@@ -17,7 +17,6 @@
 // interface or partner is worked out from the text of a person or place id.
 
 import { randomUUID } from 'node:crypto';
-import { LEGACY_IFACE } from './legacy-namespace.ts';
 
 /** The three scope columns of a row. */
 export type Scope = { scope_kind: string | null; scope_iface: string | null; scope_dm: string | null };
@@ -78,13 +77,18 @@ export const dmScope = <P extends string, T extends string | null>(person: P, if
   scope_dm: person,
 });
 
-export const groupContext = <T extends string>(iface: T): Context => ({ iface, kind: 'group' });
+export const groupContext = (iface: string | null): Context =>
+  iface === null ? { kind: 'group' } : { iface, kind: 'group' };
 /**
  * A DM context: the DM place the caller found in `places` and the partner person. A DM nobody linked has no person,
  * and a person no stored DM place holds has no place: that context reads the groups and its linked DMs only.
  */
-export const dmContext = (person: string | null, iface: string, place: string | null): Context =>
-  filled(person) ? { iface, kind: 'dm', person, place } : { iface, kind: 'dm', place };
+export const dmContext = (person: string | null, iface: string | null, place: string | null): Context => ({
+  ...(iface === null ? {} : { iface }),
+  kind: 'dm',
+  ...(filled(person) ? { person } : {}),
+  place,
+});
 export const internalContext = (): Context => ({ internal: true });
 /**
  * What a read's context is issued for: the DM of `privateAccountId`, else the group of the chat `chatId`, on the chat's
@@ -144,13 +148,13 @@ const DM_SPELLING = /^[^:]+:dm:./;
  * place holds): those are `internal`, as is anything else (no scope, an empty or unknown one). An unknown scope is never
  * shown outward.
  * `none` is only for a unit that is source-free on purpose (a self fact, her own unprompted line), which its mapper sets
- * itself with SCOPE_NONE. The columns name `opts.iface`, the legacy namespace when none is given.
+ * itself with SCOPE_NONE. The columns name `opts.iface`, none when none is given.
  */
 export function scopeColumns(
   scope: unknown,
   opts: {
     privateUser?: string | null;
-    iface?: string;
+    iface?: string | null;
     dmOf?: (platformId: string) => DmScope | null;
     dmOfPlace?: (placeId: string) => DmScope | null;
   } = {}
@@ -158,7 +162,7 @@ export function scopeColumns(
   const oldScope = scope as
     { user?: unknown; channel?: unknown; place?: unknown; private?: unknown; unresolved?: unknown } | null | undefined;
   const user = opts.privateUser ?? (typeof oldScope?.user === 'string' && oldScope.user ? oldScope.user : null);
-  const iface = opts.iface ?? LEGACY_IFACE;
+  const iface = opts.iface ?? null;
   if (user) return opts.dmOf?.(user) ?? { ...SCOPE_INTERNAL };
   if (oldScope?.private === true) {
     const place = typeof oldScope.place === 'string' ? oldScope.place : null;
@@ -442,12 +446,11 @@ export const CONTEXT_POLICY_VERSION = 2;
  * A context the core issues for one turn, session or wake: a read context (as `groupContext` / `dmContext` /
  * `internalContext`) with an `id`, its `mode` (`outward` for a group or DM, `internal` otherwise), the destination
  * place, the policy version and the time it was issued, read through `audience_id` (`audienceColumn: true`). Pure: `now` and `newId` are injected; the service records it.
- * A spec that names no interface is read in the legacy namespace (src/memory/db/legacy-namespace.ts); the callers of a
- * live turn name theirs.
+ * A spec that names no interface reads no group's rows; the callers of a live turn name theirs.
  */
 export function issueContext({
   kind,
-  iface = LEGACY_IFACE,
+  iface = null,
   person = null,
   place = null,
   destination = null,
@@ -456,7 +459,7 @@ export function issueContext({
   newId = () => `ctx:${randomUUID()}`,
 }: {
   kind?: 'group' | 'dm' | 'internal';
-  iface?: string;
+  iface?: string | null;
   person?: string | null;
   place?: string | null;
   destination?: string | null;

@@ -17,11 +17,11 @@
 // destination gives her publications with none that channel (publish.ts#assignSelfreflectionDestination).
 
 import { itemOrDerivedId, uniqueIds } from './ids.ts';
-import { ifaceOrLegacy } from './legacy-namespace.ts';
+import { requiredIface } from './live-iface.ts';
 import { selfreflectionRestricted } from '../../tools/publication.ts';
 import { groupScope, SCOPE_INTERNAL } from './scope.ts';
-import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
-import type { Spec } from './map/common.ts';
+import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
+import type { Spec } from './row-columns.ts';
 import {
   heldPlaceRows,
   holdsPlace,
@@ -223,7 +223,7 @@ export function selfreflectionOfUnit(update: Row): SelfreflectionWrite | null {
 export function applySelfreflectionWrite(handle: MemoryHandle, update: Row): unknown {
   const write = selfreflectionWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
-  const opts = { at, iface: ifaceOrLegacy(update), ...(write.destination ? { destination: write.destination } : {}) };
+  const opts = { at, iface: requiredIface(update), ...(write.destination ? { destination: write.destination } : {}) };
   const db = dbOf(handle);
   return handle.transaction(() =>
     'value' in write

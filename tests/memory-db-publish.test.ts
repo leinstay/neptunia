@@ -78,7 +78,7 @@ function fixture() {
   );
   let n = 0;
   const outward = (destination: string) =>
-    issueContext({ kind: 'group', destination, now: () => NOW, newId: () => `ctx:out:${(n += 1)}` });
+    issueContext({ iface: 'discord', kind: 'group', destination, now: () => NOW, newId: () => `ctx:out:${(n += 1)}` });
   const internal = () => issueContext({ kind: 'internal', now: () => NOW, newId: () => `ctx:in:${(n += 1)}` });
   return { handle, db: dbOf(handle), outward, internal };
 }
@@ -510,6 +510,7 @@ test('v10: a rewrite of the diary keeps the publication; database rows survive',
       now: NOW,
     });
     const ctx = issueContext({
+      iface: 'discord',
       kind: 'group',
       destination: `discord:channel:${CHANNEL}`,
       now: () => NOW,

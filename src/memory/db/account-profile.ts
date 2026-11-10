@@ -23,15 +23,15 @@
 // person in the profile's scope (session-rows.ts#addSessionRows).
 
 import { groupScope } from './scope.ts';
-import { AFFINITY_SPEC, affinityFrom, profileFrom, profileRows } from './map/lists.ts';
-import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './map/common.ts';
-import type { MapContext, Spec } from './map/common.ts';
+import { AFFINITY_SPEC, affinityFrom, profileFrom, profileRows } from './profile-lists.ts';
+import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './row-columns.ts';
+import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
 import { mintMetaPerson } from './meta-person-write.ts';
 import { ensureAccountPerson, linkedProfileUnit } from './person-links.ts';
 import { addSessionRows } from './session-rows.ts';
 import { accountCollection, keyText } from './storage-keys.ts';
-import { namedIface } from './legacy-namespace.ts';
+import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -78,7 +78,7 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
 
 /** What a profile's rows are written under: the account and its person, read from the database. */
 type ProfileContext = {
-  iface: string;
+  iface: string | null;
   accountId: string;
   person: string;
   accountOnly: boolean;
@@ -197,7 +197,7 @@ export function accountProfileRows(value: Row, ctx: ProfileContext, owner: strin
     retired_at: null,
     owner_key: owner,
   });
-  // The shared profile pieces name their unit as `owner_file` (map/lists.ts): the unit's id is their owner.
+  // The shared profile pieces name their unit as `owner_file` (profile-lists.ts): the unit's id is their owner.
   for (const list of Object.values(rows))
     for (const row of list) {
       if (row.owner_file === undefined) continue;

@@ -452,6 +452,7 @@ function serviceEnv({ worker = false }: { worker?: boolean } = {}) {
   const hot = { config: {} };
   let time = Date.UTC(2026, 9, 24, 12, 0, 0);
   const service = createMemoryDb({
+    iface: () => 'discord',
     hot,
     dataDir: data,
     log: quiet,
