@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { formatTranscript } from '../src/format.ts';
 import { runWebRead } from '../src/tools/tools.ts';
 import { createLookup } from '../src/web/lookup.ts';
+import type { LookupDeps } from '../src/web/lookup.ts';
 import { labels } from './fixtures/labels.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
 import { createPageFetcher } from '../src/web/fetch-page.ts';
@@ -36,7 +37,7 @@ function rig(pages: Record<string, Page> = { [URL_A]: { ok: true, text: WHOLE, t
     },
     now: () => clock.now,
     // The fakes hold the few members these reads use.
-  });
+  } as unknown as LookupDeps);
   return { lookup, clock, fetched, pages };
 }
 
