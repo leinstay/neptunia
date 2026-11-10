@@ -190,6 +190,5 @@ test('a stored effort level on a role whose model takes no reasoning is reported
   fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
   fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ models: { routes } }));
   const health = await run();
-  const line = health.detail.split('\n').find((one) => one.startsWith('embedding') && one.includes('high'));
-  assert.ok(line !== undefined, health.detail);
+  assert.match(health.detail, /^embedding: effort high .*disabled$/m);
 });
