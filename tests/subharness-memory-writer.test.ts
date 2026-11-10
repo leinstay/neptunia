@@ -157,6 +157,44 @@ test('claude gets --effort only when the path has an effort', async () => {
   assert.equal(without.seen[0].args.includes('--effort'), false);
 });
 
+test('claude runs with its native thinking off while llm.subscription.thinking is false', async () => {
+  // Catches: the writer leaving claude's native thinking on, so hidden thinking fills the output cap before the answer.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await runMemoryWriter(CLAUDE, INPUT, { ...deps, thinking: () => false });
+  const [{ env }] = seen;
+  assert.equal(env.MAX_THINKING_TOKENS, '0');
+});
+
+test('claude keeps its native thinking while llm.subscription.thinking is true', async () => {
+  // Catches: the switch forced off whatever the owner set, so the setting does nothing for the writer.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await runMemoryWriter(CLAUDE, INPUT, { ...deps, thinking: () => true });
+  const [{ env }] = seen;
+  assert.equal('MAX_THINKING_TOKENS' in env, false);
+});
+
+test('claude keeps the effort the route names beside the thinking switch', async () => {
+  // Catches: the thinking switch dropping or replacing the route's --effort flag.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await runMemoryWriter({ ...CLAUDE, effort: 'high' }, INPUT, { ...deps, thinking: () => false });
+  const [{ args, env }] = seen;
+  assert.equal(after(args, '--effort'), 'high');
+  assert.equal(env.MAX_THINKING_TOKENS, '0');
+});
+
+test('codex is asked for no reasoning summary only while llm.subscription.thinking is false', async () => {
+  // Catches: the writer's codex run printing a reasoning summary the core's run turns off, or the switch ignoring true.
+  const off = rig(codexAnswers(JSON.stringify({ answer: ANSWER })));
+  await runMemoryWriter(CODEX, INPUT, { ...off.deps, thinking: () => false });
+  const [{ args: offArgs }] = off.seen;
+  assert.ok(offArgs.includes('model_reasoning_summary="none"'));
+  assert.equal(after(offArgs, '-c'), 'model_reasoning_effort=high');
+  const on = rig(codexAnswers(JSON.stringify({ answer: ANSWER })));
+  await runMemoryWriter(CODEX, INPUT, { ...on.deps, thinking: () => true });
+  const [{ args: onArgs }] = on.seen;
+  assert.equal(onArgs.includes('model_reasoning_summary="none"'), false);
+});
+
 test('claude runs her own binary with her own home and no key of the core in its environment', async () => {
   // Catches: the writer run on the installing user's claude, or the child handed the core's OpenRouter key.
   const before = process.env.OPENROUTER_CORE_KEY;

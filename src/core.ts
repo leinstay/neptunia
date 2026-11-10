@@ -157,7 +157,8 @@ import { helpOfInstalled } from './subharness/place.ts';
 import { DEFAULT_BASE_URL } from './subharness/models.ts';
 import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usage.ts';
 import { deferModeToUnit } from './setup/install.ts';
-import { REPLY_CHECK_MS } from './subharness/control.ts';
+import { replyCheckOptions } from './subharness/control.ts';
+import { isNativeThinking } from './subharness/thinking.ts';
 import { coreSubscription } from './subharness/subscription-client.ts';
 import { createLoginState } from './subharness/login-state.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
@@ -502,6 +503,7 @@ async function buildCore(
       privateDir: paths.privateDir,
       runChild: runChildProcess,
       workDir: path.join(os.tmpdir(), 'neptunia-memory'),
+      thinking: () => isNativeThinking(hot.config),
     },
     direct: directLlm,
     record: (entry) => usage.record(entry),
@@ -1357,13 +1359,16 @@ async function buildCore(
   const pauseControl = reasonedPause({ run: ownerOp, store });
   // One run of the installed codex or claude for a check: the subharness's `/subharness` checks and the memory probe.
   const runSubharnessBackend = (backend: 'codex' | 'claude', brief: string, model?: string, effort?: EffortLevel) =>
-    createInstalledBackend(backend, paths.privateDir).run(brief, {
-      cwd: os.tmpdir(),
-      timeoutMs: REPLY_CHECK_MS,
-      sandbox: 'read-only',
-      ...(model === undefined ? {} : { model }),
-      ...(effort === undefined ? {} : { effort }),
-    });
+    createInstalledBackend(backend, paths.privateDir).run(
+      brief,
+      replyCheckOptions({
+        backend,
+        ...(model === undefined ? {} : { model }),
+        ...(effort === undefined ? {} : { effort }),
+        config: hot.config,
+        cwd: os.tmpdir(),
+      })
+    );
   const keysCommands = createKeysCommands({
     store: keyStore,
     ring: chainRing,

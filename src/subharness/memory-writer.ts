@@ -7,7 +7,7 @@
 // (`chainRoute`). A run that
 // fails rejects with an Error whose `code` says why, `not-logged-in` when claude asks for a login, which the sweep records
 // as it records a failed request. The child gets the backend's home and the plain variables of `childEnvOf`, never a key
-// of the core. Log lines carry the backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
+// of the core. Native thinking follows `llm.subscription.thinking` as in her turns (src/subharness/thinking.ts). Log lines carry the backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
 // one. Claude 2.1.317 enforces `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (measured 2026-11-05: with 20 a run ended `is_error` at 80
 // output tokens, with none 436 at `end_turn`), so the cap goes there. Codex 0.164.0 has no such control, so its gap is
 // reported, and nothing trims the answer instead.
@@ -26,6 +26,7 @@ import type { RunOutcome } from './login-state.ts';
 import { memoryPath } from './memory-path.ts';
 import type { MemoryPath, SubharnessMemoryPath } from './memory-path.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
+import { nativeThinkingCodexArgs, nativeThinkingEnv } from './thinking.ts';
 
 /** The shape of codex's final message (`--output-schema`): the whole answer the request's prompt asks for, thinking and tags included, as one string. */
 export const MEMORY_ANSWER_SCHEMA = {
@@ -54,6 +55,11 @@ export type MemoryWriterDeps = {
   runChild: ChildRunner;
   /** The run's working directory; the codex schema file and final-message file go into a fresh folder inside it, removed after the run. */
   workDir: string;
+  /**
+   * Whether the run keeps the model's native thinking, read at each run: `llm.subscription.thinking`
+   * (src/subharness/thinking.ts). Absent, the run has it off, as the setting's default does.
+   */
+  thinking?: () => boolean;
 };
 
 /** How the writer's run on a backend compares with the direct request, whose limit and system text the request enforces. */
@@ -127,7 +133,7 @@ function claudeArgs(path: SubharnessMemoryPath, system: string): Array<string> {
 }
 
 /** codex: read-only whatever the agents' modes are, the answer schema and the final-message file. */
-function codexArgs(path: SubharnessMemoryPath, schemaFile: string, outFile: string): Array<string> {
+function codexArgs(path: SubharnessMemoryPath, schemaFile: string, outFile: string, thinking: boolean): Array<string> {
   return [
     'exec',
     '--skip-git-repo-check',
@@ -140,6 +146,7 @@ function codexArgs(path: SubharnessMemoryPath, schemaFile: string, outFile: stri
     '-m',
     path.model,
     ...(path.effort === null ? [] : ['-c', `model_reasoning_effort=${path.effort}`]),
+    ...nativeThinkingCodexArgs(thinking),
   ];
 }
 
@@ -228,12 +235,17 @@ export async function runMemoryWriter(
     const schemaFile = nodePath.join(dir, 'schema.json');
     const outFile = nodePath.join(dir, 'final.txt');
     const codex = path.backend === 'codex';
+    const thinking = deps.thinking?.() ?? false;
     if (codex) fs.writeFileSync(schemaFile, JSON.stringify(MEMORY_ANSWER_SCHEMA));
     const outcome = await markedRun(deps.privateDir, path.backend, () =>
       deps.runChild({
         binary: place.binary,
-        args: codex ? codexArgs(path, schemaFile, outFile) : claudeArgs(path, input.system),
-        env: childEnvOf({ ...place.env, ...outputLimitEnv(path.backend, input.maxOutputTokens) }),
+        args: codex ? codexArgs(path, schemaFile, outFile, thinking) : claudeArgs(path, input.system),
+        env: childEnvOf({
+          ...place.env,
+          ...nativeThinkingEnv(path.backend, thinking),
+          ...outputLimitEnv(path.backend, input.maxOutputTokens),
+        }),
         stdin: codex ? `${input.system}\n\n${input.user}` : input.user,
         cwd: dir,
         timeoutMs: input.timeoutMs,

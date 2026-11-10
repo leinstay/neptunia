@@ -143,10 +143,10 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'llm.subscription.thinking',
     'types': ['boolean'],
-    'reader': 'src/subharness/subscription-client.ts',
+    'reader': 'src/subharness/thinking.ts',
     'default': false,
     'text':
-      "`false` turns Claude's native thinking off with `MAX_THINKING_TOKENS=0` and asks Codex for no reasoning summary. Codex has no switch that turns a reasoning model's thinking off. Read at the start of each run",
+      "Whether every harness run of a model role keeps the model's native thinking: her turns, the memory writer's sessions, description reviews and bind merges, and the one-reply checks and probes of a harness. `false` runs Claude with `MAX_THINKING_TOKENS=0` and asks Codex for no reasoning summary. A route's effort flag goes to the CLI as the route sets it. Codex has no switch that turns a reasoning model's thinking off, and Codex's checks keep their summary. The errand and development agents keep their reasoning. Read at the start of each run",
   },
   {
     'key': 'llm.subscription.holdMs',

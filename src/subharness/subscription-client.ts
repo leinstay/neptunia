@@ -36,6 +36,7 @@ import type { LoginState, RunOutcome } from './login-state.ts';
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from './mcp-server.ts';
 import type { BridgeAnswer, BridgeCall } from './mcp-server.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
+import { isNativeThinking, nativeThinkingCodexArgs, nativeThinkingEnv } from './thinking.ts';
 import { harnessPathOf } from './memory-path.ts';
 import type { SubharnessMemoryPath } from './memory-path.ts';
 
@@ -266,7 +267,7 @@ function codexArgs(
     ...set('features.apply_patch_freeform=false'),
     ...set('web_search="disabled"'),
     ...nep,
-    ...(thinking ? [] : set('model_reasoning_summary="none"')),
+    ...nativeThinkingCodexArgs(thinking),
   ];
 }
 
@@ -298,7 +299,7 @@ function settingsOf(llm: Rec): { thinking: boolean; holdMs: number } {
   const own = rec(llm.subscription);
   const hold = num(own.holdMs);
   return {
-    thinking: own.thinking === true,
+    thinking: isNativeThinking({ llm }),
     holdMs: hold > 0 ? hold : HOLD_MS_DEFAULT,
   };
 }
@@ -717,7 +718,7 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
     const env = childEnvOf(
       {
         ...place.env,
-        ...(route.backend === 'claude' && !settings.thinking ? { MAX_THINKING_TOKENS: '0' } : {}),
+        ...nativeThinkingEnv(route.backend, settings.thinking),
         ...outputLimitEnv(route.backend, maxOutput > 0 ? maxOutput : undefined),
       },
       deps.hostEnv
