@@ -11,7 +11,6 @@ import { createStore } from '../src/memory/store.ts';
 import { fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { fixture, kindNamed, observeLine, tell } from './fixtures/media-memory.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import type { Rec } from './fixtures/describe-fakes.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
 import { chainsOf } from './fixtures/chains.ts';
 
@@ -47,7 +46,7 @@ test('a transcript with no quotation marks stays as heard: one request and no ma
   const { descriptions } = await describer.describeMany('g1', [item]);
   assert.equal(descriptions.get('v1'), UNQUOTED);
   assert.equal(llm.calls.length, 1);
-  assert.equal((store.getMediaCache('g1') as Record<string, Rec>).v1.offScript, undefined);
+  assert.equal(store.mediaEntry('g1', 'v1')?.offScript, undefined);
 });
 
 test('what she voiced stays in its own language, origin voiced, with no later text form over it', () => {

@@ -14,6 +14,7 @@ import { completionOf } from './fixtures/tool-answers.ts';
 import '../src/tools/operations/index.ts';
 import { onWorld, useIface, useSelf, world } from './fixtures/turn-world.ts';
 import type { Channel } from './fixtures/turn-world.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 useIface('fake');
 useSelf('self-id');
@@ -60,7 +61,7 @@ function fakeStore() {
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     getSelfreflection: () => ({ posts: [], updatedAt: 0 }),
     appendSelfreflectionPost: (post: Recorded['post']) => appended.push({ post }),
     state: { data: {}, markDirty() {} },

@@ -61,7 +61,7 @@ export type ActContext = {
   store: {
     getPings?: (placeId: string, accountId: string) => PingState;
     getPlace?: (placeId: string) => { emojiUsage?: unknown } | null | undefined;
-    getMediaCache?: (placeId: string) => object | null | undefined;
+    mediaEntries?: (placeId: string, keys: Iterable<string>) => object;
   };
   rng: () => number;
   clock: () => number;
@@ -217,6 +217,12 @@ export function createAct(ctx: ActContext): Act {
     emojiInventory,
     recordOwnParticipation,
   } = ctx;
+
+  /** The describer's cached captions of the emoji she may pick, by their `emoji:` keys (store.mediaEntries). */
+  function emojiCacheOf(placeId: string): Record<string, unknown> | null {
+    const keys = emojiInventory().map((one) => `emoji:${one.id}`);
+    return (store.mediaEntries?.(placeId, keys) as Record<string, unknown> | undefined) ?? null;
+  }
 
   /** A member's ping state in `placeId` (store.getPings); a private chat has none. */
   function pingStateIn(placeId: string, dmChat: boolean): (accountId: string) => PingState {
@@ -422,7 +428,7 @@ export function createAct(ctx: ActContext): Act {
               ? {
                   emoji: emojiInventory(),
                   emojiUsage: store.getPlace?.(placeId)?.emojiUsage,
-                  emojiCache: (store.getMediaCache?.(placeId) as Record<string, unknown> | null | undefined) ?? null,
+                  emojiCache: emojiCacheOf(placeId),
                 }
               : {}),
           })

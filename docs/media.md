@@ -1,10 +1,10 @@
 # Media and search
 
-The persona uses descriptions of media as durable conversational evidence. It does not need to watch the same image again on every turn. Runtime caches keep active work small; successful description versions remain in the database.
+The persona uses descriptions of media as durable conversational evidence. It does not need to watch the same image again on every turn. A description lives on its item's row of `media` and nowhere else.
 
 ## Descriptions and originals
 
-A saved description can be reused after a restart or cache eviction. Explicit rewatching creates another description version. A failed refresh does not erase the successful version already stored.
+A saved description is reused after a restart or after the cache's cap retired its row: `getMediaDescription` reads it from the retired row, and the describer writes it back. An explicit rewatch replaces the entry with its new answer. A failed refresh keeps the successful description and stamps it with the failure.
 
 The engine does not promise to download every attachment it encounters. Selfreflection originals are preserved under `data/media/`, with database references and checksums. Every file of the owner's command line chat, in both directions, is copied to `data/media/cli/` by `src/chat/kept-media.ts`, and the `path` of its `media` row names the copy ([cli](cli.md#kept-files)). A GIF of the library keeps every link it was seen under in the `extra` of its `media` row, and `src/memory/gif-keeper.ts` caches its file under `data/media/gifs/` when a download gives one. `path` on a `media` row is null or a file under `media/`. The vector of a GIF's caption is a row of `vectors` under `gif:<item id>`, read by `src/memory/db/gif-vectors.ts`, so a flush of the library writes no vector. A cached description, an external URL and a preserved original are different things when preparing a backup.
 

@@ -69,9 +69,13 @@ function buildGifBackfill({
    */
   async function describeTop(placeId: string, pictures: Map<string, MediaItem>, limit: number) {
     if (!describer || typeof describer.describeMany !== 'function' || limit <= 0) return 0;
-    const cache = store.getMediaCache(placeId);
+    const ranked = rankGifs(store.getGifs(), GIF_HALF_LIFE_DAYS);
+    const cache = store.mediaEntries(
+      placeId,
+      ranked.map((entry) => entry.itemId)
+    );
     const items: Array<MediaItem> = [];
-    for (const entry of rankGifs(store.getGifs(), GIF_HALF_LIFE_DAYS)) {
+    for (const entry of ranked) {
       if (items.length >= limit) break;
       const cached = cache?.[entry.itemId];
       if (cached && !cached.miss && typeof cached.text === 'string' && cached.text.trim()) continue;

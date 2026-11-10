@@ -794,7 +794,8 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     // The transcript's GIF handles: the shared library.
     gifs: typeof store.getGifs === 'function' ? (store.getGifs() ?? null) : null,
     // The cached captions of a custom emoji and of a library GIF in the transcript.
-    mediaCache: emoji || typeof store.getGifs === 'function' ? (store.getMediaCache(libraryPlace) ?? null) : null,
+    mediaCache:
+      emoji || typeof store.getGifs === 'function' ? (key: string) => store.mediaEntry(libraryPlace, key) : null,
     elsewhereDestination: null,
     tasks: tasks.input,
     // `<senses>`: where the persona keeps its selfreflection, when one is set.

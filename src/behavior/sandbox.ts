@@ -156,7 +156,7 @@ const HIDDEN_KINDS = ['episodes', 'affinity', 'reasons', 'details', 'interests',
 /**
  * Every memory store method a sandbox turn calls (`liveView`, the GIF library
  * and the describer cache). A read-only store (a tool's) allows exactly these.
- * `getRecent`, `getGifs` and `getMediaCache` may be missing: the turn then goes
+ * `getRecent`, `getGifs` and `mediaEntries` may be missing: the turn then goes
  * on without the recent lines, the GIF library or the captions.
  */
 export const SANDBOX_STORE_READS = Object.freeze([
@@ -167,7 +167,7 @@ export const SANDBOX_STORE_READS = Object.freeze([
   'getLore',
   'getRecent',
   'getGifs',
-  'getMediaCache',
+  'mediaEntries',
   // The addresses of src/memory/store-addresses.ts: each reads a row or spells an id, and writes nothing.
   'dmHomeOf',
   'placeOfChat',
@@ -331,7 +331,7 @@ function mediaItemsOf(message: Line, sites: unknown) {
  * `{ state: 'watched', text }` plus the entry's `watchedSeconds` / `totalSeconds` when stored. Without a cache, empty maps. Pure.
  * @param history  Normalized messages (src/protocol/events.js#Message).
  * @param [options]  `cache`: the
- *   describer's cache (`store.getMediaCache(placeId)`), or null.
+ *   describer's cache (`store.mediaEntries(placeId)`), or null.
  */
 export function replayMedia(
   history: Array<Line>,

@@ -3,6 +3,7 @@ import type { LineVectorsWrite } from './db/line-vectors.ts';
 import type { RecordLinesWrite } from './db/record-lines.ts';
 import type { JournalLinesWrite } from './db/journal-lines.ts';
 import type { ArchiveLinesWrite } from './db/archive-lines.ts';
+import type { MediaEntryWrite } from './db/media-store.ts';
 import type { AccountProfileWrite } from './db/account-profile.ts';
 import type { ProseVersionsWrite } from './db/prose-versions.ts';
 import type { PrivateLayerWrite } from './db/private-layer.ts';
@@ -80,6 +81,7 @@ export type MemoryDb = {
   writeParticipation?: (write: ParticipationWrite) => Promise<unknown>;
   writeRecentLines?: (write: RecentLinesWrite) => Promise<unknown>;
   writeSelfreflection?: (write: SelfreflectionWrite) => Promise<unknown>;
+  writeMediaEntry?: (write: MediaEntryWrite) => Promise<unknown>;
   memoryWrite?: (update: unknown) => Promise<unknown>;
   writeGeneration?: () => number;
   onAffinityMoves?: (listener: (moves: Array<Row>) => void) => () => void;

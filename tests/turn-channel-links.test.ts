@@ -8,6 +8,7 @@ import { handleOf } from '../src/behavior/handles.ts';
 import { labels } from './fixtures/labels.ts';
 import { world } from './fixtures/turn-world.ts';
 import { createTurnRunner } from './fixtures/turn-runner.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const LINKED_ID = '323456789012345678';
@@ -60,7 +61,7 @@ function fakeStore() {
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
 }

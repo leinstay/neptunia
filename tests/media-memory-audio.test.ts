@@ -105,7 +105,7 @@ for (const kind of ['voice', 'audio']) {
     const { descriptions } = await describer.describeMany('g1', [voiceItem(kind)]);
     assert.equal(descriptions.size, 0);
     assert.equal(llm.calls.length, 0);
-    assert.equal((store.getMediaCache('g1') as Record<string, Row>)[`${kind}-1`].reason, 'download');
+    assert.equal(store.mediaEntry('g1', `${kind}-1`)?.reason, 'download');
   });
 
   test(`a refused ${kind} is never fetched again, however late`, async () => {
@@ -223,7 +223,7 @@ test('a description that fails twice is kept and marked, with no third request',
   const { descriptions } = await describer.describeMany('g1', [item]);
   assert.equal(llm.calls.length, 2);
   assert.equal(descriptions.get('p1'), 'маяк на скале у моря');
-  assert.equal((store.getMediaCache('g1') as Record<string, Row>).p1.offScript, true);
+  assert.equal(store.mediaEntry('g1', 'p1')?.offScript, true);
 });
 
 test('text quoted in its own language is the standard: one request, no mark', async () => {
@@ -232,5 +232,5 @@ test('text quoted in its own language is the standard: one request, no mark', as
   const { descriptions } = await describer.describeMany('g1', [item]);
   assert.equal(llm.calls.length, 1);
   assert.equal(descriptions.get('p1'), quoted);
-  assert.equal((store.getMediaCache('g1') as Record<string, Row>).p1.offScript, undefined);
+  assert.equal(store.mediaEntry('g1', 'p1')?.offScript, undefined);
 });

@@ -13,6 +13,7 @@ import type { TurnParams } from '../../src/turn/outcome.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { createDiscordInterface } from '../../interfaces/discord/index.ts';
 import { chainsOnDefaults } from './chains.ts';
+import { objectMediaCache } from '../../src/memory/store-media.ts';
 
 // The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -150,7 +151,7 @@ export function fakeStore({
     listChannels: () => channels,
     listUserProfiles: () => Object.values(userProfiles),
     getLore: () => loreEntries,
-    getMediaCache: () => mediaCache,
+    ...objectMediaCache(mediaCache),
     state: { data: {}, markDirty() {} },
   };
 }

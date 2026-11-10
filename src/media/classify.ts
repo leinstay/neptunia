@@ -440,7 +440,7 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  *
  * `context.gifFields` is that GIF's three caption fields (`{ reaction,
  * action, screen }`, already cut for display, see
- * src/behavior/prompt.ts#gifFieldsMap): a `gif` item with a handle and a
+ * src/turn/request/emoji-gifs.ts#gifFieldsLookup): a `gif` item with a handle and a
  * caption whose `reaction` or `screen` is non-empty renders `gifKnownFields`
  * (`{ id, text, reaction, action, screen }`, `text` being the caption
  * gifKnown would show) in place of `gifKnown`; with that key blanked

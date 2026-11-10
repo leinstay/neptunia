@@ -21,6 +21,7 @@ import { completionOf } from './tool-answers.ts';
 import { freshWorld, onWorld, useIface, world } from './turn-world.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 import { chainsOnDefaults } from './chains.ts';
+import { objectMediaCache } from '../../src/memory/store-media.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -189,7 +190,7 @@ export async function skillTurn({
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
   const { port } = world();

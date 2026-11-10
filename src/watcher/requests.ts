@@ -371,13 +371,18 @@ export function standardFacts(db: Db, window: { from: number; to: number }): Sta
        FROM day WHERE what = 'turn' AND json_valid(extra) AND at > ? AND at <= ?`
     )
     .get(...span);
+  // A description lives on its item's row of `media`, one entry per cache key (src/memory/db/media-store.ts); its
+  // `describedAt`, else its `ts`, says when the describer wrote it.
   const described = db
     .prepare(
-      `SELECT COALESCE(SUM(json_extract(extra, '$.entry.redescribed') = 1), 0) AS redescribed,
-         COALESCE(SUM(json_extract(extra, '$.entry.offScript') = 1), 0) AS marked
-       FROM description_versions WHERE origin = 'media' AND json_valid(extra) AND written_at > ? AND written_at <= ?`
+      `SELECT COALESCE(SUM(json_extract(j.value, '$.redescribed') = 1), 0) AS redescribed,
+         COALESCE(SUM(json_extract(j.value, '$.offScript') = 1), 0) AS marked
+       FROM media m, json_each(m.extra, '$.cache') j
+       WHERE json_valid(m.extra)
+         AND COALESCE(json_extract(j.value, '$.describedAt'), json_extract(j.value, '$.ts')) > ?
+         AND COALESCE(json_extract(j.value, '$.describedAt'), json_extract(j.value, '$.ts')) <= ?`
     )
-    .get(...span);
+    .get(window.from, window.to);
   return {
     thinkMissing: Number(turns?.thinkMissing ?? 0),
     thinkLeaked: Number(turns?.thinkLeaked ?? 0),

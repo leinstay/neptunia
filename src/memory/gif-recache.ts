@@ -396,11 +396,13 @@ function buildGifRecache({
     const blocker = typeof describer.gifWatchBlocker === 'function' ? describer.gifWatchBlocker() : null;
     if (blocker) return { ok: false, reason: blocker };
 
-    const cache = store.getMediaCache(placeId);
+    const cache = store.mediaEntries(placeId);
     const gifs = store.getGifs();
     const dropped = oneFrameGifKeys(cache, gifs);
-    for (const key of dropped) delete cache[key];
-    if (dropped.length > 0) store.markMediaCacheDirty(placeId);
+    for (const key of dropped) {
+      store.dropMediaEntry(placeId, key);
+      delete cache[key];
+    }
 
     const queue = recacheQueue(gifs, cache, DEFAULT_PER_RUN);
     log.info('gif-recache: started', { dropped: dropped.length, queued: queue.length });
@@ -524,7 +526,7 @@ function buildGifRecache({
       ? Math.min(RECACHE_DAYS.max, Math.max(RECACHE_DAYS.min, days))
       : RECACHE_DAYS.default;
     const nowMs = now();
-    const keys = pickStaleDescriptions(store.getMediaCache(placeId), {
+    const keys = pickStaleDescriptions(store.mediaEntries(placeId), {
       nowMs,
       days: span,
       cutoffMs: recacheCutoffMs(hot.config),

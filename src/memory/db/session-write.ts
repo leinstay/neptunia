@@ -140,6 +140,7 @@ import { applyPrivateLayerWrite } from './private-layer.ts';
 import { applyPlaceNotesWrite } from './place-notes.ts';
 import { applyChannelEntryWrite } from './channel-entry.ts';
 import { applyPlaceLoreWrite } from './place-lore.ts';
+import { applyMediaEntryWrite } from './media-store.ts';
 import { applyParticipationWrite } from './participation-episodes.ts';
 import { applyRecentLinesWrite } from './recent-lines.ts';
 import { applySelfreflectionWrite } from './selfreflection-entries.ts';
@@ -1000,6 +1001,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['recent-lines', applyRecentLinesWrite],
   // Her selfreflection: a whole value or one appended post (selfreflection-entries.ts).
   ['selfreflection-entries', applySelfreflectionWrite],
+  // One entry of the describer's cache, put on its row or dropped (media-store.ts).
+  ['media-entry', applyMediaEntryWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',

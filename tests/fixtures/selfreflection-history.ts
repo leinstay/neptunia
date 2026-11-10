@@ -218,9 +218,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     store.appendSelfreflectionPost(entryPost as Parameters<typeof store.appendSelfreflectionPost>[0], { max: 40 });
   }
   // The describer's cache: what she saw in the picture, by its attachment id.
-  const cache = store.getMediaCache(placeOfRoot(store, ROOT, 'fake')) as Record<string, unknown>;
-  cache[PICTURE.id] = { text: PICTURE.description, ts: NOW - 2 * DAY + 5000 };
-  store.markMediaCacheDirty(placeOfRoot(store, ROOT, 'fake'));
+  store.putMediaEntry(placeOfRoot(store, ROOT, 'fake'), PICTURE.id, { text: PICTURE.description, ts: NOW - 2 * DAY + 5000 });
   store.flush();
   await store.flushSettled({});
   for (const post of [...ENTRIES.flatMap((entry) => entry.posts).map((one) => ({ post: one, self: true })), { post: ALICE, self: false }]) {
@@ -357,10 +355,9 @@ export function historyRunner(
  */
 function cacheDescriber(store: HistoryMemory['store']) {
   const cached = (placeId: string, items: ReadonlyArray<{ itemId?: unknown }>) => {
-    const cache = store.getMediaCache(placeId) as Record<string, { text?: unknown } | undefined>;
     const found = new Map<string, string>();
     for (const item of items) {
-      const entry = typeof item.itemId === 'string' ? cache[item.itemId] : undefined;
+      const entry = typeof item.itemId === 'string' ? store.mediaEntry(placeId, item.itemId) : undefined;
       if (typeof item.itemId === 'string' && typeof entry?.text === 'string') found.set(item.itemId, entry.text);
     }
     return found;

@@ -9,6 +9,7 @@ import { createFindMeaning } from '../src/memory/db/graph-find.ts';
 import { findGifs, mediaFind, mediaFindText, runMediaFind } from '../src/tools/tools.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present } from './fixtures/loose-types.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 type GifEntryLine = Parameters<typeof gifLine>[0];
 
@@ -48,7 +49,7 @@ const LIBRARY = [
 function storeOf({ gifs, cache }: Record<string, Untyped>) {
   return {
     getGifs: () => gifs,
-    getMediaCache: () => cache,
+    ...objectMediaCache(cache),
     findGif: (handle: string) => findGif(gifs, handle),
   };
 }

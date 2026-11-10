@@ -9,6 +9,7 @@ import { runWebRead } from '../src/tools/tools.ts';
 import { createLookup } from '../src/web/lookup.ts';
 import type { LookupDeps } from '../src/web/lookup.ts';
 import { labels } from './fixtures/labels.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 import { createPageFetcher } from '../src/web/fetch-page.ts';
 
 const PLACE = 'g1';
@@ -26,7 +27,7 @@ function rig(pages: Record<string, Page> = { [URL_A]: { ok: true, text: WHOLE, t
   const cache: Record<string, unknown> = {};
   const lookup = createLookup({
     hot: { config: { web: { links: { fetchTimeoutMs: 1000, readCacheHours: 2 } } }, prompts: {} },
-    store: { getMediaCache: () => cache, markMediaCacheDirty: () => {} },
+    store: { ...objectMediaCache(cache) },
     llm: { complete: () => Promise.reject(new Error('reading a page sends no model request')) },
     pageFetcher: {
       fetchText: (url: string) => {
@@ -166,12 +167,12 @@ function reader(routes: Record<string, Route>) {
   const cache: Record<string, unknown> = {};
   const lookup = createLookup({
     hot: { config: { web: { links: { fetchTimeoutMs: 1000, readCacheHours: 24 } } }, prompts: {} },
-    store: { getMediaCache: () => cache, markMediaCacheDirty: () => {} },
+    store: objectMediaCache(cache),
     llm: { complete: () => Promise.reject(new Error('web.read sends no model request')) },
     pageFetcher,
     now: () => 1000,
     // The fakes hold the few members web.read uses.
-  } as unknown as LookupDeps);
+  });
   return {
     requested,
     cache,

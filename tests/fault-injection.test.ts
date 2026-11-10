@@ -39,6 +39,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 /** The memory database of each data directory used here (a restart opens the same one); closed when the file is done. */
 const MEMORY = new Map<string, ReturnType<typeof openTestMemorySync>>();
@@ -408,7 +409,7 @@ function fakeStore(gifs = null) {
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
   if (gifs)

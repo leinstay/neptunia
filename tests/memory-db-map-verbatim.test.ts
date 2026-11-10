@@ -155,7 +155,6 @@ test('classify names the mapper and format of every memory path', () => {
     ['intentions-archive.jsonl', 'intentions', 'jsonl'],
     ['errands.json', 'errands', 'json'],
     ['errands.jsonl', 'errands', 'jsonl'],
-    ['media.json', 'media', 'json'],
     ['gifs.json', 'gifs', 'json'],
     ['voice.json', 'verbatim', 'json'],
     ['buffer.json', 'verbatim', 'json'],

@@ -25,6 +25,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 useIface('fake');
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
@@ -117,7 +118,7 @@ async function innerTurn({
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
   const service = errands

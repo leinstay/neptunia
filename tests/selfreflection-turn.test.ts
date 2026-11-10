@@ -35,6 +35,7 @@ import {
   gistOf,
   partOf,
 } from './fixtures/selfreflection-frame.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { createJournal } from '../src/memory/journal.ts';
 import { NOW as NOW_ID, sceneHot, sceneLlm, sceneMemory, sceneWorld } from './fixtures/selfreflection-scene.ts';
@@ -181,7 +182,7 @@ function fakeStore({ posts = [], data = {} }: { posts?: Array<Rec>; data?: Rec }
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     getSelfreflection: () => ({ posts, updatedAt: 0 }),
     appendSelfreflectionPost: (post: Untyped, opts: Untyped) => appended.push({ post, opts }),
     state: { data: { ...data }, markDirty() {} },

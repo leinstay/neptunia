@@ -46,8 +46,7 @@ function rig(answers: ReadonlyArray<string>) {
     videoFetcher,
     state: fakeState(),
   });
-  const entryOf = (key: string): Entry | undefined =>
-    (store.getMediaCache('g1') as Record<string, Entry | undefined>)[key];
+  const entryOf = (key: string): Entry | undefined => store.mediaEntry('g1', key);
   return { describer, llm, entryOf };
 }
 
@@ -125,7 +124,7 @@ test('a second request that fails keeps the first description, marked', async ()
     state: fakeState(),
   });
   await describer.describe('g1', PICTURE);
-  const entry = (store.getMediaCache('g1') as Record<string, Entry>).a1;
-  assert.equal(entry.text, GREEK);
-  assert.equal(entry.offScript, true);
+  const entry = store.mediaEntry('g1', 'a1') as Entry | undefined;
+  assert.equal(entry?.text, GREEK);
+  assert.equal(entry?.offScript, true);
 });

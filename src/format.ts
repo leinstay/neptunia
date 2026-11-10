@@ -199,8 +199,8 @@ export function formatDuration(
  * a GIF (attachment or embed) the library knows renders `transcript.gifKnown` /
  * `gifKnownNoText` with its handle; with the key in question blanked it
  * renders `gifDescribed` / `gif` instead. `context.gifFields` is an optional
- * `Map` of GIF ids to their three caption fields (`{ reaction, action, screen }`,
- * cut for display, src/behavior/prompt.ts#gifFieldsMap): such a GIF with a
+ * read by GIF id of their three caption fields (`{ reaction, action, screen }`,
+ * cut for display, src/turn/request/emoji-gifs.ts#gifFieldsLookup): such a GIF with a
  * handle and a non-empty reaction or on-screen text renders
  * `transcript.gifKnownFields` (fillGifFields: an empty field leaves out its
  * separator); with that key blanked it renders `gifKnown` instead.
@@ -822,7 +822,7 @@ export type TranscriptOptions = {
   videos?: Map<string, VideoState>;
   reads?: Map<string, string>;
   gifHandles?: Map<string, string>;
-  gifFields?: Map<string, { reaction: string; action: string; screen: string }>;
+  gifFields?: { get: (id: string) => { reaction: string; action: string; screen: string } | undefined };
   imageAnswers?: Map<string, { question: string; text: string }> | null;
   seeReactions?: boolean;
   reactionsPerMessage?: number;
@@ -870,7 +870,7 @@ type MediaContext = Pick<
  *   (src/memory/gifs.js#gifHandleMap); a GIF it knows renders `transcript.gifKnown` /
  *   `transcript.gifKnownNoText` with its handle, falling back to `gifDescribed` / `gif`
  *   when the labels lack that key.
- *   GIF id -> its three caption fields, cut for display (src/behavior/prompt.ts#gifFieldsMap);
+ *   GIF id -> its three caption fields, cut for display (src/turn/request/emoji-gifs.ts#gifFieldsLookup);
  *   a GIF with a handle, a caption and a non-empty reaction or on-screen text renders
  *   `transcript.gifKnownFields`, falling back to `gifKnown` when the labels lack that key.
  * @param [options.imageAnswers]  Picture id -> a

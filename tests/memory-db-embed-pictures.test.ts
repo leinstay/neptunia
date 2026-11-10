@@ -1,13 +1,13 @@
 // A picture an embed carries is an item of its line (src/memory/db/media-store.ts#writeLineMedia through
 // src/memory/db/observe.ts): on arrival and when the platform sends the embed in a later update of the message. The
-// describer's row of the same reference (media-store.ts#writeMediaCache) is adopted, never doubled, and a link's preview
+// describer's row of the same reference (media-store.ts#writeMediaEntry) is adopted, never doubled, and a link's preview
 // picture stays part of its link. The embeds have the shapes the Discord package hands the core: a GIF posted as an
 // address is an embed with the `<message id>#e<N>` reference, a page link carries its own `link:` key. The writer does all
 // of this already: these tests pin it for the change that makes a late embed reach it (tests/pipeline-edits.test.ts).
 // Synthetic content on a temp database.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lineMedia, writeMediaCache } from '../src/memory/db/media-store.ts';
+import { lineMedia, writeMediaEntry } from '../src/memory/db/media-store.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
@@ -18,7 +18,7 @@ import type { Row } from '../src/memory/db/types.ts';
 const CHAT = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
 const POSTED = 'https://tenor.example.invalid/view/spinning-cat';
 const TOLD = 'a grey cat spinning on a kitchen table';
-const CACHE_OWNER = 'media-cache:test';
+const CACHE_HOLDER = 'place:test';
 
 /** A GIF posted as an address: the embed the platform builds for it, under the message's own embed index. */
 const gifEmbed = (native: string, index = 0): Row => ({
@@ -72,7 +72,7 @@ const rowsNaming = (env: Env, ref: string) =>
 
 /** What the describer's cache writes for a message whose line holds no item of it yet: a row the line may adopt. */
 function describedFirst(env: Env, ref: string): void {
-  writeMediaCache(env.db, { owner: CACHE_OWNER, iface: 'discord', value: { [ref]: { text: TOLD, ts: AT } }, at: AT });
+  writeMediaEntry(env.db, { placeId: CACHE_HOLDER, iface: 'discord', key: ref, entry: { text: TOLD, ts: AT }, at: AT });
   assert.equal(rowsNaming(env, ref).length, 1, 'the describer wrote its row');
 }
 

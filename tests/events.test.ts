@@ -60,6 +60,7 @@ import { memoryAt } from './fixtures/store-kit.ts';
 import { topPlaceSpelled } from '../src/memory/db/ids.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 // Plan 2026-11-04-cli-and-memory B1: `address.attentionMinutes` of the config these tests run under, and a run of `no`
 // verdicts for the tests that show it no longer closes anything.
@@ -1937,7 +1938,7 @@ function fakePrivateStore({
     listUserProfiles: () => [],
     countUsers: () => Object.keys(profiles).length,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
   };
 }
 

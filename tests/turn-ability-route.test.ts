@@ -17,6 +17,7 @@ import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { NOW, coreTurn, fakeStore } from './fixtures/turn-harness.ts';
 import { DRAW_PROMPTS, fakeImages } from './fixtures/turn-draws.ts';
 import { chainsOf, chainsOnDefaults } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 const ABILITY_WORDS = {
   imagesIn: 'A:imagesIn',
@@ -165,7 +166,7 @@ test('with the vision model unset and a core that declares imagesIn, media.look 
     },
   };
   const cache = {};
-  const store = { ...fakeStore(), getMediaCache: () => cache, markMediaCacheDirty() {} };
+  const store = { ...fakeStore(), ...objectMediaCache(cache) };
   // The describer reads the turn's own hot config and prompts, as the core wires it.
   let turnHot: { config: unknown; prompts: unknown } | null = null;
   const hot = {
@@ -351,7 +352,7 @@ async function mediaTurn(base: Record<string, unknown>, attachments: Map<string,
       return Promise.resolve({ text: 'une chose décrite', usage: {}, estimated: 5 });
     },
   };
-  const store = { ...fakeStore(), getMediaCache: () => ({}), markMediaCacheDirty() {} };
+  const store = { ...fakeStore(), ...objectMediaCache({}) };
   let turnHot: { config: unknown; prompts: unknown } | null = null;
   const hot = {
     get config() {

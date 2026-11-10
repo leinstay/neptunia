@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRecord } from '../src/memory/record.ts';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
+import { BASELINE_VERSION } from '../src/memory/db/schema-baseline.ts';
 import { recordLines } from '../src/memory/db/record-lines.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
@@ -329,7 +330,8 @@ test('a stored line whose author no account row holds reads its author back once
     applyMemoryWrite(handle, { kind: 'record-lines', placeId: ROOT, lines: [line], iface: 'synthetic', now: NOW });
     // A line of an older release: its author account was stored by id only, and nothing beside the column.
     db.prepare("UPDATE sources SET extra = NULL WHERE native_id = 'm31'").run();
-    const step = MIGRATIONS.at(-1);
+    // Version 51 by its place in the steps above the baseline (version 45 is the first), not the last step.
+    const step = MIGRATIONS[51 - (BASELINE_VERSION + 1)];
     if (typeof step === 'string') db.exec(step);
     else step?.(db);
     const [stored] = recordLines(db, placeOrPersona('record', ROOT, { partition: dayOf(line) }));

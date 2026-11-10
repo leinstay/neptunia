@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { auditMemory } from '../src/memory/db/audit.ts';
-import { writeMediaCache } from '../src/memory/db/media-store.ts';
+import { writeMediaEntry } from '../src/memory/db/media-store.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
@@ -52,8 +52,8 @@ function observed(env: Env, native: string, links: Array<Row>, edit = false): vo
 
 /** The describer's cache of these keys, each told: rows the observation of their message would find by reference. */
 function described(env: Env, keys: Array<string>): void {
-  const value = Object.fromEntries(keys.map((key) => [key, { text: TOLD, ts: AT }]));
-  writeMediaCache(env.db, { owner: 'media-cache:test', iface: 'discord', value, at: AT });
+  for (const key of keys)
+    writeMediaEntry(env.db, { placeId: 'place:test', iface: 'discord', key, entry: { text: TOLD, ts: AT }, at: AT });
 }
 
 /** The audit's count, read by its name: a report without the count gives undefined, which no expectation equals. */

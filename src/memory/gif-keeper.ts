@@ -21,7 +21,7 @@ type KeeperStore = {
   state?: { data?: { paused?: unknown } };
   getGifs: () => unknown;
   getGifVectors: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
-  getMediaCache: (placeId: string) => Record<string, unknown> | null | undefined;
+  mediaEntry: (placeId: string, key: string) => unknown;
   setGifCaption: (
     key: string,
     described: { caption: string; vector: ArrayLike<number> | null; model?: string | null }
@@ -89,7 +89,7 @@ export function createGifKeeper({
   async function describeEntry(placeId: string, itemId: string): Promise<void> {
     const entry = entryOf(itemId);
     if (!entry) return;
-    const caption = captionOfCached(store.getMediaCache(placeId)?.[itemId]);
+    const caption = captionOfCached(store.mediaEntry(placeId, itemId));
     const hasVector = store.getGifVectors(embedModel()).has(entry.itemId);
     if (!caption || (entry.caption === caption && (hasVector || !embed))) return;
     store.setGifCaption(itemId, { caption, vector: await vectorOf(caption), model: embedModel() });
@@ -109,7 +109,7 @@ export function createGifKeeper({
 
   async function keepPicture(placeId: string, picture: MediaItem): Promise<void> {
     if (paused() || !picture.itemId) return;
-    const held = captionOfCached(store.getMediaCache(placeId)?.[picture.itemId]);
+    const held = captionOfCached(store.mediaEntry(placeId, picture.itemId));
     if (!held && describer) await describer.describeMany(placeId, [picture], { concurrency: 1 });
     await describeEntry(placeId, picture.itemId);
     await fileEntry(picture.itemId, [picture.animationUrl, picture.url]);

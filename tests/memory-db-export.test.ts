@@ -1,12 +1,12 @@
-// Durable media histories outlive the bounded active cache and keep successful refreshes.
+// A paid description outlives the cache's cap and a reopen: it lives on its item's row of `media` (src/memory/store-media.ts),
+// which the cap retires and the describer takes up again, and a failed refresh keeps the success and its cooldown.
 import { placeOfRoot } from '../src/memory/addresses.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDescriber } from '../src/memory/describe.ts';
 import { createStore } from '../src/memory/store.ts';
-import { mediaDescriptionVersions } from '../src/memory/db/export.ts';
-import { hashedKey, MEDIA_CACHE_ENTRIES } from '../src/web/cache.ts';
+import { MEDIA_CACHE_ENTRIES } from '../src/memory/db/media-store.ts';
+import { hashedKey } from '../src/web/cache.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { fakeImageFetcher, fakeLlm, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { chainsOf } from './fixtures/chains.ts';
@@ -42,15 +42,6 @@ async function fixture(responses: Parameters<typeof fakeLlm>[0]) {
     get store() {
       return store;
     },
-    history(cacheKey: string) {
-      const handle = memory.memoryDb.readHandle();
-      assert.ok(handle);
-      return mediaDescriptionVersions(handle, {
-        key: placeCollection('versions', placeOfRoot(store, 'g1'), {
-          selector: { versionKind: 'media', itemId: cacheKey },
-        }),
-      });
-    },
     async reopen() {
       await store.flushSettled();
       const dataDir = memory.dataDir;
@@ -67,29 +58,28 @@ test('an evicted description survives database reopen without another download o
   const run = await fixture([{ text: 'a grey cat' }, { text: 'a red boat' }]);
   try {
     assert.equal(textOf(await run.describer().describe(placeOfRoot(run.store, 'g1'), picture('a1'))), 'a grey cat');
-    const cache = run.store.getMediaCache(placeOfRoot(run.store, 'g1'));
-    for (let n = 0; Object.keys(cache).length < MEDIA_CACHE_ENTRIES; n += 1)
-      cache[`web:${n}`] = { text: 'ordinary cached page', ts: 1 };
+    const place = placeOfRoot(run.store, 'g1');
+    for (let n = 1; n < MEDIA_CACHE_ENTRIES; n += 1)
+      run.store.putMediaEntry(place, `web:${n}`, { text: 'ordinary cached page', ts: 1 });
     run.clock.at += 1000;
-    await run.describer().describe(placeOfRoot(run.store, 'g1'), picture('a2'));
+    await run.describer().describe(place, picture('a2'));
+    await run.store.flushSettled();
+    const cache = run.store.mediaEntries(place);
     assert.deepEqual([Object.keys(cache).length, Object.hasOwn(cache, 'a1')], [MEDIA_CACHE_ENTRIES, false]);
     await run.reopen();
-    assert.equal(Object.hasOwn(run.store.getMediaCache(placeOfRoot(run.store, 'g1')), 'a1'), false);
+    assert.equal(run.store.mediaEntry(placeOfRoot(run.store, 'g1'), 'a1'), undefined);
     assert.equal(textOf(await run.describer().describe(placeOfRoot(run.store, 'g1'), picture('a1'))), 'a grey cat');
     assert.equal(run.llm.calls.length, 2);
     assert.equal(run.imageFetcher.calls.length, 2);
-    assert.equal(Object.keys(run.store.getMediaCache(placeOfRoot(run.store, 'g1'))).length, MEDIA_CACHE_ENTRIES);
-    assert.deepEqual(
-      run.history('a1').map(({ version, entry }) => [version, entry.text]),
-      [[1, 'a grey cat']]
-    );
+    await run.store.flushSettled();
+    assert.equal(Object.keys(run.store.mediaEntries(placeOfRoot(run.store, 'g1'))).length, MEDIA_CACHE_ENTRIES);
   } finally {
     await run.close();
   }
 });
 
-// Refreshing one question must not overwrite its earlier answer or the video's independent summary.
-test('explicit video rewatch preserves successive answers and its base summary across reopen', async () => {
+// Refreshing one question must not overwrite the video's independent summary.
+test('an explicit video rewatch keeps its latest answer and the base summary across reopen', async () => {
   const run = await fixture([{ text: 'someone dances' }, { text: 'rouge' }, { text: 'bleu' }]);
   const question = 'Quelle couleur ?';
   const key = hashedKey('video:v1:q', 'quelle couleur ?');
@@ -107,17 +97,8 @@ test('explicit video rewatch preserves successive answers and its base summary a
     assert.equal(run.llm.calls.length, 3, 'an explicit rewatch after the TTL asks again');
     assert.equal(run.videoFetcher.calls.length, 3);
     await run.reopen();
-    assert.deepEqual(
-      run.history(key).map(({ version, entry }) => [version, entry.question, entry.answer, entry.ts]),
-      [
-        [1, question, 'rouge', T],
-        [2, question, 'bleu', T + 61 * 60_000],
-      ]
-    );
-    assert.deepEqual(
-      run.history('video:v1').map(({ version, entry }) => [version, entry.text, entry.describedAt, entry.model]),
-      [[1, 'someone dances', T, 'fake/video']]
-    );
+    const summary = run.store.getMediaDescription(placeOfRoot(run.store, 'g1'), 'video:v1');
+    assert.deepEqual([summary?.text, summary?.describedAt, summary?.model], ['someone dances', T, 'fake/video']);
     assert.equal(run.store.getMediaDescription(placeOfRoot(run.store, 'g1'), key)?.answer, 'bleu');
     assert.equal(textOf(await run.describer().describeVideo(placeOfRoot(run.store, 'g1'), video)), 'someone dances');
     assert.equal(run.llm.calls.length, 3, 'a base-summary lookup is independent of question refreshes');
@@ -145,7 +126,6 @@ test('failed stale refresh retains its success and cooldown across reopen before
       [retained?.text, retained?.describedAt, retained?.model, retained?.refreshFailedAt],
       ['an old caption', T, 'fake/vision', failedAt]
     );
-    assert.equal(run.history('a1').length, 1, 'a failed attempt creates no successful version');
     run.clock.at += 30 * 60_000;
     assert.equal(textOf(await run.describer().describe(placeOfRoot(run.store, 'g1'), picture('a1'))), 'an old caption');
     assert.equal(run.llm.calls.length, 2, 'the persisted failure stamp still suppresses retry within the hour');
@@ -156,12 +136,10 @@ test('failed stale refresh retains its success and cooldown across reopen before
     );
     assert.equal(run.llm.calls.length, 3);
     await run.reopen();
+    const fresh = run.store.getMediaDescription(placeOfRoot(run.store, 'g1'), 'a1');
     assert.deepEqual(
-      run.history('a1').map(({ version, entry }) => [version, entry.text, entry.describedAt, entry.model]),
-      [
-        [1, 'an old caption', T, 'fake/vision'],
-        [2, 'a fresh caption', failedAt + 61 * 60_000, 'fake/vision'],
-      ]
+      [fresh?.text, fresh?.describedAt, fresh?.model],
+      ['a fresh caption', failedAt + 61 * 60_000, 'fake/vision']
     );
   } finally {
     await run.close();

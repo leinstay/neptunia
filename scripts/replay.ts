@@ -515,6 +515,7 @@
 // error (the message on stderr). Ctrl-C once stops the sampling; twice exits.
 
 import { accountOf, placeOfRoot } from '../src/memory/addresses.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 import { personaJournal, personaRecord } from '../src/behavior/inner/persona-sources.ts';
 import fs from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
@@ -1050,6 +1051,11 @@ function isoOf(ms: number) {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
+/** The describer's cache over a private copy of the media cache: a replay's reads touch the copy, never the store. */
+function privateCacheOf(mediaCache: unknown): ReturnType<typeof objectMediaCache> {
+  return objectMediaCache(structuredClone(mediaCache ?? {}) as Record<string, unknown>);
+}
+
 /**
  * The `--recall` mode: the search classifier's request of a live turn for
  * `trigger` (src/behavior/turn.js#maybeLookup: its classifierContext rebuilt
@@ -1140,11 +1146,7 @@ async function runRecall({
   };
   // The describer's caption cache and the link cache read through a private copy of the media cache
   // (their reads LRU-touch it); no request can leave from them.
-  let cacheCopy = null;
-  const cacheStore = {
-    getMediaCache: () => (cacheCopy ??= structuredClone(mediaCache ?? {})),
-    markMediaCacheDirty() {},
-  };
+  const cacheStore = privateCacheOf(mediaCache);
   const refusing = {
     complete: async () => {
       throw new Error('replay-cli: no request from the caches');
@@ -1754,7 +1756,7 @@ export function searchAvailableOf({
   };
   const lookup = createLookup({
     hot,
-    store: { getMediaCache: refuse, markMediaCacheDirty: refuse },
+    store: { mediaEntry: refuse, putMediaEntry: refuse, dropMediaEntry: refuse },
     llm: { complete: async () => refuse() },
     searches,
     keys: serviceKeys({ env }),
@@ -3926,7 +3928,7 @@ export function createReplayTools({
   const scopeOf = lazyRecallScope(reads, channel, String(placeId));
   // The second looks media.look took (the per-turn count of the live turn).
   let looks = 0;
-  const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
+  const webStore = objectMediaCache(media);
   const webState = { data: { webDay: data.webDay, webCount: data.webCount }, markDirty() {} };
   const recallStore = {
     state: { data: { recallDay: data.recallDay, recallCount: data.recallCount }, markDirty() {} },
@@ -4147,7 +4149,10 @@ export function createReplayTools({
       }
       // media.find: the GIF library read from the store, the descriptions from the private cache copy; nothing written.
       if (skill === 'media.find' && mediaTools?.runMediaFind) {
-        const findStore = { getGifs: (id: string) => store.getGifs?.(id) ?? [], getMediaCache: () => media };
+        const findStore = {
+          getGifs: (id: string) => store.getGifs?.(id) ?? [],
+          mediaEntries: objectMediaCache(media).mediaEntries,
+        };
         return {
           result: mediaTools.runMediaFind({
             store: typeof store.getGifs === 'function' ? findStore : null,
@@ -6523,10 +6528,9 @@ async function loopDepsOf({
       throw new Error('replay-cli: no request from the caches');
     },
   };
-  let captions = null;
   const describer = createDescriber({
     hot,
-    store: { getMediaCache: () => (captions ??= structuredClone(mediaCache ?? {})), markMediaCacheDirty() {} },
+    store: privateCacheOf(mediaCache),
     llm: refusing,
   });
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
@@ -6947,8 +6951,8 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers, routes }:
         }),
     };
     const mediaCache =
-      typeof store.getMediaCache === 'function'
-        ? (store.getMediaCache(placeOfRoot(store, String(placeId))) ?? null)
+      typeof store.mediaEntries === 'function'
+        ? (store.mediaEntries(placeOfRoot(store, String(placeId))) ?? null)
         : null;
     const gifs =
       typeof store.getGifs === 'function' ? (store.getGifs(placeOfRoot(store, String(placeId))) ?? null) : null;

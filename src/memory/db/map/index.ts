@@ -14,7 +14,6 @@ import {
 } from '../meta-person.ts';
 import { nativeRows } from '../native-rows.ts';
 import type { StorageKey } from '../storage-keys.ts';
-import * as media from './media.ts';
 import * as requests from './requests.ts';
 import * as verbatim from './verbatim.ts';
 
@@ -29,7 +28,6 @@ export type Mapper = {
 
 export const MAPPERS = {
   errands,
-  media,
   gifs,
   requests,
   verbatim,

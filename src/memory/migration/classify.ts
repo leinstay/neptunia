@@ -69,7 +69,6 @@ const KINDS: Array<[RegExp, MapperKind | DirectKind, FileFormat]> = [
   [re('intentions-archive\\.jsonl'), 'intentions', 'jsonl'],
   [re('errands\\.json'), 'errands', 'json'],
   [re('errands\\.jsonl'), 'errands', 'jsonl'],
-  [re('media\\.json'), 'media', 'json'],
   [re('gifs\\.json'), 'gifs', 'json'],
   [re('recall-trace\\.jsonl'), 'verbatim', 'jsonl'],
   [re('(?:voice|buffer|inner|missed|forgotten)\\.json'), 'verbatim', 'json'],
