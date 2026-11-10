@@ -581,6 +581,14 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       }
       if (String(current) !== String(channel.id)) call = { ...call, args: { ...call.args, channel: String(current) } };
     }
+    // A selfreflection turn posts nothing itself: its picture and voice are kept for the entry, so a place she named
+    // is set aside and the call is checked as one in the turn's own place.
+    if (draft?.selfreflection && hasTrait(call.skill, 'attaches') && call.args?.place !== undefined) {
+      const args = { ...call.args };
+      delete args.place;
+      call = { ...call, args };
+      log.info('selfreflection: named place set aside', { skill: call.skill });
+    }
     const resolved = await resolveCallWithMeaning(call, view);
     if (!resolved.ok) {
       log.info('skill: refused', {
