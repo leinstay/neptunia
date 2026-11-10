@@ -265,6 +265,14 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'text': 'Token limit for a session request',
   },
   {
+    'key': 'memoryDb.session.maxPageTokens',
+    'types': ['number'],
+    'reader': 'src/memory/db/session.ts',
+    'default': 60000,
+    'text':
+      'Estimated tokens of one session request, under 0.85 of `llm.maxRequestTokens`. A larger batch is cut by lines, and a page of a batch whose lines are fixed is sent in parts of fewer people',
+  },
+  {
     'key': 'memoryDb.session.timeoutMs',
     'types': ['number'],
     'reader': 'src/memory/db/session.ts',

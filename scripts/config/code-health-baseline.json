@@ -1647,7 +1647,7 @@
     },
     "src/memory/db/session.ts": {
       "runBatch": {
-        "complexity": 25
+        "complexity": 24
       },
       "validateAnswer": {
         "complexity": 53
