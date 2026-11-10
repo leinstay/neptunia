@@ -1,5 +1,6 @@
 // The types of the signatures in ./turn.ts: the inputs and results that are too long to read inline.
 
+import type { KeepLines } from '../pipeline/keep-lines.ts';
 import type { Track } from '../loop-watch.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ActiveSkill } from '../skills/index-block.ts';
@@ -75,6 +76,8 @@ export type CreateTurnRunnerInput = {
   journalDb?: (() => unknown) | null;
   /** Her link tool (src/interface/person-link.ts): `person.link` and the messages it withholds; null: none. */
   personLinks?: Pick<PersonLinks, 'start' | 'isWithheld'> | null;
+  /** Stores the lines of a turn's chat when memory lacks them (src/pipeline/keep-lines.ts); null: none. */
+  keepLines?: KeepLines | null;
   /** The owner's account on the interface of a place; the memory's own reader (frame-reads.ts) when absent. */
   ownerAccount?: ((placeId: string) => string | null) | null;
   memoryContext?: Untyped;

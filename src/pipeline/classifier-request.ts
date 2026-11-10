@@ -1,5 +1,6 @@
 // The request of the address classifier about one new message: the prompt with the persona's name, her aliases from
-// her person record, the place's last lines, the author's stored aliases and the new message as the candidate. createMessageHandler (src/behavior/pipeline.ts) builds it once with createClassifierRequest.
+// her person record, the place's last lines, the author's stored aliases and the new message as the candidate. The
+// place's lines it reads are stored when memory lacks them (src/pipeline/keep-lines.ts). createMessageHandler (src/behavior/pipeline.ts) builds it once with createClassifierRequest.
 
 import { accountOf, sharedPlaceOf } from '../memory/addresses.ts';
 import { historyLines } from '../behavior/lines.ts';
@@ -8,6 +9,7 @@ import type { Reads } from '../interface/reads.ts';
 import { topByRank } from '../memory/ranking.ts';
 import { fillPromptTemplate } from '../turn/request/text.ts';
 import type { ChatRef } from './chats.ts';
+import type { KeepLines } from './keep-lines.ts';
 import type { MediaPrefill } from './media-prefill.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLabels } from './types.ts';
 import { MEMORY_LIMITS } from '../memory/text-limits.ts';
@@ -40,6 +42,8 @@ export type ClassifierRequestContext = {
   cachedFollowUpMedia: MediaPrefill['cachedFollowUpMedia'];
   /** Her aliases, the names the owner gave her own person record, read at the moment of use. */
   selfNames: () => ReadonlyArray<string>;
+  /** Stores the lines the classifier reads when memory lacks them (src/pipeline/keep-lines.ts); absent, none. */
+  keepLines?: KeepLines | null;
 };
 
 export function createClassifierRequest({
@@ -48,6 +52,7 @@ export function createClassifierRequest({
   refOf,
   cachedFollowUpMedia,
   selfNames,
+  keepLines = null,
 }: ClassifierRequestContext): {
   buildClassifierRequest: (params: ClassifierParams) => Promise<ClassifierRequest | null>;
 } {
@@ -76,7 +81,8 @@ export function createClassifierRequest({
     // The classifiers run only with the prompts loaded, so the labels file is there.
     const labels = (prompts as NonNullable<PipelineHot['prompts']>).labels;
     const contextLines = FOLLOW_UP_CONTEXT;
-    const raw = contextLines > 0 ? await historyLines(reads, refOf(channel), { limit: contextLines }) : [];
+    const raw =
+      contextLines > 0 ? await historyLines(reads, refOf(channel), { limit: contextLines, keep: keepLines }) : [];
     // A history line is a normalized line as lineOf gives it (src/behavior/lines.ts).
     const history = raw.filter((m) => m.id !== normalized.id) as unknown as Array<Line>;
     const messages = [...history, normalized];

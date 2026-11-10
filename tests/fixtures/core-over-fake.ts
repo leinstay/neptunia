@@ -13,6 +13,7 @@ import { openMemoryDb } from '../../src/memory/db/open.ts';
 import type { ChatInfo, MessageEvent } from '../../src/protocol/adapter.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import { chainsOnDefaults } from './chains.ts';
+import { completionOf } from './tool-answers.ts';
 
 type Running = Awaited<ReturnType<typeof start>>;
 export type Fake = Running['adapter'];
@@ -72,6 +73,11 @@ export type CoreRig = {
   requestText(index: number): string;
   /** The rows of the memory database's `sources` table of one kind, read through a second read-only connection. */
   sources(kind: string): Array<Row>;
+  /**
+   * The stored lines (`seen` and `said` rows) of one message by its platform id, oldest first, as `kind`, `revision`,
+   * `text` and `occurred_at`: the message family resolves the id the row itself keeps opaque.
+   */
+  linesOf(messageId: string): Array<Row>;
 };
 
 export type RigOptions = {
@@ -83,6 +89,13 @@ export type RigOptions = {
   seed?: (fake: Fake) => void;
   /** What the scripted model answers; `<msg>` plus the default answer when absent. */
   answer?: string;
+  /**
+   * The scripted model's answers in turn order, each a string or a completion of tests/fixtures/tool-answers.ts; the
+   * last one repeats. Wins over `answer`.
+   */
+  answers?: ReadonlyArray<unknown>;
+  /** What the address classifier answers, as its strict JSON's `answer`; `yes` when absent. */
+  addressAnswer?: string;
 };
 
 export async function withFakeCore<T>(
@@ -101,8 +114,16 @@ export async function withFakeCore<T>(
     // Plan 2026-11-04-cli-and-memory B1: the door asks the address classifier first; it says yes and is not recorded.
     complete: (messages: unknown, given?: unknown): Promise<{ text: string; usage: object; estimated: number }> => {
       // The lead: the address classifier answers in strict JSON (owner, 2026-11-06).
-      if ((given as { purpose?: unknown } | undefined)?.purpose === 'address') return Promise.resolve({ text: '{"answer":"yes"}', usage: {}, estimated: 1 });
+      if ((given as { purpose?: unknown } | undefined)?.purpose === 'address')
+        return Promise.resolve({
+          text: JSON.stringify({ answer: options.addressAnswer ?? 'yes' }),
+          usage: {},
+          estimated: 1,
+        });
       requests.push(messages);
+      const scripted = options.answers;
+      if (scripted !== undefined && scripted.length > 0)
+        return Promise.resolve(completionOf(scripted[Math.min(requests.length, scripted.length) - 1]));
       return Promise.resolve({ text: options.answer ?? `<msg>${ANSWER}</msg>`, usage: {}, estimated: 10 });
     },
   };
@@ -146,6 +167,18 @@ export async function withFakeCore<T>(
         try {
           const sql = 'SELECT kind, native_id, writer, holder_id, period, text FROM sources WHERE kind = ? ORDER BY rowid';
           return (handle.db as { prepare(sql: string): { all(kind: string): Array<Row> } }).prepare(sql).all(kind);
+        } finally {
+          handle.close();
+        }
+      },
+      linesOf: (messageId) => {
+        const handle = openMemoryDb(dbPath, { readOnly: true });
+        try {
+          const sql = `SELECT s.kind, s.revision, s.text, s.occurred_at FROM sources s
+            JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
+            AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
+            WHERE f.message_id = ? AND s.kind IN ('seen', 'said') ORDER BY s.rowid`;
+          return (handle.db as { prepare(sql: string): { all(id: string): Array<Row> } }).prepare(sql).all(messageId);
         } finally {
           handle.close();
         }
@@ -197,6 +230,8 @@ export type LineOptions = {
   /** Names the persona (the message is a call to her). */
   mention?: boolean;
   system?: boolean;
+  /** When the message was last edited on the platform; absent, never. */
+  editedAt?: number;
   reactions?: Array<{ emoji: string; count: number; mine: boolean }>;
 };
 
@@ -222,6 +257,7 @@ export function lineEvent(options: LineOptions): MessageEvent {
       sourceText: options.text,
       system: options.system ?? false,
       at: options.at,
+      ...(options.editedAt === undefined ? {} : { editedAt: options.editedAt }),
       replyToId: null,
       replyPingAccountId: null,
       forwardedFrom: null,

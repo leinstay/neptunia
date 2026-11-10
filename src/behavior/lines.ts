@@ -3,6 +3,7 @@
 // fed by `reaction.changed`; what it lacks for a reaction on her line is read once through `reactors`, within a time
 // budget, and the reactors are named from the member directory, else through `memberInfo` (once per member).
 
+import type { KeepLines } from '../pipeline/keep-lines.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { Logger } from '../protocol/serve.ts';
@@ -62,14 +63,23 @@ export type ReactorNames = {
   log: Logger;
 };
 
-/** The lines of up to `limit` newest messages of `ref`, oldest first; throws when the interface cannot read them. */
+/**
+ * The lines of up to `limit` newest messages of `ref`, oldest first; throws when the interface cannot read them. `keep`
+ * (src/pipeline/keep-lines.ts) gets the page's events when the reader puts the lines in her context.
+ */
 export async function historyLines(
   reads: Reads,
   ref: ChatRef,
-  { limit, before, names = null }: { limit: number; before?: string; names?: ReactorNames | null }
+  {
+    limit,
+    before,
+    names = null,
+    keep = null,
+  }: { limit: number; before?: string; names?: ReactorNames | null; keep?: KeepLines | null }
 ): Promise<Array<Line>> {
   const page = await reads.history(ref, before === undefined ? { limit } : { limit, before });
   if (page === null) throw new Error('history unavailable');
+  keep?.(page.events);
   const lines = page.events.map((event) => lineOf(event) as Line);
   return names === null ? lines : await withReactorNames(reads, ref, lines, names);
 }

@@ -25,6 +25,7 @@ import { WAKE_PURPOSE_CHARS } from '../behavior/wake.ts';
 import { callReason, fill, formatTranscript } from '../format.ts';
 import { hasCodeLine } from '../interface/owner-pairing.ts';
 import type { Reads } from '../interface/reads.ts';
+import type { KeepLines } from '../pipeline/keep-lines.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { hasThinkTag } from '../llm/parse.ts';
@@ -104,6 +105,8 @@ type Calibrator = { apply: (estimate: number) => number; ratio: number };
 export type ToolRoundContext = {
   /** A message that carried a link code (src/interface/person-link.ts#isWithheld); absent, none is. */
   isWithheld?: ((iface: string, chatId: string, messageId: string) => boolean) | null;
+  /** Stores the lines a turn reads when memory lacks them (src/pipeline/keep-lines.ts); absent, none. */
+  keepLines?: KeepLines | null;
   hot: { readonly config: ToolRoundConfig; readonly prompts: { labels?: RoundLabels } | null | undefined };
   llm: RoundLlm;
   calibrator: Calibrator;
@@ -295,6 +298,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * `history`): with the reactor store (`reactors`), features.reactionNames and features.seeReactions on (a
    * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
    * read within `context.reactions.fetchTimeoutMs`. An inner turn reads a bounded recent slice (wakes.chatMessages).
+   * The lines are stored when memory lacks them (`keepLines`, src/pipeline/keep-lines.ts), never awaited.
    * A turn that runs nowhere (`draft.nowhere`) has no history. Throws when the interface cannot read the history.
    */
   function readHistory(
@@ -329,6 +333,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     return historyLines(ifaceReads, ref, {
       limit: inner ? innerSettings(config).chatMessages : config.context.channelMessages,
       names,
+      keep: ctx.keepLines ?? null,
     }).then((lines) => lines.filter((line) => !isHidden(line)));
   }
 

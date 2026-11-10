@@ -272,12 +272,17 @@ export function createPersonLinks({
 export function joinScreens(
   links: PersonLinks,
   pairing: Pick<OwnerPairing, 'screen' | 'isCodeLine'>
-): { screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'>; isCodeLine(content: unknown): boolean } {
+): {
+  screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'>;
+  isCodeLine(content: unknown): boolean;
+  isWithheld(iface: string, chatId: string, messageId: string): boolean;
+} {
   return {
     screen: async (event) => {
       const linked = await links.screen(event);
       return linked === 'pass' ? pairing.screen(event) : linked;
     },
     isCodeLine: (content) => links.isCodeLine(content) || pairing.isCodeLine(content),
+    isWithheld: (iface, chatId, messageId) => links.isWithheld(iface, chatId, messageId),
   };
 }

@@ -797,6 +797,7 @@ export function createMissed({
   llm = null,
   turns,
   reads,
+  keepLines = null,
   partnerOf: partnerOfChat = () => null,
   getSelfName = () => 'bot',
   dataDir,
@@ -824,7 +825,6 @@ export function createMissed({
   let promptMissingLogged = false;
   const sweeps = new Map<string, SweepEntry>(); // by spotOf(iface, placeId)
   const sweeping = new Set();
-
   const enabled = () => true;
   const recoveryOn = () => true;
   const paused = () => Boolean(objOf(objOf(store?.state).data).paused);
@@ -1205,7 +1205,7 @@ export function createMissed({
           history = await historyLines(
             reads,
             { iface: channel.iface, chatId: channel.id },
-            { limit: Math.max(1, Math.floor(settings.contextMessages)) }
+            { limit: Math.max(1, Math.floor(settings.contextMessages)), keep: keepLines }
           );
         } catch (error) {
           log.warn('missed: history fetch failed', { placeId, error });

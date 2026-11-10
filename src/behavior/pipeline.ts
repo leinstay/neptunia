@@ -28,6 +28,8 @@ import { createHandleMessage } from '../pipeline/handle-message.ts';
 import type { DoorScreen } from '../pipeline/handle-message.ts';
 import { createMediaPrefill } from '../pipeline/media-prefill.ts';
 import { createMerge } from '../pipeline/merge.ts';
+import { createKeepLines } from '../pipeline/keep-lines.ts';
+import type { KeepLines } from '../pipeline/keep-lines.ts';
 import { createObserve } from '../pipeline/observe.ts';
 import type { OwnerPerson } from '../pipeline/observe.ts';
 import { createPauseNotice } from '../pipeline/pause-notice.ts';
@@ -55,6 +57,8 @@ export type MessageHandler = ((event: MessageReceived, options?: MessageReadOpti
   onPrivate: (event: MessageReceived) => Untyped;
   onMessageUpdate: ReturnType<typeof createEdits>['onMessageUpdate'];
   onMessageDelete: ReturnType<typeof createEdits>['onMessageDelete'];
+  /** Stores the lines a turn or an analyzer reads when memory lacks them (src/pipeline/keep-lines.ts). */
+  keepLines: KeepLines;
   clearPending: () => void;
   pendingCount: () => number;
 };
@@ -194,6 +198,18 @@ export function createMessageHandler({
     memoryDb,
   });
   const { observeLine, deleteLine } = createObserve({ hot, memoryDb, selfIdOf, timers, ownerPerson });
+  // The lines in her context, stored when memory lacks them (src/pipeline/keep-lines.ts).
+  const keepLines = createKeepLines({
+    hot,
+    store,
+    observeLine,
+    selfIdOf,
+    isServedRoot,
+    isCodeLine: screen ? (content) => screen.isCodeLine(content) : null,
+    isWithheld: screen?.isWithheld
+      ? (iface, chatId, messageId) => screen.isWithheld?.(iface, chatId, messageId) === true
+      : null,
+  });
   const turnBlocked = () => isTurnBlocked(turns);
   const { warmMediaCache, cachedFollowUpMedia } = createMediaPrefill({
     hot,
@@ -217,6 +233,7 @@ export function createMessageHandler({
     refOf,
     cachedFollowUpMedia,
     selfNames: () => selfNames?.() ?? [],
+    keepLines,
   });
   const { announceRefusal, afterCallTurn, heldCallState } = createCallOutcome({
     hot,
@@ -392,6 +409,7 @@ export function createMessageHandler({
     onPrivate: (event: MessageReceived) => onPrivateMessage(event as HandledEvent, hot.config),
     onMessageUpdate,
     onMessageDelete,
+    keepLines,
     // Every pending direct ping dropped unanswered.
     clearPending: () => {
       pending.list = [];
