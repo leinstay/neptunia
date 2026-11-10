@@ -173,3 +173,12 @@ test('a core chain whose harness is logged out but whose API route answers warns
   assert.equal(lines.length, 2, health.detail);
   assert.ok(lines[1]?.includes('core-1'), health.detail);
 });
+
+test('no harness logged in warns with the command that logs one in', async () => {
+  // Catches: the agents left with no runtime and the doctor silent about it, since no route names a harness (the
+  // `features` check that said so is folded into `routes`, CLI audit 2026-11-09).
+  const { run } = rig();
+  const health = await run();
+  assert.equal(health.status, 'warn', health.detail);
+  assert.ok(health.detail.includes('neptunia subharness'), health.detail);
+});

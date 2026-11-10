@@ -1024,10 +1024,6 @@
       "deep": 6,
       "repeated": 0
     },
-    "tests/subharness-summary.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/subharness-usage-codex.test.ts": {
       "deep": 2,
       "repeated": 0

@@ -6,7 +6,8 @@
 // status command (`sourceState`, src/subharness/sources.ts). A key no route uses gets the free read of its record
 // (`checkKey`), and a harness no role or agent uses gets its status command. A role of the core, the memory writer or the
 // analyzer whose every route failed fails the check, a failed route with another that answers warns. Lines
-// carry names and models, never a key value. The owner's word of 2026-11-08: the doctor is a diagnosis he asked for,
+// carry names and models, never a key value. With no harness logged in at all, a warning names the command that logs one
+// in, since her agents have no runtime. The owner's word of 2026-11-08: the doctor is a diagnosis he asked for,
 // while a chat launch checks nothing (src/setup/readiness.ts).
 
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
@@ -19,7 +20,7 @@ import type { RouteRole } from '../llm/route-text.ts';
 import { roleModel, searchModel } from '../llm/roles.ts';
 import { routeName } from '../subharness/route-names.ts';
 import { readRouting, SUBHARNESS_AGENTS } from '../subharness/routing.ts';
-import { sourceProblem, sourceState } from '../subharness/sources.ts';
+import { availableSources, sourceProblem, sourceState } from '../subharness/sources.ts';
 import type { SourceState } from '../subharness/sources.ts';
 
 export type RouteHealth = { status: 'ok' | 'warn' | 'fail'; detail: string };
@@ -176,6 +177,8 @@ export async function routeHealth(deps: RouteHealthDeps): Promise<RouteHealth> {
   const lines: Array<Line> = [];
   for (const role of API_ROLES) lines.push(...(await chainLines(run, role)));
   lines.push(...(await searchLines(run)), ...(await agentLines(run)), ...(await unusedLines(run)));
+  if ((await availableSources(deps.privateDir)).length === 0)
+    lines.push({ text: 'subharness: off · neptunia subharness codex|claude|opencode login', bad: 'warn' });
   const worst = lines.some((one) => one.bad === 'fail')
     ? 'fail'
     : lines.some((one) => one.bad === 'warn')

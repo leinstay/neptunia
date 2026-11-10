@@ -30,24 +30,11 @@ const UNIT_VERBS = ['start', 'stop', 'restart', 'status'];
 /** How many next times the dialog shows before it saves. */
 const NEXT_SHOWN = 3;
 
-/** The steps of `neptunia setup` the family replaced, and what each is refused with. */
-const RETIRED_STEPS: Readonly<Record<string, string>> = {
-  watcher: 'setup',
-  selfimprovement: 'services selfimprovement setup',
-  mechanics: 'services <name> setup',
-};
-
 export const isServiceRequest = (name: string): boolean => name.startsWith('services.');
 
 /** Whether the core's own view answers this request better: the status of a wake, which only the core can say. */
 export const prefersCore = (name: string): boolean =>
   name === 'services.list' || (isServiceRequest(name) && name.endsWith('.status'));
-
-/** Why `neptunia setup <words>` names a retired step, or null. */
-export function retiredSetupStep(words: ReadonlyArray<string>): string | null {
-  const step = words.find((word) => Object.hasOwn(RETIRED_STEPS, word));
-  return step === undefined ? null : `setup ${step} is retired: use neptunia ${RETIRED_STEPS[step] ?? 'services'}`;
-}
 
 /** One request of the family in this process, with no core. */
 export function runServiceHere(request: ServiceRequest, where: Where): Promise<ServiceAnswer> {
