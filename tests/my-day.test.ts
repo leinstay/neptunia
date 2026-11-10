@@ -165,3 +165,11 @@ test("names the turn's chat for a call into a place the group turn may not read"
   const [line] = myDayOf(w.read(), groupContext('discord'), placeNames, NOW, TZ, { lines: 12 });
   assert.ok(line?.includes('café') && !line.includes('Zoé'), line);
 });
+
+test('lists a board call of hers under its own name, not an errand tool that once had it', async () => {
+  // Bug: `task.status` is read as the old errand name `errand.list`, so her board check reads as an errand list.
+  const w = world();
+  await w.act(CAFE, 'skill', NOW - 10 * MIN, 'task.status');
+  const [line] = myDayOf(w.read(), groupContext('discord'), placeNames, NOW, TZ, { lines: 12 });
+  assert.ok(line?.includes('task.status') && !line.includes('errand'), line);
+});

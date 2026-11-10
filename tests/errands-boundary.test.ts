@@ -30,10 +30,13 @@ test('the same call under the new name is a call of hers on both transports', ()
 });
 
 test('a journal that wrote the old names is read under the new ones, and any other name comes back as it is', () => {
-  assert.deepEqual(
-    ['task.run', 'task.status', 'task.read', 'task.resolve', 'task.cancel', 'task.list'].map(currentToolName),
-    ['errand.run', 'errand.list', 'errand.read', 'errand.resolve', 'errand.cancel', 'errand.list']
-  );
+  // `task.status` and `task.cancel` left this list: the board tools hold those names, and a live name reads as itself.
+  assert.deepEqual(['task.run', 'task.read', 'task.resolve', 'task.list'].map(currentToolName), [
+    'errand.run',
+    'errand.read',
+    'errand.resolve',
+    'errand.list',
+  ]);
   assert.deepEqual(['intent.set', 'intent.update', 'intent.cancel', 'intent.list'].map(currentToolName), [
     'intention.set',
     'intention.update',
