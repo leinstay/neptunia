@@ -1,7 +1,8 @@
 // The body of `<memory>`: what the graph reader (src/memory/db/mind-read.ts#mindOf) brought to her mind, one entry per
 // thing in one subtag only (docs/prompt-contract.md). `<people>` opens with the person she answers, marked so and always
 // present, a stranger included; `<places>`, `<lore>`, `<recent>` and `<found>` follow. Every entry names its origin
-// (`labels.memory.origin.*`), renders at the detail the reader chose and quotes stored text as an escaped value. The
+// (`labels.memory.origin.*`), renders at the detail the reader chose and quotes stored text as an escaped value, a
+// mention in it by the name of the account it names. The
 // request builder (src/turn/request/reader.ts) fits the items to the budget and renders what stayed. Pure.
 
 import { fill, formatDate } from '../../format.ts';
@@ -18,7 +19,7 @@ import type {
 } from '../../memory/db/mind-read.ts';
 import type { PersonAccount } from '../../memory/db/meta-person.ts';
 import type { Frame } from './frame.ts';
-import { block, escapeStored, pathText } from './text.ts';
+import { block, escapeStored, pathText, resolveChatText } from './text.ts';
 import type { LabelGroup, Labels, MemoryLabels, MemoryRead, NameOf } from './types.ts';
 
 /** The subtags of `<memory>`, in their order. */
@@ -38,6 +39,10 @@ export type MemoryItem = {
   readonly handleIds: ReadonlyArray<string>;
   /** The chat id a channel handle is given for once it is shown; null for anything else and a DM. */
   readonly chatId?: string | null;
+  /** A place's stored name, for the request's budget to find it in the line she answers; absent for anything else. */
+  readonly placeName?: string | null;
+  /** True for a place the graph reader kept whatever its room (PlaceEntry's `keep`): the budget takes it first. */
+  readonly keep?: boolean;
   readonly reads: ReadonlyArray<MemoryRead>;
 };
 
@@ -52,10 +57,17 @@ export type FrameView = Pick<Frame, 'interface' | 'timezone' | 'counterpart'>;
 
 type Words = { l: LabelGroup; origin: LabelGroup; frame: FrameView; nameOf: NameOf; locale: string | undefined };
 
+/**
+ * A stored text as an escaped value, each `<@id>` mention in it read as the name `nameOf` gives that account, as a line
+ * of the chat shows it (resolveChatText); a mention of an account nobody names stays as stored.
+ */
+const storedText = (w: Pick<Words, 'nameOf'>, value: string): string =>
+  escapeStored(String(resolveChatText(value, w.nameOf)));
+
 /** A labelled line of a stored value, '' when the value or the label is missing. */
-function valueLine(template: string | undefined, value: string | null | undefined): string {
+function valueLine(w: Words, template: string | undefined, value: string | null | undefined): string {
   if (typeof template !== 'string' || typeof value !== 'string' || value.trim() === '') return '';
-  return fill(template, { value: escapeStored(value.trim()) });
+  return fill(template, { value: storedText(w, value.trim()) });
 }
 
 /** The heading of an entry: its name and why it is here. */
@@ -94,14 +106,14 @@ function personText(w: Words, person: PersonEntry, counterpart: boolean, live: s
   const lines = [heading(w, person.name ?? person.accounts[0] ?? person.personId, origin, person.candidate)];
   const detail = counterpart && person.detail === 'name' ? 'compact' : person.detail;
   lines.push(accountsLine(w, person));
-  if (detail !== 'name') lines.push(valueLine(w.l.relation, person.relation));
+  if (detail !== 'name') lines.push(valueLine(w, w.l.relation, person.relation));
   if (detail === 'whole') {
-    lines.push(valueLine(w.l.realName, person.realName));
-    lines.push(valueLine(w.l.character, person.character));
-    lines.push(valueLine(w.l.style, person.style));
-    for (const claim of person.claims) lines.push(fill(w.l.claim ?? '- {text}', { text: escapeStored(claim.text) }));
+    lines.push(valueLine(w, w.l.realName, person.realName));
+    lines.push(valueLine(w, w.l.character, person.character));
+    lines.push(valueLine(w, w.l.style, person.style));
+    for (const claim of person.claims) lines.push(fill(w.l.claim ?? '- {text}', { text: storedText(w, claim.text) }));
   }
-  if (live) lines.push(valueLine(w.l.live, live));
+  if (live) lines.push(valueLine(w, w.l.live, live));
   return lines.filter(Boolean).join('\n');
 }
 
@@ -112,7 +124,7 @@ function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string
   if (place.detail !== 'name') {
     for (const field of ['purpose', 'tone', 'topics'] as const) {
       const value = place[field];
-      if (value) lines.push(escapeStored(value));
+      if (value) lines.push(storedText(w, value));
     }
     const date = place.ownLastAt ? formatDate(Date.parse(place.ownLastAt), w.frame.timezone, w.locale) : '';
     if (place.ownLines > 0 && date) lines.push(fill(w.l.ownLines ?? '', { count: place.ownLines, date }));
@@ -126,11 +138,11 @@ const interfaceText = (w: Words, entry: InterfaceEntry): string =>
 const loreText = (w: Words, claim: ClaimEntry): string =>
   fill(w.l.lore ?? '{subject}: {text}', {
     subject: escapeStored(w.nameOf(claim.subjectId) ?? claim.subjectId),
-    text: escapeStored(claim.text),
+    text: storedText(w, claim.text),
   });
 
 const episodeText = (w: Words, episode: EpisodeEntry): string =>
-  fill(w.l.episode ?? '{date}: {what}', { date: episode.date ?? '', what: escapeStored(episode.what) });
+  fill(w.l.episode ?? '{date}: {what}', { date: episode.date ?? '', what: storedText(w, episode.what) });
 
 function excerptText(w: Words, excerpt: ExcerptEntry): string {
   const at = excerpt.at ? Date.parse(excerpt.at) : NaN;
@@ -138,7 +150,7 @@ function excerptText(w: Words, excerpt: ExcerptEntry): string {
   return fill(w.l.excerpt ?? '{date}, {path}: "{text}"', {
     date: Number.isFinite(at) ? formatDate(at, w.frame.timezone, w.locale) : '',
     path: escapeStored(place),
-    text: escapeStored(excerpt.text),
+    text: storedText(w, excerpt.text),
   });
 }
 
@@ -169,7 +181,7 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
     const now = live ? live([them.nativeId]) : null;
     first.push({
       subtag: 'people',
-      text: [heading(w, name, w.l.counterpart ?? '', false), now ? valueLine(w.l.live, now) : '']
+      text: [heading(w, name, w.l.counterpart ?? '', false), now ? valueLine(w, w.l.live, now) : '']
         .filter(Boolean)
         .join('\n'),
       counterpart: true,
@@ -237,6 +249,8 @@ export function memoryItemsOf(
     ...mind.places.map((place) => ({
       ...plain('places', placeText(w, place, mine(place)), readsOf(place)),
       chatId: chatOf(place),
+      placeName: place.name,
+      ...(place.keep === true ? { keep: true } : {}),
     })),
     ...mind.lore.map((claim) => plain('lore', loreText(w, claim), readsOf(claim))),
     ...mind.recent.map((episode) => plain('recent', episodeText(w, episode), readsOf(episode))),
@@ -317,7 +331,7 @@ function changeLine(w: Words, change: AttitudeChange): string {
   const line = fill((change.applied < 0 ? w.l.cooler : w.l.warmer) ?? '{date}: {amount}', { date, amount });
   const reason = change.reason.trim();
   return reason !== '' && typeof w.l.changeReason === 'string'
-    ? fill(w.l.changeReason, { change: line, reason: escapeStored(reason) })
+    ? fill(w.l.changeReason, { change: line, reason: storedText(w, reason) })
     : line;
 }
 

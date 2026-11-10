@@ -151,6 +151,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     chatHandles: base.handleById,
     currentChannelId: given.currentChannelId ?? null,
     chatIdOf: given.chatIdOf ?? null,
+    answeredText: frame.answers === null ? null : (given.trigger?.content ?? null),
   });
   const { parts, fit, handleById } = built;
   return {

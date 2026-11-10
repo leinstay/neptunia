@@ -218,6 +218,7 @@ const handlers = perEnv((env) => {
       now: now(),
       timezone,
       maxChars: recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars,
+      openDate: true,
     });
     return asOpResult(result, 'conversation');
   }

@@ -12,6 +12,7 @@ import { assignChannelHandles, assignHandles } from '../../behavior/handles.ts';
 import { fill, renderTranscript } from '../../format.ts';
 import { fitSections } from '../../llm/budget.ts';
 import { mindSettingsOf } from '../../memory/db/mind-read.ts';
+import { normalName, phrasesOf } from '../../memory/db/names.ts';
 import type { Mind } from '../../memory/db/mind-read.ts';
 import type { Lookup } from '../calls.ts';
 import type { BlockName, Frame } from './frame.ts';
@@ -83,6 +84,8 @@ export type ReaderInput = {
   currentChannelId: string | null;
   /** The chat id of a stored place memory and meanwhile show, from its row; null for a DM and without a reader. */
   chatIdOf?: ChatIdOf | null;
+  /** The text of the line she answers, whose named places `<places>` keeps first; null when she answers none. */
+  answeredText?: string | null;
 };
 
 /** The frame's request: its parts, the archive's record, the fit, the chat lines kept and the handles given. */
@@ -134,6 +137,27 @@ type Offered = {
 const selfreflectionFixed = (given: SelfreflectionFramed | null): Array<string> =>
   given === null ? [] : [...given.parts.map((part) => part.text), given.intro];
 
+/**
+ * Whether a place item goes first in the budget of `<places>`: the graph reader kept it whatever its room, or its stored
+ * name stands whole among the words of the line she answers (`names`, its phrases of up to three words as the reader
+ * indexes them, names.ts#phrasesOf).
+ */
+function keptFirst(item: MemoryItem, names: ReadonlySet<string>): boolean {
+  if (item.keep === true) return true;
+  const name = item.placeName ? normalName(item.placeName) : '';
+  return name !== '' && names.has(name);
+}
+
+/**
+ * The items of a memory subtag in the order the budget takes them: for `<places>` the places kept first ahead of the
+ * rest, each group in the reader's rank. Rendering keeps the reader's rank whatever the budget took first.
+ */
+function budgetOrder(given: ReaderInput, items: ReadonlyArray<MemoryItem>): Array<MemoryItem> {
+  const names = new Set(phrasesOf(given.answeredText ?? ''));
+  const first = items.filter((one) => one.subtag === 'places' && keptFirst(one, names));
+  return [...first, ...items.filter((one) => !first.includes(one))];
+}
+
 /** The budget's sections of the frame's request, in priority order. */
 function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
   const settings = mindSettingsOf(given.config);
@@ -160,7 +184,10 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
       name: subtag,
       keep: 'first' as const,
       cap: Math.floor(settings.budgetTokens * (shares[subtag] ?? 0)) || undefined,
-      items: offered.memory.filter((one) => one.subtag === subtag && !one.counterpart).map((one) => one.text),
+      items: budgetOrder(
+        given,
+        offered.memory.filter((one) => one.subtag === subtag && !one.counterpart)
+      ).map((one) => one.text),
     })),
     { name: 'recall', items: [offered.recall].filter(Boolean) },
     { name: 'chat', keep: 'newest', steps: chatStepsOf(given.config), items: offered.chat.map((item) => item.text) },

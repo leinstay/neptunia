@@ -14,7 +14,8 @@ import type { Labels, NameOf } from './types.ts';
 
 /**
  * A stored line as `<meanwhile>` reads it; `at` is epoch ms, `sourceId` its source row's id when the reads give it,
- * `media` its media items in position order.
+ * `authorName` the first name its author's rows hold (frame-reads.ts#FrameLine), `media` its media items in position
+ * order.
  */
 export type MeanwhileLine = {
   id: string;
@@ -22,6 +23,7 @@ export type MeanwhileLine = {
   placeId: string;
   at: number;
   authorId: string | null;
+  authorName?: string | null;
   self: boolean;
   text: string;
   media?: ReadonlyArray<LineMediaItem>;
@@ -139,6 +141,15 @@ function lineText(line: MeanwhileLine, labels: Labels): string {
   return [line.text, ...tags].filter(Boolean).join(' ');
 }
 
+/**
+ * The author of a line as a window names them: the name the line's stored rows hold, else `nameOf` of the platform id,
+ * else the id itself. The stored name comes first because `nameOf` knows only the accounts of the turn's own interface.
+ */
+function authorOf(line: MeanwhileLine, nameOf: NameOf): string {
+  if (line.authorName) return line.authorName;
+  return (line.authorId && nameOf(line.authorId)) || line.authorId || '';
+}
+
 /** One window in the labels' words: the place's path and date, then each line with its time and author. */
 export function windowText(
   window: MeanwhileWindow,
@@ -156,9 +167,7 @@ export function windowText(
   const lines = window.lines.map((line) =>
     fill(l.line ?? '[{time}] {author}: {text}', {
       time: formatClock(line.at, frame.timezone, labels.locale),
-      author: escapeStored(
-        line.self ? (l.you ?? '') : ((line.authorId && nameOf(line.authorId)) ?? line.authorId ?? '')
-      ),
+      author: escapeStored(line.self ? (l.you ?? '') : authorOf(line, nameOf)),
       text: escapeStored(lineText(line, labels)),
     })
   );
