@@ -1,6 +1,6 @@
 // The one GIF library of the persona, shared across places and interfaces: every GIF a member posts (a GIF embed -- a
 // `gifv` one of any site, or a tenor/giphy/klipy page, see src/media/classify.ts#classifyEmbed -- or an attached .gif) is
-// counted deterministically (no LLM) into one storage unit of the persona (src/memory/store.ts), and the media pick
+// counted deterministically (no LLM) into one library of the persona (src/memory/store-gifs.ts), and the media pick
 // (src/behavior/media-pick.ts) may post one by its handle. An entry is keyed by the content hash of its file once the
 // file is cached (withGifFile; before that by the first item id it was seen under), and keeps every native id and link
 // it was seen under, so the same GIF under a new id or link stays one entry. Its handle (`g<n>`, from `nextId`) never

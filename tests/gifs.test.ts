@@ -4,9 +4,8 @@
 // poster (src/behavior/turn.js).
 
 import { placeOfRoot } from '../src/memory/addresses.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import { unitValue } from '../src/memory/db/readers/common.ts';
+import { gifLibraryValue } from '../src/memory/db/gif-library.ts';
 import { memDataDir, memoryAt } from './fixtures/store-kit.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -414,9 +413,9 @@ test('normalizeGifs: garbage in -> the empty library; broken entries dropped; ba
 
 // --- storage -----------------------------------------------------------------
 
-/** B7: the library's unit of the persona as the database holds it, undefined when it holds none. */
+/** B7: the library of the persona as the database holds it, undefined when it holds none. */
 function libraryUnit(memoryDb: Untyped): Untyped {
-  const found: Untyped = unitValue(dbOf(memoryDb.readHandle()), personaKey('gifs'));
+  const found: Untyped = gifLibraryValue(dbOf(memoryDb.readHandle()));
   return found.found ? found.value : undefined;
 }
 
@@ -446,7 +445,7 @@ test('store.getGifs: a hand-broken unit is normalised on read, never wiped by re
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
   const raw = { entries: { a: { kind: 'link', url: TENOR, count: 3, last: T0 } } };
-  await memoryDb.writeUnit({ op: 'value', key: personaKey('gifs'), value: raw });
+  await memoryDb.writeGifLibrary({ put: raw.entries });
   const gifs = store.getGifs();
   assert.equal(wrongly<Record<string, { id: string }>>(gifs.entries).a.id, 'g1');
   assert.equal(gifs.nextId, 2);

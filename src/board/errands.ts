@@ -1,5 +1,5 @@
 // The errand store's side of the board (src/errands/store.ts): its reads and its one write. `saveErrand` runs inside
-// the memory writer's transaction (src/memory/db/unit-write.ts, op `errand`) as the principal `core`: the task filed
+// the memory writer's transaction (src/memory/db/errand-write.ts, write kind `errand`) as the principal `core`: the task filed
 // when the errand is new, then brought to the errand as it stands, an end moved through the board's own `move` (which
 // writes the outbox row to the subscriber, `persona`) with the closing journal line written by the caller in the same
 // transaction. `errandsOf` and `pendingEnds` read a place's errands and its undelivered ends. The rows and the record
@@ -17,11 +17,7 @@ import {
 import type { ErrandData } from './archive.ts';
 import { Board } from './board.ts';
 import { CLOSED } from './machine.ts';
-import { boardVersion } from './schema.ts';
 import type { BoardDb } from './schema.ts';
-
-/** The board version from which her errands live on the board and a write of an errand unit is skipped. */
-const ERRANDS_ON_BOARD = 3;
 
 /** The principal the errand store writes the board as (src/board/writer.ts#CORE_BUILTINS). */
 const ERRAND_PRINCIPAL = 'core';
@@ -125,73 +121,38 @@ function saveErrand(db: BoardDb, save: ErrandSave, onEnd: () => void): void {
   }
 }
 
-/**
- * The answer of an op `lines` or `value` write of an errand unit the writer skips, its count as `skipped` (the lines
- * of an op `lines`, 1 for an op `value`); null while the board has not taken the errands over (before board v3) or
- * for any other unit. `unitOf` is unit-write.ts#unitOf, which throws for an unmapped owner.
- */
-export function skippedErrandUnit(
-  db: unknown,
-  update: unknown,
-  unitOf: (owner: unknown) => unknown
-): Record<string, number> | null {
-  const unit = unitOf(isRecord(update) ? update.owner : null);
-  if (!isRecord(unit) || unit.kind !== 'errands' || boardVersion(boardDbOf(db)) < ERRANDS_ON_BOARD) return null;
-  const lines = isRecord(update) && Array.isArray(update.lines) ? update.lines : null;
-  if (lines === null) return { upserted: 0, retired: 0, skipped: 1 };
-  return { written: 0, duplicates: 0, adopted: 0, skipped: lines.filter(isRecord).length };
-}
-
-/** The closing journal line of an errand save, as an op `lines` update of the memory writer. */
-export type ClosingLines = { owner?: string; key?: object; lines: Array<Record<string, unknown>>; iface: unknown };
+/** The closing journal line of an errand save: the place whose journal takes it and the line. */
+export type ErrandClosing = { placeId: string | null; line: Record<string, unknown> };
 
 /**
- * One op `errand` write of the memory writer (src/memory/db/unit-write.ts) on its connection, inside its transaction:
- * `update.value` is an ErrandSave with its `closing` (`{ owner, line }` or null), and `writeClosing` writes that line
- * when the save moves the errand to an end. Throws an Error coded `UNIT_BAD_OP` for a value with no errand id or place.
+ * One write of the errand store on the writer's connection, inside its transaction: `value` is an ErrandSave with its
+ * `closing` (`{ placeId, line }` or null), and `writeClosing` writes that line when the save moves the errand to an end.
+ * Throws an Error coded `ERRAND_WRITE_ID` for a value with no errand id.
  */
-export function applyErrandUnit(
+export function applyErrandSave(
   db: unknown,
-  update: unknown,
-  at: string,
-  writeClosing: (lines: ClosingLines) => void
+  value: Record<string, unknown>,
+  at: number,
+  writeClosing: (closing: ErrandClosing) => void
 ): { ended: boolean } {
-  const value = isRecord(update) && isRecord(update.value) ? update.value : null;
-  if (value === null || !filled(value.id)) {
-    throw Object.assign(new Error('an errand write needs the errand id'), { code: 'UNIT_BAD_OP' });
+  if (!filled(value.id)) {
+    throw Object.assign(new Error('an errand write needs the errand id'), { code: 'ERRAND_WRITE_ID' });
   }
   const closing = isRecord(value.closing) ? value.closing : null;
   const errand = isRecord(value.errand) && filled(value.errand.id) ? { ...value.errand, id: value.errand.id } : null;
   const save: ErrandSave = {
     id: value.id,
-    at: typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : Date.parse(at),
+    at: typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : at,
     errand,
     delivered: value.delivered === true,
   };
   let ended = false;
   saveErrand(boardDbOf(db), save, () => {
     ended = true;
-    if (closing !== null && (filled(closing.owner) || isRecord(closing.key)) && isRecord(closing.line)) {
-      writeClosing({
-        ...(isRecord(closing.key) ? { key: closing.key } : { owner: String(closing.owner) }),
-        lines: [closing.line],
-        iface: isRecord(update) ? update.iface : null,
-      });
+    if (closing !== null && isRecord(closing.line)) {
+      const placeId = filled(closing.placeId) ? closing.placeId : null;
+      writeClosing({ placeId, line: closing.line });
     }
   });
   return { ended };
-}
-
-/**
- * Logs the `skipped` count of a unit write's answer (`skippedErrandUnit`) on `log` (the memory service's logger) as
- * `memory db: errand unit skipped`; nothing for an answer that skipped nothing. Returns the answer.
- */
-export function noteSkipped<TAnswer>(log: unknown, answer: TAnswer): TAnswer {
-  const count = isRecord(answer) ? answer.skipped : null;
-  const warn = isRecord(log) ? log.warn : null;
-  if (typeof count === 'number' && Number.isInteger(count) && count > 0 && typeof warn === 'function') {
-    // The memory service's logger: `warn(message, meta)`, bound to its own object.
-    (warn as (message: string, meta: unknown) => unknown).call(log, 'memory db: errand unit skipped', { count });
-  }
-  return answer;
 }

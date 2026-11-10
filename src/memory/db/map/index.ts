@@ -1,8 +1,6 @@
 // The mappers by kind. Each mapper module exports `toRows(rel, value, ctx)` and `fromRows(rows, ctx)`; the pair is an exact
 // round trip of the stored value (key order aside).
 
-import * as errands from './errands.ts';
-import * as gifs from './gifs.ts';
 import type { MapContext } from './common.ts';
 import type { Db, Row, Rows } from '../types.ts';
 import {
@@ -27,8 +25,6 @@ export type Mapper = {
 };
 
 export const MAPPERS = {
-  errands,
-  gifs,
   requests,
   verbatim,
 } satisfies Record<string, Mapper>;
@@ -46,8 +42,7 @@ export function storageFormat(key: StorageKey): FileFormat {
   if (key.kind === 'vectors') return 'vectors';
   if (
     ['record', 'journal', 'archive', 'recall_trace', 'archive_pending'].includes(key.kind) ||
-    (key.kind === 'intentions' && key.selector?.collection === 'archive') ||
-    (key.kind === 'errands' && key.selector?.collection === 'history')
+    (key.kind === 'intentions' && key.selector?.collection === 'archive')
   )
     return 'jsonl';
   return key.kind === 'journal_running' ? 'text' : 'json';

@@ -71,6 +71,9 @@
 //     participation-episodes.ts, recent-lines.ts): a place's whole lorebook, participation or recent lines.
 //   - `writeSelfreflection(write)` (selfreflection-entries.ts): her whole selfreflection, or one appended post.
 //   - `writeMediaEntry(write)` (media-store.ts): one entry of the describer's cache put on its row, or one key dropped.
+//   - `writeGifLibrary(write)` (gif-library.ts): the entries of the GIF library a change put and dropped, and its rest;
+//     `writeGifVector(write)` (gif-vectors.ts): the caption vector of one entry.
+//   - `writeErrand(write)` (errand-write.ts): an errand on the task board, with the closing journal line of its end.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -120,6 +123,9 @@ import type { PlaceNotesWrite } from './place-notes.ts';
 import type { ChannelEntryWrite } from './channel-entry.ts';
 import type { PlaceLoreWrite } from './place-lore.ts';
 import type { MediaEntryWrite } from './media-store.ts';
+import type { GifLibraryWrite } from './gif-library.ts';
+import type { GifVectorWrite } from './gif-vectors.ts';
+import type { ErrandWrite } from './errand-write.ts';
 import type { ParticipationWrite } from './participation-episodes.ts';
 import type { RecentLinesWrite } from './recent-lines.ts';
 import type { SelfreflectionWrite } from './selfreflection-entries.ts';
@@ -163,7 +169,6 @@ import { createReaderClient, SEARCH_ABANDONED, type ReaderClient } from './reade
 import { search } from './recall.ts';
 import type { SearchInput, SearchResult } from './recall.ts';
 import { mirrorPlaces, readMirrors } from './mirrors.ts';
-import { noteSkipped } from '../../board/errands.ts';
 import type { Config, Db, Log, MemoryHandle, Row } from './types.ts';
 import type { SessionContext } from './session.ts';
 import { bindAccount, type BindConfirm, type BindInput, type BindResult } from './person-bind.ts';
@@ -566,6 +571,12 @@ export type MemoryDbService = {
   writeSelfreflection(write: SelfreflectionWrite): Promise<unknown>;
   /** One entry of the describer's cache put on its row, or one key dropped (media-store.ts): resolves the rows it wrote and retired. */
   writeMediaEntry(write: MediaEntryWrite): Promise<unknown>;
+  /** The entries of the GIF library a change put and dropped, and its rest (gif-library.ts): resolves the rows it wrote and retired. */
+  writeGifLibrary(write: GifLibraryWrite): Promise<unknown>;
+  /** The caption vector of one GIF library entry (gif-vectors.ts). */
+  writeGifVector(write: GifVectorWrite): Promise<unknown>;
+  /** An errand on the task board with the closing journal line of its end (errand-write.ts): resolves whether it ended. */
+  writeErrand(write: ErrandWrite): Promise<unknown>;
   recordWake(update: unknown): Promise<unknown> | null;
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
   /** The budget of one retrieval from the settings read now; null while they are absent. */
@@ -1033,8 +1044,8 @@ export function createMemoryDb({
     const update = given as Row;
     if (!handle || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
     const stamped = stampUnit(update);
-    if (engine) return noteSkipped(log, await counted(stamped, engine.call('memoryWrite', { update: stamped })));
-    return noteSkipped(log, await counted(stamped, Promise.resolve(applyMemoryWrite(handle, stamped) as Row)));
+    if (engine) return counted(stamped, engine.call('memoryWrite', { update: stamped }));
+    return counted(stamped, Promise.resolve(applyMemoryWrite(handle, stamped) as Row));
   }
 
   // The graph projection a migration left pending and the stems of new lines: the writer finishes them, one slice per
@@ -1759,6 +1770,11 @@ export function createMemoryDb({
       write(withLiveIface({ ...entries, kind: 'selfreflection-entries', now: now() }, iface)),
     writeMediaEntry: (entry: MediaEntryWrite) =>
       write(withLiveIface({ ...entry, kind: 'media-entry', now: now() }, iface)),
+    writeGifLibrary: (library: GifLibraryWrite) =>
+      write(withLiveIface({ ...library, kind: 'gif-library', now: now() }, iface)),
+    writeGifVector: (vector: GifVectorWrite) =>
+      write(withLiveIface({ ...vector, kind: 'gif-vector', now: now() }, iface)),
+    writeErrand: (errand: ErrandWrite) => write(withLiveIface({ ...errand, kind: 'errand', now: now() }, iface)),
     recordWake,
     issueContext,
     retrievalBoundsFor,

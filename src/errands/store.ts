@@ -9,8 +9,8 @@
 // (`cap-tasks`; an errand counts on the day it was queued). That daily number and the owner card's `costs.errands`
 // come from one place: src/errands/costs.ts#agentCosts over the store's spend records, one per errand of the last
 // KEEP_DAYS days (read from the board at load, then kept with every transition).
-// Every change of an errand is one write of the whole errand through the memory database's writer (op `errand` of
-// src/memory/db/unit-write.ts), sent at once (src/memory/db/writes-under-way.ts): the writer takes the writes in the
+// Every change of an errand is one write of the whole errand through the memory database's writer (write kind `errand`
+// of src/memory/db/errand-write.ts), sent at once (src/memory/db/writes-under-way.ts): the writer takes the writes in the
 // order they were sent, a failed write sends the errand as it is then again at the next change or `flush`, and
 // `flush({ final: true })` (the shutdown) logs what still fails as lost. The end of an errand (`finish`,
 // `cancel`, `failOpen`) is one transaction of the writer: the board's move to its end, the board's outbox row to
@@ -36,7 +36,6 @@ import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { errandKey } from '../memory/db/storage-keys.ts';
 
 import { log as defaultLog } from '../log.ts';
 import { DAY_MS } from '../time.ts';
@@ -154,14 +153,14 @@ type StoreOptions = {
   memoryDb?: Untyped;
 };
 
-/** The memory database service's writes the store makes (src/memory/db/service.ts). */
+/** The memory database service's write the store makes (src/memory/db/service.ts). */
 type MemoryWrites = {
-  writeUnit: (update: Record<string, unknown>) => Promise<unknown>;
+  writeErrand: (write: Record<string, unknown>) => Promise<unknown>;
 };
 /** The journal's two writers of an `action` line the store uses (src/memory/journal.ts). */
 type JournalWrites = {
   action: ((placeId: string, record: Record<string, unknown>) => unknown) | null;
-  actionLine: ((placeId: string, record: Record<string, unknown>) => unknown) | null;
+  actionLine: ((placeId: string, record: Record<string, unknown>) => { placeId: string | null; line: unknown }) | null;
 };
 
 /** A function property `name` of `value`, bound to it, or null. */
@@ -171,19 +170,20 @@ function methodOf(value: unknown, name: string): ((...args: Array<unknown>) => u
   return typeof found === 'function' ? (found as (...args: Array<unknown>) => unknown).bind(value) : null;
 }
 
-/** The writes of the memory database service, or null without a `writeUnit`. */
+/** The write of the memory database service, or null without a `writeErrand`. */
 function memoryWritesOf(memoryDb: unknown): MemoryWrites | null {
-  const writeUnit = methodOf(memoryDb, 'writeUnit');
-  if (writeUnit === null) return null;
+  const writeErrand = methodOf(memoryDb, 'writeErrand');
+  if (writeErrand === null) return null;
   return {
-    writeUnit: (update) => Promise.resolve(writeUnit(update)),
+    writeErrand: (write) => Promise.resolve(writeErrand(write)),
   };
 }
 
 /** The journal's `action` and `actionLine`, each null when the journal has none. */
 const journalWritesOf = (journal: unknown): JournalWrites => ({
   action: methodOf(journal, 'action'),
-  actionLine: methodOf(journal, 'actionLine'),
+  // The journal's `actionLine` answers the line and the place whose journal takes it.
+  actionLine: methodOf(journal, 'actionLine') as JournalWrites['actionLine'],
 });
 
 /** The errands' writes to the board, each sent at once (src/memory/db/writes-under-way.ts). */
@@ -197,10 +197,10 @@ type ErrandWrites = {
 };
 
 /**
- * The writes of errands as op `errand` of the memory writer: `holds(id)` while a write of the errand is under way or
+ * The writes of errands as the memory writer's kind `errand`: `holds(id)` while a write of the errand is under way or
  * its latest write failed, and `flush` sends each failed errand again through `resend`.
  */
-function errandWrites({ writeUnit }: MemoryWrites, log: Logger): ErrandWrites {
+function errandWrites({ writeErrand }: MemoryWrites, log: Logger): ErrandWrites {
   const underWay = createWritesUnderWay({ log, name: 'tasks' });
   // id -> how many writes of the errand are under way; id -> the record of the errand whose latest write failed.
   const sending = new Map<string, number>();
@@ -221,7 +221,7 @@ function errandWrites({ writeUnit }: MemoryWrites, log: Logger): ErrandWrites {
       unwritten.delete(id);
       sending.set(id, (sending.get(id) ?? 0) + 1);
       underWay.track(
-        () => writeUnit({ op: 'errand', key: errandKey(id), value }).finally(() => settled(id)),
+        () => writeErrand(value).finally(() => settled(id)),
         () => {
           if (latest.get(id) === number) unwritten.set(id, value.errand);
         }

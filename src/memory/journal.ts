@@ -632,7 +632,7 @@ export type Journal = {
   ): { turnId: string; attemptId: number; startedAt: string };
   turn(placeId: string, record: object): Promise<void>;
   action(placeId: string, record: object): Promise<void>;
-  actionLine(placeId: string, record: object): { key: StorageKey; line: unknown };
+  actionLine(placeId: string, record: object): { placeId: string | null; line: unknown };
   memory(placeId: string, record: object): Promise<void>;
   system(record: object): Promise<void>;
   answer(placeId: string, record: object): Promise<void>;
@@ -742,8 +742,8 @@ type JournalDeps = {
  *   with a code), and every line the writers write goes to it (`day`, `decisions`, her answers' `sources`,
  *   `affinity_events`, in the day's unit, `memoryDb.writeJournalLines`); the
  *   `.running` marker stays a file.
- *   `actionLine` builds an `action` line and its day unit without writing it: an errand's end writes it with its
- *   board move.
+ *   `actionLine` builds an `action` line and names the place whose journal takes it, without writing it: an errand's
+ *   end writes it with its board move.
  *   `stats` says when the place journal was last written: the latest `recordedAt` of the lines of the day of `now`
  *   and the day before (the first hour after midnight); null when neither holds one.
  *   `start` writes a `turn.start` line (not awaited: a failed append is logged) and returns the
@@ -821,17 +821,13 @@ export function createJournal({
   }
 
   /** @returns a line of `kind` in its envelope, and the unit of its day */
-  function lineOf(placeId: string | null, kind: string, fields: Untyped): { key: StorageKey; line: unknown } {
-    const { record } = envelope(kind, fields);
-    return {
-      key: placeOrPersona('journal', placeId, { partition: String(record.occurredAt).slice(0, 10) }),
-      line: record,
-    };
+  function lineOf(kind: string, fields: Untyped): unknown {
+    return envelope(kind, fields).record;
   }
 
   async function write(placeId: string | null, kind: string, fields: Untyped) {
     try {
-      const { line } = lineOf(placeId, kind, fields);
+      const line = lineOf(kind, fields);
       await unlocked();
       if (typeof memoryDb?.writeJournalLines !== 'function')
         throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
@@ -1218,7 +1214,7 @@ export function createJournal({
     start,
     turn,
     action,
-    actionLine: (placeId, record) => lineOf(placeId, 'action', record),
+    actionLine: (placeId, record) => ({ placeId, line: lineOf('action', record) }),
     memory,
     system,
     answer,

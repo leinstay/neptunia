@@ -464,7 +464,7 @@ test("errands service: a private chat's unread result is in the view only in tha
     );
     // A record from before readAt: seen counts as read, unseen as unread. PR 6d, errands on the board: such a record
     // reaches the store only from the archive board v3 moved, so it is written onto the board through the writer's
-    // op `errand` (it was written into the errands unit before).
+    // kind `errand`.
     for (const [id, seen] of [
       [dm, true],
       [group, false],
@@ -472,10 +472,12 @@ test("errands service: a private chat's unread result is in the view only in tha
       const task = present(again).get(id);
       delete loose(task).readAt;
       delete loose(task).resolvedAt;
-      await memoryOf(dataDir).writeUnit({
-        op: 'errand',
-        owner: `board/errands/${id}`,
-        value: { id, placeId: 'g1', at: Date.now(), errand: { ...task, seen }, delivered: false, closing: null },
+      await memoryOf(dataDir).writeErrand({
+        id,
+        at: Date.now(),
+        errand: { ...task, seen },
+        delivered: false,
+        closing: null,
       });
     }
     const legacy = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get();

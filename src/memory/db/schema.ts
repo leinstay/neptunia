@@ -4,6 +4,7 @@
 
 import { ownLineRows } from './line-owner.ts';
 import { ownMediaRows } from './media-owner.ts';
+import { ownGifRows } from './gif-library.ts';
 import { ownProfileRows } from './profile-owner.ts';
 import { ownPlaceListRows, ownPlaceRows, ownSelfreflectionRows } from './place-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
@@ -105,6 +106,12 @@ export const MIGRATIONS: Array<Migration> = [
       db.exec(`ALTER TABLE media ADD COLUMN ${column}`);
     db.exec('CREATE INDEX "media_holder" ON media(writer, holder_id, used_at) WHERE writer IS NOT NULL');
     ownMediaRows(db);
+  },
+  // Version 53: the GIF library leaves its unit. Every row of a library entry, the ones a media cache's unit took
+  // included, is the library's and the persona's, its operational row the persona's, and the GIF units go
+  // (src/memory/db/gif-library.ts).
+  (db: Db): void => {
+    ownGifRows(db);
   },
 ];
 

@@ -1,12 +1,14 @@
 // The caption vectors of the GIF library, in the `vectors` table under `gif:<itemId>`: the library's JSON holds none, so a
 // flush of it writes no vector bytes. The item id survives an entry's move to its content hash. A row has no owning unit
-// and no source, so recall and the index policy's eviction pass it by, and its scope is the library's group scope.
+// and no source, so recall and the index policy's eviction pass it by, and its scope is the library's group scope. The
+// writer takes one through the write kind `gif-vector` (session-write.ts).
 
 import { dequantize, quantize } from '../vectors.ts';
 import { ifaceOrLegacy } from './legacy-namespace.ts';
 import { deriveRow } from './rows.ts';
 import { groupScope } from './scope.ts';
-import type { Db, Row } from './types.ts';
+import { dbOf, isFiniteNumber } from './types.ts';
+import type { Db, MemoryHandle, Row } from './types.ts';
 
 const PREFIX = 'gif:';
 
@@ -30,6 +32,18 @@ export function writeGifVector(db: Db, update: Row, at: string): Row {
     `INSERT OR REPLACE INTO vectors (${columns.map((column) => `"${column}"`).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`
   ).run(...columns.map((column) => row[column] as never));
   return { written: 1 };
+}
+
+/** One GIF vector as the store sends it: the entry's item id, the model and the numbers. */
+export type GifVectorWrite = { itemId: string; model: string | null; vector: ReadonlyArray<number> };
+
+/** The write kind `gif-vector` on the writer connection (session-write.ts). */
+export function applyGifVectorWrite(handle: MemoryHandle, update: Row): Row {
+  const coded = (code: string): Error => Object.assign(new Error(code), { code });
+  if (typeof update.itemId !== 'string' || update.itemId === '') throw coded('GIF_VECTOR_ITEM');
+  if (!Array.isArray(update.vector) || !update.vector.every(isFiniteNumber)) throw coded('GIF_VECTOR_NUMBERS');
+  const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
+  return handle.transaction(() => writeGifVector(dbOf(handle), update, at));
 }
 
 /** Every GIF vector the table holds, by item id. */

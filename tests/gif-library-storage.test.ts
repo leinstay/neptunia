@@ -3,13 +3,11 @@
 // 2026-11-04-cli-and-memory, stage B7, the owner's structure of one media store.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toRows } from '../src/memory/db/map/gifs.ts';
+import { gifLibraryValue, writeGifLibrary } from '../src/memory/db/gif-library.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { present } from './fixtures/loose-types.ts';
 import { memDataDir } from './fixtures/store-kit.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { freshMemoryDb } from './fixtures/memory-db-copy.ts';
 
 const PLACE = 'place:room-1';
@@ -25,24 +23,39 @@ const linkMessage = (id: string) => ({
 });
 
 test('a row keeps the cached file in path and the link in extra', () => {
+  const handle = freshMemoryDb();
+  const db = dbOf(handle);
   const entry = { id: 'g1', kind: 'link', url: TENOR, count: 1, file: 'media/gifs/h1.gif' };
-  const [row] = toRows('gifs', { nextId: 2, entries: { h1: entry } }).media;
-  assert.equal(row.path, 'media/gifs/h1.gif');
-  assert.equal((JSON.parse(String(row.extra)) as { url: string }).url, TENOR);
+  writeGifLibrary(db, { put: { h1: entry } }, { iface: 'discord', at: T0 });
+  const row = db.prepare("SELECT path, extra FROM media WHERE id = 'media:gif:h1'").get();
+  assert.equal(row?.path, 'media/gifs/h1.gif');
+  assert.equal((JSON.parse(String(row?.extra)) as { url: string }).url, TENOR);
+  handle.close();
 });
 
 test('a row with no cached file has no path, and a file outside media/ never becomes one', () => {
-  const rows = toRows('gifs', {
-    nextId: 3,
-    entries: {
-      k1: { id: 'g1', kind: 'link', url: TENOR, count: 1 },
-      k2: { id: 'g2', kind: 'link', url: TENOR, count: 1, file: '/etc/passwd' },
+  const handle = freshMemoryDb();
+  const db = dbOf(handle);
+  writeGifLibrary(
+    db,
+    {
+      put: {
+        k1: { id: 'g1', kind: 'link', url: TENOR, count: 1 },
+        k2: { id: 'g2', kind: 'link', url: TENOR, count: 1, file: '/etc/passwd' },
+      },
     },
-  }).media;
+    { iface: 'discord', at: T0 }
+  );
   assert.deepEqual(
-    rows.map((row) => row.path),
+    db
+      .prepare("SELECT path FROM media WHERE kind = 'gif' ORDER BY id")
+      .all()
+      .map((row) => row.path),
     [null, null]
   );
+  const entries = (gifLibraryValue(db) as { value: { entries: Record<string, { file?: string }> } }).value.entries;
+  assert.equal(entries.k2.file, '/etc/passwd', 'the entry still says what it was given');
+  handle.close();
 });
 
 function rig() {
@@ -57,15 +70,15 @@ test('a flush of the library writes no vector bytes', async () => {
   // Bug: 1024 numbers per entry in the unit's JSON made each flush about 2 MB at a full library.
   const { memoryDb, store, key } = rig();
   const sent: Array<string> = [];
-  const write = memoryDb.writeUnit.bind(memoryDb);
-  memoryDb.writeUnit = (update: unknown) => {
+  const write = memoryDb.writeGifLibrary.bind(memoryDb);
+  memoryDb.writeGifLibrary = (update) => {
     sent.push(JSON.stringify(update));
     return write(update);
   };
   store.setGifCaption(key, { caption: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
   store.flush();
   await store.flushSettled({});
-  const values = sent.filter((text) => (JSON.parse(text) as { op?: string }).op === 'value');
+  const values = sent;
   assert.ok(values.length > 0, 'the library was flushed');
   for (const text of values) assert.ok(!text.includes('vector'), text.slice(0, 200));
   const db = dbOf(present(memoryDb.readHandle()));
@@ -101,7 +114,7 @@ test('a vector of another model is none, and the key an entry moves to keeps it'
   assert.ok(store.getGifVectors('m/one').has(itemId));
 });
 
-// A write of the GIF library when two of its own rows spell one item reference (media-store.ts, adoptLibraryRows).
+// A write of the GIF library when two of its own rows spell one item reference (media-store.ts, adoptSameItem).
 
 const AT = Date.parse('2026-11-06T04:49:00Z');
 const entry = (id: string) => ({
@@ -118,8 +131,7 @@ test('a write of the library keeps one row when two of its entries share an item
   // threw "Cannot read properties of undefined (reading 'extra')", so every write of the library failed.
   const handle = freshMemoryDb();
   const db = dbOf(handle);
-  const key = personaKey('gifs');
-  applyUnitWrite(handle, { op: 'value', key, now: AT, value: { nextId: 2, entries: { k1: entry('g1') } } });
+  writeGifLibrary(db, { put: { k1: entry('g1') }, rest: { nextId: 2 } }, { iface: 'discord', at: AT });
   // A database that already holds two library rows of one reference, the second with the text and a link.
   db.prepare(
     `INSERT INTO media (id, kind, path, native_ref, scope_kind, scope_iface, extra, owner_key, description)
@@ -130,12 +142,7 @@ test('a write of the library keeps one row when two of its entries share an item
     "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('source', 't', 0, 'media:gif:k2')"
   ).run();
 
-  applyUnitWrite(handle, {
-    op: 'value',
-    key,
-    now: AT,
-    value: { nextId: 3, entries: { k1: entry('g1'), k2: entry('g2') } },
-  });
+  writeGifLibrary(db, { put: { k2: entry('g2') }, rest: { nextId: 3 } }, { iface: 'discord', at: AT });
 
   const rows = db.prepare("SELECT id, description FROM media WHERE kind = 'gif' AND native_ref = 'same-ref'").all();
   assert.equal(rows.length, 1);
