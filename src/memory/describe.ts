@@ -959,23 +959,18 @@ function buildDescriber({
     );
     const { text, reaction, action, screen } = standard.answer.fields;
     const ts = now();
-    putVideoEntry(
-      placeId,
-      item.itemId,
-      {
-        text,
-        reaction,
-        action,
-        screen,
-        ts,
-        watched: true,
-        gif: true,
-        describedAt: ts,
-        model: options.model,
-        ...standard.marks,
-      },
-      true
-    );
+    putVideoEntry(placeId, item.itemId, {
+      text,
+      reaction,
+      action,
+      screen,
+      ts,
+      watched: true,
+      gif: true,
+      describedAt: ts,
+      model: options.model,
+      ...standard.marks,
+    });
     report({ state: 'watched' }, sizes);
     return { state: 'watched', text, usage: standard.answer.usage ?? null, estimated };
   }
@@ -1679,7 +1674,7 @@ function buildDescriber({
       report('error', { reason: 'empty', seconds: media.seconds ?? null });
       return null;
     }
-    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() }, true);
+    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
     report('answered', { seconds: media.seconds ?? null });
     return { question: asked, text };
   }
@@ -1779,7 +1774,7 @@ function buildDescriber({
       report('error', { reason: 'empty' });
       return null;
     }
-    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() }, true);
+    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
     report('answered');
     return { question: asked, text };
   }
@@ -1891,7 +1886,7 @@ function buildDescriber({
       report('error', { reason: 'empty', seconds: clip.seconds });
       return null;
     }
-    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() }, true);
+    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
     report('answered', { seconds: clip.seconds });
     return { question: asked, text };
   }
