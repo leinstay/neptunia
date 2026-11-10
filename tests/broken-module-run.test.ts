@@ -46,6 +46,14 @@ test('breakSource: leaves a function that is not exported alone', () => {
   assert.equal(result.source, `function hidden() { return 1; }\nexport const run = () => ${THROW};\n`);
 });
 
+test('breakSource: breaks every exported function of a TypeScript module with nested type arguments', () => {
+  // Bug: the module was parsed as JavaScript, `>>` in a type argument broke the parse, the later functions kept
+  // running and every test of them read as exercising no engine code.
+  const source =
+    'export function index() {\n  const byKey = new Map<string, Set<string>>();\n  return byKey;\n}\nexport function two(n: number): number {\n  return n;\n}\n';
+  assert.deepEqual(breakSource(source).broken, ['index', 'two']);
+});
+
 test('breakSource: a module with no function export is not broken and says why', () => {
   const result = breakSource('export const A = 1;\nexport const B = { c: 2 };\n');
   assert.equal(result.source, null);
@@ -165,6 +173,22 @@ test('reachedModules: follows a fixture one level and counts its src imports for
     'tests/fixtures/deeper.js': "import { w } from '../../src/config.ts';",
   });
   assert.deepEqual(reachedModules('tests/a.test.js', read), ['src/log.ts', 'src/time.ts']);
+});
+
+test('reachedModules: follows the re-exports of a reached module to the modules that hold the code', () => {
+  // Bug: a test importing a barrel such as interfaces/discord/index.ts broke only the barrel, which has no function
+  // of its own, so its tests stayed green and read as exercising no engine code.
+  const read = reader({
+    'tests/a.test.js': "import { resolveGuild } from '../interfaces/discord/index.ts';",
+    'interfaces/discord/index.ts': "export * from './guild.ts';\nexport { send } from './port.ts';",
+    'interfaces/discord/port.ts': "export * from './wire.ts';",
+  });
+  assert.deepEqual(reachedModules('tests/a.test.js', read), [
+    'interfaces/discord/guild.ts',
+    'interfaces/discord/index.ts',
+    'interfaces/discord/port.ts',
+    'interfaces/discord/wire.ts',
+  ]);
 });
 
 test('reachedModules: a missing file or an empty test reaches nothing', () => {

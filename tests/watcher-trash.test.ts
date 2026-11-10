@@ -427,3 +427,30 @@ test('services watcher evidence carries the trash of the install', async () => {
   assert.equal(item?.category, 'stray-files');
   assert.equal(item?.where, 'install');
 });
+
+test('a drop-in directory beside the units leaves the unit category readable', async () => {
+  // Bug: `neptunia-core.service.d` makes the read of every unit throw, so each report lists the units as unavailable.
+  const where = folders();
+  fs.writeFileSync(path.join(where.unitDir, 'neptunia-gone.service'), `[Service]\nExecStart=${where.root}/gone/tool\n`);
+  fs.mkdirSync(path.join(where.unitDir, 'neptunia-core.service.d'));
+  fs.writeFileSync(path.join(where.unitDir, 'neptunia-core.service.d', 'limits.conf'), '[Service]\nMemoryMax=1G\n');
+  const { result } = await collect(where, clean());
+  assert.deepEqual(
+    result.unavailable.filter((one) => one.category === 'units'),
+    []
+  );
+  assert.ok(result.items.some((item) => item.category === 'units' && item.name === 'neptunia-gone.service'));
+});
+
+test('one unreadable unit is left out and the others are still judged', async () => {
+  // Bug: a dangling link in the folder has the same effect as the directory, for one leftover file.
+  const where = folders();
+  fs.writeFileSync(path.join(where.unitDir, 'neptunia-gone.service'), `[Service]\nExecStart=${where.root}/gone/tool\n`);
+  fs.symlinkSync(path.join(where.root, 'nowhere'), path.join(where.unitDir, 'neptunia-dangling.service'));
+  const { result } = await collect(where, clean());
+  assert.deepEqual(
+    result.unavailable.filter((one) => one.category === 'units'),
+    []
+  );
+  assert.ok(result.items.some((item) => item.category === 'units' && item.name === 'neptunia-gone.service'));
+});

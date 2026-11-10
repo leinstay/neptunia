@@ -21,6 +21,7 @@ import type { Seeds } from '../memory/db/mind-read.ts';
 import { peopleMemoryOf } from './request/memory-block.ts';
 import type { Labels } from './request/types.ts';
 import { nativeChatOf } from '../memory/db/frame-reads.ts';
+import { lineItemParts } from '../memory/db/media-store.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
 import type { LiveLines, ReadMessage } from '../tools/conversation-read.ts';
 import { chatOfStoredPlace } from '../interface/place-chat.ts';
@@ -85,7 +86,10 @@ export type InTurnToolsContext = {
   chatOf: (channel: { id: string }) => ChatRef;
   turnContextOf: (draft: InTurnDraft | null | undefined, channel: ChatInfo) => unknown;
   /** The memory's reads of a place by its id, on any interface (src/memory/db/frame-reads.ts); null while closed. */
-  placeReads?: Pick<FrameReads, 'placeReadable' | 'around' | 'directChats' | 'mind' | 'account' | 'placeRef'> | null;
+  placeReads?: Pick<
+    FrameReads,
+    'placeReadable' | 'around' | 'directChats' | 'mind' | 'account' | 'placeRef' | 'mediaTexts'
+  > | null;
   linkCalls: JournalNotes['linkCalls'];
   drawTool: DrawGif['drawTool'];
   /** The turn's embeddings for the finder and media.find, one memo per draft (graph-find.ts#createFindMeaning). */
@@ -379,8 +383,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
 
   /**
    * One conversation.read of a place named by its place id outside the turn's snapshot, on any interface: the stored
-   * lines the turn's memory context reads, joined by the interface's own history through the router when the record
-   * lacks the span. The context decides whether she may read the place at all, a gone room included; the owner's
+   * lines the turn's memory context reads, each with its media, joined by the interface's own history through the router
+   * when the record lacks the span, whose pictures take the descriptions the memory holds through their lines. The context decides whether she may read the place at all, a gone room included; the owner's
    * command line reads every place. `not_configured` while the memory is closed. Never throws.
    */
   async function readPlace({
@@ -426,12 +430,26 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
                     bot: false,
                     content: line.text,
                     ts: line.at,
+                    // A line with no platform id is no anchor the interface can take (runConversationRead).
+                    ...(line.platformId ? {} : { liveAnchor: false }),
+                    ...lineItemParts(line.media, line.id),
                   },
                 ]
           )
         ),
       fetchLive: (request) => fetchStored(placeId, request as Parameters<typeof fetchSpan>[2]),
-      render: { timezone: config.bot?.timezone ?? 'UTC', selfName, labels, seeReactions: true },
+      // A line the platform gives carries its pictures bare: the memory's descriptions of them, read through their lines.
+      render: (slice: ReadonlyArray<ReadMessage>) => ({
+        timezone: config.bot?.timezone ?? 'UTC',
+        selfName,
+        labels,
+        seeReactions: true,
+        descriptions: placeReads.mediaTexts?.(
+          context,
+          placeId,
+          slice.filter(holdsMedia).map(({ id }) => String(id))
+        ),
+      }),
       refs: draft ? searchHandles(draft) : null,
       now: clock(),
       timezone: config.bot?.timezone ?? 'UTC',
@@ -607,6 +625,10 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
 
   return { inTurnTools };
 }
+
+/** Whether a message of a read carries an attachment, a sticker or an emoji. */
+const holdsMedia = (message: ReadMessage): boolean =>
+  [message.attachments, message.stickers, message.emojis].some((list) => Array.isArray(list) && list.length > 0);
 
 /** What a read answers before anything is read. */
 type ReadAnswer = {

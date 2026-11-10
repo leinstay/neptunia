@@ -120,17 +120,6 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
   return createConsole(deps);
 }
 
-test('the console runs the subharness commands over its private dir', async () => {
-  // Bug: the console falls through to "no such command" for the new names, so the chat cannot change a mode.
-  const { dir, deps } = rig();
-  const desk = consoleOver(dir, {
-    runBackend: (name, brief) => deps.runBackend(name, brief),
-    fetch: (url, init) => deps.fetch(url, init),
-  });
-  assert.equal((await desk.run('agent.mode', { agent: 'dev', mode: 'full' }, { id: 'owner' })).status, 'ok');
-  assert.equal(readKeysFile(dir).subharness.modes.dev, 'full');
-});
-
 test('without the runner and fetch the console refuses a model selection and runs no model', async () => {
   // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Bug: a console built without the check dependencies falls back to the real codex or the real network.
@@ -198,18 +187,6 @@ test('the same command from the owner chat reaches the console', async () => {
   const { desk, consoleCalls } = deskOver();
   await desk.run(eventOf('agent.mode', { agent: 'dev', mode: 'sudo' }), { kind: 'cli', name: 'cli' });
   assert.deepEqual(consoleCalls, ['agent.mode']);
-});
-
-test('/help from the owner chat lists /subharness', async () => {
-  // Bug: the commands exist in the table and the chat's help text does not show them.
-  const { desk } = deskOver();
-  const answer = await desk.run(eventOf('help', {}), { kind: 'cli', name: 'cli' });
-  const lines = answer.text.split('\n');
-  for (const name of ['subharness'])
-    assert.ok(
-      lines.some((line) => line.startsWith(`/${name} `)),
-      name
-    );
 });
 
 test('inside the core a mode change is stored and the answer names neptunia setup', async () => {

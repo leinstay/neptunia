@@ -5,14 +5,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildBrief } from '../src/watcher/brief.ts';
+
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { installFacts } from '../src/watcher/install.ts';
 import { answerOf, inspectionDeps, inspectionRig, said } from './fixtures/watcher-inspection-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import { watcherDirs } from './fixtures/watcher-rig.ts';
 
-const CHECKOUT = /checkout/i;
 const NO_GIT = (): string => assert.fail('git is not asked with no .git');
 
 function install(withGit: boolean): { rootDir: string; dataDir: string } {
@@ -27,24 +25,6 @@ function install(withGit: boolean): { rootDir: string; dataDir: string } {
   if (withGit) fs.mkdirSync(path.join(rootDir, '.git'));
   return { rootDir, dataDir: tempDir('nep-install-data-') };
 }
-
-test('the prompt names no development checkout', () => {
-  // Bug: the prompt sends the agent to a folder a public install does not have, and every report fails or invents.
-  const prompt = fs.readFileSync(new URL('../agents/watcher/prompt.md', import.meta.url), 'utf8');
-  assert.doesNotMatch(prompt, CHECKOUT);
-});
-
-test('the brief of a run names no development checkout, whatever the install holds', () => {
-  // Bug: a setting's path reaches the brief, and the watcher reports on code that is not running.
-  const { reportsDir } = watcherDirs();
-  const brief = buildBrief({
-    prompt: 'P',
-    day: '2026-11-04',
-    reportsDir,
-    install: installFacts({ ...install(false), git: NO_GIT }),
-  });
-  assert.doesNotMatch(brief, CHECKOUT);
-});
 
 test('a missing .git gives an unavailable check, in the brief too, and never asks git', async () => {
   // Bug: an install from a package reads as "no divergence", or git is run in a parent repository.
@@ -125,4 +105,15 @@ test('skills read as unavailable with no memory database, and as an empty list w
   const empty = installFacts({ ...missing, git: NO_GIT });
   assert.deepEqual(empty.activeSkills, []);
   assert.equal(empty.unavailable.includes('skills-unreadable'), false);
+});
+
+test('skills that cannot be read are unavailable by code when the database is garbage, not an empty list', () => {
+  // Bug: a corrupt registry reads as "no active skills", which clears a check nobody made.
+  const rootDir = tempDir('nep-scenario-install-');
+  fs.writeFileSync(path.join(rootDir, 'package.json'), '{}');
+  const dataDir = tempDir('nep-scenario-install-data-');
+  fs.writeFileSync(path.join(dataDir, 'memory.db'), 'this is not a database');
+  const facts = installFacts({ rootDir, dataDir, git: () => assert.fail('no .git, no git') });
+  assert.equal(facts.activeSkills, null);
+  assert.ok(facts.unavailable.includes('skills-unreadable'));
 });

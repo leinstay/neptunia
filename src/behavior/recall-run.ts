@@ -1065,6 +1065,7 @@ export function createRecall({
     history,
     historyRef,
     candidate,
+    terms = '',
     server,
     decorate,
     started,
@@ -1084,15 +1085,18 @@ export function createRecall({
     });
     let vector = null;
     let degraded = false;
+    // Her question is embedded, else her terms: a word of one language meets a description written in another.
+    const asked = meaningQuery({ candidate, lines: [], withReply: false, nameOf: reader.nameOf });
+    const termsText = oneLine(terms);
+    const queryText = asked?.text ?? termsText;
     if (typeof embed === 'function' && settings.meaningCandidates > 0) {
-      const query = meaningQuery({ candidate, lines: [], withReply: false, nameOf: reader.nameOf });
-      if (query) {
+      if (queryText) {
         const embedStarted = now();
         const controller = new AbortController();
         const timer = timers.set(() => controller.abort(), settings.timeoutMs);
         timer?.unref?.();
         try {
-          [vector] = await embed([query.text], { config, purpose: 'recall-query', signal: controller.signal });
+          [vector] = await embed([queryText], { config, purpose: 'recall-query', signal: controller.signal });
           stats.meaningMs = now() - embedStarted;
         } catch (err) {
           degraded = true;
@@ -1125,7 +1129,9 @@ export function createRecall({
         channelNameOf: reader.channelNameOf,
         allowPlace: reader.allowPlace,
         model: reader.model,
-        sampleTime: true,
+        // A sample of lines answers only a call that names no words: a search for words that found none says so.
+        sampleTime: !asked && !termsText,
+        mediaBar: settings.prefetch,
         samplePlace: samplePlaceRule({ db, snapshot, channel, partnerId, config }),
       },
       controller.signal
@@ -1152,6 +1158,8 @@ export function createRecall({
     });
     stats.kept = quotes.length;
     stats.summary = 'quotes';
+    // The stored facts and episodes are met by the meaning of her question only, never of her terms.
+    const factsVector = asked ? vector : null;
     const page = await searchFacts({
       db,
       ctx: reader.ctx,
@@ -1160,7 +1168,7 @@ export function createRecall({
       config,
       prefetch: settings.prefetch,
       now,
-      vector,
+      vector: factsVector,
       model: reader.model,
     });
     log.info('recall: quoted', {
@@ -1182,7 +1190,7 @@ export function createRecall({
       people: [],
       assertions: page?.assertions ?? [],
       factsCut: page?.next != null,
-      episodes: db ? searchEpisodes({ db, ctx: reader.ctx, vector, model: reader.model, config }) : [],
+      episodes: db ? searchEpisodes({ db, ctx: reader.ctx, vector: factsVector, model: reader.model, config }) : [],
       stats: { ...stats, ms: now() - started },
       outcome: { kind: 'searched', degraded, failed: 0, total: 1 },
     };
@@ -1779,6 +1787,7 @@ export function createRecall({
     context = null,
     contextDescriptions,
     candidate = null,
+    terms = '',
     server = null,
     op = null,
     decorate = null,
@@ -1852,6 +1861,7 @@ export function createRecall({
           history,
           historyRef,
           candidate,
+          terms,
           server,
           decorate,
           started,

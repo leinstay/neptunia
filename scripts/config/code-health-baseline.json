@@ -1240,10 +1240,6 @@
       "deep": 7,
       "repeated": 0
     },
-    "tests/watcher-coverage.test.ts": {
-      "deep": 4,
-      "repeated": 0
-    },
     "tests/watcher-lifecycle.test.ts": {
       "deep": 1,
       "repeated": 0
@@ -1259,10 +1255,6 @@
     "tests/watcher-risk.test.ts": {
       "deep": 6,
       "repeated": 0
-    },
-    "tests/watcher-stamp.test.ts": {
-      "deep": 0,
-      "repeated": 4
     },
     "tests/watcher-template.test.ts": {
       "deep": 3,

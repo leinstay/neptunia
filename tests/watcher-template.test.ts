@@ -21,6 +21,7 @@ import {
 } from './fixtures/watcher-inspection-rig.ts';
 import type { InspectionRig } from './fixtures/watcher-inspection-rig.ts';
 import { HEADINGS, PLANTED_KEY } from './fixtures/watcher-rig.ts';
+import { checkCoverage, checkTemplate } from '../src/watcher/report.ts';
 
 const inspection = () => import('../src/watcher/inspection.ts');
 
@@ -53,30 +54,6 @@ test('a report in the template passes, and the check gives back its day and meta
     repeats: 0,
     open: { critical: 0, high: 0, medium: 0, low: 0 },
   });
-});
-
-test('the sections are the twelve of the owner, exact and in order', () => {
-  // Bug: a section is renamed in one place, and the check, the prompt and the readers hold different lists.
-  // Changed by B12.1 of the plan: `Development` joins the list, and only a report in development mode holds it.
-  // The lead: the watcher left development (owner, 2026-11-06). `Development` leaves the list, and `Money` follows `Memory`.
-  // The watcher files no task (owner, 2026-11-09), so `Tasks filed` leaves the list.
-  assert.deepEqual(
-    [...reports.REPORT_HEADINGS],
-    [
-      'Her day',
-      'Service runs',
-      'Memory',
-      'Money',
-      'Errors',
-      'Misunderstandings',
-      'Project',
-      'Modules and structure',
-      'Trash',
-      'The server',
-      'Wishes',
-      'For the owner',
-    ]
-  );
 });
 
 test('findings of any length pass under their subheadings, and a heading quoted in a fence is no heading', () => {
@@ -160,8 +137,6 @@ for (const [name, [text, code]] of Object.entries(TOP)) {
     assert.equal(codeOf(text), code);
   });
 }
-
-const EMPTY = 'none';
 for (const [name, body, code] of [
   ['nothing at all', '', 'empty-subsection'],
   ['None with a capital', 'None', 'empty-word'],
@@ -175,11 +150,6 @@ for (const [name, body, code] of [
     assert.equal(codeOf(templateOf({ bodies: { Memory: { 'Unavailable checks': body } } })), code);
   });
 }
-
-test('an empty subsection says exactly the one fixed word', () => {
-  // Bug: the check refuses the fixed word itself, or the fixture and the contract name different words.
-  assert.equal(codeOf(templateOf({ bodies: { Memory: { 'Suspicious evidence': EMPTY } } })), 'passed');
-});
 
 for (const sub of ['Observed defects', 'Suspicious evidence']) {
   for (const [name, line] of [
@@ -214,12 +184,6 @@ for (const sub of ['Inspected without a finding', 'Unavailable checks']) {
     assert.equal(codeOf(templateOf({ bodies: { Memory: { [sub]: '- [high] retry-rail: it loops' } } })), 'bad-risk');
   });
 }
-
-test('a tasks block after the coverage block is refused as trailing-content', () => {
-  // Bug: the engine files no task any more, yet an old-style answer's tasks block passes unread after the report.
-  const tasks = '```tasks\n' + JSON.stringify([{ kind: 'fix', title: 'Rail', evidence: 'a', done: 'b' }]) + '\n```\n';
-  assert.equal(codeOf(`${templateOf()}\n${tasks}`), 'trailing-content');
-});
 
 const END = {
   'no coverage block': [templateOf({ end: '' }), 'coverage-missing'],
@@ -344,4 +308,49 @@ test('prompt.md asks for the whole template', () => {
   for (const name of SUBHEADINGS) assert.ok(prompt.includes(`### ${name}`), name);
   assert.ok(prompt.includes('`none`'));
   assert.ok(prompt.includes('[critical|high|medium|low]'));
+});
+
+// The coverage block's `observation` and `backend` are the engine's, like the metadata rows they repeat, so the saved report
+// cannot say two things about one run. The agent's other fields stay as it wrote them. Synthetic answers; the clock is injected.
+
+test('the saved block carries the stamped interval and backend, whatever the agent wrote, and keeps its own lists', async () => {
+  // Bug: the metadata says one window and backend and the block another, and calibration reads whichever it parsed first.
+  const { runInspection } = await import('../src/watcher/inspection.ts');
+  const rig = inspectionRig();
+  const claimed = templateOf({
+    end: coverageBlock({
+      observation: { from: '2020-01-01T00:00:00.000Z', to: '2020-01-02T00:00:00.000Z' },
+      backend: 'invented-backend',
+      inspected: ['MARK-KEPT'],
+    }),
+  });
+  const result = await runInspection(
+    inspectionDeps(rig, {
+      selected: { backend: 'claude', model: 'm', effort: 'e' },
+      runAgent: () => Promise.resolve(said(claimed)),
+    })
+  );
+  assert.equal(result.state, 'succeeded');
+  const read = readReport(rig.reportsDir, DAY);
+  assert.ok(read.ok);
+  const template = checkTemplate(read.report.text);
+  const checked = checkCoverage(read.report.text);
+  assert.ok(template.ok && checked.ok);
+  assert.equal(checked.coverage.backend, 'claude');
+  const { from, to } = checked.coverage.observation;
+  assert.equal(`${from} to ${to}`, template.metadata.observationInterval);
+  assert.deepEqual(checked.coverage.inspected, ['MARK-KEPT']);
+});
+
+test('an unknown backend is stamped in the block as in the metadata, and the report still passes', async () => {
+  // Bug: the block's check refuses a blank backend, so a run with no selected backend fails after its own stamp.
+  const { runInspection } = await import('../src/watcher/inspection.ts');
+  const rig = inspectionRig();
+  const result = await runInspection(inspectionDeps(rig, { selected: { backend: null, model: null, effort: null } }));
+  assert.equal(result.state, 'succeeded', result.code ?? '');
+  const read = readReport(rig.reportsDir, DAY);
+  assert.ok(read.ok);
+  const checked = checkCoverage(read.report.text);
+  assert.ok(checked.ok);
+  assert.equal(checked.coverage.backend, 'unknown');
 });

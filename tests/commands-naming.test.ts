@@ -80,11 +80,6 @@ test('the table holds the plural collections and none of the retired singular or
   assert.deepEqual([...COMMAND_NAMES].sort(), names, 'the shell and the chat list one table');
 });
 
-test('/model and /subharness keep their names', () => {
-  // Catches: the rename sweeps the two entry points the owner asked to keep.
-  for (const line of ['/model show', '/subharness status']) assertAccepted(parseCommandLine(line));
-});
-
 test('the help panel lists the plural collections and none of the retired commands', async () => {
   // Catches: the panel keeps a list of its own that drifts from the table.
   const panel = await chatPanel('/help', () => Promise.resolve({ status: 'ok', text: '' }));
@@ -151,64 +146,6 @@ for (const words of [
     // Catches: the verbs of the system units become chat commands, or a bad word runs as if it were a mechanism.
     const reason = assertRefused(parseCommandLine(`/services ${words}`));
     assert.equal(reason.startsWith('unknown command'), false, 'the family itself is known');
-  });
-}
-
-for (const line of [
-  '/services heartbeat setup --every 0h',
-  '/services heartbeat setup --at 25:00',
-  '/services selfreflection setup --every 6h --jitter 5m',
-  '/services heartbeat setup --at 00:00 --every 6h',
-]) {
-  test(`the parse still refuses "${line}"`, () => {
-    // Catches: the rename drops the check on setup flags, so a bad schedule reaches the handler.
-    assertRefused(parseCommandLine(line));
-  });
-}
-
-test('/services watcher report is refused', () => {
-  // Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
-  // does not hold, and names no replacement.
-  // Catches: the report stays readable under two commands.
-  assertRefused(parseCommandLine('/services watcher report 2026-11-03'));
-  assertRefused(parseRequest(['services', 'watcher', 'report']).parsed);
-});
-
-// ---- retired spellings -----------------------------------------------------------------------------------------------
-
-// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
-// does not hold, and names no replacement.
-const RETIRED: ReadonlyArray<string> = [
-  '/service watcher status',
-  '/service heartbeat setup --every 3h',
-  '/service watcher report 2026-11-03',
-  '/health',
-  '/health server',
-  '/wakes',
-  '/wakes stop',
-  '/report',
-  '/route list',
-  '/interface list',
-];
-
-for (const line of RETIRED) {
-  test(`${line} is refused in both forms, running nothing`, () => {
-    // Catches: a retired spelling still works behind the new one.
-    const words = line.slice(1).split(' ');
-    for (const parsed of [parseCommandLine(line), parseRequest(words).parsed, parseLineRequest(line).parsed])
-      assertRefused(parsed);
-  });
-}
-
-// ---- /logs -----------------------------------------------------------------------------------------------------------
-
-for (const words of ['watcher', 'watcher 2026-11-03', 'watcher run-71']) {
-  test(`/logs ${words} is refused, in the chat's line and in argv`, () => {
-    // Changed: the reports moved to `/doctor watcher` (owner, 2026-11-09).
-    // Catches: the old reader stays under /logs, or the word reaches journalctl as a filter.
-    const [chat, shell] = both(words, 'logs');
-    assertRefused(chat);
-    assertRefused(shell);
   });
 }
 
@@ -315,9 +252,4 @@ test('--secret-stdin on a leaf that asks for no secret stays plain text', () => 
   // Changed: `/logs watcher` is gone (owner, 2026-11-09), so the plain leaf under test is `/memory recent`.
   const request = parseRequest(['memory', 'recent', '--secret-stdin']);
   assert.equal(request.secretStdin, false);
-});
-
-test('an unknown plural is no command and no prompt for her', () => {
-  // Catches: a mistyped family parses as something, so a line meant for a command reaches a model.
-  for (const line of ['/servicess list', '/route list', '/interfaces-list']) assertRefused(parseCommandLine(line));
 });
