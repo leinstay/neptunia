@@ -116,3 +116,22 @@ test('stores a line the address classifier read when it lets no turn start', asy
     assert.equal(rig.linesOf('h0').length, 1);
   });
 });
+
+// Owner's rule of 2026-11-10: a one-time phrase is a line like any other, shown to her and kept.
+const CODE_LINE =
+  'Your one-time pairing phrase is: πέτρα δέντρο νερό φωτιά αέρας χώμα. Type /interfaces pair followed by these six words in her command line within an hour.';
+
+test('shows and stores her line that carries a pairing phrase', async () => {
+  const seed = (fake: Fake): void => {
+    fake.seedChat(channelInfo('c1', { name: 'general' }));
+    fake.seedEvent(lineEvent({ id: 'k0', text: CODE_LINE, at: EARLIER, authorId: 'self-id' }));
+  };
+  await withFakeCore({ seed }, async (rig) => {
+    await rig.emit(deliver(rig.fake, { id: 'm1', text: 'γεια σου', at: NOW - 1000, mention: true }));
+    await until(() => rig.posted('c1').length === 1);
+    assert.equal(rig.requestText(0).includes('πέτρα δέντρο νερό φωτιά αέρας χώμα'), true, 'the line is in her chat');
+    await until(() => rig.linesOf('k0').length > 0);
+    await settle();
+    assert.equal(rig.linesOf('k0').length, 1);
+  });
+});

@@ -205,10 +205,6 @@ export function createMessageHandler({
     observeLine,
     selfIdOf,
     isServedRoot,
-    isCodeLine: screen ? (content) => screen.isCodeLine(content) : null,
-    isWithheld: screen?.isWithheld
-      ? (iface, chatId, messageId) => screen.isWithheld?.(iface, chatId, messageId) === true
-      : null,
   });
   const turnBlocked = () => isTurnBlocked(turns);
   const { warmMediaCache, cachedFollowUpMedia } = createMediaPrefill({

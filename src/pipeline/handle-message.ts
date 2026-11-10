@@ -25,16 +25,12 @@ import type { Line, MessageReadOptions, PipelineHot, PipelineMissed, PipelineSta
 const CATCH_UP_IDS_KEPT = 1000;
 
 /**
- * What the door asks of a new line before anything else reads it: her link tool (src/interface/person-link.ts) drops
- * the right code of the account that asked, the owner's pairing (src/interface/owner-pairing.ts) answers a direct
- * message with a one-time code and has the line only observed, and her own line that carries a code reaches neither
- * memory nor a turn.
+ * What the door asks of a new line before anything else reads it: her link tool (src/interface/person-link.ts) has the
+ * right code of the account that asked only observed, and the owner's pairing (src/interface/owner-pairing.ts) answers
+ * a direct message with a one-time code and has the line only observed. A line the screen drops goes nowhere.
  */
 export type DoorScreen = {
   screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'>;
-  isCodeLine(content: unknown): boolean;
-  /** A message the screen dropped for a link code; absent, none was. */
-  isWithheld?(iface: string, chatId: string, messageId: string): boolean;
 };
 
 /** What became of one message. */
@@ -143,9 +139,7 @@ export function createHandleMessage({
     try {
       // 1. A system message (a join, a pin, a boost: the platform's own notice, src/protocol/events.ts) is not chat.
       if (event.message.system === true) return 'ignored';
-      // 1. Her own line that carries a one-time code is no speech of hers: never observed, never read back.
-      const { author: writer, content } = event.message;
-      if (writer?.id === selfIdOf() && door?.isCodeLine(content) === true) return 'ignored';
+      const { author: writer } = event.message;
 
       // 1a. Paused (/nep pause): no trigger, no turn, nothing marks the store dirty. A live line is observed
       // into the memory database and the core holds it for the resume, which hands it back through the catch-up path
@@ -170,7 +164,7 @@ export function createHandleMessage({
         }
       }
 
-      // 1c. A line the screen took goes no further: a link code is dropped whole, a pairing request only observed.
+      // 1c. A line the screen took goes no further: a link code's answer and a pairing request are only observed.
       const screened = catchUp || door === null ? 'pass' : await door.screen(event);
       if (screened === 'drop') return 'ignored';
       if (screened === 'observe') {

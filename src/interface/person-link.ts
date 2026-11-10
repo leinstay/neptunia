@@ -4,14 +4,12 @@
 // meta-person, B, on any interface that reaches one, and answers her with the rule of the next message
 // (`labels.tools.tools.link.sent`), never with the phrase. The door hands every new line to `screen` first: the next
 // message of A in that conversation ends the attempt. A message that holds the six words in any order and any form
-// (src/interface/phrase-codes.ts) is dropped before memory or a turn sees it, its message id is withheld from every chat a turn reads, and the bind
-// of `/memory bind` runs (src/memory/db/person-bind.ts, `by` `code`): B's meta-person wins, A's merges into it, and the
+// (src/interface/phrase-codes.ts) is observed like any line and starts no turn, and the bind of `/memory bind` runs (src/memory/db/person-bind.ts, `by` `code`): B's meta-person wins, A's merges into it, and the
 // private layers join. Any other message is passed on and counted as a failure.
 //
 // Hermes's limits (gateway/pairing.py): a code lives an hour, an account asks once per ten minutes, five failures lock
 // it for an hour. The owner's meta-person is never touched, neither as B nor as A's. A closed direct chat, or no
-// interface that reaches B, is refused and nothing waits. The waiting seals, the limits and the withheld message ids
-// are written to the state file, so a restart neither drops a waiting phrase nor reopens an ended attempt. Logs carry
+// interface that reaches B, is refused and nothing waits. The waiting seals and the limits are written to the state file, so a restart neither drops a waiting phrase nor reopens an ended attempt. Logs carry
 // interfaces and outcomes, never the phrase. Built by src/core.ts; the limits and the file are src/interface/pairing.ts.
 
 import { log } from '../log.ts';
@@ -25,7 +23,7 @@ import type { Adapter, MessageEvent } from '../protocol/adapter.ts';
 import { nativeAuthorityOf } from '../protocol/identity.ts';
 import { CODE } from '../tools/codes.ts';
 import { ownerPersonOf } from '../tools/operations/grants.ts';
-import { fillLabel, hasCodeLine } from './owner-pairing.ts';
+import { fillLabel } from './owner-pairing.ts';
 import type { OwnerPairing } from './owner-pairing.ts';
 import { CODE_TTL_MS, LOCK_MS, MAX_FAILURES, REQUEST_EVERY_MS, codesFileOf, createCodeFile } from './pairing.ts';
 import { phraseCodesOf } from './phrase-codes.ts';
@@ -33,8 +31,6 @@ import type { PhraseCodes, Seal } from './phrase-codes.ts';
 
 /** The interface of the owner's command line, which reaches nobody else. */
 const CONSOLE_IFACE = 'cli';
-/** How many withheld message ids the process keeps, the oldest going first. */
-const WITHHELD_KEPT = 1000;
 
 export type PersonLinksDeps = {
   /** The live config, prompts and layers: `bot.ownerPerson`, `bot.mnemonic` and the link labels, read at each use. */
@@ -52,7 +48,7 @@ export type PersonLinksDeps = {
   now?: () => number;
   /** The phrases; the list `bot.mnemonic` picks and the memory's stemmer when absent. */
   phrases?: PhraseCodes;
-  /** Where the waiting seals, the limits and the withheld message ids survive a restart: `link-codes.json` of the data directory. */
+  /** Where the waiting seals and the limits survive a restart: `link-codes.json` of the data directory. */
   file?: string | null;
 };
 
@@ -68,18 +64,15 @@ export type LinkStart = {
 
 export type PersonLinks = {
   start(ask: LinkAsk): Promise<LinkStart>;
-  /** What the door does with a new line: drop the right code of the account that asked, or pass it on. */
-  screen(event: MessageEvent): Promise<'pass' | 'drop'>;
-  isCodeLine(content: unknown): boolean;
-  /** True for a message that carried a phrase, kept out of every chat a turn reads. */
-  isWithheld(iface: string, chatId: string, messageId: string): boolean;
+  /** What the door does with a new line: observe the right code of the account that asked, or pass it on. */
+  screen(event: MessageEvent): Promise<'pass' | 'observe'>;
 };
 
 type Waiting = { chatId: string; accountId: string; person: string; seal: Seal; at: number };
 type Limits = { askedAt: number; failures: number; lockedUntil: number };
-type LinkState = { waiting: Record<string, Waiting>; limits: Record<string, Limits>; withheld: Array<string> };
+type LinkState = { waiting: Record<string, Waiting>; limits: Record<string, Limits> };
 
-const emptyState = (): LinkState => ({ waiting: {}, limits: {}, withheld: [] });
+const emptyState = (): LinkState => ({ waiting: {}, limits: {} });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -144,12 +137,6 @@ export function createPersonLinks({
     const found = state.limits[key] ?? { askedAt: -REQUEST_EVERY_MS - 1, failures: 0, lockedUntil: 0 };
     state.limits[key] = found;
     return found;
-  }
-
-  function withhold(event: MessageEvent): void {
-    state.withheld = [...state.withheld, JSON.stringify([event.iface, event.chat.id, event.message.id])].slice(
-      -WITHHELD_KEPT
-    );
   }
 
   /** Sends the phrase to the first account of `person` an interface reaches; whether one took it. */
@@ -223,7 +210,7 @@ export function createPersonLinks({
     return { status: 'ok', data: { text: labelAt(hot.prompts, ['tools', 'tools', 'link', 'sent']) } };
   }
 
-  async function screen(event: MessageEvent): Promise<'pass' | 'drop'> {
+  async function screen(event: MessageEvent): Promise<'pass' | 'observe'> {
     const author = event.message.author;
     if (author === undefined || author.self === true) return 'pass';
     const key = keyOf(event.iface, String(author.id));
@@ -242,7 +229,6 @@ export function createPersonLinks({
       log.info('link: wrong answer', { iface: event.iface, locked: limit.lockedUntil > now() });
       return 'pass';
     }
-    withhold(event);
     save();
     const result =
       memoryDb === null
@@ -257,32 +243,21 @@ export function createPersonLinks({
       status: result.status,
       code: (result as { code?: string }).code ?? null,
     });
-    return 'drop';
+    return 'observe';
   }
 
-  return {
-    start,
-    screen,
-    isCodeLine: (content) => hasCodeLine(hot.prompts, content),
-    isWithheld: (iface, chatId, messageId) => state.withheld.includes(JSON.stringify([iface, chatId, messageId])),
-  };
+  return { start, screen };
 }
 
 /** The door's one screen: her link codes first, then the owner's pairing. */
 export function joinScreens(
   links: PersonLinks,
-  pairing: Pick<OwnerPairing, 'screen' | 'isCodeLine'>
-): {
-  screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'>;
-  isCodeLine(content: unknown): boolean;
-  isWithheld(iface: string, chatId: string, messageId: string): boolean;
-} {
+  pairing: Pick<OwnerPairing, 'screen'>
+): { screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'> } {
   return {
     screen: async (event) => {
       const linked = await links.screen(event);
       return linked === 'pass' ? pairing.screen(event) : linked;
     },
-    isCodeLine: (content) => links.isCodeLine(content) || pairing.isCodeLine(content),
-    isWithheld: (iface, chatId, messageId) => links.isWithheld(iface, chatId, messageId),
   };
 }

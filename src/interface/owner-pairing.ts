@@ -6,7 +6,7 @@
 // meta-person by the rules of `/memory bind` (src/memory/db/person-bind.ts), the approval standing for the owner's
 // yes to a merge. The account he paired last on an interface is his account there, and the earlier ones stay his
 // (person-links.ts#ownerAccountOf). The owner's own accounts, her lines, group places and the command line pass.
-// `isCodeLine` tells her own line that carries a phrase, which the door keeps out of memory. The phrase itself is never
+// Her line that carries the phrase is a line like any other: memory keeps it and a turn reads it. The phrase is never
 // logged: the log says only that one was sent. Built by src/core.ts; the limits and the state file are
 // src/interface/pairing.ts, the phrases src/interface/phrase-codes.ts.
 
@@ -20,7 +20,7 @@ import { nativeAuthorityOf } from '../protocol/identity.ts';
 import { isOwnerId, ownerPersonOf } from '../tools/operations/grants.ts';
 import { codesFileOf, createPairing } from './pairing.ts';
 import type { Pairing, PairingAccount } from './pairing.ts';
-import { PHRASE_PATTERN, phraseCodesOf } from './phrase-codes.ts';
+import { phraseCodesOf } from './phrase-codes.ts';
 
 /** The interface of the owner's command line, where he is the owner from the first line and pairs nothing. */
 const CONSOLE_IFACE = 'cli';
@@ -53,8 +53,6 @@ export type PairAnswer = { text: string; status: 'ok' | 'invalid' | 'failed' };
 export type OwnerPairing = {
   /** What the door does with a new line: pass it on, or only observe it once a code answered it here. */
   screen(event: MessageEvent): Promise<'pass' | 'observe'>;
-  /** True for a line that carries a pairing phrase as `labels.pairing.code` words it. */
-  isCodeLine(content: unknown): boolean;
   /** Opens pairing on `iface` for an hour; the owner's answer. */
   open(iface: string): string;
   /** Approves the phrase the owner typed: the account that asked for it becomes his. */
@@ -72,32 +70,9 @@ function labelOf(prompts: unknown, key: string): string {
   return typeof text === 'string' ? text : '';
 }
 
-const escaped = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** The label `template` filled with `values`, every other placeholder left as written. */
 export function fillLabel(template: string, values: Readonly<Record<string, string>>): string {
   return template.replace(/\{(\w+)\}/g, (whole, name: string) => values[name] ?? whole);
-}
-
-/** True when `content` is `template` with a phrase in its `{phrase}` and anything in its other placeholders. */
-export function isCodeText(template: string, content: unknown): boolean {
-  if (typeof content !== 'string' || template === '' || !template.includes('{phrase}')) return false;
-  const pattern = template
-    .split(/(\{\w+\})/)
-    .map((part, index) => {
-      if (index % 2 === 0) return escaped(part);
-      return part === '{phrase}' ? PHRASE_PATTERN : '.+?';
-    })
-    .join('');
-  return new RegExp(`^${pattern}$`, 'su').test(content.trim());
-}
-
-/** True when `content` carries a one-time phrase as a code label words it: `labels.pairing.code` or `labels.link.code`. */
-export function hasCodeLine(prompts: unknown, content: unknown): boolean {
-  const labels = isRecord(prompts) ? prompts.labels : null;
-  const link = isRecord(labels) ? labels.link : null;
-  const linkCode = isRecord(link) && typeof link.code === 'string' ? link.code : '';
-  return isCodeText(labelOf(prompts, 'code'), content) || isCodeText(linkCode, content);
 }
 
 /** A direct chat of one person, the only place an account asks for a code. */
@@ -181,7 +156,6 @@ export function createOwnerPairing({
 
   return {
     screen,
-    isCodeLine: (content) => hasCodeLine(hot.prompts, content),
     open(iface) {
       if (iface === CONSOLE_IFACE) return 'the command line is yours already; pair another interface';
       if (ownerPersonOf(hot.config) === null) return 'you have no meta-person yet: write one line in this chat first';

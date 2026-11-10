@@ -192,16 +192,6 @@ test('passes the owner account on once it is paired, while pairing is open again
   });
 });
 
-test('tells her line that carries a code from any other line', async () => {
-  await withPairing(async ({ pairing, sent }) => {
-    pairing.open(IFACE);
-    await pairing.screen(direct('u9', 'm1'));
-    assert.equal(pairing.isCodeLine(sent[0]?.text), true);
-    assert.equal(pairing.isCodeLine('pair with nothing please'), false);
-    assert.equal(pairing.isCodeLine('hello there'), false);
-  });
-});
-
 test('the code reaches no log line from the request to the approval', async () => {
   const lines: Array<string> = [];
   const stop = onLog((entry) => lines.push(JSON.stringify(entry)));
@@ -299,7 +289,8 @@ test('a code approved in the command line binds the account that wrote to her, w
       llm.requests.some((request) => JSON.stringify(request).includes('hello, it is me')),
       false
     );
-    // Her next turn in that chat reads its history, and her line with the code stays out of the request.
+    // Her next turn in that chat reads its history. Owner's rule of 2026-11-10: her line with the code is a line like
+    // any other, so the request shows it where it once left it out.
     await coreDirect(unit, 'u9', 'm2', 'and now a real question');
     await until(
       () => llm.requests.some((request) => JSON.stringify(request).includes('and now a real question')),
@@ -307,7 +298,7 @@ test('a code approved in the command line binds the account that wrote to her, w
     );
     assert.equal(
       llm.requests.some((request) => JSON.stringify(request).includes(code)),
-      false
+      true
     );
     assert.equal(
       logs.some((entry) => JSON.stringify(entry).includes(code)),
