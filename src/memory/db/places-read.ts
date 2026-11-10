@@ -131,9 +131,6 @@ export function listPlaces(
   return pageOf(db, context, { sql: parts.join(' AND '), params }, limit, position, binding);
 }
 
-const placeExists = (db: Db, placeId: string): boolean =>
-  db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(placeId) !== undefined;
-
 function listingById(db: Db, context: Context, placeId: string): PlaceListing | null {
   const columns = listingColumns(context);
   const row = db.prepare(`SELECT ${columns.sql} FROM places p WHERE p.id = ?`).get(...columns.params, placeId);
@@ -244,23 +241,4 @@ export function placeDetail(
     continuations,
     records: recordsOf(db, context, placeId),
   };
-}
-
-/** The lore of a place by id, retired entries included. */
-export function placeLore(
-  db: Db,
-  placeId: string,
-  context: Context
-): { found: true; placeId: string; records: Array<PlaceRecord> } | { found: false; code: 'PLACE_NOT_FOUND' } {
-  contextBinding(context);
-  if (!placeExists(db, placeId)) return { found: false, code: 'PLACE_NOT_FOUND' };
-  const audience = audienceWhere(context, 't');
-  const records = db
-    .prepare(
-      `SELECT t.id FROM claims t WHERE t.subject_kind = 'place' AND t.subject_id = ? AND t.kind = 'lore'
-       AND ${audience.sql} ORDER BY t.id`
-    )
-    .all(placeId, ...audience.params)
-    .map((row) => ({ table: 'claims', id: String(row.id) }));
-  return { found: true, placeId, records };
 }

@@ -147,7 +147,8 @@ const LINES = [
   ['/memory places list --interface zeta --authority zeta/one --roots --limit 5 --cursor c1', 'memory.places.list'],
   ['/memory places tree place:x --limit 5', 'memory.places.tree'],
   ['/memory places show place:x --include-children', 'memory.places.show'],
-  ['/memory places lore place:x', 'memory.places.lore'],
+  // Changed: bare `/memory places lore <place>` is gone (CLI audit 2026-11-09). `places show` lists the same claim rows,
+  // and `places lore list` the entries.
 ] as const;
 
 for (const [line, name] of LINES) {
@@ -323,14 +324,18 @@ test('/memory places tree answers the descendants with their depth', async () =>
   });
 });
 
-test('/memory places lore answers the lore of that place by id', async () => {
+test('bare /memory places lore is no command, and places show lists the lore claim among the records', async () => {
+  // Catches: two readers of one lore kept apart, or the merge losing the lore claim from the place's records (CLI
+  // audit 2026-11-09).
+  assert.equal(parseCommandLine('/memory places lore place:server').ok, false);
   await withRig(async (one) => {
-    const lore = data(await one.say('/memory places lore place:server')) as {
+    const shown = data(await one.say('/memory places show place:server')) as {
       records: Array<{ table: string; id: string }>;
     };
-    assert.deepEqual(lore.records, [{ table: 'claims', id: 'claim:lore' }]);
-    const none = data(await one.say('/memory places lore place:deep')) as { records: Array<unknown> };
-    assert.deepEqual(none.records, []);
+    assert.ok(
+      shown.records.some((record) => record.table === 'claims' && record.id === 'claim:lore'),
+      JSON.stringify(shown.records)
+    );
   });
 });
 
@@ -353,7 +358,6 @@ const READS = [
   '/memory places list',
   '/memory places tree place:server',
   '/memory places show place:server --include-children',
-  '/memory places lore place:server',
 ];
 
 test('a browser read runs no operation, reaches no network and changes no row', async () => {

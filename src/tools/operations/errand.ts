@@ -98,7 +98,7 @@ const handlers = perEnv((env) => {
   /** A refusal of the store or the service as the operation's result. */
   function refusal(code: string, errand?: ErrandRecord): Obj {
     const status = REFUSALS[code] ?? 'failed';
-    return { status, code, summary: `task not started: ${code}`, data: errand ? { task: errand } : null };
+    return { status, code, summary: `errand not started: ${code}`, data: errand ? { task: errand } : null };
   }
 
   /** `errand.run agent goal`: a new errand, answered at once with its id and `queued`. */
@@ -138,8 +138,8 @@ const handlers = perEnv((env) => {
     return {
       status: 'ok',
       code: CODE.OK,
-      summary: `task ${errand.id}: queued (${agent})`,
-      data: { text: `task ${errand.id}: queued (${agent})`, task: { id: errand.id, agent, state: errand.state } },
+      summary: `errand ${errand.id}: queued (${agent})`,
+      data: { text: `errand ${errand.id}: queued (${agent})`, task: { id: errand.id, agent, state: errand.state } },
     };
   }
 
@@ -150,7 +150,7 @@ const handlers = perEnv((env) => {
     const id = textOf(args.id).trim();
     if (id) {
       const errand = store.get(id);
-      if (!errand || !mayView(errand, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
+      if (!errand || !mayView(errand, context)) throw invalid(`no errand ${id}`, CODE.NOT_FOUND);
       const lines = [errandLine(errand)];
       const { result } = errand;
       if (errand.state === 'done' && result) {
@@ -176,7 +176,7 @@ const handlers = perEnv((env) => {
       ? listed
           .map((errand) => (isOpenState(errand.state) ? errandLine(errand) : `${errandLine(errand)} (unread)`))
           .join('\n')
-      : 'no open tasks';
+      : 'no open errands';
   }
 
   /** Every errand the store holds that the caller may view and the filters of `args` keep, newest first. */
@@ -200,7 +200,7 @@ const handlers = perEnv((env) => {
           (until === null || (errand.createdAt ?? 0) <= until)
       )
       .slice(0, limit);
-    return kept.length > 0 ? kept.map((errand) => errandLine(errand)).join('\n') : 'no tasks match';
+    return kept.length > 0 ? kept.map((errand) => errandLine(errand)).join('\n') : 'no errands match';
   }
 
   /** A finished errand of the caller's view, or an `invalid` error: not found, not viewable, still open. */
@@ -210,8 +210,8 @@ const handlers = perEnv((env) => {
     const id = textOf(args.id).trim();
     if (!id) throw invalid('an id is required');
     const errand = store.get(id);
-    if (!errand || !mayView(errand, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
-    if (isOpenState(errand.state)) throw invalid(`task ${id} is still ${errand.state}`);
+    if (!errand || !mayView(errand, context)) throw invalid(`no errand ${id}`, CODE.NOT_FOUND);
+    if (isOpenState(errand.state)) throw invalid(`errand ${id} is still ${errand.state}`);
     return { store, errand };
   }
 
@@ -258,7 +258,7 @@ const handlers = perEnv((env) => {
     const { store, errand } = finishedErrand(args, context);
     store.resolve(errand.id);
     store.markRead(errand.id);
-    return `task ${errand.id}: resolved`;
+    return `errand ${errand.id}: resolved`;
   }
 
   /** `errand.cancel id`: for the requester of the errand or an owner. */
@@ -268,11 +268,11 @@ const handlers = perEnv((env) => {
     const service = errands();
     const store = service.store();
     const errand = store?.get(id) ?? null;
-    if (!errand || !mayView(errand, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
+    if (!errand || !mayView(errand, context)) throw invalid(`no errand ${id}`, CODE.NOT_FOUND);
     const own = Boolean(context?.accountId) && idText(context.accountId) === errand.requester?.accountId;
     const hers = context?.actor === 'persona' && errand.requester?.kind === 'persona';
     if (!ownerCalls(context) && !own && !hers)
-      throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);
+      throw denied('only the requester of the errand or an owner may cancel it', CODE.NOT_REQUESTER);
     // Who cancelled it, as the service is told.
     const by = context?.actor === 'persona' ? 'persona' : ownerCalls(context) ? 'owner' : 'requester';
     const cancelled = service.cancel({ id, by });
@@ -280,10 +280,10 @@ const handlers = perEnv((env) => {
       return {
         status: 'failed',
         code: cancelled.code,
-        summary: `task ${id}: ${cancelled.code === CODE.NOT_OPEN ? `already ${errand.state}` : cancelled.code}`,
+        summary: `errand ${id}: ${cancelled.code === CODE.NOT_OPEN ? `already ${errand.state}` : cancelled.code}`,
         data: null,
       };
-    return `task ${id}: cancelled`;
+    return `errand ${id}: cancelled`;
   }
 
   return { cmdRun, cmdStatus, cmdCancel, cmdRead, cmdResolve };

@@ -249,7 +249,6 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
     arg('place'),
     bareFlagArg('include-children'),
   ]),
-  sub('places.lore', 'Show the lore records of a place by id', [arg('place')]),
   runs(
     sub('places.lore.add', 'Add a lore entry to a place', [arg('place'), arg('title'), arg('keys'), arg('text')]),
     'lore.add',

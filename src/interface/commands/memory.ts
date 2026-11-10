@@ -26,7 +26,7 @@ import type { InspectionBounds, InspectionPort, SnapshotHandle } from '../../mem
 import { isInspectionValue } from '../../memory/db/inspection-values.ts';
 import type { InspectionRead, RowLocator } from '../../memory/db/inspection.ts';
 import { listPeople, personDetail } from '../../memory/db/people-read.ts';
-import { listPlaces, placeDetail, placeLore } from '../../memory/db/places-read.ts';
+import { listPlaces, placeDetail } from '../../memory/db/places-read.ts';
 import { privateByPerson } from '../../memory/db/private-read.ts';
 import { coded } from '../../memory/db/read-page.ts';
 import { internalContext } from '../../memory/db/scope.ts';
@@ -213,8 +213,6 @@ function placesRead(db: Db, name: string, args: Args, bounds: InspectionBounds):
         omitted: Math.max(0, view.descendants.length - limit),
       });
     }
-    case 'memory.places.lore':
-      return detail(name, placeLore(db, place, context));
     default:
       return null;
   }
