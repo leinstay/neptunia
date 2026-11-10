@@ -173,6 +173,13 @@ function codeOf(error: unknown): unknown {
   return (error as { code?: unknown } | null)?.code ?? null;
 }
 
+/** The turn's final think as the store of previous thinks keeps it: each `#n` as its line's identity; null for none. */
+function thinkToKeep(draft: NotesDraft): string | null {
+  const { finalThink, handles } = draft;
+  if (typeof finalThink !== 'string') return null;
+  return handles ? handles.canonical(finalThink, { count: false }) : finalThink;
+}
+
 /** `value` with every string inside it passed through `canonical`, the same shape otherwise. */
 function canonicalFields<T>(value: T, canonical: (text: string) => string): T {
   if (typeof value === 'string') return canonical(value) as T;
@@ -292,7 +299,11 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     return { text: picked.think, relation: 'earlier', ageMs: picked.source.ageMs };
   }
 
-  /** The turn ended: its final think goes to the places it ran in and delivered to (previous-think.js#record). Never throws. */
+  /**
+   * The turn ended: its final think goes to the places it ran in and delivered to (previous-think.js#record). A `#n` in
+   * it is kept as the line's identity, so the next request renders the number its own `<chat>` gives that line, or no
+   * number when the chat does not show it. The journal's copy of the think counts the cut numbers. Never throws.
+   */
   function recordTurnThink(
     args: { inner?: unknown; [key: string]: unknown },
     draft: NotesDraft,
@@ -308,7 +319,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
       thinks.record({
         turnId: draft.started?.turnId ?? draft.turnKey?.turnId ?? null,
         at: clock(),
-        think: draft.finalThink ?? null,
+        think: thinkToKeep(draft),
         failed,
         isDm: !inRoot(channel),
         inner: Boolean(args.inner),
