@@ -143,77 +143,10 @@ test('the vector index finds what it appended after the database reopens', async
   }
 });
 
-/** A database at the baseline, holding a month of the group's index as the unit path left it. */
-function seededAtBaseline(): string {
-  const file = path.join(tempDir('line-vectors-step'), 'memory.db');
-  const old = openMemoryDb(file, { migrations: [] });
-  const db = dbOf(old);
-  // The month's unit as the baseline's catalog held it.
-  const unit = 'unit:vectors-of-the-group-2026-11';
-  db.prepare(
-    `INSERT INTO storage_units (id, kind, subject_type, subject_id, partition, key_json)
-     VALUES (?, 'vectors', 'place', ?, '2026-11', ?)`
-  ).run(unit, GROUP, JSON.stringify({ kind: 'vectors', subject: { type: 'place', id: GROUP }, partition: '2026-11' }));
-  const insert = db.prepare(
-    `INSERT INTO vectors (chunk_key, item_id, occurred_at, model, dims, scale, norm, bytes, context, scope_kind,
-       scope_iface, owner_key) VALUES (?, ?, ?, ?, 4, 0.01, 1, ?, ?, 'group', 'discord', ?)`
-  );
-  insert.run(
-    'record:m1:1',
-    'm1',
-    NOV,
-    MODEL,
-    Uint8Array.of(1, 2, 3, 4),
-    '{"row":1,"kind":"record","revision":1}',
-    unit
-  );
-  insert.run(
-    'record:m0:1',
-    'm0',
-    NOV,
-    MODEL,
-    Uint8Array.of(5, 6, 7, 8),
-    '{"row":0,"kind":"record","revision":1}',
-    unit
-  );
-  // An object vector belongs to no month and keeps no place.
-  db.prepare(
-    "INSERT INTO vectors (chunk_key, item_id, model, dims, bytes, scope_kind) VALUES ('claim:c1:aud:m', 'c1', ?, 4, ?, 'internal')"
-  ).run(MODEL, Uint8Array.of(1, 1, 1, 1));
-  db.prepare("INSERT INTO operational (kind, owner, value, owner_key) VALUES ('vectors', ?, '{}', ?)").run(unit, unit);
-  old.close();
-  return file;
-}
-
-test('the schema step gives each line vector the place of its month and leaves its content as it was', () => {
-  // Catches: rows the new readers cannot find after the deploy, an object vector given a place, or a manifest left.
-  const handle = openMemoryDb(seededAtBaseline());
-  try {
-    const db = dbOf(handle);
-    assert.deepEqual(
-      db
-        .prepare('SELECT chunk_key, place_id FROM vectors ORDER BY chunk_key')
-        .all()
-        .map((row) => ({ ...row })),
-      [
-        { chunk_key: 'claim:c1:aud:m', place_id: null },
-        { chunk_key: 'record:m0:1', place_id: GROUP },
-        { chunk_key: 'record:m1:1', place_id: GROUP },
-      ]
-    );
-    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM operational WHERE kind = 'vectors'").get()?.n, 0);
-    assert.deepEqual(
-      lineVectorMonth(db, GROUP, '2026-11')?.metas.map((meta) => meta.id),
-      ['m0', 'm1']
-    );
-  } finally {
-    handle.close();
-  }
-});
-
-test('a line found by its stored address is searched through its index after the schema step', () => {
+test('a line found by its stored address is searched through its index in a new database', () => {
   // Catches: an index over other expressions than the query's, so finding an old line scans every line.
-  const handle = openMemoryDb(seededAtBaseline());
+  // Changed with the baseline at version 56: the index is part of the baseline, so a new database holds it.
+  const handle = openMemoryDb(path.join(tempDir('line-vectors-index'), 'memory.db'));
   try {
     const plan = dbOf(handle)
       .prepare(
