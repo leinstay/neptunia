@@ -33,6 +33,8 @@ const CATCH_UP_IDS_KEPT = 1000;
 export type DoorScreen = {
   screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'>;
   isCodeLine(content: unknown): boolean;
+  /** A message the screen dropped for a link code; absent, none was. */
+  isWithheld?(iface: string, chatId: string, messageId: string): boolean;
 };
 
 /** What became of one message. */

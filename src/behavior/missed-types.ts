@@ -1,5 +1,6 @@
 // The types of the signatures in ./missed.ts: the inputs and results that are too long to read inline.
 
+import type { KeepLines } from '../pipeline/keep-lines.ts';
 import type * as nodeFs from 'node:fs/promises';
 import type { MemoryDbService } from '../memory/db/service.ts';
 import type { Untyped } from '../tools/types.ts';
@@ -63,6 +64,8 @@ export type CreateMissedInput = {
   llm?: { complete: (...args: Array<Untyped>) => Untyped } | null;
   turns: Untyped;
   reads: Reads;
+  /** Stores the lines the sweep reads when memory lacks them (src/pipeline/keep-lines.ts); absent, none. */
+  keepLines?: KeepLines | null;
   partnerOf?: (chatId: string) => string | null;
   getSelfName?: (placeId: string) => string;
   dataDir: string;

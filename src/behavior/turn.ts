@@ -318,6 +318,7 @@ export function createTurnRunner({
   journalDb = null,
   ownerAccount = null,
   personLinks = null,
+  keepLines = null,
   memoryContext = null,
   // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it); null: none.
   attention = new Set(),
@@ -597,6 +598,7 @@ export function createTurnRunner({
   const { readHistory, noteThink, stepTranscript, runSteps } = createToolRound({
     isWithheld:
       personLinks === null ? null : (iface, chatId, messageId) => personLinks.isWithheld(iface, chatId, messageId),
+    keepLines,
     hot,
     llm,
     calibrator,

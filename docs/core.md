@@ -131,7 +131,7 @@ The owner's narrow reads of one subject, `memory.profile.read`, `memory.channel.
 
 ## Boundaries
 
-The core writes memory through one writer. Interfaces neither open the database nor decide what the persona remembers. Stored recall and fetching live platform history are separate operations with separate access checks.
+The core writes memory through one writer. Interfaces neither open the database nor decide what the persona remembers. A history line that enters a turn's `<chat>` or that an analyzer reads is stored when memory lacks it ([Lines in her context](memory.md#lines-in-her-context)). Stored recall and fetching live platform history are separate operations with separate access checks.
 
 A chat session of the owner's CLI (`src/chat/`) is a view over stored lines, kept in its own file, and memory never reads it. Selecting one changes what the next turn's history shows, and memory stays continuous. [CLI](cli.md#sessions-and-checkpoints) explains them.
 

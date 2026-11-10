@@ -1010,6 +1010,8 @@ async function buildCore(
   const personLinks = createPersonLinks({ hot, memoryDb, port: iface, now: clock });
   const turns = createTurnRunner({
     personLinks,
+    // The lines of a turn's chat, stored when memory lacks them, by the message handler built below.
+    keepLines: (events) => onMessage.keepLines(events),
     track: loopWatch.track,
     dataDir,
     fetchImpl: keptFetch,
@@ -1184,6 +1186,7 @@ async function buildCore(
     llm,
     turns,
     reads,
+    keepLines: (events) => onMessage.keepLines(events),
     partnerOf: (chatId) => directory.partnerOf(chatId),
     getSelfName,
     dataDir,
