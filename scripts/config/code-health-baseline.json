@@ -893,7 +893,7 @@
       "repeated": 5
     },
     "tests/replay-skills.test.ts": {
-      "deep": 34,
+      "deep": 33,
       "repeated": 0
     },
     "tests/rules-list.test.ts": {

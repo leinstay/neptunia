@@ -15,6 +15,7 @@ import {
   contentText,
   coreTurn,
   errandService,
+  fakeStore,
   journalOverMemory,
   noteText,
   toolResults,
@@ -452,9 +453,16 @@ test('carried over: draw.create runs on a spontaneous turn with nobody asking, i
 });
 
 test('a spontaneous turn with nobody asking runs a write she holds a grant for', async () => {
+  // The harness store with the one lore write the operation makes, recorded.
+  const written: Array<unknown> = [];
+  const store = {
+    ...fakeStore(),
+    setLore: (_placeId: string, entries: Array<unknown>) => (written.push(...entries), entries.length),
+  };
   const run = await coreTurn({
     spontaneous: 'initiate',
     allowed: ['lore.add'],
+    store,
     answers: [
       toolAnswer('<think>x</think>', [
         call('lore.add', { title: 'Φάρος', keys: 'φάρος', text: 'ένας φάρος στο λιμάνι' }),
@@ -463,6 +471,10 @@ test('a spontaneous turn with nobody asking runs a write she holds a grant for',
     ],
   });
   assert.deepEqual(called(run), ['lore.add:ok']);
+  assert.deepEqual(
+    written.map((entry) => asRecord(entry).title),
+    ['Φάρος']
+  );
 });
 
 test('carried over: message.create in the current chat also runs on a spontaneous turn with nobody asking', async () => {

@@ -809,7 +809,6 @@ test('replay --skills steps: a burst of two tagged calls gets two turns in arriv
     [
       toolAnswer('<think>t</think><msg>έγινε</msg>', [call('learning.add', { text: 'όχι spoilers' })]),
       toolAnswer('<think>t</think>', [call('learning.add', { text: 'κι άλλος' })]),
-      '<think>t</think><msg>κι αυτό έγινε</msg>',
     ]
   );
   assert.equal(played.stopped, false);
@@ -852,7 +851,12 @@ test('replay --skills steps: a burst of two tagged calls gets two turns in arriv
       [1, 2, 'call', true],
     ]
   );
-  assert.deepEqual(records[1].followUp.messages, ['κι αυτό έγινε']);
+  // An accepted write is recorded as executed and asks for no follow-up request.
+  assert.deepEqual(
+    [records[1].executed, records[1].followUp],
+    [{ skill: 'learning.add', args: { text: 'κι άλλος' } }, null]
+  );
+  assert.equal(llm.calls.length, 2, 'one request per turn');
   assert.deepEqual(records[0].queue, {
     turns: 2,
     kind: 'mention',

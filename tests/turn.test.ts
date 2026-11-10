@@ -5617,16 +5617,19 @@ test("skill call: a read brings the operation's answer back in one more request;
 });
 
 test('skill call: a member who may not run an owner-only operation asks for it and her call runs on her grant', async () => {
-  // No owner person: Alice, who asks, is a member, and access.list is owner-only.
+  // No owner person: Alice, who asks, is a member, and memory.private.read is owner-only.
   const run = await callTurn({
-    answers: [toolAnswer('', [call('access.list')]), '<skip/>'],
-    allowed: ['access.list'],
+    answers: [toolAnswer('', [call('memory.private.read', { user: 'Alice' })]), '<skip/>'],
+    allowed: ['memory.private.read'],
     owners: [],
+    store: fakeStore({ userProfiles: { u1: { id: 'u1', names: ['Alice'] } } }),
   });
+  const result = followUpTool(run.llm, 1);
   assert.ok(
-    followUpTool(run.llm, 1).startsWith(labels.tools.result.ok),
+    result.startsWith(labels.tools.result.ok),
     String(run.logs.filter((e) => e.msg === 'skills: called').map((e) => e.code))
   );
+  assert.ok(result.includes('No private memory for this member'), result);
 });
 
 test('skill call: a turn answering several people runs a write she holds a grant for', async () => {
