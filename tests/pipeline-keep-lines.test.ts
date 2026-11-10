@@ -97,8 +97,9 @@ test('leaves out a line that only conversation.read returned', async () => {
     await until(() => rig.posted('c1').length === 1);
     await until(() => rig.linesOf('h0').length > 0);
     await settle();
+    const { calls } = rig.fake;
     assert.equal(
-      rig.fake.calls.some((one) => one.op === 'history' && (one.args[0] as { chatId?: string }).chatId === 'c2'),
+      calls.some((one) => one.op === 'history' && (one.args[0] as { chatId?: string }).chatId === 'c2'),
       true,
       'the read reached the platform'
     );
