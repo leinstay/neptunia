@@ -596,8 +596,6 @@ export function createTurnRunner({
     lookupRing,
   });
   const { readHistory, noteThink, stepTranscript, runSteps } = createToolRound({
-    isWithheld:
-      personLinks === null ? null : (iface, chatId, messageId) => personLinks.isWithheld(iface, chatId, messageId),
     keepLines,
     hot,
     llm,

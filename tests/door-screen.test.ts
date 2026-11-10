@@ -54,7 +54,7 @@ function rig(verdict: (event: MessageEvent) => 'pass' | 'observe' | 'drop'): Rig
       now: () => NOW,
       missed: { noteFact() {}, noteActivity() {}, noteNotAddressed() {} },
       selfNames: () => [],
-      screen: { screen: (event: MessageEvent) => Promise.resolve(verdict(event)), isCodeLine: () => false },
+      screen: { screen: (event: MessageEvent) => Promise.resolve(verdict(event)) },
       port: fake,
     })
   );

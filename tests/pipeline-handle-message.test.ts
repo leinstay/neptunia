@@ -42,3 +42,13 @@ test('answers a bot that names her as she answers a member', async () => {
     assert.equal(rig.requests.length, 1);
   });
 });
+
+test('stores her own line that carries a pairing phrase when its echo arrives', async () => {
+  const text =
+    'Your one-time pairing phrase is: πέτρα δέντρο νερό φωτιά αέρας χώμα. Type /interfaces pair followed by these six words in her command line within an hour.';
+  await withFakeCore({ seed }, async (rig) => {
+    assert.equal(await rig.emit(deliver(rig.fake, { id: 'k1', text, at: NOW - 1000, authorId: 'self-id' })), 'ok');
+    await until(() => rig.linesOf('k1').length > 0);
+    assert.equal(rig.linesOf('k1')[0]?.text, text);
+  });
+});

@@ -11,7 +11,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createPersonLinks } from '../src/interface/person-link.ts';
 import type { PersonLinks } from '../src/interface/person-link.ts';
-import { hasCodeLine } from '../src/interface/owner-pairing.ts';
 import { createPhraseCodes } from '../src/interface/phrase-codes.ts';
 import { handleOf } from '../src/behavior/handles.ts';
 import { onLog } from '../src/log.ts';
@@ -164,10 +163,9 @@ test('the right code as the next message of the account merges its meta-person i
   await withLinks(async ({ links, sent, db }) => {
     await links.start(ASK);
     const reordered = codeIn(sent).split(' ').reverse().join(', ');
-    assert.equal(await links.screen(line('a1', 'm1', `it is me: ${reordered}`)), 'drop');
-    // The message that carried the code stays out of every chat a turn reads.
-    assert.equal(links.isWithheld('chatnet', 'c1', 'm1'), true);
-    assert.equal(links.isWithheld('chatnet', 'c1', 'm2'), false);
+    // Owner's rule of 2026-11-10: the message that answered the code is kept like any line (observed, no turn), so
+    // the screen observes it where it once dropped it and withheld its id.
+    assert.equal(await links.screen(line('a1', 'm1', `it is me: ${reordered}`)), 'observe');
     assert.equal(personOfAccount(db, 'account:a1'), KNOWN);
     assert.equal(personOfAccount(db, 'account:b1'), KNOWN);
     const known = db.prepare('SELECT meta FROM people WHERE id = ?').get(KNOWN);
@@ -189,7 +187,8 @@ test('a phrase answered once merges nothing when it comes again', async () => {
   await withLinks(async ({ links, sent }) => {
     await links.start(ASK);
     const code = codeIn(sent);
-    assert.equal(await links.screen(line('a1', 'm1', code)), 'drop');
+    // Owner's rule of 2026-11-10: the answer is observed, no longer dropped.
+    assert.equal(await links.screen(line('a1', 'm1', code)), 'observe');
     assert.equal(await links.screen(line('a1', 'm2', code)), 'pass');
   });
 });
@@ -206,7 +205,8 @@ test('a restart mid-challenge keeps the waiting phrase', async () => {
   await withLinks(async ({ links, restart, sent, db }) => {
     await links.start(ASK);
     const code = codeIn(sent);
-    assert.equal(await restart().screen(line('a1', 'm1', code)), 'drop');
+    // Owner's rule of 2026-11-10: the answer is observed, no longer dropped.
+    assert.equal(await restart().screen(line('a1', 'm1', code)), 'observe');
     assert.equal(personOfAccount(db, 'account:a1'), KNOWN);
   });
 });
@@ -223,12 +223,13 @@ test('a restart reopens neither an ended attempt nor the ten-minute limit', asyn
   });
 });
 
-test('a restart keeps the message that carried the phrase out of every chat a turn reads', async () => {
-  await withLinks(async ({ links, restart, sent, file }) => {
+// Owner's rule of 2026-11-10: the message that carried the phrase is kept like any line, so no withheld id survives a
+// restart; what the state file must still never hold is the phrase.
+test('the state file keeps no phrase once it was answered', async () => {
+  await withLinks(async ({ links, sent, file }) => {
     await links.start(ASK);
     const code = codeIn(sent);
     await links.screen(line('a1', 'm1', code));
-    assert.equal(restart().isWithheld('chatnet', 'c1', 'm1'), true);
     assert.equal(fs.readFileSync(file, 'utf8').includes(code), false);
   });
 });
@@ -250,7 +251,8 @@ test('only the account that asked, in the conversation it asked in, can answer t
     assert.equal(await links.screen(line('x9', 'm1', code)), 'pass');
     assert.equal(await links.screen(line('a1', 'm2', 'elsewhere', 'c2')), 'pass');
     assert.equal(personOfAccount(db, 'account:a1'), NEW);
-    assert.equal(await links.screen(line('a1', 'm3', code)), 'drop');
+    // Owner's rule of 2026-11-10: the answer is observed, no longer dropped.
+    assert.equal(await links.screen(line('a1', 'm3', code)), 'observe');
     assert.equal(personOfAccount(db, 'account:a1'), KNOWN);
   });
 });
@@ -328,7 +330,9 @@ test('a person that is no meta-person she knows is refused', async () => {
   });
 });
 
-test('the code reaches no log line, and her line that carries it is told apart', async () => {
+// Owner's rule of 2026-11-10: her line that carries a code is kept like any line, so nothing tells it apart any more;
+// the log still never holds the code.
+test('the code reaches no log line', async () => {
   const lines: Array<string> = [];
   const stop = onLog((entry) => lines.push(JSON.stringify(entry)));
   try {
@@ -341,10 +345,6 @@ test('the code reaches no log line, and her line that carries it is told apart',
         lines.some((one) => one.includes(code)),
         false
       );
-      assert.equal(links.isCodeLine(sent[0]?.text), true);
-      // The history a turn reads drops her line with the code by the same labels.
-      assert.equal(hasCodeLine({ labels: LABELS }, sent[0]?.text), true);
-      assert.equal(links.isCodeLine('from a1 on chatnet: your link phrase is late'), false);
     });
   } finally {
     stop();

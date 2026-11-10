@@ -9,8 +9,7 @@
 // a stored line is a replay that writes nothing. A line the platform marks edited (`editedAt`) is observed as an edit,
 // so a text memory lacks becomes the next revision of the stored line (src/memory/db/observe.ts). The writes are never
 // awaited by the reader, so no turn and no analyzer waits on them, and no line starts a turn here. The keeper leaves out
-// what the live path leaves out: a system message, her limit notice, her line that carries a
-// one-time code and a message withheld for a link code. Logs carry counts only.
+// what the live path leaves out: a system message and her limit notice. Logs carry counts only.
 
 import { placeOfChat, sharedPlaceOf } from '../memory/addresses.ts';
 import { isLimitNotice } from '../behavior/limits.ts';
@@ -33,10 +32,6 @@ export type KeepLinesContext = {
   selfIdOf: () => string;
   /** A root some connected interface serves. */
   isServedRoot: (placeId: string | null | undefined) => boolean;
-  /** Her line that carries a one-time code (src/pipeline/handle-message.ts#DoorScreen); absent, none does. */
-  isCodeLine?: ((content: unknown) => boolean) | null;
-  /** A message that answered a link code (src/interface/person-link.ts#isWithheld); absent, none did. */
-  isWithheld?: ((iface: string, chatId: string, messageId: string) => boolean) | null;
 };
 
 /** Whether the event holds a whole message, as a history read gives it. */
@@ -44,15 +39,7 @@ function isWhole(event: HistoryEvent): event is MessageEvent {
   return 'content' in event.message && typeof event.message.content === 'string' && event.message.author != null;
 }
 
-export function createKeepLines({
-  hot,
-  store,
-  observeLine,
-  selfIdOf,
-  isServedRoot,
-  isCodeLine = null,
-  isWithheld = null,
-}: KeepLinesContext): KeepLines {
+export function createKeepLines({ hot, store, observeLine, selfIdOf, isServedRoot }: KeepLinesContext): KeepLines {
   const handed = new Set<string>();
 
   function remember(key: string): void {
@@ -66,9 +53,7 @@ export function createKeepLines({
     const { message, chat } = event;
     if (message.system === true) return false;
     const self = message.author.id === selfIdOf();
-    if (self && isCodeLine?.(message.content) === true) return false;
     if (self && isLimitNotice((hot.prompts?.labels ?? {}) as Record<string, never>, message.content)) return false;
-    if (isWithheld?.(event.iface, chat.id, message.id) === true) return false;
     if (chat.rootId !== null && !isServedRoot(chat.rootId)) return false;
     // A DM line names its partner, or the record cannot place it (as on the live path).
     return chat.rootId !== null || chat.chatType === 'group_dm' || chat.partnerId != null;

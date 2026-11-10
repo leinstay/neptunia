@@ -23,7 +23,6 @@ import { innerSettings } from '../behavior/inner.ts';
 import { diagnosticText } from '../behavior/wake.ts';
 import { WAKE_PURPOSE_CHARS } from '../behavior/wake.ts';
 import { callReason, fill, formatTranscript } from '../format.ts';
-import { hasCodeLine } from '../interface/owner-pairing.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { KeepLines } from '../pipeline/keep-lines.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
@@ -103,8 +102,6 @@ type Calibrator = { apply: (estimate: number) => number; ratio: number };
 
 /** What createToolRound reads: the dependencies and the functions of the other topic modules it calls. */
 export type ToolRoundContext = {
-  /** A message that carried a link code (src/interface/person-link.ts#isWithheld); absent, none is. */
-  isWithheld?: ((iface: string, chatId: string, messageId: string) => boolean) | null;
   /** Stores the lines a turn reads when memory lacks them (src/pipeline/keep-lines.ts); absent, none. */
   keepLines?: KeepLines | null;
   hot: { readonly config: ToolRoundConfig; readonly prompts: { labels?: RoundLabels } | null | undefined };
@@ -324,17 +321,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           log,
         }
       : null;
-    // Her line that carries a one-time code is no speech of hers, a message that answered a link code is withheld, and
-    // a code never reaches a request.
-    const ref = chatOf(channel);
-    const isHidden = (line: Line): boolean =>
-      (line.self && hasCodeLine(hot.prompts, line.content)) ||
-      ctx.isWithheld?.(ref.iface, ref.chatId, line.id) === true;
-    return historyLines(ifaceReads, ref, {
+    return historyLines(ifaceReads, chatOf(channel), {
       limit: inner ? innerSettings(config).chatMessages : config.context.channelMessages,
       names,
       keep: ctx.keepLines ?? null,
-    }).then((lines) => lines.filter((line) => !isHidden(line)));
+    });
   }
 
   /**

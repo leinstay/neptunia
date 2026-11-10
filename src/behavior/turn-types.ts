@@ -74,8 +74,8 @@ export type CreateTurnRunnerInput = {
   selfreflectionFacts?: Untyped;
   /** The memory's read handle while it is open (null while closed), for `<my_day>` (src/turn/request/my-day.ts). */
   journalDb?: (() => unknown) | null;
-  /** Her link tool (src/interface/person-link.ts): `person.link` and the messages it withholds; null: none. */
-  personLinks?: Pick<PersonLinks, 'start' | 'isWithheld'> | null;
+  /** Her link tool (src/interface/person-link.ts): `person.link`; null: none. */
+  personLinks?: Pick<PersonLinks, 'start'> | null;
   /** Stores the lines of a turn's chat when memory lacks them (src/pipeline/keep-lines.ts); null: none. */
   keepLines?: KeepLines | null;
   /** The owner's account on the interface of a place; the memory's own reader (frame-reads.ts) when absent. */
