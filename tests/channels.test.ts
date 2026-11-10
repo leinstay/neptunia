@@ -4,8 +4,7 @@
 // fixture covering every key of the prompt contract, including labels.server.*.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { channelActivity, messagesSince, renderChannel } from '../src/memory/channels.ts';
-import { DAY_MS } from '../src/time.ts';
+import { channelActivity, renderChannel } from '../src/memory/channels.ts';
 import { labels } from './fixtures/labels.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -252,37 +251,4 @@ test('renderChannel: without the label nothing is added', () => {
     const older = { server: { ...labels.server, readOnly }, units: labels.units };
     assert.equal(renderChannel(c, older, { activity: 'slow', now: NOW, readOnly: true }), today);
   }
-});
-
-const SINCE_T0 = Date.UTC(2026, 9, 7, 12); // 2026-10-07T12:00Z
-const dayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-
-test('messagesSince: sums the days tally from the reference day to now', () => {
-  const channel = {
-    days: {
-      [dayKey(SINCE_T0)]: 5,
-      [dayKey(SINCE_T0 - DAY_MS)]: 7,
-      [dayKey(SINCE_T0 - 2 * DAY_MS)]: 11,
-      [dayKey(SINCE_T0 - 9 * DAY_MS)]: 100,
-    },
-  };
-  assert.deepEqual(messagesSince(channel, SINCE_T0 - 2 * DAY_MS, SINCE_T0), {
-    count: 23,
-    coveredFromMs: Date.UTC(2026, 8, 28),
-  });
-  assert.equal(messagesSince(channel, null, SINCE_T0).count, 123, 'no reference = everything');
-});
-
-test('messagesSince: a tally that does not reach the reference date reports what it covers and never throws', () => {
-  const channel = { days: { [dayKey(SINCE_T0)]: 3 } };
-  assert.deepEqual(messagesSince(channel, SINCE_T0 - 30 * DAY_MS, SINCE_T0), {
-    count: 3,
-    coveredFromMs: Date.UTC(2026, 9, 7),
-  });
-  assert.deepEqual(messagesSince({}, SINCE_T0 - DAY_MS, SINCE_T0), { count: 0, coveredFromMs: null });
-  // @ts-expect-error: the test passes a malformed day tally on purpose; the entry must be skipped
-  assert.deepEqual(messagesSince({ days: { bogus: 'x', [dayKey(SINCE_T0)]: 2 } }, null, SINCE_T0), {
-    count: 2,
-    coveredFromMs: Date.UTC(2026, 9, 7),
-  });
 });

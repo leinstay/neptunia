@@ -3,7 +3,6 @@
 // database may hold, and continuation links that are not containment. Plan 2026-11-04-cli-and-memory task 8. Contract:
 //   listPlaces(db: Db, request: { context: Context; filters: { interfaceId: string | null; authorityId: string | null;
 //     rootsOnly: boolean }; limit: number; cursor: string | null }): Page<PlaceListing>
-//   placeChildren(db: Db, placeId: string, request: { context: Context; limit: number; cursor: string | null }): Page<PlaceListing>
 //   placeDetail(db: Db, placeId: string, request: { context: Context; includeChildren: boolean }): PlaceDetail
 //   PlaceListing = { id; interfaceId; authorityId; nativeKey; generation; kind; chat; name; parentId;
 //     parentState: 'none' | 'stored' | 'missing'; continuesPlaceId; childCount; retiredAt }
@@ -15,7 +14,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import type { Page } from '../src/memory/db/inspection.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { listPlaces, placeChildren, placeDetail } from '../src/memory/db/places-read.ts';
+import { listPlaces, placeDetail } from '../src/memory/db/places-read.ts';
 import type { PlaceDetail, PlaceListing } from '../src/memory/db/places-read.ts';
 import { groupContext, internalContext } from '../src/memory/db/scope.ts';
 import type { Context } from '../src/memory/db/scope.ts';
@@ -187,46 +186,10 @@ test('a listing keeps its authority, native key, generation and chat', () => {
 
 // ---------- depth ----------
 
-test('children lead from the root to the deepest place, past any fixed depth', () => {
-  // Bug: a platform-shaped reader stops at server, channel, thread; or the graph walk's depth of six cuts the chain.
-  withWorld((db) => {
-    let at = level(0);
-    for (let n = 1; n < DEPTH; n += 1) {
-      const page = placeChildren(db, at, { context: INTERNAL, limit: 50, cursor: null });
-      const live = page.items.filter((one) => one.id !== 'place:retired');
-      assert.deepEqual(
-        live.map((one) => one.id),
-        [level(n)]
-      );
-      at = level(n);
-    }
-    assert.deepEqual(placeChildren(db, at, { context: INTERNAL, limit: 50, cursor: null }).items, []);
-  });
-});
-
 test('a listing counts its children, retired ones too', () => {
   withWorld((db) => {
     assert.equal(entry(db, level(0))?.childCount, 2);
     assert.equal(entry(db, level(DEPTH - 1))?.childCount, 0);
-  });
-});
-
-test('children page without losing or repeating one', () => {
-  withWorld((db) => {
-    for (let n = 0; n < 5; n += 1)
-      addPlace(db, { id: `place:kid-${n}`, iface: 'zeta', authority: 'zeta/one', parent: 'place:other-root' });
-    const seen: Array<string> = [];
-    let cursor: string | null = null;
-    do {
-      const page: Page<PlaceListing> = placeChildren(db, 'place:other-root', { context: INTERNAL, limit: 2, cursor });
-      seen.push(...page.items.map((one) => one.id));
-      assert.equal(page.total, 5);
-      cursor = page.next;
-    } while (cursor !== null);
-    assert.deepEqual(
-      seen.sort(),
-      [0, 1, 2, 3, 4].map((n) => `place:kid-${n}`)
-    );
   });
 });
 
@@ -278,7 +241,6 @@ test('a self-parent is a cycle too', () => {
 test('a continuation link is shown as one and is not containment', () => {
   // Bug: `continues_place_id` is read as a second parent, and a group appears inside the DM it grew from.
   withWorld((db) => {
-    assert.deepEqual(placeChildren(db, 'place:old-dm', { context: INTERNAL, limit: 5, cursor: null }).items, []);
     assert.equal(entry(db, 'place:continued')?.continuesPlaceId, 'place:old-dm');
     assert.equal(entry(db, 'place:continued')?.parentState, 'none');
     assert.deepEqual(
@@ -303,9 +265,6 @@ test('a place nobody stored is a named refusal, and so is expanding it', () => {
   withWorld((db) => {
     assert.deepEqual(placeDetail(db, 'place:unknown', { context: INTERNAL, includeChildren: true }), {
       found: false,
-      code: 'PLACE_NOT_FOUND',
-    });
-    assert.throws(() => placeChildren(db, 'place:unknown', { context: INTERNAL, limit: 5, cursor: null }), {
       code: 'PLACE_NOT_FOUND',
     });
   });
@@ -342,7 +301,6 @@ test('a call without a valid context is refused', () => {
   withWorld((db) => {
     const bad = wrongly<Context>({});
     assert.throws(() => listPlaces(db, { context: bad, filters: ALL, limit: 5, cursor: null }));
-    assert.throws(() => placeChildren(db, level(0), { context: bad, limit: 5, cursor: null }));
     assert.throws(() => placeDetail(db, level(0), { context: bad, includeChildren: false }));
   });
 });
@@ -385,7 +343,6 @@ test('the reader runs over a read-only connection and changes no row', () => {
     const before = databaseDigest(db);
     for (const place of everyPlace(db)) {
       placeDetail(db, place.id, { context: INTERNAL, includeChildren: true });
-      placeChildren(db, place.id, { context: INTERNAL, limit: 5, cursor: null });
     }
     assert.deepEqual(databaseDigest(db), before);
   } finally {

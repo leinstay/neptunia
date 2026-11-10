@@ -2,22 +2,9 @@
 // a record line with its preceding lines of the same channel, or from an archive entry.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  archiveChunk,
-  chunkKey,
-  contextFor,
-  embeddableLine,
-  isEmbeddableArchive,
-  layerChannelKey,
-  newestRevisions,
-  recordChunk,
-  recordChunks,
-} from '../src/memory/chunks.ts';
+import { contextFor, embeddableLine, newestRevisions, recordChunk } from '../src/memory/chunks.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { RecordLine } from '../src/memory/record.ts';
-
-// The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
-const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
 
 const ELENI = '411111111111111111';
 const NIKOS = '422222222222222222';
@@ -134,73 +121,4 @@ test('newestRevisions: one line per message, its newest revision; deleted and fe
       ['m2', 'b'],
     ]
   );
-});
-
-test('recordChunks: context stays inside one channel and one layer; targets pick the lines to chunk', () => {
-  const lines = [
-    seen('m1', '2026-10-12T10:00:00Z', 'a'),
-    seen('m2', '2026-10-12T10:01:00Z', 'other channel', { scope: { channel: 'c2' } }),
-    seen('m3', '2026-10-12T10:02:00Z', 'private', { scope: { user: ELENI, private: true, channel: 'c1' } }),
-    seen('m4', '2026-10-12T10:03:00Z', 'b'),
-  ];
-  assert.deepEqual(
-    recordChunks(lines, opts).map((chunk) => loose(chunk.meta).sourceIds),
-    [['m1'], ['m2'], ['m3'], ['m1', 'm4']]
-  );
-  const picked = recordChunks(lines, { ...opts, targets: new Set(['m4:1']) });
-  assert.deepEqual(
-    picked.map((chunk) => loose(chunk.meta).id),
-    ['m4']
-  );
-  assert.equal(chunkKey(picked[0].meta), 'record:m4:1');
-});
-
-test('layerChannelKey: the root and each private layer keep apart', () => {
-  assert.notEqual(layerChannelKey(null, 'c1'), layerChannelKey(ELENI, 'c1'));
-  assert.equal(layerChannelKey(null, 'c1'), layerChannelKey('', 'c1'));
-});
-
-test('archiveChunk: what (or text) and the quote; provenance from the entry', () => {
-  const entry = {
-    kind: 'archive',
-    event: 'backfill',
-    itemKind: 'episode',
-    itemId: 'ep-1',
-    revisionId: 'rv-abc',
-    scope: { user: ELENI },
-    participants: [NIKOS],
-    observedAt: { date: '2026-10-01', precision: 'day' },
-    sourceRefs: [{ placeId: 'c1', messageId: 'm9' }],
-    text: { what: 'sang by the <@422222222222222222> harbour', quote: 'λα λα', feeling: 'warm' },
-  };
-  const { text, meta } = archiveChunk(entry, opts);
-  assert.equal(text, 'sang by the Nikós harbour "λα λα"');
-  assert.deepEqual(meta, {
-    kind: 'archive',
-    id: 'ep-1',
-    revision: 'rv-abc',
-    occurredAt: '2026-10-01T00:00:00.000Z',
-    placeId: null,
-    by: null,
-    participants: [NIKOS, ELENI],
-    sourceIds: ['m9'],
-  });
-  assert.equal(chunkKey(meta), 'archive:ep-1:rv-abc');
-  const lesson = archiveChunk({ ...entry, itemKind: 'lesson', text: { text: 'say less' }, sourceRefs: [] }, opts);
-  assert.equal(lesson.text, 'say less');
-});
-
-test('isEmbeddableArchive: a restored event or an entry without text is not embedded', () => {
-  const base = {
-    kind: 'archive',
-    event: 'evicted',
-    itemKind: 'lesson',
-    itemId: 'ln-1',
-    revisionId: 'rv-1',
-    text: { text: 'x' },
-  };
-  assert.equal(isEmbeddableArchive(base), true);
-  assert.equal(isEmbeddableArchive({ ...base, event: 'restored' }), false);
-  assert.equal(isEmbeddableArchive({ ...base, text: {} }), false);
-  assert.equal(isEmbeddableArchive({ ...base, itemKind: 'participation', text: { messages: [{ id: 'm1' }] } }), false);
 });

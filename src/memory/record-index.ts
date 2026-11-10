@@ -634,26 +634,6 @@ export function searchRecordIndex(
   return hits.slice(0, Math.max(0, limit));
 }
 
-/**
- * How much of `query` (indexQuery's) `texts` hold: the distinct terms (any of a term's keys) and
- * phrases (consecutive keys) found in any of them, words keyed by the index's stemmer. What a
- * meaning hit needs besides its cosine: a word of the question (src/behavior/recall-run.js
- * `prefetch`). Pure.
- */
-export function querySupport(
-  index: RecordIndex,
-  texts: Array<unknown>,
-  query: { terms?: Array<QueryTerm>; phrases?: Array<QueryPhrase> } | null
-): { terms: number; phrases: number } {
-  const seqs = (Array.isArray(texts) ? texts : []).map((text) =>
-    indexWords(text).map((word) => index.terms.get(index.stem(word)) ?? -1)
-  );
-  const keys = new Set(seqs.flat());
-  const terms = (query?.terms ?? []).filter((term) => term.ids.some((id) => keys.has(id))).length;
-  const phrases = (query?.phrases ?? []).filter((phrase) => seqs.some((seq) => holdsPhrase(seq, phrase.ids))).length;
-  return { terms, phrases };
-}
-
 /** The cached indexes, per record object: `${placeId}` -> entry. */
 type CacheEntry = {
   index: RecordIndex | null;

@@ -105,10 +105,6 @@ function collectionOf(
 export const accountCollection = (kind: UnitKind, accountId: string, options?: CollectionOptions): UnitKey =>
   collectionOf(kind, 'account', accountId, options);
 
-/** A collection of one person. */
-export const personCollection = (kind: UnitKind, personId: string, options?: CollectionOptions): UnitKey =>
-  collectionOf(kind, 'person', personId, options);
-
 /** A collection of one place: a server, a channel, a thread, a group or a DM. */
 export const placeCollection = (kind: UnitKind, placeId: string, options?: CollectionOptions): UnitKey =>
   collectionOf(kind, 'place', placeId, options);

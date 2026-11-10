@@ -381,7 +381,7 @@
       "repeated": 0
     },
     "tests/gif-library.test.ts": {
-      "deep": 15,
+      "deep": 12,
       "repeated": 0
     },
     "tests/gif-recache.test.ts": {
@@ -650,10 +650,6 @@
     },
     "tests/memory-db-selfreflection-media.test.ts": {
       "deep": 13,
-      "repeated": 0
-    },
-    "tests/memory-db-semantic-read.test.ts": {
-      "deep": 1,
       "repeated": 0
     },
     "tests/memory-db-semantic-search.test.ts": {

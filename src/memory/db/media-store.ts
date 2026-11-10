@@ -420,25 +420,6 @@ export function entryPictureDescriptions(db: Db, entryIds: ReadonlyArray<string>
   return found;
 }
 
-/** Whether an entry holds a file its post has not named on the platform, and whether it holds a voice file. */
-export function entryFilesPending(db: Db, entryId: string): { unnamed: boolean; voice: boolean } {
-  const rows = entryMedia(db, entryId);
-  return {
-    unnamed: rows.some((row) => row.native_ref === null),
-    voice: rows.some((row) => asText(row.mime ?? '').startsWith('audio/')),
-  };
-}
-
-/** Puts a restricted selfreflection entry's own files under the internal audience. */
-export function restrictEntryMedia(db: Db, entryId: string, audience: string): Array<Row> {
-  const media = entryMedia(db, entryId);
-  const update = db.prepare(
-    "UPDATE media SET scope_kind = 'internal', scope_iface = NULL, scope_dm = NULL, audience_id = ? WHERE id = ?"
-  );
-  for (const item of media) update.run(audience, item.id);
-  return media;
-}
-
 /** Whether a file of a media row is where its row says, for scripts/memory-db.ts `media-check`. */
 export function checkMediaFiles(
   connection: Connection,

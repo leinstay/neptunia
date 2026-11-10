@@ -156,24 +156,6 @@ export function registerPredicate(handle: MemoryHandle, definition: PredicateDef
   return { ok: true };
 }
 
-/** Adds an entity kind version, on the same terms. */
-export function registerEntityKind(
-  handle: MemoryHandle,
-  definition: EntityKindDefinition,
-  now: number
-): RegistryResult {
-  if (typeof definition.id !== 'string' || definition.id === '' || !usableVersion(definition.version))
-    return { ok: false, code: 'bad_definition' };
-  const db = dbOf(handle);
-  if (readEntityKind(db, definition.id, definition.version)) return { ok: false, code: 'version_exists' };
-  handle.transaction(() =>
-    db
-      .prepare('INSERT INTO semantic_entity_kinds (id, version, definition_json, created_at) VALUES (?, ?, ?, ?)')
-      .run(definition.id, definition.version, entityKindJson(definition), new Date(now).toISOString())
-  );
-  return { ok: true };
-}
-
 /** A date with its timezone, or a calendar day: anything else cannot be compared with another. */
 const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/;
 export const validDate = (value: unknown): value is string =>
