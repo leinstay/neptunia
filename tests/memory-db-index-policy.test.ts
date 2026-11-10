@@ -113,13 +113,6 @@ function fixture() {
   ).run();
   db.prepare("INSERT INTO claim_sources (claim_id, source_id, position) VALUES ('c1', ?, 0)").run(ids.cited);
   db.prepare(
-    `INSERT INTO capture_bundles (id, anchor_source_id, place_id, reason, policy_version, coverage, created_at) VALUES ('b1', ?, ?, 'mention', 1, '{"state":"complete"}', ?)`
-  ).run(ids.captured, MAIN, new Date(NOW).toISOString());
-  db.prepare("INSERT INTO capture_members (bundle_id, source_id, role, added_at) VALUES ('b1', ?, 'anchor', ?)").run(
-    ids.captured,
-    new Date(NOW).toISOString()
-  );
-  db.prepare(
     "INSERT INTO index_policy (node_id, tier, reason, pinned, evaluated_at) VALUES (?, 'a', 'pinned', 1, ?)"
   ).run(`source:${ids.pinned}`, new Date(NOW).toISOString());
   vector('m-plain', [1, 0, 0, 0], { sourceIds: ['m-before', 'm-plain'] });
@@ -160,8 +153,9 @@ test('index policy: the tier of every line; a dry run writes nothing', () => {
     const hashes = tableHashes(db);
     const dry = classify(handle, { now: NOW, config: config() });
     assert.deepEqual(tableHashes(db), hashes, 'a dry run changes nothing');
-    assert.deepEqual(dry.tiers, { a: 5, b: 3, c: 1 });
-    assert.deepEqual(dry.reasons, { addressed: 1, capture: 1, cited: 1, dm: 1, pinned: 1, seen: 3, self: 1 });
+    // A foreign post is a line she saw like any other: no capture bundle keeps it apart.
+    assert.deepEqual(dry.tiers, { a: 5, b: 4 });
+    assert.deepEqual(dry.reasons, { addressed: 1, cited: 1, dm: 1, pinned: 1, seen: 4, self: 1 });
     assert.equal(
       dry.vectors.evict,
       5,
@@ -174,7 +168,7 @@ test('index policy: the tier of every line; a dry run writes nothing', () => {
     assert.equal(tier(ids.addressed), 'a');
     assert.equal(tier(ids.cited), 'a');
     assert.equal(tier(ids.pinned), 'a');
-    assert.equal(tier(ids.captured), 'c');
+    assert.equal(tier(ids.captured), 'b');
     assert.equal(tier(ids.plain), 'b');
     const policy = db
       .prepare('SELECT tier, reason, pinned FROM index_policy WHERE node_id = ?')

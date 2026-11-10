@@ -5,8 +5,7 @@
 //
 //   classify(handle, { now, config, apply, evict })
 //       The tier of every source: `a` (hers, addressed to her, in a DM, cited by a claim, a claim version or an
-//       episode, pinned, or touched while the touch lasts), `c` (a member of a foreign capture bundle and nothing of
-//       `a`), `b` (the rest: lines she saw). Then the vectors, exactly the owner's classes: a vector is kept while its
+//       episode, pinned, or touched while the touch lasts), `b` (the rest: lines she saw). Then the vectors, exactly the owner's classes: a vector is kept while its
 //       line is newer than `recall.db.vectorDays` (90), or when the line (any revision of its message) is cited, pinned
 //       or touched, and always for consolidated memory (an archive item's vector) or a vector whose line is not stored
 //       (never judged on what is missing); every other vector is evicted. A dry run (`apply` false) only counts; with
@@ -93,12 +92,7 @@ type Tier = { tier: string; reason: string; expires?: string };
 
 function tierOf(
   row: Row,
-  {
-    cited,
-    captured,
-    held,
-    nowIso,
-  }: { cited: ReadonlySet<unknown>; captured: ReadonlySet<unknown>; held: ReadonlyMap<unknown, Row>; nowIso: string }
+  { cited, held, nowIso }: { cited: ReadonlySet<unknown>; held: ReadonlyMap<unknown, Row>; nowIso: string }
 ): Tier {
   const policy = held.get(nodeOf(row.id));
   if (policy?.pinned === 1) return { tier: 'a', reason: 'pinned' };
@@ -109,7 +103,6 @@ function tierOf(
   if (row.scope_kind === 'dm' || (typeof row.audience_id === 'string' && row.audience_id.startsWith('aud:dm:')))
     return { tier: 'a', reason: 'dm' };
   if (cited.has(row.id)) return { tier: 'a', reason: 'cited' };
-  if (captured.has(row.id)) return { tier: 'c', reason: 'capture' };
   return { tier: 'b', reason: 'seen' };
 }
 
@@ -136,16 +129,8 @@ export function classify(
   const nowIso = iso(now);
   const cutoff = iso(now - settings.vectorDays * DAY_MS);
   const cited = citedIds(db);
-  const captured = new Set(
-    hasTable(db, 'capture_members')
-      ? db
-          .prepare('SELECT DISTINCT source_id AS id FROM capture_members')
-          .all()
-          .map((row: Row) => row.id)
-      : []
-  );
   const held = heldPolicy(db);
-  const tiers: Record<string, number> = { a: 0, b: 0, c: 0 };
+  const tiers: Record<string, number> = { a: 0, b: 0 };
   const reasons: Record<string, number> = {};
   const decided = new Map<unknown, Tier>();
   // A message is cited, pinned or touched when any of its revisions is.
@@ -155,7 +140,7 @@ export function classify(
       'SELECT id, kind, author_kind, direct, scope_kind, audience_id, authority_id, native_id FROM sources WHERE id IS NOT NULL'
     )
     .iterate()) {
-    const decision = tierOf(row, { cited, captured, held, nowIso });
+    const decision = tierOf(row, { cited, held, nowIso });
     decided.set(row.id, decision);
     tiers[decision.tier] += 1;
     reasons[decision.reason] = (reasons[decision.reason] ?? 0) + 1;

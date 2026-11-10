@@ -300,7 +300,8 @@ test('an observation refusal rolls back the family reservation and supplied inge
       handle,
       {
         ...envelope(),
-        capture: { role: 'reply', bundle: 'missing-bundle' },
+        // Refused while writing: the thread its participant is scoped to is stored nowhere.
+        author: { kind: 'participant', token_kind: 'thread_token', key: 't-1', scope_place: 'thread:none' },
         ingest: {
           row: {
             principal: 'adapter',
@@ -320,7 +321,7 @@ test('an observation refusal rolls back the family reservation and supplied inge
         },
       }
     );
-    assert.deepEqual(failed, { ok: false, code: 'UNKNOWN_BUNDLE' });
+    assert.deepEqual(failed, { ok: false, code: 'UNKNOWN_SCOPE_PLACE' });
     assert.equal(allocated, 1);
     assert.deepEqual(snapshot(db), before);
     assert.deepEqual(families(db), []);
