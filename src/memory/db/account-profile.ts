@@ -23,7 +23,7 @@
 // person in the profile's scope (session-rows.ts#addSessionRows).
 
 import { groupScope } from './scope.ts';
-import { AFFINITY_SPEC, affinityFrom, profileFrom, profileRows } from './profile-lists.ts';
+import { AFFINITY_SPEC, affinityFrom, profileFrom, profileRows, sessionMoveOf } from './profile-lists.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './row-columns.ts';
 import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
@@ -83,6 +83,8 @@ type ProfileContext = {
   accountOnly: boolean;
   link: Row;
   membership: { id: string; placeId: string | null } | null;
+  /** Whether an attitude move's id is a row her memory session wrote. */
+  sessionMove: (id: string) => boolean;
 };
 
 /** The one membership row a profile writes: its id and place, as stored. */
@@ -121,6 +123,7 @@ function profileContext(db: Db, key: UnitKey, holder: ProfileOwner, at: string, 
     base.subjectPersonId ??
     mintMetaPerson(db, at);
   return {
+    sessionMove: sessionMoveOf(db),
     iface: subjectIface,
     accountId,
     person,
@@ -174,6 +177,7 @@ export function accountProfileRows(value: Row, ctx: ProfileContext): Rows {
     tag: '',
     scope: groupScope(ctx.iface),
     descFields: FIELDS,
+    sessionMove: ctx.sessionMove,
   });
   const people = split(rest, PEOPLE_SPEC);
   const left = people.rest;

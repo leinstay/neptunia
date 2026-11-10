@@ -15,7 +15,7 @@
 import { mintMetaPerson } from './meta-person-write.ts';
 import { ensureAccountPerson } from './person-links.ts';
 import { dmScope } from './scope.ts';
-import { historyFrom, profileFrom, profileRows } from './profile-lists.ts';
+import { historyFrom, profileFrom, profileRows, sessionMoveOf } from './profile-lists.ts';
 import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
 import { dmPlaceScope } from './scope-parts.ts';
@@ -66,6 +66,7 @@ function privateLayerRows(db: Db, key: UnitKey, value: Row, at: string, writeIfa
     tag: ':dm',
     scope: place ? dmPlaceScope(iface, place) : dmScope(person, iface),
     descFields: FIELDS,
+    sessionMove: sessionMoveOf(db),
   });
   if (affinity) rest.affinity = affinity;
   // The layer's operational row keeps the owner it was first stored under.
