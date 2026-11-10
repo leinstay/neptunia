@@ -118,7 +118,8 @@ function claudeArgs(path: SubharnessMemoryPath, system: string): Array<string> {
     '--tools',
     '',
     '--output-format',
-    'json',
+    'stream-json',
+    '--verbose',
     '--model',
     path.model,
     ...(path.effort === null ? [] : ['--effort', path.effort]),
@@ -142,21 +143,51 @@ function codexArgs(path: SubharnessMemoryPath, schemaFile: string, outFile: stri
   ];
 }
 
+/** The JSON objects of claude's stream, one per line; a line that is no object is skipped. */
+function streamOf(stdout: string): Array<Record<string, unknown>> {
+  return stdout.split('\n').flatMap((line) => {
+    const object = line.trim() === '' ? null : objectOf(line.trim());
+    return object === null ? [] : [object];
+  });
+}
+
+/** The `result` line that ends claude's stream, a stdout of one object taken as that line; else null. */
+const envelopeOf = (stream: ReadonlyArray<Record<string, unknown>>): Record<string, unknown> | null =>
+  stream.findLast((line) => line.type === 'result') ?? (stream.length === 1 ? stream[0] : null);
+
+/**
+ * The text of every assistant message in the stream, in order. A run cut at `CLAUDE_CODE_MAX_OUTPUT_TOKENS` is resumed
+ * by claude itself in a new message that picks up mid-thought, and `result` holds only that last message, so the
+ * answer is the texts joined. Null when the stream carries no assistant message.
+ */
+function assistantText(stream: ReadonlyArray<Record<string, unknown>>): string | null {
+  const messages = stream.filter((line) => line.type === 'assistant' && isRecord(line.message));
+  if (messages.length === 0) return null;
+  return messages
+    .flatMap((line): Array<unknown> => {
+      const content: unknown = isRecord(line.message) ? line.message.content : null;
+      return Array.isArray(content) ? (content as Array<unknown>) : [];
+    })
+    .map((part: unknown) => (isRecord(part) && part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
+    .join('');
+}
+
 /** Whether claude's run failed for want of a login: an error envelope or a failed exit whose text asks for one. */
 function loginLost(outcome: ChildOutcome): boolean {
-  const envelope = objectOf(outcome.stdout.trim());
+  const envelope = envelopeOf(streamOf(outcome.stdout));
   const failed = outcome.exitCode !== 0 || envelope?.is_error === true;
   return failed && LOGIN_FAILURE.test(`${outcome.stdout}\n${outcome.stderr}`);
 }
 
-/** The completion of claude's JSON envelope: its `result` and its tokens. */
+/** The completion of claude's stream: the text of its assistant messages, else its `result`, and its tokens. */
 function claudeCompletion(stdout: string): Completion {
-  const envelope = objectOf(stdout.trim());
+  const stream = streamOf(stdout);
+  const envelope = envelopeOf(stream);
   if (envelope === null || envelope.is_error === true) throw refusal('backend-error');
   // The answer of a refused or cut run is no memory block: the sweep keeps its cursor and applies nothing.
   if (envelope.stop_reason === 'refusal') throw refusal('model-refused');
   if (envelope.stop_reason === 'max_tokens') throw refusal('output-truncated');
-  const text = typeof envelope.result === 'string' ? envelope.result : '';
+  const text = assistantText(stream) ?? (typeof envelope.result === 'string' ? envelope.result : '');
   if (text.trim() === '') throw refusal('empty-answer');
   const usage = isRecord(envelope.usage) ? envelope.usage : {};
   const cached = count(usage, 'cache_read_input_tokens');

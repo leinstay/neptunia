@@ -125,15 +125,18 @@ function clientOf(
 
 // the run on claude
 
-test('claude runs with the system text replacing its own prompt, no tools, JSON out and the model', async () => {
+test('claude runs with the system text replacing its own prompt, no tools, every message streamed and the model', async () => {
   // Catches: the writer run with claude's own system prompt and tools, so it answers as a coding agent, not as her.
+  // The format is stream-json with --verbose, not json: json prints only the last message as `result`, and a run
+  // the CLI resumed after an output cut lost the answer's head (session-bugs row 32).
   const { deps, seen } = rig(claudeAnswers(ANSWER));
   await runMemoryWriter(CLAUDE, INPUT, deps);
   const { args } = seen[0];
   assert.equal(args[0], '-p');
   assert.equal(after(args, '--system-prompt'), INPUT.system);
   assert.equal(after(args, '--tools'), '');
-  assert.equal(after(args, '--output-format'), 'json');
+  assert.equal(after(args, '--output-format'), 'stream-json');
+  assert.ok(args.includes('--verbose'));
   assert.equal(after(args, '--model'), 'claude-opus-4-6');
 });
 
@@ -180,6 +183,42 @@ test('claude answers with the result of its envelope and the tokens it reports',
   assert.equal(completion.usage?.prompt_tokens, 1012);
   assert.equal(completion.usage?.prompt_tokens_details?.cached_tokens, 900);
   assert.equal(completion.usage?.completion_tokens, 50);
+});
+
+/** The lines claude -p --output-format stream-json --verbose prints for one message's content block. */
+const assistantLine = (id: string, block: Record<string, unknown>, stop: string): string =>
+  JSON.stringify({ type: 'assistant', message: { id, role: 'assistant', content: [block], stop_reason: stop } });
+
+test('claude resumed after an output cut answers with the text of every message, not only the last', async () => {
+  // Catches: the answer read from `result`, which holds only the message after the CLI's resume, so the head of the
+  // memory block is lost and the session fails no_block (session-bugs row 32, 2026-11-10 05:44). The lines follow
+  // the transcript of that run: thinking and text blocks of a message cut at max_tokens, the CLI's resume prompt, and
+  // a second message that ends the block.
+  const head = ANSWER.slice(0, Math.floor(ANSWER.length / 2));
+  const tail = ANSWER.slice(head.length);
+  const stdout = [
+    JSON.stringify({ type: 'system', subtype: 'init', model: 'claude-opus-4-6' }),
+    assistantLine('msg_1', { type: 'thinking', thinking: '' }, 'max_tokens'),
+    assistantLine('msg_1', { type: 'text', text: head }, 'max_tokens'),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'Output token limit hit. Resume directly.' } }),
+    assistantLine('msg_2', { type: 'text', text: tail }, 'end_turn'),
+    JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      stop_reason: 'end_turn',
+      result: tail,
+      usage: {
+        input_tokens: 6,
+        cache_read_input_tokens: 68553,
+        cache_creation_input_tokens: 54204,
+        output_tokens: 8071,
+      },
+    }),
+  ].join('\n');
+  const { deps } = rig(() => ({ exitCode: 0, stdout, stderr: '' }));
+  const completion = await runMemoryWriter(CLAUDE, INPUT, deps);
+  assert.equal(completion.text, ANSWER);
 });
 
 test('claude reporting no usage answers zero tokens', async () => {
