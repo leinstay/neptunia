@@ -105,6 +105,9 @@ export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds
     );
   }
   if (isQuietInner(draft, stepped)) return { outcome: 'skip', mode: finalMode, reason: SKIP_NOTHING_TO_DO };
+  // A selfreflection turn that held no speech recorded no entry: ended on her skip, it skipped, whatever it called.
+  if (selfreflectionPrep && stepped.skipped && held.length === 0)
+    return { outcome: 'skip', mode: finalMode, reason: SKIP_NOTHING_TO_DO };
   // An inner turn in shadow mode delivers nothing, whatever it proposed.
   const delivered = stepped.delivered && draft.inner?.shadow !== true;
   return {
