@@ -177,8 +177,6 @@ const VIDEO_FIXED = Object.freeze({
   urlProcessing: 'agentic',
   reasoning: Object.freeze({ effort: 'low' }),
 });
-/** The length of a video summary. */
-export const VIDEO_SUMMARY_CHARS = VIDEO_FIXED.summaryChars;
 
 /** The live `media.video` section with the fixed fields (VIDEO_FIXED) over it. */
 function videoSettingsOf(config: Untyped) {

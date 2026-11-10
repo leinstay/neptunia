@@ -72,12 +72,6 @@ export function dmPlaceOfMember(store: unknown, nativeId: string, iface?: string
   return addressing?.dmHomeOf?.(accountOf(store, nativeId, iface)) ?? null;
 }
 
-/** The address of the stored DM with a member an interface names by a native id, null when none is stored. */
-export function dmChatOfMember(store: unknown, nativeId: string, iface?: string): string | null {
-  const place = dmPlaceOfMember(store, nativeId, iface);
-  return place === null ? null : chatOfPlace(store, place);
-}
-
 /** The top of a place's stored tree (the store's `rootPlaceOf`), the place itself when the store holds no tree for it. */
 export function topPlaceOf(store: unknown, placeId: string): string {
   const addressing = store as Addressing | null | undefined;

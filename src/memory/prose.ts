@@ -54,24 +54,6 @@ export function acceptProse(
 }
 
 /**
- * The string fields longer than their limit, in code points, for the
- * `<over_limit>` block. Fields without a finite limit are skipped.
- */
-export function overLimitOf(
-  fields: Record<string, unknown>,
-  limits: Record<string, number>
-): Record<string, { chars: number; limit: number }> {
-  const out: Record<string, { chars: number; limit: number }> = {};
-  for (const [field, value] of Object.entries(fields ?? {})) {
-    const limit = limits?.[field];
-    if (typeof value !== 'string' || typeof limit !== 'number' || !isFiniteNumber(limit)) continue;
-    const chars = length(value);
-    if (chars > limit) out[field] = { chars, limit };
-  }
-  return out;
-}
-
-/**
  * Sentence-level comparison of two texts (sets after whitespace
  * normalisation): how many sentences each has and how many were kept,
  * removed and added.

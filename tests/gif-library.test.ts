@@ -8,7 +8,6 @@ import {
   gifsOfPlace,
   markOwnGif,
   mergeGifs,
-  mergePlaceLibraries,
   normalizeGifs,
   rankGifs,
   resetGifCounts,
@@ -202,45 +201,6 @@ test('past storeMax the lowest global rank is evicted and its handle is never re
   assert.equal(findGif(cut, evictedHandle), null);
   const { gifs: again } = mergeGifs(cut, [linkMessage('m5', A, T0 + HOUR, 'https://tenor.com/view/newer')]);
   assert.equal(findGif(again, evictedHandle), null);
-});
-
-test('libraries of several places become one, with distinct handles and their counters', () => {
-  // Bug: `g1` of one place and `g1` of another are different GIFs, and a merge keeping both handles posts the wrong one.
-  const shared = 'https://tenor.com/view/shared';
-  const onlyB = 'https://tenor.com/view/only-b';
-  const placeA = {
-    nextId: 2,
-    entries: {
-      k1: {
-        id: 'g1',
-        kind: 'link',
-        url: shared,
-        itemId: 'k1',
-        count: 3,
-        last: T0,
-        firstSeen: T0,
-        ownLast: T0,
-        ownUses: 1,
-      },
-    },
-  };
-  const placeB = {
-    nextId: 3,
-    entries: {
-      k2: { id: 'g1', kind: 'link', url: onlyB, itemId: 'k2', count: 1, last: T0, firstSeen: T0 },
-      k3: { id: 'g2', kind: 'link', url: shared, itemId: 'k3', count: 2, last: T0 + HOUR, firstSeen: T0 },
-    },
-  };
-  const merged = mergePlaceLibraries({ [A]: placeA, [B]: placeB }, { [A]: { k1: { text: 'ένας γάτος χορεύει' } } });
-  const entries = Object.values(normalizeGifs(merged).entries);
-  assert.equal(entries.length, 2);
-  assert.equal(new Set(entries.map((entry) => entry.id)).size, 2, 'handles are distinct');
-  const both = entries.find((entry) => entry.url === shared);
-  assert.ok(both);
-  assert.equal(both.places[A].count, 3);
-  assert.equal(both.places[B].count, 2);
-  assert.equal(both.places[A].ownUses, 1);
-  assert.equal(both.caption, 'ένας γάτος χορεύει', 'the describer cache comes along');
 });
 
 // The candidate search.

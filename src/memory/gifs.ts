@@ -681,50 +681,6 @@ function carriedEntry(key: string, entry: GifEntry, place: string, cache: Record
   };
 }
 
-/**
- * The per-place libraries of a database from before the shared one, as one library. An entry seen in two places is one
- * entry when its link or its native id says so. Its counters go under the place of its latest message when the entry
- * names one, else under the library's place. Handles stay where they collide with no other GIF; a handle another GIF
- * already holds is given a new one. A caption comes from the describer cache of the place (`caches[place][itemId]`). Pure.
- */
-export function mergePlaceLibraries(
-  libraries: Record<string, unknown>,
-  caches: Record<string, Record<string, unknown> | null | undefined> = {}
-): GifLibrary {
-  const merged = emptyGifs();
-  const { entries } = merged;
-  const read = Object.keys(libraries)
-    .sort()
-    .map((place) => ({ place, library: normalizeGifs(libraries[place]) }));
-  const taken = new Set<string>();
-  let nextId = Math.max(1, ...read.flatMap(({ library }) => [library.nextId]));
-  for (const { place, library } of read) {
-    if (library.backfill) merged.backfills[place] = library.backfill;
-    if (library.backfill && library.backfill.at > (merged.backfill?.at ?? '')) merged.backfill = library.backfill;
-    for (const [key, entry] of Object.entries(library.entries)) {
-      const carried = carriedEntry(key, entry, place, caches[place] ?? {});
-      const index = libraryIndex(entries);
-      const same =
-        (entries[key] ? key : null) ??
-        entry.nativeIds.map((id) => index.byNative.get(id)).find(Boolean) ??
-        entry.links.map((link) => index.byLink.get(link)).find(Boolean);
-      if (same) {
-        entries[same] = joinEntries(entries[same], carried);
-        continue;
-      }
-      let id = entry.id;
-      if (taken.has(id)) {
-        id = `g${nextId}`;
-        nextId += 1;
-      }
-      taken.add(id);
-      entries[key] = { ...carried, id };
-    }
-  }
-  merged.nextId = nextId;
-  return normalizeGifs(merged);
-}
-
 /** Lowercase with accents off, so a query matches a caption in any case. */
 function folded(text: string): string {
   return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();

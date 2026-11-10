@@ -223,45 +223,6 @@ export function createIngestRecord(deps: {
   };
 }
 
-/**
- * The ingestion rows of the message events the door is handling, by message id, for the observation of each line to
- * write with it: `hold(event, row)` keeps the row while the handler runs and answers its release, `rowOf(envelope)`
- * finds the row of an observation envelope by its native key, the message id.
- */
-export function createRowsByMessage(): {
-  hold: (event: unknown, row: IngestRow | null) => () => void;
-  rowOf: (envelope: unknown) => IngestRow | null;
-} {
-  const rows = new Map<string, IngestRow>();
-  return {
-    hold(event, row) {
-      const id = fieldsOf(fieldsOf(event).message).id;
-      if (row === null || typeof id !== 'string') return () => {};
-      rows.set(id, row);
-      return () => {
-        if (rows.get(id) === row) rows.delete(id);
-      };
-    },
-    rowOf(envelope) {
-      const key = fieldsOf(fieldsOf(envelope).native).key;
-      return typeof key === 'string' ? (rows.get(key) ?? null) : null;
-    },
-  };
-}
-
-/** `memoryDb` whose observations carry the ingestion row of their line's event (the pipeline's memory database). */
-export function observingWith<TDb extends { observe(envelope: object, where?: unknown): unknown }>(
-  memoryDb: TDb,
-  record: IngestRecord,
-  rows: { rowOf: (envelope: unknown) => IngestRow | null }
-): TDb {
-  const observe = (envelope: object, where?: unknown): unknown =>
-    memoryDb.observe(record.withRow(envelope, rows.rowOf(envelope)), where);
-  // The same service with its `observe` taking the row along; every other member is `memoryDb`'s own, through the
-  // prototype, so the object is a `TDb` the compiler cannot see through `Object.create`.
-  return Object.assign(Object.create(memoryDb) as object, { observe }) as unknown as TDb;
-}
-
 /** The exact source committed by an accepted event, independent of later family revisions. */
 export function receiptSource(db: Db, envelope: unknown): { sourceId: string; revision: number | null } | null {
   const ingest = ingestOption(envelope);

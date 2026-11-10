@@ -4,7 +4,7 @@
 // audiences is neither listed nor counted. Reading writes nothing. src/interface/commands/memory.ts answers `/memory places`.
 
 import { versionsNaming } from './entities-read.ts';
-import { checkLimit, coded, contextBinding, keysetPage, positionOf } from './read-page.ts';
+import { checkLimit, contextBinding, keysetPage, positionOf } from './read-page.ts';
 import type { Page } from './read-page.ts';
 import { audienceWhere } from './scope.ts';
 import type { Context } from './scope.ts';
@@ -133,22 +133,6 @@ export function listPlaces(
 
 const placeExists = (db: Db, placeId: string): boolean =>
   db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(placeId) !== undefined;
-
-/** One level under a stored place. A place nobody stored is refused. */
-export function placeChildren(
-  db: Db,
-  placeId: string,
-  request: { context: Context; limit: number; cursor: string | null }
-): Page<PlaceListing> {
-  const { context } = request;
-  const binding = { reader: 'places.children', context: contextBinding(context), placeId };
-  const position = positionOf(request.cursor, binding);
-  const limit = checkLimit(request.limit);
-  if (!placeExists(db, placeId)) throw coded('PLACE_NOT_FOUND', 'no such place');
-  const visible = placeVisibleWhere(context, 'p');
-  const where = { sql: `p.parent_id = ? AND ${visible.sql}`, params: [placeId, ...visible.params] };
-  return pageOf(db, context, where, limit, position, binding);
-}
 
 function listingById(db: Db, context: Context, placeId: string): PlaceListing | null {
   const columns = listingColumns(context);

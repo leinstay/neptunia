@@ -124,9 +124,6 @@ export function privateLayerWriteOf(update: Row): PrivateLayerWrite {
   return { accountId: update.accountId, value: update.value };
 }
 
-/** Whether `key` names a private layer. */
-export const isPrivateLayerKey = (key: UnitKey): boolean => key.kind === 'private';
-
 /**
  * The write of a unit update of a private layer (a value write of the account's own `private` unit), else null. Any
  * other key of the kind stays a unit write, which the writer stores through the same path.

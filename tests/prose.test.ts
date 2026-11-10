@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acceptProse, overLimitOf, sentenceDiff } from '../src/memory/prose.ts';
+import { acceptProse, sentenceDiff } from '../src/memory/prose.ts';
 
 test('acceptProse: a rewrite at the limit is replaced, one over is refused and keeps the previous text', () => {
   const prev = 'Παλιό κείμενο.';
@@ -20,13 +20,6 @@ test('acceptProse: a first write over the limit is clamped and stored, never ref
   assert.equal(r.outcome, 'first');
   assert.ok(r.text.length > 0 && r.text.length <= 40);
   assert.equal(acceptProse(undefined, 'νέο', 10).outcome, 'first');
-});
-
-test('overLimitOf: lists only the fields over their limit with code-point counts', () => {
-  assert.deepEqual(overLimitOf({ purpose: 'αβγ', topics: 'αβγδε', tone: 7 }, { purpose: 3, topics: 4, tone: 1 }), {
-    topics: { chars: 5, limit: 4 },
-  });
-  assert.deepEqual(overLimitOf({ a: 'x' }, {}), {});
 });
 
 test('sentenceDiff: counts kept, removed and added sentences as sets', () => {

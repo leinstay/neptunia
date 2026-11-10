@@ -12,12 +12,11 @@
 // `participants` is the union over every line of the chunk and `sourceIds` the message ids of
 // those lines, so a forget reaches a row through any line it holds.
 
-import { archiveText } from './archive.ts';
 import { clampChars, oneLine } from './clamp.ts';
 import { fromTokens } from './mentions.ts';
 import { isoOf } from './record.ts';
 import { isFiniteNumber, isIntegerNumber } from './types.ts';
-import type { StoredRecord, Untyped } from './types.ts';
+import type { Untyped } from './types.ts';
 import type { RecordLine } from './record.ts';
 
 /** Resolves a member id to the display name, or null when unknown. */
@@ -27,9 +26,6 @@ type NameOf = (id: string) => string | null;
 export const CHUNK_CONTEXT_LINES = 2;
 /** The longest text of one chunk line, in characters. */
 export const CHUNK_LINE_CHARS = 300;
-
-/** The archive text fields that lead an item's chunk, first present wins. */
-const ARCHIVE_MAIN_FIELDS = ['what', 'text', 'topic', 'name', 'gist', 'reason'];
 
 /** Distinct non-empty strings of `values` (arrays or single values), in order. */
 function idList(...values: Array<unknown>): Array<string> {
@@ -79,14 +75,6 @@ export function embeddableLine(line: RecordLine | null | undefined): boolean {
     typeof line.text === 'string' &&
     line.text.trim() !== ''
   );
-}
-
-/**
- * The key of a channel's lines in one layer: the place record (`privateAccountId` null or empty) or
- * a member's private record, then the channel.
- */
-export function layerChannelKey(privateAccountId: string | null, placeId: string | null): string {
-  return `${typeof privateAccountId === 'string' ? privateAccountId : ''}|${placeId ?? ''}`;
 }
 
 /** The channel of a record line, or null. */
@@ -169,98 +157,6 @@ export function recordChunk(
       // The line's own members first, then its context's.
       participants: idList(...[line, ...lines.slice(0, -1)].map((item) => idList(item.participants, item.by))),
       sourceIds: idList(lines.map((item) => item.messageId)),
-    },
-  };
-}
-
-/**
- * The chunks of every message of `lines` (record lines of any channels and layers; each message
- * by its newest revision), or of those whose `messageId:revision` is in `targets`, each with its
- * preceding lines of the same channel and layer.
- */
-export function recordChunks(
-  lines: Iterable<RecordLine>,
-  {
-    targets = null,
-    contextLines = CHUNK_CONTEXT_LINES,
-    ...options
-  }: {
-    nameOf?: Untyped;
-    selfName?: string;
-    lineChars?: number;
-    contextLines?: number;
-    targets?: Set<string> | null;
-  } = {}
-): Array<{ text: string; meta: object }> {
-  const channels = new Map<string, Array<RecordLine>>();
-  for (const line of newestRevisions(lines)) {
-    const key = layerChannelKey(layerOf(line), channelOf(line));
-    const list = channels.get(key) ?? [];
-    channels.set(key, list);
-    list.push(line);
-  }
-  const out: Array<{ text: string; meta: Record<string, Untyped> }> = [];
-  for (const channelLines of channels.values()) {
-    channelLines.forEach((line, i) => {
-      if (targets && !targets.has(`${line.messageId}:${revisionOf(line)}`)) return;
-      out.push(
-        recordChunk(line, contextLines > 0 ? channelLines.slice(Math.max(0, i - contextLines), i) : [], options)
-      );
-    });
-  }
-  return out.sort((a, b) =>
-    compareLines(
-      { occurredAt: a.meta.occurredAt, messageId: a.meta.id },
-      { occurredAt: b.meta.occurredAt, messageId: b.meta.id }
-    )
-  );
-}
-
-/** The text fields of an archive entry, as archive.ts keeps them for its kind. */
-function entryFields(entry: Untyped): StoredRecord {
-  return archiveText(entry?.itemKind, entry?.text && typeof entry.text === 'object' ? entry.text : {});
-}
-
-/**
- * Whether an archive entry gets a vector: not a `restored` lifecycle line, with an item id and
- * some text.
- */
-export function isEmbeddableArchive(entry: Untyped): boolean {
-  if (!entry || typeof entry !== 'object' || entry.event === 'restored') return false;
-  if (typeof entry.itemId !== 'string' || !entry.itemId) return false;
-  const fields = entryFields(entry);
-  return [...ARCHIVE_MAIN_FIELDS, 'note', 'quote'].some(
-    (field) => typeof fields[field] === 'string' && fields[field].trim() !== ''
-  );
-}
-
-/**
- * The chunk of an archive entry: its leading text field (`what`, else `text`, ...), its note, and
- * its quote in quotation marks, on one line with `<@id>` tokens resolved.
- */
-export function archiveChunk(
-  entry: StoredRecord,
-  { nameOf = null }: { nameOf?: NameOf | null } = {}
-): { text: string; meta: object } {
-  const fields = entryFields(entry);
-  const resolve = (id: string) => (typeof nameOf === 'function' ? nameOf(id) : null);
-  const clean = (value: Untyped) => (typeof value === 'string' ? oneLine(fromTokens(value, resolve, 'chat')) : '');
-  const main = ARCHIVE_MAIN_FIELDS.map((field) => clean(fields[field])).find(Boolean) ?? '';
-  const quote = clean(fields.quote);
-  const text = [main, clean(fields.note), quote ? `"${quote}"` : ''].filter(Boolean).join(' ');
-  return {
-    text,
-    meta: {
-      kind: 'archive',
-      id: entry.itemId,
-      revision: typeof entry.revisionId === 'string' ? entry.revisionId : null,
-      occurredAt: isoOf(entry.observedAt?.date) ?? isoOf(entry.recordedAt),
-      placeId: null,
-      by: null,
-      participants: idList(entry.participants, entry.scope?.user),
-      sourceIds: idList(
-        (Array.isArray(entry.sourceRefs) ? entry.sourceRefs : []).map((ref: Untyped) => ref?.messageId)
-      ),
     },
   };
 }

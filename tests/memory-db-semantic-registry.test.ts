@@ -10,7 +10,6 @@ import {
   checkArguments,
   readEntityKind,
   readPredicate,
-  registerEntityKind,
   registerPredicate,
 } from '../src/memory/db/semantic-registry.ts';
 import type { PredicateDefinition } from '../src/memory/db/semantic-registry.ts';
@@ -263,14 +262,3 @@ for (const [name, definition] of BAD_DEFINITIONS) {
     handle.close();
   });
 }
-
-test('a new entity kind version joins the registry and a repeated one is refused', () => {
-  // Bug: a registered kind cannot be used, or a repeat rewrites its fields.
-  const { handle, db } = opened();
-  const kind = { id: 'fixture.place_like', version: 1, fields: ['name'] };
-  assert.deepEqual(registerEntityKind(handle, kind, NOW), { ok: true });
-  assert.deepEqual(readEntityKind(db, kind.id, 1), kind);
-  assert.deepEqual(registerEntityKind(handle, { ...kind, fields: [] }, NOW), { ok: false, code: 'version_exists' });
-  assert.deepEqual(readEntityKind(db, kind.id, 1), kind);
-  handle.close();
-});

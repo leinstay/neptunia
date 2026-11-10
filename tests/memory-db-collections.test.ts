@@ -1,8 +1,7 @@
-// src/memory/db/unit-keys.ts: the neutral constructors of a storage collection. A collection belongs to an account, a
-// person or a place, and its key holds that id as given: no interface read from the air, no root, no parsing.
+// src/memory/db/unit-keys.ts: the neutral constructors of a storage collection. A collection belongs to an account or a
+// place, and its key holds that id as given: no interface read from the air, no root, no parsing.
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   accountCollection(kind, accountId, options?): UnitKey     subject { type: 'account', id }
-//   personCollection(kind, personId, options?): UnitKey       subject { type: 'person', id }
 //   placeCollection(kind, placeId, options?): UnitKey         subject { type: 'place', id }
 //   journalKey(placeId, day): UnitKey
 // `options` is { partition?, selector? }. An empty id throws code `BAD_COLLECTION_ID`.
@@ -12,13 +11,7 @@ import assert from 'node:assert/strict';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import * as keys from '../src/memory/db/unit-keys.ts';
-import {
-  accountCollection,
-  journalKey,
-  personCollection,
-  placeCollection,
-  collectionId,
-} from '../src/memory/db/unit-keys.ts';
+import { accountCollection, journalKey, placeCollection, collectionId } from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
@@ -28,10 +21,6 @@ test('each constructor names its subject with the id as given and no root scope'
   assert.deepEqual(accountCollection('private', 'account:a11'), {
     kind: 'private',
     subject: { type: 'account', id: 'account:a11' },
-  });
-  assert.deepEqual(personCollection('private', 'person:0b7a4c1e'), {
-    kind: 'private',
-    subject: { type: 'person', id: 'person:0b7a4c1e' },
   });
   assert.deepEqual(placeCollection('lore', 'place:room-1'), {
     kind: 'lore',
@@ -54,15 +43,14 @@ test('the same id gives the same storage id, and different kinds of subject neve
   assert.equal(collectionId(placeCollection('lore', 'x:1')), collectionId(placeCollection('lore', 'x:1')));
   const ids = new Set([
     collectionId(accountCollection('private', 'x:1')),
-    collectionId(personCollection('private', 'x:1')),
     collectionId(placeCollection('private', 'x:1')),
   ]);
-  assert.equal(ids.size, 3);
+  assert.equal(ids.size, 2);
 });
 
 test('an empty id is refused with a code', () => {
   // Bug: `''` makes one shared collection for everyone whose id failed to resolve (`one:root:` today).
-  for (const build of [accountCollection, personCollection, placeCollection]) {
+  for (const build of [accountCollection, placeCollection]) {
     assert.throws(
       () => build('lore', ''),
       (error: { code?: string }) => error.code === 'BAD_COLLECTION_ID'

@@ -12,7 +12,6 @@ import {
   indexWords,
   learnEndings,
   nameAlternates,
-  querySupport,
   recordIndexOf,
   searchRecordIndex,
   stemmerOf,
@@ -233,15 +232,6 @@ test('searchRecordIndex: a phrase, two terms or one rare term; scope, moment and
   assert.ok(phrase.every((hit) => hit.phrases === 1));
   assert.equal(searchRecordIndex(index, query, { rareTermDf: 3, limit: 1 }).length, 1);
   assert.deepEqual(searchRecordIndex(index, { terms: [], phrases: [] }), []);
-});
-
-test('querySupport: the terms and phrases of a query found in texts, by key', () => {
-  const index = buildRecordIndex([...STORY, ...filler(20)]);
-  const query = indexQuery(index, 'dog or forest, plus ultra', { maxTermShare: 0.2, rareTermDf: 0 });
-  assert.deepEqual(querySupport(index, ['A DOG!', 'nothing else'], query), { terms: 1, phrases: 0 });
-  assert.deepEqual(querySupport(index, ['plus ultra', 'forest'], query), { terms: 3, phrases: 1 });
-  assert.deepEqual(querySupport(index, ['cat and hat'], query), { terms: 0, phrases: 0 });
-  assert.deepEqual(querySupport(index, ['dog'], null), { terms: 0, phrases: 0 });
 });
 
 test('recordIndexOf: built once per record and root, refreshed in the background from before its last check, rebuilt whole later', async () => {

@@ -65,6 +65,3 @@ export const LORE_LIMITS = Object.freeze({
   maxMatches: 8,
   textChars: 600,
 });
-
-/** How long one self fact (the persona's own `self` list) may be, in characters, before the clamp tolerance. */
-export const SELF_CHARS = 200;
