@@ -33,17 +33,8 @@ export type UnitKind =
   | 'inner'
   | 'missed'
   | 'voice'
-  | 'buffer'
-  | 'forgotten'
-  | 'forgetting'
-  | 'record_ids'
-  | 'record_backfill'
-  | 'archive_ids'
-  | 'archive_pending'
   | 'recall_trace'
-  | 'journal_running'
-  | 'backfill'
-  | 'request_tools';
+  | 'backfill';
 export type UnitSelector = Readonly<{
   collection?: 'active' | 'archive' | 'value' | 'history';
   requestId?: string;
