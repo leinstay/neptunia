@@ -2238,38 +2238,6 @@ test('buildRequest: skills -- the tools field of the request takes its tokens of
   assert.equal(taken.stats.limit, free.stats.limit - 5000);
 });
 
-test('skillsInventoryText: a proposed skill the asker has no right to is named on its own line, never as switched off', () => {
-  const rows = [
-    { ...SKILL_ROWS[2], proposed: true },
-    {
-      name: 'memory.journal.read',
-      title: 'Ημερολόγιο',
-      whenToUse: 'τι έγινε',
-      allowed: false,
-      reason: 'requester-denied',
-      proposed: true,
-    },
-    { ...SKILL_ROWS[3], proposed: true },
-  ];
-  const line = fill(labels.tools.line, {
-    name: rows[0].name,
-    title: rows[0].title,
-    whenToUse: rows[0].whenToUse,
-    access: labels.tools.access.allowed,
-  });
-  assert.deepEqual(skillsInventoryText(rows, labels).split('\n'), [
-    line,
-    fill(labels.tools.proposedOff, { names: 'memory.profile.read' }),
-    fill(labels.tools.proposedDenied, { names: 'memory.journal.read' }),
-  ]);
-  const deniedOnly = skillsInventoryText([rows[1]], labels);
-  assert.equal(deniedOnly, fill(labels.tools.proposedDenied, { names: 'memory.journal.read' }));
-  assert.ok(!deniedOnly.includes(fill(labels.tools.proposedOff, { names: 'memory.journal.read' })));
-  // Without its own label the asker's lack of right is not worded at all (never as switched off).
-  const bare = { ...labels, tools: { ...labels.tools, proposedDenied: undefined } };
-  assert.equal(skillsInventoryText([rows[1]], bare), '');
-});
-
 // --- the skills granted to her, always listed in the stable part ------------------------------
 
 test("skillsInventoryText: each line lists the skill's arguments -- required marked, enum values with the cut shown, a range -- in a stable order", () => {

@@ -90,8 +90,8 @@ const calledOf = (logs: Array<LogEntry>) =>
     .filter((entry) => entry.msg === 'skills: called')
     .map((entry) => `${String(entry.skill)}:${String(entry.status)}${entry.code ? `/${String(entry.code)}` : ''}`);
 
-test('a selfreflection draw.create that names another place is staged for the entry, never refused no-requester', async () => {
-  // Bug: the named place made the call one aimed elsewhere, so a turn nobody asked for refused it `no-requester`.
+test('a selfreflection draw.create that names another place is staged for the entry and posted nowhere', async () => {
+  // Bug: the named place made the call one aimed elsewhere, so a turn nobody asked for refused it.
   const channel = world().channel({ id: 'd1', name: 'journal', placeId: 'g1', permissions: { attach: true } });
   const other = world().channel({ id: 'c2', name: 'elsewhere', placeId: 'g1', permissions: { attach: true } });
   const store = fakeStore();

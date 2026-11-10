@@ -135,8 +135,8 @@ test('refusalStatus: a wrong call is invalid, a rule that said no is denied', ()
     'file-expired',
   ])
     assert.equal(refusalStatus(code), 'invalid', code);
-  for (const code of ['safe-mode', 'owner-only', 'no-requester', 'mixed-requesters', 'requester-denied', 'cooldown'])
-    assert.equal(refusalStatus(code), 'denied', code);
+  // Changed: `no-requester`, `mixed-requesters` and `requester-denied` left the catalogue with the owner's decision of 2026-11-10.
+  for (const code of ['safe-mode', 'owner-only', 'cooldown']) assert.equal(refusalStatus(code), 'denied', code);
   assert.ok(INVALID_CODES.includes('unknown-skill'));
 });
 

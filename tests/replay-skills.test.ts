@@ -258,7 +258,7 @@ test('simulateCall: a granted skill an owner asks for passes the real gateway an
   assert.deepEqual(out.result, { skill: 'learning.add', status: 'ok', data: { text: 'RESULT' } });
 });
 
-test('simulateCall: not granted, not grantable, or a requester without the right: refused as live, and she hears it', () => {
+test('simulateCall: not granted or not grantable is refused as live; a granted call runs whoever asked or with nobody asking', () => {
   const notGranted = simulate({ skill: 'learning.add', args: { text: 'κανόνας' } });
   assert.deepEqual(
     [notGranted.verdict.stage, notGranted.verdict.code, notGranted.result.status, notGranted.executed],
@@ -269,32 +269,19 @@ test('simulateCall: not granted, not grantable, or a requester without the right
   const wipe = simulate({ skill: 'memory.restore', args: { id: 'ep-1' } }, { grants: ['memory.restore'] });
   assert.deepEqual([wipe.verdict.code, wipe.result.status, wipe.executed], ['not-grantable', 'denied', null]);
 
-  // Her grant does not lend a member a right they lack; a member granted it may have it run.
+  // Changed: the owner's decision of 2026-11-10, her grant alone decides, so a member without the right has it run.
   const member = simulate(
     { skill: 'learning.add', args: { text: 'κανόνας' } },
     { grants: ['learning.add'], author: MEMBER }
   );
-  assert.deepEqual(
-    [member.verdict.code, member.verdict.reason, member.result.status],
-    ['requester-denied', 'not-granted', 'denied']
-  );
-  const byRole = simulate(
-    { skill: 'learning.add', args: { text: 'κανόνας' } },
-    {
-      grants: ['learning.add'],
-      author: MEMBER,
-      channel: fakeChannel({ memberRoles: ['r1'] }),
-      access: { 'learning.add': { everyone: false, roles: ['r1'], users: [] } },
-    }
-  );
-  assert.equal(byRole.verdict.ok, true, "the requester's role ids come from the member cache, as live");
+  assert.equal(member.verdict.ok, true, String(member.verdict.code));
 
-  // Nobody asked: only a read.
+  // Changed: the same decision, so nobody asking refuses no write.
   const unasked = simulate(
     { skill: 'learning.add', args: { text: 'κανόνας' } },
     { grants: ['learning.add'], author: null }
   );
-  assert.deepEqual([unasked.verdict.code, unasked.verdict.reason], ['no-requester', 'no-requester']);
+  assert.equal(unasked.verdict.ok, true, String(unasked.verdict.code));
 });
 
 test("simulateCall: her own operations skip the requester's right but not her grant", () => {
@@ -350,10 +337,11 @@ test("scenarioInventory: the requester's catalogue as live discovery lists it: w
       args: [{ name: 'text', required: true }],
     }
   );
+  // Changed: the owner's decision of 2026-11-10, her grant alone decides, so a member's row is open.
   assert.equal(
     scenarioInventory({ ...input, requester: { id: MEMBER, roleIds: [] } })?.find((row) => row.name === 'learning.add')
       ?.reason,
-    'requester-denied'
+    'allowed'
   );
   const named = scenarioInventory({
     ...input,
@@ -821,7 +809,7 @@ test('replay --skills steps: a burst of two tagged calls gets two turns in arriv
     [
       toolAnswer('<think>t</think><msg>έγινε</msg>', [call('learning.add', { text: 'όχι spoilers' })]),
       toolAnswer('<think>t</think>', [call('learning.add', { text: 'κι άλλος' })]),
-      '<think>t</think><msg>όχι από σένα</msg>',
+      '<think>t</think><msg>κι αυτό έγινε</msg>',
     ]
   );
   assert.equal(played.stopped, false);
@@ -855,16 +843,16 @@ test('replay --skills steps: a burst of two tagged calls gets two turns in arriv
   assert.ok(second.includes('έγινε') && second.indexOf('κι εμένα έναν') < second.indexOf('έγινε'), second);
   assert.ok(steps[1].at > steps[0].at && steps[0].at === lines.at(-1).ts);
 
-  // Each turn's requester is its own call's author: the owner may, the member may not.
+  // Each turn's requester is its own call's author. Changed: the owner's decision of 2026-11-10, her grant alone
+  // decides, so the member's call runs as the owner's does.
   assert.deepEqual(
     records.map((r) => [r.step, r.turn, r.decision, r.verdict?.ok]),
     [
       [1, 1, 'call', true],
-      [1, 2, 'call', false],
+      [1, 2, 'call', true],
     ]
   );
-  assert.deepEqual([records[1].verdict.code, records[1].verdict.reason], ['requester-denied', 'not-granted']);
-  assert.deepEqual(records[1].followUp.messages, ['όχι από σένα']);
+  assert.deepEqual(records[1].followUp.messages, ['κι αυτό έγινε']);
   assert.deepEqual(records[0].queue, {
     turns: 2,
     kind: 'mention',

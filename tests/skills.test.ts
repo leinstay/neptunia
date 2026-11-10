@@ -99,7 +99,6 @@ function check({
   granted = [],
   registry = skillRegistry(),
   images,
-  mixedRequesters,
   lastRunAt,
   now,
 }: Record<string, Untyped> = {}) {
@@ -109,7 +108,7 @@ function check({
     principal: persona,
     requester,
     audience,
-    context: { config: granting(granted, cfg), selfId: SELF, images, registry, mixedRequesters, lastRunAt, now },
+    context: { config: granting(granted, cfg), selfId: SELF, images, registry, lastRunAt, now },
   });
 }
 
@@ -497,7 +496,7 @@ test('skills access: her reply tags are carried over in the current chat, withou
   );
 });
 
-test('skills gateway: her own expressive operations need only her grant, whoever asked; the rules on who asked still hold', () => {
+test('skills gateway: her own expressive operations need only her grant, whoever asked or with nobody asking', () => {
   // Changed: her own operations are the tools with the trait `self`, read where they are declared; the list is the same.
   assert.deepEqual([...toolsWith('self')].sort(), [
     'draw.create',
@@ -543,7 +542,7 @@ test('skills gateway: her own expressive operations need only her grant, whoever
     asRecord(check({ skill: 'message.edit', args: { message: 'm1', text: 'σωστό' }, requester: member })).code,
     'not-allowed'
   );
-  // nobody asked: only a read; several people asked: no write
+  // Changed: the owner's decision of 2026-11-10, a call of hers runs on her grant alone, so nobody asking refuses no write.
   assert.deepEqual(
     check({
       skill: 'message.edit',
@@ -551,17 +550,7 @@ test('skills gateway: her own expressive operations need only her grant, whoever
       granted: ['message.edit'],
       requester: null,
     }),
-    { ok: false, code: 'no-requester', reason: 'no-requester' }
-  );
-  assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' }, mixedRequesters: true }), {
-    ok: false,
-    code: 'mixed-requesters',
-    reason: 'mixed-requesters',
-  });
-  // anything else still needs the requester's own right
-  assert.deepEqual(
-    check({ skill: 'lore.add', args: { title: 'Ά', keys: 'α', text: 'κ' }, granted: ['lore.add'], requester: member }),
-    { ok: false, code: 'requester-denied', reason: 'not-granted' }
+    { ok: true }
   );
 });
 
@@ -595,108 +584,47 @@ test('skills gateway: an unknown skill or a non-persona principal is refused; ar
   assert.deepEqual(edit(null), { ok: false, code: 'invalid-args', reason: 'args:type' });
 });
 
-test('skills gateway: closed until the owner grants it to her; an owner-only operation runs only for an owner who asks', () => {
+test('skills gateway: an owner-only operation is closed until the owner grants it to her', () => {
   assert.equal(asRecord(check({ skill: 'memory.journal.read', args: {} })).code, 'not-allowed', 'default deny');
   assert.deepEqual(check({ skill: 'memory.journal.read', args: {}, granted: ['memory.journal.read'] }), { ok: true });
+});
+
+// The owner's decision of 2026-11-10: who asked changes nothing about whether a call of hers runs.
+test('skills gateway: a member who may not run an owner-only operation has it run when she holds the grant', () => {
   assert.deepEqual(
     check({ skill: 'memory.journal.read', args: {}, granted: ['memory.journal.read'], requester: { id: MEMBER } }),
-    { ok: false, code: 'requester-denied', reason: 'owner-only' }
-  );
-  // even a grant of everything to the member opens no owner-only operation
-  const everyone = { everyone: true, roles: [], users: [] };
-  assert.deepEqual(
-    check({
-      skill: 'memory.private.read',
-      args: { user: MEMBER },
-      granted: ['memory.private.read'],
-      requester: { id: MEMBER },
-      cfg: config({ access: { '*': everyone } }),
-    }),
-    { ok: false, code: 'requester-denied', reason: 'owner-only' }
-  );
-  // a forged flag opens nothing: the right comes from the owner's bound accounts, read now
-  assert.equal(
-    asRecord(
-      check({
-        skill: 'memory.journal.read',
-        args: {},
-        granted: ['memory.journal.read'],
-        requester: { id: MEMBER, isOwner: true },
-      })
-    ).reason,
-    'owner-only'
+    { ok: true }
   );
 });
 
-test("skills gateway: a member's own grants decide, as for their own slash command, roles included", () => {
-  const lore = (requester: unknown, cfg = config()) =>
-    check({
-      skill: 'lore.add',
-      args: { title: 'Ά', keys: 'α', text: 'κείμενο' },
-      granted: ['lore.add'],
-      requester,
-      cfg,
-    });
-  assert.deepEqual(lore({ id: MEMBER }), { ok: false, code: 'requester-denied', reason: 'not-granted' });
-  assert.deepEqual(
-    lore({ id: MEMBER }, config({ access: { 'lore.add': { everyone: false, roles: [], users: [MEMBER] } } })),
-    { ok: true }
-  );
-  assert.deepEqual(
-    lore(
-      { id: MEMBER, roleIds: ['r-9'] },
-      config({ access: { 'lore.add': { everyone: false, roles: ['r-9'], users: [] } } })
-    ),
-    { ok: true }
-  );
-  assert.deepEqual(
-    check({ skill: 'pings.set', args: { mode: 'off' }, granted: ['pings.set'], requester: { id: MEMBER } }),
-    { ok: true },
-    "a member operation is the member's own"
-  );
-  assert.deepEqual(
-    check({ skill: 'pings.set', args: { mode: 'loud' }, granted: ['pings.set'], requester: { id: MEMBER } }),
-    { ok: false, code: 'invalid-args', reason: 'args.mode:enum' }
-  );
-});
-
-test('skills gateway: with no requester only a read runs, and only one open to everyone', () => {
-  const everyone = (name: string) => config({ access: { [name]: { everyone: true, roles: [], users: [] } } });
+test('skills gateway: a write she holds runs when nobody asked and the turn is not her own initiative', () => {
   assert.deepEqual(
     check({
       skill: 'lore.add',
       args: { title: 'Ά', keys: 'α', text: 'κείμενο' },
       granted: ['lore.add'],
       requester: null,
-      cfg: everyone('lore.add'),
     }),
-    { ok: false, code: 'no-requester', reason: 'no-requester' }
-  );
-  assert.deepEqual(check({ skill: 'lore.list', granted: ['lore.list'], requester: null }), {
-    ok: false,
-    code: 'requester-denied',
-    reason: 'not-granted',
-  });
-  assert.deepEqual(check({ skill: 'lore.list', granted: ['lore.list'], requester: null, cfg: everyone('lore.list') }), {
-    ok: true,
-  });
-  assert.deepEqual(
-    check({ skill: 'memory.private.read', args: { user: MEMBER }, granted: ['memory.private.read'], requester: null }),
-    { ok: false, code: 'requester-denied', reason: 'owner-only' }
+    { ok: true }
   );
 });
 
-test('skills gateway: a turn answering several people runs no write; a read still runs', () => {
-  assert.deepEqual(
-    check({
-      skill: 'lore.add',
-      args: { title: 'Ά', keys: 'α', text: 'κείμενο' },
-      granted: ['lore.add'],
-      mixedRequesters: true,
-    }),
-    { ok: false, code: 'mixed-requesters', reason: 'mixed-requesters' }
-  );
-  assert.deepEqual(check({ skill: 'lore.list', granted: ['lore.list'], mixedRequesters: true }), { ok: true });
+test('skills gateway: an ungrantable operation stays refused for her whoever asked, the owner included', () => {
+  const restore = (requester: unknown) =>
+    check({ skill: 'memory.restore', args: { id: 'ep-1' }, granted: ['memory.restore'], requester });
+  for (const requester of [{ id: OWNER }, { id: MEMBER }, null])
+    assert.deepEqual(
+      restore(requester),
+      { ok: false, code: 'not-grantable', reason: 'memory.restore' },
+      JSON.stringify(requester)
+    );
+});
+
+test('skills gateway: a call she holds no grant for stays refused not-allowed whoever asked', () => {
+  const add = (requester: unknown) =>
+    check({ skill: 'lore.add', args: { title: 'Ά', keys: 'α', text: 'κείμενο' }, requester });
+  for (const requester of [{ id: OWNER }, { id: MEMBER }, null])
+    assert.deepEqual(add(requester), { ok: false, code: 'not-allowed', reason: 'lore.add' }, JSON.stringify(requester));
 });
 
 test('skills gateway: a destructive skill waits out its cooldown in a channel (tools.destructiveCooldownMinutes)', () => {
@@ -989,7 +917,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
     reason: 'not-grantable',
     args: [{ name: 'id', required: true }],
   });
-  // an owner-only skill: allowed for an owner who asks, not for a member -- unless it is her own
+  // an owner-only skill she holds: allowed whoever asks
   const row = (name: string, requester: unknown) =>
     listSkills({ config: cfg, selfId: SELF, texts: {}, requester, audience } as unknown as Parameters<
       typeof listSkills
@@ -1000,7 +928,8 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   );
   assert.deepEqual(
     [row('memory.private.read', { id: MEMBER })?.allowed, row('memory.private.read', { id: MEMBER })?.reason],
-    [false, 'requester-denied']
+    // Changed: the owner's decision of 2026-11-10, her grant alone decides, so a member's row is open too.
+    [true, 'allowed']
   );
   assert.deepEqual(
     [row('message.edit', { id: MEMBER })?.allowed, row('message.edit', { id: MEMBER })?.reason],

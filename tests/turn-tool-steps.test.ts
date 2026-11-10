@@ -417,7 +417,7 @@ test('retired tags: a leftover <call> or <draw> in her speech is cut out, never 
   assert.ok(!noteText(long.llm, 2).includes(labels.task.diagnostics), noteText(long.llm, 2));
 });
 
-test('carried over: draw.create in the current chat runs on a spontaneous turn with nobody asking, as the old tag did; in another channel it is refused no-requester', async () => {
+test('carried over: draw.create runs on a spontaneous turn with nobody asking, in the current chat and, granted, in another channel', async () => {
   const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const here = await drawTurn({
     spontaneous: 'initiate',
@@ -446,8 +446,23 @@ test('carried over: draw.create in the current chat runs on a spontaneous turn w
       '<think>y</think><msg>τίποτα</msg>',
     ],
   });
-  assert.deepEqual(called(away), ['draw.create:denied/no-requester']);
-  assert.equal(images.calls.length, 0);
+  // Changed: the owner's decision of 2026-11-10, a call of hers runs on her grant alone, so nobody asking refuses no write.
+  assert.deepEqual(called(away), ['draw.create:ok']);
+  assert.equal(images.calls.length, 1);
+});
+
+test('a spontaneous turn with nobody asking runs a write she holds a grant for', async () => {
+  const run = await coreTurn({
+    spontaneous: 'initiate',
+    allowed: ['lore.add'],
+    answers: [
+      toolAnswer('<think>x</think>', [
+        call('lore.add', { title: 'Φάρος', keys: 'φάρος', text: 'ένας φάρος στο λιμάνι' }),
+      ]),
+      '<think>y</think>',
+    ],
+  });
+  assert.deepEqual(called(run), ['lore.add:ok']);
 });
 
 test('carried over: message.create in the current chat also runs on a spontaneous turn with nobody asking', async () => {

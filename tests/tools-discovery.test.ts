@@ -189,7 +189,7 @@ test('byFamily: groups by the part before the first dot, families in order of fi
   assert.deepEqual(byFamily(null), []);
 });
 
-test('listSkills: an owner-only skill has its row, open only for an owner who asks; proposalVerdicts reads each name off the rows', () => {
+test('listSkills: an owner-only skill she holds has its row, open for a member who asks; proposalVerdicts reads each name off the rows', () => {
   const ops: Record<string, { name: string; rights: Rights }> = {
     'x.owner.op': { name: 'x.owner.op', rights: { kind: 'read', ownerOnly: true } },
   };
@@ -228,7 +228,8 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
   assert.deepEqual(proposalVerdicts(['message.edit', 'message.delete', 'x.owner', 'x.none'], rows), [
     { name: 'message.edit', allowed: true, reason: 'allowed' },
     { name: 'message.delete', allowed: false, reason: 'not-allowed' },
-    { name: 'x.owner', allowed: false, reason: 'requester-denied' },
+    // Changed: the owner's decision of 2026-11-10, her grant alone decides, so a member's row is open.
+    { name: 'x.owner', allowed: true, reason: 'allowed' },
     { name: 'x.none', allowed: false, reason: 'unknown-skill' },
   ]);
   const asOwner = listSkills({
