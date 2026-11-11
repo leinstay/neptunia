@@ -14,6 +14,7 @@ import type { RunRecord, RunState, RunStore } from './lifecycle.ts';
 import { fill } from '../format.ts';
 import { acceptLine, acceptedLines, unacceptLine } from './accepted.ts';
 import { DEFAULT_WATCHER_DIR, readReport, readReportRun, reportDays, reportVersions, reportsDirOf } from './read.ts';
+import { reportView } from './report.ts';
 
 export type DoctorAnswer = { text: string; status: 'ok' | 'failed' };
 export type WatcherPlace = { store: RunStore; reportsDir: string };
@@ -78,7 +79,7 @@ const numberOf = (place: WatcherPlace, runId: string): number =>
 function reportOf(place: WatcherPlace, entry: Entry): string | null {
   const read =
     entry.runId === null ? readReport(place.reportsDir, entry.day) : readReportRun(place.reportsDir, entry.runId);
-  return read.ok ? read.report.text : null;
+  return read.ok ? reportView(read.report.text) : null;
 }
 
 /** `run`: one run claimed and its worker started, or the run already going. */

@@ -617,3 +617,54 @@ function insertLines(text: string, section: string, sub: string, added: Readonly
 /** A gap the engine itself knows, under `### Unavailable checks` of `section`. */
 export const insertUnavailable = (text: string, section: string, added: ReadonlyArray<string>): string =>
   insertLines(text, section, 'Unavailable checks', added);
+
+/** Whether the lines say nothing: exactly the empty word on one line, blank lines aside. */
+const saysNothing = (lines: ReadonlyArray<string>): boolean => {
+  const own = lines.map((line) => line.trim()).filter((line) => line !== '');
+  return own.length === 1 && own[0] === EMPTY_WORD;
+};
+
+/**
+ * A stored report as the owner is shown it: no `coverage` block, a section that says nothing in all its subsections as one
+ * line with its heading and the empty word, and in any other section only the subsections that say something. Whatever
+ * stays is as stored, byte for byte. A text that is no report in the template comes back as it came.
+ */
+export function reportView(text: string): string {
+  if (!checkTemplate(text).ok) return text;
+  const lines = text.split('\n');
+  const parts = partsOf(lines, 0);
+  const block = parts.find((part) => part.kind === 'fence' && part.info === 'coverage');
+  const stop = block?.at ?? lines.length;
+  const heads = parts.filter(
+    (part): part is Heads => part.kind === 'heading' && part.at < stop && (part.level === 2 || part.level === 3)
+  );
+  const first = heads[0]?.at ?? stop;
+  const out = lines.slice(0, first);
+  const sections = heads.flatMap((head, i) => (head.level === 2 ? [i] : []));
+  for (const [n, from] of sections.entries()) {
+    const until = sections[n + 1] ?? heads.length;
+    const subs = heads.slice(from + 1, until).map((head, i, all) => ({
+      at: head.at,
+      end: all[i + 1]?.at ?? heads[until]?.at ?? stop,
+    }));
+    const kept = subs.filter((sub) => !saysNothing(lines.slice(sub.at + 1, sub.end)));
+    const head = heads[from];
+    const end = heads[until]?.at ?? stop;
+    if (head === undefined) continue;
+    if (kept.length === 0) {
+      out.push(`## ${head.name}: ${EMPTY_WORD}`);
+      if (
+        end < stop ||
+        lines
+          .slice(head.at + 1, end)
+          .at(-1)
+          ?.trim() === ''
+      )
+        out.push('');
+      continue;
+    }
+    out.push(lines[head.at] ?? '', ...lines.slice(head.at + 1, subs[0]?.at ?? end));
+    for (const sub of kept) out.push(...lines.slice(sub.at, sub.end));
+  }
+  return out.join('\n');
+}
