@@ -351,7 +351,8 @@ test('<errands>: an open errand is in the request tail; with none, the block is 
     );
     const tail = llm.calls[0][1].content.at(-1);
     assert.equal(tail.cacheSegment, undefined, 'in the tail, never a cached part');
-    assert.ok(tail.text.indexOf('<errands>') < tail.text.indexOf('<chat>'), 'before the chat');
+    // The owner's decision of 2026-11-11 (cache layout): `<inner>` with her errands stands after `<chat>`.
+    assert.ok(tail.text.indexOf('<errands>') > tail.text.indexOf('</chat>'), 'after the chat');
     assert.deepEqual(errands.seen, [], 'an open errand is not marked seen');
     errands.tasks.length = 0;
     await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });

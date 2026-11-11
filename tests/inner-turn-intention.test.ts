@@ -136,3 +136,34 @@ test('intention.set naming a place she cannot write to is refused with a code', 
   assert.ok(set.code !== '' && set.code !== 'ok', set.code);
   assert.equal(set.open, 0);
 });
+
+test('an intention in a place orders its blocks as a reply: <chat>, then <inner> with her intentions, then <task>', async () => {
+  // Bug: the owner's decision of 2026-11-11 (cache layout, item 29 of plan 2026-11-10 tools-and-reads) puts the turn's
+  // own blocks after `<chat>`, and an intention in a place keeps the old order, `<inner>` and `<spatial_awareness>` before
+  // the chat, because only the reply's list moved.
+  const order = [
+    'self',
+    'surroundings',
+    'memory',
+    'meanwhile',
+    'chat',
+    'recall',
+    'found',
+    'inner',
+    'spatial_awareness',
+    'task',
+  ];
+  const due = { id: '' };
+  const run = await serviceTurn({
+    wake: () => dueWake(due.id),
+    answers: ['<skip/>'],
+    chat: { iface: 'fake', chatId: 'c1' },
+    seed: seeded(due, 'c1'),
+  });
+  const tags = rootTags(run.requests[0] ?? '');
+  for (const tag of ['chat', 'inner', 'spatial_awareness', 'task']) assert.ok(tags.includes(tag), tags.join(' '));
+  assert.deepEqual(
+    tags,
+    order.filter((tag) => tags.includes(tag))
+  );
+});

@@ -19,36 +19,43 @@ type Mode = Parameters<typeof turnKindOf>[0];
 type TriggerKind = Parameters<typeof turnKindOf>[1];
 type WakeKind = Parameters<typeof turnKindOf>[2];
 
+// The owner's decision of 2026-11-11 (cache layout): what repeats between turns first, the turn's own blocks after
+// `<chat>` and `<found>` a root tag of its own (.agents/docs/specs/2026-11-11-cache-layout-contract.md).
 const REPLY_LIST: ReadonlyArray<BlockName> = [
   'persona',
   'self',
   'surroundings',
   'memory',
-  'recall',
-  'inner',
   'meanwhile',
-  'spatial_awareness',
   'chat',
+  'recall',
+  'found',
+  'inner',
+  'spatial_awareness',
   'task',
 ];
+// The owner's decision of 2026-11-11 (cache layout): `<meanwhile>` before the turn's own blocks.
 const SERVICE_LIST: ReadonlyArray<BlockName> = [
   'persona',
   'self',
   'memory',
-  'recall',
-  'inner',
   'meanwhile',
+  'recall',
+  'found',
+  'inner',
   'spatial_awareness',
   'task',
 ];
+// The owner's decision of 2026-11-11 (cache layout): the world after `<meanwhile>`, then the turn's own blocks.
 const SELFREFLECTION_LIST: ReadonlyArray<BlockName> = [
   'persona',
   'self',
   'memory',
-  'recall',
-  'inner',
   'meanwhile',
   'virtual_world',
+  'recall',
+  'found',
+  'inner',
   'spatial_awareness',
   'task',
 ];

@@ -19,7 +19,7 @@ import type { Built } from './fixtures/built-request.ts';
 import { ROOM_CHAIN, frameInput } from './fixtures/frame-input.ts';
 import { line, meanwhileReads } from './fixtures/meanwhile-reads.ts';
 import type { FakePlace } from './fixtures/meanwhile-reads.ts';
-import { mindOfEntries, personEntry, placeEntry } from './fixtures/mind-entries.ts';
+import { claimEntry, excerptEntry, mindOfEntries, personEntry, placeEntry } from './fixtures/mind-entries.ts';
 import { MIN, NOW, baseInput, exactly, fakeConfig, fakePrompts, makeMessage } from './fixtures/prompt-rig.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 
@@ -109,7 +109,10 @@ test("the root tags of a reply are the frame's list in its order, the stable seg
   // Bug: an old block such as <senses> or <channel_directory> stays in the request, or the tail keeps the old order.
   const built = request();
   const cached: Record<string, string> = { self: 'stable', surroundings: 'surroundings' };
-  const expected = FRAME.blocks.filter((name) => name !== 'persona').map((name) => `${cached[name] ?? 'tail'} ${name}`);
+  // The owner's decision of 2026-11-11 (cache layout) makes `<found>` a root tag of the frame; this request finds nothing.
+  const expected = FRAME.blocks
+    .filter((name) => name !== 'persona' && name !== 'found')
+    .map((name) => `${cached[name] ?? 'tail'} ${name}`);
   assert.deepEqual(emittedBlocks(built), expected);
 });
 
@@ -315,4 +318,84 @@ test('the request cuts <places> at the same total the graph reader takes from bu
   const byTotal = shown({ budgetTokens: 400, shares });
   assert.notEqual(byShare, wide, 'the share did not lower the total');
   assert.equal(byShare, byTotal);
+});
+
+// The request laid out for the prompt cache (the owner's decision of 2026-11-11, item 29 of plan 2026-11-10
+// tools-and-reads; contract .agents/docs/specs/2026-11-11-cache-layout-contract.md).
+
+test('a reply with a find and a lookup prints <found> as a root tag after <chat> and <recall>, and none inside <memory>', () => {
+  // Bug: `<found>` changes with every turn and stands inside `<memory>`, before `<meanwhile>` and `<chat>`, so the turn's
+  // own find breaks the repeat of everything after it; or the blocks keep the old order with `<inner>` before `<chat>`.
+  const found = excerptEntry('src:fake:m9:1:seen', 'place:club', 'ΑΠΟΣΠΑΣΜΑ-ΒΡΕΘΗΚΕ');
+  const built = request({ mind: mindOfEntries({ people: [ELENI], places: [CLUB], found: [found] }) });
+  assert.deepEqual(emittedBlocks(built), [
+    'stable self',
+    'surroundings surroundings',
+    'tail memory',
+    'tail meanwhile',
+    'tail chat',
+    'tail recall',
+    'tail found',
+    'tail inner',
+    'tail spatial_awareness',
+    'tail task',
+  ]);
+  assert.ok(block(built, 'found').includes('ΑΠΟΣΠΑΣΜΑ-ΒΡΕΘΗΚΕ'), block(built, 'found'));
+  assert.ok(!block(built, 'memory').includes('<found>'), block(built, 'memory'));
+  assert.ok(!block(built, 'memory').includes('ΑΠΟΣΠΑΣΜΑ-ΒΡΕΘΗΚΕ'), 'the find stands once');
+});
+
+test('<memory> prints people after the one she answers, claims, places and lore by id whatever the rank', () => {
+  // Bug: the request prints the entries in the graph reader's rank, which changes with every trigger, so one set of
+  // entries gives other bytes each turn. Every list below is handed over in the reverse of its id order.
+  const eleni = {
+    ...ELENI,
+    claims: [
+      { id: 'claim:2', kind: 'fact', text: 'ΙΣΧΥΡΙΣΜΟΣ-ΔΥΟ' },
+      { id: 'claim:1', kind: 'fact', text: 'ΙΣΧΥΡΙΣΜΟΣ-ΕΝΑ' },
+    ],
+  };
+  const mind = mindOfEntries({
+    people: [
+      eleni,
+      personEntry('333', 'Ζωή', { evidence: 'author' }),
+      personEntry('222', 'Νίκος', { evidence: 'author' }),
+    ],
+    places: [
+      placeEntry('place:b', 'βήτα', { purpose: 'ΣΚΟΠΟΣ-Β' }),
+      placeEntry('place:a', 'άλφα', { purpose: 'ΣΚΟΠΟΣ-Α' }),
+    ],
+    lore: [claimEntry('claim:l2', 'place:a', 'ΘΡΥΛΟΣ-ΔΥΟ'), claimEntry('claim:l1', 'place:a', 'ΘΡΥΛΟΣ-ΕΝΑ')],
+  });
+  const memory = block(request({ mind }), 'memory');
+  const before = (a: string, b: string): boolean => memory.indexOf(a) >= 0 && memory.indexOf(a) < memory.indexOf(b);
+  assert.ok(before('Ελένη', 'Νίκος') && before('Νίκος', 'Ζωή'), memory);
+  assert.ok(before('ΙΣΧΥΡΙΣΜΟΣ-ΕΝΑ', 'ΙΣΧΥΡΙΣΜΟΣ-ΔΥΟ'), memory);
+  assert.ok(before('ΣΚΟΠΟΣ-Α', 'ΣΚΟΠΟΣ-Β'), memory);
+  assert.ok(before('ΘΡΥΛΟΣ-ΕΝΑ', 'ΘΡΥΛΟΣ-ΔΥΟ'), memory);
+});
+
+/** The club with `count` lines of hers there, the last an hour before the turn. */
+const clubWith = (count: number): Array<ReturnType<typeof placeEntry>> => [
+  { ...CLUB, ownLines: count, ownLastAt: new Date(NOW - 60 * MIN).toISOString() },
+];
+
+test('the entry of a place reads the same after she writes one more line there on the same day', () => {
+  // Bug: the entry prints the exact count of her lines, so the place she talks in changes with every line she writes.
+  const places = (count: number): string => {
+    const memory = block(request({ mind: mindOfEntries({ people: [ELENI], places: clubWith(count) }) }), 'memory');
+    return /<places>\n([\s\S]*?)\n<\/places>/.exec(memory)?.[1] ?? '';
+  };
+  assert.ok(places(6).includes('λέσχη'), places(6));
+  assert.equal(places(7), places(6));
+});
+
+test('a place she wrote in keeps a line saying so, and a place she never wrote in has none', () => {
+  // Guard: the count leaves the entry with the line it stood on, and she can no longer tell a room she talks in from one
+  // she never wrote in.
+  const lines = (count: number): number => {
+    const memory = block(request({ mind: mindOfEntries({ people: [ELENI], places: clubWith(count) }) }), 'memory');
+    return (/<places>\n([\s\S]*?)\n<\/places>/.exec(memory)?.[1] ?? '').split('\n').length;
+  };
+  assert.equal(lines(6), lines(0) + 1);
 });
