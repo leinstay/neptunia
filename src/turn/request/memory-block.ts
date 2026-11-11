@@ -23,7 +23,7 @@ import type { PersonAccount } from '../../memory/db/meta-person.ts';
 import type { Frame } from './frame.ts';
 import { block, escapeStored, placeRefText } from './text.ts';
 import type { PlaceWords } from './text.ts';
-import type { LabelGroup, Labels, MemoryLabels, MemoryRead, NameOf } from './types.ts';
+import type { LabelGroup, Labels, MemoryLabels, MemoryRead, NameOf, SurroundingsLabels } from './types.ts';
 
 /** The subtags of `<memory>` and their shares of its budget, in their order. A request prints `found` as a root tag. */
 export const MEMORY_SUBTAGS = ['people', 'places', 'lore', 'recent', 'found'] as const;
@@ -93,6 +93,8 @@ type Words = {
   locale: string | undefined;
   refs: EntryRefs;
   unknown: string;
+  /** `labels.surroundings`: the field line and the word of each field, shared with `<place>` of `<surroundings>`. */
+  surroundings: SurroundingsLabels;
 };
 
 /** The refs of a caller that gives none: a mention reads `authors.unknown`, a place the name `nameOf` gives it. */
@@ -217,6 +219,12 @@ function wordsOfEntry(w: Words, place: PlaceEntry): PlaceWords {
   return { iface, chain: names.map((name, at) => ({ id: `${place.placeId}:${at}`, kind: null, name })) };
 }
 
+/** One field of a place as `<place>` of `<surroundings>` prints it: `surroundings.field` with the word of `field` and `value`. */
+function fieldLine(w: Words, field: string, value: string): string {
+  const { fields, field: template } = w.surroundings;
+  return fill(template ?? '{field}: {value}', { field: fields?.[field] ?? field, value });
+}
+
 function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string {
   // The place as every block of the request names it: in words, with its handle.
   const ref = w.refs.place(place.placeId, wordsOfEntry(w, place));
@@ -226,8 +234,10 @@ function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string
   if (place.detail !== 'name') {
     for (const field of ['purpose', 'tone', 'topics'] as const) {
       const value = place[field];
-      if (value) lines.push(storedText(w, value));
+      if (value) lines.push(fieldLine(w, field, storedText(w, value)));
     }
+    if (typeof place.joinedAt === 'number' && Number.isFinite(place.joinedAt))
+      lines.push(fieldLine(w, 'joined', formatDate(place.joinedAt, w.frame.timezone, w.locale)));
     const date = place.ownLastAt ? formatDate(Date.parse(place.ownLastAt), w.frame.timezone, w.locale) : '';
     // The count rounded down to a step, so the entry stays the same bytes while she talks there.
     const count = ownLinesShown(place.ownLines);
@@ -397,6 +407,7 @@ function wordsOf(labels: Labels, frame: FrameView, nameOf: NameOf, refs: EntryRe
     locale: labels.locale,
     refs: refs ?? plainRefs(labels, nameOf),
     unknown: labels.authors?.unknown ?? '',
+    surroundings: labels.surroundings ?? {},
   };
 }
 

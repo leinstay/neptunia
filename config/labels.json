@@ -932,7 +932,8 @@
       "world": "You are in your own virtual world, created by you. It is {when}.",
       "answers": "You are answering {name}, their message #{n}.",
       "answersOutside": "You are answering {name}, whose message is not in the chat below.",
-      "interfaces": "You exist on {interfaces}, in every top-level place of each."
+      "interfaces": "You exist on {interfaces}, in every top-level place of each.",
+      "joined": "You have been in the top place of this path since {day}."
     },
     "surroundings": {
       "nouns": "What this interface calls its places: {nouns}.",
@@ -941,6 +942,7 @@
         "purpose": "purpose",
         "tone": "tone",
         "topics": "topics",
+        "joined": "joined",
         "patterns": "how people talk here",
         "starters": "how conversations start",
         "injokes": "in-jokes",
@@ -1071,7 +1073,8 @@
     "roots": {
       "noun": "place",
       "invite": "Open this link to add her to a new {noun} of {iface}: {url}\nShe serves it as soon as she is in.",
-      "row": "{id}  {state}  {name}",
+      "row": "{id}  {state}  {name}  {since}",
+      "since": "since {day}",
       "state": {
         "served": "served"
       },
