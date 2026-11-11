@@ -1,5 +1,5 @@
 // Tests for the mention handles in src/behavior/prompt.ts#buildRequest: each author in view carrying their handle on
-// their lines (src/format.ts, `transcript.author`), the request's handle -> member id map, and no `<directory>` block. Fake prompts and config; the fixture labels plus the keys under test.
+// their lines (src/format.ts, `authors.line`), the request's handle -> member id map, and no `<directory>` block. Fake prompts and config; the fixture labels plus the keys under test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { userText } from '../src/behavior/prompt.ts';
@@ -15,7 +15,8 @@ const SELF_ID = '900000000000000001';
 // Terse test wording for the keys under test (the shipped wording is the dev agent's).
 const labels = {
   ...fixtureLabels,
-  transcript: { ...fixtureLabels.transcript, author: '{name} [{handle}]' },
+  // The owner's decision of 2026-11-10: one handle per person, a line's author is the handle alone (authors.line).
+  authors: { line: '{handle}', lineAccount: '{handle} ({iface} {id})', unknown: 'someone' },
   directory: { lead: 'DIRECTORY', line: '{handle} {names}', lineAliases: '{handle} {names} aka {aliases}' },
 };
 
@@ -169,9 +170,9 @@ test('buildRequest: every author in view carries a handle on their lines, a bot 
   const request = buildRequest(input({ history, trigger: history[1] }));
   const text = userText(request.messages[1].content);
   const profiled = assignHandles({ profiled: PROFILES.map((profile) => profile.id) });
-  assert.ok(text.includes(`Ἀλκμήνη [@${profiled.get(PROFILES[0].id)}]: line 1`), text);
-  assert.ok(text.includes(`Passer-by [@${handleOf(STRANGER.id)}]: line 2`), text);
-  assert.ok(text.includes(`HelperBot [@${handleOf(BOT.id)}]: line 3`), text);
+  assert.ok(text.includes(`] @${profiled.get(PROFILES[0].id)}: line 1`), text);
+  assert.ok(text.includes(`] @${handleOf(STRANGER.id)}: line 2`), text);
+  assert.ok(text.includes(`] @${handleOf(BOT.id)}: line 3`), text);
   assert.ok(text.includes('Nept (you): line 4'), text);
   assert.equal(request.handles!.get(handleOf(STRANGER.id)), STRANGER.id, 'a member without a profile is taggable');
   assert.equal(request.handles!.get(profiled.get(PROFILES[0].id)!), PROFILES[0].id);

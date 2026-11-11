@@ -1676,7 +1676,8 @@ test('scripts/replay.ts: replays through src/behavior/sandbox.ts, every name it 
 const ZOE_ID = '333333333333333333';
 const DIRECTORY_LABELS = {
   ...labels,
-  transcript: { ...labels.transcript, author: '{name} [{handle}]' },
+  // The owner's decision of 2026-11-10: one handle per person, a line's author is the handle alone (authors.line).
+  authors: { line: '{handle}', lineAccount: '{handle} ({iface} {id})', unknown: 'someone' },
   directory: { lead: 'DIRECTORY', line: '{handle} {names}', lineAliases: '{handle} {names} aka {aliases}' },
 };
 
@@ -1712,8 +1713,8 @@ test("answerReply: the replay shows the live turn's author handles, and resolves
     at: NOW,
   });
   assert.equal(/<directory>/.exec(result.request.user), null);
-  assert.ok(result.request.user.includes(`Alice [${alice}]: what do you think about chess?`), result.request.user);
-  assert.ok(result.request.user.includes(`Bruno [@${handleOf(BRUNO)}]: καλημέρα`));
+  assert.ok(result.request.user.includes(`] ${alice}: what do you think about chess?`), result.request.user);
+  assert.ok(result.request.user.includes(`] @${handleOf(BRUNO)}: καλημέρα`));
   assert.deepEqual(result.answers[0].messages, [
     { text: `${zoe} ${alice} @Alice ${unknown}`, replyTo: null, mentions: [ALICE], unknownHandles: 2 },
     { text: 'ναι', replyTo: null },

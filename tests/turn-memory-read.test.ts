@@ -182,8 +182,8 @@ function scene(
 /** A read under the groups of `fake`, in the room `here` of Agora. */
 const groupRead = (world: World) => scene(world, groupContext('fake'));
 
-/** Eleni's handle as she writes it. */
-const ELENI_HANDLE = `@${handleOf('u1')}`;
+/** Eleni's handle as she writes it (the owner's decision of 2026-11-10: one handle per person, cut from the meta-person id). */
+const ELENI_HANDLE = `@${handleOf(ELENI)}`;
 
 /** The text of an `ok` answer, failing the test on any other status. */
 function okText(answer: Answer): string {
@@ -264,7 +264,9 @@ test('names both candidates and reads neither when a name matches two persons', 
     const answer = await groupRead(world)({ subject: 'Νίκος' });
     assert.deepEqual([answer.status, answer.code], ['invalid', 'target-ambiguous'], JSON.stringify(answer));
     const text = answer.data?.text ?? '';
-    assert.ok(text.includes(`@${handleOf('u2')}`) && text.includes(`@${handleOf('u3')}`), text);
+    // Each choice carries the person's handle (the owner's decision of 2026-11-10: one handle per person, cut from the meta-person id).
+    const [first, second] = [`@${handleOf('person:nikos-a')}`, `@${handleOf('person:nikos-b')}`];
+    assert.ok(text.includes(first) && text.includes(second), text);
     assert.equal(text.includes(NIKOS_A) || text.includes(NIKOS_B), false, text);
   } finally {
     world.close();

@@ -12,12 +12,12 @@
 // line before its text.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDm, addLine, addPerson } from './fixtures/memory-db/mind-world.ts';
+import { addClaim, addDm, addLine, addPerson } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 import { OWNER_PERSON } from './fixtures/owner-accounts.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { useIface } from './fixtures/turn-world.ts';
-import { CLI_CHAT, TURN_NOW, blockOf, replyRun, serviceWorld } from './fixtures/service-turn.ts';
+import { CLI_CHAT, ELENI, TURN_NOW, blockOf, replyRun, serviceWorld } from './fixtures/service-turn.ts';
 import type { ReplyRun, ReplyStep } from './fixtures/service-turn.ts';
 
 useIface('fake');
@@ -66,6 +66,31 @@ const RAW_IDS = [
 ];
 /** The platform ids of the world's accounts: they stand in an account line of `<people>` and nowhere else. */
 const PLATFORM_IDS = /\b(?:111|5678|u1|4242|4243|88)\b/;
+/** The interface and platform id of each account of the world, the pair an account line of `<people>` carries. */
+const ACCOUNTS: ReadonlyArray<readonly [string, string]> = [
+  ['fake', '111'],
+  ['fake', '5678'],
+  ['fake', 'u1'],
+  ['fake', '4242'],
+  ['fake', '4243'],
+  ['tele', '88'],
+];
+
+/** Whether `word` stands whole in `line`. */
+const holdsWord = (line: string, word: string): boolean =>
+  new RegExp(`(?<![\\p{L}\\p{N}_])${word}(?![\\p{L}\\p{N}_])`, 'u').test(line);
+
+/**
+ * A request without the account lines of its `<people>`: the lines of a `<people>` that hold the interface and the
+ * platform id of one account, the one place a platform id may stand (the lead's decision of 2026-11-10).
+ */
+const withoutAccountLines = (request: string): string =>
+  request.replace(/<people>[\s\S]*?<\/people>/g, (people) =>
+    people
+      .split('\n')
+      .filter((line) => !ACCOUNTS.some(([iface, id]) => holdsWord(line, iface) && holdsWord(line, id)))
+      .join('\n')
+  );
 
 /**
  * The service world, with the owner holding an account on the command line and one on the fake interface, his line in
@@ -132,6 +157,12 @@ async function inRoom(steps: ReadonlyArray<ReplyStep>): Promise<ReplyRun> {
   }
 }
 
+/** The user text of request `step` of turn `turn` of a run, '' when there is none. */
+const requestOf = (run: ReplyRun, turn: number, step: number): string => {
+  const requests = run.requests[turn] ?? [];
+  return requests[step] ?? '';
+};
+
 /** The bodies of every `<people>` of a text: the request's own and the one a read result carries. */
 const peopleBodies = (text: string): Array<string> =>
   [...text.matchAll(/<people>\n?([\s\S]*?)\n?<\/people>/g)].map((match) => match[1] ?? '');
@@ -191,8 +222,8 @@ test('a person with accounts on two interfaces has one handle on a turn of eithe
   // another in a room, and she takes the two for two people.
   const cli = await onCli([{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }]);
   const room = await inRoom([{ trigger: { id: 'r2', text: 'καλημέρα', at: TURN_NOW - MIN }, answers: [SAY] }]);
-  const onCommandLine = entryHandle(entryWith(cli.requests[0]?.[0] ?? '', OWNER_FAKE_NAME));
-  const inTheRoom = entryHandle(entryWith(room.requests[0]?.[0] ?? '', OWNER_FAKE_NAME));
+  const onCommandLine = entryHandle(entryWith(requestOf(cli, 0, 0), OWNER_FAKE_NAME));
+  const inTheRoom = entryHandle(entryWith(requestOf(room, 0, 0), OWNER_FAKE_NAME));
   assert.match(onCommandLine ?? '', HANDLE, 'the owner has an entry on the command line');
   assert.equal(inTheRoom, onCommandLine);
 });
@@ -201,7 +232,7 @@ test("the owner's line on the command line and his line from another interface i
   // Bug: his command line line names him by one handle and his line in the garden by a display name, so she splits him
   // into "you" and a third person with his alias.
   const run = await onCli([{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }]);
-  const request = run.requests[0]?.[0] ?? '';
+  const request = requestOf(run, 0, 0);
   const entry = entryWith(request, OWNER_FAKE_NAME);
   const handle = entryHandle(entry);
   assert.match(handle ?? '', HANDLE);
@@ -215,8 +246,8 @@ test('an entry of <people> lists each account on a line of its own and marks the
   // Bug: the accounts stand on one line, so she cannot tell which of the person's accounts is the one she talks with.
   const cli = await onCli([{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }]);
   const room = await inRoom([{ trigger: { id: 'r2', text: 'καλημέρα', at: TURN_NOW - MIN }, answers: [SAY] }]);
-  const onCommandLine = entryWith(cli.requests[0]?.[0] ?? '', OWNER_FAKE_NAME);
-  const inTheRoom = entryWith(room.requests[0]?.[0] ?? '', OWNER_FAKE_NAME);
+  const onCommandLine = entryWith(requestOf(cli, 0, 0), OWNER_FAKE_NAME);
+  const inTheRoom = entryWith(requestOf(room, 0, 0), OWNER_FAKE_NAME);
   // The heading names him and says why he is here, which differs between the turns: the accounts follow it.
   const accountLine = (entry: string, name: string): string => lineWith(entry.split('\n').slice(1).join('\n'), name);
   const cliLine = (entry: string): string => accountLine(entry, OWNER_CLI_NAME);
@@ -236,7 +267,7 @@ test('an author in <chat> carries the handle his line in <meanwhile> carries, th
       answers: [SAY],
     },
   ]);
-  const request = run.requests[0]?.[0] ?? '';
+  const request = requestOf(run, 0, 0);
   const handle = entryHandle(entryWith(request, OWNER_FAKE_NAME));
   assert.match(handle ?? '', HANDLE);
   assert.deepEqual(authorOf(blockOf(request, 'chat'), LINE.ownerRoom), [handle]);
@@ -247,7 +278,7 @@ test("an author in <meanwhile> with no account on the turn's interface is the ha
   // Bug: a line of another interface is named by a display name, or by the bare account id when the turn's interface
   // does not know the account, and no entry stands behind it.
   const run = await onCli([{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }]);
-  const request = run.requests[0]?.[0] ?? '';
+  const request = requestOf(run, 0, 0);
   const author = authorOf(blockOf(request, 'meanwhile'), LINE.giannisHarbour);
   assert.equal(author.length, 1, 'his line names one handle');
   assert.ok(entryHandles(request).includes(author[0] ?? ''), 'his handle opens an entry');
@@ -256,7 +287,7 @@ test("an author in <meanwhile> with no account on the turn's interface is the ha
 test('every author of a line of a stored place read is the handle of an entry of the request', async () => {
   // Bug: a place read names its authors by the stored display name, so the lines she read tie to nobody she knows.
   const run = await onCli([READ_GARDEN]);
-  const request = run.requests[0]?.[1] ?? '';
+  const request = requestOf(run, 0, 1);
   const result = afterTask(request);
   assert.ok(result.includes(LINE.ownerGarden), 'the read returned the owner line');
   const handles = entryHandles(request);
@@ -270,7 +301,7 @@ test('every author of a line of a stored place read is the handle of an entry of
 test('every author of a line in <recall> is the handle of an entry of <people>', async () => {
   // Bug: <recall> repeats the read as it was rendered, with display names, so the next turn ties its lines to nobody.
   const run = await onCli([READ_GARDEN, THANKS]);
-  const request = run.requests[1]?.[0] ?? '';
+  const request = requestOf(run, 1, 0);
   const recall = blockOf(request, 'recall');
   assert.ok(recall.includes(LINE.ownerGarden), 'the read stands in <recall>');
   const handles = entryHandles(request);
@@ -281,8 +312,10 @@ test('every author of a line in <recall> is the handle of an entry of <people>',
   }
 });
 
-test("lines of one person from two accounts in one place carry the person's handle and differ by an account mark", async () => {
+test("lines of one person from two accounts in one place carry the person's handle and mark each account by its interface and platform id", async () => {
   // Bug: each account is a handle of its own, so one person writing from two accounts reads as two people.
+  // The lead's decision of 2026-11-10: the mark is the account's interface and platform id, the pair its account line
+  // in <people> carries, never a display name.
   const run = await inRoom([
     {
       lines: [
@@ -293,24 +326,50 @@ test("lines of one person from two accounts in one place carry the person's hand
       answers: [SAY],
     },
   ]);
-  const chat = blockOf(run.requests[0]?.[0] ?? '', 'chat');
+  const chat = blockOf(requestOf(run, 0, 0), 'chat');
   const one = authorOf(chat, LINE.nikosOne);
   assert.equal(one.length, 1);
   assert.deepEqual(authorOf(chat, LINE.nikosTwo), one, 'the same handle on both lines');
-  // The heads hold the line's number and time as well: what follows the time is the author with its account mark.
-  const author = (marker: string): string => headOf(chat, marker).replace(/^#\d+ \[[^\]]*\]\s*/, '');
-  assert.notEqual(author(LINE.nikosOne), author(LINE.nikosTwo), 'the two lines mark two accounts');
+  const first = headOf(chat, LINE.nikosOne);
+  const second = headOf(chat, LINE.nikosTwo);
+  assert.ok(holdsWord(first, 'fake') && holdsWord(first, '4242') && !holdsWord(first, '4243'), first);
+  assert.ok(holdsWord(second, 'fake') && holdsWord(second, '4243') && !holdsWord(second, '4242'), second);
+  assert.ok(!first.includes('Νίκος') && !second.includes('Νικόλαος'), 'no display name marks an account');
 });
 
 test('a <@id> mention in a stored line is shown as the handle of the person it names', async () => {
   // Bug: a mention stored as the platform writes it reaches her as a bare account number.
   const run = await onCli([{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }]);
-  const request = run.requests[0]?.[0] ?? '';
+  const request = requestOf(run, 0, 0);
   const line = lineWith(blockOf(request, 'meanwhile'), LINE.ownerGarden);
   const eleni = entryHandle(entryWith(request, 'Ελένη'));
   assert.match(eleni ?? '', HANDLE, 'Ελένη has an entry');
   assert.ok(line.includes(eleni ?? ''), line);
   assert.doesNotMatch(line, /<@|&lt;@|\b111\b/);
+});
+
+test('a <@id> mention in a stored claim of <memory> is shown as a handle', async () => {
+  // Bug: a stored text renders a mention as the account's display name, which changes ten times a day and ties to no
+  // entry, or as the bare account number when nothing names it.
+  const world = handleWorld();
+  try {
+    addClaim(world.db, {
+      id: 'claim:fact:mention',
+      person: ELENI,
+      kind: 'fact',
+      text: 'ΓΝΩΡΙΖΕΙ-ΤΗ <@5678>',
+      audience: { group: 'fake' },
+    });
+    const run = await replyRun({
+      world,
+      steps: [{ trigger: { id: 'r2', text: 'καλημέρα', at: TURN_NOW - MIN }, answers: [SAY] }],
+    });
+    const line = lineWith(blockOf(requestOf(run, 0, 0), 'memory'), 'ΓΝΩΡΙΖΕΙ-ΤΗ');
+    assert.match(line, /@u[0-9a-z]+/, line);
+    assert.doesNotMatch(line, /<@|&lt;@|\b5678\b|Ζωή/);
+  } finally {
+    world.close();
+  }
 });
 
 test('a <@id> mention in a chat line is shown as the handle of the person it names', async () => {
@@ -324,7 +383,7 @@ test('a <@id> mention in a chat line is shown as the handle of the person it nam
       answers: [SAY],
     },
   ]);
-  const request = run.requests[0]?.[0] ?? '';
+  const request = requestOf(run, 0, 0);
   const line = lineWith(blockOf(request, 'chat'), LINE.nikosOne);
   const eleni = entryHandle(entryWith(request, 'Ελένη'));
   assert.match(eleni ?? '', HANDLE, 'Ελένη has an entry');
@@ -379,10 +438,9 @@ test('a command line turn that holds lines of another interface holds no raw pla
   // Bug: the command line's chat, a searched place and an author the interface does not know reach her as raw ids,
   // and she passes one back as an argument.
   const run = await onCli([READ_GARDEN, THANKS]);
-  for (const request of [run.requests[0]?.[1] ?? '', run.requests[1]?.[0] ?? '']) {
+  for (const request of [requestOf(run, 0, 1), requestOf(run, 1, 0)]) {
     for (const id of RAW_IDS) assert.ok(!request.includes(id), `${id} stands in the request`);
-    const outsidePeople = request.replace(/<people>[\s\S]*?<\/people>/g, '');
-    assert.doesNotMatch(outsidePeople, PLATFORM_IDS);
+    assert.doesNotMatch(withoutAccountLines(request), PLATFORM_IDS);
     assert.doesNotMatch(request, /<@|&lt;@/);
   }
 });
@@ -398,17 +456,17 @@ test('a group turn that holds lines of another interface holds no raw place id a
       answers: [SAY],
     },
   ]);
-  const request = run.requests[0]?.[0] ?? '';
+  const request = requestOf(run, 0, 0);
   assert.ok(blockOf(request, 'meanwhile').includes(LINE.ownerGarden), 'a line of the garden stands in <meanwhile>');
   for (const id of RAW_IDS) assert.ok(!request.includes(id), `${id} stands in the request`);
-  assert.doesNotMatch(request.replace(/<people>[\s\S]*?<\/people>/g, ''), PLATFORM_IDS);
+  assert.doesNotMatch(withoutAccountLines(request), PLATFORM_IDS);
   assert.doesNotMatch(request, /<@|&lt;@/);
 });
 
 test('the source line of a place read names the place by its handle and its name', async () => {
   // Bug: the source line names the place by its name alone, so the read ties to no entry of <places>.
   const run = await onCli([READ_GARDEN]);
-  const request = run.requests[0]?.[1] ?? '';
+  const request = requestOf(run, 0, 1);
   const garden = placeHandle(request, 'κήπος');
   assert.match(garden, /^#c[0-9a-z]+$/, 'the garden has an entry with a handle');
   const source = lineWith(afterTask(request), 'conversation.read');
@@ -418,7 +476,7 @@ test('the source line of a place read names the place by its handle and its name
 test('a place she searched reads as its handle and name in <recall> and in her call mark', async () => {
   // Bug: the place argument of a lookup is kept as its resolved place id, and the next turn shows her the raw id.
   const run = await onCli([READ_GARDEN, THANKS]);
-  const request = run.requests[1]?.[0] ?? '';
+  const request = requestOf(run, 1, 0);
   const garden = placeHandle(request, 'κήπος');
   assert.match(garden, /^#c[0-9a-z]+$/, 'the garden has an entry with a handle');
   const recalled = lineWith(blockOf(request, 'recall'), 'conversation.read');
@@ -430,7 +488,7 @@ test('a place she searched reads as its handle and name in <recall> and in her c
 test('the handles of the entries of a request are unique', async () => {
   // Guard: one handle for two people would make her mention and read the wrong one.
   const run = await onCli([READ_GARDEN, THANKS]);
-  const handles = entryHandles(run.requests[1]?.[0] ?? '');
+  const handles = entryHandles(requestOf(run, 1, 0));
   assert.ok(handles.length >= 3, handles.join(' '));
   assert.equal(new Set(handles).size, handles.length, handles.join(' '));
 });

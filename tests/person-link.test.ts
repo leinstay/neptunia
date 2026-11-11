@@ -351,9 +351,10 @@ test('the code reaches no log line', async () => {
   }
 });
 
-test('names the known person by the member handle of one of their accounts as well', async () => {
+test('names the known person by the handle a request shows for them as well', async () => {
   await withLinks(async ({ links, sent }) => {
-    const result = await links.start({ ...ASK, person: `@${handleOf('b1')}` });
+    // The owner's decision of 2026-11-10: one handle per person, cut from the meta-person id, not from an account.
+    const result = await links.start({ ...ASK, person: `@${handleOf(KNOWN)}` });
     assert.equal(result.status, 'ok');
     assert.deepEqual(
       sent.map((one) => one.chat.chatId),

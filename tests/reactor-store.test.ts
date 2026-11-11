@@ -292,9 +292,10 @@ test('withReactors: her reactions carry the known reactors resolved to names, un
 
 // --- rendering ---------------------------------------------------------------------
 
+// The owner's decision of 2026-11-10: one handle per person, a line's author is the handle alone (authors.line).
 const labels = {
   ...fixtureLabels,
-  transcript: { ...fixtureLabels.transcript, author: '{name} [{handle}]' },
+  authors: { line: '{handle}', lineAccount: '{handle} ({iface} {id})', unknown: 'someone' },
 };
 const base = { timezone: 'UTC', gapMinutes: 20, maxChars: 500, selfName: 'Persona', labels, mode: 'chat' as const };
 
@@ -324,7 +325,7 @@ test('formatTranscript: a reactor reads exactly like an author with the same id,
   const users = [{ id: '7', name: 'Zoé', bot: false }];
   const items = formatTranscript([author, reacted(users)], { ...base, handles, reactionNames: true });
   const authorForm = items[0].text.match(/\] (.+): text$/)![1];
-  assert.equal(authorForm, 'Zoé [@u1abc]');
+  assert.equal(authorForm, '@u1abc');
   assert.ok(items[1].text.endsWith(`[reactions: 😂 by ${authorForm}]`), items[1].text);
   // Owner's rule of 2026-11-10: a bot is a person to her, so a bot reactor, like a bot author, carries its handle.
   const botItems = formatTranscript(
@@ -334,8 +335,8 @@ test('formatTranscript: a reactor reads exactly like an author with the same id,
     ],
     { ...base, handles, reactionNames: true }
   );
-  assert.ok(botItems[0].text.includes('] Helper [@u2def]: text'), botItems[0].text);
-  assert.ok(botItems[1].text.endsWith('[reactions: 😂 by Helper [@u2def]]'), botItems[1].text);
+  assert.ok(botItems[0].text.includes('] @u2def: text'), botItems[0].text);
+  assert.ok(botItems[1].text.endsWith('[reactions: 😂 by @u2def]'), botItems[1].text);
 });
 
 test('formatTranscript: past reactionNamesMax the rest is counted, and unknown reactors too', () => {
@@ -472,9 +473,10 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
   const named = buildRequest(input(history));
   const handleOfId = new Map([...named.handles!].map(([handle, id]) => [id, handle]));
   assert.ok(handleOfId.has(reactor.id), 'the reactor is in view');
-  const authorForm = `${author.name} [@${handleOfId.get(author.id)}]`;
+  // The owner's decision of 2026-11-10: one handle per person, an author and a reactor are the handle alone.
+  const authorForm = `@${handleOfId.get(author.id)}`;
   const text = textOf(named);
   assert.ok(text.includes(`] ${authorForm}: line 1`), text);
-  assert.ok(text.includes(`[reactions: 😂 by ${reactor.name} [@${handleOfId.get(reactor.id)}], ${authorForm}]`), text);
+  assert.ok(text.includes(`[reactions: 😂 by @${handleOfId.get(reactor.id)}, ${authorForm}]`), text);
   assert.equal(stableOf(named), stableOf(buildRequest(input(plain))), 'nothing of it in a cached part');
 });
