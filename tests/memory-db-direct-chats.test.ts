@@ -74,8 +74,10 @@ test('a person named by name has the direct chats of all their accounts, newest 
 
 test('a person named by the handle a request showed has the same direct chats', () => {
   // Bug: only a name resolves, so the @handle she sees in her memory names nobody.
+  // The handle a request shows is the person's, cut from the meta-person id (spec 2026-11-10 one-handle, slice 2); it
+  // was the handle of an account's platform id, which named the person only on that account's interface.
   const { w, fakeDm, cliDm } = world();
-  const found = directChatsOf(w.db, internalContext(), `@${handleOf('777')}`);
+  const found = directChatsOf(w.db, internalContext(), `@${handleOf(OWNER)}`);
   assert.deepEqual(found, { kind: 'chats', personId: OWNER, places: [cliDm, fakeDm] });
 });
 

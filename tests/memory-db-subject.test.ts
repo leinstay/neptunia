@@ -95,9 +95,32 @@ test('names the person of a member handle, and nothing for a handle no account h
   const world = openWorld();
   try {
     seed(world);
-    const eleni = subjectOf(world.db, groupContext('fake'), `@${handleOf('u1')}`, HERE);
+    // The handle a request shows is the person's, cut from the meta-person id (spec 2026-11-10 one-handle, slice 2); it
+    // was the handle of the account's platform id.
+    const eleni = subjectOf(world.db, groupContext('fake'), `@${handleOf('person:eleni')}`, HERE);
     assert.deepEqual(eleni.kind === 'person' ? eleni.personId : null, 'person:eleni');
     assert.deepEqual(subjectOf(world.db, groupContext('fake'), '@uzzzz', HERE), { kind: 'none' });
+  } finally {
+    world.close();
+  }
+});
+
+test("lists both people with each person's handle when a name fits two people", () => {
+  // Bug: the choice carries the handle of the person's first account, which names nobody on another interface and is
+  // not the handle a request shows for the person.
+  const world = openWorld();
+  try {
+    seed(world);
+    addPerson(world.db, {
+      id: 'person:eleni-2',
+      accounts: [
+        { id: 'tele:u9', iface: 'tele', native: 'u9', names: ['Ελένη'] },
+        { id: 'fake:u9', iface: 'fake', native: 'u9', names: ['Ελένη'] },
+      ],
+    });
+    const found = subjectOf(world.db, groupContext('fake'), 'Ελένη', HERE);
+    const refs = found.kind === 'several' ? found.choices.map((choice) => choice.ref).sort() : [];
+    assert.deepEqual(refs, [`@${handleOf('person:eleni')}`, `@${handleOf('person:eleni-2')}`].sort());
   } finally {
     world.close();
   }
