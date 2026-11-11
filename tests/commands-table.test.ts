@@ -320,7 +320,7 @@ const MENU_FIXTURE: ReadonlyArray<Command> = [
 
 test('the menu of an ordinary command has its own row, then a row per leaf with the dot as a space', () => {
   // Catches: a leaf row dropped, a dotted leaf name left with its dot, or the command's own row missing or moved.
-  const rows = menuCommandsOf([MENU_FIXTURE[0]!], ['alpha']);
+  const rows = menuCommandsOf([MENU_FIXTURE[0]], ['alpha']);
   assert.deepEqual(rows, [
     { name: 'plain', help: 'An ordinary command' },
     { name: 'plain list', help: 'List them' },
@@ -330,7 +330,7 @@ test('the menu of an ordinary command has its own row, then a row per leaf with 
 
 test('the menu of a nameFirst command puts each interface name before the leaf word', () => {
   // Catches: the bug itself, a row `named enable` that is no command, and a leaf row for one name only.
-  const rows = menuCommandsOf([MENU_FIXTURE[1]!], ['alpha', 'beta']).map((row) => row.name);
+  const rows = menuCommandsOf([MENU_FIXTURE[1]], ['alpha', 'beta']).map((row) => row.name);
   assert.deepEqual(rows, [
     'named',
     'named list',
@@ -343,7 +343,7 @@ test('the menu of a nameFirst command puts each interface name before the leaf w
 
 test('a leaf of a nameFirst command that has a word shows the word and keeps its own help', () => {
   // Catches: the leaf's name (`roots`) typed after the name instead of its word, or its help replaced.
-  const rows = menuCommandsOf([MENU_FIXTURE[1]!], ['alpha']);
+  const rows = menuCommandsOf([MENU_FIXTURE[1]], ['alpha']);
   assert.equal(rows.find((row) => row.name === 'named alpha list')?.help, 'Its roots');
   assert.equal(
     rows.some((row) => row.name.includes('roots')),
@@ -353,7 +353,7 @@ test('a leaf of a nameFirst command that has a word shows the word and keeps its
 
 test('no row of a nameFirst command puts a leaf word before the name', () => {
   // Catches: the old row order (`named enable alpha`, `named enable`) coming back beside the right one.
-  const names = menuCommandsOf([MENU_FIXTURE[1]!], ['alpha', 'beta']).map((row) => row.name);
+  const names = menuCommandsOf([MENU_FIXTURE[1]], ['alpha', 'beta']).map((row) => row.name);
   for (const word of ['enable', 'list'])
     for (const interfaceName of ['alpha', 'beta'])
       assert.equal(names.includes(`named ${word} ${interfaceName}`), false, `named ${word} ${interfaceName}`);
@@ -362,7 +362,7 @@ test('no row of a nameFirst command puts a leaf word before the name', () => {
 
 test('a nameFirst command with no interface names keeps its own row and the leaves without a name', () => {
   // Catches: a leaf row with a missing name (`named  enable`, `named <name> enable`) when no interface exists.
-  const rows = menuCommandsOf([MENU_FIXTURE[1]!], []);
+  const rows = menuCommandsOf([MENU_FIXTURE[1]], []);
   assert.deepEqual(
     rows.map((row) => row.name),
     ['named', 'named list']
