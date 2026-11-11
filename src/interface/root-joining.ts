@@ -114,6 +114,15 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
     return null;
   }
 
+  /**
+   * With the list empty the interface serves roots by its own rule, so the roots served now go on the list before it
+   * changes, and a restart serves them still.
+   */
+  function keepServed(iface: string): void {
+    if (listed.read(iface)?.length !== 0) return;
+    for (const id of routes.rootsOf(iface)) listed.add(iface, id);
+  }
+
   function serve(iface: string, root: Named): void {
     const served = routes.rootsOf(iface);
     if (!served.includes(root.id)) routes.note(iface, [...served, root.id]);
@@ -157,6 +166,7 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
       return 'served';
     }
     if (change === 'joined' && list !== null && isOpen(iface)) {
+      keepServed(iface);
       listed.add(iface, root.id);
       serve(iface, root);
       openUntil.delete(iface);
@@ -215,6 +225,7 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
     if (refused !== null) return refused;
     const root = waiting.get(iface)?.get(rootId);
     if (root === undefined) return refusal('not-waiting', iface, rootId, 'invalid');
+    keepServed(iface);
     listed.add(iface, rootId);
     serve(iface, root);
     log.info('roots: accepted', { iface, served: routes.rootsOf(iface).length });
@@ -228,6 +239,7 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
     const known =
       routes.rootsOf(iface).includes(rootId) || list?.includes(rootId) === true || waiting.get(iface)?.has(rootId);
     if (known !== true) return refusal('unknown-root', iface, rootId, 'invalid');
+    keepServed(iface);
     unserve(iface, rootId);
     listed.remove(iface, rootId);
     waiting.get(iface)?.delete(rootId);
