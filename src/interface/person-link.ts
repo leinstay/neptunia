@@ -23,8 +23,7 @@ import type { Adapter, MessageEvent } from '../protocol/adapter.ts';
 import { nativeAuthorityOf } from '../protocol/identity.ts';
 import { CODE } from '../tools/codes.ts';
 import { ownerPersonOf } from '../tools/operations/grants.ts';
-import { fillLabel } from './owner-pairing.ts';
-import type { OwnerPairing } from './owner-pairing.ts';
+import { fill } from '../format.ts';
 import { CODE_TTL_MS, LOCK_MS, MAX_FAILURES, REQUEST_EVERY_MS, codesFileOf, createCodeFile } from './pairing.ts';
 import { phraseCodesOf } from './phrase-codes.ts';
 import type { PhraseCodes, Seal } from './phrase-codes.ts';
@@ -195,7 +194,7 @@ export function createPersonLinks({
     const text =
       issued === null
         ? ''
-        : fillLabel(template, {
+        : fill(template, {
             handle: handleOfAccount(db, accountId, ask.native),
             iface: ask.iface,
             phrase: issued.phrase,
@@ -247,17 +246,4 @@ export function createPersonLinks({
   }
 
   return { start, screen };
-}
-
-/** The door's one screen: her link codes first, then the owner's pairing. */
-export function joinScreens(
-  links: PersonLinks,
-  pairing: Pick<OwnerPairing, 'screen'>
-): { screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'> } {
-  return {
-    screen: async (event) => {
-      const linked = await links.screen(event);
-      return linked === 'pass' ? pairing.screen(event) : linked;
-    },
-  };
 }

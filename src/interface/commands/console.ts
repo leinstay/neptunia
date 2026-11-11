@@ -46,10 +46,8 @@ import { searchCommand } from './search.ts';
 import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
-import { isSetupComplete, pairAfterSetup, pairCommand } from './interfaces-pair.ts';
 import { rootsCommand } from './interfaces-roots.ts';
 import type { RootJoining } from '../root-joining.ts';
-import type { PairCommands } from './interfaces-pair.ts';
 import { isMemoryBrowserCommand, memoryBrowserCommand } from './memory.ts';
 import { serviceCommand } from '../../keys/services.ts';
 import { probeProxy } from '../../net/proxy.ts';
@@ -104,9 +102,7 @@ export type ConsoleDeps = {
   memoryWriter?: () => 'ok' | 'down' | 'unknown';
   /** The memory database (src/memory/db/service.ts): `database()` is its read connection, null while it is closed. */
   memoryDb: unknown;
-  /** The owner's pairing of his accounts (src/interface/owner-pairing.ts), for `/interfaces pair` and the setup's end. */
-  pairing?: PairCommands | null;
-  /** Which roots of each interface the core serves (src/interface/root-joining.ts), for `/interfaces invite` and `roots`. */
+  /** Which roots of each interface the core serves (src/interface/root-joining.ts), for `invite` and `list` of one. */
   joining?: RootJoining | null;
   usage: { byRole(): Array<RoleRow>; sumDays(days: number): DaysSum } | null;
   /** The speed figures (src/tools/operations/metrics.ts): `samples('reply', 24)` are the reply durations of the last day. */
@@ -152,12 +148,12 @@ const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
 type OwnCommandDeps = Pick<
   ConsoleDeps,
-  'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief' | 'proxy' | 'pairing' | 'joining'
+  'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief' | 'proxy' | 'joining'
 >;
 
 /** The commands answered by a module of their own, or null for any other. */
 function ownCommand(
-  { dataDir, hot, memoryDb, memoryWriter, runOp, statusBrief: brief, proxy, pairing, joining }: OwnCommandDeps,
+  { dataDir, hot, memoryDb, memoryWriter, runOp, statusBrief: brief, proxy, joining }: OwnCommandDeps,
   name: string,
   args: Record<string, unknown>,
   dialog: Dialog | null
@@ -190,21 +186,10 @@ function ownCommand(
   if (name === 'memory.bind') return personLinkCommand({ memoryDb, runOp, hot }, args, dialog);
   if ((name === 'memory.users.names.add' || name === 'memory.users.names.remove') && personWord(memoryDb, args.user))
     return ownerNameCommand(memoryDb, name, args);
-  const paired = pairCommand(pairing, name, args);
-  if (paired !== null) return paired;
   const joined = rootsCommand(joining, name, args);
   if (joined !== null) return joined;
   const action = moduleActionOf(name);
-  if (action === null) return null;
-  const ran = moduleRun(dataDir, name, action, args, dialog);
-  if (name !== 'interfaces.setup') return ran;
-  const iface = text(args.name);
-  const ref = { rootDir: ENGINE_ROOT, dataDir, kind: 'interface' as const, name: iface };
-  return ran.then((answer) =>
-    answer.status !== 'ok'
-      ? answer
-      : pairAfterSetup({ pairing, hot, iface, complete: isSetupComplete(ref), setupText: answer.text, dialog })
-  );
+  return action === null ? null : moduleRun(dataDir, name, action, args, dialog);
 }
 
 /**

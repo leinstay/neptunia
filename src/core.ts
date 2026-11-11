@@ -15,7 +15,7 @@ import path from 'node:path';
 import { serviceCredential } from './keys/file.ts';
 import { startEngineProxy } from './net/engine-proxy.ts';
 
-import { interfaceCredential, localConfigPath } from './config/files.ts';
+import { interfaceCredential, interfacePackageNames, localConfigPath } from './config/files.ts';
 import { createHot } from './hot.ts';
 import { log, onLog } from './log.ts';
 import { createLoopWatch, loopStallMs } from './loop-watch.ts';
@@ -91,10 +91,9 @@ import { createMemberDirectory } from './interface/members.ts';
 import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.ts';
 import { createChatDirectory } from './interface/directory.ts';
-import { createOwnerPairing } from './interface/owner-pairing.ts';
 import { createRootJoining } from './interface/root-joining.ts';
-import { createInterfaceSettings, listedRoots, rootNounOf } from './interface/interface-settings.ts';
-import { createPersonLinks, joinScreens } from './interface/person-link.ts';
+import { createInterfaceSettings, rootNounOf } from './interface/interface-settings.ts';
+import { createPersonLinks } from './interface/person-link.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
 import {
   CLI_IFACE,
@@ -1212,9 +1211,7 @@ async function buildCore(
     log,
   });
 
-  // The owner's pairing of his accounts (src/interface/owner-pairing.ts): the door's screen and `/interfaces pair`.
-  const ownerPairing = createOwnerPairing({ hot, memoryDb, port: iface, selfId: () => identity.selfId, now: clock });
-  // Which roots each interface serves, by the owner's word (src/interface/root-joining.ts).
+  // Which roots each interface serves: every root it reports she is in (src/interface/root-joining.ts).
   const rootJoining = createRootJoining({
     hot,
     now: clock,
@@ -1226,15 +1223,13 @@ async function buildCore(
         connected: known?.connected === true,
       };
     },
-    listed: listedRoots({ rootDir: paths.rootDir, dataDir, written: () => void inProcess?.read() }),
     routes: rootRoutes,
     noteRoots: (name, named) => store.noteRoots(name, named),
     invite: (name) => reads.answer('inviteLink', { iface: name }),
-    notify: (notice) => intake.notice(notice.text),
     nounOf: rootNounOf(() => memoryDb.database()),
   });
   const onMessage = createMessageHandler({
-    screen: joinScreens(personLinks, ownerPairing),
+    screen: personLinks,
     gifKeeper,
     isServedRoot,
     rootsOf: (name: string) => rootRoutes.rootsOf(name),
@@ -1493,7 +1488,6 @@ async function buildCore(
       dataDir,
       memoryDb,
       startWatcher: coreWatcherStarter(paths),
-      pairing: ownerPairing,
       joining: rootJoining,
       usage,
       metrics,
@@ -1534,7 +1528,12 @@ async function buildCore(
         applyMode: (agent) => Promise.resolve(deferModeToUnit(agent)),
       },
     }),
-    interfaces: interfaceLinks,
+    interfaces: {
+      list: () => interfaceLinks.list(),
+      enable: (name) => interfaceLinks.enable(name),
+      disable: (name) => interfaceLinks.disable(name),
+      installed: () => interfacePackageNames(paths.rootDir, dataDir),
+    },
     // The agents' board commands (src/board/commands.ts), each run in the memory writer.
     tasks: board,
     // The agents' `skill.pending` (src/skills/agent-commands.ts), which binds a package on the board.

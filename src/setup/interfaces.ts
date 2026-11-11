@@ -5,12 +5,9 @@
 //
 // The step registers the interface's client, writes its private token, and starts its instance
 // `neptunia-interface@<name>.service` through the scope's manager, with no core running. A repeat keeps a valid token
-// and the client as they are. `running` names only the instances the manager accepted. The detail names
-// `/interfaces pair open <name>` for each interface set up, the owner's next step there.
+// and the client as they are. `running` names only the instances the manager accepted.
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { localConfigPath } from '../config/files.ts';
+import { interfacePackageNames, localConfigPath } from '../config/files.ts';
 import { readLocalConfig, setPath, writeLocalConfig } from '../tools/operations/shared.ts';
 import { provisionInterfaceClient } from './clients.ts';
 import { systemctlOf, whyFailed } from './install.ts';
@@ -26,14 +23,6 @@ export type InterfacesStepDeps = {
 };
 type Where = { rootDir: string; dataDir: string; system: boolean };
 export type InterfacesStepOutcome = { state: 'done' | 'already' | 'failed'; detail: string; running: Array<string> };
-
-function packagesIn(dir: string): Array<string> {
-  if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, 'setup.json')))
-    .map((entry) => entry.name);
-}
 
 type Offer = { complete: boolean; changed: boolean };
 
@@ -72,14 +61,10 @@ async function startInstance(
 
 export async function interfacesStep(where: Where, deps: InterfacesStepDeps): Promise<InterfacesStepOutcome> {
   const { rootDir, dataDir } = where;
-  const names = new Set([
-    ...packagesIn(path.join(rootDir, 'interfaces')),
-    ...packagesIn(path.join(dataDir, 'interfaces')),
-  ]);
   const changed: Array<string> = [];
   const running: Array<string> = [];
   let prepared = false;
-  for (const name of [...names].sort()) {
+  for (const name of interfacePackageNames(rootDir, dataDir)) {
     const { complete, changed: isChanged } = await offer({ rootDir, dataDir, kind: 'interface', name }, deps);
     if (isChanged) changed.push(name);
     if (!complete) continue;
@@ -92,9 +77,7 @@ export async function interfacesStep(where: Where, deps: InterfacesStepDeps): Pr
     if (refused !== null) return { state: 'failed', detail: `${name} did not start: ${refused}`, running };
     running.push(name);
   }
-  // The owner proves his account on each new interface by pairing, once the core runs (src/interface/owner-pairing.ts).
-  const pair = changed.map((name) => `; pair your account there with /interfaces pair open ${name}`).join('');
-  const shown = `${running.length === 0 ? '' : `; running: ${running.join(', ')}`}${pair}`;
+  const shown = running.length === 0 ? '' : `; running: ${running.join(', ')}`;
   return changed.length === 0
     ? { state: 'already', detail: `no interface setting changed${shown}`, running }
     : { state: 'done', detail: `set up ${changed.join(', ')}${shown}`, running };

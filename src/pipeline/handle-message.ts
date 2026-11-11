@@ -26,8 +26,7 @@ const CATCH_UP_IDS_KEPT = 1000;
 
 /**
  * What the door asks of a new line before anything else reads it: her link tool (src/interface/person-link.ts) has the
- * right code of the account that asked only observed, and the owner's pairing (src/interface/owner-pairing.ts) answers
- * a direct message with a one-time code and has the line only observed. A line the screen drops goes nowhere.
+ * right code of the account that asked only observed. A line the screen drops goes nowhere.
  */
 export type DoorScreen = {
   screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'>;
@@ -164,7 +163,7 @@ export function createHandleMessage({
         }
       }
 
-      // 1c. A line the screen took goes no further: a link code's answer and a pairing request are only observed.
+      // 1c. A line the screen took goes no further: a link code's answer is only observed.
       const screened = catchUp || door === null ? 'pass' : await door.screen(event);
       if (screened === 'drop') return 'ignored';
       if (screened === 'observe') {

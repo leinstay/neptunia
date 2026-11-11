@@ -8,8 +8,8 @@
 export const TURN_EVENT_STATUS = 'turn';
 
 /**
- * The status, and the `replyRef`, of a `command.result` that carries a notice for the owner: a text the core pushes to
- * the open chats on its own, answering no command, such as a root that waits for his accept.
+ * The status, and the `replyRef`, of a `command.result` that carries a notice for the owner: a text pushed to the open
+ * chats on the core's own, answering no command. interfaces/cli/link.ts shows it.
  */
 export const NOTICE_STATUS = 'notice';
 

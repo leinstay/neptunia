@@ -1048,35 +1048,23 @@
         "no-modules": "The development checkout has no node_modules, so the tests of a task cannot run. Run npm install in selfimprovement.checkout, then unblock the task."
       }
     },
-    "pairing": {
-      "code": "Your one-time pairing phrase is: {phrase}. Type /interfaces pair followed by these six words in her command line within an hour.",
-      "ask": "Write to her in a direct message on {iface}. She answers with a one-time phrase of six words: type it here, or press Enter to approve it later with /interfaces pair <phrase>:"
-    },
     "link": {
       "code": "{handle} on {iface} says they are you. If that is so, send these six words from {handle} as the next message in that conversation, in any order: {phrase}. The phrase works for an hour."
     },
     "roots": {
       "noun": "place",
-      "invite": "Open this link to add her to a new {noun} of {iface}: {url}\nFor the next hour, the first {noun} she joins is served at once.",
+      "invite": "Open this link to add her to a new {noun} of {iface}: {url}\nShe serves it as soon as she is in.",
       "row": "{id}  {state}  {name}",
       "state": {
-        "served": "served",
-        "waiting": "waiting for your accept",
-        "absent": "listed, she is not in it"
+        "served": "served"
       },
-      "none": "{iface} serves nothing yet and nothing waits. {invite} prints the link that adds her to a {noun}.",
-      "accepted": "{name} ({id}) on {iface} is served from now on.",
-      "removed": "{id} on {iface} is not served any more. What she remembers of it stays.",
-      "notice": "She was added to the {noun} {name} ({id}) on {iface}, and it waits for your word. {accept} serves it, {remove} drops it.",
+      "none": "She is in no {noun} of {iface} yet. {invite} prints the link that adds her to one.",
       "refused": {
         "no-token": "{iface} has no token stored. Run {repair} first.",
         "interface-disabled": "{iface} is disabled. Run {repair} first.",
         "link-down": "{iface} is not connected. Start it with {repair}.",
         "no-invite": "{iface} has no invite link to give.",
-        "invite-failed": "{iface} did not give its invite link. Try again in a moment.",
-        "not-waiting": "{id} is not waiting on {iface}. {list} shows what waits.",
-        "unknown-root": "{iface} has no {noun} {id}. {list} shows them all.",
-        "no-roots-setting": "{iface} keeps no list of what it serves, so the command line cannot change it."
+        "invite-failed": "{iface} did not give its invite link. Try again in a moment."
       }
     }
   }
