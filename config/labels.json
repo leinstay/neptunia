@@ -933,7 +933,7 @@
       "answers": "You are answering {name}, their message #{n}.",
       "answersOutside": "You are answering {name}, whose message is not in the chat below.",
       "interfaces": "You exist on {interfaces}, in every top-level place of each.",
-      "joined": "You joined {root} on {day}."
+      "joined": "You joined {place} on {day}."
     },
     "surroundings": {
       "nouns": "What this interface calls its places: {nouns}.",

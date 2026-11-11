@@ -94,7 +94,7 @@ function linkText(
 }
 
 /**
- * The day she joined the root at the top of the chain as a line of its own: `spatial.joined` with `{root}`, the root's
+ * The day she joined the root at the top of the chain as a line of its own: `spatial.joined` with `{place}`, the root's
  * own link in words (`places.link` with the interface's noun for its kind), and `{day}` as `YYYY-MM-DD` in `timezone`.
  * '' when the root holds no known moment.
  */
@@ -110,7 +110,7 @@ function joinedLine(
   if (root === undefined || typeof joinedAt !== 'number' || !Number.isFinite(joinedAt) || typeof template !== 'string')
     return '';
   const link = placeOwnText(labels, { iface: '', chain: [root], names: { interface: '', nouns, dm: '' } });
-  return fill(template, { root: link, day: formatDay(joinedAt, timezone) });
+  return fill(template, { place: link, day: formatDay(joinedAt, timezone) });
 }
 
 /** The `private` line, then `note` with the owner's note when the place or one above it has one, each when present. */
@@ -124,7 +124,7 @@ function privateLines(chain: ReadonlyArray<PlaceLink>, l: SpatialLabels, notes: 
  * then `private` and the note of its place; on her own server `server`, in her own world `world`, each with `{when}`;
  * in a place `place` with `{path}` (the chain from the place up, each link through
  * `kinds`, joined with `within`), `{iface}` and `{when}`, then `private` or `group`, then `note` with the owner's note
- * when the place or one above it has one. When the top of the chain holds the moment she joined it, `joined` with `{root}`
+ * when the place or one above it has one. When the top of the chain holds the moment she joined it, `joined` with `{place}`
  * (the root's link in words) and `{day}` (`YYYY-MM-DD` in `timezone`) follows the `place` line as a line of its own. `{when}` is formatNow in `timezone`. '' without the labels.
  */
 export function spatialAwarenessText(input: {
