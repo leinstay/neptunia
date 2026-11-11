@@ -325,3 +325,93 @@ test('a stored line keeps a > and a < is written escaped', () => {
   assert.ok(text.includes('a > b'), text);
   assert.ok(!text.includes('<task>') && text.includes('&lt;task>x&lt;/task>'), text);
 });
+
+// The owner's decision of 2026-11-11: the full reference stands once, in `<places>`, and a window gets a short head. The
+// head label `meanwhile.place` takes `{handle}` (the place handle with its `#`, empty for a place with none), `{name}` (the
+// place's own link alone: the innermost link's noun and quoted name, or the direct chat's word with the partner's handle,
+// with no parent and no interface) and `{path}` (the full reference, kept so a local override keeps working), beside
+// `{date}`. No signature changes: the label is read through the labels argument of `meanwhileText`.
+const HEAD_LABEL = 'H[{handle}] N[{name}] P[{path}] D[{date}]:';
+
+/** The head of the one window of `place` under a head label of its own. */
+function headWith(label: string, place: FakePlace, frame: Frame, handle: string | null): string {
+  const labels = { ...shippedLabels, meanwhile: { ...shippedLabels.meanwhile, place: label } };
+  const windows = meanwhileWindows(meanwhileReads([place]), frame, SETTINGS);
+  return (
+    meanwhileText(windows, frame, labels, nameOf, () => handle, REFS)
+      .split('\n\n')[1]
+      ?.split('\n')[0] ?? ''
+  );
+}
+
+/** The three placeholders of `HEAD_LABEL` as a head filled them. */
+function partsOf(head: string): { handle: string; name: string; path: string } {
+  const found = /^H\[(.*?)\] N\[(.*?)\] P\[(.*?)\] D\[/.exec(head);
+  return { handle: found?.[1] ?? '?', name: found?.[2] ?? '?', path: found?.[3] ?? '?' };
+}
+
+const ALPHA: FakePlace = {
+  id: 'place:alpha',
+  path: ['agora', 'Beta', 'alpha'],
+  dm: false,
+  iface: 'agora',
+  names: NAMES,
+  chain: [
+    { id: 'place:alpha', kind: 'channel', name: 'alpha' },
+    { id: 'place:beta', kind: 'server', name: 'Beta' },
+  ],
+  lines: [line('place:alpha', 'a1', NOW - 30 * MIN, null, 'ΓΡΑΜΜΗ')],
+};
+
+test('a head label fills {handle}, {name} and {path} for a channel: the handle, its own link alone, the whole reference', () => {
+  // Bug: the full reference stood over every window, so one place read in full each time and the head was long.
+  const head = headWith(HEAD_LABEL, ALPHA, GROUP_FRAME, 'cab12');
+  const { handle, name, path } = partsOf(head);
+  assert.equal(handle, '#cab12', head);
+  assert.ok(name.includes('room') && name.includes('"alpha"'), head);
+  assert.ok(!/realm|Beta|Agora Net/.test(name), `no parent and no interface: ${head}`);
+  assert.ok(
+    ['alpha', 'Beta', 'Agora Net'].every((word) => path.includes(word)),
+    head
+  );
+});
+
+test('a head label fills {handle} with nothing for a place with no handle', () => {
+  const head = headWith(HEAD_LABEL, ALPHA, GROUP_FRAME, null);
+  const { handle, name } = partsOf(head);
+  assert.equal(handle, '', head);
+  assert.ok(name.includes('"alpha"'), head);
+});
+
+test('a head label fills {name} for a direct chat as its word with the partner handle, and no interface', () => {
+  // Bug: a direct chat's short head carried the interface and an unnamed place, or lost the partner.
+  const zoe: FakePlace = {
+    id: 'tele:dm:zoe',
+    path: ['tele', 'private', '1234'],
+    dm: true,
+    iface: 'tele',
+    names: NAMES,
+    partner: 'person:zoe',
+    partnerKey: 'person:zoe',
+    lines: [line('tele:dm:zoe', 'z1', NOW - 30 * MIN, null, 'ΙΔΙΩΤΙΚΗ')],
+  };
+  const cli = frameOf(frameInput({ now: NOW, interface: 'cli', chain: DM_CHAIN, dm: DM }));
+  const head = headWith(HEAD_LABEL, zoe, cli, 'cd777');
+  const { handle, name } = partsOf(head);
+  assert.equal(handle, '#cd777', head);
+  assert.ok(name.includes('private talk') && name.includes(`@${REFS.handleOf('person:zoe')}`), head);
+  assert.ok(!name.includes('Agora Net'), head);
+});
+
+test('a head label that uses only {path} and {date} still renders the reference once and the date', () => {
+  // Bug: a local override of the head label stopped working when the placeholders changed.
+  const head = headWith('{path}, {date}:', ALPHA, GROUP_FRAME, 'cab12');
+  assert.ok(head.includes('#cab12'), head);
+  const at = ['alpha', 'Beta', 'Agora Net'].map((word) => head.indexOf(word));
+  assert.deepEqual(
+    [...at].sort((a, b) => a - b),
+    at,
+    head
+  );
+  assert.ok(head.endsWith(`${formatDate(NOW - 30 * MIN, 'UTC', shippedLabels.locale)}:`), head);
+});

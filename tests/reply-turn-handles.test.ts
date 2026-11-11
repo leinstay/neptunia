@@ -546,3 +546,25 @@ test("<place> of a turn in a direct chat reads the interface's word for it and t
   assert.match(place, /@u[0-9a-z]+/, 'the partner is named by handle');
   assert.doesNotMatch(place, /unnamed/);
 });
+
+test('<place> of a turn in a direct chat whose place the store holds no chain for still reads as a direct chat', async () => {
+  // Bug (replay of 2026-11-11): with no stored chain the turn's place fell back to a link of no kind and no name, so a
+  // direct chat read as `"(unnamed)"` and the partner never showed.
+  const world = serviceWorld();
+  noteInterface(world, 'cli', [], { interface: 'CLI', nouns: {}, dm: 'terminal chat' });
+  // The turn's own place, `cli:dm:owner`, has no row in this world, so the store gives it no chain.
+  let request: string;
+  try {
+    const run = await replyRun({
+      world,
+      chat: CLI_CHAT,
+      steps: [{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }],
+    });
+    request = requestOf(run, 0, 0);
+  } finally {
+    world.close();
+  }
+  const place = blockOf(blockOf(request, 'surroundings'), 'place');
+  assert.ok(place.includes('terminal chat'), place);
+  assert.doesNotMatch(place, /unnamed/);
+});
