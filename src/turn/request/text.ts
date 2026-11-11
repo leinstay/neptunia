@@ -71,8 +71,8 @@ export function pulledMoment(ts: number, timezone: string, locale: string | unde
 }
 
 /**
- * A stored text as a value inside a request: `&` written as `&amp;` and `<` as `&lt;`, so a name, a field or a message
- * that holds a tag can neither close a block nor open one in the frame's own words. A `>` stays. Anything that is not a
+ * A stored text as a value inside a request: `<` written as `&lt;`, so a name, a field or a message that holds a tag
+ * can neither close a block nor open one in the frame's own words. A `>` and an `&` stay. Anything that is not a
  * string reads as ''.
  */
 export function escapeStored(text: unknown): string {
