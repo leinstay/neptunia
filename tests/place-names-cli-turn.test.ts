@@ -120,7 +120,16 @@ async function readFromCli(channel: string): Promise<string> {
 test('on the command line a read of an unknown name lists the channels the owner can view and no other', async () => {
   const told = await readFromCli('memes');
   assert.ok(told.includes('NONE-MARK memes'), told);
-  assert.ok(told.includes('LINE-MARK c2 herbs') && told.includes('LINE-MARK c1 general'), told);
+  // The owner's decision of 2026-11-10: a choice is `#handle name`, or its name once when this request gives it no
+  // handle, and never its place id.
+  for (const [name, id] of [
+    ['herbs', 'c2'],
+    ['general', 'c1'],
+  ]) {
+    const line = told.split('\n').find((one) => one.startsWith('LINE-MARK') && one.includes(name)) ?? '';
+    assert.equal(line.split(name).length - 1, 1, line);
+    assert.equal(new RegExp(`\\b${id}\\b`).test(line), false, line);
+  }
   assert.equal(told.includes('staff room'), false, 'a private channel stays out');
   assert.equal(told.includes('someone elses chat'), false, "another person's private chat stays out");
 });
