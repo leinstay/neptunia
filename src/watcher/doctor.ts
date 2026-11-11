@@ -3,17 +3,22 @@
 // end, `list` shows every run and every older report with its number, dates and state, and `read` and `<n>` open one
 // report with its dates. The console of the core (src/interface/commands/console.ts) answers `run`, since the core starts
 // the worker; bin/neptunia.ts answers the others from the files, with the core up or down. A number is the place in the
-// order of the starts, the oldest first, so a later run never changes it. A report from before run records has no start
+// order of the starts, the oldest first, so a later run never changes it. `accepted`, `accept` and `unaccept` read and write
+// the owner's list of accepted findings (src/watcher/accepted.ts) and answer in labels, also with the core up or down. A report from before run records has no start
 // time and goes by its day. Every answer names times in UTC to the minute. Nothing here asks a model.
 
 import { spawn as spawnChild } from 'node:child_process';
 import path from 'node:path';
 import { WATCHER_RUN_TIMEOUT_MS, allRuns, claimRun, finishRun, requestCancel, runStoreOf } from './lifecycle.ts';
 import type { RunRecord, RunState, RunStore } from './lifecycle.ts';
+import { fill } from '../format.ts';
+import { acceptLine, acceptedLines, unacceptLine } from './accepted.ts';
 import { DEFAULT_WATCHER_DIR, readReport, readReportRun, reportDays, reportVersions, reportsDirOf } from './read.ts';
 
 export type DoctorAnswer = { text: string; status: 'ok' | 'failed' };
 export type WatcherPlace = { store: RunStore; reportsDir: string };
+/** The live labels (`hot.prompts.labels`), whose `watcher.accepted` section words the answers of the accepted list. */
+export type AcceptedPlace = WatcherPlace & { labels?: unknown };
 /** Starts the worker of one claimed run: null when it started, else the reason. */
 export type StartWorker = (runId: string) => string | null;
 
@@ -137,6 +142,44 @@ export function watcherOpen(place: WatcherPlace, which: 'latest' | number): Doct
   return { text: [...head, '', text].join('\n'), status: 'ok' };
 }
 
+/** The data folder of a place: the reports folder sits at `<data>/<watcher dir>/reports`. */
+const dataDirOf = (place: WatcherPlace): string =>
+  path.resolve(place.reportsDir, '..', ...DEFAULT_WATCHER_DIR.split('/').map(() => '..'));
+
+/** `labels.watcher.accepted.<key>` filled with `values`; the key itself when a deployment's labels lack it. */
+function acceptedLabel(place: AcceptedPlace, key: string, values: Record<string, string | number> = {}): string {
+  let node: unknown = place.labels;
+  for (const step of ['watcher', 'accepted', ...key.split('.')]) {
+    node = typeof node === 'object' && node !== null ? (node as Record<string, unknown>)[step] : undefined;
+  }
+  return typeof node === 'string' ? fill(node, values) : key;
+}
+
+/** `accepted`: the list with a number per line, or that it is empty. */
+export function watcherAccepted(place: AcceptedPlace): DoctorAnswer {
+  const lines = acceptedLines(dataDirOf(place));
+  if (lines.length === 0) return { text: acceptedLabel(place, 'none'), status: 'ok' };
+  const rows = lines.map((text, index) => acceptedLabel(place, 'row', { number: index + 1, text }));
+  return { text: rows.join('\n'), status: 'ok' };
+}
+
+/** `accept <text>`: the text added as the last line, or why not. */
+export function watcherAccept(place: AcceptedPlace, text: string): DoctorAnswer {
+  const added = acceptLine(dataDirOf(place), text);
+  if (added.ok) return { text: acceptedLabel(place, 'added', { number: added.line }), status: 'ok' };
+  return {
+    text: acceptedLabel(place, `refused.${added.code}`, { number: added.line ?? 0 }),
+    status: 'failed',
+  };
+}
+
+/** `unaccept <number>`: the line removed and its text, or how many lines the list has. */
+export function watcherUnaccept(place: AcceptedPlace, number: number): DoctorAnswer {
+  const removed = unacceptLine(dataDirOf(place), number);
+  if (removed.ok) return { text: acceptedLabel(place, 'removed', { number, text: removed.text }), status: 'ok' };
+  return { text: acceptedLabel(place, 'noLine', { number, count: removed.count }), status: 'failed' };
+}
+
 type Spawned = { unref(): void; on(event: 'error', listener: (error: NodeJS.ErrnoException) => void): unknown };
 type Spawn = (command: string, args: ReadonlyArray<string>, options: Record<string, unknown>) => Spawned;
 
@@ -185,7 +228,7 @@ export function workerStarter(input: {
 export function watcherDoctor(
   name: string,
   args: Readonly<Record<string, unknown>>,
-  place: WatcherPlace & { start?: StartWorker }
+  place: AcceptedPlace & { start?: StartWorker }
 ): DoctorAnswer {
   switch (name) {
     case 'doctor.watcher.run':
@@ -201,6 +244,12 @@ export function watcherDoctor(
       return watcherList(place);
     case 'doctor.watcher.read':
       return watcherOpen(place, 'latest');
+    case 'doctor.watcher.accepted':
+      return watcherAccepted(place);
+    case 'doctor.watcher.accept':
+      return watcherAccept(place, typeof args.text === 'string' ? args.text : '');
+    case 'doctor.watcher.unaccept':
+      return watcherUnaccept(place, Number(args.number));
     default:
       return watcherOpen(place, Number(args.number));
   }

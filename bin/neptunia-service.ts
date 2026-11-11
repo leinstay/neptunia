@@ -6,6 +6,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { readConfig } from '../src/config.ts';
+import { readLabels } from '../src/hot.ts';
 import { serviceFamily } from '../src/service/commands.ts';
 import type { ServiceAnswer, ServiceDeps } from '../src/service/commands.ts';
 import { managerCall, managerRead } from '../src/service/manager.ts';
@@ -51,7 +52,7 @@ export function runServiceHere(request: ServiceRequest, where: Where): Promise<S
 }
 
 /**
- * `/doctor watcher stop|read|list|<number>` from the files, with the core up or down; `run` goes to the core, which
+ * `/doctor watcher stop|read|list|accepted|accept|unaccept|<number>` from the files, with the core up or down; `run` goes to the core, which
  * starts the worker. A report opened here is rendered for the terminal.
  */
 export function watcherDoctorHere(request: ServiceRequest, where: Where, color: boolean): ServiceAnswer {
@@ -59,7 +60,11 @@ export function watcherDoctorHere(request: ServiceRequest, where: Where, color: 
     where.privateDir,
     watcherDir(readConfig(where.rootDir, { privateDir: where.privateDir }))
   );
-  const answer = watcherDoctor(request.name, request.args, { store: runStoreOf(path.dirname(reportsDir)), reportsDir });
+  const answer = watcherDoctor(request.name, request.args, {
+    store: runStoreOf(path.dirname(reportsDir)),
+    reportsDir,
+    labels: readLabels(where.rootDir, where.privateDir),
+  });
   const isReport = request.name === 'doctor.watcher.read' || request.name === 'doctor.watcher';
   return isReport && answer.status === 'ok' ? { ...answer, text: renderMarkdown(answer.text, { color }) } : answer;
 }

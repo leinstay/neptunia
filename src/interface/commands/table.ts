@@ -163,10 +163,12 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
   return null;
 }
 
-/** The number of `/doctor watcher <number>`: a report of the list counts from 1. */
+/** The number of `/doctor watcher <number>` and of `unaccept`: a report or a line of the list counts from 1. */
 function checkDoctor(name: string, args: Readonly<Record<string, string>>): string | null {
+  if (name === 'doctor.watcher.unaccept' && !/^[1-9]\d*$/.test(args.number ?? ''))
+    return `/doctor watcher unaccept takes the number of a line of the accepted list, not "${args.number ?? ''}"`;
   if (name !== 'doctor.watcher' || /^[1-9]\d*$/.test(args.number ?? '')) return null;
-  return `/doctor watcher takes run, stop, read, list or the number of a report, not "${args.number ?? ''}"`;
+  return `/doctor watcher takes run, stop, read, list, accepted, accept, unaccept or the number of a report, not "${args.number ?? ''}"`;
 }
 
 /** The flags of `services <name> setup`: one mode, a real schedule, and the jitter only where it means something. */
@@ -384,6 +386,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('watcher.stop', 'Stop the watcher report that is running'),
       sub('watcher.read', 'Open the latest watcher report'),
       sub('watcher.list', 'List every watcher report, newest first, with its number, dates and state'),
+      sub('watcher.accepted', 'List the findings the owner accepted, each with its number'),
+      sub('watcher.accept', 'Add a finding to the accepted list; the watcher leaves out what it covers', [arg('text')]),
+      sub('watcher.unaccept', 'Remove line <number> of the accepted list', [arg('number')]),
       sub('watcher', 'Open watcher report <number> of the list', [arg('number')]),
     ],
     check: checkDoctor,

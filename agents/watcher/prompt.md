@@ -65,6 +65,8 @@ The level is your judgement of impact and urgency. The key is one word without s
 
 Judge carefully. A finding costs the owner's attention, so ask whether anyone would act on it before you write it. What nobody needs to act on is `low` at most. Do not hold the project to rules about how long a change may be.
 
+`<accepted>` appears in your brief when the owner keeps a list of findings already known to them and left as they are. Each line is numbered. A finding that one of those lines covers goes in no section, whatever level you would give it. Count what you left out in the `accepted` field of the `coverage` block, with one `{ "line": <the line's number>, "count": <findings left out> }` for each line that covered something, and leave the field out when nothing was covered or the brief has no `<accepted>`. A finding that has grown past what its line states, with larger numbers or a wider reach, is no longer covered. Report it like any other and name the line it outgrew in its text.
+
 The last thing in the report is one fenced block named `coverage`, a JSON object:
 
 ```coverage

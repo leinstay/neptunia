@@ -1070,6 +1070,19 @@
     "link": {
       "code": "{handle} on {iface} says they are you. If that is so, send these six words from {handle} as the next message in that conversation, in any order: {phrase}. The phrase works for an hour."
     },
+    "watcher": {
+      "accepted": {
+        "row": "{number}. {text}",
+        "none": "No finding is accepted yet.",
+        "added": "Accepted as line {number}.",
+        "refused": {
+          "empty": "There is nothing to accept: the text is empty.",
+          "duplicate": "Already accepted as line {number}."
+        },
+        "removed": "Removed line {number}: {text}",
+        "noLine": "There is no line {number}. Lines in the accepted list: {count}."
+      }
+    },
     "roots": {
       "noun": "place",
       "invite": "Open this link to add her to a new {noun} of {iface}: {url}\nShe serves it as soon as she is in.",

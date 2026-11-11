@@ -64,6 +64,8 @@ export type InspectionDeps = {
   memory?: () => Promise<ReadonlyArray<string>>;
   /** The spend, balances and limits for the brief, read before the agent starts; absent or failed, the brief holds none. */
   money?: () => Promise<MoneyFacts>;
+  /** The owner's accepted findings (src/watcher/accepted.ts), read once at the start of the run; absent, none. */
+  accepted?: () => ReadonlyArray<string>;
   onPhase?: (phase: InspectionPhase, runId: string) => void;
   /** How often the run's record is read for a cancel (ms). */
   cancelPollMs?: number;
@@ -134,7 +136,12 @@ async function moneyOf(deps: InspectionDeps): Promise<MoneyFacts | undefined> {
 }
 
 /** The first brief, or the end of the run. */
-async function firstBrief(deps: InspectionDeps, run: RunRecord, observation: Observation): Promise<string> {
+async function firstBrief(
+  deps: InspectionDeps,
+  run: RunRecord,
+  observation: Observation,
+  accepted: ReadonlyArray<string>
+): Promise<string> {
   let prompt = '';
   try {
     prompt = readPromptFile([...deps.promptFiles]);
@@ -151,6 +158,7 @@ async function firstBrief(deps: InspectionDeps, run: RunRecord, observation: Obs
     ...(deps.install === undefined ? {} : { install: deps.install() }),
     ...(money === undefined ? {} : { money }),
     ...(deps.memory === undefined ? {} : { memory: await deps.memory() }),
+    accepted,
   });
 }
 
@@ -201,12 +209,12 @@ function retryBrief(deps: InspectionDeps, first: string, refusal: RunEnd, masked
 }
 
 /** The report of an answer, or the end of the run. Refusals never quote the agent. */
-function validate(text: string): string {
+function validate(text: string, acceptedCount: number): string {
   const secretLine = findSecret(text);
   if (secretLine !== null) throw new RunEnd('failed', 'secret', `a key-looking string on line ${secretLine}`);
   const checked = checkTemplate(text);
   if (!checked.ok) throw new RunEnd('failed', checked.code, checked.detail);
-  const covered = checkCoverage(text);
+  const covered = checkCoverage(text, acceptedCount);
   if (!covered.ok) throw new RunEnd('failed', covered.code, covered.detail);
   return text;
 }
@@ -258,7 +266,8 @@ async function passedAnswer(
   observation: Observation,
   phase: (name: InspectionPhase) => void
 ): Promise<PassedAnswer> {
-  const first = await firstBrief(deps, run, observation);
+  const accepted = deps.accepted?.() ?? [];
+  const first = await firstBrief(deps, run, observation, accepted);
   const startedAt = deps.store.now();
   const attempt = async (
     brief: string,
@@ -269,7 +278,7 @@ async function passedAnswer(
     const answer = await generate(deps, run, watch, { brief, timeoutMs, attempt: number });
     phase('validating');
     try {
-      return { answer, report: validate(answer.text) };
+      return { answer, report: validate(answer.text, accepted.length) };
     } catch (error) {
       if (!(error instanceof RunEnd)) throw error;
       const { text: masked } = maskCredentials(answer.text);

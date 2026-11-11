@@ -217,7 +217,7 @@ The report opens with the title `# Watcher report <day>`, then the metadata rows
 
 The sections of `REPORT_HEADINGS` follow at level two, in order, each once: `Her day`, `Service runs`, `Memory`, `Money`, `Errors`, `Misunderstandings`, `Project`, `Modules and structure`, `Trash`, `The server`, `Wishes`, `For the owner`. Each holds the subheadings of `REPORT_SUBHEADINGS` at level three, in order: `Observed defects`, `Suspicious evidence`, `Inspected without a finding`, `Unavailable checks`. `For the owner` alone takes `OWNER_SUBHEADINGS`, which opens with `Decisions needed`, and a line there is `- [critical|high|medium|low] <key>: <action>`. An empty subsection says exactly `none`. A line under `Observed defects` or `Suspicious evidence` is `- [critical|high|medium|low] <finding-key>: <text>`. Every line of `Misunderstandings`, but under `Unavailable checks`, cites a turn id, `t-` and its hex digits. `findingsOf` and `applyRiskRules` of [src/watcher/risk.ts](../src/watcher/risk.ts) read these lines, and a repeat is saved as `- [low] <finding-key>: <text> (repeat <n>, first <day>)`.
 
-The last thing in the report is one fenced `coverage` block, a JSON object that `checkCoverage` reads: `observation` with `from` and `to`, `backend`, `account`, `sources`, which is not empty, and the lists `defects`, `suspicious`, `inspected` and `unavailable`, which share no item.
+The last thing in the report is one fenced `coverage` block, a JSON object that `checkCoverage` reads: `observation` with `from` and `to`, `backend`, `account`, `sources`, which is not empty, and the lists `defects`, `suspicious`, `inspected` and `unavailable`, which share no item. The optional `accepted` is a list of `{ line, count }`, the findings the watcher left out as covered by the line of the brief's `<accepted>` with that number. `checkCoverage(text, acceptedCount)` takes the length of that list and refuses a `line` below 1 or above it, or an entry that is no pair of whole numbers, with `coverage-invalid` and a detail that names `accepted`. A block with no `accepted` left nothing out.
 
 | Code | What the text did |
 |---|---|
@@ -234,12 +234,12 @@ The last thing in the report is one fenced `coverage` block, a JSON object that 
 | `empty-word` | Says nothing in a word other than `none`, or writes `none` beside a finding |
 | `coverage-missing` | Has no coverage block |
 | `coverage-misplaced` | Has the block inside a section, or a second block |
-| `coverage-invalid` | Has a block that does not parse, or lacks a field, or names one item in two lists |
+| `coverage-invalid` | Has a block that does not parse, or lacks a field, or names one item in two lists, or holds an `accepted` that names a line the list does not have |
 | `trailing-content` | Has something after the block |
 | `bad-risk` | Has a finding or decision line with no level and key, or a level on a line that takes none |
 | `missing-turn-ref` | Has a line of `Misunderstandings` with no turn id |
 
-The brief carries `<day>`, `<observation from="..." to="..." day-from="..."/>`, `<install>` with the JSON of `installFacts` from [src/watcher/install.ts](../src/watcher/install.ts), `<money>` with the JSON of `moneyFacts` from [src/watcher/money.ts](../src/watcher/money.ts) when the worker could read it, `<memory>` with one line per stored fact about failures when `watcherMemory` finds any, and `<report day="...">`, with `run="..."` on an earlier report of the same day. A second attempt holds the first brief whole, then `agents/watcher/retry.md`, then `<refusal code="...">` with the check's detail and `<previous-answer>` with the refused text, a string shaped like a key masked.
+The brief carries `<day>`, `<observation from="..." to="..." day-from="..."/>`, `<install>` with the JSON of `installFacts` from [src/watcher/install.ts](../src/watcher/install.ts), `<money>` with the JSON of `moneyFacts` from [src/watcher/money.ts](../src/watcher/money.ts) when the worker could read it, `<memory>` with one line per stored fact about failures when `watcherMemory` finds any, `<accepted>` with one line per entry of the owner's [accepted list](watcher.md#accepted-findings), each as `<number>. <text>` from 1, read at the start of the run and left out when the list is empty, and `<report day="...">`, with `run="..."` on an earlier report of the same day. A second attempt holds the first brief whole, then `agents/watcher/retry.md`, then `<refusal code="...">` with the check's detail and `<previous-answer>` with the refused text, a string shaped like a key masked.
 
 ## Media text forms
 
