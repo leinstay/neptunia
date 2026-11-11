@@ -63,7 +63,7 @@ import type { Lookup } from '../turn/calls.ts';
 import { frameReadsOver } from '../memory/db/frame-reads.ts';
 import { createFindMeaning, findSettingsOf } from '../memory/db/graph-find.ts';
 import type { FindMeaning, FindMeaningSource, FindMemoEntry } from '../memory/db/graph-find.ts';
-import { lookupsOfRecords } from '../memory/journal.ts';
+import { lookupsOfRecords, seedsOfRecords } from '../memory/journal.ts';
 import type { FrameReads } from '../memory/db/frame-reads.ts';
 import type { Db } from '../memory/db/types.ts';
 import type { Context } from '../memory/db/scope.ts';
@@ -345,7 +345,8 @@ export function createTurnRunner({
     : null;
   // Her lookups per place for `<recall>` (src/turn/calls.ts), in process, seeded at start with the call marks.
   const lookupRing = createLookupRing([]);
-  // What her earlier turns in a place raised, for the graph reader of the next (src/turn/seed-ring.ts), in process.
+  // What her earlier turns in a place raised, for the graph reader of the next (src/turn/seed-ring.ts), in process, seeded
+  // at start from the journal's turn records with the thinks.
   const seedRing = createSeedRing();
   const busy = attention;
   const routes = turnRoutes(hot, roleHealth);
@@ -385,17 +386,21 @@ export function createTurnRunner({
   // The last think per place (src/behavior/previous-think.ts), in process, seeded at start from the journal (seedThinks).
   const thinks = createThinkStore();
 
-  /** Her thinks of yesterday and today in the place journal's `turn` records, into the store; a failed read is logged. */
+  /**
+   * Her thinks of yesterday and today in the place journal's `turn` records, into the store, and what those turns raised,
+   * into the seed ring (seedsOfRecords); a failed read is logged.
+   */
   async function seedThinks(placeId: string): Promise<void> {
     // The core's journal (src/memory/journal.ts#createJournal) as far as its `read` goes.
     const reader = journal as { read?: (placeId: string, query: object) => Promise<Array<unknown>> } | null;
     if (typeof reader?.read !== 'function') return;
     try {
       const at = clock();
-      for (const day of [utcDay(at - DAY_MS), utcDay(at)])
-        thinks.seed(await reader.read(placeId, { day, kind: 'turn', n: Number.MAX_SAFE_INTEGER }), {
-          isDm: false,
-        });
+      for (const day of [utcDay(at - DAY_MS), utcDay(at)]) {
+        const records = await reader.read(placeId, { day, kind: 'turn', n: Number.MAX_SAFE_INTEGER });
+        thinks.seed(records, { isDm: false });
+        for (const turn of seedsOfRecords(records)) seedRing.note(turn.placeId, turn.turnId, turn.refs);
+      }
     } catch (error) {
       log.warn('turn: thinks not seeded', { placeId, error });
     }

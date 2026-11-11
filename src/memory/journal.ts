@@ -38,7 +38,9 @@
 // Which message started the turn that posted each of her messages (`triggerLinks`,
 // `triggerLinksOf`): read once at start, so her transcript lines keep naming their turn's trigger
 // across a restart (src/behavior/turn.js). Her skill calls (`callMarks`, `callMarksOf`) are read
-// the same way, so her lines keep showing what she called and how it went.
+// the same way, so her lines keep showing what she called and how it went. Her lookups (`lookupsOfRecords`, with the
+// identities of the lines each `#n` named) and what each turn raised for the graph reader (`seedsOfRecords`) are read
+// at start too, so `<recall>` and `<memory>` are the same after a restart as before it.
 //
 // Which turn posted one of her messages (`findTurn`, `turnOfMessage`, shown by `turnView`): for
 // `/nep memory journal message:`, the turn record whole, its think included.
@@ -444,6 +446,54 @@ function postedOfTurns(list: Array<StoredRecord>): Map<string, Array<string>> {
   return posted;
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+const textOrNull = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+
+/** The stored source of a kept line, as ids: null without one or when its ids are broken. */
+function storedOfKept(value: unknown): object | null {
+  if (!isObject(value) || typeof value.sourceId !== 'string' || typeof value.placeId !== 'string') return null;
+  const native = value.native;
+  const located =
+    isObject(native) &&
+    typeof native.iface === 'string' &&
+    typeof native.chatId === 'string' &&
+    typeof native.messageId === 'string';
+  return {
+    sourceId: value.sourceId,
+    placeId: value.placeId,
+    iface: textOrNull(value.iface),
+    ...(isIntegerNumber(value.revision) || value.revision === null ? { revision: value.revision } : {}),
+    ...(located ? { native: { iface: native.iface, chatId: native.chatId, messageId: native.messageId } } : {}),
+  };
+}
+
+/**
+ * The lines a closing line kept for its lookup's numbers (src/turn/calls.ts#lineIdentities), each as the turn's registry
+ * holds a line: its number, message id, place, author, whether it is hers or deleted, and its stored source. A line with
+ * no whole number or no id is left out.
+ */
+function keptLines(value: unknown): Array<object> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((line: unknown) => {
+    if (!isObject(line) || !isIntegerNumber(line.n)) return [];
+    const id = line.id;
+    if (typeof id !== 'string' && !isFiniteNumber(id)) return [];
+    const stored = storedOfKept(line.stored);
+    return [
+      {
+        n: line.n,
+        id,
+        ...(line.placeId !== undefined ? { placeId: textOrNull(line.placeId) } : {}),
+        ...(line.authorId !== undefined ? { authorId: textOrNull(line.authorId) } : {}),
+        ...(typeof line.self === 'boolean' ? { self: line.self } : {}),
+        ...(line.deleted === true ? { deleted: true } : {}),
+        ...(stored ? { stored } : {}),
+      },
+    ];
+  });
+}
+
 /** The lookup one closing line kept, with the messages its turn posted among its anchors; null for any other line. */
 function lookupOfRecord(record: StoredRecord, posted: ReadonlyArray<string>): object | null {
   const kept = record.kind === 'action' && record.name === 'skill' ? record.result?.lookup : null;
@@ -451,6 +501,7 @@ function lookupOfRecord(record: StoredRecord, posted: ReadonlyArray<string>): ob
   const at = Date.parse(String(record.occurredAt));
   if (!kept || typeof place?.id !== 'string' || typeof record.turnId !== 'string' || !isFiniteNumber(at)) return null;
   const args: unknown = kept.args;
+  const lines = keptLines(kept.lines);
   return {
     turnId: record.turnId,
     at,
@@ -461,6 +512,7 @@ function lookupOfRecord(record: StoredRecord, posted: ReadonlyArray<string>): ob
     extract: typeof kept.extract === 'string' ? kept.extract : '',
     sourceIds: textsOf(kept.sourceIds),
     anchorMessageIds: [...new Set([...textsOf(kept.anchorMessageIds), ...posted])],
+    ...(lines.length > 0 ? { lines } : {}),
   };
 }
 
@@ -475,6 +527,28 @@ export function lookupsOfRecords(records: Array<unknown>): Array<object> {
   return list
     .map((record) => lookupOfRecord(record, posted.get(String(record.turnId)) ?? []))
     .filter((one): one is object => one !== null);
+}
+
+/**
+ * What each turn of journal records (parsed lines, any kinds, oldest first) raised for the graph reader of the next
+ * turns in its place (src/turn/seed-ring.ts): every `turn` record that kept `seeds`, as `{ placeId, turnId, refs }`,
+ * `placeId` the ring's place and the refs `{ kind, rowId }` pairs, in the order of the records. Pure.
+ */
+export function seedsOfRecords(
+  records: Array<unknown>
+): Array<{ placeId: string; turnId: string; refs: Array<{ kind: string; rowId: string }> }> {
+  return recordsOf(records).flatMap((record) => {
+    const kept: unknown = record.seeds;
+    if (record.kind !== 'turn' || typeof record.turnId !== 'string' || !isObject(kept)) return [];
+    const { placeId, refs: seeds } = kept;
+    if (typeof placeId !== 'string' || !Array.isArray(seeds)) return [];
+    const refs = seeds.flatMap((one: unknown) =>
+      isObject(one) && typeof one.kind === 'string' && typeof one.rowId === 'string'
+        ? [{ kind: one.kind, rowId: one.rowId }]
+        : []
+    );
+    return [{ placeId, turnId: record.turnId, refs }];
+  });
 }
 
 /**

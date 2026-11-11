@@ -392,6 +392,8 @@ export type JournalDraft = {
   steps?: unknown;
   /** The turn's handle registry (src/turn/handles.ts): a reference in her think is stored as the line's identity. */
   handles?: Handles | null;
+  /** The place of the seed ring and the people and places the turn's lines raised there (src/turn/seed-ring.ts). */
+  seeds?: { placeId: string; refs: ReadonlyArray<{ kind: string; rowId: string }> } | null;
 };
 
 /**
@@ -399,6 +401,7 @@ export type JournalDraft = {
  * draft and the result it returned: `reason` is the attempt's skip code (`silence`, `nothing-to-do`:
  * SKIP_SILENCE, SKIP_NOTHING_TO_DO) or refusal code, else null (old skip records carry null too). A `#n` in her
  * think is stored as the identity of the line it named, and a number that names nothing is cut (`draft.handles`).
+ * `seeds` keeps what the turn raised for the seed ring, as ids.
  */
 // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5a, a pure move
 export function journalTurnRecord(
@@ -427,7 +430,16 @@ export function journalTurnRecord(
     // The native-tools step engine's counts and step number; absent while no turn noted them.
     ...(draft.format && typeof draft.format === 'object' ? { format: formatCountsOf(draft.format) } : {}),
     ...(draft.steps !== undefined && draft.steps !== null ? { steps: draft.steps } : {}),
+    // The seeds as `{ kind, rowId }` pairs under the ring's place, so a restart refills the seed ring
+    // (src/memory/journal.ts#seedsOfRecords).
+    ...(draft.seeds ? { seeds: seedsRecordOf(draft.seeds) } : {}),
   };
+}
+
+/** The seeds of a turn as its record keeps them: the ring's place and `{ kind, rowId }` pairs, nothing else. */
+function seedsRecordOf(seeds: NonNullable<JournalDraft['seeds']>): object {
+  const { placeId, refs } = seeds;
+  return { placeId, refs: refs.map(({ kind, rowId }) => ({ kind, rowId })) };
 }
 
 /** How long a failed addressed turn is kept for her next request in the channel. */

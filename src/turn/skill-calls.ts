@@ -29,6 +29,7 @@ import {
   callTextOf,
   callViewOf,
   defaultSkills,
+  lineIdentities,
   lookupOfCall,
   lookupSettingsOf,
   MARK_TEXT_CHARS,
@@ -405,9 +406,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     if (lookup === null) return null;
     const settings = lookupSettingsOf(hot.config);
     lookupRing?.note(lookup, settings);
-    // The closing line keeps no lines: what they carry is the turn's own, and a restored extract shows no number.
+    // The closing line keeps the identities of the lines, never their text, so a restored extract keeps its numbers.
     const kept: Lookup = { ...lookup, extract: clampWithEllipsis(lookup.extract, settings.extractChars) };
-    delete kept.lines;
+    if (lookup.lines) kept.lines = lineIdentities(lookup.lines);
     return kept;
   }
 

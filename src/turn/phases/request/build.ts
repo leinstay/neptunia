@@ -459,7 +459,10 @@ function framedInputsOf(
       seen: seenOf(windows, frame.blocks.includes('recall') ? lookups : [], reads),
     };
     mind = reads.mind(memoryContext, seeds, now);
-    if (turnId !== null) ctx.seedRing.note(place.id, turnId, seedRefsOf(mind));
+    const raised = seedRefsOf(mind);
+    if (turnId !== null) ctx.seedRing.note(place.id, turnId, raised);
+    // The turn record keeps them, so a restart refills the ring (src/memory/journal.ts#seedsOfRecords).
+    draft.seeds = { placeId: place.id, refs: raised };
   } catch (error) {
     log.warn('turn: memory not read', { channel: channel.id, error });
   }
