@@ -722,7 +722,9 @@ export function readerRequest(given: ReaderInput): ReaderResult {
   const { names } = offered;
   const withHandle = (one: MemoryItem): MemoryItem => {
     if (!named) return one;
-    return one.handleKey ? { ...one, text: `@${names.people.handleOf(one.handleKey)} ${one.text}` } : one;
+    if (!one.handleKey) return one;
+    const ref = labels.people?.ref ?? '@{handle}: {name}';
+    return { ...one, text: fill(ref, { handle: names.people.handleOf(one.handleKey), name: one.text }) };
   };
   const { stats } = fit;
   const cutBy = Object.fromEntries(

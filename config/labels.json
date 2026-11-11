@@ -7,6 +7,9 @@
       "lineAccount": "{handle} ({iface} {id})",
       "unknown": "someone"
     },
+    "people": {
+      "ref": "@{handle}: {name}"
+    },
     "places": {
       "ref": "#{handle}: {name}",
       "refUnhandled": "{name}",
@@ -953,7 +956,7 @@
     },
     "meanwhile": {
       "header": "Your own recent messages in other places, each with a few lines around it. They are not lines of this chat. When someone refers to something in one of these places, read that place further with a tool before you answer.",
-      "place": "{path}, {date}:",
+      "place": "{handle}: {date}",
       "line": "[{time}] {author}: {text}",
       "you": "you"
     },

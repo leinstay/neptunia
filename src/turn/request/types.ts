@@ -106,7 +106,9 @@ export type Labels = {
   readonly refs?: LabelGroup;
   /** How a line names its author (`line`, `lineAccount`, `unknown`). */
   readonly authors?: LabelGroup;
-  /** How a block names a place (`ref`, `refUnhandled`). */
+  /** How an entry of `<people>` opens (`ref`: `@{handle}: {name}`). */
+  readonly people?: LabelGroup;
+  /** How a block names a place (`ref`, `refUnhandled`, `link`, `linkPlain`, `join`, `iface`, `dm`). */
   readonly places?: LabelGroup;
 };
 
