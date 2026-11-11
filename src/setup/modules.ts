@@ -1,7 +1,7 @@
 // The setup contract of an optional module, an interface or an executable skill: the module declares its settings in
-// `setup.json`, and this file validates that declaration and stores the values. `neptunia setup`, `/interfaces setup`,
-// `/skills setup` and the targeted set, clear, add and remove commands all write through here, so a value set either
-// way lands in the same place. A module owns `data/interfaces/<name>/` or `data/skills/<name>/`: plain values go to its
+// `setup.json`, and this file validates that declaration and stores the values. `neptunia setup`,
+// `/interfaces <name> setup`, `/skills setup` and the targeted set, clear, add and remove commands all write through
+// here, so a value set either way lands in the same place. A module owns `data/interfaces/<name>/` or `data/skills/<name>/`: plain values go to its
 // `config.json`, secrets to its `credentials.json` at mode 0600. A value is read back masked when it is a secret.
 // Deleting a module's code or disabling it touches none of this. Called by src/setup/run.ts and
 // src/interface/commands/module-setup.ts.
@@ -16,8 +16,7 @@ export type ModuleRef = { rootDir: string; dataDir: string; kind: ModuleKind; na
 
 const SETTING_KINDS = ['text', 'list', 'secret'] as const;
 type SettingKind = (typeof SETTING_KINDS)[number];
-/** `roots`: the list setting that holds the roots the interface serves, which the core writes on an accept or a remove. */
-export type ModuleSetting = { key: string; question: string; kind: SettingKind; required: boolean; roots: boolean };
+export type ModuleSetting = { key: string; question: string; kind: SettingKind; required: boolean };
 export type ModuleValue = { key: string; kind: SettingKind; required: boolean; value: string | null };
 type Json = Record<string, unknown>;
 
@@ -36,9 +35,7 @@ function parseSetting(raw: unknown, source: string): ModuleSetting {
   if (kind === undefined) throw new Error(`${source}: ${raw.key} needs a kind, one of ${SETTING_KINDS.join(', ')}`);
   if (typeof raw.question !== 'string' || raw.question.trim() === '')
     throw new Error(`${source}: ${raw.key} needs a question`);
-  const roots = raw.roots === true;
-  if (roots && kind !== 'list') throw new Error(`${source}: ${raw.key} holds the roots, so it must be a list`);
-  return { key: raw.key, question: raw.question, kind, required: raw.required === true, roots };
+  return { key: raw.key, question: raw.question, kind, required: raw.required === true };
 }
 
 /** Where the module keeps its values. */
@@ -59,7 +56,6 @@ export function readModuleSettings(ref: ModuleRef): Array<ModuleSetting> | null 
   const settings = parsed.settings.map((raw) => parseSetting(raw, file));
   if (new Set(settings.map((one) => one.key)).size !== settings.length)
     throw new Error(`${file}: a setting key appears twice`);
-  if (settings.filter((one) => one.roots).length > 1) throw new Error(`${file}: only one setting may hold the roots`);
   return settings;
 }
 
@@ -170,11 +166,6 @@ export function removeModuleItem(
   if (!items.includes(item.trim())) return false;
   writeJson(file, { ...readJson(file), [key]: items.filter((one) => one !== item.trim()) }, mode);
   return true;
-}
-
-/** The items stored in a list setting, as text. */
-export function moduleItems(ref: ModuleRef, settings: ReadonlyArray<ModuleSetting>, key: string): Array<string> {
-  return listOf(ref, settings, key).items;
 }
 
 /** One question to the owner; an empty answer keeps what is stored. */

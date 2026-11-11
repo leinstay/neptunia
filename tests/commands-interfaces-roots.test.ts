@@ -1,9 +1,11 @@
-// The owner's roots commands (src/interface/commands/interfaces-roots.ts): each of `/interfaces invite`, `roots`,
-// `roots accept` and `roots remove` reaches its own method of the core's joining with the interface and the root it
-// names, any other command passes by, and a console with no joining answers without throwing. The joining is a recorder.
+// The owner's roots commands (src/interface/commands/interfaces-roots.ts): `/interfaces <name> invite` and
+// `/interfaces <name> list`, parsed by the chat's table, each reach their own method of the core's joining with the
+// interface they name, any other command passes by, and a console with no joining answers without throwing. The
+// joining is a recorder.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rootsCommand } from '../src/interface/commands/interfaces-roots.ts';
+import { parseCommandLine } from '../src/interface/commands/table.ts';
 import type { JoiningAnswer, RootJoining } from '../src/interface/root-joining.ts';
 
 function recorder(): { joining: RootJoining; calls: Array<string> } {
@@ -12,33 +14,40 @@ function recorder(): { joining: RootJoining; calls: Array<string> } {
     calls.push(call);
     return { text: call, status: 'ok' };
   };
+  // The joining after the owner's cut of 2026-11-11: no waiting state, so no `isOpen`, `accept` or `remove`.
   const joining: RootJoining = {
     rootChanged: () => null,
-    isOpen: () => false,
     rows: () => [],
     invite: (iface) => Promise.resolve(ok(`invite ${iface}`)),
     roots: (iface) => ok(`roots ${iface}`),
-    accept: (iface, root) => ok(`accept ${iface} ${root}`),
-    remove: (iface, root) => ok(`remove ${iface} ${root}`),
   };
   return { joining, calls };
 }
 
-test('each roots command reaches its own operation with the interface and the root it names', async () => {
-  // Catches: an accept run as a remove, or the root of `/interfaces roots accept chatnet g7` dropped on the way.
+/** One typed line, parsed by the table, handed to the roots commands. */
+function typed(joining: RootJoining | null, line: string): Promise<JoiningAnswer> | null {
+  const parsed = parseCommandLine(line);
+  assert.ok(parsed.ok, `${line}: ${parsed.ok ? '' : parsed.reason}`);
+  return rootsCommand(joining, parsed.name, parsed.args);
+}
+
+test('invite and list reach their own operation with the interface they name', async () => {
+  // Catches: a list run as an invite, or the interface's name dropped on the way.
+  // Changed: the lines name the interface before the command, and accept and remove are gone, by the owner's
+  // decisions of 2026-11-11.
   const { joining, calls } = recorder();
-  await rootsCommand(joining, 'interfaces.invite', { name: 'chatnet' });
-  await rootsCommand(joining, 'interfaces.roots', { name: 'chatnet' });
-  await rootsCommand(joining, 'interfaces.roots.accept', { name: 'chatnet', root: 'g7' });
-  await rootsCommand(joining, 'interfaces.roots.remove', { name: 'chatnet', root: 'g8' });
-  assert.deepEqual(calls, ['invite chatnet', 'roots chatnet', 'accept chatnet g7', 'remove chatnet g8']);
+  await typed(joining, '/interfaces chatnet invite');
+  await typed(joining, '/interfaces chatnet list');
+  assert.deepEqual(calls, ['invite chatnet', 'roots chatnet']);
 });
 
 test('another command passes by, and a console with no joining refuses the roots commands', async () => {
-  // Catches: `/interfaces remove` (a settings item) swallowed as a roots remove, or a throw where no core runs.
+  // Catches: `/interfaces chatnet remove servers 111` (a settings item) swallowed by the roots commands, `/interfaces list`
+  // (every interface) taken for the roots of one, or a throw where no core runs.
   const { joining, calls } = recorder();
-  assert.equal(rootsCommand(joining, 'interfaces.remove', { name: 'chatnet' }), null);
+  assert.equal(typed(joining, '/interfaces chatnet remove servers 111'), null);
+  assert.equal(typed(joining, '/interfaces list'), null);
   assert.deepEqual(calls, []);
-  const refused = await rootsCommand(null, 'interfaces.invite', { name: 'chatnet' });
+  const refused = await typed(null, '/interfaces chatnet invite');
   assert.equal(refused?.status, 'failed');
 });

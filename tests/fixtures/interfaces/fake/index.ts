@@ -13,7 +13,7 @@
 //   as `{ op: 'held' }`.
 // Once `start` resolved, the fixture tells `{ op: 'started' }`.
 //
-// The fake answers the invite read with `INVITE`, so a test can open joining on it (`/interfaces invite fake`).
+// The fake answers the invite read with `INVITE`, so a test can ask for its invite link (`/interfaces fake invite`).
 
 import type { ChatInfo, MessageEvent, MemberInfo } from '../../../../src/protocol/adapter.ts';
 import type { RootChanged } from '../../../../src/protocol/events.ts';

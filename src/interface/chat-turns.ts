@@ -9,14 +9,13 @@
 // of its own: a line the answering turn had in view (`seenByTurn`, the runner's spokeAfterSeeing) ends with that turn, and
 // for any other a later line's turn starting, or a stretch with no turn running anywhere, ends its wait. The states live in this
 // process, and `turn.replay` names the core's instance so a client learns of a restart. A client that asked with `turn.replay`
-// is an open chat (`chats`), where her posts go when the client that sent the last line is gone. A notice of the core
-// (`notice`) goes to every open chat as a `command.result` of status `notice`; with none open it waits for the next chat
-// that opens. src/interface/neptunia-cli.ts holds one.
+// is an open chat (`chats`), where her posts go when the client that sent the last line is gone.
+// src/interface/neptunia-cli.ts holds one.
 
 import { randomUUID } from 'node:crypto';
 import { ackOf } from '../protocol/index.ts';
 import type { Logger } from '../protocol/serve.ts';
-import { NOTICE_STATUS, TURN_EVENT_STATUS, readTurnAction } from '../protocol/turn-control.ts';
+import { TURN_EVENT_STATUS, readTurnAction } from '../protocol/turn-control.ts';
 import type { Envelope } from '../protocol/wire.ts';
 import { createTurnControl } from '../turn/control.ts';
 import type { TurnAttachment, TurnOutcome, TurnRun } from '../turn/control.ts';
@@ -103,12 +102,7 @@ export type ChatTurns = {
   command(link: AdapterLink, name: string, args: Record<string, unknown>): Answer;
   /** The open links that asked for the turn events with `turn.replay`: the open chats, the newest last. */
   chats(): ReadonlyArray<AdapterLink>;
-  /** Tells every open chat `text`; with none open, the next chat that opens hears it. */
-  notice(text: string): void;
 };
-
-/** How many notices wait for a chat to open; the oldest goes first. */
-const WAITING_NOTICES = 20;
 
 export function createChatTurns({
   door,
@@ -136,13 +130,6 @@ export function createChatTurns({
   // Insertion order is the arrival order.
   const lines = new Map<string, TrackedLine>();
   const subscribers = new Set<AdapterLink>();
-  const notices: Array<string> = [];
-
-  function sendNotice(link: AdapterLink, text: string): void {
-    void link
-      .answerCommand({ replyRef: NOTICE_STATUS, text, status: NOTICE_STATUS })
-      .catch((err: unknown) => log.warn('commands: notice not sent', { error: err }));
-  }
 
   function settle(line: TrackedLine, outcome: TurnOutcome): void {
     line.outcome ??= outcome;
@@ -234,15 +221,6 @@ export function createChatTurns({
       for (const link of subscribers) if (link.isClosed()) subscribers.delete(link);
       return [...subscribers];
     },
-    notice(text) {
-      for (const link of subscribers) if (link.isClosed()) subscribers.delete(link);
-      if (subscribers.size === 0) {
-        notices.push(text);
-        if (notices.length > WAITING_NOTICES) notices.shift();
-        return;
-      }
-      for (const link of subscribers) sendNotice(link, text);
-    },
     async take({ id, value, message, from, onHeld, onNoTurn }) {
       if (lines.has(id)) return ackOf(value, 'duplicate');
       const line: TrackedLine = {
@@ -322,7 +300,6 @@ export function createChatTurns({
           // Taken out first, so the chat that asked last is the newest.
           subscribers.delete(link);
           subscribers.add(link);
-          for (const text of notices.splice(0)) sendNotice(link, text);
           return { text: JSON.stringify({ instance, events: control.replay(action.after) }), status: 'ok' };
       }
     },

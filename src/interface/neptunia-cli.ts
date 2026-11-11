@@ -10,8 +10,9 @@
 // A command of the `cli` principal is a command of the chat's table (src/interface/commands/table.ts), parsed by the chat, and runs with the owner's rights:
 // `status` (the short summary), `header` (the chat's opening line, no row of the table), `help`, and
 // `interfaces.list`, `interfaces.enable` and `interfaces.disable` (`args.name`) are answered here, every other one by the
-// owner's console (src/interface/commands/console.ts). Every answer is plain text with a status: `ok` when the command
-// ran, else the operation's own status (`denied`, `invalid`, `failed`). `status` and `header` read what the core holds
+// owner's console (src/interface/commands/console.ts). A command on one interface whose name the core does not list
+// and no package holds is refused here with code `unknown-interface` and every name there is. Every answer is plain
+// text with a status: `ok` when the command ran, else the operation's own status (`denied`, `invalid`, `failed`). `status` and `header` read what the core holds
 // already (today's usage, the inner life, the errands, the interfaces, the model roles that are down by
 // src/llm/role-health.ts) and call no model.
 //
@@ -37,7 +38,7 @@ import { log } from '../log.ts';
 import { createChatTurns } from './chat-turns.ts';
 // The reading of a line's links, wired by the composition root with the intake.
 export { lineLinksOf } from './cli-line-links.ts';
-import { COMMANDS } from './commands/table.ts';
+import { COMMANDS, UNKNOWN_INTERFACE } from './commands/table.ts';
 import { createDialogBroker } from './commands/dialogs.ts';
 import type { DialogBroker, Question } from './commands/dialogs.ts';
 import type { Dialog } from '../keys/commands.ts';
@@ -104,6 +105,8 @@ export type CommandDeps = {
     list(): ReadonlyArray<InterfaceRow>;
     enable(name: string): void;
     disable(name: string): Promise<{ drained: number; unknown: number }>;
+    /** The interface packages of the engine and the data folder, known before the core lists them; none when absent. */
+    installed?(): ReadonlyArray<string>;
   };
   facts(): StatusFacts;
   /** The board's `task.*` commands, run under a principal's name. */
@@ -204,6 +207,25 @@ export function createCommandDesk(deps: CommandDeps): {
     };
   }
 
+  /**
+   * The refusal of a command on one interface whose name is no interface the core lists and no installed package, with
+   * every name there is; null when the name is known.
+   */
+  function unknownInterface(name: string, args: Record<string, unknown>): Answer | null {
+    if (!name.startsWith('interfaces.') || name === 'interfaces.list') return null;
+    const known = [
+      ...new Set([...deps.interfaces.list().map((row) => row.name), ...(deps.interfaces.installed?.() ?? [])]),
+    ].sort();
+    const target = typeof args.name === 'string' ? args.name : '';
+    if (known.includes(target)) return null;
+    const every = known.length === 0 ? 'none is known' : known.join(', ');
+    return {
+      text: `/interfaces ${target}: no interface has that name; interfaces: ${every}`,
+      status: 'invalid',
+      code: UNKNOWN_INTERFACE,
+    };
+  }
+
   async function cliCommand(event: CommandEvent): Promise<Reply> {
     const { name, args } = event;
     if (event.dialogId !== undefined) {
@@ -218,6 +240,8 @@ export function createCommandDesk(deps: CommandDeps): {
     if (name === 'help') return { text: helpText(), status: 'ok' };
     if (name === 'status') return { text: statusText(deps.facts()), status: 'ok' };
     if (name === 'header') return { text: headerText(deps.facts()), status: 'ok' };
+    const unknown = unknownInterface(name, args);
+    if (unknown !== null) return unknown;
     if (name === 'interfaces.list' || name === 'interfaces.enable' || name === 'interfaces.disable')
       return interfaceCommand(name, args);
     return dialogs.start(name, (dialog) => deps.console.run(name, args, event.requester, dialog));
@@ -419,8 +443,6 @@ export function createCommandIntake(deps: {
   /** The owner's cancel of the turn over the message `triggerId`, null for every other turn. */
   cancelOf(triggerId: string | null): AbortSignal | null;
   noteProgress(triggerId: string | null, step: { name: string; detail: string }): void;
-  /** Tells the owner's open chats `text` on the core's own (a root that waits); with none open, the next one. */
-  notice(text: string): void;
 } {
   const turns = createChatTurns({
     door: deps.door,
@@ -540,7 +562,6 @@ export function createCommandIntake(deps: {
     },
     cancelOf: (triggerId) => turns.cancelOf(triggerId),
     noteProgress: (triggerId, step) => turns.noteProgress(triggerId, step),
-    notice: (text) => turns.notice(text),
     turnEnded(end) {
       turns.turnEnded(end);
       const id = end.trigger?.id;

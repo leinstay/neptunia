@@ -311,7 +311,7 @@ export function ownerLinkedPerson(db: Db, accountId: string): string | null {
 
 /**
  * The owner's account on `iface`: the native id of the account whose live owner link to `ownerPerson`, or to the
- * person it was merged into, came last. Pairing a second account there makes it this one, and the first stays his.
+ * person it was merged into, came last. Binding a second account there makes it this one, and the first stays his.
  * Null when he has none there.
  */
 export function ownerAccountOf(db: Db, ownerPerson: string, iface: string): string | null {

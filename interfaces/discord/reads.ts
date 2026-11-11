@@ -322,15 +322,9 @@ export function createDiscordReads(deps: {
           placeId
         ) ?? null);
 
-  /**
-   * The guilds this interface serves: the ones its config lists, else the one the bot is in when it lists none. A server
-   * that waits for the owner's accept is none of them.
-   */
+  /** The guilds whose emoji a read with no place lists: every guild the bot is in. */
   function servedGuilds(): Array<Obj | null> {
-    const listed: unknown = obj(deps.config()).servers;
-    if (Array.isArray(listed) && listed.length > 0) return listed.map((id) => guildOf(String(id)));
-    const every = [...((obj(client.guilds).cache as Map<string, Obj> | undefined)?.values() ?? [])];
-    return every.length === 1 ? every : [];
+    return [...((obj(client.guilds).cache as Map<string, Obj> | undefined)?.values() ?? [])];
   }
 
   /** The event of a discord.js message without its handles. */

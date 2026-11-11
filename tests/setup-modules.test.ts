@@ -132,24 +132,3 @@ test('a name that leaves the module folders and a key the module does not declar
   assert.equal(fs.existsSync(path.join(moduleDir(ref), 'config.json')), false);
   assert.throws(() => setModuleValue(ref, DISCORD_LIKE.settings as never, 'nope', 'x'), /no setting/);
 });
-
-test('a list setting marked as the roots is reported so, and the mark on any other kind is refused', () => {
-  // Catches: the core writing an accepted root into a text setting, or into no setting at all.
-  const { code, ref } = rig();
-  fs.writeFileSync(
-    path.join(code, 'setup.json'),
-    JSON.stringify({ settings: [{ ...DISCORD_LIKE.settings[1], roots: true }, DISCORD_LIKE.settings[2]] })
-  );
-  assert.deepEqual(
-    readModuleSettings(ref)?.map((one) => [one.key, one.roots]),
-    [
-      ['servers', true],
-      ['greeting', false],
-    ]
-  );
-  fs.writeFileSync(
-    path.join(code, 'setup.json'),
-    JSON.stringify({ settings: [{ ...DISCORD_LIKE.settings[2], roots: true }] })
-  );
-  assert.throws(() => readModuleSettings(ref));
-});

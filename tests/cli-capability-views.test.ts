@@ -139,6 +139,31 @@ test('a capability menu reads through the list operation, and its rows are the t
   }
 });
 
+test('the interfaces menu prefills no command before the interface', async () => {
+  // The owner's decision of 2026-11-11 put the interface first and removed the old order. Catches: a menu row that
+  // prefills `/interfaces setup `, a line the table refuses.
+  const commands = [
+    'setup',
+    'settings',
+    'set',
+    'clear',
+    'add',
+    'remove',
+    'enable',
+    'disable',
+    'invite',
+    'pair',
+    'roots',
+  ];
+  const panel = await capabilityPanel('interfaces', () =>
+    Promise.resolve({ status: 'ok', text: 'zeta71  enabled  connected' })
+  );
+  for (const row of panel.rows ?? []) {
+    const second = (row.prefill ?? '').split(' ')[1] ?? '';
+    assert.equal(commands.includes(second), false, `${row.id}: ${row.prefill ?? ''}`);
+  }
+});
+
 test('the agents menu uses its own command', async () => {
   // Bug: a menu row prefills a command of another family.
   // Changed: the menu opens under the command's own word, `/agent`, and `/agents` is no second name for it.

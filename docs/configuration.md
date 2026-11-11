@@ -11,15 +11,15 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `interfaces.drainMs` | number | `10000` | How long a disable (`/interfaces disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown` | `src/core.ts` |
-| `interfaces.*.enabled` | boolean | `true` | Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interfaces disable` writes `false` here in the private settings file | `src/core.ts` |
+| `interfaces.drainMs` | number | `10000` | How long a disable (`/interfaces <name> disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown` | `src/core.ts` |
+| `interfaces.*.enabled` | boolean | `true` | Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interfaces <name> disable` writes `false` here in the private settings file | `src/core.ts` |
 
 ## bot
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/selfreflection.ts` |
-| `bot.ownerPerson` | string | `""` | The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account paired with `/interfaces pair` or bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity) | `src/tools/operations/grants.ts` |
+| `bot.ownerPerson` | string | `""` | The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity) | `src/tools/operations/grants.ts` |
 | `bot.mnemonic` | string | `"en"` | The language of the word list of the one-time phrases that prove an account, `en` for `src/mnemonic/bip-en` or `ru` for `src/mnemonic/bip-ru`. `/mnemonic` shows it and `/mnemonic en` or `/mnemonic ru` switches it, for the owner only. A phrase issued before a switch is refused after it. See [Phrase codes](interfaces.md#phrase-codes) | `src/interface/phrase-codes.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 

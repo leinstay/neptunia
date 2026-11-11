@@ -106,7 +106,7 @@ Use `/search` to inspect and change the engine and the enabled state. `/model se
 
 `/keys service set <name>` prompts for a service value. Supported service names include `youtube`, `brave`, `exa` and `proxy`. The [setup guide](setup.md#optional-modules) links to the YouTube API instructions. `proxy` is the URL of the engine proxy, which `/proxy set` stores too and `/proxy on` puts in force (see [Proxy](proxy.md)).
 
-`/interfaces set discord token` asks Discord's token through the masked question of its setup contract and writes it to `data/interfaces/discord/credentials.json`. A skill's setup contract declares its own secrets. Removing a platform's credentials does not remove stored memories from it.
+`/interfaces discord set token` asks Discord's token through the masked question of its setup contract and writes it to `data/interfaces/discord/credentials.json`. A skill's setup contract declares its own secrets. Removing a platform's credentials does not remove stored memories from it.
 
 Back up credentials with the complete persona, keep the backup private and do not commit credentials to Git. Key files are not encrypted by the engine.
 

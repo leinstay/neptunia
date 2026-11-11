@@ -73,6 +73,17 @@ export function interfacePackageDir(rootDir: string, dataDir: string, name: stri
     : path.join(rootDir, 'interfaces', name);
 }
 
+/** The interface packages that declare a `setup.json`, shipped under `interfaces/` or authored under the data folder. */
+export function interfacePackageNames(rootDir: string, dataDir: string): Array<string> {
+  const names = new Set<string>();
+  for (const dir of [path.join(rootDir, 'interfaces'), path.join(dataDir, 'interfaces')]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true }))
+      if (entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, 'setup.json'))) names.add(entry.name);
+  }
+  return [...names].sort();
+}
+
 /** One interface receives only its own platform token, independently of core model credentials. */
 /** The variable an interface reads its platform token from: `my-chat` -> `MY_CHAT_TOKEN`, dashes become `_`. */
 export function tokenVariableOf(iface: string): string {

@@ -113,21 +113,88 @@ test('every /skills subcommand that works on one skill takes its name and is ref
   }
 });
 
-test('/interfaces invite and the three /interfaces roots lines parse to their names and arguments', () => {
-  // Catches: `/interfaces roots accept discord g7` read as the roots of an interface named `accept`.
-  const cases: Array<[string, string, Record<string, string>]> = [
-    ['/interfaces invite discord', 'interfaces.invite', { name: 'discord' }],
-    ['/interfaces roots discord', 'interfaces.roots', { name: 'discord' }],
-    ['/interfaces roots accept discord g7', 'interfaces.roots.accept', { name: 'discord', root: 'g7' }],
-    ['/interfaces roots remove discord g7', 'interfaces.roots.remove', { name: 'discord', root: 'g7' }],
-  ];
-  for (const [line, name, args] of cases) {
+/**
+ * The family as the owner set it on 2026-11-11, after his cut: the interface first, then its command. Each line with the
+ * operation it parses into, the interface it names and the other values it carries.
+ */
+const INTERFACE_FORMS: ReadonlyArray<{ line: string; name: string; values: ReadonlyArray<string> }> = [
+  { line: '/interfaces zeta71 setup', name: 'interfaces.setup', values: [] },
+  { line: '/interfaces zeta71 settings', name: 'interfaces.settings', values: [] },
+  { line: '/interfaces zeta71 set token', name: 'interfaces.set', values: ['token'] },
+  { line: '/interfaces zeta71 set prefix ok', name: 'interfaces.set', values: ['prefix', 'ok'] },
+  { line: '/interfaces zeta71 clear token', name: 'interfaces.clear', values: ['token'] },
+  { line: '/interfaces zeta71 add servers 111', name: 'interfaces.add', values: ['servers', '111'] },
+  { line: '/interfaces zeta71 remove servers 111', name: 'interfaces.remove', values: ['servers', '111'] },
+  { line: '/interfaces zeta71 enable', name: 'interfaces.enable', values: [] },
+  { line: '/interfaces zeta71 disable', name: 'interfaces.disable', values: [] },
+  { line: '/interfaces zeta71 invite', name: 'interfaces.invite', values: [] },
+  { line: '/interfaces zeta71 list', name: 'interfaces.roots', values: [] },
+];
+
+for (const { line, name, values } of INTERFACE_FORMS) {
+  test(`${line} parses into ${name} on the interface it names`, () => {
+    // Catches: the name taken for a command word, a value landing under the interface's name, or a command of one
+    // interface run on another.
     const parsed = parseCommandLine(line);
     assert.ok(parsed.ok, `${line}: ${parsed.ok ? '' : parsed.reason}`);
-    assert.equal(parsed.name, name, line);
-    for (const [key, value] of Object.entries(args)) assert.equal(parsed.args[key], value, `${line} ${key}`);
+    assert.equal(parsed.name, name);
+    assert.equal(parsed.args.name, 'zeta71');
+    for (const value of values) assert.ok(Object.values(parsed.args).includes(value), `${line} carries ${value}`);
+  });
+}
+
+test('/interfaces and /interfaces list list every interface', () => {
+  // Catches: `list` read as the name of an interface, so the owner's overview becomes a command on nothing.
+  for (const line of ['/interfaces', '/interfaces list']) {
+    const parsed = parseCommandLine(line);
+    assert.ok(parsed.ok, line);
+    assert.equal(parsed.name, 'interfaces.list');
+    assert.equal(parsed.args.name, undefined, line);
   }
-  assert.equal(parseCommandLine('/interfaces roots accept discord').ok, false, 'accept needs a root');
+});
+
+test('an interface command without its value is refused', () => {
+  // Catches: `set` with no key writing the interface's name as a key, or `remove` with one word taken for something to
+  // remove.
+  for (const line of ['/interfaces zeta71 set', '/interfaces zeta71 add servers', '/interfaces zeta71 remove servers'])
+    assert.equal(parseCommandLine(line).ok, false, line);
+});
+
+test('the forms with the command before the interface are no command', () => {
+  // The owner's decision of 2026-11-11 removed them with no alias. Catches: an old line still running, here or with
+  // its words reread, so a script written for the old order changes the wrong thing.
+  for (const line of [
+    '/interfaces invite zeta71',
+    '/interfaces roots zeta71',
+    '/interfaces setup zeta71',
+    '/interfaces enable zeta71',
+    '/interfaces disable zeta71',
+    '/interfaces pair open zeta71',
+    '/interfaces set zeta71 token',
+  ])
+    assert.equal(parseCommandLine(line).ok, false, line);
+});
+
+test('pairing, accept and remove of a root are no commands of an interface', () => {
+  // The owner removed them on 2026-11-11: a root she is added to is served at once, and his accounts are bound with
+  // `/memory bind`. Catches: a removed command still parsed and run under its old name.
+  for (const line of [
+    '/interfaces zeta71 pair',
+    '/interfaces zeta71 pair πέτρα δέντρο νερό',
+    '/interfaces zeta71 accept g7',
+    '/interfaces zeta71 remove g7',
+    '/interfaces pair πέτρα δέντρο νερό',
+  ])
+    assert.equal(parseCommandLine(line).ok, false, line);
+});
+
+test('/skills keeps the command before the skill', () => {
+  // Catches: the interfaces grammar spread to the other family built on the same module commands.
+  const parsed = parseCommandLine('/skills setup gifs');
+  assert.ok(parsed.ok);
+  assert.equal(parsed.name, 'skills.setup');
+  assert.equal(parsed.args.name, 'gifs');
+  assert.equal(parseCommandLine('/skills gifs setup').ok, false);
 });
 
 // How a leaf of the owner's command table (src/interface/commands/table.ts) names the operation it runs, read through
@@ -146,7 +213,10 @@ function everyLine(): Array<string> {
     args
       .filter((one) => one.required)
       .flatMap((one) => (one.flag === undefined ? [one.choices?.[0] ?? '1'] : [one.flag, one.choices?.[0] ?? '1']));
+  // The `/interfaces` family puts the interface before its command (owner's decision of 2026-11-11), which a line built
+  // from the table's subcommand words cannot spell, so its lines are the spec's forms.
   return COMMANDS.flatMap((command) => {
+    if (command.name === 'interfaces') return ['/interfaces', ...INTERFACE_FORMS.map((form) => form.line)];
     const subs = command.subcommands;
     if (subs.length === 0) return [['/' + command.name, ...filled(command.args)].join(' ')];
     return subs.map((one) => ['/' + command.name, ...one.name.split('.'), ...filled(one.args)].join(' '));

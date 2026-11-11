@@ -38,8 +38,8 @@ export type BindTarget = { id: string; name: string | null };
 /** The owner's Y/n before a merge: true runs it. */
 export type BindConfirm = (question: { removed: BindTarget; into: BindTarget }) => Promise<boolean>;
 /**
- * What a bind names: the account node and the meta-person it binds to, and who proved it: the owner (his command or
- * his pairing), or a one-time code the person answered (her link tool, src/interface/person-link.ts). `owner` when
+ * What a bind names: the account node and the meta-person it binds to, and who proved it: the owner (his command), or
+ * a one-time code the person answered (her link tool, src/interface/person-link.ts). `owner` when
  * absent.
  */
 export type BindInput = { accountId: string; personId: string; by?: 'owner' | 'code' };

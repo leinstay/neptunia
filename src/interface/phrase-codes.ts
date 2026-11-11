@@ -8,8 +8,7 @@
 //
 // The list is a file of `src/mnemonic/` with one word per line and no comment, `bip-en` or `bip-ru`, picked by
 // `bot.mnemonic` at each use. A phrase issued under one language holds none of the other's words, so a switch refuses
-// every phrase issued before it. Used by the owner's pairing
-// (src/interface/pairing.ts) and her link tool (src/interface/person-link.ts). Nothing here logs.
+// every phrase issued before it. Used by her link tool (src/interface/person-link.ts). Nothing here logs.
 
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';

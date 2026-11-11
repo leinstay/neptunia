@@ -204,7 +204,7 @@ Her turns read the same stored lines. `withStoredHistory` in `src/chat/stored-hi
 
 Tool calls have no such panel, because nothing asks. An agent's mode (`read`, `write`, `full` or `sudo`, `/agent mode`) is set in advance and becomes the sandbox of its run (`src/subharness/control.ts`), and a headless backend cannot stop to ask. Her own tools are decided by grants before the turn (`/tools grant`). So no command panel, scope or expiry exists to show, and no proposed command or file diff reaches a gate: a merge gate shows the artifacts the worker named, and the diff lives in its pull request.
 
-`/tools`, `/skills`, `/interfaces` and `/agent` open a menu: the family's list operation as text, where it has one, and a row per subcommand of the command table that prefills the typed command. Opening a menu runs only that read, and every change goes through its typed command. `/tools list` names every tool and whether she holds it, and `/tools grants` runs `access.list`, every stored grant of hers, of a member, of a role or of everyone. `/status full` ends with the request limit (`llm.maxRequestTokens`), the core's route and its model through `interfaces/cli/context-line.ts`. The size of the last request is held by no read, so it shows as unknown. The chat offers no context compression, because the core has no such operation.
+`/tools`, `/skills`, `/interfaces` and `/agent` open a menu: the family's list operation as text, where it has one, and a row per subcommand of the command table that prefills the typed command. The `/interfaces` menu has a row per interface its list prints instead, which prefills `/interfaces <name> `. Opening a menu runs only that read, and every change goes through its typed command. `/tools list` names every tool and whether she holds it, and `/tools grants` runs `access.list`, every stored grant of hers, of a member, of a role or of everyone. `/status full` ends with the request limit (`llm.maxRequestTokens`), the core's route and its model through `interfaces/cli/context-line.ts`. The size of the last request is held by no read, so it shows as unknown. The chat offers no context compression, because the core has no such operation.
 
 ## Settings and setup panels
 
@@ -226,9 +226,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Inspect and change settings | `/config get`, `/config set`, `/config unset` |
 | Choose credentials and models | `/keys`, `/model`, `/search` |
 | Send outbound connections through one proxy | `/proxy`. See [Proxy](proxy.md) |
-| Configure a chat platform | `/interfaces` |
-| Prove the owner's account on an interface. See [Pairing the owner's account](interfaces.md#pairing-the-owners-account) | `/interfaces pair open <name>`, `/interfaces pair <phrase>` |
-| Add her to a new root and choose which roots she serves. See [Roots of an interface](#roots-of-an-interface) | `/interfaces invite <name>`, `/interfaces roots <name>`, `/interfaces roots accept <name> <root>`, `/interfaces roots remove <name> <root>` |
+| Configure a chat platform, add her to a new root and list the roots she is in. See [The interfaces family](#the-interfaces-family) | `/interfaces`, `/interfaces <name> setup`, `/interfaces <name> invite`, `/interfaces <name> list` |
 | Choose which providers serve a model | `/routes` |
 | Show or switch the language of the phrase codes. See [Phrase codes](interfaces.md#phrase-codes) | `/mnemonic`, `/mnemonic en`, `/mnemonic ru` |
 | Bind an account to a meta-person, or merge two people | `/memory bind`, `/memory users merge` |
@@ -289,18 +287,22 @@ A page shortens a cell over 4 KiB, and the cell's `excerpt` gives `totalBytes`, 
 
 Each block names its source, its account and its observation time. A value the source did not report prints `unknown`, never zero. Subscription tokens carry no price. A failed read of the same known account keeps the last numbers until the core restarts, each marked `(stale)` under its own observation time, and a logout or another account drops them. The blocks are never added together, because the `openrouter` spend of a key already holds what `opencode` spent on that key.
 
-## Roots of an interface
+## The interfaces family
 
-These four commands decide which roots of an interface she serves, in the chat and as `neptunia interfaces <subcommand>`. [Joining a root](interfaces.md#joining-a-root) describes what the core does with each root.
+`/interfaces` and `/interfaces list` list every interface the core knows, with whether it is enabled and whether it is connected. Every other command of the family names the interface first and its command second, in the chat, as `neptunia -p "/interfaces <name> <command>"` and as `neptunia interfaces <name> <command>`. The command table marks the family `nameFirst` (`src/interface/commands/table.ts`), so a line with the command before the name is no command.
 
 | Command | What it does |
 |---|---|
-| `/interfaces invite <name>` | Prints the interface's invite link and opens joining on it for an hour. The first root she joins in that hour is served at once and added to the interface's roots setting. |
-| `/interfaces roots <name>` | Every root of the interface with its state: served, waiting for the owner's accept, or listed with the bot not in it. |
-| `/interfaces roots accept <name> <root>` | Serves a waiting root from now on and adds it to the roots setting. |
-| `/interfaces roots remove <name> <root>` | Stops serving a root at once and takes it off the roots setting. Her memory of it stays. |
+| `/interfaces <name> setup` | Asks the interface's setup questions and stores the answers. |
+| `/interfaces <name> settings` | Shows its settings with secrets hidden. |
+| `/interfaces <name> set <key> [<value>]` | Changes one setting and asks for a secret privately. |
+| `/interfaces <name> clear <key>` | Clears one setting. |
+| `/interfaces <name> add <key> <value>`, `/interfaces <name> remove <key> <value>` | Adds or removes one item of a list setting. |
+| `/interfaces <name> enable`, `/interfaces <name> disable` | Enables or disables the interface. Its settings and her memory of it stay. |
+| `/interfaces <name> invite` | Prints the link that adds her to a new root of the interface. |
+| `/interfaces <name> list` | Every root she is in on the interface. |
 
-A command that did what it says exits `0`. Every refusal exits `1` and changes nothing. All four refuse an interface with no stored token, a disabled one and one whose link is down, and the answer names the repair: `/interfaces setup <name>`, `/interfaces enable <name>` or `neptunia services start neptunia-interface@<name>`. `invite` also refuses an interface that gives no invite link, `accept` a root that is not waiting, and `remove` a root the interface neither serves, lists nor holds waiting. An interface whose package marks no roots setting refuses `invite`, `accept` and `remove`.
+The core refuses a name it does not list and no installed package holds (`interfacePackageNames` in `src/config/files.ts`) with code `unknown-interface` and every interface name, in the chat as well. From a shell that refusal exits `2`, and so does a line of the family the table refuses, with every interface name on stderr. `invite` and `list` refuse an interface with no stored token, a disabled one and one whose link is down, in that order, exit `1` and change nothing. The answer names the repair: `/interfaces <name> setup`, `/interfaces <name> enable` or `neptunia services start neptunia-interface@<name>`. `invite` also refuses an interface that gives no invite link. [Joining a root](interfaces.md#joining-a-root) describes how the core serves roots.
 
 ## Mirrors
 
@@ -329,7 +331,7 @@ A duration is a whole number with `s`, `m`, `h` or `d`, such as `30m` or `4h`.
 |---|---|---|
 | `0` | The command ran or the turn ended | The answer on stdout, stderr empty |
 | `1` | Any other answer, or no core listening | The reason on stderr, stdout empty |
-| `2` | A line the table refuses, an unknown first word, or a request that needs a terminal | The reason on stderr, stdout empty |
+| `2` | A line the table refuses, an unknown first word, a name after `/interfaces` that is no interface, or a request that needs a terminal | The reason on stderr, stdout empty |
 
 `/doctor` through `-p` prints its checks on stdout whatever they found, as `neptunia doctor` does, and exits `1` when a check failed.
 
@@ -338,7 +340,7 @@ The chat with no arguments and `-p /setup` need a terminal. Without one they exi
 A command that asks a question with no terminal exits `1` with the question on stderr and sends no answer. A secret question also names `--secret-stdin`. That flag is accepted by `keys add`, `keys service set`, and the `setup` and `set` commands of `/interfaces` and `/skills`: it answers the first question, when that question is secret, from stdin less one trailing newline. Empty stdin exits `1`, and so does any other question the command asks.
 
 ```bash
-printf '%s\n' "$TOKEN" | neptunia interfaces set discord token --secret-stdin
+printf '%s\n' "$TOKEN" | neptunia interfaces discord set token --secret-stdin
 ```
 
 On every other command `--secret-stdin` is ordinary text. `keys add` and `keys service set` exit `2` for a word past their name, in the chat and in both shell forms, so a secret never reaches the process list, the core or the logs.

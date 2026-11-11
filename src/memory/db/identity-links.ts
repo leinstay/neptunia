@@ -4,7 +4,7 @@
 // account is linked to the owner's person (`bot.ownerPerson`, handed in by the core with the line) from its first line;
 // a tentative person she proposed for it merges into his, unless that person also holds a verified account of someone
 // else. On a raw install the core mints the owner's person with the first line; his accounts elsewhere join it by
-// pairing (src/interface/owner-pairing.ts) or `/memory bind`. An install that
+// `/memory bind`. An install that
 // stored the command line under `cli/global` has those rows moved to its native authority (`cli/local`,
 // src/protocol/identity.ts#nativeAuthorityOf) when the next line arrives, so the line finds its account and its place.
 // Used by observe.ts. Counts and codes only.

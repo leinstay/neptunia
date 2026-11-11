@@ -232,7 +232,8 @@ test('/routes takes the arguments /route took, and a model with a space stays on
 test('/interfaces keeps its leaves', () => {
   // Changed: no interface brings subcommands of its own, so the `otherwise` leaf is gone and
   // tests/neptunia-cli-dispatch.test.ts checks that such a word is refused. Catches: the rename drops a leaf.
-  assert.ok(endsWith(assertAccepted(parseCommandLine('/interfaces enable zeta71')).name, 'enable'));
+  // Changed: the interface comes before its command, by the owner's decision of 2026-11-11.
+  assert.ok(endsWith(assertAccepted(parseCommandLine('/interfaces zeta71 enable')).name, 'enable'));
 });
 
 test('a key never goes on the command line of keys add, and stdin takes it', () => {

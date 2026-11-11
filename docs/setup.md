@@ -52,7 +52,7 @@ With `NEPTUNIA_PLAIN_CHAT=1` and no terminal, a gap prints `setup-required` with
 
 ## The owner's person
 
-Setup names no owner person. The owner's first line in the chat makes one. The core mints a person, and one write links the chat's account to it. Then the core writes `bot.ownerPerson` to `config/config.json` of the data folder (`src/pipeline/observe.ts`). An install that already has `bot.ownerPerson` links the chat to that person. The interfaces step names `/interfaces pair open <name>` for each interface it set up: the owner proves his account there by pairing once the core runs, as [Pairing the owner's account](interfaces.md#pairing-the-owners-account) describes. `/memory bind <iface> <account> owner` binds another account to that person too, as [Owner identity](memory.md#owner-identity) describes.
+Setup names no owner person. The owner's first line in the chat makes one. The core mints a person, and one write links the chat's account to it. Then the core writes `bot.ownerPerson` to `config/config.json` of the data folder (`src/pipeline/observe.ts`). An install that already has `bot.ownerPerson` links the chat to that person. The owner's account on any other interface is a stranger's until `/memory bind <iface> <account> owner` binds it to that person, as [Owner identity](memory.md#owner-identity) describes.
 
 ## Services
 
@@ -66,7 +66,7 @@ Setup starts the core and the interfaces you chose. `neptunia services`, `/logs`
 
 An interface or skill declares questions in its `setup.json`. The common setup implementation stores ordinary values in its `config.json` and secrets in `credentials.json`, under `data/interfaces/<name>/` or `data/skills/<name>/`. Secret files use mode `0600`.
 
-Use `/interfaces setup <name>` or `/skills setup <name>` to repeat these questions. The corresponding `set`, `clear`, `add` and `remove` commands change individual values. Disabling a module keeps its data. The declaration format is covered by [interfaces](interfaces.md) and [skills](skills.md).
+Use `/interfaces <name> setup` or `/skills setup <name>` to repeat these questions. The corresponding `set`, `clear`, `add` and `remove` commands change individual values, after the interface's name for an interface (`/interfaces <name> set <key>`). Disabling a module keeps its data. The declaration format is covered by [interfaces](interfaces.md) and [skills](skills.md).
 
 The optional Google YouTube Data API key improves metadata retrieval. Obtain one through [Google's setup guide](https://developers.google.com/youtube/v3/getting-started), then use `/keys service set youtube`. It does not replace the model that watches video.
 

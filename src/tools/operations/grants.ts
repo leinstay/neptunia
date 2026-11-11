@@ -40,7 +40,7 @@ export function ownerPersonOf(config: unknown): string | null {
 
 /**
  * The one owner check of the owner commands and the private-chat gate: the caller is the owner when the owner bound
- * the caller's account, by `/memory bind` or by pairing, to the meta-person `bot.ownerPerson` names. Nobody is while
+ * the caller's account, by `/memory bind`, to the meta-person `bot.ownerPerson` names. Nobody is while
  * that setting is unset or the accounts cannot be read, and no user is the owner. `config` is the live merged config
  * (hot.config).
  */

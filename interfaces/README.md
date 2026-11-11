@@ -13,7 +13,7 @@ An interface is a folder `interfaces/<name>/` with these files:
 | `package.json` | The package and its platform dependency, installed into its own `node_modules`. |
 | `index.ts` or `index.js` | The entry: it exports `start(host)`, which resolves with a running interface (`src/protocol/host.ts`). |
 | `config.json` | The package's own settings, laid over the core's settings and under `data/interfaces/<name>/config.json`. |
-| `setup.json` | The settings the interface declares (`src/setup/modules.ts`), asked by `neptunia setup` and `/interfaces setup <name>`. |
+| `setup.json` | The settings the interface declares (`src/setup/modules.ts`), asked by `neptunia setup` and `/interfaces <name> setup`. |
 | `README.md` | What the interface connects to and how it runs. |
 
 A package imports nothing of the core beyond `src/protocol/`.
@@ -34,7 +34,6 @@ The modules:
 | `session.ts` | `start(host)`: the client, the login, the guild, the link and every gateway event as a protocol event, held until `open()`. |
 | `members.ts` | A member as the avatar queue sees it (`memberView`, `avatarHashOf`) and the `membership.changed` event. |
 | `gateway.ts` | Creates the discord.js client with the intents and partials the engine needs. |
-| `guild.ts` | Resolves which single guild this instance serves. |
 | `pull-fetch.ts` | The rails of a pull of another channel over discord.js objects, for the recall runner. A turn pulls through the reads. |
 | `search.ts` | Guild message search and member search for recall. |
 | `around.ts` | Voice and presence state of members, the live snapshot for `<people_now>`. |

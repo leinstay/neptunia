@@ -5,13 +5,6 @@
       "question": "Discord bot token (Developer Portal, your application, Bot)",
       "kind": "secret",
       "required": true
-    },
-    {
-      "key": "servers",
-      "question": "Discord server ids to serve, separated by spaces",
-      "kind": "list",
-      "required": false,
-      "roots": true
     }
   ]
 }
