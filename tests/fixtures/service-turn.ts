@@ -209,6 +209,8 @@ type RigSpec = Pick<ServiceTurnSpec, 'seed' | 'adapters'> & {
   settings?: Record<string, number>;
   /** Laid over SERVICE_CONTEXT, such as `channelMessages`. */
   context?: Record<string, unknown>;
+  /** Laid over the rig's `llm` settings, such as `maxRequestTokens`. */
+  llm?: { maxRequestTokens?: number };
   /** The answer to the model's `n`th request, counted from 1 over the runner's life. */
   answer: (n: number) => unknown;
   /** Laid over the fixture's store: a reply turn needs the place of its chat as the world stores it. */
@@ -227,7 +229,7 @@ function rigOf(spec: RigSpec) {
       },
       context: { ...SERVICE_CONTEXT, ...spec.context, memory: { ...SERVICE_CONTEXT.memory, ...spec.settings } },
       dm: { enabled: true },
-      llm: { maxRequestTokens: 60000 },
+      llm: { maxRequestTokens: 60000, ...spec.llm },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       models: { routes: chainsOnDefaults({ analyzer: 'x/text' }) },
       tools: {
@@ -514,6 +516,8 @@ export async function replyRun(spec: {
   settings?: Record<string, number>;
   /** Laid over SERVICE_CONTEXT, such as `channelMessages`. */
   context?: Record<string, unknown>;
+  /** Laid over the rig's `llm` settings, such as `maxRequestTokens`. */
+  llm?: { maxRequestTokens?: number };
   chat?: ReplyChat;
   /** The step that runs on a new turn runner after a restart (rigOf's `restart`), none when absent. */
   restartBefore?: number;
@@ -535,6 +539,7 @@ export async function replyRun(spec: {
     answer: answerOf,
     ...(spec.settings === undefined ? {} : { settings: spec.settings }),
     ...(spec.context === undefined ? {} : { context: spec.context }),
+    ...(spec.llm === undefined ? {} : { llm: spec.llm }),
     store: {
       placeOfChat: (given: { id?: unknown; iface?: unknown; kind?: unknown; partnerId?: unknown }) => {
         const iface = typeof given.iface === 'string' ? given.iface : chat.iface;

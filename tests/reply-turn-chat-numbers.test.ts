@@ -20,7 +20,8 @@ useIface('fake');
 const MIN = 60_000;
 const THINK = '<think>STEP 4. So: answer.</think>';
 const SKIP = `${THINK}<skip/>`;
-const WINDOW = { channelMessages: 3 };
+// The head moves with every line in these tests: the step of the head has its own tests below.
+const WINDOW = { channelMessages: 3, chatHeadStep: 0 };
 const iso = (at: number): string => new Date(at).toISOString();
 
 /** The texts of the lines, each unique so a test finds its line in one block. */
@@ -80,7 +81,10 @@ async function inRoom(
 }
 
 /** The user text of request `step` of turn `turn` of a run, '' when there is none. */
-const requestOf = (run: ReplyRun, turn: number, step = 0): string => run.requests[turn]?.[step] ?? '';
+const requestOf = (run: ReplyRun, turn: number, step = 0): string => {
+  const requests = run.requests[turn] ?? [];
+  return requests[step] ?? '';
+};
 /** The rows of a text. */
 const rowsOf = (text: string): Array<string> => text.split('\n');
 /** The row of `text` that holds `marker`, '' when none does. */
@@ -307,4 +311,121 @@ test("the command line's <chat> shows each line by the number the owner's chat d
   } finally {
     world.close();
   }
+});
+
+// The head of the window moves in steps (the lead, 2026-11-11, inside the owner's aim for item 30): the window holds
+// `context.channelMessages` lines at its smallest and grows by the new lines, and its first line is the place's line
+// numbered h = max(1, s * floor((L - n + 1) / s)), L the newest line's number, n `channelMessages` and s
+// `context.chatHeadStep`. With s = 0 the head moves with every line, h = L - n + 1. Here n is 3 and s is 4: the room
+// line `r1` is #1, and the window starts at #1 until the place's sixth line, then at #4 until its tenth.
+
+const HEAD = { channelMessages: 3, chatHeadStep: 4 };
+/** Lines of `c1` after `r1`, one per turn after the first two. A gap of half an hour stands before ΓΑΜΜΑ, line #4. */
+const RUN: ReadonlyArray<ReplyLine> = [
+  { id: 'h2', text: 'ΑΛΦΑ-ΚΕΦΑΛΗ', at: TURN_NOW - 4 * MIN },
+  { id: 'h3', text: 'ΒΗΤΑ-ΚΕΦΑΛΗ', at: TURN_NOW - 3 * MIN },
+  { id: 'h4', text: 'ΓΑΜΜΑ-ΚΕΦΑΛΗ', at: TURN_NOW + 30 * MIN },
+  { id: 'h5', text: 'ΔΕΛΤΑ-ΚΕΦΑΛΗ', at: TURN_NOW + 31 * MIN },
+  { id: 'h6', text: 'ΕΨΙΛΟΝ-ΚΕΦΑΛΗ', at: TURN_NOW + 32 * MIN },
+  { id: 'h7', text: 'ΖΗΤΑ-ΚΕΦΑΛΗ', at: TURN_NOW + 33 * MIN },
+];
+const line = (n: number): ReplyLine => RUN[n - 2] ?? { id: 'none', text: 'none', at: TURN_NOW };
+
+/** Turns over `c1`: the first answers #3 with #2 joining before it, each later one answers the next line of RUN. */
+const headSteps = (turns: number): ReadonlyArray<ReplyStep> => [
+  { lines: [line(2)], trigger: line(3), answers: [SKIP] },
+  ...Array.from({ length: turns - 1 }, (_, i) => ({ trigger: line(4 + i), answers: [SKIP] })),
+];
+
+/** The `<chat>` of every turn of a run of `turns` turns in `c1` under `context`. */
+async function headRun(
+  turns: number,
+  context: Record<string, unknown>,
+  options: { restartBefore?: number } = {}
+): Promise<Array<string>> {
+  const world = serviceWorld();
+  try {
+    const run = await replyRun({
+      world,
+      context,
+      steps: headSteps(turns).map((step) => storedStep(world, C1_CHAT, step)),
+      ...(options.restartBefore === undefined ? {} : { restartBefore: options.restartBefore }),
+    });
+    return run.requests.map((requests) => blockOf(requests[0] ?? '', 'chat'));
+  } finally {
+    world.close();
+  }
+}
+
+/** The rows of a `<chat>` that hold a numbered line. */
+const lineRows = (chat: string): Array<string> => rowsOf(chat).filter((row) => /^#\d+ /.test(row));
+
+test('between two drops of the head every <chat> starts with the whole <chat> of the turn before', async () => {
+  // Bug: the window keeps a fixed count, so each new line pushes the oldest out and the block differs from its first
+  // line on, which a prefix cache cannot reuse.
+  const chats = await headRun(3, HEAD);
+  for (const [turn, chat] of chats.entries()) {
+    if (turn === 0) continue;
+    const before = linesPart(chats[turn - 1] ?? '').join('\n');
+    assert.ok(chat.startsWith(`${before}\n`), `turn ${turn + 1}:\n${before}\n---\n${chat}`);
+  }
+  assert.equal(lineRows(chats[2] ?? '').length, 5, 'the window grew to five lines');
+});
+
+test('the line that crosses the step drops the window to channelMessages lines, starting at the step', async () => {
+  // Bug: the head drops by one line, or to another line than the place's #4, or the first line keeps the gap mark
+  // measured to a line the window no longer shows, so the next drop's head is not a function of its first line.
+  const chats = await headRun(5, HEAD);
+  const dropped = chats[3] ?? '';
+  const rows = lineRows(dropped);
+  assert.equal(rows.length, 3, dropped);
+  assert.match(rows[0] ?? '', /^#4 .*ΓΑΜΜΑ-ΚΕΦΑΛΗ/);
+  assert.match(rowsOf(dropped)[1] ?? '', /^#4 /, 'the first line follows the day line with no gap mark before it');
+  const next = chats[4] ?? '';
+  assert.ok(next.startsWith(`${linesPart(dropped).join('\n')}\n`), `${dropped}\n---\n${next}`);
+});
+
+test('with context.chatHeadStep 0 the head moves with every line', async () => {
+  // Bug: a step of 0 is read as a missing setting and the default step applies, so the window grows past its count.
+  const chats = await headRun(2, { channelMessages: 3, chatHeadStep: 0 });
+  const rows = lineRows(chats[1] ?? '');
+  assert.equal(rows.length, 3, chats[1]);
+  assert.match(rows[0] ?? '', /ΑΛΦΑ-ΚΕΦΑΛΗ/);
+});
+
+test('a request over its budget is still cut to the next step of context.chatSteps', async () => {
+  // Bug: the head step keeps the oldest lines of a grown window, so a request over its budget keeps lines the cut to a
+  // lower step of `context.chatSteps` would leave out, or keeps the oldest rather than the newest.
+  const world = serviceWorld();
+  const long = (tag: string): string => `${tag} ${'λόγια '.repeat(250)}`;
+  const lines = [2, 3, 4, 5].map((n) => ({
+    id: `w${n}`,
+    text: long(`ΜΑΚΡΙΑ-${n}`),
+    at: TURN_NOW - 4 * MIN + n * 10_000,
+  }));
+  const trigger = { id: 'w6', text: long('ΜΑΚΡΙΑ-6'), at: TURN_NOW - 3 * MIN };
+  try {
+    const run = await replyRun({
+      world,
+      // 6 000 tokens hold two of these lines and not three (measured on this rig).
+      llm: { maxRequestTokens: 6000 },
+      context: { channelMessages: 3, chatHeadStep: 4, chatSteps: [6, 2] },
+      steps: [storedStep(world, C1_CHAT, { lines, trigger, answers: [SKIP] })],
+    });
+    const rows = lineRows(blockOf(requestOf(run, 0), 'chat'));
+    assert.equal(rows.length, 2, rows.join('\n'));
+    assert.match(rows[0] ?? '', /ΜΑΚΡΙΑ-5/);
+    assert.match(rows[1] ?? '', /ΜΑΚΡΙΑ-6/);
+  } finally {
+    world.close();
+  }
+});
+
+test('after a restart the head of the window is where it would have been', async () => {
+  // Bug: the head is kept in the process, so after a restart the window starts at the newest lines again and the
+  // block no longer starts with the one before the restart.
+  const kept = await headRun(3, HEAD);
+  const restarted = await headRun(3, HEAD, { restartBefore: 2 });
+  assert.equal(restarted[2], kept[2]);
+  assert.ok((restarted[2] ?? '').startsWith(`${linesPart(restarted[1] ?? '').join('\n')}\n`), restarted[2]);
 });
