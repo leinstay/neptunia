@@ -210,6 +210,7 @@ test('listSkills: a skill she holds has its row, open whoever asks; proposalVerd
     ],
     { getOp }
   ).get('x.owner');
+  assert.ok(owner, 'the loader keeps the skill');
   const registry = new Map([...standInRegistry(), ['x.owner', owner]]);
   const config = granting(['message.edit', 'x.owner'], {
     tools: { safeMode: false },
