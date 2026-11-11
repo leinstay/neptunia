@@ -93,7 +93,8 @@ function request(found: Array<ExcerptEntry>): Built {
 
 /** The body of the root block `<tag>` of a request's user message, '' when absent. */
 function rootOf(built: Built, tag: string): string {
-  const user = built.messages[1].content.map((part) => String(part.text ?? '')).join('');
+  const [, message] = built.messages;
+  const user = message.content.map((part) => String(part.text ?? '')).join('');
   return new RegExp(`^<${tag}>\\n([\\s\\S]*?)\\n</${tag}>$`, 'm').exec(user)?.[1] ?? '';
 }
 
