@@ -114,6 +114,8 @@ export type Coverage = {
   suspicious: Array<string>;
   inspected: Array<string>;
   unavailable: Array<string>;
+  /** Findings left out as accepted, by the number of the accepted line. Absent: nothing left out. */
+  accepted?: Array<{ line: number; count: number }>;
 };
 export type CoverageCheck =
   { ok: true; coverage: Coverage } | { ok: false; code: 'coverage-missing' | 'coverage-invalid'; detail: string };
@@ -465,8 +467,21 @@ export function stampCoverage(text: string, observation: { from: string; to: str
 
 const LISTS = ['defects', 'suspicious', 'inspected', 'unavailable'] as const;
 
+/** Why the `accepted` field fails, naming it and never its value; null when it holds or is absent. */
+function acceptedProblem(held: unknown, acceptedCount: number): string | null {
+  if (held === undefined) return null;
+  if (!Array.isArray(held)) return 'accepted is no list';
+  for (const entry of held as Array<unknown>) {
+    const { line, count } = (typeof entry === 'object' && entry !== null ? entry : {}) as Record<string, unknown>;
+    if (!Number.isInteger(line) || !Number.isInteger(count) || (count as number) < 0)
+      return 'accepted holds an entry that is no line and count';
+    if ((line as number) < 1 || (line as number) > acceptedCount) return 'accepted names a line the list does not hold';
+  }
+  return null;
+}
+
 /** Why the fields of a coverage block fail, naming the field and never its value; null when they hold. */
-function coverageProblem(fields: Record<string, unknown>): string | null {
+function coverageProblem(fields: Record<string, unknown>, acceptedCount: number): string | null {
   const observation = fields.observation as { from?: unknown; to?: unknown } | undefined;
   if (typeof observation !== 'object' || observation === null) return 'observation is missing';
   const from = typeof observation.from === 'string' ? Date.parse(observation.from) : NaN;
@@ -489,11 +504,14 @@ function coverageProblem(fields: Record<string, unknown>): string | null {
       seen.set(item, name);
     }
   }
-  return null;
+  return acceptedProblem(fields.accepted, acceptedCount);
 }
 
-/** The one coverage block of `text` as data, or why not. A refusal never quotes the block. */
-export function checkCoverage(text: string): CoverageCheck {
+/**
+ * The one coverage block of `text` as data, or why not. A refusal never quotes the block. `acceptedCount` is the length
+ * of the owner's accepted list, which the field `accepted` may name by line number.
+ */
+export function checkCoverage(text: string, acceptedCount = 0): CoverageCheck {
   const lines = text.split('\n');
   const blocks = partsOf(lines, 0).flatMap((part) => (part.kind === 'fence' && part.info === 'coverage' ? [part] : []));
   const [block] = blocks;
@@ -508,7 +526,7 @@ export function checkCoverage(text: string): CoverageCheck {
     return bad('the coverage block is not JSON');
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return bad('the block is no object');
-  const problem = coverageProblem(parsed as Record<string, unknown>);
+  const problem = coverageProblem(parsed as Record<string, unknown>, acceptedCount);
   return problem === null ? { ok: true, coverage: parsed as Coverage } : bad(problem);
 }
 

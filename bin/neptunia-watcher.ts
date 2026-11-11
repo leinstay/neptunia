@@ -15,6 +15,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { backendOfAgent } from '../src/subharness/control.ts';
 import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
+import { acceptedLines } from '../src/watcher/accepted.ts';
 import { installFacts, watcherMemory } from '../src/watcher/install.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
 import type { InspectionDeps } from '../src/watcher/inspection.ts';
@@ -88,6 +89,7 @@ export async function runWatcherWorker(where: Where): Promise<number> {
     install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
     memory: () => watcherMemory({ dataDir: where.dataDir, config }),
     money: () => moneyOf(where, config),
+    accepted: () => acceptedLines(where.privateDir),
     runAgent: async (brief, { signal, timeoutMs, runId }) =>
       runAgent(
         {
