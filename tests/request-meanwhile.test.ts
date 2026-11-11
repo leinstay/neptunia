@@ -98,10 +98,12 @@ test('the windows of two of her messages a minute apart merge into one, each lin
       line('place:club', 'c6', at + 3 * MIN, '222', 'ΜΕΤΑ-ΔΥΟ'),
     ],
   };
-  const text = render([club], GROUP_FRAME);
+  // The owner's decision of 2026-11-11: a window's head is the place handle and the date, no longer the place's name, so
+  // the heads are counted by the handle.
+  const text = textOf(club);
   for (const value of ['ΠΡΙΝ-ΔΥΟ', 'ΠΡΙΝ-ΕΝΑ', 'ΔΙΚΗ-ΤΗΣ-ΠΡΩΤΗ', 'ΔΙΚΗ-ΤΗΣ-ΔΕΥΤΕΡΗ', 'ΜΕΤΑ-ΕΝΑ', 'ΜΕΤΑ-ΔΥΟ'])
     assert.equal(text.split(value).length - 1, 1, `${value} once`);
-  assert.equal(text.split('λέσχη').length - 1, 1);
+  assert.equal(text.split('#cab12').length - 1, 1, 'one head');
 });
 
 test('only her last `messages` lines are shown, the older ones left out', () => {
@@ -367,11 +369,21 @@ test('a head label fills {handle}, {name} and {path} for a channel: the handle, 
   );
 });
 
-test('a head label fills {handle} with nothing for a place with no handle', () => {
+test('a head label fills {handle} with the same text as {name} for a place with no handle', () => {
+  // A head must name its place: with no handle the label's `{handle}` stands for the place's own name form, so a head
+  // never opens with a bare colon.
   const head = headWith(HEAD_LABEL, ALPHA, GROUP_FRAME, null);
   const { handle, name } = partsOf(head);
-  assert.equal(handle, '', head);
   assert.ok(name.includes('"alpha"'), head);
+  assert.equal(handle, name, head);
+});
+
+test('the shipped head of a window of a place with no handle opens with the place own name, not a colon', () => {
+  // Bug: with no handle the head read `: <date>`, a head that names nothing.
+  const own = partsOf(headWith(HEAD_LABEL, ALPHA, GROUP_FRAME, null)).name;
+  const head = textOf(ALPHA, GROUP_FRAME, null).split('\n\n')[1]?.split('\n')[0] ?? '';
+  assert.ok(!head.startsWith(':'), head);
+  assert.ok(own !== '' && head.startsWith(own), head);
 });
 
 test('a head label fills {name} for a direct chat as its word with the partner handle, and no interface', () => {
