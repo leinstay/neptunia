@@ -105,9 +105,9 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
 }
 
 /**
- * The one guild a script connects to (scripts/replay.ts, scripts/inner-week.ts): the server of the older `bot.guildId`
- * setting, or the only server the bot is in. The session serves every server and does not call it.
- * @param configuredId config.bot.guildId, possibly '' when unset
+ * The one guild a script connects to (scripts/replay.ts, scripts/inner-week.ts): the server `bot.placeId` names,
+ * or the only server the bot is in. The session serves every server and does not call it.
+ * @param configuredId config.bot.placeId, possibly '' when unset
  * @param guilds every guild the bot's client is currently in
  */
 export function resolveGuild(
@@ -123,7 +123,7 @@ export function resolveGuild(
 
     const known = list.length > 0 ? list.map(describe).join(', ') : '(the bot is in no server at all)';
     return {
-      error: `The configured server ${configuredId} is not among the servers this bot is in: ${known}. Check \`bot.guildId\`.`,
+      error: `The configured server ${configuredId} is not among the servers this bot is in: ${known}. Check \`bot.placeId\`.`,
     };
   }
 
@@ -137,6 +137,6 @@ export function resolveGuild(
 
   const known = list.map(describe).join(', ');
   return {
-    error: `No server is chosen and the bot is in several: ${known}. Name one with \`bot.guildId\`.`,
+    error: `No server is chosen and the bot is in several: ${known}. Name one with \`bot.placeId\`.`,
   };
 }
