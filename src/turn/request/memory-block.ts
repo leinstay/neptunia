@@ -557,17 +557,24 @@ function changeLine(w: Words, change: AttitudeChange): string {
     : line;
 }
 
+/** The places her selfreflection is mirrored to, as memoryItemsOf takes them: their chat ids and a place's chat id. */
+export type MirrorMarks = { selfreflectionIds: ReadonlySet<string>; chatIdOf: ChatIdOf };
+
+const NO_MIRROR_MARKS: MirrorMarks = { selfreflectionIds: new Set(), chatIdOf: () => null };
+
 /**
  * A `<memory>` of what memory.read found for one subject: every entry of `mind` as memoryItemsOf renders it, none marked
- * as the one she answers, each with the read's own origin (`memory.origin.read`) in its heading. With `changes` the
- * people of `mind` render as their heading alone followed by those changes, newest first. '' with nothing.
+ * as the one she answers, each with the read's own origin (`memory.origin.read`) in its heading, and the place of a
+ * mirror of her selfreflection (`mirrors`) marked as `<places>` marks it. With `changes` the people of `mind` render as
+ * their heading alone followed by those changes, newest first. '' with nothing.
  */
 export function subjectMemoryOf(
   mind: Mind,
   view: FrameView,
   labels: Labels,
   nameOf: NameOf,
-  changes: ReadonlyArray<AttitudeChange> | null = null
+  changes: ReadonlyArray<AttitudeChange> | null = null,
+  mirrors: MirrorMarks = NO_MIRROR_MARKS
 ): string {
   const l = labels.memory ?? {};
   const read = l.origin?.read ?? '';
@@ -576,7 +583,15 @@ export function subjectMemoryOf(
   const told: Labels = { ...labels, memory: { ...l, origin } as MemoryLabels };
   const frame: FrameView = { ...view, counterpart: null };
   const people = changes === null ? mind.people : mind.people.map((person) => ({ ...person, detail: 'name' as const }));
-  const items = memoryItemsOf({ ...mind, people }, frame, told, nameOf);
+  const items = memoryItemsOf(
+    { ...mind, people },
+    frame,
+    told,
+    nameOf,
+    null,
+    mirrors.selfreflectionIds,
+    mirrors.chatIdOf
+  );
   const w = { ...wordsOf(labels, frame, nameOf, null), origin };
   const lines = (changes ?? []).map((change) => changeLine(w, change));
   const withChanges = items.map((item) =>
