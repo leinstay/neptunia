@@ -11,6 +11,7 @@
 //   neptunia doctor server|core|memory           one read of the running core, which answers it
 //   neptunia doctor watcher run|stop|read|list|<n>   the watcher's report: run asks the core to start one in the
 //                                                background, the others read the files (src/watcher/doctor.ts)
+//   neptunia doctor watcher accepted|accept <text>|unaccept <n>   the list of accepted findings, from its file
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia services list                       the three scheduled mechanics (src/service/commands.ts)
@@ -189,7 +190,8 @@ const USAGE = [
   '       neptunia -p "<text>" [--attach <file>]...   one turn with the persona, her reply on stdout',
   '       neptunia doctor [live] [--json]',
   '       neptunia doctor server|core|memory',
-  '       neptunia doctor watcher run|stop|read|list|<number>',
+  '       neptunia doctor watcher run|stop|read|list|accepted|<number>',
+  '       neptunia doctor watcher accept <text>|unaccept <number>',
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia services list',
@@ -348,6 +350,9 @@ const LOCAL_COMMANDS = new Set([
   'doctor.watcher.stop',
   'doctor.watcher.read',
   'doctor.watcher.list',
+  'doctor.watcher.accepted',
+  'doctor.watcher.accept',
+  'doctor.watcher.unaccept',
   'logs',
 ]);
 const runsHere = (name: string): boolean => LOCAL_COMMANDS.has(name) || isServiceRequest(name);

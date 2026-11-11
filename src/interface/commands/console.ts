@@ -589,6 +589,7 @@ function watcherCommand(deps: ConsoleDeps, config: () => unknown, name: string, 
   return watcherDoctor(name, args, {
     store,
     reportsDir,
+    labels: objOf(objOf(deps.hot).prompts).labels,
     ...(deps.startWatcher === undefined ? {} : { start: deps.startWatcher }),
   });
 }
