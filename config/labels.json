@@ -363,7 +363,7 @@
       "claim": "- {text}",
       "lore": "{subject}: {text}",
       "live": "right now: {value}",
-      "ownLines": "you wrote {count} messages here, the last on {date}",
+      "ownLines": "you wrote {count} or more messages here, the last on {date}",
       "ownNone": "you have not written here",
       "episode": "{date}: {what}",
       "warmer": "{date}: you grew warmer toward them by {amount}",

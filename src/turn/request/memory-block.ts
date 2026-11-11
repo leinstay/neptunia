@@ -3,12 +3,13 @@
 // present, a stranger included; `<places>`, `<lore>`, `<recent>` and `<found>` follow. Every entry names its origin
 // (`labels.memory.origin.*`), renders at the detail the reader chose and quotes stored text as an escaped value, a
 // mention in it by the handle of the person it names. A person's entry lists every account of theirs, one line each,
-// the account of the turn's interface marked. The request builder (src/turn/request/reader.ts) fits the items to the
-// budget and renders what stayed. Pure.
+// the account of the turn's interface marked, and its aliases and claims by claim id. The request builder
+// (src/turn/request/reader.ts) fits the items to the budget in the reader's rank, prints what stayed in `printOrder`,
+// the same entries in the same bytes whatever the rank, and prints `<found>` as a root tag of its own. Pure.
 
 import { fill, formatDate, mentionsNamed } from '../../format.ts';
 import { factStateWords } from '../../memory/retrieval-input.ts';
-import { EVIDENCE_ORDER } from '../../memory/db/mind-read.ts';
+import { EVIDENCE_ORDER, ownLinesShown } from '../../memory/db/mind-read.ts';
 import type {
   ClaimEntry,
   EpisodeEntry,
@@ -23,7 +24,7 @@ import type { Frame } from './frame.ts';
 import { block, escapeStored, pathText } from './text.ts';
 import type { LabelGroup, Labels, MemoryLabels, MemoryRead, NameOf } from './types.ts';
 
-/** The subtags of `<memory>`, in their order. */
+/** The subtags of `<memory>` and their shares of its budget, in their order. A request prints `found` as a root tag. */
 export const MEMORY_SUBTAGS = ['people', 'places', 'lore', 'recent', 'found'] as const;
 export type MemorySubtag = (typeof MEMORY_SUBTAGS)[number];
 
@@ -54,6 +55,11 @@ export type MemoryItem = {
   readonly keep?: boolean;
   /** The entry's text at each lower detail than `text`, the name last; empty for an entry with one detail. */
   readonly lower?: ReadonlyArray<string>;
+  /**
+   * Where the entry prints in its subtag (`printOrder`): ids compared one after the other as strings. Absent in
+   * `<recent>` and `<found>`, which print in the reader's order.
+   */
+  readonly printKey?: ReadonlyArray<string>;
   readonly reads: ReadonlyArray<MemoryRead>;
 };
 
@@ -158,10 +164,20 @@ function accountLines(w: Words, person: PersonEntry): Array<string> {
   );
 }
 
+/** Two ids in code point order, the same on every machine and in every locale. */
+const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** A person's claims by claim id: the reader ranks them by the trigger's words, which change every turn. */
+const claimsById = (person: PersonEntry): PersonEntry['claims'] => [...person.claims].sort((a, b) => byId(a.id, b.id));
+
 /** The open aliases of a person the context may see, as `memory.aliases`; '' with none. */
 function aliasLine(w: Words, person: PersonEntry): string {
   const aliases = [
-    ...new Set(person.claims.filter((claim) => claim.kind === 'alias').map((claim) => claim.text.trim())),
+    ...new Set(
+      claimsById(person)
+        .filter((claim) => claim.kind === 'alias')
+        .map((claim) => claim.text.trim())
+    ),
   ];
   const shown = aliases.filter(Boolean).map((alias) => storedText(w, alias));
   return shown.length > 0 && typeof w.l.aliases === 'string' ? fill(w.l.aliases, { value: shown.join(', ') }) : '';
@@ -184,7 +200,7 @@ function personText(w: Words, person: PersonEntry, counterpart: boolean, live: s
   if (detail === 'whole') {
     lines.push(valueLine(w, w.l.character, person.character));
     lines.push(valueLine(w, w.l.style, person.style));
-    for (const claim of person.claims)
+    for (const claim of claimsById(person))
       if (claim.kind !== 'alias') lines.push(fill(w.l.claim ?? '- {text}', { text: storedText(w, claim.text) }));
   }
   if (live) lines.push(valueLine(w, w.l.live, live));
@@ -203,7 +219,9 @@ function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string
       if (value) lines.push(storedText(w, value));
     }
     const date = place.ownLastAt ? formatDate(Date.parse(place.ownLastAt), w.frame.timezone, w.locale) : '';
-    if (place.ownLines > 0 && date) lines.push(fill(w.l.ownLines ?? '', { count: place.ownLines, date }));
+    // The count rounded down to a step, so the entry stays the same bytes while she talks there.
+    const count = ownLinesShown(place.ownLines);
+    if (count > 0 && date) lines.push(fill(w.l.ownLines ?? '', { count, date }));
   }
   return lines.filter(Boolean).join('\n');
 }
@@ -254,6 +272,7 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
       handleIds: nativeIds(person.platformAccounts, w.frame.interface),
       // The person she answers by the key her lines carry (memberKeyOf), whichever row the reader found them by.
       handleKey: counterpart ? (w.refs.counterpartKey ?? person.personId) : person.personId,
+      printKey: [person.personId],
       accounts: accountsOf(person),
       ...(person.keep === true ? { keep: true } : {}),
       lower: counterpart ? [] : below(person.detail).map((detail) => personText(w, { ...person, detail }, false, now)),
@@ -319,6 +338,7 @@ export function strangerItemsOf(
     name: one.name,
     handleIds: [one.native],
     handleKey: one.key,
+    printKey: [one.key],
     accounts: [{ iface: frame.interface, native: one.native }],
     keep: true,
     reads: [],
@@ -398,37 +418,82 @@ export function memoryItemsOf(
   });
   return [
     ...peopleItems(w, mind, live),
-    ...mind.interfaces.map((entry) => plain('places', interfaceText(w, entry), readsOf(entry))),
+    ...mind.interfaces.map((entry) => ({
+      ...plain('places', interfaceText(w, entry), readsOf(entry)),
+      printKey: ['interface', entry.iface],
+    })),
     ...mind.places.map((place) => ({
       ...plain('places', placeText(w, place, mine(place)), readsOf(place)),
+      printKey: ['place', place.placeId],
       chatId: chatOf(place),
       placeName: place.name,
       ...(place.keep === true ? { keep: true } : {}),
       lower: below(place.detail).map((detail) => placeText(w, { ...place, detail }, mine(place))),
     })),
-    ...mind.lore.map((claim) => plain('lore', loreText(w, claim), readsOf(claim))),
+    ...mind.lore.map((claim) => ({
+      ...plain('lore', loreText(w, claim), readsOf(claim)),
+      printKey: [claim.subjectId, claim.claimId],
+    })),
     ...mind.recent.map((episode) => plain('recent', episodeText(w, episode), readsOf(episode))),
     ...mind.found.map((excerpt) => plain('found', excerptText(w, excerpt), readsOf(excerpt))),
   ];
 }
 
+/** Two print keys compared id by id, a shorter key first when one is the start of the other. */
+function byPrintKey(a: ReadonlyArray<string>, b: ReadonlyArray<string>): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+    const order = byId(a[i] ?? '', b[i] ?? '');
+    if (order !== 0) return order;
+  }
+  return a.length - b.length;
+}
+
 /**
- * The body of `<memory>` from the items that stayed, each subtag in its order with the count it left out at its foot
- * (`leftOut`, by subtag: the reader's cut and the budget's). '' with no item.
+ * The kept items in the order a request prints them: the person she answers first, then each subtag's entries by their
+ * `printKey`, the ones with none in the order given. The rank decides what stays and at which detail; this order makes
+ * the same entries print the same bytes on every turn, so the prompt cache reaches past `<memory>`.
  */
-export function renderMemory(
+export function printOrder(items: ReadonlyArray<MemoryItem>): Array<MemoryItem> {
+  return items
+    .map((item, at) => ({ item, at }))
+    .sort((a, b) => {
+      if (a.item.counterpart !== b.item.counterpart) return a.item.counterpart ? -1 : 1;
+      const order = a.item.printKey && b.item.printKey ? byPrintKey(a.item.printKey, b.item.printKey) : 0;
+      return order !== 0 ? order : a.at - b.at;
+    })
+    .map(({ item }) => item);
+}
+
+/**
+ * The body of one subtag from the items that stayed, with the count it left out at its foot (`leftOut`, by subtag: the
+ * reader's cut and the budget's). '' with no item of it.
+ */
+export function subtagBody(
+  subtag: MemorySubtag,
   items: ReadonlyArray<MemoryItem>,
   leftOut: Readonly<Record<string, number>>,
   labels: Labels
 ): string {
   const l = labels.memory ?? {};
-  return MEMORY_SUBTAGS.map((subtag) => {
-    const texts = items.filter((one) => one.subtag === subtag).map((one) => one.text);
-    const cut = leftOut[subtag] ?? 0;
-    if (texts.length === 0) return '';
-    const foot = cut > 0 && typeof l.leftOut === 'string' ? fill(l.leftOut, { count: cut }) : '';
-    return block(subtag, [...texts, foot].filter(Boolean).join('\n\n'));
-  })
+  const texts = items.filter((one) => one.subtag === subtag).map((one) => one.text);
+  const cut = leftOut[subtag] ?? 0;
+  if (texts.length === 0) return '';
+  const foot = cut > 0 && typeof l.leftOut === 'string' ? fill(l.leftOut, { count: cut }) : '';
+  return [...texts, foot].filter(Boolean).join('\n\n');
+}
+
+/**
+ * The body of `<memory>` from the items that stayed, each of `subtags` in its order with the count it left out at its
+ * foot. '' with no item.
+ */
+export function renderMemory(
+  items: ReadonlyArray<MemoryItem>,
+  leftOut: Readonly<Record<string, number>>,
+  labels: Labels,
+  subtags: ReadonlyArray<MemorySubtag> = MEMORY_SUBTAGS
+): string {
+  return subtags
+    .map((subtag) => block(subtag, subtagBody(subtag, items, leftOut, labels)))
     .filter(Boolean)
     .join('\n');
 }
