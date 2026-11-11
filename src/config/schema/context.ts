@@ -42,6 +42,7 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
       'maxHops': 2,
       'maxNodesRead': 2000,
       'budgetTokens': 10000,
+      'budgetShare': null,
       'shares': { 'people': 0.5, 'places': 0.15, 'lore': 0.15, 'recent': 0.1, 'found': 0.1 },
       'counterpartTokens': 1500,
       'candidatesMax': 3,
@@ -49,7 +50,7 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
       'fanOut': { 'accounts': 10, 'memberships': 20, 'rooms': 10, 'members': 8, 'replies': 5, 'about': 30 },
     },
     'text':
-      'The graph reader (`mindOf`): the lines of the window that seed it, her last lines over the rooms of every group that a service shows in `<meanwhile>` and seeds `<memory>` from (`serviceMessages`, read by `src/turn/request/meanwhile.ts`), the counted hops, the rows read, the token budget and its shares per kind of entry, the part kept for the person she answers, the candidates of an ambiguous word, the word that names too many entries, and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default',
+      'The graph reader (`mindOf`): the lines of the window that seed it, her last lines over the rooms of every group that a service shows in `<meanwhile>` and seeds `<memory>` from (`serviceMessages`, read by `src/turn/request/meanwhile.ts`), the counted hops, the rows read, the token budget (`budgetTokens`, lowered to `budgetShare` of `llm.maxRequestTokens` when that is set) and its shares per kind of entry, the part kept for the person she answers, the candidates of an ambiguous word, the word that names too many entries, and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default',
   },
   {
     'key': 'context.find',

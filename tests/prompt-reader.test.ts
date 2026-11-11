@@ -295,3 +295,24 @@ test('a place the graph reader keeps whatever the budget stays in <places> when 
   });
   assert.ok(placesOf(built).includes('αποθήκη'), block(built, 'memory'));
 });
+
+test('the request cuts <places> at the same total the graph reader takes from budgetShare', () => {
+  // Bug: the graph reader and the request's second cut read the total separately, so a share that lowered one left
+  // the other at budgetTokens and the two disagreed about what stays in <memory>.
+  const crowd = Array.from({ length: 20 }, (_, i) =>
+    placeEntry(`place:room-${i}`, `αίθουσα-${String(i).padStart(2, '0')}`, { purpose: 'σκοπός '.repeat(10) })
+  );
+  const shares = { people: 0.5, places: 0.15, lore: 0.15, recent: 0.1, found: 0.1 };
+  const shown = (memory: Record<string, unknown>): string =>
+    placesOf(
+      request({
+        config: fakeConfig({ context: { ...CONTEXT, memory }, llm: { maxRequestTokens: 40000 } }),
+        mind: mindOfEntries({ people: [ELENI], places: crowd }),
+      })
+    );
+  const wide = shown({ budgetTokens: 4000, shares });
+  const byShare = shown({ budgetTokens: 4000, budgetShare: 0.01, shares });
+  const byTotal = shown({ budgetTokens: 400, shares });
+  assert.notEqual(byShare, wide, 'the share did not lower the total');
+  assert.equal(byShare, byTotal);
+});
