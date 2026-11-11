@@ -1,13 +1,16 @@
 // memory.read, her one read of what memory holds about one subject, run inside a turn (src/turn/in-turn-tools.ts) under
 // the turn's memory context and never as an owner's command.
 //
-//   runMemoryRead({ args, reads, context, here, labels, timezone, now }) -> { status, code?, reason?, data?: { text } }
+//   runMemoryRead({ args, reads, context, here, labels, timezone, now, selfreflectionIds? })
+//     -> { status, code?, reason?, data?: { text } }
 //
 // `args.subject` names a person, a place, the word `community` or a lore title (src/memory/db/subject.ts#subjectOf).
 // A person or a place is the one seed of the graph reader, read alone (src/memory/db/mind-read.ts, `Seeds.alone`): a
 // person as the counterpart, so their entry comes at whole detail with their claims and episodes, a place as the place,
 // with its lore and episodes. A lore entry comes as its claim. The renderer of `<memory>` renders it
-// (src/turn/request/memory-block.ts#subjectMemoryOf). `args.section` narrows what is rendered: `summary` (the default)
+// (src/turn/request/memory-block.ts#subjectMemoryOf), and the entry of a place whose chat id is in `selfreflectionIds`, a
+// mirror of her selfreflection (src/memory/db/mirrors.ts#selfreflectionChatIds), carries the mark `<places>` gives it
+// (`labels.memory.selfreflection`). `args.section` narrows what is rendered: `summary` (the default)
 // renders every entry, `episodes` the episodes alone, `changes` a person's attitude changes, newest first. `args.limit`
 // caps the claims, episodes and changes, default 25, at most 100. What the context may not read never comes back: the
 // reader filters every row by the audience of the context (src/memory/db/scope.ts#audienceWhere).
@@ -25,7 +28,7 @@ import type { Mind, Seeds } from '../memory/db/mind-read.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { Subject, SubjectHere } from '../memory/db/subject.ts';
 import { subjectMemoryOf } from './request/memory-block.ts';
-import type { AttitudeChange } from './request/memory-block.ts';
+import type { AttitudeChange, MirrorMarks } from './request/memory-block.ts';
 import type { Labels } from './request/types.ts';
 
 /** The sections of memory.read, the default first. */
@@ -37,7 +40,7 @@ export const MEMORY_READ_LIMIT = 25;
 export const MEMORY_READ_LIMIT_MAX = 100;
 
 /** The reads of the memory memory.read takes. */
-export type MemoryReadReads = Pick<FrameReads, 'mind' | 'subject' | 'affinityChanges'>;
+export type MemoryReadReads = Pick<FrameReads, 'mind' | 'subject' | 'affinityChanges' | 'placeRef'>;
 
 /** One memory.read: her arguments, the memory's reads, the turn's context and where she stands. */
 export type MemoryReadInput = {
@@ -48,6 +51,8 @@ export type MemoryReadInput = {
   labels: unknown;
   timezone: string;
   now: number;
+  /** The chat ids of the places her selfreflection is mirrored to; none when not given. */
+  selfreflectionIds?: ReadonlySet<string>;
 };
 
 export type MemoryReadAnswer = { status: string; code?: string; reason?: string; data?: { text: string } };
@@ -153,8 +158,17 @@ function readSubject(
   const changes = section === 'changes' && subject.kind === 'person' ? changesOf(input, subject, limit) : null;
   if (changes !== null && changes.length === 0) return { status: 'ok', data: { text: word('noChanges') } };
   const view = { interface: input.here.iface, timezone: input.timezone, counterpart: null };
-  const text = subjectMemoryOf(mind, view, input.labels as Labels, nameOfIn(mind, subject), changes);
+  const text = subjectMemoryOf(mind, view, input.labels as Labels, nameOfIn(mind, subject), changes, mirrorsOf(input));
   return text === '' ? noneAnswer(given, word) : { status: 'ok', data: { text } };
+}
+
+/** The mirrors of her selfreflection as the renderer marks them: their chat ids and a stored place's chat id. */
+function mirrorsOf(input: MemoryReadInput): MirrorMarks {
+  const chatIdOf = (placeId: string): string | null => {
+    const ref = input.reads?.placeRef?.(placeId) ?? null;
+    return ref === null || ref.kind === 'dm' ? null : ref.nativeId;
+  };
+  return { selfreflectionIds: input.selfreflectionIds ?? new Set(), chatIdOf };
 }
 
 /** Her attitude changes toward the person, newest first, under the turn's context. */

@@ -371,7 +371,7 @@
       "changeReason": "{change}: {reason}",
       "excerpt": "{date}, {path}: \"{text}\"",
       "fact": "stored fact ({state}): \"{text}\"",
-      "selfreflection": "Your diary.",
+      "selfreflection": "Your diary entries are published here, and you write nothing here yourself.",
       "leftOut": "({count} more not shown)",
       "pathJoin": " > "
     },

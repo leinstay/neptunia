@@ -20,6 +20,7 @@ import type { FindMeaningSource } from '../memory/db/graph-find.ts';
 import type { Seeds } from '../memory/db/mind-read.ts';
 import { peopleMemoryOf } from './request/memory-block.ts';
 import { runMemoryRead } from './memory-read.ts';
+import { selfreflectionChatIds } from '../memory/db/mirrors.ts';
 import type { Labels } from './request/types.ts';
 import { nativeChatOf } from '../memory/db/frame-reads.ts';
 import { lineItemParts } from '../memory/db/media-store.ts';
@@ -376,6 +377,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           labels: hot.prompts?.labels ?? {},
           timezone: hot.config.bot?.timezone ?? 'UTC',
           now: clock(),
+          selfreflectionIds: selfreflectionChatIds(store),
         }),
     };
   }

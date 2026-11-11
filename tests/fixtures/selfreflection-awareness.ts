@@ -47,6 +47,33 @@ export async function replyTurn({
   mirrors: Array<'d1' | 'd2'>;
   selfreflectionChannelId?: string | null;
 }): Promise<{ memory: { memoryDb: MemoryService }; store: ReturnType<typeof createStore>; request: unknown }> {
+  const { memory, store, requests } = await replyTurns({
+    here,
+    mirrors,
+    selfreflectionChannelId,
+    steps: [{ answers: ['<msg>γεια</msg>'] }],
+  });
+  return { memory, store, request: requests[0] };
+}
+
+/** One reply turn of `replyTurns`: what is done to memory before it, and the model's answers to its requests. */
+export type AwarenessStep = { before?: (memoryDb: MemoryService) => void; answers: ReadonlyArray<unknown> };
+
+/**
+ * The scene of `replyTurn` with reply turns to Alice's line one after another on one turn runner, each step's `before`
+ * run on the memory before its turn. Returns every request the model got, in order.
+ */
+export async function replyTurns({
+  here,
+  mirrors,
+  selfreflectionChannelId = null,
+  steps,
+}: {
+  here: 'c1' | 'd1';
+  mirrors: Array<'d1' | 'd2'>;
+  selfreflectionChannelId?: string | null;
+  steps: ReadonlyArray<AwarenessStep>;
+}): Promise<{ memory: { memoryDb: MemoryService }; store: ReturnType<typeof createStore>; requests: Array<unknown> }> {
   const memory = await openTestMemory({ now: () => NOW });
   OPEN.push(memory);
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
@@ -85,10 +112,21 @@ export async function replyTurn({
     world().channel({ id, name: names[id], placeId: ROOT, historyMessages: lines, lastMessageAt: NOW - 10 * MINUTE });
   }
   if (here === 'c1') world().channel({ id: 'c1', name: names.c1, placeId: ROOT, historyMessages: [trigger] });
-  const llm = sequenceLlm(['<msg>γεια</msg>']);
+  let step = 0;
+  let firstOfStep = 0;
+  // Each request is answered from its step's answers, the last one repeated.
+  const llm = sequenceLlm([
+    (request: unknown) => {
+      const answers = steps[step]?.answers ?? ['<skip/>'];
+      const answer = answers[Math.min(llm.calls.length - 1 - firstOfStep, answers.length - 1)];
+      return typeof answer === 'function' ? (answer as (given: unknown) => unknown)(request) : answer;
+    },
+  ]);
   const turns = worldTurnRunner({
     hot: hotWith({
       config: selfreflectionChannelId === null ? {} : { selfreflection: { placeId: selfreflectionChannelId } },
+      // Her one read of memory, so a turn may read what memory holds about a place.
+      access: { 'memory.read': { everyone: false, roles: [], users: ['self-id'] } },
     }),
     store,
     // The memory the runner may read the mirrors from (the store reads the same database).
@@ -101,23 +139,27 @@ export async function replyTurn({
     rng: () => 0.5,
     now: () => NOW,
   });
-  const result = await turns.runTurn({
-    channel: { id: here },
-    mode: 'reply',
-    trigger: {
-      ...trigger,
-      placeId: here,
-      authorId: 'u1',
-      authorName: 'Alice',
-      self: false,
-      bot: false,
-      ts: NOW - 1000,
-    },
-    triggerKind: 'mention',
-  });
-  assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'she answers Alice');
-  await store.flushSettled({});
-  const request: unknown = llm.calls[0];
-  return { memory, store, request };
+  for (const [index, one] of steps.entries()) {
+    step = index;
+    firstOfStep = llm.calls.length;
+    one.before?.(memory.memoryDb);
+    const result = await turns.runTurn({
+      channel: { id: here },
+      mode: 'reply',
+      trigger: {
+        ...trigger,
+        placeId: here,
+        authorId: 'u1',
+        authorName: 'Alice',
+        self: false,
+        bot: false,
+        ts: NOW - 1000,
+      },
+      triggerKind: 'mention',
+    });
+    assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'she answers Alice');
+    await store.flushSettled({});
+  }
+  return { memory, store, requests: [...llm.calls] };
 }
 
