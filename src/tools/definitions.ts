@@ -52,7 +52,7 @@ export type Trait = (typeof TRAITS)[number];
 
 const COST_NAMES: ReadonlyArray<string> = Object.freeze(['free', 'paid']);
 const RESULT_NAMES: ReadonlyArray<string> = Object.freeze(['effect', 'job', 'data']);
-const REF_KINDS: ReadonlyArray<string> = Object.freeze(['place', 'user', 'role']);
+const REF_KINDS: ReadonlyArray<string> = Object.freeze(['place', 'user']);
 
 /** The JSON Schema of an argument, in the few keywords src/tools/schema.ts reads. */
 export type Schema = {
@@ -76,8 +76,8 @@ export type Given = Record<string, unknown> | null | undefined;
 /** The operation's arguments for her `given`, or null when they map to nothing. */
 export type ToArgs = (given: Given) => Obj | null;
 
-/** What a reference argument names: a place, a member or a role the interface resolves to an id. */
-export type RefKind = 'place' | 'user' | 'role';
+/** What a reference argument names: a place or a member the interface resolves to an id. */
+export type RefKind = 'place' | 'user';
 
 /** One skill as the table defines it. */
 export type Definition = {
@@ -226,7 +226,7 @@ const NO_REFS: Readonly<Record<string, RefKind>> = Object.freeze({});
 const JOBS: ReadonlyArray<string> = Object.freeze(['errand.run', 'media.recache']);
 const ROUTE_ROLES = ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'];
 const MEDIA_PARAMS = (kinds: ReadonlyArray<string>): Schema => obj({ kind: oneOf(kinds) }, ['kind']);
-const ACCESS_PARAMS = () => obj({ command: str(), role: ref(), user: ref() }, ['command']);
+const ACCESS_PARAMS = () => obj({ command: str() }, ['command']);
 const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), place: ref() }, ['message', 'emoji']);
 const USER_ONLY = () => obj({ user: ref() }, ['user']);
 const EMPTY = () => obj({});
@@ -265,7 +265,7 @@ const mediaArgs =
     action,
     ...(val(a, 'days') == null ? {} : { days: val(a, 'days') }),
   });
-const accessArgs: ToArgs = (a) => ({ command: val(a, 'command'), roleId: idOf(a, 'role'), accountId: idOf(a, 'user') });
+const accessArgs: ToArgs = (a) => ({ command: val(a, 'command') });
 const reactArgs =
   (action: string): ToArgs =>
   (a) => ({
@@ -433,14 +433,12 @@ const ENTRIES: Array<Definition> = [
   def('access.grant', {
     traits: ['ungrantable'],
     params: ACCESS_PARAMS(),
-    refs: { 'role': 'role', user: 'user' },
     effects: 'administrative',
     toArgs: accessArgs,
   }),
   def('access.revoke', {
     traits: ['ungrantable'],
     params: ACCESS_PARAMS(),
-    refs: { 'role': 'role', user: 'user' },
     effects: 'administrative',
     toArgs: accessArgs,
   }),

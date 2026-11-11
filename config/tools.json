@@ -139,7 +139,7 @@
   },
   "access.list": {
     "title": "List grants",
-    "whenToUse": "Reads the tools granted to you, each with the family or * it came from."
+    "whenToUse": "Reads the tools granted to you, and the family or * behind each one granted through a group."
   },
   "alias.add": {
     "title": "Add an alias",
