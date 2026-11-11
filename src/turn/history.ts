@@ -167,7 +167,7 @@ export function orderedHistory<TLine extends OrderedLine>(
 
 /**
  * `context.chatHeadStep` when the setting is missing or not a whole number of at least 0: the head moves with every
- * line. The tracked config/config.json holds the default step under every deployment's own settings.
+ * line, as with the default `0`.
  */
 const HEAD_STEP_MISSING = 0;
 
