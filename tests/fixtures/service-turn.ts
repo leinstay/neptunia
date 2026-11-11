@@ -39,7 +39,9 @@ const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
 export const TURN_NOW = Date.parse('2026-11-02T12:00:00.000Z');
 const MIN = 60_000;
+const DAY = 24 * 60 * MIN;
 const iso = (at: number): string => new Date(at).toISOString();
+const utcDay = (at: number): string => new Date(at).toISOString().slice(0, 10);
 
 /** Marker texts of the prompt files, so a test reads which file framed the request without reading any wording. */
 export const MARK = {
@@ -205,6 +207,8 @@ function cliAdapter(): Fake {
 type RigSpec = Pick<ServiceTurnSpec, 'seed' | 'adapters'> & {
   mind: World;
   settings?: Record<string, number>;
+  /** Laid over SERVICE_CONTEXT, such as `channelMessages`. */
+  context?: Record<string, unknown>;
   /** The answer to the model's `n`th request, counted from 1 over the runner's life. */
   answer: (n: number) => unknown;
   /** Laid over the fixture's store: a reply turn needs the place of its chat as the world stores it. */
@@ -221,7 +225,7 @@ function rigOf(spec: RigSpec) {
         ownerPerson: OWNER_PERSON,
         access: Object.fromEntries(GRANTED.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])),
       },
-      context: { ...SERVICE_CONTEXT, memory: { ...SERVICE_CONTEXT.memory, ...spec.settings } },
+      context: { ...SERVICE_CONTEXT, ...spec.context, memory: { ...SERVICE_CONTEXT.memory, ...spec.settings } },
       dm: { enabled: true },
       llm: { maxRequestTokens: 60000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
@@ -320,24 +324,46 @@ function rigOf(spec: RigSpec) {
     },
   };
   let contexts = 0;
-  const turns = createTurnRunner({
-    hot,
-    store,
-    llm,
-    calibrator: { ratio: 1, apply: (value: unknown) => value, observe: () => {} },
-    now: () => TURN_NOW,
-    port,
-    skills: skillRegistry(),
-    journal,
-    journalDb: () => mind.db,
-    memoryContext: (given: Parameters<typeof issueContext>[0]) =>
-      issueContext({ iface: 'fake', ...given, now: () => TURN_NOW, newId: () => `ctx:service:${(contexts += 1)}` }),
-    runOp: admin.runSkillOp,
-    runOwnOp: admin.runOwnSkillOp,
-    runInitiativeOp: admin.runInitiativeSkillOp,
-    intentions,
-  });
-  return { turns, requests, fake, cli, journal, intentions };
+  const runner = () =>
+    createTurnRunner({
+      hot,
+      store,
+      llm,
+      calibrator: { ratio: 1, apply: (value: unknown) => value, observe: () => {} },
+      now: () => TURN_NOW,
+      port,
+      skills: skillRegistry(),
+      journal,
+      journalDb: () => mind.db,
+      memoryContext: (given: Parameters<typeof issueContext>[0]) =>
+        issueContext({ iface: 'fake', ...given, now: () => TURN_NOW, newId: () => `ctx:service:${(contexts += 1)}` }),
+      runOp: admin.runSkillOp,
+      runOwnOp: admin.runOwnSkillOp,
+      runInitiativeOp: admin.runInitiativeSkillOp,
+      intentions,
+    });
+  const turns = runner();
+  /**
+   * A new turn runner over the same journal, memory, interfaces and intentions, seeded from the journal of yesterday and
+   * today for `places` as src/core.ts seeds one at start: a restart.
+   */
+  async function restart(places: ReadonlyArray<string>): Promise<typeof turns> {
+    await journal.flush?.();
+    const fresh = runner();
+    const seeded = fresh as unknown as {
+      seedTriggerLinks: (pairs: unknown) => void;
+      seedCallMarks: (marks: unknown) => void;
+    };
+    const days = [utcDay(TURN_NOW - DAY), utcDay(TURN_NOW)];
+    for (const placeId of places) {
+      seeded.seedTriggerLinks(await journal.triggerLinks(placeId, { days }));
+      seeded.seedCallMarks({ ...(await journal.callMarks(placeId, { days })), placeId });
+    }
+    // The runner seeds its lookups and thinks from the journal on its own (src/behavior/turn.ts#seedCallMarks).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return fresh;
+  }
+  return { turns, restart, requests, fake, cli, journal, intentions };
 }
 
 /** One inner turn of `wake` answered by `answers`, over the world's memory and the room `c1` of the fake interface. */
@@ -381,6 +407,8 @@ export type ReplyLine = { id: string; text: string; at: number; authorId?: strin
  * each request of the turn.
  */
 export type ReplyStep = {
+  /** Runs before the step's lines join the chat, such as a write of lines to the world's memory. */
+  before?: () => void;
   lines?: ReadonlyArray<ReplyLine>;
   trigger: ReplyLine;
   /** Each a model answer, or a function of the user text of the request it answers that gives one. */
@@ -435,8 +463,11 @@ function eventLine(chat: ReplyChat, { id, text, at, authorId = '111', authorName
 /** One message she sent in a reply run: the chat it went to, its text and the accounts it mentions. */
 export type ReplySend = { iface: string; chatId: string; text: string; mentioned: Array<string> };
 
-/** What a reply run leaves: the user texts of every request, one list per turn, and every message she sent. */
-export type ReplyRun = { requests: Array<Array<string>>; sends: Array<ReplySend> };
+/** One reaction she put on a line in a reply run: the message id it went to and the emoji. */
+export type ReplyReaction = { messageId: string; emoji: string };
+
+/** What a reply run leaves: the user texts of every request, one list per turn, every message she sent and every reaction. */
+export type ReplyRun = { requests: Array<Array<string>>; sends: Array<ReplySend>; reactions: Array<ReplyReaction> };
 
 /** The person an account of the world belongs to, null for an account no row holds. */
 function personOfAccountIn(mind: World, account: string): string | null {
@@ -463,6 +494,16 @@ function sendsOf(adapter: Fake): Array<ReplySend> {
     });
 }
 
+/** The reactions an adapter recorded, as ReplyReaction. */
+function reactionsOf(adapter: Fake): Array<ReplyReaction> {
+  return adapter.calls
+    .filter((one) => one.op === 'react')
+    .map((one) => {
+      const [ref, emoji] = one.args as [{ messageId?: string } | undefined, string | undefined];
+      return { messageId: String(ref?.messageId ?? ''), emoji: String(emoji ?? '') };
+    });
+}
+
 /**
  * Reply turns in one chat (`c1` unless `chat` names another), one after another on one turn runner, each answering its
  * `trigger`, which joins the chat's history before its turn. The chat of `c1` is the world's place `fake:channel:c1`.
@@ -471,7 +512,11 @@ export async function replyRun(spec: {
   world: World;
   steps: ReadonlyArray<ReplyStep>;
   settings?: Record<string, number>;
+  /** Laid over SERVICE_CONTEXT, such as `channelMessages`. */
+  context?: Record<string, unknown>;
   chat?: ReplyChat;
+  /** The step that runs on a new turn runner after a restart (rigOf's `restart`), none when absent. */
+  restartBefore?: number;
 }): Promise<ReplyRun> {
   const { steps } = spec;
   const chat = spec.chat ?? C1_CHAT;
@@ -485,10 +530,11 @@ export async function replyRun(spec: {
     const answered: unknown = Reflect.apply(value, undefined, [requests[n - 1] ?? '']);
     return answered;
   };
-  const { turns, requests, fake, cli } = rigOf({
+  const rig = rigOf({
     mind: spec.world,
     answer: answerOf,
     ...(spec.settings === undefined ? {} : { settings: spec.settings }),
+    ...(spec.context === undefined ? {} : { context: spec.context }),
     store: {
       placeOfChat: (given: { id?: unknown; iface?: unknown; kind?: unknown; partnerId?: unknown }) => {
         const iface = typeof given.iface === 'string' ? given.iface : chat.iface;
@@ -502,10 +548,14 @@ export async function replyRun(spec: {
       placeChainOf: (placeId: string) => placeChainInDb(spec.world.db, placeId),
     },
   });
+  const { requests, fake, cli } = rig;
+  let turns = rig.turns;
   const out: Array<Array<string>> = [];
   for (const [index, one] of steps.entries()) {
+    if (index === spec.restartBefore) turns = await rig.restart([chat.chatId, chat.place, 'g1']);
     step = index;
     firstOfStep = requests.length + 1;
+    one.before?.();
     const { id, text, at, authorId = '111', authorName = 'Ελένη' } = one.trigger;
     const lines = [...(one.lines ?? []), one.trigger];
     if (chat === C1_CHAT) world().seed('c1', lines.map(rawLine));
@@ -517,7 +567,11 @@ export async function replyRun(spec: {
     await new Promise((resolve) => setImmediate(resolve));
     out.push(requests.slice(firstOfStep - 1));
   }
-  return { requests: out, sends: [...sendsOf(fake), ...sendsOf(cli)] };
+  return {
+    requests: out,
+    sends: [...sendsOf(fake), ...sendsOf(cli)],
+    reactions: [...reactionsOf(fake), ...reactionsOf(cli)],
+  };
 }
 
 /**
