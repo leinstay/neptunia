@@ -14,6 +14,7 @@ import type { ErrandRecord } from '../errands/types.ts';
 import { portIface } from '../interface/capabilities.ts';
 import { personOfMember, placeOfChat } from '../memory/addresses.ts';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
+import { handleOf } from '../behavior/handles.ts';
 import { intentionSettings } from '../intentions/model.ts';
 import { log } from '../log.ts';
 import type { ChatRef, MessageRef } from '../protocol/adapter.ts';
@@ -276,6 +277,8 @@ export function createInputs(ctx: InputsContext): Inputs {
       maxTokens: contextCaps?.intentions ?? DEFAULT_INTENTIONS_CAP,
       channelNameOf,
       nameOf,
+      // An attended person by the handle of the person behind the account, as every block of her request names them.
+      handleOf: (id: string) => `@${handleOf(personOfMember(store, String(id)) ?? accountOf(store, String(id)))}`,
       now,
       expiryNoticeDays: intentionSettings(config).expiryNoticeDays,
       due,

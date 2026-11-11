@@ -957,6 +957,32 @@ function keyedWindow(window: RecallWindow): RecallWindow {
   };
 }
 
+/** The author id a stretch renders a message with when it names authors by handle: its interface and its author id. */
+const authorKeyOf = (message: RecallMessage): string => `${message.stored?.iface ?? ''}\u0000${message.authorId ?? ''}`;
+
+/** A window whose messages carry authorKeyOf as their author, so two accounts with one platform id stay apart. */
+function authorKeyedWindow(window: RecallWindow): RecallWindow {
+  return {
+    ...window,
+    messages: window.messages.map((message) =>
+      message.self || message.authorId === null || message.authorId === undefined
+        ? message
+        : { ...message, authorId: authorKeyOf(message) }
+    ),
+  };
+}
+
+/** The handle of each author of a window by authorKeyOf, as `handleOf` gives it; an author with none is left out. */
+function authorHandles(window: RecallWindow, handleOf: (message: RecallMessage) => string | null): Map<string, string> {
+  const handles = new Map<string, string>();
+  for (const message of window.messages) {
+    if (message.self || message.authorId === null || message.authorId === undefined) continue;
+    const handle = handleOf(message);
+    if (handle) handles.set(authorKeyOf(message), handle);
+  }
+  return handles;
+}
+
 function originalMessage(message: RecallMessage, windows: Array<RecallWindow>): RecallMessage {
   for (const window of windows) {
     const found = window.messages.find((candidate) => candidate.stored?.sourceId === message.id);
@@ -1626,23 +1652,27 @@ type RecallQuote = {
  * cut to `stretchChars`, each with its `entries` (a line's message, for the handles of a result).
 
  * `windows` are search's or window's windows; `render` is the options of renderRecallWindows (labels, timezone,
- * selfName, gapMinutes, maxChars, seeReactions, reactionsPerMessage).
+ * selfName, gapMinutes, maxChars, seeReactions, reactionsPerMessage). With `handleOf` (the handle, without `@`, of a
+ * line's author by its stored account) every author reads `authors.line`, two accounts with one platform id apart.
  */
 export function quotesOf(
   windows: unknown,
-  { render, stretchChars }: { render: Row; stretchChars: number }
+  {
+    render,
+    stretchChars,
+    handleOf = null,
+  }: { render: Row; stretchChars: number; handleOf?: ((message: RecallMessage) => string | null) | null }
 ): Array<RecallQuote> {
   const out: Array<RecallQuote> = [];
   for (const one of (Array.isArray(windows) ? windows : []) as Array<RecallWindow | null>) {
     if (!one || !(stretchChars > 0)) continue;
+    const keyed = handleOf === null ? keyedWindow(one) : authorKeyedWindow(keyedWindow(one));
     // Same as in `search`: recall.ts types the window and its lines narrower than they are.
-    const [shown] = renderRecallWindows(
-      [keyedWindow(one) as unknown as Parameters<typeof renderRecallWindows>[0][number]],
-      {
-        ...render,
-        indexed: false,
-      }
-    );
+    const [shown] = renderRecallWindows([keyed as unknown as Parameters<typeof renderRecallWindows>[0][number]], {
+      ...render,
+      indexed: false,
+      ...(handleOf === null ? {} : { handles: authorHandles(one, handleOf) }),
+    });
     const lines = cutStretch(shown?.lines ?? [], stretchChars) as unknown as Array<{
       id: unknown;
       text: string;

@@ -24,30 +24,38 @@ function fieldLines(fields: PlaceFields | null, labels: Labels): Array<string> {
     .map((key) => fill(template, { field: names[key] ?? key, value: escapeStored(fields[key].trim()) }));
 }
 
-/** A place's body: its path as a request shows it (pathShown), then its fields. */
-function placeBody(frame: Frame, place: FramePlace, fields: PlaceFields | null, labels: Labels): string {
-  const path = pathShown(frame, place, labels.spatial?.unnamed ?? '');
+/** A place's body: its path as a request shows it (pathShown, a one-to-one chat's ending in `partner`), then its fields. */
+function placeBody(
+  frame: Frame,
+  place: FramePlace,
+  fields: PlaceFields | null,
+  labels: Labels,
+  partner: string | null
+): string {
+  const path = pathShown(frame, place, labels.spatial?.unnamed ?? '', partner);
   return [pathText(path, labels.memory?.pathJoin), ...fieldLines(fields, labels)].join('\n');
 }
 
 /**
  * `<interface>`, `<root>` and `<place>` of `frame`. `interfaceText` is what the interface declares (its mention, link and
  * reaction forms and its nouns, already worded); `rootPlace` and `place` are the stored fields of the frame's root and
- * place. A one-to-one chat and the command line have no root. '' for a turn that is nowhere.
+ * place, `partner` the handle (with `@`) a one-to-one chat's path ends in. A one-to-one chat and the command line have
+ * no root. '' for a turn that is nowhere.
  */
 export function surroundingsOf(
   frame: Frame,
   interfaceText: string,
   rootPlace: PlaceFields | null,
   place: PlaceFields | null,
-  labels: Labels
+  labels: Labels,
+  partner: string | null = null
 ): string {
   if (frame.place === null) return '';
   const root = frame.root !== null && frame.root.id !== frame.place.id ? frame.root : null;
   return [
     block('interface', interfaceText.trim()),
-    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels)),
-    block('place', placeBody(frame, frame.place, place, labels)),
+    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels, null)),
+    block('place', placeBody(frame, frame.place, place, labels, partner)),
   ]
     .filter(Boolean)
     .join('\n');

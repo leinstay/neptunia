@@ -110,8 +110,8 @@ export function foundPlaces(
   return { kind: 'found', choices, total: found.length };
 }
 
-/** What she writes to name a choice: its handle with the hash, else its id. */
-const refOf = (place: PlaceCandidate): string => (place.handle ? `#${place.handle}` : place.id);
+/** What she writes to name a choice: its handle with the hash, else its name, which resolves as a name; never its id. */
+const refOf = (place: PlaceCandidate): string => (place.handle ? `#${place.handle}` : place.name);
 
 /**
  * The choices of an answer as the text of a tool result: the lead of `labels.tools.tools.place.several`, `.none` or
