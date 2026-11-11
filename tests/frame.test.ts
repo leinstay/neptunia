@@ -8,7 +8,6 @@ import {
   blocksOf,
   frameOf,
   framedRequest,
-  pathShown,
   turnKindOf,
   type BlockName,
   type TurnKind,
@@ -189,13 +188,14 @@ test('a room has its path by names from the interface down, and its root', () =>
   assert.equal(frame.scope, 'group');
 });
 
-test("a one-to-one chat has no name and no root, and a request shows its path ending in the partner's handle", () => {
+test('a one-to-one chat has no name and no root, and its row holds no name', () => {
   // Bug: the unnamed row renders as an empty path, or a home server is made up as its root.
   // The owner's decision of 2026-11-10: one handle per person; a request names the partner by handle and holds no platform id.
   const frame = frameOf(frameInput({ chain: DM_CHAIN, dm: DM }));
   assert.equal(frame.place?.name, null);
-  const place = frame.place ?? { id: '', name: null, kind: null, path: [] };
-  assert.deepEqual(pathShown(frame, place, 'unnamed', '@uzoe1'), ['fake', 'private', '@uzoe1']);
+  // The owner's decision of 2026-11-11 (a place reads in words): a request no longer shows a path with the scope word
+  // `private`, so the assertion on `pathShown`'s `['fake', 'private', '@uzoe1']` is gone; the reference is tested in
+  // tests/request-text.test.ts and tests/request-surroundings.test.ts.
   assert.equal(frame.root, null);
   assert.equal(frame.scope, 'dm');
 });

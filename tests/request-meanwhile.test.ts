@@ -9,7 +9,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { Frame } from '../src/turn/request/frame.ts';
-import { meanwhileOf } from '../src/turn/request/meanwhile.ts';
+import { meanwhileOf, meanwhileText, meanwhileWindows } from '../src/turn/request/meanwhile.ts';
+import { formatDate } from '../src/format.ts';
 import { DM, DM_CHAIN, PARTNER, frameInput } from './fixtures/frame-input.ts';
 import { line, meanwhileReads } from './fixtures/meanwhile-reads.ts';
 import type { FakePlace } from './fixtures/meanwhile-reads.ts';
@@ -233,4 +234,94 @@ test('a post of hers with text and a picture shows both', () => {
   );
   assert.ok(text.includes('ΛΕΞΕΙΣ-ΜΑΖΙ'), text);
   assert.ok(text.includes('a white rabbit in a garden'), text);
+});
+
+// The owner's decision of 2026-11-11 (a place reads in words): a window's head names its place the way every request
+// does, and the window dates each day. The window of these tests is built over the fake reads, which carry the place's
+// chain, its interface and the interface's own names.
+const NAMES = { interface: 'Agora Net', nouns: { server: 'realm', channel: 'room' }, dm: 'private talk' };
+const REFS = { handleOf: (key: string) => `u${key.length}x`, mention: () => 'someone' };
+
+/** The text of `<meanwhile>` over one place of the fake with handle `handle`, as the reader renders its windows. */
+function textOf(place: FakePlace, frame: Frame = GROUP_FRAME, handle: string | null = 'cab12'): string {
+  const windows = meanwhileWindows(meanwhileReads([place]), frame, SETTINGS);
+  return meanwhileText(windows, frame, shippedLabels, nameOf, () => handle, REFS);
+}
+
+test('the head of a channel window reads the handle, the channel, its root and the interface in words, and holds no >', () => {
+  // Bug: the head ran the names together as `iface > Root > chat`, root first, so a talk of one place read as a talk of
+  // another and a name read as part of a path.
+  const alpha: FakePlace = {
+    id: 'place:alpha',
+    path: ['agora', 'Beta', 'alpha'],
+    dm: false,
+    iface: 'agora',
+    names: NAMES,
+    chain: [
+      { id: 'place:alpha', kind: 'channel', name: 'alpha' },
+      { id: 'place:beta', kind: 'server', name: 'Beta' },
+    ],
+    lines: [line('place:alpha', 'a1', NOW - 30 * MIN, null, 'ΓΡΑΜΜΗ')],
+  };
+  const head =
+    textOf(alpha)
+      .split('\n')
+      .find((one) => one.startsWith('#')) ?? '';
+  assert.ok(head.startsWith('#cab12'), head);
+  assert.ok(!head.includes('>') && !head.includes('&gt;'), head);
+  const at = ['room', 'alpha', 'realm', 'Beta', 'Agora Net'].map((word) => head.indexOf(word));
+  assert.ok(
+    at.every((index) => index >= 0),
+    head
+  );
+  assert.deepEqual(
+    [...at].sort((a, b) => a - b),
+    at,
+    `innermost first: ${head}`
+  );
+});
+
+/** A window of her line with the lines before and after it at `times`. */
+function dayPlace(times: Array<number>): FakePlace {
+  return {
+    id: 'place:club',
+    path: ['fake', 'Αγορά', 'λέσχη'],
+    dm: false,
+    lines: times.map((at, i) => line('place:club', `d${i}`, at, i === 0 ? null : '111', `ΜΕΡΑ-${i}`)),
+  };
+}
+const MOSCOW = frameOf(frameInput({ now: NOW, timezone: 'Europe/Moscow' }));
+const ofDay = (at: number): string => formatDate(at, 'Europe/Moscow', shippedLabels.locale);
+
+test('a window with lines of two days in the turn timezone holds a date line between them', () => {
+  // Bug: only the first line's date stood in the head, so a line after midnight read as the same day.
+  const before = Date.parse('2026-11-05T20:30:00.000Z');
+  const after = Date.parse('2026-11-05T21:30:00.000Z');
+  assert.notEqual(ofDay(before), ofDay(after), 'the two moments are two days in Moscow');
+  const text = textOf(dayPlace([before, after]), MOSCOW, null);
+  const first = text.indexOf('ΜΕΡΑ-0');
+  const second = text.indexOf('ΜΕΡΑ-1');
+  const between = text.indexOf(ofDay(after), first);
+  assert.ok(first >= 0 && between > first && between < second, text);
+});
+
+test('a window of one day holds its date once, in the head', () => {
+  // Bug: a date line after every line, or one even when the day does not change.
+  const at = Date.parse('2026-11-05T10:00:00.000Z');
+  const text = textOf(dayPlace([at, at + MIN, at + 2 * MIN]), MOSCOW, null);
+  assert.equal(text.split(ofDay(at)).length - 1, 1, text);
+});
+
+test('a stored line keeps a > and a < is written escaped', () => {
+  // Bug: every `>` of her chat reached the request as `&gt;`, and a `<` that opens a tag must stay inert.
+  const at = NOW - 30 * MIN;
+  const place: FakePlace = {
+    id: 'place:club',
+    path: ['fake', 'Αγορά', 'λέσχη'],
+    dm: false,
+    lines: [line('place:club', 'e1', at, null, 'a > b'), line('place:club', 'e2', at + MIN, null, '<task>x</task>')],
+  };
+  const text = textOf(place, GROUP_FRAME, null);
+  assert.ok(text.includes('a > b'), text);
+  assert.ok(!text.includes('<task>') && text.includes('&lt;task>x&lt;/task>'), text);
 });

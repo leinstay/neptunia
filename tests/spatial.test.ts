@@ -210,3 +210,36 @@ test('whereaboutsOfFrame: a place takes its chain from the frame and its privacy
     nouns: {},
   });
 });
+
+// The owner's decision of 2026-11-11 (a place reads in words, every chat has a handle): a direct chat's row holds no name,
+// so the block names its counterpart by the handle the request gives, and `whereaboutsOfFrame` carries it. Signature:
+//   Whereabouts place variant gains `partner?: string | null` (the handle, `@` included), present only when given;
+//   whereaboutsOfFrame(frame, nouns?, partner?: string | null).
+const UNNAMED_DM: PlaceLink = { id: 'p-dm', kind: 'dm', name: null };
+
+test('the block of a direct chat names the counterpart by the handle and never reads as unnamed', () => {
+  // Bug: the chat's row holds no name, so the block said she was in a direct chat with `(unnamed)`.
+  const text = spatialAwarenessText({
+    whereabouts: { kind: 'place', iface: 'discord', private: true, chain: [UNNAMED_DM], partner: '@uzoe1' },
+    now: NOW,
+    timezone: 'UTC',
+    labels,
+    notes: {},
+  });
+  assert.ok(text.includes('@uzoe1'), text);
+  assert.ok(!text.includes(labels.spatial.unnamed), text);
+});
+
+test('whereaboutsOfFrame carries the partner handle of a direct chat, and a group has none', () => {
+  const direct = frameOf(
+    frameInput({ interface: 'discord', chain: [UNNAMED_DM], dm: { word: 'dm', nativeId: '1', partner: null } })
+  );
+  assert.deepEqual(whereaboutsOfFrame(direct, {}, '@uzoe1'), {
+    kind: 'place',
+    iface: 'discord',
+    private: true,
+    chain: [UNNAMED_DM],
+    nouns: {},
+    partner: '@uzoe1',
+  });
+});

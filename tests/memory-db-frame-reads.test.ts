@@ -5,9 +5,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { insertRows } from '../src/memory/db/rows.ts';
-import { linesAroundOf, ownLinesOf, sourceRetiredOf } from '../src/memory/db/frame-reads.ts';
+import { chatPlacesOf, linesAroundOf, ownLinesOf, sourceRetiredOf } from '../src/memory/db/frame-reads.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
-import { addLine, addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
+import {
+  addDm,
+  addLine,
+  addRoom,
+  addPerson,
+  noteInterface,
+  openWorld,
+  rootId,
+} from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 
 const AT = '2026-11-01T10:00:00.000Z';
@@ -147,14 +155,23 @@ test('her line in a room stored under an opaque id has a path that starts with t
       .run(rootId('fake', 'g1'));
     ownLine(world, { place: 'place:opaque-room', native: 'm-50', account: null, scope: 'group' });
     const [line] = ownLinesOf(world.db, internalContext(), null, 5);
-    assert.deepEqual(line?.path, ['fake', 'Agora', 'garden']);
+    // The owner's decision of 2026-11-11 (a place reads in words): a line carries its place's interface and chain
+    // (innermost first, with kinds) instead of a path of names, so a request can give each link its interface's noun.
+    assert.equal(line?.iface, 'fake');
+    assert.deepEqual(
+      line?.chain.map((link) => [link.kind, link.name]),
+      [
+        ['channel', 'garden'],
+        ['server', 'Agora'],
+      ]
+    );
   } finally {
     world.close();
   }
 });
 
-test("her line in a direct chat stored under an opaque id has a path that ends in the partner account's native id", () => {
-  // Bug: the path cut the partner out of the text of the place id, which an opaque DM place does not spell.
+test("her line in a direct chat stored under an opaque id is one unnamed direct chat link with the partner's person", () => {
+  // Bug: the partner was cut out of the text of the place id, which an opaque DM place does not spell.
   const world = openWorld();
   try {
     world.db.exec(`INSERT INTO people (id) VALUES ('person:7e21');
@@ -163,7 +180,11 @@ test("her line in a direct chat stored under an opaque id has a path that ends i
         VALUES ('place:opaque-dm', 'fake', 'dm', NULL, 'dm', 'dm', 'account:opaque-partner', 'person:7e21');`);
     ownLine(world, { place: 'place:opaque-dm', native: 'm-51', account: null, scope: 'dm' });
     const [line] = ownLinesOf(world.db, internalContext(), null, 5);
-    assert.deepEqual([line?.path, line?.dm, line?.partner], [['fake', 'private', 'u-77'], true, 'person:7e21']);
+    // The owner's decision of 2026-11-11: the chain is the one unnamed `dm` link, no `private` and no platform id.
+    assert.deepEqual(
+      [line?.iface, line?.chain.map((link) => [link.id, link.kind, link.name]), line?.dm, line?.partner],
+      ['fake', [['place:opaque-dm', 'dm', null]], true, 'person:7e21']
+    );
   } finally {
     world.close();
   }
@@ -300,6 +321,32 @@ test('a picture-only line is among the lines around a line', () => {
       lines.map((line) => line.id),
       ['m-1', 'm-pic', 'm-3']
     );
+  } finally {
+    world.close();
+  }
+});
+
+test("every chat is a place a #handle may name: a direct chat and the command line's chat as well as a channel", () => {
+  // Bug: only channels and threads were listed, so a handle of a direct chat or of the command line's chat named nothing
+  // and the tools that take a place refused the places she talks in most.
+  const world = openWorld();
+  try {
+    noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+    addRoom(world.db, { iface: 'fake', native: 'c7', root: rootId('fake', 'g1'), name: 'garden' });
+    addPerson(world.db, {
+      id: 'person:zoe',
+      accounts: [{ id: 'fake:u1', iface: 'fake', native: 'u1', names: ['Zoé'] }],
+    });
+    addPerson(world.db, {
+      id: 'person:owner',
+      accounts: [{ id: 'cli:owner', iface: 'cli', native: 'owner', names: ['Orestis'] }],
+    });
+    const dm = addDm(world.db, { iface: 'fake', native: 'u1', person: 'person:zoe', account: 'fake:u1' });
+    const cli = addDm(world.db, { iface: 'cli', native: 'owner', person: 'person:owner', account: 'cli:owner' });
+    const listed = new Map(chatPlacesOf(world.db).map((one) => [one.id, one.nativeId]));
+    assert.equal(listed.get(dm), 'u1');
+    assert.equal(listed.get(cli), 'owner');
+    assert.equal(listed.get(rootId('fake', 'g1')), undefined, 'a root is no chat');
   } finally {
     world.close();
   }
