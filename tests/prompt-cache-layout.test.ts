@@ -103,18 +103,28 @@ function subtagOf(built: Built, tag: string): string {
   return new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(rootOf(built, 'memory'))?.[1] ?? '';
 }
 
-test('the last part of a reply that carries a cache marker ends right before <chat>', () => {
+test('the first request of a reply carries three markers: the system message, the end of <self> and right before <chat>', () => {
+  // The owner's decision of 2026-11-11: every request of a turn has its markers at the same places, none on <surroundings>.
   // Bug: the markers stop at <surroundings>, so a provider that caches by marker re-reads <memory> and <meanwhile> on
   // every turn although they repeat; or the split falls inside <chat> and the marker is written anew on every turn.
   const built = request([]);
   const sent = withCacheMarker(built.messages, '1h');
-  const parts = (sent[1].content as Array<{ text?: string; cache_control?: unknown }>).filter(
-    (part) => typeof part.text === 'string'
+  const marked = sent.flatMap((message) =>
+    Array.isArray(message.content)
+      ? (message.content as Array<{ text?: string; cache_control?: unknown }>).filter((part) =>
+          Object.hasOwn(part, 'cache_control')
+        )
+      : []
   );
-  const lastMarked = parts.findLastIndex((part) => Object.hasOwn(part, 'cache_control'));
-  assert.ok(lastMarked >= 0, 'the user message carries a marker');
-  assert.match(String(parts[lastMarked]?.text), /<\/meanwhile>\n\n$/, 'the marked part ends with <meanwhile>');
-  assert.match(String(parts[lastMarked + 1]?.text), /^<chat>\n/, 'the part after it opens with <chat>');
+  assert.equal(marked.length, 3, 'three markers');
+  assert.match(String(marked[1]?.text), /<\/self>\n\n$/, 'the second ends with <self>');
+  assert.match(
+    String(marked[2]?.text),
+    /^<surroundings>\n[\s\S]*<\/meanwhile>\n\n$/,
+    'the third runs from <surroundings> to <meanwhile>'
+  );
+  const parts = (sent[1].content as Array<{ text?: string }>).filter((part) => typeof part.text === 'string');
+  assert.match(String(parts[parts.indexOf(marked[2]) + 1]?.text), /^<chat>\n/, 'the part after it opens with <chat>');
 });
 
 test('the entries of <people>, <places> and <lore> print the same whatever <found> holds, from nothing to its full share', () => {

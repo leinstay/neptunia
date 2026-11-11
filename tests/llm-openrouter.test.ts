@@ -1,6 +1,6 @@
 // The interface field of a model call (src/llm/openrouter.ts#createLlm): the turn hands its interface as `iface`,
 // the usage line names it, and the request body never carries it (PR 7a). Kept apart from tests/openrouter.test.js,
-// which is at its recorded length. The cache markers of the three cached user parts (withCacheMarker) are tested here too.
+// which is at its recorded length. The cache markers of the cached user parts (withCacheMarker) are tested here too.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLlm, withCacheMarker } from '../src/llm/openrouter.ts';
@@ -81,106 +81,91 @@ function markedParts(messages: ReadonlyArray<{ content?: unknown }>): Array<Sent
   );
 }
 
-test('withCacheMarker: the markers fall on the system, the stable part, the surroundings part and the tail of a tool loop, and nowhere else', () => {
-  // Bug: a surroundings part left unmarked is re-read on every turn, and a marker on the per-turn tail wastes one of four.
-  const stable = '<self>\n<self_facts>\n- aime le thé\n</self_facts>\n</self>\n\n';
-  const surroundings = '<surroundings>\n<place>\nfake › Αγορά › γενικά\n</place>\n</surroundings>\n\n';
-  const messages = [
-    { role: 'system', content: SYSTEM_TEXT },
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: stable, cacheSegment: 'stable' },
-        { type: 'text', text: surroundings, cacheSegment: 'surroundings' },
-        { type: 'text', text: USER_TEXT },
-      ],
-    },
-    {
-      role: 'assistant',
-      content: '',
-      tool_calls: [{ id: 'c1', type: 'function', function: { name: 'web_search', arguments: '{}' } }],
-    },
-    { role: 'tool', tool_call_id: 'c1', content: 'résultat' },
-  ];
-  const sent = withCacheMarker(messages, '1h');
-  assert.deepEqual(
-    markedParts(sent).map((part) => [part.text, part.cache_control]),
-    [
-      [SYSTEM_TEXT, MARK_1H],
-      [stable, MARK_1H],
-      [surroundings, MARK_1H],
-      ['résultat', MARK_5M],
-    ]
-  );
-  assert.equal(JSON.stringify(sent).includes('cacheSegment'), false);
-});
-
-// --- the cached part that ends right before `<chat>`: `cacheSegment: 'memory'` --------------------------------------
-// The builder tags the part from `<memory>` to the last block before the turn's own blocks (`<chat>` on a reply) with
-// `cacheSegment: 'memory'`. It takes the request's TTL on the first request of a turn and gives its slot to the tail
-// of a tool loop once steps are appended.
+// --- the cached parts of a turn: `stable` and `memory` -----------------------------------------------------------
+// The owner's decision of 2026-11-11: every request of a turn carries its markers at the same places. The builder tags
+// `<self>` with `cacheSegment: 'stable'` and the part from `<surroundings>` to the last block before the turn's own
+// blocks (`<chat>` on a reply) with `cacheSegment: 'memory'`. A first request marks the system message and both parts,
+// a later step marks the same three and the tail of the tool loop. `<surroundings>` has no marker of its own.
 
 const STABLE = '<self>\n<self_facts>\n- aime le thé\n</self_facts>\n</self>\n\n';
-const SURROUNDINGS = '<surroundings>\n<place>\nfake › Αγορά › γενικά\n</place>\n</surroundings>\n\n';
-const MEMORY = '<memory>\n<places>\nfake › Αγορά › λέσχη\n</places>\n</memory>\n\n<meanwhile>\nπρώτη\n</meanwhile>\n\n';
+const MEMORY =
+  '<surroundings>\n<place>\nfake › Αγορά › γενικά\n</place>\n</surroundings>\n\n' +
+  '<memory>\n<places>\nfake › Αγορά › λέσχη\n</places>\n</memory>\n\n<meanwhile>\nπρώτη\n</meanwhile>\n\n';
 
-/** A reply's two messages, the user message cut into the stable, surroundings, memory and tail parts. */
-const fourParts = () => [
+/** A reply's two messages, the user message cut into the stable, memory and tail parts. */
+const threeParts = () => [
   { role: 'system', content: SYSTEM_TEXT },
   {
     role: 'user',
     content: [
       { type: 'text', text: STABLE, cacheSegment: 'stable' },
-      { type: 'text', text: SURROUNDINGS, cacheSegment: 'surroundings' },
       { type: 'text', text: MEMORY, cacheSegment: 'memory' },
       { type: 'text', text: USER_TEXT },
     ],
   },
 ];
 
-test('withCacheMarker: on the first request of a turn the part that ends right before <chat> carries the request ttl', () => {
-  // Bug: the part from <memory> to <meanwhile> is left unmarked, so a provider that caches by marker reads it anew on
-  // every turn although it repeats, or the marker lands on <chat>, which changes on every turn.
-  const sent = withCacheMarker(fourParts(), '1h');
+/** A turn's request after one step: the first two messages, her call and its result. */
+const afterStep = () => [
+  ...threeParts(),
+  {
+    role: 'assistant',
+    content: '',
+    tool_calls: [{ id: 'c1', type: 'function', function: { name: 'web_search', arguments: '{}' } }],
+  },
+  { role: 'tool', tool_call_id: 'c1', content: 'résultat' },
+];
+
+test('withCacheMarker: a first request carries exactly three markers, on the system, the end of <self> and right before <chat>', () => {
+  // Bug: the part from <surroundings> to <meanwhile> is left unmarked, so a provider that caches by marker reads it anew
+  // on every turn although it repeats, or the marker lands on <chat>, which changes on every turn.
+  const sent = withCacheMarker(threeParts(), '1h');
   assert.deepEqual(
     markedParts(sent).map((part) => [part.text, part.cache_control]),
     [
       [SYSTEM_TEXT, MARK_1H],
       [STABLE, MARK_1H],
-      [SURROUNDINGS, MARK_1H],
       [MEMORY, MARK_1H],
     ]
   );
   assert.equal(JSON.stringify(sent).includes('cacheSegment'), false);
 });
 
-test('withCacheMarker: once steps are appended the memory part gives its marker to the tail of the tool loop', () => {
-  // Bug: the memory part keeps its marker on a later step, so the tool loop's tail finds no fifth slot and every step
-  // re-reads the tool results before it; or both are sent and the provider refuses a fifth marker.
-  const messages = [
-    ...fourParts(),
-    {
-      role: 'assistant',
-      content: '',
-      tool_calls: [{ id: 'c1', type: 'function', function: { name: 'web_search', arguments: '{}' } }],
-    },
-    { role: 'tool', tool_call_id: 'c1', content: 'résultat' },
-  ];
-  const sent = withCacheMarker(messages, '1h');
+test('withCacheMarker: a later step keeps the three markers of the first request and adds the tail of the tool loop', () => {
+  // Bug: a later step drops the memory marker for the tail, so the entry written at the end of <meanwhile> is reached
+  // only by the provider's look-back, which a wide step outruns; or the tail is left unmarked and each step re-reads
+  // the results before it.
+  const sent = withCacheMarker(afterStep(), '1h');
   assert.deepEqual(
     markedParts(sent).map((part) => [part.text, part.cache_control]),
     [
       [SYSTEM_TEXT, MARK_1H],
       [STABLE, MARK_1H],
-      [SURROUNDINGS, MARK_1H],
+      [MEMORY, MARK_1H],
       ['résultat', MARK_5M],
     ]
   );
 });
 
-test('withCacheMarker: with the memory part and a builder-placed marker no more than four markers are sent', () => {
-  // Bug: the memory part's marker is counted apart from the cap, so a request with a builder's own marker sends five.
-  const messages = fourParts();
+test('withCacheMarker: a part tagged surroundings carries no marker of its own', () => {
+  // Bug: a builder that still cuts <surroundings> apart spends a marker on it, and a later step has five candidates.
+  const messages = afterStep();
+  (messages[1].content as Array<Record<string, unknown>>).splice(1, 0, {
+    type: 'text',
+    text: '<surroundings>\nγενικά\n</surroundings>\n\n',
+    cacheSegment: 'surroundings',
+  });
+  const sent = withCacheMarker(messages, '1h');
+  assert.deepEqual(
+    markedParts(sent).map((part) => part.text),
+    [SYSTEM_TEXT, STABLE, MEMORY, 'résultat']
+  );
+  assert.equal(JSON.stringify(sent).includes('cacheSegment'), false);
+});
+
+test('withCacheMarker: with a builder-placed marker on a later step no more than four markers are sent', () => {
+  // Bug: the memory or the tail marker is counted apart from the cap, so a request with a builder's own marker sends five.
+  const messages = afterStep();
   (messages[1].content as Array<Record<string, unknown>>).push({
     type: 'text',
     text: 'γ',
@@ -189,7 +174,7 @@ test('withCacheMarker: with the memory part and a builder-placed marker no more 
   const sent = withCacheMarker(messages, '1h');
   assert.deepEqual(
     markedParts(sent).map((part) => part.text),
-    [SYSTEM_TEXT, STABLE, SURROUNDINGS, MEMORY]
+    [SYSTEM_TEXT, STABLE, MEMORY, 'γ']
   );
 });
 

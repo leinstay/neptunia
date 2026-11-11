@@ -104,15 +104,15 @@ function block(built: Built, tag: string): string {
   return new RegExp(`^<${tag}>\\n([\\s\\S]*?)\\n</${tag}>$`, 'm').exec(userOf(built))?.[1] ?? '';
 }
 
-// Slice 8 of the turn frame: `<surroundings>` is a cached segment of its own after the stable `<self>`.
-test("the root tags of a reply are the frame's list in its order, the stable segment holds exactly <self> and the surroundings segment <surroundings>", () => {
+// The owner's decision of 2026-11-11: the cached segment `memory` runs from `<surroundings>` to the last block before `<chat>`.
+test("the root tags of a reply are the frame's list in its order, the stable segment holds exactly <self> and the memory segment <surroundings> to <meanwhile>", () => {
   // Bug: an old block such as <senses> or <channel_directory> stays in the request, or the tail keeps the old order.
   const built = request();
-  // What still breaks the repeat (2026-11-11, after the cache layout): `<memory>` and `<meanwhile>` repeat between turns
-  // and end right before `<chat>`, so they form the cached segment `memory` instead of the tail.
+  // `<surroundings>`, `<memory>` and `<meanwhile>` repeat between turns and end right before `<chat>`, so they form the
+  // cached segment `memory`, and `<surroundings>` has no marker of its own.
   const cached: Record<string, string> = {
     self: 'stable',
-    surroundings: 'surroundings',
+    surroundings: 'memory',
     memory: 'memory',
     meanwhile: 'memory',
   };
@@ -337,8 +337,9 @@ test('a reply with a find and a lookup prints <found> as a root tag after <chat>
   const built = request({ mind: mindOfEntries({ people: [ELENI], places: [CLUB], found: [found] }) });
   assert.deepEqual(emittedBlocks(built), [
     'stable self',
-    'surroundings surroundings',
-    // `<memory>` and `<meanwhile>` form the cached segment `memory`, which ends right before `<chat>` (2026-11-11).
+    // `<surroundings>`, `<memory>` and `<meanwhile>` form the cached segment `memory`, which ends right before `<chat>`
+    // (the owner's decision of 2026-11-11).
+    'memory surroundings',
     'memory memory',
     'memory meanwhile',
     'tail chat',

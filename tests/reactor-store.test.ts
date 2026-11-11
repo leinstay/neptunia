@@ -376,7 +376,7 @@ test("formatTranscript: counts stay on others' lines, for unknown reactors and w
 // --- the persona's request ---------------------------------------------------------
 
 // The owner's decisions of 2026-11-10 (one handle per person, an entry for every handle) and 2026-11-11 (cache layout).
-test('buildRequest: a reactor on her line gets a handle and an entry in <people>, and the parts cached longer than <memory> stay the same', () => {
+test('buildRequest: a reactor on her line gets a handle and an entry in <people>, and the system message, <self> and <surroundings> stay the same', () => {
   const now = Date.UTC(2026, 9, 15, 10, 0, 0);
   const author = { id: '650000000000000123', name: 'Zoé' };
   const reactor = { id: '650000000000000456', name: 'Ἑλένη' };
@@ -465,12 +465,14 @@ test('buildRequest: a reactor on her line gets a handle and an entry in <people>
       .filter((part: Part) => part.type === 'text')
       .map((part: Part) => part.text)
       .join('\n');
-  /** The parts cached longer than the `memory` segment: `<self>` and `<surroundings>`. */
+  /** The part cached longer than the `memory` segment, `<self>`, and the `<surroundings>` that opens the `memory` part. */
   const longerOf = (request: Built) =>
-    request.messages[1].content
-      .filter((part: Part) => part.cacheSegment === 'stable' || part.cacheSegment === 'surroundings')
-      .map((part: Part) => part.text)
-      .join('\n');
+    [
+      ...request.messages[1].content
+        .filter((part: Part) => part.cacheSegment === 'stable')
+        .map((part: Part) => part.text),
+      /^<surroundings>\n[\s\S]*?\n<\/surroundings>$/m.exec(textOf(request))?.[0] ?? '',
+    ].join('\n');
 
   const named = buildRequest(input(history));
   const bare = buildRequest(input(plain));
