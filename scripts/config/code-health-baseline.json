@@ -1881,7 +1881,6 @@
       "src/tools/operations/env.ts",
       "src/tools/operations/grants.ts",
       "src/tools/operations/index.ts",
-      "src/tools/operations/intention.ts",
       "src/tools/operations/learning.ts",
       "src/tools/operations/memory.ts",
       "src/tools/operations/message.ts",
