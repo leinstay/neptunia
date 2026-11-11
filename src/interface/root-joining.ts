@@ -7,7 +7,7 @@
 // under `labels.roots`, which names a root by the interface's own noun and quotes no command itself. Built by
 // src/core.ts; the commands are src/interface/commands/interfaces-roots.ts.
 
-import { fill } from '../format.ts';
+import { fill, formatDay } from '../format.ts';
 import { log } from '../log.ts';
 import type { RootRoutes } from '../core-routing.ts';
 import type { RootChanged } from '../protocol/events.ts';
@@ -91,7 +91,7 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
   /** `labels.roots.since` with the day she joined as `YYYY-MM-DD` (UTC), '' for a root with no known moment. */
   function sinceOf(joinedAt: number | null): string {
     if (joinedAt === null) return '';
-    const day = new Date(joinedAt).toISOString().slice(0, 10);
+    const day = formatDay(joinedAt, 'UTC');
     return fill(labelOf(hot.prompts, 'since'), { day });
   }
 

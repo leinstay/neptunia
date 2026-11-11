@@ -7,7 +7,7 @@
 // (src/turn/request/reader.ts) fits the items to the budget in the reader's rank, prints what stayed in `printOrder`,
 // the same entries in the same bytes whatever the rank, and prints `<found>` as a root tag of its own. Pure.
 
-import { fill, formatDate, mentionsNamed } from '../../format.ts';
+import { fill, formatDate, formatDay, mentionsNamed } from '../../format.ts';
 import { factStateWords } from '../../memory/retrieval-input.ts';
 import { EVIDENCE_ORDER, ownLinesShown } from '../../memory/db/mind-read.ts';
 import type {
@@ -237,7 +237,7 @@ function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string
       if (value) lines.push(fieldLine(w, field, storedText(w, value)));
     }
     if (typeof place.joinedAt === 'number' && Number.isFinite(place.joinedAt))
-      lines.push(fieldLine(w, 'joined', formatDate(place.joinedAt, w.frame.timezone, w.locale)));
+      lines.push(fieldLine(w, 'joined', formatDay(place.joinedAt, w.frame.timezone)));
     const date = place.ownLastAt ? formatDate(Date.parse(place.ownLastAt), w.frame.timezone, w.locale) : '';
     // The count rounded down to a step, so the entry stays the same bytes while she talks there.
     const count = ownLinesShown(place.ownLines);
