@@ -143,6 +143,14 @@ const EVENTS = {
     id: 'discord:connection:lost:1000',
     state: 'lost',
   },
+  'root.changed': {
+    kind: 'root.changed',
+    iface: 'discord',
+    at: 1000,
+    id: 'discord:root:g7:joined:1000',
+    root: { id: 'g7', name: 'Gamma' },
+    change: 'joined',
+  },
 };
 
 const ref = { iface: 'fake', chatId: 'c1' };
@@ -179,6 +187,8 @@ test('protocol: the kinds, chat kinds and actions are the contract', () => {
       'presence.snapshot',
       'chat.changed',
       'connection.changed',
+      // Joining a root appended this one: an interface reports a root it joined, holds or left.
+      'root.changed',
     ]
   );
   assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'errand.done', 'inner.wake']);
