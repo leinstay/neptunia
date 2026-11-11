@@ -11,7 +11,7 @@
 import { assignChannelHandles, assignHandles } from '../../behavior/handles.ts';
 import { fill, renderTranscript } from '../../format.ts';
 import { fitSections } from '../../llm/budget.ts';
-import { mindSettingsOf } from '../../memory/db/mind-read.ts';
+import { allowances, mindSettingsOf } from '../../memory/db/mind-read.ts';
 import { normalName, phrasesOf } from '../../memory/db/names.ts';
 import type { Mind } from '../../memory/db/mind-read.ts';
 import type { Lookup } from '../calls.ts';
@@ -21,7 +21,7 @@ import type { InnerParts } from './inner-block.ts';
 import { meanwhileSettingsOf, meanwhileText, meanwhileWindows, windowText } from './meanwhile.ts';
 import type { MeanwhileReads, MeanwhileWindow } from './meanwhile.ts';
 import { MEMORY_SUBTAGS, factItemsOf, memoryItemsOf, renderMemory } from './memory-block.ts';
-import type { ChatIdOf, LiveOf, MemoryItem, StoredFact } from './memory-block.ts';
+import type { ChatIdOf, LiveOf, MemoryItem, MemorySubtag, StoredFact } from './memory-block.ts';
 import { recallBlockOf } from './recall-block.ts';
 import { refResolverOf } from './refs.ts';
 import type { LineOf } from './refs.ts';
@@ -125,6 +125,8 @@ type Offered = {
   surroundings: string;
   spatial: string;
   memory: Array<MemoryItem>;
+  /** The memory items `memoryCut` left out, by subtag. */
+  memoryLeftOut: Record<string, number>;
   recall: string;
   chat: Array<TranscriptItem>;
   windows: Array<MeanwhileWindow>;
@@ -138,30 +140,73 @@ const selfreflectionFixed = (given: SelfreflectionFramed | null): Array<string> 
   given === null ? [] : [...given.parts.map((part) => part.text), given.intro];
 
 /**
- * Whether a place item goes first in the budget of `<places>`: the graph reader kept it whatever its room, or its stored
- * name stands whole among the words of the line she answers (`names`, its phrases of up to three words as the reader
- * indexes them, names.ts#phrasesOf).
+ * Whether a memory item goes first in its subtag's budget: the graph reader kept it whatever its room, or it is a place
+ * whose stored name stands whole among the words of the line she answers (`names`, its phrases of up to three words as
+ * the reader indexes them, names.ts#phrasesOf).
  */
 function keptFirst(item: MemoryItem, names: ReadonlySet<string>): boolean {
   if (item.keep === true) return true;
-  const name = item.placeName ? normalName(item.placeName) : '';
+  const name = item.subtag === 'places' && item.placeName ? normalName(item.placeName) : '';
   return name !== '' && names.has(name);
 }
 
-/**
- * The items of a memory subtag in the order the budget takes them: for `<places>` the places kept first ahead of the
- * rest, each group in the reader's rank. Rendering keeps the reader's rank whatever the budget took first.
- */
+/** The items of a memory subtag in the order the budget takes them: the ones kept first, each group in the reader's rank. */
 function budgetOrder(given: ReaderInput, items: ReadonlyArray<MemoryItem>): Array<MemoryItem> {
   const names = new Set(phrasesOf(given.answeredText ?? ''));
-  const first = items.filter((one) => one.subtag === 'places' && keptFirst(one, names));
+  const first = items.filter((one) => keptFirst(one, names));
   return [...first, ...items.filter((one) => !first.includes(one))];
+}
+
+/**
+ * The memory items the request keeps, cut by the graph reader's own rule (src/memory/db/mind-read.ts#cut) at the
+ * request's price of a text: one total of `context.memory.budgetTokens`, each subtag its share with what the others
+ * leave unused lent (`allowances`), the person she answers always and counted in `<people>`. Each item takes the first
+ * of its details that fits what its subtag has left; one that fits at none is left out and counted, unless the reader
+ * kept it whatever the budget, which stays at its lowest detail. The kept items come back in the reader's rank.
+ */
+function memoryCut(
+  given: ReaderInput,
+  items: ReadonlyArray<MemoryItem>
+): { items: Array<MemoryItem>; leftOut: Record<string, number> } {
+  const settings = mindSettingsOf(given.config);
+  const ordered = (subtag: string): Array<MemoryItem> => [
+    ...items.filter((one) => one.subtag === subtag && one.counterpart),
+    ...budgetOrder(
+      given,
+      items.filter((one) => one.subtag === subtag && !one.counterpart)
+    ),
+  ];
+  const demand = Object.fromEntries(
+    MEMORY_SUBTAGS.map((subtag) => [subtag, ordered(subtag).reduce((sum, one) => sum + given.cost(one.text), 0)])
+  ) as Record<MemorySubtag, number>;
+  const allowance = allowances(settings, demand);
+  const chosen = new Map<MemoryItem, string>();
+  const leftOut: Record<string, number> = {};
+  for (const subtag of MEMORY_SUBTAGS) {
+    let left = allowance[subtag];
+    for (const one of ordered(subtag)) {
+      const texts = [one.text, ...(one.lower ?? [])];
+      const fits = one.counterpart ? one.text : texts.find((text) => given.cost(text) <= left);
+      if (fits === undefined && one.keep !== true) {
+        leftOut[subtag] = (leftOut[subtag] ?? 0) + 1;
+        continue;
+      }
+      const text = fits ?? texts.at(-1) ?? one.text;
+      left -= given.cost(text);
+      chosen.set(one, text);
+    }
+  }
+  return {
+    items: items.flatMap((one) => {
+      const text = chosen.get(one);
+      return text === undefined ? [] : [text === one.text ? one : { ...one, text }];
+    }),
+    leftOut,
+  };
 }
 
 /** The budget's sections of the frame's request, in priority order. */
 function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
-  const settings = mindSettingsOf(given.config);
-  const shares: Record<string, number> = settings.shares;
   const fixed = [
     given.system,
     given.task,
@@ -180,10 +225,10 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     { name: 'fixed', required: true, items: fixed },
     { name: 'counterpart', required: true, items: counterpart },
     { name: 'self', cap: caps.aboutChat, items: given.selfFacts },
+    // The memory items are cut to the memory's budget already (memoryCut); here only the request's limit cuts them.
     ...MEMORY_SUBTAGS.map((subtag) => ({
       name: subtag,
       keep: 'first' as const,
-      cap: Math.floor(settings.budgetTokens * (shares[subtag] ?? 0)) || undefined,
       items: budgetOrder(
         given,
         offered.memory.filter((one) => one.subtag === subtag && !one.counterpart)
@@ -288,13 +333,15 @@ function offeredOf(given: ReaderInput): Offered {
   const windows = given.meanwhileReads
     ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettingsOf(given.config, frame))
     : [];
+  const memory = memoryCut(given, [
+    ...memoryItemsOf(mind, frame, labels, given.nameOf, given.live, given.selfreflectionIds, chatIdOfInput(given)),
+    ...factItemsOf(given.facts ?? [], labels),
+  ]);
   return {
     spatial: [given.spatialText, answersLine(given), given.awayText].filter(Boolean).join('\n'),
     surroundings: given.surroundingsText,
-    memory: [
-      ...memoryItemsOf(mind, frame, labels, given.nameOf, given.live, given.selfreflectionIds, chatIdOfInput(given)),
-      ...factItemsOf(given.facts ?? [], labels),
-    ],
+    memory: memory.items,
+    memoryLeftOut: memory.leftOut,
     recall: recallBlockOf(lookups, { retired: retiredOf(given.lookups, given.isSourceRetired) }, labels, timezone),
     chat: given.chatItems.map((item) => ({ ...item, text: resolveRef(item.text) })),
     windows,
@@ -409,7 +456,10 @@ export function readerRequest(given: ReaderInput): ReaderResult {
     window.dm ? null : (channelHandleById.get(chatIdOfInput(given)(window.placeId) ?? '') ?? null);
   const { stats } = fit;
   const cutBy = Object.fromEntries(
-    MEMORY_SUBTAGS.map((subtag) => [subtag, (mind.leftOut[subtag] ?? 0) + (stats[subtag]?.dropped ?? 0)])
+    MEMORY_SUBTAGS.map((subtag) => [
+      subtag,
+      (mind.leftOut[subtag] ?? 0) + (offered.memoryLeftOut[subtag] ?? 0) + (stats[subtag]?.dropped ?? 0),
+    ])
   );
   const keptChat = offered.chat.slice(offered.chat.length - (fit.kept.chat ?? []).length);
   const blocks = listedOf(given, offered, fit, {

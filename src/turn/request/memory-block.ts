@@ -41,8 +41,13 @@ export type MemoryItem = {
   readonly chatId?: string | null;
   /** A place's stored name, for the request's budget to find it in the line she answers; absent for anything else. */
   readonly placeName?: string | null;
-  /** True for a place the graph reader kept whatever its room (PlaceEntry's `keep`): the budget takes it first. */
+  /**
+   * True for a person or a place the graph reader kept whatever its room (the entry's `keep`): the request's budget
+   * takes it first and never leaves it out.
+   */
   readonly keep?: boolean;
+  /** The entry's text at each lower detail than `text`, the name last; empty for an entry with one detail. */
+  readonly lower?: ReadonlyArray<string>;
   readonly reads: ReadonlyArray<MemoryRead>;
 };
 
@@ -154,22 +159,37 @@ function excerptText(w: Words, excerpt: ExcerptEntry): string {
   });
 }
 
-/** Whether `person` is the one the frame answers: the same person, or one of their accounts. */
+/**
+ * Whether `person` is the one the frame answers: the same person, one of their accounts, or their account on the
+ * frame's interface by the platform id, which is all a frame knows when its store links no account.
+ */
 function answers(frame: FrameView, person: PersonEntry): boolean {
   const them = frame.counterpart;
-  return them !== null && (person.personId === them.personId || person.accounts.includes(them.accountId));
+  if (them === null) return false;
+  if (person.personId === them.personId || person.accounts.includes(them.accountId)) return true;
+  return person.platformAccounts.some((one) => one.iface === frame.interface && one.platformId === them.nativeId);
 }
+
+/** The details below `detail`, strongest first, as the graph reader steps down (src/memory/db/mind-read.ts#cut). */
+const DETAILS = ['whole', 'compact', 'name'] as const;
+const below = (detail: (typeof DETAILS)[number]): Array<(typeof DETAILS)[number]> =>
+  DETAILS.slice(DETAILS.indexOf(detail) + 1);
 
 /** `<people>`'s items: the person she answers first, from the reader or as a stranger, then everyone else once. */
 function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryItem> {
-  const item = (person: PersonEntry, counterpart: boolean): MemoryItem => ({
-    subtag: 'people',
-    text: personText(w, person, counterpart, live ? live(nativeIds(person.platformAccounts, w.frame.interface)) : null),
-    counterpart,
-    name: person.name,
-    handleIds: nativeIds(person.platformAccounts, w.frame.interface),
-    reads: readsOf(person),
-  });
+  const item = (person: PersonEntry, counterpart: boolean): MemoryItem => {
+    const now = live ? live(nativeIds(person.platformAccounts, w.frame.interface)) : null;
+    return {
+      subtag: 'people',
+      text: personText(w, person, counterpart, now),
+      counterpart,
+      name: person.name,
+      handleIds: nativeIds(person.platformAccounts, w.frame.interface),
+      ...(person.keep === true ? { keep: true } : {}),
+      lower: counterpart ? [] : below(person.detail).map((detail) => personText(w, { ...person, detail }, false, now)),
+      reads: readsOf(person),
+    };
+  };
   const seen = new Set<string>();
   const people = mind.people.filter((person) => !seen.has(person.personId) && Boolean(seen.add(person.personId)));
   const found = people.find((person) => answers(w.frame, person)) ?? null;
@@ -251,6 +271,7 @@ export function memoryItemsOf(
       chatId: chatOf(place),
       placeName: place.name,
       ...(place.keep === true ? { keep: true } : {}),
+      lower: below(place.detail).map((detail) => placeText(w, { ...place, detail }, mine(place))),
     })),
     ...mind.lore.map((claim) => plain('lore', loreText(w, claim), readsOf(claim))),
     ...mind.recent.map((episode) => plain('recent', episodeText(w, episode), readsOf(episode))),

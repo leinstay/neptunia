@@ -62,6 +62,15 @@ test('the counterpart has one entry in <memory> when the reader also raised them
   assert.equal(text.split('ΣΧΕΣΗ-ΕΛΕΝΗΣ').length - 1, 1);
 });
 
+test('the counterpart has one entry when the frame knows them by their platform id alone', () => {
+  // Bug (2026-11-11): a frame whose store links no person names the counterpart by the platform id, and the person the
+  // reader raised for that same account was rendered a second time under the stranger the frame made of them.
+  const byId: FrameParty = { personId: null, accountId: '111', nativeId: '111', name: 'Ελένη' };
+  const people = section(render(mindOfEntries({ people: [ELENI, NIKOS] }), byId), 'people');
+  assert.equal(people.split('Ελένη').length - 1, 1, people);
+  assert.ok(people.includes('ΣΧΕΣΗ-ΕΛΕΝΗΣ'), people);
+});
+
 test('a counterpart the reader did not raise still opens <people>, a stranger with an empty memory', () => {
   // Bug: the person she answers is missing whenever the database knows nothing of them.
   const people = section(render(mindOfEntries({ people: [NIKOS] }), { ...AS_ELENI, name: 'Ζωή' }), 'people');
