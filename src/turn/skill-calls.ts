@@ -44,7 +44,7 @@ import type { CallMark, JournalNotes, NotesDraft } from './journal-notes.ts';
 import { untaggedNote } from './mentions.ts';
 import { inRoot, snapshotOfDraft } from './routing.ts';
 import type { PostRefs, RenderedPost, Sends } from './sends.ts';
-import type { RequestRefs } from './request/handle-book.ts';
+import type { RequestRefs } from './request/types.ts';
 import type { Handles } from './handles.ts';
 import { wakeRefusalCode } from '../tools/wake-tools.ts';
 import { INTENT_ID_SKILLS } from './settings.ts';
@@ -189,7 +189,7 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     framePlace?: { id: string; path: Array<string> } | null;
     /** How a line's identity in her posted words is read back (src/turn/sends.ts#renderPost). */
     frameRefs?: PostRefs | null;
-    /** The request's people and places for the rest of the turn (src/turn/request/handle-book.ts). */
+    /** The request's people and places for the rest of the turn (src/behavior/handles.ts#handleBook). */
     requestRefs?: RequestRefs | null;
     /** Her skills the tools array offered, name to the version offered (src/turn/phases/request/build.ts). */
     offeredSkills?: Map<string, string>;

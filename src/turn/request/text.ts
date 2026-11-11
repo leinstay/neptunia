@@ -2,7 +2,7 @@
 // stored `<@id>` tokens turned into names, the labels' check, and the two date forms the blocks write. The block
 // builders of src/turn/request/ and the request builders of src/behavior/prompt.ts call them.
 
-import { formatClock, formatDate } from '../../format.ts';
+import { fill, formatClock, formatDate } from '../../format.ts';
 import { fromTokens } from '../../memory/mentions.ts';
 import type { Labels, NameOf } from './types.ts';
 
@@ -79,4 +79,23 @@ export function escapeStored(text: unknown): string {
 /** The path of a place by names, joined with `joint` (`labels.memory.pathJoin`), each name escaped. */
 export function pathText(path: ReadonlyArray<string>, joint: string | undefined): string {
   return path.map(escapeStored).join(joint ?? ' > ');
+}
+
+/** An author named by their handle (`authors.line`), `authors.unknown` without one. */
+export function authorText(labels: Labels, handle: string | null): string {
+  const words = labels.authors ?? {};
+  if (handle === null) return words.unknown ?? '';
+  return fill(words.line ?? '{handle}', { handle: `@${handle}` });
+}
+
+/**
+ * A place by its handle and its path (`places.ref`, `#{handle} {name}`), or by its path alone (`places.refUnhandled`)
+ * for a place with no handle; the path joined with `memory.pathJoin`, each name escaped.
+ */
+export function placeRefText(labels: Labels, handle: string | null, path: ReadonlyArray<string>): string {
+  const words = labels.places ?? {};
+  const name = pathText(path, labels.memory?.pathJoin);
+  return handle === null
+    ? fill(words.refUnhandled ?? '{name}', { name })
+    : fill(words.ref ?? '#{handle} {name}', { handle, name });
 }

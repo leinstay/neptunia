@@ -5,7 +5,7 @@
 // a selfreflection request's `<virtual_world>`, `<spatial_awareness>` with the clock and her time away, `<chat>` and
 // `<task>`. The budget fits them in this priority: the fixed part, the person she answers, the memory shares, the
 // recall, the chat (cut to a step of `context.chatSteps`), the background, her own state, the world, her past entries.
-// Handles are given before the blocks are rendered (src/turn/request/handle-book.ts): a person's from the meta-person,
+// Handles are given before the blocks are rendered (src/behavior/handles.ts#handleBook): a person's from the meta-person,
 // the chat's as it was rendered, then the people of `<memory>` and the authors of `<meanwhile>`, and a person a stored
 // text mentions when it is met; a place's from its chat id. Every block names a line's author and a place by them. A
 // selfreflection request gives none. buildRequest (src/behavior/prompt.ts) calls it. Pure.
@@ -32,18 +32,20 @@ import type { PlaceFields } from './surroundings.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
 import { blockRecords, userParts } from './tail.ts';
 import type { BlockRecord, ListedBlock, UserPart } from './tail.ts';
-import { handleBook, placeRefText } from './handle-book.ts';
-import type { HandleBook, HandleTarget, RequestRefs } from './handle-book.ts';
+import { handleBook } from '../../behavior/handles.ts';
+import type { HandleBook } from '../../behavior/handles.ts';
 import type { EntryRefs } from './memory-block.ts';
 import type { MeanwhileRefs } from './meanwhile.ts';
-import { block, escapeStored } from './text.ts';
+import { block, escapeStored, placeRefText } from './text.ts';
 import type {
   Fit,
+  HandleTarget,
   Labels,
   MemoryRead,
   NameOf,
   PlacePathView,
   RequestConfig,
+  RequestRefs,
   Section,
   TranscriptItem,
 } from './types.ts';
@@ -453,8 +455,8 @@ function targetsOf(given: ReaderInput, offered: Offered, people: ReadonlyArray<M
 }
 
 /**
- * The request's handle -> id map over the handles that stand in its text (`shown`): a handle to the platform id of its
- * person's account on the turn's interface, the one a member argument and the chat's lines name, else to what the
+ * The request's handle -> id map over the chat's handles and the others that stand in its text (`shown`): a handle to
+ * the platform id of its person's account on the turn's interface, the one a member argument and the chat's lines name, else to what the
  * handle is cut from. A person the budget left out has no handle a tool would resolve.
  */
 function handleIdsOf(
@@ -464,9 +466,10 @@ function handleIdsOf(
   shown: (handle: string) => boolean
 ): Map<string, string> {
   const ids = new Map<string, string>();
-  for (const [native, handle] of given.chatHandleById ?? [])
-    if (!ids.has(handle) && shown(handle)) ids.set(handle, native);
-  for (const [key, handle] of offered.names.people.entries()) {
+  // The chat's members keep the handles the chat was rendered with.
+  for (const [native, handle] of given.chatHandleById ?? []) if (!ids.has(handle)) ids.set(handle, native);
+  const { people } = offered.names;
+  for (const [key, handle] of people.entries()) {
     if (ids.has(handle) || !shown(handle)) continue;
     const here = targets.get(handle)?.accounts.find((account) => account.iface === given.frame.interface);
     ids.set(handle, here?.native ?? key);

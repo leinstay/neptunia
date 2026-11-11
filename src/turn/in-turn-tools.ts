@@ -29,7 +29,7 @@ import { chatOfStoredPlace } from '../interface/place-chat.ts';
 import { accountOf, notePlaceAddress, personOfMember, placeOfChat } from '../memory/addresses.ts';
 import { handleOf } from '../behavior/handles.ts';
 import { escapeStored } from './request/text.ts';
-import type { RequestRefs } from './request/handle-book.ts';
+import type { RequestRefs } from './request/types.ts';
 import {
   firstLinkIn,
   lookPerTurn,
@@ -121,7 +121,7 @@ export type InTurnDraft = NonNullable<Parameters<DrawGif['drawTool']>[1]['draft'
   selfreflectionVoice?: Parameters<typeof selfreflectionVoiceTool>[0]['held']['selfreflectionVoice'];
   /** The people this turn's request showed in `<memory>` and its reads told of since (people rows by person id). */
   memoryPeople?: Set<string>;
-  /** The request's people and places for the rest of the turn (src/turn/request/handle-book.ts). */
+  /** The request's people and places for the rest of the turn (src/behavior/handles.ts#handleBook). */
   requestRefs?: RequestRefs | null;
 };
 
@@ -212,7 +212,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     findMeaningFor = null,
   } = ctx;
 
-  /** A person's handle as the turn's request gives it (src/turn/request/handle-book.ts), else cut from the key alone. */
+  /** A person's handle as the turn's request gives it (src/behavior/handles.ts#handleBook), else cut from the key alone. */
   const personHandleOf = (draft: InTurnDraft | null, key: string): string =>
     draft?.requestRefs?.personHandle(key) ?? handleOf(key);
 

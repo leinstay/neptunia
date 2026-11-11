@@ -10,8 +10,7 @@ import { fill, formatClock, formatDate, mentionsNamed, storedMediaTags } from '.
 import { lineItemParts } from '../../memory/db/media-store.ts';
 import type { LineMediaItem } from '../../memory/db/media-store.ts';
 import type { Frame } from './frame.ts';
-import { authorText } from './handle-book.ts';
-import { escapeStored, pathText } from './text.ts';
+import { authorText, escapeStored, pathText } from './text.ts';
 import type { Labels, NameOf } from './types.ts';
 
 /**

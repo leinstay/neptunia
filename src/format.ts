@@ -880,6 +880,56 @@ export function rawMentionsAsHandles(text: Untyped, handles: ReadonlyMap<string,
 }
 
 /**
+ * How a transcript names a member (chat mode with `authors.line` set and `handles` given): the persona's self label for
+ * her, else the member's handle (`authors.line`), with the account's interface and platform id (`authors.lineAccount`)
+ * when one person writes in the list from several accounts; without a handle the bare name, and `authors.unknown` for a
+ * member with no name. Authors and the reactors of her lines are named by it alike. Without the label or the handles,
+ * the bare name.
+ */
+function authorNaming(
+  messages: ReadonlyArray<Record<string, Untyped>>,
+  options: TranscriptOptions,
+  selfLabel: string
+): {
+  authorHandles: Map<string, string> | null;
+  nameOf: (who: { id: Untyped; name: string; self?: boolean }) => string;
+  unknown: string;
+} {
+  const authors = options.labels.authors ?? {};
+  const line = authors.line;
+  const authorHandles =
+    (options.mode ?? 'chat') === 'chat' && options.handles instanceof Map && typeof line === 'string' && line !== ''
+      ? options.handles
+      : null;
+  const unknown = typeof authors.unknown === 'string' ? authors.unknown : '';
+  // The handles one person writes under from two or more accounts in this rendering: their lines mark the account.
+  const marked = authorHandles ? sharedHandles(messages, authorHandles) : new Set<string>();
+  const nameOf = ({ id, name, self = false }: { id: Untyped; name: string; self?: boolean }): string => {
+    if (self) return selfLabel;
+    const handle = authorHandles?.get(String(id));
+    if (!handle) return name || (authorHandles ? unknown : name);
+    if (marked.has(handle) && typeof authors.lineAccount === 'string' && authors.lineAccount)
+      return fill(authors.lineAccount, { handle: `@${handle}`, iface: options.iface ?? '', id: String(id) });
+    return fill(line, { handle: `@${handle}` });
+  };
+  return { authorHandles, nameOf, unknown };
+}
+
+/**
+ * A line's text with the members it mentions as their `@handle`: the names of its real mentions (withUserHandles), then
+ * each mention token the platform left (rawMentionsAsHandles).
+ */
+function contentWithHandles(
+  message: Record<string, Untyped>,
+  mentionedIds: ReadonlyArray<string>,
+  { names, handles, unknown }: { names: Map<string, Array<string>>; handles: Map<string, string>; unknown: string }
+): Untyped {
+  const named =
+    mentionedIds.length > 0 ? withUserHandles(message.content, mentionedIds, { names, handles }) : message.content;
+  return rawMentionsAsHandles(named, handles, unknown);
+}
+
+/**
  * Format messages (oldest first) into transcript items, one per message.
  * `item.text` already carries the gap/date marker that precedes the message,
  * so dropping items from the start keeps the rest self-explanatory.
@@ -1023,29 +1073,8 @@ export function formatTranscript(
   const timeOf = (ts: Untyped) => `[${formatClock(ts, timezone, locale)}]`;
   // The persona's call marks (lines of kind `call`): chat mode only, and only with `transcript.called` set.
   const callsOn = mode === 'chat' && typeof labels.transcript.called === 'string' && labels.transcript.called !== '';
-  // Each author's handle (chat mode only, and only with `authors.line` set).
-  const authors = labels.authors ?? {};
-  const authorLabel = authors.line;
-  const authorHandles =
-    mode === 'chat' && options.handles instanceof Map && typeof authorLabel === 'string' && authorLabel !== ''
-      ? options.handles
-      : null;
-  // The handles one person writes under from two or more accounts in this rendering: their lines mark the account.
-  const markedHandles = authorHandles ? sharedHandles(messages, authorHandles) : new Set<string>();
-  /**
-   * How the transcript names a member: the persona's self label for her, else the member's handle (authors.line), with
-   * the account's interface and platform id (authors.lineAccount) when one person writes here from several accounts;
-   * without a handle the bare name, and `authors.unknown` for a member with no name. Authors and the reactors of her
-   * lines are named by it alike.
-   */
-  const nameOf = ({ id, name, self = false }: { id: Untyped; name: string; self?: boolean }) => {
-    if (self) return selfLabel;
-    const handle = authorHandles ? authorHandles.get(String(id)) : undefined;
-    if (!handle) return name || (authorHandles ? String(authors.unknown ?? '') : name);
-    if (markedHandles.has(handle) && typeof authors.lineAccount === 'string' && authors.lineAccount)
-      return fill(authors.lineAccount, { handle: `@${handle}`, iface: options.iface ?? '', id: String(id) });
-    return fill(authorLabel, { handle: `@${handle}` });
-  };
+  // Each author's handle (chat mode only, and only with `authors.line` set), and how a member is named by it.
+  const { authorHandles, nameOf, unknown } = authorNaming(messages, options, selfLabel);
   const memberNames = authorHandles && options.memberNames instanceof Map ? options.memberNames : new Map();
   const untaggedLabel =
     authorHandles && typeof labels.transcript.untagged === 'string' && labels.transcript.untagged !== ''
@@ -1160,13 +1189,7 @@ export function formatTranscript(
     }
     const mentionedIds = Array.isArray(message.mentionedAccountIds) ? message.mentionedAccountIds : [];
     const named = authorHandles
-      ? rawMentionsAsHandles(
-          mentionedIds.length > 0
-            ? withUserHandles(message.content, mentionedIds, { names: mentionNamesOf(message), handles: authorHandles })
-            : message.content,
-          authorHandles,
-          String(authors.unknown ?? '')
-        )
+      ? contentWithHandles(message, mentionedIds, { names: mentionNamesOf(message), handles: authorHandles, unknown })
       : message.content;
     const marked = channelMarks
       ? withChannelHandles(named, message.mentionedChannelIds, channelMarks, channelLabel)

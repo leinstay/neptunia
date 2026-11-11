@@ -12,7 +12,7 @@ import type { Whereabouts } from '../turn/request/spatial.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { CallMark } from './lines.ts';
 import type { PlacePathView, Prompts, RequestConfig, RequestInput } from '../turn/request/types.ts';
-import type { RequestRefs } from '../turn/request/handle-book.ts';
+import type { RequestRefs } from '../turn/request/types.ts';
 import type { sectionCost } from '../llm/budget.ts';
 
 export type ClassifierTranscriptArg2 = {

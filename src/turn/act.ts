@@ -25,7 +25,7 @@ import type { JournalNotes, NotesDraft } from './journal-notes.ts';
 import type { Participation } from './participation.ts';
 import { snapshotOfDraft } from './routing.ts';
 import type { PostRefs, Sends } from './sends.ts';
-import type { RequestRefs } from './request/handle-book.ts';
+import type { RequestRefs } from './request/types.ts';
 import { reactionChannel, replyTarget, sendArgs, withLink } from './targets.ts';
 import type { TriggerKind } from './triggers.ts';
 import { mentionsUnderPings } from './mentions.ts';
@@ -110,7 +110,7 @@ type ActDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     limits?: { add: (limit: { kind: string; where: string }) => void } | null;
     unseenFailed?: Array<{ kind: string; skill: string; status: string; code: string }>;
     frameRefs?: PostRefs | null;
-    /** The request's people and places for the rest of the turn (src/turn/request/handle-book.ts). */
+    /** The request's people and places for the rest of the turn (src/behavior/handles.ts#handleBook). */
     requestRefs?: RequestRefs | null;
   };
 

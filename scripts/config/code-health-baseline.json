@@ -1508,7 +1508,7 @@
     },
     "src/format.ts": {
       "formatTranscript": {
-        "complexity": 70
+        "complexity": 65
       }
     },
     "src/intentions/blocks.ts": {

@@ -402,3 +402,20 @@ export type RequestInput = {
   /** Whether the line of a lookup's source is gone, for the sources `<recall>` leaves out (src/turn/request/reader.ts). */
   readonly isSourceRetired?: SourceRetired | null;
 };
+
+/** Where a person's handle may mention them: the name of their entry and every account by interface and platform id. */
+export type HandleTarget = {
+  readonly name: string | null;
+  readonly accounts: ReadonlyArray<{ readonly iface: string; readonly native: string }>;
+};
+
+/**
+ * What a request hands on for the rest of its turn: each person's handle (without `@`) to where it may mention them,
+ * the handle of a person or account key as the request gives it, and a place id named as the request names it (null
+ * for a place the memory holds no row of).
+ */
+export type RequestRefs = {
+  readonly targets: ReadonlyMap<string, HandleTarget>;
+  readonly personHandle: (key: string) => string;
+  readonly placeRef: (placeId: string) => string | null;
+};

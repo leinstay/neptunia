@@ -860,6 +860,9 @@ async function postReturnedFiles(
   return { ...sent, data: { text } };
 }
 
+/** The place a call names, as resolveCall resolved it; null for a call that names none. */
+const placeArg = (args: Obj): string | null => (typeof args.place === 'string' ? args.place : null);
+
 /**
  * Runs one resolved call (`resolved`: resolveCall's) the gateway let pass; never throws (a throw is
  * `failed` with `error`). Her arguments with the command's fixed values, mapped by the command's
@@ -921,7 +924,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
     // Her own writing as a `<msg>` of hers is posted: the members its mentions resolved to ride along.
     let mentionAccountIds: Array<string> = [];
     if (hasTrait(resolved.skill, 'written') && typeof args.text === 'string' && typeof deps.renderText === 'function') {
-      const rendered = deps.renderText(args.text, typeof args.place === 'string' ? args.place : null);
+      const rendered = deps.renderText(args.text, placeArg(args));
       if (typeof rendered === 'string') args.text = rendered;
       else if (typeof rendered.text === 'string') {
         args.text = rendered.text;

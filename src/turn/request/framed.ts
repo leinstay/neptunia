@@ -107,9 +107,10 @@ function feedbackOf(told: string, selfreflection: SelfreflectionFramed | null): 
  * so the cached text holds no per-request form), `authors.unknown` for an account no row holds.
  */
 function storedMention(given: RequestInput, base: Base): (native: string) => string {
+  const { authors } = base.labels;
   return (native) => {
     const key = given.memberKeyOf?.(native) ?? null;
-    return key === null ? (base.labels.authors?.unknown ?? '') : `@${handleOf(key)}`;
+    return key === null ? (authors?.unknown ?? '') : `@${handleOf(key)}`;
   };
 }
 
@@ -173,8 +174,8 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     chatHandleById: base.handleById,
     chatMembers: chatMembersOf(given.history),
     keyOfMember: base.keyOfMember,
-    memberKeyOf: given.memberKeyOf ?? null,
-    placePathOf: given.placePathOf ?? null,
+    memberKeyOf: given.memberKeyOf,
+    placePathOf: given.placePathOf,
     currentChannelId: given.currentChannelId ?? null,
     chatIdOf: given.chatIdOf ?? null,
     answeredText: frame.answers === null ? null : (given.trigger?.content ?? null),

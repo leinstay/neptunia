@@ -29,7 +29,7 @@ import { SETTLE_STEP_MS, paceSettings } from './settings.ts';
 import { withLink } from './targets.ts';
 import { outgoingRefs } from './request/refs.ts';
 import type { LineOf } from './request/refs.ts';
-import type { HandleTarget } from './request/handle-book.ts';
+import type { HandleTarget } from './request/types.ts';
 
 /** The live config, as far as the sends read it. */
 export type SendsConfig = Record<string, unknown>;
@@ -67,7 +67,7 @@ type RenderArgs = {
   knownNames?: Parameters<typeof resolveMentions>[2] | null;
   directory?: (() => Parameters<typeof resolveMentions>[3]) | null;
   handles?: Map<string, string> | null;
-  /** Where each handle of the request may mention its person (src/turn/request/handle-book.ts); absent: `handles` alone. */
+  /** Where each handle of the request may mention its person (src/behavior/handles.ts#handleBook); absent: `handles` alone. */
   targets?: ReadonlyMap<string, HandleTarget> | null;
   /** The interface of the place the post goes to, when it is not the turn's own (a `message.create` elsewhere). */
   destination?: string | null;
