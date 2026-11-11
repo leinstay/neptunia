@@ -175,13 +175,26 @@ function numbers<T extends Record<string, number>>(given: unknown, fallback: T):
   return Object.fromEntries(Object.entries(fallback).map(([key, value]) => [key, count(source[key], value)])) as T;
 }
 
+/**
+ * The total of the memory blocks: `budgetTokens`, lowered to `floor(budgetShare * llm.maxRequestTokens)` when the
+ * share is a number above 0 and up to 1 and the cap is a positive number. Any other share counts as unset.
+ */
+function budgetTotalOf(budgetTokens: number, share: unknown, llm: unknown): number {
+  const cap = isObj(llm) ? llm.maxRequestTokens : null;
+  if (typeof share !== 'number' || !Number.isFinite(share) || share <= 0 || share > 1) return budgetTokens;
+  if (typeof cap !== 'number' || !Number.isFinite(cap) || cap <= 0) return budgetTokens;
+  return Math.min(budgetTokens, Math.floor(share * cap));
+}
+
 /** The reader's settings from the live config (`context.memory`), each missing or broken key at its shipped value. */
 export function mindSettingsOf(config: unknown): MindSettings {
   const context = isObj(config) && isObj(config.context) ? config.context : {};
   const memory = isObj(context.memory) ? context.memory : {};
   const { shares, fanOut, ...plain } = MIND_DEFAULTS;
+  const settings = numbers(memory, plain);
   return {
-    ...numbers(memory, plain),
+    ...settings,
+    budgetTokens: budgetTotalOf(settings.budgetTokens, memory.budgetShare, isObj(config) ? config.llm : null),
     shares: numbers(memory.shares, shares),
     fanOut: numbers(memory.fanOut, fanOut),
   };
