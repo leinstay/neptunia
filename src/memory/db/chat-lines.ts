@@ -1,12 +1,13 @@
 // The stored lines of one place, oldest first, for the owner's chat sessions (src/chat/): the current
 // revision of each message, with deleted ones left out, as recall reads them. Each line carries its number, its place among
-// all these lines of the place, the oldest being 1, which the owner's chat draws as `#N` and nothing sends to her. Read only,
-// and through the owner's own command, so this reader applies no audience: only the `cli` principal reaches it.
+// all the stored lines of the place, deleted ones counted, the oldest being 1. The owner's chat draws it as `#N`, and her
+// `<chat>` numbers a line by the same count (placeLineNumbers, src/turn/history.ts). Read only, and with no audience
+// applied: a number tells nothing of a line's text.
 
 import { LINE_HOLDS_MEDIA, lineMedia } from './media-store.ts';
 import type { MediaRow } from './media-store.ts';
 import { replyMessageSql, routeMessageSql } from './message-locator.ts';
-import { CURRENT_SOURCE } from './recall.ts';
+import { CURRENT_REVISION, SOURCE_DELETED } from './source-current.ts';
 import { internalContext } from './scope.ts';
 import { asText } from './types.ts';
 import type { Db } from './types.ts';
@@ -32,6 +33,10 @@ export type ChatLine = {
 };
 
 const HOLDS_SOMETHING = `(length(COALESCE(s.text, '')) > 0 OR ${LINE_HOLDS_MEDIA})`;
+/** A counted line of a place: the current revision of a message that holds text or media, deleted since or not. */
+const COUNTED = `${CURRENT_REVISION} AND ${HOLDS_SOMETHING}`;
+/** How many counted lines a place holds: one read over `sources_place_time` for the place's rows. */
+const COUNT_SQL = `SELECT COUNT(*) AS n FROM sources s WHERE s.place_id = ? AND ${COUNTED}`;
 /**
  * A line's message id: the platform's from its message route, else its `native_id`. A line written through message
  * families keeps a key of the core's own in `native_id`, and the chat client knows the line by the platform's id.
@@ -58,29 +63,29 @@ function replyOf(
 /** The stored lines of `placeId`, oldest first, each with its number; none without a database. */
 export function chatLines(db: Db | null, placeId: string): Array<ChatLine> {
   if (db === null) return [];
-  const counted = db
-    .prepare(`SELECT COUNT(*) AS n FROM sources s WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING}`)
-    .get(placeId);
+  const counted = db.prepare(COUNT_SQL).get(placeId);
   const rows = db
     .prepare(
       `SELECT s.id, s.kind, s.text, s.occurred_at, s.native_id, ${MESSAGE_ID} AS message_id, s.reply_to,
-         ${replyMessageSql('s')} AS reply_message FROM sources s
-       WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING}
+         ${replyMessageSql('s')} AS reply_message, ${SOURCE_DELETED} AS deleted FROM sources s
+       WHERE s.place_id = ? AND ${COUNTED}
        ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
     )
     .all(placeId, LINES_MAX);
-  const media = lineMedia(
-    db,
-    rows.map((row) => asText(row.id)),
-    internalContext()
-  );
   // A read past LINES_MAX starts after the lines it leaves out, so the numbers stay those of the whole place.
   const skipped = Number(counted?.n ?? rows.length) - rows.length;
-  const ordered = rows.toReversed();
-  const byKey = new Map(
-    ordered.map((row, index) => [row.native_id, { id: asText(row.message_id), number: skipped + index + 1 }])
+  // A deleted line keeps its count and is left out of the lines.
+  const numbered = rows
+    .toReversed()
+    .map((row, index) => ({ row, number: skipped + index + 1 }))
+    .filter(({ row }) => !row.deleted);
+  const media = lineMedia(
+    db,
+    numbered.map(({ row }) => asText(row.id)),
+    internalContext()
   );
-  return ordered.map((row, index) => ({
+  const byKey = new Map(numbered.map(({ row, number }) => [row.native_id, { id: asText(row.message_id), number }]));
+  return numbered.map(({ row, number }) => ({
     id: asText(row.id),
     placeId,
     at: Date.parse(asText(row.occurred_at)),
@@ -88,31 +93,55 @@ export function chatLines(db: Db | null, placeId: string): Array<ChatLine> {
     text: asText(row.text),
     ...(typeof row.message_id === 'string' ? { nativeId: row.message_id } : {}),
     ...(media.has(asText(row.id)) ? { media: media.get(asText(row.id)) } : {}),
-    number: skipped + index + 1,
+    number,
     ...replyOf(row.reply_to, row.reply_message, byKey),
   }));
 }
 
 /**
  * The number `chatLines` gives the line of `placeId` whose message id is `nativeId`, the platform's or the row's own:
- * how many of the place's lines come up to it in the same order. Null when the place holds no such line.
+ * how many of the place's counted lines come up to it in the same order. Null when the place holds no such line or it
+ * was deleted.
  */
 export function lineNumberOf(db: Db, placeId: string, nativeId: string): number | null {
   const line = db
     .prepare(
       `SELECT s.occurred_at, s.rowid AS r FROM sources s
-       WHERE s.place_id = ? AND (s.native_id = ? OR ${routeMessageSql('s')} = ?) AND ${CURRENT_SOURCE}
-         AND ${HOLDS_SOMETHING} LIMIT 1`
+       WHERE s.place_id = ? AND (s.native_id = ? OR ${routeMessageSql('s')} = ?) AND ${COUNTED}
+         AND NOT ${SOURCE_DELETED} LIMIT 1`
     )
     .get(placeId, nativeId, nativeId);
   if (!line) return null;
   const counted = db
     .prepare(
-      `SELECT COUNT(*) AS n FROM sources s WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING}
+      `${COUNT_SQL}
        AND (s.occurred_at < ? OR (s.occurred_at = ? AND s.rowid <= ?))`
     )
     .get(placeId, line.occurred_at, line.occurred_at, line.r);
   return Number(counted?.n ?? 0) || null;
+}
+
+/** What placeLineNumbers reads of a place: its count of lines and the numbers of its newest lines by message id. */
+export type PlaceLineNumbers = { count: number; numbers: Map<string, number> };
+
+/**
+ * The count of the counted lines of `placeId` and the number `chatLines` gives each of its newest `newest` lines, by
+ * the line's message id (the platform's from its route, else its `native_id`): one count over the place's rows and one
+ * read of its newest rows, both on `sources_place_time`.
+ */
+export function placeLineNumbers(db: Db, placeId: string, newest: number): PlaceLineNumbers {
+  const count = Number(db.prepare(COUNT_SQL).get(placeId)?.n ?? 0);
+  const rows = db
+    .prepare(
+      `SELECT ${MESSAGE_ID} AS message_id FROM sources s WHERE s.place_id = ? AND ${COUNTED}
+       ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
+    )
+    .all(placeId, Math.max(0, Math.floor(newest)));
+  const numbers = new Map<string, number>();
+  rows.forEach((row, index) => {
+    if (typeof row.message_id === 'string' && !numbers.has(row.message_id)) numbers.set(row.message_id, count - index);
+  });
+  return { count, numbers };
 }
 
 /**

@@ -238,6 +238,8 @@ export function requestHead(given: RequestInput): Base {
     memberNames: memberNames ?? undefined,
     // A message link to a line of the same rendering reads as its `#n`.
     messageNumbers: true,
+    // A line is numbered by its place among the stored lines of its place (src/turn/history.ts).
+    lineNumbers: true,
     // A GIF the library knows carries its handle in the transcript.
     gifHandles: gifsOn ? gifHandleMap(gifLibrary) : undefined,
     // ...and its three caption fields, cut for display (transcript.gifKnownFields).
@@ -257,7 +259,8 @@ export function requestHead(given: RequestInput): Base {
   ]
     .filter(Boolean)
     .join('\n\n');
-  // Every line and every call mark of hers in time order, once: formatTranscript numbers the messages as they stand.
+  // Every line and every call mark of hers in time order, once: formatTranscript numbers the messages by the
+  // `lineNumber` the gather step gave them, else on from the line before.
   // The reply parents stay in `<chat>` with their numbers.
   const ordered = orderedHistory(history, given.callMarks ?? [], now) as Array<Message>;
   const chatItems = formatTranscript(ordered, formatOptions);

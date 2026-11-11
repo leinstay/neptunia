@@ -90,6 +90,24 @@ test('each line is numbered by its place in the whole stored chat, the oldest li
   );
 });
 
+test('a deleted line leaves the numbers of the lines after it as they were', (t) => {
+  // Bug: the count leaves a deleted line out, so a deletion renumbers every later line of the place, in the owner's chat
+  // and in her `<chat>`, which shows the same numbers and keeps the deleted line's place while it is in the window.
+  const { db, add } = rig(t);
+  add('s1', 'seen', 'n1', '2026-11-05T00:00:01.000Z', 'one');
+  add('s2', 'seen', 'n2', '2026-11-05T00:00:02.000Z', 'deleted later');
+  add('s3', 'said', 'n3', '2026-11-05T00:00:03.000Z', 'three');
+  add('x2', 'deleted', 'n2', '2026-11-05T00:00:04.000Z', '');
+  assert.deepEqual(
+    chatLines(db, 'cli:dm:owner').map((line) => [line.nativeId, line.number]),
+    [
+      ['n1', 1],
+      ['n3', 3],
+    ]
+  );
+  assert.equal(lineNumberOf(db, 'cli:dm:owner', 'n3'), 3);
+});
+
 test('a chat longer than one read keeps the numbers of its whole history on the newest lines', (t) => {
   // Bug: past the bound of one read the oldest line read becomes #1, and every number shifts as the chat grows.
   const { db, add } = rig(t);

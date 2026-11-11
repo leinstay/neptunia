@@ -53,6 +53,7 @@ import {
 } from './calls.ts';
 import type { CallEnvelope, SearchRefs } from './calls.ts';
 import { cutOffOf, untoldDiagnostics } from './journal.ts';
+import { chatFetchCount, chatHeadStepOf } from './history.ts';
 import { TURN_CANCELLED } from './timers.ts';
 import { snapshotOfDraft } from './routing.ts';
 import { INNER_TERMINAL_SKILLS, LOOP_MIN_CALL_MS, LOOP_WHY, loopSettings } from './settings.ts';
@@ -79,6 +80,7 @@ export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
   bot?: { timezone?: string } | null;
   context: {
     channelMessages: number;
+    chatHeadStep?: unknown;
     reactions?: { fetchTimeoutMs?: number } | null;
   };
   selfreflection?: unknown;
@@ -294,7 +296,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * The lines of `channel` a turn reads under `config` (src/behavior/lines.ts#historyLines over the interface's
    * `history`): with the reactor store (`reactors`), features.reactionNames and features.seeReactions on (a
    * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
-   * read within `context.reactions.fetchTimeoutMs`. An inner turn reads a bounded recent slice (wakes.chatMessages).
+   * read within `context.reactions.fetchTimeoutMs`. A turn reads `context.channelMessages` lines and the lines a step
+   * of the window's head adds (chatFetchCount), an inner turn a bounded recent slice (wakes.chatMessages).
    * The lines are stored when memory lacks them (`keepLines`, src/pipeline/keep-lines.ts), never awaited.
    * A turn that runs nowhere (`draft.nowhere`) has no history. Throws when the interface cannot read the history.
    */
@@ -322,7 +325,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         }
       : null;
     return historyLines(ifaceReads, chatOf(channel), {
-      limit: inner ? innerSettings(config).chatMessages : config.context.channelMessages,
+      // Far enough back for the window's head (src/turn/history.ts), which moves in steps of `context.chatHeadStep`.
+      limit: inner
+        ? innerSettings(config).chatMessages
+        : chatFetchCount(config.context.channelMessages, chatHeadStepOf(config)),
       names,
       keep: ctx.keepLines ?? null,
     });

@@ -11,6 +11,14 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'Messages of the current chat in the window',
   },
   {
+    'key': 'context.chatHeadStep',
+    'types': ['number'],
+    'reader': 'src/turn/history.ts',
+    'default': 0,
+    'text':
+      'How far the first line of `<chat>` moves at a time, for a prompt cache that reuses the start of the user message between turns. With `L` the number of the newest line, the window starts at the largest multiple of this step not above `L - channelMessages + 1`, line 1 at the least, so it holds from `channelMessages` lines to one step less one more and only gains lines between two moves. `0`, a missing value and a broken one move the first line with every new line, the window of `channelMessages` lines',
+  },
+  {
     'key': 'context.chatSteps',
     'types': ['array'],
     'reader': 'src/turn/request/reader.ts',

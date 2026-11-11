@@ -1,5 +1,5 @@
 // The eighth step of a turn's request: what the preparation brought, taken as the request will show it. The deleted
-// lines put back, the late video states, the captions, reads and searches that came in time, a selfreflection post's
+// lines put back, every line numbered, the late video states, the captions, reads and searches that came in time, a selfreflection post's
 // plan and the drawing quota. The request phase
 // (src/turn/phases/request.ts) runs it after the wait.
 
@@ -14,6 +14,7 @@ import type { VideoState } from '../../rewatch.ts';
 import type { HistoryLine, PhaseContext, PhasePrompts } from '../context.ts';
 import type { Prepared } from '../request.ts';
 import { VIDEOS_PER_TURN } from './stages.ts';
+import { numberLines, withLineNumbers } from '../../history.ts';
 
 /** What the gather step took for the request: the history as shown, and every input from the preparation. */
 export type Gathered = {
@@ -88,6 +89,9 @@ export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: Gathe
     // withDeletedLines keeps the lines it is given and puts the placeholders, shaped like lines, among them.
     history = withDeletedLines<HistoryLine>(history, found.placeholders);
   }
+  // Every line the request shows, the reply parents and the deleted lines included, with its number among the stored
+  // lines of its place (src/turn/history.ts), which `<chat>` prints.
+  history = withLineNumbers(history, numberLines(history, draft.placeLines ?? null));
   // A text attachment cut at FILE_PREVIEW_CHARS (src/turn/phases/request/stages.ts, src/media/text-preview.ts#withTextPreviews).
   for (const message of history) {
     for (const attachment of message.attachments ?? []) {
