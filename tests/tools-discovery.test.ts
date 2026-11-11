@@ -1,7 +1,7 @@
 // Tests for skills discovery (src/tools/discovery.ts) and the `skills:` line it adds to the
 // search classifier's answer: the parser reads it and leaves every other line
 // as it was, the classifiers' list of skills is static and grouped by family, safe mode, and
-// the catalogue view listing owner-only skills too (they run for an owner who asks).
+// the catalogue view listing every skill.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -147,8 +147,8 @@ test('parseQueryPlan: a skills line is read apart; the other lines read exactly 
 });
 
 test('skillsIndex: one static line per skill, grouped by family, the name alone without a text, the same whatever is allowed', () => {
-  const owner = Object.freeze({ name: 'message.purge', ownerOnly: true });
-  // The two skills below are bare stand-ins of a name and a flag.
+  const owner = Object.freeze({ name: 'message.purge' });
+  // The two skills below are bare stand-ins of a name.
   const registry = new Map<string, object>([
     ...standInRegistry(),
     ['x.read', Object.freeze({ name: 'x.read' })],
@@ -159,7 +159,7 @@ test('skillsIndex: one static line per skill, grouped by family, the name alone 
   const lines = index.split('\n');
   assert.equal(lines[0], 'message.create | σε άλλη συζήτηση');
   assert.equal(lines[1], 'message.edit', 'no text: the name alone');
-  assert.ok(lines.includes('message.purge'), 'an owner-only skill is listed: it runs for an owner who asks');
+  assert.ok(lines.includes('message.purge'), 'a late member of a family is listed');
   // the message family stands together, its late member included, before the next family
   assert.deepEqual(lines.slice(1, 6), [
     'message.edit',
@@ -189,9 +189,10 @@ test('byFamily: groups by the part before the first dot, families in order of fi
   assert.deepEqual(byFamily(null), []);
 });
 
-test('listSkills: an owner-only skill she holds has its row, open for a member who asks; proposalVerdicts reads each name off the rows', () => {
+// The owner's decision of 2026-11-10: an operation declares its kind alone, and her grant decides whoever asks.
+test('listSkills: a skill she holds has its row, open whoever asks; proposalVerdicts reads each name off the rows', () => {
   const ops: Record<string, { name: string; rights: Rights }> = {
-    'x.owner.op': { name: 'x.owner.op', rights: { kind: 'read', ownerOnly: true } },
+    'x.owner.op': { name: 'x.owner.op', rights: { kind: 'read' } },
   };
   const getOp = (name: string) => ops[name] ?? null;
   const owner = loadSkills(
@@ -209,7 +210,6 @@ test('listSkills: an owner-only skill she holds has its row, open for a member w
     ],
     { getOp }
   ).get('x.owner');
-  assert.equal(owner?.ownerOnly, true);
   const registry = new Map([...standInRegistry(), ['x.owner', owner]]);
   const config = granting(['message.edit', 'x.owner'], {
     tools: { safeMode: false },

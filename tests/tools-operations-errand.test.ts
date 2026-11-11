@@ -26,6 +26,8 @@ const DISCORD = createDiscordInterface().capabilities;
 
 const OWNER = '42';
 const MEMBER = '7';
+/** A second account bound to the owner person, on any interface. */
+const OWNER_SECOND = '43';
 const OTHER = '8';
 
 /** A fake errand client: records each run and lets the test end it. */
@@ -175,6 +177,30 @@ test('errand.run: a member may not run the server agent; an owner may', async ()
     await new Promise((r) => setImmediate(r));
     assert.equal(client.runs.at(-1).agent, 'server');
     assert.equal(client.runs.at(-1).context.scope, 'dm', 'asked in a private chat');
+  });
+});
+
+// The owner's decision of 2026-11-10 keeps this one asker rule: the server agent runs only when a person of the owner asked.
+test('errand.run: the server agent runs for the owner on any of his accounts and for his typed command', async () => {
+  const { env, client } = makeEnv();
+  await withCapturedLogs(async () => {
+    const second = await runOp(
+      'errand.run',
+      { agent: 'server', goal: 'list the units' },
+      ctx(env, OWNER_SECOND, { actor: 'persona' }) as unknown as Parameters<typeof runOp>[2]
+    );
+    assert.equal(second.status, 'ok', second.summary);
+    const typed = await runOp(
+      'errand.run',
+      { agent: 'server', goal: 'list the units' },
+      ctx(env, 'cli-owner', { actor: 'owner', asOwner: true }) as unknown as Parameters<typeof runOp>[2]
+    );
+    assert.equal(typed.status, 'ok', typed.summary);
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(
+      client.runs.map((run: { agent: string }) => run.agent),
+      ['server', 'server']
+    );
   });
 });
 
@@ -566,7 +592,7 @@ test('errand.resolve: closes a finished task of her view so the list drops it; a
 });
 
 // The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
-ownedBy([OWNER]);
+ownedBy([OWNER, OWNER_SECOND]);
 
 /** The id of the errand an `errand.run` answer carries. */
 const taskIdOf = (data: unknown): string => (asRecord(data).task as { id: string }).id;

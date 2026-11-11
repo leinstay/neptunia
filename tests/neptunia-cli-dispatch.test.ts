@@ -28,8 +28,7 @@ const SAMPLES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   'services.selfreflection.setup': { every: '6h' },
   'services.selfimprovement.setup': { at: '03:00' },
   'doctor.watcher': { number: '3' },
-  'tools.grant': { target: 'everyone' },
-  'tools.revoke': { target: 'everyone' },
+  // The owner's decision of 2026-11-10: `/tools grant` and `/tools revoke` take no target, so they need no sample.
 };
 
 /** One leaf: its dotted name, a representative argv and the arguments that argv must parse into. */

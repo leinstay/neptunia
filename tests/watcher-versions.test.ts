@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { watcherDoctorHere } from '../bin/neptunia-service.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
-import { runOpPrechecked } from '../src/tools/operations/index.ts';
+// The owner's decision of 2026-11-10 removed the caller check, so runOp is the one runner.
+import { runOp } from '../src/tools/operations/index.ts';
 import { createReportReader, readReport } from '../src/watcher/read.ts';
 import * as reads from '../src/watcher/read.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
@@ -153,7 +154,7 @@ function opsEnv(rig: InspectionRig) {
 
 async function watcherRead(rig: InspectionRig, args: Record<string, unknown>) {
   const { result } = await withCapturedLogs(() =>
-    runOpPrechecked('watcher.read', args, {
+    runOp('watcher.read', args, {
       env: opsEnv(rig),
       placeId: 'g1',
       chatId: 'c1',

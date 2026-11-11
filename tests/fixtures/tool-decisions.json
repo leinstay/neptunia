@@ -30,7 +30,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -38,12 +37,6 @@
    "reply": {
     "on": "unknown-skill:status.show",
     "off": "unknown-skill:status.show"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -85,7 +78,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -93,12 +85,6 @@
    "reply": {
     "on": "unknown-skill:config.set",
     "off": "unknown-skill:config.set"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -140,7 +126,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -148,12 +133,6 @@
    "reply": {
     "on": "unknown-skill:config.unset",
     "off": "unknown-skill:config.unset"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -195,7 +174,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -203,12 +181,6 @@
    "reply": {
     "on": "unknown-skill:bot.pause",
     "off": "unknown-skill:bot.pause"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -250,7 +222,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -258,12 +229,6 @@
    "reply": {
     "on": "unknown-skill:bot.resume",
     "off": "unknown-skill:bot.resume"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -305,7 +270,6 @@
    "costClass": "paid",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": true,
    "grantableToPersona": true,
@@ -315,12 +279,6 @@
    "reply": {
     "on": "ok",
     "off": "ok"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -362,7 +320,6 @@
    "costClass": "paid",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": true,
    "grantableToPersona": true,
@@ -372,12 +329,6 @@
    "reply": {
     "on": "ok",
     "off": "ok"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -419,7 +370,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -427,12 +377,6 @@
    "reply": {
     "on": "unknown-skill:pings.get",
     "off": "unknown-skill:pings.get"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -474,7 +418,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -482,12 +425,6 @@
    "reply": {
     "on": "unknown-skill:pings.set",
     "off": "unknown-skill:pings.set"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -529,7 +466,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -537,12 +473,6 @@
    "reply": {
     "on": "unknown-skill:media.status",
     "off": "unknown-skill:media.status"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -584,7 +514,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -592,12 +521,6 @@
    "reply": {
     "on": "unknown-skill:media.rescan",
     "off": "unknown-skill:media.rescan"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -639,7 +562,6 @@
    "costClass": "free",
    "feature": null,
    "result": "job",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -647,12 +569,6 @@
    "reply": {
     "on": "unknown-skill:media.recache",
     "off": "unknown-skill:media.recache"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -694,7 +610,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -702,12 +617,6 @@
    "reply": {
     "on": "unknown-skill:model.show",
     "off": "unknown-skill:model.show"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -749,7 +658,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -757,12 +665,6 @@
    "reply": {
     "on": "unknown-skill:model.set",
     "off": "unknown-skill:model.set"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -804,7 +706,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -812,12 +713,6 @@
    "reply": {
     "on": "unknown-skill:route.list",
     "off": "unknown-skill:route.list"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -859,7 +754,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -867,12 +761,6 @@
    "reply": {
     "on": "unknown-skill:route.set",
     "off": "unknown-skill:route.set"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -914,7 +802,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -922,12 +809,6 @@
    "reply": {
     "on": "unknown-skill:route.remove",
     "off": "unknown-skill:route.remove"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -969,7 +850,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -977,12 +857,6 @@
    "reply": {
     "on": "unknown-skill:rule.add",
     "off": "unknown-skill:rule.add"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1024,7 +898,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1032,12 +905,6 @@
    "reply": {
     "on": "unknown-skill:rule.list",
     "off": "unknown-skill:rule.list"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1079,7 +946,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -1087,12 +953,6 @@
    "reply": {
     "on": "unknown-skill:rule.remove",
     "off": "unknown-skill:rule.remove"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1134,7 +994,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": true,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -1142,12 +1001,6 @@
    "reply": {
     "on": "unknown-skill:access.grant",
     "off": "unknown-skill:access.grant"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "owner-only",
-    "member-granted": "owner-only",
-    "member-commands-off": "owner-only"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1189,7 +1042,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": true,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -1197,12 +1049,6 @@
    "reply": {
     "on": "unknown-skill:access.revoke",
     "off": "unknown-skill:access.revoke"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "owner-only",
-    "member-granted": "owner-only",
-    "member-commands-off": "owner-only"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1244,7 +1090,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": true,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1252,12 +1097,6 @@
    "reply": {
     "on": "unknown-skill:access.list",
     "off": "unknown-skill:access.list"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "owner-only",
-    "member-granted": "owner-only",
-    "member-commands-off": "owner-only"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1299,7 +1138,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1307,12 +1145,6 @@
    "reply": {
     "on": "unknown-skill:alias.add",
     "off": "unknown-skill:alias.add"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1354,7 +1186,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1362,12 +1193,6 @@
    "reply": {
     "on": "unknown-skill:alias.remove",
     "off": "unknown-skill:alias.remove"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1409,7 +1234,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1417,12 +1241,6 @@
    "reply": {
     "on": "unknown-skill:learning.add",
     "off": "unknown-skill:learning.add"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1464,7 +1282,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1472,12 +1289,6 @@
    "reply": {
     "on": "unknown-skill:learning.remove",
     "off": "unknown-skill:learning.remove"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1519,7 +1330,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1527,12 +1337,6 @@
    "reply": {
     "on": "unknown-skill:lore.add",
     "off": "unknown-skill:lore.add"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1574,7 +1378,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1582,12 +1385,6 @@
    "reply": {
     "on": "unknown-skill:lore.list",
     "off": "unknown-skill:lore.list"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1629,7 +1426,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1637,12 +1433,6 @@
    "reply": {
     "on": "unknown-skill:lore.show",
     "off": "unknown-skill:lore.show"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1684,7 +1474,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1692,12 +1481,6 @@
    "reply": {
     "on": "unknown-skill:lore.remove",
     "off": "unknown-skill:lore.remove"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1739,7 +1522,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1747,12 +1529,6 @@
    "reply": {
     "on": "unknown-skill:memory.profile.read",
     "off": "unknown-skill:memory.profile.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "ok",
@@ -1794,7 +1570,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1802,12 +1577,6 @@
    "reply": {
     "on": "unknown-skill:memory.channel.read",
     "off": "unknown-skill:memory.channel.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "ok",
@@ -1849,7 +1618,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1857,12 +1625,6 @@
    "reply": {
     "on": "unknown-skill:memory.server.read",
     "off": "unknown-skill:memory.server.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "ok",
@@ -1904,7 +1666,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1912,12 +1673,6 @@
    "reply": {
     "on": "unknown-skill:memory.recent.read",
     "off": "unknown-skill:memory.recent.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "ok",
@@ -1959,7 +1714,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": true,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -1967,12 +1721,6 @@
    "reply": {
     "on": "unknown-skill:memory.journal.read",
     "off": "unknown-skill:memory.journal.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "owner-only",
-    "member-granted": "owner-only",
-    "member-commands-off": "owner-only"
    },
    "envelope": {
     "intention_due": "ok",
@@ -2014,7 +1762,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": true,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2022,12 +1769,6 @@
    "reply": {
     "on": "unknown-skill:memory.archive.read",
     "off": "unknown-skill:memory.archive.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "owner-only",
-    "member-granted": "owner-only",
-    "member-commands-off": "owner-only"
    },
    "envelope": {
     "intention_due": "ok",
@@ -2069,7 +1810,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": true,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": false,
@@ -2077,12 +1817,6 @@
    "reply": {
     "on": "unknown-skill:memory.restore",
     "off": "unknown-skill:memory.restore"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "owner-only",
-    "member-granted": "owner-only",
-    "member-commands-off": "owner-only"
    },
    "envelope": {
     "intention_due": "ok",
@@ -2124,7 +1858,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": true,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2132,12 +1865,6 @@
    "reply": {
     "on": "unknown-skill:memory.snapshot",
     "off": "unknown-skill:memory.snapshot"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "owner-only",
-    "member-granted": "owner-only",
-    "member-commands-off": "owner-only"
    },
    "envelope": {
     "intention_due": "ok",
@@ -2179,7 +1906,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": true,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2187,12 +1913,6 @@
    "reply": {
     "on": "unknown-skill:memory.private.read",
     "off": "unknown-skill:memory.private.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "owner-only",
-    "member-granted": "owner-only",
-    "member-commands-off": "owner-only"
    },
    "envelope": {
     "intention_due": "ok",
@@ -2234,7 +1954,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": true,
    "grantableToPersona": true,
@@ -2242,12 +1961,6 @@
    "reply": {
     "on": "ok",
     "off": "ok"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "ok",
@@ -2289,7 +2002,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2297,12 +2009,6 @@
    "reply": {
     "on": "unknown-skill:message.edit",
     "off": "unknown-skill:message.edit"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2344,7 +2050,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2352,12 +2057,6 @@
    "reply": {
     "on": "unknown-skill:message.delete",
     "off": "unknown-skill:message.delete"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2399,7 +2098,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": true,
    "grantableToPersona": true,
@@ -2407,12 +2105,6 @@
    "reply": {
     "on": "ok",
     "off": "ok"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2454,7 +2146,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2462,12 +2153,6 @@
    "reply": {
     "on": "unknown-skill:message.react.remove",
     "off": "unknown-skill:message.react.remove"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2509,7 +2194,6 @@
    "costClass": "paid",
    "feature": null,
    "result": "job",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2517,12 +2201,6 @@
    "reply": {
     "on": "unknown-skill:errand.run",
     "off": "unknown-skill:errand.run"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2564,7 +2242,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2572,12 +2249,6 @@
    "reply": {
     "on": "unknown-skill:errand.list",
     "off": "unknown-skill:errand.list"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2619,7 +2290,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2627,12 +2297,6 @@
    "reply": {
     "on": "unknown-skill:errand.cancel",
     "off": "unknown-skill:errand.cancel"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2674,7 +2338,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2682,12 +2345,6 @@
    "reply": {
     "on": "unknown-skill:errand.read",
     "off": "unknown-skill:errand.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2729,7 +2386,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2737,12 +2393,6 @@
    "reply": {
     "on": "unknown-skill:errand.resolve",
     "off": "unknown-skill:errand.resolve"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2784,7 +2434,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2792,12 +2441,6 @@
    "reply": {
     "on": "unknown-skill:task.propose",
     "off": "unknown-skill:task.propose"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2839,7 +2482,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2847,12 +2489,6 @@
    "reply": {
     "on": "unknown-skill:task.status",
     "off": "unknown-skill:task.status"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2894,7 +2530,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2902,12 +2537,6 @@
    "reply": {
     "on": "unknown-skill:task.cancel",
     "off": "unknown-skill:task.cancel"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -2949,7 +2578,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -2957,12 +2585,6 @@
    "reply": {
     "on": "unknown-skill:task.comment",
     "off": "unknown-skill:task.comment"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3004,7 +2626,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3012,12 +2633,6 @@
    "reply": {
     "on": "unknown-skill:task.answer",
     "off": "unknown-skill:task.answer"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3059,7 +2674,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3067,12 +2681,6 @@
    "reply": {
     "on": "unknown-skill:task.unblock",
     "off": "unknown-skill:task.unblock"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3114,7 +2722,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3122,12 +2729,6 @@
    "reply": {
     "on": "unknown-skill:skill.read",
     "off": "unknown-skill:skill.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3169,7 +2770,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3177,12 +2777,6 @@
    "reply": {
     "on": "unknown-skill:skill.run",
     "off": "unknown-skill:skill.run"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3224,7 +2818,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3232,12 +2825,6 @@
    "reply": {
     "on": "unknown-skill:skill.disable",
     "off": "unknown-skill:skill.disable"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3279,7 +2866,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": true,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3287,12 +2873,6 @@
    "reply": {
     "on": "unknown-skill:watcher.read",
     "off": "unknown-skill:watcher.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "owner-only",
-    "member-granted": "owner-only",
-    "member-commands-off": "owner-only"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3334,7 +2914,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3342,12 +2921,6 @@
    "reply": {
     "on": "unknown-skill:intention.set",
     "off": "unknown-skill:intention.set"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3389,7 +2962,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3397,12 +2969,6 @@
    "reply": {
     "on": "unknown-skill:intention.update",
     "off": "unknown-skill:intention.update"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3444,7 +3010,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3452,12 +3017,6 @@
    "reply": {
     "on": "unknown-skill:intention.cancel",
     "off": "unknown-skill:intention.cancel"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3499,7 +3058,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3507,12 +3065,6 @@
    "reply": {
     "on": "unknown-skill:intention.list",
     "off": "unknown-skill:intention.list"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3554,7 +3106,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3562,12 +3113,6 @@
    "reply": {
     "on": "unknown-skill:places.list",
     "off": "unknown-skill:places.list"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "not-granted",
-    "member-granted": "ok",
-    "member-commands-off": "not-granted"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3609,7 +3154,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3617,12 +3161,6 @@
    "reply": {
     "on": "unknown-skill:tools.describe",
     "off": "unknown-skill:tools.describe"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3664,7 +3202,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3672,12 +3209,6 @@
    "reply": {
     "on": "unknown-skill:web.search",
     "off": "unknown-skill:web.search"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3719,7 +3250,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3727,12 +3257,6 @@
    "reply": {
     "on": "unknown-skill:web.read",
     "off": "unknown-skill:web.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3774,7 +3298,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3782,12 +3305,6 @@
    "reply": {
     "on": "unknown-skill:media.look",
     "off": "unknown-skill:media.look"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3829,7 +3346,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3837,12 +3353,6 @@
    "reply": {
     "on": "unknown-skill:media.find",
     "off": "unknown-skill:media.find"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3884,7 +3394,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3892,12 +3401,6 @@
    "reply": {
     "on": "unknown-skill:memory.search",
     "off": "unknown-skill:memory.search"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "ok",
@@ -3939,7 +3442,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -3947,12 +3449,6 @@
    "reply": {
     "on": "unknown-skill:conversation.read",
     "off": "unknown-skill:conversation.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -3994,7 +3490,6 @@
    "costClass": "free",
    "feature": null,
    "result": "data",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -4002,12 +3497,6 @@
    "reply": {
     "on": "unknown-skill:memory.read",
     "off": "unknown-skill:memory.read"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "ok",
@@ -4049,7 +3538,6 @@
    "costClass": "free",
    "feature": null,
    "result": "effect",
-   "ownerOnly": false,
    "grantedByDefault": false,
    "carriedOver": false,
    "grantableToPersona": true,
@@ -4057,12 +3545,6 @@
    "reply": {
     "on": "unknown-skill:person.link",
     "off": "unknown-skill:person.link"
-   },
-   "rights": {
-    "owner": "ok",
-    "member": "ok",
-    "member-granted": "ok",
-    "member-commands-off": "ok"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",

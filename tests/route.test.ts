@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { localPath, madeLocalPath } from './fixtures/config-local.ts';
-import { makeAdmin, makeHotWithMedia, makeRoot, mayRun, readLocal } from './fixtures/admin-rig.ts';
+import { makeAdmin, makeHotWithMedia, makeRoot, readLocal } from './fixtures/admin-rig.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { chainsOnDefaults } from './fixtures/chains.ts';
 
@@ -183,17 +183,4 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     `  thinker: ${ROLE_DEFAULTS.thinker} -> OpenCode's own routing (llm.providerByModel not read)`,
     `  dev: ${ROLE_DEFAULTS.dev} -> OpenCode's own routing (llm.providerByModel not read)`,
   ]);
-});
-
-test('access: route.list is read-only, route.set and route.remove open a write; none is open to a non-owner by default', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-  for (const key of ['route.list', 'route.set', 'route.remove'])
-    assert.equal(await mayRun(admin, key, { accountId: '999' }), false, key);
-  assert.equal(await mayRun(admin, 'route.set', { accountId: '42' }), true, 'the owner');
-
-  assert.ok(!(await runText(admin, 'access.grant', { command: 'route.list' })).includes('Note:'));
-  assert.ok((await runText(admin, 'access.grant', { command: 'route.set', roleId: '7' })).includes('Note:'));
-  assert.ok((await runText(admin, 'access.grant', { command: 'route.remove', accountId: '8' })).includes('Note:'));
-  assert.ok((await runText(admin, 'access.grant', { command: 'route' })).includes('Note:'));
 });

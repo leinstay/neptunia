@@ -1,5 +1,5 @@
-// Tests for src/tools/operations/: the typed operations behind the owner commands -- the registry, the rights
-// check of runOp and the result shape.
+// Tests for src/tools/operations/: the typed operations behind the owner commands -- the registry, runOp with no
+// caller check and the result shape.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -105,20 +105,6 @@ const AGREED = new Set([
   'person.link',
 ]);
 
-/** Owner-only per the plan: no grant ever opens them. */
-const OWNER_ONLY = [
-  'access.grant',
-  'access.revoke',
-  'access.list',
-  'memory.private.read',
-  'memory.journal.read',
-  'memory.snapshot',
-  'memory.archive.read',
-  'memory.restore',
-  // Its comment always said owner-only, but a grant opened it to a member: the watcher's reports are the owner's.
-  'watcher.read',
-];
-
 function makeEnv({
   access = {},
   emojiBackfill,
@@ -173,7 +159,8 @@ test('ops: every registered op has a rights kind and a name in the agreed list',
   const byName = new Map(ops.map((op) => [op.name, op]));
   // Every name of the lists below is registered, as the line above asserts.
   for (const name of AGREED) assert.ok(byName.has(name), `${name} is not registered`);
-  for (const name of OWNER_ONLY) assert.equal(byName.get(name)!.rights.ownerOnly, true, `${name} must be owner-only`);
+  // The owner's decision of 2026-11-10 cut the member rights layer: an operation declares its kind and nothing else.
+  for (const op of ops) assert.deepEqual(Object.keys(op.rights), ['kind'], op.name);
   assert.equal(byName.get('memory.profile.read')!.rights.kind, 'read');
   // Merged into `memory.profile.read` and `errand.list`: no operation of the old name is registered.
   assert.equal(byName.has('memory.affinity.read'), false);
@@ -181,27 +168,17 @@ test('ops: every registered op has a rights kind and a name in the agreed list',
   assert.equal(byName.has('memory.affinity.set'), false, 'the attitude changes through the analyzer alone');
 });
 
-test('ops: runOp denies a non-owner on an owner-only op with a code, even under a * grant', async () => {
-  const everyone = { everyone: true, roles: [], users: [] };
-  const env = makeEnv({ access: { '*': everyone, memory: everyone, access: everyone, 'rule.list': everyone } });
-  for (const name of OWNER_ONLY) {
-    const result = await runOp(
-      name,
-      { accountId: '7', confirm: 'g1' },
-      { env, placeId: 'g1', accountId: '999', roleIds: [] }
-    );
-    assert.equal(result.status, 'denied', name);
-    assert.equal(result.code, 'owner-only', name);
-    assert.equal(typeof result.summary, 'string');
+// The owner's decision of 2026-11-10: only he types commands, so runOp checks no caller and no member grant.
+test('ops: runOp runs an operation that was owner-only for any caller, with no grant stored', async () => {
+  const env = makeEnv();
+  const callers: Array<[string, Parameters<typeof runOp>[2]]> = [
+    ['a member account', { env, placeId: 'g1', accountId: '999', roleIds: [] }],
+    ['no account', { env, placeId: 'g1' }],
+  ];
+  for (const [label, ctx] of callers) {
+    assert.equal((await runOp('access.list', {}, ctx)).status, 'ok', label);
+    assert.equal((await runOp('rule.list', {}, ctx)).status, 'ok', label);
   }
-  // a grant on the operation's own name does open a grantable read
-  const open = await runOp('rule.list', {}, { env, placeId: 'g1', accountId: '999', roleIds: [] });
-  assert.equal(open.status, 'ok');
-  // no grant at all: denied, with its own code
-  const bare = makeEnv();
-  const refused = await runOp('rule.list', {}, { env: bare, placeId: 'g1', accountId: '999', roleIds: [] });
-  assert.equal(refused.status, 'denied');
-  assert.equal(refused.code, 'not-granted');
 });
 
 test('ops: runOp returns invalid with a human summary for missing args', async () => {

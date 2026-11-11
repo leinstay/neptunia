@@ -293,13 +293,14 @@ test('/tools grant config.set is refused and writes no grant', async () => {
   });
 });
 
-test('/tools grant with a user target grants that person and not her', async () => {
+// The owner's decision of 2026-11-10: a grant is hers alone, so `/tools grant` takes no target.
+test('/tools grant with a user target is refused and grants nobody', async () => {
   await withRig({}, async ({ dirs, llm, cores, units }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     units.push(await startedUnit(dirs));
     const run = await p(dirs, '/tools grant memory.profile.read user u-77');
-    assert.equal(run.code, 0, run.stdout + run.stderr.slice(-2000));
-    assert.deepEqual(grantedUsers(dirs, 'memory.profile.read'), ['u-77']);
+    assert.notEqual(run.code, 0, run.stdout + run.stderr.slice(-2000));
+    assert.deepEqual(grantedUsers(dirs, 'memory.profile.read'), []);
   });
 });
 

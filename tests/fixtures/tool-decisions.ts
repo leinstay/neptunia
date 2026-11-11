@@ -1,6 +1,5 @@
 // The decision table of the persona's tools: for every tool of the registry, what the gateway answers in each
-// context, generated from the code itself (the registry, `checkSkill`, `checkReplyEffect`, `rightsRefusal` and
-// `wakeEnvelopeRefusal`). tests/fixtures/tool-decisions.json is this table as the code on `main` produced it before
+// context, generated from the code itself (the registry, `checkSkill`, `checkReplyEffect` and `wakeEnvelopeRefusal`). tests/fixtures/tool-decisions.json is this table as the code on `main` produced it before
 // the tools moved to src/tools/; tests/tool-decisions.test.ts regenerates it and compares the two, so the move and
 // the renames cannot change a single answer. `node tests/fixtures/tool-decisions.ts --write` rewrites the JSON.
 //
@@ -21,9 +20,7 @@ const LOCATIONS = {
   registry: ['src/tools/registry.ts', 'src/tools/registry.js', 'src/skills/registry.js'],
   gateway: ['src/tools/gateway.ts', 'src/tools/gateway.js', 'src/skills/gateway.js'],
   access: ['src/tools/access.ts', 'src/tools/access.js', 'src/skills/access.js'],
-  rights: ['src/tools/operations/rights.ts', 'src/tools/operations/rights.js', 'src/ops/rights.js'],
   opsIndex: ['src/tools/operations/index.ts', 'src/tools/operations/index.js', 'src/ops/index.js'],
-  opsRegistry: ['src/tools/operations/registry.ts', 'src/tools/operations/registry.js', 'src/ops/registry.js'],
 };
 
 async function load(name: keyof typeof LOCATIONS): Promise<unknown> {
@@ -60,7 +57,6 @@ type Tool = {
   costClass: string;
   feature?: string | null;
   result?: string | null;
-  ownerOnly: boolean;
   argsSchema: Schema;
 };
 type Answer = { ok: true } | { ok: false; code: string; reason: string };
@@ -68,8 +64,6 @@ type Refusal = { reason: string; detail: string };
 type Settings = Record<string, unknown>;
 type RegistryModule = { skillRegistry: () => Map<string, Tool> };
 type GatewayModule = { checkSkill: (call: object) => Answer; checkReplyEffect: (effect: object) => Answer };
-type RightsModule = { rightsRefusal: (op: object, caller: object) => string | null };
-type OpsRegistryModule = { getOp: (name: string) => object | null };
 type AccessModule = {
   wakeEnvelopeRefusal: (call: object) => Refusal | null;
   grantedToPersona: (config: object, selfId: string, name: string) => boolean;
@@ -83,13 +77,11 @@ type ToolRow = {
   costClass: string;
   feature: string | null;
   result: string | null;
-  ownerOnly: boolean;
   grantedByDefault: boolean;
   carriedOver: boolean;
   grantableToPersona: boolean;
   nested: Array<string>;
   reply: Record<string, string>;
-  rights: Record<string, string>;
   envelope: Record<string, string>;
   verdicts: Record<string, string>;
 };
@@ -130,8 +122,6 @@ export async function toolDecisions(): Promise<DecisionTable> {
   await load('opsIndex');
   const { skillRegistry } = (await load('registry')) as RegistryModule;
   const { checkSkill, checkReplyEffect } = (await load('gateway')) as GatewayModule;
-  const { rightsRefusal } = (await load('rights')) as RightsModule;
-  const { getOp } = (await load('opsRegistry')) as OpsRegistryModule;
   const access = (await load('access')) as AccessModule;
   const registry = skillRegistry();
   const names = [...registry.keys()];
@@ -358,18 +348,7 @@ export async function toolDecisions(): Promise<DecisionTable> {
         })
       ),
     };
-    const op = skill.op === null ? null : getOp(skill.op);
-    const rightsFor = (accountId: string, cfg: Settings) =>
-      op === null ? 'no-operation' : (rightsRefusal(op, { accountId, roleIds: [], config: cfg }) ?? 'ok');
-    const rights = {
-      owner: rightsFor(OWNER, config),
-      member: rightsFor(MEMBER, config),
-      'member-granted': rightsFor(MEMBER, configOf({ everyone: true })),
-      'member-commands-off': rightsFor(MEMBER, {
-        ...configOf(),
-        features: { ...featuresOn, memberCommands: false },
-      }),
-    };
+    // The owner's decision of 2026-11-10 cut the member rights layer, and with it the columns `rights` and `ownerOnly`.
     const envelope = Object.fromEntries(
       WAKE_KINDS.map((kind) => [
         kind,
@@ -389,13 +368,11 @@ export async function toolDecisions(): Promise<DecisionTable> {
       costClass: skill.costClass,
       feature: skill.feature ?? null,
       result: skill.result ?? null,
-      ownerOnly: skill.ownerOnly === true,
       grantedByDefault: access.grantedToPersona(shipped, SELF, name),
       carriedOver: access.CARRIED_OVER.includes(name),
       grantableToPersona: !access.NOT_GRANTABLE_TO_PERSONA.includes(name),
       nested: [...(access.NESTED_CAPABILITIES[name] ?? [])],
       reply,
-      rights,
       envelope,
       verdicts,
     };

@@ -10,14 +10,12 @@ import { createOwnerAccounts } from '../src/memory/db/person-links.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { isOwnerCaller, isOwnerId, useOwnerAccounts } from '../src/tools/operations/grants.ts';
-import { rightsRefusal } from '../src/tools/operations/rights.ts';
 import { mention, query, runCli, startUnitsCore, startedUnit, until, withRig } from './fixtures/core-units.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 type Handle = ReturnType<typeof openMemoryDb>;
 
 const OWNER_PERSON = 'person:discord:111';
-const OWNER_ONLY = { name: 'bot.pause', rights: { kind: 'write' as const, ownerOnly: true } };
 
 function withAccounts(body: (handle: Handle) => void): void {
   const handle = openMemoryDb(path.join(tempDir('nep-owner-'), 'memory.db'));
@@ -56,9 +54,10 @@ test('an equal native id on a second interface has no owner rights once the owne
     const config = { bot: { ownerPerson: OWNER_PERSON, owners: ['111'] } };
     assert.equal(ownerOn('discord', '111', config), true);
     assert.equal(ownerOn('telegram', '111', config), false);
+    // The owner's decision of 2026-11-10 removed the caller check; the owner check of an operation is isOwnerCaller.
     assert.equal(
-      withIface('telegram', () => rightsRefusal(OWNER_ONLY, { accountId: '111', config })),
-      'owner-only'
+      withIface('telegram', () => isOwnerCaller(config, { accountId: '111' })),
+      false
     );
   });
 });
@@ -70,10 +69,6 @@ test('every account bound to the owner person has the owner rights, and an unbou
     link(handle, 'bind', 'telegram', '555', { accountId: 'discord:111' });
     const config = { bot: { ownerPerson: OWNER_PERSON, owners: [] } };
     assert.equal(ownerOn('telegram', '555', config), true);
-    assert.equal(
-      withIface('telegram', () => rightsRefusal(OWNER_ONLY, { accountId: '555', config })),
-      null
-    );
     assert.equal(
       withIface('telegram', () => isOwnerCaller(config, { accountId: '555' })),
       true

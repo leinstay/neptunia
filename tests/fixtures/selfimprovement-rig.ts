@@ -10,7 +10,8 @@ import { openBoard } from '../../src/board/board.ts';
 import type { Board, BoardOp, BoardResults } from '../../src/board/board.ts';
 import type { BoardDb } from '../../src/board/schema.ts';
 import type { RepositoryCheck } from '../../src/selfimprovement/repository.ts';
-import { runOpPrechecked } from '../../src/tools/operations/index.ts';
+// The owner's decision of 2026-11-10 removed the caller check, so runOp is the one runner.
+import { runOp } from '../../src/tools/operations/index.ts';
 import { createOpsEnv } from '../../src/tools/operations/env.ts';
 import type { BoardCaller } from '../../src/tools/operations/board.ts';
 import { createDiscordInterface } from '../../interfaces/discord/index.ts';
@@ -167,7 +168,7 @@ export function herCalls(caller: BoardCaller) {
   });
   return async (name: string, args: Record<string, unknown>): Promise<Result> => {
     const { result } = await withCapturedLogs(() =>
-      runOpPrechecked(name, args, { env, placeId: 'g1', accountId: null, roleIds: [], actor: 'persona' })
+      runOp(name, args, { env, placeId: 'g1', accountId: null, roleIds: [], actor: 'persona' })
     );
     return result;
   };

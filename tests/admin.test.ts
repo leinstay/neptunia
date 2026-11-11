@@ -359,64 +359,16 @@ test('run: set and unset read a key with a dot as one key, never a path', async 
   );
 });
 
-test('set: a non-owner granted set cannot switch bot.mnemonic, the language of the phrase codes', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.bot.access = { 'config.set': { everyone: false, roles: [], users: ['999'] } };
-  const { admin } = makeAdmin(rootDir, { hot });
-  await assert.rejects(
-    () => admin.run('config.set', { path: 'bot.mnemonic', value: 'ru' }, { placeId: 'g1', accountId: '999' }),
-    /only an owner may change bot\.mnemonic/
-  );
-  assert.equal(fs.existsSync(localPath(rootDir)), false, 'nothing was written');
-});
-
-test('set: a non-owner granted set cannot touch bot.ownerPerson or bot.access; an owner can', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.bot.access = {
-    'config.set': { everyone: false, roles: [], users: ['999'] },
-    'config.unset': { everyone: false, roles: [], users: ['999'] },
-  };
-  const { admin } = makeAdmin(rootDir, { hot });
-  assert.equal(await mayRun(admin, 'config.set', { accountId: '999' }), true, 'the non-owner holds the grant');
-
-  const stranger = { placeId: 'g1', accountId: '999' };
-  await assert.rejects(
-    () => admin.run('config.set', { path: 'bot.ownerPerson', value: '"person:999"' }, stranger),
-    /only an owner may change bot\.ownerPerson/
-  );
-  await assert.rejects(
-    () => admin.run('config.set', { path: 'bot.access.set', value: '{}' }, stranger),
-    /only an owner may change bot\.access/
-  );
-  await assert.rejects(
-    () => admin.run('config.unset', { path: 'bot.ownerPerson' }, stranger),
-    /only an owner may change bot\.ownerPerson/
-  );
-  await assert.rejects(
-    () => admin.run('config.unset', { path: 'bot.access' }, stranger),
-    /only an owner may change bot\.access/
-  );
-  await assert.rejects(() => admin.run('config.unset', { path: 'bot' }, stranger), /only an owner may change bot/);
-  await assert.rejects(
-    () => admin.run('config.set', { path: 'bot..ownerPerson', value: '"person:999"' }, stranger),
-    /only an owner/
-  );
-  await assert.rejects(
-    () => admin.run('config.set', { path: 'bot.ownerPerson', value: '"person:999"' }, {}),
-    /only an owner/,
-    'no caller is no owner'
-  );
-  assert.equal(fs.existsSync(localPath(rootDir)), false, 'nothing was written');
-
-  const result = await admin.run(
-    'config.set',
-    { path: 'bot.ownerPerson', value: '"person:7"' },
-    { placeId: 'g1', accountId: '42' }
-  );
-  assert.match(result, /^Set bot\.ownerPerson/);
-  assert.deepEqual(readLocal(rootDir), { bot: { ownerPerson: 'person:7' } });
+// The owner's decision of 2026-11-10: the caller of a typed command is always the owner, so a change of the
+// owner's own keys checks no caller.
+test('set: a typed config.set of bot.ownerPerson writes it whatever account the command carries', async () => {
+  for (const context of [{}, { placeId: 'g1', accountId: '999' }]) {
+    const rootDir = makeRoot();
+    const { admin } = makeAdmin(rootDir);
+    const result = await admin.run('config.set', { path: 'bot.ownerPerson', value: '"person:7"' }, context);
+    assert.match(result, /^Set bot\.ownerPerson/, JSON.stringify(context));
+    assert.deepEqual(readLocal(rootDir), { bot: { ownerPerson: 'person:7' } }, JSON.stringify(context));
+  }
 });
 
 test('set: accepts only an own leaf path of the live config and a value of the same JSON type', async () => {
@@ -661,23 +613,15 @@ test('model set drawing: writes the drawing chain to config.local.json, reloads,
 // the rights check
 // ---------------------------------------------------------------------------
 
-// PR 7b: runCommand and isAllowed went with the slash command; runSkillOp runs the operation by its name, rights
-// included, and the read of the granted member is asserted through it in place of isAllowed.
-test('runSkillOp: the full rights check -- a member granted memory.profile.read reads, another is denied', async () => {
+// The owner's decision of 2026-11-10: a typed command is the owner's, so runSkillOp checks no caller for it.
+test('runSkillOp: a typed command runs an operation that was owner-only, with no grant, whatever its account', async () => {
   const rootDir = makeRoot();
-  const hot = makeHot(rootDir);
-  hot.config.bot.access = { 'memory.profile.read': { everyone: false, roles: [], users: ['7'] } };
-  const { admin } = makeAdmin(rootDir, { hot });
-  const member = { placeId: 'g1', accountId: '7', roleIds: [] };
-
-  const other = await admin.runSkillOp(
-    'memory.profile.read',
-    { accountId: '5' },
-    { placeId: 'g1', accountId: '8', roleIds: [] }
-  );
-  assert.equal(other.status, 'denied');
-  assert.equal(other.code, 'not-granted');
-  assert.equal(await mayRun(admin, 'memory.profile.read', member), true);
+  const { admin } = makeAdmin(rootDir);
+  for (const caller of [{ accountId: '8' }, {}]) {
+    const listed = await admin.runSkillOp('access.list', {}, { placeId: 'g1', roleIds: [], ...caller });
+    assert.equal(listed.status, 'ok', JSON.stringify(caller));
+    assert.equal(await mayRun(admin, 'memory.journal.read', caller), true, JSON.stringify(caller));
+  }
 });
 
 /** makeStore with the ping states of one guild, the way src/memory/store.ts hands them out (getPings, setPings). */
@@ -741,202 +685,93 @@ test('run: pings works while paused, a change included, reading fresh off disk f
   assert.equal(store.dropCachesCalls, 2, 'each call reads past the caches while paused');
 });
 
-test('run: access.grant refuses the pings operations, writing nothing', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-
-  await assert.rejects(
-    () => admin.run('access.grant', { command: 'pings.set' }, {}),
-    /pings\.set is open to every member and cannot be granted/
-  );
-  await assert.rejects(
-    () => admin.run('access.grant', { command: 'pings' }, {}),
-    /pings covers no grantable read operation/
-  );
-  assert.equal(fs.existsSync(localPath(rootDir)), false);
-});
-
 // ---------------------------------------------------------------------------
 // access.grant / access.revoke / access.list
 // ---------------------------------------------------------------------------
 
-test('run: access.grant writes everyone, a role id or a user id and names the target as plain text in the reply', async () => {
-  const cases: Array<[string, Record<string, unknown>, Record<string, unknown>, string]> = [
-    [
-      'no role/user grants everyone; a read operation gets no write note',
-      { command: 'status.show' },
-      { 'status.show': { everyone: true, roles: [], users: [] } },
-      'Granted status.show to everyone (reload ok)',
-    ],
-    [
-      'a role',
-      { command: 'memory.profile.read', roleId: '123' },
-      { 'memory.profile.read': { everyone: false, roles: ['123'], users: [] } },
-      'Granted memory.profile.read to role id:123 (reload ok)',
-    ],
-    [
-      'a user',
-      { command: 'status.show', accountId: '456' },
-      { 'status.show': { everyone: false, roles: [], users: ['456'] } },
-      'Granted status.show to user id:456 (reload ok)',
-    ],
-  ];
-  for (const [label, args, written, reply] of cases) {
-    const rootDir = makeRoot();
-    const { admin } = makeAdmin(rootDir);
-
-    const result = await admin.run('access.grant', args, {});
-
-    assert.deepEqual(readLocal(rootDir), { bot: { access: written } }, label);
-    assert.equal(result, reply, label);
-  }
-});
-
-test('run: access.grant rejects both a role and a user at once, writing nothing', async () => {
+// The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
+test('run: access.grant stores her id alone under the operation name', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-
-  await assert.rejects(
-    () => admin.run('access.grant', { command: 'status.show', roleId: '1', accountId: '2' }, {}),
-    /give a role or a user, not both/
-  );
-  assert.equal(fs.existsSync(localPath(rootDir)), false);
+  await admin.run('access.grant', { command: 'status.show' }, {});
+  assert.deepEqual(readLocal(rootDir), { bot: { access: { 'status.show': { users: ['self-id'] } } } });
 });
 
-test('run: access.grant rejects an unknown operation and an old command key, writing nothing', async () => {
+// The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
+test('run: access.grant takes no role or other user: a stray target argument still grants her alone', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-
-  await assert.rejects(() => admin.run('access.grant', { command: 'nonsense' }, {}), /unknown operation: nonsense/);
-  await assert.rejects(
-    () => admin.run('access.grant', { command: 'memory.show' }, {}),
-    /unknown operation: memory\.show/
-  );
-  assert.equal(fs.existsSync(localPath(rootDir)), false);
-});
-
-test('run: access.list leaves out stale grants: owner-only operations and old command keys', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-  const open = { everyone: true, roles: [], users: [] };
-  fs.writeFileSync(
-    madeLocalPath(rootDir),
-    JSON.stringify({
-      bot: { access: { private: open, 'memory.private.read': open, status: open, 'status.show': open } },
-    })
-  );
-  assert.equal(await admin.run('access.list', {}, {}), 'status.show: everyone');
-
-  fs.writeFileSync(madeLocalPath(rootDir), JSON.stringify({ bot: { access: { 'memory.private.read': open } } }));
-  assert.equal(await admin.run('access.list', {}, {}), '(none)');
-});
-
-test('run: access.grant twice accumulates -- a second role does not drop the first', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-
-  await admin.run('access.grant', { command: 'status.show', roleId: '1' }, {});
-  await admin.run('access.grant', { command: 'status.show', roleId: '2' }, {});
-
+  await admin.run('access.grant', { command: 'status.show', roleId: '123' }, {});
+  await admin.run('access.grant', { command: 'lore.list', accountId: '456' }, {});
   assert.deepEqual(readLocal(rootDir), {
-    bot: { access: { 'status.show': { everyone: false, roles: ['1', '2'], users: [] } } },
+    bot: { access: { 'status.show': { users: ['self-id'] }, 'lore.list': { users: ['self-id'] } } },
   });
 });
 
-test('run: access.revoke removes a previously granted role, dropping the entry once it is the last thing set', async () => {
+// The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
+test('run: access.grant refuses and writes nothing while no interface has said who she is', async () => {
+  const rootDir = makeRoot();
+  const { admin } = makeAdmin(rootDir, { selfId: () => null });
+  await assert.rejects(() => admin.run('access.grant', { command: 'status.show' }, {}));
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
+});
+
+test('run: access.grant rejects an unknown tool and an old command key, writing nothing', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
 
-  await admin.run('access.grant', { command: 'status.show', roleId: '1' }, {});
-  const result = await admin.run('access.revoke', { command: 'status.show', roleId: '1' }, {});
+  await assert.rejects(() => admin.run('access.grant', { command: 'nonsense' }, {}), /nonsense/);
+  await assert.rejects(() => admin.run('access.grant', { command: 'memory.show' }, {}), /memory\.show/);
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
+});
 
-  assert.equal(result, 'Revoked status.show from role id:1 (reload ok)');
+// The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
+test('run: access.list names her grants alone; a key held by everyone, a role or another user is left out', async () => {
+  const rootDir = makeRoot();
+  const { admin } = makeAdmin(rootDir);
+  const people = {
+    'status.show': { everyone: true, roles: [], users: [] },
+    'lore.list': { everyone: false, roles: ['r1'], users: ['u-9'] },
+  };
+  fs.writeFileSync(
+    madeLocalPath(rootDir),
+    JSON.stringify({ bot: { access: { ...people, 'memory.private.read': { users: ['self-id'] } } } })
+  );
+  assert.equal(await admin.run('access.list', {}, {}), 'memory.private.read: user id:self-id');
+
+  fs.writeFileSync(madeLocalPath(rootDir), JSON.stringify({ bot: { access: people } }));
+  assert.equal(await admin.run('access.list', {}, {}), '(none)');
+});
+
+// The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
+test('run: access.revoke of her last grant deletes the entry, even one that still holds everyone or a role', async () => {
+  const rootDir = makeRoot();
+  const { admin } = makeAdmin(rootDir);
+  fs.writeFileSync(
+    madeLocalPath(rootDir),
+    JSON.stringify({ bot: { access: { 'status.show': { everyone: true, roles: ['r1'], users: ['self-id'] } } } })
+  );
+  await admin.run('access.revoke', { command: 'status.show' }, {});
   assert.deepEqual(readLocal(rootDir), { bot: { access: {} } });
 });
 
-test('run: access.revoke with no role/user clears everyone, keeping any roles/users still set', async () => {
+// The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
+test('run: access grant, list and revoke of a group: her reads under it, named with their source, revoked together', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
 
-  await admin.run('access.grant', { command: 'status.show' }, {});
-  await admin.run('access.grant', { command: 'status.show', roleId: '1' }, {});
-  const result = await admin.run('access.revoke', { command: 'status.show' }, {});
-
-  assert.equal(result, 'Revoked status.show from everyone (reload ok)');
-  assert.deepEqual(readLocal(rootDir), {
-    bot: { access: { 'status.show': { everyone: false, roles: ['1'], users: [] } } },
-  });
-});
-
-test('run: access grant/list/revoke/list round trip -- a group is stored as its read operations, named with their source', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-  const reads = ['memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read'];
-
-  const granted = await admin.run('access.grant', { command: 'memory', roleId: 'staff' }, {});
-  assert.equal(granted.split('\n')[0], `Granted memory to role id:staff as ${reads.join(', ')} (reload ok)`);
+  await admin.run('access.grant', { command: 'memory' }, {});
+  const keys = Object.keys(readLocal(rootDir).bot.access);
+  assert.ok(keys.length > 0 && keys.every((key) => key.startsWith('memory.')), keys.join(', '));
+  const lines = (await admin.run('access.list', {}, {})).split('\n');
   assert.deepEqual(
-    Object.keys(readLocal(rootDir).bot.access).sort(),
-    [...reads].sort(),
-    'no write, no owner-only op, not the pattern'
-  );
-  assert.equal(
-    await admin.run('access.list', {}, {}),
-    reads.map((name) => `${name}: role id:staff (expanded from memory, reads only)`).join('\n')
+    lines,
+    keys.map((key) => `${key}: user id:self-id (expanded from memory, reads only)`)
   );
 
-  // a revoke of the pattern removes the target from every operation under it
-  assert.equal(
-    await admin.run('access.revoke', { command: 'memory', roleId: 'staff' }, {}),
-    `Revoked memory (${reads.join(', ')}) from role id:staff (reload ok)`
-  );
+  await admin.run('access.revoke', { command: 'memory' }, {});
   assert.equal(await admin.run('access.list', {}, {}), '(none)');
-  assert.equal(await admin.run('access.revoke', { command: 'memory', roleId: 'staff' }, {}), 'Nothing to revoke');
-});
-
-test("run: the owner's step after the migration -- revoke * everyone, then grant memory.profile.read everyone", async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-  await admin.run('access.grant', { command: '*' }, {});
-  await admin.run('access.grant', { command: 'config.set', accountId: '9' }, {});
-
-  await admin.run('access.revoke', { command: '*' }, {});
-  await admin.run('access.grant', { command: 'memory.profile.read' }, {});
-
-  assert.equal(await admin.run('access.list', {}, {}), 'config.set: user id:9\nmemory.profile.read: everyone');
-});
-
-test('access.grant: a write operation gets the write note; a read operation none; a group or * names what it covers and says writes stay closed', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-  const writes = 'Note: this opens commands that change memory or config.';
-  const readsOnly = 'Note: a group or * opens only the read operations that exist now; grant a write by its name.';
-
-  const grants: Array<[string, string | undefined, Array<string>]> = [
-    ['status.show', undefined, []],
-    ['draw.create', undefined, [writes]],
-    ['media.status', 'staff', []],
-    ['media.rescan', 'staff', [writes]],
-    ['media.recache', 'staff', [writes]],
-    ['lore.add', 'staff', [writes]],
-  ];
-  for (const [command, roleId, notes] of grants) {
-    const target = roleId ? `role id:${roleId}` : 'everyone';
-    assert.equal(
-      await admin.run('access.grant', { command, roleId }, {}),
-      [`Granted ${command} to ${target} (reload ok)`, ...notes].join('\n'),
-      command
-    );
-  }
-
-  const star = (await admin.run('access.grant', { command: '*', roleId: 'mods' }, {})).split('\n');
-  assert.match(star[0], /^Granted \* to role id:mods as status\.show, /);
-  assert.equal(star[1], readsOnly);
-  const access = readLocal(rootDir).bot.access;
-  for (const name of ['draw.create', 'config.set', 'memory.journal.read', 'pings.get', 'access.list']) {
-    assert.ok(!(access[name]?.roles ?? []).includes('mods'), `* never covers ${name}`);
-  }
-  assert.ok(access['memory.profile.read'].roles.includes('mods'));
+  assert.equal(await admin.run('access.revoke', { command: 'memory' }, {}), 'Nothing to revoke');
 });
 
 test('memory.profile.read affinity / alias.add / alias.remove: a member with no profile is refused and none is created', async () => {
@@ -2723,37 +2558,6 @@ test('run: draw is refused while paused', async () => {
   assert.equal(images.calls.length, 0);
 });
 
-test('run: access.grant refuses private memory and access management (owner-only), writing nothing', async () => {
-  // [group, the operations or keys under it, the refusal of each]: an owner-only operation is
-  // refused by name; a group holding only owner-only operations covers nothing.
-  const ownerOnly = /is owner-only and cannot be granted/;
-  const refusals: Array<[string, Array<string>, RegExp]> = [
-    ['memory.private', ['memory.private.read'], ownerOnly],
-    ['memory.private', ['memory.private'], /covers no grantable read operation/],
-    ['access', ['access.grant', 'access.revoke', 'access.list'], ownerOnly],
-    ['access', ['access'], /covers no grantable read operation/],
-  ];
-  for (const [group, commands, refusal] of refusals) {
-    const rootDir = makeRoot();
-    const { admin } = makeAdmin(rootDir);
-
-    for (const command of commands) {
-      await assert.rejects(() => admin.run('access.grant', { command }, {}), refusal, `${group}: ${command}`);
-      await assert.rejects(
-        () => admin.run('access.grant', { command, roleId: '1' }, {}),
-        refusal,
-        `${group}: ${command} to a role`
-      );
-      await assert.rejects(
-        () => admin.run('access.grant', { command, accountId: '2' }, {}),
-        refusal,
-        `${group}: ${command} to a user`
-      );
-    }
-    assert.equal(fs.existsSync(localPath(rootDir)), false, `${group}: nothing was written`);
-  }
-});
-
 // ---------------------------------------------------------------------------
 // emoji.status / emoji.rescan -- the custom emoji ranking and its history backfill
 // ---------------------------------------------------------------------------
@@ -3034,17 +2838,15 @@ test('run: memory.recent answers one short line with no live line', async (t) =>
   assert.ok(!noneText.includes('expired line'));
 });
 
-test('run: memory.recent works while paused, writes nothing and is open to a granted read-only access', async (t) => {
-  const { admin, store, hot } = makeRecentAdmin(t, [recentLine(1, 1, 'a line')]);
+// The owner's decision of 2026-11-10 cut the grants to a role, and with them this test's check of one.
+test('run: memory.recent works while paused and writes nothing', async (t) => {
+  const { admin, store } = makeRecentAdmin(t, [recentLine(1, 1, 'a line')]);
   store.state.data.paused = true;
-  hot.config.bot.access = { 'memory.recent.read': { everyone: false, roles: ['123'], users: [] } };
 
   const text = await admin.run('memory.recent.read', {}, { placeId: 'g1' });
 
   assert.ok(text.includes('a line'));
   assert.equal(store.flushCalls, 0);
-  assert.equal(await mayRun(admin, 'memory.recent.read', { accountId: '7', roleIds: ['123'] }), true);
-  assert.equal(await mayRun(admin, 'memory.recent.read', { accountId: '7', roleIds: [] }), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -3252,12 +3054,4 @@ test('admin: journal lists the last n records of a day as short lines', async ()
   await assert.rejects(admin.run('memory.journal.read', { day: '12.10.2026' }, { placeId: 'g1' }), /YYYY-MM-DD/);
   await assert.rejects(admin.run('memory.journal.read', { day, n: 51 }, { placeId: 'g1' }), /1\.\.50/);
   await assert.rejects(admin.run('memory.journal.read', { day, kind: 'lore' }, { placeId: 'g1' }), /kind/);
-  // Owner-only: no grant opens it.
-  assert.equal(await mayRun(admin, 'memory.journal.read', { accountId: '42' }), true);
-  const openHot = makeHot(rootDir);
-  const open = { everyone: true, roles: [], users: [] };
-  openHot.config.bot.access = { '*': open, 'memory.profile.read': open, 'memory.journal.read': open };
-  const { admin: granted } = makeAdmin(rootDir, { hot: openHot, journal });
-  assert.equal(await mayRun(granted, 'memory.profile.read', { accountId: '7' }), true);
-  assert.equal(await mayRun(granted, 'memory.journal.read', { accountId: '7' }), false);
 });
