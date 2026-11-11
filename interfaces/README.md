@@ -34,7 +34,6 @@ The modules:
 | `session.ts` | `start(host)`: the client, the login, the guild, the link and every gateway event as a protocol event, held until `open()`. |
 | `members.ts` | A member as the avatar queue sees it (`memberView`, `avatarHashOf`) and the `membership.changed` event. |
 | `gateway.ts` | Creates the discord.js client with the intents and partials the engine needs. |
-| `guild.ts` | Resolves which single guild this instance serves. |
 | `pull-fetch.ts` | The rails of a pull of another channel over discord.js objects, for the recall runner. A turn pulls through the reads. |
 | `search.ts` | Guild message search and member search for recall. |
 | `around.ts` | Voice and presence state of members, the live snapshot for `<people_now>`. |

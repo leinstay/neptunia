@@ -3,7 +3,7 @@
 // with the history and permission reads (collect.ts), searching other channels
 // (search.ts), the audience rule of a pull for the recall runner (pull-fetch.ts), the chat reads the core's
 // adapter answers (reads.ts), the live voice and presence
-// event builders (around.ts), the served guild (guild.ts), member
+// event builders (around.ts), the guild a replay script connects to (resolveGuild), member
 // cache warming (audience-warm.ts), plus the factory the
 // composition root builds the interface with (createDiscordInterface). The core reaches it
 // by path (src/index.ts); what it still imports from the core is by relative path
@@ -15,7 +15,6 @@ export * from './media.ts';
 export * from './pull-fetch.ts';
 export * from './search.ts';
 export * from './around.ts';
-export * from './guild.ts';
 export * from './audience-warm.ts';
 export * from './gateway.ts';
 
@@ -103,4 +102,41 @@ export function createDiscordInterface({
 export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const session = await import('./session.ts');
   return session.start(host);
+}
+
+/**
+ * The one guild a script connects to (scripts/replay.ts, scripts/inner-week.ts): the server of the older `bot.guildId`
+ * setting, or the only server the bot is in. The session serves every server and does not call it.
+ * @param configuredId config.bot.guildId, possibly '' when unset
+ * @param guilds every guild the bot's client is currently in
+ */
+export function resolveGuild(
+  configuredId: string,
+  guilds: Array<{ id: string; name: string }>
+): { guildId: string } | { error: string } {
+  const list = guilds ?? [];
+  const describe = (guild: { id: string; name: string }): string => `${guild.name} (${guild.id})`;
+
+  if (configuredId) {
+    const found = list.find((guild) => guild.id === configuredId);
+    if (found) return { guildId: found.id };
+
+    const known = list.length > 0 ? list.map(describe).join(', ') : '(the bot is in no server at all)';
+    return {
+      error: `The configured server ${configuredId} is not among the servers this bot is in: ${known}. Check \`bot.guildId\`.`,
+    };
+  }
+
+  if (list.length === 1) return { guildId: list[0].id };
+
+  if (list.length === 0) {
+    return {
+      error: 'No server is chosen and the bot is not in any server yet. Invite it to your server first.',
+    };
+  }
+
+  const known = list.map(describe).join(', ');
+  return {
+    error: `No server is chosen and the bot is in several: ${known}. Name one with \`bot.guildId\`.`,
+  };
 }

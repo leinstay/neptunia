@@ -322,13 +322,8 @@ export function createDiscordReads(deps: {
           placeId
         ) ?? null);
 
-  /**
-   * The guilds whose emoji a read with no place lists: every guild the bot is in, or the ones a `servers` list names when
-   * an older settings file still holds one.
-   */
+  /** The guilds whose emoji a read with no place lists: every guild the bot is in. */
   function servedGuilds(): Array<Obj | null> {
-    const listed: unknown = obj(deps.config()).servers;
-    if (Array.isArray(listed) && listed.length > 0) return listed.map((id) => guildOf(String(id)));
     return [...((obj(client.guilds).cache as Map<string, Obj> | undefined)?.values() ?? [])];
   }
 
