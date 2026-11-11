@@ -17,7 +17,7 @@
 // word past its arguments is refused and not echoed. A leaf with any `secret` takes `--secret-stdin` in the command
 // line. A word the table no longer has is refused with the command that replaced it, and nothing runs. A command with
 // both `args` and subcommands reads a line that names none of them as its own arguments. A command marked `nameFirst`
-// reads the word after it as the `name` its leaves work on and the leaf's word after that (`/interfaces discord set
+// reads the word after it as the `name` its leaves work on and the leaf's word after that (`/interfaces <name> set
 // token`), unless that first word is a leaf with no `name` of its own (`/interfaces list`); a leaf's `word` is what the
 // owner types for it where it differs from its name. The parse is pure and never throws.
 //
