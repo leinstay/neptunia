@@ -32,6 +32,6 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/behavior/sandbox.ts',
     'default': {},
     'text':
-      'Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access)',
+      'The tools granted to the persona, each an operation name holding her user id, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access)',
   },
 ];

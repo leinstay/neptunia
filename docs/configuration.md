@@ -21,7 +21,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/selfreflection.ts` |
 | `bot.ownerPerson` | string | `""` | The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity) | `src/tools/operations/grants.ts` |
 | `bot.mnemonic` | string | `"en"` | The language of the word list of the one-time phrases that prove an account, `en` for `src/mnemonic/bip-en` or `ru` for `src/mnemonic/bip-ru`. `/mnemonic` shows it and `/mnemonic en` or `/mnemonic ru` switches it, for the owner only. A phrase issued before a switch is refused after it. See [Phrase codes](interfaces.md#phrase-codes) | `src/interface/phrase-codes.ts` |
-| `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
+| `bot.access` | map | `{}` | The tools granted to the persona, each an operation name holding her user id, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 
 ## models.abilities
 

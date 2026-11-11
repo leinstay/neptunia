@@ -44,7 +44,6 @@ export const CATALOGUE = Object.freeze({
   'safe-mode': skill('denied'),
   'not-allowed': skill('denied'),
   'not-grantable': skill('denied'),
-  'not-granted': skill('denied'),
   'owner-only': skill('denied'),
   'unknown-principal': skill('denied'),
   'self-grant': skill('denied'),
