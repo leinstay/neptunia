@@ -568,3 +568,12 @@ test('<place> of a turn in a direct chat whose place the store holds no chain fo
   assert.ok(place.includes('terminal chat'), place);
   assert.doesNotMatch(place, /unnamed/);
 });
+
+test('an entry of <people> opens with its handle and a colon', async () => {
+  // Bug: the entry opened `@handle Name`, so the handle read as part of the name. The owner's decision of 2026-11-11: a
+  // handle and a colon open every entry.
+  const run = await onCli([{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }]);
+  const entries = entriesOf(requestOf(run, 0, 0));
+  assert.ok(entries.length > 0, 'the request has people');
+  for (const entry of entries) assert.match(entry.split('\n')[0] ?? '', /^@u[0-9a-z]+: \S/, entry);
+});

@@ -441,6 +441,15 @@ const headLine = (built: Built): string =>
     .split('\n')
     .find((one) => one.startsWith('#')) ?? '';
 
+/**
+ * The owner's decision of 2026-11-11 (a handle and a colon open every entry, the full reference stands once, in the
+ * place's entry of `<places>`): a window's head is its place handle, a colon and the date, with none of the place's names.
+ */
+function assertShortHead(head: string, handle: string, names: ReadonlyArray<string>): void {
+  assert.ok(head.startsWith(`#${handle}:`), head);
+  for (const name of names) assert.ok(!head.includes(name), `${name} stands in ${head}`);
+}
+
 /** The frame of a direct chat with `partner` on `fake`. */
 const dmFrame = (partner: FrameParty) =>
   frameOf(
@@ -454,7 +463,7 @@ const dmFrame = (partner: FrameParty) =>
     })
   );
 
-test('the window of a direct chat of the same person is headed by a place handle, the partner handle and the interface', () => {
+test('the window of a direct chat of the same person is headed by its place handle and a colon', () => {
   // Bug: a direct chat had no place handle, so a tool could not take it, and its head read `private` and a platform id.
   const zoe: FakePlace = {
     id: 'tele:dm:zoe',
@@ -477,9 +486,9 @@ test('the window of a direct chat of the same person is headed by a place handle
   const handle = [...(built.channelHandles ?? [])].find(([, chat]) => chat === 'd-zoe')?.[0];
   assert.ok(handle, 'the direct chat has a place handle');
   const head = headLine(built);
-  assert.ok(head.startsWith(`#${handle}`), head);
-  assert.ok(head.includes(`@${handleOf(PARTNER.personId)}`), head);
-  assert.ok(head.includes('Agora Net'), head);
+  // The owner's decision of 2026-11-11: the head is the handle and a colon, then the date. The partner and the interface
+  // stand in the place's entry, not over the window.
+  assertShortHead(head, handle, [`@${handleOf(PARTNER.personId)}`, 'Agora Net']);
   assert.doesNotMatch(head, /private|1234|>/);
 });
 
@@ -509,8 +518,9 @@ test("the window of the command line's chat is headed by a place handle", () => 
   assert.ok(headLine(built).startsWith(`#${handle}`), headLine(built));
 });
 
-test('an entry of <places>, a place of <recall> and the head of a window use one reference for the same place', () => {
-  // Bug: each block built its own text for a place, so one place read three ways and a talk of it was not recognised.
+test('an entry of <places> and a place of <recall> use one full reference, and the window head over the same place is its handle and a colon', () => {
+  // Bug: each block built its own text for a place, so one place read several ways and a talk of it was not recognised.
+  // The owner's decision of 2026-11-11: the full reference stands once, in the entry; a window head is the handle alone.
   const club = viewOf('fake', CLUB_CHAIN);
   const lookup: Lookup = { ...LOOKUP, args: { query: 'ΕΡΩΤΗΜΑ', place: 'place:club' } };
   const built = request({
@@ -528,9 +538,9 @@ test('an entry of <places>, a place of <recall> and the head of a window use one
     const from = text.indexOf(`#${handle}`);
     return from < 0 ? '' : text.slice(from, text.indexOf('Agora Net', from) + 'Agora Net'.length);
   };
-  const one = refIn(headLine(built));
+  const one = refIn(places);
+  assertShortHead(headLine(built), handle, ['λέσχη', 'Αγορά', 'Agora Net']);
   assert.ok(one.includes('λέσχη') && one.includes('Αγορά') && one.indexOf('λέσχη') < one.indexOf('Αγορά'), one);
-  assert.equal(refIn(places), one, 'the entry of <places>');
   assert.equal(refIn(block(built, 'recall')), one, 'the place of <recall>');
 });
 
@@ -554,7 +564,7 @@ function refOf(built: Built, text: string, chat: string): string {
   return from < 0 ? '' : text.slice(from, text.indexOf('Agora Net', from) + 'Agora Net'.length);
 }
 
-test('<place>, the entry in <places> and a window head elsewhere give a room one reference', () => {
+test('<place> and the entry in <places> give a room one reference, and a window head elsewhere is its handle and a colon', () => {
   // Bug: the place she is in was named without its handle in <place>, so the same room read two ways.
   const room = viewOf('fake', ROOM_PLACE);
   const here = request({
@@ -586,10 +596,12 @@ test('<place>, the entry in <places> and a window head elsewhere give a room one
       },
     ]),
   });
-  assert.equal(refOf(elsewhere, block(elsewhere, 'meanwhile'), 'c-room'), inPlace, 'the window head');
+  // The owner's decision of 2026-11-11: the window head is the handle and a colon, the reference stands once in <places>.
+  const roomHandle = [...(elsewhere.channelHandles ?? [])].find(([, chat]) => chat === 'c-room')?.[0] ?? '';
+  assertShortHead(headLine(elsewhere), roomHandle, ['γενικά', 'Αγορά', 'Agora Net']);
 });
 
-test('<place>, the entry in <places> and a window head elsewhere give a direct chat one reference', () => {
+test('<place> and the entry in <places> give a direct chat one reference, and a window head elsewhere is its handle and a colon', () => {
   // Bug: a direct chat was named in <place> without its handle and with another wording than its window head.
   const chain = [{ id: 'fake:dm:zoe', kind: 'dm', name: null }];
   const dm = viewOf('fake', chain, true, PARTNER.personId);
@@ -644,5 +656,6 @@ test('<place>, the entry in <places> and a window head elsewhere give a direct c
       },
     ]),
   });
-  assert.equal(refOf(elsewhere, block(elsewhere, 'meanwhile'), 'd-zoe'), inPlace, 'the window head');
+  const dmHandle = [...(elsewhere.channelHandles ?? [])].find(([, chat]) => chat === 'd-zoe')?.[0] ?? '';
+  assertShortHead(headLine(elsewhere), dmHandle, [`@${handleOf(PARTNER.personId)}`, 'Agora Net']);
 });

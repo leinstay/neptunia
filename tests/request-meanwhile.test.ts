@@ -248,9 +248,10 @@ function textOf(place: FakePlace, frame: Frame = GROUP_FRAME, handle: string | n
   return meanwhileText(windows, frame, shippedLabels, nameOf, () => handle, REFS);
 }
 
-test('the head of a channel window reads the handle, the channel, its root and the interface in words, and holds no >', () => {
-  // Bug: the head ran the names together as `iface > Root > chat`, root first, so a talk of one place read as a talk of
-  // another and a name read as part of a path.
+test('the shipped head of a channel window is its place handle and a colon, with no name of the place, its root or the interface', () => {
+  // Bug: the head ran the names together as `iface > Root > chat`, so a talk of one place read as a talk of another.
+  // The owner's decision of 2026-11-11: the full reference stands once, in the place's entry of `<places>`, and the
+  // head over a window is the handle, a colon and the date.
   const alpha: FakePlace = {
     id: 'place:alpha',
     path: ['agora', 'Beta', 'alpha'],
@@ -267,18 +268,8 @@ test('the head of a channel window reads the handle, the channel, its root and t
     textOf(alpha)
       .split('\n')
       .find((one) => one.startsWith('#')) ?? '';
-  assert.ok(head.startsWith('#cab12'), head);
-  assert.ok(!head.includes('>') && !head.includes('&gt;'), head);
-  const at = ['room', 'alpha', 'realm', 'Beta', 'Agora Net'].map((word) => head.indexOf(word));
-  assert.ok(
-    at.every((index) => index >= 0),
-    head
-  );
-  assert.deepEqual(
-    [...at].sort((a, b) => a - b),
-    at,
-    `innermost first: ${head}`
-  );
+  assert.ok(head.startsWith('#cab12:'), head);
+  for (const word of ['alpha', 'Beta', 'Agora Net', 'room', 'realm', '>']) assert.ok(!head.includes(word), head);
 });
 
 /** A window of her line with the lines before and after it at `times`. */
