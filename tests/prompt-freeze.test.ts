@@ -146,7 +146,7 @@ test('buildRequest: with llm.cache.ttl 5m the bucket is five minutes', () => {
 
 // B7: the GIF list left the request, so the test of its order inside one bucket went with it.
 
-// --- slice 8 of the turn frame: `<surroundings>` is its own cached part, held per bucket by place and version --------
+// --- `<surroundings>`, held per bucket by place and version, opens the cached `memory` part (2026-11-11) -------------
 
 const ROOT_LINK = { id: 'place:root', kind: 'server', name: 'Αγορά' };
 const ROOM = frameOf(frameInput({ chain: [{ id: 'place:room', kind: 'channel', name: 'γενικά' }, ROOT_LINK] }));
@@ -178,7 +178,14 @@ function segmentText(request: Built, segment: string): string {
   return part.text;
 }
 
-test('buildRequest: two requests of one place within a bucket have byte-identical stable and surroundings parts', () => {
+/** `<surroundings>` as it opens the cached `memory` part of `request` (the owner's decision of 2026-11-11). */
+function surroundingsText(request: Built): string {
+  const text = segmentText(request, 'memory');
+  assert.ok(text.startsWith('<surroundings>\n'), text);
+  return text.slice(0, text.indexOf('</surroundings>'));
+}
+
+test('buildRequest: two requests of one place within a bucket have byte-identical stable parts and <surroundings>', () => {
   // Bug: a memory batch or a field edit under the same description version rewrites the cached prefix mid-bucket.
   const stableFreeze = new Map<string, unknown>();
   const first = buildRequest(
@@ -197,11 +204,11 @@ test('buildRequest: two requests of one place within a bucket have byte-identica
     )
   );
   assert.equal(segmentText(second, 'stable'), segmentText(first, 'stable'));
-  assert.equal(segmentText(second, 'surroundings'), segmentText(first, 'surroundings'));
-  assert.ok(segmentText(first, 'surroundings').includes('μιλάμε για τσάι'));
+  assert.equal(surroundingsText(second), surroundingsText(first));
+  assert.ok(surroundingsText(first).includes('μιλάμε για τσάι'));
 });
 
-test('buildRequest: a new description version of the place changes the surroundings part within the bucket', () => {
+test('buildRequest: a new description version of the place changes <surroundings> within the bucket', () => {
   // Bug: the freeze keyed by place alone keeps a stale description for up to an hour after the memory rewrote it.
   const stableFreeze = new Map<string, unknown>();
   buildRequest(
@@ -210,10 +217,10 @@ test('buildRequest: a new description version of the place changes the surroundi
   const renewed = buildRequest(
     placed(ROOM, { purpose: 'μιλάμε για καφέ', versions: ['ver:2'], now: EDGE + 20 * MINUTE }, stableFreeze)
   );
-  assert.ok(segmentText(renewed, 'surroundings').includes('μιλάμε για καφέ'));
+  assert.ok(surroundingsText(renewed).includes('μιλάμε για καφέ'));
 });
 
-test('buildRequest: a request of another place differs from the first only in the surroundings part of the cached prefix', () => {
+test('buildRequest: a request of another place differs from the first only in <surroundings> of the cached prefix', () => {
   // Bug: a place fact inside the stable part breaks the cache of `<self>` at every change of room.
   const stableFreeze = new Map<string, unknown>();
   const room = buildRequest(
@@ -226,5 +233,5 @@ test('buildRequest: a request of another place differs from the first only in th
   const [gardenSystem] = garden.messages;
   assert.equal(gardenSystem.content, roomSystem.content);
   assert.equal(segmentText(garden, 'stable'), segmentText(room, 'stable'));
-  assert.notEqual(segmentText(garden, 'surroundings'), segmentText(room, 'surroundings'));
+  assert.notEqual(surroundingsText(garden), surroundingsText(room));
 });

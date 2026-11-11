@@ -214,8 +214,8 @@ function budgetOrder(given: ReaderInput, items: ReadonlyArray<MemoryItem>): Arra
 
 /**
  * The memory items the request keeps, cut by the graph reader's own rule (src/memory/db/mind-read.ts#cut) at the
- * request's price of a text: one total of `context.memory.budgetTokens`, each subtag its share with what the others
- * leave unused lent (`allowances`), the person she answers always and counted in `<people>`. Each item takes the first
+ * request's price of a text: one total of `context.memory.budgetTokens`, each subtag its share with what the stable
+ * shares leave unused lent (`allowances`, `found` lends nothing), the person she answers always and counted in `<people>`. Each item takes the first
  * of its details that fits what its subtag has left; one that fits at none is left out and counted, unless the reader
  * kept it whatever the budget, which stays at its lowest detail. The kept items come back in the reader's rank.
  */
@@ -632,9 +632,13 @@ const selfTextOf = (given: ReaderInput, fit: Fit): string =>
 
 type Bodies = { memory: string; found: string; inner: string; meanwhile: string; chat: string };
 
+/** The blocks that belong to the turn itself: the first of them in the frame's order ends the `memory` segment. */
+const TURN_OWN: ReadonlySet<string> = new Set(['chat', 'recall', 'found', 'inner', 'spatial_awareness', 'task']);
+
 /**
  * Every block of the request, the ones the frame lists in the frame's order, then the others empty: the frame's list
- * is the printed order (src/turn/request/frame.ts#blocksOf).
+ * is the printed order (src/turn/request/frame.ts#blocksOf). A listed block of the tail that stands before the first
+ * of the turn's own blocks goes in the segment `memory`.
  */
 function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies): Array<ListedBlock> {
   const { kept } = fit;
@@ -649,7 +653,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     { name: 'self', segment: 'stable', source: 'self', text: block('self', selfTextOf(given, fit)) },
     {
       name: 'surroundings',
-      segment: 'surroundings',
+      segment: 'tail',
       source: 'surroundings',
       text: block('surroundings', offered.surroundings),
     },
@@ -664,9 +668,15 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     tail('task', 'task', given.task),
   ];
   const order: ReadonlyArray<string> = given.frame.blocks;
-  const inList = listed
+  const sorted = listed
     .filter((one) => order.includes(one.name))
     .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  // The blocks between `<self>` and the first of the turn's own blocks repeat between turns: the `memory` segment, whose
+  // cache marker every request of a turn carries (src/llm/openrouter.ts#withCacheMarker).
+  const firstOwn = sorted.findIndex((one) => TURN_OWN.has(one.name));
+  const inList = sorted.map((one, at) =>
+    one.segment === 'tail' && (firstOwn < 0 || at < firstOwn) ? { ...one, segment: 'memory' as const } : one
+  );
   const offList = listed.filter((one) => !order.includes(one.name)).map((one) => ({ ...one, text: '', offKind: true }));
   return [...inList, ...offList];
 }

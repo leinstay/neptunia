@@ -375,7 +375,8 @@ test("formatTranscript: counts stay on others' lines, for unknown reactors and w
 
 // --- the persona's request ---------------------------------------------------------
 
-test('buildRequest: a reactor on her line gets a handle like an author, only in the tail, and the switch turns it off', () => {
+// The owner's decisions of 2026-11-10 (one handle per person, an entry for every handle) and 2026-11-11 (cache layout).
+test('buildRequest: a reactor on her line gets a handle and an entry in <people>, and the system message, <self> and <surroundings> stay the same', () => {
   const now = Date.UTC(2026, 9, 15, 10, 0, 0);
   const author = { id: '650000000000000123', name: 'Zoé' };
   const reactor = { id: '650000000000000456', name: 'Ἑλένη' };
@@ -464,19 +465,28 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
       .filter((part: Part) => part.type === 'text')
       .map((part: Part) => part.text)
       .join('\n');
-  const stableOf = (request: Built) =>
-    request.messages[1].content
-      .filter((part: Part) => part.cacheSegment)
-      .map((part: Part) => part.text)
-      .join('\n');
+  /** The part cached longer than the `memory` segment, `<self>`, and the `<surroundings>` that opens the `memory` part. */
+  const longerOf = (request: Built) =>
+    [
+      ...request.messages[1].content
+        .filter((part: Part) => part.cacheSegment === 'stable')
+        .map((part: Part) => part.text),
+      /^<surroundings>\n[\s\S]*?\n<\/surroundings>$/m.exec(textOf(request))?.[0] ?? '',
+    ].join('\n');
 
   const named = buildRequest(input(history));
+  const bare = buildRequest(input(plain));
   const handleOfId = new Map([...named.handles!].map(([handle, id]) => [id, handle]));
   assert.ok(handleOfId.has(reactor.id), 'the reactor is in view');
-  // The owner's decision of 2026-11-10: one handle per person, an author and a reactor are the handle alone.
+  const reactorForm = `@${handleOfId.get(reactor.id)}`;
   const authorForm = `@${handleOfId.get(author.id)}`;
   const text = textOf(named);
   assert.ok(text.includes(`] ${authorForm}: line 1`), text);
-  assert.ok(text.includes(`[reactions: 😂 by @${handleOfId.get(reactor.id)}, ${authorForm}]`), text);
-  assert.equal(stableOf(named), stableOf(buildRequest(input(plain))), 'nothing of it in a cached part');
+  assert.ok(text.includes(`[reactions: 😂 by ${reactorForm}, ${authorForm}]`), text);
+  const people = /<people>\n([\s\S]*?)\n<\/people>/.exec(text)?.[1] ?? '';
+  assert.ok(people.includes(reactorForm), people);
+  assert.deepEqual(named.messages[0], bare.messages[0], 'the same system message');
+  assert.ok(longerOf(named) !== '', 'the request has <self>');
+  assert.equal(longerOf(named), longerOf(bare), '<self> and <surroundings> do not change with the reactor');
+  assert.ok(!longerOf(named).includes(reactorForm) && !longerOf(named).includes(reactor.name), longerOf(named));
 });

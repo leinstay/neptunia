@@ -372,14 +372,15 @@ test('the step engine: every request of a trigger run takes the live cache marke
   assert.equal(llm.calls.length, 2);
   const ttl = cacheTtlFor(config, llm.calls[0].options.role, 'anthropic/claude-x', llm.calls[0].options.cache);
   assert.equal(ttl, '1h', 'the options carry no cache: false');
+  // The owner's decision of 2026-11-11: every request of a turn has its markers at the same places, the tail added.
   const marked = (messages: Untyped) =>
     withCacheMarker(messages, ttl).map((message) =>
-      Array.isArray(message.content) ? message.content.filter((part) => part.cache_control).length : 0
+      Array.isArray(message.content) ? message.content.flatMap((part, at) => (part.cache_control ? [at] : [])) : []
     );
   const [first, second] = llm.calls.map((recorded) => marked(recorded.messages));
-  assert.ok(first[0] === 1 && first[1] >= 1, 'the system message and the stable part of the first request');
-  assert.deepEqual(second.slice(0, 2), first.slice(0, 2), 'the same prefix, the same breakpoints');
-  assert.ok((second.at(-1) ?? 0) >= 1, 'the latest appended message carries the tail marker');
+  assert.deepEqual(first.slice(0, 2), [[0], [0, 1]], 'the system message, the stable and the memory part');
+  assert.deepEqual(second.slice(0, 2), first.slice(0, 2), 'the same prefix, the same breakpoints at the same parts');
+  assert.ok((second.at(-1) ?? []).length >= 1, 'the latest appended message carries the tail marker');
 });
 
 test('the step engine: the first request leaves the step reserve under the prompt rail (cap x margin), whatever the output reserve is, so a call that needs a follow-up gets one', async () => {

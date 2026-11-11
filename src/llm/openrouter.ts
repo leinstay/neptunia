@@ -621,8 +621,8 @@ export function toolCallsOf(calls: unknown): Array<ParsedToolCall> {
  * array content gets it on its last non-empty text part -- and every `cache_control` a builder
  * already placed on any part takes the same marker; only the first four markers in message order
  * survive, the rest are removed. A part a builder tagged with `cacheSegment` (the request's user
- * message, src/behavior/prompt.ts#buildRequest) gets a marker too: `'stable'` and `'surroundings'`
- * the request's `ttl`, any other value none. The
+ * message, src/behavior/prompt.ts#buildRequest) gets a marker too: `'stable'` and `'memory'` the
+ * request's `ttl` on every request of a turn, any other value (`'surroundings'` included) none. The
  * `cacheSegment` field itself is removed from every part in every case, so it never reaches the
  * provider. A request with more than two messages (a turn's appended steps) also gets a `5m` marker
  * on the last part of its last message when fewer than four are placed (the latest tool message, or the
@@ -635,9 +635,10 @@ export function toolCallsOf(calls: unknown): Array<ParsedToolCall> {
 export function withCacheMarker<M extends ChatMessage>(messages: Array<M>, ttl: CacheTtl | null): Array<M> {
   if (!Array.isArray(messages)) return messages;
   const marker = cacheMarkerFor(ttl);
+  // Every request of a turn carries these at the same places; a later step adds the tail of the tool loop.
   const segmentMarkers: Record<string, ReturnType<typeof cacheMarkerFor>> = {
     stable: marker,
-    surroundings: marker,
+    memory: marker,
   };
   const systemAt = marker ? messages.findIndex((message) => isRec(message) && message.role === 'system') : -1;
   let kept = 0;
@@ -1479,7 +1480,7 @@ export function createLlm({
    * `llm.cache.ttl`) is placed on the system message by `withCacheMarker` after
    * the estimate and the token cap check, which always see the caller's
    * `messages` as given; so are the markers of the user parts tagged with a
-   * `cacheSegment` (`'stable'` and `'surroundings'`, both `llm.cache.ttl`), and the tag is never sent.
+   * `cacheSegment` (`'stable'` and `'memory'`, both `llm.cache.ttl`), and the tag is never sent.
    * `options.timeoutMs` overrides `llm.timeoutMs` for the request's abort
    * signal — the analyzer (a large batch, a long JSON answer) and the media
    * describer need more room than a chat reply's default.

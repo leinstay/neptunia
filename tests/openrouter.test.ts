@@ -1988,11 +1988,11 @@ test('withCacheMarker: no more than four markers are sent', () => {
   );
 });
 
-// --- cache segments: the request's stable `<self>` and its `<surroundings>` --------------------
-// Slice 8 of the turn frame: the `profiles` part and the third parameter of withCacheMarker are gone, and the second
-// cached part is `surroundings`, marked with the request's TTL. The tests below say so in their names.
+// --- cache segments: the request's stable `<self>` and its `memory` part --------------------
+// The owner's decision of 2026-11-11: the second cached part is `memory`, from `<surroundings>` to the last block
+// before the turn's own, marked with the request's TTL. `<surroundings>` has no marker of its own.
 
-/** A reply whose user message is three text parts (stable, surroundings, tail) and a picture, as buildRequest sends it. */
+/** A reply whose user message is three text parts (stable, memory, tail) and a picture, as buildRequest sends it. */
 function segmentedMessages() {
   return [
     { role: 'system', content: SYSTEM_TEXT },
@@ -2000,7 +2000,7 @@ function segmentedMessages() {
       role: 'user',
       content: [
         { type: 'text', text: '<self_facts>\n- aime le thé\n</self_facts>\n\n', cacheSegment: 'stable' },
-        { type: 'text', text: '<surroundings>\nγενικά\n</surroundings>\n\n', cacheSegment: 'surroundings' },
+        { type: 'text', text: '<surroundings>\nγενικά\n</surroundings>\n\n', cacheSegment: 'memory' },
         { type: 'text', text: USER_TEXT },
         { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
       ],
@@ -2013,7 +2013,7 @@ function anySegment(messages: Array<{ content: unknown }>) {
   return messages.some((m) => Array.isArray(m.content) && partsOf(m).some((p) => 'cacheSegment' in p));
 }
 
-test('withCacheMarker: cacheSegment stable and surroundings take the request ttl, and the tag is never sent', () => {
+test('withCacheMarker: cacheSegment stable and memory take the request ttl, and the tag is never sent', () => {
   const messages = segmentedMessages();
   const before = structuredClone(messages);
   const sent = withCacheMarker(messages, '1h');
@@ -2029,7 +2029,7 @@ test('withCacheMarker: cacheSegment stable and surroundings take the request ttl
   assert.deepEqual(messages, before, 'the caller keeps its tags');
 });
 
-test('withCacheMarker: under a 5m request ttl the system, stable and surroundings markers are all 5m', () => {
+test('withCacheMarker: under a 5m request ttl the system, stable and memory markers are all 5m', () => {
   const short = withCacheMarker(segmentedMessages(), '5m');
   assert.deepEqual(
     markedParts(short).map((p) => p.cache_control),
@@ -2068,7 +2068,7 @@ test('withCacheMarker: without a ttl, or with an unknown segment, the tag is str
   ]);
 });
 
-test('withCacheMarker: system, stable and surroundings are three of the four markers; a fifth is dropped', () => {
+test('withCacheMarker: system, stable and memory are three of the four markers; a fifth is dropped', () => {
   const messages = segmentedMessages();
   partsOf(messages[1]).push(
     { type: 'text', text: 'γ', cache_control: { type: 'ephemeral' } },
@@ -2082,8 +2082,8 @@ test('withCacheMarker: system, stable and surroundings are three of the four mar
   );
 });
 
-// Every marked reply carries the three markers: system, stable and surroundings.
-test('complete: a segmented reply is sent with the system, stable and surroundings markers, never the tag; off or unlisted, with neither', async () => {
+// Every marked first request carries the three markers: system, stable and memory.
+test('complete: a segmented reply is sent with the system, stable and memory markers, never the tag; off or unlisted, with neither', async () => {
   let config = cachingConfig();
   const { llm, sent, bodies } = cachingLlm(() => config);
   await llm.complete(segmentedMessages(), { role: 'core' });
