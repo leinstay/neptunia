@@ -247,6 +247,7 @@ The chain of routes each model role runs on, the one place a role's key, harness
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `media.pick.maxOutputTokens` | number | `60` | Max output tokens for the media pick | `src/behavior/media-pick.ts` |
+| `media.pick.graceMs` | number | `6000` | How long her first message, once its typing is over, still waits for the media pick before it goes without it, in milliseconds. `0` waits for nothing | `src/behavior/media-pick.ts` |
 | `media.pick.candidates` | number | `20` | Most GIFs the search hands the media pick | `src/behavior/media-pick.ts` |
 | `media.pick.emojiCandidates` | number | `20` | Most custom emoji the media pick is offered, the place's most used first | `src/behavior/media-pick.ts` |
 | `media.pick.emojiPerReplies` | number | `5` | At most one appended or replacing emoji per this many of her replies in a place. `0` switches this rail off | `src/behavior/media-pick.ts` |

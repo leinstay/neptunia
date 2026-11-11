@@ -479,14 +479,13 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   /**
    * What `picking` answers within the pick's grace (mediaPickSettings, read now; on `schedule`) from now, else `none`: the
    * pick is left behind for this turn, logged `media-pick: late` (`channel`, `graceMs`) and journaled as a `helper-timeout`
-   * limit on `media-pick`. An answer already there wins over a grace of 0. `graceMs` null -> `picking` itself.
+   * limit on `media-pick`. An answer already there wins over a grace of 0.
    */
   async function pickedInTime(
     picking: Promise<MediaPickResult>,
     { placeId, draft }: { placeId: string; draft?: DrawDraft | null }
   ): Promise<MediaPickResult> {
     const { graceMs } = mediaPickSettings(hot.config as Record<string, Untyped>);
-    if (graceMs === null) return picking;
     const LATE = Symbol('late');
     let cancel: (() => void) | null = null;
     const timer = new Promise<typeof LATE>((resolve) => {
