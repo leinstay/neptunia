@@ -76,7 +76,7 @@ export function pulledMoment(ts: number, timezone: string, locale: string | unde
  * string reads as ''.
  */
 export function escapeStored(text: unknown): string {
-  return typeof text === 'string' ? text.replace(/&/g, '&amp;').replace(/</g, '&lt;') : '';
+  return typeof text === 'string' ? text.replace(/</g, '&lt;') : '';
 }
 
 /** An author named by their handle (`authors.line`), `authors.unknown` without one. */
