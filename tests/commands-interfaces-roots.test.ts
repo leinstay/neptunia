@@ -17,6 +17,7 @@ function recorder(): { joining: RootJoining; calls: Array<string> } {
   // The joining after the owner's cut of 2026-11-11: no waiting state, so no `isOpen`, `accept` or `remove`.
   const joining: RootJoining = {
     rootChanged: () => null,
+    noteHello: () => {},
     rows: () => [],
     invite: (iface) => Promise.resolve(ok(`invite ${iface}`)),
     roots: (iface) => ok(`roots ${iface}`),

@@ -91,7 +91,7 @@ import { createMemberDirectory } from './interface/members.ts';
 import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.ts';
 import { createChatDirectory } from './interface/directory.ts';
-import { createRootJoining } from './interface/root-joining.ts';
+import { createRootJoining, helloBuffer } from './interface/root-joining.ts';
 import { createInterfaceSettings, rootNounOf } from './interface/interface-settings.ts';
 import { createPersonLinks } from './interface/person-link.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
@@ -695,6 +695,7 @@ async function buildCore(
   /** The roots a hello names: the one it serves first, then the rest. */
   const helloRoots = (greeting: Hello) =>
     [greeting.root, ...(greeting.roots ?? [])].flatMap((one) => (one ? [one] : []));
+  const hellos = helloBuffer();
   function connectInterface(name: string, greeting: Hello, link: ReturnType<typeof openAdapterLink>) {
     const known = linksByName.get(greeting.iface);
     if (known === undefined) linksByName.set(greeting.iface, createLinkSwitch(link));
@@ -703,6 +704,7 @@ async function buildCore(
     const roots = named.map((one) => one.id);
     rootRoutes.note(greeting.iface, roots);
     store.noteRoots(greeting.iface, named, greeting.names);
+    hellos.seen(greeting.iface, named);
     log.info('index: interface connected', { principal: name, iface: greeting.iface, roots: roots.length });
   }
   /** True for a root some connected interface serves, and the configured one before any said hello. */
@@ -1228,6 +1230,7 @@ async function buildCore(
     invite: (name) => reads.answer('inviteLink', { iface: name }),
     nounOf: rootNounOf(() => memoryDb.database()),
   });
+  hellos.attach(rootJoining);
   const onMessage = createMessageHandler({
     screen: personLinks,
     gifKeeper,
