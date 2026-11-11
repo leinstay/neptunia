@@ -8,6 +8,9 @@ import assert from 'node:assert/strict';
 import { channelInfo, deliver, lineEvent, settle, until, withFakeCore } from './fixtures/core-over-fake.ts';
 import type { Fake } from './fixtures/core-over-fake.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
+import { createKeepLines } from '../src/pipeline/keep-lines.ts';
+import type { KeepLines } from '../src/pipeline/keep-lines.ts';
+import type { ObserveLine } from '../src/pipeline/observe.ts';
 
 const NOW = Date.now();
 const EARLIER = NOW - 60_000;
@@ -134,4 +137,55 @@ test('shows and stores her line that carries a pairing phrase', async () => {
     await settle();
     assert.equal(rig.linesOf('k0').length, 1);
   });
+});
+
+/** One line of a served channel as a history read returns it. */
+const historyLine = {
+  iface: 'fake',
+  at: NOW,
+  chat: { id: 'c1', rootId: 'r1', chatType: 'channel' },
+  message: { id: 'h1', at: EARLIER, content: 'το πηγάδι στην αυλή', author: { id: 'u2', name: 'Zoe' } },
+} as unknown as Parameters<KeepLines>[0][number];
+
+/** A keeper whose observer answers `answer` and counts what it is asked for. */
+function keeperAnswering(answer: Awaited<ReturnType<ObserveLine>>): { keep: KeepLines; asked: Array<string> } {
+  const asked: Array<string> = [];
+  const observeLine: ObserveLine = (event) => {
+    asked.push(event.message.id);
+    return Promise.resolve(answer);
+  };
+  const keep = createKeepLines({
+    hot: {},
+    store: null,
+    observeLine,
+    selfIdOf: () => 'self-id',
+    isServedRoot: () => true,
+  });
+  return { keep, asked };
+}
+
+const drained = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+// The writer owns the retries of a line it was handed (src/memory/db/service.ts, OBSERVE_ATTEMPTS): a write that threw is
+// queued and tried again, and a line handed while the database is closed waits in its queue. Its null answer is the end
+// of that line's run, so a second hand-over only starts a fresh run of attempts on every tool step.
+test('does not hand a line again to the observer when its write failed and the next read holds it', async () => {
+  // Bug (2026-11-10): the keeper forgets a line whose write failed, so each history read of a tool loop hands it again
+  // with a new run of attempts, 458 dropped observations and 2290 warnings for some twenty lines.
+  const { keep, asked } = keeperAnswering(null);
+  keep([historyLine]);
+  await drained();
+  keep([historyLine]);
+  await drained();
+  assert.deepEqual(asked, ['h1']);
+});
+
+test('does not hand a line again to the observer when the writer refused it and the next read holds it', async () => {
+  // Bug: a refusal (`ok: false` with a code) is final for the same line, and handing it again refuses it again each step.
+  const { keep, asked } = keeperAnswering({ ok: false, code: 'BAD_PLACE' });
+  keep([historyLine]);
+  await drained();
+  keep([historyLine]);
+  await drained();
+  assert.deepEqual(asked, ['h1']);
 });
