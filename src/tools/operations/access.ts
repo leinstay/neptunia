@@ -1,35 +1,24 @@
-// Operations: `access.*`: who besides the owners may run which operation (bot.access,
-// src/tools/operations/grants.ts). Owner-only. A grant names an operation (`memory.profile.read`), a group
-// (`memory`) or `*`; a group or `*` is stored as the grantable read operations it covers now, one
-// entry each, so a later operation and every write stay closed until granted by name. The persona
-// gets her skills the same way, with her (the bot's own user) as the target: any operation by
-// name, owner-only ones included (src/tools/registry.ts), but the irreversible and
-// administrative ones no grant opens for her yet (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA);
-// a group or `*` stores the read operations under it. She never changes her own rights: a grant or
-// revoke she makes whose target reaches her (herself, everyone, a role she holds) is refused.
+// Operations: `access.*`: the tools granted to the persona (bot.access, src/tools/operations/grants.ts), keyed by
+// operation name with her own user id as the one target. A grant names a skill (`memory.profile.read`), a group
+// (`memory`) or `*`. A skill is granted by name whatever it does, but the irreversible and administrative ones no
+// grant opens for her yet (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA). A group or `*` is stored as the read
+// skills it covers now, one entry each, so a later skill and every write stay closed until granted by name. She
+// never changes her own grants: `access.grant` or `access.revoke` made by her is refused.
 
-import {
-  expandGrant,
-  describeGrants,
-  isGrantableOp,
-  grant as accessGrant,
-  revoke as accessRevoke,
-  hasGrant,
-} from './grants.ts';
+import { grant as accessGrant, revoke as accessRevoke, hasGrant } from './grants.ts';
 import { NONE, reloadNote } from './shared.ts';
 import { skillNames, skillRegistry } from '../registry.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../access.ts';
-import { defineOp, perEnv, invalid, denied, listOps } from './registry.ts';
+import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { CODE } from '../codes.ts';
-import { idText, isObj, objOf, textOf } from '../types.ts';
-import type { Access, GrantTarget, Obj, OpContext, OpInfo } from '../types.ts';
+import { idText, objOf, textOf } from '../types.ts';
+import type { Access, Obj, OpContext } from '../types.ts';
 
 /**
  * What a grant of `key` to the persona stores, against the skills that exist now: a skill (an
  * operation) name is itself (`names`), whatever it does, unless no grant opens it for her yet
  * (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA: `refused`); a group (a dotted prefix of a skill
- * name) or `*` is every read skill under it, owner-only ones included (they run only when an
- * owner asks), with `from` the pattern.
+ * name) or `*` is every read skill under it, with `from` the pattern.
  * Null when `key` names no skill.
  */
 export function expandPersonaGrant(
@@ -49,80 +38,43 @@ export function expandPersonaGrant(
   return { from: key, names, refused: [] };
 }
 
-/** True when a stored key can only be the persona's: a skill name no grant to a person opens. */
-function personaOnlyKey(key: string, ops: ReadonlyArray<OpInfo>): boolean {
-  return skillNames().includes(key) && !isGrantableOp(ops.find((op) => op.name === key));
-}
-
 const handlers = perEnv((env) => {
   const { writeLocalPath, localOrLive } = env;
-  const { reads } = env;
 
-  /** The persona's own member id (the persona as a grant target), or null before the interface has said who she is. */
-  function personaId(): string | null {
-    const id = env.selfId();
-    return id === undefined || id === null || id === '' ? null : id;
+  /** The persona's own user id, the one target of a grant; refused while no interface has said who she is. */
+  function personaId(): string {
+    const id = idText(env.selfId());
+    if (id === '') throw new Error('no interface has said who the persona is yet');
+    return id;
   }
 
-  /** True when `what` (accessTargetArgs') targets the persona herself. */
-  function targetsPersona(what: GrantTarget | null | undefined): boolean {
-    const id = personaId();
-    return id !== null && what?.accountId != null && idText(what.accountId) === id;
-  }
-
-  /** The ids of the groups the persona holds in the served root (the interface's member info), [] when unknown. */
-  async function personaRoleIds(context: OpContext): Promise<Array<string>> {
-    const placeId = env.resolvedPlaceId(context);
-    const self = personaId();
-    if (!reads || !placeId || self === null) return [];
-    const found = await reads.memberInfo({ placeId, accountId: self });
-    return found?.member?.groupIds ?? [];
-  }
-
-  /**
-   * The non-delegable rule: made by the persona (`context.actor`), a grant or revoke whose target
-   * reaches her -- herself, everyone, or a role she holds -- is refused, whoever asked: she never
-   * changes her own effective authority, directly or indirectly.
-   */
-  async function refuseSelfChange(name: string, what: GrantTarget, context: OpContext): Promise<void> {
-    if (context.actor !== 'persona') return;
-    const reachesHer =
-      targetsPersona(what) ||
-      what.everyone === true ||
-      (what.roleId != null && (await personaRoleIds(context)).includes(idText(what.roleId)));
-    if (reachesHer) throw denied(`${name}: the persona never changes rights that reach her`, CODE.SELF_GRANT);
+  /** The non-delegable rule: a grant or revoke made by the persona (`context.actor`) is refused, whoever asked,
+   * because every grant is hers and she never changes her own effective authority. */
+  function refuseSelfChange(name: string, context: OpContext): void {
+    if (context.actor === 'persona') throw denied(`${name}: the persona never changes her own grants`, CODE.SELF_GRANT);
   }
 
   /** `bot.access` as of the last write (`localOrLive`): the private settings file already holds the whole
-   * merged object the moment one grant/revoke writes it (see `writeAccess`), so reading it back
-   * first keeps repeated grant/revoke/list calls consistent even a moment before the next reload
+   * merged object the moment one grant or revoke writes it (see `writeAccess`), so reading it back
+   * first keeps repeated grant, revoke and list calls consistent even a moment before the next reload
    * lands. Falls back to `hot.config.bot.access` (the config/config.json default, `{}`) before
    * anything has ever been written locally. */
   function effectiveAccess(): Access {
     return objOf(localOrLive('bot.access'));
   }
 
-  /** Writes `nextAccess` to `bot.access` in the private settings file and reloads config -- the same
+  /** Writes `nextAccess` to `bot.access` in the private settings file and reloads config, the same
    * mechanism cmdSet uses; the reload's outcome. */
   function writeAccess(nextAccess: Access): boolean {
     return writeLocalPath('bot.access', nextAccess);
   }
 
-  /** `{ what, label }` for whichever one target option (or neither) was given: `what` is the
-   * argument of src/tools/operations/grants.ts#grant/#revoke/#hasGrant, `label` reads `role id:<id>`,
-   * `user id:<id>` or `everyone` (plain text: a multi-line reply is code-fenced, where a mention
-   * would show as raw markup). */
-  function accessTargetArgs(args: Obj): { what: GrantTarget; label: string } {
-    const roleId = idText(args.roleId);
-    const accountId = idText(args.accountId);
-    if (roleId && accountId) throw invalid('give a role or a user, not both');
-    if (roleId) return { what: { roleId }, label: `role id:${roleId}` };
-    if (accountId) return { what: { accountId }, label: `user id:${accountId}` };
-    return { what: { everyone: true }, label: 'everyone' };
-  }
-
-  /** A grant to the persona (expandPersonaGrant): every skill by name, a group or `*` its reads. */
-  function grantToPersona(key: string, target: { what: GrantTarget; label: string }): string {
+  /** `access.grant`: every skill by name, a group or `*` its reads (expandPersonaGrant), to her id. */
+  function cmdAccessGrant(args: Obj, context: OpContext): string {
+    refuseSelfChange('access.grant', context);
+    const key = textOf(args.command).trim();
+    if (!key) throw invalid('a tool name is required');
+    const self = personaId();
     const expanded = expandPersonaGrant(key);
     if (!expanded) throw invalid(`unknown skill: ${key}`, CODE.UNKNOWN_SKILL);
     if (expanded.refused.length > 0)
@@ -130,44 +82,10 @@ const handlers = perEnv((env) => {
     if (expanded.names.length === 0)
       throw invalid(`${key} covers no read skill open to a group grant; grant it by its name`);
     let next = effectiveAccess();
-    for (const name of expanded.names) next = accessGrant(next, name, target.what, { from: expanded.from });
+    for (const name of expanded.names) next = accessGrant(next, name, { accountId: self }, { from: expanded.from });
     const ok = writeAccess(next);
-    if (expanded.from) return `Granted ${key} to ${target.label} as ${expanded.names.join(', ')} ${reloadNote(ok)}`;
-    return `Granted ${key} to ${target.label} ${reloadNote(ok)}`;
-  }
-
-  async function cmdAccessGrant(args: Obj, context: OpContext): Promise<string> {
-    const key = textOf(args.command).trim();
-    if (!key) throw invalid('an operation name is required');
-    const target = accessTargetArgs(args);
-    await refuseSelfChange('access.grant', target.what, context);
-    if (targetsPersona(target.what)) return grantToPersona(key, target);
-    const ops = listOps();
-    const expanded = expandGrant(key, ops);
-    if (!expanded) throw invalid(`unknown operation: ${key}`);
-    if (expanded.refused.length > 0) {
-      const op = ops.find((o) => o.name === key);
-      if (op?.rights.member === true) throw invalid(`${key} is open to every member and cannot be granted`);
-      throw invalid(`${key} is owner-only and cannot be granted`);
-    }
-    if (expanded.names.length === 0)
-      throw invalid(`${key} covers no grantable read operation; grant a write by its name`);
-
-    let next = effectiveAccess();
-    for (const name of expanded.names) next = accessGrant(next, name, target.what, { from: expanded.from });
-    const ok = writeAccess(next);
-
-    const byName = new Map(ops.map((op) => [op.name, op]));
-    const lines: Array<string> = [];
-    if (expanded.from) {
-      lines.push(`Granted ${key} to ${target.label} as ${expanded.names.join(', ')} ${reloadNote(ok)}`);
-      lines.push('Note: a group or * opens only the read operations that exist now; grant a write by its name.');
-    } else {
-      lines.push(`Granted ${key} to ${target.label} ${reloadNote(ok)}`);
-      if (byName.get(key)?.rights.kind === 'write')
-        lines.push('Note: this opens commands that change memory or config.');
-    }
-    return lines.join('\n');
+    if (expanded.from) return `Granted ${key} to the persona as ${expanded.names.join(', ')} ${reloadNote(ok)}`;
+    return `Granted ${key} to the persona ${reloadNote(ok)}`;
   }
 
   /** The stored keys a revoke of `key` touches: every one for `*`, the ones under a group, else
@@ -179,70 +97,58 @@ const handlers = perEnv((env) => {
     return Object.hasOwn(access, key) ? [key, ...under] : under;
   }
 
-  async function cmdAccessRevoke(args: Obj, context: OpContext): Promise<string> {
+  /** `access.revoke`: her id off the key, every key under a group, or every key for `*`. */
+  function cmdAccessRevoke(args: Obj, context: OpContext): string {
+    refuseSelfChange('access.revoke', context);
     const key = textOf(args.command).trim();
-    if (!key) throw invalid('an operation name is required');
-    const target = accessTargetArgs(args);
-    await refuseSelfChange('access.revoke', target.what, context);
+    if (!key) throw invalid('a tool name is required');
+    const self = personaId();
     const currentAccess = effectiveAccess();
-    const known = expandGrant(key, listOps()) || (targetsPersona(target.what) && expandPersonaGrant(key));
-    if (!known && !Object.hasOwn(currentAccess, key)) throw invalid(`unknown operation: ${key}`);
+    if (!expandPersonaGrant(key) && !Object.hasOwn(currentAccess, key)) throw invalid(`unknown skill: ${key}`);
 
-    const touched = storedKeysFor(key, currentAccess).filter((stored) => hasGrant(currentAccess, stored, target.what));
+    const touched = storedKeysFor(key, currentAccess).filter((stored) =>
+      hasGrant(currentAccess, stored, { accountId: self })
+    );
     if (touched.length === 0) return 'Nothing to revoke';
 
     let next = currentAccess;
-    for (const stored of touched) next = accessRevoke(next, stored, target.what);
+    for (const stored of touched) next = accessRevoke(next, stored, { accountId: self });
     const ok = writeAccess(next);
     const which = touched.length === 1 && touched[0] === key ? '' : ` (${touched.join(', ')})`;
-    return `Revoked ${key}${which} from ${target.label} ${reloadNote(ok)}`;
+    return `Revoked ${key}${which} from the persona ${reloadNote(ok)}`;
   }
 
-  /** Every grant on a grantable operation, and the persona's on the operations only she may be
-   * granted (owner-only ones: her user id alone, a stale grant to anyone else opens nothing), one
-   * line each, every target with its source (see src/tools/operations/grants.ts#describeGrants); stale keys
-   * open nothing and are left out. */
+  /** `access.list`: one line per stored key whose users hold her id, `<op>: user id:<her id>`, followed by
+   * `(expanded from <pattern>, reads only)` when the grant came from a group or `*`; `(none)` when she holds nothing.
+   * A key held only by anyone else opens nothing for her and is left out. */
   function cmdAccessList(): string {
-    const ops = listOps();
-    const access: Access = { ...effectiveAccess() };
-    const selfId = personaId();
-    const alsoKeys: Array<string> = [];
-    for (const key of skillNames().filter((name) => personaOnlyKey(name, ops))) {
-      const entry = objOf(access[key]);
-      const users = Array.isArray(entry.users) ? (entry.users as Array<unknown>).map(idText) : [];
-      if (selfId && users.includes(selfId)) {
-        const kept = objOf(entry.via)[`user:${selfId}`];
-        const via = isObj(entry.via) && kept ? { via: { [`user:${selfId}`]: kept } } : {};
-        access[key] = { everyone: false, roles: [], users: [selfId], ...via };
-        alsoKeys.push(key);
-      }
-    }
-    const lines = describeGrants(access, ops, { alsoKeys });
+    const self = idText(env.selfId());
+    const access = effectiveAccess();
+    const lines = Object.keys(access)
+      .filter((key) => self !== '' && hasGrant(access, key, { accountId: self }))
+      .map((key) => {
+        const from = idText(objOf(objOf(access[key]).via)[`user:${self}`]);
+        const line = `${key}: user id:${self}`;
+        return from ? `${line} (expanded from ${from}, reads only)` : line;
+      });
     return lines.length === 0 ? NONE : lines.join('\n');
   }
 
-  return {
-    effectiveAccess,
-    writeAccess,
-    accessTargetArgs,
-    cmdAccessGrant,
-    cmdAccessRevoke,
-    cmdAccessList,
-  };
+  return { cmdAccessGrant, cmdAccessRevoke, cmdAccessList };
 });
 
 defineOp({
   name: 'access.grant',
-  rights: { kind: 'write', ownerOnly: true },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdAccessGrant(args, ctx),
 });
 defineOp({
   name: 'access.revoke',
-  rights: { kind: 'write', ownerOnly: true },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdAccessRevoke(args, ctx),
 });
 defineOp({
   name: 'access.list',
-  rights: { kind: 'read', ownerOnly: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdAccessList(),
 });

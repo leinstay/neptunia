@@ -5,7 +5,7 @@
 // the inner life, src/behavior/inner.ts#places), and whether she attends it; filtered by name
 // (`filter`), sorted (`sort`: `recent`, the default, `name`, `lines`), one page of
 // `wakes.attention.pageSize` at a time (`page`). The total and how many more are always said.
-// A read; grantable to her and to people. Answers are operator lines (addresses, names, counts).
+// A read, grantable to her. Answers are operator lines (addresses, names, counts).
 
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';

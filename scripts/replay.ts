@@ -116,7 +116,7 @@
 // `before`), calling the persona by a tag (a `mention`, no reply). The
 // persona's grants are exactly `grants` in a copy of the config (never
 // written; src/behavior/sandbox.js#personaGrantsConfig): skill names, groups
-// and `*` expanded as `/nep access grant` expands them for her
+// and `*` expanded as `/tools grant` expands them for her
 // (src/tools/operations/access.ts#expandPersonaGrant: a group or `*` is its read skills); a
 // name no grant opens for her is kept, so the gateway refuses it as live.
 // An errand (`errand.run`) passes the gateway's budget exactly as live: the

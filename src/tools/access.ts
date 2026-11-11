@@ -1,11 +1,7 @@
-// The persona's access to her skills: two levels, allowed or not, granted the same way people's
-// rights are -- `/nep access grant|revoke` (src/tools/operations/access.ts) with her (the bot's own user) as
-// the target, stored in the same place, `bot.access[<skill name>].users` (src/tools/operations/grants.ts).
-// Default deny; only a grant naming her user id opens a skill for her: a grant to everyone or to
-// a role is people's and opens nothing for her, so no grant she could make for others widens her
-// own rights. For her a grant may open an owner-only operation (it still runs only when an owner
-// asks: src/tools/gateway.ts), except the irreversible and administrative ones no grant opens
-// for her yet (NOT_GRANTABLE_TO_PERSONA). Her reply tags of today are carried over without a grant, in the
+// The persona's access to her skills: two levels, allowed or not, granted by `/tools grant` and `/tools revoke`
+// (src/tools/operations/access.ts) and stored as `bot.access[<skill name>].users` (src/tools/operations/grants.ts).
+// Default deny; only a grant naming her user id opens a skill for her, except the irreversible and administrative
+// ones no grant opens for her yet (NOT_GRANTABLE_TO_PERSONA). Her reply tags of today are carried over without a grant, in the
 // current chat only, so nothing she does now is blocked (the skills design, "carry
 // permissions over"): `<msg>` and `<gif>` are `message.create`, `<react>` is `message.react.add`,
 // a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. One switch, read by the caller from the live config:
@@ -32,9 +28,8 @@ export const CARRIED_OVER: ReadonlyArray<string> = toolsWith('carried');
 
 /**
  * The operations no grant opens for the persona yet (the owner's decision, 2026-10-14): the
- * irreversible and the administrative ones, the trait `ungrantable`. Refused by `/nep access grant` with her as the
- * target (a group or `*` skips them) and again at every call (skillAccess: `not-grantable`), whatever
- * is stored. Everything else -- owner-only operations included -- is grantable to her.
+ * irreversible and the administrative ones, the trait `ungrantable`. Refused by `/tools grant` (a group or `*` skips
+ * them) and again at every call (skillAccess: `not-grantable`), whatever is stored. Everything else is grantable to her.
  */
 export const NOT_GRANTABLE_TO_PERSONA: ReadonlyArray<string> = toolsWith('ungrantable');
 
@@ -206,8 +201,7 @@ export function grantedToPersona(config: unknown, selfId: string | null | undefi
  * current tag aimed at the current chat: `chatId` absent or equal to
  * `currentChatId`), `safe-mode` (tools.safeMode: nothing else passes), `not-grantable`
  * (NOT_GRANTABLE_TO_PERSONA, whatever is stored), `allowed` (a
- * grant to her user id under its name, grantedToPersona), else `not-allowed`. An
- * owner-only skill is granted like any other, and the grant decides whoever asked
+ * grant to her user id under its name, grantedToPersona), else `not-allowed`. The grant decides whoever asked
  * (src/tools/gateway.ts). On an inner turn (`wakeKind`) the wake envelope goes before the carried-over tags
  * (wakeEnvelopeRefusal over `wakeActions`, the turn's calls so far): `not-allowed` with its `detail`.
  */

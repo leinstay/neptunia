@@ -471,7 +471,7 @@ const handlers = perEnv((env) => {
    * to the id by src/tools/executors.ts#resolveCall) the turn that posted that message instead,
    * whole (journal.findTurn over the message's snowflake time, shown by turnView), the other
    * options ignored; a message no turn of the place journal posted is `not-found`.
-   * Owner-only (src/tools/operations/grants.ts); read only, so it works while paused.
+   * Read only, so it works while paused.
    */
   async function cmdMemoryJournal(args: Obj, context: OpContext) {
     if (!journal) return 'the journal is not available';
@@ -498,8 +498,7 @@ const handlers = perEnv((env) => {
   /**
    * `memory.snapshot`: one consistent copy of the memory database for the tools (scripts/replay.ts), written by SQLite's
    * `VACUUM INTO` to `data/snapshots/<UTC time>/memory.db` at mode 0600, the folder `scripts/replay.ts --snapshot` reads.
-   * It copies the database alone: keys, client tokens and every other file of `data/` stay where they are. Owner-only
-   * (src/tools/operations/grants.ts).
+   * It copies the database alone: keys, client tokens and every other file of `data/` stay where they are.
    */
   async function cmdMemorySnapshot() {
     const db = (env.memoryDb as MemoryDbService | null | undefined)?.database() ?? null;
@@ -626,26 +625,26 @@ defineOp({
 });
 defineOp({
   name: 'memory.journal.read',
-  rights: { kind: 'read', ownerOnly: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdMemoryJournal(args, ctx),
 });
 defineOp({
   name: 'memory.archive.read',
-  rights: { kind: 'read', ownerOnly: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdMemoryArchive(args, ctx),
 });
 defineOp({
   name: 'memory.restore',
-  rights: { kind: 'write', ownerOnly: true },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdMemoryRestore(args, ctx),
 });
 defineOp({
   name: 'memory.snapshot',
-  rights: { kind: 'write', ownerOnly: true },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdMemorySnapshot(),
 });
 defineOp({
   name: 'memory.private.read',
-  rights: { kind: 'read', ownerOnly: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdPrivateShow(args),
 });

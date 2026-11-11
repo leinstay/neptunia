@@ -5,8 +5,7 @@
 // with its questions and its reviews. The others act on a task of hers: cancel it, comment on it, answer the open
 // question addressed to her, lift its block. A question addressed to her is hers to answer whoever filed its task. All run against the board the core gives the operations' environment (`env.board`,
 // src/board/writer.ts#createBoardPort) as the builtin principal `persona`, whose only board role is `persona`: she
-// files, reads and answers, and never approves, reviews or merges. Every member may use the first two while
-// `features.memberCommands` is on (rights.member); none is granted to her in the tracked config. A board refusal is
+// files, reads and answers, and never approves, reviews or merges. None is granted to her in the tracked config. A board refusal is
 // `invalid` for bad arguments, `denied` for `forbidden` and `failed` otherwise. Answers are operator lines (ids, states,
 // titles).
 
@@ -243,12 +242,12 @@ const handlers = perEnv((env) => {
 
 defineOp({
   name: 'task.propose',
-  rights: { kind: 'write', member: true },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdPropose(args, ctx),
 });
 defineOp({
   name: 'task.status',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (_args, ctx) => handlers(ctx.env).cmdStatus(),
 });
 defineOp({

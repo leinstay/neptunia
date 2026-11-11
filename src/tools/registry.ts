@@ -1,13 +1,10 @@
 // The persona's skills: one catalogue, defined by a table of their own (src/tools/definitions.ts).
-// Every registered operation (src/tools/operations/registry.ts) is a skill of the same name -- the vocabulary
-// `/nep access grant` uses for people -- its arguments the table's `params`, its `kind` and
-// `ownerOnly` the operation's. No skill exists without an operation behind it; nothing here reads
-// the owner's slash commands. Every skill is closed until the owner grants it to her
-// (src/tools/access.ts: `/nep access grant` with her as the user); an owner-only operation runs
-// only when the member who asked is an owner (src/tools/gateway.ts). Their wording -- `title`,
-// `whenToUse`, `whenNotToUse` -- lives in prompts/skills.json, keyed by operation name (the hot
-// prompts layer, `hot.prompts.tools`), never here: `describeSkill` joins the two at the moment of
-// use, and a skill without texts is shown by its name alone.
+// Every registered operation (src/tools/operations/registry.ts) is a skill of the same name, its arguments the
+// table's `params` and its `kind` the operation's. No skill exists without an operation behind it, and nothing here
+// reads the owner's commands. Every skill is closed until the owner grants it to her (src/tools/access.ts,
+// `/tools grant`). Their wording (`title`, `whenToUse`, `whenNotToUse`) lives in prompts/skills.json, keyed by
+// operation name (the hot prompts layer, `hot.prompts.tools`), never here: `describeSkill` joins the two at the
+// moment of use, and a skill without texts is shown by its name alone.
 
 import { getOp as registryGetOp } from './operations/registry.ts';
 import { EFFECT_CLASSES, SKILL_DEFINITIONS, validateDefinitions, optionsOfDefinition } from './definitions.ts';
@@ -58,8 +55,8 @@ export type SkillInput = Partial<Omit<Definition, 'dispatch'>> & {
 
 /**
  * The skills of `definitions` as a Map name -> frozen skill: the definition plus `kind`
- * (`read`|`write`) and `ownerOnly`, inherited from the operation it runs (`getOp`); a definition
- * with no operation (tests' stand-ins) takes `kind` from its effects and `ownerOnly` false. A
+ * (`read`|`write`), inherited from the operation it runs (`getOp`); a definition
+ * with no operation (tests' stand-ins) takes `kind` from its effects. A
  * skill with a `dispatch` (`{ op, body, options: [{ name, kind }], toOp(given) -> { op, args|null } }`:
  * how her call reaches the operation) keeps it and is marked `opBacked`; the table's `api`, `feature`
  * and `result` are kept when given. Throws -- a programming error, at startup -- on a missing or
@@ -85,15 +82,13 @@ export function loadSkills(
     if (dispatch !== null && (typeof dispatch.op !== 'string' || typeof dispatch.toOp !== 'function'))
       throw new Error(`skill ${name}: dispatch needs an op and toOp`);
 
-    // An operation's skill inherits both, an owner-only operation included, and her grant alone decides
-    // whether she runs it (the gateway). Without an operation the kind follows the effects.
+    // An operation's skill inherits its kind, and her grant alone decides whether she runs it (the gateway).
+    // Without an operation the kind follows the effects.
     let kind: 'read' | 'write' = definition.effects === 'read' ? 'read' : 'write';
-    let ownerOnly = false;
     if (op !== null && op !== undefined) {
       const operation = getOp(op);
       if (!operation) throw new Error(`skill ${name}: unknown operation ${op}`);
       kind = operation.rights.kind;
-      ownerOnly = operation.rights.ownerOnly === true;
     }
     skills.set(
       name,
@@ -102,7 +97,6 @@ export function loadSkills(
         family: String(definition.family ?? name.split('.')[0]),
         op: op ?? null,
         kind,
-        ownerOnly,
         argsSchema: definition.argsSchema,
         effects: definition.effects,
         sharedState: definition.sharedState === true,

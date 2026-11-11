@@ -6,8 +6,7 @@
 // record and the interface's history; hers alone, no slash command: catalog.js `personaOnly`).
 // Her own calls of them run inside her turn with its context (src/behavior/turn.ts, the tool
 // loop); a command runs the same code (src/tools/tools.ts) over what an
-// operation knows: the channel it was typed in, no chat window to leave out. Reads, open to
-// every member while features.memberCommands is on (rights.member), as `errand.list` is.
+// operation knows: the channel it was typed in, no chat window to leave out.
 
 import { firstLinkIn, runMediaFind, runMediaLook, runMemorySearch, runWebRead, runWebSearch } from '../tools.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../conversation-read.ts';
@@ -228,45 +227,45 @@ const handlers = perEnv((env) => {
 
 defineOp({
   name: 'web.search',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdWebSearch(args, ctx),
 });
 defineOp({
   name: 'web.read',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdWebRead(args, ctx),
 });
 defineOp({
   name: 'media.look',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdMediaLook(args, ctx),
 });
 defineOp({
   name: 'media.find',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdMediaFind(args, ctx),
 });
 defineOp({
   name: 'memory.search',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdMemorySearch(args, ctx),
 });
 defineOp({
   name: 'conversation.read',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdConversationRead(args, ctx),
 });
 // Her read of what memory holds about one subject runs only inside a turn, under the turn's memory context
 // (src/turn/memory-read.ts, through src/turn/in-turn-tools.ts); called anywhere else it has no context to read under.
 defineOp({
   name: 'memory.read',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: () => asOpResult({ status: 'not_configured', code: CODE.UNSUPPORTED }, 'read'),
 });
 // Her link tool runs only inside a turn, over the account she talks with (src/interface/person-link.ts, through
 // src/turn/in-turn-tools.ts); called anywhere else it has no conversation to link.
 defineOp({
   name: 'person.link',
-  rights: { kind: 'write', member: true },
+  rights: { kind: 'write' },
   run: () => asOpResult({ status: 'not_configured', code: CODE.UNSUPPORTED }, 'link'),
 });

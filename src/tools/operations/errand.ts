@@ -1,8 +1,7 @@
 // Operations `errand.run`, `errand.list`, `errand.cancel`, `errand.read` and `errand.resolve`, reached by
 // `errand.run|status|cancel|result|resolve`: the persona's errands handed to her agents
-// (src/errands/, src/agent-runner/). Every member may use them while `features.memberCommands`
-// is on (rights.member); the rest is ruled here, for every caller alike -- the owner's command,
-// a member's, and the persona's own call (her skills: the requester of her turn is the caller).
+// (src/errands/, src/agent-runner/). Their rules are here, for every caller alike: the owner's command
+// and the persona's own call (her skills: the requester of her turn is the caller).
 // `errand.run` with `agent: server` reads this machine, so only an owner may ask for it
 // (`owner-only`); `agent: scout` is any member's. An errand asked in a private chat is `dm`-scoped,
 // else `group`, and the runner withholds more in a filtered scope. `errand.run` answers at once
@@ -291,26 +290,26 @@ const handlers = perEnv((env) => {
 
 defineOp({
   name: 'errand.run',
-  rights: { kind: 'write', member: true },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdRun(args, ctx),
 });
 defineOp({
   name: 'errand.list',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdStatus(args, ctx),
 });
 defineOp({
   name: 'errand.cancel',
-  rights: { kind: 'write', member: true },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdCancel(args, ctx),
 });
 defineOp({
   name: 'errand.read',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdRead(args, ctx),
 });
 defineOp({
   name: 'errand.resolve',
-  rights: { kind: 'write', member: true },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdResolve(args, ctx),
 });

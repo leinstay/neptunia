@@ -36,11 +36,6 @@ export const JOURNAL_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Config paths only an owner may change through `config.set` and `config.unset`: who is an owner, who else may run
- * which command, and the language of the phrase codes that prove an account. A path under one, or above one
- * (unsetting `bot` drops all), counts. */
-export const OWNER_ONLY_CONFIG_PATHS = ['bot.ownerPerson', 'bot.access', 'bot.mnemonic'];
-
 /** The error of every place-bound command before the served place resolves. */
 export const PLACE_REQUIRED = 'no place resolved yet';
 
@@ -191,15 +186,6 @@ export function jsonTypeOf(value: unknown): string {
 /** `a number`, `an array`, ... for an error message. */
 export function withArticle(word: string): string {
   return /^[aeiou]/.test(word) ? `an ${word}` : `a ${word}`;
-}
-
-/** True when the split config path `parts` is one of OWNER_ONLY_CONFIG_PATHS, under one or above one. */
-export function touchesOwnerOnlyConfig(parts: ReadonlyArray<string>): boolean {
-  const key = parts.join('.');
-  if (!key) return false;
-  return OWNER_ONLY_CONFIG_PATHS.some(
-    (owned) => key === owned || key.startsWith(`${owned}.`) || owned.startsWith(`${key}.`)
-  );
 }
 
 /** `, last YYYY-MM-DD` for `memory.profile.read`, or '' when `lastSeen` is unknown. */

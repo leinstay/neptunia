@@ -1,4 +1,4 @@
-// Operations: `pings.get|set`: a member's own notification switch, open to every member while features.memberCommands is on.
+// Operations: `pings.get|set`: a member's own notification switch.
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -39,11 +39,11 @@ const handlers = perEnv((env) => {
 
 defineOp({
   name: 'pings.get',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdPings({}, ctx),
 });
 defineOp({
   name: 'pings.set',
-  rights: { kind: 'write', member: true },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdPings(args, ctx),
 });

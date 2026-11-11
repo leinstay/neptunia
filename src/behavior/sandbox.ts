@@ -1065,8 +1065,8 @@ const RESULT_MAX_CHARS = 8000;
 /**
  * A copy of `config` whose persona grants are exactly `names`: her user id (`selfId`) taken
  * off every `bot.access` entry, then granted on each name -- with the very grant and revoke
- * `/nep access` stores (src/tools/operations/grants.ts). People's grants are kept. The names are used as
- * given (the caller expands `*` and groups, as `/nep access grant` does); a name no grant opens
+ * `/tools grant` and `/tools revoke` store (src/tools/operations/grants.ts). Another user's id stays. The names are used as
+ * given (the caller expands `*` and groups, as `/tools grant` does); a name no grant opens
  * for her (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA) is stored too, so the gateway's own
  * refusal of it shows. `config` is never changed. Pure.
  * @param config  The live merged config.
