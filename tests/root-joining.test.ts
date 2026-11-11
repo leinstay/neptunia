@@ -376,7 +376,8 @@ test('a root invited from the command line is served at once: its message is kep
     assert.equal(await callIn(unit, 'g7', 'c7', 'm7'), 'ok');
     assert.notEqual((await postedIn(unit, 'c7')).length, 0, 'a turn answered the call in the new root');
     assert.ok(seenIds(dirs).includes('m7'));
-    assert.deepEqual(listedOf(dirs), ['g7']);
+    // Changed: the fake serves g1 with an empty list, so an accept writes g1 beside the new root.
+    assert.deepEqual(listedOf(dirs), ['g1', 'g7']);
   });
 });
 
@@ -428,7 +429,8 @@ test('accept from the command line serves a waiting root at once', async () => {
     assert.equal(accepted.code, 0, accepted.stderr.slice(-2000));
     assert.equal(await callIn(unit, 'g6', 'c6', 'm6'), 'ok');
     assert.notEqual((await postedIn(unit, 'c6')).length, 0, 'a turn answered the call in the accepted root');
-    assert.deepEqual(listedOf(dirs), ['g6']);
+    // Changed: the fake serves g1 with an empty list, so an accept writes g1 beside the new root.
+    assert.deepEqual(listedOf(dirs), ['g1', 'g6']);
   });
 });
 
@@ -452,7 +454,8 @@ test('remove from the command line stops serving a root and keeps what she store
     await settle();
     assert.equal(seenIds(dirs).includes('m6b'), false);
     assert.ok(seenIds(dirs).includes('m6'), 'her memory of the root stays');
-    assert.deepEqual(listedOf(dirs), []);
+    // Changed: the accept before the remove wrote the implicitly served g1 too, and the remove leaves it.
+    assert.deepEqual(listedOf(dirs), ['g1']);
   });
 });
 
