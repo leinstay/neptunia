@@ -772,6 +772,25 @@ export function leafWords(command: Command, one: Subcommand): string {
 }
 
 /**
+ * The rows of the owner's slash menu for these commands: each command's own row, then one row per leaf. A leaf of a
+ * `nameFirst` command that takes the name gets one row per interface name, `<command> <name> <word>`, and every other
+ * leaf one row with its dotted name spelled as words. With no names, a leaf that takes one has no row.
+ */
+export function menuCommandsOf(
+  commands: ReadonlyArray<Command>,
+  names: ReadonlyArray<string>
+): Array<{ name: string; help: string }> {
+  return commands.flatMap((command) => [
+    { name: command.name, help: command.help },
+    ...command.subcommands.flatMap((one) =>
+      command.nameFirst === true && takesName(one)
+        ? names.map((name) => ({ name: `${command.name} ${name} ${wordOf(one)}`, help: one.help }))
+        : [{ name: `${command.name} ${one.name.replaceAll('.', ' ')}`, help: one.help }]
+    ),
+  ]);
+}
+
+/**
  * The leaf of a `nameFirst` command and the words its arguments read, the name first: a leaf with no `name` stands
  * alone (`list`), any other first word is the name and the next word the leaf's. Null for a bare line, the reason when no
  * leaf follows the name.
