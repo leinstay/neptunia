@@ -1,4 +1,4 @@
-// The inbound half of the protocol: what an interface tells the core. Twelve kinds, each a plain
+// The inbound half of the protocol: what an interface tells the core. Thirteen kinds, each a plain
 // serialisable object -- no platform object survives into it, every id is an opaque string the
 // adapter alone knows how to build -- with `kind`, `iface` (the adapter's namespace), `at` (ms
 // since the epoch), `id` (an opaque event id for dedup) and, for what happens in a chat,
@@ -26,6 +26,8 @@ export const PRESENCE_SNAPSHOT = 'presence.snapshot';
 export const CHAT_CHANGED = 'chat.changed';
 /** The interface lost its connection to the platform, or got it back. */
 export const CONNECTION_CHANGED = 'connection.changed';
+/** The persona was added to a root, found in one her settings do not list, or left one. */
+export const ROOT_CHANGED = 'root.changed';
 /** The core's own clock. */
 export const SCHEDULER_TICK = 'scheduler.tick';
 /** One of the persona's errands ended. */
@@ -47,6 +49,7 @@ export const EVENT_KINDS = Object.freeze([
   PRESENCE_SNAPSHOT,
   CHAT_CHANGED,
   CONNECTION_CHANGED,
+  ROOT_CHANGED,
 ]);
 
 /** The kinds the core emits itself; every other kind comes from an interface. */
@@ -75,6 +78,12 @@ export const ACTIVITY_KINDS = ['playing', 'streaming', 'listening', 'watching', 
 
 /** What happened to a chat (`chat.changed`). */
 export const CHAT_CHANGES = Object.freeze(['created', 'updated', 'deleted']);
+
+/**
+ * What happened to a root (`root.changed`): the persona was just added to it (`joined`), found in it at the start of
+ * the interface with her settings not listing it (`present`), or taken out of it (`left`).
+ */
+export const ROOT_CHANGES = Object.freeze(['joined', 'present', 'left']);
 
 /** The states of an interface's connection (`connection.changed`). */
 export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
@@ -336,6 +345,16 @@ export type ConnectionChanged = {
   state: 'lost' | 'resumed';
 };
 
+/** `root.changed`: a root of the interface, with its native id and name, joined, found or left. */
+export type RootChanged = {
+  kind: 'root.changed';
+  iface: string;
+  at: number;
+  id: string;
+  root: { id: string; name: string };
+  change: 'joined' | 'present' | 'left';
+};
+
 /** `scheduler.tick`: the core's clock, `at` only. */
 export type SchedulerTick = { kind: 'scheduler.tick'; at: number };
 
@@ -377,4 +396,5 @@ export type InboundEvent =
   | PresenceChanged
   | PresenceSnapshot
   | ChatChanged
-  | ConnectionChanged;
+  | ConnectionChanged
+  | RootChanged;

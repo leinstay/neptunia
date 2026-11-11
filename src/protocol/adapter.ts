@@ -239,6 +239,8 @@ export type Adapter = {
   emoji(scope: { placeId: string | null }): Promise<ReadResult<{ emoji: Array<EmojiInfo> }>>;
   parseLinks(texts: ReadonlyArray<string>): Promise<ReadResult<{ refs: Array<MessageRef | null> }>>;
   reactors(message: MessageRef, emoji: string, limit: number): Promise<ReadResult<{ accountIds: Array<string> }>>;
+  /** The link that adds the persona to a new root of the interface. One that has none answers `unsupported`. */
+  inviteLink(scope: { iface: string }): Promise<ReadResult<{ url: string }>>;
   capabilities(): Capabilities;
 };
 

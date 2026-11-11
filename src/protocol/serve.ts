@@ -117,6 +117,7 @@ const READ_METHODS: Record<string, string> = {
   'emoji.list': 'emoji',
   'links.parse': 'parseLinks',
   'message.reactors': 'reactors',
+  'invite.link': 'inviteLink',
 };
 
 // The fields of `body` named by `keys` that it carries, as the options object of an adapter method.
@@ -139,6 +140,8 @@ function readArguments(body: Record<string, unknown>): Array<unknown> {
       return [pick(body, ['placeId', 'accountId'])];
     case 'dm.chat':
       return [pick(body, ['iface', 'accountId'])];
+    case 'invite.link':
+      return [pick(body, ['iface'])];
     case 'messages.search':
       return [root, pick(body, ['text', 'authorId', 'after', 'before', 'offset'])];
     case 'members.search':

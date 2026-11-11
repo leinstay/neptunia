@@ -162,6 +162,7 @@ function cliAdapter(
     emoji: unsupported,
     parseLinks: unsupported,
     reactors: unsupported,
+    inviteLink: unsupported,
   };
 }
 

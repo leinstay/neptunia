@@ -30,6 +30,8 @@ import {
   PRESENCE_SNAPSHOT,
   PRESENCE_STATUSES,
   REACTION_CHANGED,
+  ROOT_CHANGED,
+  ROOT_CHANGES,
   SCHEDULER_TICK,
   ERRAND_DONE,
   VOICE_CHANGED,
@@ -324,6 +326,12 @@ function checkConnectionChanged(event: unknown) {
   need(asRecord(event).state, 'state', isOneOf(CONNECTION_STATES), { problem: 'unknown' });
 }
 
+function checkRootChanged(event: unknown) {
+  const { root, change } = asRecord(event);
+  need(root, 'root', (value) => isObject(value) && isId(value.id) && isString(value.name));
+  need(change, 'change', isOneOf(ROOT_CHANGES), { problem: 'unknown' });
+}
+
 const EVENT_CHECKS: Record<string, (event: Rec) => void> = {
   [MESSAGE_RECEIVED]: checkMessageReceived,
   [REACTION_CHANGED]: checkReactionChanged,
@@ -337,6 +345,7 @@ const EVENT_CHECKS: Record<string, (event: Rec) => void> = {
   [PRESENCE_SNAPSHOT]: checkPresenceSnapshot,
   [CHAT_CHANGED]: checkChatChanged,
   [CONNECTION_CHANGED]: checkConnectionChanged,
+  [ROOT_CHANGED]: checkRootChanged,
 };
 
 /**
@@ -424,6 +433,7 @@ export function validateAction(given: unknown): { ok: true } | { ok: false; reas
       case 'emoji.list':
       case 'links.parse':
       case 'message.reactors':
+      case 'invite.link':
         return;
       case MESSAGES_FETCH:
         checkRef(request.chat, 'chat', { needMessage: false });

@@ -106,7 +106,8 @@ export const FAKE_CAPABILITIES = Object.freeze({
  *   `operations`: the capability names offered (all of CAPABILITIES when absent); `reads`: the wire names of the
  *   reads offered (all of READ_ACTIONS when absent); `capabilities`:
  *   the limits (`maxChars`, `maxFiles`, `maxFileBytes`) and `reconcile` over FAKE_CAPABILITIES; `selfId`: the
- *   member id of the persona (the author of what she sends); `now`: the stamp of each new message.
+ *   member id of the persona (the author of what she sends); `now`: the stamp of each new message; `invite`: the link
+ *   the invite read answers (`unsupported` with the code `no-invite` when absent).
  * @returns `seed` puts someone's message (its `messageId`, else a new one) into a chat;
  *   `failNext(op, result)` queues `result` as the answer of the next call of `op` (`send`,
  *   `edit`, ...), in place of doing it; queued results are answered in order.
@@ -119,6 +120,7 @@ export function createFakeAdapter({
   now = Date.now,
   reads = null,
   messageId: messageIdOf = null,
+  invite,
 }: {
   iface?: string;
   selfId?: string;
@@ -127,6 +129,7 @@ export function createFakeAdapter({
   now?: () => number;
   reads?: Iterable<string> | null;
   messageId?: ((chatId: string, count: number) => string) | null;
+  invite?: string;
 } = {}): Port & {
   calls: Array<{ op: string; args: Array<unknown> }>;
   messages: Map<string, StoredMessage>;
@@ -386,6 +389,14 @@ export function createFakeAdapter({
       if (refused) return refused;
       typings.push(chat.chatId);
       return ok();
+    },
+
+    async inviteLink(scope) {
+      calls.push({ op: 'inviteLink', args: [scope] });
+      if (!offeredReads.has('invite.link') || invite === undefined) {
+        return { status: 'unsupported', error: { code: 'no-invite', retryable: false, retryAfterMs: null } };
+      }
+      return { status: 'ok', url: invite };
     },
 
     capabilities() {
