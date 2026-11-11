@@ -69,21 +69,33 @@ const HEAD = /^#(\d{1,9}) (?=\[)/u;
 /** `text` with the characters a regular expression reads as syntax escaped. */
 const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** A marker a read puts after a line's words that carries a number, and what the transcript writes for it unnumbered. */
+type Marker = { pattern: RegExp; unnumbered: string };
+
 /**
  * The markers a read puts after a line's words that carry a number: the reply marker (`transcript.replyTo`, `{index}`)
- * and the marker of the line that started her turn (`transcript.triggeredBy`, `{n}`), each as a pattern over the
- * marker up to its number, the number its last group.
+ * and the marker of the line that started her turn (`transcript.triggeredBy`, `{n}`). Each pattern takes the whole
+ * marker, ending where the next part of the line or the line begins, with the space before it, the text up to the
+ * number, the number and the rest as its groups. A marker whose line has no number reads as the transcript writes one
+ * for a line outside its list (`transcript.replyToOld`, `transcript.triggeredByOlder`).
  */
-function markersOf(labels: Labels): Array<RegExp> {
+function markersOf(labels: Labels): Array<Marker> {
+  const slotted = (part: string): string => literal(part).replace(/\\\{\w+\\\}/g, '[^\\n]*?');
   return [
-    ['replyTo', 'index'],
-    ['triggeredBy', 'n'],
-  ].flatMap(([key = '', slot = '']) => {
+    ['replyTo', 'index', 'replyToOld'],
+    ['triggeredBy', 'n', 'triggeredByOlder'],
+  ].flatMap(([key = '', slot = '', old = '']) => {
     const template = labelAt(labels, ['transcript', key]);
     const at = template.indexOf(`{${slot}}`);
     if (at < 0) return [];
-    const head = literal(template.slice(0, at)).replace(/\\\{\w+\\\}/g, '[^\\n]*?');
-    return [new RegExp(`(${head})(\\d{1,9})`, 'u')];
+    const head = slotted(template.slice(0, at));
+    const tail = slotted(template.slice(at + slot.length + 2));
+    return [
+      {
+        pattern: new RegExp(`( ?)(${head})(\\d{1,9})(${tail})(?=$| [\\[(])`, 'u'),
+        unnumbered: labelAt(labels, ['transcript', old]),
+      },
+    ];
   });
 }
 
@@ -179,10 +191,11 @@ export function numberedLookups(
         const fresh = renumber(Number(head[1]));
         text = (fresh === null ? '' : `#${fresh} `) + line.slice(head[0].length);
         if (fresh !== null) kept += 1;
-        for (const marker of markers)
-          text = text.replace(marker, (_all, before: string, digits: string) => {
+        for (const { pattern, unnumbered } of markers)
+          text = text.replace(pattern, (_all, space: string, before: string, digits: string, after: string) => {
             const parent = renumber(Number(digits));
-            return parent === null ? before.replace(/#$/u, '') : `${before}${parent}`;
+            if (parent !== null) return `${space}${before}${parent}${after}`;
+            return unnumbered === '' ? '' : `${space}${unnumbered}`;
           });
       }
       out.push(text);
