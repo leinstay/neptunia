@@ -233,6 +233,10 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   refLineOf: 'no memory reads in a replay: an identity outside the chat renders as unavailable',
   isSourceRetired: 'no memory reads in a replay: no <recall> block, so no source of a lookup is read',
   chatIdOf: 'no memory reads in a replay: no stored place in <memory> or <meanwhile> needs a channel handle',
+  memberKeyOf:
+    'no memory reads in a replay: a handle is cut from the platform id, as a member no account row holds has it in a live turn',
+  accountKeyOf: 'no memory reads in a replay: a member is keyed by the platform id the stand-in store holds',
+  placePathOf: 'no memory reads in a replay: no stored place is named outside <surroundings>',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -832,6 +836,9 @@ export function sandboxRequestInput({
     refLineOf: null,
     isSourceRetired: null,
     chatIdOf: null,
+    memberKeyOf: null,
+    accountKeyOf: null,
+    placePathOf: null,
   };
 }
 

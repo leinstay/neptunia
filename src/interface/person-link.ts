@@ -111,7 +111,7 @@ function handleOfAccount(db: Db, accountId: string, native: string): string {
   return native;
 }
 
-/** The person she named: the id of a stored person as she reads it, or the member handle of exactly one person's account. */
+/** The person she named: the id of a stored person as she reads it, or the handle of exactly one person. */
 function personNamed(db: Db, reference: string): string | null {
   const given = reference.trim().replace(/^@/, '');
   if (db.prepare('SELECT 1 FROM people WHERE id = ?').get(given)) return given;

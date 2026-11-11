@@ -72,6 +72,9 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'refLineOf',
   'chatIdOf',
   'isSourceRetired',
+  'memberKeyOf',
+  'accountKeyOf',
+  'placePathOf',
 ]);
 
 const KNOWN = new Set(TURN_INPUT_KEYS);

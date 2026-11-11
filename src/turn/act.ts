@@ -25,6 +25,7 @@ import type { JournalNotes, NotesDraft } from './journal-notes.ts';
 import type { Participation } from './participation.ts';
 import { snapshotOfDraft } from './routing.ts';
 import type { PostRefs, Sends } from './sends.ts';
+import type { RequestRefs } from './request/handle-book.ts';
 import { reactionChannel, replyTarget, sendArgs, withLink } from './targets.ts';
 import type { TriggerKind } from './triggers.ts';
 import { mentionsUnderPings } from './mentions.ts';
@@ -109,6 +110,8 @@ type ActDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     limits?: { add: (limit: { kind: string; where: string }) => void } | null;
     unseenFailed?: Array<{ kind: string; skill: string; status: string; code: string }>;
     frameRefs?: PostRefs | null;
+    /** The request's people and places for the rest of the turn (src/turn/request/handle-book.ts). */
+    requestRefs?: RequestRefs | null;
   };
 
 /** A message of hers as the next history read will give it. */
@@ -456,6 +459,7 @@ export function createAct(ctx: ActContext): Act {
         knownNames,
         directory,
         handles,
+        targets: draft?.requestRefs?.targets ?? null,
         channelHandles,
         quiet: true,
       });
@@ -532,6 +536,7 @@ export function createAct(ctx: ActContext): Act {
         knownNames,
         directory,
         handles,
+        targets: draft?.requestRefs?.targets ?? null,
         channelHandles,
         link: withEmoji ? null : link,
         refs: draft?.frameRefs ?? null,

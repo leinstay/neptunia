@@ -11,7 +11,8 @@ import type { BlockRecord } from '../turn/request/tail.ts';
 import type { Whereabouts } from '../turn/request/spatial.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { CallMark } from './lines.ts';
-import type { Prompts, RequestConfig, RequestInput } from '../turn/request/types.ts';
+import type { PlacePathView, Prompts, RequestConfig, RequestInput } from '../turn/request/types.ts';
+import type { RequestRefs } from '../turn/request/handle-book.ts';
 import type { sectionCost } from '../llm/budget.ts';
 
 export type ClassifierTranscriptArg2 = {
@@ -116,6 +117,12 @@ export type BuildRequestInput = {
   chatIdOf?: ((placeId: string) => string | null) | null;
   /** Whether the line of a lookup's source is gone, for the sources `<recall>` leaves out (src/turn/request/reader.ts). */
   isSourceRetired?: SourceRetired | null;
+  /** What a member's handle is cut from, by platform id; null with no account row (frame-reads.ts#memberKeyOf). */
+  memberKeyOf?: ((native: string) => string | null) | null;
+  /** The account key the store gives a platform id that no row holds yet (addresses.ts#accountOf). */
+  accountKeyOf?: ((native: string) => string) | null;
+  /** A stored place by its path of names, whether it is a direct chat and that chat's partner; null with no row. */
+  placePathOf?: ((placeId: string) => PlacePathView | null) | null;
 };
 
 /** One text part of a request's user message; the cache marker is the provider's. */
@@ -139,4 +146,6 @@ export type BuildRequestResult = {
   seen: { messageIds: Array<string>; parents: Array<string>; parts: { filePreviews: Array<string> } };
   memoryReads: Array<{ kind: string; id: string; block?: string; ord: number }>;
   memberNames: Map<string, Array<string>> | null;
+  /** The request's people and places for the rest of the turn: her `@handle` in a post, a read's authors and places. */
+  refs?: RequestRefs | null;
 };

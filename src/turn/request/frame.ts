@@ -274,6 +274,30 @@ const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
   'selfreflection',
 ]);
 
+/**
+ * A place of the frame by names as a request shows it: a link with no stored name as `unnamed` (`spatial.unnamed`), never
+ * by its id. A one-to-one chat's path ends in `partner` when one is given (the partner's handle), else as the frame
+ * holds it.
+ */
+export function pathShown(
+  frame: Frame,
+  place: FramePlace,
+  unnamed: string,
+  partner: string | null = null
+): Array<string> {
+  if (frame.scope === 'dm' && place.id === frame.place?.id)
+    return partner === null ? [...place.path] : [...place.path.slice(0, -1), partner];
+  const at = frame.chain.findIndex((link) => link.id === place.id);
+  if (at < 0) return [...place.path];
+  return [
+    frame.interface,
+    ...frame.chain
+      .slice(at)
+      .map((link) => link.name ?? unnamed)
+      .reverse(),
+  ];
+}
+
 /** Whether a request built with `frame` is the frame's own (`<memory>`, `<recall>`, `<meanwhile>` and the rest). */
 export const framedRequest = (frame: Frame | null | undefined): frame is Frame =>
   frame !== null && frame !== undefined && FRAMED_KINDS.has(frame.kind);

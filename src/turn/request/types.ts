@@ -20,6 +20,14 @@ import type { MediaCache, MediaLookup } from './emoji-gifs.ts';
 import type { SelfreflectionInput } from './selfreflection.ts';
 import type { Whereabouts } from './spatial.ts';
 
+/** A stored place as a request names it: its path from the interface down, and a direct chat's partner key. */
+export type PlacePathView = {
+  readonly path: ReadonlyArray<string>;
+  readonly dm: boolean;
+  /** What the handle of a direct chat's partner is cut from: their person, else their account; null otherwise. */
+  readonly partnerKey: string | null;
+};
+
 /** A group of label texts (`labels.<group>.<key>`); a key the labels file lacks reads as undefined at run time. */
 export type LabelGroup = { readonly [key: string]: string };
 
@@ -92,6 +100,10 @@ export type Labels = {
   readonly recall?: LabelGroup;
   readonly meanwhile?: LabelGroup;
   readonly refs?: LabelGroup;
+  /** How a line names its author (`line`, `lineAccount`, `unknown`). */
+  readonly authors?: LabelGroup;
+  /** How a block names a place (`ref`, `refUnhandled`). */
+  readonly places?: LabelGroup;
 };
 
 /** `labels.memory`: the words of `<memory>`'s entries (src/turn/request/memory-block.ts), with the origin of each. */
@@ -378,6 +390,15 @@ export type RequestInput = {
   readonly refLineOf?: LineOf | null;
   /** The chat id of a stored place, from its row (frame-reads.ts#placeRefOf); null for a DM and a place no row holds. */
   readonly chatIdOf?: ((placeId: string) => string | null) | null;
+  /**
+   * What a member's handle is cut from, by a platform id of the turn's interface (else of the one interface whose
+   * account holds it): their person, else their account row; null when no account row holds it (frame-reads.ts#memberKeyOf).
+   */
+  readonly memberKeyOf?: ((native: string) => string | null) | null;
+  /** The account key the store gives a platform id of the turn's interface that no row holds yet (addresses.ts#accountOf). */
+  readonly accountKeyOf?: ((native: string) => string) | null;
+  /** A stored place by its path of names, whether it is a direct chat and that chat's partner; null with no row. */
+  readonly placePathOf?: ((placeId: string) => PlacePathView | null) | null;
   /** Whether the line of a lookup's source is gone, for the sources `<recall>` leaves out (src/turn/request/reader.ts). */
   readonly isSourceRetired?: SourceRetired | null;
 };

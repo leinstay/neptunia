@@ -44,6 +44,7 @@ import type { CallMark, JournalNotes, NotesDraft } from './journal-notes.ts';
 import { untaggedNote } from './mentions.ts';
 import { inRoot, snapshotOfDraft } from './routing.ts';
 import type { PostRefs, RenderedPost, Sends } from './sends.ts';
+import type { RequestRefs } from './request/handle-book.ts';
 import type { Handles } from './handles.ts';
 import { wakeRefusalCode } from '../tools/wake-tools.ts';
 import { INTENT_ID_SKILLS } from './settings.ts';
@@ -139,6 +140,12 @@ const OWN_MESSAGE_SKILLS: ReadonlyArray<string> = [
   'message.react.remove',
 ];
 
+/** `args` with a place id in `place` named as the request names it (`places.ref`), so a mark carries no raw id. */
+function withPlaceNamed(args: Record<string, unknown>, refs: RequestRefs | null): Record<string, unknown> {
+  const named = refs !== null && typeof args.place === 'string' && args.place !== '' ? refs.placeRef(args.place) : null;
+  return named === null ? args : { ...args, place: named };
+}
+
 /** The skills whose `text` is stored as a record of hers: an intention made or changed. */
 const STORED_TEXT_SKILLS: ReadonlyArray<string> = ['intention.set', 'intention.update'];
 
@@ -182,6 +189,8 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     framePlace?: { id: string; path: Array<string> } | null;
     /** How a line's identity in her posted words is read back (src/turn/sends.ts#renderPost). */
     frameRefs?: PostRefs | null;
+    /** The request's people and places for the rest of the turn (src/turn/request/handle-book.ts). */
+    requestRefs?: RequestRefs | null;
     /** Her skills the tools array offered, name to the version offered (src/turn/phases/request/build.ts). */
     offeredSkills?: Map<string, string>;
     /** The skills she read in this turn, each as first read: a second call answers from here. */
@@ -762,7 +771,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     const quotedBefore = new Set(searchRefsOf(draft)?.byNumber.keys() ?? []);
     // Her written text (message.create / message.edit) rendered as a `<msg>` of this turn is.
     let rendered: RenderedPost | null = null;
-    const renderText = (text: string): RenderedPost =>
+    const renderText = (text: string, place: string | null = null): RenderedPost =>
       (rendered = renderPost(text, {
         channel,
         snapshot: snapshotOfDraft(draft),
@@ -774,6 +783,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         knownNames,
         directory,
         handles,
+        targets: draft?.requestRefs?.targets ?? null,
+        destination: place === null ? null : (placeRef?.(place)?.iface ?? null),
         channelHandles,
         refs: draft?.frameRefs ?? null,
       }));
@@ -981,8 +992,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       searched: (skills ?? defaultSkills()).get(skill)?.kind === 'read' ? idText(args.place) : null,
       postedId: posted?.id ?? null,
       posted: turnPosts,
-      // The main arguments the call ran with, for the mark's line (src/tools/call-args.ts).
-      args: callArgsText(skill, args),
+      // The main arguments the call ran with, for the mark's line (src/tools/call-args.ts), a place as the request names it.
+      args: callArgsText(skill, withPlaceNamed(args, draft?.requestRefs ?? null)),
     });
     log.info('skills: called', {
       channel: channel.id,

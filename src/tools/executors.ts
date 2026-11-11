@@ -921,7 +921,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
     // Her own writing as a `<msg>` of hers is posted: the members its mentions resolved to ride along.
     let mentionAccountIds: Array<string> = [];
     if (hasTrait(resolved.skill, 'written') && typeof args.text === 'string' && typeof deps.renderText === 'function') {
-      const rendered = deps.renderText(args.text);
+      const rendered = deps.renderText(args.text, typeof args.place === 'string' ? args.place : null);
       if (typeof rendered === 'string') args.text = rendered;
       else if (typeof rendered.text === 'string') {
         args.text = rendered.text;
@@ -1140,7 +1140,11 @@ export type RunOperation = (op: string, args: Obj, context: Obj) => unknown;
 export type ExecuteDeps = {
   publicationBoundary?: PublicationBoundary;
   inTurn?: Record<string, (args: Obj, call?: InTurnCall) => unknown>;
-  renderText?: (text: string) => string | { text?: unknown; accountIds?: unknown; replyTo?: unknown };
+  /** Her text as posted, `place` the place it goes to as the call resolved it (null: the turn's own). */
+  renderText?: (
+    text: string,
+    place?: string | null
+  ) => string | { text?: unknown; accountIds?: unknown; replyTo?: unknown };
   envelope?: CallEnvelope;
   runOp?: RunOperation;
   runOwnOp?: RunOperation;

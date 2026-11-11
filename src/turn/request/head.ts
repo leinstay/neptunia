@@ -4,6 +4,7 @@
 // (src/behavior/prompt.ts) builds it first.
 
 import { assignHandles, memberNameMap } from '../../behavior/handles.ts';
+import { tokenIds } from '../../memory/mentions.ts';
 import type { AroundSnapshot } from '../../behavior/around-store.ts';
 import { mergeProfiles } from '../../behavior/private.ts';
 import { isPlainObject } from '../../config.ts';
@@ -45,7 +46,12 @@ export type Base = {
   liveSnapshot: AroundSnapshot | null;
   voiceChannelNameOf: ((placeId: string) => string | null) | undefined;
   selfAccountId: string | null;
+  /** The chat's members in view by platform id, each to their handle. */
   handleById: Map<string, string> | null;
+  /** The same handles by what each is cut from (keyOfMember). */
+  keyHandles: Map<string, string>;
+  /** What the handle of a member of the turn's interface is cut from, by platform id. */
+  keyOfMember: (native: string) => string;
   memberNames: Map<string, Array<string>> | null;
   handleFor: (accountId: string | null) => string | null;
   nowText: string;
@@ -92,14 +98,32 @@ function withEmojiCaptions(
   return known;
 }
 
-/** The members who wrote a line of `history` or reacted to one of hers, she aside. */
-function authorsOf(history: ReadonlyArray<Message>): Array<string> {
+/** The members who wrote a line of `history`, reacted to one of hers or are mentioned in one, she aside. */
+function authorsOf(history: ReadonlyArray<Message>, selfId: string | null): Array<string> {
   const ids = new Set<string>();
   for (const message of history)
     if (message && !message.self && message.authorId !== undefined && message.authorId !== null)
       ids.add(String(message.authorId));
   for (const id of reactorIdsOf(history as Array<Message>)) ids.add(id);
+  for (const message of history) {
+    const mentioned = [...(message?.mentionedAccountIds ?? []), ...tokenIds(message?.content)];
+    for (const id of mentioned) if (String(id) !== selfId) ids.add(String(id));
+  }
   return [...ids];
+}
+
+/**
+ * What the handle of a member of the turn's interface is cut from, by platform id (docs/prompt-contract.md, "Mention
+ * handles"): the person the memory holds for the account (`memberKeyOf`), else the account key the store gives
+ * (`accountKeyOf`), else the platform id itself. Each id is asked once.
+ */
+function memberKeys(given: RequestInput): (native: string) => string {
+  const known = new Map<string, string>();
+  return (native) => {
+    const found = known.get(native) ?? given.memberKeyOf?.(native) ?? given.accountKeyOf?.(native) ?? native;
+    known.set(native, found);
+    return found;
+  };
 }
 
 /** The labels, switches, handles, transcript options, system prompt and chat lines of a request. */
@@ -148,9 +172,18 @@ export function requestHead(given: RequestInput): Base {
   const liveSnapshot = liveOn ? aroundInput!.snapshot! : null;
   const voiceChannelNameOf = liveOn ? aroundInput!.channelNameOf : undefined;
   const selfAccountId = accountIdOf(given.selfId);
-  // Mention handles: no directory up front, every author of the chat gets one on their lines; a person memory brings
-  // to mind gets one when `<memory>` names them (src/turn/request/reader.ts).
-  const handleById = assignHandles({ profiled: [], inView: authorsOf(history) });
+  // Handles: no directory up front, every author of the chat gets one on their lines, cut from the person behind the
+  // account, so one person writing from two accounts carries one handle; a person memory brings to mind gets one when
+  // `<memory>` names them (src/turn/request/reader.ts).
+  const keyOfMember = memberKeys(given);
+  const inView = authorsOf(history, given.selfId ?? null);
+  const keyHandles = assignHandles({ profiled: [], inView: inView.map(keyOfMember) });
+  const handleById = new Map(
+    inView.flatMap((id) => {
+      const handle = keyHandles.get(keyOfMember(id));
+      return handle === undefined ? [] : [[id, handle] as const];
+    })
+  );
   // The names each member in view goes by (the lines' authors and mentioned members): a mention reads as its handle in
   // the transcript, and a tag of hers that names one without the handle is marked (transcript.untagged).
   const memberNames = memberNameMap([], history);
@@ -198,8 +231,10 @@ export function requestHead(given: RequestInput): Base {
     reads,
     // A picture's second look on a question renders under its tag.
     imageAnswers,
-    // Each author in view carries their mention handle (transcript.author).
+    // Each author in view carries their handle (authors.line), an account mark beside it when one person writes here
+    // from several accounts (authors.lineAccount, by the turn's interface).
     handles: handleById ?? undefined,
+    iface: framed?.interface ?? undefined,
     memberNames: memberNames ?? undefined,
     // A message link to a line of the same rendering reads as its `#n`.
     messageNumbers: true,
@@ -239,6 +274,8 @@ export function requestHead(given: RequestInput): Base {
     voiceChannelNameOf,
     selfAccountId,
     handleById,
+    keyHandles,
+    keyOfMember,
     memberNames,
     handleFor,
     nowText,

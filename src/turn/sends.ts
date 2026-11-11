@@ -17,18 +17,19 @@ import {
 } from '../interface/capabilities.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
 import { renderCustomEmoji } from '../behavior/emoji.ts';
-import { CHANNEL_HANDLE_PREFIX, idText, resolveHandles, widenHandles } from '../behavior/handles.ts';
+import { CHANNEL_HANDLE_PREFIX, HANDLE_PREFIX, idText, resolveHandles, widenHandles } from '../behavior/handles.ts';
 import { selfreflectionPlaces, readMirrors } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
-import { placeRefOf } from '../memory/addresses.ts';
-import { linkChannels, linkMessageNumbers } from '../memory/mentions.ts';
+import { accountOf, personOfMember, placeRefOf } from '../memory/addresses.ts';
+import { linkChannels, linkMessageNumbers, outsideUrls } from '../memory/mentions.ts';
 import { resolveMentions } from './mentions.ts';
 import { inRoot } from './routing.ts';
 import { SETTLE_STEP_MS, paceSettings } from './settings.ts';
 import { withLink } from './targets.ts';
 import { outgoingRefs } from './request/refs.ts';
 import type { LineOf } from './request/refs.ts';
+import type { HandleTarget } from './request/handle-book.ts';
 
 /** The live config, as far as the sends read it. */
 export type SendsConfig = Record<string, unknown>;
@@ -66,6 +67,10 @@ type RenderArgs = {
   knownNames?: Parameters<typeof resolveMentions>[2] | null;
   directory?: (() => Parameters<typeof resolveMentions>[3]) | null;
   handles?: Map<string, string> | null;
+  /** Where each handle of the request may mention its person (src/turn/request/handle-book.ts); absent: `handles` alone. */
+  targets?: ReadonlyMap<string, HandleTarget> | null;
+  /** The interface of the place the post goes to, when it is not the turn's own (a `message.create` elsewhere). */
+  destination?: string | null;
   channelHandles?: unknown;
   link?: string | null;
   quiet?: boolean;
@@ -104,6 +109,40 @@ export type Sends = {
 /** The token a member's mention or a channel's link takes once rendered (src/behavior/handles.ts#resolveHandles). */
 const MENTION_TOKEN_RE = /<@!?([^>\s]+)>/g;
 const CHANNEL_TOKEN_RE = /<#([^>\s]+)>/g;
+
+// `@` + a person's handle, whole (src/behavior/handles.ts): no word character right before the `@` or after the token.
+const PERSON_HANDLE_RE = new RegExp(`(?<![\\p{L}\\p{N}_])@(${HANDLE_PREFIX}[0-9a-z]+)(?![\\p{L}\\p{N}_])`, 'gu');
+
+/**
+ * The request's handles on the interface a post goes to: each handle whose person has an account there to that
+ * account's platform id, and the handles of people with no account there to the name of their entry, which the post
+ * carries in place of the handle. Without targets, the request's own map as it is.
+ */
+function handlesOn(
+  handles: ReadonlyMap<string, string>,
+  targets: ReadonlyMap<string, HandleTarget> | null,
+  iface: string
+): { ids: Map<string, string>; names: Map<string, string> } {
+  const ids = new Map(handles);
+  const names = new Map<string, string>();
+  for (const [handle, target] of targets ?? []) {
+    const there = target.accounts.find((account) => account.iface === iface);
+    if (there) ids.set(handle, there.native);
+    else {
+      ids.delete(handle);
+      if (target.name) names.set(handle, target.name);
+    }
+  }
+  return { ids, names };
+}
+
+/** `text` with each whole `@handle` of `names` written as that name, outside URLs. */
+function namedHandles(text: string, names: ReadonlyMap<string, string>): string {
+  if (names.size === 0) return text;
+  return outsideUrls(text, (part) =>
+    part.replace(PERSON_HANDLE_RE, (token, handle: string) => names.get(handle) ?? token)
+  );
+}
 
 /** The handle of `id` in a request's handle map, as she wrote it with `sigil`, or null when the map holds none. */
 function writtenHandle(handles: unknown, id: string, sigil: string): string | null {
@@ -230,6 +269,23 @@ export function createSends(ctx: SendsContext): Sends {
   }
 
   /**
+   * `shown` (handle -> platform id) with, behind it, the handle every member of `natives` (platform ids of the served
+   * interface) has in any request: cut from the person behind the account, else the account (widenHandles), each to
+   * its platform id.
+   */
+  function widenedMembers(shown: ReadonlyMap<string, string>, natives: ReadonlyArray<string>): Map<string, string> {
+    const nativeOf = new Map<string, string>();
+    for (const native of natives) {
+      const key = personOfMember(store, native) ?? accountOf(store, native);
+      if (!nativeOf.has(key)) nativeOf.set(key, native);
+    }
+    const widened = new Map(shown);
+    for (const [handle, key] of widenHandles(null, nativeOf.keys()))
+      if (!widened.has(handle)) widened.set(handle, nativeOf.get(key) ?? key);
+    return widened;
+  }
+
+  /**
    * The custom emoji lookup, or null when there is no index, features.customEmoji is off (read now) or the interface of
    * `at` (a chat reference, the served interface when none) declares no custom emoji.
    */
@@ -269,6 +325,8 @@ export function createSends(ctx: SendsContext): Sends {
       knownNames,
       directory = null,
       handles = null,
+      targets = null,
+      destination = null,
       channelHandles = null,
       link = null,
       quiet = false,
@@ -277,15 +335,20 @@ export function createSends(ctx: SendsContext): Sends {
   ): RenderedPost {
     const referred = withRefs(written, refs);
     written = referred.text;
+    // Mentions take the form of the interface the post goes to; everything else that of the turn's place.
+    const there = destination ?? refOf(channel).iface;
     let mentioned: { text: string; accountIds: Array<string | undefined>; unknown?: number };
     if (handles instanceof Map) {
-      let resolved = resolveHandles(written, handles);
+      // A handle names a person: their account on the interface the post goes to, else the name of their entry.
+      const on = handlesOn(handles, targets, there);
+      written = namedHandles(written, on.names);
+      let resolved = resolveHandles(written, on.ids);
       // A handle this request did not show: the handle of a member the core knows (mentionDirectory), from any request.
       if (resolved.unknown > 0 && typeof directory === 'function')
         resolved = resolveHandles(
           written,
-          widenHandles(
-            handles,
+          widenedMembers(
+            on.ids,
             [...(directory() ?? [])].flatMap((entry) => idText(entry?.id))
           )
         );
@@ -297,7 +360,7 @@ export function createSends(ctx: SendsContext): Sends {
       mentioned = resolveMentions(written, lines ?? [], knownNames ?? [], fallback);
     }
     const placePort = portAt(iface, refOf(channel));
-    if (!portMentions(placePort))
+    if (!portMentions(portAt(iface, { iface: there })))
       mentioned = { text: namedMembers(mentioned.text, handles, nameOfMember), accountIds: [] };
     const spoken = renderCustomEmoji(mentioned.text, emojiLookup(refOf(channel)));
     const linked = withChannelLinks(

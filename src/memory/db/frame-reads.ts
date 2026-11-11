@@ -15,6 +15,7 @@ import type { Mind, Seeds } from './mind-read.ts';
 import { lineMedia, lineMediaItems } from './media-store.ts';
 import { interfaceTakes, routeMessageSql } from './message-locator.ts';
 import type { LineMediaItem } from './media-store.ts';
+import { personOfAccount as personOfMeta } from './meta-person.ts';
 import { interfaceNouns, placesNamed } from './names.ts';
 import { ownerAccountOfPlace } from './person-links.ts';
 import { placeChainInDb } from './place-tree.ts';
@@ -44,6 +45,13 @@ export type FrameLine = {
   authorId: string | null;
   /** The first name of the author's person, from the account that holds the person's profile, else the account's own. */
   authorName: string | null;
+  /**
+   * What the author's handle is cut from: the person of the author's account (`person_accounts`, else its verified link),
+   * else the account row id; null for her own line and a line with no account.
+   */
+  authorKey: string | null;
+  /** The interface of the author's account, null without one. */
+  authorIface: string | null;
   self: boolean;
   text: string;
   media: ReadonlyArray<LineMediaItem>;
@@ -55,7 +63,11 @@ const DM_WORD = 'private';
 const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 
 /** Where a line stands: its place's path, whether that place is a one-to-one chat, and that chat's partner person. */
-export type PlacePath = { path: Array<string>; dm: boolean; partner: string | null };
+/**
+ * A place's path by names, whether it is a one-to-one chat, that chat's partner person, and what the partner's handle
+ * is cut from (the person, else the partner account), null for any other place.
+ */
+export type PlacePath = { path: Array<string>; dm: boolean; partner: string | null; partnerKey?: string | null };
 
 /**
  * A place by names from its interface (`places.iface`) down; a one-to-one chat's ends in the platform id of its partner
@@ -65,14 +77,17 @@ export type PlacePath = { path: Array<string>; dm: boolean; partner: string | nu
 export function placePathOf(db: Db, placeId: string): PlacePath {
   const row = db
     .prepare(
-      `SELECT p.iface, p.kind, p.name, p.parent_id, p.partner_person, a.native_id AS partner_native FROM places p
-       LEFT JOIN accounts a ON a.id = p.partner_account WHERE p.id = ?`
+      `SELECT p.iface, p.kind, p.name, p.parent_id, p.partner_person, p.partner_account, a.native_id AS partner_native
+       FROM places p LEFT JOIN accounts a ON a.id = p.partner_account WHERE p.id = ?`
     )
     .get(placeId);
   const iface = text(row?.iface) ?? '';
   if (row === undefined) return { path: [iface, placeId], dm: false, partner: null };
   if (row.kind === 'dm') {
-    return { path: [iface, DM_WORD, text(row.partner_native) ?? placeId], dm: true, partner: text(row.partner_person) };
+    const partner = text(row.partner_person);
+    const account = text(row.partner_account);
+    const partnerKey = partner ?? (account === null ? null : (personOfMeta(db, account) ?? account));
+    return { path: [iface, DM_WORD, text(row.partner_native) ?? placeId], dm: true, partner, partnerKey };
   }
   const parent = text(row.parent_id);
   const above = parent === null ? [] : placeChainInDb(db, parent);
@@ -82,6 +97,12 @@ export function placePathOf(db: Db, placeId: string): PlacePath {
     ...(loop < 0 ? above : above.slice(0, loop)).map((link) => link.name ?? link.id),
   ];
   return { path: [iface, ...names.reverse()], dm: false, partner: null };
+}
+
+/** A stored place as a request names it (placePathOf), null for a place no row holds. */
+export function placeViewOf(db: Db, placeId: string): PlacePath | null {
+  const row = db.prepare('SELECT 1 AS known FROM places WHERE id = ?').get(placeId);
+  return row === undefined ? null : placePathOf(db, placeId);
 }
 
 /** The message id of a line row: its route's (`route_message`), else its `native_id`, else its source id. */
@@ -101,6 +122,8 @@ const lineOf = (row: Row, media: ReadonlyArray<LineMediaItem> = []): FrameLine =
   at: Date.parse(text(row.occurred_at) ?? ''),
   authorId: text(row.author_native),
   authorName: text(row.author_name),
+  authorKey: row.author_kind === 'self' ? null : (text(row.author_person) ?? text(row.author_account)),
+  authorIface: text(row.author_iface),
   self: row.author_kind === 'self',
   text: text(row.text) ?? '',
   media,
@@ -124,8 +147,12 @@ const AUTHOR_NAME = `COALESCE(
   json_extract(aa.names, '$[0]')) AS author_name`;
 /** Lines with their author's account row, whose `native_id` is the author's platform id. */
 const LINE_FROM = 'sources s LEFT JOIN accounts aa ON aa.id = s.author_account';
+/** The person of a line's author's account: its meta-person, else its verified link (meta-person.ts#personOfAccount). */
+const AUTHOR_PERSON = `COALESCE(
+  (SELECT pm.person_id FROM person_accounts pm WHERE pm.id = s.author_account),
+  CASE WHEN aa.link = 'verified' THEN aa.person_id END) AS author_person`;
 const LINE_COLUMNS = `s.id, s.native_id, ${routeMessageSql('s')} AS route_message, s.place_id, s.occurred_at, s.author_account, s.author_kind, s.text,
-  aa.native_id AS author_native, ${AUTHOR_NAME}`;
+  aa.native_id AS author_native, aa.iface AS author_iface, ${AUTHOR_NAME}, ${AUTHOR_PERSON}`;
 /** A line that says something: its text, or a media item linked to it, as a post of a picture alone. */
 const LIVE_LINE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND (length(COALESCE(s.text, '')) > 0
   OR EXISTS (SELECT 1 FROM media_links ml WHERE ml.owner_kind = 'source' AND ml.owner_id = s.id))`;
@@ -208,6 +235,20 @@ export function accountNameOf(db: Db, iface: string, native: string): string | n
   const here = rows.find((row) => row.iface === iface);
   if (here) return text(here.name);
   return new Set(rows.map((row) => row.iface)).size === 1 ? text(rows[0]?.name) : null;
+}
+
+/**
+ * What the handle of the member an interface names by the platform id `native` is cut from: the person of the account
+ * (meta-person.ts#personOfAccount), else the account row id. The account is the one on `iface`, else the one account
+ * that holds the id on any interface. Null when no account row holds it.
+ */
+export function memberKeyOf(db: Db, iface: string, native: string): string | null {
+  const rows = db
+    .prepare('SELECT id, iface FROM accounts WHERE native_id = ? ORDER BY iface = ? DESC, generation DESC, id')
+    .all(native, iface);
+  const here = rows.find((row) => row.iface === iface);
+  const account = text(here?.id) ?? (new Set(rows.map((row) => row.iface)).size === 1 ? text(rows[0]?.id) : null);
+  return account === null ? null : (personOfMeta(db, account) ?? account);
 }
 
 /**
@@ -460,6 +501,8 @@ export type FrameReads = {
   /** The ids of the interfaces she runs on (interfaceIdsOf). */
   interfaceIds?(): Array<string>;
   account(iface: string, native: string): string | null;
+  /** What a member's handle is cut from, by their platform id (memberKeyOf); null when no account row holds it. */
+  memberKey?(iface: string, native: string): string | null;
   person(account: string): string | null;
   /** The stored line of an interface's message id, null when none (sourceOfMessage). */
   source?(iface: string, messageId: string): string | null;
@@ -483,6 +526,8 @@ export type FrameReads = {
   chatPlaces?(): Array<{ id: string; nativeId: string | null }>;
   /** A stored place as its interface knows it, null without a row (placeRefOf). */
   placeRef?(placeId: string): PlaceRef | null;
+  /** A stored place's path by names and a direct chat's partner, null without a row (placeViewOf). */
+  placeView?(placeId: string): PlacePath | null;
   /** The stored name of a place, null for a one-to-one chat (placeNameOf). */
   placeName?(placeId: string): string | null;
   /** The owner's account on the interface of a stored place, by `bot.ownerPerson` (person-links.ts#ownerAccountOf). */
@@ -523,6 +568,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     interfaceNames: (iface) => over({ name: null, nouns: {} }, (db) => interfaceNamesOf(db, iface)),
     interfaceIds: () => over([], (db) => interfaceIdsOf(db)),
     account: (iface, native) => over(null, (db) => accountOfNative(db, iface, native)),
+    memberKey: (iface, native) => over(null, (db) => memberKeyOf(db, iface, native)),
     person: (account) => over(null, (db) => personOfAccount(db, account)),
     source: (iface, messageId) => over(null, (db) => sourceOfMessage(db, iface, messageId)),
     sourceInPlace: (placeId, messageId) => over(null, (db) => sourceInPlace(db, placeId, messageId)),
@@ -540,6 +586,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     placeReadable: (ctx, placeId) => over(false, (db) => placeReadableOf(db, ctx, placeId)),
     chatPlaces: () => over([], (db) => chatPlacesOf(db)),
     placeRef: (placeId) => over(null, (db) => placeRefOf(db, placeId)),
+    placeView: (placeId) => over(null, (db) => placeViewOf(db, placeId)),
     placeName: (placeId) => over(null, (db) => placeNameOf(db, placeId)),
     ownerAccount: (placeId) => over(null, (db) => ownerAccountOfPlace(db, configOf(), placeId)),
     subject: (ctx, words, here) => over<Subject>({ kind: 'none' }, (db) => subjectOf(db, ctx, words, here)),

@@ -4,11 +4,13 @@
 // from the graph reader, `<recall>` from her lookups, `<inner>`, `<meanwhile>` from her lines elsewhere,
 // a selfreflection request's `<virtual_world>`, `<spatial_awareness>` with the clock and her time away, `<chat>` and
 // `<task>`. The budget fits them in this priority: the fixed part, the person she answers, the memory shares, the
-// recall, the chat (cut to a step of `context.chatSteps`), the background, her own state, the world, her past entries. Mention handles are given after the
-// fit, to the authors of the chat and to the people `<memory>` and `<meanwhile>` kept, and to nobody else; a
+// recall, the chat (cut to a step of `context.chatSteps`), the background, her own state, the world, her past entries.
+// Handles are given before the blocks are rendered (src/turn/request/handle-book.ts): a person's from the meta-person,
+// the chat's as it was rendered, then the people of `<memory>` and the authors of `<meanwhile>`, and a person a stored
+// text mentions when it is met; a place's from its chat id. Every block names a line's author and a place by them. A
 // selfreflection request gives none. buildRequest (src/behavior/prompt.ts) calls it. Pure.
 
-import { assignChannelHandles, assignHandles } from '../../behavior/handles.ts';
+import { CHANNEL_HANDLE_PREFIX } from '../../behavior/handles.ts';
 import { fill, renderTranscript } from '../../format.ts';
 import { fitSections } from '../../llm/budget.ts';
 import { allowances, mindSettingsOf } from '../../memory/db/mind-read.ts';
@@ -30,8 +32,21 @@ import type { PlaceFields } from './surroundings.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
 import { blockRecords, userParts } from './tail.ts';
 import type { BlockRecord, ListedBlock, UserPart } from './tail.ts';
+import { handleBook, placeRefText } from './handle-book.ts';
+import type { HandleBook, HandleTarget, RequestRefs } from './handle-book.ts';
+import type { EntryRefs } from './memory-block.ts';
+import type { MeanwhileRefs } from './meanwhile.ts';
 import { block, escapeStored } from './text.ts';
-import type { Fit, Labels, MemoryRead, NameOf, RequestConfig, Section, TranscriptItem } from './types.ts';
+import type {
+  Fit,
+  Labels,
+  MemoryRead,
+  NameOf,
+  PlacePathView,
+  RequestConfig,
+  Section,
+  TranscriptItem,
+} from './types.ts';
 
 /** What the interface and the memory say of the turn's place, for `<surroundings>`. */
 export type SurroundingsInput = {
@@ -78,8 +93,18 @@ export type ReaderInput = {
   /** Whether the line of a lookup's source is gone or unreadable, read by the source's row. */
   isSourceRetired: SourceRetired | null;
   live: LiveOf | null;
-  /** The handles the chat was rendered with, by platform id: they keep their form whatever joins them. */
+  /** The handles the chat was rendered with, by what each is cut from: they keep their form whatever joins them. */
   chatHandles: Map<string, string> | null;
+  /** The same handles by the platform id of each member of the chat in view. */
+  chatHandleById?: ReadonlyMap<string, string> | null;
+  /** The members of the chat by platform id with the name a line gave them, for where her `@handle` may mention them. */
+  chatMembers?: ReadonlyArray<{ readonly native: string; readonly name: string | null }>;
+  /** What the handle of a member of the turn's interface is cut from, by platform id (head.ts). */
+  keyOfMember?: ((native: string) => string) | null;
+  /** What the handle of the member a stored `<@id>` names is cut from; null when no account row holds the id. */
+  memberKeyOf?: ((native: string) => string | null) | null;
+  /** A stored place by its path of names and a direct chat's partner, null with no row. */
+  placePathOf?: ((placeId: string) => PlacePathView | null) | null;
   /** The chat id of the turn's place: it gets a channel handle with the places memory and meanwhile show. */
   currentChannelId: string | null;
   /** The chat id of a stored place memory and meanwhile show, from its row; null for a DM and without a reader. */
@@ -94,9 +119,12 @@ export type ReaderResult = {
   blocks: Array<BlockRecord>;
   fit: Fit;
   keptChat: Array<TranscriptItem>;
-  handleById: Map<string, string> | null;
-  /** Chat id -> channel handle: the current place and the places `<memory>` and `<meanwhile>` kept. */
+  /** Handle -> the platform id on the turn's interface, else what the handle is cut from; null without handles. */
+  handles: Map<string, string> | null;
+  /** Chat id -> channel handle: the current place and every place the request names. */
   channelHandleById: Map<string, string>;
+  /** The request's people and places for the rest of the turn; null on a request that gives no handles. */
+  refs: RequestRefs | null;
   memberNames: Map<string, Array<string>>;
   peopleShown: Array<{ id: string; names: Array<string> }>;
   memoryReads: Array<MemoryRead>;
@@ -133,6 +161,19 @@ type Offered = {
   windowTexts: Array<string>;
   inner: Array<{ key: keyof InnerParts; text: string }>;
   resolveRef: (text: string) => string;
+  names: Names;
+};
+
+/** How the request names people and places: its handle books and the refs the blocks render with. */
+type Names = {
+  people: HandleBook;
+  places: HandleBook;
+  entryRefs: EntryRefs;
+  meanwhileRefs: MeanwhileRefs;
+  /** A place id by its handle and path, null for a place the memory holds no row of. */
+  placeRef: (placeId: string) => string | null;
+  /** The windows of `<meanwhile>`, every author keyed. */
+  windows: Array<MeanwhileWindow>;
 };
 
 /** What of a selfreflection request the budget never cuts: its own parts of `<inner>` and the first line of its entries. */
@@ -273,30 +314,14 @@ function innerItems(parts: InnerParts): Array<{ key: keyof InnerParts; text: str
   return out;
 }
 
-/** The handles of the request: the chat's as rendered, then the people `<memory>` and `<meanwhile>` kept. */
-function handlesOf(
-  chatHandles: Map<string, string> | null,
-  people: ReadonlyArray<MemoryItem>,
-  windows: ReadonlyArray<MeanwhileWindow>
-): Map<string, string> | null {
-  if (chatHandles === null) return null;
-  const shownIds = [
-    ...people.flatMap((one) => one.handleIds),
-    ...windows.flatMap((window) => window.lines.filter((line) => !line.self).map((line) => line.authorId ?? '')),
-  ];
-  const added = assignHandles({ profiled: [...chatHandles.keys()], inView: shownIds });
-  // The chat's handles stand as rendered; assignHandles places them first, so they come out the same.
-  for (const [id, handle] of chatHandles) added.set(id, handle);
-  return added;
-}
-
 /** Whom and which message she answers, for `<spatial_awareness>`: the line's `#n` when the chat shows it. */
-function answersLine(given: ReaderInput): string {
+function answersLine(given: ReaderInput, names: Names): string {
   const { frame, labels } = given;
   const them = frame.counterpart;
   const answered = frame.answers;
   if (them === null || answered === null) return '';
-  const name = escapeStored(them.name ?? them.accountId);
+  const key = names.entryRefs.counterpartKey ?? them.personId ?? them.accountId;
+  const name = them.name ? escapeStored(them.name) : `@${names.people.handleOf(key)}`;
   const n = given.chatItems.find((item) => item.id === answered.messageId)?.index;
   const l = labels.spatial ?? {};
   return typeof n === 'number' ? fill(l.answers ?? '', { name, n }) : fill(l.answersOutside ?? '', { name });
@@ -305,19 +330,148 @@ function answersLine(given: ReaderInput): string {
 /** The request's reader of a stored place's chat id; without one no stored place gets a channel handle. */
 const chatIdOfInput = (given: ReaderInput): ChatIdOf => given.chatIdOf ?? (() => null);
 
-/** The channel handles of the request: the current place, then the places `<memory>` and `<meanwhile>` kept. */
-function channelHandlesOf(
-  current: string | null,
-  places: ReadonlyArray<MemoryItem>,
-  windows: ReadonlyArray<MeanwhileWindow>,
-  chatIdOf: ChatIdOf
+/** The place ids of the lookups of `<recall>` that name a place, by the argument the ring keeps. */
+const lookupPlaces = (lookups: ReadonlyArray<Lookup>): Array<string> =>
+  lookups.flatMap((lookup) => {
+    const place = lookup.args.place ?? lookup.args.channel;
+    return typeof place === 'string' && place !== '' ? [place] : [];
+  });
+
+/**
+ * The windows with every author's key: the one the reads give, else the key of the platform id on the turn's interface
+ * (head.ts), so a line of a reader that gives none still names its author by a handle.
+ */
+function keyedWindows(given: ReaderInput, windows: ReadonlyArray<MeanwhileWindow>): Array<MeanwhileWindow> {
+  const keyOf = given.keyOfMember ?? null;
+  return windows.map((window) => ({
+    ...window,
+    lines: window.lines.map((line) =>
+      line.self || line.authorKey || !line.authorId || keyOf === null
+        ? line
+        : { ...line, authorKey: keyOf(line.authorId) }
+    ),
+  }));
+}
+
+/**
+ * The handles and names of the request, given before anything is rendered: the people book over the chat's handles,
+ * then every person of the mind and every author of the windows; the places book over the current place, the places of
+ * the mind, the windows and the places her lookups searched.
+ */
+function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>): Names {
+  const { frame, labels, mind } = given;
+  const chatIdOf = chatIdOfInput(given);
+  const windows = keyedWindows(given, rawWindows);
+  const them = frame.counterpart;
+  // The person she answers by the key their lines in the chat carry, so their entry and their lines share one handle.
+  const counterpartKey =
+    them === null
+      ? null
+      : given.keyOfMember && them.nativeId
+        ? given.keyOfMember(them.nativeId)
+        : (them.personId ?? them.accountId);
+  const people = handleBook(given.chatHandles ?? new Map(), {
+    profiled: [...(counterpartKey === null ? [] : [counterpartKey]), ...mind.people.map((person) => person.personId)],
+    inView: windows.flatMap((window) => window.lines.flatMap((line) => (line.authorKey ? [line.authorKey] : []))),
+  });
+  const places = handleBook(
+    new Map(),
+    {
+      profiled: [
+        given.currentChannelId,
+        ...mind.places.map((place) => (place.kind === 'dm' ? null : chatIdOf(place.placeId))),
+        ...windows.map((window) => (window.dm ? null : chatIdOf(window.placeId))),
+        ...lookupPlaces(given.lookups).map((id) => chatIdOf(id)),
+      ].filter((id): id is string => typeof id === 'string' && id !== ''),
+    },
+    CHANNEL_HANDLE_PREFIX
+  );
+  const unknown = labels.authors?.unknown ?? '';
+  const partner = (key: string | null | undefined): string => (key ? `@${people.handleOf(key)}` : unknown);
+  const mention = (native: string): string => {
+    const shown = given.chatHandleById?.get(native);
+    if (shown !== undefined) return `@${shown}`;
+    const key = given.memberKeyOf?.(native) ?? null;
+    return key === null ? unknown : `@${people.handleOf(key)}`;
+  };
+  const placeRef = (placeId: string): string | null => {
+    const view = given.placePathOf?.(placeId) ?? null;
+    if (view === null) return null;
+    const path = view.dm ? [...view.path.slice(0, -1), partner(view.partnerKey)] : view.path;
+    const chatId = view.dm ? null : chatIdOf(placeId);
+    return placeRefText(labels, chatId === null ? null : places.handleOf(chatId), path);
+  };
+  return {
+    people,
+    places,
+    entryRefs: {
+      mention,
+      place: (placeId) => placeRef(placeId) ?? escapeStored(labels.spatial?.unnamed ?? ''),
+      partnerOf: (placeId) => partner(given.placePathOf?.(placeId)?.partnerKey),
+      counterpartKey,
+    },
+    meanwhileRefs: { handleOf: (key) => people.handleOf(key), mention },
+    placeRef,
+    windows,
+  };
+}
+
+/** Whether the request names people by handle: every one but a selfreflection's, which names them by name alone. */
+const handled = (given: ReaderInput): boolean => given.selfreflection === null || given.selfreflection === undefined;
+
+/** The channel handle a window is headed with, null for a one-to-one chat and a place with no chat id. */
+function windowHandle(given: ReaderInput, names: Names, window: MeanwhileWindow): string | null {
+  const chatId = window.dm || !handled(given) ? null : chatIdOfInput(given)(window.placeId);
+  return chatId === null ? null : names.places.handleOf(chatId);
+}
+
+/**
+ * Where each handle of the request may mention its person: the name and accounts of an entry of `<people>`, the
+ * members of the chat on the turn's interface and the authors of the windows on theirs, joined by handle.
+ */
+function targetsOf(given: ReaderInput, offered: Offered, people: ReadonlyArray<MemoryItem>): Map<string, HandleTarget> {
+  const book = offered.names.people;
+  const byKey = new Map<string, { name: string | null; accounts: Array<{ iface: string; native: string }> }>();
+  const add = (key: string, name: string | null, accounts: ReadonlyArray<{ iface: string; native: string }>): void => {
+    const known = byKey.get(key) ?? { name: null, accounts: [] };
+    known.name ??= name;
+    for (const account of accounts)
+      if (!known.accounts.some((one) => one.iface === account.iface && one.native === account.native))
+        known.accounts.push(account);
+    byKey.set(key, known);
+  };
+  for (const one of people) if (one.handleKey) add(one.handleKey, one.name, one.accounts ?? []);
+  const keyOf = given.keyOfMember ?? ((native: string) => native);
+  for (const member of given.chatMembers ?? [])
+    add(keyOf(member.native), member.name, [{ iface: given.frame.interface, native: member.native }]);
+  for (const line of offered.windows.flatMap((window) => window.lines))
+    if (line.authorKey && line.authorId)
+      add(line.authorKey, line.authorName ?? null, [
+        { iface: line.authorIface ?? given.frame.interface, native: line.authorId },
+      ]);
+  return new Map([...byKey].map(([key, target]) => [book.handleOf(key), target]));
+}
+
+/**
+ * The request's handle -> id map over the handles that stand in its text (`shown`): a handle to the platform id of its
+ * person's account on the turn's interface, the one a member argument and the chat's lines name, else to what the
+ * handle is cut from. A person the budget left out has no handle a tool would resolve.
+ */
+function handleIdsOf(
+  given: ReaderInput,
+  offered: Offered,
+  targets: ReadonlyMap<string, HandleTarget>,
+  shown: (handle: string) => boolean
 ): Map<string, string> {
-  const ids = [
-    current,
-    ...places.map((one) => one.chatId ?? null),
-    ...windows.map((window) => (window.dm ? null : chatIdOf(window.placeId))),
-  ].filter((id): id is string => typeof id === 'string' && id !== '');
-  return assignChannelHandles(ids);
+  const ids = new Map<string, string>();
+  for (const [native, handle] of given.chatHandleById ?? [])
+    if (!ids.has(handle) && shown(handle)) ids.set(handle, native);
+  for (const [key, handle] of offered.names.people.entries()) {
+    if (ids.has(handle) || !shown(handle)) continue;
+    const here = targets.get(handle)?.accounts.find((account) => account.iface === given.frame.interface);
+    ids.set(handle, here?.native ?? key);
+  }
+  return ids;
 }
 
 /** Everything the frame's request offers, rendered before the fit. */
@@ -330,24 +484,46 @@ function offeredOf(given: ReaderInput): Offered {
     timezone,
   });
   const lookups = given.lookups.map((lookup) => ({ ...lookup, extract: resolveRef(lookup.extract) }));
-  const windows = given.meanwhileReads
-    ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettingsOf(given.config, frame))
-    : [];
+  const names = namesOf(
+    given,
+    given.meanwhileReads ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettingsOf(given.config, frame)) : []
+  );
+  const { windows } = names;
   const memory = memoryCut(given, [
-    ...memoryItemsOf(mind, frame, labels, given.nameOf, given.live, given.selfreflectionIds, chatIdOfInput(given)),
+    ...memoryItemsOf(
+      mind,
+      frame,
+      labels,
+      given.nameOf,
+      given.live,
+      given.selfreflectionIds,
+      chatIdOfInput(given),
+      handled(given) ? names.entryRefs : null
+    ),
     ...factItemsOf(given.facts ?? [], labels),
   ]);
+  const retired = { retired: retiredOf(given.lookups, given.isSourceRetired) };
   return {
-    spatial: [given.spatialText, answersLine(given), given.awayText].filter(Boolean).join('\n'),
+    spatial: [given.spatialText, answersLine(given, names), given.awayText].filter(Boolean).join('\n'),
     surroundings: given.surroundingsText,
     memory: memory.items,
     memoryLeftOut: memory.leftOut,
-    recall: recallBlockOf(lookups, { retired: retiredOf(given.lookups, given.isSourceRetired) }, labels, timezone),
+    recall: recallBlockOf(lookups, retired, labels, timezone, (placeId) => names.entryRefs.place(placeId)),
     chat: given.chatItems.map((item) => ({ ...item, text: resolveRef(item.text) })),
     windows,
-    windowTexts: windows.map((window) => windowText(window, frame, labels, given.nameOf)),
+    windowTexts: windows.map((window) =>
+      windowText(
+        window,
+        frame,
+        labels,
+        given.nameOf,
+        windowHandle(given, names, window),
+        handled(given) ? names.meanwhileRefs : null
+      )
+    ),
     inner: innerItems(given.inner),
     resolveRef,
+    names,
   };
 }
 
@@ -440,20 +616,13 @@ export function readerRequest(given: ReaderInput): ReaderResult {
   const keptWindows = keptOf(offered.windows, fit.kept.meanwhile, (window) => {
     return offered.windowTexts[offered.windows.indexOf(window)];
   });
-  // A selfreflection request names people and places by name alone: an entry mentions nobody.
-  const named = given.selfreflection === null || given.selfreflection === undefined;
-  const handleById = named ? handlesOf(given.chatHandles, people, keptWindows) : null;
-  const channelHandleById = named
-    ? channelHandlesOf(given.currentChannelId, keptMemory, keptWindows, chatIdOfInput(given))
-    : new Map<string, string>();
+  const named = handled(given);
+  const { names } = offered;
   const withHandle = (one: MemoryItem): MemoryItem => {
-    const channel = one.chatId ? channelHandleById.get(one.chatId) : undefined;
-    if (channel) return { ...one, text: `#${channel} ${one.text}` };
-    const handle = one.handleIds.map((id) => handleById?.get(id)).find(Boolean);
-    return handle ? { ...one, text: `@${handle} ${one.text}` } : one;
+    if (!named) return one;
+    if (one.chatId) return { ...one, text: `#${names.places.handleOf(one.chatId)} ${one.text}` };
+    return one.handleKey ? { ...one, text: `@${names.people.handleOf(one.handleKey)} ${one.text}` } : one;
   };
-  const windowHandle = (window: MeanwhileWindow): string | null =>
-    window.dm ? null : (channelHandleById.get(chatIdOfInput(given)(window.placeId) ?? '') ?? null);
   const { stats } = fit;
   const cutBy = Object.fromEntries(
     MEMORY_SUBTAGS.map((subtag) => [
@@ -465,18 +634,37 @@ export function readerRequest(given: ReaderInput): ReaderResult {
   const blocks = listedOf(given, offered, fit, {
     memory: renderMemory(keptMemory.map(withHandle), cutBy, labels),
     inner: innerTextOf(given, offered, fit),
-    meanwhile: meanwhileText(keptWindows, given.frame, labels, given.nameOf, windowHandle),
+    meanwhile: meanwhileText(
+      keptWindows,
+      given.frame,
+      labels,
+      given.nameOf,
+      (window) => windowHandle(given, names, window),
+      named ? names.meanwhileRefs : null
+    ),
     chat: renderTranscript(keptChat, timezone, labels, given.tempoText),
   });
   const memberNames = new Map<string, Array<string>>();
   for (const one of people) for (const id of one.handleIds) if (one.name) memberNames.set(id, [one.name]);
+  const targets = named
+    ? targetsOf(
+        given,
+        offered,
+        keptMemory.filter((one) => one.subtag === 'people')
+      )
+    : new Map();
+  const parts = userParts(blocks);
+  const text = parts.map((part) => part.text).join('');
+  const shown = (handle: string): boolean => new RegExp(`@${handle}(?![\\p{L}\\p{N}_])`, 'u').test(text);
+  const handleIds = named ? handleIdsOf(given, offered, targets, shown) : null;
   return {
-    parts: userParts(blocks),
+    parts,
     blocks: blockRecords(blocks, fit.stats),
     fit,
     keptChat,
-    handleById,
-    channelHandleById,
+    handles: handleIds,
+    channelHandleById: named ? names.places.entries() : new Map<string, string>(),
+    refs: named ? { targets, personHandle: (key) => names.people.handleOf(key), placeRef: names.placeRef } : null,
     memberNames,
     peopleShown: people
       .filter((one) => one.name !== null && one.handleIds.length > 0)

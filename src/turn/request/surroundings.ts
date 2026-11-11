@@ -4,6 +4,7 @@
 // request builder (src/turn/request/reader.ts) calls it. Pure.
 
 import { fill } from '../../format.ts';
+import { pathShown } from './frame.ts';
 import type { Frame, FramePlace } from './frame.ts';
 import { block, escapeStored, pathText } from './text.ts';
 import type { Labels } from './types.ts';
@@ -23,9 +24,10 @@ function fieldLines(fields: PlaceFields | null, labels: Labels): Array<string> {
     .map((key) => fill(template, { field: names[key] ?? key, value: escapeStored(fields[key].trim()) }));
 }
 
-/** A place's body: its path, then its fields. */
-function placeBody(place: FramePlace, fields: PlaceFields | null, labels: Labels): string {
-  return [pathText(place.path, labels.memory?.pathJoin), ...fieldLines(fields, labels)].join('\n');
+/** A place's body: its path as a request shows it (pathShown), then its fields. */
+function placeBody(frame: Frame, place: FramePlace, fields: PlaceFields | null, labels: Labels): string {
+  const path = pathShown(frame, place, labels.spatial?.unnamed ?? '');
+  return [pathText(path, labels.memory?.pathJoin), ...fieldLines(fields, labels)].join('\n');
 }
 
 /**
@@ -44,8 +46,8 @@ export function surroundingsOf(
   const root = frame.root !== null && frame.root.id !== frame.place.id ? frame.root : null;
   return [
     block('interface', interfaceText.trim()),
-    root === null ? '' : block('root', placeBody(root, rootPlace, labels)),
-    block('place', placeBody(frame.place, place, labels)),
+    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels)),
+    block('place', placeBody(frame, frame.place, place, labels)),
   ]
     .filter(Boolean)
     .join('\n');

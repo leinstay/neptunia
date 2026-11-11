@@ -2,6 +2,15 @@
   "model": {
     "locale": "en-US",
     "self": "{name} (you)",
+    "authors": {
+      "line": "{handle}",
+      "lineAccount": "{handle} ({iface} {id})",
+      "unknown": "someone"
+    },
+    "places": {
+      "ref": "#{handle} {name}",
+      "refUnhandled": "{name}"
+    },
     "units": {
       "lessThanMinute": "less than a minute",
       "minute": "min",
@@ -14,7 +23,6 @@
       "date": "--- {date} ---",
       "header": "=== {date} ===",
       "empty": "(empty)",
-      "author": "{name} ({handle})",
       "channel": "{name} ({handle})",
       "replyTo": "(reply to {author}'s #{index}: {quote})",
       "replyToMemory": "(reply to {author}: {quote})",
@@ -25,8 +33,8 @@
       "triggeredBy": "(turn triggered by #{n})",
       "triggeredByOlder": "(turn triggered by an older message)",
       "called": "[you called {skill}{args}: {status}]",
-      "calledFrom": " from #{place}",
-      "calledSearched": ", searched #{place}",
+      "calledFrom": " from {place}",
+      "calledSearched": ", searched {place}",
       "calledArgs": " ({args})",
       "callStatus": {
         "ok": "done",
@@ -345,9 +353,11 @@
       "candidate": "a possible match for a name in the chat, not a sure one",
       "entry": "{name} ({origin})",
       "realName": "real name: {value}",
-      "accounts": "their accounts: {value}",
-      "account": "{iface} id {id}",
-      "accountNamed": "{iface} id {id}, shown as {name}",
+      "aliases": "also called: {value}",
+      "account": "- {iface} account {id}: {names}",
+      "accountHere": "- {iface} account {id}: {names} (the account in this place)",
+      "accountUnnamed": "- {iface} account {id}",
+      "accountUnnamedHere": "- {iface} account {id} (the account in this place)",
       "relation": "you and them: {value}",
       "character": "character: {value}",
       "style": "how they talk: {value}",
@@ -792,7 +802,7 @@
           "closest": "No skill by that name. The closest: {names}."
         },
         "conversation": {
-          "source": "Source: conversation.read, #{channel}. Messages in order, each with its time and author.",
+          "source": "Source: conversation.read, {place}. Messages in order, each with its time and author.",
           "handles": "The number before each line is a message number you can use in your calls like any other in the chat.",
           "none": "No messages in that span.",
           "cut": "{dropped} lines not shown for room.",

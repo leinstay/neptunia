@@ -21,7 +21,8 @@ import { surroundingsOf } from './surroundings.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
 import { seenOf } from './tail.ts';
 import type { Task } from './task.ts';
-import { resolveChatText } from './text.ts';
+import { handleOf } from '../../behavior/handles.ts';
+import { mentionsNamed } from '../../format.ts';
 import type { RequestInput } from './types.ts';
 import type { WakeTexts } from './wake.ts';
 
@@ -101,6 +102,26 @@ function feedbackOf(told: string, selfreflection: SelfreflectionFramed | null): 
   return [told, selfreflection?.feedback ?? ''].filter(Boolean).join('\n') || null;
 }
 
+/**
+ * A `<@id>` of a stored text of the stable part as the handle of the person it names (cut from what memberKeyOf gives,
+ * so the cached text holds no per-request form), `authors.unknown` for an account no row holds.
+ */
+function storedMention(given: RequestInput, base: Base): (native: string) => string {
+  return (native) => {
+    const key = given.memberKeyOf?.(native) ?? null;
+    return key === null ? (base.labels.authors?.unknown ?? '') : `@${handleOf(key)}`;
+  };
+}
+
+/** The members who wrote a line of the chat, she aside, each once with the name the newest of their lines gave. */
+function chatMembersOf(history: RequestInput['history']): Array<{ native: string; name: string | null }> {
+  const names = new Map<string, string | null>();
+  for (const line of history)
+    if (!line.self && line.authorId !== undefined && line.authorId !== null)
+      names.set(String(line.authorId), line.authorName ?? names.get(String(line.authorId)) ?? null);
+  return [...names].map(([native, name]) => ({ native, name }));
+}
+
 /** The request of a turn on the frame. */
 export function framedBuild(given: RequestInput, steps: FramedSteps): BuildRequestResult {
   const { frame, base, task, senses, own, room, tempo, tempoText } = steps;
@@ -108,7 +129,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
   const selfreflection = selfreflectionFramedOf({ ...given, labels });
   const surroundingsText = surroundingsHeld(given, base, frame);
   const selfFacts = base.frozen('self', '', () =>
-    (given.placeMemory?.self ?? []).map((fact) => `- ${String(resolveChatText(fact, nameOf))}`)
+    (given.placeMemory?.self ?? []).map((fact) => `- ${String(mentionsNamed(fact, storedMention(given, base)))}`)
   );
   const built = readerRequest({
     frame,
@@ -148,12 +169,17 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     lineOf: given.refLineOf ?? null,
     isSourceRetired: given.isSourceRetired ?? null,
     live: liveOf(base, given.now),
-    chatHandles: base.handleById,
+    chatHandles: base.keyHandles,
+    chatHandleById: base.handleById,
+    chatMembers: chatMembersOf(given.history),
+    keyOfMember: base.keyOfMember,
+    memberKeyOf: given.memberKeyOf ?? null,
+    placePathOf: given.placePathOf ?? null,
     currentChannelId: given.currentChannelId ?? null,
     chatIdOf: given.chatIdOf ?? null,
     answeredText: frame.answers === null ? null : (given.trigger?.content ?? null),
   });
-  const { parts, fit, handleById } = built;
+  const { parts, fit } = built;
   return {
     messages: [
       { role: 'system', content: base.system },
@@ -172,9 +198,10 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     peopleShown: built.peopleShown,
     seen: seenOf({ history: given.history, keptChat: built.keptChat }),
     memoryReads: ordered(built.memoryReads),
-    handles: handleById ? new Map([...handleById].map(([id, handle]) => [handle, id])) : null,
+    handles: built.handles,
     memberNames: new Map([...(base.memberNames ?? []), ...built.memberNames]),
     // Handle -> channel id, for her `#handle` in a tool argument or a post.
     channelHandles: new Map([...built.channelHandleById].map(([id, handle]) => [handle, id])),
+    refs: built.refs,
   };
 }
