@@ -1536,17 +1536,6 @@
       "count": 2
     }
   },
-  "src/tools/operations/access.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    }
-  },
   "src/tools/operations/alias.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 14
@@ -1563,7 +1552,7 @@
       "count": 2
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 5
+      "count": 4
     }
   },
   "src/tools/operations/draw.ts": {
@@ -1602,11 +1591,6 @@
       "count": 4
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "src/tools/operations/index.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
     }
   },
