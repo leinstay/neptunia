@@ -13,7 +13,6 @@ import { frameOf } from '../src/turn/request/frame.ts';
 import type { FrameParty } from '../src/turn/request/frame.ts';
 import { factItemsOf, memoryBlockOf, memoryItemsOf } from '../src/turn/request/memory-block.ts';
 import type { EntryRefs } from '../src/turn/request/memory-block.ts';
-import type { Labels } from '../src/turn/request/types.ts';
 import { frameInput } from './fixtures/frame-input.ts';
 import {
   claimEntry,
@@ -206,15 +205,30 @@ test('a mention in a claim, a lore text, an episode, an excerpt and a place topi
 // `surroundings.fields.*`), and says since which day she is in a root as one more field of that form,
 // `surroundings.fields.joined`, the day as `YYYY-MM-DD` in the turn's timezone (the year matters: she may have joined
 // years ago). A place with no known moment has no such line. Signature: `PlaceEntry` gains `joinedAt: number | null`.
-// The tracked labels with the field words of the fixture, so the test reads values and never the shipped wording.
-const FIELD = '{field}: {value}';
-const WORDS = { purpose: 'purpose', tone: 'tone', topics: 'topics', joined: 'joined' };
-const labels: Labels = { ...shippedLabels, surroundings: { field: FIELD, fields: WORDS } };
+// The words come off the tracked labels (`surroundings.field`, `surroundings.fields.*`), so a test reads values and never
+// their wording. `surroundings.fields.joined` is the key the root's entry gets.
+function shipped(...keys: Array<string>): string {
+  let node: unknown = shippedLabels.surroundings;
+  for (const key of keys) node = typeof node === 'object' && node !== null ? Reflect.get(node, key) : undefined;
+  if (typeof node !== 'string') throw new Error(`labels.surroundings.${keys.join('.')} is missing`);
+  return node;
+}
+const FIELD = shipped('field');
+const WORDS = {
+  purpose: shipped('fields', 'purpose'),
+  tone: shipped('fields', 'tone'),
+  topics: shipped('fields', 'topics'),
+  joined: shipped('fields', 'joined'),
+};
 const fieldLine = (word: string, value: string): string => fill(FIELD, { field: word, value });
 const placesOf = (entries: Array<ReturnType<typeof placeEntry>>, timezone = 'UTC'): string =>
   section(
-    memoryBlockOf(mindOfEntries({ places: entries }), frameOf(frameInput({ author: null, timezone })), labels, nameOf)
-      .text,
+    memoryBlockOf(
+      mindOfEntries({ places: entries }),
+      frameOf(frameInput({ author: null, timezone })),
+      shippedLabels,
+      nameOf
+    ).text,
     'places'
   );
 
