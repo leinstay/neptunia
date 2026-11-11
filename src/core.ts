@@ -93,7 +93,7 @@ import { createEventDoor } from './interface/door.ts';
 import { createChatDirectory } from './interface/directory.ts';
 import { createOwnerPairing } from './interface/owner-pairing.ts';
 import { createRootJoining } from './interface/root-joining.ts';
-import { createInterfaceSettings, listedRoots } from './interface/interface-settings.ts';
+import { createInterfaceSettings, listedRoots, rootNounOf } from './interface/interface-settings.ts';
 import { createPersonLinks, joinScreens } from './interface/person-link.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
 import {
@@ -1231,6 +1231,7 @@ async function buildCore(
     noteRoots: (name, named) => store.noteRoots(name, named),
     invite: (name) => reads.answer('inviteLink', { iface: name }),
     notify: (notice) => intake.notice(notice.text),
+    nounOf: rootNounOf(() => memoryDb.database()),
   });
   const onMessage = createMessageHandler({
     screen: joinScreens(personLinks, ownerPairing),

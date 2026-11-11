@@ -2,13 +2,16 @@
 // files over the core's settings (src/config/files.ts#readInterfaceConfig) and reads them again when the core's
 // settings reload or one of those files changes, as bin/neptunia.ts does for an interface run as a unit; a change of a
 // file is told to the listeners of `onChange` at the next read. `listedRoots` reads and writes the list setting a
-// package's `setup.json` marks as its roots (src/setup/modules.ts). Built by src/core.ts.
+// package's `setup.json` marks as its roots (src/setup/modules.ts), and `rootNounOf` the interface's own word for a root,
+// as its `hello` declared it in `names.nouns`. Built by src/core.ts.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { interfacePackageDir, localInterfacePath, readInterfaceConfig } from '../config/files.ts';
 import { addModuleItem, moduleItems, readModuleSettings, removeModuleItem } from '../setup/modules.ts';
 import type { ModuleRef, ModuleSetting } from '../setup/modules.ts';
+import { interfaceNamesOf } from '../memory/db/frame-reads.ts';
+import type { Db } from '../memory/db/types.ts';
 
 type Settings = Record<string, unknown>;
 
@@ -111,5 +114,13 @@ export function listedRoots({
       if (found !== null) removeModuleItem(found.ref, found.settings, found.key, rootId);
       written();
     },
+  };
+}
+
+/** The interface's own noun for its top place (`names.nouns.server` of its `hello`), null when it declared none. */
+export function rootNounOf(database: () => Db | null): (iface: string) => string | null {
+  return (iface) => {
+    const db = database();
+    return db === null ? null : (interfaceNamesOf(db, iface).nouns.server ?? null);
   };
 }

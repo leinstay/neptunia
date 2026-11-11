@@ -8,7 +8,7 @@
 // `remove` stops serving one and takes it off the setting, leaving her memory of it as it is. Every command first
 // refuses an interface with no stored token, a disabled one or one whose link is down, naming the repair. The waiting
 // roots live in process memory: the interface reports them again at its next start. Every text is a label under
-// `labels.roots`. Built by src/core.ts; the commands are src/interface/commands/interfaces-roots.ts.
+// `labels.roots`, which names a root by the interface's own noun and quotes no command itself. Built by src/core.ts; the commands are src/interface/commands/interfaces-roots.ts.
 
 import { log } from '../log.ts';
 import type { RootRoutes } from '../core-routing.ts';
@@ -43,6 +43,8 @@ export type RootJoiningDeps = {
   noteRoots(iface: string, roots: ReadonlyArray<Named>): void;
   invite(iface: string): Promise<ReadAnswer<'inviteLink'>>;
   notify(notice: RootNotice): void;
+  /** The interface's own noun for its top place, as its `hello` declared it; absent or null, `labels.roots.noun`. */
+  nounOf?(iface: string): string | null;
 };
 
 export type RootJoining = {
@@ -98,9 +100,29 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
   };
   const isOpen = (iface: string): boolean => (openUntil.get(iface) ?? 0) > now();
 
+  /**
+   * `labels.roots.<path>` filled with every value a roots label may hold: the interface, its noun for a root, the root's
+   * id and name, and the commands a label names, so no label spells a platform word or a command itself.
+   */
+  function say(path: ReadonlyArray<string>, iface: string, root: { id?: string; name?: string } = {}, extra = {}) {
+    const id = root.id ?? '';
+    const values: Record<string, string> = {
+      iface,
+      id,
+      name: root.name ?? '',
+      noun: deps.nounOf?.(iface) ?? labelOf(hot.prompts, 'noun'),
+      accept: `/interfaces roots accept ${iface} ${id}`,
+      remove: `/interfaces roots remove ${iface} ${id}`,
+      list: `/interfaces roots ${iface}`,
+      invite: `/interfaces invite ${iface}`,
+      ...extra,
+    };
+    return fillLabel(labelOf(hot.prompts, ...path), values);
+  }
+
   function refusal(code: string, iface: string, rootId = '', status: JoiningAnswer['status'] = 'failed') {
     const repair = REPAIRS[code]?.(iface) ?? '';
-    const text = fillLabel(labelOf(hot.prompts, 'refused', code), { iface, root: rootId, repair });
+    const text = say(['refused', code], iface, { id: rootId }, { repair });
     log.info('roots: refused', { iface, code });
     return { text, status, code };
   }
@@ -144,7 +166,7 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
     const first = !roots.has(root.id);
     roots.set(root.id, root);
     if (first) {
-      const text = fillLabel(labelOf(hot.prompts, 'notice'), { iface, root: root.id, name: root.name });
+      const text = say(['notice'], iface, root);
       deps.notify({ iface, root, text });
       log.info('roots: waiting', { iface, waiting: roots.size });
     }
@@ -201,20 +223,21 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
       );
     openUntil.set(iface, now() + JOINING_MS);
     log.info('roots: joining open', { iface });
-    return { text: fillLabel(labelOf(hot.prompts, 'invite'), { iface, url: answer.url }), status: 'ok' };
+    return { text: say(['invite'], iface, {}, { url: answer.url }), status: 'ok' };
   }
 
   function roots(iface: string): JoiningAnswer {
     const refused = unworkable(iface);
     if (refused !== null) return refused;
     const found = rows(iface);
-    if (found.length === 0) return { text: fillLabel(labelOf(hot.prompts, 'none'), { iface }), status: 'ok' };
+    if (found.length === 0) return { text: say(['none'], iface), status: 'ok' };
     const lines = found.map((row) =>
-      fillLabel(labelOf(hot.prompts, 'row'), {
-        root: row.id,
-        name: row.name ?? '',
-        state: labelOf(hot.prompts, 'state', row.state),
-      }).trim()
+      say(
+        ['row'],
+        iface,
+        { id: row.id, name: row.name ?? '' },
+        { state: labelOf(hot.prompts, 'state', row.state) }
+      ).trim()
     );
     return { text: lines.join('\n'), status: 'ok' };
   }
@@ -229,7 +252,7 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
     listed.add(iface, rootId);
     serve(iface, root);
     log.info('roots: accepted', { iface, served: routes.rootsOf(iface).length });
-    return { text: fillLabel(labelOf(hot.prompts, 'accepted'), { iface, root: rootId }), status: 'ok' };
+    return { text: say(['accepted'], iface, root), status: 'ok' };
   }
 
   function remove(iface: string, rootId: string): JoiningAnswer {
@@ -244,7 +267,7 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
     listed.remove(iface, rootId);
     waiting.get(iface)?.delete(rootId);
     log.info('roots: removed', { iface, served: routes.rootsOf(iface).length });
-    return { text: fillLabel(labelOf(hot.prompts, 'removed'), { iface, root: rootId }), status: 'ok' };
+    return { text: say(['removed'], iface, { id: rootId }), status: 'ok' };
   }
 
   return { rootChanged, isOpen, rows, invite, roots, accept, remove };
