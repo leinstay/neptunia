@@ -1,11 +1,11 @@
-// The one-time phrases of the owner's pairing of a new interface, with the limits of Hermes's gateway/pairing.py. A
-// phrase is six words of the word list (src/interface/phrase-codes.ts), kept only as its seal. `createPairing` gives
-// a phrase only while the owner opened pairing on that interface (`open`, one hour); a phrase lives an hour, at most
-// three wait per interface, an account asks once per ten minutes, and five wrong approvals lock the approvals for an
-// hour. An approval closes pairing on its interface and voids its other phrases. Every change is written to the
-// state file when one is given, so a restart neither drops a waiting phrase nor reopens a used one or a lock.
-// `createCodeFile` is that file, also used by her link tool (src/interface/person-link.ts). Pure over the injected
-// clock and phrases apart from the file; called by src/interface/owner-pairing.ts.
+// One-time phrases with the limits of Hermes's gateway/pairing.py. A phrase is six words of the word list
+// (src/interface/phrase-codes.ts), kept only as its seal. `createPairing` gives a phrase only while pairing is open on
+// that interface (`open`, one hour); a phrase lives an hour, at most three wait per interface, an account asks once per
+// ten minutes, and five wrong approvals lock the approvals for an hour. An approval closes pairing on its interface and
+// voids its other phrases. Every change is written to the state file when one is given, so a restart neither drops a
+// waiting phrase nor reopens a used one or a lock. No module of the engine calls `createPairing`. `createCodeFile` is
+// the state file and the limits are the constants below, both used by her link tool (src/interface/person-link.ts),
+// whose file is `link-codes.json`. Pure over the injected clock and phrases apart from the file.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,7 +14,7 @@ import { log } from '../log.ts';
 import type { PhraseCodes, Seal } from './phrase-codes.ts';
 
 // Hermes's limits (gateway/pairing.py): a code lives an hour, three wait per platform, an account asks once per ten
-// minutes, five failures lock for an hour. The pairing window is the owner's hour to write from the new account.
+// minutes, five failures lock for an hour. The pairing window is an hour.
 const HOUR_MS = 60 * 60_000;
 export const CODE_TTL_MS = HOUR_MS;
 export const MAX_PENDING = 3;
