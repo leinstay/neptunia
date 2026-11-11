@@ -726,7 +726,7 @@
       "count": 11
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 7
+      "count": 6
     }
   },
   "src/errands/blocks.ts": {

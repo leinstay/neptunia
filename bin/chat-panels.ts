@@ -2,7 +2,7 @@
 // command handler as a typed command. Opening setup does no installation, authentication or provider probe.
 import { CONFIG_SCHEMA, schemaDefaults } from '../src/config/schema.ts';
 import { deepMerge } from '../src/config.ts';
-import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
+import { COMMANDS, parseCommandLine, takesName, wordOf } from '../src/interface/commands/table.ts';
 import type { Panel, PanelResult, PanelRow } from '../interfaces/cli/panel.ts';
 import { approvalPanel } from '../interfaces/cli/approval-view.ts';
 import type { GateView } from '../interfaces/cli/approval-view.ts';
@@ -352,7 +352,7 @@ export async function capabilityPanel(kind: keyof typeof CAPABILITY_MENUS, run: 
   // lowercase (src/setup/modules.ts), prefilling the name before its command.
   if (found?.nameFirst === true) {
     const names = lines.flatMap((line) => /^[a-z][a-z0-9_-]*(?=\s|$)/.exec(line.trim())?.[0] ?? []);
-    const commands = found.subcommands.filter((one) => one.args[0]?.name === 'name').map((one) => one.word ?? one.name);
+    const commands = found.subcommands.filter(takesName).map(wordOf);
     const rows = names.map((name): PanelRow => ({
       id: name,
       label: name,

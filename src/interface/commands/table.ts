@@ -770,10 +770,13 @@ function subcommandOf(command: Command, words: ReadonlyArray<string>): { found: 
 }
 
 /** Whether a leaf works on the `name` a `nameFirst` command reads first. */
-const takesName = (one: Subcommand): boolean => one.args[0]?.name === 'name';
+export function takesName(one: Subcommand): boolean {
+  const [first] = one.args;
+  return first?.name === 'name';
+}
 
 /** The word the owner types for a leaf after the name of a `nameFirst` command. */
-const wordOf = (one: Subcommand): string => one.word ?? one.name;
+export const wordOf = (one: Subcommand): string => one.word ?? one.name;
 
 /**
  * A leaf's words as the owner types them after its command: `<name> set` for a leaf of a `nameFirst` command that works
