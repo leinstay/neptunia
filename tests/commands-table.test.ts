@@ -95,6 +95,23 @@ test('every listed part of /doctor and window of /usage parses', () => {
     assert.equal(parseCommandLine(line).ok, true, line);
 });
 
+test('the watcher list leaves parse from a typed line, the text with its spaces and the number as a word', () => {
+  // Bug: the text of /doctor watcher accept is cut at its first space, or a leaf is read as the report number.
+  const listed = parseCommandLine('/doctor watcher accepted');
+  assert.ok(listed.ok);
+  assert.equal(listed.name, 'doctor.watcher.accepted');
+  const added = parseCommandLine('/doctor watcher accept the lamp in hall two flickers');
+  assert.ok(added.ok);
+  assert.equal(added.name, 'doctor.watcher.accept');
+  assert.deepEqual(Object.values(added.args), ['the lamp in hall two flickers']);
+  const removed = parseCommandLine('/doctor watcher unaccept 2');
+  assert.ok(removed.ok);
+  assert.equal(removed.name, 'doctor.watcher.unaccept');
+  assert.deepEqual(Object.values(removed.args), ['2']);
+  assert.equal(parseCommandLine('/doctor watcher accept').ok, false, 'accept needs a text');
+  assert.equal(parseCommandLine('/doctor watcher unaccept').ok, false, 'unaccept needs a number');
+});
+
 test('/skills with nothing after it lists, and list and pending take no argument', () => {
   const bare = parseCommandLine('/skills');
   assert.ok(bare.ok);
