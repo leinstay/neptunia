@@ -2,7 +2,7 @@
 //
 //   subjectOf(db, ctx, words, here) -> Subject
 //
-// The words are a member handle (`@u…`, the handle a request gives an account's platform id, handles.ts#handleOf), a
+// The words are a person's handle (`@u…`, the handle a request gives the meta-person's id, handles.ts#handleOf), a
 // channel handle (`#c…`), the word `community` for the root of the place she stands in (`here`), the title of a lore
 // entry, or a name: the name index's exact form for a person (names.ts#matchName) and its exact form or stems for a
 // place (names.ts#placesNamed). A lore title is tried first, then people, then places, and the first kind that matches
@@ -11,9 +11,9 @@
 // reader's rule (mind-read.ts). Read only.
 
 import { CHANNEL_HANDLE_PREFIX, HANDLE_PREFIX, handleOf } from '../../behavior/handles.ts';
-import { peopleOfHandle } from './direct-chats.ts';
+import { handleOfPerson, peopleOfHandle } from './direct-chats.ts';
 import { placeAudience } from './graph.ts';
-import { accountsOfPerson, personOfAccount } from './meta-person.ts';
+import { accountsOfPerson, partnerPersonOfPlace, personOfAccount } from './meta-person.ts';
 import { matchName, namesIn, normalName, placesNamed } from './names.ts';
 import { allowedAudience, audienceWhere } from './scope.ts';
 import type { Context } from './scope.ts';
@@ -120,22 +120,32 @@ function personSubject(db: Db, personId: string): Subject {
   return { kind: 'person', personId, accountId: accountsOfPerson(db, personId)[0]?.id ?? '' };
 }
 
-/** A person as a choice: the first name of their first account, and its member handle. */
+/** A person as a choice: the first name of their first account, and the person's handle. */
 function personChoice(db: Db, personId: string): SubjectChoice {
   const first = accountsOfPerson(db, personId)[0];
-  if (first === undefined) return { name: personId, ref: personId };
-  const names = db.prepare('SELECT names FROM accounts WHERE id = ?').get(first.id)?.names;
-  return { name: namesIn(names)[0] ?? personId, ref: `@${handleOf(first.platformId)}` };
+  const names = first === undefined ? null : db.prepare('SELECT names FROM accounts WHERE id = ?').get(first.id)?.names;
+  return { name: namesIn(names)[0] ?? personId, ref: `@${handleOfPerson(personId)}` };
 }
 
-/** A place as a choice: its stored name, and its channel handle when its row holds a native id. */
+/**
+ * A place as a choice: its stored name, and its channel handle when its row holds a native id. A direct chat is named by
+ * its partner's handle, the person's, else the partner account's; a place with neither by its name.
+ */
 function placeChoice(db: Db, placeId: string): SubjectChoice {
-  const row = db.prepare('SELECT name, native_id, kind FROM places WHERE id = ?').get(placeId);
+  const row = db
+    .prepare('SELECT name, native_id, kind, chat, partner_person, partner_account FROM places WHERE id = ?')
+    .get(placeId);
   const native = text(row?.native_id);
+  const name = text(row?.name);
+  if (row !== undefined && (row.kind === 'dm' || row.chat === 'dm')) {
+    const partner = partnerPersonOfPlace(db, row) ?? text(row.partner_account);
+    const ref = partner === null ? (name ?? '') : `@${handleOf(partner)}`;
+    return { name: name ?? ref, ref };
+  }
   const handled = native !== null && (row?.kind === 'channel' || row?.kind === 'thread');
   return {
-    name: text(row?.name) ?? placeId,
-    ref: handled ? `#${handleOf(native, undefined, CHANNEL_HANDLE_PREFIX)}` : placeId,
+    name: name ?? '',
+    ref: handled ? `#${handleOf(native, undefined, CHANNEL_HANDLE_PREFIX)}` : (name ?? ''),
   };
 }
 
