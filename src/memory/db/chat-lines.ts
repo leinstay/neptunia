@@ -1,7 +1,7 @@
 // The stored lines of one place, oldest first, for the owner's chat sessions (src/chat/): the current
 // revision of each message, with deleted ones left out, as recall reads them. Each line carries its number, its place among
 // all the stored lines of the place, deleted ones counted, the oldest being 1. The owner's chat draws it as `#N`, and her
-// `<chat>` numbers a line by the same count (placeLineNumbers, src/turn/chat-numbers.ts). Read only, and with no audience
+// `<chat>` numbers a line by the same count (placeLineNumbers, src/turn/history.ts). Read only, and with no audience
 // applied: a number tells nothing of a line's text.
 
 import { LINE_HOLDS_MEDIA, lineMedia } from './media-store.ts';

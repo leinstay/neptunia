@@ -14,7 +14,7 @@ import type { VideoState } from '../../rewatch.ts';
 import type { HistoryLine, PhaseContext, PhasePrompts } from '../context.ts';
 import type { Prepared } from '../request.ts';
 import { VIDEOS_PER_TURN } from './stages.ts';
-import { numberLines, withLineNumbers } from '../../chat-numbers.ts';
+import { numberLines, withLineNumbers } from '../../history.ts';
 
 /** What the gather step took for the request: the history as shown, and every input from the preparation. */
 export type Gathered = {
@@ -90,7 +90,7 @@ export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: Gathe
     history = withDeletedLines<HistoryLine>(history, found.placeholders);
   }
   // Every line the request shows, the reply parents and the deleted lines included, with its number among the stored
-  // lines of its place (src/turn/chat-numbers.ts), which `<chat>` prints.
+  // lines of its place (src/turn/history.ts), which `<chat>` prints.
   history = withLineNumbers(history, numberLines(history, draft.placeLines ?? null));
   // A text attachment cut at FILE_PREVIEW_CHARS (src/turn/phases/request/stages.ts, src/media/text-preview.ts#withTextPreviews).
   for (const message of history) {

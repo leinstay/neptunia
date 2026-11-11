@@ -17,9 +17,8 @@ import { transportOf } from '../../../tools/tool-calls.ts';
 import { replyOptionsOf } from '../../calls.ts';
 import type { Selfreflection } from '../../selfreflection.ts';
 import type { Draft } from '../../draft.ts';
-import { withReplyParents } from '../../history.ts';
-import { chatHead, chatHeadStepOf, numberLines } from '../../chat-numbers.ts';
-import type { StoredNumbers } from '../../chat-numbers.ts';
+import { chatHead, chatHeadStepOf, numberLines, withReplyParents } from '../../history.ts';
+import type { StoredNumbers } from '../../history.ts';
 import type { Lookup } from '../../lookup.ts';
 import { paceSettings } from '../../settings.ts';
 import type { PaceSettings } from '../../settings.ts';
@@ -225,7 +224,7 @@ export async function setupRequest(
   // persona's own lines carry the message that started their turn (linkTriggers) and the
   // skill calls she made (linkCalls), so the request and every analyzer transcript built from
   // this history name them.
-  // The window starts at its head (src/turn/chat-numbers.ts#chatHead), numbered by the stored lines of the chat's own
+  // The window starts at its head (src/turn/history.ts#chatHead), numbered by the stored lines of the chat's own
   // place, before its reply parents are put in. A direct chat is its own place, the turn's.
   const chatPlace = isDm ? placeId : placeOfChat(store, channel, channel.iface) || String(channel.id ?? '');
   const storedOf = (lines: ReadonlyArray<unknown>): StoredNumbers | null =>

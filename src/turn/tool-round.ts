@@ -53,7 +53,7 @@ import {
 } from './calls.ts';
 import type { CallEnvelope, SearchRefs } from './calls.ts';
 import { cutOffOf, untoldDiagnostics } from './journal.ts';
-import { chatFetchCount, chatHeadStepOf } from './chat-numbers.ts';
+import { chatFetchCount, chatHeadStepOf } from './history.ts';
 import { TURN_CANCELLED } from './timers.ts';
 import { snapshotOfDraft } from './routing.ts';
 import { INNER_TERMINAL_SKILLS, LOOP_MIN_CALL_MS, LOOP_WHY, loopSettings } from './settings.ts';
@@ -325,7 +325,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         }
       : null;
     return historyLines(ifaceReads, chatOf(channel), {
-      // Far enough back for the window's head (src/turn/chat-numbers.ts), which moves in steps of `context.chatHeadStep`.
+      // Far enough back for the window's head (src/turn/history.ts), which moves in steps of `context.chatHeadStep`.
       limit: inner
         ? innerSettings(config).chatMessages
         : chatFetchCount(config.context.channelMessages, chatHeadStepOf(config)),

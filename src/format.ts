@@ -1022,7 +1022,7 @@ function contentWithHandles(
  *   caller): in `mode: 'chat'`, a message reference of a line (`messageRefs`, put on the message by
  *   the interface) to a message of this list reads as that line's `#index`; a reference to
  *   anything else, and a link in the text with no reference, stays as written.
- * @param [options.lineNumbers]  Default false: a message's own `lineNumber` (src/turn/chat-numbers.ts) is its number
+ * @param [options.lineNumbers]  Default false: a message's own `lineNumber` (src/turn/history.ts) is its number
  *   when it is a whole number above the number of the message before it, and every other message takes the number
  *   after the one before it. Without it the messages are numbered on from `indexOffset`.
  * @param [options.skip]  A message it holds true for keeps its
@@ -1114,14 +1114,7 @@ export function formatTranscript(
   }
   // A call mark takes no number: the messages alone are numbered, in their order.
   const numbered = messages.filter((message) => message?.kind !== 'call');
-  const ownNumbers = options.lineNumbers === true;
-  const indexById = new Map<unknown, number>();
-  let last = indexOffset;
-  for (const message of numbered) {
-    const own: unknown = ownNumbers ? message.lineNumber : undefined;
-    last = typeof own === 'number' && Number.isInteger(own) && own > last ? own : last + 1;
-    indexById.set(message.id, last);
-  }
+  const indexById = numbersOf(numbered, indexOffset, options.lineNumbers === true);
   // A message link to a line of this list reads as that line's number (chat mode, `messageNumbers`).
   const linkNumbers = mode === 'chat' && options.messageNumbers === true;
   const byId = new Map(messages.map((message) => [message.id, message]));
@@ -1250,6 +1243,21 @@ export function formatTranscript(
   }
 
   return items;
+}
+
+/**
+ * The number of each message by its id, on from `offset`: with `own`, a message's `lineNumber` when it is a whole number
+ * above the number before it (formatTranscript's `lineNumbers`), else the number after the one before it.
+ */
+function numbersOf(messages: Array<Record<string, Untyped>>, offset: number, own: boolean): Map<unknown, number> {
+  const out = new Map<unknown, number>();
+  let last = offset;
+  for (const message of messages) {
+    const given: unknown = own ? message.lineNumber : undefined;
+    last = typeof given === 'number' && Number.isInteger(given) && given > last ? given : last + 1;
+    out.set(message.id, last);
+  }
+  return out;
 }
 
 /**

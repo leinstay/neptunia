@@ -16,7 +16,7 @@ import type { JournalDraft, noteDiagnostics } from './journal.ts';
 import type { ToolRoundDraft } from './tool-round.ts';
 import type { IndexedSkill } from '../skills/uses.ts';
 import type { Handles } from './handles.ts';
-import type { StoredNumbers } from './chat-numbers.ts';
+import type { StoredNumbers } from './history.ts';
 
 /** What bit during the attempt (src/llm/limits.ts#createLimits). */
 export type Limits = {
@@ -72,7 +72,7 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   turnKey?: { turnId: string };
   /** The turn's one handle registry (src/turn/handles.ts): every `#n` its requests issued, to the line it names. */
   handles?: Handles;
-  /** The count of the stored lines of the turn's chat and the numbers of its newest (src/turn/chat-numbers.ts). */
+  /** The count of the stored lines of the turn's chat and the numbers of its newest (src/turn/history.ts). */
   placeLines?: StoredNumbers | null;
   /** The ids of the facts the request told, which the turn's end clears (src/turn/phases/request/facts.ts). */
   factsShown?: Array<string>;
