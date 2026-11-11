@@ -1054,6 +1054,29 @@
     },
     "link": {
       "code": "{handle} on {iface} says they are you. If that is so, send these six words from {handle} as the next message in that conversation, in any order: {phrase}. The phrase works for an hour."
+    },
+    "roots": {
+      "invite": "Open this link to add her to a new root of {iface}: {url}\nFor the next hour, the first root she joins is served at once.",
+      "row": "{root}  {state}  {name}",
+      "state": {
+        "served": "served",
+        "waiting": "waiting for your accept",
+        "absent": "listed, she is not in it"
+      },
+      "none": "{iface} has no roots yet. /interfaces invite {iface} prints the link that adds her to one.",
+      "accepted": "{root} on {iface} is served from now on.",
+      "removed": "{root} on {iface} is not served any more. What she remembers of it stays.",
+      "notice": "She was added to {name} ({root}) on {iface}, and it waits for your word. /interfaces roots accept {iface} {root} serves it, /interfaces roots remove {iface} {root} drops it.",
+      "refused": {
+        "no-token": "{iface} has no token stored. Run {repair} first.",
+        "interface-disabled": "{iface} is disabled. Run {repair} first.",
+        "link-down": "{iface} is not connected. Start it with {repair}.",
+        "no-invite": "{iface} has no invite link to give.",
+        "invite-failed": "{iface} did not give its invite link. Try again in a moment.",
+        "not-waiting": "{root} is not waiting on {iface}. /interfaces roots {iface} lists the roots that wait.",
+        "unknown-root": "{iface} has no root {root}. /interfaces roots {iface} lists its roots.",
+        "no-roots-setting": "{iface} keeps no list of roots, so the command line cannot change which ones it serves."
+      }
     }
   }
 }

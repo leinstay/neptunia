@@ -7,6 +7,12 @@
 /** The status of a `command.result` that carries a turn event. */
 export const TURN_EVENT_STATUS = 'turn';
 
+/**
+ * The status, and the `replyRef`, of a `command.result` that carries a notice for the owner: a text the core pushes to
+ * the open chats on its own, answering no command, such as a root that waits for his accept.
+ */
+export const NOTICE_STATUS = 'notice';
+
 const EVENT_TYPES = ['accepted', 'queued', 'running', 'text', 'progress', 'committed', 'cancelled', 'failed'] as const;
 export type TurnEventType = (typeof EVENT_TYPES)[number];
 

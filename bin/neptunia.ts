@@ -306,7 +306,11 @@ function readObject(file: string): Settings | null {
 async function openCliLink(
   print: ((text: string) => void) | null,
   deliver?: (file: Attachment) => Promise<void>,
-  chat: { onTurnEvent: (event: TurnEvent) => void; transcript: Array<ChatLine> } | null = null
+  chat: {
+    onTurnEvent?: (event: TurnEvent) => void;
+    onNotice?: (text: string) => void;
+    transcript?: Array<ChatLine>;
+  } | null = null
 ): Promise<RunningCli> {
   const where = paths();
   const running = await start({
@@ -642,7 +646,8 @@ async function runInkChat(
             : { who: 'her', text: '', attachments: [kept.attachment] }
         );
       },
-      { onTurnEvent, transcript }
+      // A notice of the core (a root that waits for the owner) shows as a line of the chat itself.
+      { onTurnEvent, onNotice: (text) => entry({ who: 'system', text }), transcript }
     );
   let link: RunningCli;
   try {
@@ -933,7 +938,7 @@ async function runChat(firstLine?: string): Promise<void> {
   if (terminal && process.env.NEPTUNIA_PLAIN_CHAT !== '1') return runInkChat(where, firstLine);
   let link: CliLink;
   try {
-    link = await openCliLink(printBlock);
+    link = await openCliLink(printBlock, undefined, { onNotice: printBlock });
   } catch (err) {
     die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia services start`);
   }
