@@ -7,12 +7,13 @@
 // refers to without carrying its name.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fill, formatDate } from '../src/format.ts';
+import { fill } from '../src/format.ts';
 import type { Mind } from '../src/memory/db/mind-read.ts';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { FrameParty } from '../src/turn/request/frame.ts';
 import { factItemsOf, memoryBlockOf, memoryItemsOf } from '../src/turn/request/memory-block.ts';
 import type { EntryRefs } from '../src/turn/request/memory-block.ts';
+import type { Labels } from '../src/turn/request/types.ts';
 import { frameInput } from './fixtures/frame-input.ts';
 import {
   claimEntry,
@@ -22,7 +23,6 @@ import {
   personEntry,
   placeEntry,
 } from './fixtures/mind-entries.ts';
-import { labels } from './fixtures/labels.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart', relation: 'ΣΧΕΣΗ-ΕΛΕΝΗΣ' });
@@ -204,10 +204,12 @@ test('a mention in a claim, a lore text, an episode, an excerpt and a place topi
 // One logic in everything the request holds (the owner's decision of 2026-11-11): an entry of `<places>` labels the
 // purpose, the tone and the topics with the words `<place>` of `<surroundings>` uses (`surroundings.field` and
 // `surroundings.fields.*`), and says since which day she is in a root as one more field of that form,
-// `surroundings.fields.joined`, the day through `formatDate` in the turn's timezone. A place with no known moment has no
-// such line. Signature: `PlaceEntry` gains `joinedAt: number | null`.
-const FIELD = labels.surroundings.field;
-const WORDS = labels.surroundings.fields;
+// `surroundings.fields.joined`, the day as `YYYY-MM-DD` in the turn's timezone (the year matters: she may have joined
+// years ago). A place with no known moment has no such line. Signature: `PlaceEntry` gains `joinedAt: number | null`.
+// The tracked labels with the field words of the fixture, so the test reads values and never the shipped wording.
+const FIELD = '{field}: {value}';
+const WORDS = { purpose: 'purpose', tone: 'tone', topics: 'topics', joined: 'joined' };
+const labels: Labels = { ...shippedLabels, surroundings: { field: FIELD, fields: WORDS } };
 const fieldLine = (word: string, value: string): string => fill(FIELD, { field: word, value });
 const placesOf = (entries: Array<ReturnType<typeof placeEntry>>, timezone = 'UTC'): string =>
   section(
@@ -232,8 +234,7 @@ test('an entry of <places> opens its purpose, tone and topics with the words <pl
 test('the root entry holds the day she joined in the turn timezone, a root with no moment holds none', () => {
   // Bug: the day is cut in UTC, not in her zone, or a root with no moment prints an empty or invalid day.
   const joinedAt = Date.parse('2026-10-03T23:30:00Z');
-  const tokyo = formatDate(joinedAt, 'Asia/Tokyo', labels.locale);
-  assert.notEqual(tokyo, formatDate(joinedAt, 'UTC', labels.locale));
+  const tokyo = '2026-10-04';
   const known = placesOf([placeEntry('place:srv', 'Αγορά', { kind: 'server', joinedAt })], 'Asia/Tokyo');
   assert.ok(known.split('\n').includes(fieldLine(WORDS.joined, tokyo)), known);
   const unknown = placesOf([placeEntry('place:srv', 'Αγορά', { kind: 'server' })], 'Asia/Tokyo');

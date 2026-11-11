@@ -447,8 +447,9 @@ export const labels = {
     // selfreflection post in her own world; no turn is "nowhere".
     server: 'SPATIAL-SERVER AT {when}',
     world: 'SPATIAL-WORLD AT {when}',
-    // The day she joined the top place of the chain, when the store knows it; `{day}` is the date in the turn's zone.
-    joined: 'SPATIAL-JOINED {day}',
+    // The day she joined the root (the top of the chain), when the store knows it: `{root}` is the root's own link in
+    // words as `places.link` gives it, `{day}` the date as YYYY-MM-DD in the turn's zone.
+    joined: 'SPATIAL-JOINED {root} {day}',
   },
   // The fields of a place as `<place>` of `<surroundings>` and an entry of `<places>` both print them.
   surroundings: {
