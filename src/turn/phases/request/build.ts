@@ -39,7 +39,8 @@ import type { Context } from '../../../memory/db/scope.ts';
 import { fill, formatClock, formatDate } from '../../../format.ts';
 import type { Lookup } from '../../calls.ts';
 import { meanwhileSettingsOf, meanwhileWindows } from '../../request/meanwhile.ts';
-import type { MeanwhileReads, MeanwhileWindow } from '../../request/meanwhile.ts';
+import type { MeanwhileLine, MeanwhileReads, MeanwhileWindow, OwnMessage } from '../../request/meanwhile.ts';
+import { seedRefsOf } from '../../seed-ring.ts';
 import type { SurroundingsInput } from '../../request/reader.ts';
 import type { LineOf } from '../../request/refs.ts';
 import type { SourceRetired } from '../../request/reader.ts';
@@ -297,6 +298,46 @@ function seedsOf(
   };
 }
 
+/**
+ * The reads of `<meanwhile>`, each answer kept for the request: the graph reader's seeds and the block are built from
+ * the same windows, and the memory is read for them once.
+ */
+function readOnce(reads: MeanwhileReads): MeanwhileReads {
+  const own = new Map<number, ReadonlyArray<OwnMessage>>();
+  const around = new Map<string, ReadonlyArray<MeanwhileLine>>();
+  return {
+    ownMessages(limit) {
+      const kept = own.get(limit) ?? reads.ownMessages(limit);
+      own.set(limit, kept);
+      return kept;
+    },
+    around(placeId, at, count) {
+      const key = `${placeId}\u0000${at}\u0000${count}`;
+      const kept = around.get(key) ?? reads.around(placeId, at, count);
+      around.set(key, kept);
+      return kept;
+    },
+  };
+}
+
+/**
+ * The stored source ids of the lines a reply shows beyond its chat, for the graph reader's `seen`: every line of the
+ * `<meanwhile>` windows, by its message's source on its place or the source it was read from, and the lines her
+ * lookups in `<recall>` quote. Each id once.
+ */
+function seenOf(
+  windows: ReadonlyArray<MeanwhileWindow>,
+  lookups: ReadonlyArray<Lookup>,
+  reads: Pick<FrameReads, 'sourceInPlace'>
+): Array<string> {
+  const lines = windows.flatMap((window) => window.lines);
+  const ids = [
+    ...lines.map((line) => reads.sourceInPlace?.(line.placeId, line.id) ?? line.sourceId ?? null),
+    ...lookups.flatMap((lookup) => lookup.sourceIds),
+  ];
+  return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id !== ''))];
+}
+
 /** The interface's name and its words for its kinds of place, worded for `<surroundings>`. */
 function interfaceTextOf(names: { name: string | null; nouns: Record<string, string> }, labels: unknown): string {
   const nounsLabel: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'surroundings') : null;
@@ -317,7 +358,7 @@ function interfaceTextOf(names: { name: string | null; nouns: Record<string, str
  * logged and leaves memory empty.
  */
 function framedInputsOf(
-  ctx: Pick<PhaseContext, 'frameReads' | 'lookupRing' | 'turnContextOf' | 'hot' | 'intentionRefsFor'>,
+  ctx: Pick<PhaseContext, 'frameReads' | 'lookupRing' | 'seedRing' | 'turnContextOf' | 'hot' | 'intentionRefsFor'>,
   frame: Frame,
   draft: Draft,
   channel: Prepared['channel'],
@@ -339,9 +380,23 @@ function framedInputsOf(
   const reads = ctx.frameReads;
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
   if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups };
+  const meanwhileReads = readOnce({
+    ownMessages: (limit) => reads.ownLines(memoryContext, place.id, limit),
+    around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
+  });
   let mind: Mind | null = null;
   try {
-    mind = reads.mind(memoryContext, seedsOf(frame, history, turn, reads), now);
+    const windows = frame.blocks.includes('meanwhile')
+      ? meanwhileWindows(meanwhileReads, frame, meanwhileSettingsOf(ctx.hot.config, frame))
+      : [];
+    const turnId = draft.started?.turnId ?? null;
+    const seeds: Seeds = {
+      ...seedsOf(frame, history, turn, reads),
+      previous: turnId === null ? [] : ctx.seedRing.previous(place.id, turnId),
+      seen: seenOf(windows, frame.blocks.includes('recall') ? lookups : [], reads),
+    };
+    mind = reads.mind(memoryContext, seeds, now);
+    if (turnId !== null) ctx.seedRing.note(place.id, turnId, seedRefsOf(mind));
   } catch (error) {
     log.warn('turn: memory not read', { channel: channel.id, error });
   }
@@ -357,10 +412,7 @@ function framedInputsOf(
   return {
     mind,
     lookups,
-    meanwhileReads: {
-      ownMessages: (limit) => reads.ownLines(memoryContext, place.id, limit),
-      around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
-    },
+    meanwhileReads,
     surroundings: {
       interfaceText: interfaceTextOf(reads.interfaceNames(frame.interface), turn.labels),
       root: frame.root ? reads.placeFields(memoryContext, frame.root.id) : null,
@@ -464,10 +516,10 @@ function serviceInputsOf(
   const reads = ctx.frameReads;
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
   if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups: [] };
-  const meanwhileReads: MeanwhileReads = {
+  const meanwhileReads = readOnce({
     ownMessages: (limit) => reads.ownLines(memoryContext, null, limit),
     around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
-  };
+  });
   let mind: Mind | null = null;
   try {
     const windows = meanwhileWindows(meanwhileReads, frame, meanwhileSettingsOf(ctx.hot.config, frame));
