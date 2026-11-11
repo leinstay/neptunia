@@ -18,7 +18,7 @@
 // `leftOut` counts per subtag (`people`, `places`, ...) the eligible entries the budget left out.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mindOf, mindSettingsOf } from '../src/memory/db/mind-read.ts';
+import { allowances, mindOf, mindSettingsOf } from '../src/memory/db/mind-read.ts';
 import type { Mind, MindSettings, PersonEntry, SeedMessage, Seeds } from '../src/memory/db/mind-read.ts';
 import { dmContext, groupContext } from '../src/memory/db/scope.ts';
 import type { Context } from '../src/memory/db/scope.ts';
@@ -635,5 +635,21 @@ test('a budgetShare that is zero, negative, above 1 or not a number counts as un
   for (const budgetShare of [0, -0.1, 1.5, '0.05', null, Number.NaN, {}]) {
     const total = mindSettingsOf(configOf({ budgetTokens: 10000, budgetShare })).budgetTokens;
     assert.equal(total, 10000, `budgetShare ${JSON.stringify(budgetShare)} gave ${total}`);
+  }
+});
+
+const SHARES = { people: 0.4, places: 0.3, lore: 0.15, recent: 0.1, found: 0.05 };
+
+test('what found leaves unused is lent to none of the stable shares, whatever found takes', () => {
+  // Bug: the share the turn's own <found> leaves unused is lent to a full <places>, so a place's detail follows how much
+  // the turn found and the stable part of the request changes on every turn. Budget 1000: people wants 100 of its 400,
+  // places 900 of its 300, lore and recent exactly their share.
+  const demandWith = (found: number) => ({ people: 100, places: 900, lore: 150, recent: 100, found });
+  const empty = allowances({ budgetTokens: 1000, shares: SHARES }, demandWith(0));
+  assert.equal(empty.places, 600, 'places takes its share and what people leaves unused');
+  for (const found of [0, 20, 50, 400]) {
+    const given = allowances({ budgetTokens: 1000, shares: SHARES }, demandWith(found));
+    for (const tag of ['people', 'places', 'lore', 'recent'] as const)
+      assert.equal(given[tag], empty[tag], `${tag} with found wanting ${found}`);
   }
 });

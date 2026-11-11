@@ -108,7 +108,14 @@ function block(built: Built, tag: string): string {
 test("the root tags of a reply are the frame's list in its order, the stable segment holds exactly <self> and the surroundings segment <surroundings>", () => {
   // Bug: an old block such as <senses> or <channel_directory> stays in the request, or the tail keeps the old order.
   const built = request();
-  const cached: Record<string, string> = { self: 'stable', surroundings: 'surroundings' };
+  // What still breaks the repeat (2026-11-11, after the cache layout): `<memory>` and `<meanwhile>` repeat between turns
+  // and end right before `<chat>`, so they form the cached segment `memory` instead of the tail.
+  const cached: Record<string, string> = {
+    self: 'stable',
+    surroundings: 'surroundings',
+    memory: 'memory',
+    meanwhile: 'memory',
+  };
   // The owner's decision of 2026-11-11 (cache layout) makes `<found>` a root tag of the frame; this request finds nothing.
   const expected = FRAME.blocks
     .filter((name) => name !== 'persona' && name !== 'found')
@@ -331,8 +338,9 @@ test('a reply with a find and a lookup prints <found> as a root tag after <chat>
   assert.deepEqual(emittedBlocks(built), [
     'stable self',
     'surroundings surroundings',
-    'tail memory',
-    'tail meanwhile',
+    // `<memory>` and `<meanwhile>` form the cached segment `memory`, which ends right before `<chat>` (2026-11-11).
+    'memory memory',
+    'memory meanwhile',
     'tail chat',
     'tail recall',
     'tail found',
