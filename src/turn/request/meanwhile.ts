@@ -1,16 +1,18 @@
 // The body of `<meanwhile>`: her last messages in other places, each with a few lines around it, as background she is
 // not asked about (docs/prompt-contract.md). Never a line of the current place. A one-to-one chat's lines only at the
 // command line and in a chat with the same person; the reads already keep out what the turn's scope may not read. Windows of
-// one place that overlap merge, and each window is headed by its place's path and date. A line names its author by the
+// one place that overlap merge, and each window is headed by its place in words and date. A line names its author by the
 // handle of the person behind the account (`authors.line`), and a mention in its text by the handle too. A line's media
 // follow its text as the chat renders stored media, so a post of a picture alone reads as its description. The request
 // builder (src/turn/request/reader.ts) calls it. Pure apart from the reads.
 
 import { fill, formatClock, formatDate, mentionsNamed, storedMediaTags } from '../../format.ts';
+import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
+import type { InterfaceNames } from '../../protocol/serve.ts';
 import { lineItemParts } from '../../memory/db/media-store.ts';
 import type { LineMediaItem } from '../../memory/db/media-store.ts';
 import type { Frame } from './frame.ts';
-import { authorText, escapeStored, pathText } from './text.ts';
+import { authorText, escapeStored, placeRefText } from './text.ts';
 import type { Labels, NameOf } from './types.ts';
 
 /**
@@ -35,11 +37,13 @@ export type MeanwhileLine = {
 };
 
 /**
- * A line of hers, with the path of its place by names, whether that place is a one-to-one chat and that chat's partner
- * person when the reads know it.
+ * A line of hers, with its place in words (the interface's id, the chain innermost first and the interface's own names),
+ * whether that place is a one-to-one chat and that chat's partner person when the reads know it.
  */
 export type OwnMessage = MeanwhileLine & {
-  path: ReadonlyArray<string>;
+  iface: string;
+  chain: ReadonlyArray<PlaceChainLink>;
+  names?: InterfaceNames;
   dm: boolean;
   partner?: string | null;
   /** What the handle of a one-to-one chat's partner is cut from. */
@@ -82,7 +86,9 @@ export function meanwhileSettingsOf(config: unknown, frame: Frame): MeanwhileSet
 /** One window of lines in one place, oldest first. */
 export type MeanwhileWindow = {
   placeId: string;
-  path: ReadonlyArray<string>;
+  iface: string;
+  chain: ReadonlyArray<PlaceChainLink>;
+  names?: InterfaceNames;
   dm: boolean;
   /** What the handle of a one-to-one chat's partner is cut from, null for any other place. */
   partnerKey?: string | null;
@@ -149,7 +155,9 @@ export function meanwhileWindows(
     const lines = around > 0 ? [...reads.around(line.placeId, line.at, around)] : [];
     return {
       placeId: line.placeId,
-      path: line.path,
+      iface: line.iface,
+      chain: line.chain,
+      ...(line.names === undefined ? {} : { names: line.names }),
       dm: line.dm,
       partnerKey: line.partnerKey ?? null,
       lines: lines.length > 0 ? lines : [line],
@@ -206,16 +214,35 @@ function authorOf(
 }
 
 /**
- * A window's path: a one-to-one chat's ends in its partner's handle instead of the partner's platform id, or in
- * `authors.unknown` when the reads name no partner.
+ * A window's place in words with its `handle`. A one-to-one chat names its partner by handle, `authors.unknown` when the
+ * reads name none.
  */
-function windowPath(window: MeanwhileWindow, labels: Labels, refs: MeanwhileRefs | null): ReadonlyArray<string> {
-  if (!window.dm || refs === null) return window.path;
-  const end = window.partnerKey ? `@${refs.handleOf(window.partnerKey)}` : (labels.authors?.unknown ?? '');
-  return [...window.path.slice(0, -1), end];
+function windowPlace(
+  window: MeanwhileWindow,
+  labels: Labels,
+  refs: MeanwhileRefs | null,
+  handle: string | null
+): string {
+  const partner = !window.dm
+    ? null
+    : window.partnerKey && refs !== null
+      ? `@${refs.handleOf(window.partnerKey)}`
+      : (labels.authors?.unknown ?? '');
+  return placeRefText(labels, handle, {
+    iface: window.iface,
+    chain: window.chain,
+    ...(window.names === undefined ? {} : { names: window.names }),
+    partner,
+  });
 }
 
-/** One window in the labels' words: the place's path and date, then each line with its time and author. */
+/** The date of `at` in the frame's timezone, as a window writes it in its head and between two days. */
+const dayOf = (at: number, frame: Frame, labels: Labels): string => formatDate(at, frame.timezone, labels.locale);
+
+/**
+ * One window in the labels' words: the place in words with its handle and the date, then each line with its time and
+ * author. A date line (`transcript.date`, as `<chat>` writes it) stands before a line of another day than the line above.
+ */
 export function windowText(
   window: MeanwhileWindow,
   frame: Frame,
@@ -227,20 +254,27 @@ export function windowText(
   const l = labels.meanwhile ?? {};
   const first = window.lines.at(0)?.at ?? frame.now;
   const head = fill(l.place ?? '{path}, {date}:', {
-    path: pathText(windowPath(window, labels, refs), labels.memory?.pathJoin),
-    date: formatDate(first, frame.timezone, labels.locale),
+    path: windowPlace(window, labels, refs, handle),
+    date: dayOf(first, frame, labels),
   });
   const shared = sharedKeys(window);
-  const lines = window.lines.map((line) =>
-    fill(l.line ?? '[{time}] {author}: {text}', {
-      time: formatClock(line.at, frame.timezone, labels.locale),
-      author: line.self ? escapeStored(l.you ?? '') : authorOf(line, labels, nameOf, refs, shared),
-      text: escapeStored(
-        refs === null ? lineText(line, labels) : String(mentionsNamed(lineText(line, labels), refs.mention))
-      ),
-    })
-  );
-  return [handle ? `#${handle} ${head}` : head, ...lines].join('\n');
+  const rows: Array<string> = [];
+  window.lines.forEach((line, at) => {
+    const day = dayOf(line.at, frame, labels);
+    const before = window.lines[at - 1];
+    if (before !== undefined && dayOf(before.at, frame, labels) !== day)
+      rows.push(fill(labels.transcript.date, { date: day }));
+    rows.push(
+      fill(l.line ?? '[{time}] {author}: {text}', {
+        time: formatClock(line.at, frame.timezone, labels.locale),
+        author: line.self ? escapeStored(l.you ?? '') : authorOf(line, labels, nameOf, refs, shared),
+        text: escapeStored(
+          refs === null ? lineText(line, labels) : String(mentionsNamed(lineText(line, labels), refs.mention))
+        ),
+      })
+    );
+  });
+  return [head, ...rows].join('\n');
 }
 
 /** The body of `<meanwhile>`, headed as background; '' with no line of hers elsewhere. */

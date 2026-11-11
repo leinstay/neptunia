@@ -59,12 +59,14 @@ function rootOf(db: Db, here: SubjectHere): string | null {
   return text(row?.id);
 }
 
-/** The live channels and threads whose channel handle is `handle`, among those the context reads. */
+/** The live chats (channels, threads, direct chats) whose channel handle is `handle`, among those the context reads. */
 function placesOfHandle(db: Db, ctx: Context, handle: string): Array<string> {
   if (!new RegExp(`^${CHANNEL_HANDLE_PREFIX}[0-9a-z]+$`).test(handle)) return [];
   const digits = handle.length - CHANNEL_HANDLE_PREFIX.length;
   return db
-    .prepare("SELECT id, native_id FROM places WHERE kind IN ('channel', 'thread') AND retired_at IS NULL ORDER BY id")
+    .prepare(
+      "SELECT id, native_id FROM places WHERE kind IN ('channel', 'thread', 'dm') AND retired_at IS NULL ORDER BY id"
+    )
     .all()
     .flatMap((row) => {
       const native = text(row.native_id);

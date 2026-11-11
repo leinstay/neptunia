@@ -6,14 +6,18 @@
 // form the quote. The reader of the line (`lineOf`) applies the frame's scope, so a reference is no way past it. Pure.
 
 import { fill } from '../../format.ts';
-import { escapeStored, pathText, pulledMoment } from './text.ts';
+import { escapeStored, placeRefText, pulledMoment } from './text.ts';
+import type { PlaceWords } from './text.ts';
 import type { Labels } from './types.ts';
 
 /** A stored line a reference names, as the frame's scope may read it. */
 export type RefLine = {
   placeId: string;
   messageId: string;
+  /** The place by names from the interface down, for a line that carries no more. */
   path: Array<string>;
+  /** The place in words, when the reads give it: the quote names the place as every block of a request does. */
+  place?: PlaceWords;
   at: number;
   text: string;
   revision: number;
@@ -23,7 +27,7 @@ export type RefLine = {
 };
 
 /** The labels the references read. */
-type RefLabels = Pick<Labels, 'refs' | 'memory' | 'locale'>;
+type RefLabels = Pick<Labels, 'refs' | 'places' | 'spatial' | 'authors' | 'locale'>;
 
 /** Reads a line by its identity without the revision (`src:<iface>:<message id>`); null when unknown or unreadable. */
 export type LineOf = (key: string) => RefLine | null;
@@ -45,12 +49,24 @@ function eachIdentity(text: string, render: (found: Found) => string): string {
   );
 }
 
-/** A line quoted under its path and time, noted as edited when it changed since the revision referred to. */
+/** The place of a quoted line in words, without a handle; from its names alone (a kind with no noun) when it has no words. */
+function placeOf(line: RefLine, labels: RefLabels): string {
+  const words: PlaceWords = line.place ?? {
+    iface: line.path[0] ?? '',
+    chain: line.path
+      .slice(1)
+      .reverse()
+      .map((name) => ({ id: name, kind: null, name })),
+  };
+  return placeRefText(labels, null, words);
+}
+
+/** A line quoted under its place and time, noted as edited when it changed since the revision referred to. */
 function quoteOf(line: RefLine, revision: number, labels: RefLabels, timezone: string): string {
   const l = labels.refs ?? {};
   const template = line.revision > revision ? l.edited : l.quote;
   return fill(template ?? '"{text}"', {
-    path: pathText(line.path, labels.memory?.pathJoin),
+    path: placeOf(line, labels),
     when: pulledMoment(line.at, timezone, labels.locale),
     text: escapeStored(line.text.trim()),
   });

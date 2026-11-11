@@ -4,6 +4,8 @@
 
 import { fill, formatClock, formatDate } from '../../format.ts';
 import { fromTokens } from '../../memory/mentions.ts';
+import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
+import type { InterfaceNames } from '../../protocol/serve.ts';
 import type { Labels, NameOf } from './types.ts';
 
 /** The tokens a request keeps free for the tags around its blocks. */
@@ -69,16 +71,12 @@ export function pulledMoment(ts: number, timezone: string, locale: string | unde
 }
 
 /**
- * A stored text as a value inside a request: `<` and `>` written as entities, so a name, a field or a message that holds
- * a tag can neither close a block nor open one in the frame's own words. Anything that is not a string reads as ''.
+ * A stored text as a value inside a request: `&` written as `&amp;` and `<` as `&lt;`, so a name, a field or a message
+ * that holds a tag can neither close a block nor open one in the frame's own words. A `>` stays. Anything that is not a
+ * string reads as ''.
  */
 export function escapeStored(text: unknown): string {
-  return typeof text === 'string' ? text.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
-}
-
-/** The path of a place by names, joined with `joint` (`labels.memory.pathJoin`), each name escaped. */
-export function pathText(path: ReadonlyArray<string>, joint: string | undefined): string {
-  return path.map(escapeStored).join(joint ?? ' > ');
+  return typeof text === 'string' ? text.replace(/&/g, '&amp;').replace(/</g, '&lt;') : '';
 }
 
 /** An author named by their handle (`authors.line`), `authors.unknown` without one. */
@@ -89,13 +87,55 @@ export function authorText(labels: Labels, handle: string | null): string {
 }
 
 /**
- * A place by its handle and its path (`places.ref`, `#{handle} {name}`), or by its path alone (`places.refUnhandled`)
- * for a place with no handle; the path joined with `memory.pathJoin`, each name escaped.
+ * A place as a request names it: where the interface knows it by. `chain` runs from the place up to the top (innermost
+ * first), `names` is what the interface declared in its hello (`iface` stands for its name when it declared none) and
+ * `partner` the handle, `@` included, of a direct chat's partner.
  */
-export function placeRefText(labels: Labels, handle: string | null, path: ReadonlyArray<string>): string {
+export type PlaceWords = {
+  iface: string;
+  chain: ReadonlyArray<PlaceChainLink>;
+  names?: InterfaceNames;
+  partner?: string | null;
+};
+
+/** The labels a place in words reads: `places`, the unnamed word of `spatial` and the unknown word of `authors`. */
+export type PlaceLabels = Pick<Labels, 'places' | 'spatial' | 'authors'>;
+
+/** A name as a quoted value: escaped as any stored text, and a `"` written `\"`, so the name closes where it ends. */
+const quoted = (name: string): string => escapeStored(name).replace(/"/g, '\\"');
+
+/** One link of a chain: the interface's noun for its kind and the name, the name alone for a kind with no noun. */
+function linkText(labels: PlaceLabels, link: PlaceChainLink, names: InterfaceNames | undefined): string {
   const words = labels.places ?? {};
-  const name = pathText(path, labels.memory?.pathJoin);
+  const name = quoted(link.name ?? labels.spatial?.unnamed ?? '');
+  const noun = link.kind === null ? undefined : names?.nouns[link.kind];
+  return noun
+    ? fill(words.link ?? '{noun} "{name}"', { noun: escapeStored(noun), name })
+    : fill(words.linkPlain ?? '"{name}"', { name });
+}
+
+/**
+ * A place in words (`places.ref`, `#{handle}: {name}`), or without the handle part (`places.refUnhandled`) for a place with
+ * no handle. `{name}` is the links innermost first, each as `places.link` with the interface's noun for the kind and
+ * the name in quotes (`places.linkPlain` for a kind with no noun), then `places.iface` with the interface's name, joined
+ * with `places.join`. A direct chat is `places.dm` with the interface's word for it and the partner's handle.
+ */
+export function placeRefText(labels: PlaceLabels, handle: string | null, place: PlaceWords): string {
+  const words = labels.places ?? {};
+  const { names } = place;
+  const first = place.chain.at(0);
+  const parts =
+    first?.kind === 'dm'
+      ? [
+          fill(words.dm ?? '{noun} with {name}', {
+            noun: escapeStored(names?.dm || first.kind),
+            name: escapeStored(place.partner ?? labels.authors?.unknown ?? ''),
+          }),
+        ]
+      : place.chain.map((link) => linkText(labels, link, names));
+  parts.push(fill(words.iface ?? 'interface "{name}"', { name: quoted(names?.interface || place.iface) }));
+  const name = parts.join(words.join ?? ', ');
   return handle === null
     ? fill(words.refUnhandled ?? '{name}', { name })
-    : fill(words.ref ?? '#{handle} {name}', { handle, name });
+    : fill(words.ref ?? '#{handle}: {name}', { handle, name });
 }

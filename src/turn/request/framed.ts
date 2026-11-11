@@ -83,7 +83,8 @@ function surroundingsHeld(given: RequestInput, base: Base, frame: Frame): string
   const versions = [...(stored?.versions ?? [])].sort().join(',');
   const { place } = frame;
   const path = place === null ? '' : place.path.join('/');
-  return base.frozen(`surroundings:${place?.id ?? ''}`, `${path}|${versions}`, () =>
+  const names = JSON.stringify(stored?.names ?? null);
+  return base.frozen(`surroundings:${place?.id ?? ''}`, `${path}|${versions}|${names}`, () =>
     surroundingsOf(
       frame,
       interfaceTextOf(given, base),
@@ -91,7 +92,8 @@ function surroundingsHeld(given: RequestInput, base: Base, frame: Frame): string
       stored?.place ?? null,
       base.labels,
       partnerHandleOf(frame, base),
-      { mention: storedMention(given, base) }
+      { mention: storedMention(given, base) },
+      stored?.names
     )
   );
 }

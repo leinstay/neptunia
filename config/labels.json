@@ -8,8 +8,13 @@
       "unknown": "someone"
     },
     "places": {
-      "ref": "#{handle} {name}",
-      "refUnhandled": "{name}"
+      "ref": "#{handle}: {name}",
+      "refUnhandled": "{name}",
+      "link": "{noun} \"{name}\"",
+      "linkPlain": "\"{name}\"",
+      "join": ", ",
+      "iface": "interface \"{name}\"",
+      "dm": "{noun} with {name}"
     },
     "units": {
       "lessThanMinute": "less than a minute",
@@ -372,8 +377,7 @@
       "excerpt": "{date}, {path}: \"{text}\"",
       "fact": "stored fact ({state}): \"{text}\"",
       "selfreflection": "Your diary entries are published here, and you write nothing here yourself.",
-      "leftOut": "({count} more not shown)",
-      "pathJoin": " > "
+      "leftOut": "({count} more not shown)"
     },
     "limits": {
       "notice": "...but nobody came ({limit}, {used}/{cap})",
