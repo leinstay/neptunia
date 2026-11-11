@@ -219,6 +219,8 @@ The sections of `REPORT_HEADINGS` follow at level two, in order, each once: `Her
 
 The last thing in the report is one fenced `coverage` block, a JSON object that `checkCoverage` reads: `observation` with `from` and `to`, `backend`, `account`, `sources`, which is not empty, and the lists `defects`, `suspicious`, `inspected` and `unavailable`, which share no item. The optional `accepted` is a list of `{ line, count }`, the findings the watcher left out as covered by the line of the brief's `<accepted>` with that number. `checkCoverage(text, acceptedCount)` takes the length of that list and refuses a `line` below 1 or above it, or an entry that is no pair of whole numbers, with `coverage-invalid` and a detail that names `accepted`. A block with no `accepted` left nothing out.
 
+The owner is shown a view of a stored report, `reportView` of `src/watcher/report.ts`, by `/doctor watcher read`, `/doctor watcher <n>` and the persona's `watcher.read`. The view has no `coverage` block. A section whose four subsections (five for `For the owner`) each say exactly `none` is one line, `## <name>: none`. In any other section the subsections that say exactly `none` are dropped and the rest stay as stored, byte for byte. A subsection whose text holds the word inside a longer sentence says something and stays. A text that is no report in the template comes back unchanged. The stored file is never changed, and the checks and the risk rules above read it.
+
 | Code | What the text did |
 |---|---|
 | `secret` | Holds a string shaped like a key |
