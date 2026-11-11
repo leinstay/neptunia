@@ -391,12 +391,13 @@ export function createFakeAdapter({
       return ok();
     },
 
-    async inviteLink(scope) {
+    inviteLink(scope) {
       calls.push({ op: 'inviteLink', args: [scope] });
       if (!offeredReads.has('invite.link') || invite === undefined) {
-        return { status: 'unsupported', error: { code: 'no-invite', retryable: false, retryAfterMs: null } };
+        const error = { code: 'no-invite', retryable: false, retryAfterMs: null };
+        return Promise.resolve({ status: 'unsupported' as const, error });
       }
-      return { status: 'ok', url: invite };
+      return Promise.resolve({ status: 'ok' as const, url: invite });
     },
 
     capabilities() {

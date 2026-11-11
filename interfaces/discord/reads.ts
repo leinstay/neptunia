@@ -72,6 +72,18 @@ function snowflakeAt(ms: number): string {
 /** A discord.js error as the failure of a read: a 404 (message or member gone) is the caller's to tell apart first. */
 type FailureOf = (err: unknown) => Failure;
 
+/** The OAuth link that adds the bot to a server with the permissions this package needs, from its application id. */
+function inviteLinkOf(client: Obj): { status: 'ok'; url: string } | Failure {
+  const appId = text(obj(client.application).id);
+  if (appId === null)
+    return { status: 'failed', error: { code: 'no-application', retryable: false, retryAfterMs: null } };
+  const url = new URL('https://discord.com/oauth2/authorize');
+  url.searchParams.set('client_id', appId);
+  url.searchParams.set('scope', 'bot');
+  url.searchParams.set('permissions', String(INVITE_PERMISSIONS));
+  return { status: 'ok', url: url.toString() };
+}
+
 /** The groups of an audience as ids; the rail's sets become arrays on the wire and its roles become groups. */
 function audienceOnTheWire(channel: Obj): Audience | null {
   const raw = audienceOf(channel);
@@ -566,16 +578,7 @@ export function createDiscordReads(deps: {
 
     ...createLookupReads({ client, iface, guildOf, servedGuilds }),
 
-    /** The OAuth link that adds the bot to a server with the permissions this package needs. */
-    inviteLink() {
-      const appId = text(obj(client.application).id);
-      if (appId === null) return Promise.resolve(failed('no-application'));
-      const url = new URL('https://discord.com/oauth2/authorize');
-      url.searchParams.set('client_id', appId);
-      url.searchParams.set('scope', 'bot');
-      url.searchParams.set('permissions', String(INVITE_PERMISSIONS));
-      return Promise.resolve({ status: 'ok' as const, url: url.toString() });
-    },
+    inviteLink: () => Promise.resolve(inviteLinkOf(client)),
 
     async reactors(ref: MessageRef, emoji: string, limit: number) {
       const refused = refusal(ref, true);

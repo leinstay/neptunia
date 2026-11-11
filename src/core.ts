@@ -792,8 +792,8 @@ async function buildCore(
             token: linkToken,
             dataDir: path.join(dataDir, 'interfaces', interfaces[0].name),
             env: {},
-            config: inProcess.read,
-            onConfigChange: inProcess.onChange,
+            config: () => inProcess.read(),
+            onConfigChange: (listener) => inProcess.onChange(listener),
             log,
           })
           .catch((err) => fail(`index: ${err instanceof Error ? err.message : String(err)}`));
@@ -1215,15 +1215,17 @@ async function buildCore(
   // The owner's pairing of his accounts (src/interface/owner-pairing.ts): the door's screen and `/interfaces pair`.
   const ownerPairing = createOwnerPairing({ hot, memoryDb, port: iface, selfId: () => identity.selfId, now: clock });
   // Which roots each interface serves, by the owner's word (src/interface/root-joining.ts).
-  const linkOf = (name: string) => linksByName.get(name) ?? (coreLink.adapter.iface === name ? coreLink : null);
   const rootJoining = createRootJoining({
     hot,
     now: clock,
-    stateOf: (name) => ({
-      token: interfaceCredential(dataDir, name) !== null,
-      enabled: interfaceEnabled(settings.config, name),
-      connected: linkOf(name)?.current().isClosed() === false,
-    }),
+    stateOf: (name) => {
+      const known = interfaceLinks.list().find((one) => one.name === name);
+      return {
+        token: interfaceCredential(dataDir, name) !== null,
+        enabled: known?.enabled !== false,
+        connected: known?.connected === true,
+      };
+    },
     listed: listedRoots({ rootDir: paths.rootDir, dataDir, written: () => void inProcess?.read() }),
     routes: rootRoutes,
     noteRoots: (name, named) => store.noteRoots(name, named),
