@@ -359,14 +359,6 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   sub('descriptions.version', 'Open one version of a description', [arg('id')]),
 ];
 
-/** The target of `/tools grant` and `/tools revoke`: none (her), `everyone`, `role <id>` or `user <id>`. */
-function checkTarget(name: string, args: Readonly<Record<string, string>>): string | null {
-  if (name !== 'tools.grant' && name !== 'tools.revoke') return null;
-  const target = args.target ?? '';
-  if (target === '' || target === 'everyone' || /^(role|user) \S+$/.test(target)) return null;
-  return `the target is everyone, role <id> or user <id>, not "${target}"`;
-}
-
 /** The commands of the chat, in the order `/help` lists them. */
 export const COMMANDS: ReadonlyArray<Command> = [
   {
@@ -590,24 +582,17 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'tools',
-    help: 'Inspect available tools and manage who may use them',
+    help: 'Inspect available tools and manage which ones she holds',
     args: [],
     defaultSubcommand: 'list',
-    check: checkTarget,
     subcommands: [
       sub('list', 'Every tool and whether she has it'),
-      runs(sub('grants', 'Every stored grant: who may use which tool'), 'access.list'),
+      runs(sub('grants', 'Every tool granted to her'), 'access.list'),
       runs(sub('describe', 'Show one tool or one family in full', [arg('tool')]), 'tools.describe', (args) => ({
         name: args.tool,
       })),
-      sub('grant', 'Grant tool access to the persona, everyone, a role or a person', [
-        arg('tool'),
-        arg('target', false),
-      ]),
-      sub('revoke', 'Revoke tool access from the persona, everyone, a role or a person', [
-        arg('tool'),
-        arg('target', false),
-      ]),
+      sub('grant', 'Grant a tool to the persona', [arg('tool')]),
+      sub('revoke', 'Revoke a tool from the persona', [arg('tool')]),
     ],
   },
   {
