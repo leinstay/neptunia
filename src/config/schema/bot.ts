@@ -16,7 +16,7 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/tools/operations/grants.ts',
     'default': '',
     'text':
-      "The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account paired with `/interfaces pair` or bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity)",
+      "The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity)",
   },
   {
     'key': 'bot.mnemonic',

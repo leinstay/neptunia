@@ -1,7 +1,7 @@
 // The setup contract of an optional module, an interface or an executable skill: the module declares its settings in
-// `setup.json`, and this file validates that declaration and stores the values. `neptunia setup`, `/interfaces setup`,
-// `/skills setup` and the targeted set, clear, add and remove commands all write through here, so a value set either
-// way lands in the same place. A module owns `data/interfaces/<name>/` or `data/skills/<name>/`: plain values go to its
+// `setup.json`, and this file validates that declaration and stores the values. `neptunia setup`,
+// `/interfaces <name> setup`, `/skills setup` and the targeted set, clear, add and remove commands all write through
+// here, so a value set either way lands in the same place. A module owns `data/interfaces/<name>/` or `data/skills/<name>/`: plain values go to its
 // `config.json`, secrets to its `credentials.json` at mode 0600. A value is read back masked when it is a secret.
 // Deleting a module's code or disabling it touches none of this. Called by src/setup/run.ts and
 // src/interface/commands/module-setup.ts.
