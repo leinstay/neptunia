@@ -258,3 +258,40 @@ test('a place the answered line names keeps its entry in <places> when the secti
   assert.ok(shown.length > 0, `the section kept places: ${places}`);
   assert.ok(places.includes('κουζίνα'), places);
 });
+
+/** The body of `<places>` in `<memory>`, '' when absent. */
+const placesOf = (built: Built): string => /<places>([\s\S]*?)<\/places>/.exec(block(built, 'memory'))?.[1] ?? '';
+
+test('<places> takes the share the people leave unused, as the graph reader lends it', () => {
+  // Bug (2026-11-10): the request cut each memory block a second time at its own share, so <places> lost entries the
+  // graph reader had kept with a loan from an unused people share, while <memory> used two thirds of its budget.
+  const crowd = Array.from({ length: 20 }, (_, i) =>
+    placeEntry(`place:room-${i}`, `αίθουσα-${String(i).padStart(2, '0')}`, { purpose: 'σκοπός '.repeat(10) })
+  );
+  const memory = {
+    budgetTokens: 4000,
+    shares: { people: 0.5, places: 0.15, lore: 0.15, recent: 0.1, found: 0.1 },
+  };
+  const built = request({
+    config: fakeConfig({ context: { ...CONTEXT, memory } }),
+    mind: mindOfEntries({ people: [ELENI], places: crowd }),
+  });
+  const places = placesOf(built);
+  const shown = crowd.filter((place) => places.includes(String(place.name)));
+  assert.equal(shown.length, crowd.length, places);
+});
+
+test('a place the graph reader keeps whatever the budget stays in <places> when it alone is over the share', () => {
+  // Bug: the request took the kept place first but still cut it at the places share, so the place she is in, or the
+  // one the line names, left <memory> whenever its description was longer than the share.
+  const kept = placeEntry('place:kept', 'αποθήκη', { keep: true, purpose: 'ΣΚΟΠΟΣ-ΑΠΟΘΗΚΗΣ '.repeat(40) });
+  const memory = {
+    budgetTokens: 200,
+    shares: { people: 0.5, places: 0.15, lore: 0.15, recent: 0.1, found: 0.1 },
+  };
+  const built = request({
+    config: fakeConfig({ context: { ...CONTEXT, memory } }),
+    mind: mindOfEntries({ people: [ELENI], places: [kept] }),
+  });
+  assert.ok(placesOf(built).includes('αποθήκη'), block(built, 'memory'));
+});

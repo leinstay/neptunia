@@ -192,11 +192,18 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
 const searchRefsOf = (draft: CallsDraft | null | undefined): SearchRefs | undefined =>
   draft ? (Reflect.get(draft, 'searchRefs') as SearchRefs | undefined) : undefined;
 
-/** The stored source ids of the lines quoted since `before` (the numbers the registry held then), each once. */
+/**
+ * The stored source ids of the lines quoted since `before` (the numbers the registry held then), each once: a search's
+ * stored source, else the source a read of a stored place gave its line (src/turn/in-turn-tools.ts#readPlace).
+ */
 function quotedSince(draft: CallsDraft | null | undefined, before: ReadonlySet<number>): Array<string> {
   const refs = searchRefsOf(draft);
   if (!refs) return [];
-  const ids = [...refs.byNumber].filter(([n]) => !before.has(n)).map(([, ref]) => ref.stored?.sourceId);
+  const readSource = (message: unknown): unknown =>
+    message !== null && typeof message === 'object' ? Reflect.get(message, 'sourceId') : undefined;
+  const ids = [...refs.byNumber]
+    .filter(([n]) => !before.has(n))
+    .map(([, ref]) => ref.stored?.sourceId ?? readSource(ref.message));
   return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id !== ''))];
 }
 

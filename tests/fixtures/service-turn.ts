@@ -201,9 +201,18 @@ function cliAdapter(): Fake {
   return cli;
 }
 
-/** One inner turn of `wake` answered by `answers`, over the world's memory and the room `c1` of the fake interface. */
-export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
-  const mind = spec.world ?? serviceWorld();
+type RigSpec = Pick<ServiceTurnSpec, 'seed' | 'adapters'> & {
+  mind: World;
+  settings?: Record<string, number>;
+  /** The answer to the model's `n`th request, counted from 1 over the runner's life. */
+  answer: (n: number) => unknown;
+  /** Laid over the fixture's store: a reply turn needs the place of its chat as the world stores it. */
+  store?: Record<string, unknown>;
+};
+
+/** The real turn runner over `mind`, with the room `c1` of the fake interface holding Ελένη's line `r1`. */
+function rigOf(spec: RigSpec) {
+  const { mind } = spec;
   const hot: Record<string, Untyped> = {
     config: {
       bot: {
@@ -281,6 +290,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
     // A place id names its chat by the row the world holds, as the memory store answers it: without it a write named by
     // place went to the place id as a chat no interface knows.
     placeRefOf: (id: string) => placeRefOf(mind.db, id),
+    ...spec.store,
   };
   const admin = createAdmin({
     hot,
@@ -305,7 +315,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
   const llm = {
     complete: (messages: Array<{ content: unknown }>) => {
       requests.push(messages.map((message) => userText(message.content)).join('\n'));
-      return Promise.resolve(completionOf(spec.answers[Math.min(requests.length - 1, spec.answers.length - 1)]));
+      return Promise.resolve(completionOf(spec.answer(requests.length)));
     },
   };
   let contexts = 0;
@@ -325,6 +335,18 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
     runOwnOp: admin.runOwnSkillOp,
     runInitiativeOp: admin.runInitiativeSkillOp,
     intentions,
+  });
+  return { turns, requests, fake, cli, journal, intentions };
+}
+
+/** One inner turn of `wake` answered by `answers`, over the world's memory and the room `c1` of the fake interface. */
+export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
+  const mind = spec.world ?? serviceWorld();
+  const { answers } = spec;
+  const { turns, requests, fake, cli, journal, intentions } = rigOf({
+    ...spec,
+    mind,
+    answer: (n) => answers[Math.min(n - 1, answers.length - 1)],
   });
   const wake = typeof spec.wake === 'function' ? spec.wake(intentions) : spec.wake;
   const inner = { wake, currentChannel: null, shadow: false, mayAct: () => true };
@@ -348,6 +370,70 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
   } finally {
     if (spec.world === undefined) mind.close();
   }
+}
+
+/** A line of `c1`: by Ελένη unless another author is named. */
+export type ReplyLine = { id: string; text: string; at: number; authorId?: string; authorName?: string };
+
+/**
+ * One reply turn of a run: the lines that join `c1` before it, the line she answers there and what the model says to
+ * each request of the turn.
+ */
+export type ReplyStep = { lines?: ReadonlyArray<ReplyLine>; trigger: ReplyLine; answers: ReadonlyArray<unknown> };
+
+/** A line of `c1` as the platform hands it over. */
+const rawLine = ({ id, text, at, authorId = '111', authorName = 'Ελένη' }: ReplyLine): Record<string, unknown> => ({
+  id,
+  placeId: 'c1',
+  author: { id: authorId, bot: false, globalName: authorName, username: authorName },
+  member: { displayName: authorName },
+  cleanContent: text,
+  createdTimestamp: at,
+  reference: null,
+  attachments: new Map(),
+  stickers: new Map(),
+});
+
+/**
+ * Reply turns in `c1`, one after another on one turn runner, each answering its `trigger`, which joins the chat's
+ * history before its turn. The chat is the world's place `fake:channel:c1`. Returns the user texts of every request,
+ * one list per turn.
+ */
+export async function replyTurns(spec: {
+  world: World;
+  steps: ReadonlyArray<ReplyStep>;
+  settings?: Record<string, number>;
+}): Promise<Array<Array<string>>> {
+  const { steps } = spec;
+  let step = 0;
+  let firstOfStep = 1;
+  const answerOf = (n: number): unknown => {
+    const answers = steps[step]?.answers ?? ['<skip/>'];
+    return answers[Math.min(n - firstOfStep, answers.length - 1)];
+  };
+  const { turns, requests } = rigOf({
+    mind: spec.world,
+    answer: answerOf,
+    ...(spec.settings === undefined ? {} : { settings: spec.settings }),
+    store: {
+      placeOfChat: (chat: { id?: unknown; iface?: unknown }) =>
+        `${typeof chat.iface === 'string' ? chat.iface : 'fake'}:channel:${String(chat.id)}`,
+    },
+  });
+  const out: Array<Array<string>> = [];
+  for (const [index, one] of steps.entries()) {
+    step = index;
+    firstOfStep = requests.length + 1;
+    const { id, text, at, authorId = '111', authorName = 'Ελένη' } = one.trigger;
+    world().seed('c1', [...(one.lines ?? []), one.trigger].map(rawLine));
+    const trigger = { id, placeId: 'c1', authorId, authorName, self: false, bot: false, content: text, ts: at };
+    await withCapturedLogs(() =>
+      turns.runTurn({ channel: { id: 'c1' }, mode: 'reply', trigger, triggerKind: 'mention' })
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    out.push(requests.slice(firstOfStep - 1));
+  }
+  return out;
 }
 
 /** A wake of `kind` as the drain hands it to the turn, with `extra` laid over it. */

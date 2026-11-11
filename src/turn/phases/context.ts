@@ -29,6 +29,7 @@ import type { TriggerKind } from '../triggers.ts';
 import type { MyDayReader } from '../request/my-day.ts';
 import type { FrameReads } from '../../memory/db/frame-reads.ts';
 import type { LookupRing } from '../calls.ts';
+import type { SeedRing } from '../seed-ring.ts';
 
 /** The live config, as far as the phases read it; the functions they call read their own sections. */
 export type PhaseConfig = LookupConfig &
@@ -126,6 +127,8 @@ export type PhaseContext = {
   ownerAccount: (placeId: string) => string | null;
   /** Her lookups per place for `<recall>` (src/turn/calls.ts#createLookupRing). */
   lookupRing: LookupRing;
+  /** What her earlier turns in a place raised, the graph reader's `previous` (src/turn/seed-ring.ts). */
+  seedRing: SeedRing;
   busy: Set<string>;
   selfIdOf: () => string;
   getSelfName: (placeId: string) => string;

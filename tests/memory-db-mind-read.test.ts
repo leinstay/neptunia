@@ -39,6 +39,7 @@ import {
   placeNode,
   rekeyNode,
   rootId,
+  seedStemmer,
 } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 
@@ -572,4 +573,38 @@ test('a prefetched line given by its kind and row is an excerpt, and a place giv
     [['src:old', 'prefetch']]
   );
   assert.ok(placeIds(mind).includes(placeNode(PORTICO)), 'the place candidate');
+});
+
+/** The world with a learned stemmer that strips a final ς or ν, so a room's inflected names meet its own by stem. */
+function stemmedWorld(): World & { room: string } {
+  const w = world();
+  seedStemmer(w.db, ['ς', 'ν'], [['θαλασσα', 3]]);
+  return w;
+}
+
+test('a room under the current root that one inflected word names is an entry, no candidate', () => {
+  // Bug (2026-11-10): a place named in the line by an inflected word matched by stem only and came as a candidate, a
+  // name she could not trust, so in three of five samples she answered about a place without reading it.
+  const w = stemmedWorld();
+  const sea = addRoom(w.db, { iface: 'discord', native: 'c7', root: AGORA, name: 'Θάλασσα' });
+  const trigger = strangerSays(w, 'src:m1', 'τι νέα της Θάλασσας;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  const entry = mind.places.find((one) => one.nodeId === placeNode(sea));
+  assert.deepEqual([entry?.candidate, entry?.detail === 'name'], [false, false]);
+});
+
+test('an inflected word that two rooms under the current root share by stem leaves both candidates', () => {
+  // Bug: the rule for one stem match takes the first of two rooms the word fits and shows it as the place she was asked
+  // about, when the line does not say which one.
+  const w = stemmedWorld();
+  const rooms = [
+    addRoom(w.db, { iface: 'discord', native: 'c7', root: AGORA, name: 'Θάλασσα' }),
+    addRoom(w.db, { iface: 'discord', native: 'c8', root: AGORA, name: 'Θάλασσας' }),
+  ];
+  const trigger = strangerSays(w, 'src:m1', 'πάμε στη Θάλασσαν;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.deepEqual(
+    rooms.map((room) => mind.places.find((one) => one.nodeId === placeNode(room))?.candidate),
+    [true, true]
+  );
 });

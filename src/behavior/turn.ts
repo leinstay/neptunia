@@ -58,6 +58,7 @@ import {
   settleUnknownSends,
 } from '../turn/journal.ts';
 import { answerOf, callViewOf, createLookupRing, lookupSettingsOf, requesterOf, searchHandles } from '../turn/calls.ts';
+import { createSeedRing } from '../turn/seed-ring.ts';
 import type { Lookup } from '../turn/calls.ts';
 import { frameReadsOver } from '../memory/db/frame-reads.ts';
 import { createFindMeaning, findSettingsOf } from '../memory/db/graph-find.ts';
@@ -344,6 +345,8 @@ export function createTurnRunner({
     : null;
   // Her lookups per place for `<recall>` (src/turn/calls.ts), in process, seeded at start with the call marks.
   const lookupRing = createLookupRing([]);
+  // What her earlier turns in a place raised, for the graph reader of the next (src/turn/seed-ring.ts), in process.
+  const seedRing = createSeedRing();
   const busy = attention;
   const routes = turnRoutes(hot, roleHealth);
   // The topic modules of the closure (src/turn/<topic>.ts), each built once from the context it reads.
@@ -670,6 +673,7 @@ export function createTurnRunner({
     frameReads,
     ownerAccount: ownerAccount ?? ((placeId: string) => frameReads?.ownerAccount?.(placeId) ?? null),
     lookupRing,
+    seedRing,
     busy,
     selfIdOf,
     getSelfName,

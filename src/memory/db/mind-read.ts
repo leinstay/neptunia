@@ -8,10 +8,12 @@
 // (`reply`), the person she answers (`counterpart`), the authors of the window (`author`), the current place and the
 // places of the window (`place`), what an edge ties to an entry, the previous turns' seeds, the finds of the prefetch
 // and the query and her own recent places (`edge`), a word of the window that matches a name of the index (`word`,
-// names.ts), and a name found in the claims of an entry rendered whole (`prose`). A word is matched exact, then by stems, then by trigrams. A
-// word naming more than `commonWordEntries` entries raises none; several are first narrowed to the people present and
-// the places under the current root, and what stays ambiguous, or matched by stem or trigram only, is raised as a
-// candidate. An interface's noun for a kind of place raises the places of that kind on that interface instead.
+// names.ts), and a name found in the claims of an entry rendered whole (`prose`). The lines she sees beyond the window
+// (`seen`) raise their authors and places alone. A word is matched exact, then by stems, then by trigrams. A word
+// naming more than `commonWordEntries` entries raises none; several are first narrowed to the people present and the
+// places under the current root. One exact match, or one stem match among those, is the entry the word names; what
+// stays ambiguous, or is matched by trigram or by stem elsewhere, is raised as a candidate. An interface's noun for a
+// kind of place raises the places of that kind on that interface instead.
 //
 // The listed paths, each one query that orders before it limits, over live edges whose audience the context reads, to
 // nodes the context may see (`node_access`, a place by its own audience): an account to its person and back to the
@@ -26,7 +28,7 @@
 // (`budgetTokens`, split by `shares`, an unused share lent to a full one) keeps entries by rank: evidence, hops, the
 // newest anchor, her affinity, the id; an entry that does not fit drops to a lower detail, else it is left out and
 // counted in `leftOut`. The counterpart, the authors of the window, the current place and what the trigger names
-// natively or by an exact name are kept whatever the budget, at the detail that fits or as a name.
+// natively or by a word that names one entry are kept whatever the budget, at the detail that fits or as a name.
 
 import { estimateTokens } from '../../llm/tokens.ts';
 import { indexWords } from '../record-index.ts';
@@ -69,6 +71,8 @@ export type PersonEntry = EntryBase & {
   character: string | null;
   style: string | null;
   claims: Array<{ id: string; kind: string; text: string }>;
+  /** True for a person the reader keeps whatever their room: the person she answers, an author of the window, one the trigger names. */
+  keep?: boolean;
 };
 export type PlaceEntry = EntryBase & {
   placeId: string;
@@ -126,6 +130,11 @@ export type Seeds = {
   place: string | null;
   previous: Array<EntryRef>;
   candidates: Array<NodeRef & { sourceIds: Array<string>; from: 'prefetch' | 'query' }>;
+  /**
+   * The stored source ids of the lines she sees beyond the window (`<meanwhile>` and `<recall>` of a reply): each line's
+   * author is raised as an author and its place as a place, kept only as the budget allows, and its words raise nothing.
+   */
+  seen?: Array<string>;
   /**
    * True for a read of the seeds alone (memory.read, src/turn/memory-read.ts): no place she wrote in, no walk and no name
    * in a claim joins them, so what comes back is the seeds' own entries, their lore and their episodes.
@@ -221,6 +230,8 @@ type Raised = {
 };
 type Raise = Omit<Raised, 'kind' | 'sources' | 'own'> & { kind: string; sources?: Array<EntrySource>; own?: boolean };
 type Sql = { sql: string; params: Array<string | number> };
+/** How many line ids one query of the seen lines binds: below SQLite's default bound of 999 parameters with the audience's. */
+const LINES_PER_QUERY = 500;
 const RAISED_KINDS = new Set(['person', 'place', 'interface']);
 
 /** The state of one read: what is raised, what was read, and the access checks of its context. */
@@ -427,6 +438,25 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     )[0];
   }
 
+  /** The stored lines of `ids` the context reads, each id once, read in chunks that stay under SQLite's bound of parameters. */
+  function linesOf(ids: ReadonlyArray<string>): Array<Row> {
+    const where = aud('s');
+    const unique = [...new Set(ids)];
+    const out: Array<Row> = [];
+    for (let at = 0; at < unique.length; at += LINES_PER_QUERY) {
+      const chunk = unique.slice(at, at + LINES_PER_QUERY);
+      out.push(
+        ...all(
+          'seen',
+          `SELECT s.id, s.author_account, s.author_kind, s.place_id, s.occurred_at FROM sources s
+           WHERE s.id IN (${chunk.map(() => '?').join(', ')}) AND s.retired_at IS NULL AND ${where.sql}`,
+          [...chunk, ...where.params]
+        )
+      );
+    }
+    return out;
+  }
+
   /** The lines that answer a line, along `replies_to` into it. */
   function repliesInto(sourceId: string): Array<string> {
     const edge = aud('e');
@@ -468,6 +498,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     placesOfKind,
     ownPlaces,
     line,
+    linesOf,
     repliesInto,
     about,
     aud,
@@ -510,7 +541,10 @@ function wordHits(
     if (near.length > 0) nodes = near;
   }
   if (nodes.length > settings.commonWordEntries) return { nouns, nodes: [], candidate: false };
-  const candidate = nodes.length > 1 || nodes.some((one) => one.match !== 'exact');
+  // One node matched by stem among the people present or the places under the current root is the one the word names.
+  const [single] = nodes;
+  const sure = nodes.length === 1 && (single.match === 'exact' || (single.match === 'stem' && present(single.target)));
+  const candidate = !sure && nodes.length > 0;
   return { nouns, nodes: nodes.slice(0, Math.max(1, settings.candidatesMax)), candidate };
 }
 
@@ -645,6 +679,25 @@ function seedMessageTies(
         from: 'reply',
         sources: [],
       });
+  }
+}
+
+/**
+ * The lines she sees beyond the window (`Seeds.seen`): each line's author as an author and its place as a place, both
+ * anchored at the line and neither kept whatever the budget. Her own lines raise their place alone.
+ */
+function seedSeen(walker: Walker, ids: ReadonlyArray<string>): void {
+  const quiet = { hop: 0, candidate: false, named: false, keep: false };
+  const people = new Map<string, Node | null>();
+  for (const row of walker.linesOf(ids)) {
+    const anchor = { anchor: String(row.id), anchorAt: text(row.occurred_at) ?? '' };
+    const place = text(row.place_id);
+    if (place !== null) walker.raise({ ...quiet, ...anchor, ...nodeOf('place', place), evidence: 'place' });
+    const account = row.author_kind === 'self' ? null : text(row.author_account);
+    if (account === null) continue;
+    if (!people.has(account)) people.set(account, walker.personOfAccount(graphNodeId('account', account)));
+    const person = people.get(account) ?? null;
+    if (person !== null) walker.raise({ ...quiet, ...anchor, ...person, evidence: 'author' });
   }
 }
 
@@ -821,6 +874,7 @@ function personOf(
     character: descriptions.get('character')?.text ?? null,
     style: descriptions.get('style')?.text ?? null,
     claims: claims.map((row) => ({ id: String(row.id), kind: String(row.kind), text: text(row.text) ?? '' })),
+    ...(raised.keep ? { keep: true } : {}),
     sources: [
       { table: 'people', id: personId, version: null },
       ...accountRows.map((row) => ({ table: 'accounts', id: String(row.id), version: null })),
@@ -1070,8 +1124,15 @@ function compare(a: Built, b: Built): number {
   return a.entry.nodeId < b.entry.nodeId ? -1 : a.entry.nodeId > b.entry.nodeId ? 1 : 0;
 }
 
-/** Each subtag's tokens: its share, plus what the shares its entries leave unused lend, in the subtags' order. */
-function allowances(settings: MindSettings, demand: Record<Subtag, number>): Record<Subtag, number> {
+/**
+ * Each subtag's tokens: its share of `budgetTokens`, plus what the shares their entries leave unused lend, in the
+ * subtags' order. `demand` is what each subtag's entries would take. The request's second cut (src/turn/request/reader.ts)
+ * lends by the same rule.
+ */
+export function allowances(
+  settings: Pick<MindSettings, 'budgetTokens' | 'shares'>,
+  demand: Readonly<Record<Subtag, number>>
+): Record<Subtag, number> {
   const budget = Math.max(0, settings.budgetTokens);
   const out = Object.fromEntries(
     SUBTAGS.map((tag) => [tag, Math.floor(budget * Math.max(0, settings.shares[tag]))])
@@ -1134,6 +1195,8 @@ export function mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSetting
   const found = new Map<string, ExcerptSeed>();
   seedTies(walker, seeds, window, found);
   seedWords(db, ctx, walker, settings, window, seeds.place);
+  // After the words, so an author seen only elsewhere does not count as present when a word is narrowed.
+  seedSeen(walker, seeds.seen ?? []);
   if (seeds.alone !== true) walkAll(db, walker, settings);
   const trigger = new Set(window.filter((message) => message.trigger).flatMap((message) => indexWords(message.text)));
   const lore: Array<Built> = [];
