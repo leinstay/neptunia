@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { COMMANDS, parseCommandLine, operationOf } from '../src/interface/commands/table.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
-import type { CommandArg } from '../src/interface/commands/table.ts';
+import { menuCommandsOf } from '../src/interface/commands/table.ts';
+import type { Command, CommandArg } from '../src/interface/commands/table.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 /** The commands of the 4.3 table in PR 7a: `/mirror` and `/plugins` come later; `/skills` joined with PR 7e. */
@@ -290,4 +291,107 @@ test('the console answers every leaf of the table that reaches it', async () => 
     }
   }
   assert.deepEqual(unanswered, []);
+});
+
+// The rows of the owner's slash menu, built from the table by `menuCommandsOf`.
+const NAME_ARG: CommandArg = { name: 'name', required: true };
+const MENU_FIXTURE: ReadonlyArray<Command> = [
+  {
+    name: 'plain',
+    help: 'An ordinary command',
+    args: [],
+    subcommands: [
+      { name: 'list', help: 'List them', args: [] },
+      { name: 'service.set', help: 'Set one service', args: [{ name: 'key', required: true }] },
+    ],
+  },
+  {
+    name: 'named',
+    help: 'A command that reads the name first',
+    args: [],
+    nameFirst: true,
+    subcommands: [
+      { name: 'list', help: 'Every one', args: [] },
+      { name: 'enable', help: 'Enable one', args: [NAME_ARG] },
+      { name: 'roots', help: 'Its roots', args: [NAME_ARG], word: 'list' },
+    ],
+  },
+];
+
+test('the menu of an ordinary command has its own row, then a row per leaf with the dot as a space', () => {
+  // Catches: a leaf row dropped, a dotted leaf name left with its dot, or the command's own row missing or moved.
+  const rows = menuCommandsOf([MENU_FIXTURE[0]], ['alpha']);
+  assert.deepEqual(rows, [
+    { name: 'plain', help: 'An ordinary command' },
+    { name: 'plain list', help: 'List them' },
+    { name: 'plain service set', help: 'Set one service' },
+  ]);
+});
+
+test('the menu of a nameFirst command puts each interface name before the leaf word', () => {
+  // Catches: the bug itself, a row `named enable` that is no command, and a leaf row for one name only.
+  const rows = menuCommandsOf([MENU_FIXTURE[1]], ['alpha', 'beta']).map((row) => row.name);
+  assert.deepEqual(rows, [
+    'named',
+    'named list',
+    'named alpha enable',
+    'named beta enable',
+    'named alpha list',
+    'named beta list',
+  ]);
+});
+
+test('a leaf of a nameFirst command that has a word shows the word and keeps its own help', () => {
+  // Catches: the leaf's name (`roots`) typed after the name instead of its word, or its help replaced.
+  const rows = menuCommandsOf([MENU_FIXTURE[1]], ['alpha']);
+  assert.equal(rows.find((row) => row.name === 'named alpha list')?.help, 'Its roots');
+  assert.equal(
+    rows.some((row) => row.name.includes('roots')),
+    false
+  );
+});
+
+test('no row of a nameFirst command puts a leaf word before the name', () => {
+  // Catches: the old row order (`named enable alpha`, `named enable`) coming back beside the right one.
+  const names = menuCommandsOf([MENU_FIXTURE[1]], ['alpha', 'beta']).map((row) => row.name);
+  for (const word of ['enable', 'list'])
+    for (const interfaceName of ['alpha', 'beta'])
+      assert.equal(names.includes(`named ${word} ${interfaceName}`), false, `named ${word} ${interfaceName}`);
+  assert.equal(names.includes('named enable'), false);
+});
+
+test('a nameFirst command with no interface names keeps its own row and the leaves without a name', () => {
+  // Catches: a leaf row with a missing name (`named  enable`, `named <name> enable`) when no interface exists.
+  const rows = menuCommandsOf([MENU_FIXTURE[1]], []);
+  assert.deepEqual(
+    rows.map((row) => row.name),
+    ['named', 'named list']
+  );
+});
+
+test('the rows of the real table hold no name twice, the roots leaf and the bare list included', () => {
+  // Catches: `interfaces list` (every interface) and `interfaces alpha list` (its roots) collapsed into one name.
+  const names = menuCommandsOf(COMMANDS, ['alpha', 'beta']).map((row) => row.name);
+  assert.deepEqual(names, [...new Set(names)]);
+  assert.ok(names.includes('interfaces list'));
+  assert.ok(names.includes('interfaces alpha list'));
+});
+
+test('every interfaces row of the real table but the command itself is a line the parser knows', () => {
+  // The parse takes any name, so a made-up one stands in. A row that asks for a value (`set`) fails on its usage, which
+  // is fine here. Catches: a row whose words are no leaf, the failure the old `interfaces disable` row gave.
+  const rows = menuCommandsOf(COMMANDS, ['alpha']).filter(
+    (row) => row.name.startsWith('interfaces ') && row.name !== 'interfaces'
+  );
+  assert.ok(rows.length > 2);
+  for (const row of rows) {
+    const parsed = parseCommandLine('/' + row.name);
+    if (parsed.ok) continue;
+    assert.doesNotMatch(parsed.reason, /has no command|needs a command|unknown command|has no subcommand/, row.name);
+  }
+  assert.ok(parseCommandLine('/interfaces alpha disable').ok);
+  assert.equal(
+    rows.some((row) => row.name === 'interfaces disable'),
+    false
+  );
 });

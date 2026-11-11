@@ -129,7 +129,7 @@ import {
 } from '../src/config/files.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
-import { COMMANDS, UNKNOWN_INTERFACE, parseCommandLine } from '../src/interface/commands/table.ts';
+import { COMMANDS, UNKNOWN_INTERFACE, menuCommandsOf, parseCommandLine } from '../src/interface/commands/table.ts';
 import type {
   ChatAttachment,
   ChatEntry,
@@ -737,13 +737,7 @@ async function runInkChat(
       { name: 'branch', help: 'Continue this chat from an earlier line' },
       { name: 'checkpoints', help: "Preview and restore a development task's files" },
       { name: 'approvals', help: 'Approve or reject what waits on the task board' },
-      ...COMMANDS.flatMap((command) => [
-        { name: command.name, help: command.help },
-        ...command.subcommands.map((sub) => ({
-          name: `${command.name} ${sub.name.replaceAll('.', ' ')}`,
-          help: sub.help,
-        })),
-      ]),
+      ...menuCommandsOf(COMMANDS, interfacePackageNames(ROOT_DIR, where.dataDir)),
     ],
     history: records.map((one) => one.text),
     recalled: new Map(records.map((one) => [one.text, recalledImages(one)])),
