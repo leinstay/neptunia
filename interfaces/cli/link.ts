@@ -15,7 +15,7 @@ import type {
 } from '../../src/protocol/adapter.ts';
 import { serveAdapter } from '../../src/protocol/serve.ts';
 import type { CommandResult, Logger } from '../../src/protocol/serve.ts';
-import { NOTICE_STATUS, TURN_EVENT_STATUS, readTurnEvent } from '../../src/protocol/turn-control.ts';
+import { TURN_EVENT_STATUS, readTurnEvent } from '../../src/protocol/turn-control.ts';
 import type { TurnEvent } from '../../src/protocol/turn-control.ts';
 import type { Transport } from '../../src/protocol/wire.ts';
 import { classifyAttachment } from '../../src/media/classify.ts';
@@ -286,7 +286,6 @@ export function openLinkOver(
     print,
     deliver = null,
     onTurnEvent = null,
-    onNotice = null,
     transcript = [],
   }: {
     token: string;
@@ -294,8 +293,6 @@ export function openLinkOver(
     deliver?: ((file: Attachment) => Promise<void>) | null;
     /** What the core says of the turns, once this client subscribed with `turn.replay`. */
     onTurnEvent?: ((event: TurnEvent) => void) | null;
-    /** What the core tells the owner on its own, once this client subscribed with `turn.replay`. */
-    onNotice?: ((text: string) => void) | null;
     /** The lines the core's history reads answer from. A reconnect hands the same array to the new link. */
     transcript?: Array<MessageEvent>;
   }
@@ -325,10 +322,6 @@ export function openLinkOver(
     onCommandResult: (result: CommandResult) => {
       if (result.status === TURN_EVENT_STATUS) {
         readEvent(result.text, onTurnEvent);
-        return;
-      }
-      if (result.status === NOTICE_STATUS) {
-        onNotice?.(result.text);
         return;
       }
       const resolveAnswer = waiting.get(result.replyRef);
@@ -403,7 +396,6 @@ export type CliHost = Pick<InterfaceHost, 'connect' | 'token'> & {
   print: Print | null;
   deliver?: ((file: Attachment) => Promise<void>) | null;
   onTurnEvent?: ((event: TurnEvent) => void) | null;
-  onNotice?: ((text: string) => void) | null;
   /** The lines the core's history reads answer from, kept across a reconnect. */
   transcript?: Array<MessageEvent>;
 };
@@ -422,7 +414,6 @@ export async function start(host: CliHost): Promise<RunningCli> {
     print: host.print,
     deliver: host.deliver ?? null,
     onTurnEvent: host.onTurnEvent ?? null,
-    onNotice: host.onNotice ?? null,
     transcript: host.transcript ?? [],
   };
   let link = openLinkOver(await host.connect(), options);
