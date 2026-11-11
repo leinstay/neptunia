@@ -29,12 +29,23 @@ async function namesAfterHello(): Promise<ReturnType<typeof interfaceNamesOf>> {
     JSON.stringify({ bot: { timezone: 'UTC', owners: [] }, models: { routes: chainsOf({ video: false }) } })
   );
   createKeyStore({ privateDir: dataDir }).add({ name: 'core-1', value: 'test-key' });
+  // The id the fake's hello carries, which is the id the memory stores the names under.
+  let iface = '';
   try {
     const { result } = await withCapturedLogs(async () => {
       const core = await startCore({
         paths: { rootDir: REPO, privateDir: dataDir, dataDir },
         env: {},
-        interfaces: [{ name: 'solo', start: (host) => start(host, { selfId: 'self-id', root: null, names: NAMES }) }],
+        interfaces: [
+          {
+            name: 'solo',
+            start: async (host) => {
+              const running = await start(host, { selfId: 'self-id', root: null, names: NAMES });
+              iface = running.adapter.iface;
+              return running;
+            },
+          },
+        ],
         llm: { complete: () => Promise.resolve({ text: '<msg>x</msg>', usage: {}, estimated: 1 }) },
         embedder: { embed: () => Promise.resolve([]) },
       });
@@ -44,7 +55,7 @@ async function namesAfterHello(): Promise<ReturnType<typeof interfaceNamesOf>> {
         for (;;) {
           const handle = openMemoryDb(join(dataDir, 'memory.db'), { readOnly: true });
           try {
-            const found = interfaceNamesOf(handle.db as Parameters<typeof interfaceNamesOf>[0], 'solo');
+            const found = interfaceNamesOf(handle.db as Parameters<typeof interfaceNamesOf>[0], iface);
             if (found.name !== null || Date.now() > deadline) return found;
           } finally {
             handle.close();
