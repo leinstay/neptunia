@@ -18,7 +18,7 @@
 // `leftOut` counts per subtag (`people`, `places`, ...) the eligible entries the budget left out.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mindOf } from '../src/memory/db/mind-read.ts';
+import { mindOf, mindSettingsOf } from '../src/memory/db/mind-read.ts';
 import type { Mind, MindSettings, PersonEntry, SeedMessage, Seeds } from '../src/memory/db/mind-read.ts';
 import { dmContext, groupContext } from '../src/memory/db/scope.ts';
 import type { Context } from '../src/memory/db/scope.ts';
@@ -607,4 +607,33 @@ test('an inflected word that two rooms under the current root share by stem leav
     rooms.map((room) => mind.places.find((one) => one.nodeId === placeNode(room))?.candidate),
     [true, true]
   );
+});
+
+/** A live config with `context.memory` holding `memory` and `llm.maxRequestTokens` at 100000. */
+const configOf = (memory: Record<string, unknown>): unknown => ({
+  llm: { maxRequestTokens: 100000 },
+  context: { memory },
+});
+
+test('the total of the memory blocks is budgetTokens when budgetShare is unset', () => {
+  // Bug: the new key changes the total of a deployment that never set it.
+  assert.equal(mindSettingsOf(configOf({ budgetTokens: 7000 })).budgetTokens, 7000);
+});
+
+test('the total is the share of llm.maxRequestTokens when that is less than budgetTokens', () => {
+  // Bug: the share is ignored, so a small request cap still gets a memory budget that crowds out the chat.
+  assert.equal(mindSettingsOf(configOf({ budgetTokens: 10000, budgetShare: 0.05 })).budgetTokens, 5000);
+});
+
+test('the total stays budgetTokens when the share of llm.maxRequestTokens gives more', () => {
+  // Bug: the share replaces budgetTokens instead of capping it, so a large cap raises the total past the setting.
+  assert.equal(mindSettingsOf(configOf({ budgetTokens: 10000, budgetShare: 0.5 })).budgetTokens, 10000);
+});
+
+test('a budgetShare that is zero, negative, above 1 or not a number counts as unset', () => {
+  // Bug: zero empties <memory>, a negative or a string yields a negative or NaN total, and a share above 1 is read as a cap.
+  for (const budgetShare of [0, -0.1, 1.5, '0.05', null, Number.NaN, {}]) {
+    const total = mindSettingsOf(configOf({ budgetTokens: 10000, budgetShare })).budgetTokens;
+    assert.equal(total, 10000, `budgetShare ${JSON.stringify(budgetShare)} gave ${total}`);
+  }
 });
