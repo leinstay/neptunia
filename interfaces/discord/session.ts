@@ -3,10 +3,10 @@
 // adapter over it, then carries every gateway event the core uses as a protocol event. Events that arrive before
 // `open()` are held (at most 1,000, the oldest dropped) until the core's door has its handlers.
 //
-// The served guilds follow the live settings (guild.ts#resolveGuilds over `servers`, read at each use and again on
-// each settings change), so a server the core accepts is served from the next read with no restart. A server the bot
-// is in and does not serve is reported as `root.changed` `present` at the start, a server it joins as `joined` and one
-// it leaves as `left`. With no list, the server served at the start stays served while the session runs.
+// The session serves every server the bot is in: those of the client's guild cache at the start go in `hello`, a
+// server it joins while it runs is reported as `root.changed` `joined` and announced with its chats and members, and one
+// it leaves is reported as `left`. Only the owner can add the bot to a server. The server of the older `bot.guildId`
+// setting, when the bot is in it, is the first root of `hello`.
 //
 // The chat reads, the reactions and the direct chats of the turn, the message pipeline and the tools are
 // answered over the link by the adapter (reads.ts) and the events. The interface registers no slash command. On its
@@ -35,7 +35,6 @@ import {
   toEvent,
 } from './collect.ts';
 import { createDiscordClient } from './gateway.ts';
-import { resolveGuilds } from './guild.ts';
 import { createDiscordInterface } from './index.ts';
 import { memberView, membershipUpdatedEvent } from './members.ts';
 import { DISCORD_IFACE } from './port.ts';
@@ -89,7 +88,7 @@ function chatChangedEvent(change: 'created' | 'updated' | 'deleted', channel: Ob
   };
 }
 
-function rootChangedEvent(change: 'joined' | 'present' | 'left', root: { id: string; name: string }, at: number) {
+function rootChangedEvent(change: 'joined' | 'left', root: { id: string; name: string }, at: number) {
   return {
     kind: 'root.changed',
     iface: DISCORD_IFACE,
@@ -180,20 +179,12 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const guildCache = client.guilds.cache;
   const named = (guild: Obj) => ({ id: String(guild.id), name: typeof guild.name === 'string' ? guild.name : '' });
   const guildsNow = () => [...guildCache.values()].map(named);
-  const listedNow = (): Array<string> =>
-    Array.isArray(config().servers) ? (config().servers as Array<unknown>).map(String) : [];
-  const resolveNow = () => resolveGuilds(listedNow(), text(obj(config().bot).guildId) ?? '', guildsNow());
-  const resolved = resolveNow();
-  if (resolved.missing.length > 0)
-    log.warn('interface: listed servers the bot is not in', { missing: resolved.missing });
-  if (resolved.waiting.length > 0)
-    log.info('interface: servers wait for the owner', { waiting: resolved.waiting.length });
-  // With no list, the server served at the start stays served when a second one joins and waits.
-  const kept = listedNow().length === 0 ? resolved.guildIds : [];
-  /** The guilds served now: those the live settings name and the bot is in. */
-  const servedIds = (): Array<string> => [
-    ...new Set([...resolveNow().guildIds, ...kept.filter((id) => guildCache.has(id))]),
-  ];
+  /** The guilds served now: every one the bot is in, the server of `bot.guildId` first. */
+  const servedIds = (): Array<string> => {
+    const first = text(obj(config().bot).guildId) ?? '';
+    const ids = guildsNow().map((guild) => guild.id);
+    return ids.includes(first) ? [first, ...ids.filter((id) => id !== first)] : ids;
+  };
   const guildById = (id: string): Obj | null => guildCache.get(id) ?? null;
   // The first server names the persona in `hello`; her name in the others comes with each of their events.
   const guildNow = (): Obj | null => guildById(servedIds()[0] ?? '');
@@ -293,24 +284,15 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     for (const id of servedIds()) announceGuild(id);
   }
 
-  // The guilds already announced to the core. A guild the settings start to list is announced at the next change, with
-  // its members once the door is open; one they stop listing is no longer carried.
-  let announced = new Set(servedIds());
-  function followSettings(): void {
+  /** A guild the bot joined while running, announced with its chats, and its members once the door is open. */
+  function joinGuild(id: string): void {
     if (stopped) return;
-    const now = servedIds();
-    const added = now.filter((id) => !announced.has(id));
-    announced = new Set(now);
-    if (added.length === 0) return;
-    log.info('interface: servers served from the settings', { added: added.length, served: now.length });
-    for (const id of added) {
-      announceGuild(id);
-      if (held === null) for (const event of memberEvents(guildById(id))) deliver('membership.changed', event);
-      void warmerOf(id).warm({ quiet: true });
-      void deleteCommandsOf(guildById(id), log);
-    }
+    announceGuild(id);
+    if (held === null) for (const event of memberEvents(guildById(id))) deliver('membership.changed', event);
+    void warmerOf(id).warm({ quiet: true });
+    void deleteCommandsOf(guildById(id), log);
+    log.info('interface: server joined', { served: servedIds().length });
   }
-  const unfollow = host.onConfigChange(followSettings);
 
   const inGuild = (value: unknown): boolean => servedIds().includes(String(obj(obj(value).guild).id));
   const on = (event: string, listener: (...args: Array<never>) => void): void => void client.on(event, listener);
@@ -379,22 +361,19 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   on(Events.ShardResume, () => inbound('connection.changed', () => connectionEvent('resumed', Date.now())));
   on(Events.ShardReady, announceGuilds);
 
-  // A server the bot joins or leaves is told to the core, which decides whether it is served. A listed one the bot is
-  // invited back to is served at once.
+  // A server the bot joins or leaves is told to the core, which serves it from then on or stops serving it.
   on(Events.GuildCreate, (guild: Obj) => {
     inbound('root.changed', () => rootChangedEvent('joined', named(guild), Date.now()));
-    followSettings();
+    joinGuild(String(guild.id));
   });
   on(Events.GuildDelete, (guild: Obj) => {
     inbound('root.changed', () => rootChangedEvent('left', named(guild), Date.now()));
-    announced.delete(String(guild.id));
   });
 
   // An interaction for a command the bot no longer registers: refused here, never sent to the core.
   on(Events.InteractionCreate, (interaction: Interaction) => void refuseInteraction(interaction));
 
   announceGuilds();
-  for (const root of resolved.waiting) inbound('root.changed', () => rootChangedEvent('present', root, Date.now()));
   for (const id of servedIds()) void deleteCommandsOf(guildById(id), log);
 
   return {
@@ -416,7 +395,6 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     },
     async stop(): Promise<void> {
       stopped = true;
-      unfollow();
       served.close();
       await client.destroy();
     },
