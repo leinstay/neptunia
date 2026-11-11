@@ -837,6 +837,7 @@ export type TranscriptOptions = {
   memberNames?: Map<string, Array<string>>;
   channels?: Map<string, { handle: string; name: string }>;
   messageNumbers?: boolean;
+  lineNumbers?: boolean;
   skip?: (message: Untyped) => boolean;
 };
 
@@ -1021,6 +1022,9 @@ function contentWithHandles(
  *   caller): in `mode: 'chat'`, a message reference of a line (`messageRefs`, put on the message by
  *   the interface) to a message of this list reads as that line's `#index`; a reference to
  *   anything else, and a link in the text with no reference, stays as written.
+ * @param [options.lineNumbers]  Default false: a message's own `lineNumber` (src/turn/chat-numbers.ts) is its number
+ *   when it is a whole number above the number of the message before it, and every other message takes the number
+ *   after the one before it. Without it the messages are numbered on from `indexOffset`.
  * @param [options.skip]  A message it holds true for keeps its
  *   number (`#index`, reply markers and message links to it read as that number) but renders no
  *   item, and a gap marker is measured from the last line that does render: the request builder
@@ -1110,7 +1114,14 @@ export function formatTranscript(
   }
   // A call mark takes no number: the messages alone are numbered, in their order.
   const numbered = messages.filter((message) => message?.kind !== 'call');
-  const indexById = new Map(numbered.map((message, i) => [message.id, indexOffset + i + 1]));
+  const ownNumbers = options.lineNumbers === true;
+  const indexById = new Map<unknown, number>();
+  let last = indexOffset;
+  for (const message of numbered) {
+    const own: unknown = ownNumbers ? message.lineNumber : undefined;
+    last = typeof own === 'number' && Number.isInteger(own) && own > last ? own : last + 1;
+    indexById.set(message.id, last);
+  }
   // A message link to a line of this list reads as that line's number (chat mode, `messageNumbers`).
   const linkNumbers = mode === 'chat' && options.messageNumbers === true;
   const byId = new Map(messages.map((message) => [message.id, message]));

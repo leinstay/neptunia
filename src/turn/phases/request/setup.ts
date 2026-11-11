@@ -2,7 +2,7 @@
 // indicator while it prepares, the root's listing, the history with its reply parents, the memory prefetch and a
 // selfreflection post's plan. The request phase (src/turn/phases/request.ts) runs it first; the later steps read what it made.
 
-import { accountOf } from '../../../memory/addresses.ts';
+import { accountOf, placeOfChat } from '../../../memory/addresses.ts';
 import { isCliOwner } from '../../../behavior/core-pause.ts';
 import { forcedPictureRefusal } from '../../../behavior/selfreflection-turn.ts';
 import { refreshEmojiIfOn } from '../../../behavior/emoji-index.ts';
@@ -18,6 +18,8 @@ import { replyOptionsOf } from '../../calls.ts';
 import type { Selfreflection } from '../../selfreflection.ts';
 import type { Draft } from '../../draft.ts';
 import { withReplyParents } from '../../history.ts';
+import { chatHead, chatHeadStepOf, numberLines } from '../../chat-numbers.ts';
+import type { StoredNumbers } from '../../chat-numbers.ts';
 import type { Lookup } from '../../lookup.ts';
 import { paceSettings } from '../../settings.ts';
 import type { PaceSettings } from '../../settings.ts';
@@ -92,6 +94,12 @@ export type Setup = {
     { value: Awaited<ReturnType<Selfreflection['prepareSelfreflection']>> } | { error: unknown }
   > | null;
 };
+
+/**
+ * The stored lines read past the fetched ones, so the numbers reach the deleted lines the gather step puts back
+ * (DELETED_LINES_MAX) and the lines the memory holds and the history does not.
+ */
+const STORED_MARGIN = 20;
 
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
 export async function setupRequest(
@@ -217,18 +225,30 @@ export async function setupRequest(
   // persona's own lines carry the message that started their turn (linkTriggers) and the
   // skill calls she made (linkCalls), so the request and every analyzer transcript built from
   // this history name them.
+  // The window starts at its head (src/turn/chat-numbers.ts#chatHead), numbered by the stored lines of the chat's own
+  // place, before its reply parents are put in. A direct chat is its own place, the turn's.
+  const chatPlace = isDm ? placeId : placeOfChat(store, channel, channel.iface) || String(channel.id ?? '');
+  const storedOf = (lines: ReadonlyArray<unknown>): StoredNumbers | null =>
+    draft.nowhere === true ? null : (ctx.frameReads?.placeLines?.(chatPlace, lines.length + STORED_MARGIN) ?? null);
+  const headOf = <TLine extends { id?: unknown }>(lines: Array<TLine>): Array<TLine> => {
+    draft.placeLines = storedOf(lines);
+    const count = config.context.channelMessages;
+    if (draft.inner || typeof count !== 'number' || !(count > 0)) return lines;
+    return chatHead(lines, numberLines(lines, draft.placeLines), count, chatHeadStepOf(config));
+  };
   const rawHistory = linkCalls(
     linkTriggers(
       reuseHistory ??
         (await beforeBar(
           readHistory(channel, config, { inner: Boolean(draft.inner), draft, placeId }).then((lines) =>
-            withReplyParents(ifaceReads, channel, lines, { trigger })
+            withReplyParents(ifaceReads, channel, headOf(lines), { trigger })
           )
         ))
     ),
     { channel, snapshot, placeId }
     // The marks keep every line as it was, with the message's own fields.
   ) as Array<HistoryLine>;
+  if (reuseHistory) draft.placeLines = storedOf(rawHistory);
   const historyMs = clock() - historyStartedAt;
   const partner = await beforeBar(partnerPending);
   await beforeBar(emojiPending);

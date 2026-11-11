@@ -29,6 +29,8 @@ import type { AffinityChange } from '../affinity-changes.ts';
 import type { PastEntry } from './selfreflection-past.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
+import { placeLineNumbers } from './chat-lines.ts';
+import type { PlaceLineNumbers } from './chat-lines.ts';
 
 /**
  * A stored chat line as a request reads it: its message id, the id of its source row, its place, epoch ms, the author's
@@ -536,6 +538,8 @@ export type FrameReads = {
   subject?(ctx: Context, words: string, here: SubjectHere): Subject;
   /** Her attitude changes toward one person the context reads, newest first (affinity-changes.ts#affinityChangesOf). */
   affinityChanges?(ctx: Context, personId: string, limit: number): Array<AffinityChange>;
+  /** A place's count of lines and the numbers of its newest `newest` lines (chat-lines.ts#placeLineNumbers). */
+  placeLines?(placeId: string, newest: number): PlaceLineNumbers;
 };
 
 const NO_MIND: Mind = {
@@ -591,5 +595,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     ownerAccount: (placeId) => over(null, (db) => ownerAccountOfPlace(db, configOf(), placeId)),
     subject: (ctx, words, here) => over<Subject>({ kind: 'none' }, (db) => subjectOf(db, ctx, words, here)),
     affinityChanges: (ctx, personId, limit) => over([], (db) => affinityChangesOf(db, ctx, { personId, limit })),
+    placeLines: (placeId, newest) =>
+      over<PlaceLineNumbers>({ count: 0, numbers: new Map() }, (db) => placeLineNumbers(db, placeId, newest)),
   };
 }
