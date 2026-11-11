@@ -588,3 +588,23 @@ test('envelope: every type validates in its documented body, and a bad one is re
   ];
   for (const [value, reason] of cases) assert.deepEqual(validateEnvelope(value), { ok: false, reason }, reason);
 });
+
+// A root of a hello may carry the moment the bot joined it (`joinedAt`, optional, milliseconds since the epoch). A
+// value of another type refuses the hello with the body's own reason, as a bad `root` or `roots` does.
+test('envelope: a hello takes a joinedAt number on a root or none, and refuses any other joinedAt', () => {
+  // Catches: a text or NaN stored as the day she joined, taken from a careless interface.
+  const roots = [
+    { id: 'g1', name: 'Alpha', joinedAt: 1790000000000 },
+    { id: 'g2', name: 'Beta' },
+  ];
+  assert.deepEqual(validateEnvelope(envelope('hello', { ...HELLO_BODY, roots }, { id: 'h1' })), { ok: true });
+  const root = { id: 'g1', name: 'Alpha', joinedAt: 1790000000000 };
+  assert.deepEqual(validateEnvelope(envelope('hello', { ...HELLO_BODY, root }, { id: 'h1' })), { ok: true });
+  for (const joinedAt of ['2026-10-03', null, Number.NaN]) {
+    const bad = { id: 'g1', name: 'Alpha', joinedAt };
+    const one = validateEnvelope(envelope('hello', { ...HELLO_BODY, root: bad }, { id: 'h1' }));
+    assert.deepEqual(one, { ok: false, reason: 'body.root:type' }, String(joinedAt));
+    const many = validateEnvelope(envelope('hello', { ...HELLO_BODY, roots: [bad] }, { id: 'h1' }));
+    assert.deepEqual(many, { ok: false, reason: 'body.roots:type' }, String(joinedAt));
+  }
+});

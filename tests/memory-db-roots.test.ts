@@ -7,7 +7,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { placeChainInDb } from '../src/memory/db/place-tree.ts';
 import { noteRoots } from '../src/memory/db/roots.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
 
@@ -115,5 +117,61 @@ test('revives a retired server place and names it when a hello names its root', 
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.name, 'Root One');
     assert.equal(rows[0]?.retired_at, null);
+  });
+});
+
+// The day the bot joined a root (the owner's decision of 2026-11-11): an interface reports the moment with a root, as
+// milliseconds since the epoch, in an event and in a hello. The writer keeps it on the root's place, and the chain read
+// of the place (place-tree.ts, `joinedAt?: number | null` on a link, set only for a place with a known moment) gives it back.
+//   Root = { id: string; name: string; joinedAt?: number }
+const JOINED = Date.parse('2026-10-03T10:00:00Z');
+
+test('keeps the moment a root joined on its place, and a channel under it has none', () => {
+  // Bug: the moment an event reports is dropped on the way to the place, so no block can say since when she is there.
+  withDb((handle, db) => {
+    noteRoots(handle, { iface: 'discord', roots: [{ id: 'g1', name: 'Root One', joinedAt: JOINED }], at: AT });
+    assert.equal(placeChainInDb(db, SERVER)[0]?.joinedAt, JOINED);
+    db.prepare(
+      `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, parent_id, name)
+       VALUES ('discord:channel:c1', 'discord', 'channel', 'c1', 'channel:c1', 'discord/global', 1, ?, 'room')`
+    ).run(SERVER);
+    const chain = placeChainInDb(db, 'discord:channel:c1');
+    assert.equal(chain[0]?.joinedAt ?? null, null);
+    assert.equal(chain[1]?.joinedAt, JOINED);
+  });
+});
+
+test('keeps the moment of a root through the memory writer, the way a hello reaches it', () => {
+  // Bug: the writer's `roots` update rebuilds each root from id and name and loses the moment on the hello path.
+  withDb((handle, db) => {
+    applyMemoryWrite(handle, {
+      kind: 'roots',
+      iface: 'discord',
+      roots: [{ id: 'g1', name: 'Root One', joinedAt: JOINED }],
+      at: AT,
+    });
+    assert.equal(placeChainInDb(db, SERVER)[0]?.joinedAt, JOINED);
+  });
+});
+
+test('a later event or hello with no moment keeps the stored one, and renames still apply', () => {
+  // Bug: a hello after a restart, which cannot tell the moment again, blanks the day she joined.
+  withDb((handle, db) => {
+    noteRoots(handle, { iface: 'discord', roots: [{ id: 'g1', name: 'Root One', joinedAt: JOINED }], at: AT });
+    noteRoots(handle, { iface: 'discord', roots: [{ id: 'g1', name: 'Root One' }], at: LATER });
+    noteRoots(handle, { iface: 'discord', roots: [{ id: 'g1', name: 'Root Prime' }], at: LATER });
+    const [root] = placeChainInDb(db, SERVER);
+    assert.equal(root?.joinedAt, JOINED);
+    assert.equal(root?.name, 'Root Prime');
+  });
+});
+
+test('a root stored with no moment gets it from a later hello that carries one', () => {
+  // Bug: a root written before the field existed never learns its day, so the first server stays without one.
+  withDb((handle, db) => {
+    noteRoots(handle, { iface: 'discord', roots: [{ id: 'g1', name: 'Root One' }], at: AT });
+    assert.equal(placeChainInDb(db, SERVER)[0]?.joinedAt ?? null, null);
+    noteRoots(handle, { iface: 'discord', roots: [{ id: 'g1', name: 'Root One', joinedAt: JOINED }], at: LATER });
+    assert.equal(placeChainInDb(db, SERVER)[0]?.joinedAt, JOINED);
   });
 });

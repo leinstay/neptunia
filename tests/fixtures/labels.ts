@@ -447,6 +447,14 @@ export const labels = {
     // selfreflection post in her own world; no turn is "nowhere".
     server: 'SPATIAL-SERVER AT {when}',
     world: 'SPATIAL-WORLD AT {when}',
+    // The day she joined the top place of the chain, when the store knows it; `{day}` is the date in the turn's zone.
+    joined: 'SPATIAL-JOINED {day}',
+  },
+  // The fields of a place as `<place>` of `<surroundings>` and an entry of `<places>` both print them.
+  surroundings: {
+    nouns: 'SURROUNDINGS-NOUNS {nouns}',
+    field: '{field}: {value}',
+    fields: { purpose: 'purpose', tone: 'tone', topics: 'topics', joined: 'joined' },
   },
   // The frame of a place reference (docs/prompt-contract.md): the nouns and the interface's name come from its hello.
   places: {

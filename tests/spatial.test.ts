@@ -19,7 +19,7 @@
 // server, a selfreflection post that she is in her own world; `nowhere` is gone, and these tests follow.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatNow } from '../src/format.ts';
+import { formatDate, formatNow } from '../src/format.ts';
 import { frameOf } from '../src/turn/request/frame.ts';
 import { spatialAwarenessText, whereaboutsOfFrame } from '../src/turn/request/spatial.ts';
 import type { PlaceLink } from '../src/turn/request/spatial.ts';
@@ -242,4 +242,34 @@ test('whereaboutsOfFrame carries the partner handle of a direct chat, and a grou
     nouns: {},
     partner: '@uzoe1',
   });
+});
+
+// The day she joined the root (the owner's decision of 2026-11-11). A link of the chain may carry `joinedAt?: number |
+// null` (`PlaceLink`, set by the chain read for a root with a known moment). `<spatial_awareness>` of a place whose chain
+// holds one says it as a line of its own, `labels.spatial.joined` filled with `{day}`, the date by `formatDate` in the
+// turn's timezone. A chain with no moment says nothing of it.
+test('a place under a root with a known moment says the day she joined, in the turn timezone', () => {
+  // Bug: the day is cut in UTC, not in her zone, or the moment never reaches the text and she cannot say since when she is here.
+  const joinedAt = Date.parse('2026-10-03T23:30:00Z');
+  const day = formatDate(joinedAt, 'Asia/Tokyo', labels.locale);
+  assert.notEqual(day, formatDate(joinedAt, 'UTC', labels.locale));
+  const frame = frameOf(frameInput({ interface: 'discord', chain: [CHANNEL, { ...SERVER, joinedAt }] }));
+  const text = spatialAwarenessText({
+    whereabouts: whereaboutsOfFrame(frame),
+    now: NOW,
+    timezone: 'Asia/Tokyo',
+    labels,
+    notes: {},
+  });
+  assert.ok(text.split('\n').includes(`SPATIAL-JOINED ${day}`), text);
+});
+
+test('a place under a root with no known moment says nothing of a day', () => {
+  // Bug: a root the store has no moment for prints an invalid or empty day line.
+  for (const joinedAt of [null, undefined]) {
+    const root: PlaceLink = joinedAt === undefined ? SERVER : { ...SERVER, joinedAt };
+    assert.equal(textOf([CHANNEL, root]).includes('SPATIAL-JOINED'), false, String(joinedAt));
+  }
+  const withMoment = textOf([CHANNEL, { ...SERVER, joinedAt: Date.parse('2026-10-03T10:00:00Z') }]);
+  assert.ok(withMoment.includes('SPATIAL-JOINED'), withMoment);
 });
