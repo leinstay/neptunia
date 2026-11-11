@@ -159,7 +159,7 @@ export const MIND_DEFAULTS: Readonly<MindSettings> = Object.freeze({
   maxHops: 2,
   maxNodesRead: 2000,
   budgetTokens: 10000,
-  shares: { people: 0.5, places: 0.15, lore: 0.15, recent: 0.1, found: 0.1 },
+  shares: { people: 0.4, places: 0.3, lore: 0.15, recent: 0.1, found: 0.05 },
   counterpartTokens: 1500,
   candidatesMax: 3,
   commonWordEntries: 3,
@@ -175,11 +175,16 @@ function numbers<T extends Record<string, number>>(given: unknown, fallback: T):
   return Object.fromEntries(Object.entries(fallback).map(([key, value]) => [key, count(source[key], value)])) as T;
 }
 
+/** The shipped `context.memory.budgetShare`, for live settings that lack the key. */
+const BUDGET_SHARE_DEFAULT = 0.1;
+
 /**
  * The total of the memory blocks: `budgetTokens`, lowered to `floor(budgetShare * llm.maxRequestTokens)` when the
- * share is a number above 0 and up to 1 and the cap is a positive number. Any other share counts as unset.
+ * share is a number above 0 and up to 1 and the cap is a positive number. A missing share is BUDGET_SHARE_DEFAULT, and
+ * any other share, `null` included, counts as unset.
  */
-function budgetTotalOf(budgetTokens: number, share: unknown, llm: unknown): number {
+function budgetTotalOf(budgetTokens: number, given: unknown, llm: unknown): number {
+  const share = given === undefined ? BUDGET_SHARE_DEFAULT : given;
   const cap = isObj(llm) ? llm.maxRequestTokens : null;
   if (typeof share !== 'number' || !Number.isFinite(share) || share <= 0 || share > 1) return budgetTokens;
   if (typeof cap !== 'number' || !Number.isFinite(cap) || cap <= 0) return budgetTokens;
