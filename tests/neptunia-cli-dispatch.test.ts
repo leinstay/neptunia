@@ -28,6 +28,7 @@ const SAMPLES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   'services.selfreflection.setup': { every: '6h' },
   'services.selfimprovement.setup': { at: '03:00' },
   'doctor.watcher': { number: '3' },
+  'doctor.watcher.unaccept': { number: '2' },
   // The owner's decision of 2026-11-10: `/tools grant` and `/tools revoke` take no target, so they need no sample.
 };
 
