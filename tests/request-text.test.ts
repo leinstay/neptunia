@@ -114,8 +114,9 @@ test('a place with no handle reads without the handle part', () => {
   assert.equal(text, 'channel "alpha", server "Beta", interface "Discord"');
 });
 
-test('escapeStored keeps a > as it is and escapes < and &', () => {
-  // Bug: a `>` written as an entity made every arrow and quote of her own chat unreadable in the request.
+test('escapeStored keeps a > and a & as written and escapes a <', () => {
+  // Bug: a `>` written as an entity made every arrow and quote of her own chat unreadable in the request, and an `&` as
+  // an entity would change every stored text that holds one.
   assert.equal(escapeStored('a > b'), 'a > b');
-  assert.equal(escapeStored('<b>x</b> & y'), '&lt;b>x&lt;/b> &amp; y');
+  assert.equal(escapeStored('<b>x</b> & y'), '&lt;b>x&lt;/b> & y');
 });

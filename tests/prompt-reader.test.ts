@@ -412,7 +412,7 @@ test('a place she wrote in keeps a line saying so, and a place she never wrote i
 
 // The owner's decision of 2026-11-11 (a place reads in words, every chat has a handle). A place a request names carries
 // its interface's id, its chain innermost first and the names its interface declared in its hello.
-const NAMES = { interface: 'Agora Net', nouns: { server: 'realm', channel: 'room' }, dm: 'private talk' };
+const NAMES = { interface: 'Agora Net', nouns: { server: 'realm', channel: 'room' }, dm: 'direct talk' };
 
 /** The stored view of a place, as `placePathOf` gives it. */
 const viewOf = (iface: string, chain: PlaceChain, dm = false, partnerKey: string | null = null) => ({

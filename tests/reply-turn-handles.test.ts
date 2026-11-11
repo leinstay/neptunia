@@ -199,10 +199,13 @@ const authorOf = (text: string, marker: string): Array<string> => headOf(text, m
 /** What follows the `<task>` of a request: her answer and the results of her calls in a tool round. */
 const afterTask = (request: string): string => request.split('</task>').slice(1).join('</task>');
 
-/** The `#c…` handle of the place entry of `<places>` whose path ends in `name`. */
+/**
+ * The `#c…` handle of the place entry of `<places>` whose heading holds `name` in quotes. The owner's decision of
+ * 2026-11-11: a place reads as the interface's noun and the quoted name, `#c…: channel "name", ...`.
+ */
 function placeHandle(request: string, name: string): string {
   const places = /<places>\n?([\s\S]*?)\n?<\/places>/.exec(request)?.[1] ?? '';
-  const entry = places.split(/\n\s*\n/).find((one) => (one.split('\n')[0] ?? '').includes(`${name} (`)) ?? '';
+  const entry = places.split(/\n\s*\n/).find((one) => (one.split('\n')[0] ?? '').includes(`"${name}"`)) ?? '';
   return /#c[0-9a-z]+/.exec(entry)?.[0] ?? '';
 }
 
