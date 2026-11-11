@@ -194,3 +194,15 @@ test('a gone first line takes its way to read earlier with it and the next line 
     ].join('\n')
   );
 });
+
+test('a #5 someone wrote in a quoted line stays while the line takes a fresh number', () => {
+  // Bug: the extract was renumbered by a pattern over its whole text, so a number in someone's words was cut or
+  // turned into another, and the line no longer said what was written.
+  const extract = ['#23 [11:09] @uab: το #5 είναι καλό', '#24 [11:10] @ucd: δες #23 και #5'].join('\n');
+  const { lookups } = numberedLookups([lookup({ extract, lines: LINES })], {
+    from: 40,
+    live: (sourceId) => sourceId !== 'src:fake:m2:1:seen',
+    labels: shippedLabels,
+  });
+  assert.equal(lookups[0]?.extract, '#40 [11:09] @uab: το #5 είναι καλό\n[11:10] @ucd: δες #23 και #5');
+});

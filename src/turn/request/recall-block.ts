@@ -63,11 +63,29 @@ export function shownLookups(lookups: ReadonlyArray<Lookup>, retired: ReadonlySe
   return lookups.filter((lookup) => !allRetired(lookup, retired)).sort((a, b) => a.at - b.at);
 }
 
+/** The number a read puts at the head of a line, before the line's time: `#23 [11:09] ...`. */
+const HEAD = /^#(\d{1,9}) (?=\[)/u;
+
+/** `text` with the characters a regular expression reads as syntax escaped. */
+const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
- * A number in an extract: `#` and digits with no letter, digit or underscore glued to either side, with the space before
- * and after it (src/turn/handles.ts reads references the same way).
+ * The markers a read puts after a line's words that carry a number: the reply marker (`transcript.replyTo`, `{index}`)
+ * and the marker of the line that started her turn (`transcript.triggeredBy`, `{n}`), each as a pattern over the
+ * marker up to its number, the number its last group.
  */
-const NUMBER = /( ?)(?<![\p{L}\p{N}_])#(\d{1,9})(?![\p{L}\p{N}_])( ?)/gu;
+function markersOf(labels: Labels): Array<RegExp> {
+  return [
+    ['replyTo', 'index'],
+    ['triggeredBy', 'n'],
+  ].flatMap(([key = '', slot = '']) => {
+    const template = labelAt(labels, ['transcript', key]);
+    const at = template.indexOf(`{${slot}}`);
+    if (at < 0) return [];
+    const head = literal(template.slice(0, at)).replace(/\\\{\w+\\\}/g, '[^\\n]*?');
+    return [new RegExp(`(${head})(\\d{1,9})`, 'u')];
+  });
+}
 
 /** A label's text at `path` under `labels`, '' when absent. */
 function labelAt(labels: Labels, path: ReadonlyArray<string>): string {
@@ -82,7 +100,7 @@ function hintsOf(labels: Labels): Array<{ pattern: RegExp; template: string }> {
     .map((key) => labelAt(labels, ['tools', 'tools', 'conversation', key]))
     .filter((template) => template.includes('{n}'))
     .map((template) => {
-      const [head = '', ...rest] = template.split('{n}').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      const [head = '', ...rest] = template.split('{n}').map(literal);
       return { pattern: new RegExp(`^${head}(\\d{1,9})${rest.join('\\d{1,9}')}$`, 'u'), template };
     });
 }
@@ -109,11 +127,13 @@ function sourceOfRef(ref: SearchRef): string | null {
 }
 
 /**
- * `lookups` with every `#n` of their extracts given anew from `from` on, in the order the extracts show them, and the
+ * `lookups` with the numbers a read put in their extracts (at the head of a line, in its reply and turn markers and in
+ * the lines that say how to read on) given anew from `from` on, in the order the extracts show them, and the
  * lines those numbers name for the turn's registry (src/turn/calls.ts#searchHandles). A number keeps its line through
  * the lookup's `lines`, the lines the read numbered in its own turn. A line whose stored source `live` says is gone, a
- * number the lookup's lines do not hold and every number of a lookup without lines (one the journal restored) is cut,
- * a line that says how to read on is dropped with its number, and the line that says the numbers work in her calls is
+ * number the lookup's lines do not hold and every number of a lookup without lines (one the journal restored) is cut.
+ * A `#n` someone wrote in a line's words stays as written. A line that says how to read on is dropped with its number,
+ * and the line that says the numbers work in her calls is
  * dropped from an extract left with none. One line in two lookups takes one number.
  */
 export function numberedLookups(
@@ -122,6 +142,7 @@ export function numberedLookups(
 ): { lookups: Array<Lookup>; refs: Array<SearchRef> } {
   const hints = hintsOf(labels);
   const handleLines = handleLinesOf(labels);
+  const markers = markersOf(labels);
   const given = new Map<string, number>();
   const refs: Array<SearchRef> = [];
   let next = from;
@@ -151,14 +172,20 @@ export function numberedLookups(
         if (fresh !== null) out.push(fill(hint.template, { n: String(fresh) }));
         continue;
       }
-      out.push(
-        line.replace(NUMBER, (_all, before: string, digits: string, after: string) => {
-          const fresh = renumber(Number(digits));
-          if (fresh === null) return before !== '' && after !== '' ? ' ' : '';
-          kept += 1;
-          return `${before}#${fresh}${after}`;
-        })
-      );
+      // Only the numbers the read put there change: the head of a line and its markers, never a `#n` in its words.
+      const head = HEAD.exec(line);
+      let text = line;
+      if (head) {
+        const fresh = renumber(Number(head[1]));
+        text = (fresh === null ? '' : `#${fresh} `) + line.slice(head[0].length);
+        if (fresh !== null) kept += 1;
+        for (const marker of markers)
+          text = text.replace(marker, (_all, before: string, digits: string) => {
+            const parent = renumber(Number(digits));
+            return parent === null ? before.replace(/#$/u, '') : `${before}${parent}`;
+          });
+      }
+      out.push(text);
     }
     const extract = (kept > 0 ? out : out.filter((line) => !handleLines.has(line))).join('\n');
     return { ...lookup, extract };
