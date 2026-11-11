@@ -259,6 +259,28 @@ test('a later event with no moment leaves the day the list shows for the root', 
   assert.ok(joining.roots(IFACE).text.includes('SINCE 2026-10-03'), joining.roots(IFACE).text);
 });
 
+test('list shows the name of every root the hello named, and the day of those that carried one, with no event', () => {
+  // Catches: after a restart the roots arrive in the hello and no `root.changed` follows, so the list printed ids only.
+  const { joining } = rig({ labels: SINCE_LABELS, served: ['g8', 'g9'] });
+  joining.noteHello(IFACE, [
+    { id: 'g8', name: 'Theta', joinedAt: JOINED },
+    { id: 'g9', name: 'Iota' },
+  ]);
+  const lines = joining.roots(IFACE).text.split('\n');
+  const theta = lines.find((line) => line.includes('g8')) ?? '';
+  const iota = lines.find((line) => line.includes('g9')) ?? '';
+  assert.ok(theta.includes('Theta') && theta.includes('SINCE 2026-10-03'), theta);
+  assert.ok(iota.includes('Iota') && !iota.includes('SINCE'), iota);
+});
+
+test('a later hello with no moment leaves the day an earlier one gave for the root', () => {
+  // Catches: a second connection of the interface, whose hello cannot tell the day, blanking the day already known.
+  const { joining } = rig({ labels: SINCE_LABELS, served: ['g8'] });
+  joining.noteHello(IFACE, [{ id: 'g8', name: 'Theta', joinedAt: JOINED }]);
+  joining.noteHello(IFACE, [{ id: 'g8', name: 'Theta' }]);
+  assert.ok(joining.roots(IFACE).text.includes('SINCE 2026-10-03'), joining.roots(IFACE).text);
+});
+
 // ---- the core, the fake interface unit and the command line ------------------------------------------------------
 
 /** The fake interface as an authored package with its token stored. */
@@ -310,6 +332,19 @@ test('a root the bot is added to while it runs is served at once: its message is
     const listed = await runCli(dirs, ['interfaces', 'fake', 'list']);
     assert.equal(listed.code, 0, listed.stderr.slice(-2000));
     assert.ok(listed.stdout.includes('g7'), listed.stdout);
+  });
+});
+
+test('list from the command line shows the name of the root the interface named in its hello, with no root.changed', async () => {
+  // Catches: the core noting the hello's roots for the routes and the store and never for the list, so after a restart
+  // the owner's list printed the id alone.
+  await withRig({}, async ({ dirs, llm, units, cores }) => {
+    prepareFake(dirs);
+    cores.push(await startUnitsCore(dirs, llm));
+    units.push(await startedUnit(dirs));
+    const listed = await runCli(dirs, ['interfaces', 'fake', 'list']);
+    assert.equal(listed.code, 0, listed.stderr.slice(-2000));
+    assert.ok(listed.stdout.includes('g1') && listed.stdout.includes('Alpha'), listed.stdout);
   });
 });
 
