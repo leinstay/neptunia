@@ -2,7 +2,7 @@
 
 import type { Frame } from '../turn/request/frame.ts';
 import type { Mind } from '../memory/db/mind-read.ts';
-import type { Lookup as RingLookup } from '../turn/calls.ts';
+import type { Lookup as RingLookup, SearchRef } from '../turn/calls.ts';
 import type { MeanwhileReads } from '../turn/request/meanwhile.ts';
 import type { SurroundingsInput } from '../turn/request/reader.ts';
 import type { LineOf } from '../turn/request/refs.ts';
@@ -148,4 +148,6 @@ export type BuildRequestResult = {
   memberNames: Map<string, Array<string>> | null;
   /** The request's people and places for the rest of the turn: her `@handle` in a post, a read's authors and places. */
   refs?: RequestRefs | null;
+  /** The lines the numbers of `<recall>` name, taken into the turn's registry with the chat's numbers. */
+  recallRefs?: Array<SearchRef>;
 };

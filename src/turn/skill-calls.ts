@@ -36,7 +36,7 @@ import {
   valuesOf,
   WRITTEN_SKILLS,
 } from './calls.ts';
-import type { CallEnvelope, KnownPlace, Lookup, LookupRing, SearchRefs } from './calls.ts';
+import type { CallEnvelope, KnownPlace, Lookup, LookupRing, SearchRef, SearchRefs } from './calls.ts';
 import { clampWithEllipsis } from '../memory/clamp.ts';
 import { journalResultOf, portError, postedOf } from './journal.ts';
 import type { JournalOp } from './journal.ts';
@@ -201,18 +201,24 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
 const searchRefsOf = (draft: CallsDraft | null | undefined): SearchRefs | undefined =>
   draft ? (Reflect.get(draft, 'searchRefs') as SearchRefs | undefined) : undefined;
 
-/**
- * The stored source ids of the lines quoted since `before` (the numbers the registry held then), each once: a search's
- * stored source, else the source a read of a stored place gave its line (src/turn/in-turn-tools.ts#readPlace).
- */
-function quotedSince(draft: CallsDraft | null | undefined, before: ReadonlySet<number>): Array<string> {
+/** The lines the registry numbered since `before` (the numbers it held then), in the order of their numbers. */
+function quotedSince(draft: CallsDraft | null | undefined, before: ReadonlySet<number>): Array<SearchRef> {
   const refs = searchRefsOf(draft);
   if (!refs) return [];
+  return [...refs.byNumber]
+    .filter(([n]) => !before.has(n))
+    .sort(([a], [b]) => a - b)
+    .map(([, ref]) => ref);
+}
+
+/**
+ * The stored source ids of `lines`, each once: a search's stored source, else the source a read of a stored place gave
+ * its line (src/turn/in-turn-tools.ts#readPlace).
+ */
+function sourceIdsOf(lines: ReadonlyArray<SearchRef>): Array<string> {
   const readSource = (message: unknown): unknown =>
     message !== null && typeof message === 'object' ? Reflect.get(message, 'sourceId') : undefined;
-  const ids = [...refs.byNumber]
-    .filter(([n]) => !before.has(n))
-    .map(([, ref]) => ref.stored?.sourceId ?? readSource(ref.message));
+  const ids = lines.map((ref) => ref.stored?.sourceId ?? readSource(ref.message));
   return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id !== ''))];
 }
 
@@ -381,7 +387,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     args: Obj,
     result: CallAnswer,
     draft: CallsDraft | null | undefined,
-    found: { trigger: { id?: string | null } | null | undefined; sourceIds: ReadonlyArray<string> }
+    found: { trigger: { id?: string | null } | null | undefined; lines: ReadonlyArray<SearchRef> }
   ): Lookup | null {
     const lookup = lookupOfCall({
       read: (skills ?? defaultSkills()).get(skill)?.kind === 'read' && draft?.inner?.shadow !== true,
@@ -392,13 +398,17 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       args,
       status: result.status,
       text: (result.data as { text?: unknown } | null | undefined)?.text,
-      sourceIds: found.sourceIds,
+      sourceIds: sourceIdsOf(found.lines),
       anchorIds: [found.trigger?.id],
+      lines: found.lines,
     });
     if (lookup === null) return null;
     const settings = lookupSettingsOf(hot.config);
     lookupRing?.note(lookup, settings);
-    return { ...lookup, extract: clampWithEllipsis(lookup.extract, settings.extractChars) };
+    // The closing line keeps no lines: what they carry is the turn's own, and a restored extract shows no number.
+    const kept: Lookup = { ...lookup, extract: clampWithEllipsis(lookup.extract, settings.extractChars) };
+    delete kept.lines;
+    return kept;
   }
 
   /** Whether a resolved call acts in the turn's own place when it names none, and named none. */
@@ -897,8 +907,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       }
     }
     // A lookup of hers stays for `<recall>`, and its closing line keeps it for a restart (src/memory/journal.ts#callMarksOf).
-    const sourceIds = quotedSince(draft, quotedBefore);
-    const lookup = keptLookup(skill, plan.resolved?.args ?? call.args ?? {}, result, draft, { trigger, sourceIds });
+    const quoted = quotedSince(draft, quotedBefore);
+    const lookup = keptLookup(skill, plan.resolved?.args ?? call.args ?? {}, result, draft, { trigger, lines: quoted });
     const kept = lookup ? { lookup } : {};
     if (op.opId) {
       if (result.status === 'ok') await op.succeeded({ ...journalResultOf(result), ...kept });

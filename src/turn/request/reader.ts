@@ -16,7 +16,8 @@ import { fitSections } from '../../llm/budget.ts';
 import { allowances, mindSettingsOf } from '../../memory/db/mind-read.ts';
 import { normalName, phrasesOf } from '../../memory/db/names.ts';
 import type { Mind } from '../../memory/db/mind-read.ts';
-import type { Lookup } from '../calls.ts';
+import { SEARCH_HANDLE_GAP } from '../calls.ts';
+import type { Lookup, SearchRef } from '../calls.ts';
 import type { BlockName, Frame } from './frame.ts';
 import { innerBlockOf } from './inner-block.ts';
 import type { InnerParts } from './inner-block.ts';
@@ -24,7 +25,7 @@ import { meanwhileSettingsOf, meanwhileText, meanwhileWindows, windowText } from
 import type { MeanwhileReads, MeanwhileWindow } from './meanwhile.ts';
 import { MEMORY_SUBTAGS, factItemsOf, memoryItemsOf, renderMemory, strangerItemsOf } from './memory-block.ts';
 import type { ChatIdOf, ChatStranger, LiveOf, MemoryItem, MemorySubtag, StoredFact } from './memory-block.ts';
-import { recallBlockOf } from './recall-block.ts';
+import { numberedLookups, recallBlockOf, shownLookups } from './recall-block.ts';
 import { refResolverOf } from './refs.ts';
 import type { LineOf } from './refs.ts';
 import type { Senses } from './senses.ts';
@@ -130,6 +131,8 @@ export type ReaderResult = {
   memberNames: Map<string, Array<string>>;
   peopleShown: Array<{ id: string; names: Array<string> }>;
   memoryReads: Array<MemoryRead>;
+  /** The lines the numbers of `<recall>` name, for the turn's registry (src/turn/calls.ts#searchHandles). */
+  recallRefs: Array<SearchRef>;
 };
 
 /** The window of `<chat>` by line identity (`src:<iface>:<message id>`), each to its `#n`. */
@@ -158,6 +161,7 @@ type Offered = {
   /** The memory items `memoryCut` left out, by subtag. */
   memoryLeftOut: Record<string, number>;
   recall: string;
+  recallRefs: Array<SearchRef>;
   chat: Array<TranscriptItem>;
   windows: Array<MeanwhileWindow>;
   windowTexts: Array<string>;
@@ -494,6 +498,25 @@ function strangersOf(given: ReaderInput, items: ReadonlyArray<MemoryItem>): Arra
   return out;
 }
 
+/**
+ * The lookups `<recall>` shows with the numbers of their extracts given in this request, past the numbers of `<chat>`
+ * where the turn's registry starts the numbers of its reads (src/turn/calls.ts#searchHandles), and the lines they name.
+ * A kind without `<recall>` keeps the lookups as given and names no line.
+ */
+function recallNumbered(
+  given: ReaderInput,
+  retired: ReadonlySet<string>
+): { lookups: Array<Lookup>; refs: Array<SearchRef> } {
+  const { frame, lookups, chatItems, isSourceRetired, labels } = given;
+  if (!frame.blocks.includes('recall')) return { lookups: [...lookups], refs: [] };
+  const floor = Math.max(0, ...chatItems.map((item) => item.index).filter((n) => typeof n === 'number'));
+  return numberedLookups(shownLookups(lookups, retired), {
+    from: floor + SEARCH_HANDLE_GAP + 1,
+    live: (sourceId) => isSourceRetired === null || !isSourceRetired(sourceId),
+    labels,
+  });
+}
+
 /** Everything the frame's request offers, rendered before the fit. */
 function offeredOf(given: ReaderInput): Offered {
   const { frame, labels, timezone, mind, lineOf } = given;
@@ -503,7 +526,10 @@ function offeredOf(given: ReaderInput): Offered {
     labels,
     timezone,
   });
-  const lookups = given.lookups.map((lookup) => ({ ...lookup, extract: resolveRef(lookup.extract) }));
+  const gone = retiredOf(given.lookups, given.isSourceRetired);
+  const retired = { retired: gone };
+  const numbered = recallNumbered(given, gone);
+  const lookups = numbered.lookups.map((lookup) => ({ ...lookup, extract: resolveRef(lookup.extract) }));
   const names = namesOf(
     given,
     given.meanwhileReads ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettingsOf(given.config, frame)) : []
@@ -524,13 +550,13 @@ function offeredOf(given: ReaderInput): Offered {
     ...(handled(given) ? strangerItemsOf(strangersOf(given, items), frame, labels) : []),
     ...factItemsOf(given.facts ?? [], labels, handled(given) ? names.entryRefs : null),
   ]);
-  const retired = { retired: retiredOf(given.lookups, given.isSourceRetired) };
   return {
     spatial: [given.spatialText, answersLine(given, names), given.awayText].filter(Boolean).join('\n'),
     surroundings: given.surroundingsText,
     memory: memory.items,
     memoryLeftOut: memory.leftOut,
     recall: recallBlockOf(lookups, retired, labels, timezone, (placeId) => names.entryRefs.place(placeId)),
+    recallRefs: numbered.refs,
     chat: given.chatItems.map((item) => ({ ...item, text: resolveRef(item.text) })),
     windows,
     windowTexts: windows.map((window) =>
@@ -692,5 +718,6 @@ export function readerRequest(given: ReaderInput): ReaderResult {
       .filter((one) => one.name !== null && one.handleIds.length > 0)
       .map((one) => ({ id: one.handleIds[0], names: [one.name ?? ''] })),
     memoryReads: keptMemory.flatMap((one) => [...one.reads]),
+    recallRefs: offered.recallRefs,
   };
 }

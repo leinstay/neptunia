@@ -310,7 +310,7 @@ export const SEARCH_HANDLE_GAP = 20;
  * SEARCH_HANDLE_GAP, so the steps of the loop, which rebuild the transcript, keep them clear),
  * each resolving to its message (channel and id) for the turn and its loop steps. `next()` is the
  * next free number, `take(shown)` registers the quoted lines the result kept
- * (`{ n, id, placeId, authorId, self, message }`).
+ * (`{ n, id, placeId, authorId, self, message }`), a number already held keeping its first line.
  */
 export function searchHandles(draft: {
   searchRefs?: SearchRefs;
@@ -338,6 +338,7 @@ export function searchHandles(draft: {
     take: (shown) => {
       const refs = registry();
       for (const ref of shown) {
+        if (refs.byNumber.has(ref.n)) continue;
         refs.byNumber.set(ref.n, ref);
         const sameId = [...refs.byNumber.values()].filter((entry) => String(entry.id) === String(ref.id));
         const identities = new Set(
@@ -606,7 +607,10 @@ export function replyOptionsOf(
 /**
  * One lookup of hers (a call of a read tool such as `memory.search`), as `<recall>` renders it on the next turns of the
  * place it was made in: the turn and the time, the tool and its arguments, the place called from, the status, a bounded
- * extract of the result with the source ids it quotes, and the messages that anchor it to the window.
+ * extract of the result with the source ids it quotes, and the messages that anchor it to the window. `lines` holds the
+ * line each `#n` of the extract named in the turn that read it, so a later request numbers the extract anew
+ * (src/turn/request/recall-block.ts#numberedLookups); it lives in process only, and a lookup without it, one the
+ * journal restored, shows its extract with no number.
  */
 export type Lookup = {
   turnId: string;
@@ -618,6 +622,7 @@ export type Lookup = {
   extract: string;
   sourceIds: Array<string>;
   anchorMessageIds: Array<string>;
+  lines?: Array<SearchRef>;
 };
 
 /** The settings a lookup is noted under (`context.recall`). */
@@ -731,7 +736,8 @@ function plainArgs(args: Record<string, unknown>): Record<string, unknown> {
 
 /**
  * The lookup a call of a read tool is, to be kept for `<recall>`: null for any other call, a call with no place to be
- * read back in, or a turn with no id. The result's text is its extract, the turn's trigger its first anchor.
+ * read back in, or a turn with no id. The result's text is its extract, the turn's trigger its first anchor, and
+ * `lines` the lines the call numbered in the turn's registry.
  */
 export function lookupOfCall(call: {
   read: boolean;
@@ -744,6 +750,7 @@ export function lookupOfCall(call: {
   text: unknown;
   sourceIds: ReadonlyArray<string>;
   anchorIds: ReadonlyArray<string | null | undefined>;
+  lines?: ReadonlyArray<SearchRef>;
 }): Lookup | null {
   if (!call.read || call.place === null || !call.turnId) return null;
   return {
@@ -756,5 +763,6 @@ export function lookupOfCall(call: {
     extract: typeof call.text === 'string' ? call.text : '',
     sourceIds: [...call.sourceIds],
     anchorMessageIds: call.anchorIds.filter((id): id is string => typeof id === 'string' && id !== ''),
+    ...(call.lines && call.lines.length > 0 ? { lines: [...call.lines] } : {}),
   };
 }

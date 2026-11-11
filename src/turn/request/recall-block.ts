@@ -2,10 +2,12 @@
 // ring of her lookups (src/turn/calls.ts#createLookupRing). Each lookup says when, where she called from, the tool, the
 // place it searched when its arguments name one (by its handle and path, `places.ref`, as the request names it), the
 // query, the status and a bounded extract of the result. A lookup
-// whose quoted sources are all retired is left out. The request builder (src/turn/request/reader.ts) calls it. Pure.
+// whose quoted sources are all retired is left out. An extract's `#n` numbers are given anew in each request
+// (`numberedLookups`), since a number names its line only in the turn that issued it. The request builder
+// (src/turn/request/reader.ts) calls both. Pure.
 
 import { fill, formatClock } from '../../format.ts';
-import type { Lookup } from '../calls.ts';
+import type { Lookup, SearchRef } from '../calls.ts';
 import { escapeStored, pathText } from './text.ts';
 import type { Labels } from './types.ts';
 
@@ -56,6 +58,114 @@ function lookupText(lookup: Lookup, labels: Labels, timezone: string, placeRef: 
   return [head, extract].filter(Boolean).join('\n');
 }
 
+/** The lookups `<recall>` shows, oldest first: a lookup whose quoted sources are all in `retired` is left out. */
+export function shownLookups(lookups: ReadonlyArray<Lookup>, retired: ReadonlySet<string>): Array<Lookup> {
+  return lookups.filter((lookup) => !allRetired(lookup, retired)).sort((a, b) => a.at - b.at);
+}
+
+/**
+ * A number in an extract: `#` and digits with no letter, digit or underscore glued to either side, with the space before
+ * and after it (src/turn/handles.ts reads references the same way).
+ */
+const NUMBER = /( ?)(?<![\p{L}\p{N}_])#(\d{1,9})(?![\p{L}\p{N}_])( ?)/gu;
+
+/** A label's text at `path` under `labels`, '' when absent. */
+function labelAt(labels: Labels, path: ReadonlyArray<string>): string {
+  let node: unknown = labels;
+  for (const key of path) node = node !== null && typeof node === 'object' ? Reflect.get(node, key) : undefined;
+  return typeof node === 'string' ? node : '';
+}
+
+/** The lines of a read that say how to read on (`conversation.earlier` and `.later`), each as a pattern and its template. */
+function hintsOf(labels: Labels): Array<{ pattern: RegExp; template: string }> {
+  return ['earlier', 'later']
+    .map((key) => labelAt(labels, ['tools', 'tools', 'conversation', key]))
+    .filter((template) => template.includes('{n}'))
+    .map((template) => {
+      const [head = '', ...rest] = template.split('{n}').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      return { pattern: new RegExp(`^${head}(\\d{1,9})${rest.join('\\d{1,9}')}$`, 'u'), template };
+    });
+}
+
+/** The lines that tell her the numbers of a result work in her calls (`tools.tools.<tool>.handles`). */
+function handleLinesOf(labels: Labels): Set<string> {
+  const section: unknown = Reflect.get(labels, 'tools');
+  const tools: unknown = section !== null && typeof section === 'object' ? Reflect.get(section, 'tools') : null;
+  const lines = new Set<string>();
+  if (tools === null || typeof tools !== 'object') return lines;
+  for (const one of Object.values(tools)) {
+    const line: unknown = one !== null && typeof one === 'object' ? Reflect.get(one, 'handles') : null;
+    if (typeof line === 'string' && line !== '') lines.add(line);
+  }
+  return lines;
+}
+
+/** The stored source a numbered line was read from, null for a line of a read the record answered without one. */
+function sourceOfRef(ref: SearchRef): string | null {
+  const message: unknown = ref.message;
+  const read: unknown = message !== null && typeof message === 'object' ? Reflect.get(message, 'sourceId') : null;
+  const id = ref.stored?.sourceId ?? read;
+  return typeof id === 'string' && id !== '' ? id : null;
+}
+
+/**
+ * `lookups` with every `#n` of their extracts given anew from `from` on, in the order the extracts show them, and the
+ * lines those numbers name for the turn's registry (src/turn/calls.ts#searchHandles). A number keeps its line through
+ * the lookup's `lines`, the lines the read numbered in its own turn. A line whose stored source `live` says is gone, a
+ * number the lookup's lines do not hold and every number of a lookup without lines (one the journal restored) is cut,
+ * a line that says how to read on is dropped with its number, and the line that says the numbers work in her calls is
+ * dropped from an extract left with none. One line in two lookups takes one number.
+ */
+export function numberedLookups(
+  lookups: ReadonlyArray<Lookup>,
+  { from, live, labels }: { from: number; live: (sourceId: string) => boolean; labels: Labels }
+): { lookups: Array<Lookup>; refs: Array<SearchRef> } {
+  const hints = hintsOf(labels);
+  const handleLines = handleLinesOf(labels);
+  const given = new Map<string, number>();
+  const refs: Array<SearchRef> = [];
+  let next = from;
+  const numbered = lookups.map((lookup) => {
+    const byOld = new Map((lookup.lines ?? []).map((ref) => [ref.n, ref]));
+    const renumber = (n: number): number | null => {
+      const ref = byOld.get(n);
+      if (ref === undefined) return null;
+      const sourceId = sourceOfRef(ref);
+      if (sourceId !== null && !live(sourceId)) return null;
+      const key = sourceId ?? JSON.stringify([ref.placeId ?? null, String(ref.id)]);
+      let fresh = given.get(key);
+      if (fresh === undefined) {
+        fresh = next;
+        next += 1;
+        given.set(key, fresh);
+        refs.push({ ...ref, n: fresh });
+      }
+      return fresh;
+    };
+    let kept = 0;
+    const out: Array<string> = [];
+    for (const line of lookup.extract.split('\n')) {
+      const hint = hints.find(({ pattern }) => pattern.test(line));
+      if (hint) {
+        const fresh = renumber(Number(hint.pattern.exec(line)?.[1]));
+        if (fresh !== null) out.push(fill(hint.template, { n: String(fresh) }));
+        continue;
+      }
+      out.push(
+        line.replace(NUMBER, (_all, before: string, digits: string, after: string) => {
+          const fresh = renumber(Number(digits));
+          if (fresh === null) return before !== '' && after !== '' ? ' ' : '';
+          kept += 1;
+          return `${before}#${fresh}${after}`;
+        })
+      );
+    }
+    const extract = (kept > 0 ? out : out.filter((line) => !handleLines.has(line))).join('\n');
+    return { ...lookup, extract };
+  });
+  return { lookups: numbered, refs };
+}
+
 /**
  * The body of `<recall>` over `lookups`, oldest first, `window.retired` naming the source ids that are retired, a searched
  * place named by `placeRef`. '' with no lookup left.
@@ -67,7 +177,7 @@ export function recallBlockOf(
   timezone: string,
   placeRef: PlaceRefOf | null = null
 ): string {
-  const shown = lookups.filter((lookup) => !allRetired(lookup, window.retired)).sort((a, b) => a.at - b.at);
+  const shown = shownLookups(lookups, window.retired);
   if (shown.length === 0) return '';
   const header = labels.recall?.header ?? '';
   return [header, ...shown.map((lookup) => lookupText(lookup, labels, timezone, placeRef))]
