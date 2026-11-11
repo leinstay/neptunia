@@ -917,7 +917,7 @@ export function rawMentionsAsHandles(text: Untyped, handles: ReadonlyMap<string,
  * @param [options.reactionNames]  Default false (features.reactionNames, read by the caller):
  *   in `mode: 'chat'`, a reaction on the persona's own line whose `users` are known (src/behavior/
  *   reactor-store.ts#withReactors) renders `transcript.reactionNames` with the
- *   reactors named exactly like the authors of lines (the `handles` and `transcript.author` below),
+ *   reactors named exactly like the authors of lines (the `handles` and `authors.line` below),
  *   at most `reactionNamesMax` (5 when omitted) of them, the rest as `transcript.reactionMore`.
  *   Off, without the label or on anyone else's line: the counts as before.
  * @param [options.reactionNamesMax]  5 when omitted.
@@ -945,11 +945,14 @@ export function rawMentionsAsHandles(text: Untyped, handles: ReadonlyMap<string,
  *   `transcript.called` blank, or memory mode: no call line. Every line shows one clock and no age.
  * @param [options.now]  The request's clock (epoch ms). A line's time is its clock alone, so the
  *   text does not depend on it.
- * @param [options.handles]  Member id -> handle (src/behavior/handles.ts,
- *   features.mentionHandles). In `mode: 'chat'` with a non-empty `transcript.author` label, the
- *   author of a line that is not the persona's and has a handle renders as that
- *   label with `{name}` and `{handle}` (the exact token to write, `@` included). Omitted, or
- *   without the label: the bare name, as before.
+ * @param [options.handles]  Member id -> the handle of the person behind the account (src/turn/request/head.ts).
+ *   In `mode: 'chat'` with a non-empty `authors.line` label, the author of a line that is not the persona's and has a
+ *   handle renders as that label with `{handle}` (the exact token to write, `@` included), and as `authors.lineAccount`
+ *   with `{iface}` (`options.iface`) and `{id}` (the member id) when two or more member ids of the list share the
+ *   handle; an author without a handle renders the bare name, else `authors.unknown`. A mention token `<@id>` left in a
+ *   line's text reads as the member's `@handle`, else `authors.unknown` (rawMentionsAsHandles). Omitted, or without
+ *   the label: the bare name.
+ * @param [options.iface]  The interface the member ids belong to, the account mark of `authors.lineAccount`.
  * @param [options.memberNames]  Member id -> the names and aliases the request
  *   knows (src/behavior/handles.ts#memberNameMap). With `handles` (chat mode, the same conditions),
  *   a member a line really mentions (`mentionedAccountIds`; their name from the line's `mentionedUsers`
