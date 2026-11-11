@@ -2,10 +2,11 @@
 // thing in one subtag only (docs/prompt-contract.md). `<people>` opens with the person she answers, marked so and always
 // present, a stranger included; `<places>`, `<lore>`, `<recent>` and `<found>` follow. Every entry names its origin
 // (`labels.memory.origin.*`), renders at the detail the reader chose and quotes stored text as an escaped value, a
-// mention in it by the name of the account it names. The
-// request builder (src/turn/request/reader.ts) fits the items to the budget and renders what stayed. Pure.
+// mention in it by the handle of the person it names. A person's entry lists every account of theirs, one line each,
+// the account of the turn's interface marked. The request builder (src/turn/request/reader.ts) fits the items to the
+// budget and renders what stayed. Pure.
 
-import { fill, formatDate } from '../../format.ts';
+import { fill, formatDate, mentionsNamed } from '../../format.ts';
 import { factStateWords } from '../../memory/retrieval-input.ts';
 import { EVIDENCE_ORDER } from '../../memory/db/mind-read.ts';
 import type {
@@ -19,7 +20,7 @@ import type {
 } from '../../memory/db/mind-read.ts';
 import type { PersonAccount } from '../../memory/db/meta-person.ts';
 import type { Frame } from './frame.ts';
-import { block, escapeStored, pathText, resolveChatText } from './text.ts';
+import { block, escapeStored, pathText } from './text.ts';
 import type { LabelGroup, Labels, MemoryLabels, MemoryRead, NameOf } from './types.ts';
 
 /** The subtags of `<memory>`, in their order. */
@@ -27,8 +28,8 @@ export const MEMORY_SUBTAGS = ['people', 'places', 'lore', 'recent', 'found'] as
 export type MemorySubtag = (typeof MEMORY_SUBTAGS)[number];
 
 /**
- * One entry as the budget sees it: its subtag, its text, whether it is the person she answers, the platform ids a
- * mention handle is given for once it is shown, and the memory rows it carries for the per-turn record.
+ * One entry as the budget sees it: its subtag, its text, whether it is the person she answers, what its handle is cut
+ * from, the platform ids of its accounts on the turn's interface, and the memory rows it carries for the per-turn record.
  */
 export type MemoryItem = {
   readonly subtag: MemorySubtag;
@@ -36,7 +37,12 @@ export type MemoryItem = {
   readonly counterpart: boolean;
   /** The name a person goes by, null for anything else. */
   readonly name: string | null;
+  /** The platform ids of a person's accounts on the turn's interface; empty for anything else. */
   readonly handleIds: ReadonlyArray<string>;
+  /** What a person's handle is cut from: the person id, else the account key of a stranger; null for anything else. */
+  readonly handleKey?: string | null;
+  /** Every account of a person by interface and platform id, where her `@handle` may mention them. */
+  readonly accounts?: ReadonlyArray<{ readonly iface: string; readonly native: string }>;
   /** The chat id a channel handle is given for once it is shown; null for anything else and a DM. */
   readonly chatId?: string | null;
   /** A place's stored name, for the request's budget to find it in the line she answers; absent for anything else. */
@@ -60,14 +66,42 @@ export type LiveOf = (nativeIds: ReadonlyArray<string>) => string | null;
 /** What of the frame an entry's words read: the interface of its handles, the clock of its dates, the person answered. */
 export type FrameView = Pick<Frame, 'interface' | 'timezone' | 'counterpart'>;
 
-type Words = { l: LabelGroup; origin: LabelGroup; frame: FrameView; nameOf: NameOf; locale: string | undefined };
-
 /**
- * A stored text as an escaped value, each `<@id>` mention in it read as the name `nameOf` gives that account, as a line
- * of the chat shows it (resolveChatText); a mention of an account nobody names stays as stored.
+ * How an entry names what its stored texts point at: a `<@id>` mention by the handle of the person it names
+ * (`authors.unknown` for an account no row holds), and a place id by its handle and path (`places.ref`).
  */
-const storedText = (w: Pick<Words, 'nameOf'>, value: string): string =>
-  escapeStored(String(resolveChatText(value, w.nameOf)));
+export type EntryRefs = {
+  mention: (native: string) => string;
+  place: (placeId: string) => string;
+  /** The handle a one-to-one chat's path ends in, `@` included, instead of the partner's platform id. */
+  partnerOf: (placeId: string) => string;
+  /** What the handle of the person she answers is cut from, the key of the account she answers; null: the frame's ids. */
+  counterpartKey?: string | null;
+};
+
+type Words = {
+  l: LabelGroup;
+  origin: LabelGroup;
+  frame: FrameView;
+  nameOf: NameOf;
+  locale: string | undefined;
+  refs: EntryRefs;
+  unknown: string;
+};
+
+/** The refs of a caller that gives none: a mention reads `authors.unknown`, a place the name `nameOf` gives it. */
+function plainRefs(labels: Labels, nameOf: NameOf): EntryRefs {
+  const unknown = labels.authors?.unknown ?? '';
+  return {
+    mention: () => unknown,
+    place: (id) => escapeStored(nameOf(id) ?? labels.spatial?.unnamed ?? ''),
+    partnerOf: () => unknown,
+  };
+}
+
+/** A stored text as an escaped value, each `<@id>` mention in it read as the handle of the person it names. */
+const storedText = (w: Pick<Words, 'refs'>, value: string): string =>
+  escapeStored(String(mentionsNamed(value, w.refs.mention)));
 
 /** A labelled line of a stored value, '' when the value or the label is missing. */
 function valueLine(w: Words, template: string | undefined, value: string | null | undefined): string {
@@ -81,49 +115,86 @@ function heading(w: Words, name: string, origin: string, candidate: boolean): st
   return fill(w.l.entry ?? '{name} ({origin})', { name: escapeStored(name), origin: why });
 }
 
-/** The platform ids of a person's stored accounts on the frame's interface, else of their first account. */
+/** The platform ids of a person's stored accounts on the frame's interface. */
 function nativeIds(accounts: ReadonlyArray<PersonAccount>, iface: string): Array<string> {
-  const here = accounts.filter((account) => account.iface === iface);
-  return (here.length > 0 ? here : accounts.slice(0, 1)).map((account) => account.platformId).filter(Boolean);
+  return accounts
+    .filter((account) => account.iface === iface)
+    .map((account) => account.platformId)
+    .filter(Boolean);
 }
+
+/** Every account of a person by interface and platform id. */
+const accountsOf = (person: PersonEntry): Array<{ iface: string; native: string }> =>
+  (person.profileAccounts.length > 0 ? person.profileAccounts : person.platformAccounts).map((one) => ({
+    iface: one.iface,
+    native: one.platformId,
+  }));
 
 const readsOf = (entry: { sources: ReadonlyArray<{ table: string; id: string }> }): Array<MemoryRead> =>
   entry.sources.map((source) => ({ kind: source.table, id: source.id, block: 'memory' }));
 
 /**
- * The accounts of a person with more than one, each `memory.account` (`{iface}`, `{id}`) or `memory.accountNamed` with
- * its display name, joined in `memory.accounts`; '' for one account or none, or with a label missing.
+ * One line of an account: `memory.account` (`{iface}`, `{id}` its platform id, `{names}` every name of the account
+ * joined with `, `), `memory.accountHere` for an account on the turn's interface, and `memory.accountUnnamed` or
+ * `memory.accountUnnamedHere` for an account with no name.
  */
-function accountsLine(w: Words, person: PersonEntry): string {
-  const { accounts: template, account, accountNamed } = w.l;
-  if (person.profileAccounts.length < 2 || typeof template !== 'string' || typeof account !== 'string') return '';
-  const each = person.profileAccounts.map((one) => {
-    const values = { iface: escapeStored(one.iface), id: escapeStored(one.platformId) };
-    return one.displayName && typeof accountNamed === 'string'
-      ? fill(accountNamed, { ...values, name: escapeStored(one.displayName) })
-      : fill(account, values);
+function accountLine(w: Words, iface: string, id: string, names: ReadonlyArray<string>): string {
+  const here = iface === w.frame.interface;
+  const shown = [...new Set(names.map((name) => name.trim()).filter(Boolean))];
+  const key = shown.length > 0 ? (here ? 'accountHere' : 'account') : here ? 'accountUnnamedHere' : 'accountUnnamed';
+  const template = w.l[key];
+  if (typeof template !== 'string') return '';
+  return fill(template, {
+    iface: escapeStored(iface),
+    id: escapeStored(id),
+    names: shown.map(escapeStored).join(', '),
   });
-  return fill(template, { value: each.join('; ') });
+}
+
+/** The lines of every account of a person, one each. */
+function accountLines(w: Words, person: PersonEntry): Array<string> {
+  return person.profileAccounts.map((one) =>
+    accountLine(w, one.iface, one.platformId, one.names ?? [one.displayName ?? ''])
+  );
+}
+
+/** The open aliases of a person the context may see, as `memory.aliases`; '' with none. */
+function aliasLine(w: Words, person: PersonEntry): string {
+  const aliases = [
+    ...new Set(person.claims.filter((claim) => claim.kind === 'alias').map((claim) => claim.text.trim())),
+  ];
+  const shown = aliases.filter(Boolean).map((alias) => storedText(w, alias));
+  return shown.length > 0 && typeof w.l.aliases === 'string' ? fill(w.l.aliases, { value: shown.join(', ') }) : '';
+}
+
+/** The name an entry of a person opens with: the person's, else the first name of an account, else `authors.unknown`. */
+function personName(w: Words, person: PersonEntry): string {
+  const named = person.profileAccounts.map((one) => one.displayName).find((name) => Boolean(name));
+  return person.name ?? named ?? w.unknown;
 }
 
 function personText(w: Words, person: PersonEntry, counterpart: boolean, live: string | null): string {
   const origin = counterpart ? (w.l.counterpart ?? '') : (w.origin[person.evidence] ?? '');
-  const lines = [heading(w, person.name ?? person.accounts[0] ?? person.personId, origin, person.candidate)];
+  const lines = [heading(w, personName(w, person), origin, person.candidate)];
   const detail = counterpart && person.detail === 'name' ? 'compact' : person.detail;
-  lines.push(accountsLine(w, person));
+  if (detail === 'whole') lines.push(valueLine(w, w.l.realName, person.realName));
+  if (detail !== 'name') lines.push(aliasLine(w, person));
+  lines.push(...accountLines(w, person));
   if (detail !== 'name') lines.push(valueLine(w, w.l.relation, person.relation));
   if (detail === 'whole') {
-    lines.push(valueLine(w, w.l.realName, person.realName));
     lines.push(valueLine(w, w.l.character, person.character));
     lines.push(valueLine(w, w.l.style, person.style));
-    for (const claim of person.claims) lines.push(fill(w.l.claim ?? '- {text}', { text: storedText(w, claim.text) }));
+    for (const claim of person.claims)
+      if (claim.kind !== 'alias') lines.push(fill(w.l.claim ?? '- {text}', { text: storedText(w, claim.text) }));
   }
   if (live) lines.push(valueLine(w, w.l.live, live));
   return lines.filter(Boolean).join('\n');
 }
 
 function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string {
-  const lines = [heading(w, pathText(place.path, w.l.pathJoin), w.origin[place.evidence] ?? '', place.candidate)];
+  // A one-to-one chat's path ends in its partner's handle, never in the partner's platform id.
+  const path = place.kind === 'dm' ? [...place.path.slice(0, -1), w.refs.partnerOf(place.placeId)] : place.path;
+  const lines = [heading(w, pathText(path, w.l.pathJoin), w.origin[place.evidence] ?? '', place.candidate)];
   // A place her selfreflection is mirrored to is marked at every detail, so she knows it as hers wherever it shows.
   if (selfreflection) lines.push(w.l.selfreflection ?? '');
   if (place.detail !== 'name') {
@@ -141,20 +212,16 @@ const interfaceText = (w: Words, entry: InterfaceEntry): string =>
   heading(w, entry.name ?? entry.iface, w.origin[entry.evidence] ?? '', entry.candidate);
 
 const loreText = (w: Words, claim: ClaimEntry): string =>
-  fill(w.l.lore ?? '{subject}: {text}', {
-    subject: escapeStored(w.nameOf(claim.subjectId) ?? claim.subjectId),
-    text: storedText(w, claim.text),
-  });
+  fill(w.l.lore ?? '{subject}: {text}', { subject: w.refs.place(claim.subjectId), text: storedText(w, claim.text) });
 
 const episodeText = (w: Words, episode: EpisodeEntry): string =>
   fill(w.l.episode ?? '{date}: {what}', { date: episode.date ?? '', what: storedText(w, episode.what) });
 
 function excerptText(w: Words, excerpt: ExcerptEntry): string {
   const at = excerpt.at ? Date.parse(excerpt.at) : NaN;
-  const place = excerpt.placeId ? (w.nameOf(excerpt.placeId) ?? excerpt.placeId) : '';
   return fill(w.l.excerpt ?? '{date}, {path}: "{text}"', {
     date: Number.isFinite(at) ? formatDate(at, w.frame.timezone, w.locale) : '',
-    path: escapeStored(place),
+    path: excerpt.placeId ? w.refs.place(excerpt.placeId) : '',
     text: storedText(w, excerpt.text),
   });
 }
@@ -185,6 +252,9 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
       counterpart,
       name: person.name,
       handleIds: nativeIds(person.platformAccounts, w.frame.interface),
+      // The person she answers by the key her lines carry (memberKeyOf), whichever row the reader found them by.
+      handleKey: counterpart ? (w.refs.counterpartKey ?? person.personId) : person.personId,
+      accounts: accountsOf(person),
       ...(person.keep === true ? { keep: true } : {}),
       lower: counterpart ? [] : below(person.detail).map((detail) => personText(w, { ...person, detail }, false, now)),
       reads: readsOf(person),
@@ -197,20 +267,62 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
   const first: Array<MemoryItem> = [];
   if (found) first.push(item(found, true));
   else if (them !== null) {
-    const name = them.name ?? them.accountId;
     const now = live ? live([them.nativeId]) : null;
     first.push({
       subtag: 'people',
-      text: [heading(w, name, w.l.counterpart ?? '', false), now ? valueLine(w, w.l.live, now) : '']
+      text: [
+        heading(w, them.name ?? w.unknown, w.l.counterpart ?? '', false),
+        them.nativeId ? accountLine(w, w.frame.interface, them.nativeId, [them.name ?? '']) : '',
+        now ? valueLine(w, w.l.live, now) : '',
+      ]
         .filter(Boolean)
         .join('\n'),
       counterpart: true,
       name: them.name,
       handleIds: [them.nativeId].filter(Boolean),
+      handleKey: w.refs.counterpartKey ?? them.personId ?? them.accountId,
+      accounts: them.nativeId ? [{ iface: w.frame.interface, native: them.nativeId }] : [],
       reads: [],
     });
   }
   return [...first, ...people.filter((person) => person !== found).map((person) => item(person, false))];
+}
+
+/** A member of the chat memory holds no entry of: what their handle is cut from, their platform id, name and why here. */
+export type ChatStranger = {
+  readonly key: string;
+  readonly native: string;
+  readonly name: string | null;
+  readonly evidence: 'author' | 'edge';
+};
+
+/**
+ * `<people>` entries of members of the chat memory holds nothing of (an author, a reactor of her line): the heading with
+ * `memory.origin.<evidence>` and the one account line on the turn's interface, kept whatever the budget, so everyone
+ * whose handle stands in a line has an entry.
+ */
+export function strangerItemsOf(
+  strangers: ReadonlyArray<ChatStranger>,
+  frame: FrameView,
+  labels: Labels
+): Array<MemoryItem> {
+  const w = wordsOf(labels, frame, () => null, null);
+  return strangers.map((one) => ({
+    subtag: 'people',
+    text: [
+      heading(w, one.name ?? w.unknown, w.origin[one.evidence] ?? '', false),
+      accountLine(w, frame.interface, one.native, [one.name ?? '']),
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    counterpart: false,
+    name: one.name,
+    handleIds: [one.native],
+    handleKey: one.key,
+    accounts: [{ iface: frame.interface, native: one.native }],
+    keep: true,
+    reads: [],
+  }));
 }
 
 /** A fact the retrieval service stored and the prefetch found (src/behavior/recall-facts.ts#factExcerpts). */
@@ -218,18 +330,24 @@ export type StoredFact = { readonly state?: unknown; readonly polarity?: unknown
 
 /**
  * The prefetch's stored facts as `<found>` items, in its order: `memory.fact` with `{state}` (`labels.prefetch.factStates`,
- * as everywhere a fact reaches a model) and `{text}` as she wrote it.
+ * as everywhere a fact reaches a model) and `{text}` as she wrote it, a mention in it by the person's handle (`refs`, else
+ * `authors.unknown`).
  */
-export function factItemsOf(facts: ReadonlyArray<StoredFact>, labels: Labels): Array<MemoryItem> {
+export function factItemsOf(
+  facts: ReadonlyArray<StoredFact>,
+  labels: Labels,
+  refs: EntryRefs | null = null
+): Array<MemoryItem> {
   const template = labels.memory?.fact;
   if (typeof template !== 'string' || template === '') return [];
+  const w = wordsOf(labels, { interface: '', timezone: 'UTC', counterpart: null }, () => null, refs);
   return facts
     .filter((fact) => fact.text.trim() !== '')
     .map((fact) => ({
       subtag: 'found',
       text: fill(template, {
         state: factStateWords(fact, labels.prefetch?.factStates),
-        text: escapeStored(fact.text),
+        text: storedText(w, fact.text),
       }),
       counterpart: false,
       name: null,
@@ -238,9 +356,24 @@ export function factItemsOf(facts: ReadonlyArray<StoredFact>, labels: Labels): A
     }));
 }
 
+/** The words of an entry under `labels`, its refs those of the request or, without them, plainRefs. */
+function wordsOf(labels: Labels, frame: FrameView, nameOf: NameOf, refs: EntryRefs | null): Words {
+  const l = labels.memory ?? {};
+  return {
+    l,
+    origin: l.origin ?? {},
+    frame,
+    nameOf,
+    locale: labels.locale,
+    refs: refs ?? plainRefs(labels, nameOf),
+    unknown: labels.authors?.unknown ?? '',
+  };
+}
+
 /**
  * Every entry of `mind` as an item, in the order of the subtags and, inside one, the reader's rank. `selfreflectionIds`
- * are the chat ids of the places her selfreflection is mirrored to (src/memory/db/mirrors.ts).
+ * are the chat ids of the places her selfreflection is mirrored to (src/memory/db/mirrors.ts), `refs` how the request
+ * names a mention and a place.
  */
 export function memoryItemsOf(
   mind: Mind,
@@ -249,12 +382,12 @@ export function memoryItemsOf(
   nameOf: NameOf,
   live: LiveOf | null = null,
   selfreflectionIds: ReadonlySet<string> = new Set(),
-  chatIdOf: ChatIdOf = () => null
+  chatIdOf: ChatIdOf = () => null,
+  refs: EntryRefs | null = null
 ): Array<MemoryItem> {
-  const l = labels.memory ?? {};
   const chatOf = (place: PlaceEntry): string | null => (place.kind === 'dm' ? null : chatIdOf(place.placeId));
   const mine = (place: PlaceEntry): boolean => selfreflectionIds.has(chatOf(place) ?? '');
-  const w: Words = { l, origin: l.origin ?? {}, frame, nameOf, locale: labels.locale };
+  const w = wordsOf(labels, frame, nameOf, refs);
   const plain = (subtag: MemorySubtag, text: string, reads: Array<MemoryRead>): MemoryItem => ({
     subtag,
     text,
@@ -314,21 +447,24 @@ export function memoryBlockOf(
 
 /**
  * A `<memory>` of `people` alone, as a tool result carries it after the lines a read returned: each person at the
- * detail the reader chose, none marked as the one she answers, with the count the budget left out at the foot. '' with
- * nobody.
+ * detail the reader chose under their handle (`handleOfKey` of the person id), none marked as the one she answers, with
+ * the count the budget left out at the foot. '' with nobody.
  */
 export function peopleMemoryOf(
   people: ReadonlyArray<PersonEntry>,
   leftOut: number,
   view: FrameView,
   labels: Labels,
-  nameOf: NameOf
+  nameOf: NameOf,
+  refs: EntryRefs | null = null,
+  handleOfKey: ((key: string) => string) | null = null
 ): string {
-  const l = labels.memory ?? {};
-  const w: Words = { l, origin: l.origin ?? {}, frame: view, nameOf, locale: labels.locale };
+  const w = wordsOf(labels, view, nameOf, refs);
+  const handled = (person: PersonEntry, text: string): string =>
+    handleOfKey === null ? text : `@${handleOfKey(person.personId)} ${text}`;
   const items: Array<MemoryItem> = people.map((person) => ({
     subtag: 'people',
-    text: personText(w, person, false, null),
+    text: handled(person, personText(w, person, false, null)),
     counterpart: false,
     name: person.name,
     handleIds: nativeIds(person.platformAccounts, view.interface),
@@ -376,7 +512,7 @@ export function subjectMemoryOf(
   const frame: FrameView = { ...view, counterpart: null };
   const people = changes === null ? mind.people : mind.people.map((person) => ({ ...person, detail: 'name' as const }));
   const items = memoryItemsOf({ ...mind, people }, frame, told, nameOf);
-  const w: Words = { l, origin, frame, nameOf, locale: labels.locale };
+  const w = { ...wordsOf(labels, frame, nameOf, null), origin };
   const lines = (changes ?? []).map((change) => changeLine(w, change));
   const withChanges = items.map((item) =>
     item.subtag === 'people' && lines.length > 0 ? { ...item, text: [item.text, ...lines].join('\n') } : item

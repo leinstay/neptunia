@@ -122,6 +122,41 @@ test('attaches the known reactors to the reactions of her lines by the names the
 
 const CONFIG = { context: { reactions: { maxMessages: 500, maxNames: 5, fetchUsers: 3, fetchTimeoutMs: 1000 } } };
 
+/** A request's text as `requestText` gives it (its messages as JSON) with its line breaks back. */
+const plainOf = (text: string): string => text.replaceAll('\\n', '\n');
+
+/** The line of her line `a thing she said` in a request's text. */
+const herLine = (text: string): string =>
+  plainOf(text)
+    .split('\n')
+    .find((one) => one.includes('a thing she said')) ?? '';
+
+/** The `@u…` handles named at the reaction of her line `a thing she said` in a request's text. */
+function reactorHandles(text: string): Array<string> {
+  const line = herLine(text);
+  return line.slice(line.indexOf('a thing she said')).match(/@u[0-9a-z]+/g) ?? [];
+}
+
+/** The `@u…` handles that open an entry of every `<people>` of a request's text. */
+function entryHandles(text: string): Array<string> {
+  const bodies = [...plainOf(text).matchAll(/<people>\n?([\s\S]*?)\n?<\/people>/g)].map((match) => match[1] ?? '');
+  return bodies.flatMap((body) =>
+    body.split(/\n\s*\n/).flatMap((entry) => /@u[0-9a-z]+/.exec(entry.split('\n')[0] ?? '')?.[0] ?? [])
+  );
+}
+
+/**
+ * Her reaction names its reactor by a handle, never by the display name, and that handle opens an entry of `<people>`
+ * (the owner's decision of 2026-11-10: one handle per person, and everyone whose handle stands in a line has an entry).
+ */
+function assertReactorShown(text: string): void {
+  const [reactor] = reactorHandles(text);
+  assert.match(reactor ?? '', /^@u[0-9a-z]+$/, text);
+  assert.equal(entryHandles(text).includes(reactor ?? ''), true, text);
+  const line = herLine(text);
+  assert.equal(line.includes('Dora'), false, line);
+}
+
 function seedHerLine(fake: Fake): void {
   fake.seedChat(channelInfo('c1', { name: 'general' }));
   fake.seedMember('g1', {
@@ -146,7 +181,7 @@ test('names a reactor she heard of through reaction.changed without reading the 
     assert.equal(await rig.emit(heard), 'ok');
     await rig.emit(deliver(rig.fake, { id: 'm1', text: 'hello', at: NOW - 500, mention: true }));
     await until(() => rig.requests.length > 0);
-    assert.equal(rig.requestText(0).includes('Dora'), true);
+    assertReactorShown(rig.requestText(0));
     assert.equal(
       rig.fake.calls.some((call) => call.op === 'reactors'),
       false
@@ -165,7 +200,7 @@ test('reads the reactors of her reaction through the adapter at most fetchUsers 
       // PR 7d: context.reactions.fetchUsers is the constant 10.
       [[{ iface: 'fake', chatId: 'c1', messageId: 'her1' }, '🔥', 10]]
     );
-    assert.equal(rig.requestText(0).includes('Dora'), true);
+    assertReactorShown(rig.requestText(0));
   });
 });
 
@@ -174,7 +209,8 @@ test('still answers, leaving the names out, when the reactors read fails', async
     rig.fake.failNext('reactors', { status: 'failed', error: { code: 'http-500', retryable: true } });
     await rig.emit(deliver(rig.fake, { id: 'm1', text: 'hello', at: NOW - 500, mention: true }));
     await until(() => rig.posted('c1').length === 1);
-    assert.equal(rig.requestText(0).includes('Dora'), false);
+    // The owner's decision of 2026-11-10: a reactor is named by handle, so a reactor nobody read names no handle.
+    assert.deepEqual(reactorHandles(rig.requestText(0)), []);
   });
 });
 

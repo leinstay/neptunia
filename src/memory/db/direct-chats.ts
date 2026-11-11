@@ -3,54 +3,46 @@
 //
 //   directChatsOf(db, ctx, reference, settings, meaning?) -> DirectChats
 //
-// The reference is a member handle (`@u…`, the handle a request gives the account's platform id, handles.ts#handleOf) or
+// The reference is a person's handle (`@u…`, the handle a request gives the meta-person's id, handles.ts#handleOf) or
 // a name the index holds exactly for one person under the context. Their chats are the live direct chats of every
 // account of the person and of every person merged into them, on any interface, newest line first. Words that name
-// nobody give the people the memory graph ranks for them (graph-find.ts#peopleFound), each with the handle of their
-// first account. Whether a chat may be read is the reader's rule. Read only.
+// nobody give the people the memory graph ranks for them (graph-find.ts#peopleFound), each with their handle. Whether a
+// chat may be read is the reader's rule. Read only.
 
 import { handleOf, HANDLE_PREFIX } from '../../behavior/handles.ts';
 import { peopleFound } from './graph-find.ts';
 import type { FindMeaning, FindSettings, FoundPerson } from './graph-find.ts';
+import { survivorOf } from './ids.ts';
 import { accountsOfPerson } from './meta-person.ts';
 import { matchName } from './names.ts';
 import { dmPlacesOfAccounts, personMembers } from './person-links.ts';
 import type { Context } from './scope.ts';
 import type { Db } from './types.ts';
 
-/** A person she may call again with: a found person and the handle of their first account. */
+/** A person she may call again with: a found person and their handle. */
 export type FoundPersonRef = FoundPerson & { handle: string | null };
 export type DirectChats =
   | { kind: 'chats'; personId: string; places: Array<string> }
   | { kind: 'found'; people: Array<FoundPersonRef> }
   | { kind: 'none' };
 
-/** The people whose account has the member handle `handle` (its prefix and base-36 digits). */
+/**
+ * The people whose handle is `handle` (its prefix and base-36 digits): a live person whose id it is cut from
+ * (handles.ts#handleOf), as the survivor of any merge, so the handle names the meta-person on every interface.
+ */
 export function peopleOfHandle(db: Db, handle: string): Set<string> {
   const people = new Set<string>();
   if (!new RegExp(`^${HANDLE_PREFIX}[0-9a-z]+$`).test(handle)) return people;
   const digits = handle.length - HANDLE_PREFIX.length;
-  const rows = db.prepare('SELECT id, native_id FROM accounts WHERE retired_at IS NULL').all();
-  for (const row of rows) {
-    if (typeof row.native_id !== 'string' || handleOf(row.native_id, digits) !== handle) continue;
-    const person = personOfAccountRow(db, String(row.id));
-    if (person !== null) people.add(person);
+  for (const row of db.prepare('SELECT id FROM people WHERE retired_at IS NULL').all()) {
+    if (typeof row.id === 'string' && handleOf(row.id, digits) === handle) people.add(survivorOf(db, row.id));
   }
   return people;
 }
 
-/** The person an account belongs to: its meta-person row, else its verified link. */
-function personOfAccountRow(db: Db, account: string): string | null {
-  const meta = db.prepare('SELECT person_id FROM person_accounts WHERE id = ?').get(account);
-  if (typeof meta?.person_id === 'string') return meta.person_id;
-  const old = db.prepare("SELECT person_id FROM accounts WHERE id = ? AND link = 'verified'").get(account);
-  return typeof old?.person_id === 'string' && old.person_id !== '' ? old.person_id : null;
-}
-
-/** The handle of a person's first account, null when they have none. */
-function handleOfPerson(db: Db, person: string): string | null {
-  const first = accountsOfPerson(db, person)[0];
-  return first === undefined ? null : handleOf(first.platformId);
+/** The handle of a person (handles.ts#handleOf of the meta-person's id), as a request shows it. */
+export function handleOfPerson(person: string): string {
+  return handleOf(person);
 }
 
 /** The live direct chats of a person's accounts and of everyone merged into them, newest line first. */
@@ -99,5 +91,5 @@ export function directChatsOf(
     (person) => people.size === 0 || people.has(person.id)
   );
   if (found.length === 0) return { kind: 'none' };
-  return { kind: 'found', people: found.map((person) => ({ ...person, handle: handleOfPerson(db, person.id) })) };
+  return { kind: 'found', people: found.map((person) => ({ ...person, handle: handleOfPerson(person.id) })) };
 }

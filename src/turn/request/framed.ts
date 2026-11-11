@@ -21,7 +21,8 @@ import { surroundingsOf } from './surroundings.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
 import { seenOf } from './tail.ts';
 import type { Task } from './task.ts';
-import { resolveChatText } from './text.ts';
+import { handleOf } from '../../behavior/handles.ts';
+import { mentionsNamed } from '../../format.ts';
 import type { RequestInput } from './types.ts';
 import type { WakeTexts } from './wake.ts';
 
@@ -83,7 +84,15 @@ function surroundingsHeld(given: RequestInput, base: Base, frame: Frame): string
   const { place } = frame;
   const path = place === null ? '' : place.path.join('/');
   return base.frozen(`surroundings:${place?.id ?? ''}`, `${path}|${versions}`, () =>
-    surroundingsOf(frame, interfaceTextOf(given, base), stored?.root ?? null, stored?.place ?? null, base.labels)
+    surroundingsOf(
+      frame,
+      interfaceTextOf(given, base),
+      stored?.root ?? null,
+      stored?.place ?? null,
+      base.labels,
+      partnerHandleOf(frame, base),
+      { mention: storedMention(given, base) }
+    )
   );
 }
 
@@ -101,6 +110,65 @@ function feedbackOf(told: string, selfreflection: SelfreflectionFramed | null): 
   return [told, selfreflection?.feedback ?? ''].filter(Boolean).join('\n') || null;
 }
 
+/** The handle (with `@`) a one-to-one chat's path ends in: its partner's, by the key their lines carry; null elsewhere. */
+function partnerHandleOf(frame: Frame, base: Base): string | null {
+  const partner = frame.scope === 'dm' ? frame.counterpart : null;
+  return partner === null ? null : `@${handleOf(base.keyOfMember(partner.nativeId))}`;
+}
+
+/**
+ * A `<@id>` of a stored text of the stable part as the handle of the person it names (cut from what memberKeyOf gives,
+ * so the cached text holds no per-request form), `authors.unknown` for an account no row holds.
+ */
+function storedMention(given: RequestInput, base: Base): (native: string) => string {
+  const { authors } = base.labels;
+  return (native) => {
+    const key = given.memberKeyOf?.(native) ?? null;
+    return key === null ? (authors?.unknown ?? '') : `@${handleOf(key)}`;
+  };
+}
+
+/**
+ * The members of the chat, she aside: each author once with the name the newest of their lines gave, then each reactor
+ * of her lines named at her reaction who wrote nothing.
+ */
+function chatMembersOf(
+  history: RequestInput['history']
+): Array<{ native: string; name: string | null; reactor?: boolean }> {
+  const names = new Map<string, string | null>();
+  for (const line of history)
+    if (!line.self && line.authorId !== undefined && line.authorId !== null)
+      names.set(String(line.authorId), line.authorName ?? names.get(String(line.authorId)) ?? null);
+  const members: Array<{ native: string; name: string | null; reactor?: boolean }> = [...names].map(
+    ([native, name]) => ({ native, name })
+  );
+  for (const user of reactorsOf(history))
+    if (!names.has(user.id)) {
+      names.set(user.id, user.name);
+      members.push({ native: user.id, name: user.name, reactor: true });
+    }
+  return members;
+}
+
+/** The people named at the reactions of her lines, each with the name the reaction gave, in order. */
+function reactorsOf(history: RequestInput['history']): Array<{ id: string; name: string | null }> {
+  const out: Array<{ id: string; name: string | null }> = [];
+  for (const line of history) {
+    if (!line.self) continue;
+    const reactions: unknown = Reflect.get(line, 'reactions');
+    for (const reaction of Array.isArray(reactions) ? reactions : []) {
+      const users: unknown = reaction && typeof reaction === 'object' ? Reflect.get(reaction, 'users') : null;
+      for (const user of Array.isArray(users) ? users : []) {
+        const id: unknown = user && typeof user === 'object' ? Reflect.get(user, 'id') : null;
+        const name: unknown = user && typeof user === 'object' ? Reflect.get(user, 'name') : null;
+        if ((typeof id === 'string' && id !== '') || typeof id === 'number')
+          out.push({ id: String(id), name: typeof name === 'string' ? name : null });
+      }
+    }
+  }
+  return out;
+}
+
 /** The request of a turn on the frame. */
 export function framedBuild(given: RequestInput, steps: FramedSteps): BuildRequestResult {
   const { frame, base, task, senses, own, room, tempo, tempoText } = steps;
@@ -108,7 +176,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
   const selfreflection = selfreflectionFramedOf({ ...given, labels });
   const surroundingsText = surroundingsHeld(given, base, frame);
   const selfFacts = base.frozen('self', '', () =>
-    (given.placeMemory?.self ?? []).map((fact) => `- ${String(resolveChatText(fact, nameOf))}`)
+    (given.placeMemory?.self ?? []).map((fact) => `- ${String(mentionsNamed(fact, storedMention(given, base)))}`)
   );
   const built = readerRequest({
     frame,
@@ -148,12 +216,17 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     lineOf: given.refLineOf ?? null,
     isSourceRetired: given.isSourceRetired ?? null,
     live: liveOf(base, given.now),
-    chatHandles: base.handleById,
+    chatHandles: base.keyHandles,
+    chatHandleById: base.handleById,
+    chatMembers: chatMembersOf(given.history),
+    keyOfMember: base.keyOfMember,
+    memberKeyOf: given.memberKeyOf,
+    placePathOf: given.placePathOf,
     currentChannelId: given.currentChannelId ?? null,
     chatIdOf: given.chatIdOf ?? null,
     answeredText: frame.answers === null ? null : (given.trigger?.content ?? null),
   });
-  const { parts, fit, handleById } = built;
+  const { parts, fit } = built;
   return {
     messages: [
       { role: 'system', content: base.system },
@@ -172,9 +245,10 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     peopleShown: built.peopleShown,
     seen: seenOf({ history: given.history, keptChat: built.keptChat }),
     memoryReads: ordered(built.memoryReads),
-    handles: handleById ? new Map([...handleById].map(([id, handle]) => [handle, id])) : null,
+    handles: built.handles,
     memberNames: new Map([...(base.memberNames ?? []), ...built.memberNames]),
     // Handle -> channel id, for her `#handle` in a tool argument or a post.
     channelHandles: new Map([...built.channelHandleById].map(([id, handle]) => [handle, id])),
+    refs: built.refs,
   };
 }

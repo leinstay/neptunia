@@ -4,6 +4,8 @@
 // it, the selfreflection planner's request on the same frame (`plannerRequest`), which the setup step hands the plan.
 
 import { accountOf, personOfMember, placeOfChat } from '../../../memory/addresses.ts';
+import { reactorIdsOf } from '../../../format.ts';
+import { handleOf } from '../../../behavior/handles.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
 import { NO_PLACES, selfreflectionChatIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
@@ -22,7 +24,7 @@ import { portAt, portCustomEmoji, portMediaPick, portOperations } from '../../..
 import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
-import { PLANNER_MODE, frameOf, framedRequest } from '../../request/frame.ts';
+import { PLANNER_MODE, frameOf, framedRequest, pathShown } from '../../request/frame.ts';
 import { entriesShownOf } from '../../request/selfreflection.ts';
 import type { PlanParts } from '../../selfreflection.ts';
 import type { PastEntry } from '../../../memory/db/selfreflection-past.ts';
@@ -44,7 +46,7 @@ import { seedRefsOf } from '../../seed-ring.ts';
 import type { SurroundingsInput } from '../../request/reader.ts';
 import type { LineOf } from '../../request/refs.ts';
 import type { SourceRetired } from '../../request/reader.ts';
-import type { Message } from '../../request/types.ts';
+import type { Message, PlacePathView } from '../../request/types.ts';
 
 /** The request as buildRequest builds it. */
 /** A partner's private layer with what they said in their other linked DMs; null with neither. */
@@ -221,6 +223,40 @@ const NO_FRAMED: FramedInputs = {
   chatIdOf: null,
 };
 
+/**
+ * How a request names people and places (docs/prompt-contract.md, "Mention handles"): what a member's handle is cut
+ * from by a platform id of `iface` (frame-reads.ts#memberKeyOf), the account key the store gives one no row holds yet,
+ * and a stored place by its path with a direct chat's partner (frame-reads.ts#placeViewOf). Without the reads only the
+ * store's account keys.
+ */
+function namesInputOf(
+  reads: FrameReads | null,
+  store: unknown,
+  iface: string
+): {
+  memberKeyOf: ((native: string) => string | null) | null;
+  accountKeyOf: (native: string) => string;
+  placePathOf: ((placeId: string) => PlacePathView | null) | null;
+} {
+  return {
+    memberKeyOf: reads?.memberKey ? (native) => reads.memberKey?.(iface, native) ?? null : null,
+    accountKeyOf: (native) => accountOf(store, native, iface),
+    placePathOf: reads?.placeView
+      ? (placeId) => {
+          const view = reads.placeView?.(placeId) ?? null;
+          return view === null ? null : { path: view.path, dm: view.dm, partnerKey: view.partnerKey ?? null };
+        }
+      : null,
+  };
+}
+
+/** `labels.spatial.unnamed`, the word for a place with no stored name; '' without it. */
+function unnamedOf(labels: unknown): string {
+  const spatial: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'spatial') : null;
+  const word: unknown = spatial && typeof spatial === 'object' ? Reflect.get(spatial, 'unnamed') : null;
+  return typeof word === 'string' ? word : '';
+}
+
 /** The chat id of a stored place from its row, null for a DM and a place no row holds; each place read once a request. */
 function chatIdReader(reads: Pick<FrameReads, 'placeRef'>): (placeId: string) => string | null {
   const known = new Map<string, string | null>();
@@ -280,17 +316,39 @@ function seedsOf(
       (hit) => (placeId === null ? null : reads.sourceInPlace?.(placeId, hit)) ?? reads.source?.(iface, hit) ?? hit
     );
   });
+  // The people who reacted to her lines seed the reader like the authors of lines, so each named at her reaction has an
+  // entry; a reaction whose reactors nobody read names nobody.
+  const reactors = reactorIdsOf(lines as Array<Record<string, unknown>>).flatMap((native, i) => {
+    const account = accountOf(native);
+    return account === null
+      ? []
+      : [
+          {
+            id: `reaction:${i}`,
+            at: new Date(lines.at(-1)?.ts ?? 0).toISOString(),
+            authorAccount: account,
+            placeId: frame.place?.id ?? null,
+            replyTo: null,
+            mentions: [],
+            text: '',
+            trigger: false,
+          },
+        ];
+  });
   return {
-    messages: lines.map((line) => ({
-      id: sourceOf(line),
-      at: new Date(line.ts).toISOString(),
-      authorAccount: line.self || !line.authorId ? null : accountOf(line.authorId),
-      placeId: frame.place?.id ?? null,
-      replyTo: line.replyToId ? (byId.get(line.replyToId) ?? null) : null,
-      mentions: (line.mentionedAccountIds ?? []).flatMap((native) => accountOf(native) ?? []),
-      text: line.content ?? '',
-      trigger: line.id === trigger?.id,
-    })),
+    messages: [
+      ...reactors,
+      ...lines.map((line) => ({
+        id: sourceOf(line),
+        at: new Date(line.ts).toISOString(),
+        authorAccount: line.self || !line.authorId ? null : accountOf(line.authorId),
+        placeId: frame.place?.id ?? null,
+        replyTo: line.replyToId ? (byId.get(line.replyToId) ?? null) : null,
+        mentions: (line.mentionedAccountIds ?? []).flatMap((native) => accountOf(native) ?? []),
+        text: line.content ?? '',
+        trigger: line.id === trigger?.id,
+      })),
+    ],
     counterpart: counterpartOf(frame, reads),
     place: frame.place?.id ?? null,
     previous: [],
@@ -374,7 +432,12 @@ function framedInputsOf(
   const place = frame.place;
   if (!framedRequest(frame)) return NO_FRAMED;
   if (place === null) return serviceInputsOf(ctx, frame, draft, channel, now);
-  draft.framePlace = { id: String(channel.id), path: [...place.path] };
+  const partner = frame.counterpart;
+  // The partner by the key their lines carry (memberKeyOf), as the request names them.
+  const partnerKey =
+    partner === null ? null : (ctx.frameReads?.memberKey?.(frame.interface, partner.nativeId) ?? partner.accountId);
+  const partnerHandle = partnerKey === null ? null : `@${handleOf(partnerKey)}`;
+  draft.framePlace = { id: String(channel.id), path: pathShown(frame, place, unnamedOf(turn.labels), partnerHandle) };
   const window = history.map((line) => ({ id: String(line.id), replyTo: line.replyToId ?? null }));
   const lookups = ctx.lookupRing.forPlace(String(channel.id), window, now);
   const reads = ctx.frameReads;
@@ -695,6 +758,7 @@ export function plannerRequest(
       myDay: myDayLines(ctx, { draft, channel, config, prompts, now }),
       whereabouts: whereaboutsOfFrame(frame),
       ...framed,
+      ...namesInputOf(ctx.frameReads, ctx.store, frame.interface),
     })
   );
 }
@@ -912,8 +976,12 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     whereabouts: whereaboutsOfFrame(frame, ctx.frameReads?.interfaceNames(frame.interface).nouns ?? {}),
     // A reply and an errand's result on the frame: `<memory>`, `<recall>`, `<meanwhile>`, `<surroundings>`, references.
     ...framed,
+    // What a person's handle is cut from, and a place by its path: every block names people and places by them.
+    ...namesInputOf(ctx.frameReads, store, frame.interface),
   });
   const request = requestOf(requestInput);
+  // Her `@handle` in a post, a read's authors and its places take the request's names for the rest of the turn.
+  draft.requestRefs = request.refs ?? null;
   // Every number of the request in the turn's one registry, so a reference in her stored words reads back.
   if (draft.handles)
     registerHandles(draft.handles, request, history, {

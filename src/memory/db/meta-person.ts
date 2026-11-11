@@ -18,6 +18,8 @@ export type PersonAccount = { id: string; iface: string; platformId: string };
 export type ProfileAccount = PersonAccount & {
   handle: string | null;
   displayName: string | null;
+  /** Every name the account goes by: its display name, then the names its row holds; absent where a reader gives none. */
+  names?: Array<string>;
   avatar: string | null;
   profileText: string | null;
 };
@@ -72,6 +74,7 @@ export function profileAccountsOf(db: Db, personId: string): Array<ProfileAccoun
     platformId: String(row.platformId),
     handle: textOrNull(row.handle),
     displayName: textOrNull(row.displayName) ?? namesIn(row.names)[0] ?? null,
+    names: [...new Set([textOrNull(row.displayName), ...namesIn(row.names)].filter((name) => name !== null))],
     avatar: textOrNull(row.avatar),
     profileText: textOrNull(row.profileText),
   }));

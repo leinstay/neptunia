@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 import type { Mind } from '../src/memory/db/mind-read.ts';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { FrameParty } from '../src/turn/request/frame.ts';
-import { memoryBlockOf } from '../src/turn/request/memory-block.ts';
+import { factItemsOf, memoryBlockOf, memoryItemsOf } from '../src/turn/request/memory-block.ts';
+import type { EntryRefs } from '../src/turn/request/memory-block.ts';
 import { frameInput } from './fixtures/frame-input.ts';
 import {
   claimEntry,
@@ -133,8 +134,9 @@ test("a person with two accounts lists each account's interface, platform id and
   for (const value of ['other', '555', 'Λένα', '111']) assert.ok(people.includes(value), `${value} in <people>`);
 });
 
-test('a person with one account lists no accounts', () => {
-  // Bug: every entry grows an accounts line that tells her nothing the heading does not.
+test('a person with one account lists that account with its interface and platform id', () => {
+  // Bug: a person's entry hides the account she sees, so she cannot tie a line to it.
+  // The owner's decision of 2026-11-10: an entry lists every account, one line each, a single account included.
   const accounts = [
     {
       id: 'fake:222',
@@ -148,21 +150,51 @@ test('a person with one account lists no accounts', () => {
   ];
   const people = section(render(mindOfEntries({ people: [{ ...NIKOS, profileAccounts: accounts }] }), null), 'people');
   assert.ok(people.includes('Νίκος'));
-  assert.ok(!people.includes('222'));
+  const account = people.split('\n').find((line) => line.includes('222')) ?? '';
+  assert.ok(account.includes('fake'), people);
 });
 
-test('a mention stored as a token in an episode of <recent> renders as the name of the account it names', () => {
-  // Bug (2026-11-10): a stored text kept `<@id>` as written, so <recent> showed a person as a number while a line of the
-  // chat showed the same mention by name, and she told the owner she saw him only as a number.
-  const id = '123456789012345678';
-  const names = (one: string): string | null => (one === id ? 'Ελένη' : nameOf(one));
-  const episode = episodeEntry('episode:1', 'place:club', `ΧΘΕΣ μίλησε η <@${id}> για τη λέσχη`);
-  const recent = section(
-    memoryBlockOf(mindOfEntries({ recent: [episode] }), frameOf(frameInput({ author: null })), shippedLabels, names)
-      .text,
-    'recent'
-  );
-  assert.ok(recent.includes('ΧΘΕΣ'), recent);
-  assert.ok(recent.includes('Ελένη'), recent);
-  assert.ok(!recent.includes(id), recent);
+// The owner's decision of 2026-11-10: a mention in a stored text reads as the handle of the person it names, and a
+// mention of an account no row holds reads `authors.unknown`; no platform id stands in a block.
+const MENTIONS: EntryRefs = {
+  mention: (native) => (native === '777' ? '@u7ele' : 'someone'),
+  place: () => 'γενικά',
+  partnerOf: () => 'someone',
+};
+const WITH_AUTHORS = {
+  ...shippedLabels,
+  authors: { line: '{handle}', lineAccount: '{handle} ({iface} {id})', unknown: 'someone' },
+};
+
+test('a mention in a stored fact of <found> reads as the handle of the person it names, or authors.unknown', () => {
+  // Bug: the prefetch's facts are escaped and never read for mentions, so <found> shows a bare `<@id>` with a platform
+  // id while every other block shows the handle.
+  const facts = [{ state: 'current', text: 'ΓΝΩΡΙΖΕΙ <@777> ΚΑΙ <@999>' }];
+  const named = factItemsOf(facts, WITH_AUTHORS, MENTIONS)
+    .map((item) => item.text)
+    .join('\n');
+  assert.ok(named.includes('ΓΝΩΡΙΖΕΙ @u7ele ΚΑΙ someone'), named);
+  const plain = factItemsOf(facts, WITH_AUTHORS)
+    .map((item) => item.text)
+    .join('\n');
+  assert.ok(plain.includes('ΓΝΩΡΙΖΕΙ someone ΚΑΙ someone'), plain);
+  assert.doesNotMatch(`${named}\n${plain}`, /<@|&lt;@|\b777\b|\b999\b/);
+});
+
+test('a mention in a claim, a lore text, an episode, an excerpt and a place topic reads as the handle', () => {
+  // Guard: every stored text of <memory> passes the mention path, so none of them shows a platform id.
+  const text = '<@777>';
+  const mind = mindOfEntries({
+    people: [{ ...NIKOS, detail: 'whole', claims: [{ id: 'claim:n', kind: 'fact', text: `ΙΣΧΥΡΙΣΜΟΣ ${text}` }] }],
+    places: [placeEntry('place:club', 'λέσχη', { topics: `ΘΕΜΑΤΑ ${text}` })],
+    lore: [claimEntry('claim:1', 'place:club', `ΘΡΥΛΟΣ ${text}`)],
+    recent: [episodeEntry('episode:1', 'place:club', `ΕΠΕΙΣΟΔΙΟ ${text}`)],
+    found: [excerptEntry('src:fake:m9:1:seen', 'place:club', `ΑΠΟΣΠΑΣΜΑ ${text}`)],
+  });
+  const frame = frameOf(frameInput({ author: null }));
+  const items = memoryItemsOf(mind, frame, WITH_AUTHORS, nameOf, null, new Set(), () => null, MENTIONS);
+  const all = items.map((item) => item.text).join('\n');
+  for (const word of ['ΙΣΧΥΡΙΣΜΟΣ', 'ΘΕΜΑΤΑ', 'ΘΡΥΛΟΣ', 'ΕΠΕΙΣΟΔΙΟ', 'ΑΠΟΣΠΑΣΜΑ'])
+    assert.ok(all.includes(`${word} @u7ele`), `${word}: ${all}`);
+  assert.doesNotMatch(all, /<@|&lt;@|\b777\b/);
 });

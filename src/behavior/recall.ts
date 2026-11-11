@@ -1132,17 +1132,13 @@ function unnumbered(message: Untyped) {
 }
 
 /**
- * The windows rendered as transcript lines with the transcript functions of
- * src/format.ts (the chat form: gap and date markers, media tags
- * with the `descriptions` captions, reactions; wording from `labels`). A
- * message whose id is in the window's `hitIds` gets HIT_MARK at the start
- * of its own first line (`#n [time] Name: ...`, after any gap or date
- * marker, before the rest of a message with line breaks).
- * `indexed` true keeps the `#n` index of each line, numbered across all
- * windows so a reply marker points inside its own window; false (the
- * stretch handed to the persona, which must not mistake them for chat
- * indices) drops the index from that first line and the reply markers with
- * it; the message's own text is left as it is.
+ * The windows rendered as transcript lines with the transcript functions of src/format.ts (the chat form: gap and date
+ * markers, media tags with the `descriptions` captions, reactions; wording from `labels`; with `handles` each author
+ * by handle). A message whose id is in the window's `hitIds` gets HIT_MARK at the start of its own first line
+ * (`#n [time] Name: ...`, after any gap or date marker, before the rest of a message with line breaks). `indexed` true
+ * keeps the `#n` index of each line, numbered across all windows so a reply marker points inside its own window; false
+ * (the stretch handed to the persona, which must not mistake them for chat indices) drops the index from that first
+ * line and the reply markers with it; the message's own text is left as it is.
  */
 export function renderRecallWindows(
   windows: Array<RenderRecallWindowsInput>,
@@ -1155,6 +1151,7 @@ export function renderRecallWindows(
     seeReactions = true,
     reactionsPerMessage,
     indexed = true,
+    handles,
   }: RenderRecallWindowsArg2 = {}
 ): Array<RenderRecallWindowsResult> {
   const out = [];
@@ -1173,6 +1170,7 @@ export function renderRecallWindows(
       seeReactions,
       reactionsPerMessage,
       indexOffset: offset,
+      ...(handles ? { handles } : {}),
     });
     if (indexed) offset += messages.length;
     const lines = items.map((item) => {

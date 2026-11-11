@@ -1230,7 +1230,7 @@
     }
   },
   "files": {
-    "src/behavior/recall.ts": 2357,
+    "src/behavior/recall.ts": 2355,
     "tests/openrouter.test.ts": 3545,
     "tests/prompt.test.ts": 2334,
     "tests/recall.test.ts": 2366
@@ -1508,12 +1508,12 @@
     },
     "src/format.ts": {
       "formatTranscript": {
-        "complexity": 70
+        "complexity": 65
       }
     },
     "src/intentions/blocks.ts": {
       "activeLine": {
-        "complexity": 25
+        "complexity": 23
       }
     },
     "src/intentions/model.ts": {

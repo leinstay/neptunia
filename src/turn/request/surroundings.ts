@@ -3,7 +3,8 @@
 // by its path with its stored fields. It never says where she is: `<spatial_awareness>` does, by the same path. The
 // request builder (src/turn/request/reader.ts) calls it. Pure.
 
-import { fill } from '../../format.ts';
+import { fill, mentionsNamed } from '../../format.ts';
+import { pathShown } from './frame.ts';
 import type { Frame, FramePlace } from './frame.ts';
 import { block, escapeStored, pathText } from './text.ts';
 import type { Labels } from './types.ts';
@@ -11,8 +12,16 @@ import type { Labels } from './types.ts';
 /** The stored fields of a place by name: `purpose`, `tone`, `topics`, and a root's `patterns`, `starters` and the rest. */
 export type PlaceFields = Readonly<Record<string, string>>;
 
-/** One line per stored field with text, in the order the labels name the fields, then any other field by its own name. */
-function fieldLines(fields: PlaceFields | null, labels: Labels): Array<string> {
+/** How a stored field names a `<@id>` mention: the handle (with `@`) of the person it names. */
+export type FieldRefs = { readonly mention: (native: string) => string };
+
+/**
+ * One line per stored field with text, in the order the labels name the fields, then any other field by its own name, a
+ * mention in it by `refs`, else `authors.unknown`.
+ */
+function fieldLines(fields: PlaceFields | null, labels: Labels, refs: FieldRefs | null): Array<string> {
+  const unknown = labels.authors?.unknown ?? '';
+  const mention = refs?.mention ?? (() => unknown);
   if (fields === null) return [];
   const l = labels.surroundings ?? {};
   const names = l.fields ?? {};
@@ -20,32 +29,48 @@ function fieldLines(fields: PlaceFields | null, labels: Labels): Array<string> {
   const template = typeof l.field === 'string' ? l.field : '{field}: {value}';
   return order
     .filter((key) => typeof fields[key] === 'string' && fields[key].trim() !== '')
-    .map((key) => fill(template, { field: names[key] ?? key, value: escapeStored(fields[key].trim()) }));
+    .map((key) =>
+      fill(template, {
+        field: names[key] ?? key,
+        value: escapeStored(String(mentionsNamed(fields[key].trim(), mention))),
+      })
+    );
 }
 
-/** A place's body: its path, then its fields. */
-function placeBody(place: FramePlace, fields: PlaceFields | null, labels: Labels): string {
-  return [pathText(place.path, labels.memory?.pathJoin), ...fieldLines(fields, labels)].join('\n');
+/** A place's body: its path as a request shows it (pathShown, a one-to-one chat's ending in `partner`), then its fields. */
+function placeBody(
+  frame: Frame,
+  place: FramePlace,
+  fields: PlaceFields | null,
+  labels: Labels,
+  partner: string | null,
+  refs: FieldRefs | null
+): string {
+  const path = pathShown(frame, place, labels.spatial?.unnamed ?? '', partner);
+  return [pathText(path, labels.memory?.pathJoin), ...fieldLines(fields, labels, refs)].join('\n');
 }
 
 /**
  * `<interface>`, `<root>` and `<place>` of `frame`. `interfaceText` is what the interface declares (its mention, link and
  * reaction forms and its nouns, already worded); `rootPlace` and `place` are the stored fields of the frame's root and
- * place. A one-to-one chat and the command line have no root. '' for a turn that is nowhere.
+ * place, `partner` the handle (with `@`) a one-to-one chat's path ends in, `refs` how a mention in a field reads. A one-to-one chat and the command line have
+ * no root. '' for a turn that is nowhere.
  */
 export function surroundingsOf(
   frame: Frame,
   interfaceText: string,
   rootPlace: PlaceFields | null,
   place: PlaceFields | null,
-  labels: Labels
+  labels: Labels,
+  partner: string | null = null,
+  refs: FieldRefs | null = null
 ): string {
   if (frame.place === null) return '';
   const root = frame.root !== null && frame.root.id !== frame.place.id ? frame.root : null;
   return [
     block('interface', interfaceText.trim()),
-    root === null ? '' : block('root', placeBody(root, rootPlace, labels)),
-    block('place', placeBody(frame.place, place, labels)),
+    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels, null, refs)),
+    block('place', placeBody(frame, frame.place, place, labels, partner, refs)),
   ]
     .filter(Boolean)
     .join('\n');

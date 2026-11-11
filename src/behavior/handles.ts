@@ -1,17 +1,11 @@
-// Member handles: the short token the persona writes to mention someone (`@` + handle), so the
-// model picks the person and the engine never guesses one from a name in her output. A handle is
-// computed from the platform's user id alone (a few base-36 digits of the id's SHA-256), so the same
-// member keeps the same handle across turns, restarts and requesters without anything stored;
-// only code maps it back to the id. Within one request every handle is unique: on a collision
-// the oldest id (the smallest snowflake) keeps the short form and the others take one more digit,
-// and the members with a stored profile are placed before the ones only in view, so a passer-by
-// never moves a profiled member's handle. The people directory (`<directory>`, the stable part of
-// the persona's request) lists the profiled members with their handle, the names the platform gave them
-// and their open aliases, sorted so its text changes only when those names do.
-// Channels get handles the same way (`#` + CHANNEL_HANDLE_PREFIX + base-36 digits of the channel
-// id's hash): the channel directory (`<channel_directory>`, the stable part too) lists each text
-// channel the persona can read with its handle and its name, sorted by id, so a
-// channel she names resolves exactly and a made-up name never has to be guessed. Pure.
+// Handles: the short token the persona writes to mention someone (`@` + handle), so the model picks the person and the
+// engine never guesses one from a name in her output. A person's handle is computed from the meta-person's id (a few
+// base-36 digits of the id's SHA-256), an account no person holds from its account key, so the same person keeps the
+// same handle on every interface, across turns, restarts and requesters without anything stored; only code maps it back
+// (handleBook). Within one request every handle is unique: on a collision the oldest id keeps the
+// short form and the others take one more digit, and the keys placed first are never moved by those placed after.
+// Channels get handles the same way (`#` + CHANNEL_HANDLE_PREFIX + base-36 digits of the hash of the channel's native
+// id), so a channel she names resolves exactly and a made-up name never has to be guessed. Pure.
 
 import { createHash } from 'node:crypto';
 import { oneLine } from '../memory/clamp.ts';
@@ -172,6 +166,45 @@ export function widenHandles(
  */
 export function assignChannelHandles(ids: Iterable<string>): Map<string, string> {
   return assignHandles({ profiled: ids ?? [] }, { prefix: CHANNEL_HANDLE_PREFIX });
+}
+
+/**
+ * The handles of one request (docs/prompt-contract.md, "Mention handles") by key (a person id, an account key or a chat id), without
+ * their sigil: the chat's fixed first, then the people of `<memory>` and the authors in view under the collision rule,
+ * and a key met later (a mention in a stored text) at the shortest form no other key holds.
+ */
+export type HandleBook = {
+  /** The handle of `key`, given now when the book holds none. */
+  handleOf(key: string): string;
+  /** Every key and its handle, in the order given. */
+  entries(): Map<string, string>;
+};
+
+/**
+ * A book over `fixed` (key -> handle, kept as given), then `profiled` and `inView` placed together by assignHandles with
+ * `prefix` after the keys of `fixed`, which take the forms they had alone.
+ */
+export function handleBook(
+  fixed: ReadonlyMap<string, string>,
+  { profiled = [], inView = [] }: { profiled?: Iterable<string>; inView?: Iterable<string> },
+  prefix: string = HANDLE_PREFIX
+): HandleBook {
+  const handles = assignHandles({ profiled: fixed.keys(), inView: [...profiled, ...inView] }, { prefix });
+  for (const [key, handle] of fixed) handles.set(key, handle);
+  const taken = new Set(handles.values());
+  return {
+    handleOf(key) {
+      const known = handles.get(key);
+      if (known !== undefined) return known;
+      let handle = handleOf(key, HANDLE_DIGITS, prefix);
+      for (let digits = HANDLE_DIGITS + 1; taken.has(handle) && digits <= MAX_DIGITS; digits += 1)
+        handle = handleOf(key, digits, prefix);
+      handles.set(key, handle);
+      taken.add(handle);
+      return handle;
+    },
+    entries: () => new Map(handles),
+  };
 }
 
 /** A normalized message, as far as the name map reads it. */

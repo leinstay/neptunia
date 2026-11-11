@@ -16,7 +16,7 @@ import type { FakePlace } from './fixtures/meanwhile-reads.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 import { linesAroundOf, ownLinesOf } from '../src/memory/db/frame-reads.ts';
 import { linkedDmScopes } from '../src/memory/db/person-links.ts';
-import { internalContext, issueContext } from '../src/memory/db/scope.ts';
+import { issueContext } from '../src/memory/db/scope.ts';
 import {
   addDm,
   addLine,
@@ -233,49 +233,4 @@ test('a post of hers with text and a picture shows both', () => {
   );
   assert.ok(text.includes('ΛΕΞΕΙΣ-ΜΑΖΙ'), text);
   assert.ok(text.includes('a white rabbit in a garden'), text);
-});
-
-test('a line of another account in <meanwhile> of the command line is named by the names its account row holds', () => {
-  // Bug (2026-11-10): the block named an author by the turn's nameOf, which looks a platform id up as an account of the
-  // turn's own interface and reads only a profile the profile writer stored. On the command line a Discord author, and
-  // anywhere an account the core only observed (its row holds names, no profile row holds it), came out as the bare
-  // platform id. The reads already hold the author's stored name; the nameOf here knows nobody, as on the command line.
-  const w = openWorld();
-  try {
-    noteInterface(w, 'fake', [{ id: 'g1', name: 'Αγορά' }]);
-    const garden = addRoom(w.db, { iface: 'fake', native: 'c2', root: rootId('fake', 'g1'), name: 'κήπος' });
-    // An account as the observer stores it: names on the row, no person and no profile writer.
-    w.db
-      .prepare(
-        "INSERT INTO accounts (id, iface, native_id, names, kind) VALUES ('fake:4444', 'fake', '4444', ?, 'user')"
-      )
-      .run(JSON.stringify(['Νίκος', 'Νικ']));
-    addLine(w.db, {
-      id: 'n1',
-      iface: 'fake',
-      place: garden,
-      author: 'fake:4444',
-      text: 'ΓΡΑΜΜΗ-ΝΙΚΟΥ',
-      at: iso(NOW_READS - 31 * MIN),
-    });
-    addLine(w.db, {
-      id: 's1',
-      iface: 'fake',
-      place: garden,
-      author: 'self',
-      text: 'ΑΠΑΝΤΗΣΗ',
-      at: iso(NOW_READS - 30 * MIN),
-    });
-    const ctx = internalContext();
-    const reads = {
-      ownMessages: (limit: number) => ownLinesOf(w.db, ctx, null, limit),
-      around: (placeId: string, at: number, count: number) => linesAroundOf(w.db, ctx, placeId, at, count),
-    };
-    const text = meanwhileOf(reads, { ...CLI_FRAME, now: NOW_READS }, SETTINGS, shippedLabels, () => null);
-    const row = text.split('\n').find((one) => one.includes('ΓΡΑΜΜΗ-ΝΙΚΟΥ')) ?? '';
-    assert.match(row, /Νίκος/, text);
-    assert.doesNotMatch(row, /4444/, text);
-  } finally {
-    w.close();
-  }
 });

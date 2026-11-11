@@ -109,6 +109,10 @@ import { fitExcerpts, focusHits, itemLines, lanePlan, lexicalKeep, rankPrefetch 
 import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as searchRows, window as windowRows } from '../memory/db/recall.ts';
+import type { RecallMessage } from '../memory/db/recall.ts';
+import { memberKeyOf } from '../memory/db/frame-reads.ts';
+import type { Db } from '../memory/db/types.ts';
+import { handleOf } from './handles.ts';
 import { factExcerpts, prefetchFacts, searchEpisodes, searchFacts } from './recall-facts.ts';
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
@@ -1033,7 +1037,7 @@ export function createRecall({
    * The stretches of db windows as `recall.run` returns them (decorated, each line with the text forms of its own media,
    * cut to `recall.stretchChars`). Never a request.
    */
-  function dbQuotes({ config, settings, selfName, windows, decorate }: DbQuotesInput) {
+  function dbQuotes({ db, config, settings, selfName, windows, decorate }: DbQuotesInput) {
     const shown = windows.map((window: Untyped) =>
       typeof decorate === 'function' ? { ...window, messages: decorate(window.messages) } : window
     );
@@ -1043,7 +1047,14 @@ export function createRecall({
       selfName,
       seeReactions: true,
     };
-    return quotesOf(shown, { render, stretchChars: settings.stretchChars });
+    // Each author by the handle of the person behind their stored account, as her request names them.
+    const handleOfAuthor = (message: RecallMessage): string | null => {
+      const iface = message.stored?.iface;
+      if (!iface || message.authorId === null || message.authorId === undefined) return null;
+      const native = String(message.authorId);
+      return handleOf(memberKeyOf(db as Db, iface, native) ?? `${iface}:${native}`);
+    };
+    return quotesOf(shown, { render, stretchChars: settings.stretchChars, handleOf: handleOfAuthor });
   }
 
   /**

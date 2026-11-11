@@ -7,6 +7,7 @@ import {
   HANDLE_DIGITS,
   HANDLE_PREFIX,
   assignHandles,
+  handleBook,
   handleOf,
   resolveHandles,
   widenHandles,
@@ -99,4 +100,27 @@ test("widenHandles: the request's own handles win; channel ids take the channel 
   const channels = widenHandles(null, ['5'], CHANNEL_HANDLE_PREFIX);
   assert.equal(channels.get(handleOf('5', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX)), '5');
   assert.equal(channels.has(handleOf('5')), false, 'no member handle for a channel');
+});
+
+test('handleBook: a fixed key keeps the handle it was given, and a key placed beside it never takes that handle', () => {
+  // Bug: a person of <memory> takes the short form a chat author already shows, and one handle names two people.
+  const book = handleBook(new Map([[NEWER, handleOf(NEWER)]]), { profiled: [OLDER] });
+  assert.equal(book.handleOf(NEWER), handleOf(NEWER));
+  assert.equal(book.handleOf(OLDER), handleOf(OLDER, HANDLE_DIGITS + 1));
+});
+
+test('handleBook: a key met later takes the shortest form no other key holds, and the same one when asked again', () => {
+  // Bug: a mention in a stored text met after the entries are placed takes a handle an entry holds, or a new one at
+  // each ask, so the text and the entry name two people.
+  const book = handleBook(new Map(), { profiled: [OLDER] });
+  const later = book.handleOf(NEWER);
+  assert.equal(later, handleOf(NEWER, HANDLE_DIGITS + 1));
+  assert.equal(book.handleOf(NEWER), later);
+  assert.deepEqual(
+    [...book.entries()],
+    [
+      [OLDER, handleOf(OLDER)],
+      [NEWER, later],
+    ]
+  );
 });

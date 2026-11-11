@@ -106,6 +106,8 @@ export type RenderRecallWindowsArg2 = {
   seeReactions?: boolean;
   reactionsPerMessage?: number;
   indexed?: boolean;
+  /** Author id -> the handle of the person behind the account: each author reads `authors.line` (src/format.ts). */
+  handles?: Map<string, string>;
 };
 
 export type RenderRecallWindowsResult = {

@@ -58,6 +58,8 @@ export type LiveViewResult = {
     getLore: () => Array<Untyped>;
     getRecent: () => { nextId: number; lines: Array<Untyped> } | null;
     selfreflectionChannelIds: () => Array<string>;
+    accountOf: (nativeId: string, iface?: string) => string;
+    personOfAccount: (accountId: string) => string | null;
   };
 };
 

@@ -65,14 +65,15 @@ test('observe counts a send by chat and text and a reaction by message, and the 
 });
 
 test('a directive comes from the newest chat line of a message turn and from the due intention of a wake', () => {
-  const chat = '<chat>\\n#1 [10:00] Eleni (@u1): do:say:old\\n#2 [10:01] Eleni (@u1): do:react:new\\n</chat>';
+  // The owner's decision of 2026-11-10: one handle per person, a line's author is the handle alone (authors.line).
+  const chat = '<chat>\\n#1 [10:00] @u1ab: do:say:old\\n#2 [10:01] @u1ab: do:react:new\\n</chat>';
   assert.deepEqual(directiveOf(chat, false), { verb: 'react', word: 'new', line: 2 });
   const wake = '<wake>\\nIntention i1 is due: do:say:later. This is your earlier decision.\\n</wake>' + chat;
   assert.deepEqual(directiveOf(wake, false), { verb: 'say', word: 'later', line: null });
 });
 
 test('a request that follows a tool result, or reminds her of an open intention, carries no directive', () => {
-  const chat = '<chat>\\n#1 [10:00] Eleni (@u1): do:say:old\\n</chat>';
+  const chat = '<chat>\\n#1 [10:00] @u1ab: do:say:old\\n</chat>';
   assert.equal(directiveOf(chat, true), null);
   assert.equal(directiveOf(`${chat} Intentions you woke for that you have not changed yet: i1.`, false), null);
 });

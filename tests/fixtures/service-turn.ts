@@ -17,6 +17,7 @@ import { createIntentionStores } from '../../src/intentions/store.ts';
 import { createJournal } from '../../src/memory/journal.ts';
 import { issueContext } from '../../src/memory/db/scope.ts';
 import { placeRefOf } from '../../src/memory/db/frame-reads.ts';
+import { placeChainInDb } from '../../src/memory/db/place-tree.ts';
 import '../../src/tools/operations/index.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
 import type { Untyped } from '../../src/tools/types.ts';
@@ -372,14 +373,28 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
   }
 }
 
-/** A line of `c1`: by Ελένη unless another author is named. */
+/** A line of the reply chat: by Ελένη unless another author is named. */
 export type ReplyLine = { id: string; text: string; at: number; authorId?: string; authorName?: string };
 
 /**
- * One reply turn of a run: the lines that join `c1` before it, the line she answers there and what the model says to
+ * One reply turn of a run: the lines that join the chat before it, the line she answers there and what the model says to
  * each request of the turn.
  */
-export type ReplyStep = { lines?: ReadonlyArray<ReplyLine>; trigger: ReplyLine; answers: ReadonlyArray<unknown> };
+export type ReplyStep = {
+  lines?: ReadonlyArray<ReplyLine>;
+  trigger: ReplyLine;
+  /** Each a model answer, or a function of the user text of the request it answers that gives one. */
+  answers: ReadonlyArray<unknown>;
+};
+
+/** The chat a reply turn runs in: its interface, the chat id the interface names it by and its place id in the world. */
+export type ReplyChat = { iface: string; chatId: string; place: string };
+
+/** The room `c1` of the fake interface, the default chat of a reply run. */
+export const C1_CHAT: ReplyChat = { iface: 'fake', chatId: 'c1', place: 'fake:channel:c1' };
+
+/** The owner's command line chat: the chat id is its place id (interfaces/cli/link.ts). */
+export const CLI_CHAT: ReplyChat = { iface: 'cli', chatId: CLI_PLACE, place: CLI_PLACE };
 
 /** A line of `c1` as the platform hands it over. */
 const rawLine = ({ id, text, at, authorId = '111', authorName = 'Ελένη' }: ReplyLine): Record<string, unknown> => ({
@@ -394,6 +409,117 @@ const rawLine = ({ id, text, at, authorId = '111', authorName = 'Ελένη' }: 
   stickers: new Map(),
 });
 
+/** A line of a chat of `cli` (or any adapter of the rig but the world's) as a `message.received` event. */
+function eventLine(chat: ReplyChat, { id, text, at, authorId = '111', authorName = 'Ελένη' }: ReplyLine) {
+  return {
+    kind: 'message.received' as const,
+    iface: chat.iface,
+    at,
+    id: `${chat.iface}:message:${id}`,
+    chat: { id: chat.chatId, kind: 'dm' as const, rootId: null, name: null },
+    message: {
+      id,
+      author: { id: authorId, name: authorName, self: false, bot: false },
+      content: text,
+      sourceText: text,
+      system: false,
+      at,
+      replyToId: null,
+      replyPingAccountId: null,
+      forwardedFrom: null,
+      attachments: [],
+    },
+  };
+}
+
+/** One message she sent in a reply run: the chat it went to, its text and the accounts it mentions. */
+export type ReplySend = { iface: string; chatId: string; text: string; mentioned: Array<string> };
+
+/** What a reply run leaves: the user texts of every request, one list per turn, and every message she sent. */
+export type ReplyRun = { requests: Array<Array<string>>; sends: Array<ReplySend> };
+
+/** The person an account of the world belongs to, null for an account no row holds. */
+function personOfAccountIn(mind: World, account: string): string | null {
+  const row: unknown = mind.db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(account);
+  const person: unknown = row && typeof row === 'object' ? Reflect.get(row, 'person_id') : null;
+  return typeof person === 'string' ? person : null;
+}
+
+/** The sends an adapter recorded, as ReplySend. */
+function sendsOf(adapter: Fake): Array<ReplySend> {
+  return adapter.calls
+    .filter((one) => one.op === 'send')
+    .map((one) => {
+      const [chat, content] = one.args as [
+        { iface?: string; chatId?: string },
+        { text?: string; mentions?: { users?: Array<string> } } | undefined,
+      ];
+      return {
+        iface: String(chat.iface ?? adapter.iface),
+        chatId: String(chat.chatId ?? ''),
+        text: content?.text ?? '',
+        mentioned: [...(content?.mentions?.users ?? [])],
+      };
+    });
+}
+
+/**
+ * Reply turns in one chat (`c1` unless `chat` names another), one after another on one turn runner, each answering its
+ * `trigger`, which joins the chat's history before its turn. The chat of `c1` is the world's place `fake:channel:c1`.
+ */
+export async function replyRun(spec: {
+  world: World;
+  steps: ReadonlyArray<ReplyStep>;
+  settings?: Record<string, number>;
+  chat?: ReplyChat;
+}): Promise<ReplyRun> {
+  const { steps } = spec;
+  const chat = spec.chat ?? C1_CHAT;
+  let step = 0;
+  let firstOfStep = 1;
+  // An answer may be a function of the request it answers, so a test writes back what the request showed.
+  const answerOf = (n: number): unknown => {
+    const answers = steps[step]?.answers ?? ['<skip/>'];
+    const value: unknown = answers[Math.min(n - firstOfStep, answers.length - 1)];
+    if (typeof value !== 'function') return value;
+    const answered: unknown = Reflect.apply(value, undefined, [requests[n - 1] ?? '']);
+    return answered;
+  };
+  const { turns, requests, fake, cli } = rigOf({
+    mind: spec.world,
+    answer: answerOf,
+    ...(spec.settings === undefined ? {} : { settings: spec.settings }),
+    store: {
+      placeOfChat: (given: { id?: unknown; iface?: unknown; kind?: unknown; partnerId?: unknown }) => {
+        const iface = typeof given.iface === 'string' ? given.iface : chat.iface;
+        if (given.kind === 'dm') return `${iface}:dm:${String(given.partnerId)}`;
+        return iface === 'cli' ? String(given.id) : `${iface}:channel:${String(given.id)}`;
+      },
+      // A member's account and person as the memory store answers them from the world's rows.
+      accountOf: (native: string, iface?: string) => `${iface ?? chat.iface}:${native}`,
+      personOfAccount: (account: string) => personOfAccountIn(spec.world, account),
+      // The chain of the turn's place by its stored names, as the memory store answers it.
+      placeChainOf: (placeId: string) => placeChainInDb(spec.world.db, placeId),
+    },
+  });
+  const out: Array<Array<string>> = [];
+  for (const [index, one] of steps.entries()) {
+    step = index;
+    firstOfStep = requests.length + 1;
+    const { id, text, at, authorId = '111', authorName = 'Ελένη' } = one.trigger;
+    const lines = [...(one.lines ?? []), one.trigger];
+    if (chat === C1_CHAT) world().seed('c1', lines.map(rawLine));
+    else for (const line of lines) cli.seedEvent(eventLine(chat, line));
+    const trigger = { id, placeId: chat.chatId, authorId, authorName, self: false, bot: false, content: text, ts: at };
+    await withCapturedLogs(() =>
+      turns.runTurn({ chat: { iface: chat.iface, chatId: chat.chatId }, mode: 'reply', trigger, triggerKind: 'mention' })
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    out.push(requests.slice(firstOfStep - 1));
+  }
+  return { requests: out, sends: [...sendsOf(fake), ...sendsOf(cli)] };
+}
+
 /**
  * Reply turns in `c1`, one after another on one turn runner, each answering its `trigger`, which joins the chat's
  * history before its turn. The chat is the world's place `fake:channel:c1`. Returns the user texts of every request,
@@ -404,36 +530,7 @@ export async function replyTurns(spec: {
   steps: ReadonlyArray<ReplyStep>;
   settings?: Record<string, number>;
 }): Promise<Array<Array<string>>> {
-  const { steps } = spec;
-  let step = 0;
-  let firstOfStep = 1;
-  const answerOf = (n: number): unknown => {
-    const answers = steps[step]?.answers ?? ['<skip/>'];
-    return answers[Math.min(n - firstOfStep, answers.length - 1)];
-  };
-  const { turns, requests } = rigOf({
-    mind: spec.world,
-    answer: answerOf,
-    ...(spec.settings === undefined ? {} : { settings: spec.settings }),
-    store: {
-      placeOfChat: (chat: { id?: unknown; iface?: unknown }) =>
-        `${typeof chat.iface === 'string' ? chat.iface : 'fake'}:channel:${String(chat.id)}`,
-    },
-  });
-  const out: Array<Array<string>> = [];
-  for (const [index, one] of steps.entries()) {
-    step = index;
-    firstOfStep = requests.length + 1;
-    const { id, text, at, authorId = '111', authorName = 'Ελένη' } = one.trigger;
-    world().seed('c1', [...(one.lines ?? []), one.trigger].map(rawLine));
-    const trigger = { id, placeId: 'c1', authorId, authorName, self: false, bot: false, content: text, ts: at };
-    await withCapturedLogs(() =>
-      turns.runTurn({ channel: { id: 'c1' }, mode: 'reply', trigger, triggerKind: 'mention' })
-    );
-    await new Promise((resolve) => setImmediate(resolve));
-    out.push(requests.slice(firstOfStep - 1));
-  }
-  return out;
+  return (await replyRun(spec)).requests;
 }
 
 /** A wake of `kind` as the drain hands it to the turn, with `extra` laid over it. */

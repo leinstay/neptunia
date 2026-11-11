@@ -13,7 +13,11 @@ import { labels as fixtureLabels } from './fixtures/labels.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { appended, contentText, coreTurn } from './fixtures/turn-harness.ts';
 
-const labels = { ...fixtureLabels, transcript: { ...fixtureLabels.transcript, author: '{name} ({handle})' } };
+// The owner's decision of 2026-11-10: one handle per person, a line's author is the handle alone (authors.line).
+const labels = {
+  ...fixtureLabels,
+  authors: { line: '{handle}', lineAccount: '{handle} ({iface} {id})', unknown: 'someone' },
+};
 const YOB = '100000000000000001';
 const NORTY = '100000000000000002';
 const NORA = '100000000000000003';

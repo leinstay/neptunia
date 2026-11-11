@@ -345,7 +345,8 @@ function openingDate(
 }
 
 /**
- * The text of a read: `labels.tools.tools.conversation.source` (`{channel}`), the lines as the
+ * The text of a read: `labels.tools.tools.conversation.source` (`{place}`, the place as the request names it: its
+ * handle and path, `places.ref`), the lines as the
  * chat transcript renders them (formatTranscript, `render` its options), with `openDate` under the
  * date of the first one (openingDate), `.handles` when the
  * lines are numbered, `.cut` (`{dropped}`) when the room (`maxChars`) kept fewer than the span,
@@ -383,7 +384,8 @@ export function chatText(
 ): string {
   const l = conversationLabels(labels);
   const lines: Array<string> = [];
-  if (l.source) lines.push(fill(l.source, { channel: channelName }));
+  // `{channel}` is the older name of `{place}`, still read so a deployment's own label keeps working.
+  if (l.source) lines.push(fill(l.source, { place: channelName, channel: channelName }));
   if (!Array.isArray(slice) || slice.length === 0) {
     if (l.none) lines.push(l.none);
     return lines.join('\n');

@@ -190,6 +190,9 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     refLineOf: input.refLineOf,
     chatIdOf: input.chatIdOf,
     isSourceRetired: input.isSourceRetired,
+    memberKeyOf: input.memberKeyOf,
+    accountKeyOf: input.accountKeyOf,
+    placePathOf: input.placePathOf,
   };
   // Each builder reads the input and what the builders before it gave, under the names they give it.
   const frame = input.frame;

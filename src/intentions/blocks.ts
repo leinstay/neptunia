@@ -27,6 +27,11 @@ type LineOptions = {
   locale: string;
   channelNameOf: (id: string) => string | null;
   nameOf: (id: string) => string | null;
+  /** The handle (with `@`) of the person behind an attended account id; absent: people by name. */
+  handleOf: ((id: string) => string | null) | null;
+  /** `authors.unknown` and `spatial.unnamed`: a person and a place no reader names. */
+  unknown: string;
+  unnamed: string;
   now: number | null;
   noticeMs: number;
   /** Whether the line keeps the whole purpose: the intention that woke her. */
@@ -60,8 +65,11 @@ const purposeText = (record: Intention, whole: boolean): string =>
 function activeLine(
   record: Intention,
   l: Untyped,
-  { timezone, locale, channelNameOf, nameOf, now, noticeMs, whole = false }: LineOptions
+  { timezone, locale, channelNameOf, nameOf, handleOf, unknown, unnamed, now, noticeMs, whole = false }: LineOptions
 ): string {
+  // A person by their handle, a place by its name; the id only under labels with no word for one nobody names.
+  const person = (id: string): string => (handleOf ? handleOf(id) : nameOf(id)) || unknown || id;
+  const place = (id: string): string => channelNameOf(id) || unnamed || id;
   const state = typeof l.states?.[record.status] === 'string' ? l.states[record.status] : record.status;
   const pieces = [fill(l.line, { id: record.id, state, purpose: purposeText(record, whole) })];
   const dateless = !isFiniteNumber(record.dueAt) && record.status !== 'waiting' && !record.attend?.place;
@@ -77,14 +85,14 @@ function activeLine(
     const attend = record.attend;
     pieces.push(
       part(l, 'attend', {
-        place: channelNameOf(attend.place) || attend.place,
+        place: place(attend.place),
         wakes: String(attend.today?.wakes ?? 0),
         perDay: String(attend.perDay),
         settle: String(attend.settle),
       })
     );
     if (Array.isArray(attend.people) && attend.people.length > 0)
-      pieces.push(part(l, 'attendPeople', { people: attend.people.map((id) => oneLine(nameOf(id) || id)).join(', ') }));
+      pieces.push(part(l, 'attendPeople', { people: attend.people.map((id) => oneLine(person(id))).join(', ') }));
   }
   if (record.status === 'waiting')
     pieces.push(
@@ -94,8 +102,7 @@ function activeLine(
     pieces.push(part(l, 'outcome', { errand: record.outcome.errandId, state: record.outcome.state }));
   else if (record.note && typeof l.notes?.[record.note] === 'string')
     pieces.push(fill(l.notes[record.note], { errand: record.lastErrandId ?? '' }));
-  if (record.destination)
-    pieces.push(part(l, 'destination', { channel: channelNameOf(record.destination) || record.destination }));
+  if (record.destination) pieces.push(part(l, 'destination', { channel: place(record.destination) }));
   if (!noDue && isFiniteNumber(record.expiresAt) && isFiniteNumber(now) && record.expiresAt - now <= noticeMs)
     pieces.push(part(l, 'expiresSoon', { when: when(record.expiresAt, timezone, locale) }));
   return pieces.filter(Boolean).join(' · ');
@@ -106,8 +113,10 @@ function activeLine(
  * `maxTokens` (`cost` the estimate; whole lines, in order): `labels.intentions.header`, a line per
  * active one. '' when nothing fits or
  * the labels are missing.
- * `channelNameOf(id)` names a destination or attended channel (its id when it gives nothing);
- * `nameOf(id)` names an attended person (the id when it gives nothing). `now` (epoch ms) and
+ * `channelNameOf(id)` names a destination or attended channel;
+ * `handleOf(id)` names an attended person by the handle (with `@`) of the person behind the account, `authors.unknown`
+ * when it gives none; without it `nameOf(id)` names them. A place no reader names reads `spatial.unnamed`. An id stands
+ * only under labels that hold neither word. `now` (epoch ms) and
  * `expiryNoticeDays` (`intentions.expiryNoticeDays`, read by the caller now) decide which lines
  * end with their expiry; without `now` none does. The intentions of `due` (the ones that woke her) come first, each
  * with its whole purpose, and are kept whatever the budget.
@@ -122,6 +131,7 @@ export function intentionsBlockText(
     cost = estimateTokens,
     channelNameOf = () => null,
     nameOf = () => null,
+    handleOf = null,
     now = null,
     expiryNoticeDays = DEFAULTS.expiryNoticeDays,
     due = [],
@@ -132,6 +142,7 @@ export function intentionsBlockText(
     cost?: (text: string) => number;
     channelNameOf?: (id: string) => string | null;
     nameOf?: (id: string) => string | null;
+    handleOf?: ((id: string) => string | null) | null;
     now?: number | null;
     expiryNoticeDays?: number;
     due?: ReadonlyArray<string>;
@@ -149,7 +160,10 @@ export function intentionsBlockText(
   };
   const noticeMs =
     (isFiniteNumber(expiryNoticeDays) && expiryNoticeDays >= 0 ? expiryNoticeDays : DEFAULTS.expiryNoticeDays) * DAY_MS;
-  const options = { timezone, locale, channelNameOf, nameOf, now, noticeMs };
+  const words = (value: unknown): string => (typeof value === 'string' ? value : '');
+  const unknown = words(labels?.authors?.unknown);
+  const unnamed = words(labels?.spatial?.unnamed);
+  const options = { timezone, locale, channelNameOf, nameOf, handleOf, unknown, unnamed, now, noticeMs };
   for (const record of list.filter((one) => due.includes(one.id)))
     take(activeLine(record, l, { ...options, whole: true }));
   for (const record of list.filter((one) => !due.includes(one.id))) {

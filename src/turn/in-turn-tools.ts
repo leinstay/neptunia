@@ -26,7 +26,10 @@ import { lineItemParts } from '../memory/db/media-store.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
 import type { LiveLines, ReadMessage } from '../tools/conversation-read.ts';
 import { chatOfStoredPlace } from '../interface/place-chat.ts';
-import { notePlaceAddress, placeOfChat } from '../memory/addresses.ts';
+import { accountOf, notePlaceAddress, personOfMember, placeOfChat } from '../memory/addresses.ts';
+import { handleOf } from '../behavior/handles.ts';
+import { escapeStored } from './request/text.ts';
+import type { RequestRefs } from './request/types.ts';
 import {
   firstLinkIn,
   lookPerTurn,
@@ -91,6 +94,7 @@ export type InTurnToolsContext = {
   placeReads?: Pick<
     FrameReads,
     | 'placeReadable'
+    | 'memberKey'
     | 'around'
     | 'since'
     | 'placeName'
@@ -117,6 +121,8 @@ export type InTurnDraft = NonNullable<Parameters<DrawGif['drawTool']>[1]['draft'
   selfreflectionVoice?: Parameters<typeof selfreflectionVoiceTool>[0]['held']['selfreflectionVoice'];
   /** The people this turn's request showed in `<memory>` and its reads told of since (people rows by person id). */
   memoryPeople?: Set<string>;
+  /** The request's people and places for the rest of the turn (src/behavior/handles.ts#handleBook). */
+  requestRefs?: RequestRefs | null;
 };
 
 /** A message of the turn's history, as a tool finds it by its id. */
@@ -205,6 +211,38 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     personLinks = null,
     findMeaningFor = null,
   } = ctx;
+
+  /** A person's handle as the turn's request gives it (src/behavior/handles.ts#handleBook), else cut from the key alone. */
+  const personHandleOf = (draft: InTurnDraft | null, key: string): string =>
+    draft?.requestRefs?.personHandle(key) ?? handleOf(key);
+
+  /** What the handle of a member of `iface` is cut from: the person the memory holds, else the account. */
+  const memberKeyOn = (iface: string, native: string): string =>
+    placeReads?.memberKey?.(iface, native) ?? personOfMember(store, native, iface) ?? accountOf(store, native, iface);
+
+  /**
+   * The handle of every other author of a read's lines by platform id, so a read names each line's author as the
+   * request does (`authors.line`): cut from the key the stored line carries, else from the member of `iface`.
+   */
+  function authorHandles(
+    draft: InTurnDraft | null,
+    iface: string,
+    slice: ReadonlyArray<ReadMessage>
+  ): Map<string, string> {
+    const handles = new Map<string, string>();
+    for (const line of slice) {
+      const native = idText(line.authorId);
+      if (line.self === true || native === '') continue;
+      const stored: unknown = Reflect.get(line, 'authorKey');
+      const key = typeof stored === 'string' && stored !== '' ? stored : memberKeyOn(iface, native);
+      handles.set(native, personHandleOf(draft, key));
+    }
+    return handles;
+  }
+
+  /** A place as the turn's request names it (`places.ref`), else `fallback` escaped. */
+  const placeNamed = (draft: InTurnDraft | null, placeId: string, fallback: string | null): string =>
+    draft?.requestRefs?.placeRef(placeId) ?? escapeStored(fallback ?? '');
 
   /**
    * Her in-turn tools for one turn (src/tools/tools.ts): skill name -> `(args) =>
@@ -418,7 +456,9 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         mind.leftOut.people ?? 0,
         { interface: where.iface, timezone: hot.config.bot?.timezone ?? 'UTC', counterpart: null },
         labels,
-        () => null
+        () => null,
+        null,
+        (key) => personHandleOf(where.draft, key)
       );
       if (memory === '') return plain;
       for (const person of people) shown.add(person.personId);
@@ -499,8 +539,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       labels,
       config,
       placeId,
-      // The source line names the place by its stored name, on whatever interface it is.
-      channelNameOf: (id) => placeReads.placeName?.(id) ?? null,
+      // The source line names the place as the request does, by its handle and path, on whatever interface it is.
+      channelNameOf: (id) => placeNamed(draft, id, placeReads.placeName?.(id) ?? null),
       allowed: (id) => isIssuedInternalContext(context) || Boolean(placeReads.placeReadable?.(context, id)),
       readRecord: ({ from, mode }) =>
         Promise.resolve(
@@ -514,6 +554,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
                     placeId,
                     authorId: line.authorId,
                     authorName: line.self ? selfName : authorNameOf(line),
+                    authorKey: line.authorKey,
                     self: line.self,
                     bot: false,
                     content: line.text,
@@ -534,6 +575,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         selfName,
         labels,
         seeReactions: true,
+        handles: authorHandles(draft, ref.iface, slice),
+        iface: ref.iface,
         descriptions: placeReads.mediaTexts?.(
           context,
           placeId,
@@ -655,7 +698,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       labels,
       config,
       placeId: String(channel.id),
-      channelNameOf: (id) => channelOf(id)?.name ?? null,
+      channelNameOf: (id) => placeNamed(draft, placeOfChat(store, { id }, iface), channelOf(id)?.name ?? null),
       allowed: (id) => {
         if (String(id) === String(channel.id) && inRoot(channel)) return true;
         // The owner's authenticated command line reads every stored chat; its publication stays restricted.
@@ -705,6 +748,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           labels,
           descriptions,
           seeReactions: true,
+          handles: authorHandles(draft, iface, slice),
+          iface,
         };
       },
       // The registry takes the lines the read hands it, as the read's own handles.

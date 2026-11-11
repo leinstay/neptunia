@@ -110,14 +110,23 @@ export function foundPlaces(
   return { kind: 'found', choices, total: found.length };
 }
 
-/** What she writes to name a choice: its handle with the hash, else its id. */
-const refOf = (place: PlaceCandidate): string => (place.handle ? `#${place.handle}` : place.id);
+/** What she writes to name a choice: its handle with the hash, else nothing, since its name is the token; never its id. */
+const refOf = (place: PlaceCandidate): string => (place.handle ? `#${place.handle}` : '');
+
+/** A choice line: the label for a choice with a handle, `<key>Unhandled` for one without, else the label with `{ref}` empty. */
+function choiceLine(word: (key: string) => string, key: string, place: PlaceCandidate): string {
+  const values = { ref: refOf(place), name: place.name, about: place.about ?? '' };
+  const unhandled = place.handle ? '' : word(`${key}Unhandled`);
+  if (unhandled) return fill(unhandled, values);
+  return fill(word(key), values).replace(/ {2,}/g, ' ').trim();
+}
 
 /**
  * The choices of an answer as the text of a tool result: the lead of `labels.tools.tools.place.several`, `.none` or
- * `.found` (`{given}`, `{count}` the number of places that fit), one `.line` per choice (`{ref}`, the token to write,
- * and `{name}`), `.lineAbout` instead for a choice that says what it is for (`{about}` too), and `.more` (`{count}`)
- * when some were left out. `given` is what she wrote. Reads the labels now.
+ * `.found` (`{given}`, `{count}` the number of places that fit), one `.line` per choice (`{ref}`, the `#handle` to write,
+ * and `{name}`), `.lineAbout` instead for a choice that says what it is for (`{about}` too), `.lineUnhandled` and
+ * `.lineAboutUnhandled` for a choice with no handle, whose name is what she writes, and `.more` (`{count}`) when some
+ * were left out. `given` is what she wrote. Reads the labels now.
  */
 export function placeChoicesText(match: PlaceMatch, labels: unknown, given: string): string {
   if (match.kind === 'one') return '';
@@ -125,9 +134,7 @@ export function placeChoicesText(match: PlaceMatch, labels: unknown, given: stri
   const word = (key: string): string => (typeof words[key] === 'string' ? words[key] : '');
   const lead = fill(word(match.kind), { given, count: match.total });
   const lines = match.choices.map((place) =>
-    place.about && word('lineAbout')
-      ? fill(word('lineAbout'), { ref: refOf(place), name: place.name, about: place.about })
-      : fill(word('line'), { ref: refOf(place), name: place.name })
+    choiceLine(word, place.about && word('lineAbout') ? 'lineAbout' : 'line', place)
   );
   const left = match.total - match.choices.length;
   const more = left > 0 ? fill(word('more'), { count: left }) : '';
