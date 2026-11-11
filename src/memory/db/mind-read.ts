@@ -232,6 +232,7 @@ export const EVIDENCE_ORDER: ReadonlyArray<Evidence> = [
 ];
 const WHOLE: ReadonlySet<Evidence> = new Set(['native', 'reply', 'counterpart']);
 const DETAILS: ReadonlyArray<Detail> = ['whole', 'compact', 'name'];
+// `found` stands last: it is filled from what the four stable shares leave (`allowances`).
 const SUBTAGS = ['people', 'places', 'lore', 'recent', 'found'] as const;
 type Subtag = (typeof SUBTAGS)[number];
 const rankOf = (evidence: Evidence): number => EVIDENCE_ORDER.indexOf(evidence);
@@ -1158,8 +1159,9 @@ function compare(a: Built, b: Built): number {
 
 /**
  * Each subtag's tokens: its share of `budgetTokens`, plus what the shares their entries leave unused lend, in the
- * subtags' order. `demand` is what each subtag's entries would take. The request's second cut (src/turn/request/reader.ts)
- * lends by the same rule.
+ * subtags' order. `demand` is what each subtag's entries would take. The four stable shares lend among themselves.
+ * `found`, the turn's own, lends nothing, so the detail of a stable entry never follows what the turn found, and it is
+ * filled last from what the four leave. The request's second cut (src/turn/request/reader.ts) lends by the same rule.
  */
 export function allowances(
   settings: Pick<MindSettings, 'budgetTokens' | 'shares'>,
@@ -1169,7 +1171,7 @@ export function allowances(
   const out = Object.fromEntries(
     SUBTAGS.map((tag) => [tag, Math.floor(budget * Math.max(0, settings.shares[tag]))])
   ) as Record<Subtag, number>;
-  let spare = SUBTAGS.reduce((sum, tag) => sum + Math.max(0, out[tag] - demand[tag]), 0);
+  let spare = SUBTAGS.reduce((sum, tag) => (tag === 'found' ? sum : sum + Math.max(0, out[tag] - demand[tag])), 0);
   for (const tag of SUBTAGS) {
     const want = demand[tag] - out[tag];
     if (want <= 0 || spare <= 0) continue;

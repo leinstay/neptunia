@@ -7,7 +7,7 @@ import type { MeanwhileReads } from '../turn/request/meanwhile.ts';
 import type { SurroundingsInput } from '../turn/request/reader.ts';
 import type { LineOf } from '../turn/request/refs.ts';
 import type { SourceRetired } from '../turn/request/reader.ts';
-import type { BlockRecord } from '../turn/request/tail.ts';
+import type { BlockRecord, BlockSegment } from '../turn/request/tail.ts';
 import type { Whereabouts } from '../turn/request/spatial.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { CallMark } from './lines.ts';
@@ -134,7 +134,7 @@ export type RequestMessage = { role: string; content: string | Array<RequestPart
 export type BuildRequestResult = {
   messages: Array<RequestMessage>;
   stats: Record<string, Untyped>;
-  segments: Array<{ segment: 'stable' | 'surroundings' | 'tail'; chars: number; hash: string }>;
+  segments: Array<{ segment: BlockSegment; chars: number; hash: string }>;
   /** Every block of the user message, empty ones too, for the archive row (src/llm/archive.ts). */
   blocks: Array<BlockRecord>;
   idByIndex: Map<number, string>;

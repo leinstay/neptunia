@@ -622,7 +622,8 @@ export function toolCallsOf(calls: unknown): Array<ParsedToolCall> {
  * already placed on any part takes the same marker; only the first four markers in message order
  * survive, the rest are removed. A part a builder tagged with `cacheSegment` (the request's user
  * message, src/behavior/prompt.ts#buildRequest) gets a marker too: `'stable'` and `'surroundings'`
- * the request's `ttl`, any other value none. The
+ * the request's `ttl`, `'memory'` the request's `ttl` on a request of at most two messages and none
+ * once steps are appended, any other value none. The
  * `cacheSegment` field itself is removed from every part in every case, so it never reaches the
  * provider. A request with more than two messages (a turn's appended steps) also gets a `5m` marker
  * on the last part of its last message when fewer than four are placed (the latest tool message, or the
@@ -635,9 +636,11 @@ export function toolCallsOf(calls: unknown): Array<ParsedToolCall> {
 export function withCacheMarker<M extends ChatMessage>(messages: Array<M>, ttl: CacheTtl | null): Array<M> {
   if (!Array.isArray(messages)) return messages;
   const marker = cacheMarkerFor(ttl);
+  // The `memory` part marks only a turn's first request: once steps are appended its slot goes to the tail.
   const segmentMarkers: Record<string, ReturnType<typeof cacheMarkerFor>> = {
     stable: marker,
     surroundings: marker,
+    memory: messages.length > 2 ? null : marker,
   };
   const systemAt = marker ? messages.findIndex((message) => isRec(message) && message.role === 'system') : -1;
   let kept = 0;
