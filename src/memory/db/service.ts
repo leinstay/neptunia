@@ -403,7 +403,10 @@ function startWorker({
     if (!waiting || !posted) return;
     pending.delete(posted.id as number);
     if (posted.ok) waiting.resolve(posted.result as Row);
-    else waiting.reject(Object.assign(new Error('memory db worker call failed'), { code: posted.code }));
+    else
+      waiting.reject(
+        Object.assign(new Error('memory db worker call failed'), { code: posted.code, detail: posted.detail ?? null })
+      );
   });
   worker.on('error', (error) => {
     if (!logged && !stopping) {
@@ -678,6 +681,17 @@ const codeOf = (error: unknown): string => {
   const { code, name } = (error ?? {}) as { code?: string; name?: string };
   return code ?? name ?? 'ERROR';
 };
+
+/**
+ * SQLite's message of a failed statement, or null for any other error. node:sqlite gives every failure the one code
+ * `ERR_SQLITE_ERROR`, and its message names the table and the column of a broken constraint and never a stored value, so
+ * a log may carry it. The writer worker hands it back beside the code.
+ */
+export function sqliteDetailOf(error: unknown): string | null {
+  const { code, message, detail } = (error ?? {}) as { code?: unknown; message?: unknown; detail?: unknown };
+  if (typeof detail === 'string') return detail;
+  return code === 'ERR_SQLITE_ERROR' && typeof message === 'string' ? message : null;
+}
 
 /** Report effective model choices after the core's dependencies are available. */
 function reportEffectiveModels(config: Config, ring: KeyRing | null, log: Log): Promise<void> {
@@ -964,7 +978,7 @@ export function createMemoryDb({
         return result;
       })
       .catch((error: unknown) => {
-        log.warn('memory db: observe failed', { code: codeOf(error) });
+        log.warn('memory db: observe failed', { kind: item.type, code: codeOf(error), detail: sqliteDetailOf(error) });
         // The observation is the line's only record: it waits for the next tick; past the shutdown's last write no tick
         // comes, so it is counted as dropped.
         if (observeShutdown) dropObservation('shutdown');
