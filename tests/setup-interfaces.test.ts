@@ -54,10 +54,11 @@ test('a no writes nothing, and a yes without the required value leaves the inter
   assert.equal(fs.existsSync(localConfigPath(where.dataDir)), false);
 });
 
-test('a finished interface names the pairing command that makes the owner account there his', async () => {
-  // Bug: `neptunia setup` connects an interface and never says how the owner proves his account on it, so he stays a
-  // stranger there.
+test('a finished interface names no pairing step', async () => {
+  // The owner removed owner pairing on 2026-11-11, and his accounts are bound with `/memory bind`. This test pinned the
+  // pairing command at the end of setup. Catches: setup sending the owner to a command that no longer exists.
   const where = rig();
   const outcome = await interfacesStep(where, { ask: scripted(['yes', 'SECRETTOKEN']).ask, run });
-  assert.match(outcome.detail, /\/interfaces pair open chatty/);
+  assert.match(outcome.detail, /chatty/);
+  assert.doesNotMatch(outcome.detail, /pair/);
 });

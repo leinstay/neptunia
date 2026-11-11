@@ -51,12 +51,62 @@ function leafOf(name: string, every: ReadonlyArray<CommandArg>): Leaf {
   };
 }
 
-/** Every leaf of the table. */
-const LEAVES: ReadonlyArray<Leaf> = COMMANDS.flatMap((command) =>
+/**
+ * Every leaf of the table but the `/interfaces` family, whose interface comes before its command (owner's decision of
+ * 2026-11-11, after his cut): the subcommand's words cannot spell it, so INTERFACE_FORMS below lists its forms.
+ */
+const LEAVES: ReadonlyArray<Leaf> = COMMANDS.filter((command) => command.name !== 'interfaces').flatMap((command) =>
   command.subcommands.length === 0
     ? [leafOf(command.name, command.args)]
     : command.subcommands.map((one) => leafOf(`${command.name}.${one.name}`, one.args))
 );
+
+/** The forms of the `/interfaces` family as argv, with the operation each parses into and the values it carries. */
+const INTERFACE_FORMS: ReadonlyArray<{ argv: Array<string>; name: string; values: Array<string> }> = [
+  { argv: ['interfaces', 'zeta71', 'setup'], name: 'interfaces.setup', values: [] },
+  { argv: ['interfaces', 'zeta71', 'settings'], name: 'interfaces.settings', values: [] },
+  { argv: ['interfaces', 'zeta71', 'set', 'token'], name: 'interfaces.set', values: ['token'] },
+  { argv: ['interfaces', 'zeta71', 'clear', 'token'], name: 'interfaces.clear', values: ['token'] },
+  { argv: ['interfaces', 'zeta71', 'add', 'servers', '111'], name: 'interfaces.add', values: ['servers', '111'] },
+  { argv: ['interfaces', 'zeta71', 'remove', 'servers', '111'], name: 'interfaces.remove', values: ['servers', '111'] },
+  { argv: ['interfaces', 'zeta71', 'enable'], name: 'interfaces.enable', values: [] },
+  { argv: ['interfaces', 'zeta71', 'disable'], name: 'interfaces.disable', values: [] },
+  { argv: ['interfaces', 'zeta71', 'invite'], name: 'interfaces.invite', values: [] },
+  { argv: ['interfaces', 'zeta71', 'list'], name: 'interfaces.roots', values: [] },
+];
+
+for (const { argv, name, values } of INTERFACE_FORMS) {
+  test(`${argv.join(' ')} parses into ${name} in the shell and in -p`, () => {
+    // Catches: the shell form and the line of the chat reading the family in two orders, or a value lost on the way.
+    for (const { parsed } of [parseRequest(argv), parseLineRequest(`/${argv.join(' ')}`)]) {
+      assert.ok(parsed.ok, JSON.stringify(parsed));
+      assert.equal(parsed.name, name);
+      assert.equal(parsed.args.name, 'zeta71');
+      for (const value of values) assert.ok(Object.values(parsed.args).includes(value), `${name} carries ${value}`);
+    }
+  });
+}
+
+for (const argv of [
+  ['interfaces', 'zeta71', 'pair'],
+  ['interfaces', 'zeta71', 'accept', 'g7'],
+  ['interfaces', 'zeta71', 'remove', 'g7'],
+]) {
+  test(`${argv.join(' ')} is no command in the shell or in -p`, () => {
+    // The owner removed pairing, accept and remove on 2026-11-11. Catches: a removed command still parsed.
+    for (const { parsed } of [parseRequest(argv), parseLineRequest(`/${argv.join(' ')}`)])
+      assert.equal(parsed.ok, false);
+  });
+}
+
+test('interfaces set takes its secret from stdin with the interface first', () => {
+  // Catches: `--secret-stdin` read as the value of the setting once the words move, so the key lands on the line.
+  const { parsed, secretStdin } = parseRequest(['interfaces', 'zeta71', 'set', 'token', '--secret-stdin']);
+  assert.ok(parsed.ok, JSON.stringify(parsed));
+  assert.equal(parsed.name, 'interfaces.set');
+  assert.equal(secretStdin, true);
+  assert.equal(Object.values(parsed.args).includes('--secret-stdin'), false);
+});
 
 for (const leaf of LEAVES) {
   test(`${leaf.argv.join(' ')} parses into ${leaf.name}`, () => {
@@ -84,9 +134,11 @@ for (const command of COMMANDS) {
 test('an interfaces word the table does not name is refused with that word', () => {
   // Changed: no interface has commands of its own, so the leaf that took any word and always refused it is gone and
   // the parser refuses the word itself. Catches: a stray word parses and reaches the core as a command.
+  // Changed again: the first word after the family is the interface's name (owner's decision of 2026-11-11), so the
+  // reason may name the command word that no interface has, or the name.
   const { parsed } = parseRequest(['interfaces', 'zeta71', 'sync', 'all', 'now']);
   assert.equal(parsed.ok, false);
-  assert.ok(!parsed.ok && parsed.reason.includes('zeta71'), JSON.stringify(parsed));
+  assert.ok(!parsed.ok && /sync|zeta71/.test(parsed.reason), JSON.stringify(parsed));
 });
 
 /** Each line the table refuses, with a word its reason must hold: the wrong word, or the argument that is missing. */

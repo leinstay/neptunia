@@ -243,15 +243,13 @@ test('says hello with the configured guild as its root when the bot is in two an
   });
 });
 
-test('says hello with every listed server the bot is in and reports the one it is not in', async () => {
-  // Bug: the second server of the owner's list is never told to the core, so its messages are all ignored.
-  await withSession({ twoGuilds: true, servers: ['g2', 'g1', 'g9'] }, async (h) => {
+test('says hello with every server the bot is in, whatever an old servers list says', async () => {
+  // Bug: the second server is never told to the core, so its messages are all ignored.
+  // Changed: the owner retired the servers list on 2026-11-11, since only he can add the bot to a server; an old
+  // settings file that still names one server, and one the bot is not in, neither narrows the roots nor stops the start.
+  await withSession({ twoGuilds: true, servers: ['g2', 'g9'] }, async (h) => {
     const hello = await h.link.hello;
-    assert.deepEqual(hello.root, { id: 'g2', name: 'Beta' });
-    assert.deepEqual(
-      hello.roots?.map((one) => one.id),
-      ['g2', 'g1']
-    );
+    assert.deepEqual((hello.roots ?? []).map((one) => one.id).sort(), ['g1', 'g2']);
   });
 });
 
@@ -286,24 +284,13 @@ test('sends the cached members of the served guild as membership.changed events 
   }
 });
 
-test('starts with no list and two guilds, serves neither, and reports each as a waiting root', async () => {
-  // Changed by the spec of 2026-11-11 (joining a root): this case stopped the start with an error naming both guilds.
-  // The owner now accepts the roots he wants from the command line, so the start serves none and reports them.
+test('starts with two guilds and an empty servers list and serves both', async () => {
   // Bug: a bot invited to a second server while the list is empty never starts again.
-  await withSession({ twoGuilds: true, servers: [] }, async (h, running) => {
+  // Changed: this case stopped the start, then served neither and reported both waiting; the owner's cut of 2026-11-11
+  // removed the waiting state, so both are served from the start.
+  await withSession({ twoGuilds: true, servers: [] }, async (h) => {
     const hello = await h.link.hello;
-    assert.equal(hello.root, null);
-    assert.deepEqual(hello.roots ?? [], []);
-    running.open();
-    await until(() => h.events('root.changed').length >= 2);
-    const reported = h.events('root.changed').map((event) => [asFake(event.root).id, event.change]);
-    assert.deepEqual(
-      reported.sort(([a], [b]) => String(a).localeCompare(String(b))),
-      [
-        ['g1', 'present'],
-        ['g2', 'present'],
-      ]
-    );
+    assert.deepEqual((hello.roots ?? []).map((one) => one.id).sort(), ['g1', 'g2']);
   });
 });
 
@@ -646,18 +633,23 @@ test('turns GuildDelete into a root.changed that left', async () => {
   });
 });
 
-test('serves a waiting guild once its settings list it, with no restart', async () => {
-  // Catches: an accepted root the core serves while the session still drops its voice and presence until a restart.
-  await withSession({ twoGuilds: true, servers: [] }, async (h, running) => {
+test('serves a guild it joins while running at once, its voice included, with no settings change', async () => {
+  // Catches: a server the owner added her to served by the core while the session still drops its voice and presence
+  // until a restart. Replaces the test that served a guild once its settings listed it: the owner retired the list on
+  // 2026-11-11.
+  await withSession({}, async (h, running) => {
     running.open();
-    Object.assign(h.config, { servers: ['g2'] });
-    h.fire('config');
+    const joined = guildOf('g5', 'Epsilon').guild;
+    const { guilds } = h.client;
+    (guilds.cache as Map<string, unknown>).set('g5', joined);
+    h.client.emit(Events.GuildCreate, joined);
+    await until(() => h.events('root.changed').length >= 1);
     h.client.emit(
       Events.VoiceStateUpdate,
       { channelId: null },
-      { id: 'u7', guild: { id: 'g2' }, channelId: 'v2', member: { id: 'u7', displayName: 'Zoe' } }
+      { id: 'u7', guild: { id: 'g5' }, channelId: 'v5', member: { id: 'u7', displayName: 'Zoe' } }
     );
     await until(() => h.events('voice.changed').length >= 1);
-    assert.equal(h.events('voice.changed')[0]?.placeId, 'g2');
+    assert.equal(h.events('voice.changed')[0]?.placeId, 'g5');
   });
 });

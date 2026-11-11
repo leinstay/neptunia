@@ -131,6 +131,104 @@ test('-p exits 2 for a command the table does not know', async () => {
   });
 });
 
+/** Whether the local settings hold `zeta71` enabled: what `/interfaces zeta71 enable` and `disable` write. */
+const zetaEnabled = (dirs: Dirs): unknown => {
+  const config = JSON.parse(readFileSync(join(dirs.privateDir, 'config', 'config.json'), 'utf8')) as {
+    interfaces?: { zeta71?: { enabled?: unknown } };
+  };
+  const zeta = config.interfaces?.zeta71;
+  return zeta?.enabled;
+};
+
+/** The names `/interfaces list` prints, the first word of each of its lines. */
+const listedNames = (stdout: string): Array<string> =>
+  stdout
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/)[0] ?? '')
+    .filter((name) => name !== '');
+
+test('the interface comes before its command in the shell and in -p, and the bare family lists them all', async () => {
+  // The owner's decision of 2026-11-11. Catches: `neptunia interfaces` and `-p /interfaces` reading two grammars, or
+  // `disable` and `enable` changing an interface other than the one named.
+  await withRig({ config: MARKED }, async ({ dirs, llm, cores }) => {
+    cores.push(await startUnitsCore(dirs, llm, () => T0));
+    for (const args of [['-p', '/interfaces'], ['-p', '/interfaces list'], ['interfaces']]) {
+      const run = await runCli(dirs, args);
+      assert.equal(run.code, 0, `${args.join(' ')}: ${run.stderr.slice(-2000)}`);
+      assert.ok(run.stdout.includes('zeta71'), `${args.join(' ')}: ${run.stdout}`);
+    }
+    const disabled = await runCli(dirs, ['-p', '/interfaces zeta71 disable']);
+    assert.equal(disabled.code, 0, disabled.stderr.slice(-2000));
+    assert.equal(zetaEnabled(dirs), false);
+    const enabled = await runCli(dirs, ['interfaces', 'zeta71', 'enable']);
+    assert.equal(enabled.code, 0, enabled.stderr.slice(-2000));
+    assert.equal(zetaEnabled(dirs), true);
+    assert.equal(llm.requests.length, 0, 'a command runs no turn');
+  });
+});
+
+test('a name that is no interface, every form with the command first and every removed command exit 2', async () => {
+  // The owner's decisions of 2026-11-11 removed the old order with no alias, and pairing, accept and remove with it.
+  // Catches: an old or removed line still run, read with the command word as an interface's name, or a mistyped name
+  // answered without the list of what exists.
+  await withRig({ config: MARKED }, async ({ dirs, llm, cores }) => {
+    cores.push(await startUnitsCore(dirs, llm, () => T0));
+    const list = await runCli(dirs, ['-p', '/interfaces list']);
+    assert.equal(list.code, 0, list.stderr.slice(-2000));
+    const names = listedNames(list.stdout);
+    assert.ok(names.includes('zeta71'), list.stdout);
+    for (const args of [
+      ['-p', '/interfaces zeta72 enable'],
+      ['interfaces', 'zeta72', 'invite'],
+      ['interfaces', 'zeta72'],
+    ]) {
+      const run = await runCli(dirs, args);
+      assert.equal(run.code, 2, `${args.join(' ')}: ${run.stderr.slice(-2000)}`);
+      for (const name of names) assert.ok(run.stderr.includes(name), `${args.join(' ')} lists ${name}: ${run.stderr}`);
+    }
+    for (const line of [
+      '/interfaces invite zeta71',
+      '/interfaces roots zeta71',
+      '/interfaces roots accept zeta71 g7',
+      '/interfaces roots remove zeta71 g7',
+      '/interfaces setup zeta71',
+      '/interfaces disable zeta71',
+      '/interfaces pair open zeta71',
+      '/interfaces zeta71 pair',
+      '/interfaces zeta71 accept g7',
+      '/interfaces zeta71 remove g7',
+    ]) {
+      for (const args of [['-p', line], line.slice(1).split(' ')]) {
+        const run = await runCli(dirs, args);
+        assert.equal(run.code, 2, `${args.join(' ')}: ${run.stderr.slice(-2000)}`);
+      }
+    }
+    assert.equal(zetaEnabled(dirs), true, 'the old disable changed nothing');
+    assert.equal(llm.requests.length, 0, 'no refused line became a turn');
+  });
+});
+
+test('the chat reads the interface before its command and answers a name that is no interface with the list', async () => {
+  // The owner's decision of 2026-11-11. Catches: the chat parsing the family in the old order while the shell takes
+  // the new, or a refused line sent to her as text.
+  await withRig({ config: MARKED }, async ({ dirs, llm, clis, cores }) => {
+    cores.push(await startUnitsCore(dirs, llm, () => T0));
+    const chat = spawnCli(dirs, []);
+    clis.push(chat);
+    await until(() => chat.stdout().trim() !== '', 'the chat header');
+    await settle();
+    assert.equal(chat.stdout().includes('zeta71'), false, 'the header names no unconnected interface');
+    chat.type('/interfaces zeta72 enable');
+    await until(
+      () => chat.stdout().includes('zeta71'),
+      () => `the list of interfaces; stdout:\n${chat.stdout().slice(-2000)}`
+    );
+    chat.type('/interfaces zeta71 disable');
+    await until(() => zetaEnabled(dirs) === false, 'zeta71 disabled from the chat');
+    assert.equal(llm.requests.length, 0, 'no command became a turn');
+  });
+});
+
 // Case 3 of PR D, the status card without a live probe.
 test('-p "/status" answers without asking any model', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {

@@ -194,11 +194,12 @@ test('the report lists every step done and the commands that come next, in the o
     SETUP_STEPS.map((step) => [step, asking.includes(step) ? 'skipped' : 'done'])
   );
   // Changed: every line is one the table accepts once its placeholders are filled (CLI audit 2026-11-09): the token
-  // through the interface's own setting, the core's model as a route.
+  // through the interface's own setting, the core's model as a route. Changed again: the interface comes before its
+  // command, by the owner's decision of 2026-11-11.
   assert.deepEqual(report.next, [
     'keys add <name>',
-    'interfaces set discord token',
-    'interfaces enable discord',
+    'interfaces discord set token',
+    'interfaces discord enable',
     'model set core <name>/<model>',
     // Changed: the account command replaced the enable step.
     'subharness claude login',
