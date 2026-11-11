@@ -90,6 +90,5 @@ test('the invite read answers the link the interface declares, and not-offered w
   });
   const silent = createReads(fakeWith(['chat.info']), log);
   const refused = await silent.answer('inviteLink', { iface: 'fake' });
-  assert.equal(refused.status, 'unsupported');
-  assert.equal(refused.status !== 'ok' && refused.code, 'not-offered');
+  assert.deepEqual(refused, { status: 'unsupported', code: 'not-offered' });
 });

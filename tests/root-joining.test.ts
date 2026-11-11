@@ -208,6 +208,15 @@ test('accept serves a waiting root at once and adds it to the list', () => {
   assert.deepEqual(byId(joining.rows(IFACE)), [['g8', 'served']]);
 });
 
+test('accept writes the root served with an empty list beside the accepted one, so a restart serves both', () => {
+  // Bug: with an empty list the interface serves its only root implicitly; accepting a second wrote the second alone,
+  // so after a restart the first was unlisted and waited.
+  const { joining, listed } = rig({ listed: [], served: ['g1'] });
+  joining.rootChanged(rootEvent('joined', 'g8', 'Delta'));
+  assert.equal(joining.accept(IFACE, 'g8').status, 'ok');
+  assert.deepEqual([...listed].sort(), ['g1', 'g8']);
+});
+
 test('accept refuses a root that is not waiting and changes nothing', () => {
   // Catches: any id typed by mistake becoming a served root of the interface.
   const { joining, routes, listed } = rig();
