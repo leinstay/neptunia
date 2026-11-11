@@ -14,6 +14,8 @@ import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { skillAccess } from '../src/tools/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createReportReader } from '../src/watcher/read.ts';
+import { reportView } from '../src/watcher/report.ts';
+import { templateOf } from './fixtures/watcher-inspection-rig.ts';
 import type { ReportReader } from '../src/watcher/read.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { putReport, reportText, watcherDirs } from './fixtures/watcher-rig.ts';
@@ -108,4 +110,19 @@ test('an ungranted watcher.read is refused like any ungranted tool, and a grant 
   const refused = skillAccess({ skill: { name: 'watcher.read' }, config: closed, selfId: SELF_ID });
   assert.equal(refused.allowed, false);
   assert.equal(skillAccess({ skill: { name: 'watcher.read' }, config: open, selfId: SELF_ID }).allowed, true);
+});
+
+test('watcher.read answers the view of the stored report, in its text and in its data', async () => {
+  // Bug: the tool hands her the stored file, so she reads the coverage JSON and every empty subsection.
+  const dirs = watcherDirs();
+  const stored = templateOf({
+    bodies: { Memory: { 'Observed defects': '- [low] cursor-stalled: the cursor stalled' } },
+  });
+  putReport(dirs, '2026-11-04', stored);
+  const view = reportView(stored);
+  assert.notEqual(view, stored, 'the sample has something for the view to cut');
+  const result = await callOf(createReportReader(dirs.reportsDir), {});
+  assert.equal(result.status, 'ok');
+  assert.equal(result.summary, view);
+  assert.deepEqual(result.data, { day: '2026-11-04', text: view });
 });
