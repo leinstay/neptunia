@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLookupRing } from '../src/turn/calls.ts';
 import type { Lookup } from '../src/turn/calls.ts';
-import { recallBlockOf } from '../src/turn/request/recall-block.ts';
+import { numberedLookups, recallBlockOf } from '../src/turn/request/recall-block.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const NOW = Date.parse('2026-11-07T12:00:00.000Z');
@@ -148,4 +148,49 @@ test('a lookup with one of two sources retired stays in <recall>', () => {
   const both = lookup({ sourceIds: ['src:fake:m50:1:seen', 'src:fake:m51:1:seen'] });
   const text = recallBlockOf([both], { retired: new Set(['src:fake:m50:1:seen']) }, shippedLabels, 'UTC');
   assert.ok(text.includes('ΑΠΟΣΠΑΣΜΑ-ΚΗΠΟΥ'));
+});
+
+/** A read of an earlier turn: two lines numbered #23 and #24 in that turn, and the line that says how to read on. */
+const READ = [
+  'The number before each line is a message number you can use in your calls like any other in the chat.',
+  '#23 [11:09] @uab: ΓΡΑΜΜΗ-ΕΝΑ',
+  '#24 [11:10] @ucd: ΓΡΑΜΜΗ-ΔΥΟ',
+  'To read earlier: before=#23',
+].join('\n');
+const LINES = [
+  { n: 23, id: 'm1', placeId: 'place:garden', message: { sourceId: 'src:fake:m1:1:seen' } },
+  { n: 24, id: 'm2', placeId: 'place:garden', message: { sourceId: 'src:fake:m2:1:seen' } },
+];
+
+test('an extract the journal restored shows no number and no line that offers one', () => {
+  // Bug: a restart refills the ring from the journal without the lines the numbers named, and the extract keeps the
+  // earlier turn's numbers, which name nothing in this turn or another line of its chat.
+  const { lookups, refs } = numberedLookups([lookup({ extract: READ })], {
+    from: 40,
+    live: () => true,
+    labels: shippedLabels,
+  });
+  assert.deepEqual(refs, []);
+  assert.equal(lookups[0]?.extract, '[11:09] @uab: ΓΡΑΜΜΗ-ΕΝΑ\n[11:10] @ucd: ΓΡΑΜΜΗ-ΔΥΟ');
+});
+
+test('a gone first line takes its way to read earlier with it and the next line keeps a fresh number', () => {
+  // Bug: the line that says how to read on keeps a number whose line is gone, so the call it offers is refused.
+  const { lookups, refs } = numberedLookups([lookup({ extract: READ, lines: LINES })], {
+    from: 40,
+    live: (sourceId) => sourceId !== 'src:fake:m1:1:seen',
+    labels: shippedLabels,
+  });
+  assert.deepEqual(
+    refs.map((ref) => [ref.n, ref.id]),
+    [[40, 'm2']]
+  );
+  assert.equal(
+    lookups[0]?.extract,
+    [
+      'The number before each line is a message number you can use in your calls like any other in the chat.',
+      '[11:09] @uab: ΓΡΑΜΜΗ-ΕΝΑ',
+      '#40 [11:10] @ucd: ΓΡΑΜΜΗ-ΔΥΟ',
+    ].join('\n')
+  );
 });
