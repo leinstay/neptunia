@@ -9,6 +9,8 @@ import path from 'node:path';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { claimRun, finishRun, readRun, runStoreOf } from '../src/watcher/lifecycle.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
+import { reportView } from '../src/watcher/report.ts';
+import { readReport } from '../src/watcher/read.ts';
 import { watcherList, watcherOpen, watcherRun, watcherStop, workerStarter } from '../src/watcher/doctor.ts';
 import { MINUTE, NOW, SELF, answerOf, inspectionDeps, inspectionRig, said } from './fixtures/watcher-inspection-rig.ts';
 import type { InspectionRig } from './fixtures/watcher-inspection-rig.ts';
@@ -361,4 +363,22 @@ test('the worker the doctor starts adopts its run, commits the report and maps i
   const [session] = readSessionMap(where.data);
   assert.equal(session?.agent, 'watcher');
   assert.equal(session?.runId, runId);
+});
+
+// ---- the view --------------------------------------------------------------------------------------------------------
+
+test('read and <n> print the stored report as its view: no coverage block, empty sections in one line', async () => {
+  // Bug: the owner is shown the stored file whole, the coverage JSON and forty lines of `none` included.
+  const rig = inspectionRig();
+  await reported(rig, 'MARK-VIEW');
+  const read = readReport(rig.reportsDir);
+  assert.ok(read.ok);
+  const view = reportView(read.report.text);
+  assert.notEqual(view, read.report.text, 'the sample has something for the view to cut');
+  for (const answer of [watcherOpen(where(rig), 'latest'), watcherOpen(where(rig), 1)]) {
+    assert.equal(answer.status, 'ok');
+    assert.ok(answer.text.endsWith(view.trimEnd()) || answer.text.endsWith(view), answer.text.slice(-200));
+    assert.equal(answer.text.includes('```coverage'), false);
+    assert.ok(answer.text.includes('MARK-VIEW'));
+  }
 });
