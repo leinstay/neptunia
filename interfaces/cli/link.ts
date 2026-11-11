@@ -26,7 +26,7 @@ import { UnansweredQuestion, unansweredText } from './questions.ts';
 /** The owner's command line: its client, its namespace and its one chat. */
 export const CLI_CLIENT = 'cli';
 /** What the command line is called, for `hello.names`: one place, the owner's chat, and no kinds of place. */
-const CLI_NAMES = { interface: 'command line', nouns: {}, dm: 'chat' };
+const CLI_NAMES = { interface: 'CLI', nouns: {}, dm: 'chat' };
 
 const CLI_IFACE = 'cli';
 const OWNER_ID = 'owner';
