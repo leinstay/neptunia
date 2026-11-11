@@ -1,7 +1,8 @@
 // The ring of what her earlier turns in a place raised, handed to the graph reader as `Seeds.previous`
 // (src/memory/db/mind-read.ts), so a person or a place named a moment ago stays in mind after its line leaves the
 // reader's window. The request phase notes each reply turn's mind and reads the earlier turns back
-// (src/turn/phases/request/build.ts#framedInputsOf). In process, per place, bounded; a restart starts it empty.
+// (src/turn/phases/request/build.ts#framedInputsOf). In process, per place, bounded; the turn records of the journal
+// keep each turn's seeds, and src/behavior/turn.ts#seedThinks refills the ring from them at start.
 
 import type { EntryRef, Evidence, Mind } from '../memory/db/mind-read.ts';
 

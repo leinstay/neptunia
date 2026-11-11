@@ -609,8 +609,8 @@ export function replyOptionsOf(
  * place it was made in: the turn and the time, the tool and its arguments, the place called from, the status, a bounded
  * extract of the result with the source ids it quotes, and the messages that anchor it to the window. `lines` holds the
  * line each `#n` of the extract named in the turn that read it, so a later request numbers the extract anew
- * (src/turn/request/recall-block.ts#numberedLookups); it lives in process only, and a lookup without it, one the
- * journal restored, shows its extract with no number.
+ * (src/turn/request/recall-block.ts#numberedLookups). The operation's closing line keeps each line's identity
+ * (lineIdentities), so a lookup the journal restored numbers its extract as before the restart.
  */
 export type Lookup = {
   turnId: string;
@@ -624,6 +624,38 @@ export type Lookup = {
   anchorMessageIds: Array<string>;
   lines?: Array<SearchRef>;
 };
+
+/**
+ * `lines` as the journal keeps them: each line's number, message id, place, author, whether it is hers or deleted, and
+ * its stored source as ids, with no text and no message of it.
+ */
+export function lineIdentities(lines: ReadonlyArray<SearchRef>): Array<SearchRef> {
+  return lines.map((ref) => {
+    const stored = ref.stored;
+    const native = stored?.native;
+    return {
+      n: ref.n,
+      id: ref.id,
+      ...(ref.placeId !== undefined ? { placeId: ref.placeId } : {}),
+      ...(ref.authorId !== undefined ? { authorId: ref.authorId } : {}),
+      ...(ref.self !== undefined ? { self: ref.self } : {}),
+      ...(ref.deleted === true ? { deleted: true } : {}),
+      ...(stored
+        ? {
+            stored: {
+              sourceId: stored.sourceId,
+              placeId: stored.placeId,
+              iface: stored.iface,
+              ...(stored.revision !== undefined ? { revision: stored.revision } : {}),
+              ...(native
+                ? { native: { iface: native.iface, chatId: native.chatId, messageId: native.messageId } }
+                : {}),
+            },
+          }
+        : {}),
+    };
+  });
+}
 
 /** The settings a lookup is noted under (`context.recall`). */
 export type LookupSettings = { maxItems: number; extractChars: number };
