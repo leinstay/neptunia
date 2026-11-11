@@ -21,7 +21,8 @@ import type {
 } from '../../memory/db/mind-read.ts';
 import type { PersonAccount } from '../../memory/db/meta-person.ts';
 import type { Frame } from './frame.ts';
-import { block, escapeStored, pathText } from './text.ts';
+import { block, escapeStored, placeRefText } from './text.ts';
+import type { PlaceWords } from './text.ts';
 import type { LabelGroup, Labels, MemoryLabels, MemoryRead, NameOf } from './types.ts';
 
 /** The subtags of `<memory>` and their shares of its budget, in their order. A request prints `found` as a root tag. */
@@ -44,8 +45,6 @@ export type MemoryItem = {
   readonly handleKey?: string | null;
   /** Every account of a person by interface and platform id, where her `@handle` may mention them. */
   readonly accounts?: ReadonlyArray<{ readonly iface: string; readonly native: string }>;
-  /** The chat id a channel handle is given for once it is shown; null for anything else and a DM. */
-  readonly chatId?: string | null;
   /** A place's stored name, for the request's budget to find it in the line she answers; absent for anything else. */
   readonly placeName?: string | null;
   /**
@@ -74,12 +73,13 @@ export type FrameView = Pick<Frame, 'interface' | 'timezone' | 'counterpart'>;
 
 /**
  * How an entry names what its stored texts point at: a `<@id>` mention by the handle of the person it names
- * (`authors.unknown` for an account no row holds), and a place id by its handle and path (`places.ref`).
+ * (`authors.unknown` for an account no row holds), and a place id as the request names a place: its handle and the place in words (`places.ref`).
  */
 export type EntryRefs = {
   mention: (native: string) => string;
-  place: (placeId: string) => string;
-  /** The handle a one-to-one chat's path ends in, `@` included, instead of the partner's platform id. */
+  /** `fallback` names the place when the request holds no stored view of it (a place read from the mind alone). */
+  place: (placeId: string, fallback?: PlaceWords) => string;
+  /** The handle a one-to-one chat's partner goes by, `@` included. */
   partnerOf: (placeId: string) => string;
   /** What the handle of the person she answers is cut from, the key of the account she answers; null: the frame's ids. */
   counterpartKey?: string | null;
@@ -100,7 +100,8 @@ function plainRefs(labels: Labels, nameOf: NameOf): EntryRefs {
   const unknown = labels.authors?.unknown ?? '';
   return {
     mention: () => unknown,
-    place: (id) => escapeStored(nameOf(id) ?? labels.spatial?.unnamed ?? ''),
+    place: (id, fallback) =>
+      fallback ? placeRefText(labels, null, fallback) : escapeStored(nameOf(id) ?? labels.spatial?.unnamed ?? ''),
     partnerOf: () => unknown,
   };
 }
@@ -115,10 +116,10 @@ function valueLine(w: Words, template: string | undefined, value: string | null 
   return fill(template, { value: storedText(w, value.trim()) });
 }
 
-/** The heading of an entry: its name and why it is here. */
-function heading(w: Words, name: string, origin: string, candidate: boolean): string {
+/** The heading of an entry: its name (escaped here, unless `escaped` says it already is) and why it is here. */
+function heading(w: Words, name: string, origin: string, candidate: boolean, escaped = false): string {
   const why = [origin, candidate ? (w.l.candidate ?? '') : ''].filter(Boolean).join('; ');
-  return fill(w.l.entry ?? '{name} ({origin})', { name: escapeStored(name), origin: why });
+  return fill(w.l.entry ?? '{name} ({origin})', { name: escaped ? name : escapeStored(name), origin: why });
 }
 
 /** The platform ids of a person's stored accounts on the frame's interface. */
@@ -207,10 +208,19 @@ function personText(w: Words, person: PersonEntry, counterpart: boolean, live: s
   return lines.filter(Boolean).join('\n');
 }
 
+/** An entry's place from the names the graph reader holds of it, for a request with no stored view of the place. */
+function wordsOfEntry(w: Words, place: PlaceEntry): PlaceWords {
+  const iface = place.path[0] ?? '';
+  if (place.kind === 'dm')
+    return { iface, chain: [{ id: place.placeId, kind: 'dm', name: null }], partner: w.refs.partnerOf(place.placeId) };
+  const names = place.path.slice(1).reverse();
+  return { iface, chain: names.map((name, at) => ({ id: `${place.placeId}:${at}`, kind: null, name })) };
+}
+
 function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string {
-  // A one-to-one chat's path ends in its partner's handle, never in the partner's platform id.
-  const path = place.kind === 'dm' ? [...place.path.slice(0, -1), w.refs.partnerOf(place.placeId)] : place.path;
-  const lines = [heading(w, pathText(path, w.l.pathJoin), w.origin[place.evidence] ?? '', place.candidate)];
+  // The place as every block of the request names it: in words, with its handle.
+  const ref = w.refs.place(place.placeId, wordsOfEntry(w, place));
+  const lines = [heading(w, ref, w.origin[place.evidence] ?? '', place.candidate, true)];
   // A place her selfreflection is mirrored to is marked at every detail, so she knows it as hers wherever it shows.
   if (selfreflection) lines.push(w.l.selfreflection ?? '');
   if (place.detail !== 'name') {
@@ -405,8 +415,8 @@ export function memoryItemsOf(
   chatIdOf: ChatIdOf = () => null,
   refs: EntryRefs | null = null
 ): Array<MemoryItem> {
-  const chatOf = (place: PlaceEntry): string | null => (place.kind === 'dm' ? null : chatIdOf(place.placeId));
-  const mine = (place: PlaceEntry): boolean => selfreflectionIds.has(chatOf(place) ?? '');
+  const mine = (place: PlaceEntry): boolean =>
+    selfreflectionIds.has(place.kind === 'dm' ? '' : (chatIdOf(place.placeId) ?? ''));
   const w = wordsOf(labels, frame, nameOf, refs);
   const plain = (subtag: MemorySubtag, text: string, reads: Array<MemoryRead>): MemoryItem => ({
     subtag,
@@ -425,7 +435,6 @@ export function memoryItemsOf(
     ...mind.places.map((place) => ({
       ...plain('places', placeText(w, place, mine(place)), readsOf(place)),
       printKey: ['place', place.placeId],
-      chatId: chatOf(place),
       placeName: place.name,
       ...(place.keep === true ? { keep: true } : {}),
       lower: below(place.detail).map((detail) => placeText(w, { ...place, detail }, mine(place))),

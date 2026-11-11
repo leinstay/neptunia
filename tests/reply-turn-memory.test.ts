@@ -508,7 +508,8 @@ test('<places> reads the same before and after she writes one more line in a pla
       ],
     });
     const before = subtagOf(first[0], 'places');
-    assert.ok(/γενικά \(/.test(before) && /κήπος \(/.test(before), before);
+    // The owner's decision of 2026-11-11: a place reads as the interface's noun and its name in quotes.
+    assert.ok(before.includes('"γενικά"') && before.includes('"κήπος"'), before);
     assert.equal(subtagOf(second[0], 'places'), before);
   } finally {
     world.close();

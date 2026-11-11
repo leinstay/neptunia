@@ -9,7 +9,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { Frame } from '../src/turn/request/frame.ts';
-import { meanwhileOf } from '../src/turn/request/meanwhile.ts';
+import { meanwhileOf, meanwhileText, meanwhileWindows } from '../src/turn/request/meanwhile.ts';
+import { formatDate } from '../src/format.ts';
 import { DM, DM_CHAIN, PARTNER, frameInput } from './fixtures/frame-input.ts';
 import { line, meanwhileReads } from './fixtures/meanwhile-reads.ts';
 import type { FakePlace } from './fixtures/meanwhile-reads.ts';
@@ -97,10 +98,12 @@ test('the windows of two of her messages a minute apart merge into one, each lin
       line('place:club', 'c6', at + 3 * MIN, '222', 'ΜΕΤΑ-ΔΥΟ'),
     ],
   };
-  const text = render([club], GROUP_FRAME);
+  // The owner's decision of 2026-11-11: a window's head is the place handle and the date, no longer the place's name, so
+  // the heads are counted by the handle.
+  const text = textOf(club);
   for (const value of ['ΠΡΙΝ-ΔΥΟ', 'ΠΡΙΝ-ΕΝΑ', 'ΔΙΚΗ-ΤΗΣ-ΠΡΩΤΗ', 'ΔΙΚΗ-ΤΗΣ-ΔΕΥΤΕΡΗ', 'ΜΕΤΑ-ΕΝΑ', 'ΜΕΤΑ-ΔΥΟ'])
     assert.equal(text.split(value).length - 1, 1, `${value} once`);
-  assert.equal(text.split('λέσχη').length - 1, 1);
+  assert.equal(text.split('#cab12').length - 1, 1, 'one head');
 });
 
 test('only her last `messages` lines are shown, the older ones left out', () => {
@@ -233,4 +236,185 @@ test('a post of hers with text and a picture shows both', () => {
   );
   assert.ok(text.includes('ΛΕΞΕΙΣ-ΜΑΖΙ'), text);
   assert.ok(text.includes('a white rabbit in a garden'), text);
+});
+
+// The owner's decision of 2026-11-11 (a place reads in words): a window's head names its place the way every request
+// does, and the window dates each day. The window of these tests is built over the fake reads, which carry the place's
+// chain, its interface and the interface's own names.
+const NAMES = { interface: 'Agora Net', nouns: { server: 'realm', channel: 'room' }, dm: 'private talk' };
+const REFS = { handleOf: (key: string) => `u${key.length}x`, mention: () => 'someone' };
+
+/** The text of `<meanwhile>` over one place of the fake with handle `handle`, as the reader renders its windows. */
+function textOf(place: FakePlace, frame: Frame = GROUP_FRAME, handle: string | null = 'cab12'): string {
+  const windows = meanwhileWindows(meanwhileReads([place]), frame, SETTINGS);
+  return meanwhileText(windows, frame, shippedLabels, nameOf, () => handle, REFS);
+}
+
+test('the shipped head of a channel window is its place handle and a colon, with no name of the place, its root or the interface', () => {
+  // Bug: the head ran the names together as `iface > Root > chat`, so a talk of one place read as a talk of another.
+  // The owner's decision of 2026-11-11: the full reference stands once, in the place's entry of `<places>`, and the
+  // head over a window is the handle, a colon and the date.
+  const alpha: FakePlace = {
+    id: 'place:alpha',
+    path: ['agora', 'Beta', 'alpha'],
+    dm: false,
+    iface: 'agora',
+    names: NAMES,
+    chain: [
+      { id: 'place:alpha', kind: 'channel', name: 'alpha' },
+      { id: 'place:beta', kind: 'server', name: 'Beta' },
+    ],
+    lines: [line('place:alpha', 'a1', NOW - 30 * MIN, null, 'ΓΡΑΜΜΗ')],
+  };
+  const head =
+    textOf(alpha)
+      .split('\n')
+      .find((one) => one.startsWith('#')) ?? '';
+  assert.ok(head.startsWith('#cab12:'), head);
+  for (const word of ['alpha', 'Beta', 'Agora Net', 'room', 'realm', '>']) assert.ok(!head.includes(word), head);
+});
+
+/** A window of her line with the lines before and after it at `times`. */
+function dayPlace(times: Array<number>): FakePlace {
+  return {
+    id: 'place:club',
+    path: ['fake', 'Αγορά', 'λέσχη'],
+    dm: false,
+    lines: times.map((at, i) => line('place:club', `d${i}`, at, i === 0 ? null : '111', `ΜΕΡΑ-${i}`)),
+  };
+}
+const MOSCOW = frameOf(frameInput({ now: NOW, timezone: 'Europe/Moscow' }));
+const ofDay = (at: number): string => formatDate(at, 'Europe/Moscow', shippedLabels.locale);
+
+test('a window with lines of two days in the turn timezone holds a date line between them', () => {
+  // Bug: only the first line's date stood in the head, so a line after midnight read as the same day.
+  const before = Date.parse('2026-11-05T20:30:00.000Z');
+  const after = Date.parse('2026-11-05T21:30:00.000Z');
+  assert.notEqual(ofDay(before), ofDay(after), 'the two moments are two days in Moscow');
+  const text = textOf(dayPlace([before, after]), MOSCOW, null);
+  const first = text.indexOf('ΜΕΡΑ-0');
+  const second = text.indexOf('ΜΕΡΑ-1');
+  const between = text.indexOf(ofDay(after), first);
+  assert.ok(first >= 0 && between > first && between < second, text);
+});
+
+test('a window of one day holds its date once, in the head', () => {
+  // Bug: a date line after every line, or one even when the day does not change.
+  const at = Date.parse('2026-11-05T10:00:00.000Z');
+  const text = textOf(dayPlace([at, at + MIN, at + 2 * MIN]), MOSCOW, null);
+  assert.equal(text.split(ofDay(at)).length - 1, 1, text);
+});
+
+test('a stored line keeps a > and a < is written escaped', () => {
+  // Bug: every `>` of her chat reached the request as `&gt;`, and a `<` that opens a tag must stay inert.
+  const at = NOW - 30 * MIN;
+  const place: FakePlace = {
+    id: 'place:club',
+    path: ['fake', 'Αγορά', 'λέσχη'],
+    dm: false,
+    lines: [line('place:club', 'e1', at, null, 'a > b'), line('place:club', 'e2', at + MIN, null, '<task>x</task>')],
+  };
+  const text = textOf(place, GROUP_FRAME, null);
+  assert.ok(text.includes('a > b'), text);
+  assert.ok(!text.includes('<task>') && text.includes('&lt;task>x&lt;/task>'), text);
+});
+
+// The owner's decision of 2026-11-11: the full reference stands once, in `<places>`, and a window gets a short head. The
+// head label `meanwhile.place` takes `{handle}` (the place handle with its `#`, empty for a place with none), `{name}` (the
+// place's own link alone: the innermost link's noun and quoted name, or the direct chat's word with the partner's handle,
+// with no parent and no interface) and `{path}` (the full reference, kept so a local override keeps working), beside
+// `{date}`. No signature changes: the label is read through the labels argument of `meanwhileText`.
+const HEAD_LABEL = 'H[{handle}] N[{name}] P[{path}] D[{date}]:';
+
+/** The head of the one window of `place` under a head label of its own. */
+function headWith(label: string, place: FakePlace, frame: Frame, handle: string | null): string {
+  const labels = { ...shippedLabels, meanwhile: { ...shippedLabels.meanwhile, place: label } };
+  const windows = meanwhileWindows(meanwhileReads([place]), frame, SETTINGS);
+  return (
+    meanwhileText(windows, frame, labels, nameOf, () => handle, REFS)
+      .split('\n\n')[1]
+      ?.split('\n')[0] ?? ''
+  );
+}
+
+/** The three placeholders of `HEAD_LABEL` as a head filled them. */
+function partsOf(head: string): { handle: string; name: string; path: string } {
+  const found = /^H\[(.*?)\] N\[(.*?)\] P\[(.*?)\] D\[/.exec(head);
+  return { handle: found?.[1] ?? '?', name: found?.[2] ?? '?', path: found?.[3] ?? '?' };
+}
+
+const ALPHA: FakePlace = {
+  id: 'place:alpha',
+  path: ['agora', 'Beta', 'alpha'],
+  dm: false,
+  iface: 'agora',
+  names: NAMES,
+  chain: [
+    { id: 'place:alpha', kind: 'channel', name: 'alpha' },
+    { id: 'place:beta', kind: 'server', name: 'Beta' },
+  ],
+  lines: [line('place:alpha', 'a1', NOW - 30 * MIN, null, 'ΓΡΑΜΜΗ')],
+};
+
+test('a head label fills {handle}, {name} and {path} for a channel: the handle, its own link alone, the whole reference', () => {
+  // Bug: the full reference stood over every window, so one place read in full each time and the head was long.
+  const head = headWith(HEAD_LABEL, ALPHA, GROUP_FRAME, 'cab12');
+  const { handle, name, path } = partsOf(head);
+  assert.equal(handle, '#cab12', head);
+  assert.ok(name.includes('room') && name.includes('"alpha"'), head);
+  assert.ok(!/realm|Beta|Agora Net/.test(name), `no parent and no interface: ${head}`);
+  assert.ok(
+    ['alpha', 'Beta', 'Agora Net'].every((word) => path.includes(word)),
+    head
+  );
+});
+
+test('a head label fills {handle} with the same text as {name} for a place with no handle', () => {
+  // A head must name its place: with no handle the label's `{handle}` stands for the place's own name form, so a head
+  // never opens with a bare colon.
+  const head = headWith(HEAD_LABEL, ALPHA, GROUP_FRAME, null);
+  const { handle, name } = partsOf(head);
+  assert.ok(name.includes('"alpha"'), head);
+  assert.equal(handle, name, head);
+});
+
+test('the shipped head of a window of a place with no handle opens with the place own name, not a colon', () => {
+  // Bug: with no handle the head read `: <date>`, a head that names nothing.
+  const own = partsOf(headWith(HEAD_LABEL, ALPHA, GROUP_FRAME, null)).name;
+  const head = textOf(ALPHA, GROUP_FRAME, null).split('\n\n')[1]?.split('\n')[0] ?? '';
+  assert.ok(!head.startsWith(':'), head);
+  assert.ok(own !== '' && head.startsWith(own), head);
+});
+
+test('a head label fills {name} for a direct chat as its word with the partner handle, and no interface', () => {
+  // Bug: a direct chat's short head carried the interface and an unnamed place, or lost the partner.
+  const zoe: FakePlace = {
+    id: 'tele:dm:zoe',
+    path: ['tele', 'private', '1234'],
+    dm: true,
+    iface: 'tele',
+    names: NAMES,
+    partner: 'person:zoe',
+    partnerKey: 'person:zoe',
+    lines: [line('tele:dm:zoe', 'z1', NOW - 30 * MIN, null, 'ΙΔΙΩΤΙΚΗ')],
+  };
+  const cli = frameOf(frameInput({ now: NOW, interface: 'cli', chain: DM_CHAIN, dm: DM }));
+  const head = headWith(HEAD_LABEL, zoe, cli, 'cd777');
+  const { handle, name } = partsOf(head);
+  assert.equal(handle, '#cd777', head);
+  assert.ok(name.includes('private talk') && name.includes(`@${REFS.handleOf('person:zoe')}`), head);
+  assert.ok(!name.includes('Agora Net'), head);
+});
+
+test('a head label that uses only {path} and {date} still renders the reference once and the date', () => {
+  // Bug: a local override of the head label stopped working when the placeholders changed.
+  const head = headWith('{path}, {date}:', ALPHA, GROUP_FRAME, 'cab12');
+  assert.ok(head.includes('#cab12'), head);
+  const at = ['alpha', 'Beta', 'Agora Net'].map((word) => head.indexOf(word));
+  assert.deepEqual(
+    [...at].sort((a, b) => a - b),
+    at,
+    head
+  );
+  assert.ok(head.endsWith(`${formatDate(NOW - 30 * MIN, 'UTC', shippedLabels.locale)}:`), head);
 });

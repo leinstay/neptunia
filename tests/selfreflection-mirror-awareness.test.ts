@@ -16,7 +16,8 @@ import { labels } from './fixtures/labels.ts';
 function placeEntryOf(request: unknown, name: string): string {
   const user = (request as Array<{ content: unknown }>)[1]?.content;
   const places = /<places>\n([\s\S]*?)\n<\/places>/.exec(userText(user))?.[1] ?? '';
-  const entry = places.split('\n\n').find((one) => new RegExp(`&gt; ${name} \\(`).test(one.split('\n')[0] ?? ''));
+  // The owner's decision of 2026-11-11 (a place reads in words): the entry's heading holds the name in quotes, no `>`.
+  const entry = places.split('\n\n').find((one) => (one.split('\n')[0] ?? '').includes(`"${name}"`));
   assert.ok(entry, `<memory> shows ${name}`);
   return entry;
 }

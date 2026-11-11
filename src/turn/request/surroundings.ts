@@ -1,12 +1,12 @@
 // The body of `<surroundings>`: what is stable for the turn's place, cached with the persona (docs/prompt-contract.md).
 // `<interface>` is the interface's own text, `<root>` the top place with its stored fields, `<place>` the place she is in
-// by its path with its stored fields. It never says where she is: `<spatial_awareness>` does, by the same path. The
+// in words with its stored fields. It never says where she is: `<spatial_awareness>` does. The
 // request builder (src/turn/request/reader.ts) calls it. Pure.
 
 import { fill, mentionsNamed } from '../../format.ts';
-import { pathShown } from './frame.ts';
+import type { InterfaceNames } from '../../protocol/serve.ts';
 import type { Frame, FramePlace } from './frame.ts';
-import { block, escapeStored, pathText } from './text.ts';
+import { block, escapeStored, placeRefText } from './text.ts';
 import type { Labels } from './types.ts';
 
 /** The stored fields of a place by name: `purpose`, `tone`, `topics`, and a root's `patterns`, `starters` and the rest. */
@@ -37,24 +37,37 @@ function fieldLines(fields: PlaceFields | null, labels: Labels, refs: FieldRefs 
     );
 }
 
-/** A place's body: its path as a request shows it (pathShown, a one-to-one chat's ending in `partner`), then its fields. */
+/**
+ * A place's body: the place in words from the frame's chain (a one-to-one chat as the interface's word for it with
+ * `partner`), with `handle` when given (the root has none), then its fields.
+ */
 function placeBody(
   frame: Frame,
   place: FramePlace,
   fields: PlaceFields | null,
   labels: Labels,
   partner: string | null,
-  refs: FieldRefs | null
+  refs: FieldRefs | null,
+  names: InterfaceNames | undefined,
+  handle: string | null
 ): string {
-  const path = pathShown(frame, place, labels.spatial?.unnamed ?? '', partner);
-  return [pathText(path, labels.memory?.pathJoin), ...fieldLines(fields, labels, refs)].join('\n');
+  const at = frame.chain.findIndex((link) => link.id === place.id);
+  const chain = at < 0 ? [{ id: place.id, kind: place.kind, name: place.name }] : frame.chain.slice(at);
+  const ref = placeRefText(labels, handle, {
+    iface: frame.interface,
+    chain,
+    ...(names === undefined ? {} : { names }),
+    partner,
+  });
+  return [ref, ...fieldLines(fields, labels, refs)].join('\n');
 }
 
 /**
  * `<interface>`, `<root>` and `<place>` of `frame`. `interfaceText` is what the interface declares (its mention, link and
  * reaction forms and its nouns, already worded); `rootPlace` and `place` are the stored fields of the frame's root and
- * place, `partner` the handle (with `@`) a one-to-one chat's path ends in, `refs` how a mention in a field reads. A one-to-one chat and the command line have
- * no root. '' for a turn that is nowhere.
+ * place, `partner` the handle (with `@`) of a one-to-one chat's partner, `refs` how a mention in a field reads and `names`
+ * what the interface declared (its name, its nouns and its word for a direct chat) and `handle` the place's own handle without `#` (`<place>` only). A one-to-one chat and the command
+ * line have no root. '' for a turn that is nowhere.
  */
 export function surroundingsOf(
   frame: Frame,
@@ -63,14 +76,16 @@ export function surroundingsOf(
   place: PlaceFields | null,
   labels: Labels,
   partner: string | null = null,
-  refs: FieldRefs | null = null
+  refs: FieldRefs | null = null,
+  names?: InterfaceNames,
+  handle: string | null = null
 ): string {
   if (frame.place === null) return '';
   const root = frame.root !== null && frame.root.id !== frame.place.id ? frame.root : null;
   return [
     block('interface', interfaceText.trim()),
-    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels, null, refs)),
-    block('place', placeBody(frame, frame.place, place, labels, partner, refs)),
+    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels, null, refs, names, null)),
+    block('place', placeBody(frame, frame.place, place, labels, partner, refs, names, handle)),
   ]
     .filter(Boolean)
     .join('\n');

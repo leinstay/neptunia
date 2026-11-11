@@ -8,7 +8,7 @@
 
 import { fill, formatClock } from '../../format.ts';
 import type { Lookup, SearchRef } from '../calls.ts';
-import { escapeStored, pathText } from './text.ts';
+import { escapeStored } from './text.ts';
 import type { Labels } from './types.ts';
 
 /** The arguments that name what a lookup searched for, in the order they are read. */
@@ -38,8 +38,16 @@ function queryOf(args: Record<string, unknown>): string {
 const allRetired = (lookup: Lookup, retired: ReadonlySet<string>): boolean =>
   lookup.sourceIds.length > 0 && lookup.sourceIds.every((id) => retired.has(id));
 
-/** How a request names a place id she searched: its handle and path (`places.ref`). */
+/** How a request names a stored place id: its handle and the place in words (`places.ref`). */
 export type PlaceRefOf = (placeId: string) => string;
+
+/** The names of a kept path innermost first, the interface left out, for a lookup read with no way to name a stored place. */
+const namesOf = (path: ReadonlyArray<string>, labels: Labels): string =>
+  path
+    .slice(1)
+    .reverse()
+    .map(escapeStored)
+    .join(labels.places?.join ?? ', ');
 
 /** One lookup in the labels' words. */
 function lookupText(lookup: Lookup, labels: Labels, timezone: string, placeRef: PlaceRefOf | null): string {
@@ -48,7 +56,7 @@ function lookupText(lookup: Lookup, labels: Labels, timezone: string, placeRef: 
   const searched = place === null ? '' : placeRef === null ? escapeStored(place) : placeRef(place);
   const head = fill(l.item ?? '', {
     time: formatClock(lookup.at, timezone, labels.locale),
-    from: pathText(lookup.place.path, labels.memory?.pathJoin),
+    from: placeRef === null ? namesOf(lookup.place.path, labels) : placeRef(lookup.place.id),
     tool: escapeStored(lookup.tool),
     searched: place === null ? '' : fill(l.searched ?? '', { place: searched }),
     query: escapeStored(queryOf(lookup.args)),

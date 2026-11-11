@@ -448,6 +448,16 @@ export const labels = {
     server: 'SPATIAL-SERVER AT {when}',
     world: 'SPATIAL-WORLD AT {when}',
   },
+  // The frame of a place reference (docs/prompt-contract.md): the nouns and the interface's name come from its hello.
+  places: {
+    ref: '#{handle}: {name}',
+    refUnhandled: '{name}',
+    link: '{noun} "{name}"',
+    linkPlain: '"{name}"',
+    join: ', ',
+    iface: 'interface "{name}"',
+    dm: '{noun} with {name}',
+  },
   journal: {
     offLead: 'Your recent time away:',
     offPaused: 'Paused by the owner from {from} to {to} ({length}).',

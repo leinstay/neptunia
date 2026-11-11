@@ -7,9 +7,17 @@
       "lineAccount": "{handle} ({iface} {id})",
       "unknown": "someone"
     },
+    "people": {
+      "ref": "@{handle}: {name}"
+    },
     "places": {
-      "ref": "#{handle} {name}",
-      "refUnhandled": "{name}"
+      "ref": "#{handle}: {name}",
+      "refUnhandled": "{name}",
+      "link": "{noun} \"{name}\"",
+      "linkPlain": "\"{name}\"",
+      "join": ", ",
+      "iface": "interface \"{name}\"",
+      "dm": "{noun} with {name}"
     },
     "units": {
       "lessThanMinute": "less than a minute",
@@ -372,8 +380,7 @@
       "excerpt": "{date}, {path}: \"{text}\"",
       "fact": "stored fact ({state}): \"{text}\"",
       "selfreflection": "Your diary entries are published here, and you write nothing here yourself.",
-      "leftOut": "({count} more not shown)",
-      "pathJoin": " > "
+      "leftOut": "({count} more not shown)"
     },
     "limits": {
       "notice": "...but nobody came ({limit}, {used}/{cap})",
@@ -949,7 +956,7 @@
     },
     "meanwhile": {
       "header": "Your own recent messages in other places, each with a few lines around it. They are not lines of this chat. When someone refers to something in one of these places, read that place further with a tool before you answer.",
-      "place": "{path}, {date}:",
+      "place": "{handle}: {date}",
       "line": "[{time}] {author}: {text}",
       "you": "you"
     },

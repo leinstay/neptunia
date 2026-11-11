@@ -16,12 +16,13 @@ import type { Lookup } from '../src/turn/calls.ts';
 import type { Mind, PersonEntry } from '../src/memory/db/mind-read.ts';
 import { buildRequest } from './fixtures/built-request.ts';
 import type { Built } from './fixtures/built-request.ts';
-import { ROOM_CHAIN, frameInput } from './fixtures/frame-input.ts';
+import { DM, DM_CHAIN, PARTNER, ROOM_CHAIN, frameInput } from './fixtures/frame-input.ts';
 import { line, meanwhileReads } from './fixtures/meanwhile-reads.ts';
 import type { FakePlace } from './fixtures/meanwhile-reads.ts';
 import { claimEntry, excerptEntry, mindOfEntries, personEntry, placeEntry } from './fixtures/mind-entries.ts';
 import { MIN, NOW, baseInput, exactly, fakeConfig, fakePrompts, makeMessage } from './fixtures/prompt-rig.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
+import { handleOf } from '../src/behavior/handles.ts';
 
 const TIMEZONE = 'Europe/Moscow';
 const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart', relation: 'ΣΧΕΣΗ-ΕΛΕΝΗΣ' });
@@ -407,4 +408,254 @@ test('a place she wrote in keeps a line saying so, and a place she never wrote i
     return (/<places>\n([\s\S]*?)\n<\/places>/.exec(memory)?.[1] ?? '').split('\n').length;
   };
   assert.equal(lines(6), lines(0) + 1);
+});
+
+// The owner's decision of 2026-11-11 (a place reads in words, every chat has a handle). A place a request names carries
+// its interface's id, its chain innermost first and the names its interface declared in its hello.
+const NAMES = { interface: 'Agora Net', nouns: { server: 'realm', channel: 'room' }, dm: 'direct talk' };
+
+/** The stored view of a place, as `placePathOf` gives it. */
+const viewOf = (iface: string, chain: PlaceChain, dm = false, partnerKey: string | null = null) => ({
+  path: [iface, ...chain.map((one) => one.name ?? '').reverse()],
+  iface,
+  chain,
+  names: NAMES,
+  dm,
+  partnerKey,
+});
+type PlaceChain = Array<{ id: string; kind: string; name: string | null }>;
+
+const CLUB_CHAIN: PlaceChain = [
+  { id: 'place:club', kind: 'channel', name: 'λέσχη' },
+  { id: 'place:root', kind: 'server', name: 'Αγορά' },
+];
+const ROOM_PLACE: PlaceChain = [
+  { id: 'place:room', kind: 'channel', name: 'γενικά' },
+  { id: 'place:root', kind: 'server', name: 'Αγορά' },
+];
+const CHATS: Record<string, string> = { 'place:club': 'c-club', 'place:room': 'c-room' };
+
+/** The line of a window head: the first of the windows of `<meanwhile>` that starts with a handle. */
+const headLine = (built: Built): string =>
+  block(built, 'meanwhile')
+    .split('\n')
+    .find((one) => one.startsWith('#')) ?? '';
+
+/**
+ * The owner's decision of 2026-11-11 (a handle and a colon open every entry, the full reference stands once, in the
+ * place's entry of `<places>`): a window's head is its place handle, a colon and the date, with none of the place's names.
+ */
+function assertShortHead(head: string, handle: string, names: ReadonlyArray<string>): void {
+  assert.ok(head.startsWith(`#${handle}:`), head);
+  for (const name of names) assert.ok(!head.includes(name), `${name} stands in ${head}`);
+}
+
+/** The frame of a direct chat with `partner` on `fake`. */
+const dmFrame = (partner: FrameParty) =>
+  frameOf(
+    frameInput({
+      now: NOW,
+      timezone: TIMEZONE,
+      chain: DM_CHAIN,
+      dm: { ...DM, partner },
+      author: partner,
+      trigger: { messageId: 'm1', authorId: partner.nativeId },
+    })
+  );
+
+test('the window of a direct chat of the same person is headed by its place handle and a colon', () => {
+  // Bug: a direct chat had no place handle, so a tool could not take it, and its head read `private` and a platform id.
+  const zoe: FakePlace = {
+    id: 'tele:dm:zoe',
+    path: ['tele', 'private', '1234'],
+    dm: true,
+    iface: 'tele',
+    names: NAMES,
+    partner: PARTNER.personId,
+    partnerKey: PARTNER.personId,
+    lines: [line('tele:dm:zoe', 'z1', NOW - 30 * MIN, null, 'ΙΔΙΩΤΙΚΗ')],
+  };
+  const built = request({
+    frame: dmFrame(PARTNER),
+    mind: mindOfEntries({}),
+    history: [makeMessage('m1', NOW - MIN, { authorId: '1234', authorName: 'Zoé', content: 'γεια' })],
+    meanwhileReads: meanwhileReads([zoe]),
+    lookups: [],
+    chatIdOf: (placeId: string) => (placeId === 'tele:dm:zoe' ? 'd-zoe' : null),
+  });
+  const handle = [...(built.channelHandles ?? [])].find(([, chat]) => chat === 'd-zoe')?.[0];
+  assert.ok(handle, 'the direct chat has a place handle');
+  const head = headLine(built);
+  // The owner's decision of 2026-11-11: the head is the handle and a colon, then the date. The partner and the interface
+  // stand in the place's entry, not over the window.
+  assertShortHead(head, handle, [`@${handleOf(PARTNER.personId)}`, 'Agora Net']);
+  assert.doesNotMatch(head, /private|1234|>/);
+});
+
+test("the window of the command line's chat is headed by a place handle", () => {
+  // Bug: the owner's command line chat had no place handle, so she could name every place but the one he talks in.
+  const owner: FrameParty = { personId: 'person:owner', accountId: 'fake:777', nativeId: '777', name: 'Orestis' };
+  const cli: FakePlace = {
+    id: 'cli:dm:owner',
+    path: ['cli', 'private', 'owner'],
+    dm: true,
+    iface: 'cli',
+    names: { interface: 'Command line', nouns: {}, dm: 'terminal chat' },
+    partner: owner.personId,
+    partnerKey: owner.personId,
+    lines: [line('cli:dm:owner', 'o1', NOW - 30 * MIN, null, 'ΤΕΡΜΑΤΙΚΟ')],
+  };
+  const built = request({
+    frame: dmFrame(owner),
+    mind: mindOfEntries({}),
+    history: [makeMessage('m1', NOW - MIN, { authorId: '777', authorName: 'Orestis', content: 'γεια' })],
+    meanwhileReads: meanwhileReads([cli]),
+    lookups: [],
+    chatIdOf: (placeId: string) => (placeId === 'cli:dm:owner' ? 'owner' : null),
+  });
+  const handle = [...(built.channelHandles ?? [])].find(([, chat]) => chat === 'owner')?.[0];
+  assert.ok(handle, 'the command line chat has a place handle');
+  assert.ok(headLine(built).startsWith(`#${handle}`), headLine(built));
+});
+
+test('an entry of <places> and a place of <recall> use one full reference, and the window head over the same place is its handle and a colon', () => {
+  // Bug: each block built its own text for a place, so one place read several ways and a talk of it was not recognised.
+  // The owner's decision of 2026-11-11: the full reference stands once, in the entry; a window head is the handle alone.
+  const club = viewOf('fake', CLUB_CHAIN);
+  const lookup: Lookup = { ...LOOKUP, args: { query: 'ΕΡΩΤΗΜΑ', place: 'place:club' } };
+  const built = request({
+    chatIdOf: (placeId: string) => CHATS[placeId] ?? null,
+    placePathOf: (placeId: string) =>
+      placeId === 'place:club' ? club : placeId === 'place:room' ? viewOf('fake', ROOM_PLACE) : null,
+    lookups: [lookup],
+    meanwhileReads: meanwhileReads([{ ...CLUB_LINES, iface: 'fake', chain: CLUB_CHAIN, names: NAMES }]),
+  });
+  const handle = [...(built.channelHandles ?? [])].find(([, chat]) => chat === 'c-club')?.[0];
+  assert.ok(handle, 'the club has a place handle');
+  const places = /<places>\n([\s\S]*?)\n<\/places>/.exec(userOf(built))?.[1] ?? '';
+  // A reference runs from its handle to the interface's name.
+  const refIn = (text: string): string => {
+    const from = text.indexOf(`#${handle}`);
+    return from < 0 ? '' : text.slice(from, text.indexOf('Agora Net', from) + 'Agora Net'.length);
+  };
+  const one = refIn(places);
+  assertShortHead(headLine(built), handle, ['λέσχη', 'Αγορά', 'Agora Net']);
+  assert.ok(one.includes('λέσχη') && one.includes('Αγορά') && one.indexOf('λέσχη') < one.indexOf('Αγορά'), one);
+  assert.equal(refIn(block(built, 'recall')), one, 'the place of <recall>');
+});
+
+test('<recall> names the place a lookup was made in in words, with no >', () => {
+  // Bug: the `from` of a lookup was the path of names joined with `>`.
+  const built = request({
+    chatIdOf: (placeId: string) => CHATS[placeId] ?? null,
+    placePathOf: (placeId: string) => (placeId === 'place:room' ? viewOf('fake', ROOM_PLACE) : null),
+  });
+  const recall = block(built, 'recall');
+  assert.ok(recall.includes('γενικά'), recall);
+  assert.doesNotMatch(recall, />/);
+});
+
+// The owner's rule of 2026-11-11 (one form everywhere): the place she is in reads in `<place>` of `<surroundings>`, in its
+// entry of `<places>` and, from another place, in a window head, with the same reference.
+/** The reference in `text`: from the handle of chat `chat` to the end of the interface's name. */
+function refOf(built: Built, text: string, chat: string): string {
+  const handle = [...(built.channelHandles ?? [])].find(([, id]) => id === chat)?.[0] ?? '';
+  const from = handle === '' ? -1 : text.indexOf(`#${handle}`);
+  return from < 0 ? '' : text.slice(from, text.indexOf('Agora Net', from) + 'Agora Net'.length);
+}
+
+test('<place> and the entry in <places> give a room one reference, and a window head elsewhere is its handle and a colon', () => {
+  // Bug: the place she is in was named without its handle in <place>, so the same room read two ways.
+  const room = viewOf('fake', ROOM_PLACE);
+  const here = request({
+    surroundings: { names: NAMES },
+    chatIdOf: (placeId: string) => CHATS[placeId] ?? null,
+    placePathOf: (placeId: string) => (placeId === 'place:room' ? room : null),
+    mind: mindOfEntries({ people: [ELENI], places: [placeEntry('place:room', 'γενικά')] }),
+    currentChannelId: 'c-room',
+    lookups: [],
+    meanwhileReads: meanwhileReads([]),
+  });
+  const inPlace = refOf(here, block(here, 'surroundings'), 'c-room');
+  assert.ok(inPlace.includes('γενικά') && inPlace.includes('Αγορά'), inPlace);
+  const places = /<places>\n([\s\S]*?)\n<\/places>/.exec(userOf(here))?.[1] ?? '';
+  assert.equal(refOf(here, places, 'c-room'), inPlace, 'the entry of <places>');
+  const elsewhere = request({
+    frame: frameOf(frameInput({ now: NOW, timezone: TIMEZONE, chain: CLUB_CHAIN })),
+    chatIdOf: (placeId: string) => CHATS[placeId] ?? null,
+    lookups: [],
+    meanwhileReads: meanwhileReads([
+      {
+        id: 'place:room',
+        path: ['fake', 'Αγορά', 'γενικά'],
+        dm: false,
+        iface: 'fake',
+        chain: ROOM_PLACE,
+        names: NAMES,
+        lines: [line('place:room', 'r1', NOW - 30 * MIN, null, 'ΓΡΑΜΜΗ')],
+      },
+    ]),
+  });
+  // The owner's decision of 2026-11-11: the window head is the handle and a colon, the reference stands once in <places>.
+  const roomHandle = [...(elsewhere.channelHandles ?? [])].find(([, chat]) => chat === 'c-room')?.[0] ?? '';
+  assertShortHead(headLine(elsewhere), roomHandle, ['γενικά', 'Αγορά', 'Agora Net']);
+});
+
+test('<place> and the entry in <places> give a direct chat one reference, and a window head elsewhere is its handle and a colon', () => {
+  // Bug: a direct chat was named in <place> without its handle and with another wording than its window head.
+  const chain = [{ id: 'fake:dm:zoe', kind: 'dm', name: null }];
+  const dm = viewOf('fake', chain, true, PARTNER.personId);
+  const here = request({
+    frame: frameOf(
+      frameInput({
+        now: NOW,
+        timezone: TIMEZONE,
+        chain,
+        dm: { ...DM, partner: PARTNER },
+        author: PARTNER,
+        trigger: { messageId: 'm1', authorId: '1234' },
+      })
+    ),
+    surroundings: { names: NAMES },
+    chatIdOf: (placeId: string) => (placeId === 'fake:dm:zoe' ? 'd-zoe' : null),
+    placePathOf: (placeId: string) => (placeId === 'fake:dm:zoe' ? dm : null),
+    mind: mindOfEntries({ places: [placeEntry('fake:dm:zoe', '', { kind: 'dm' })] }),
+    currentChannelId: 'd-zoe',
+    history: [makeMessage('m1', NOW - MIN, { authorId: '1234', authorName: 'Zoé', content: 'γεια' })],
+    lookups: [],
+    meanwhileReads: meanwhileReads([]),
+  });
+  const inPlace = refOf(here, block(here, 'surroundings'), 'd-zoe');
+  assert.ok(inPlace.includes(`@${handleOf(PARTNER.personId)}`), inPlace);
+  const places = /<places>\n([\s\S]*?)\n<\/places>/.exec(userOf(here))?.[1] ?? '';
+  assert.equal(refOf(here, places, 'd-zoe'), inPlace, 'the entry of <places>');
+  const cliFrame = frameOf(
+    frameInput({
+      now: NOW,
+      timezone: TIMEZONE,
+      interface: 'cli',
+      chain: [{ id: 'cli:dm:owner', kind: 'dm', name: null }],
+      dm: { word: 'private', nativeId: 'owner', partner: PARTNER },
+    })
+  );
+  const elsewhere = request({
+    frame: cliFrame,
+    chatIdOf: (placeId: string) => (placeId === 'fake:dm:zoe' ? 'd-zoe' : null),
+    lookups: [],
+    meanwhileReads: meanwhileReads([
+      {
+        id: 'fake:dm:zoe',
+        path: ['fake', 'private', '1234'],
+        dm: true,
+        iface: 'fake',
+        chain,
+        names: NAMES,
+        partner: PARTNER.personId,
+        partnerKey: PARTNER.personId,
+        lines: [line('fake:dm:zoe', 'z1', NOW - 30 * MIN, null, 'ΙΔΙΩΤΙΚΗ')],
+      },
+    ]),
+  });
+  const dmHandle = [...(elsewhere.channelHandles ?? [])].find(([, chat]) => chat === 'd-zoe')?.[0] ?? '';
+  assertShortHead(headLine(elsewhere), dmHandle, [`@${handleOf(PARTNER.personId)}`, 'Agora Net']);
 });

@@ -125,3 +125,40 @@ test("lists both people with each person's handle when a name fits two people", 
     world.close();
   }
 });
+
+test('the #handle of a direct chat names that chat for the context that reads it, and none for a group', () => {
+  // Bug: only channels and threads had handles a place argument resolved, so a tool could not take the direct chat she
+  // was asked in. The handle is cut from the chat's native id as every place handle is.
+  const world = openWorld();
+  try {
+    const { dm } = seed(world);
+    const handle = `#${handleOf('u1', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX)}`;
+    assert.deepEqual(subjectOf(world.db, dmContext('person:eleni', 'fake', dm), handle, HERE), {
+      kind: 'place',
+      placeId: dm,
+    });
+    assert.deepEqual(subjectOf(world.db, groupContext('fake'), handle, HERE), { kind: 'none' });
+  } finally {
+    world.close();
+  }
+});
+
+test("the #handle of the command line's chat names it for the owner's context", () => {
+  // Bug: the owner's own chat had no handle, so no tool could take the place she answers him in.
+  const world = openWorld();
+  try {
+    addPerson(world.db, {
+      id: 'person:owner',
+      accounts: [{ id: 'cli:owner', iface: 'cli', native: 'owner', names: ['Orestis'] }],
+    });
+    const cli = addDm(world.db, { iface: 'cli', native: 'owner', person: 'person:owner', account: 'cli:owner' });
+    const handle = `#${handleOf('owner', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX)}`;
+    const found = subjectOf(world.db, dmContext('person:owner', 'cli', cli), handle, {
+      iface: 'cli',
+      rootNative: null,
+    });
+    assert.deepEqual(found, { kind: 'place', placeId: cli });
+  } finally {
+    world.close();
+  }
+});

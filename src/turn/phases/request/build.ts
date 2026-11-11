@@ -6,6 +6,7 @@
 import { accountOf, personOfMember, placeOfChat } from '../../../memory/addresses.ts';
 import { reactorIdsOf } from '../../../format.ts';
 import { handleOf } from '../../../behavior/handles.ts';
+import type { InterfaceNames } from '../../../protocol/serve.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
 import { NO_PLACES, selfreflectionChatIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
@@ -24,7 +25,7 @@ import { portAt, portCustomEmoji, portMediaPick, portOperations } from '../../..
 import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
-import { PLANNER_MODE, frameOf, framedRequest, pathShown } from '../../request/frame.ts';
+import { PLANNER_MODE, frameOf, framedRequest } from '../../request/frame.ts';
 import { entriesShownOf } from '../../request/selfreflection.ts';
 import type { PlanParts } from '../../selfreflection.ts';
 import type { PastEntry } from '../../../memory/db/selfreflection-past.ts';
@@ -86,15 +87,18 @@ const DM_WORD = 'private';
 function chainOfTurn(
   store: PhaseContext['store'],
   channel: Prepared['channel'],
-  wake: { kind: string | null } | null
+  wake: { kind: string | null } | null,
+  directPlace: string | null
 ): ReadonlyArray<PlaceLink> {
   if (wake && (OWN_SERVER_WAKES.has(wake.kind ?? '') || channel.rootId === PERSONA_ID)) return [];
-  const placeId = placeOfChat(store, channel) || String(channel.id ?? '');
+  // A direct chat is keyed by its partner, so the chat alone does not name its stored place: the turn's place does.
+  const placeId = directPlace || placeOfChat(store, channel) || String(channel.id ?? '');
   if (!placeId) return [];
   const chainOf: unknown = Reflect.get(Object(store), 'placeChainOf');
   const stored =
     typeof chainOf === 'function' ? (chainOf as (id: string) => ReadonlyArray<PlaceLink>).call(store, placeId) : [];
-  return stored.length > 0 ? stored : [{ id: placeId, kind: null, name: null }];
+  // A direct chat with no stored chain is still a direct chat: its place is one link with no name.
+  return stored.length > 0 ? stored : [{ id: placeId, kind: directPlace ? 'dm' : null, name: null }];
 }
 
 /** Somebody the interface names by a native id, as the store holds them. */
@@ -115,6 +119,8 @@ function frameOfTurn(
     trigger: { id: string; authorId: string; authorName?: string | null } | null;
     now: number;
     timezone: string;
+    /** The stored place of the turn, given for a direct chat. */
+    placeId?: string;
   }
 ): Frame {
   const { channel, isDm, trigger } = turn;
@@ -125,7 +131,12 @@ function frameOfTurn(
     triggerKind: turn.triggerKind,
     wakeKind: turn.wakeKind,
     interface: typeof channel.iface === 'string' ? channel.iface : '',
-    chain: chainOfTurn(store, channel, turn.inner ? { kind: turn.wakeKind } : null),
+    chain: chainOfTurn(
+      store,
+      channel,
+      turn.inner ? { kind: turn.wakeKind } : null,
+      isDm ? (turn.placeId ?? null) : null
+    ),
     dm: isDm
       ? {
           word: DM_WORD,
@@ -244,26 +255,40 @@ function namesInputOf(
     placePathOf: reads?.placeView
       ? (placeId) => {
           const view = reads.placeView?.(placeId) ?? null;
-          return view === null ? null : { path: view.path, dm: view.dm, partnerKey: view.partnerKey ?? null };
+          return view === null
+            ? null
+            : {
+                iface: view.iface,
+                chain: view.chain,
+                ...(view.names === undefined ? {} : { names: view.names }),
+                dm: view.dm,
+                partnerKey: view.partnerKey ?? null,
+              };
         }
       : null,
   };
 }
 
-/** `labels.spatial.unnamed`, the word for a place with no stored name; '' without it. */
-function unnamedOf(labels: unknown): string {
-  const spatial: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'spatial') : null;
-  const word: unknown = spatial && typeof spatial === 'object' ? Reflect.get(spatial, 'unnamed') : null;
-  return typeof word === 'string' ? word : '';
+/** What an interface declared of itself, in the shape of its hello; undefined when the memory holds no name of it. */
+function declaredNames(reads: Pick<FrameReads, 'interfaceNames'>, iface: string): InterfaceNames | undefined {
+  const { name, nouns, dm } = reads.interfaceNames(iface);
+  return name === null ? undefined : { interface: name, nouns, dm: dm ?? '' };
 }
 
-/** The chat id of a stored place from its row, null for a DM and a place no row holds; each place read once a request. */
+/** The handle (with `@`) of a one-to-one chat's partner, by the key their lines carry; null in any other chat. */
+function partnerHandleOf(frame: Frame, reads: Pick<FrameReads, 'memberKey'> | null): string | null {
+  const partner = frame.scope === 'dm' ? frame.counterpart : null;
+  if (partner === null) return null;
+  return `@${handleOf(reads?.memberKey?.(frame.interface, partner.nativeId) ?? partner.accountId)}`;
+}
+
+/** The chat id of a stored place from its row, null for a place no row holds an address of; each place read once a request. */
 function chatIdReader(reads: Pick<FrameReads, 'placeRef'>): (placeId: string) => string | null {
   const known = new Map<string, string | null>();
   return (placeId) => {
     if (!known.has(placeId)) {
       const ref = reads.placeRef?.(placeId) ?? null;
-      known.set(placeId, ref === null || ref.kind === 'dm' ? null : ref.nativeId);
+      known.set(placeId, ref === null ? null : ref.nativeId);
     }
     return known.get(placeId) ?? null;
   };
@@ -432,17 +457,19 @@ function framedInputsOf(
   const place = frame.place;
   if (!framedRequest(frame)) return NO_FRAMED;
   if (place === null) return serviceInputsOf(ctx, frame, draft, channel, now);
-  const partner = frame.counterpart;
-  // The partner by the key their lines carry (memberKeyOf), as the request names them.
-  const partnerKey =
-    partner === null ? null : (ctx.frameReads?.memberKey?.(frame.interface, partner.nativeId) ?? partner.accountId);
-  const partnerHandle = partnerKey === null ? null : `@${handleOf(partnerKey)}`;
-  draft.framePlace = { id: String(channel.id), path: pathShown(frame, place, unnamedOf(turn.labels), partnerHandle) };
+  // The place by the names of its chain from the interface down, kept with a lookup of hers (the journal's form).
+  const names = frame.chain.flatMap((link) => (link.name === null ? [] : [link.name])).reverse();
+  draft.framePlace = { id: String(channel.id), path: [frame.interface, ...names] };
   const window = history.map((line) => ({ id: String(line.id), replyTo: line.replyToId ?? null }));
   const lookups = ctx.lookupRing.forPlace(String(channel.id), window, now);
   const reads = ctx.frameReads;
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
-  if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups };
+  if (reads === null || !memoryContext) {
+    // No context reads no fields, but the interface's own names still word the place.
+    const names = reads === null ? undefined : declaredNames(reads, frame.interface);
+    const surroundings = names === undefined ? null : { interfaceText: '', names, root: null, place: null };
+    return { ...NO_FRAMED, lookups, surroundings };
+  }
   const meanwhileReads = readOnce({
     ownMessages: (limit) => reads.ownLines(memoryContext, place.id, limit),
     around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
@@ -481,6 +508,7 @@ function framedInputsOf(
     meanwhileReads,
     surroundings: {
       interfaceText: interfaceTextOf(reads.interfaceNames(frame.interface), turn.labels),
+      names: declaredNames(reads, frame.interface),
       root: frame.root ? reads.placeFields(memoryContext, frame.root.id) : null,
       place: reads.placeFields(memoryContext, place.id),
       versions: [
@@ -869,6 +897,7 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     trigger,
     now,
     timezone: String(config.bot?.timezone ?? 'UTC'),
+    placeId,
   });
   const facts = { history, trigger, prefetch: prefetchResult, labels: prompts?.labels, now };
   const framed = framedInputsOf(ctx, frame, draft, channel, facts);
@@ -976,7 +1005,11 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     stableFreeze: stableFreezeOf(placeId),
     // `<spatial_awareness>`: where she is, the whole nesting of the place in the interface's own nouns (buildRequest
     // names her own time's places).
-    whereabouts: whereaboutsOfFrame(frame, ctx.frameReads?.interfaceNames(frame.interface).nouns ?? {}),
+    whereabouts: whereaboutsOfFrame(
+      frame,
+      ctx.frameReads?.interfaceNames(frame.interface).nouns ?? {},
+      partnerHandleOf(frame, ctx.frameReads)
+    ),
     // A reply and an errand's result on the frame: `<memory>`, `<recall>`, `<meanwhile>`, `<surroundings>`, references.
     ...framed,
     // What a person's handle is cut from, and a place by its path: every block names people and places by them.

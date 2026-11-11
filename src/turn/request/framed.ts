@@ -76,23 +76,35 @@ function interfaceTextOf(given: RequestInput, base: Base): string {
 /**
  * The body of `<surroundings>`, held for the cache bucket per place (freezePerBucket) while the description versions it
  * renders stay the same: a field edited under the same version shows at the next bucket edge, a new version or a
- * renamed place at once.
+ * renamed place at once. `handle` and `partner` are the turn's place handle (without `#`) and a direct chat's partner handle as the request's books cut them.
  */
-function surroundingsHeld(given: RequestInput, base: Base, frame: Frame): string {
+function surroundingsHeld(
+  given: RequestInput,
+  base: Base,
+  frame: Frame,
+  handle: string | null,
+  partner: string | null
+): string {
   const stored: SurroundingsInput | null = given.surroundings ?? null;
   const versions = [...(stored?.versions ?? [])].sort().join(',');
   const { place } = frame;
   const path = place === null ? '' : place.path.join('/');
-  return base.frozen(`surroundings:${place?.id ?? ''}`, `${path}|${versions}`, () =>
-    surroundingsOf(
-      frame,
-      interfaceTextOf(given, base),
-      stored?.root ?? null,
-      stored?.place ?? null,
-      base.labels,
-      partnerHandleOf(frame, base),
-      { mention: storedMention(given, base) }
-    )
+  const names = JSON.stringify(stored?.names ?? null);
+  return base.frozen(
+    `surroundings:${place?.id ?? ''}`,
+    `${path}|${versions}|${names}|${handle ?? ''}|${partner ?? ''}`,
+    () =>
+      surroundingsOf(
+        frame,
+        interfaceTextOf(given, base),
+        stored?.root ?? null,
+        stored?.place ?? null,
+        base.labels,
+        partner ?? partnerHandleOf(frame, base),
+        { mention: storedMention(given, base) },
+        stored?.names,
+        handle
+      )
   );
 }
 
@@ -174,7 +186,8 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
   const { frame, base, task, senses, own, room, tempo, tempoText } = steps;
   const { labels, nameOf } = base;
   const selfreflection = selfreflectionFramedOf({ ...given, labels });
-  const surroundingsText = surroundingsHeld(given, base, frame);
+  const surroundingsText = (handle: string | null, partner: string | null): string =>
+    surroundingsHeld(given, base, frame, handle, partner);
   const selfFacts = base.frozen('self', '', () =>
     (given.placeMemory?.self ?? []).map((fact) => `- ${String(mentionsNamed(fact, storedMention(given, base)))}`)
   );

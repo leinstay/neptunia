@@ -85,3 +85,55 @@ test("a mention in a stored field of the root or the place reads as the person's
   assert.ok((section(plain, 'root') ?? '').includes('ΣΥΝΗΘΕΙΕΣ someone'), plain);
   assert.doesNotMatch(`${named}\n${plain}`, /<@|&lt;@|\b777\b|\b999\b/);
 });
+
+// The owner's decision of 2026-11-11 (a place reads in words): `<place>` and `<root>` name their place in words from the
+// frame's chain, the interface and the nouns it declared, never as a path joined with `>`. Signature:
+//   surroundingsOf(frame, interfaceText, rootPlace, place, labels, partner?, refs?, names?: InterfaceNames)
+const NAMES = { interface: 'Agora Net', nouns: { server: 'realm', channel: 'room' }, dm: 'private talk' };
+
+test('<place> reads the room, then its root, then the interface by its own name, with no >', () => {
+  // Bug: the path ran root first joined with `>`, so a name read as a step of a path.
+  const text = surroundingsOf(frameOf(frameInput()), 'INTERFACE-TEXT', null, null, shippedLabels, null, null, NAMES);
+  const place = section(text, 'place') ?? '';
+  const at = ['room', 'γενικά', 'realm', 'Αγορά', 'Agora Net'].map((word) => place.indexOf(word));
+  assert.ok(
+    at.every((index) => index >= 0),
+    place
+  );
+  assert.deepEqual(
+    [...at].sort((a, b) => a - b),
+    at,
+    place
+  );
+  assert.doesNotMatch(text, /&gt;|>[^<\n]*>/);
+});
+
+test("<place> of a direct chat reads the interface's word for it with the partner's handle and no scope word", () => {
+  // Bug: the place read `fake > private > @handle`.
+  const frame = frameOf(frameInput({ chain: DM_CHAIN, dm: DM }));
+  const partner = `@${handleOf(PARTNER.personId)}`;
+  const place = section(surroundingsOf(frame, 'I', null, null, shippedLabels, partner, null, NAMES), 'place') ?? '';
+  assert.ok(place.includes('private talk') && place.includes(partner) && place.includes('Agora Net'), place);
+  assert.doesNotMatch(place, />/);
+});
+
+// The owner's rule of 2026-11-11, one form everywhere: `<place>` names the current place with its place handle.
+// Signature: surroundingsOf(frame, interfaceText, rootPlace, place, labels, partner?, refs?, names?, handle?: string | null)
+// where `handle` is the current place's handle without `#` (null: none). The root has none.
+test('<place> opens with the current place handle and <root> carries none', () => {
+  // Bug: the place she is in was the one place a request named without its handle, so its reference differed from the
+  // one in <places> and <meanwhile>.
+  const text = surroundingsOf(frameOf(frameInput()), 'I', null, null, shippedLabels, null, null, NAMES, 'cab12');
+  assert.ok((section(text, 'place') ?? '').trimStart().startsWith('#cab12'), section(text, 'place') ?? '');
+  assert.ok(!(section(text, 'root') ?? '').includes('#cab12'), section(text, 'root') ?? '');
+});
+
+test('<place> of a direct chat opens with the handle of that chat, then its partner', () => {
+  // Bug: a direct chat had no handle in <place>, so the owner's chat was the one place she could not name.
+  const frame = frameOf(frameInput({ chain: DM_CHAIN, dm: DM }));
+  const partner = `@${handleOf(PARTNER.personId)}`;
+  const place =
+    section(surroundingsOf(frame, 'I', null, null, shippedLabels, partner, null, NAMES, 'cd777'), 'place') ?? '';
+  assert.ok(place.trimStart().startsWith('#cd777'), place);
+  assert.ok(place.includes(partner), place);
+});

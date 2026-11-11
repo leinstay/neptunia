@@ -12,7 +12,7 @@
 // line before its text.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addClaim, addDm, addLine, addPerson } from './fixtures/memory-db/mind-world.ts';
+import { addClaim, addDm, addLine, addPerson, noteInterface } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 import { OWNER_PERSON } from './fixtures/owner-accounts.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
@@ -199,10 +199,13 @@ const authorOf = (text: string, marker: string): Array<string> => headOf(text, m
 /** What follows the `<task>` of a request: her answer and the results of her calls in a tool round. */
 const afterTask = (request: string): string => request.split('</task>').slice(1).join('</task>');
 
-/** The `#c…` handle of the place entry of `<places>` whose path ends in `name`. */
+/**
+ * The `#c…` handle of the place entry of `<places>` whose heading holds `name` in quotes. The owner's decision of
+ * 2026-11-11: a place reads as the interface's noun and the quoted name, `#c…: channel "name", ...`.
+ */
 function placeHandle(request: string, name: string): string {
   const places = /<places>\n?([\s\S]*?)\n?<\/places>/.exec(request)?.[1] ?? '';
-  const entry = places.split(/\n\s*\n/).find((one) => (one.split('\n')[0] ?? '').includes(`${name} (`)) ?? '';
+  const entry = places.split(/\n\s*\n/).find((one) => (one.split('\n')[0] ?? '').includes(`"${name}"`)) ?? '';
   return /#c[0-9a-z]+/.exec(entry)?.[0] ?? '';
 }
 
@@ -520,4 +523,57 @@ test('the handles of the entries of a request are unique', async () => {
   const handles = entryHandles(requestOf(run, 1, 0));
   assert.ok(handles.length >= 3, handles.join(' '));
   assert.equal(new Set(handles).size, handles.length, handles.join(' '));
+});
+
+test("<place> of a turn in a direct chat reads the interface's word for it and the partner's handle, never an unnamed place", async () => {
+  // Bug (replay of 2026-11-11): the turn's own place read `#c…: "(unnamed)", interface "CLI"`, because the request handed
+  // the body of `<place>` something other than the direct chat the stored place is.
+  const world = handleWorld();
+  noteInterface(world, 'cli', [], { interface: 'CLI', nouns: {}, dm: 'terminal chat' });
+  let request: string;
+  try {
+    const run = await replyRun({
+      world,
+      chat: CLI_CHAT,
+      steps: [{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }],
+    });
+    request = requestOf(run, 0, 0);
+  } finally {
+    world.close();
+  }
+  const place = blockOf(blockOf(request, 'surroundings'), 'place');
+  assert.ok(place.includes('terminal chat'), place);
+  assert.match(place, /@u[0-9a-z]+/, 'the partner is named by handle');
+  assert.doesNotMatch(place, /unnamed/);
+});
+
+test('<place> of a turn in a direct chat whose place the store holds no chain for still reads as a direct chat', async () => {
+  // Bug (replay of 2026-11-11): with no stored chain the turn's place fell back to a link of no kind and no name, so a
+  // direct chat read as `"(unnamed)"` and the partner never showed.
+  const world = serviceWorld();
+  noteInterface(world, 'cli', [], { interface: 'CLI', nouns: {}, dm: 'terminal chat' });
+  // The turn's own place, `cli:dm:owner`, has no row in this world, so the store gives it no chain.
+  let request: string;
+  try {
+    const run = await replyRun({
+      world,
+      chat: CLI_CHAT,
+      steps: [{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }],
+    });
+    request = requestOf(run, 0, 0);
+  } finally {
+    world.close();
+  }
+  const place = blockOf(blockOf(request, 'surroundings'), 'place');
+  assert.ok(place.includes('terminal chat'), place);
+  assert.doesNotMatch(place, /unnamed/);
+});
+
+test('an entry of <people> opens with its handle and a colon', async () => {
+  // Bug: the entry opened `@handle Name`, so the handle read as part of the name. The owner's decision of 2026-11-11: a
+  // handle and a colon open every entry.
+  const run = await onCli([{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }]);
+  const entries = entriesOf(requestOf(run, 0, 0));
+  assert.ok(entries.length > 0, 'the request has people');
+  for (const entry of entries) assert.match(entry.split('\n')[0] ?? '', /^@u[0-9a-z]+: \S/, entry);
 });

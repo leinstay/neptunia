@@ -31,6 +31,8 @@ export type Whereabouts =
       chain: ReadonlyArray<PlaceLink>;
       /** The interface's word for each native kind of place it has (`hello.names.nouns`). */
       nouns?: Readonly<Record<string, string>>;
+      /** A one-to-one chat's partner by handle, `@` included: the chat's row holds no name. */
+      partner?: string | null;
     };
 
 /** The interface the owner's command line speaks as (src/interface/link.ts#CLI_IFACE). */
@@ -41,12 +43,23 @@ const FALLBACK_KIND = 'place';
 
 /**
  * The whereabouts a frame states: her own server with no place or no interface, the command line on that interface,
- * else the place with its chain and the interface's nouns for its kinds of place.
+ * else the place with its chain, the interface's nouns for its kinds of place and, given, a direct chat's partner.
  */
-export function whereaboutsOfFrame(frame: Frame, nouns: Readonly<Record<string, string>> = {}): Whereabouts {
+export function whereaboutsOfFrame(
+  frame: Frame,
+  nouns: Readonly<Record<string, string>> = {},
+  partner: string | null = null
+): Whereabouts {
   if (frame.place === null || !frame.interface) return { kind: 'server' };
   if (frame.interface === CLI_IFACE) return { kind: 'cli', chain: frame.chain };
-  return { kind: 'place', iface: frame.interface, private: frame.scope === 'dm', chain: frame.chain, nouns };
+  return {
+    kind: 'place',
+    iface: frame.interface,
+    private: frame.scope === 'dm',
+    chain: frame.chain,
+    nouns,
+    ...(partner === null ? {} : { partner }),
+  };
 }
 
 /** The owner's note on the nearest place of the chain that has a non-blank one; null when none has. */
@@ -64,9 +77,14 @@ function noteOf(chain: ReadonlyArray<PlaceLink>, notes: unknown): string | null 
  * with the interface's noun for the kind (the native kind itself when the interface named none), else the fallback
  * kind's label for a place with no kind.
  */
-function linkText(link: PlaceLink, l: SpatialLabels, nouns: Readonly<Record<string, string>>): string {
+function linkText(
+  link: PlaceLink,
+  l: SpatialLabels,
+  nouns: Readonly<Record<string, string>>,
+  partner: string | null
+): string {
   const kinds = l.kinds ?? {};
-  const name = link.name ?? l.unnamed ?? '';
+  const name = link.name ?? (link.kind === 'dm' ? partner : null) ?? l.unnamed ?? '';
   const own = link.kind !== null ? kinds[link.kind] : undefined;
   if (own !== undefined) return fill(own, { name });
   const noun = link.kind === null ? '' : (nouns[link.kind] ?? link.kind);
@@ -108,7 +126,9 @@ export function spatialAwarenessText(input: {
     case 'world':
       return fill(l.world ?? '', { when });
     case 'place': {
-      const path = whereabouts.chain.map((link) => linkText(link, l, whereabouts.nouns ?? {})).join(l.within ?? ' ');
+      const path = whereabouts.chain
+        .map((link) => linkText(link, l, whereabouts.nouns ?? {}, whereabouts.partner ?? null))
+        .join(l.within ?? ' ');
       const note = noteOf(whereabouts.chain, notes);
       return [
         fill(l.place ?? '', { path, iface: whereabouts.iface, when }),

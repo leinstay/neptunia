@@ -19,10 +19,14 @@ import type { PreviousThink } from './wake.ts';
 import type { MediaCache, MediaLookup } from './emoji-gifs.ts';
 import type { SelfreflectionInput } from './selfreflection.ts';
 import type { Whereabouts } from './spatial.ts';
+import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
+import type { InterfaceNames } from '../../protocol/serve.ts';
 
-/** A stored place as a request names it: its path from the interface down, and a direct chat's partner key. */
+/** A stored place as a request names it: its interface, its chain innermost first, the interface's names, and a direct chat's partner key. */
 export type PlacePathView = {
-  readonly path: ReadonlyArray<string>;
+  readonly iface: string;
+  readonly chain: ReadonlyArray<PlaceChainLink>;
+  readonly names?: InterfaceNames;
   readonly dm: boolean;
   /** What the handle of a direct chat's partner is cut from: their person, else their account; null otherwise. */
   readonly partnerKey: string | null;
@@ -102,7 +106,9 @@ export type Labels = {
   readonly refs?: LabelGroup;
   /** How a line names its author (`line`, `lineAccount`, `unknown`). */
   readonly authors?: LabelGroup;
-  /** How a block names a place (`ref`, `refUnhandled`). */
+  /** How an entry of `<people>` opens (`ref`: `@{handle}: {name}`). */
+  readonly people?: LabelGroup;
+  /** How a block names a place (`ref`, `refUnhandled`, `link`, `linkPlain`, `join`, `iface`, `dm`). */
   readonly places?: LabelGroup;
 };
 
@@ -388,7 +394,7 @@ export type RequestInput = {
   readonly surroundings?: SurroundingsInput | null;
   /** Reads a line by its identity under the turn's scope, for the references in stored texts (src/turn/request/refs.ts). */
   readonly refLineOf?: LineOf | null;
-  /** The chat id of a stored place, from its row (frame-reads.ts#placeRefOf); null for a DM and a place no row holds. */
+  /** The chat id of a stored place, from its row (frame-reads.ts#placeRefOf); null for a place no row holds an address of. */
   readonly chatIdOf?: ((placeId: string) => string | null) | null;
   /**
    * What a member's handle is cut from, by a platform id of the turn's interface (else of the one interface whose
@@ -397,7 +403,7 @@ export type RequestInput = {
   readonly memberKeyOf?: ((native: string) => string | null) | null;
   /** The account key the store gives a platform id of the turn's interface that no row holds yet (addresses.ts#accountOf). */
   readonly accountKeyOf?: ((native: string) => string) | null;
-  /** A stored place by its path of names, whether it is a direct chat and that chat's partner; null with no row. */
+  /** A stored place in words, whether it is a direct chat and that chat's partner; null with no row. */
   readonly placePathOf?: ((placeId: string) => PlacePathView | null) | null;
   /** Whether the line of a lookup's source is gone, for the sources `<recall>` leaves out (src/turn/request/reader.ts). */
   readonly isSourceRetired?: SourceRetired | null;

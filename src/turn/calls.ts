@@ -91,7 +91,7 @@ export type SearchRefs = {
   bySourceId?: Map<string, SearchRef>;
 };
 
-/** A stored channel or thread a `#handle` may name: its place id and its native id, null when its row holds none. */
+/** A stored chat (a channel, a thread, a direct chat) a `#handle` may name: its place id and its native id, null when its row holds none. */
 export type KnownPlace = { readonly id: string; readonly nativeId: string | null };
 
 /** A store of the memory, as far as a call view reads it. */

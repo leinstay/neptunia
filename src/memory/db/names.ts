@@ -196,6 +196,17 @@ export function interfaceNouns(extra: unknown): Record<string, string> {
   }
 }
 
+/** An interface's word for a direct chat, as its hello declared it (`hello.names.dm`); null when it declared none. */
+export function interfaceDmWord(extra: unknown): string | null {
+  if (!filled(extra)) return null;
+  try {
+    const dm = (JSON.parse(extra) as { dm?: unknown }).dm;
+    return filled(dm) ? dm : null;
+  } catch {
+    return null;
+  }
+}
+
 function interfaceRows(db: Db, id: string): Array<NameRow> {
   const row = db.prepare('SELECT id, name, extra FROM interfaces WHERE id = ?').get(id);
   if (!row) return [];

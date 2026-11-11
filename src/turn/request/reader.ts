@@ -42,6 +42,7 @@ import type { SelfreflectionFramed } from './selfreflection.ts';
 import { blockRecords, userParts } from './tail.ts';
 import type { BlockRecord, ListedBlock, UserPart } from './tail.ts';
 import { handleBook } from '../../behavior/handles.ts';
+import type { InterfaceNames } from '../../protocol/serve.ts';
 import type { HandleBook } from '../../behavior/handles.ts';
 import type { EntryRefs } from './memory-block.ts';
 import type { MeanwhileRefs } from './meanwhile.ts';
@@ -62,6 +63,8 @@ import type {
 /** What the interface and the memory say of the turn's place, for `<surroundings>`. */
 export type SurroundingsInput = {
   readonly interfaceText: string;
+  /** What the interface declared of itself (its name, its nouns, its word for a direct chat), for the places in words. */
+  readonly names?: InterfaceNames;
   readonly root: PlaceFields | null;
   readonly place: PlaceFields | null;
   /** The `current_version` ids of the descriptions `root` and `place` render. */
@@ -84,8 +87,12 @@ export type ReaderInput = {
   senses: Senses;
   toolsText: string;
   selfFacts: Array<string>;
-  /** The body of `<surroundings>`, rendered and held per cache bucket by the caller (src/turn/request/framed.ts). */
-  surroundingsText: string;
+  /**
+   * The body of `<surroundings>`, rendered and held per cache bucket by the caller (src/turn/request/framed.ts), given the
+   * handle of the turn's place (without `#`) and, in a direct chat, its partner's handle (with `@`), both as the request's
+   * handle books cut them; null when the request gives none.
+   */
+  surroundingsText: (handle: string | null, partner: string | null) => string;
   mind: Mind;
   /** The chat ids of the places her selfreflection is mirrored to, marked in `<memory>`. */
   selfreflectionIds?: ReadonlySet<string>;
@@ -393,8 +400,8 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
     {
       profiled: [
         given.currentChannelId,
-        ...mind.places.map((place) => (place.kind === 'dm' ? null : chatIdOf(place.placeId))),
-        ...windows.map((window) => (window.dm ? null : chatIdOf(window.placeId))),
+        ...mind.places.map((place) => chatIdOf(place.placeId)),
+        ...windows.map((window) => chatIdOf(window.placeId)),
         ...lookupPlaces(given.lookups).map((id) => chatIdOf(id)),
       ].filter((id): id is string => typeof id === 'string' && id !== ''),
     },
@@ -408,19 +415,27 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
     const key = given.memberKeyOf?.(native) ?? null;
     return key === null ? unknown : `@${people.handleOf(key)}`;
   };
-  const placeRef = (placeId: string): string | null => {
+  const placeRef = (named: string): string | null => {
+    // A lookup keeps the chat id of the place it was made in: the turn's own place is named by its stored id.
+    const placeId = named === given.currentChannelId && frame.place !== null ? frame.place.id : named;
     const view = given.placePathOf?.(placeId) ?? null;
     if (view === null) return null;
-    const path = view.dm ? [...view.path.slice(0, -1), partner(view.partnerKey)] : view.path;
-    const chatId = view.dm ? null : chatIdOf(placeId);
-    return placeRefText(labels, chatId === null ? null : places.handleOf(chatId), path);
+    const chatId = chatIdOf(placeId);
+    return placeRefText(labels, chatId === null ? null : places.handleOf(chatId), {
+      iface: view.iface,
+      chain: view.chain,
+      ...(view.names === undefined ? {} : { names: view.names }),
+      partner: view.dm ? partner(view.partnerKey) : null,
+    });
   };
   return {
     people,
     places,
     entryRefs: {
       mention,
-      place: (placeId) => placeRef(placeId) ?? escapeStored(labels.spatial?.unnamed ?? ''),
+      place: (placeId, fallback) =>
+        placeRef(placeId) ??
+        (fallback ? placeRefText(labels, null, fallback) : escapeStored(labels.spatial?.unnamed ?? '')),
       partnerOf: (placeId) => partner(given.placePathOf?.(placeId)?.partnerKey),
       counterpartKey,
     },
@@ -436,9 +451,16 @@ const IN_MEMORY: ReadonlyArray<MemorySubtag> = ['people', 'places', 'lore', 'rec
 /** Whether the request names people by handle: every one but a selfreflection's, which names them by name alone. */
 const handled = (given: ReaderInput): boolean => given.selfreflection === null || given.selfreflection === undefined;
 
-/** The channel handle a window is headed with, null for a one-to-one chat and a place with no chat id. */
+/** The handle of the partner of the turn's own place when it is a one-to-one chat the request holds a view of; else null. */
+function directPartnerOf(given: ReaderInput, names: Names): string | null {
+  const place = given.frame.place;
+  const view = place === null || !handled(given) ? null : (given.placePathOf?.(place.id) ?? null);
+  return view?.dm ? names.entryRefs.partnerOf(place?.id ?? '') : null;
+}
+
+/** The channel handle a window is headed with, null for a place with no chat id and in a request that gives no handles. */
 function windowHandle(given: ReaderInput, names: Names, window: MeanwhileWindow): string | null {
-  const chatId = window.dm || !handled(given) ? null : chatIdOfInput(given)(window.placeId);
+  const chatId = !handled(given) ? null : chatIdOfInput(given)(window.placeId);
   return chatId === null ? null : names.places.handleOf(chatId);
 }
 
@@ -563,7 +585,10 @@ function offeredOf(given: ReaderInput): Offered {
   ]);
   return {
     spatial: [given.spatialText, answersLine(given, names), given.awayText].filter(Boolean).join('\n'),
-    surroundings: given.surroundingsText,
+    surroundings: given.surroundingsText(
+      handled(given) && given.currentChannelId !== null ? names.places.handleOf(given.currentChannelId) : null,
+      directPartnerOf(given, names)
+    ),
     memory: memory.items,
     memoryLeftOut: memory.leftOut,
     recall: recallBlockOf(lookups, retired, labels, timezone, (placeId) => names.entryRefs.place(placeId)),
@@ -697,8 +722,9 @@ export function readerRequest(given: ReaderInput): ReaderResult {
   const { names } = offered;
   const withHandle = (one: MemoryItem): MemoryItem => {
     if (!named) return one;
-    if (one.chatId) return { ...one, text: `#${names.places.handleOf(one.chatId)} ${one.text}` };
-    return one.handleKey ? { ...one, text: `@${names.people.handleOf(one.handleKey)} ${one.text}` } : one;
+    if (!one.handleKey) return one;
+    const ref = labels.people?.ref ?? '@{handle}: {name}';
+    return { ...one, text: fill(ref, { handle: names.people.handleOf(one.handleKey), name: one.text }) };
   };
   const { stats } = fit;
   const cutBy = Object.fromEntries(
