@@ -67,3 +67,21 @@ test('a stored field that closes a tag renders escaped', () => {
   assert.equal(text.match(/<\/place>/g)?.length, 1);
   assert.match(text, /λέσχη/);
 });
+
+test("a mention in a stored field of the root or the place reads as the person's handle, or authors.unknown", () => {
+  // Bug: the fields of <surroundings> are escaped and never read for mentions, so a description that tags someone shows
+  // her a bare `<@id>` with a platform id. The owner's decision of 2026-11-10: a mention reads as the person's handle.
+  const labels = {
+    ...shippedLabels,
+    authors: { line: '{handle}', lineAccount: '{handle} ({iface} {id})', unknown: 'someone' },
+  };
+  const refs = { mention: (native: string) => (native === '777' ? '@u7ele' : 'someone') };
+  const frame = frameOf(frameInput());
+  const fields = (text: string) => ({ patterns: `ΣΥΝΗΘΕΙΕΣ ${text}` });
+  const named = surroundingsOf(frame, 'I', fields('<@777>'), { purpose: 'ΣΚΟΠΟΣ <@999>' }, labels, null, refs);
+  assert.ok((section(named, 'root') ?? '').includes('ΣΥΝΗΘΕΙΕΣ @u7ele'), named);
+  assert.ok((section(named, 'place') ?? '').includes('ΣΚΟΠΟΣ someone'), named);
+  const plain = surroundingsOf(frame, 'I', fields('<@777>'), null, labels);
+  assert.ok((section(plain, 'root') ?? '').includes('ΣΥΝΗΘΕΙΕΣ someone'), plain);
+  assert.doesNotMatch(`${named}\n${plain}`, /<@|&lt;@|\b777\b|\b999\b/);
+});
