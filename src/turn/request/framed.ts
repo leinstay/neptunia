@@ -84,7 +84,14 @@ function surroundingsHeld(given: RequestInput, base: Base, frame: Frame): string
   const { place } = frame;
   const path = place === null ? '' : place.path.join('/');
   return base.frozen(`surroundings:${place?.id ?? ''}`, `${path}|${versions}`, () =>
-    surroundingsOf(frame, interfaceTextOf(given, base), stored?.root ?? null, stored?.place ?? null, base.labels)
+    surroundingsOf(
+      frame,
+      interfaceTextOf(given, base),
+      stored?.root ?? null,
+      stored?.place ?? null,
+      base.labels,
+      partnerHandleOf(frame, base)
+    )
   );
 }
 
@@ -102,6 +109,12 @@ function feedbackOf(told: string, selfreflection: SelfreflectionFramed | null): 
   return [told, selfreflection?.feedback ?? ''].filter(Boolean).join('\n') || null;
 }
 
+/** The handle (with `@`) a one-to-one chat's path ends in: its partner's, by the key their lines carry; null elsewhere. */
+function partnerHandleOf(frame: Frame, base: Base): string | null {
+  const partner = frame.scope === 'dm' ? frame.counterpart : null;
+  return partner === null ? null : `@${handleOf(base.keyOfMember(partner.nativeId))}`;
+}
+
 /**
  * A `<@id>` of a stored text of the stable part as the handle of the person it names (cut from what memberKeyOf gives,
  * so the cached text holds no per-request form), `authors.unknown` for an account no row holds.
@@ -114,13 +127,45 @@ function storedMention(given: RequestInput, base: Base): (native: string) => str
   };
 }
 
-/** The members who wrote a line of the chat, she aside, each once with the name the newest of their lines gave. */
-function chatMembersOf(history: RequestInput['history']): Array<{ native: string; name: string | null }> {
+/**
+ * The members of the chat, she aside: each author once with the name the newest of their lines gave, then each reactor
+ * of her lines named at her reaction who wrote nothing.
+ */
+function chatMembersOf(
+  history: RequestInput['history']
+): Array<{ native: string; name: string | null; reactor?: boolean }> {
   const names = new Map<string, string | null>();
   for (const line of history)
     if (!line.self && line.authorId !== undefined && line.authorId !== null)
       names.set(String(line.authorId), line.authorName ?? names.get(String(line.authorId)) ?? null);
-  return [...names].map(([native, name]) => ({ native, name }));
+  const members: Array<{ native: string; name: string | null; reactor?: boolean }> = [...names].map(
+    ([native, name]) => ({ native, name })
+  );
+  for (const user of reactorsOf(history))
+    if (!names.has(user.id)) {
+      names.set(user.id, user.name);
+      members.push({ native: user.id, name: user.name, reactor: true });
+    }
+  return members;
+}
+
+/** The people named at the reactions of her lines, each with the name the reaction gave, in order. */
+function reactorsOf(history: RequestInput['history']): Array<{ id: string; name: string | null }> {
+  const out: Array<{ id: string; name: string | null }> = [];
+  for (const line of history) {
+    if (!line.self) continue;
+    const reactions: unknown = Reflect.get(line, 'reactions');
+    for (const reaction of Array.isArray(reactions) ? reactions : []) {
+      const users: unknown = reaction && typeof reaction === 'object' ? Reflect.get(reaction, 'users') : null;
+      for (const user of Array.isArray(users) ? users : []) {
+        const id: unknown = user && typeof user === 'object' ? Reflect.get(user, 'id') : null;
+        const name: unknown = user && typeof user === 'object' ? Reflect.get(user, 'name') : null;
+        if ((typeof id === 'string' && id !== '') || typeof id === 'number')
+          out.push({ id: String(id), name: typeof name === 'string' ? name : null });
+      }
+    }
+  }
+  return out;
 }
 
 /** The request of a turn on the frame. */

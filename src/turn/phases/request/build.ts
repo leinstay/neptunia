@@ -4,6 +4,7 @@
 // it, the selfreflection planner's request on the same frame (`plannerRequest`), which the setup step hands the plan.
 
 import { accountOf, personOfMember, placeOfChat } from '../../../memory/addresses.ts';
+import { reactorIdsOf } from '../../../format.ts';
 import { handleOf } from '../../../behavior/handles.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
 import { NO_PLACES, selfreflectionChatIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
@@ -315,17 +316,39 @@ function seedsOf(
       (hit) => (placeId === null ? null : reads.sourceInPlace?.(placeId, hit)) ?? reads.source?.(iface, hit) ?? hit
     );
   });
+  // The people who reacted to her lines seed the reader like the authors of lines, so each named at her reaction has an
+  // entry; a reaction whose reactors nobody read names nobody.
+  const reactors = reactorIdsOf(lines as Array<Record<string, unknown>>).flatMap((native, i) => {
+    const account = accountOf(native);
+    return account === null
+      ? []
+      : [
+          {
+            id: `reaction:${i}`,
+            at: new Date(lines.at(-1)?.ts ?? 0).toISOString(),
+            authorAccount: account,
+            placeId: frame.place?.id ?? null,
+            replyTo: null,
+            mentions: [],
+            text: '',
+            trigger: false,
+          },
+        ];
+  });
   return {
-    messages: lines.map((line) => ({
-      id: sourceOf(line),
-      at: new Date(line.ts).toISOString(),
-      authorAccount: line.self || !line.authorId ? null : accountOf(line.authorId),
-      placeId: frame.place?.id ?? null,
-      replyTo: line.replyToId ? (byId.get(line.replyToId) ?? null) : null,
-      mentions: (line.mentionedAccountIds ?? []).flatMap((native) => accountOf(native) ?? []),
-      text: line.content ?? '',
-      trigger: line.id === trigger?.id,
-    })),
+    messages: [
+      ...reactors,
+      ...lines.map((line) => ({
+        id: sourceOf(line),
+        at: new Date(line.ts).toISOString(),
+        authorAccount: line.self || !line.authorId ? null : accountOf(line.authorId),
+        placeId: frame.place?.id ?? null,
+        replyTo: line.replyToId ? (byId.get(line.replyToId) ?? null) : null,
+        mentions: (line.mentionedAccountIds ?? []).flatMap((native) => accountOf(native) ?? []),
+        text: line.content ?? '',
+        trigger: line.id === trigger?.id,
+      })),
+    ],
     counterpart: counterpartOf(frame, reads),
     place: frame.place?.id ?? null,
     previous: [],
@@ -410,7 +433,10 @@ function framedInputsOf(
   if (!framedRequest(frame)) return NO_FRAMED;
   if (place === null) return serviceInputsOf(ctx, frame, draft, channel, now);
   const partner = frame.counterpart;
-  const partnerHandle = partner === null ? null : `@${handleOf(partner.personId ?? partner.accountId)}`;
+  // The partner by the key their lines carry (memberKeyOf), as the request names them.
+  const partnerKey =
+    partner === null ? null : (ctx.frameReads?.memberKey?.(frame.interface, partner.nativeId) ?? partner.accountId);
+  const partnerHandle = partnerKey === null ? null : `@${handleOf(partnerKey)}`;
   draft.framePlace = { id: String(channel.id), path: pathShown(frame, place, unnamedOf(turn.labels), partnerHandle) };
   const window = history.map((line) => ({ id: String(line.id), replyTo: line.replyToId ?? null }));
   const lookups = ctx.lookupRing.forPlace(String(channel.id), window, now);

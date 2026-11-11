@@ -22,8 +22,8 @@ import { innerBlockOf } from './inner-block.ts';
 import type { InnerParts } from './inner-block.ts';
 import { meanwhileSettingsOf, meanwhileText, meanwhileWindows, windowText } from './meanwhile.ts';
 import type { MeanwhileReads, MeanwhileWindow } from './meanwhile.ts';
-import { MEMORY_SUBTAGS, factItemsOf, memoryItemsOf, renderMemory } from './memory-block.ts';
-import type { ChatIdOf, LiveOf, MemoryItem, MemorySubtag, StoredFact } from './memory-block.ts';
+import { MEMORY_SUBTAGS, factItemsOf, memoryItemsOf, renderMemory, strangerItemsOf } from './memory-block.ts';
+import type { ChatIdOf, ChatStranger, LiveOf, MemoryItem, MemorySubtag, StoredFact } from './memory-block.ts';
 import { recallBlockOf } from './recall-block.ts';
 import { refResolverOf } from './refs.ts';
 import type { LineOf } from './refs.ts';
@@ -100,7 +100,7 @@ export type ReaderInput = {
   /** The same handles by the platform id of each member of the chat in view. */
   chatHandleById?: ReadonlyMap<string, string> | null;
   /** The members of the chat by platform id with the name a line gave them, for where her `@handle` may mention them. */
-  chatMembers?: ReadonlyArray<{ readonly native: string; readonly name: string | null }>;
+  chatMembers?: ReadonlyArray<{ readonly native: string; readonly name: string | null; readonly reactor?: boolean }>;
   /** What the handle of a member of the turn's interface is cut from, by platform id (head.ts). */
   keyOfMember?: ((native: string) => string) | null;
   /** What the handle of the member a stored `<@id>` names is cut from; null when no account row holds the id. */
@@ -477,6 +477,23 @@ function handleIdsOf(
   return ids;
 }
 
+/**
+ * The members of the chat memory holds no entry of, an author or a reactor of her line, each once by what their
+ * handle is cut from: everyone whose handle stands in `<chat>` gets an entry of `<people>`.
+ */
+function strangersOf(given: ReaderInput, items: ReadonlyArray<MemoryItem>): Array<ChatStranger> {
+  const keyOf = given.keyOfMember ?? ((native: string) => native);
+  const known = new Set(items.flatMap((one) => (one.handleKey ? [one.handleKey] : [])));
+  const out: Array<ChatStranger> = [];
+  for (const member of given.chatMembers ?? []) {
+    const key = keyOf(member.native);
+    if (known.has(key)) continue;
+    known.add(key);
+    out.push({ key, native: member.native, name: member.name, evidence: member.reactor ? 'edge' : 'author' });
+  }
+  return out;
+}
+
 /** Everything the frame's request offers, rendered before the fit. */
 function offeredOf(given: ReaderInput): Offered {
   const { frame, labels, timezone, mind, lineOf } = given;
@@ -492,17 +509,19 @@ function offeredOf(given: ReaderInput): Offered {
     given.meanwhileReads ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettingsOf(given.config, frame)) : []
   );
   const { windows } = names;
+  const items = memoryItemsOf(
+    mind,
+    frame,
+    labels,
+    given.nameOf,
+    given.live,
+    given.selfreflectionIds,
+    chatIdOfInput(given),
+    handled(given) ? names.entryRefs : null
+  );
   const memory = memoryCut(given, [
-    ...memoryItemsOf(
-      mind,
-      frame,
-      labels,
-      given.nameOf,
-      given.live,
-      given.selfreflectionIds,
-      chatIdOfInput(given),
-      handled(given) ? names.entryRefs : null
-    ),
+    ...items,
+    ...(handled(given) ? strangerItemsOf(strangersOf(given, items), frame, labels) : []),
     ...factItemsOf(given.facts ?? [], labels),
   ]);
   const retired = { retired: retiredOf(given.lookups, given.isSourceRetired) };

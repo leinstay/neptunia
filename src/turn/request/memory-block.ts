@@ -75,7 +75,7 @@ export type EntryRefs = {
   place: (placeId: string) => string;
   /** The handle a one-to-one chat's path ends in, `@` included, instead of the partner's platform id. */
   partnerOf: (placeId: string) => string;
-  /** What the handle of the person she answers is cut from when memory holds no entry of them; null: the frame's ids. */
+  /** What the handle of the person she answers is cut from, the key of the account she answers; null: the frame's ids. */
   counterpartKey?: string | null;
 };
 
@@ -252,7 +252,8 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
       counterpart,
       name: person.name,
       handleIds: nativeIds(person.platformAccounts, w.frame.interface),
-      handleKey: person.personId,
+      // The person she answers by the key her lines carry (memberKeyOf), whichever row the reader found them by.
+      handleKey: counterpart ? (w.refs.counterpartKey ?? person.personId) : person.personId,
       accounts: accountsOf(person),
       ...(person.keep === true ? { keep: true } : {}),
       lower: counterpart ? [] : below(person.detail).map((detail) => personText(w, { ...person, detail }, false, now)),
@@ -285,6 +286,43 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
     });
   }
   return [...first, ...people.filter((person) => person !== found).map((person) => item(person, false))];
+}
+
+/** A member of the chat memory holds no entry of: what their handle is cut from, their platform id, name and why here. */
+export type ChatStranger = {
+  readonly key: string;
+  readonly native: string;
+  readonly name: string | null;
+  readonly evidence: 'author' | 'edge';
+};
+
+/**
+ * `<people>` entries of members of the chat memory holds nothing of (an author, a reactor of her line): the heading with
+ * `memory.origin.<evidence>` and the one account line on the turn's interface, kept whatever the budget, so everyone
+ * whose handle stands in a line has an entry.
+ */
+export function strangerItemsOf(
+  strangers: ReadonlyArray<ChatStranger>,
+  frame: FrameView,
+  labels: Labels
+): Array<MemoryItem> {
+  const w = wordsOf(labels, frame, () => null, null);
+  return strangers.map((one) => ({
+    subtag: 'people',
+    text: [
+      heading(w, one.name ?? w.unknown, w.origin[one.evidence] ?? '', false),
+      accountLine(w, frame.interface, one.native, [one.name ?? '']),
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    counterpart: false,
+    name: one.name,
+    handleIds: [one.native],
+    handleKey: one.key,
+    accounts: [{ iface: frame.interface, native: one.native }],
+    keep: true,
+    reads: [],
+  }));
 }
 
 /** A fact the retrieval service stored and the prefetch found (src/behavior/recall-facts.ts#factExcerpts). */

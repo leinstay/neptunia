@@ -233,9 +233,6 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   refLineOf: 'no memory reads in a replay: an identity outside the chat renders as unavailable',
   isSourceRetired: 'no memory reads in a replay: no <recall> block, so no source of a lookup is read',
   chatIdOf: 'no memory reads in a replay: no stored place in <memory> or <meanwhile> needs a channel handle',
-  memberKeyOf:
-    'no memory reads in a replay: a handle is cut from the platform id, as a member no account row holds has it in a live turn',
-  accountKeyOf: 'no memory reads in a replay: a member is keyed by the platform id the stand-in store holds',
   placePathOf: 'no memory reads in a replay: no stored place is named outside <surroundings>',
 });
 
@@ -593,8 +590,29 @@ export function liveView({ hot, store, placeId, calibrator }: LiveViewInput): Li
       getLore: () => store.getLore(placeId),
       getRecent: () => (typeof store.getRecent === 'function' ? store.getRecent(placeId) : null),
       selfreflectionChannelIds: () => [...selfreflectionChatIds(store)],
+      // The store's address reads, so a replayed request cuts a person's handle as a live turn does.
+      accountOf: (nativeId, iface) => accountOf(store, nativeId, iface),
+      personOfAccount: (accountId) => personOfMemberAccount(store, accountId),
     },
   };
+}
+
+/** What a replayed request cuts a member's handle from: the person the view's memory links the account to, else the account. */
+function handleKeysOf(memory: SandboxView['memory']): {
+  memberKeyOf: ((native: string) => string | null) | null;
+  accountKeyOf: (native: string) => string;
+} {
+  const accountKeyOf = (native: string): string => memory.accountOf?.(native) ?? native;
+  const personOf = memory.personOfAccount;
+  return { memberKeyOf: personOf ? (native) => personOf(accountKeyOf(native)) : null, accountKeyOf };
+}
+
+/** The person the store links an account to (store-addresses.ts#personOfAccount), null when it links none. */
+function personOfMemberAccount(store: unknown, accountId: string): string | null {
+  const read: unknown = store && typeof store === 'object' ? Reflect.get(store, 'personOfAccount') : null;
+  if (typeof read !== 'function') return null;
+  const person: unknown = Reflect.apply(read, store, [accountId]);
+  return typeof person === 'string' && person !== '' ? person : null;
 }
 
 /**
@@ -836,8 +854,8 @@ export function sandboxRequestInput({
     refLineOf: null,
     isSourceRetired: null,
     chatIdOf: null,
-    memberKeyOf: null,
-    accountKeyOf: null,
+    // What a handle is cut from, through the store's address reads (SANDBOX_STORE_READS): one handle per person.
+    ...handleKeysOf(memory),
     placePathOf: null,
   };
 }
