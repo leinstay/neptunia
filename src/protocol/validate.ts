@@ -330,6 +330,7 @@ function checkRootChanged(event: unknown) {
   const { root, change } = asRecord(event);
   need(root, 'root', (value) => isObject(value) && isId(value.id) && isString(value.name));
   need(change, 'change', isOneOf(ROOT_CHANGES), { problem: 'unknown' });
+  need(asRecord(event).joinedAt, 'joinedAt', isFiniteNumber, { required: false });
 }
 
 const EVENT_CHECKS: Record<string, (event: Rec) => void> = {

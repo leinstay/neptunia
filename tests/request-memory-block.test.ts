@@ -7,6 +7,7 @@
 // refers to without carrying its name.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { fill } from '../src/format.ts';
 import type { Mind } from '../src/memory/db/mind-read.ts';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { FrameParty } from '../src/turn/request/frame.ts';
@@ -197,4 +198,59 @@ test('a mention in a claim, a lore text, an episode, an excerpt and a place topi
   for (const word of ['ΙΣΧΥΡΙΣΜΟΣ', 'ΘΕΜΑΤΑ', 'ΘΡΥΛΟΣ', 'ΕΠΕΙΣΟΔΙΟ', 'ΑΠΟΣΠΑΣΜΑ'])
     assert.ok(all.includes(`${word} @u7ele`), `${word}: ${all}`);
   assert.doesNotMatch(all, /<@|&lt;@|\b777\b/);
+});
+
+// One logic in everything the request holds (the owner's decision of 2026-11-11): an entry of `<places>` labels the
+// purpose, the tone and the topics with the words `<place>` of `<surroundings>` uses (`surroundings.field` and
+// `surroundings.fields.*`), and says since which day she is in a root as one more field of that form,
+// `surroundings.fields.joined`, the day as `YYYY-MM-DD` in the turn's timezone (the year matters: she may have joined
+// years ago). A place with no known moment has no such line. Signature: `PlaceEntry` gains `joinedAt: number | null`.
+// The words come off the tracked labels (`surroundings.field`, `surroundings.fields.*`), so a test reads values and never
+// their wording. `surroundings.fields.joined` is the key the root's entry gets.
+function shipped(...keys: Array<string>): string {
+  let node: unknown = shippedLabels.surroundings;
+  for (const key of keys) node = typeof node === 'object' && node !== null ? Reflect.get(node, key) : undefined;
+  if (typeof node !== 'string') throw new Error(`labels.surroundings.${keys.join('.')} is missing`);
+  return node;
+}
+const FIELD = shipped('field');
+const WORDS = {
+  purpose: shipped('fields', 'purpose'),
+  tone: shipped('fields', 'tone'),
+  topics: shipped('fields', 'topics'),
+  joined: shipped('fields', 'joined'),
+};
+const fieldLine = (word: string, value: string): string => fill(FIELD, { field: word, value });
+const placesOf = (entries: Array<ReturnType<typeof placeEntry>>, timezone = 'UTC'): string =>
+  section(
+    memoryBlockOf(
+      mindOfEntries({ places: entries }),
+      frameOf(frameInput({ author: null, timezone })),
+      shippedLabels,
+      nameOf
+    ).text,
+    'places'
+  );
+
+test('an entry of <places> opens its purpose, tone and topics with the words <place> uses, as lines of their own', () => {
+  // Bug: the three fields print as bare paragraphs, so one place reads two ways in one request.
+  const entry = placeEntry('place:club', 'λέσχη', { purpose: 'ΣΚΟΠΟΣ', tone: 'ΥΦΟΣ', topics: 'ΘΕΜΑΤΑ' });
+  const lines = placesOf([entry]).split('\n');
+  for (const [word, value] of [
+    [WORDS.purpose, 'ΣΚΟΠΟΣ'],
+    [WORDS.tone, 'ΥΦΟΣ'],
+    [WORDS.topics, 'ΘΕΜΑΤΑ'],
+  ] as const)
+    assert.ok(lines.includes(fieldLine(word, value)), `${word}: ${lines.join(' | ')}`);
+  for (const value of ['ΣΚΟΠΟΣ', 'ΥΦΟΣ', 'ΘΕΜΑΤΑ']) assert.equal(lines.includes(value), false, value);
+});
+
+test('the root entry holds the day she joined in the turn timezone, a root with no moment holds none', () => {
+  // Bug: the day is cut in UTC, not in her zone, or a root with no moment prints an empty or invalid day.
+  const joinedAt = Date.parse('2026-10-03T23:30:00Z');
+  const tokyo = '2026-10-04';
+  const known = placesOf([placeEntry('place:srv', 'Αγορά', { kind: 'server', joinedAt })], 'Asia/Tokyo');
+  assert.ok(known.split('\n').includes(fieldLine(WORDS.joined, tokyo)), known);
+  const unknown = placesOf([placeEntry('place:srv', 'Αγορά', { kind: 'server' })], 'Asia/Tokyo');
+  assert.equal(unknown.includes(`${WORDS.joined}:`), false, unknown);
 });

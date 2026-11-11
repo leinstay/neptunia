@@ -5,13 +5,14 @@
 // interface's own nouns for its kinds of place; the head of the request (src/turn/request/head.ts) renders the body.
 // Pure.
 
-import { fill, formatNow } from '../../format.ts';
+import { fill, formatDay, formatNow } from '../../format.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
 import type { Frame } from './frame.ts';
+import { placeOwnText } from './text.ts';
 import type { Labels, SpatialLabels } from './types.ts';
 
-/** The labels the block reads: the locale of the clock and `labels.spatial`. */
-type SpatialTextLabels = Pick<Labels, 'locale' | 'spatial'>;
+/** The labels the block reads: the locale of the clock, `labels.spatial` and the words of a place in words. */
+type SpatialTextLabels = Pick<Labels, 'locale' | 'spatial' | 'places' | 'authors'>;
 
 /** One place of a chain: its stored id, its kind and its name (null when the store holds none). */
 export type PlaceLink = PlaceChainLink;
@@ -92,6 +93,26 @@ function linkText(
   return fill(kinds[FALLBACK_KIND] ?? '{name}', { name });
 }
 
+/**
+ * The day she joined the root at the top of the chain as a line of its own: `spatial.joined` with `{place}`, the root's
+ * own link in words (`places.link` with the interface's noun for its kind), and `{day}` as `YYYY-MM-DD` in `timezone`.
+ * '' when the root holds no known moment.
+ */
+function joinedLine(
+  chain: ReadonlyArray<PlaceLink>,
+  nouns: Readonly<Record<string, string>>,
+  labels: SpatialTextLabels,
+  timezone: string
+): string {
+  const root = chain.at(-1);
+  const joinedAt = root?.joinedAt;
+  const template = labels.spatial?.joined;
+  if (root === undefined || typeof joinedAt !== 'number' || !Number.isFinite(joinedAt) || typeof template !== 'string')
+    return '';
+  const link = placeOwnText(labels, { iface: '', chain: [root], names: { interface: '', nouns, dm: '' } });
+  return fill(template, { place: link, day: formatDay(joinedAt, timezone) });
+}
+
 /** The `private` line, then `note` with the owner's note when the place or one above it has one, each when present. */
 function privateLines(chain: ReadonlyArray<PlaceLink>, l: SpatialLabels, notes: unknown): Array<string> {
   const note = noteOf(chain, notes);
@@ -103,7 +124,8 @@ function privateLines(chain: ReadonlyArray<PlaceLink>, l: SpatialLabels, notes: 
  * then `private` and the note of its place; on her own server `server`, in her own world `world`, each with `{when}`;
  * in a place `place` with `{path}` (the chain from the place up, each link through
  * `kinds`, joined with `within`), `{iface}` and `{when}`, then `private` or `group`, then `note` with the owner's note
- * when the place or one above it has one. `{when}` is formatNow in `timezone`. '' without the labels.
+ * when the place or one above it has one. When the top of the chain holds the moment she joined it, `joined` with `{place}`
+ * (the root's link in words) and `{day}` (`YYYY-MM-DD` in `timezone`) follows the `place` line as a line of its own. `{when}` is formatNow in `timezone`. '' without the labels.
  */
 export function spatialAwarenessText(input: {
   whereabouts: Whereabouts;
@@ -132,6 +154,7 @@ export function spatialAwarenessText(input: {
       const note = noteOf(whereabouts.chain, notes);
       return [
         fill(l.place ?? '', { path, iface: whereabouts.iface, when }),
+        joinedLine(whereabouts.chain, whereabouts.nouns ?? {}, labels, timezone),
         whereabouts.private ? l.private : l.group,
         note === null ? '' : fill(l.note ?? '', { note }),
       ]

@@ -65,11 +65,13 @@ function textChannel(id: string, guild: Fake, extra: Fake = {}): Fake {
   };
 }
 
-function guildOf(id: string, name: string) {
+function guildOf(id: string, name: string, joinedTimestamp?: number) {
   const channels = new Map<string, Fake>();
   const guild: Fake = {
     id,
     name,
+    // discord.js: the moment the bot joined the guild, milliseconds since the epoch, when the gateway tells one.
+    ...(joinedTimestamp === undefined ? {} : { joinedTimestamp }),
     members: {
       me: { id: SELF_ID, displayName: 'Neptunia' },
       cache: new Map<string, Fake>(),
@@ -115,12 +117,14 @@ function messageIn(id: string, channel: Fake, guild: Fake): Fake {
 function harness(
   options: {
     botGuildId?: string;
+    /** `joinedTimestamp` of the first guild (g1); the second (g2) never has one. */
+    firstJoinedAt?: number;
     env?: Record<string, string | undefined>;
     servers?: Array<string>;
     twoGuilds?: boolean;
   } = {}
 ) {
-  const first = guildOf('g1', 'Alpha');
+  const first = guildOf('g1', 'Alpha', options.firstJoinedAt);
   const c1 = textChannel('c1', first.guild);
   const c2 = textChannel('c2', first.guild);
   const c3 = textChannel('c3', first.guild, { permissionsFor: () => ({ has: () => false }) });
@@ -240,6 +244,22 @@ test('says hello with the only guild the bot is in as its root when bot.guildId 
 test('says hello with the configured guild as its root when the bot is in two and bot.guildId names one', async () => {
   await withSession({ twoGuilds: true, botGuildId: 'g2' }, async (h) => {
     assert.deepEqual((await h.link.hello).root, { id: 'g2', name: 'Beta' });
+  });
+});
+
+test("says hello with each root's join moment from the guild's joinedTimestamp, and omits it when the guild has none", async () => {
+  // Bug: the hello drops the moment the platform tells, or invents one (`joinedAt: undefined`, 0) for a guild that has none.
+  const joinedAt = Date.parse('2026-10-03T10:00:00Z');
+  await withSession({ twoGuilds: true, firstJoinedAt: joinedAt }, async (h) => {
+    const roots = (await h.link.hello).roots ?? [];
+    assert.deepEqual(
+      roots.find((one) => one.id === 'g1'),
+      { id: 'g1', name: 'Alpha', joinedAt }
+    );
+    assert.deepEqual(
+      roots.find((one) => one.id === 'g2'),
+      { id: 'g2', name: 'Beta' }
+    );
   });
 });
 
@@ -618,6 +638,21 @@ test('turns GuildCreate into a root.changed that joined, with the guild id and n
     assert.equal(event.change, 'joined');
     assert.deepEqual(event.root, { id: 'g5', name: 'Epsilon' });
     assert.deepEqual(validateEvent(event), { ok: true });
+  });
+});
+
+test('turns GuildCreate of a guild with a joinedTimestamp into a root.changed carrying joinedAt, and none without', async () => {
+  // Bug: the moment the platform gives for a server she was just added to is lost, so its day is never stored.
+  const joinedAt = Date.parse('2026-11-11T09:00:00Z');
+  await withSession({}, async (h, running) => {
+    running.open();
+    h.client.emit(Events.GuildCreate, guildOf('g5', 'Epsilon', joinedAt).guild);
+    h.client.emit(Events.GuildCreate, guildOf('g6', 'Zeta').guild);
+    await until(() => h.events('root.changed').length >= 2);
+    const [first, second] = h.events('root.changed');
+    assert.equal(first?.joinedAt, joinedAt);
+    assert.deepEqual(validateEvent(first ?? {}), { ok: true });
+    assert.equal(second !== undefined && 'joinedAt' in second, false);
   });
 });
 

@@ -1,4 +1,4 @@
-// The places of the roots an interface names in `hello` (`root` and `roots`, each `{ id, name }`,
+// The places of the roots an interface names in `hello` (`root` and `roots`, each `{ id, name, joinedAt? }`,
 // src/protocol/envelope.ts). The core takes every hello (src/core.ts) and writes the whole list it carried through the
 // one writer, as `{ kind: 'roots', iface, roots, at }` (session-write.ts, `applyRootsWrite`).
 //
@@ -6,7 +6,9 @@
 //     Each root is the server place `<iface>:server:<id>` (kind `server`, authority `<iface>/global`, or the
 //     server place the database already holds for that native id). A missing place is created, with the name when the
 //     hello gave one; a retired place is revived; a name differing from the stored one renames it, and an empty name
-//     keeps the stored one. A root the hello leaves out is not touched.
+//     keeps the stored one. A root the hello leaves out is not touched. The moment the bot joined a root
+//     (`joinedAt`, a finite number of milliseconds) is kept in the place's `extra` as `joinedAt`; a hello or an
+//     event that carries none leaves the stored one as it is, and one that carries it writes it.
 //     `names` is what the hello says of the interface itself (`hello.names`: `{ interface, nouns, dm }`): `interfaces.name`
 //     becomes its `interface`, and its nouns of the kinds of place and its word for a direct chat go to
 //     `interfaces.extra` (`{ nouns, dm }`), where the name index reads the nouns (names.ts). A hello without names leaves
@@ -22,7 +24,8 @@ import type { InterfaceNames } from '../../protocol/serve.ts';
 
 export type { InterfaceNames };
 
-export type Root = { id: string; name: string };
+/** A root of a hello or an event: `joinedAt` is the moment the bot joined it, milliseconds since the epoch, when the platform tells one. */
+export type Root = { id: string; name: string; joinedAt?: number };
 
 /** Whether `value` is the names a hello carries: a name, nouns by kind of place, and a word for a direct chat. */
 export function isInterfaceNames(value: unknown): value is InterfaceNames {
@@ -52,6 +55,23 @@ function noteInterfaceNames(db: Db, iface: string, names: InterfaceNames | undef
   touchNames(db, 'interfaces', iface);
 }
 
+/** The moment a root place was joined, from its `extra`; null when it holds none. */
+function joinedAtOf(db: Db, placeId: string): number | null {
+  const row = db
+    .prepare(
+      "SELECT CASE WHEN json_valid(extra) THEN json_extract(extra, '$.joinedAt') END AS joined FROM places WHERE id = ?"
+    )
+    .get(placeId);
+  return typeof row?.joined === 'number' ? row.joined : null;
+}
+
+/** Writes the moment a root was joined into the place's `extra`, the rest of its `extra` kept. */
+function keepJoinedAt(db: Db, placeId: string, joinedAt: number): void {
+  db.prepare(
+    "UPDATE places SET extra = json_set(CASE WHEN json_valid(extra) THEN extra ELSE '{}' END, '$.joinedAt', ?) WHERE id = ?"
+  ).run(joinedAt, placeId);
+}
+
 /** Writes the places of the roots one hello named, in one transaction. */
 export function noteRoots(
   handle: MemoryHandle,
@@ -65,6 +85,7 @@ export function noteRoots(
       const native = asText(root.id);
       if (native === '') continue;
       const name = asText(root.name ?? '').trim();
+      const joinedAt = typeof root.joinedAt === 'number' && Number.isFinite(root.joinedAt) ? root.joinedAt : null;
       const probe: Row = {
         id: topPlaceSpelled(iface, native),
         iface,
@@ -91,13 +112,16 @@ export function noteRoots(
           cols.chat
         );
         addKey(db, cols.authority_id, 'place', cols.native_key, probe.id, { at });
+        if (joinedAt !== null) keepJoinedAt(db, asText(probe.id), joinedAt);
       } else {
         const renamed = name !== '' && name !== found.name;
-        if (!renamed && found.retired_at === null) continue;
+        const moved = joinedAt !== null && joinedAtOf(db, asText(found.id)) !== joinedAt;
+        if (!renamed && !moved && found.retired_at === null) continue;
         db.prepare('UPDATE places SET name = ?, retired_at = NULL WHERE id = ?').run(
           renamed ? name : found.name,
           asText(found.id)
         );
+        if (joinedAt !== null) keepJoinedAt(db, asText(found.id), joinedAt);
       }
       projectRow(db, 'places', { id: found?.id ?? probe.id }, { at });
       noted += 1;

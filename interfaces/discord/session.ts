@@ -88,13 +88,25 @@ function chatChangedEvent(change: 'created' | 'updated' | 'deleted', channel: Ob
   };
 }
 
-function rootChangedEvent(change: 'joined' | 'left', root: { id: string; name: string }, at: number) {
+/** `{ joinedAt }` when the gateway tells the moment the bot joined `guild` (a finite number of ms), else nothing. */
+function joinedOf(guild: Obj | undefined | null): { joinedAt?: number } {
+  const moment = guild?.joinedTimestamp;
+  return typeof moment === 'number' && Number.isFinite(moment) ? { joinedAt: moment } : {};
+}
+
+function rootChangedEvent(
+  change: 'joined' | 'left',
+  root: { id: string; name: string },
+  at: number,
+  joined: { joinedAt?: number } = {}
+) {
   return {
     kind: 'root.changed',
     iface: DISCORD_IFACE,
     at,
     id: `${DISCORD_IFACE}:root:${root.id}:${change}:${at}`,
     root,
+    ...joined,
     change,
   };
 }
@@ -188,7 +200,11 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const guildById = (id: string): Obj | null => guildCache.get(id) ?? null;
   // The first server names the persona in `hello`; her name in the others comes with each of their events.
   const guildNow = (): Obj | null => guildById(servedIds()[0] ?? '');
-  const rootOf = (id: string) => ({ id, name: guildsNow().find((guild) => guild.id === id)?.name ?? '' });
+  const rootOf = (id: string) => ({
+    id,
+    name: guildsNow().find((guild) => guild.id === id)?.name ?? '',
+    ...joinedOf(guildById(id)),
+  });
   const selfId = (): string | null => client.user?.id ?? null;
 
   const discord = createDiscordInterface({ client, config });
@@ -363,7 +379,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
 
   // A server the bot joins or leaves is told to the core, which serves it from then on or stops serving it.
   on(Events.GuildCreate, (guild: Obj) => {
-    inbound('root.changed', () => rootChangedEvent('joined', named(guild), Date.now()));
+    inbound('root.changed', () => rootChangedEvent('joined', named(guild), Date.now(), joinedOf(guild)));
     joinGuild(String(guild.id));
   });
   on(Events.GuildDelete, (guild: Obj) => {

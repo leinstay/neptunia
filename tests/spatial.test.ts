@@ -243,3 +243,33 @@ test('whereaboutsOfFrame carries the partner handle of a direct chat, and a grou
     partner: '@uzoe1',
   });
 });
+
+// The day she joined the root (the owner's decision of 2026-11-11). A link of the chain may carry `joinedAt?: number |
+// null` (`PlaceLink`, set by the chain read for a root with a known moment). `<spatial_awareness>` of a place whose chain
+// holds one says it as a line of its own, `labels.spatial.joined` filled with `{root}` (the root's link in words as
+// `places.link` gives it: the interface's noun from `whereaboutsOfFrame(frame, nouns)` and the quoted name) and `{day}`
+// (`YYYY-MM-DD` in the turn's timezone). A chain with no moment says nothing of it.
+test('a place under a root with a known moment says the day she joined, in the turn timezone', () => {
+  // Bug: the day is cut in UTC, not in her zone, or the moment never reaches the text and she cannot say since when she is here.
+  const joinedAt = Date.parse('2026-10-03T23:30:00Z');
+  // 23:30 UTC on the 3rd is already the 4th in Tokyo.
+  const frame = frameOf(frameInput({ interface: 'discord', chain: [CHANNEL, { ...SERVER, joinedAt }] }));
+  const text = spatialAwarenessText({
+    whereabouts: whereaboutsOfFrame(frame, { server: 'guild' }),
+    now: NOW,
+    timezone: 'Asia/Tokyo',
+    labels,
+    notes: {},
+  });
+  assert.ok(text.split('\n').includes('SPATIAL-JOINED guild "Example Server" 2026-10-04'), text);
+});
+
+test('a place under a root with no known moment says nothing of a day', () => {
+  // Bug: a root the store has no moment for prints an invalid or empty day line.
+  for (const joinedAt of [null, undefined]) {
+    const root: PlaceLink = joinedAt === undefined ? SERVER : { ...SERVER, joinedAt };
+    assert.equal(textOf([CHANNEL, root]).includes('SPATIAL-JOINED'), false, String(joinedAt));
+  }
+  const withMoment = textOf([CHANNEL, { ...SERVER, joinedAt: Date.parse('2026-10-03T10:00:00Z') }]);
+  assert.ok(withMoment.includes('SPATIAL-JOINED'), withMoment);
+});

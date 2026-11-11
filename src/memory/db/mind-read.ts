@@ -84,6 +84,8 @@ export type PlaceEntry = EntryBase & {
   purpose: string | null;
   tone: string | null;
   topics: string | null;
+  /** The moment she joined the place, milliseconds since the epoch: a root's, null when the store knows none. */
+  joinedAt: number | null;
   ownLines: number;
   ownLastAt: string | null;
   /** True for a place the reader keeps whatever its room: the turn's own place and a place the answered line names. */
@@ -992,6 +994,7 @@ function placeOf(
     purpose: descriptions.get('purpose')?.text ?? null,
     tone: descriptions.get('tone')?.text ?? null,
     topics: descriptions.get('topics')?.text ?? null,
+    joinedAt: joinedAtOfPlace(db, placeId),
     ownLines: Number(mine?.n ?? 0),
     ownLastAt: text(mine?.last),
     ...(raised.keep ? { keep: true } : {}),
@@ -1010,6 +1013,16 @@ function placeOf(
       .join('\n');
   };
   return { subtag: 'places', raised, entry, render };
+}
+
+/** The moment she joined a place, from the `joinedAt` its `extra` holds; null when it holds none. */
+function joinedAtOfPlace(db: Db, placeId: string): number | null {
+  const row = db
+    .prepare(
+      "SELECT CASE WHEN json_valid(extra) THEN json_extract(extra, '$.joinedAt') END AS joined FROM places WHERE id = ?"
+    )
+    .get(placeId);
+  return typeof row?.joined === 'number' && Number.isFinite(row.joined) ? row.joined : null;
 }
 
 function baseOf(raised: Raised): EntryBase {

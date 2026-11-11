@@ -28,7 +28,7 @@
 //   { kind: 'context', context }
 //       One `execution_contexts` row (scope.ts#contextRow of a context the core issued); a context already recorded is
 //       left as it is. Not a memory write: no mode.
-//   { kind: 'roots', iface, roots: [{ id, name }], at, names? }
+//   { kind: 'roots', iface, roots: [{ id, name, joinedAt? }], at, names? }
 //       The places of the roots a `hello` named (roots.ts#noteRoots). Not a memory write: no mode.
 //   { kind: 'wake', op, ... } | { kind: 'skills', op, ... } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
 //       Schema v11: handed to wakes.ts#applyWakeWrite, skills.ts#applySkillsWrite and index-policy.ts#applyIndexWrite.
@@ -155,6 +155,7 @@ import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './selfreflection-media.ts';
 import { applyPlaceAddress } from './observe.ts';
 import { isInterfaceNames, noteRoots } from './roots.ts';
+import type { Root } from './roots.ts';
 import { applyMediaEmbed } from './media-store.ts';
 import { applyIngestWrite } from './ingest.ts';
 import { applyWakeQueueWrite } from './wake-queue.ts';
@@ -1004,7 +1005,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
     (handle, update) =>
       noteRoots(handle, {
         iface: asText(update.iface),
-        roots: Array.isArray(update.roots) ? (update.roots as Array<{ id: string; name: string }>) : [],
+        roots: Array.isArray(update.roots) ? (update.roots as Array<Root>) : [],
         at: typeof update.at === 'string' ? update.at : new Date().toISOString(),
         ...(isInterfaceNames(update.names) ? { names: update.names } : {}),
       }),

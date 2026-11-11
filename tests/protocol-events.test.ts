@@ -343,3 +343,14 @@ test('refuses a root.changed event with an unknown change or a root with no id',
   assert.deepEqual(validateEvent({ ...rootChanged, change: 'banned' }), refusal('change:unknown'));
   assert.deepEqual(validateEvent({ ...rootChanged, root: { id: '', name: 'Gamma' } }), refusal('root:type'));
 });
+
+// The moment the bot joined the root (`joinedAt`, milliseconds since the epoch, optional). Its bad value is refused
+// with `joinedAt:type`, as every other optional field of an event is (`name:type` of a voice event).
+test('a root.changed event takes a joinedAt number or none, and refuses any other joinedAt', () => {
+  // Catches: a text or a NaN written to the root's place as the day she joined, or the core refusing the event of a
+  // platform that does tell when the bot joined.
+  assert.deepEqual(validateEvent({ ...rootChanged, joinedAt: 1790000000000 }), { ok: true });
+  assert.deepEqual(validateEvent(rootChanged), { ok: true });
+  for (const joinedAt of ['2026-10-03', null, Number.NaN, true])
+    assert.deepEqual(validateEvent({ ...rootChanged, joinedAt }), refusal('joinedAt:type'), String(joinedAt));
+});
