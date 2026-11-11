@@ -8,10 +8,12 @@
 // (`reply`), the person she answers (`counterpart`), the authors of the window (`author`), the current place and the
 // places of the window (`place`), what an edge ties to an entry, the previous turns' seeds, the finds of the prefetch
 // and the query and her own recent places (`edge`), a word of the window that matches a name of the index (`word`,
-// names.ts), and a name found in the claims of an entry rendered whole (`prose`). A word is matched exact, then by stems, then by trigrams. A
-// word naming more than `commonWordEntries` entries raises none; several are first narrowed to the people present and
-// the places under the current root, and what stays ambiguous, or matched by stem or trigram only, is raised as a
-// candidate. An interface's noun for a kind of place raises the places of that kind on that interface instead.
+// names.ts), and a name found in the claims of an entry rendered whole (`prose`). The lines she sees beyond the window
+// (`seen`) raise their authors and places alone. A word is matched exact, then by stems, then by trigrams. A word
+// naming more than `commonWordEntries` entries raises none; several are first narrowed to the people present and the
+// places under the current root. One exact match, or one stem match among those, is the entry the word names; what
+// stays ambiguous, or is matched by trigram or by stem elsewhere, is raised as a candidate. An interface's noun for a
+// kind of place raises the places of that kind on that interface instead.
 //
 // The listed paths, each one query that orders before it limits, over live edges whose audience the context reads, to
 // nodes the context may see (`node_access`, a place by its own audience): an account to its person and back to the
@@ -26,7 +28,7 @@
 // (`budgetTokens`, split by `shares`, an unused share lent to a full one) keeps entries by rank: evidence, hops, the
 // newest anchor, her affinity, the id; an entry that does not fit drops to a lower detail, else it is left out and
 // counted in `leftOut`. The counterpart, the authors of the window, the current place and what the trigger names
-// natively or by an exact name are kept whatever the budget, at the detail that fits or as a name.
+// natively or by a word that names one entry are kept whatever the budget, at the detail that fits or as a name.
 
 import { estimateTokens } from '../../llm/tokens.ts';
 import { indexWords } from '../record-index.ts';
