@@ -12,7 +12,7 @@
 // line before its text.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addClaim, addDm, addLine, addPerson } from './fixtures/memory-db/mind-world.ts';
+import { addClaim, addDm, addLine, addPerson, noteInterface } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 import { OWNER_PERSON } from './fixtures/owner-accounts.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
@@ -523,4 +523,26 @@ test('the handles of the entries of a request are unique', async () => {
   const handles = entryHandles(requestOf(run, 1, 0));
   assert.ok(handles.length >= 3, handles.join(' '));
   assert.equal(new Set(handles).size, handles.length, handles.join(' '));
+});
+
+test("<place> of a turn in a direct chat reads the interface's word for it and the partner's handle, never an unnamed place", async () => {
+  // Bug (replay of 2026-11-11): the turn's own place read `#c…: "(unnamed)", interface "CLI"`, because the request handed
+  // the body of `<place>` something other than the direct chat the stored place is.
+  const world = handleWorld();
+  noteInterface(world, 'cli', [], { interface: 'CLI', nouns: {}, dm: 'terminal chat' });
+  let request: string;
+  try {
+    const run = await replyRun({
+      world,
+      chat: CLI_CHAT,
+      steps: [{ trigger: ownerSays('m1', LINE.ownerCli, TURN_NOW - MIN), answers: [SAY] }],
+    });
+    request = requestOf(run, 0, 0);
+  } finally {
+    world.close();
+  }
+  const place = blockOf(blockOf(request, 'surroundings'), 'place');
+  assert.ok(place.includes('terminal chat'), place);
+  assert.match(place, /@u[0-9a-z]+/, 'the partner is named by handle');
+  assert.doesNotMatch(place, /unnamed/);
 });
