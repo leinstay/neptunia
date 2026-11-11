@@ -24,12 +24,13 @@ export type BlockName =
   | 'self'
   | 'surroundings'
   | 'memory'
-  | 'recall'
-  | 'inner'
   | 'meanwhile'
   | 'virtual_world'
-  | 'spatial_awareness'
   | 'chat'
+  | 'recall'
+  | 'found'
+  | 'inner'
+  | 'spatial_awareness'
   | 'task';
 
 /** A place of the frame. `path` runs from the interface down by names, a one-to-one chat's ends in the partner's native id. */
@@ -137,16 +138,20 @@ export function kindOfRequest(given: {
   return given.frame?.kind ?? turnKindOf(given.mode, given.triggerKind ?? null, given.wakeKind ?? null);
 }
 
+// Each list is the printed order, laid out for the prompt cache: what repeats between two turns of one place first,
+// the turn's own blocks after `<chat>`, and `<task>` last (the owner's decision of 2026-11-11). `<recall>` stands
+// below `<chat>` because its numbers are counted past the chat's and its lookups leave by age.
 const ORDINARY: ReadonlyArray<BlockName> = Object.freeze([
   'persona',
   'self',
   'surroundings',
   'memory',
-  'recall',
-  'inner',
   'meanwhile',
-  'spatial_awareness',
   'chat',
+  'recall',
+  'found',
+  'inner',
+  'spatial_awareness',
   'task',
 ] as const);
 
@@ -154,9 +159,10 @@ const SERVICE: ReadonlyArray<BlockName> = Object.freeze([
   'persona',
   'self',
   'memory',
-  'recall',
-  'inner',
   'meanwhile',
+  'recall',
+  'found',
+  'inner',
   'spatial_awareness',
   'task',
 ] as const);
@@ -165,10 +171,11 @@ const SELFREFLECTION: ReadonlyArray<BlockName> = Object.freeze([
   'persona',
   'self',
   'memory',
-  'recall',
-  'inner',
   'meanwhile',
   'virtual_world',
+  'recall',
+  'found',
+  'inner',
   'spatial_awareness',
   'task',
 ] as const);
