@@ -115,6 +115,20 @@ export function formatDate(ts: number, timezone: string, locale: string = 'en-US
 }
 
 /**
+ * The calendar day of `ts` in `timezone` as `YYYY-MM-DD`: the year included, for a day that may lie years back.
+ * @param ts  epoch milliseconds
+ * @param timezone  IANA zone
+ */
+export function formatDay(ts: number, timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(ts);
+}
+
+/**
  * The full "now" of `ts` in `timezone`: long weekday, day, month and year in
  * `locale`, then the clock (formatClock) and the zone name in parentheses.
  * @param ts  epoch milliseconds

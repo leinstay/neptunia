@@ -7,15 +7,15 @@
 // under `labels.roots`, which names a root by the interface's own noun and quotes no command itself. Built by
 // src/core.ts; the commands are src/interface/commands/interfaces-roots.ts.
 
-import { fill } from '../format.ts';
+import { fill, formatDay } from '../format.ts';
 import { log } from '../log.ts';
 import type { RootRoutes } from '../core-routing.ts';
 import type { RootChanged } from '../protocol/events.ts';
 import type { ReadAnswer } from './reads.ts';
 
-export type Named = { id: string; name: string };
+export type Named = { id: string; name: string; joinedAt?: number };
 export type RootState = 'served';
-export type RootRow = { id: string; name: string | null; state: RootState };
+export type RootRow = { id: string; name: string | null; state: RootState; joinedAt: number | null };
 export type JoiningAnswer = { text: string; status: 'ok' | 'invalid' | 'failed'; code?: string };
 /** Whether the interface has a stored token, is enabled by the owner, and has a link up now. */
 export type InterfaceState = { token: boolean; enabled: boolean; connected: boolean };
@@ -62,12 +62,13 @@ const REPAIRS: Readonly<Record<string, (iface: string) => string>> = {
 
 export function createRootJoining(deps: RootJoiningDeps): RootJoining {
   const { hot, routes } = deps;
-  /** The last name each interface reported for a root, for the list. */
-  const names = new Map<string, Map<string, string>>();
+  /** The last name and the moment of joining each interface reported for a root, for the list. */
+  const names = new Map<string, Map<string, { name: string; joinedAt: number | null }>>();
 
+  /** Keeps the name an event gave and, when it gave one, the moment of joining; a later event with none leaves the one kept. */
   const rememberName = (iface: string, root: Named): void => {
-    const known = names.get(iface) ?? new Map<string, string>();
-    known.set(root.id, root.name);
+    const known = names.get(iface) ?? new Map<string, { name: string; joinedAt: number | null }>();
+    known.set(root.id, { name: root.name, joinedAt: root.joinedAt ?? known.get(root.id)?.joinedAt ?? null });
     names.set(iface, known);
   };
 
@@ -87,6 +88,13 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
     return fill(labelOf(hot.prompts, ...path), values);
   }
 
+  /** `labels.roots.since` with the day she joined as `YYYY-MM-DD` (UTC), '' for a root with no known moment. */
+  function sinceOf(joinedAt: number | null): string {
+    if (joinedAt === null) return '';
+    const day = formatDay(joinedAt, 'UTC');
+    return fill(labelOf(hot.prompts, 'since'), { day });
+  }
+
   function refusal(code: string, iface: string): JoiningAnswer {
     const repair = REPAIRS[code]?.(iface) ?? '';
     const text = say(['refused', code], iface, {}, { repair });
@@ -104,7 +112,8 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
   }
 
   function rootChanged(event: RootChanged): RootState | null {
-    const { iface, root, change } = event;
+    const { iface, change } = event;
+    const root: Named = { ...event.root, ...(typeof event.joinedAt === 'number' ? { joinedAt: event.joinedAt } : {}) };
     rememberName(iface, root);
     const served = routes.rootsOf(iface);
     if (change === 'left') {
@@ -123,8 +132,12 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
   }
 
   function rows(iface: string): Array<RootRow> {
-    const nameOf = (id: string): string | null => names.get(iface)?.get(id) ?? null;
-    return routes.rootsOf(iface).map((id): RootRow => ({ id, name: nameOf(id), state: 'served' }));
+    return routes.rootsOf(iface).map((id): RootRow => ({
+      id,
+      name: names.get(iface)?.get(id)?.name ?? null,
+      state: 'served',
+      joinedAt: names.get(iface)?.get(id)?.joinedAt ?? null,
+    }));
   }
 
   async function invite(iface: string): Promise<JoiningAnswer> {
@@ -150,7 +163,7 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
         ['row'],
         iface,
         { id: row.id, name: row.name ?? '' },
-        { state: labelOf(hot.prompts, 'state', row.state) }
+        { state: labelOf(hot.prompts, 'state', row.state), since: sinceOf(row.joinedAt) }
       ).trim()
     );
     return { text: lines.join('\n'), status: 'ok' };

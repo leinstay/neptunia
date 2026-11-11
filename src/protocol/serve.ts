@@ -35,7 +35,7 @@ import type { Envelope, Transport } from './wire.ts';
 export type AckStatus = 'ok' | 'duplicate' | 'invalid' | 'unhandled' | 'failed';
 
 /** Who an interface says it is: an id and the name people see. */
-export type Named = { id: string; name: string };
+export type Named = { id: string; name: string; joinedAt?: number };
 
 /** An interface's own names: `interface` its name, `nouns` its word per kind of place, `dm` its word for a direct chat. */
 export type InterfaceNames = { interface: string; nouns: Readonly<Record<string, string>>; dm: string };

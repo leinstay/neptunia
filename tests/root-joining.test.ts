@@ -222,6 +222,43 @@ test('the commands the answers name put the interface first and run what they sa
   );
 });
 
+// The day she joined a root (the owner's decision of 2026-11-11). `RootChanged` gains `joinedAt?: number` (milliseconds
+// since the epoch), `Named` gains `joinedAt?: number`, and `labels.roots.row` gains the placeholder `{since}`: the
+// `labels.roots.since` label filled with `{day}` (`YYYY-MM-DD`), or '' for a root with no known moment.
+const JOINED = Date.parse('2026-10-03T10:00:00Z');
+const SINCE_LABELS = {
+  roots: { ...LABELS.roots, row: '{id} {name} {since}', since: 'SINCE {day}' },
+};
+const withMoment = (event: RootChanged, joinedAt: number): RootChanged => ({ ...event, joinedAt });
+
+test('a root joined with a moment is written with it, and one with none is written as before', () => {
+  // Catches: the moment dropped between the event and the writer, or a `joinedAt: undefined` key that blanks the stored day.
+  const { joining, noted } = rig();
+  joining.rootChanged(withMoment(rootEvent('joined', 'g8', 'Theta'), JOINED));
+  joining.rootChanged(rootEvent('joined', 'g9', 'Iota'));
+  assert.deepEqual(noted, [[{ id: 'g8', name: 'Theta', joinedAt: JOINED }], [{ id: 'g9', name: 'Iota' }]]);
+});
+
+test('list shows the day beside a root that has a moment and nothing beside one that has none', () => {
+  // Catches: the day missing from the owner's list, or printed for a root whose moment nobody knows.
+  const { joining } = rig({ labels: SINCE_LABELS });
+  joining.rootChanged(withMoment(rootEvent('joined', 'g8', 'Theta'), JOINED));
+  joining.rootChanged(rootEvent('joined', 'g9', 'Iota'));
+  const lines = joining.roots(IFACE).text.split('\n');
+  const theta = lines.find((line) => line.includes('Theta')) ?? '';
+  const iota = lines.find((line) => line.includes('Iota')) ?? '';
+  assert.ok(theta.includes('SINCE 2026-10-03'), theta);
+  assert.equal(iota.includes('SINCE'), false, iota);
+});
+
+test('a later event with no moment leaves the day the list shows for the root', () => {
+  // Catches: a root found again at a restart, which cannot tell its day, losing the one it was joined with.
+  const { joining } = rig({ labels: SINCE_LABELS });
+  joining.rootChanged(withMoment(rootEvent('joined', 'g8', 'Theta'), JOINED));
+  joining.rootChanged(rootEvent('present', 'g8', 'Theta'));
+  assert.ok(joining.roots(IFACE).text.includes('SINCE 2026-10-03'), joining.roots(IFACE).text);
+});
+
 // ---- the core, the fake interface unit and the command line ------------------------------------------------------
 
 /** The fake interface as an authored package with its token stored. */

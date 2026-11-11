@@ -58,6 +58,7 @@ export function placeEntry(placeId: string, name: string, over: Partial<PlaceEnt
     purpose: null,
     tone: null,
     topics: null,
+    joinedAt: null,
     ownLines: 0,
     ownLastAt: null,
     ...over,

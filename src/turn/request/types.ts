@@ -132,6 +132,8 @@ export type SpatialLabels = {
   readonly cli?: string;
   readonly server?: string;
   readonly world?: string;
+  /** The day she joined the root at the top of the chain: `{root}` its link in words, `{day}` as `YYYY-MM-DD`. */
+  readonly joined?: string;
   readonly answers?: string;
   readonly answersOutside?: string;
   /** The interfaces she runs on, on a turn that is nowhere: `{interfaces}`. */

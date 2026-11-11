@@ -6,7 +6,7 @@
 // id), `type` one of ENVELOPE_TYPES, `replyTo` the id of the envelope this one answers (null for
 // the first of a chat), `body` the type's payload, and `seq` the number an interface with an
 // outbox gives each event it sends (src/protocol/outbox.ts), counted per client from 1:
-//   hello          { iface, self: { id, name }, root: { id, name }|null, roots?: [{ id, name }], names?: { interface, nouns: { [kind]: noun }, dm }, capabilities?: string[]|object, resume?: string|null, token?: string }  who is speaking, who the persona is there, the root it serves, what the interface calls itself and its places, what it offers
+//   hello          { iface, self: { id, name }, root: { id, name, joinedAt? }|null, roots?: [{ id, name, joinedAt? }], names?: { interface, nouns: { [kind]: noun }, dm }, capabilities?: string[]|object, resume?: string|null, token?: string }  who is speaking, who the persona is there, the root it serves, what the interface calls itself and its places, what it offers
 //   event          an inbound event (events.ts)                           interface -> core
 //   ack            { status: 'ok'|'duplicate'|'invalid'|'unhandled'|'failed', reason?, ackedSeq? }  the event is taken (or not); the answer to hello carries the client's watermark
 //   action         an outbound action (actions.ts)                        core -> interface
@@ -31,6 +31,12 @@ const isEnvelopeType = (value: unknown): boolean => ENVELOPE_TYPES.some((type) =
 const isAckStatus = (value: unknown): boolean => ACK_STATUSES.some((status) => status === value);
 /** An id with a display name: `{ id, name }`. */
 const isNamed = (value: unknown): boolean => isObject(value) && isId(value.id) && typeof value.name === 'string';
+/** A root: `{ id, name }` and, when the platform tells it, `joinedAt` as a finite number of milliseconds. */
+const isRoot = (value: unknown): boolean => {
+  if (!isNamed(value)) return false;
+  const joinedAt = (value as Record<string, unknown>).joinedAt;
+  return joinedAt === undefined || (typeof joinedAt === 'number' && Number.isFinite(joinedAt));
+};
 
 /** An interface's own names: a name, a noun per kind of place and a word for a direct chat, all strings. */
 const isNames = (value: unknown): boolean =>
@@ -58,9 +64,9 @@ export function ackOf(of: string | { id: string }, status: string, reason?: stri
 
 /** The names a `hello` body gives: the root it serves, the others it serves, and the interface's own names. */
 function checkHelloNames(body: Record<string, unknown>): { ok: true } | { ok: false; reason: string } {
-  if (body.root !== undefined && body.root !== null && !isNamed(body.root))
+  if (body.root !== undefined && body.root !== null && !isRoot(body.root))
     return { ok: false, reason: 'body.root:type' };
-  if (body.roots !== undefined && !(Array.isArray(body.roots) && body.roots.every(isNamed)))
+  if (body.roots !== undefined && !(Array.isArray(body.roots) && body.roots.every(isRoot)))
     return { ok: false, reason: 'body.roots:type' };
   if (body.names !== undefined && !isNames(body.names)) return { ok: false, reason: 'body.names:type' };
   return { ok: true };

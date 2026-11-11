@@ -2794,7 +2794,11 @@ function buildStore({
      * names the hello says of the interface itself (src/memory/db/roots.ts). A failed write is logged; the next
      * hello writes them again.
      */
-    noteRoots(iface: string, roots: ReadonlyArray<{ id: string; name: string }>, names?: InterfaceNames): void {
+    noteRoots(
+      iface: string,
+      roots: ReadonlyArray<{ id: string; name: string; joinedAt?: number }>,
+      names?: InterfaceNames
+    ): void {
       if (typeof memoryDb.memoryWrite !== 'function') return;
       void Promise.resolve(
         memoryDb.memoryWrite({
