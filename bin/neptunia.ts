@@ -25,7 +25,8 @@
 //   neptunia subharness <backend> login|status|logout   its account, with no core (src/subharness/account.ts)
 //   neptunia tasks <command> [options]           the task board's command line (bin/neptunia-task.ts)
 //
-// Every command reads `NEPTUNIA_DATA_DIR` (the data folder), as the core does (src/paths.ts). A usage error exits 2.
+// Every command reads `NEPTUNIA_DATA_DIR` (the data folder), as the core does (src/paths.ts). A usage error exits 2,
+// and so does an `/interfaces` line refused by the table or naming no interface, with every interface name on stderr.
 //
 // The chat is the `cli` interface, started with `start(host)` of interfaces/cli/link.ts. It connects to the core's
 // socket `<data>/run/core.sock` with the token of the client `cli` (`<private>/clients/cli.token`,
@@ -94,7 +95,7 @@ import readline from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { interfaceCredential, tokenVariableOf } from '../src/config/files.ts';
-import { interfacePackageDir } from '../src/config/files.ts';
+import { interfacePackageDir, interfacePackageNames } from '../src/config/files.ts';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
 import { createAgentEngine } from '../src/agent-runner/backend.ts';
@@ -128,7 +129,7 @@ import {
 } from '../src/config/files.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
-import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
+import { COMMANDS, UNKNOWN_INTERFACE, parseCommandLine } from '../src/interface/commands/table.ts';
 import type {
   ChatAttachment,
   ChatEntry,
@@ -424,9 +425,24 @@ async function requireCliLink(print: ((text: string) => void) | null): Promise<C
   }
 }
 
+/**
+ * A refused `/interfaces` line with every interface name: the ones the core lists when it listens, and the installed
+ * packages either way.
+ */
+async function withInterfaceNames(reason: string): Promise<string> {
+  const link = await tryCliLink();
+  const listed = link === null ? null : await link.ask({ name: 'interfaces.list', args: {} });
+  link?.close();
+  const fromCore =
+    listed?.status === 'ok' ? listed.text.split('\n').map((line) => line.trim().split(/\s+/)[0] ?? '') : [];
+  const names = [...new Set([...fromCore, ...interfacePackageNames(ROOT_DIR, paths().dataDir)])].filter(Boolean).sort();
+  return `${reason}; interfaces: ${names.length === 0 ? 'none is known' : names.join(', ')}`;
+}
+
 /** One parsed command to its answer: the direct form and `-p` with a slash. */
 async function runCommand({ parsed, secretStdin }: Request): Promise<never> {
-  if (!parsed.ok) return refuseSyntax(parsed.reason);
+  if (!parsed.ok)
+    return refuseSyntax(parsed.command === 'interfaces' ? await withInterfaceNames(parsed.reason) : parsed.reason);
   const named = { name: parsed.name, args: parsed.args };
   const account = accountRequest(named.name);
   if (account !== null) return finish(await runAccount(account, named.args));
@@ -453,6 +469,8 @@ async function runCommand({ parsed, secretStdin }: Request): Promise<never> {
   const answer = await link.ask(command, answers);
   questions?.close();
   link.close();
+  // A name that is no interface is a usage error, as a word the table does not know.
+  if (answer.code === UNKNOWN_INTERFACE) return refuseSyntax(answer.text);
   return finish(answer);
 }
 
@@ -589,17 +607,6 @@ function printBlock(text: string): void {
  * The chat in a terminal (interfaces/cli/): the same link, commands and handlers as the plain chat, only another presentation. It
  * asks the core `status.brief` for its status line, which reads what the core knows and calls no provider.
  */
-/** Interface names offered by setup, including persona-authored packages. */
-function interfaceNames(dataDir: string): Array<string> {
-  const names = new Set<string>();
-  for (const dir of [path.join(ROOT_DIR, 'interfaces'), path.join(dataDir, 'interfaces')]) {
-    if (!fs.existsSync(dir)) continue;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, 'setup.json'))) names.add(entry.name);
-    }
-  }
-  return [...names].sort();
-}
 
 /** How often the chat tries the core again after a lost link. Decided 2026-11-05: short, and a local socket costs nothing. */
 const RECONNECT_MS = 2000;
@@ -813,7 +820,7 @@ async function runInkChat(
       return answer.status === 'ok' ? (JSON.parse(answer.text) as StatusBrief | null) : null;
     },
     panelOf: (line) =>
-      chatPanel(line, run, interfaceNames(where.privateDir), {
+      chatPanel(line, run, interfacePackageNames(ROOT_DIR, where.privateDir), {
         showLines(lines) {
           link.showLines(lines);
           showView(

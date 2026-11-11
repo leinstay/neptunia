@@ -16,7 +16,10 @@
 // what the table's shape cannot say. A leaf whose `secret` is `only` takes a secret through its question alone, so a
 // word past its arguments is refused and not echoed. A leaf with any `secret` takes `--secret-stdin` in the command
 // line. A word the table no longer has is refused with the command that replaced it, and nothing runs. A command with
-// both `args` and subcommands reads a line that names none of them as its own arguments. The parse is pure and never throws.
+// both `args` and subcommands reads a line that names none of them as its own arguments. A command marked `nameFirst`
+// reads the word after it as the `name` its leaves work on and the leaf's word after that (`/interfaces discord set
+// token`), unless that first word is a leaf with no `name` of its own (`/interfaces list`); a leaf's `word` is what the
+// owner types for it where it differs from its name. The parse is pure and never throws.
 //
 // A leaf that maps onto one operation declares it in its `op`: the operation's name and how the parsed arguments become
 // the operation's. The core's console runs it as the owner (`operationOf`); a leaf without `op` is answered by a module
@@ -48,6 +51,8 @@ export type Subcommand = {
   secret?: 'only' | 'offered';
   /** The operation the leaf runs as the owner, absent where a module of its own answers it. */
   op?: LeafOp;
+  /** The word the owner types for the leaf after the name of a `nameFirst` command, where it differs from its name. */
+  word?: string;
 };
 
 /** The operation a leaf runs as the owner, and how the parsed arguments become the operation's: none when absent. */
@@ -67,10 +72,19 @@ export type Command = {
   check?: (name: string, args: Readonly<Record<string, string>>) => string | null;
   /** The operation a command without subcommands runs as the owner. */
   op?: LeafOp;
+  /** The word after the command is the `name` a leaf works on, and the leaf's word follows it. */
+  nameFirst?: boolean;
 };
 
-/** What a line parses into: the command's dotted name and its arguments by name, or why the line is refused. */
-export type Parsed = { ok: true; name: string; args: Record<string, unknown> } | { ok: false; reason: string };
+/**
+ * What a line parses into: the command's dotted name and its arguments by name, or why the line is refused, with the
+ * command it named when the table has that command.
+ */
+export type Parsed =
+  { ok: true; name: string; args: Record<string, unknown> } | { ok: false; reason: string; command?: string };
+
+/** The code of the answer to a `nameFirst` line whose name is no interface the core or the data folder knows. */
+export const UNKNOWN_INTERFACE = 'unknown-interface';
 
 /** The roles a route names, and `any` for a route of every role. */
 const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...ROUTE_ROLES];
@@ -618,22 +632,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
     help: 'Set up connections, manage credentials and enable or disable them',
     args: [],
     defaultSubcommand: 'list',
+    nameFirst: true,
     subcommands: [
       sub('list', 'Every interface, whether it is enabled and whether it is connected'),
       sub('enable', 'Enable an interface', [arg('name')]),
       sub('disable', 'Disable an interface', [arg('name')]),
-      sub('pair.open', 'Open pairing on an interface for an hour: write to her there and she answers with a phrase', [
-        arg('name'),
-      ]),
-      sub('pair', 'Approve the one-time phrase she answered on an interface: that account becomes yours', [
-        arg('phrase'),
-      ]),
-      sub('invite', 'Print the link that adds her to a new root and accept the first that joins within an hour', [
-        arg('name'),
-      ]),
-      sub('roots', 'Every root of an interface: served, waiting for you, or listed and absent', [arg('name')]),
-      sub('roots.accept', 'Serve a root that waits, from now on', [arg('name'), arg('root')]),
-      sub('roots.remove', 'Stop serving a root; her memory of it stays', [arg('name'), arg('root')]),
+      sub('invite', 'Print the link that adds her to a new root', [arg('name')]),
+      { ...sub('roots', 'Every root she is in on an interface', [arg('name')]), word: 'list' },
       ...moduleSubcommands('interface'),
     ],
   },
@@ -764,12 +769,52 @@ function subcommandOf(command: Command, words: ReadonlyArray<string>): { found: 
   return flat === undefined ? null : { found: flat, used: 1 };
 }
 
+/** Whether a leaf works on the `name` a `nameFirst` command reads first. */
+const takesName = (one: Subcommand): boolean => one.args[0]?.name === 'name';
+
+/** The word the owner types for a leaf after the name of a `nameFirst` command. */
+const wordOf = (one: Subcommand): string => one.word ?? one.name;
+
+/**
+ * A leaf's words as the owner types them after its command: `<name> set` for a leaf of a `nameFirst` command that works
+ * on a name, the leaf's own words otherwise.
+ */
+export function leafWords(command: Command, one: Subcommand): string {
+  return command.nameFirst === true && takesName(one) ? `<name> ${wordOf(one)}` : one.name.replaceAll('.', ' ');
+}
+
+/**
+ * The leaf of a `nameFirst` command and the words its arguments read, the name first: a leaf with no `name` stands
+ * alone (`list`), any other first word is the name and the next word the leaf's. Null for a bare line, the reason when no
+ * leaf follows the name.
+ */
+function nameFirstOf(
+  command: Command,
+  rest: ReadonlyArray<string>
+): { found: Subcommand; tail: ReadonlyArray<string> } | string | null {
+  const [first, second, ...after] = rest;
+  if (first === undefined) return null;
+  const alone = command.subcommands.find((one) => !takesName(one) && one.name === first);
+  if (alone !== undefined) return { found: alone, tail: rest.slice(1) };
+  const named = command.subcommands.filter(takesName);
+  const words = named.map(wordOf).join(', ');
+  if (second === undefined) return `/${command.name} ${first} needs a command: ${words}`;
+  const found = named.find((one) => wordOf(one) === second);
+  if (found === undefined) return `/${command.name} ${first} has no command "${second}": ${words}`;
+  return { found, tail: [first, ...after] };
+}
+
 /** The usage of `name` with `args`, as the owner types it. */
 function usageOf(name: string, args: ReadonlyArray<CommandArg>): string {
   const words = args.map((one) => {
     const word = one.flag === undefined ? `<${one.name}>` : one.bare === true ? one.flag : `${one.flag} <${one.name}>`;
     return one.required ? word : `[${word}]`;
   });
+  const [first, ...rest] = name.split('.');
+  const command = COMMANDS.find((one) => one.name === first);
+  const leaf = command?.subcommands.find((one) => one.name === rest.join('.'));
+  if (command !== undefined && leaf !== undefined && command.nameFirst === true && takesName(leaf))
+    return ['/' + command.name, ...leafWords(command, leaf).split(' '), ...words.slice(1)].join(' ');
   return ['/' + name.replaceAll('.', ' '), ...words].join(' ');
 }
 
@@ -885,21 +930,38 @@ export function parseCommandWords(words: ReadonlyArray<string>): Parsed {
   return parsed.ok && place !== undefined ? { ...parsed, args: { ...parsed.args, place } } : parsed;
 }
 
+/** The leaf the words after a command name and the words its arguments read; null when none, the reason when refused. */
+function pickedOf(
+  command: Command,
+  rest: ReadonlyArray<string>
+): { found: Subcommand; tail: ReadonlyArray<string> } | string | null {
+  if (command.nameFirst === true) return nameFirstOf(command, rest);
+  const picked = subcommandOf(command, rest);
+  return picked === null ? null : { found: picked.found, tail: rest.slice(picked.used) };
+}
+
 function parseWithoutPlace(words: ReadonlyArray<string>): Parsed {
   const [first, ...rest] = words;
   if (first === undefined) return refuse('an empty line is no command; type /help');
   const command = COMMANDS.find((one) => one.name === first);
   if (command === undefined) return refuse(`unknown command /${first}; type /help`);
+  const parsed = parseCommand(command, rest);
+  return parsed.ok ? parsed : { ...parsed, command: command.name };
+}
+
+/** The words after a command found in the table, read by that command. */
+function parseCommand(command: Command, rest: ReadonlyArray<string>): Parsed {
   let name = command.name;
   let args = command.args;
   let tail: ReadonlyArray<string> = rest;
   if (command.subcommands.length > 0) {
-    const picked = subcommandOf(command, rest);
-    const names = command.subcommands.map((one) => one.name.replaceAll('.', ' ')).join(', ');
+    const picked = pickedOf(command, rest);
+    if (typeof picked === 'string') return refuse(picked);
+    const names = command.subcommands.map((one) => leafWords(command, one)).join(', ');
     if (picked !== null) {
       name = `${command.name}.${picked.found.name}`;
       args = picked.found.args;
-      tail = rest.slice(picked.used);
+      tail = picked.tail;
       // The value itself stays out of the reason: this word may be the secret.
       if (picked.found.secret === 'only' && tail.length > args.length)
         return refuse(

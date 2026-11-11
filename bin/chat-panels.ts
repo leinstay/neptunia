@@ -334,7 +334,7 @@ const CAPABILITY_MENUS = {
 
 /**
  * A menu over the command table: its text is the family's own list operation and its rows are the table's subcommands, each
- * prefilling its typed command. Opening one runs that read alone, and no row acts by itself.
+ * prefilling its typed command. A `nameFirst` family's rows are the names its list prints, each prefilling the name. Opening one runs that read alone, and no row acts by itself.
  */
 export async function capabilityPanel(kind: keyof typeof CAPABILITY_MENUS, run: Run): Promise<Panel> {
   const { title, command, list } = CAPABILITY_MENUS[kind];
@@ -347,13 +347,28 @@ export async function capabilityPanel(kind: keyof typeof CAPABILITY_MENUS, run: 
   const read = list === null ? null : await run({ name: list, args: {} });
   if (read !== null && read.status !== 'ok') return { title, lines: read.text.split('\n'), rows: [] };
   const found = COMMANDS.find((one) => one.name === command);
+  const lines = read === null ? [found?.help ?? title] : read.text.split('\n');
+  // A family whose name comes first gets one row per name its list prints first on a line, an interface name being
+  // lowercase (src/setup/modules.ts), prefilling the name before its command.
+  if (found?.nameFirst === true) {
+    const names = lines.flatMap((line) => /^[a-z][a-z0-9_-]*(?=\s|$)/.exec(line.trim())?.[0] ?? []);
+    const commands = found.subcommands.filter((one) => one.args[0]?.name === 'name').map((one) => one.word ?? one.name);
+    const rows = names.map((name): PanelRow => ({
+      id: name,
+      label: name,
+      detail: commands.join(', '),
+      group: title,
+      prefill: `/${command} ${name} `,
+    }));
+    return { title, lines, rows };
+  }
   const rows = (found?.subcommands ?? [])
     .filter((one) => one.name !== 'list')
     .map((one): PanelRow => {
       const words = one.name.replaceAll('.', ' ');
       return { id: one.name, label: words, detail: one.help, group: title, prefill: `/${command} ${words} ` };
     });
-  return { title, lines: read === null ? [found?.help ?? title] : read.text.split('\n'), rows };
+  return { title, lines, rows };
 }
 
 /** The last line of `/status full`: the numbers the core holds of a request, an absent one named as unknown. */

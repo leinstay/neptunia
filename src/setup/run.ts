@@ -104,8 +104,8 @@ export type SetupReport = {
 /** The chat commands that finish the install, in order. */
 const NEXT = [
   'keys add <name>',
-  'interfaces set discord token',
-  'interfaces enable discord',
+  'interfaces discord set token',
+  'interfaces discord enable',
   'model set core <name>/<model>',
   'subharness claude login',
 ];
