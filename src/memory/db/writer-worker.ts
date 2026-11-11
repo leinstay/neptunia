@@ -11,15 +11,16 @@
 //              { id, type: 'observe', envelope, now, owner }    one observation of the live message path (observe.ts#observe;
 //                                                               `owner`: its record unit)
 //              { id, type: 'close' }                            close the database, release the lock, then the thread ends
-// Messages out { id, ok: true, result } | { id, ok: false, code }   one reply per message
+// Messages out { id, ok: true, result } | { id, ok: false, code, detail }   one reply per message, `detail` SQLite's
+//                                                               message of a failed statement or null (sqliteDetailOf)
 //              { type: 'log', level, message, fields }              a line for the service's log (warnings only)
-// Counts and codes only, never a path or a text.
+// Counts, codes and SQLite's messages only, never a path or a text.
 
 import { recoverRequestArchive } from './request-archive.ts';
 import { parentPort } from 'node:worker_threads';
 import process from 'node:process';
 import { openMemoryDb } from './open.ts';
-import { insertTurnReads, turnReadRows } from './service.ts';
+import { insertTurnReads, sqliteDetailOf, turnReadRows } from './service.ts';
 import { applySelfreflectionUpdate } from './selfreflection-media.ts';
 import { applyMemoryWrite } from './session-write.ts';
 import { runFocusDay } from './focus.ts';
@@ -118,7 +119,7 @@ port.on('message', (message: Row) => {
     post({ id, ok: true, result: handler(message) });
   } catch (error) {
     const { code, name } = (error ?? {}) as { code?: string; name?: string };
-    post({ id, ok: false, code: code ?? name ?? 'ERROR' });
+    post({ id, ok: false, code: code ?? name ?? 'ERROR', detail: sqliteDetailOf(error) });
   }
   if (type === 'close') port.close();
 });
