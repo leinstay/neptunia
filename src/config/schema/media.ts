@@ -11,6 +11,14 @@ export const MEDIA: ReadonlyArray<SchemaEntry> = [
     'text': 'Max output tokens for the media pick',
   },
   {
+    'key': 'media.pick.graceMs',
+    'types': ['number'],
+    'reader': 'src/behavior/media-pick.ts',
+    'default': 6000,
+    'text':
+      'How long her first message, once its typing is over, still waits for the media pick before it goes without it, in milliseconds. `0` waits for nothing',
+  },
+  {
     'key': 'media.pick.candidates',
     'types': ['number'],
     'reader': 'src/behavior/media-pick.ts',

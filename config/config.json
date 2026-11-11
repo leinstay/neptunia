@@ -219,6 +219,7 @@
   "media": {
     "pick": {
       "maxOutputTokens": 60,
+      "graceMs": 6000,
       "candidates": 20,
       "emojiCandidates": 20,
       "emojiPerReplies": 5,

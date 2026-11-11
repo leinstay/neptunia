@@ -24,14 +24,14 @@ import type { Untyped } from '../tools/types.ts';
 
 /**
  * The pick's measures. `maxChars` is the longest message in code points it may stand in for, `contextMessages` the last
- * chat lines its `<context>` shows, `graceMs` how long the first message, once its typing imitation is over, still waits
- * for the answer. The rest are `media.pick.*` in config/config.json, and this is their fallback.
+ * chat lines its `<context>` shows. The rest are `media.pick.*` in config/config.json, and this is their fallback:
+ * `graceMs` is how long the first message, once its typing imitation is over, still waits for the answer.
  */
 export const MEDIA_PICK_DEFAULTS = Object.freeze({
   maxChars: 160,
   contextMessages: 4,
   maxOutputTokens: 60,
-  graceMs: 1000,
+  graceMs: 6000,
   candidates: 20,
   emojiCandidates: 20,
   emojiPerReplies: 5,
@@ -48,7 +48,7 @@ export type MediaPickSettings = {
   maxChars: number;
   contextMessages: number;
   maxOutputTokens: number;
-  graceMs: number | null;
+  graceMs: number;
   candidates: number;
   emojiCandidates: number;
   emojiPerReplies: number;
@@ -57,14 +57,15 @@ export type MediaPickSettings = {
 
 /**
  * The pick's settings: MEDIA_PICK_DEFAULTS with `media.pick.*` read from the live config (floored; a rail takes 0, which
- * switches it off, and the others are above 0; a missing or unusable value takes the default).
+ * switches it off, the grace takes 0, which waits for nothing, and the others are above 0; a missing or unusable value
+ * takes the default).
  * @param config  The whole live config.
  */
 export function mediaPickSettings(config: Record<string, Untyped>): MediaPickSettings {
   const pick: unknown = (config?.media as { pick?: unknown } | undefined)?.pick;
   const group = (isPlainObject(pick) ? pick : {}) as Record<string, unknown>;
   const read = (
-    key: 'maxOutputTokens' | 'candidates' | 'emojiCandidates' | 'emojiPerReplies' | 'emojiCooldownMinutes',
+    key: 'maxOutputTokens' | 'graceMs' | 'candidates' | 'emojiCandidates' | 'emojiPerReplies' | 'emojiCooldownMinutes',
     min: number
   ): number => {
     const value = group[key];
@@ -76,7 +77,7 @@ export function mediaPickSettings(config: Record<string, Untyped>): MediaPickSet
     maxChars: MEDIA_PICK_DEFAULTS.maxChars,
     contextMessages: MEDIA_PICK_DEFAULTS.contextMessages,
     maxOutputTokens: read('maxOutputTokens', 1),
-    graceMs: MEDIA_PICK_DEFAULTS.graceMs,
+    graceMs: read('graceMs', 0),
     candidates: read('candidates', 1),
     emojiCandidates: read('emojiCandidates', 1),
     emojiPerReplies: read('emojiPerReplies', 0),
