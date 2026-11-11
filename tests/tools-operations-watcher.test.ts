@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runOpPrechecked } from '../src/tools/operations/index.ts';
+// The owner's decision of 2026-11-10 removed the caller check, so runOp is the one runner.
+import { runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 
 import { skillAccess } from '../src/tools/access.ts';
@@ -44,7 +45,7 @@ function envOf(watcher: ReportReader | null) {
 async function callOf(watcher: ReportReader | null, args: Record<string, unknown>): Promise<Result> {
   const env = envOf(watcher);
   const { result } = await withCapturedLogs(() =>
-    runOpPrechecked('watcher.read', args, {
+    runOp('watcher.read', args, {
       env,
       placeId: 'g1',
       chatId: 'c1',

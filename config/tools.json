@@ -129,17 +129,17 @@
   },
   "access.grant": {
     "title": "Grant access",
-    "whenToUse": "Opens an operation or a group of them to a user, a role or everyone.",
-    "whenNotToUse": "Administrative, not grantable to you. You never change rights that reach you."
+    "whenToUse": "Opens a tool for you, or every read tool of a family or of *.",
+    "whenNotToUse": "Administrative, not grantable to you. You never change your own grants."
   },
   "access.revoke": {
     "title": "Revoke access",
-    "whenToUse": "Closes an operation or a group of them for a user, a role or everyone.",
-    "whenNotToUse": "Administrative, not grantable to you. You never change rights that reach you."
+    "whenToUse": "Closes a tool for you, or every tool of a family or of *.",
+    "whenNotToUse": "Administrative, not grantable to you. You never change your own grants."
   },
   "access.list": {
     "title": "List grants",
-    "whenToUse": "Reads every access grant: who besides the owner may run which operation. It runs only when the owner asks, or in a turn of your own."
+    "whenToUse": "Reads the tools granted to you, and the family or * behind each one granted through a group."
   },
   "alias.add": {
     "title": "Add an alias",

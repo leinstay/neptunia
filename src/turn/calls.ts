@@ -213,11 +213,6 @@ export function callViewOf({
       if (note?.id && typeof note.name === 'string') chats.push({ id: String(note.id), name: note.name });
   }
   if (typeof channel.name === 'string' && channel.name) chats.push({ id: String(channel.id), name: channel.name });
-  // The root's groups a skill's role option may name.
-  const roles: Array<{ id: string; name: string }> = [];
-  for (const group of listing?.groups ?? []) {
-    if (group.id && typeof group.name === 'string') roles.push({ id: String(group.id), name: group.name });
-  }
   // The channels a read call may name: the pull rail's verdict over the snapshot, a private chat's too.
   const places =
     config && snapshot
@@ -296,7 +291,6 @@ export function callViewOf({
     },
     members,
     selfId: selfId ?? null,
-    roles,
     skills,
     // Messages the record holds as deleted that the history lacks (their ids or links are refused as deleted).
     ...(deletedIds instanceof Set && deletedIds.size > 0 ? { deletedIds: deletedIds as Set<string> } : {}),

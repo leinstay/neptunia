@@ -5,17 +5,16 @@
 // runtime: live corrections always land in the data folder's prompts/.
 //
 // `createAdmin(deps)` runs the typed operations under src/tools/operations/ (one file per area) by their
-// names: `runSkillOp` with the caller's full rights check for a person's own command (the owner's
-// console) and with none for a call of hers (`actor` `persona`), `runOwnSkillOp` and
-// `runInitiativeSkillOp` for her own calls. A call of hers runs on the grant the skill gateway
-// checked, whoever asked. `run(op, args, context)` is the tests' entry: no rights check, and the result
+// names: `runSkillOp` for the owner's console and a call of hers (`actor` `persona`), `runOwnSkillOp` and
+// `runInitiativeSkillOp` for her own calls. None checks the caller: a call of hers runs on the grant the skill gateway
+// checked, whoever asked. `run(op, args, context)` is the tests' entry, with the result
 // rendered as the reply text, as `{ text, files }` with a picture or as `{ text, fields }` with the
 // status card, or a thrown `Error` with an operator-facing message on bad input. The pure functions
 // (listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary) live in
 // src/tools/operations/shared.ts and are re-exported from here.
 
 import { createOpsEnv } from './tools/operations/env.ts';
-import { runOp, runOpPrechecked } from './tools/operations/index.ts';
+import { runOp } from './tools/operations/index.ts';
 import { listLessons } from './tools/operations/learning.ts';
 import { hasTrait } from './tools/definitions.ts';
 import { CODE } from './tools/codes.ts';
@@ -127,35 +126,30 @@ export function createAdmin(deps: OpsDeps): Admin {
   }
 
   /**
-   * Run one operation by its name WITHOUT a rights check and render it: the reply text (or
-   * `{ text, files }`, or `{ text, fields }`), or a thrown operator-facing `Error`. The tests drive the
-   * operations through it.
+   * Run one operation by its name and render it: the reply text (or `{ text, files }`, or `{ text, fields }`), or a
+   * thrown operator-facing `Error`. The tests drive the operations through it.
    */
   async function run(op: string, args = {}, context = {}) {
-    return render(await runOpPrechecked(op, args, { ...context, env }));
+    return render(await runOp(op, args, { ...context, env }));
   }
 
   /**
-   * One operation run by its name. A person's own command (any `context.actor` but `persona`) goes through
-   * src/tools/operations/index.ts#runOp, the caller's full rights check included. A call of the persona
-   * (`context.actor` `persona`, src/tools/executors.ts) runs without the requester's rights check: her grant,
-   * checked by the skill gateway, alone decides, and the requester's `accountId` rides along for the operation's own
-   * rules. Never throws.
+   * One operation run by its name: the owner's typed command, or a call of the persona (`context.actor` `persona`,
+   * src/tools/executors.ts), whose grant the skill gateway checked. The requester's `accountId` rides along for the
+   * operation's own rules. Never throws.
    */
   async function runSkillOp(
     op: Untyped,
     args = {},
     context = {}
   ): Promise<{ status: string; code: string; summary: string; data: unknown }> {
-    const run = 'actor' in context && context.actor === 'persona' ? runOpPrechecked : runOp;
-    return run(op, args, { ...context, env });
+    return runOp(op, args, { ...context, env });
   }
 
   /**
    * One of the persona's own expressive operations (src/tools/definitions.ts, trait `self`) run for
-   * her by its name, WITHOUT the requester's rights check: her grant, checked by the skill
-   * gateway, alone decides (src/tools/executors.ts). Any other operation is refused
-   * (`not-self-owned`): it goes through `runSkillOp`. Never throws.
+   * her by its name: her grant, checked by the skill gateway, alone decides (src/tools/executors.ts). Any other
+   * operation is refused (`not-self-owned`): it goes through `runSkillOp`. Never throws.
    */
   async function runOwnSkillOp(
     op: Untyped,
@@ -164,20 +158,20 @@ export function createAdmin(deps: OpsDeps): Admin {
   ): Promise<{ status: string; code: string; summary: string; data: unknown }> {
     if (!hasTrait(op, 'self'))
       return { status: 'denied', code: CODE.NOT_SELF_OWNED, summary: `${op} is not the persona's own`, data: null };
-    return runOpPrechecked(op, args, { ...context, env });
+    return runOp(op, args, { ...context, env });
   }
 
   /**
    * Any operation run for the persona on her own initiative (an inner turn, src/behavior/inner.ts:
-   * nobody asked) by its name, WITHOUT a requester's rights check: her grant, checked by the
-   * skill gateway as her own initiative, alone decides (src/tools/executors.ts). Never throws.
+   * nobody asked) by its name: her grant, checked by the skill gateway as her own initiative, alone decides
+   * (src/tools/executors.ts). Never throws.
    */
   async function runInitiativeSkillOp(
     op: Untyped,
     args = {},
     context = {}
   ): Promise<{ status: string; code: string; summary: string; data: unknown }> {
-    return runOpPrechecked(op, args, { ...context, env });
+    return runOp(op, args, { ...context, env });
   }
 
   /**

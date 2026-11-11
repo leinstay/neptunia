@@ -1,66 +1,13 @@
-// Tests for src/tools/operations/grants.ts: the pure owner-managed access decision (isAllowed, keyed by
-// operation name), the expansion of a group or `*` grant at grant time, the one-time migration of
-// the old command-key grants, the access list with each right's source, and the immutable
-// grant/revoke helpers.
+// Tests for src/tools/operations/grants.ts: the owner check, and the immutable grant and revoke of one stored
+// grant of the persona's, keyed by operation name. The owner decided on 2026-11-10 that only he types commands, so a
+// stored grant names her user id alone, and a grant to everyone, a role or a member is gone with the member rights layer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  isAllowed,
-  grant,
-  revoke,
-  hasGrant,
-  isOwnerId,
-  expandGrant,
-  describeGrants,
-} from '../src/tools/operations/grants.ts';
-import type { Access, GrantEntry, OpInfo, Rights } from '../src/tools/types.ts';
+import { grant, revoke, hasGrant, isOwnerId } from '../src/tools/operations/grants.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
-/** One operation descriptor as src/tools/operations/registry.ts#listOps gives it. */
-function op(name: string, rights: Partial<Rights> = {}): OpInfo {
-  return { name, rights: { kind: 'read', ...rights } };
-}
-
-// A small registry: grantable reads and writes, owner-only, non-grantable and member operations.
-const OPS: Array<OpInfo> = [
-  op('status.show'),
-  op('config.set', { kind: 'write' }),
-  op('rule.list'),
-  op('rule.add', { kind: 'write' }),
-  op('memory.profile.read'),
-  op('memory.recent.read'),
-  op('memory.affinity.read'),
-  op('memory.affinity.set', { kind: 'write' }),
-  op('memory.refresh', { kind: 'write' }),
-  op('memory.journal.read', { ownerOnly: true }),
-  op('memory.wipe', { kind: 'write', ownerOnly: true }),
-  op('memory.private.read', { ownerOnly: true }),
-  op('access.list', { ownerOnly: true }),
-  op('bot.secret', { grantable: false }),
-  op('pings.get', { member: true }),
-  op('pings.set', { kind: 'write', member: true }),
-];
-const byName = (name: string) => OPS.find((o) => o.name === name);
-
-// The stored grant of `key`; every test that reads one has just written it through `grant`.
-// The stored shape is Record<string, unknown> because config files are untrusted; the cast names the entry shape.
-const entryAt = (access: Access, key: string): Pick<GrantEntry, 'roles' | 'via'> => access[key] as GrantEntry;
-
-const everyone = () => ({ everyone: true, roles: [], users: [] });
-
-/** isAllowed for user `accountId` (roles `roleIds`) on the fixture op `name`, owner `1`. */
-function allowed(
-  name: string,
-  access: unknown,
-  { accountId = '2', roleIds = [] }: { accountId?: string; roleIds?: Array<string> } = {}
-): boolean {
-  return isAllowed({ op: byName(name) ?? op(name), member: { accountId, roleIds }, access, owners: ['1'] });
-}
-
-// ---------------------------------------------------------------------------
-// isOwnerId / hasGrant
-// ---------------------------------------------------------------------------
+const SELF = 'self-1';
 
 test('isOwnerId: a bound account passes as a string or a number; no user and no owner person never do', () => {
   // The expectation changed with plan 2026-11-08-meta-person slice 8: the owner is `bot.ownerPerson` and the accounts
@@ -80,315 +27,82 @@ test('isOwnerId: a bound account passes as a string or a number; no user and no 
   }
 });
 
-test('hasGrant: true exactly when revoke with the same arguments would change something', () => {
-  const access = { status: { everyone: true, roles: ['5'], users: [7] } };
-  assert.equal(hasGrant(access, 'status', { everyone: true }), true);
-  assert.equal(hasGrant(access, 'status', { roleId: 5 }), true);
-  assert.equal(hasGrant(access, 'status', { accountId: '7' }), true);
-  assert.equal(hasGrant(access, 'status', { roleId: '6' }), false);
-  assert.equal(hasGrant(access, 'memory', { everyone: true }), false);
-  assert.equal(hasGrant({ status: { roles: ['5'] } }, 'status', { everyone: true }), false);
-  assert.equal(hasGrant(undefined, 'status', { everyone: true }), false);
+test('hasGrant: true exactly when the entry lists the user id, compared as a string', () => {
+  const access = { 'status.show': { users: [7, SELF] } };
+  assert.equal(hasGrant(access, 'status.show', { accountId: '7' }), true);
+  assert.equal(hasGrant(access, 'status.show', { accountId: SELF }), true);
+  assert.equal(hasGrant(access, 'status.show', { accountId: '8' }), false);
+  assert.equal(hasGrant(access, 'memory.read', { accountId: SELF }), false);
+  assert.equal(hasGrant(undefined, 'status.show', { accountId: SELF }), false);
 });
 
-// ---------------------------------------------------------------------------
-// isAllowed
-// ---------------------------------------------------------------------------
-
-// One row per case: `label` names it in a failure, `expected` is isAllowed's answer.
-const IS_ALLOWED_CASES = [
-  {
-    label: 'an owner always passes, even with no access at all',
-    name: 'memory.wipe',
-    accountId: '1',
-    access: undefined,
-    expected: true,
-  },
-  { label: 'a non-owner with no matching grant is refused', name: 'memory.profile.read', access: {}, expected: false },
-  {
-    label: 'everyone: true on the exact op name lets a non-owner through',
-    name: 'memory.profile.read',
-    access: { 'memory.profile.read': everyone() },
-    expected: true,
-  },
-  {
-    label: 'a matching role id lets a non-owner through',
-    name: 'status.show',
-    roleIds: ['role-a'],
-    access: { 'status.show': { everyone: false, roles: ['role-a'], users: [] } },
-    expected: true,
-  },
-  {
-    label: 'role id compared as a string (number vs numeric string)',
-    name: 'status.show',
-    roleIds: ['12345'],
-    access: { 'status.show': { everyone: false, roles: [12345], users: [] } },
-    expected: true,
-  },
-  {
-    label: 'a non-matching role does not let a non-owner through',
-    name: 'status.show',
-    roleIds: ['role-b'],
-    access: { 'status.show': { everyone: false, roles: ['role-a'], users: [] } },
-    expected: false,
-  },
-  {
-    label: 'a matching user id lets a non-owner through',
-    name: 'status.show',
-    access: { 'status.show': { everyone: false, roles: [], users: ['2'] } },
-    expected: true,
-  },
-  {
-    label: 'a grant stored under a group name opens nothing at check time (groups expand at grant time)',
-    name: 'memory.profile.read',
-    access: { memory: everyone() },
-    expected: false,
-  },
-  {
-    label: 'a grant stored under * opens nothing at check time (* expands at grant time)',
-    name: 'memory.profile.read',
-    access: { '*': everyone() },
-    expected: false,
-  },
-  {
-    label: 'only the exact op entry counts: a user listed under the group or * is not let through',
-    name: 'memory.profile.read',
-    access: {
-      'memory.profile.read': { everyone: false, roles: [], users: [] },
-      memory: { everyone: false, roles: [], users: ['2'] },
-      '*': { everyone: false, roles: [], users: ['2'] },
-    },
-    expected: false,
-  },
-];
-
-test('isAllowed: an owner always passes; a non-owner needs a user, role or everyone grant on the exact op name', () => {
-  for (const { label, expected, name, access, accountId, roleIds } of IS_ALLOWED_CASES) {
-    assert.equal(allowed(name, access, { accountId, roleIds }), expected, label);
-  }
+test('hasGrant: a stored everyone or role is no grant of hers', () => {
+  // The owner's decision of 2026-11-10: a grant to everyone or a role opened something for members only.
+  const access = { 'status.show': { everyone: true, roles: ['r1'], users: [] } };
+  assert.equal(hasGrant(access, 'status.show', { accountId: SELF }), false);
 });
 
-test('isAllowed: an invalid access shape (not an object) denies every non-owner', () => {
-  for (const bad of [null, undefined, 'nope', 42, []]) {
-    assert.equal(allowed('status.show', bad), false, `expected access=${JSON.stringify(bad)} to deny`);
-  }
+test('grant: her id on a fresh key stores the users list alone', () => {
+  assert.deepEqual(grant({}, 'status.show', { accountId: SELF }), { 'status.show': { users: [SELF] } });
 });
 
-test('isAllowed: a malformed entry (not an object) on the op is skipped, not thrown on', () => {
-  assert.equal(allowed('status.show', { 'status.show': 'not an object', '*': everyone() }), false);
-  assert.equal(allowed('status.show', { 'status.show': null }), false);
+test('grant: a numeric id is stored as a string', () => {
+  assert.deepEqual(grant({}, 'status.show', { accountId: 12345 }), { 'status.show': { users: ['12345'] } });
 });
 
-test('isAllowed: no operation descriptor denies every non-owner; an owner still passes', () => {
-  assert.equal(isAllowed({ op: null, member: { accountId: '2' }, access: { '*': everyone() }, owners: ['1'] }), false);
-  assert.equal(isAllowed({ op: null, member: { accountId: '1' }, access: {}, owners: ['1'] }), true);
+test('grant: granting the same id twice stores it once', () => {
+  const once = grant({}, 'status.show', { accountId: SELF });
+  assert.deepEqual(grant(once, 'status.show', { accountId: SELF }), { 'status.show': { users: [SELF] } });
 });
 
-test('isAllowed: owner-only and non-grantable ops refuse a * grant', () => {
-  const open = { everyone: true, roles: ['staff'], users: ['2'] };
-  for (const name of ['memory.journal.read', 'memory.wipe', 'memory.private.read', 'access.list', 'bot.secret']) {
-    const group = name.split('.')[0];
-    const access = { '*': open, [group]: open, [name]: open };
-    assert.equal(allowed(name, access, { roleIds: ['staff'] }), false, name);
-    assert.equal(allowed(name, {}, { accountId: '1' }), true, `${name}: owner`);
-  }
-  // an exact grant on a grantable op still opens it
-  assert.equal(allowed('rule.list', { 'rule.list': open }), true);
+test('grant: a grant from a group or * keeps its source, and a direct grant of the same id drops it', () => {
+  const expanded = grant({}, 'lore.list', { accountId: SELF }, { from: '*' });
+  assert.deepEqual(expanded, { 'lore.list': { users: [SELF], via: { [`user:${SELF}`]: '*' } } });
+  assert.deepEqual(grant(expanded, 'lore.list', { accountId: SELF }), { 'lore.list': { users: [SELF] } });
 });
 
-test('isAllowed: a member granted memory.affinity.read is denied memory.affinity.set', () => {
-  const access = { 'memory.affinity.read': { everyone: false, roles: [], users: ['2'] } };
-  assert.equal(allowed('memory.affinity.read', access), true);
-  assert.equal(allowed('memory.affinity.set', access), false);
-});
-
-test('isAllowed: a member op passes for anyone, with no owners and no access at all', () => {
-  assert.equal(isAllowed({ op: byName('pings.set'), member: { accountId: '2' } }), true);
-  assert.equal(
-    isAllowed({ op: byName('pings.get'), member: { accountId: '2', roleIds: [] }, owners: [], access: undefined }),
-    true
-  );
-  // it opens nothing else
-  assert.equal(allowed('status.show', {}), false);
-});
-
-// ---------------------------------------------------------------------------
-// expandGrant / describeGrants
-// ---------------------------------------------------------------------------
-
-test('expandGrant: an op name is itself; a group or * is the grantable read ops that exist now', () => {
-  assert.deepEqual(expandGrant('memory.affinity.set', OPS), {
-    from: null,
-    names: ['memory.affinity.set'],
-    refused: [],
+test('grant: a stored entry that still holds everyone or roles loses them when it is written', () => {
+  // The owner's decision of 2026-11-10: the member rights layer is gone, so no write keeps its fields.
+  const access = { 'memory.profile.read': { everyone: true, roles: ['r1'], users: [] } };
+  assert.deepEqual(grant(access, 'memory.profile.read', { accountId: SELF }), {
+    'memory.profile.read': { users: [SELF] },
   });
-  assert.deepEqual(expandGrant('memory', OPS), {
-    from: 'memory',
-    names: ['memory.profile.read', 'memory.recent.read', 'memory.affinity.read'],
-    refused: [],
-  });
-  assert.deepEqual(expandGrant('*', OPS)?.names, [
-    'status.show',
-    'rule.list',
-    'memory.profile.read',
-    'memory.recent.read',
-    'memory.affinity.read',
-  ]);
-  assert.deepEqual(expandGrant('memory.wipe', OPS), { from: null, names: [], refused: ['memory.wipe'] });
-  assert.deepEqual(expandGrant('pings.get', OPS), { from: null, names: [], refused: ['pings.get'] });
-  assert.equal(expandGrant('nonsense', OPS), null);
-  assert.equal(expandGrant('memor', OPS), null, 'a group is a whole dotted segment');
 });
 
-test('access list: names the source of each right', () => {
-  let access = grant({}, 'memory.profile.read', { everyone: true }, { from: 'memory' });
-  access = grant(access, 'memory.profile.read', { roleId: 'r1' });
-  access = grant(access, 'memory.profile.read', { accountId: 'u1' }, { from: '*' });
-  access = grant(access, 'memory.journal.read', { everyone: true });
-  access = grant(access, 'gone.op', { everyone: true });
-  assert.deepEqual(describeGrants(access, OPS), [
-    'memory.profile.read: everyone (expanded from memory, reads only), role id:r1, user id:u1 (expanded from *, reads only)',
-  ]);
-  // a direct grant of the same target replaces the expanded source
-  access = grant(access, 'memory.profile.read', { everyone: true });
-  assert.match(
-    describeGrants(access, OPS)[0],
-    /^memory\.profile\.read: everyone, role id:r1, user id:u1 \(expanded from \*/
-  );
-  // revoke drops the source with the target
-  access = revoke(access, 'memory.profile.read', { accountId: 'u1' });
-  assert.equal(entryAt(access, 'memory.profile.read').via, undefined);
-});
-
-// ---------------------------------------------------------------------------
-// grant / revoke
-// ---------------------------------------------------------------------------
-
-const GRANT_FRESH_CASES = [
-  {
-    label: 'everyone on a fresh key creates the entry',
-    what: { everyone: true },
-    expected: { status: { everyone: true, roles: [], users: [] } },
-  },
-  {
-    label: 'a role on a fresh key creates the entry with that role',
-    what: { roleId: 'r1' },
-    expected: { status: { everyone: false, roles: ['r1'], users: [] } },
-  },
-  {
-    label: 'a user on a fresh key creates the entry with that user',
-    what: { accountId: 'u1' },
-    expected: { status: { everyone: false, roles: [], users: ['u1'] } },
-  },
-];
-
-test('grant: everyone, a role or a user on a fresh key creates the entry with just that', () => {
-  for (const { label, what, expected } of GRANT_FRESH_CASES) {
-    assert.deepEqual(grant({}, 'status', what), expected, label);
-  }
-});
-
-test('grant: adding a role already present is a no-op, not a duplicate', () => {
-  const access = { status: { everyone: false, roles: ['r1'], users: [] } };
-  const result = grant(access, 'status', { roleId: 'r1' });
-  assert.deepEqual(entryAt(result, 'status').roles, ['r1']);
-});
-
-test('grant: a numeric role/user id is stored as a string', () => {
-  const result = grant({}, 'status', { roleId: 12345 });
-  assert.deepEqual(entryAt(result, 'status').roles, ['12345']);
-});
-
-test('grant: does not mutate its input', () => {
-  const access = { status: { everyone: false, roles: [], users: [] } };
-  const snapshot = JSON.parse(JSON.stringify(access));
-  grant(access, 'status', { everyone: true });
+test('grant: does not mutate its input and leaves other keys untouched', () => {
+  const access = { 'lore.list': { users: [SELF] } };
+  const snapshot = structuredClone(access);
+  const result = grant(access, 'status.show', { accountId: SELF });
   assert.deepEqual(access, snapshot);
+  assert.deepEqual(result['lore.list'], { users: [SELF] });
 });
 
-test('grant: leaves other keys untouched', () => {
-  const access = { ping: { everyone: true, roles: [], users: [] } };
-  const result = grant(access, 'status', { everyone: true });
-  assert.deepEqual(result.ping, { everyone: true, roles: [], users: [] });
-  assert.deepEqual(result.status, { everyone: true, roles: [], users: [] });
+test('revoke: removes just that id from the entry', () => {
+  const access = { 'status.show': { users: ['u1', SELF] } };
+  assert.deepEqual(revoke(access, 'status.show', { accountId: SELF }), { 'status.show': { users: ['u1'] } });
 });
 
-// `expected` is the whole entry left behind: the one thing named is gone, the rest of the entry stays.
-// The first three rows leave only one kind set (roles, roles, users), so an emptiness check that ignores that
-// kind deletes the entry and fails. The next three hold the other two kinds as well, so a revoke that wipes a
-// neighbouring list fails. The last leaves only the flag, for an emptiness check that ignores `everyone`.
-const REVOKE_ONE_CASES = [
-  {
-    label: 'everyone clears the flag but keeps the rest of the entry',
-    entry: { everyone: true, roles: ['r1'], users: [] },
-    what: { everyone: true },
-    expected: { everyone: false, roles: ['r1'], users: [] },
-  },
-  {
-    label: 'a role removes just that role',
-    entry: { everyone: false, roles: ['r1', 'r2'], users: [] },
-    what: { roleId: 'r1' },
-    expected: { everyone: false, roles: ['r2'], users: [] },
-  },
-  {
-    label: 'a user removes just that user',
-    entry: { everyone: false, roles: [], users: ['u1', 'u2'] },
-    what: { accountId: 'u1' },
-    expected: { everyone: false, roles: [], users: ['u2'] },
-  },
-  {
-    label: 'everyone clears the flag but keeps the roles and users',
-    entry: { everyone: true, roles: ['r1'], users: ['u9'] },
-    what: { everyone: true },
-    expected: { everyone: false, roles: ['r1'], users: ['u9'] },
-  },
-  {
-    label: 'a role removes just that role, keeping the flag and the users',
-    entry: { everyone: true, roles: ['r1', 'r2'], users: ['u9'] },
-    what: { roleId: 'r1' },
-    expected: { everyone: true, roles: ['r2'], users: ['u9'] },
-  },
-  {
-    label: 'a user removes just that user, keeping the flag and the roles',
-    entry: { everyone: true, roles: ['r9'], users: ['u1', 'u2'] },
-    what: { accountId: 'u1' },
-    expected: { everyone: true, roles: ['r9'], users: ['u2'] },
-  },
-  {
-    label: 'the last role goes but the everyone flag still holds the entry',
-    entry: { everyone: true, roles: ['r1'], users: [] },
-    what: { roleId: 'r1' },
-    expected: { everyone: true, roles: [], users: [] },
-  },
-];
-
-test('revoke: everyone, a role or a user removes just that one thing from the entry', () => {
-  for (const { label, entry, what, expected } of REVOKE_ONE_CASES) {
-    assert.deepEqual(revoke({ status: entry }, 'status', what).status, expected, label);
-  }
+test('revoke: the last id deletes the whole entry, even one that still holds everyone or roles', () => {
+  // The owner's decision of 2026-11-10: a stored everyone or role opens nothing, so it keeps no entry alive.
+  const access = { 'memory.profile.read': { everyone: true, roles: ['r1'], users: [SELF] } };
+  assert.deepEqual(revoke(access, 'memory.profile.read', { accountId: SELF }), {});
 });
 
-test('revoke: the last thing in an entry deletes the whole entry', () => {
-  const access = { status: { everyone: false, roles: ['r1'], users: [] } };
-  const result = revoke(access, 'status', { roleId: 'r1' });
-  assert.deepEqual(result, {});
+test('revoke: the source of a grant from a group goes with the id', () => {
+  const access = grant({}, 'lore.list', { accountId: SELF }, { from: 'lore' });
+  const both = grant(access, 'lore.list', { accountId: 'u1' });
+  assert.deepEqual(revoke(both, 'lore.list', { accountId: SELF }), { 'lore.list': { users: ['u1'] } });
 });
 
-test('revoke: revoking from a key with no entry at all is a no-op', () => {
-  const access = { ping: { everyone: true, roles: [], users: [] } };
-  const result = revoke(access, 'status', { everyone: true });
-  assert.deepEqual(result, access);
-});
-
-test('revoke: revoking something not present leaves the entry as-is', () => {
-  const access = { status: { everyone: false, roles: ['r1'], users: [] } };
-  const result = revoke(access, 'status', { roleId: 'nope' });
-  assert.deepEqual(entryAt(result, 'status').roles, ['r1']);
+test('revoke: a key with no entry, or an id not listed, changes nothing', () => {
+  const access = { 'lore.list': { users: [SELF] } };
+  assert.deepEqual(revoke(access, 'status.show', { accountId: SELF }), access);
+  assert.deepEqual(revoke(access, 'lore.list', { accountId: 'nope' }), access);
 });
 
 test('revoke: does not mutate its input', () => {
-  const access = { status: { everyone: true, roles: [], users: [] } };
-  const snapshot = JSON.parse(JSON.stringify(access));
-  revoke(access, 'status', { everyone: true });
+  const access = { 'status.show': { users: [SELF] } };
+  const snapshot = structuredClone(access);
+  revoke(access, 'status.show', { accountId: SELF });
   assert.deepEqual(access, snapshot);
 });

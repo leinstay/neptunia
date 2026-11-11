@@ -131,7 +131,8 @@ function def(over?: Record<string, unknown>) {
 
 // ---- the catalogue: one skill per operation -------------------------------------------
 
-test('skills registry: one skill per operation, of the same name, kind and ownerOnly inherited; no other skill exists', () => {
+// The owner's decision of 2026-11-10 cut the member rights layer, and the ownerOnly a skill copied from it.
+test('skills registry: one skill per operation, of the same name and kind inherited; no other skill exists', () => {
   const registry = skillRegistry();
   assert.deepEqual(
     [...registry.keys()],
@@ -146,7 +147,7 @@ test('skills registry: one skill per operation, of the same name, kind and owner
     assert.equal(skill?.opBacked, true, op.name);
     assert.equal(skill?.op, op.name, op.name);
     assert.equal(skill?.kind, op.rights.kind, op.name);
-    assert.equal(skill?.ownerOnly, op.rights.ownerOnly === true, op.name);
+    assert.equal(Object.hasOwn(skill ?? {}, 'ownerOnly'), false, op.name);
     assert.equal(skill?.family, op.name.split('.')[0], op.name);
   }
   // the old interface-only skills are gone; their abilities are operations behind commands
@@ -164,7 +165,6 @@ test('skills registry: one skill per operation, of the same name, kind and owner
     'status.show',
   ])
     assert.ok(registry.has(name), name);
-  assert.equal(registry.get('memory.restore')?.ownerOnly, true);
   assert.equal(registry.get('draw.create')?.costClass, 'paid');
 });
 
@@ -212,7 +212,8 @@ test('skills effects: one effect class per operation, by its actual effect, in o
   assert.equal(skillRegistry().get('memory.restore')?.effects, 'destructive');
 });
 
-test('skills registry: a definition is checked at load; an owner-only operation loads with ownerOnly', () => {
+// The owner's decision of 2026-11-10: an operation declares its kind alone, and the skill inherits it.
+test('skills registry: a definition is checked at load; a skill takes the kind of its operation', () => {
   assert.throws(() => loadSkills([def({ op: 'no.such.op' })]), /unknown operation/);
   assert.throws(() => loadSkills([def(), def()]), /twice/);
   assert.throws(() => loadSkills([def({ effects: 'launch' })]), /effects/);
@@ -220,13 +221,12 @@ test('skills registry: a definition is checked at load; an owner-only operation 
   assert.throws(() => loadSkills([def({ targets: 'everyone' })]), /targets/);
   assert.throws(() => loadSkills([def({ argsSchema: null })]), /argsSchema/);
   assert.throws(() => loadSkills([def({ dispatch: { op: 'x' } })]), /toOp/);
-  const ops: Record<string, Untyped> = { 'fake.op': { name: 'fake.op', rights: { kind: 'write', ownerOnly: true } } };
+  const ops: Record<string, Untyped> = { 'fake.op': { name: 'fake.op', rights: { kind: 'write' } } };
   assert.deepEqual(
-    [...loadSkills([def({ op: 'fake.op' })], { getOp: (name) => ops[name] ?? null }).values()].map((skill) => [
-      skill.kind,
-      skill.ownerOnly,
-    ]),
-    [['write', true]]
+    [...loadSkills([def({ op: 'fake.op' })], { getOp: (name) => ops[name] ?? null }).values()].map(
+      (skill) => skill.kind
+    ),
+    ['write']
   );
 });
 
@@ -406,6 +406,27 @@ test('skills access: default deny; only a grant naming her user id opens a skill
     grantedToPersona(config({ access: { 'message.edit': { users: 'self-1' } } }), SELF, 'message.edit'),
     false,
     'a malformed grant reads as none'
+  );
+});
+
+// The owner's decision of 2026-11-10: a stored everyone or role is a leftover of the member rights layer and decides nothing.
+test('skills access: an entry that still holds everyone or a role beside her id opens the skill on her id alone', () => {
+  const stale = { everyone: true, roles: ['r1'], users: [SELF] };
+  const verdict = (name: string) =>
+    skillAccess({
+      skill: skillRegistry().get(name),
+      config: config({ access: { [name]: stale } }),
+      selfId: SELF,
+    } as unknown as Parameters<typeof skillAccess>[0]);
+  assert.deepEqual(verdict('message.edit'), { allowed: true, reason: 'allowed' });
+  assert.deepEqual(verdict('memory.restore'), { allowed: false, reason: 'not-grantable' });
+  assert.deepEqual(
+    skillAccess({
+      skill: skillRegistry().get('message.edit'),
+      config: config({ access: { 'message.edit': { ...stale, users: [MEMBER] } } }),
+      selfId: SELF,
+    } as unknown as Parameters<typeof skillAccess>[0]),
+    { allowed: false, reason: 'not-allowed' }
   );
 });
 
@@ -987,48 +1008,36 @@ function makeEnv({ cfg = config(), roles = [] }: Record<string, Untyped> = {}) {
   return { env, hot, store, client, stored, cleanup: () => fs.rmSync(rootDir, { recursive: true, force: true }) };
 }
 
-test('persona grants: a grant to her user opens a skill by name, owner-only ones included; revoke closes it', async () => {
+// The owner's decision of 2026-11-10: only he types commands, so a grant names her alone and takes the tool name only.
+test('persona grants: a grant opens a skill to her by name, owner-only ones included; revoke closes it', async () => {
   const t = makeEnv();
-  const owner = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', asOwner: true };
   try {
     for (const name of ['memory.private.read', 'message.edit', 'lore.add']) {
-      const result = await runOp('access.grant', { command: name, accountId: SELF }, owner);
+      const result = await runOp('access.grant', { command: name }, owner);
       assert.equal(result.status, 'ok', `${name}: ${result.summary}`);
     }
     const access = t.stored();
     for (const name of ['memory.private.read', 'message.edit', 'lore.add'])
-      assert.deepEqual(access[name].users, [SELF], name);
+      assert.deepEqual(access[name], { users: [SELF] }, name);
     const privateRead = skillRegistry().get('memory.private.read');
     assert.deepEqual(
       skillAccess({ skill: privateRead, config: config({ access }), selfId: SELF } as unknown as Parameters<
         typeof skillAccess
       >[0]),
-      {
-        allowed: true,
-        reason: 'allowed',
-      }
+      { allowed: true, reason: 'allowed' }
     );
-    // for a person the owner-only operation stays closed, as before
-    const person = await runOp('access.grant', { command: 'memory.private.read', accountId: MEMBER }, owner);
-    assert.deepEqual(
-      [person.status, person.summary],
-      ['invalid', 'memory.private.read is owner-only and cannot be granted']
-    );
-    // `/nep access list` shows her grants like anyone's, owner-only ones included
     const list = (await runOp('access.list', {}, owner)).summary.split('\n');
     for (const name of ['memory.private.read', 'message.edit', 'lore.add'])
       assert.ok(list.includes(`${name}: user id:${SELF}`), name);
-    assert.equal(
-      (await runOp('access.revoke', { command: 'memory.private.read', accountId: SELF }, owner)).status,
-      'ok'
-    );
+    assert.equal((await runOp('access.revoke', { command: 'memory.private.read' }, owner)).status, 'ok');
     assert.equal(
       skillAccess({ skill: privateRead, config: config({ access: t.stored() }), selfId: SELF } as unknown as Parameters<
         typeof skillAccess
       >[0]).allowed,
       false
     );
-    const unknown = await runOp('access.grant', { command: 'message.pin', accountId: SELF }, owner);
+    const unknown = await runOp('access.grant', { command: 'message.pin' }, owner);
     assert.deepEqual([unknown.status, unknown.code], ['invalid', 'unknown-skill']);
   } finally {
     t.cleanup();
@@ -1037,10 +1046,11 @@ test('persona grants: a grant to her user opens a skill by name, owner-only ones
 
 test('persona grants: an irreversible or administrative operation is refused for her with a clear message', async () => {
   const t = makeEnv();
-  const owner = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', asOwner: true };
   try {
     for (const name of NOT_GRANTABLE_TO_PERSONA) {
-      const result = await runOp('access.grant', { command: name, accountId: SELF }, owner);
+      // The owner's decision of 2026-11-10: the grant takes the tool name alone, her id is the target.
+      const result = await runOp('access.grant', { command: name }, owner);
       assert.deepEqual([result.status, result.code], ['invalid', 'not-grantable'], name);
       assert.match(result.summary, /cannot be granted to the persona yet/, name);
     }
@@ -1052,9 +1062,10 @@ test('persona grants: an irreversible or administrative operation is refused for
 
 test('persona grants: a group or * opens her read skills under it, owner-only reads included, never a write', async () => {
   const t = makeEnv();
-  const owner = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', asOwner: true };
   try {
-    assert.equal((await runOp('access.grant', { command: '*', accountId: SELF }, owner)).status, 'ok');
+    // The owner's decision of 2026-11-10: the grant takes the tool name alone, and the entry holds her id alone.
+    assert.equal((await runOp('access.grant', { command: '*' }, owner)).status, 'ok');
     const access = t.stored();
     const reads = [...skillRegistry().values()]
       .filter((skill) => skill.kind === 'read' && !NOT_GRANTABLE_TO_PERSONA.includes(skill.name))
@@ -1064,15 +1075,10 @@ test('persona grants: a group or * opens her read skills under it, owner-only re
       assert.ok(access[name], name);
     for (const name of ['message.edit', 'lore.add', 'memory.restore', 'draw.create'])
       assert.equal(access[name], undefined, name);
-    assert.deepEqual(access['lore.list'], {
-      everyone: false,
-      roles: [],
-      users: [SELF],
-      via: { [`user:${SELF}`]: '*' },
-    });
+    assert.deepEqual(access['lore.list'], { users: [SELF], via: { [`user:${SELF}`]: '*' } });
     const t2 = makeEnv();
     try {
-      await runOp('access.grant', { command: 'memory', accountId: SELF }, { ...owner, env: t2.env });
+      await runOp('access.grant', { command: 'memory' }, { ...owner, env: t2.env });
       assert.ok(t2.stored()['memory.server.read']);
       assert.equal(t2.stored()['memory.restore'], undefined);
     } finally {
@@ -1083,26 +1089,17 @@ test('persona grants: a group or * opens her read skills under it, owner-only re
   }
 });
 
-test('persona grants: she never changes her effective authority -- not herself, not everyone, not a role she holds, not the governed config', async () => {
-  const t = makeEnv({ roles: ['r-hers'] });
-  const owner = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [] };
-  const asPersona = { ...owner, actor: 'persona' };
+// The owner's decision of 2026-11-10: every grant is hers, so any grant or revoke she makes would change her own
+// authority, and the targets of everyone and a role are gone.
+test('persona grants: she never changes her effective authority, neither a grant nor the governed config', async () => {
+  const t = makeEnv();
+  const asPersona = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [], actor: 'persona' };
   try {
-    for (const [name, args] of [
-      ['access.grant', { command: 'lore.add', accountId: SELF }],
-      ['access.grant', { command: 'lore.add' }],
-      ['access.grant', { command: 'lore.add', roleId: 'r-hers' }],
-      ['access.revoke', { command: 'lore.add', accountId: SELF }],
-    ]) {
-      const result = await runOp(
-        name as unknown as Parameters<typeof runOp>[0],
-        args as unknown as Parameters<typeof runOp>[1],
-        asPersona
-      );
-      assert.deepEqual([result.status, result.code], ['denied', 'self-grant'], `${name} ${JSON.stringify(args)}`);
+    for (const name of ['access.grant', 'access.revoke'] as const) {
+      const result = await runOp(name, { command: 'lore.add' }, asPersona);
+      assert.deepEqual([result.status, result.code], ['denied', 'self-grant'], name);
     }
     assert.deepEqual(t.stored(), {}, 'nothing was written');
-    // the governed keys, one list: the owner, rights, safe mode and her tools' settings
     for (const key of ['bot.ownerPerson', 'bot.access', 'tools.safeMode', 'tools.callTimeoutMs', 'bot'])
       assert.ok(governsPersona(key), key);
     for (const key of ['llm.maxRequestsPerDay', 'bot.timezone']) assert.equal(governsPersona(key), false, key);
@@ -1111,16 +1108,6 @@ test('persona grants: she never changes her effective authority -- not herself, 
     assert.deepEqual([set.status, set.code], ['denied', 'self-grant']);
     const unset = await runOp('config.unset', { path: 'tools.safeMode' }, asPersona);
     assert.deepEqual([unset.status, unset.code], ['denied', 'self-grant']);
-    // someone else's role, for an owner who asked her: the normal path
-    const other = await runOp('access.grant', { command: 'lore.add', roleId: 'r-other' }, asPersona);
-    assert.equal(other.status, 'ok');
-    // a member who asks her may not (access.grant is owner-only)
-    const member = await runOp(
-      'access.grant',
-      { command: 'lore.add', accountId: MEMBER },
-      { ...asPersona, accountId: MEMBER }
-    );
-    assert.deepEqual([member.status, member.code], ['denied', 'owner-only']);
   } finally {
     t.cleanup();
   }

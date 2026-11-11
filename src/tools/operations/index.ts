@@ -1,12 +1,11 @@
 // The operations layer: one typed operation behind every owner command and every tool of the persona.
-// `runOp(name, args, ctx)` checks the caller's rights (owner-only before any grant; grants are stored per
-// operation name, src/tools/operations/grants.ts), runs the operation and always answers
-// `{ status, code, summary, data }`: it never throws. The owner's console (src/interface/commands/console.ts) and
-// her tools (src/tools/definitions.ts) name the operations directly.
+// `runOp(name, args, ctx)` runs the operation and always answers `{ status, code, summary, data }`: it never throws.
+// It checks no caller: only the owner types commands, and her grant decides her own calls (src/tools/gateway.ts).
+// The owner's console (src/interface/commands/console.ts) and her tools (src/tools/definitions.ts) name the
+// operations directly.
 
 import { log } from '../../log.ts';
 import { OpError, STATUSES, getOp } from './registry.ts';
-import { rightsRefusal } from './rights.ts';
 import './status.ts';
 import './config.ts';
 import './pause.ts';
@@ -33,7 +32,7 @@ import './skills.ts';
 import './search.ts';
 import { CODE } from '../codes.ts';
 import { idText, isObj, objOf } from '../types.ts';
-import type { Obj, OpContext, Rights } from '../types.ts';
+import type { Obj, OpContext } from '../types.ts';
 
 /** The result of an operation as `runOp` answers it. */
 export type OpResult = { status: string; code: string; summary: string; data: unknown };
@@ -43,25 +42,6 @@ export { defineOp, listOps, OpError, invalid, denied } from './registry.ts';
 /** A refusal result. */
 function refusal(status: string, code: string, summary: string): OpResult {
   return { status, code, summary, data: null };
-}
-
-/**
- * Null when the caller (`ctx.accountId`, `ctx.roleIds`) may run `op`, else the `denied` result with
- * its code: src/tools/operations/rights.ts#rightsRefusal over `bot.ownerPerson`, `bot.access` and `features`, all
- * read now. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens (a
- * member operation while `features.memberCommands` is off included), else `not-granted`.
- */
-function checkRights(op: { name: string; rights: Rights }, ctx: Partial<OpContext> | undefined): OpResult | null {
-  const env = ctx?.env;
-  const code = rightsRefusal(op, {
-    accountId: ctx?.accountId,
-    roleIds: ctx?.roleIds,
-    config: env?.hot?.config,
-    asOwner: ctx?.asOwner === true,
-  });
-  if (code === null) return null;
-  if (code === CODE.NOT_GRANTED) return refusal('denied', code, 'Not allowed');
-  return refusal('denied', code, `${op.name} is owner-only`);
 }
 
 /** What an operation's `run` returned, as a result: a full result passes through; a reply text
@@ -75,11 +55,10 @@ export function asResult(value: unknown): OpResult {
 }
 
 /**
- * Runs `name` WITHOUT the rights check: for src/admin.ts#run, which the tests drive directly, and for
- * her own calls, whose grant the skill gateway checks. Same result shape as `runOp`; never throws.
- * `ctx` is `{ env, placeId, accountId, roleIds }`.
+ * Runs one operation. Never throws: `{ status: 'ok'|'denied'|'approval_required'|'invalid'|'failed', code, summary, data }`.
+ * `ctx` is `{ env, placeId, accountId, roleIds }`; `env` from src/tools/operations/env.ts#createOpsEnv.
  */
-export async function runOpPrechecked(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
+export async function runOp(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
   const op = getOp(name);
   if (!op) return refusal('invalid', CODE.UNKNOWN_OP, `unknown operation: ${name}`);
   try {
@@ -91,20 +70,4 @@ export async function runOpPrechecked(name: string, args: Obj = {}, ctx: Partial
     log.warn('ops: failed', { name, code });
     return refusal('failed', code, err instanceof Error ? err.message : idText(given.message) || idText(err));
   }
-}
-
-/**
- * Runs one operation for a caller: rights first (see `checkRights`), then the operation.
- * Never throws: `{ status: 'ok'|'denied'|'approval_required'|'invalid'|'failed', code, summary, data }`.
- * `ctx` is `{ env, placeId, accountId, roleIds }`; `env` from src/tools/operations/env.ts#createOpsEnv.
- */
-export async function runOp(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
-  const op = getOp(name);
-  if (!op) return refusal('invalid', CODE.UNKNOWN_OP, `unknown operation: ${name}`);
-  const refused = checkRights(op, ctx);
-  if (refused) {
-    log.info('ops: denied', { name, code: refused.code });
-    return refused;
-  }
-  return runOpPrechecked(name, args, ctx);
 }

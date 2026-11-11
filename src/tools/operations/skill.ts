@@ -158,16 +158,16 @@ const handlers = perEnv((env) => {
 
 defineOp({
   name: 'skill.read',
-  rights: { kind: 'read', member: false },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdRead(args),
 });
 defineOp({
   name: 'skill.run',
-  rights: { kind: 'write', member: false },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdRun(args),
 });
 defineOp({
   name: 'skill.disable',
-  rights: { kind: 'write', member: false },
+  rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdDisable(args),
 });

@@ -1,7 +1,7 @@
 {
   "chains": {
     "tests/admin.test.ts": {
-      "deep": 38,
+      "deep": 36,
       "repeated": 0
     },
     "tests/agent-backend-engine-route.test.ts": {
@@ -1717,7 +1717,7 @@
         "complexity": 22
       },
       "resolveCall": {
-        "complexity": 69
+        "complexity": 67
       }
     },
     "src/tools/gateway.ts": {
@@ -1737,7 +1737,7 @@
     },
     "src/tools/operations/memory.ts": {
       "<anonymous>": {
-        "function-length": 425
+        "function-length": 424
       },
       "<anonymous>>cmdMemoryShow": {
         "complexity": 22

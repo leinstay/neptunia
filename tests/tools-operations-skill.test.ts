@@ -9,7 +9,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runOpPrechecked } from '../src/tools/operations/index.ts';
+// The owner's decision of 2026-11-10 removed the caller check, so runOp is the one runner.
+import { runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
@@ -46,7 +47,7 @@ function envOf(skills: SkillsPort | null) {
 async function callOf(skills: SkillsPort | null, name: string, args: Record<string, unknown>): Promise<Result> {
   const env = envOf(skills);
   const { result } = await withCapturedLogs(() =>
-    runOpPrechecked(name, args, {
+    runOp(name, args, {
       env,
       placeId: 'g1',
       chatId: 'c1',
@@ -148,7 +149,7 @@ test('skill.run runs the activated version only, with the credentials its script
   const env = { ...envOf(skills as unknown as SkillsPort), dataDir };
   const run = async (args: Record<string, unknown>) => {
     const { result } = await withCapturedLogs(() =>
-      runOpPrechecked('skill.run', args, {
+      runOp('skill.run', args, {
         env,
         placeId: 'g1',
         chatId: 'c1',

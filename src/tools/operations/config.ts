@@ -1,19 +1,10 @@
-// Operations: `config.set|unset`: one config override in the private settings file (data/config/config.json); a path under bot.ownerPerson or bot.access only for an owner.
+// Operations: `config.set|unset`: one config override in the private settings file (data/config/config.json).
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
 import { leafPaths } from './catalog.ts';
-import { isOwnerCaller } from './grants.ts';
 import { governsPersona } from './rights.ts';
-import {
-  splitPath,
-  unsetPath,
-  ownValueAt,
-  jsonTypeOf,
-  withArticle,
-  touchesOwnerOnlyConfig,
-  reloadNote,
-} from './shared.ts';
+import { splitPath, unsetPath, ownValueAt, jsonTypeOf, withArticle, reloadNote } from './shared.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { textOf } from '../types.ts';
@@ -22,16 +13,11 @@ import type { Obj, OpContext } from '../types.ts';
 const handlers = perEnv((env) => {
   const { hot, editLocalConfig, writeLocalPath } = env;
 
-  /** Refuses a change under `bot.ownerPerson`, `bot.access` or `bot.mnemonic` (see OWNER_ONLY_CONFIG_PATHS) unless the
-   * caller is an owner: a member granted `set` must never make themselves one. Made by the persona
-   * (`context.actor`, her skills) a change of any key that governs authorization or her own
+  /** Made by the persona (`context.actor`, her skills), a change of any key that governs authorization or her own
    * controls (src/tools/operations/rights.ts#governsPersona) is refused whoever asked. */
   function assertMayChangeConfig(parts: ReadonlyArray<string>, context: OpContext): void {
     if (context?.actor === 'persona' && governsPersona(parts.join('.'))) {
       throw denied(`the persona never changes ${parts.join('.')}`, CODE.SELF_GRANT);
-    }
-    if (touchesOwnerOnlyConfig(parts) && !isOwnerCaller(hot.config, context)) {
-      throw denied(`only an owner may change ${parts.join('.')}`);
     }
   }
 

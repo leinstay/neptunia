@@ -42,30 +42,20 @@ export function textOf(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-/** What an operation declares about who may run it (src/tools/operations/registry.ts#defineOp). */
-export type Rights = {
-  kind: 'read' | 'write';
-  /** No grant ever opens it: only an owner runs it. */
-  ownerOnly?: boolean;
-  /** `false`: only an owner runs it, unless `member` opens it to every member. */
-  grantable?: boolean;
-  /** Open to every member while `features.memberCommands` is on. */
-  member?: boolean;
-};
+/** What an operation declares about itself (src/tools/operations/registry.ts#defineOp): whether it only reads or writes. */
+export type Rights = { kind: 'read' | 'write' };
 
-/** An operation as a rights check and a grant see it: its name and its rights. */
+/** An operation as a grant sees it: its name and its rights. */
 export type OpInfo = { name: string; rights: Rights };
 
-/** A grant of one operation: who it opens it for, and (`via`) the group or `*` each target came from. */
+/** A grant of one operation to the persona: the user ids it holds, and (`via`) the group or `*` each id came from. */
 export type GrantEntry = {
-  everyone: boolean;
-  roles: Array<unknown>;
   users: Array<unknown>;
   via: Record<string, unknown>;
 };
 
-/** The one thing a grant adds or takes away: everyone, one role or one user. */
-export type GrantTarget = { everyone?: boolean; roleId?: string | number; accountId?: string | number };
+/** The one id a grant adds or takes away: the persona's user id. */
+export type GrantTarget = { accountId?: string | number };
 
 /** The stored grants (`bot.access`): an operation name to its grant, as the config file holds them. */
 export type Access = Record<string, unknown>;
@@ -140,13 +130,12 @@ export type Dispatch = Readonly<{
   toOp(given: Given): { op: string; args: Obj | null };
 }>;
 
-/** One skill of the registry (src/tools/registry.ts): a definition with the `kind` and `ownerOnly` of its operation. */
+/** One skill of the registry (src/tools/registry.ts): a definition with the `kind` of its operation. */
 export type Skill = Readonly<{
   name: string;
   family: string;
   op: string | null;
   kind: 'read' | 'write';
-  ownerOnly: boolean;
   argsSchema: Schema;
   effects: EffectClass;
   sharedState: boolean;

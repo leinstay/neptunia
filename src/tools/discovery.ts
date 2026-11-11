@@ -222,7 +222,7 @@ export function byFamily<TItem extends { name: string }>(items: ReadonlyArray<TI
  * The registry as the classifiers read it through `{{skills}}`: one line per skill, grouped by
  * family (byFamily), `<name> | <whenToUse>` (the text from the skills layer), the name alone when
  * it has none. Static: no access, no grant, so the prompt it fills stays the same while the owner
- * toggles skills. Owner-only skills are listed too: they run for an owner who asks. `texts` is `hot.prompts.tools`.
+ * toggles skills. `texts` is `hot.prompts.tools`.
  */
 export function skillsIndex(registry: ReadonlyMap<string, Skill> | null | undefined, texts?: unknown): string {
   const skills = [...(registry?.values() ?? [])].filter((skill) => typeof skill.name === 'string');

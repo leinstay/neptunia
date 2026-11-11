@@ -3,8 +3,7 @@
 // family (`memory`, `intent`, ...) as one line per skill. The text is the very rendering a core row of
 // her tool list gets (src/behavior/prompt.ts#skillsInventoryText over src/tools/discovery.ts#describeRows),
 // from the registry and the skills layer read now. A name that is no skill is `unknown-skill` with the closest
-// skill names (`labels.tools.tools.describe.closest`). A read, open to every member while
-// features.memberCommands is on, as the search tools are.
+// skill names (`labels.tools.tools.describe.closest`). A read.
 
 import { fill } from '../../format.ts';
 import { skillsInventoryText } from '../../behavior/prompt.ts';
@@ -47,6 +46,6 @@ const handlers = perEnv((env) => {
 
 defineOp({
   name: 'tools.describe',
-  rights: { kind: 'read', member: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdDescribe(args),
 });

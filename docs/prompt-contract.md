@@ -268,7 +268,6 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `safe-mode` | denied | - | `tools.result.reasons.safe-mode` |
 | `not-allowed` | denied | - | `tools.result.reasons.not-allowed` |
 | `not-grantable` | denied | - | `tools.result.reasons.not-grantable` |
-| `not-granted` | denied | - | `tools.result.reasons.not-granted` |
 | `owner-only` | denied | - | `tools.result.reasons.owner-only` |
 | `unknown-principal` | denied | - | `tools.result.reasons.unknown-principal` |
 | `self-grant` | denied | - | `tools.result.reasons.self-grant` |

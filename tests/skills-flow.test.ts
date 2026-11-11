@@ -22,7 +22,8 @@ import { useCountsBySkill } from '../src/memory/db/skills.ts';
 import type { ActiveSkill } from '../src/skills/index-block.ts';
 import { skillUsesOfTurn } from '../src/skills/uses.ts';
 import type { TurnCall } from '../src/skills/uses.ts';
-import { runOpPrechecked } from '../src/tools/operations/index.ts';
+// The owner's decision of 2026-11-10 removed the caller check, so runOp is the one runner.
+import { runOp } from '../src/tools/operations/index.ts';
 import { buildTools } from '../src/tools/tools-json.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
@@ -127,7 +128,7 @@ function herCalls(board: Board | null, rig: SkillsRig) {
   });
   return async (name: string, args: Record<string, unknown>): Promise<Result> => {
     const { result } = await withCapturedLogs(() =>
-      runOpPrechecked(name, args, {
+      runOp(name, args, {
         env,
         placeId: 'g1',
         chatId: 'c1',

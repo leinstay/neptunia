@@ -763,17 +763,10 @@ export function createConsole(deps: ConsoleDeps): {
     return { text: lines.join('\n'), status: 'ok' };
   }
 
-  /** `/tools grant|revoke <tool> [target]`: her grant without a target, else everyone, a role or a user. */
+  /** `/tools grant|revoke <tool>`: her grant of the tool, refused while no interface has said who she is. */
   function grantArgs(name: string, args: Record<string, unknown>): Record<string, unknown> | Answer {
-    const target = text(args.target);
-    const command = text(args.tool);
-    if (target === 'everyone') return { command };
-    const [kind, id] = target.split(' ');
-    if (kind === 'role' && id !== undefined) return { command, roleId: id };
-    if (kind === 'user' && id !== undefined) return { command, accountId: id };
-    const self = deps.selfId();
-    if (self === null) return refused(name, args, 'no interface has said who the persona is yet', 'failed');
-    return { command, accountId: self };
+    if (deps.selfId() === null) return refused(name, args, 'no interface has said who the persona is yet', 'failed');
+    return { command: text(args.tool) };
   }
 
   async function intentionShow(name: string, args: Record<string, unknown>, requester: { id: string }) {

@@ -2,8 +2,7 @@
 // latest report, the newest report of one day `YYYY-MM-DD` or the report of one run, as text, with its day and its run
 // identity in the data. It reads a file the watcher
 // wrote through the reader the core gives the operations' environment (`env.watcher`); a core with none answers
-// `failed`. It is not granted to her in the tracked config: the owner opens it with `/tools grant watcher.read`. It is
-// owner-only, so her grant lets her read it on her own and for the owner, and no grant opens it to anyone else.
+// `failed`. It is not granted to her in the tracked config: the owner opens it with `/tools grant watcher.read`.
 
 import { defineOp, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
@@ -30,6 +29,6 @@ function cmdRead(args: Obj, ctx: OpContext) {
 
 defineOp({
   name: 'watcher.read',
-  rights: { kind: 'read', ownerOnly: true },
+  rights: { kind: 'read' },
   run: (args, ctx) => cmdRead(args, ctx),
 });

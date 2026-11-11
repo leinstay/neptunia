@@ -15,7 +15,8 @@ import { loadSkills } from '../src/skills/load.ts';
 import { createSkillsPort } from '../src/skills/port.ts';
 import type { SkillsPort } from '../src/skills/port.ts';
 import { snapshotDir } from '../src/skills/package.ts';
-import { runOpPrechecked } from '../src/tools/operations/index.ts';
+// The owner's decision of 2026-11-10 removed the caller check, so runOp is the one runner.
+import { runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { CATALOGUE, isCode } from '../src/tools/codes.ts';
@@ -92,7 +93,7 @@ async function runOf(port: SkillsPort, dataDir: string): Promise<{ result: Resul
     dataDir,
   };
   const { result, logs } = await withCapturedLogs(() =>
-    runOpPrechecked(
+    runOp(
       'skill.run',
       { name: NAME, script: 'say.cjs' },
       { env, placeId: 'g1', chatId: 'c1', accountId: null, roleIds: [], actor: 'persona' }

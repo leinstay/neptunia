@@ -49,9 +49,7 @@ export function denied(message: string, code: string = CODE.OWNER_ONLY): OpError
 }
 
 /**
- * Registers one operation. `rights.kind` says whether it only reads or writes; `ownerOnly`
- * means no grant ever opens it; `grantable: false` means only an owner runs it unless `member`
- * opens it to every member (while `features.memberCommands` is on). Throws on a duplicate name
+ * Registers one operation. `rights.kind` says whether it only reads or writes. Throws on a duplicate name
  * or a missing kind: both are programming errors. Resolves to the frozen operation.
  */
 export function defineOp({ name, rights, run }: { name: string; rights: Rights; run: OpRun }): Op {

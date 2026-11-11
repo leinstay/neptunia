@@ -79,7 +79,6 @@ export type CallView = {
   links?: ReadonlyMap<string, { chatId: string; messageId: string } | null> | null;
   messageAt?: (n: number) => ViewLine | null;
   members?: ReadonlyArray<{ id: unknown; names?: ReadonlyArray<unknown>; aliases?: ReadonlyArray<{ name?: unknown }> }>;
-  roles?: ReadonlyArray<{ id: unknown; name?: unknown }>;
   selfId?: string | null;
   fileOf?: (handle: string) => { expired?: boolean; errand?: Obj | null } | null;
   triggerText?: string | null;
@@ -352,20 +351,6 @@ function channelOf(
   return indexed.kind === 'one' ? { id: indexed.id } : placeRefusal(indexed, given, option);
 }
 
-/** The id of a role reference (`<@&id>` or an id), or of the one role of `roles` by that name; else null. */
-function roleIdOf(reference: unknown, roles: CallView['roles']): string | null {
-  const given = argText(reference).trim();
-  const match = /^<@&(\d+)>$/.exec(given) ?? /^(\d+)$/.exec(given);
-  if (match) return match[1] ?? null;
-  const name = folded(given.replace(/^@/, ''));
-  const ids = new Set(
-    (Array.isArray(roles) ? roles : [])
-      .filter((role) => typeof role.name === 'string' && folded(role.name) === name)
-      .map((role) => idText(role.id))
-  );
-  return ids.size === 1 ? ([...ids][0] ?? null) : null;
-}
-
 /** The transcript number of `#N` / `N` (six digits at most: never a platform id), else null. */
 function transcriptNumber(value: unknown): number | null {
   const match = /^#?(\d{1,6})$/.exec(argText(value).trim());
@@ -564,12 +549,6 @@ export function resolveCall(
         const channel = channelOf(name, text, option, view, misses);
         if ('ok' in channel) return channel;
         args[option] = channel.id;
-        break;
-      }
-      case 'role': {
-        const id = roleIdOf(text, view?.roles);
-        if (!id) return refused(CODE.INVALID_ARGS, `args.${option}:unknown-role`);
-        args[option] = id;
         break;
       }
       default: {
@@ -1015,7 +994,6 @@ const ARG_RULE_KINDS: Readonly<Record<string, string>> = Object.freeze({
   'max-length': 'too-long',
   'min-length': 'too-short',
   'unknown-channel': 'unknown-channel',
-  'unknown-role': 'unknown-role',
 });
 
 /**
@@ -1024,7 +1002,7 @@ const ARG_RULE_KINDS: Readonly<Record<string, string>> = Object.freeze({
  * `labels.transcript.callReasons`, src/format.ts): `{ kind, code, arg }`. An
  * `invalid-args` refusal with a schema path (`args.<arg>[.<more>]:<rule>`) names the argument and
  * what was wrong with it (`missing-arg`, `unknown-arg`, `arg-twice`, `too-long`, `too-short`,
- * `unknown-channel`, `unknown-role`, else `wrong-arg`); `unknown-message` names the option (`message`, `reply`) whose message was not in view,
+ * `unknown-channel`, else `wrong-arg`); `unknown-message` names the option (`message`, `reply`) whose message was not in view,
  * or is `message-elsewhere` when that message lives in another channel than the one named, or
  * `message-deleted` when the record holds it as deleted (a `#N` of a placeholder line, or an id or
  * link of one: `view.deletedIds`);

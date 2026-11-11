@@ -47,7 +47,6 @@ export const labels = {
       'too-short': '{arg} too short',
       'arg-twice': '{arg} twice',
       'unknown-channel': 'no channel for {arg}',
-      'unknown-role': 'no role for {arg}',
       'unknown-message': '{arg} not in view',
       'message-deleted': 'message deleted',
       'message-elsewhere': 'message in another channel',

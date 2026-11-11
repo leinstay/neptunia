@@ -269,7 +269,7 @@ test("resolveCall: a member by the request's @handle; the people of an attention
   );
 });
 
-test('resolveCall: a channel by name, mention or id; a member by name, alias or mention; a role by name or mention', () => {
+test('resolveCall: a channel by name, mention or id; a member by name, alias or mention', () => {
   for (const channel of ['#🍡νέα', '💖νέα', 'ΝΕΑ'])
     assert.equal(resolve('memory.channel.read', { place: channel }).args.place, NEWS, channel);
   assert.equal(resolve('memory.channel.read', { place: '<#123>' }).args.place, '123', 'a mention is its id');
@@ -286,9 +286,15 @@ test('resolveCall: a channel by name, mention or id; a member by name, alias or 
     ['unknown-member', 'ambiguous']
   );
   assert.equal(resolve('memory.profile.read', { user: '<@555>' }).code, 'unknown-member');
-  assert.equal(resolve('access.grant', { command: 'lore.list', role: 'φίλοι' }).args.role, 'r1');
-  assert.equal(resolve('access.grant', { command: 'lore.list', role: '<@&r2>' }).reason, 'args.role:unknown-role');
-  assert.equal(resolve('access.grant', { command: 'lore.list', role: '<@&77>' }).args.role, '77');
+});
+
+// The owner's decision of 2026-11-10: a grant goes to her alone, so the access tools take the tool name and no target.
+test('resolveCall: access.grant and access.revoke take the tool name alone, and a role or user argument is refused', () => {
+  for (const name of ['access.grant', 'access.revoke']) {
+    assert.deepEqual(resolve(name, { command: 'lore.list' }).args, { command: 'lore.list' }, name);
+    assert.equal(resolve(name, { command: 'lore.list', role: 'φίλοι' }).code, 'invalid-args', name);
+    assert.equal(resolve(name, { command: 'lore.list', user: 'Zoë' }).code, 'invalid-args', name);
+  }
 });
 
 test('resolveCall: a transcript number names a message she saw and its channel; edit and delete reach only her own', () => {
