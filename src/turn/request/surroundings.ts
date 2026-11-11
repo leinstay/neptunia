@@ -39,7 +39,7 @@ function fieldLines(fields: PlaceFields | null, labels: Labels, refs: FieldRefs 
 
 /**
  * A place's body: the place in words from the frame's chain (a one-to-one chat as the interface's word for it with
- * `partner`), with no handle since the body is stable for the turn's place, then its fields.
+ * `partner`), with `handle` when given (the root has none), then its fields.
  */
 function placeBody(
   frame: Frame,
@@ -48,11 +48,12 @@ function placeBody(
   labels: Labels,
   partner: string | null,
   refs: FieldRefs | null,
-  names: InterfaceNames | undefined
+  names: InterfaceNames | undefined,
+  handle: string | null
 ): string {
   const at = frame.chain.findIndex((link) => link.id === place.id);
   const chain = at < 0 ? [{ id: place.id, kind: place.kind, name: place.name }] : frame.chain.slice(at);
-  const ref = placeRefText(labels, null, {
+  const ref = placeRefText(labels, handle, {
     iface: frame.interface,
     chain,
     ...(names === undefined ? {} : { names }),
@@ -65,7 +66,7 @@ function placeBody(
  * `<interface>`, `<root>` and `<place>` of `frame`. `interfaceText` is what the interface declares (its mention, link and
  * reaction forms and its nouns, already worded); `rootPlace` and `place` are the stored fields of the frame's root and
  * place, `partner` the handle (with `@`) of a one-to-one chat's partner, `refs` how a mention in a field reads and `names`
- * what the interface declared (its name, its nouns and its word for a direct chat). A one-to-one chat and the command
+ * what the interface declared (its name, its nouns and its word for a direct chat) and `handle` the place's own handle without `#` (`<place>` only). A one-to-one chat and the command
  * line have no root. '' for a turn that is nowhere.
  */
 export function surroundingsOf(
@@ -76,14 +77,15 @@ export function surroundingsOf(
   labels: Labels,
   partner: string | null = null,
   refs: FieldRefs | null = null,
-  names?: InterfaceNames
+  names?: InterfaceNames,
+  handle: string | null = null
 ): string {
   if (frame.place === null) return '';
   const root = frame.root !== null && frame.root.id !== frame.place.id ? frame.root : null;
   return [
     block('interface', interfaceText.trim()),
-    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels, null, refs, names)),
-    block('place', placeBody(frame, frame.place, place, labels, partner, refs, names)),
+    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels, null, refs, names, null)),
+    block('place', placeBody(frame, frame.place, place, labels, partner, refs, names, handle)),
   ]
     .filter(Boolean)
     .join('\n');

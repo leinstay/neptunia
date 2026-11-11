@@ -87,8 +87,12 @@ export type ReaderInput = {
   senses: Senses;
   toolsText: string;
   selfFacts: Array<string>;
-  /** The body of `<surroundings>`, rendered and held per cache bucket by the caller (src/turn/request/framed.ts). */
-  surroundingsText: string;
+  /**
+   * The body of `<surroundings>`, rendered and held per cache bucket by the caller (src/turn/request/framed.ts), given the
+   * handle of the turn's place (without `#`) and, in a direct chat, its partner's handle (with `@`), both as the request's
+   * handle books cut them; null when the request gives none.
+   */
+  surroundingsText: (handle: string | null, partner: string | null) => string;
   mind: Mind;
   /** The chat ids of the places her selfreflection is mirrored to, marked in `<memory>`. */
   selfreflectionIds?: ReadonlySet<string>;
@@ -447,6 +451,13 @@ const IN_MEMORY: ReadonlyArray<MemorySubtag> = ['people', 'places', 'lore', 'rec
 /** Whether the request names people by handle: every one but a selfreflection's, which names them by name alone. */
 const handled = (given: ReaderInput): boolean => given.selfreflection === null || given.selfreflection === undefined;
 
+/** The handle of the partner of the turn's own place when it is a one-to-one chat the request holds a view of; else null. */
+function directPartnerOf(given: ReaderInput, names: Names): string | null {
+  const place = given.frame.place;
+  const view = place === null || !handled(given) ? null : (given.placePathOf?.(place.id) ?? null);
+  return view?.dm ? names.entryRefs.partnerOf(place?.id ?? '') : null;
+}
+
 /** The channel handle a window is headed with, null for a place with no chat id and in a request that gives no handles. */
 function windowHandle(given: ReaderInput, names: Names, window: MeanwhileWindow): string | null {
   const chatId = !handled(given) ? null : chatIdOfInput(given)(window.placeId);
@@ -574,7 +585,10 @@ function offeredOf(given: ReaderInput): Offered {
   ]);
   return {
     spatial: [given.spatialText, answersLine(given, names), given.awayText].filter(Boolean).join('\n'),
-    surroundings: given.surroundingsText,
+    surroundings: given.surroundingsText(
+      handled(given) && given.currentChannelId !== null ? names.places.handleOf(given.currentChannelId) : null,
+      directPartnerOf(given, names)
+    ),
     memory: memory.items,
     memoryLeftOut: memory.leftOut,
     recall: recallBlockOf(lookups, retired, labels, timezone, (placeId) => names.entryRefs.place(placeId)),
