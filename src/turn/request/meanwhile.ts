@@ -249,10 +249,12 @@ export function windowText(
   const l = labels.meanwhile ?? {};
   const words = windowWords(window, labels, refs);
   const first = window.lines.at(0)?.at ?? frame.now;
+  const own = placeOwnText(labels, words);
   const head = fill(l.place ?? '{path}, {date}:', {
     path: placeRefText(labels, handle, words),
-    handle: handle === null ? '' : `#${handle}`,
-    name: placeOwnText(labels, words),
+    // A place with no handle stands by its own name, so a head always names its place.
+    handle: handle === null ? own : `#${handle}`,
+    name: own,
     date: dayOf(first, frame, labels),
   });
   const shared = sharedKeys(window);
