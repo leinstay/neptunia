@@ -18,7 +18,7 @@
 
 import { messageLocator } from './message-locator.ts';
 import type { MessageLocator } from './message-locator.ts';
-import { messageSourceId, PERSONA_ID } from './ids.ts';
+import { messageSourceId, nativeAuthorityOf, PERSONA_ID } from './ids.ts';
 import { mintedAccount } from './native-rows.ts';
 import { extraText, ifaceOf, join, parseExtra, split } from './row-columns.ts';
 import type { MapContext, Spec } from './row-columns.ts';
@@ -290,7 +290,9 @@ function recordIdentity(db: Db, day: DayWrite, line: Row): Identity | undefined 
   const reference = recordReference(db, day, line);
   if (!reference) return undefined;
   const { hint, locator } = reference;
-  const family = resolveMessageFamily(db, { locator, authority: `${locator.iface}/global` });
+  // A family the echo has not reserved yet takes the interface's native authority, the one its account and place sit
+  // under (`cli/local` for the command line), so the echo's replay finds her account there.
+  const family = resolveMessageFamily(db, { locator, authority: nativeAuthorityOf(locator.iface) });
   const revision =
     line.kind === 'deleted' ? null : isWholeNumber(line.revision) && line.revision > 0 ? line.revision : 1;
   const found =
