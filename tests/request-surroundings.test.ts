@@ -116,3 +116,24 @@ test("<place> of a direct chat reads the interface's word for it with the partne
   assert.ok(place.includes('private talk') && place.includes(partner) && place.includes('Agora Net'), place);
   assert.doesNotMatch(place, />/);
 });
+
+// The owner's rule of 2026-11-11, one form everywhere: `<place>` names the current place with its place handle.
+// Signature: surroundingsOf(frame, interfaceText, rootPlace, place, labels, partner?, refs?, names?, handle?: string | null)
+// where `handle` is the current place's handle without `#` (null: none). The root has none.
+test('<place> opens with the current place handle and <root> carries none', () => {
+  // Bug: the place she is in was the one place a request named without its handle, so its reference differed from the
+  // one in <places> and <meanwhile>.
+  const text = surroundingsOf(frameOf(frameInput()), 'I', null, null, shippedLabels, null, null, NAMES, 'cab12');
+  assert.ok((section(text, 'place') ?? '').trimStart().startsWith('#cab12'), section(text, 'place') ?? '');
+  assert.ok(!(section(text, 'root') ?? '').includes('#cab12'), section(text, 'root') ?? '');
+});
+
+test('<place> of a direct chat opens with the handle of that chat, then its partner', () => {
+  // Bug: a direct chat had no handle in <place>, so the owner's chat was the one place she could not name.
+  const frame = frameOf(frameInput({ chain: DM_CHAIN, dm: DM }));
+  const partner = `@${handleOf(PARTNER.personId)}`;
+  const place =
+    section(surroundingsOf(frame, 'I', null, null, shippedLabels, partner, null, NAMES, 'cd777'), 'place') ?? '';
+  assert.ok(place.trimStart().startsWith('#cd777'), place);
+  assert.ok(place.includes(partner), place);
+});

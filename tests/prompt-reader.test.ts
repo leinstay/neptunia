@@ -544,3 +544,105 @@ test('<recall> names the place a lookup was made in in words, with no >', () => 
   assert.ok(recall.includes('γενικά'), recall);
   assert.doesNotMatch(recall, />/);
 });
+
+// The owner's rule of 2026-11-11 (one form everywhere): the place she is in reads in `<place>` of `<surroundings>`, in its
+// entry of `<places>` and, from another place, in a window head, with the same reference.
+/** The reference in `text`: from the handle of chat `chat` to the end of the interface's name. */
+function refOf(built: Built, text: string, chat: string): string {
+  const handle = [...(built.channelHandles ?? [])].find(([, id]) => id === chat)?.[0] ?? '';
+  const from = handle === '' ? -1 : text.indexOf(`#${handle}`);
+  return from < 0 ? '' : text.slice(from, text.indexOf('Agora Net', from) + 'Agora Net'.length);
+}
+
+test('<place>, the entry in <places> and a window head elsewhere give a room one reference', () => {
+  // Bug: the place she is in was named without its handle in <place>, so the same room read two ways.
+  const room = viewOf('fake', ROOM_PLACE);
+  const here = request({
+    surroundings: { names: NAMES },
+    chatIdOf: (placeId: string) => CHATS[placeId] ?? null,
+    placePathOf: (placeId: string) => (placeId === 'place:room' ? room : null),
+    mind: mindOfEntries({ people: [ELENI], places: [placeEntry('place:room', 'γενικά')] }),
+    currentChannelId: 'c-room',
+    lookups: [],
+    meanwhileReads: meanwhileReads([]),
+  });
+  const inPlace = refOf(here, block(here, 'surroundings'), 'c-room');
+  assert.ok(inPlace.includes('γενικά') && inPlace.includes('Αγορά'), inPlace);
+  const places = /<places>\n([\s\S]*?)\n<\/places>/.exec(userOf(here))?.[1] ?? '';
+  assert.equal(refOf(here, places, 'c-room'), inPlace, 'the entry of <places>');
+  const elsewhere = request({
+    frame: frameOf(frameInput({ now: NOW, timezone: TIMEZONE, chain: CLUB_CHAIN })),
+    chatIdOf: (placeId: string) => CHATS[placeId] ?? null,
+    lookups: [],
+    meanwhileReads: meanwhileReads([
+      {
+        id: 'place:room',
+        path: ['fake', 'Αγορά', 'γενικά'],
+        dm: false,
+        iface: 'fake',
+        chain: ROOM_PLACE,
+        names: NAMES,
+        lines: [line('place:room', 'r1', NOW - 30 * MIN, null, 'ΓΡΑΜΜΗ')],
+      },
+    ]),
+  });
+  assert.equal(refOf(elsewhere, block(elsewhere, 'meanwhile'), 'c-room'), inPlace, 'the window head');
+});
+
+test('<place>, the entry in <places> and a window head elsewhere give a direct chat one reference', () => {
+  // Bug: a direct chat was named in <place> without its handle and with another wording than its window head.
+  const chain = [{ id: 'fake:dm:zoe', kind: 'dm', name: null }];
+  const dm = viewOf('fake', chain, true, PARTNER.personId);
+  const here = request({
+    frame: frameOf(
+      frameInput({
+        now: NOW,
+        timezone: TIMEZONE,
+        chain,
+        dm: { ...DM, partner: PARTNER },
+        author: PARTNER,
+        trigger: { messageId: 'm1', authorId: '1234' },
+      })
+    ),
+    surroundings: { names: NAMES },
+    chatIdOf: (placeId: string) => (placeId === 'fake:dm:zoe' ? 'd-zoe' : null),
+    placePathOf: (placeId: string) => (placeId === 'fake:dm:zoe' ? dm : null),
+    mind: mindOfEntries({ places: [placeEntry('fake:dm:zoe', '', { kind: 'dm' })] }),
+    currentChannelId: 'd-zoe',
+    history: [makeMessage('m1', NOW - MIN, { authorId: '1234', authorName: 'Zoé', content: 'γεια' })],
+    lookups: [],
+    meanwhileReads: meanwhileReads([]),
+  });
+  const inPlace = refOf(here, block(here, 'surroundings'), 'd-zoe');
+  assert.ok(inPlace.includes(`@${handleOf(PARTNER.personId)}`), inPlace);
+  const places = /<places>\n([\s\S]*?)\n<\/places>/.exec(userOf(here))?.[1] ?? '';
+  assert.equal(refOf(here, places, 'd-zoe'), inPlace, 'the entry of <places>');
+  const cliFrame = frameOf(
+    frameInput({
+      now: NOW,
+      timezone: TIMEZONE,
+      interface: 'cli',
+      chain: [{ id: 'cli:dm:owner', kind: 'dm', name: null }],
+      dm: { word: 'private', nativeId: 'owner', partner: PARTNER },
+    })
+  );
+  const elsewhere = request({
+    frame: cliFrame,
+    chatIdOf: (placeId: string) => (placeId === 'fake:dm:zoe' ? 'd-zoe' : null),
+    lookups: [],
+    meanwhileReads: meanwhileReads([
+      {
+        id: 'fake:dm:zoe',
+        path: ['fake', 'private', '1234'],
+        dm: true,
+        iface: 'fake',
+        chain,
+        names: NAMES,
+        partner: PARTNER.personId,
+        partnerKey: PARTNER.personId,
+        lines: [line('fake:dm:zoe', 'z1', NOW - 30 * MIN, null, 'ΙΔΙΩΤΙΚΗ')],
+      },
+    ]),
+  });
+  assert.equal(refOf(elsewhere, block(elsewhere, 'meanwhile'), 'd-zoe'), inPlace, 'the window head');
+});
