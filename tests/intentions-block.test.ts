@@ -73,19 +73,24 @@ test('intentionsBlockText: active lines with due, wait, outcome and note', () =>
   );
 });
 
-test("intentionsBlockText: an attention shows its place, the day's wakes against her bound, the settle and the people by name", () => {
+test("intentionsBlockText: an attention shows its place, the day's wakes against her bound, the settle and the people by handle", () => {
+  // The owner's decision of 2026-11-10: one handle per person; a person reads as their handle, never a name or an id,
+  // and a place no reader names reads `spatial.unnamed`, never its id.
   const attention = own('i6', { attend: { place: 'c9', people: ['u1', 'u2'], settle: 30, perDay: 4 } });
   const counted = { ...attention, attend: { ...attention.attend, today: { day: '2026-10-18', wakes: 2 } } };
   const labels = {
     intentions: { ...LABELS.intentions, attend: 'in #{place} {wakes}/{perDay} q{settle}', attendPeople: 'of {people}' },
+    authors: { line: '{handle}', lineAccount: '{handle} ({iface} {id})', unknown: 'someone' },
+    spatial: { unnamed: 'unnamed' },
   };
   const text = intentionsBlockText([counted, own('i7', { attend: { place: 'c8' } })], labels, {
     channelNameOf: (id) => (id === 'c9' ? 'κήπος' : null),
     nameOf: (id) => (id === 'u1' ? 'Ana' : null),
+    handleOf: (id) => (id === 'u1' ? '@u7ana' : null),
   });
   assert.equal(
     text,
-    ['H', 'i6|P|σκοπός i6 · in #κήπος 2/4 q30 · of Ana, u2', 'i7|P|σκοπός i7 · in #c8 0/12 q90'].join('\n')
+    ['H', 'i6|P|σκοπός i6 · in #κήπος 2/4 q30 · of @u7ana, someone', 'i7|P|σκοπός i7 · in #unnamed 0/12 q90'].join('\n')
   );
   assert.equal(
     intentionsBlockText([counted], LABELS),

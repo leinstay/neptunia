@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { search, window, quotesOf } from '../src/memory/db/recall.ts';
+import type { RecallMessage } from '../src/memory/db/recall.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { channelPlaceId, dmPlaceId } from '../src/memory/db/ids.ts';
 import { personId } from './fixtures/memory-db/spelled-ids.ts';
@@ -287,6 +288,40 @@ test('a normalized DM place hides its name independently of an allowed source au
     const found = run(env, ['κουνέλι'], { channelNameOf: () => 'Private snapshot place' });
     assert.equal(found.windows[0].channelName, null);
     assert.equal(found.windows[0].messages[0].content, 'το κουνέλι allowed evidence');
+  } finally {
+    env.done();
+  }
+});
+
+test("quotesOf names each line's author by the handle `handleOf` gives its stored account, never the name or the id", () => {
+  // Bug: a memory.search result names its authors by the stored display name, and `(id:…)` in memory mode, so the lines
+  // she found tie to no entry of <people>. The owner's decision of 2026-11-10: one handle per person, authors by handle.
+  const env = fixture();
+  try {
+    attributionAccount(env, 'discord:42', 'discord', '42', 'Primary stored author');
+    attributionAccount(env, 'other:42', 'other', '42', 'Foreign stored author');
+    env.say({
+      native: 'foreign-author',
+      iface: 'other',
+      author: '42',
+      place: channelPlaceId('other', 'room'),
+      scope: groupScope('other'),
+      at: NOW - DAY,
+      text: 'το κουνέλι',
+    });
+    env.stem();
+    const found = run(env, ['κουνέλι']);
+    const authors = { line: '{handle}', lineAccount: '{handle} ({iface} {id})', unknown: 'someone' };
+    const quotes = quotesOf(found.windows, {
+      render: { labels: { ...labels, authors }, timezone: 'UTC' },
+      stretchChars: 1500,
+      handleOf: (message: RecallMessage) =>
+        message.stored?.iface === 'other' && message.authorId === '42' ? 'u0th1' : 'uprim',
+    });
+    const stretch = quotes[0]?.lines ?? '';
+    const line = stretch.split('\n').find((one) => one.includes('κουνέλι')) ?? '';
+    assert.ok(line.includes('@u0th1'), line);
+    assert.equal(/Foreign stored author|Primary stored author|\b42\b/.test(line), false, line);
   } finally {
     env.done();
   }

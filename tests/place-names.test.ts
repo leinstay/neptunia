@@ -128,7 +128,9 @@ test('renders the choices under the lead of the label for the case, one line eac
   assert.ok(text.includes('NONE-MARK memes'), text);
   assert.equal(text.includes('SEVERAL-MARK'), false);
   assert.ok(text.includes('LINE-MARK #cg1 🌿┃Garden Notes'), 'a place with a handle is written by its handle');
-  assert.ok(text.includes('LINE-MARK 1002 🥕 root_cellar!'), 'a place without a handle is written by its id');
+  // The owner's decision of 2026-11-10: a place is named by its handle and name, and no raw place id reaches her.
+  assert.ok(text.includes('🥕 root_cellar!'), 'a place without a handle is listed by its name');
+  assert.equal(text.includes('1002'), false, 'a place without a handle is never written by its id');
   assert.equal(text.includes('MORE-MARK'), false, 'no tail while every place is listed');
 });
 

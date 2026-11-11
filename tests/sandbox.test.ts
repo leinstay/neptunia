@@ -1721,6 +1721,35 @@ test("answerReply: the replay shows the live turn's author handles, and resolves
   ]);
 });
 
+test('answerReply: a person with two accounts reads as one handle on the lines of both', async () => {
+  // Bug: the sandbox leaves out what a handle is cut from and cuts it from each platform id, so the replay of a
+  // request shows one person as two handles where the live turn shows one. The owner's decision of 2026-11-10: one
+  // handle per person, read through the store's address reads (`accountOf`, `personOfAccount`).
+  const hot = fakeHot();
+  hot.prompts.labels = DIRECTORY_LABELS;
+  const accountOf = (native: string): string => `fake:${native}`;
+  const personOfAccount = (account: string): string | null =>
+    account === accountOf(ALICE) || account === accountOf(BRUNO) ? 'person:alice' : null;
+  const view = liveView({ hot, store: { ...fakeStore(), accountOf, personOfAccount }, placeId: 'g1' });
+  const result = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: fakeLlm('<msg>ναι</msg>'),
+    samples: 1,
+    at: NOW,
+  });
+  const user = result.request.user;
+  const authorOf = (marker: string): string => {
+    const line = user.split('\n').find((one: string) => one.includes(marker)) ?? '';
+    return /@u[0-9a-z]+/.exec(line.slice(0, line.indexOf(marker)))?.[0] ?? '';
+  };
+  assert.match(authorOf('καλημέρα'), /^@u[0-9a-z]+$/, user);
+  assert.equal(authorOf('what do you think about chess?'), authorOf('καλημέρα'), user);
+});
+
 test('answerSkillScenario: a message.create text is resolved like a <msg> (callMentions); the answers carry their mentions', async () => {
   const { answerSkillScenario } = sandbox;
   const view = handlesView();

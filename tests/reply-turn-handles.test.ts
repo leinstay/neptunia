@@ -485,6 +485,35 @@ test('a place she searched reads as its handle and name in <recall> and in her c
   assert.ok(mark.includes(garden), mark);
 });
 
+test("one person's handle is the same on a line of the chat and as the person she answers when the account's meta-person differs from its old link", async () => {
+  // Bug: a chat author is keyed by the account's meta-person row (`person_accounts`) and the person she answers by the
+  // account's old link (`accounts.person_id`), so after a bind one person reads as two handles in one request.
+  const world = handleWorld();
+  try {
+    world.db
+      .prepare('INSERT INTO people (id, first_seen_at, meta) VALUES (?, ?, 1)')
+      .run('person:meta-nikos', '2026-11-01T10:00:00.000Z');
+    world.db
+      .prepare("UPDATE person_accounts SET person_id = ? WHERE iface = 'fake' AND platform_id = '4242'")
+      .run('person:meta-nikos');
+    const run = await replyRun({
+      world,
+      steps: [
+        {
+          trigger: { id: 'r2', text: LINE.nikosOne, at: TURN_NOW - MIN, authorId: '4242', authorName: 'Νίκος' },
+          answers: [SAY],
+        },
+      ],
+    });
+    const request = requestOf(run, 0, 0);
+    const answered = entryHandle(entriesOf(request)[0] ?? '');
+    assert.match(answered ?? '', HANDLE, 'the person she answers opens <people>');
+    assert.deepEqual(authorOf(blockOf(request, 'chat'), LINE.nikosOne), [answered]);
+  } finally {
+    world.close();
+  }
+});
+
 test('the handles of the entries of a request are unique', async () => {
   // Guard: one handle for two people would make her mention and read the wrong one.
   const run = await onCli([READ_GARDEN, THANKS]);
