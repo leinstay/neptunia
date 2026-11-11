@@ -9,7 +9,7 @@
 // candidate), `intention.list`. Her own state, so her own calls run on her grant alone
 // (src/tools/definitions.ts, trait `self`). A call never widens anything: a wait
 // names only an errand the errand store holds, a place to begin in is recorded once the interface says
-// she may write there, and a candidate is accepted only where its origin allows
+// she may write there and the place is no mirror of her diary (`selfreflection-mirror`), and a candidate is accepted only where its origin allows
 // (src/intentions/model.ts#acceptRefusal). An update or a cancel without `id=` whose body is one bare
 // intention id takes that as the id (isIntentionId);
 // any other body stays the update's purpose (or is ignored by the cancel). Off unless
@@ -30,8 +30,9 @@
 import { formatClock, formatDate } from '../../format.ts';
 import { clampWithEllipsis, oneLine } from '../../memory/clamp.ts';
 import { HEARTBEAT_ORIGIN, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.ts';
+import { isMirrorPlace } from '../../memory/db/mirrors.ts';
 import { isOwnerCaller } from './grants.ts';
-import { defineOp, perEnv, invalid } from './registry.ts';
+import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { writablePlace } from './shared.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf } from '../types.ts';
@@ -255,12 +256,17 @@ const handlers = perEnv((env) => {
     };
   }
 
-  /** A place to begin in, refused when she cannot write there (src/tools/operations/shared.ts#writablePlace). */
+  /**
+   * A place to begin in, refused when she cannot write there (src/tools/operations/shared.ts#writablePlace) and when it
+   * is the place of a selfreflection mirror, where only the mirrors' publisher posts (src/behavior/mirror.ts).
+   */
   async function checkBegin(place: string | undefined, context: OpContext): Promise<void> {
     if (!place) return;
     const port = env.port as { iface?: unknown } | null | undefined;
     const iface = typeof port?.iface === 'string' ? port.iface : '';
-    await writablePlace({ reads: env.reads, store: env.store, iface, id: place, context });
+    const target = await writablePlace({ reads: env.reads, store: env.store, iface, id: place, context });
+    if (isMirrorPlace(env.memoryDb, target.iface, target.chatId))
+      throw denied(`a mirror of your diary, ${place}`, CODE.SELFREFLECTION_MIRROR);
   }
 
   /**
@@ -294,10 +300,11 @@ const handlers = perEnv((env) => {
     return answer(result, 'set');
   }
 
-  /** `intention.update id ...` (the id alone in the body counts as `id`, idOf). */
-  function cmdUpdate(given: Obj, context: OpContext): Obj {
+  /** `intention.update id ...` (the id alone in the body counts as `id`, idOf); a new place to begin in as in `cmdSet`. */
+  async function cmdUpdate(given: Obj, context: OpContext): Promise<Obj> {
     const { id, args } = idOf(given);
     if (!id) throw invalid('an id is required');
+    await checkBegin(text(args, 'placeId'), context);
     const state = text(args, 'state');
     if (state !== undefined && state !== 'pending' && state !== 'done' && state !== 'dropped')
       throw invalid('state must be pending, done or dropped');
