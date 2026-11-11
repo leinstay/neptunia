@@ -3392,8 +3392,9 @@ test("runTurn: another member's waiting call is named under labels.task.queuedOt
 
 const GIF_PICK_PROMPT = 'Pick a GIF for what {{name}} wrote.';
 const PICK_LIBRARY_SIZE = 50;
-// PR 7d: gifs.pick.maxChars (160), contextMessages (4) and graceMs (1000) are constants of the picker.
-const PICK_SETTINGS = { maxOutputTokens: 17, candidates: PICK_LIBRARY_SIZE }; // B7: the cap holds the whole library.
+// PR 7d: gifs.pick.maxChars (160) and contextMessages (4) are constants of the picker. The grace is set here, so the
+// tests of a late pick hold whatever `media.pick.graceMs` defaults to.
+const PICK_SETTINGS = { maxOutputTokens: 17, candidates: PICK_LIBRARY_SIZE, graceMs: 1000 }; // B7: the cap holds the whole library.
 
 /**
  * A library of PICK_LIBRARY_SIZE link GIFs, every one captioned: g1 the most used, g50 used
@@ -3717,7 +3718,7 @@ test("runTurn: the picker runs alongside the first message's typing time", async
 });
 
 test("runTurn: a picker still out when the first message's typing ends is left behind: the text goes, logged and journaled", async () => {
-  // PR 7d: gifs.pick.graceMs is the constant 1000, so the picker has that long beyond the typing before it is left behind.
+  // PICK_SETTINGS sets media.pick.graceMs to 1000, so the picker has that long beyond the typing before it is left behind.
   const typing = { msPerChar: [0, 0], minMs: 60, maxMs: 60 };
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   const slow = () => new Promise((resolve) => setTimeout(() => resolve('{"pick":"gif","name":"g50"}'), 1400));
@@ -3750,6 +3751,35 @@ test("runTurn: a picker still out when the first message's typing ends is left b
     ['https://tenor.com/view/gif-50'],
     'an answer inside the grace still replaces the text'
   );
+  assert.equal(
+    graced.logs.some((log) => log.msg === 'media-pick: late'),
+    false
+  );
+});
+
+test('runTurn: a picker that answers after a media.pick.graceMs the config sets is left behind at that grace', async () => {
+  const typing = { msPerChar: [0, 0], minMs: 60, maxMs: 60 };
+  const late = await runPickTurn({
+    reply: '<msg>ναι</msg>',
+    pick: () => new Promise((resolve) => setTimeout(() => resolve('{"pick":"gif","name":"g50"}'), 700)),
+    typing,
+    pickSettings: { ...PICK_SETTINGS, graceMs: 300 },
+  });
+  assert.deepEqual(late.sent(), ['ναι'], 'the text as written, no GIF');
+  const entry = late.logs.find((log) => log.msg === 'media-pick: late');
+  assert.deepEqual([entry?.channel, entry?.graceMs], ['c1', 300]);
+  assert.deepEqual(late.store.ownGifs, [], 'nothing posted or stamped');
+});
+
+test('runTurn: a picker that answers inside a media.pick.graceMs the config sets is used', async () => {
+  const typing = { msPerChar: [0, 0], minMs: 60, maxMs: 60 };
+  const graced = await runPickTurn({
+    reply: '<msg>ναι</msg>',
+    pick: () => new Promise((resolve) => setTimeout(() => resolve('{"pick":"gif","name":"g50"}'), 1300)),
+    typing,
+    pickSettings: { ...PICK_SETTINGS, graceMs: 2000 },
+  });
+  assert.deepEqual(graced.sent(), ['https://tenor.com/view/gif-50'], 'the GIF replaces the text');
   assert.equal(
     graced.logs.some((log) => log.msg === 'media-pick: late'),
     false
