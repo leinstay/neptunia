@@ -10,6 +10,8 @@ import { sessionRequestId } from '../src/memory/db/request-archive.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { noteArchiveGap, readArchiveGaps, readRecordedRuns, taskOutcomes } from '../src/watcher/requests.ts';
+import { historyMemory, historyRunner, historyWorld } from './fixtures/selfreflection-history.ts';
+import { sceneLlm } from './fixtures/selfreflection-requests-recorded.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const MIDNIGHT = Date.parse('2026-11-04T00:00:00Z');
@@ -130,6 +132,50 @@ for (const [name, result, expected] of [
     assert.deepEqual(turnOutcome(result, 't'), expected);
   });
 }
+
+test('a selfreflection turn that recorded an entry confirms the entry, named by its id, and no failed delivery', () => {
+  // Bug: the diary turn holds its speech and sends nothing, so `delivered` is false and every published entry reads as a
+  // failed delivery in the watcher's evidence. Its outcome is the entry it recorded, of a kind of its own.
+  const recorded = { outcome: 'spoke', delivered: false, selfreflection: { entry: { id: 'selfreflection:e1' } } };
+  assert.deepEqual(turnOutcome(recorded, 't'), { kind: 'entry', state: 'confirmed', ref: 'selfreflection:e1' });
+});
+
+test("the turn runner writes a recorded entry's outcome on the diary turn's last request, and the watcher reads it confirmed", async () => {
+  // Bug: the runner's own write (src/turn/outcome.ts) passes the turn's result without the entry, so the row still says
+  // the delivery failed, or the outcome lands on a request before the last.
+  const handle = fresh();
+  const scene = await historyMemory();
+  historyWorld({ history: true, alice: true });
+  const llm = sceneLlm();
+  let n = 0;
+  const archived = archivedLlm(llm, {
+    write: (update) => Promise.resolve(applyMemoryWrite(handle, update)),
+    now: () => MIDNIGHT + MINUTE,
+    newId: () => `req-${String((n += 1)).padStart(3, '0')}`,
+    log: SILENT,
+  });
+  try {
+    const result = (await historyRunner({ calls: llm.calls, complete: archived.complete }, scene).runTurn({
+      mode: 'selfreflection',
+      selfreflection: { kind: null, forced: false },
+      placeId: 'g1',
+    })) as { outcome?: unknown; selfreflection?: { entry?: { id?: unknown } } };
+    const recorded = result.selfreflection?.entry;
+    const entryId = String(recorded?.id);
+    assert.equal(result.outcome, 'spoke', 'the scene records an entry');
+    assert.match(entryId, /^selfreflection:/, 'the scene records an entry');
+    const requests = readRecordedRuns(dbOf(handle), WINDOW).runs.flatMap((run) => run.requests);
+    const last = requests.find((one) => one.id === `req-${String(n).padStart(3, '0')}`);
+    assert.deepEqual(last?.outcome, { kind: 'entry', state: 'confirmed', ref: entryId });
+    assert.ok(
+      requests.every((one) => one.outcome.kind !== 'delivery'),
+      'no request of the diary turn reads as a delivery'
+    );
+  } finally {
+    await scene.memory.close();
+    handle.close();
+  }
+});
 
 for (const [mode, kind, service] of [
   ['reply', undefined, 'core'],
