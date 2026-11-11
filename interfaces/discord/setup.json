@@ -10,7 +10,8 @@
       "key": "servers",
       "question": "Discord server ids to serve, separated by spaces",
       "kind": "list",
-      "required": false
+      "required": false,
+      "roots": true
     }
   ]
 }
