@@ -16,6 +16,7 @@ import { projectRow } from './graph.ts';
 import { markStemsPending } from './stems.ts';
 import type { Db, Log, MemoryHandle, Row } from './types.ts';
 import { associateReceipt, receiptSource } from './ingest.ts';
+import { adoptNativeAuthority } from './identity-links.ts';
 import type { IngestRow } from './ingest.ts';
 import type { MessageLocator } from './message-locator.ts';
 
@@ -111,6 +112,8 @@ export function observeMessage(
       const db = dbOf(handle);
       const prior = receiptSource(db, envelope);
       if (prior) return { ok: true, replayed: true, sourceId: prior.sourceId, revision: prior.revision, written: 0 };
+      // A family left under `<iface>/global` moves to the native authority before the echo resolves it there.
+      adoptNativeAuthority(db, e.iface);
       // descriptorCode verifies the locator before the catalog uses it.
       const family = resolveMessageFamily(db, {
         locator: e.messageLocator!,

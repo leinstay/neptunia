@@ -103,29 +103,49 @@ const AUTHORITY_TABLES = [
 ] as const;
 
 /**
+ * Whether any row sits under `authority`: one statement whose branches each read the front of an index on
+ * `authority_id` (`accounts_native`, `places_native`, the key of `external_keys`, `sources_native_tuple`, the unique key
+ * of `message_families`, `participants_tuple`). `connections` has no such index and stays out of the check.
+ */
+const HOLDS_AUTHORITY = `SELECT 1 AS ok FROM accounts WHERE authority_id = ?1
+  UNION ALL SELECT 1 FROM places WHERE authority_id = ?1 UNION ALL SELECT 1 FROM external_keys WHERE authority_id = ?1
+  UNION ALL SELECT 1 FROM sources WHERE authority_id = ?1 UNION ALL SELECT 1 FROM message_families WHERE authority_id = ?1
+  UNION ALL SELECT 1 FROM participants WHERE authority_id = ?1 LIMIT 1`;
+
+/** The lines under `?1` whose family under `?1` stays, because `?2` already holds the family's key. */
+const LINE_OF_STAYING_FAMILY = `EXISTS (SELECT 1 FROM message_families f WHERE f.authority_id = ?1
+  AND f.native_kind = sources.native_kind AND f.native_key = sources.native_id AND f.generation = sources.generation
+  AND EXISTS (SELECT 1 FROM message_families g WHERE g.authority_id = ?2 AND g.native_kind = f.native_kind
+  AND g.native_key = f.native_key AND g.generation = f.generation))`;
+
+/**
  * Moves the rows an interface stored under `<iface>/global` to its native authority when the two differ (the command
- * line and the core). A row whose key the native authority already holds stays where it is. Returns how many rows of
- * each table moved; nothing to move costs three lookups.
+ * line and the core). A row whose key the native authority already holds stays where it is, and a line stays with its
+ * family: a family whose key the native authority holds keeps its lines beside it. Returns how many rows of each table
+ * moved. With nothing to move it costs the one indexed check of `HOLDS_AUTHORITY`.
  */
 export function adoptNativeAuthority(db: Db, iface: string): Record<string, number> {
   const from = `${iface}/global`;
   const to = nativeAuthorityOf(iface);
   if (to === from) return {};
-  const left = db.prepare(
-    `SELECT 1 AS ok FROM accounts WHERE authority_id = ?1 UNION ALL SELECT 1 FROM places WHERE authority_id = ?1
-     UNION ALL SELECT 1 FROM external_keys WHERE authority_id = ?1 LIMIT 1`
-  );
-  if (!left.get(from)) return {};
+  if (!db.prepare(HOLDS_AUTHORITY).get(from)) return {};
   db.prepare('INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES (?, ?, ?)').run(
     to,
     iface,
     to.slice(iface.length + 1)
   );
   const moved: Record<string, number> = {};
+  // The lines move before their families, while the families that stay still sit under `from`.
+  moved.sources = Number(
+    db
+      .prepare(`UPDATE sources SET authority_id = ?2 WHERE authority_id = ?1 AND NOT ${LINE_OF_STAYING_FAMILY}`)
+      .run(from, to).changes
+  );
   for (const table of AUTHORITY_TABLES)
-    moved[table] = Number(
-      db.prepare(`UPDATE OR IGNORE "${table}" SET authority_id = ? WHERE authority_id = ?`).run(to, from).changes
-    );
+    if (table !== 'sources')
+      moved[table] = Number(
+        db.prepare(`UPDATE OR IGNORE "${table}" SET authority_id = ? WHERE authority_id = ?`).run(to, from).changes
+      );
   return moved;
 }
 
