@@ -818,6 +818,8 @@
           "found": "No place is called \"{given}\". By what you remember of them, these places fit it best, best first. Read the one that was meant. When you cannot tell which one was meant, ask which place by its name, never for an id or a link:",
           "line": "{name}, written as {ref}",
           "lineAbout": "{name}, written as {ref}: {about}",
+          "lineUnhandled": "{name}",
+          "lineAboutUnhandled": "{name}: {about}",
           "more": "{count} more places not shown."
         },
         "person": {
