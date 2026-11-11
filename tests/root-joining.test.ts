@@ -288,8 +288,10 @@ test('invite from the command line prints the link the interface gives', async (
   });
 });
 
-test('a root the bot leaves stops being served: its later message is ignored and what she stored of it stays', async () => {
+test('a root the bot leaves stops being served: its later message is not kept, starts no turn, and her memory stays', async () => {
   // Catches: a removed server still answered, or its lines deleted from her memory with it.
+  // Changed: this asserted an ack of `ignored`, which no ack carries (src/protocol/envelope.ts); the facts that matter
+  // are the line and the turn.
   await withRig({}, async ({ dirs, llm, units, cores }) => {
     prepareFake(dirs);
     cores.push(await startUnitsCore(dirs, llm));
@@ -300,12 +302,15 @@ test('a root the bot leaves stops being served: its later message is ignored and
     ).acked;
     assert.equal(await callIn(unit, 'g6', 'c6', 'm6'), 'ok');
     await until(() => seenIds(dirs).includes('m6'), 'the first line kept');
+    assert.notEqual((await postedIn(unit, 'c6')).length, 0, 'the turn over the first line ended');
+    const turns = llm.requests.length;
     await (
       await unit.emit(coreRootEvent('left', 'g6', 'Zeta'))
     ).acked;
-    assert.equal(await callIn(unit, 'g6', 'c6', 'm6b'), 'ignored');
+    await callIn(unit, 'g6', 'c6', 'm6b');
     await settle();
     assert.equal(seenIds(dirs).includes('m6b'), false);
+    assert.equal(llm.requests.length, turns, 'no turn over the line in the left root');
     assert.ok(seenIds(dirs).includes('m6'), 'her memory of the root stays');
   });
 });

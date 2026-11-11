@@ -479,8 +479,10 @@ test('fails the reactors of an emoji nobody put on the message', async () => {
   assert.equal((await adapter.reactors({ ...CHANNEL, messageId: '1005' }, '🔥', 7)).status, 'failed');
 });
 
-test('lists the emoji of every listed server for a read with no place', async () => {
+test('lists the emoji of every server the bot is in for a read with no place', async () => {
   // Bug: a private chat reads one server's emoji, whichever was named first, or none at all.
+  // Changed: the owner's cut of 2026-11-11 retired the stored `servers` list, so an old list in the settings narrows
+  // nothing and the read covers every server the bot is in.
   const emoji = (id: string): Raw => ({ id, name: id, animated: false, available: true });
   const guild = (id: string, ids: Array<string>): Raw => ({
     id,
@@ -497,7 +499,7 @@ test('lists the emoji of every listed server for a read with no place', async ()
   if (result.status !== 'ok') throw new Error(result.status);
   assert.deepEqual(
     result.emoji.map((entry) => entry.id),
-    ['e1', 'e2']
+    ['e1', 'e2', 'e3']
   );
 });
 
