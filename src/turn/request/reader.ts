@@ -522,7 +522,7 @@ function offeredOf(given: ReaderInput): Offered {
   const memory = memoryCut(given, [
     ...items,
     ...(handled(given) ? strangerItemsOf(strangersOf(given, items), frame, labels) : []),
-    ...factItemsOf(given.facts ?? [], labels),
+    ...factItemsOf(given.facts ?? [], labels, handled(given) ? names.entryRefs : null),
   ]);
   const retired = { retired: retiredOf(given.lookups, given.isSourceRetired) };
   return {

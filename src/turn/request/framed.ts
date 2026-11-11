@@ -90,7 +90,8 @@ function surroundingsHeld(given: RequestInput, base: Base, frame: Frame): string
       stored?.root ?? null,
       stored?.place ?? null,
       base.labels,
-      partnerHandleOf(frame, base)
+      partnerHandleOf(frame, base),
+      { mention: storedMention(given, base) }
     )
   );
 }

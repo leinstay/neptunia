@@ -330,18 +330,24 @@ export type StoredFact = { readonly state?: unknown; readonly polarity?: unknown
 
 /**
  * The prefetch's stored facts as `<found>` items, in its order: `memory.fact` with `{state}` (`labels.prefetch.factStates`,
- * as everywhere a fact reaches a model) and `{text}` as she wrote it.
+ * as everywhere a fact reaches a model) and `{text}` as she wrote it, a mention in it by the person's handle (`refs`, else
+ * `authors.unknown`).
  */
-export function factItemsOf(facts: ReadonlyArray<StoredFact>, labels: Labels): Array<MemoryItem> {
+export function factItemsOf(
+  facts: ReadonlyArray<StoredFact>,
+  labels: Labels,
+  refs: EntryRefs | null = null
+): Array<MemoryItem> {
   const template = labels.memory?.fact;
   if (typeof template !== 'string' || template === '') return [];
+  const w = wordsOf(labels, { interface: '', timezone: 'UTC', counterpart: null }, () => null, refs);
   return facts
     .filter((fact) => fact.text.trim() !== '')
     .map((fact) => ({
       subtag: 'found',
       text: fill(template, {
         state: factStateWords(fact, labels.prefetch?.factStates),
-        text: escapeStored(fact.text),
+        text: storedText(w, fact.text),
       }),
       counterpart: false,
       name: null,
