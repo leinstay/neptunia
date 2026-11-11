@@ -7,7 +7,9 @@ import { placeOfRoot } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { userText } from '../src/behavior/prompt.ts';
-import { ROOT, replyTurn } from './fixtures/selfreflection-awareness.ts';
+import { ROOT, replyTurn, replyTurns } from './fixtures/selfreflection-awareness.ts';
+import { dbOf } from './fixtures/selfreflection-mirror.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { labels } from './fixtures/labels.ts';
 
 /** The entry of the place named `name` in `<memory>`'s `<places>`: from its heading to the next blank line. */
@@ -53,5 +55,60 @@ test('with two mirrors both places carry the diary mark in <memory>', async () =
   assert.deepEqual(
     ['journal', 'notes', 'general'].map((name) => marked(placeEntryOf(request, name))),
     [true, true, false]
+  );
+});
+
+// The owner, 2026-11-11 (plan 2026-11-10 tools-and-reads, item 14): the entry of a mirror's place says so wherever it is
+// rendered, so she stops aiming at it before any refusal. The mark is `labels.memory.selfreflection`, the one `<places>`
+// carries, in the result of `memory.read` too.
+
+/** The text of the last tool result a request carries, '' when it carries none. */
+function lastResultOf(request: unknown): string {
+  const results = (request as Array<{ role: string; content: unknown }>).filter((message) => message.role === 'tool');
+  const content = results.at(-1)?.content;
+  return typeof content === 'string' ? content : userText(content);
+}
+
+/** The request after her `memory.read` of the place named `subject`, in a reply in `c1` with the mirror on `d1`. */
+async function afterReadOf(subject: string): Promise<string> {
+  const { requests } = await replyTurns({
+    here: 'c1',
+    mirrors: ['d1'],
+    steps: [{ answers: [toolAnswer('<think>x</think>', [call('memory.read', { subject })]), '<msg>γεια</msg>'] }],
+  });
+  const result = lastResultOf(requests[1]);
+  assert.match(result, /<places>/, `memory.read answered with the entry of ${subject}`);
+  return result;
+}
+
+test('memory.read of the mirrored place carries the diary mark in its entry', async () => {
+  // Bug: <places> marks the place as her diary, and her own read of the same place shows it as any room, so she aims an
+  // intention or a post at it and is refused there.
+  const result = await afterReadOf('journal');
+  assert.ok(result.split('\n').includes(labels.memory.selfreflection), result);
+});
+
+test('memory.read of a place that is no mirror carries no diary mark', async () => {
+  const result = await afterReadOf('notes');
+  assert.ok(!result.split('\n').includes(labels.memory.selfreflection), result);
+});
+
+test('a place whose mirror is disabled loses the diary mark in <memory> at the next request', async () => {
+  const { requests } = await replyTurns({
+    here: 'c1',
+    mirrors: ['d1'],
+    steps: [
+      { answers: ['<msg>γεια</msg>'] },
+      {
+        before: (memoryDb) => {
+          dbOf(memoryDb).prepare('UPDATE mirrors SET enabled = 0').run();
+        },
+        answers: ['<msg>γεια</msg>'],
+      },
+    ],
+  });
+  assert.deepEqual(
+    [marked(placeEntryOf(requests[0], 'journal')), marked(placeEntryOf(requests[1], 'journal'))],
+    [true, false]
   );
 });
