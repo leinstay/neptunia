@@ -15,6 +15,9 @@ import { dbOf } from '../src/memory/db/types.ts';
 import { memoryRing } from './fixtures/memory-db/session-rig.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { observationOf } from '../src/memory/db/observe-event.ts';
+import { createRecord, toRecordLine } from '../src/memory/record.ts';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-svc-'));
 
@@ -611,5 +614,99 @@ test('a failed run of a DM is told with its kind, interface and place, and no pa
     assert.equal(failure.partner, undefined);
   } finally {
     await env.done();
+  }
+});
+
+// The owner's command line, as its interface names it (src/protocol/identity.ts#nativeAuthorityOf: `cli/local`).
+const CONSOLE_CHAT = 'cli:dm:owner';
+const CONSOLE_AT = Date.UTC(2026, 10, 10, 21, 40, 0);
+const CONSOLE_WORDS = 'το φανάρι στο λιμάνι';
+
+/** A line of the command line as its interface hands it, from her (`self`) or from the owner. */
+function consoleEvent(id: string, at: number, self: boolean) {
+  return {
+    iface: 'cli',
+    at,
+    chat: { id: CONSOLE_CHAT, kind: 'dm', chatType: 'dm', partnerId: 'owner', rootId: null },
+    message: { id, at, content: CONSOLE_WORDS, author: { id: self ? 'self' : 'owner', self } },
+  };
+}
+
+function consoleEnvelope(id: string, at: number, self: boolean) {
+  const envelope = observationOf(consoleEvent(id, at, self), { selfId: 'self' });
+  if (!envelope) throw new Error('the synthetic event was refused');
+  return envelope;
+}
+
+test('her command line line recorded before its echo is observed again once her account sits under cli/local', async () => {
+  // Bug (2026-11-10, 458 observations dropped): the record writes her line's family under `cli/global`
+  // (src/memory/db/record-lines.ts), her account `cli:self` sits under `cli/local`, and the history read observes the line
+  // again. The replay fills her account (observe.ts#fillOwnAuthor), looks it up under the family's `cli/global`, misses,
+  // and inserts `cli:self` a second time: `UNIQUE constraint failed: accounts.id`, ERR_SQLITE_ERROR on every retry.
+  const log = logs();
+  const memory = await openTestMemory({ iface: () => 'cli', now: () => CONSOLE_AT + 60_000, log });
+  try {
+    // Her echo of an earlier line makes her account of the command line under its native authority.
+    const echoed = await memory.memoryDb.observeMessage(consoleEnvelope('said-0', CONSOLE_AT - 60_000, true), {
+      placeId: CONSOLE_CHAT,
+    });
+    assert.equal((echoed as { ok?: unknown } | null)?.ok, true, 'the scene makes her account');
+    // Her next line reaches the record before any echo, as a turn's journal writes it.
+    const line = toRecordLine(
+      {
+        id: 'said-1',
+        placeId: CONSOLE_CHAT,
+        content: CONSOLE_WORDS,
+        ts: CONSOLE_AT,
+        replyToId: null,
+        mentionedAccountIds: [],
+      },
+      { kind: 'said', now: () => CONSOLE_AT, turnId: 't-1', opId: 'op-1' }
+    );
+    await createRecord({ ...memory, now: () => CONSOLE_AT }).append(CONSOLE_CHAT, [line], {});
+    // The next turn's history read hands the same line to the observation (src/pipeline/keep-lines.ts).
+    const replayed = await memory.memoryDb.observeMessage(consoleEnvelope('said-1', CONSOLE_AT, true), {
+      placeId: CONSOLE_CHAT,
+    });
+    assert.deepEqual(
+      log.out.filter((entry) => entry.message === 'memory db: observe failed'),
+      [],
+      'the replay fails no statement'
+    );
+    assert.equal((replayed as { ok?: unknown } | null)?.ok, true);
+    const db = memory.memoryDb.database();
+    const authors = db?.prepare("SELECT author_account FROM sources WHERE kind = 'said' ORDER BY occurred_at").all();
+    assert.deepEqual(
+      authors?.map((row) => row.author_account),
+      ['cli:self', 'cli:self'],
+      'both of her lines name her one account'
+    );
+    assert.equal(db?.prepare("SELECT COUNT(*) AS n FROM accounts WHERE kind = 'self' AND iface = 'cli'").get()?.n, 1);
+  } finally {
+    await memory.close();
+  }
+});
+
+test('a failed observation warns with the kind of the observation and the SQLite message, never the line', async () => {
+  // Bug: the warning carries `ERR_SQLITE_ERROR` alone, the code of every SQLite failure, so 2290 warnings on 2026-11-10
+  // could not say which statement failed. SQLite's message for a constraint names the table and the column and holds no
+  // stored value, so it is safe in a log; the line's text must stay out of it.
+  const log = logs();
+  const memory = await openTestMemory({ iface: () => 'cli', now: () => CONSOLE_AT + 60_000, log });
+  try {
+    // A synthetic constraint that the second line of the chat breaks, standing for any statement the writer fails.
+    memory.memoryDb.database()?.exec('CREATE UNIQUE INDEX synthetic_one_line ON sources (iface)');
+    await memory.memoryDb.observeMessage(consoleEnvelope('line-1', CONSOLE_AT, false), { placeId: CONSOLE_CHAT });
+    const failed = await memory.memoryDb.observeMessage(consoleEnvelope('line-2', CONSOLE_AT + 1000, false), {
+      placeId: CONSOLE_CHAT,
+    });
+    assert.equal(failed, null, 'the scene fails the second observation');
+    const warned = log.out.find((entry) => entry.message === 'memory db: observe failed');
+    assert.equal(warned?.code, 'ERR_SQLITE_ERROR');
+    assert.equal(warned?.kind, 'observeMessage');
+    assert.equal(warned?.detail, 'UNIQUE constraint failed: sources.iface');
+    assert.equal(JSON.stringify(warned).includes(CONSOLE_WORDS), false, 'no chat content in the log');
+  } finally {
+    await memory.close();
   }
 });
