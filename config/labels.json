@@ -54,7 +54,6 @@
         "too-short": "{arg} was too short",
         "arg-twice": "{arg} was given twice",
         "unknown-channel": "no place by that name",
-        "unknown-role": "no role by that name",
         "unknown-message": "that {arg} is not in the chat shown",
         "message-deleted": "that message was deleted",
         "message-elsewhere": "that message is in another place",
