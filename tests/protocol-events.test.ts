@@ -315,3 +315,31 @@ test('still validates every event of the replay fixture basic-chat.json', async 
     assert.deepEqual(validateEvent(full), { ok: true }, String(event.id));
   }
 });
+
+// The root of an interface joined, found at its start, or left (`root.changed`).
+
+const rootChanged: Json = {
+  kind: 'root.changed',
+  iface: 'discord',
+  at: 1000,
+  id: 'discord:root:g7:joined:1000',
+  root: { id: 'g7', name: 'Gamma' },
+  change: 'joined',
+};
+
+test('accepts a root.changed event for each change', () => {
+  // Catches: the core refusing the event that tells it a root joined, so the root is never offered to the owner.
+  for (const change of ['joined', 'present', 'left'])
+    assert.deepEqual(validateEvent({ ...rootChanged, change }), { ok: true }, change);
+});
+
+test('refuses a root.changed event missing a required field, naming the field', () => {
+  for (const key of ['iface', 'id', 'root', 'change'])
+    assert.deepEqual(validateEvent(without(rootChanged, key)), refusal(`${key}:required`), key);
+});
+
+test('refuses a root.changed event with an unknown change or a root with no id', () => {
+  // Catches: a root with no id written as a served root, or a guessed change acted on.
+  assert.deepEqual(validateEvent({ ...rootChanged, change: 'banned' }), refusal('change:unknown'));
+  assert.deepEqual(validateEvent({ ...rootChanged, root: { id: '', name: 'Gamma' } }), refusal('root:type'));
+});

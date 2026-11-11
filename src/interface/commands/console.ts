@@ -47,6 +47,8 @@ import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
 import { isSetupComplete, pairAfterSetup, pairCommand } from './interfaces-pair.ts';
+import { rootsCommand } from './interfaces-roots.ts';
+import type { RootJoining } from '../root-joining.ts';
 import type { PairCommands } from './interfaces-pair.ts';
 import { isMemoryBrowserCommand, memoryBrowserCommand } from './memory.ts';
 import { serviceCommand } from '../../keys/services.ts';
@@ -104,6 +106,8 @@ export type ConsoleDeps = {
   memoryDb: unknown;
   /** The owner's pairing of his accounts (src/interface/owner-pairing.ts), for `/interfaces pair` and the setup's end. */
   pairing?: PairCommands | null;
+  /** Which roots of each interface the core serves (src/interface/root-joining.ts), for `/interfaces invite` and `roots`. */
+  joining?: RootJoining | null;
   usage: { byRole(): Array<RoleRow>; sumDays(days: number): DaysSum } | null;
   /** The speed figures (src/tools/operations/metrics.ts): `samples('reply', 24)` are the reply durations of the last day. */
   metrics: unknown;
@@ -148,12 +152,12 @@ const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
 type OwnCommandDeps = Pick<
   ConsoleDeps,
-  'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief' | 'proxy' | 'pairing'
+  'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief' | 'proxy' | 'pairing' | 'joining'
 >;
 
 /** The commands answered by a module of their own, or null for any other. */
 function ownCommand(
-  { dataDir, hot, memoryDb, memoryWriter, runOp, statusBrief: brief, proxy, pairing }: OwnCommandDeps,
+  { dataDir, hot, memoryDb, memoryWriter, runOp, statusBrief: brief, proxy, pairing, joining }: OwnCommandDeps,
   name: string,
   args: Record<string, unknown>,
   dialog: Dialog | null
@@ -188,6 +192,8 @@ function ownCommand(
     return ownerNameCommand(memoryDb, name, args);
   const paired = pairCommand(pairing, name, args);
   if (paired !== null) return paired;
+  const joined = rootsCommand(joining, name, args);
+  if (joined !== null) return joined;
   const action = moduleActionOf(name);
   if (action === null) return null;
   const ran = moduleRun(dataDir, name, action, args, dialog);

@@ -228,6 +228,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Send outbound connections through one proxy | `/proxy`. See [Proxy](proxy.md) |
 | Configure a chat platform | `/interfaces` |
 | Prove the owner's account on an interface. See [Pairing the owner's account](interfaces.md#pairing-the-owners-account) | `/interfaces pair open <name>`, `/interfaces pair <phrase>` |
+| Add her to a new root and choose which roots she serves. See [Roots of an interface](#roots-of-an-interface) | `/interfaces invite <name>`, `/interfaces roots <name>`, `/interfaces roots accept <name> <root>`, `/interfaces roots remove <name> <root>` |
 | Choose which providers serve a model | `/routes` |
 | Show or switch the language of the phrase codes. See [Phrase codes](interfaces.md#phrase-codes) | `/mnemonic`, `/mnemonic en`, `/mnemonic ru` |
 | Bind an account to a meta-person, or merge two people | `/memory bind`, `/memory users merge` |
@@ -287,6 +288,19 @@ A page shortens a cell over 4 KiB, and the cell's `excerpt` gives `totalBytes`, 
 | `openrouter` | `GET /key` on the core role's key | Spend, limit and what remains, under the key's name |
 
 Each block names its source, its account and its observation time. A value the source did not report prints `unknown`, never zero. Subscription tokens carry no price. A failed read of the same known account keeps the last numbers until the core restarts, each marked `(stale)` under its own observation time, and a logout or another account drops them. The blocks are never added together, because the `openrouter` spend of a key already holds what `opencode` spent on that key.
+
+## Roots of an interface
+
+These four commands decide which roots of an interface she serves, in the chat and as `neptunia interfaces <subcommand>`. [Joining a root](interfaces.md#joining-a-root) describes what the core does with each root.
+
+| Command | What it does |
+|---|---|
+| `/interfaces invite <name>` | Prints the interface's invite link and opens joining on it for an hour. The first root she joins in that hour is served at once and added to the interface's roots setting. |
+| `/interfaces roots <name>` | Every root of the interface with its state: served, waiting for the owner's accept, or listed with the bot not in it. |
+| `/interfaces roots accept <name> <root>` | Serves a waiting root from now on and adds it to the roots setting. |
+| `/interfaces roots remove <name> <root>` | Stops serving a root at once and takes it off the roots setting. Her memory of it stays. |
+
+A command that did what it says exits `0`. Every refusal exits `1` and changes nothing. All four refuse an interface with no stored token, a disabled one and one whose link is down, and the answer names the repair: `/interfaces setup <name>`, `/interfaces enable <name>` or `neptunia services start neptunia-interface@<name>`. `invite` also refuses an interface that gives no invite link, `accept` a root that is not waiting, and `remove` a root the interface neither serves, lists nor holds waiting. An interface whose package marks no roots setting refuses `invite`, `accept` and `remove`.
 
 ## Mirrors
 

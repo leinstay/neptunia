@@ -1,7 +1,7 @@
 // Which Discord servers one bot account serves: the `servers` the owner listed in the interface config, `data/interfaces/discord/config.json`, or
 // the one server of an older `bot.guildId` setting (read for compatibility), or the only server the bot is in. This module works on the list of guilds the
 // client is actually in, without touching discord.js itself, so it is unit-tested directly with plain `{ id, name }`
-// objects. The caller (interfaces/discord/session.ts) turns an error into a startup failure.
+// objects. The caller is interfaces/discord/session.ts.
 
 /**
  * Resolve the single guild this instance should serve.
@@ -40,21 +40,23 @@ export function resolveGuild(
 }
 
 /**
- * Every guild this bot serves: each listed server the bot is in. A listed server it is not in is reported, so an invite
- * still to come does not stop the others. With no list, the single guild of `resolveGuild`.
+ * Every guild this bot serves, and the others it is in. With a list, each listed server the bot is in is served, a listed
+ * server it is not in is `missing`, so an invite still to come stops none of the others. With no list, the server of
+ * `configuredId` is served, else the only server the bot is in. Every server the bot is in and does not serve is
+ * `waiting`: the core holds it until the owner accepts it from the command line.
  */
 export function resolveGuilds(
   servers: ReadonlyArray<string>,
   configuredId: string,
   guilds: Array<{ id: string; name: string }>
-): { guildIds: Array<string>; missing: Array<string> } | { error: string } {
-  if (servers.length === 0) {
-    const one = resolveGuild(configuredId, guilds);
-    return 'error' in one ? one : { guildIds: [one.guildId], missing: [] };
-  }
+): { guildIds: Array<string>; missing: Array<string>; waiting: Array<{ id: string; name: string }> } {
   const known = new Set(guilds.map((guild) => guild.id));
-  const guildIds = servers.filter((id) => known.has(id));
-  if (guildIds.length === 0)
-    return { error: `The bot is in none of the listed servers: ${servers.join(', ')}. Invite it first.` };
-  return { guildIds, missing: servers.filter((id) => !known.has(id)) };
+  const wanted = servers.length > 0 ? servers : configuredId ? [configuredId] : [];
+  const guildIds = wanted.length > 0 ? wanted.filter((id) => known.has(id)) : guilds.length === 1 ? [guilds[0].id] : [];
+  const served = new Set(guildIds);
+  return {
+    guildIds,
+    missing: wanted.filter((id) => !known.has(id)),
+    waiting: guilds.filter((guild) => !served.has(guild.id)),
+  };
 }

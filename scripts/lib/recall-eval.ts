@@ -625,6 +625,7 @@ export function localReads({
     emoji: () => Promise.resolve({ emoji: [] }),
     parseLinks: (texts: ReadonlyArray<string>) => Promise.resolve({ refs: texts.map(() => null) }),
     reactors: () => Promise.resolve({ accountIds: [] }),
+    inviteLink: () => Promise.resolve(null),
   };
 }
 

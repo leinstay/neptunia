@@ -419,6 +419,8 @@ export function createCommandIntake(deps: {
   /** The owner's cancel of the turn over the message `triggerId`, null for every other turn. */
   cancelOf(triggerId: string | null): AbortSignal | null;
   noteProgress(triggerId: string | null, step: { name: string; detail: string }): void;
+  /** Tells the owner's open chats `text` on the core's own (a root that waits); with none open, the next one. */
+  notice(text: string): void;
 } {
   const turns = createChatTurns({
     door: deps.door,
@@ -538,6 +540,7 @@ export function createCommandIntake(deps: {
     },
     cancelOf: (triggerId) => turns.cancelOf(triggerId),
     noteProgress: (triggerId, step) => turns.noteProgress(triggerId, step),
+    notice: (text) => turns.notice(text),
     turnEnded(end) {
       turns.turnEnded(end);
       const id = end.trigger?.id;

@@ -477,7 +477,7 @@
       "repeated": 0
     },
     "tests/interfaces-discord-session.test.ts": {
-      "deep": 4,
+      "deep": 3,
       "repeated": 0
     },
     "tests/journal-archive-places.test.ts": {

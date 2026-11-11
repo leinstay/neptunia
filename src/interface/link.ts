@@ -455,6 +455,7 @@ export function openAdapterLink(options: {
     emoji: reading('emoji'),
     parseLinks: reading('parseLinks'),
     reactors: reading('reactors'),
+    inviteLink: reading('inviteLink'),
   };
   /** The effects waiting now, given `ms` to finish; then the link closes and the rest end `unknown`. */
   async function drain(ms: number): Promise<Drained> {
@@ -542,6 +543,7 @@ export function createLinkSwitch(first: AdapterLink | null): {
     emoji: (...args: Parameters<Adapter['emoji']>) => now().emoji(...args),
     parseLinks: (...args: Parameters<Adapter['parseLinks']>) => now().parseLinks(...args),
     reactors: (...args: Parameters<Adapter['reactors']>) => now().reactors(...args),
+    inviteLink: (...args: Parameters<Adapter['inviteLink']>) => now().inviteLink(...args),
   };
   return {
     adapter,
@@ -627,6 +629,7 @@ export function createIfaceRouter(
     emoji: (...args: Parameters<Adapter['emoji']>) => byRoot(args[0]).emoji(...args),
     parseLinks: (...args: Parameters<Adapter['parseLinks']>) => served.parseLinks(...args),
     reactors: (...args: Parameters<Adapter['reactors']>) => by(args[0]).reactors(...args),
+    inviteLink: (...args: Parameters<Adapter['inviteLink']>) => by(args[0]).inviteLink(...args),
   };
 }
 

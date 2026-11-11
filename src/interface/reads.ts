@@ -24,6 +24,7 @@ const WIRE = {
   emoji: 'emoji.list',
   parseLinks: 'links.parse',
   reactors: 'message.reactors',
+  inviteLink: 'invite.link',
 } as const;
 
 type ReadName = keyof typeof WIRE;
@@ -122,6 +123,7 @@ export function createReads(adapter: Adapter, log: Logger, nativeRootOf?: (place
     emoji: wrap('emoji'),
     parseLinks: wrap('parseLinks'),
     reactors: wrap('reactors'),
+    inviteLink: wrap('inviteLink'),
     offers,
     answer: ((name: ReadName, ...args: Array<unknown>) => attempt(name, args)) as unknown as Reads['answer'],
   };

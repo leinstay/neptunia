@@ -41,6 +41,19 @@ type Failure = { status: 'failed' | 'unsupported' | 'forbidden'; error: PortErro
 /** The first millisecond of Discord's snowflakes (2015-01-01). */
 const DISCORD_EPOCH_MS = 1_420_070_400_000;
 
+/**
+ * The permissions the invite link asks for: read the channels and their history, write in channels and threads, react,
+ * attach files and show link previews.
+ */
+const INVITE_PERMISSIONS =
+  PermissionFlagsBits.ViewChannel |
+  PermissionFlagsBits.ReadMessageHistory |
+  PermissionFlagsBits.SendMessages |
+  PermissionFlagsBits.SendMessagesInThreads |
+  PermissionFlagsBits.AddReactions |
+  PermissionFlagsBits.AttachFiles |
+  PermissionFlagsBits.EmbedLinks;
+
 /** A message link as a whole text: the optional hosts, `@me` for a private chat; groups: the chat, the message. */
 const MESSAGE_LINK_RE =
   /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
@@ -58,6 +71,18 @@ function snowflakeAt(ms: number): string {
 
 /** A discord.js error as the failure of a read: a 404 (message or member gone) is the caller's to tell apart first. */
 type FailureOf = (err: unknown) => Failure;
+
+/** The OAuth link that adds the bot to a server with the permissions this package needs, from its application id. */
+function inviteLinkOf(client: Obj): { status: 'ok'; url: string } | Failure {
+  const appId = text(obj(client.application).id);
+  if (appId === null)
+    return { status: 'failed', error: { code: 'no-application', retryable: false, retryAfterMs: null } };
+  const url = new URL('https://discord.com/oauth2/authorize');
+  url.searchParams.set('client_id', appId);
+  url.searchParams.set('scope', 'bot');
+  url.searchParams.set('permissions', String(INVITE_PERMISSIONS));
+  return { status: 'ok', url: url.toString() };
+}
 
 /** The groups of an audience as ids; the rail's sets become arrays on the wire and its roles become groups. */
 function audienceOnTheWire(channel: Obj): Audience | null {
@@ -270,6 +295,7 @@ export type DiscordReads = Pick<
   | 'emoji'
   | 'parseLinks'
   | 'reactors'
+  | 'inviteLink'
 >;
 
 export function createDiscordReads(deps: {
@@ -296,11 +322,15 @@ export function createDiscordReads(deps: {
           placeId
         ) ?? null);
 
-  /** The guilds this interface serves: the ones its config lists, every one the bot is in when it lists none. */
+  /**
+   * The guilds this interface serves: the ones its config lists, else the one the bot is in when it lists none. A server
+   * that waits for the owner's accept is none of them.
+   */
   function servedGuilds(): Array<Obj | null> {
     const listed: unknown = obj(deps.config()).servers;
     if (Array.isArray(listed) && listed.length > 0) return listed.map((id) => guildOf(String(id)));
-    return [...((obj(client.guilds).cache as Map<string, Obj> | undefined)?.values() ?? [])];
+    const every = [...((obj(client.guilds).cache as Map<string, Obj> | undefined)?.values() ?? [])];
+    return every.length === 1 ? every : [];
   }
 
   /** The event of a discord.js message without its handles. */
@@ -547,6 +577,8 @@ export function createDiscordReads(deps: {
     },
 
     ...createLookupReads({ client, iface, guildOf, servedGuilds }),
+
+    inviteLink: () => Promise.resolve(inviteLinkOf(client)),
 
     async reactors(ref: MessageRef, emoji: string, limit: number) {
       const refused = refusal(ref, true);

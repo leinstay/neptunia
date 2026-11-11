@@ -76,3 +76,19 @@ test('createReads gives null instead of throwing when the adapter throws', async
   assert.equal(await reads.chatInfo(REF), null);
   assert.deepEqual(warnings[0]?.fields, { read: 'chat.info', code: 'TypeError' });
 });
+
+test('the invite read answers the link the interface declares, and not-offered when it declares none', async () => {
+  // Catches: `/interfaces invite` getting null for a working link, or asking an interface that has no invite read.
+  const { log } = logger();
+  const offering = createReads(
+    createFakeAdapter({ iface: 'fake', selfId: 'self', invite: 'https://chat.invalid/i' }),
+    log
+  );
+  assert.deepEqual(await offering.answer('inviteLink', { iface: 'fake' }), {
+    status: 'ok',
+    url: 'https://chat.invalid/i',
+  });
+  const silent = createReads(fakeWith(['chat.info']), log);
+  const refused = await silent.answer('inviteLink', { iface: 'fake' });
+  assert.deepEqual(refused, { status: 'unsupported', code: 'not-offered' });
+});

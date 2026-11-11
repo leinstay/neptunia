@@ -628,6 +628,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('pair', 'Approve the one-time phrase she answered on an interface: that account becomes yours', [
         arg('phrase'),
       ]),
+      sub('invite', 'Print the link that adds her to a new root and accept the first that joins within an hour', [
+        arg('name'),
+      ]),
+      sub('roots', 'Every root of an interface: served, waiting for you, or listed and absent', [arg('name')]),
+      sub('roots.accept', 'Serve a root that waits, from now on', [arg('name'), arg('root')]),
+      sub('roots.remove', 'Stop serving a root; her memory of it stays', [arg('name'), arg('root')]),
       ...moduleSubcommands('interface'),
     ],
   },

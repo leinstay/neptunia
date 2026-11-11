@@ -15,7 +15,7 @@ import path from 'node:path';
 import { serviceCredential } from './keys/file.ts';
 import { startEngineProxy } from './net/engine-proxy.ts';
 
-import { localConfigPath, readInterfaceConfig } from './config/files.ts';
+import { interfaceCredential, localConfigPath } from './config/files.ts';
 import { createHot } from './hot.ts';
 import { log, onLog } from './log.ts';
 import { createLoopWatch, loopStallMs } from './loop-watch.ts';
@@ -92,6 +92,8 @@ import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.ts';
 import { createChatDirectory } from './interface/directory.ts';
 import { createOwnerPairing } from './interface/owner-pairing.ts';
+import { createRootJoining } from './interface/root-joining.ts';
+import { createInterfaceSettings, listedRoots, rootNounOf } from './interface/interface-settings.ts';
 import { createPersonLinks, joinScreens } from './interface/person-link.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
 import {
@@ -177,6 +179,7 @@ import type {
   PresenceChanged,
   PresenceSnapshot,
   ReactionChanged,
+  RootChanged,
   SchedulerTick,
   VoiceChanged,
 } from './protocol/events.ts';
@@ -777,36 +780,23 @@ async function buildCore(
   // client, logs in, waits for the place, says hello and serves its adapter; the events it sees wait until
   // `running.open()` below, when the door has its handlers. A refusal (no token, no place, no login) stops the start
   // here. A unit does all of it in its own process (bin/neptunia.ts).
-  // The interface's settings are the core's with its package's own and its private file over them
-  // (src/config/files.ts#readInterfaceConfig), read again when the core's settings reload.
-  /**
-   * @param current  The core's settings now.
-   */
-  const interfaceConfigOf = (name: string, current: () => Record<string, unknown>): (() => Record<string, unknown>) => {
-    let seen: unknown = null;
-    let settings: Record<string, unknown> = {};
-    return () => {
-      const core = current();
-      if (core !== seen) {
-        seen = core;
-        settings = readInterfaceConfig({ rootDir: paths.rootDir, privateDir: paths.privateDir, name, base: core });
-      }
-      return settings;
-    };
-  };
-  const running = asUnits
-    ? null
-    : await interfaces[0]
-        .start({
-          connect: () => connectSocket({ path: LINK_SOCKET, maxFrameBytes: MAX_FRAME_BYTES }),
-          token: linkToken,
-          dataDir: path.join(dataDir, 'interfaces', interfaces[0].name),
-          env: {},
-          config: interfaceConfigOf(interfaces[0].name, () => hot.config),
-          onConfigChange: (listener) => hot.onReload(listener),
-          log,
-        })
-        .catch((err) => fail(`index: ${err instanceof Error ? err.message : String(err)}`));
+  // The interface's settings are the core's with its package's own and its private file over them, read again when the
+  // core's settings reload or one of its files changes (src/interface/interface-settings.ts).
+  const inProcess = asUnits ? null : createInterfaceSettings({ ...paths, name: interfaces[0].name, hot });
+  const running =
+    inProcess === null
+      ? null
+      : await interfaces[0]
+          .start({
+            connect: () => connectSocket({ path: LINK_SOCKET, maxFrameBytes: MAX_FRAME_BYTES }),
+            token: linkToken,
+            dataDir: path.join(dataDir, 'interfaces', interfaces[0].name),
+            env: {},
+            config: () => inProcess.read(),
+            onConfigChange: (listener) => inProcess.onChange(listener),
+            log,
+          })
+          .catch((err) => fail(`index: ${err instanceof Error ? err.message : String(err)}`));
   if (running !== null) cleanups.push(() => running.stop());
   const coreLink = linkSwitch ?? createLinkSwitch(await linkOpened.promise);
   linkSwitch = coreLink;
@@ -1224,6 +1214,25 @@ async function buildCore(
 
   // The owner's pairing of his accounts (src/interface/owner-pairing.ts): the door's screen and `/interfaces pair`.
   const ownerPairing = createOwnerPairing({ hot, memoryDb, port: iface, selfId: () => identity.selfId, now: clock });
+  // Which roots each interface serves, by the owner's word (src/interface/root-joining.ts).
+  const rootJoining = createRootJoining({
+    hot,
+    now: clock,
+    stateOf: (name) => {
+      const known = interfaceLinks.list().find((one) => one.name === name);
+      return {
+        token: interfaceCredential(dataDir, name) !== null,
+        enabled: known?.enabled !== false,
+        connected: known?.connected === true,
+      };
+    },
+    listed: listedRoots({ rootDir: paths.rootDir, dataDir, written: () => void inProcess?.read() }),
+    routes: rootRoutes,
+    noteRoots: (name, named) => store.noteRoots(name, named),
+    invite: (name) => reads.answer('inviteLink', { iface: name }),
+    notify: (notice) => intake.notice(notice.text),
+    nounOf: rootNounOf(() => memoryDb.database()),
+  });
   const onMessage = createMessageHandler({
     screen: joinScreens(personLinks, ownerPairing),
     gifKeeper,
@@ -1485,6 +1494,7 @@ async function buildCore(
       memoryDb,
       startWatcher: coreWatcherStarter(paths),
       pairing: ownerPairing,
+      joining: rootJoining,
       usage,
       metrics,
       wakeClock: (name) => wakeClockOf(name, { now: clock(), inner, selfreflection }),
@@ -1807,6 +1817,7 @@ async function buildCore(
         directory.apply(event);
         void refreshAllPlaces();
       },
+      'root.changed': (event: RootChanged) => void rootJoining.rootChanged(event),
       'membership.changed': (event: MembershipChanged) => {
         members.apply(event);
         offerAvatar(event.placeId, event.member);

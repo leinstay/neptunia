@@ -567,6 +567,7 @@ function agentAdapter(): Adapter {
     emoji: read,
     parseLinks: read,
     reactors: read,
+    inviteLink: read,
   };
 }
 

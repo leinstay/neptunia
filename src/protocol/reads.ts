@@ -22,6 +22,7 @@ export const READ_ACTIONS: ReadonlyArray<string> = Object.freeze([
   'emoji.list',
   'links.parse',
   'message.reactors',
+  'invite.link',
 ]);
 
 type Fields = Record<string, unknown>;
@@ -66,6 +67,8 @@ export function readAction(operation: string, args: ReadonlyArray<unknown>): Fie
       return { action: 'links.parse', texts: target };
     case 'reactors':
       return { action: 'message.reactors', message: target, emoji: second, limit: third };
+    case 'inviteLink':
+      return { action: 'invite.link', iface: scope.iface };
     default:
       return null;
   }
@@ -212,6 +215,8 @@ export function readActionProblem(given: unknown): Problem | null {
         () => field(fields.emoji, 'emoji', (value) => typeof value === 'string'),
         () => field(fields.limit, 'limit', isIntegerFrom(1, MAX_REACTOR_LIMIT))
       );
+    case 'invite.link':
+      return field(fields.iface, 'iface', isId);
     default:
       return null;
   }
