@@ -45,13 +45,34 @@ test('resolveGuild: no configured id and several guilds is an error listing them
   assert.match(result.error, /Beta \(g2\)/);
 });
 
-test('resolveGuilds keeps the listed servers the bot is in and fails only when it is in none', () => {
+test('resolveGuilds keeps the listed servers the bot is in and reports the others as missing or waiting', () => {
   // Bug: one server still waiting for its invite stops the bot on all the others.
+  // Changed by the spec of 2026-11-11 (joining a root): a server the bot is in and the list does not name no longer
+  // stops the start with an error. It waits for the owner, so the answer carries `waiting` and a list the bot is in
+  // none of starts with nothing served.
   const guilds = [
     { id: 'a', name: 'A' },
     { id: 'b', name: 'B' },
   ];
-  assert.deepEqual(resolveGuilds(['b', 'c'], '', guilds), { guildIds: ['b'], missing: ['c'] });
-  assert.ok('error' in resolveGuilds(['c'], '', guilds));
-  assert.deepEqual(resolveGuilds([], 'a', guilds), { guildIds: ['a'], missing: [] });
+  assert.deepEqual(resolveGuilds(['b', 'c'], '', guilds), {
+    guildIds: ['b'],
+    missing: ['c'],
+    waiting: [{ id: 'a', name: 'A' }],
+  });
+  assert.deepEqual(resolveGuilds(['c'], '', guilds), { guildIds: [], missing: ['c'], waiting: guilds });
+  assert.deepEqual(resolveGuilds([], 'a', guilds), { guildIds: ['a'], missing: [], waiting: [{ id: 'b', name: 'B' }] });
+});
+
+test('resolveGuilds with no list serves none of several servers and reports each as waiting', () => {
+  // Bug: a bot invited to a second server while the list is empty never starts again.
+  const guilds = [
+    { id: 'a', name: 'A' },
+    { id: 'b', name: 'B' },
+  ];
+  assert.deepEqual(resolveGuilds([], '', guilds), { guildIds: [], missing: [], waiting: guilds });
+});
+
+test('resolveGuilds with no list serves the only server the bot is in', () => {
+  // Catches: the one-server install of a new owner left waiting for an accept it never needed.
+  assert.deepEqual(resolveGuilds([], '', [{ id: 'a', name: 'A' }]), { guildIds: ['a'], missing: [], waiting: [] });
 });

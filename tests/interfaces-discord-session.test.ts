@@ -27,6 +27,7 @@ const KINDS = [
   'connection.changed',
   'membership.changed',
   'chat.changed',
+  'root.changed',
 ];
 
 const flush = async (rounds = 10): Promise<void> => {
@@ -285,14 +286,25 @@ test('sends the cached members of the served guild as membership.changed events 
   }
 });
 
-test('rejects naming both guilds when the bot is in two and bot.guildId is unset', async () => {
-  const h = harness({ twoGuilds: true });
-  await assert.rejects(start(h.host), (error: Error) => {
-    assert.match(error.message, /g1/);
-    assert.match(error.message, /g2/);
-    return true;
+test('starts with no list and two guilds, serves neither, and reports each as a waiting root', async () => {
+  // Changed by the spec of 2026-11-11 (joining a root): this case stopped the start with an error naming both guilds.
+  // The owner now accepts the roots he wants from the command line, so the start serves none and reports them.
+  // Bug: a bot invited to a second server while the list is empty never starts again.
+  await withSession({ twoGuilds: true, servers: [] }, async (h, running) => {
+    const hello = await h.link.hello;
+    assert.equal(hello.root, null);
+    assert.deepEqual(hello.roots ?? [], []);
+    running.open();
+    await until(() => h.events('root.changed').length >= 2);
+    const reported = h.events('root.changed').map((event) => [asFake(event.root).id, event.change]);
+    assert.deepEqual(
+      reported.sort(([a], [b]) => String(a).localeCompare(String(b))),
+      [
+        ['g1', 'present'],
+        ['g2', 'present'],
+      ]
+    );
   });
-  h.loop.core.close();
 });
 
 test('rejects with missing DISCORD_TOKEN and never logs in when the environment holds no token', async () => {
@@ -605,4 +617,47 @@ test('starts and carries messages when the guild refuses to list its commands', 
   } finally {
     await running.stop();
   }
+});
+
+// ---- roots joined and left while running --------------------------------------------------------
+
+test('turns GuildCreate into a root.changed that joined, with the guild id and name', async () => {
+  // Catches: a server the owner just invited her to never reaching the core, so joining waits in vain.
+  await withSession({}, async (h, running) => {
+    running.open();
+    h.client.emit(Events.GuildCreate, guildOf('g5', 'Epsilon').guild);
+    await until(() => h.events('root.changed').length >= 1);
+    const event = h.events('root.changed')[0] ?? {};
+    assert.equal(event.change, 'joined');
+    assert.deepEqual(event.root, { id: 'g5', name: 'Epsilon' });
+    assert.deepEqual(validateEvent(event), { ok: true });
+  });
+});
+
+test('turns GuildDelete into a root.changed that left', async () => {
+  // Catches: a server the bot was removed from still shown served to the owner.
+  await withSession({}, async (h, running) => {
+    running.open();
+    h.client.emit(Events.GuildDelete, h.guild);
+    await until(() => h.events('root.changed').length >= 1);
+    const event = h.events('root.changed')[0] ?? {};
+    assert.equal(event.change, 'left');
+    assert.equal(asFake(event.root).id, 'g1');
+  });
+});
+
+test('serves a waiting guild once its settings list it, with no restart', async () => {
+  // Catches: an accepted root the core serves while the session still drops its voice and presence until a restart.
+  await withSession({ twoGuilds: true, servers: [] }, async (h, running) => {
+    running.open();
+    Object.assign(h.config, { servers: ['g2'] });
+    h.fire('config');
+    h.client.emit(
+      Events.VoiceStateUpdate,
+      { channelId: null },
+      { id: 'u7', guild: { id: 'g2' }, channelId: 'v2', member: { id: 'u7', displayName: 'Zoe' } }
+    );
+    await until(() => h.events('voice.changed').length >= 1);
+    assert.equal(h.events('voice.changed')[0]?.placeId, 'g2');
+  });
 });

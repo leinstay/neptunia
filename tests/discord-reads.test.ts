@@ -4,7 +4,7 @@
 // objects are plain stubs shaped just enough for the code to read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ChannelType } from 'discord.js';
+import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import {
   createDiscordAdapter,
   fetchAfter,
@@ -499,4 +499,27 @@ test('lists the emoji of every listed server for a read with no place', async ()
     result.emoji.map((entry) => entry.id),
     ['e1', 'e2']
   );
+});
+
+test('the invite link names the application and carries the permissions the package needs', async () => {
+  // Catches: a link for the wrong bot, or one that adds her to a server where she can neither read nor answer.
+  const client = clientOf(guildOf([]), [], { application: { id: 'app-1' } });
+  const adapter = createDiscordAdapter({ client, config: () => ({}) });
+  assert.ok(adapter.capabilities().reads?.includes('invite.link'));
+  const result = await adapter.inviteLink({ iface: 'discord' });
+  if (result.status !== 'ok') throw new Error(`invite answered ${result.status}`);
+  const url = new URL(result.url);
+  assert.equal(url.origin, 'https://discord.com');
+  assert.equal(url.pathname, '/oauth2/authorize');
+  assert.equal(url.searchParams.get('client_id'), 'app-1');
+  assert.ok((url.searchParams.get('scope') ?? '').split(' ').includes('bot'));
+  const granted = BigInt(url.searchParams.get('permissions') ?? '0');
+  const needed = [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.ReadMessageHistory,
+    PermissionFlagsBits.AddReactions,
+    PermissionFlagsBits.AttachFiles,
+  ];
+  for (const bit of needed) assert.equal(granted & bit, bit, `permission ${bit}`);
 });

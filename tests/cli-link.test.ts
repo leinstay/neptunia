@@ -14,6 +14,9 @@ import type { Principal } from '../src/interface/principals.ts';
 
 type Body = Record<string, unknown>;
 
+/** `NOTICE_STATUS` of src/protocol/turn-control.ts, written out so the file loads before that export exists. */
+const NOTICE_STATUS = 'notice';
+
 /** A core that acknowledges every event and answers each command with what `reply` says. */
 function fakeCore(reply: (index: number) => Body) {
   const { core, client } = createLoopback();
@@ -205,4 +208,25 @@ test('stop closes the link and answers a command still waiting', async () => {
   await running.stop();
   assert.deepEqual(await waiting, { text: 'The link to the core closed.', status: 'failed' });
   assert.equal(await settled(running.closed), true);
+});
+
+test('a notice the core pushes reaches the chat once and never answers a waiting command', async () => {
+  // Catches: the owner never told that a root waits, or the notice taken as the answer to the command he ran.
+  const { core, client } = createLoopback();
+  core.onEnvelope((value) => {
+    if (value.type !== 'event') return;
+    core.send(envelope('ack', { status: 'ok' }, { id: `ack:${value.id}`, replyTo: value.id }));
+    const body = value.body as Body;
+    if (typeof body.replyRef !== 'string') return;
+    const notice = { action: 'command.result', replyRef: NOTICE_STATUS, status: NOTICE_STATUS, text: 'g8 waits' };
+    core.send(envelope('action', notice, { id: 'action:notice-1' }));
+    const answer = { action: 'command.result', replyRef: body.replyRef, text: 'it is done', status: 'ok' };
+    core.send(envelope('action', answer, { id: 'action:answer-1' }));
+  });
+  const notices: Array<string> = [];
+  const link = openLinkOver(client, { token: 't', print: null, onNotice: (text) => void notices.push(text) });
+  const answer = await link.ask({ name: 'status', args: {} });
+  assert.deepEqual(answer, { text: 'it is done', status: 'ok' });
+  assert.deepEqual(notices, ['g8 waits']);
+  link.close();
 });

@@ -31,6 +31,17 @@ test('readAction turns a method call into its wire action and gives null for a m
   assert.equal(readAction('send', [REF, { text: 'x' }]), null);
 });
 
+test('readAction turns the invite read into its wire action with the interface it asks', () => {
+  // Catches: the invite read sent with no interface, so the router asks the served interface for another's link.
+  assert.deepEqual(readAction('inviteLink', [{ iface: 'fake' }]), { action: 'invite.link', iface: 'fake' });
+  assert.equal(isReadAction('invite.link'), true);
+});
+
+test('readActionProblem refuses an invite read that names no interface', () => {
+  assert.deepEqual(readActionProblem({ action: 'invite.link' }), ['iface', 'required']);
+  assert.equal(readActionProblem({ action: 'invite.link', iface: 'fake' }), null);
+});
+
 test('isReadAction knows every read action of the port and no other name', () => {
   for (const name of READ_ACTIONS) assert.equal(isReadAction(name), true, name);
   assert.equal(isReadAction('message.send'), false);

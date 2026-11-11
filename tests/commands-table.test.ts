@@ -113,6 +113,23 @@ test('every /skills subcommand that works on one skill takes its name and is ref
   }
 });
 
+test('/interfaces invite and the three /interfaces roots lines parse to their names and arguments', () => {
+  // Catches: `/interfaces roots accept discord g7` read as the roots of an interface named `accept`.
+  const cases: Array<[string, string, Record<string, string>]> = [
+    ['/interfaces invite discord', 'interfaces.invite', { name: 'discord' }],
+    ['/interfaces roots discord', 'interfaces.roots', { name: 'discord' }],
+    ['/interfaces roots accept discord g7', 'interfaces.roots.accept', { name: 'discord', root: 'g7' }],
+    ['/interfaces roots remove discord g7', 'interfaces.roots.remove', { name: 'discord', root: 'g7' }],
+  ];
+  for (const [line, name, args] of cases) {
+    const parsed = parseCommandLine(line);
+    assert.ok(parsed.ok, `${line}: ${parsed.ok ? '' : parsed.reason}`);
+    assert.equal(parsed.name, name, line);
+    for (const [key, value] of Object.entries(args)) assert.equal(parsed.args[key], value, `${line} ${key}`);
+  }
+  assert.equal(parseCommandLine('/interfaces roots accept discord').ok, false, 'accept needs a root');
+});
+
 // How a leaf of the owner's command table (src/interface/commands/table.ts) names the operation it runs, read through
 // `operationOf`, and that the core's console (src/interface/commands/console.ts) answers every leaf of the table. The
 // operations run against a fake that records them; no core, no model and no network.
