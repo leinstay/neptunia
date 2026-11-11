@@ -8,13 +8,13 @@ import { pulledMoment } from './text.ts';
 import type { LabelGroup, Labels, Message } from './types.ts';
 
 /** One text part of a request's user message, tagged with its cache segment but the tail. */
-export type UserPart = { type: 'text'; text: string; cacheSegment?: 'stable' | 'surroundings' | 'memory' };
+export type UserPart = { type: 'text'; text: string; cacheSegment?: 'stable' | 'memory' };
 
 /**
- * A cache segment of the user message by its name. `memory` holds the listed blocks after `<surroundings>` up to the
- * first of the turn's own blocks, `tail` the turn's own blocks from `<chat>` on.
+ * A cache segment of the user message by its name. `stable` holds `<self>`, `memory` the listed blocks after it up to
+ * the first of the turn's own blocks, `<surroundings>` first, and `tail` the turn's own blocks from `<chat>` on.
  */
-export type BlockSegment = 'stable' | 'surroundings' | 'memory' | 'tail';
+export type BlockSegment = 'stable' | 'memory' | 'tail';
 
 /** One block of the user message as it goes out, empty when it has nothing. `section` is its budget section when it has one. */
 export type ListedBlock = {
@@ -81,11 +81,11 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
 }
 
 /**
- * The user message's text parts from its listed blocks, one part per cache segment in the order stable, surroundings,
- * memory, tail. A segment with no text sends no part.
+ * The user message's text parts from its listed blocks, one part per cache segment in the order stable, memory, tail.
+ * A segment with no text sends no part.
  */
 export function userParts(blocks: ReadonlyArray<ListedBlock>): Array<UserPart> {
-  const segments = (['stable', 'surroundings', 'memory', 'tail'] as const)
+  const segments = (['stable', 'memory', 'tail'] as const)
     .map((segment) => ({
       text: blocks
         .filter((one) => one.segment === segment)

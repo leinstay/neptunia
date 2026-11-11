@@ -653,7 +653,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     { name: 'self', segment: 'stable', source: 'self', text: block('self', selfTextOf(given, fit)) },
     {
       name: 'surroundings',
-      segment: 'surroundings',
+      segment: 'tail',
       source: 'surroundings',
       text: block('surroundings', offered.surroundings),
     },
@@ -671,8 +671,8 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
   const sorted = listed
     .filter((one) => order.includes(one.name))
     .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
-  // The blocks between the cached segments and the first of the turn's own blocks repeat between turns: the `memory`
-  // segment, which carries the last cache marker of a turn's first request (src/llm/openrouter.ts#withCacheMarker).
+  // The blocks between `<self>` and the first of the turn's own blocks repeat between turns: the `memory` segment, whose
+  // cache marker every request of a turn carries (src/llm/openrouter.ts#withCacheMarker).
   const firstOwn = sorted.findIndex((one) => TURN_OWN.has(one.name));
   const inList = sorted.map((one, at) =>
     one.segment === 'tail' && (firstOwn < 0 || at < firstOwn) ? { ...one, segment: 'memory' as const } : one
