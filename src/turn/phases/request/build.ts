@@ -87,10 +87,12 @@ const DM_WORD = 'private';
 function chainOfTurn(
   store: PhaseContext['store'],
   channel: Prepared['channel'],
-  wake: { kind: string | null } | null
+  wake: { kind: string | null } | null,
+  directPlace: string | null
 ): ReadonlyArray<PlaceLink> {
   if (wake && (OWN_SERVER_WAKES.has(wake.kind ?? '') || channel.rootId === PERSONA_ID)) return [];
-  const placeId = placeOfChat(store, channel) || String(channel.id ?? '');
+  // A direct chat is keyed by its partner, so the chat alone does not name its stored place: the turn's place does.
+  const placeId = directPlace || placeOfChat(store, channel) || String(channel.id ?? '');
   if (!placeId) return [];
   const chainOf: unknown = Reflect.get(Object(store), 'placeChainOf');
   const stored =
@@ -116,6 +118,8 @@ function frameOfTurn(
     trigger: { id: string; authorId: string; authorName?: string | null } | null;
     now: number;
     timezone: string;
+    /** The stored place of the turn, given for a direct chat. */
+    placeId?: string;
   }
 ): Frame {
   const { channel, isDm, trigger } = turn;
@@ -126,7 +130,12 @@ function frameOfTurn(
     triggerKind: turn.triggerKind,
     wakeKind: turn.wakeKind,
     interface: typeof channel.iface === 'string' ? channel.iface : '',
-    chain: chainOfTurn(store, channel, turn.inner ? { kind: turn.wakeKind } : null),
+    chain: chainOfTurn(
+      store,
+      channel,
+      turn.inner ? { kind: turn.wakeKind } : null,
+      isDm ? (turn.placeId ?? null) : null
+    ),
     dm: isDm
       ? {
           word: DM_WORD,
@@ -882,6 +891,7 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     trigger,
     now,
     timezone: String(config.bot?.timezone ?? 'UTC'),
+    placeId,
   });
   const facts = { history, trigger, prefetch: prefetchResult, labels: prompts?.labels, now };
   const framed = framedInputsOf(ctx, frame, draft, channel, facts);

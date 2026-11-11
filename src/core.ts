@@ -813,7 +813,7 @@ async function buildCore(
       hello.iface,
       named.map((one) => one.id)
     );
-    store.noteRoots(hello.iface, named);
+    store.noteRoots(hello.iface, named, hello.names);
   }
   // The around store tells a presence event from a voice one by what the interface declares in `hello`: whether it
   // reports presences at all (intents are fixed at login, the interface reads its own at its start).
