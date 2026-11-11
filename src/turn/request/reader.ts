@@ -1,9 +1,9 @@
 // The user message of a request built on the turn frame (docs/prompt-contract.md, "Blocks per kind"): every kind carries
-// the frame's tags in its order, filtered by `frame.blocks`. The stable segment holds `<self>`, the surroundings segment
+// the tags of `frame.blocks` in that list's order. The stable segment holds `<self>`, the surroundings segment
 // `<surroundings>`, each with its own cache marker (src/llm/openrouter.ts#withCacheMarker). The tail holds `<memory>`
-// from the graph reader, `<recall>` from her lookups, `<inner>`, `<meanwhile>` from her lines elsewhere,
-// a selfreflection request's `<virtual_world>`, `<spatial_awareness>` with the clock and her time away, `<chat>` and
-// `<task>`. The budget fits them in this priority: the fixed part, the person she answers, the memory shares, the
+// from the graph reader, `<meanwhile>` from her lines elsewhere, a selfreflection request's `<virtual_world>`, `<chat>`,
+// `<recall>` from her lookups, `<found>` with what the reader and the prefetch found, `<inner>`, `<spatial_awareness>`
+// with the clock and her time away, and `<task>`. The budget fits them in this priority: the fixed part, the person she answers, the memory shares, the
 // recall, the chat (cut to a step of `context.chatSteps`), the background, her own state, the world, her past entries.
 // Handles are given before the blocks are rendered (src/behavior/handles.ts#handleBook): a person's from the meta-person,
 // the chat's as it was rendered, then the people of `<memory>` and the authors of `<meanwhile>`, and a person a stored
@@ -23,7 +23,15 @@ import { innerBlockOf } from './inner-block.ts';
 import type { InnerParts } from './inner-block.ts';
 import { meanwhileSettingsOf, meanwhileText, meanwhileWindows, windowText } from './meanwhile.ts';
 import type { MeanwhileReads, MeanwhileWindow } from './meanwhile.ts';
-import { MEMORY_SUBTAGS, factItemsOf, memoryItemsOf, renderMemory, strangerItemsOf } from './memory-block.ts';
+import {
+  MEMORY_SUBTAGS,
+  factItemsOf,
+  memoryItemsOf,
+  printOrder,
+  renderMemory,
+  strangerItemsOf,
+  subtagBody,
+} from './memory-block.ts';
 import type { ChatIdOf, ChatStranger, LiveOf, MemoryItem, MemorySubtag, StoredFact } from './memory-block.ts';
 import { numberedLookups, recallBlockOf, shownLookups } from './recall-block.ts';
 import { refResolverOf } from './refs.ts';
@@ -422,6 +430,9 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
   };
 }
 
+/** The subtags `<memory>` prints; `<found>` is a root tag of its own, printed after `<chat>`. */
+const IN_MEMORY: ReadonlyArray<MemorySubtag> = ['people', 'places', 'lore', 'recent'];
+
 /** Whether the request names people by handle: every one but a selfreflection's, which names them by name alone. */
 const handled = (given: ReaderInput): boolean => given.selfreflection === null || given.selfreflection === undefined;
 
@@ -619,9 +630,12 @@ const selfTextOf = (given: ReaderInput, fit: Fit): string =>
     .filter(Boolean)
     .join('\n');
 
-type Bodies = { memory: string; inner: string; meanwhile: string; chat: string };
+type Bodies = { memory: string; found: string; inner: string; meanwhile: string; chat: string };
 
-/** Every block of the frame's request in its order; a block the frame does not list goes out empty. */
+/**
+ * Every block of the request, the ones the frame lists in the frame's order, then the others empty: the frame's list
+ * is the printed order (src/turn/request/frame.ts#blocksOf).
+ */
 function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies): Array<ListedBlock> {
   const { kept } = fit;
   const tail = (name: BlockName, source: string, text: string, section?: string): ListedBlock => ({
@@ -640,16 +654,21 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
       text: block('surroundings', offered.surroundings),
     },
     tail('memory', 'mind', bodies.memory, 'people'),
-    tail('recall', 'lookups', kept.recall?.[0] ?? '', 'recall'),
-    tail('inner', 'inner', bodies.inner, 'inner'),
     tail('meanwhile', 'meanwhile', bodies.meanwhile, 'meanwhile'),
     tail('virtual_world', 'world', kept.virtual_world?.[0] ?? '', 'virtual_world'),
-    tail('spatial_awareness', 'spatial', offered.spatial),
     tail('chat', 'kept.chat', bodies.chat, 'chat'),
+    tail('recall', 'lookups', kept.recall?.[0] ?? '', 'recall'),
+    tail('found', 'mind', bodies.found, 'found'),
+    tail('inner', 'inner', bodies.inner, 'inner'),
+    tail('spatial_awareness', 'spatial', offered.spatial),
     tail('task', 'task', given.task),
   ];
-  const listedNames = new Set<string>(given.frame.blocks);
-  return listed.map((one) => (listedNames.has(one.name) ? one : { ...one, text: '', offKind: true }));
+  const order: ReadonlyArray<string> = given.frame.blocks;
+  const inList = listed
+    .filter((one) => order.includes(one.name))
+    .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  const offList = listed.filter((one) => !order.includes(one.name)).map((one) => ({ ...one, text: '', offKind: true }));
+  return [...inList, ...offList];
 }
 
 /** The user message of a request on the frame. */
@@ -679,8 +698,10 @@ export function readerRequest(given: ReaderInput): ReaderResult {
     ])
   );
   const keptChat = offered.chat.slice(offered.chat.length - (fit.kept.chat ?? []).length);
+  const printed = printOrder(keptMemory).map(withHandle);
   const blocks = listedOf(given, offered, fit, {
-    memory: renderMemory(keptMemory.map(withHandle), cutBy, labels),
+    memory: renderMemory(printed, cutBy, labels, IN_MEMORY),
+    found: subtagBody('found', printed, cutBy, labels),
     inner: innerTextOf(given, offered, fit),
     meanwhile: meanwhileText(
       keptWindows,

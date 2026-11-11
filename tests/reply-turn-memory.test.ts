@@ -5,11 +5,14 @@
 // (tests/fixtures/service-turn.ts#replyTurns), a scripted model, synthetic names in Greek.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addLine, addPerson, addRoom, rootId } from './fixtures/memory-db/mind-world.ts';
+import { AT, addClaim, addLine, addPerson, addRoom, rootId } from './fixtures/memory-db/mind-world.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { useIface } from './fixtures/turn-world.ts';
-import { TURN_NOW, blockOf, replyTurns, serviceWorld } from './fixtures/service-turn.ts';
+import { TURN_NOW, blockOf, replyTurns, rootTags, serviceWorld } from './fixtures/service-turn.ts';
+import type { ReplyStep } from './fixtures/service-turn.ts';
+import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 useIface('fake');
 
@@ -303,6 +306,259 @@ test('a number of a read reads its line in a later call of the same turn', async
     const after = afterTask(first[2] ?? '');
     assert.equal(countOf(after, GARDEN.eleni) - countOf(before, GARDEN.eleni), 1, after);
     assert.equal(countOf(after, GARDEN.hers), countOf(before, GARDEN.hers), 'the call read no other line');
+  } finally {
+    world.close();
+  }
+});
+
+// The request laid out for the prompt cache (the owner's decision of 2026-11-11, item 29 of plan 2026-11-10
+// tools-and-reads; contract .agents/docs/specs/2026-11-11-cache-layout-contract.md). The rank of the graph reader
+// decides what `<memory>` keeps and at which detail, and the print stands in a stable order: the same entries give the
+// same bytes. Her own blocks stand after `<chat>`, so two turns of one place share everything up to `<chat>`.
+
+/** The root tags of a reply in the order of the contract. */
+const REPLY_ORDER = [
+  'self',
+  'surroundings',
+  'memory',
+  'meanwhile',
+  'chat',
+  'recall',
+  'found',
+  'inner',
+  'spatial_awareness',
+  'task',
+];
+
+const CLAIM = { alpha: 'ΑΛΦΑ λουλούδια', beta: 'ΒΗΤΑ θάλασσα' } as const;
+const LORE = { alpha: 'ΛΟΡ-ΑΛΦΑ λουλούδια', beta: 'ΛΟΡ-ΒΗΤΑ θάλασσα' } as const;
+
+/** The body of the subtag `<tag>` of `<memory>` in a request's user text, '' when absent. */
+const subtagOf = (request: string | undefined, tag: string): string =>
+  new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(blockOf(request ?? '', 'memory'))?.[1] ?? '';
+
+/** The lines of a text as a sorted list, to compare what two texts hold whatever their order. */
+const sortedLines = (text: string): Array<string> => text.split('\n').filter(Boolean).sort();
+
+/**
+ * The service world with Νίκος, two claims about Ελένη and two lore claims about `c1`, each pair one claim about
+ * flowers and one about the sea, so a trigger that names one puts its claim first in the reader's rank.
+ */
+function rankWorld(): World {
+  const world = serviceWorld();
+  addPerson(world.db, { id: NIKOS, accounts: [{ id: 'fake:4242', iface: 'fake', native: '4242', names: ['Νίκος'] }] });
+  const group = { group: 'fake' };
+  addClaim(world.db, {
+    id: 'claim:eleni:a',
+    person: 'person:fake:111',
+    kind: 'fact',
+    text: CLAIM.alpha,
+    audience: group,
+  });
+  addClaim(world.db, {
+    id: 'claim:eleni:b',
+    person: 'person:fake:111',
+    kind: 'fact',
+    text: CLAIM.beta,
+    audience: group,
+  });
+  insertRows(world.db, {
+    claims: (['a', 'b'] as const).map((key) => ({
+      id: `lore:c1:${key}`,
+      subject_kind: 'place',
+      subject_id: 'fake:channel:c1',
+      kind: 'lore',
+      text: key === 'a' ? LORE.alpha : LORE.beta,
+      truth: 'current',
+      shown: 1,
+      created_at: AT,
+      extra: JSON.stringify({ title: key, keys: [], always: false }),
+      scope_kind: 'group',
+      scope_iface: 'fake',
+    })),
+  });
+  return world;
+}
+
+/**
+ * Two turns of Ελένη in `c1` with Νίκος and Ζωή writing around them. The first trigger names the sea and Ζωή wrote
+ * last; the second names the flowers and the garden and Νίκος wrote last, so the reader ranks the claims, the authors
+ * and the places of the second turn in another order than the first.
+ */
+const REORDERED: ReadonlyArray<ReplyStep> = [
+  {
+    lines: [
+      { id: 'n1', text: 'πρώτη', at: TURN_NOW - 10 * MIN, authorId: '4242', authorName: 'Νίκος' },
+      { id: 'z1', text: 'δεύτερη', at: TURN_NOW - 9 * MIN, authorId: '5678', authorName: 'Ζωή' },
+    ],
+    trigger: { id: 'e1', text: 'η θάλασσα', at: TURN_NOW - 8 * MIN },
+    answers: [SAY],
+  },
+  {
+    lines: [{ id: 'n2', text: 'τρίτη', at: TURN_NOW - 4 * MIN, authorId: '4242', authorName: 'Νίκος' }],
+    trigger: { id: 'e2', text: 'τα λουλούδια στον κήπος', at: TURN_NOW - 3 * MIN },
+    answers: [SAY],
+  },
+];
+
+test('two turns that raise the same entries in another rank print <people>, <places> and <lore> byte for byte the same', async () => {
+  // Bug: the request prints the entries and the claims inside an entry in the order the graph reader ranked them, so
+  // the same people, places and lore come out in another order each turn and the prompt cache stops inside <people>.
+  const world = rankWorld();
+  try {
+    const [first = [], second = []] = await replyTurns({ world, steps: REORDERED });
+    for (const tag of ['people', 'places', 'lore']) {
+      const before = subtagOf(first[0], tag);
+      const after = subtagOf(second[0], tag);
+      assert.ok(before !== '', `the first turn has <${tag}>`);
+      assert.deepEqual(sortedLines(after), sortedLines(before), `<${tag}> holds the same lines in both turns`);
+      assert.equal(after, before, `<${tag}>`);
+    }
+  } finally {
+    world.close();
+  }
+});
+
+test('the reordering loses no claim of a person and no lore claim of a place', async () => {
+  // Guard: a stable order built by dropping and re-adding entries or claims loses one of them.
+  const world = rankWorld();
+  try {
+    const [first = [], second = []] = await replyTurns({ world, steps: REORDERED });
+    for (const request of [first[0], second[0]]) {
+      for (const text of Object.values(CLAIM)) assert.ok(subtagOf(request, 'people').includes(text), text);
+      for (const text of Object.values(LORE)) assert.ok(subtagOf(request, 'lore').includes(text), text);
+      for (const name of ['Ελένη', 'Νίκος', 'Ζωή']) assert.ok(subtagOf(request, 'people').includes(name), name);
+    }
+  } finally {
+    world.close();
+  }
+});
+
+test('the person she answers stays the first entry of <people> and marked, and every author keeps an entry under a spent share', async () => {
+  // Guard: the stable order sorts the person she answers among the others by id, or the people share spent by the
+  // budget drops an author the reader keeps whatever the budget. Ζωή's id sorts last, so a sort by id alone moves her.
+  const world = rankWorld();
+  try {
+    const steps = REORDERED.map((step) => ({
+      ...step,
+      trigger: { ...step.trigger, authorId: '5678', authorName: 'Ζωή' },
+    }));
+    const [, second = []] = await replyTurns({ world, settings: { budgetTokens: 10 }, steps });
+    const entries = subtagOf(second[0], 'people').split('\n\n');
+    const counterpart = shippedLabels.memory?.counterpart ?? '';
+    assert.ok(counterpart !== '', 'the shipped labels mark the person she answers');
+    assert.ok((entries[0] ?? '').includes('Ζωή') && (entries[0] ?? '').includes(counterpart), entries[0]);
+    assert.equal(entries.filter((entry) => entry.includes(counterpart)).length, 1, 'one person marked');
+    for (const name of ['Ελένη', 'Νίκος'])
+      assert.ok(
+        entries.some((entry) => entry.includes(name)),
+        name
+      );
+    assert.equal(entries.filter((entry) => (entry.split('\n')[0] ?? '').includes('Ζωή')).length, 1, 'one entry of her');
+  } finally {
+    world.close();
+  }
+});
+
+/** Five lines of hers in `place` before the turns, the minutes before TURN_NOW `from` down. */
+function ownLines(world: World, place: string, prefix: string, from: number): void {
+  for (let i = 0; i < 5; i += 1)
+    addLine(world.db, {
+      id: `${prefix}${i}`,
+      iface: 'fake',
+      place,
+      author: 'self',
+      text: `${prefix.toUpperCase()}-ΔΙΚΗ-${i}`,
+      at: iso(TURN_NOW - (from - i) * MIN),
+    });
+}
+
+test('<places> reads the same before and after she writes one more line in a place it lists', async () => {
+  // Bug: a place's entry carries the exact count of her messages there, which grows with every line she writes, so the
+  // entry of the place she talks in changes every turn and the cache stops at it. She wrote five lines in `c1` and in
+  // the garden before the turns, and a sixth in each during the first turn, on the same day.
+  const world = serviceWorld();
+  ownLines(world, 'fake:channel:c1', 'c', 90);
+  ownLines(world, 'fake:channel:c2', 'k', 80);
+  const writeMore = (): string => {
+    addLine(world.db, {
+      id: 'c9',
+      iface: 'fake',
+      place: 'fake:channel:c1',
+      author: 'self',
+      text: 'ΕΚΤΗ-Γ',
+      at: iso(TURN_NOW - 7 * MIN),
+    });
+    addLine(world.db, {
+      id: 'k9',
+      iface: 'fake',
+      place: 'fake:channel:c2',
+      author: 'self',
+      text: 'ΕΚΤΗ-Κ',
+      at: iso(TURN_NOW - 7 * MIN),
+    });
+    return SAY;
+  };
+  try {
+    const [first = [], second = []] = await replyTurns({
+      world,
+      steps: [
+        { trigger: { id: 'e1', text: 'καλημέρα', at: TURN_NOW - 8 * MIN }, answers: [writeMore] },
+        { trigger: { id: 'e2', text: 'εντάξει', at: TURN_NOW - 3 * MIN }, answers: [SAY] },
+      ],
+    });
+    const before = subtagOf(first[0], 'places');
+    assert.ok(/γενικά \(/.test(before) && /κήπος \(/.test(before), before);
+    assert.equal(subtagOf(second[0], 'places'), before);
+  } finally {
+    world.close();
+  }
+});
+
+test('the second turn of a place repeats the first request byte for byte up to <chat> when only the chat gained lines', async () => {
+  // Bug: her own blocks, `<inner>` with her last think and `<spatial_awareness>` with the number of the line she
+  // answers, stand before `<chat>`, so the first request of every turn differs from the turn before above <chat> and
+  // the cache reaches nothing after `<surroundings>`. The common prefix ends right before `<chat>`.
+  const world = serviceWorld();
+  try {
+    const [first = [], second = []] = await replyTurns({
+      world,
+      steps: [
+        { trigger: { id: 'e1', text: 'καλημέρα', at: TURN_NOW - 8 * MIN }, answers: [SAY] },
+        { trigger: { id: 'e2', text: 'εντάξει', at: TURN_NOW - 3 * MIN }, answers: [SAY] },
+      ],
+    });
+    const before = first[0] ?? '';
+    const after = second[0] ?? '';
+    for (const tag of ['memory', 'meanwhile'])
+      assert.deepEqual(sortedLines(blockOf(after, tag)), sortedLines(blockOf(before, tag)), `the same <${tag}>`);
+    const prefix = before.slice(0, before.indexOf('\n<chat>\n') + 1);
+    assert.ok(prefix.includes('</meanwhile>') && prefix.includes('</memory>'), 'the prefix holds the stable blocks');
+    assert.ok(after.startsWith(prefix), 'the second request starts with the first up to <chat>');
+  } finally {
+    world.close();
+  }
+});
+
+test("a reply request orders its root tags as the contract: the stable blocks, <chat>, then the turn's own and <task>", async () => {
+  // Bug: the request keeps its old order, `<recall>`, `<inner>` and `<spatial_awareness>` before `<chat>`, or the
+  // frame's list and the printed order drift apart.
+  const world = serviceWorld();
+  try {
+    const [, second = []] = await replyTurns({
+      world,
+      steps: [
+        { trigger: { id: 'e1', text: 'καλημέρα', at: TURN_NOW - 8 * MIN }, answers: [SAY] },
+        { trigger: { id: 'e2', text: 'εντάξει', at: TURN_NOW - 3 * MIN }, answers: [SAY] },
+      ],
+    });
+    const tags = rootTags(second[0] ?? '');
+    for (const tag of ['memory', 'meanwhile', 'chat', 'inner', 'spatial_awareness', 'task'])
+      assert.ok(tags.includes(tag), `holds <${tag}>: ${tags.join(' ')}`);
+    assert.deepEqual(
+      tags,
+      REPLY_ORDER.filter((tag) => tags.includes(tag))
+    );
   } finally {
     world.close();
   }

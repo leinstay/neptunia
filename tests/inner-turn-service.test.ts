@@ -220,3 +220,22 @@ test('<work> of a selfimprovement wake sits in <inner>, states its window and na
       line
     );
 });
+
+test("a heartbeat orders its blocks with what repeats first and the turn's own last: <meanwhile> before <inner>", async () => {
+  // Bug: the owner's decision of 2026-11-11 (cache layout, item 29 of plan 2026-11-10 tools-and-reads) puts the turn's
+  // own blocks last, and the service list keeps `<inner>` with her day and intentions before `<meanwhile>`, so the lines
+  // of `<meanwhile>`, which repeat between two heartbeats, stand after what changes.
+  const order = ['self', 'memory', 'meanwhile', 'recall', 'found', 'inner', 'spatial_awareness', 'task'];
+  const run = await serviceTurn({
+    wake: serviceWake('heartbeat'),
+    answers: ['<skip/>'],
+    chat: null,
+    seed: (service) => service.set({ purpose: 'ΚΑΠΟΤΕ-ΑΡΓΟΤΕΡΑ', dueAt: TURN_NOW + DAY, by: 'persona' }),
+  });
+  const tags = rootTags(run.requests[0] ?? '');
+  for (const tag of ['meanwhile', 'inner', 'spatial_awareness', 'task']) assert.ok(tags.includes(tag), tags.join(' '));
+  assert.deepEqual(
+    tags,
+    order.filter((tag) => tags.includes(tag))
+  );
+});

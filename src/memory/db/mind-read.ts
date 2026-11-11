@@ -200,6 +200,20 @@ export function mindSettingsOf(config: unknown): MindSettings {
   };
 }
 
+/**
+ * The count of her lines in a place as a request shows it: the largest of 1, 2, 5, 10, 20, 50, 100 and so on that is not
+ * above `count`, 0 for none. The exact count grows with every line she writes, and the rounded one keeps a place's entry
+ * the same bytes between turns until it crosses a step (the owner's decision of 2026-11-11, the request laid out for the
+ * prompt cache).
+ */
+export function ownLinesShown(count: number): number {
+  if (!Number.isFinite(count) || count < 1) return 0;
+  let step = 1;
+  for (let scale = 1; scale <= count; scale *= 10)
+    for (const mark of [1, 2, 5]) if (mark * scale <= count) step = mark * scale;
+  return step;
+}
+
 /** The kinds of evidence, strongest first. */
 export const EVIDENCE_ORDER: ReadonlyArray<Evidence> = [
   'native',
@@ -985,7 +999,7 @@ function placeOf(
     const head = entry.path.join(' > ');
     if (detail === 'name') return head;
     if (detail === 'compact') return [head, entry.purpose].filter((one) => one !== null).join('\n');
-    return [head, entry.purpose, entry.tone, entry.topics, `${entry.ownLines} ${entry.ownLastAt ?? ''}`]
+    return [head, entry.purpose, entry.tone, entry.topics, `${ownLinesShown(entry.ownLines)} ${entry.ownLastAt ?? ''}`]
       .filter((one) => one !== null)
       .join('\n');
   };

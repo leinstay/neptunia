@@ -163,7 +163,8 @@ test('buildRequest: the previous think is one block in the uncached tail, the no
   assert.equal(text.split('<previous_think>').length, 2, 'one block');
   for (const part of parts)
     if (part.cacheSegment) assert.ok(!part.text.includes('previous_think'), `${part.cacheSegment} segment unchanged`);
-  assert.ok(text.indexOf('<previous_think>') < text.indexOf('<chat>'));
+  // The owner's decision of 2026-11-11 (cache layout): `<inner>` with her last think stands after `<chat>`.
+  assert.ok(text.indexOf('<previous_think>') > text.indexOf('</chat>'));
   const same = contentText(requestWith({ text: 'checking the list', relation: 'same' }).messages[1].content);
   assert.ok(same.includes(`${labels.previousThink.note}\n(this turn, your previous step)\nchecking the list`));
 });

@@ -495,7 +495,7 @@ function prefetchRecall(
   return recall;
 }
 
-test("prefetch: a reply carries the prefetch's find in <found> inside <memory>, in the uncached tail of every step, and no <retrieved>", async () => {
+test("prefetch: a reply carries the prefetch's find in <found> after <chat>, in the uncached tail of every step, and no <retrieved>", async () => {
   // Slice 4: the find of `<retrieved>` moves to `<found>` (the prefetch's hits enter the graph reader's seeds). The
   // line is stored as the memory stores every line, under its source id.
   const mind = openWorld();
@@ -530,7 +530,8 @@ test("prefetch: a reply carries the prefetch's find in <found> inside <memory>, 
     assert.equal(cacheSegment ?? null, null, 'the tail carries no cache segment');
     const found = /<found>\n([\s\S]*?)\n<\/found>/.exec(text)?.[1] ?? '';
     assert.ok(found.includes('το δάσος και ο σκύλος'), text);
-    assert.ok(text.indexOf('<found>') < text.indexOf('</memory>'), 'inside <memory>');
+    // The owner's decision of 2026-11-11 (cache layout): `<found>` is a root tag after `<chat>`, out of `<memory>`.
+    assert.ok(text.indexOf('<found>') > text.indexOf('</chat>'), 'after <chat>, out of <memory>');
     assert.ok(!text.includes('<retrieved>'));
   }
 });

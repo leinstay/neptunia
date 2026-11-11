@@ -54,7 +54,7 @@ function spatialOf(request: Built): string | null {
   return match ? (match[1] ?? null) : null;
 }
 
-test('the block sits in the tail, right before the chat, and holds her time away', () => {
+test('the block sits in the tail, after the chat and right before the task, and holds her time away', () => {
   // Bug: the block lands in a cached part, so every move between channels rewrites the prompt cache.
   // Slice 7: every request is built on its frame, whose order puts `<spatial_awareness>` before `<chat>` and folds
   // `<now>` into it (the lead's decisions 6 and 7 of the plan), so her time away is the block's last lines.
@@ -62,7 +62,11 @@ test('the block sits in the tail, right before the chat, and holds her time away
   const request = buildRequest(baseInput({ whereabouts: placeIn('general'), offPeriods }));
   const tail = tailOf(request);
   assert.ok(tail.includes('<chat>'), 'the base input has a chat');
-  assert.ok(tail.includes('</spatial_awareness>\n\n<chat>'), tail);
+  // The owner's decision of 2026-11-11 (cache layout): the turn's own blocks follow `<chat>`, this one last before `<task>`.
+  assert.ok(
+    tail.includes('</spatial_awareness>\n\n<task>') && tail.indexOf('</chat>') < tail.indexOf('<spatial_awareness>'),
+    tail
+  );
   assert.ok(!tail.includes('<now>'), tail);
   assert.match(spatialOf(request) ?? '', /30 min/);
   for (const part of cachedOf(request)) assert.ok(!part.includes('<spatial_awareness>'), part);
