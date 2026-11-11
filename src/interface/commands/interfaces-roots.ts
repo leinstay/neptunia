@@ -9,7 +9,7 @@ const word = (args: Readonly<Record<string, unknown>>, key: string): string =>
 
 /** One of the two commands answered over the core's joining; null for any other command. */
 export function rootsCommand(
-  joining: RootJoining | null | undefined,
+  joining: Pick<RootJoining, 'invite' | 'roots'> | null | undefined,
   name: string,
   args: Readonly<Record<string, unknown>>
 ): Promise<JoiningAnswer> | null {

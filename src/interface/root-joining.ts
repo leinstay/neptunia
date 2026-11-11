@@ -1,5 +1,6 @@
 // Joining a root: which roots of an interface the core serves. Only the owner can add the bot to a root, so every root
-// the interface reports is served. Each root it is added to (`joined`) or finds at its start (`present`) arrives as a
+// the interface reports is served. The roots it is in at its start come in its hello, and `noteHello` keeps their
+// names and the moments she joined them for the list. A root it is added to while it runs (`joined`) arrives as a
 // `root.changed` event, and `rootChanged` serves it at once and writes its place. A root it leaves (`left`) stops being
 // served at once, and nothing of her memory of it is removed. `/interfaces <name> invite` asks the interface for its
 // invite link (the `invite.link` read), and `/interfaces <name> list` lists the roots she serves there. Both first refuse
@@ -37,6 +38,8 @@ export type RootJoiningDeps = {
 export type RootJoining = {
   /** What a reported root is now, or null when it is no longer served. */
   rootChanged(event: RootChanged): RootState | null;
+  /** Keeps the names and the moments of joining of the roots a hello named, for the list. */
+  noteHello(iface: string, roots: ReadonlyArray<Named>): void;
   rows(iface: string): Array<RootRow>;
   invite(iface: string): Promise<JoiningAnswer>;
   roots(iface: string): JoiningAnswer;
@@ -169,5 +172,31 @@ export function createRootJoining(deps: RootJoiningDeps): RootJoining {
     return { text: lines.join('\n'), status: 'ok' };
   }
 
-  return { rootChanged, rows, invite, roots };
+  const noteHello = (iface: string, named: ReadonlyArray<Named>): void => {
+    for (const root of named) rememberName(iface, root);
+  };
+
+  return { rootChanged, noteHello, rows, invite, roots };
+}
+
+/**
+ * The roots of the hellos that come before the joining module is built: `seen` keeps them, and `attach` hands them over
+ * and sends every later one straight to `noteHello`.
+ */
+export function helloBuffer(): {
+  seen(iface: string, roots: ReadonlyArray<Named>): void;
+  attach(joining: Pick<RootJoining, 'noteHello'>): void;
+} {
+  const early: Array<[string, ReadonlyArray<Named>]> = [];
+  let target: Pick<RootJoining, 'noteHello'> | null = null;
+  return {
+    seen(iface, roots) {
+      if (target === null) early.push([iface, roots]);
+      else target.noteHello(iface, roots);
+    },
+    attach(joining) {
+      target = joining;
+      for (const [iface, roots] of early.splice(0)) joining.noteHello(iface, roots);
+    },
+  };
 }
