@@ -131,3 +131,179 @@ test('an author of the chat window keeps an entry in <people> when the people sh
     world.close();
   }
 });
+
+// The `#N` numbers of `<recall>` (plan 2026-11-10 tools-and-reads, item 22). An extract repeats a read of an earlier
+// turn, and a number is valid only in the request that issued it, so every number the extract shows must name, in this
+// turn's calls, the line it named when it was read, and a line memory no longer holds is shown with no number. The
+// turn reads the garden `c2` of the service world, Ελένη's line and hers after it; a call `around` a number with no line
+// before or after it reads back exactly the line the number names.
+
+const GARDEN = { eleni: 'ΕΛΕΝΗ-ΣΤΟΝ-ΚΗΠΟ', hers: 'ΔΙΚΗ-ΤΗΣ-ΚΗΠΟΣ' } as const;
+
+/** Her answer that reads the garden by its name. */
+const READ_GARDEN = toolAnswer(THINK, [call('conversation.read', { place: 'κήπος', last: 10 })]);
+
+/** The line of `text` that holds `marker`, '' when none does. */
+const lineWith = (text: string, marker: string): string => text.split('\n').find((line) => line.includes(marker)) ?? '';
+
+/** The `#N` that opens the line of `text` holding `marker`, null when the line opens with none. */
+const numberOf = (text: string, marker: string): string | null => /^#\d+\b/.exec(lineWith(text, marker))?.[0] ?? null;
+
+/** What follows the `<task>` of a request: her answers and the results of her calls in a tool round. */
+const afterTask = (request: string): string => request.split('</task>').slice(1).join('</task>');
+
+/** How many times `marker` stands in `text`. */
+const countOf = (text: string, marker: string): number => text.split(marker).length - 1;
+
+/** Her answer that reads the garden around the number that opens the line of `marker` in `<recall>`, that line alone. */
+const aroundRecalled =
+  (marker: string) =>
+  (request: string): unknown =>
+    toolAnswer(THINK, [
+      call('conversation.read', {
+        place: 'κήπος',
+        around: numberOf(blockOf(request, 'recall'), marker) ?? '#0',
+        before: '0',
+        after: '0',
+      }),
+    ]);
+
+test('a number of a line in <recall> reads that line in a call of the next turn', async () => {
+  // Bug: the extract keeps the numbers the earlier turn's read issued and this turn never registered, so a call with
+  // the number she sees in <recall> is refused as a message not in the chat, while the read said its numbers work in
+  // her calls (turn t-7ff3389c, media.look).
+  const world = serviceWorld();
+  try {
+    const [, second = []] = await replyTurns({
+      world,
+      steps: [
+        { trigger: { id: 'r2', text: 'τι γράφουν στον κήπο;', at: TURN_NOW - 3 * MIN }, answers: [READ_GARDEN, SAY] },
+        {
+          trigger: { id: 'r3', text: 'τι είπε η Ελένη;', at: TURN_NOW - MIN },
+          answers: [aroundRecalled(GARDEN.eleni), SAY],
+        },
+      ],
+    });
+    assert.match(numberOf(blockOf(second[0] ?? '', 'recall'), GARDEN.eleni) ?? '', /^#\d+$/, 'her line has a number');
+    const result = afterTask(second[1] ?? '');
+    assert.equal(countOf(result, GARDEN.eleni), 1, result);
+    assert.equal(countOf(result, GARDEN.hers), 0, 'the call read the line the number names and no other');
+  } finally {
+    world.close();
+  }
+});
+
+test('no number in <recall> is the number of a line of <chat> in the same request', async () => {
+  // Bug: the earlier turn numbered its read on past its own short window, and this turn's window is long enough to
+  // issue the same numbers to its own lines, so one number stands for two lines and a call takes the chat's.
+  const world = serviceWorld();
+  try {
+    const chatter = Array.from({ length: 30 }, (_, i) => ({
+      id: `n${i}`,
+      text: `ΚΟΥΒΕΝΤΑ-${i}`,
+      at: TURN_NOW - 2 * MIN + i * 1000,
+    }));
+    const [, second = []] = await replyTurns({
+      world,
+      steps: [
+        { trigger: { id: 'r2', text: 'τι γράφουν στον κήπο;', at: TURN_NOW - 3 * MIN }, answers: [READ_GARDEN, SAY] },
+        { lines: chatter, trigger: { id: 'r3', text: 'καλά', at: TURN_NOW - MIN }, answers: [SAY] },
+      ],
+    });
+    const request = second[0] ?? '';
+    const recall = blockOf(request, 'recall');
+    assert.ok(recall.includes(GARDEN.eleni), 'the read stands in <recall>');
+    const chatNumbers = new Set(blockOf(request, 'chat').match(/^#\d+\b/gm) ?? []);
+    assert.ok(chatNumbers.size >= 30, 'the window numbers its lines');
+    const shared = (recall.match(/(?<![\p{L}\p{N}_])#\d+\b/gu) ?? []).filter((n) => chatNumbers.has(n));
+    assert.deepEqual(shared, []);
+  } finally {
+    world.close();
+  }
+});
+
+test('a number of a line in <recall> still reads that line after a read of the same turn', async () => {
+  // Bug: a read numbers its lines on from the turn's next free number, and a number <recall> shows but the registry
+  // never counted is issued again to a line of the new read, which takes it over.
+  const world = serviceWorld();
+  try {
+    const [, second = []] = await replyTurns({
+      world,
+      steps: [
+        { trigger: { id: 'r2', text: 'τι γράφουν στον κήπο;', at: TURN_NOW - 3 * MIN }, answers: [READ_GARDEN, SAY] },
+        {
+          trigger: { id: 'r3', text: 'και εδώ;', at: TURN_NOW - MIN },
+          answers: [toolAnswer(THINK, [call('conversation.read', { last: 10 })]), aroundRecalled(GARDEN.eleni), SAY],
+        },
+      ],
+    });
+    assert.match(numberOf(blockOf(second[0] ?? '', 'recall'), GARDEN.eleni) ?? '', /^#\d+$/, 'her line has a number');
+    const before = afterTask(second[1] ?? '');
+    const after = afterTask(second[2] ?? '');
+    assert.equal(countOf(after, GARDEN.eleni) - countOf(before, GARDEN.eleni), 1, after);
+    assert.equal(countOf(after, GARDEN.hers), countOf(before, GARDEN.hers), 'the call read no other line');
+  } finally {
+    world.close();
+  }
+});
+
+test('a line of <recall> whose stored line is gone is shown with no number', async () => {
+  // Bug: the extract prints the number the earlier read gave a line memory no longer holds, and no call of this turn
+  // can resolve it, so the number points at nothing.
+  const world = serviceWorld();
+  try {
+    const retireEleni = (): string => {
+      world.db.prepare('UPDATE sources SET retired_at = ? WHERE id = ?').run(new Date(TURN_NOW).toISOString(), 'g0');
+      return SAY;
+    };
+    const [, second = []] = await replyTurns({
+      world,
+      steps: [
+        {
+          trigger: { id: 'r2', text: 'τι γράφουν στον κήπο;', at: TURN_NOW - 3 * MIN },
+          answers: [READ_GARDEN, retireEleni],
+        },
+        { trigger: { id: 'r3', text: 'καλά', at: TURN_NOW - MIN }, answers: [SAY] },
+      ],
+    });
+    const recall = blockOf(second[0] ?? '', 'recall');
+    assert.ok(recall.includes(GARDEN.hers), 'the lookup stands, her line is live');
+    const line = lineWith(recall, GARDEN.eleni);
+    assert.ok(line !== '', 'the gone line stands in the extract');
+    assert.doesNotMatch(line, /(?<![\p{L}\p{N}_])#\d+\b/u);
+  } finally {
+    world.close();
+  }
+});
+
+test('a number of a read reads its line in a later call of the same turn', async () => {
+  // Guard: the numbers a read issues are registered in the turn's registry, and the call after it resolves them; a
+  // renumbering of <recall> must leave the turn's own reads as they are.
+  const world = serviceWorld();
+  try {
+    const aroundRead = (request: string): unknown =>
+      toolAnswer(THINK, [
+        call('conversation.read', {
+          place: 'κήπος',
+          around: numberOf(afterTask(request), GARDEN.eleni) ?? '#0',
+          before: '0',
+          after: '0',
+        }),
+      ]);
+    const [first = []] = await replyTurns({
+      world,
+      steps: [
+        {
+          trigger: { id: 'r2', text: 'τι γράφουν στον κήπο;', at: TURN_NOW - 3 * MIN },
+          answers: [READ_GARDEN, aroundRead, SAY],
+        },
+      ],
+    });
+    const before = afterTask(first[1] ?? '');
+    const after = afterTask(first[2] ?? '');
+    assert.equal(countOf(after, GARDEN.eleni) - countOf(before, GARDEN.eleni), 1, after);
+    assert.equal(countOf(after, GARDEN.hers), countOf(before, GARDEN.hers), 'the call read no other line');
+  } finally {
+    world.close();
+  }
+});

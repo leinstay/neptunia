@@ -250,5 +250,6 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     // Handle -> channel id, for her `#handle` in a tool argument or a post.
     channelHandles: new Map([...built.channelHandleById].map(([id, handle]) => [handle, id])),
     refs: built.refs,
+    recallRefs: built.recallRefs,
   };
 }

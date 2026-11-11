@@ -13,7 +13,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLookupRing } from '../src/turn/calls.ts';
 import type { Lookup } from '../src/turn/calls.ts';
-import { recallBlockOf } from '../src/turn/request/recall-block.ts';
+import { numberedLookups, recallBlockOf } from '../src/turn/request/recall-block.ts';
+import { fill } from '../src/format.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const NOW = Date.parse('2026-11-07T12:00:00.000Z');
@@ -148,4 +149,84 @@ test('a lookup with one of two sources retired stays in <recall>', () => {
   const both = lookup({ sourceIds: ['src:fake:m50:1:seen', 'src:fake:m51:1:seen'] });
   const text = recallBlockOf([both], { retired: new Set(['src:fake:m50:1:seen']) }, shippedLabels, 'UTC');
   assert.ok(text.includes('ΑΠΟΣΠΑΣΜΑ-ΚΗΠΟΥ'));
+});
+
+/** A label of `tools.tools.conversation` in the shipped labels, '' when absent. */
+const conversationLabel = (key: string): string => {
+  let node: unknown = shippedLabels;
+  for (const step of ['tools', 'tools', 'conversation', key])
+    node = node !== null && typeof node === 'object' ? Reflect.get(node, step) : undefined;
+  return typeof node === 'string' ? node : '';
+};
+const HANDLES_LINE = conversationLabel('handles');
+const TRANSCRIPT = shippedLabels.transcript;
+/** A read of an earlier turn: two lines numbered #23 and #24 in that turn, and the line that says how to read on. */
+const READ = [
+  HANDLES_LINE,
+  '#23 [11:09] @uab: ΓΡΑΜΜΗ-ΕΝΑ',
+  '#24 [11:10] @ucd: ΓΡΑΜΜΗ-ΔΥΟ',
+  fill(conversationLabel('earlier'), { n: '23' }),
+].join('\n');
+const LINES = [
+  { n: 23, id: 'm1', placeId: 'place:garden', message: { sourceId: 'src:fake:m1:1:seen' } },
+  { n: 24, id: 'm2', placeId: 'place:garden', message: { sourceId: 'src:fake:m2:1:seen' } },
+];
+
+test('an extract the journal restored shows no number and no line that offers one', () => {
+  // Bug: a restart refills the ring from the journal without the lines the numbers named, and the extract keeps the
+  // earlier turn's numbers, which name nothing in this turn or another line of its chat.
+  const { lookups, refs } = numberedLookups([lookup({ extract: READ })], {
+    from: 40,
+    live: () => true,
+    labels: shippedLabels,
+  });
+  assert.deepEqual(refs, []);
+  assert.equal(lookups[0]?.extract, '[11:09] @uab: ΓΡΑΜΜΗ-ΕΝΑ\n[11:10] @ucd: ΓΡΑΜΜΗ-ΔΥΟ');
+});
+
+test('a gone first line takes its way to read earlier with it and the next line keeps a fresh number', () => {
+  // Bug: the line that says how to read on keeps a number whose line is gone, so the call it offers is refused.
+  const { lookups, refs } = numberedLookups([lookup({ extract: READ, lines: LINES })], {
+    from: 40,
+    live: (sourceId) => sourceId !== 'src:fake:m1:1:seen',
+    labels: shippedLabels,
+  });
+  assert.deepEqual(
+    refs.map((ref) => [ref.n, ref.id]),
+    [[40, 'm2']]
+  );
+  assert.equal(
+    lookups[0]?.extract,
+    [HANDLES_LINE, '[11:09] @uab: ΓΡΑΜΜΗ-ΕΝΑ', '#40 [11:10] @ucd: ΓΡΑΜΜΗ-ΔΥΟ'].join('\n')
+  );
+});
+
+test('a #5 someone wrote in a quoted line stays while the line takes a fresh number', () => {
+  // Bug: the extract was renumbered by a pattern over its whole text, so a number in someone's words was cut or
+  // turned into another, and the line no longer said what was written.
+  const extract = ['#23 [11:09] @uab: το #5 είναι καλό', '#24 [11:10] @ucd: δες #23 και #5'].join('\n');
+  const { lookups } = numberedLookups([lookup({ extract, lines: LINES })], {
+    from: 40,
+    live: (sourceId) => sourceId !== 'src:fake:m2:1:seen',
+    labels: shippedLabels,
+  });
+  assert.equal(lookups[0]?.extract, '#40 [11:09] @uab: το #5 είναι καλό\n[11:10] @ucd: δες #23 και #5');
+});
+
+test('a reply in <recall> whose parent line is gone reads as a reply to an older line, with no number and no empty slot', () => {
+  // Bug: the reply marker keeps its number for a parent no call of this turn can resolve, or loses only the number and
+  // leaves a marker with an empty slot, so she reads a reply to a line the request does not show.
+  const reply = fill(TRANSCRIPT.replyTo ?? '', { author: '@uab', index: '23', quote: 'ΓΡΑΜΜΗ-ΕΝΑ' });
+  const extract = ['#23 [11:09] @uab: ΓΡΑΜΜΗ-ΕΝΑ', `#24 [11:10] @ucd: ΓΡΑΜΜΗ-ΔΥΟ ${reply} [image]`].join('\n');
+  const { lookups } = numberedLookups([lookup({ extract, lines: LINES })], {
+    from: 40,
+    live: (sourceId) => sourceId !== 'src:fake:m1:1:seen',
+    labels: shippedLabels,
+  });
+  const line = (lookups[0]?.extract ?? '').split('\n').find((one) => one.includes('ΓΡΑΜΜΗ-ΔΥΟ')) ?? '';
+  assert.ok(line.startsWith('#40 [11:10] @ucd: ΓΡΑΜΜΗ-ΔΥΟ '), line);
+  assert.ok(line.includes(TRANSCRIPT.replyToOld ?? '\u0000'), line);
+  assert.ok(line.endsWith(' [image]'), line);
+  assert.doesNotMatch(line.slice('#40'.length), /#\d/u);
+  assert.doesNotMatch(line, /\s{2}|\(\s|\s\)/u);
 });

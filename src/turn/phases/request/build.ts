@@ -19,7 +19,7 @@ import { log } from '../../../log.ts';
 import { exposedSkillNames, placeSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
 import { objOf } from '../../../tools/types.ts';
-import { defaultSkills } from '../../calls.ts';
+import { defaultSkills, searchHandles } from '../../calls.ts';
 import { portAt, portCustomEmoji, portMediaPick, portOperations } from '../../../interface/capabilities.ts';
 import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
@@ -988,6 +988,11 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
       iface: typeof channel.iface === 'string' ? channel.iface : '',
       placeId: String(channel.id),
     });
+  // The numbers `<recall>` gave the lines of her earlier reads, numbered on past the chat's as a read of the turn is.
+  if (request.recallRefs && request.recallRefs.length > 0) {
+    draft.handleFloor = Math.max(0, ...request.idByIndex.keys());
+    searchHandles(draft).take(request.recallRefs);
+  }
   // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).
   const allReads = request.memoryReads ?? [];
   // The people this request shows, so a read of the turn tells only of others (src/turn/in-turn-tools.ts).
