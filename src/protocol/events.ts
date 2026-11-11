@@ -352,6 +352,8 @@ export type RootChanged = {
   at: number;
   id: string;
   root: { id: string; name: string };
+  /** The moment the bot joined the root, milliseconds since the epoch, when the platform tells one. */
+  joinedAt?: number;
   change: 'joined' | 'present' | 'left';
 };
 
