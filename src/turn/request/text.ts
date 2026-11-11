@@ -114,6 +114,24 @@ function linkText(labels: PlaceLabels, link: PlaceChainLink, names: InterfaceNam
     : fill(words.linkPlain ?? '"{name}"', { name });
 }
 
+/** The direct chat's own link: `places.dm` with the interface's word for it and the partner's handle. */
+function dmText(labels: PlaceLabels, place: PlaceWords): string {
+  return fill(labels.places?.dm ?? '{noun} with {name}', {
+    noun: escapeStored(place.names?.dm || place.chain.at(0)?.kind || ''),
+    name: escapeStored(place.partner ?? labels.authors?.unknown ?? ''),
+  });
+}
+
+/**
+ * The place's own link alone, with no parent and no interface: the innermost link as `places.link` (or `places.linkPlain`),
+ * a direct chat as `places.dm`.
+ */
+export function placeOwnText(labels: PlaceLabels, place: PlaceWords): string {
+  const first = place.chain.at(0);
+  if (first === undefined) return '';
+  return first.kind === 'dm' ? dmText(labels, place) : linkText(labels, first, place.names);
+}
+
 /**
  * A place in words (`places.ref`, `#{handle}: {name}`), or without the handle part (`places.refUnhandled`) for a place with
  * no handle. `{name}` is the links innermost first, each as `places.link` with the interface's noun for the kind and
@@ -123,15 +141,9 @@ function linkText(labels: PlaceLabels, link: PlaceChainLink, names: InterfaceNam
 export function placeRefText(labels: PlaceLabels, handle: string | null, place: PlaceWords): string {
   const words = labels.places ?? {};
   const { names } = place;
-  const first = place.chain.at(0);
   const parts =
-    first?.kind === 'dm'
-      ? [
-          fill(words.dm ?? '{noun} with {name}', {
-            noun: escapeStored(names?.dm || first.kind),
-            name: escapeStored(place.partner ?? labels.authors?.unknown ?? ''),
-          }),
-        ]
+    place.chain.at(0)?.kind === 'dm'
+      ? [dmText(labels, place)]
       : place.chain.map((link) => linkText(labels, link, names));
   parts.push(fill(words.iface ?? 'interface "{name}"', { name: quoted(names?.interface || place.iface) }));
   const name = parts.join(words.join ?? ', ');

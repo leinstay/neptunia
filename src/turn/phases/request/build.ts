@@ -97,7 +97,8 @@ function chainOfTurn(
   const chainOf: unknown = Reflect.get(Object(store), 'placeChainOf');
   const stored =
     typeof chainOf === 'function' ? (chainOf as (id: string) => ReadonlyArray<PlaceLink>).call(store, placeId) : [];
-  return stored.length > 0 ? stored : [{ id: placeId, kind: null, name: null }];
+  // A direct chat with no stored chain is still a direct chat: its place is one link with no name.
+  return stored.length > 0 ? stored : [{ id: placeId, kind: directPlace ? 'dm' : null, name: null }];
 }
 
 /** Somebody the interface names by a native id, as the store holds them. */
@@ -463,7 +464,12 @@ function framedInputsOf(
   const lookups = ctx.lookupRing.forPlace(String(channel.id), window, now);
   const reads = ctx.frameReads;
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
-  if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups };
+  if (reads === null || !memoryContext) {
+    // No context reads no fields, but the interface's own names still word the place.
+    const names = reads === null ? undefined : declaredNames(reads, frame.interface);
+    const surroundings = names === undefined ? null : { interfaceText: '', names, root: null, place: null };
+    return { ...NO_FRAMED, lookups, surroundings };
+  }
   const meanwhileReads = readOnce({
     ownMessages: (limit) => reads.ownLines(memoryContext, place.id, limit),
     around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),

@@ -12,7 +12,8 @@ import type { InterfaceNames } from '../../protocol/serve.ts';
 import { lineItemParts } from '../../memory/db/media-store.ts';
 import type { LineMediaItem } from '../../memory/db/media-store.ts';
 import type { Frame } from './frame.ts';
-import { authorText, escapeStored, placeRefText } from './text.ts';
+import { authorText, escapeStored, placeOwnText, placeRefText } from './text.ts';
+import type { PlaceWords } from './text.ts';
 import type { Labels, NameOf } from './types.ts';
 
 /**
@@ -214,33 +215,27 @@ function authorOf(
 }
 
 /**
- * A window's place in words with its `handle`. A one-to-one chat names its partner by handle, `authors.unknown` when the
- * reads name none.
+ * A window's place as words: a one-to-one chat names its partner by handle, `authors.unknown` when the reads name none.
  */
-function windowPlace(
-  window: MeanwhileWindow,
-  labels: Labels,
-  refs: MeanwhileRefs | null,
-  handle: string | null
-): string {
+function windowWords(window: MeanwhileWindow, labels: Labels, refs: MeanwhileRefs | null): PlaceWords {
   const partner = !window.dm
     ? null
     : window.partnerKey && refs !== null
       ? `@${refs.handleOf(window.partnerKey)}`
       : (labels.authors?.unknown ?? '');
-  return placeRefText(labels, handle, {
+  return {
     iface: window.iface,
     chain: window.chain,
     ...(window.names === undefined ? {} : { names: window.names }),
     partner,
-  });
+  };
 }
 
 /** The date of `at` in the frame's timezone, as a window writes it in its head and between two days. */
 const dayOf = (at: number, frame: Frame, labels: Labels): string => formatDate(at, frame.timezone, labels.locale);
 
 /**
- * One window in the labels' words: the place in words with its handle and the date, then each line with its time and
+ * One window in the labels' words: `meanwhile.place` with `{path}` (the place in words with its handle), `{handle}`, `{name}` (the place's own link) and `{date}`, then each line with its time and
  * author. A date line (`transcript.date`, as `<chat>` writes it) stands before a line of another day than the line above.
  */
 export function windowText(
@@ -252,9 +247,12 @@ export function windowText(
   refs: MeanwhileRefs | null = null
 ): string {
   const l = labels.meanwhile ?? {};
+  const words = windowWords(window, labels, refs);
   const first = window.lines.at(0)?.at ?? frame.now;
   const head = fill(l.place ?? '{path}, {date}:', {
-    path: windowPlace(window, labels, refs, handle),
+    path: placeRefText(labels, handle, words),
+    handle: handle === null ? '' : `#${handle}`,
+    name: placeOwnText(labels, words),
     date: dayOf(first, frame, labels),
   });
   const shared = sharedKeys(window);
