@@ -36,6 +36,7 @@ import { graphNodeId } from './graph.ts';
 import { SELF_PERSON } from './ids.ts';
 import { profileAccountsOf } from './meta-person.ts';
 import type { PersonAccount, ProfileAccount } from './meta-person.ts';
+import { IS_WRITTEN_ROW, LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND, LINE_MOMENT } from './source-current.ts';
 import { loadStemmer } from './stems.ts';
 import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './names.ts';
 import type { NameHitRow, NameMatch, NodeRef } from './names.ts';
@@ -406,7 +407,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     return all(
       'rooms',
       `SELECT p.id, (SELECT COUNT(*) FROM sources s WHERE s.place_id = p.id AND s.author_kind = 'self'
-         AND s.retired_at IS NULL AND ${lines.sql}) AS mine
+         AND s.retired_at IS NULL AND ${IS_WRITTEN_ROW} AND ${lines.sql}) AS mine
        FROM places p WHERE p.parent_id = ? AND p.retired_at IS NULL ORDER BY mine DESC, p.id LIMIT ?`,
       [...lines.params, rootId, settings.fanOut.rooms]
     ).map((row) => nodeOf('place', String(row.id)));
@@ -455,7 +456,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     return all(
       'kind',
       `SELECT p.id, (SELECT COUNT(*) FROM sources s WHERE s.place_id = p.id AND s.author_kind = 'self'
-         AND s.retired_at IS NULL AND ${lines.sql}) AS mine
+         AND s.retired_at IS NULL AND ${IS_WRITTEN_ROW} AND ${lines.sql}) AS mine
        FROM places p WHERE p.iface = ? AND p.kind = ? AND p.retired_at IS NULL ORDER BY mine DESC, p.id LIMIT ?`,
       [...lines.params, iface, kind, settings.fanOut.rooms]
     ).map((row) => nodeOf('place', String(row.id)));
@@ -467,7 +468,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     return all(
       'own',
       `SELECT s.place_id, MAX(s.occurred_at) AS last FROM sources s
-       WHERE s.author_kind = 'self' AND s.retired_at IS NULL AND s.place_id IS NOT NULL AND ${lines.sql}
+       WHERE s.author_kind = 'self' AND s.retired_at IS NULL AND ${IS_WRITTEN_ROW} AND s.place_id IS NOT NULL AND ${lines.sql}
        GROUP BY s.place_id ORDER BY last DESC, s.place_id LIMIT ?`,
       [...lines.params, settings.fanOut.rooms]
     ).map((row) => nodeOf('place', String(row.place_id)));
@@ -478,7 +479,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     const where = aud('s');
     return all(
       'line',
-      `SELECT s.id, s.author_account, s.author_kind, s.place_id, s.occurred_at, s.text FROM sources s
+      `SELECT s.id, ${LINE_AUTHOR_ACCOUNT} AS author_account, ${LINE_AUTHOR_KIND} AS author_kind, s.place_id, ${LINE_MOMENT} AS occurred_at, s.text FROM sources s
        WHERE s.id = ? AND s.retired_at IS NULL AND ${where.sql}`,
       [sourceId, ...where.params]
     )[0];
@@ -494,7 +495,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
       out.push(
         ...all(
           'seen',
-          `SELECT s.id, s.author_account, s.author_kind, s.place_id, s.occurred_at FROM sources s
+          `SELECT s.id, ${LINE_AUTHOR_ACCOUNT} AS author_account, ${LINE_AUTHOR_KIND} AS author_kind, s.place_id, ${LINE_MOMENT} AS occurred_at FROM sources s
            WHERE s.id IN (${chunk.map(() => '?').join(', ')}) AND s.retired_at IS NULL AND ${where.sql}`,
           [...chunk, ...where.params]
         )
@@ -1040,7 +1041,7 @@ function placeOf(
   const mine = db
     .prepare(
       `SELECT COUNT(*) AS n, MAX(s.occurred_at) AS last FROM sources s
-       WHERE s.place_id = ? AND s.author_kind = 'self' AND s.retired_at IS NULL AND ${lines.sql}`
+       WHERE s.place_id = ? AND s.author_kind = 'self' AND s.retired_at IS NULL AND ${IS_WRITTEN_ROW} AND ${lines.sql}`
     )
     .get(placeId, ...lines.params);
   const said = raised.candidate ? [] : walker.about(raised.nodeId);
