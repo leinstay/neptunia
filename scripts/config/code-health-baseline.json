@@ -1600,7 +1600,7 @@
         "complexity": 35
       },
       "writeObservation": {
-        "complexity": 28
+        "complexity": 27
       }
     },
     "src/memory/db/rows.ts": {
@@ -1700,7 +1700,7 @@
         "complexity": 26
       },
       "recordMessages": {
-        "complexity": 26
+        "complexity": 25
       },
       "runConversationRead": {
         "complexity": 35
