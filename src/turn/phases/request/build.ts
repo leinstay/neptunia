@@ -506,6 +506,26 @@ function interfaceTextOf(names: { name: string | null; nouns: Record<string, str
 }
 
 /**
+ * The fields of the current place its stats give: the topic, who writes there most as stored mentions (her own account
+ * left out) and how active it is as its code. A place with none of them gives no field.
+ */
+function statsFieldsOf(
+  reads: FrameReads,
+  ctx: Context,
+  placeId: string,
+  turn: { now: number; selfId: string | null }
+): Record<string, string> {
+  const stats = reads.placeStats?.(ctx, placeId, turn.now) ?? null;
+  if (stats === null) return {};
+  const writers = stats.writers.filter((native) => native !== turn.selfId).map((native) => `<@${native}>`);
+  return {
+    ...(stats.topic === null ? {} : { topic: stats.topic }),
+    ...(writers.length === 0 ? {} : { writers: writers.join(', ') }),
+    ...(stats.activity === null ? {} : { activity: stats.activity }),
+  };
+}
+
+/**
  * The inputs of a framed request (a reply or an errand's result): what the graph reader brings to mind, her lookups still
  * anchored here, her lines elsewhere, the place's stored fields and a reader of lines by identity, all under the turn's
  * context. Nothing for any other request, and only the lookups without an open memory. A failed read of the mind is
@@ -525,6 +545,7 @@ function framedInputsOf(
     prefetch: unknown;
     labels: unknown;
     now: number;
+    selfId: string | null;
   }
 ): FramedInputs {
   const { history, now } = turn;
@@ -587,7 +608,7 @@ function framedInputsOf(
       interfaceText: interfaceTextOf(reads.interfaceNames(frame.interface), turn.labels),
       names: declaredNames(reads, frame.interface),
       root: frame.root ? reads.placeFields(memoryContext, frame.root.id) : null,
-      place: reads.placeFields(memoryContext, place.id),
+      place: { ...reads.placeFields(memoryContext, place.id), ...statsFieldsOf(reads, memoryContext, place.id, turn) },
       versions: [
         ...(frame.root ? (reads.placeVersions?.(memoryContext, frame.root.id) ?? []) : []),
         ...(reads.placeVersions?.(memoryContext, place.id) ?? []),
@@ -812,7 +833,7 @@ export function plannerRequest(
     now,
     timezone,
   });
-  const facts = { history: [], trigger: null, prefetch: null, labels: prompts?.labels, now };
+  const facts = { history: [], trigger: null, prefetch: null, labels: prompts?.labels, now, selfId: selfId ?? null };
   const framed = framedInputsOf(ctx, frame, draft, channel, facts);
   return requestOf(
     turnRequestInput({
@@ -981,7 +1002,7 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     timezone: String(config.bot?.timezone ?? 'UTC'),
     placeId,
   });
-  const facts = { history, trigger, prefetch: prefetchResult, labels: prompts?.labels, now };
+  const facts = { history, trigger, prefetch: prefetchResult, labels: prompts?.labels, now, selfId: selfId ?? null };
   const framed = framedInputsOf(ctx, frame, draft, channel, facts);
   const requestInput = turnRequestInput({
     frame,

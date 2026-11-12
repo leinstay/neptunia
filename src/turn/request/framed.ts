@@ -97,9 +97,11 @@ function surroundingsHeld(
   const keepEmoji = keepsEmoji(given.config);
   // The in-jokes are claims, not description versions: a new or retired one shows at once too.
   const injokes = stored?.root?.injokes ?? '';
+  // The topic, the writers and the activity of the place stand in its body, so they key the held text too.
+  const stats = [stored?.place?.topic, stored?.place?.writers, stored?.place?.activity].join('\u0001');
   return base.frozen(
     `surroundings:${place?.id ?? ''}`,
-    `${path}|${versions}|${names}|${handle ?? ''}|${partner ?? ''}|${keepEmoji}|${injokes}`,
+    `${path}|${versions}|${names}|${handle ?? ''}|${partner ?? ''}|${keepEmoji}|${injokes}|${stats}`,
     () =>
       surroundingsOf(
         frame,

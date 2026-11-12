@@ -24,6 +24,8 @@ import type { PlaceChainLink } from './place-tree.ts';
 import type { InterfaceNames } from '../../protocol/serve.ts';
 import { allowedAudience, audienceWhere, scopeWhere, whereFor } from './scope.ts';
 import { placeAudience } from './graph.ts';
+import { placeStatsOf } from './place-stats.ts';
+import type { PlaceStats } from './place-stats.ts';
 import { MEMORY_LIMITS } from '../text-limits.ts';
 import { affinityBand } from '../affinity.ts';
 import { sortRanked } from '../ranking.ts';
@@ -466,6 +468,9 @@ export function placeFieldsOf(db: Db, ctx: Context, placeId: string): Record<str
   return fields;
 }
 
+export { placeStatsOf };
+export type { PlaceStats };
+
 /** One thing people taught her: its text and the person id of the teacher, null when the row names nobody. */
 export type Lesson = { text: string; teacher: string | null };
 
@@ -660,6 +665,8 @@ export type FrameReads = {
   lessons?(ctx: Context): Array<Lesson>;
   /** The people she feels most strongly about under the context, each with the name that declares them (strongestAttitudesOf). */
   attitudes?(ctx: Context, limit: number): { list: Array<StrongAttitude>; names: Record<string, string> };
+  /** A place's topic, writers, activity and last message under the context, null when it reads none (place-stats.ts#placeStatsOf). */
+  placeStats?(ctx: Context, placeId: string, now: number): PlaceStats | null;
   /** The description versions `placeFields` renders (placeVersionsOf). */
   placeVersions?(ctx: Context, placeId: string): Array<string>;
   interfaceNames(iface: string): { name: string | null; nouns: Record<string, string>; dm?: string | null };
@@ -744,6 +751,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
           ),
         };
       }),
+    placeStats: (ctx, placeId, now) => over(null, (db) => placeStatsOf(db, ctx, placeId, now)),
     placeVersions: (ctx, placeId) => over([], (db) => placeVersionsOf(db, ctx, placeId)),
     interfaceNames: (iface) => over({ name: null, nouns: {}, dm: null }, (db) => interfaceNamesOf(db, iface)),
     interfaceIds: () => over([], (db) => interfaceIdsOf(db)),

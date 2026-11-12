@@ -44,6 +44,7 @@ import {
 } from './fixtures/memory-db/mind-world.ts';
 import type { Audience, World } from './fixtures/memory-db/mind-world.ts';
 import { EDIT_DELAY_MS, minute, storeRevision } from './fixtures/memory-db/edited-line.ts';
+import { storeTally } from './fixtures/memory-db/place-tally.ts';
 
 /** The owner's values of 2026-11-06 for `context.memory`. */
 const SETTINGS: MindSettings = {
@@ -1097,4 +1098,71 @@ test('an entry of a person with a described avatar needs more of the budget to s
   const avatar = smallestWhole(true);
   assert.ok(Number.isFinite(without), 'the entry is whole at some budget');
   assert.ok(avatar > without, `${avatar} > ${without}`);
+});
+
+// A place's topic, activity and last message (spec 2026-11-12 what-the-frame-dropped, slice 4). A place entry carries
+//   topic: string | null; activity: 'live' | 'slow' | 'dead' | null; lastMessageAt: number | null
+// filled from `placeStatsOf` under the walker's context, and the text the budget weighs for the entry holds the topic.
+const HOUR_MS = 60 * 60_000;
+
+test('the entry of a room carries the topic, the activity at the clock of the read and the last message of its tally', () => {
+  // Bug: the entry is built from the description rows alone, so a topic and a tally the store holds never reach it.
+  const w = world();
+  const last = NOW - HOUR_MS;
+  storeTally(
+    w,
+    w.room,
+    { iface: 'discord', topic: 'ΘΕΜΑ-ΛΕΣΧΗΣ', days: { '2026-11-02': 25 }, lastMessageAt: last, writers: { x1: 25 } },
+    NOW
+  );
+  const trigger = strangerSays(w, 'src:m1', 'γεια', { trigger: true });
+  const entry = placeIn(mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW), w.room);
+  assert.ok(entry, 'the room has an entry');
+  assert.deepEqual([entry.topic, entry.activity, entry.lastMessageAt], ['ΘΕΜΑ-ΛΕΣΧΗΣ', 'live', last]);
+});
+
+test('the entry of a room nothing was counted in has no topic, no activity and no last message', () => {
+  // Bug: the entry reads `dead` for a room with no tally, or an empty string for a topic nobody set.
+  const w = world();
+  const trigger = strangerSays(w, 'src:m1', 'γεια', { trigger: true });
+  const entry = placeIn(mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW), w.room);
+  assert.ok(entry, 'the room has an entry');
+  assert.deepEqual([entry.topic, entry.activity, entry.lastMessageAt], [null, null, null]);
+});
+
+test('the activity of an entry follows the clock the read is given', () => {
+  // Bug: the entry takes the activity at the machine's clock, so a replay at a fixed moment reads another word.
+  const w = world();
+  storeTally(
+    w,
+    w.room,
+    { iface: 'discord', days: { '2026-11-02': 25 }, lastMessageAt: NOW - HOUR_MS, writers: { x1: 25 } },
+    NOW
+  );
+  const trigger = strangerSays(w, 'src:m1', 'γεια', { trigger: true });
+  const later = NOW + 30 * 24 * HOUR_MS;
+  const entry = placeIn(mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, later), w.room);
+  assert.ok(entry, 'the room has an entry');
+  assert.equal(entry.activity, 'dead');
+});
+
+test('an entry of a place with a topic needs more of the budget to stay above its name than the same place without', () => {
+  // Bug: the text the budget weighs leaves the topic out, so a long topic pushes the entry past its share on the request
+  // without a drop to its name. Two worlds that differ in the topic alone, a room raised by her own line there.
+  const smallestAboveName = (topic: string | null): number => {
+    const w = world();
+    const other = addRoom(w.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'ζωγραφική' });
+    storeTally(w, other, { iface: 'discord', topic, purpose: 'ΣΚΟΠΟΣ-ΖΩΓΡΑΦΙΚΗΣ', writers: { x1: 1 } }, NOW);
+    addLine(w.db, { id: 'src:her:1', iface: 'discord', place: other, author: 'self', text: 'καλησπέρα' });
+    for (let budgetTokens = 20; budgetTokens <= 6000; budgetTokens += 20) {
+      const mind = mindOf(w.db, GROUP, seedsOf([]), { ...SETTINGS, budgetTokens }, NOW);
+      const detail = placeIn(mind, other)?.detail;
+      if (detail !== undefined && detail !== 'name') return budgetTokens;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const without = smallestAboveName(null);
+  const topical = smallestAboveName(`ΘΕΜΑ-ΖΩΓΡΑΦΙΚΗΣ `.repeat(14).trim());
+  assert.ok(Number.isFinite(without), 'the entry stands above its name at some budget');
+  assert.ok(topical > without, `${topical} > ${without}`);
 });

@@ -120,7 +120,7 @@ export type Labels = {
 export type MemoryLabels = LabelGroup & { readonly origin?: LabelGroup };
 
 /** `labels.surroundings`: the field lines of `<surroundings>` (src/turn/request/surroundings.ts) and each field's name. */
-export type SurroundingsLabels = LabelGroup & { readonly fields?: LabelGroup };
+export type SurroundingsLabels = LabelGroup & { readonly fields?: LabelGroup; readonly activity?: LabelGroup };
 
 /** `labels.spatial`: the lines of `<spatial_awareness>` (src/turn/request/spatial.ts) and the label of each place kind. */
 export type SpatialLabels = {

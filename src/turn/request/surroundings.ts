@@ -9,7 +9,7 @@ import type { Frame, FramePlace } from './frame.ts';
 import { block, escapeStored, placeRefText } from './text.ts';
 import type { Labels } from './types.ts';
 
-/** The stored fields of a place by name: `purpose`, `tone`, `topics`, and a root's `patterns`, `starters` and the rest. */
+/** The fields of a place by name: `purpose`, `tone`, `topics`, the `topic`, `writers` (stored mentions) and `activity` (its code) of the current place, and a root's `patterns`, `starters` and the rest. */
 export type PlaceFields = Readonly<Record<string, string>>;
 
 /** How a stored field names a `<@id>` mention: the handle (with `@`) of the person it names. */
@@ -29,12 +29,15 @@ function fieldLines(fields: PlaceFields | null, labels: Labels, refs: FieldRefs 
   const template = typeof l.field === 'string' ? l.field : '{field}: {value}';
   return order
     .filter((key) => typeof fields[key] === 'string' && fields[key].trim() !== '')
-    .map((key) =>
-      fill(template, {
+    .map((key) => {
+      const value = fields[key].trim();
+      // The activity arrives as its code (`live`, `slow`, `dead`) and reads as the word of its label.
+      const worded = key === 'activity' ? (l.activity?.[value] ?? value) : value;
+      return fill(template, {
         field: names[key] ?? key,
-        value: escapeStored(String(mentionsNamed(fields[key].trim(), mention))),
-      })
-    );
+        value: escapeStored(String(mentionsNamed(worded, mention))),
+      });
+    });
 }
 
 /**
