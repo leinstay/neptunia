@@ -1,4 +1,4 @@
-// Tests for what src/memory/db/frame-reads.ts reads of a place for the current place of `<surroundings>` and the entries
+// Tests for what src/memory/db/place-stats.ts reads of a place for the current place of `<surroundings>` and the entries
 // of `<places>` (spec 2026-11-12-what-the-frame-dropped, slice 4). Signatures:
 //   placeStatsOf(db: Db, ctx: Context, placeId: string, now: number): PlaceStats | null
 //   type PlaceStats = { topic: string | null; writers: Array<string>; activity: 'live' | 'slow' | 'dead' | null;
@@ -10,7 +10,7 @@
 // Synthetic SQLite rows over the mind-world.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { placeStatsOf } from '../src/memory/db/frame-reads.ts';
+import { placeStatsOf } from '../src/memory/db/place-stats.ts';
 import { dmContext, groupContext } from '../src/memory/db/scope.ts';
 import { addDm, addPerson, addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';

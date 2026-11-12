@@ -93,7 +93,8 @@ test('the handle of a writer is the handle of that person in <people>', async ()
     const request = run.requests[0]?.[0] ?? '';
     const people = /<people>\n?([\s\S]*?)\n?<\/people>/.exec(blockOf(request, 'memory'))?.[1] ?? '';
     const entry = people.split(/\n\s*\n/).find((one) => one.includes('Ελένη')) ?? '';
-    const heading = entry.split('\n')[0]?.match(HANDLE)?.[0] ?? '';
+    const first = entry.split('\n')[0] ?? '';
+    const heading = first.match(HANDLE)?.[0] ?? '';
     const place = /<place>\n?([\s\S]*?)\n?<\/place>/.exec(blockOf(request, 'surroundings'))?.[1] ?? '';
     assert.equal(heading, handleIn(ELENI));
     assert.ok(lineOf(place, shipped('fields', 'writers')).includes(heading), place);
