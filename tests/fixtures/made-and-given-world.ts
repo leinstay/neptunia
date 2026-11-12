@@ -91,8 +91,8 @@ export type MadeWorld = {
   calls: (place: string, spec: { turn: string | null; skill: string; at: number; count: number }) => Promise<void>;
 };
 
-/** A memory database with the people, chats and lines above, and the journal a turn writes through. */
-export function madeWorld(): MadeWorld {
+/** A memory database with the people, chats and lines above, and the journal a turn writes through. `affinity` sets the number a person's row holds. */
+export function madeWorld(options: { affinity?: Readonly<Record<string, number>> } = {}): MadeWorld {
   const dataDir = tempDir('nep-made-and-given-');
   const seed = openMemoryDb(path.join(dataDir, 'memory.db'));
   const db = dbOf(seed);
@@ -104,6 +104,8 @@ export function madeWorld(): MadeWorld {
   ];
   for (const [person, native] of people)
     addAccount(db, { id: `discord:${native}`, iface: 'discord', authority: 'discord/global', native, person });
+  for (const [person, value] of Object.entries(options.affinity ?? {}))
+    db.prepare('UPDATE people SET affinity = ? WHERE id = ?').run(value, person);
   addDmPlace(db, { id: DM, iface: 'discord', authority: 'discord/global', account: 'discord:n-boris', person: BORIS });
   // The DM is stored under its chat's key, so a call that names the chat finds the DM place.
   db.prepare('UPDATE places SET native_key = ? WHERE id = ?').run(`channel:${CHAT[DM]}`, DM);
