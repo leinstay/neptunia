@@ -653,3 +653,39 @@ test('what found leaves unused is lent to none of the stable shares, whatever fo
       assert.equal(given[tag], empty[tag], `${tag} with found wanting ${found}`);
   }
 });
+
+// Names across scripts (spec 2026-11-12-names-across-scripts, slice 1): the key of src/memory/db/script-key.ts is one more
+// way of matchName, and a hit of a phrase of two or three words drops the hit of a single word inside it.
+/** The world with a stemmer that knows "сада" is "сад", a room named "сад" and a room named "3d-сад", both under Ágora. */
+function gardenWorld(): { w: World & { room: string }; plain: string; digit: string } {
+  const opened = openWorld();
+  worlds.push(opened);
+  seedStemmer(opened.db, ['а'], [['сад', 3]]);
+  noteInterface(opened, 'discord', [{ id: 'g1', name: 'Ágora' }], DISCORD_NAMES);
+  const room = addRoom(opened.db, { iface: 'discord', native: 'c1', root: AGORA, name: 'λέσχη' });
+  addPerson(opened.db, {
+    id: 'person:discord:x1',
+    accounts: [{ id: 'discord:x1', iface: 'discord', native: 'x1', names: ['Xénios'] }],
+  });
+  const plain = addRoom(opened.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'сад' });
+  const digit = addRoom(opened.db, { iface: 'discord', native: 'c3', root: AGORA, name: '3d-сад' });
+  return { w: { ...opened, room }, plain, digit };
+}
+
+const placeIn = (mind: Mind, place: string) => mind.places.find((entry) => entry.nodeId === placeNode(place));
+
+test('a line naming two words of a place in another script raises that place sure and not the place named by the second word alone', () => {
+  // Bug: the first word matches nothing, the second word alone stems to the other place, and the place asked about is lost.
+  const { w, plain, digit } = gardenWorld();
+  const trigger = strangerSays(w, 'src:g1', 'покажи 3д сада', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.deepEqual([placeIn(mind, digit)?.candidate, placeIn(mind, plain)], [false, undefined]);
+});
+
+test('a line naming the second word alone still raises the place named by it', () => {
+  // Bug: the longer-phrase rule drops every single-word hit, even when no longer phrase of the line matched.
+  const { w, plain } = gardenWorld();
+  const trigger = strangerSays(w, 'src:g1', 'покажи сада', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.equal(placeIn(mind, plain)?.candidate, false);
+});

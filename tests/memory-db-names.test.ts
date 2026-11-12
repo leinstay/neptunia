@@ -11,10 +11,11 @@
 // is verified, since a name raises a person. A hit is read under `ctx` as every scoped row is (scope.ts#audienceWhere).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { namesOf, placesNamed, rebuildNames } from '../src/memory/db/names.ts';
+import { matchName, namesOf, placesNamed, rebuildNames } from '../src/memory/db/names.ts';
 import type { NameHit } from '../src/memory/db/names.ts';
 import { applyPersonLinkWrite } from '../src/memory/db/person-links.ts';
-import { dmContext, groupContext } from '../src/memory/db/scope.ts';
+import { dmContext, groupAudienceId, groupContext } from '../src/memory/db/scope.ts';
+import { fillStems } from '../src/memory/db/stems.ts';
 import {
   addClaim,
   addDm,
@@ -207,4 +208,73 @@ test("a place named in a tool's argument is found whatever its graph node's id s
   const room = addRoom(w.db, { iface: 'discord', native: 'c1', root: rootId('discord', 'g1'), name: 'Θάλασσα' });
   rekeyNode(w.db, placeNode(room), 'node-91c2');
   assert.deepEqual(placesNamed(w.db, GROUP, 'Θάλασσα'), [{ id: room, name: 'Θάλασσα' }]);
+});
+
+// Names across scripts (spec 2026-11-12-names-across-scripts, slice 1). `NameMatch` has the member `'script'`: the third way
+// of `matchName`, after the stems and before the trigrams, by the key of src/memory/db/script-key.ts computed over the stems.
+// The key is filled for the rows that exist by `fillStems` (stems.ts), as the stems are.
+const SCRIPT_ENDINGS = ['а'];
+const SCRIPT_STEMS: Array<[string, number]> = [
+  ['сад', 3],
+  ['vokzal', 3],
+];
+
+/** A world whose stemmer knows "сада" is "сад", with one room named `name`. */
+function roomWorld(name: string): { w: World; room: string } {
+  const w = openWorld();
+  worlds.push(w);
+  seedStemmer(w.db, SCRIPT_ENDINGS, SCRIPT_STEMS);
+  noteInterface(w, 'discord', [{ id: 'g1', name: 'Ágora' }]);
+  return { w, room: addRoom(w.db, { iface: 'discord', native: 'c1', root: rootId('discord', 'g1'), name }) };
+}
+
+test('a place stored with a Latin prefix and a hyphen is found by the same words with the prefix in Cyrillic and an inflected second word, marked as a script match', () => {
+  // Bug: the name written in the other script matches nothing, and the second word alone finds another place.
+  const { w, room } = roomWorld('3d-сад');
+  const found = hitsFor(namesOf(w.db, GROUP, ['3д сада']), placeNode(room));
+  assert.deepEqual(
+    found.map((hit) => hit.match),
+    ['script']
+  );
+});
+
+test('a place stored in Cyrillic is found by its Latin spelling', () => {
+  // Bug: the key is applied one way only, so a Latin spelling of a Cyrillic name finds nothing.
+  const { w, room } = roomWorld('Вокзал кино');
+  const found = hitsFor(namesOf(w.db, GROUP, ['vokzal kino']), placeNode(room));
+  assert.deepEqual(
+    found.map((hit) => hit.match),
+    ['script']
+  );
+});
+
+test('a word that shares letters by the table with an unrelated name of another length matches nothing', () => {
+  // Bug: the key is compared as a prefix or by trigrams, so "vokzalnyy" finds the place named "вокзал".
+  const { w, room } = roomWorld('вокзал');
+  assert.deepEqual(hitsFor(namesOf(w.db, GROUP, ['vokzalnyy']), placeNode(room)), []);
+});
+
+test('a place written before the key existed is found by script once the fill ran', () => {
+  // Bug: the key is written for new rows only, so every name stored before it stays unreachable by script.
+  const { w, room } = roomWorld('3d-сад');
+  // A row as a database from before the change holds it: no key written.
+  w.db.prepare('DELETE FROM names WHERE source_id = ?').run(room);
+  w.db
+    .prepare(
+      `INSERT INTO names (label, normalized, stem, kind, node_id, audience_id, source_table, source_id)
+       VALUES (?, ?, ?, 'place', ?, ?, 'places', ?)`
+    )
+    .run('3d-сад', '3d сад', '3d сад', placeNode(room), groupAudienceId('discord'), room);
+  assert.deepEqual(hitsFor(namesOf(w.db, GROUP, ['3д сада']), placeNode(room)), [], 'before the fill');
+  fillStems(w.db);
+  assert.deepEqual(
+    hitsFor(namesOf(w.db, GROUP, ['3д сада']), placeNode(room)).map((hit) => hit.match),
+    ['script']
+  );
+});
+
+test('a place of an interface the context may not read gives no script hit', () => {
+  // Bug: the key lookup skips the audience filter and a place of another interface is found by its other-script name.
+  const { w } = roomWorld('3d-сад');
+  assert.deepEqual(matchName(w.db, groupContext('telegram'), '3д сада'), []);
 });
