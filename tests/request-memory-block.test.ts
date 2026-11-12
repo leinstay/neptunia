@@ -22,6 +22,7 @@ import {
   personEntry,
   placeEntry,
 } from './fixtures/mind-entries.ts';
+import type { Labels, MemoryLabels } from '../src/turn/request/types.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart', relation: 'ΣΧΕΣΗ-ΕΛΕΝΗΣ' });
@@ -373,4 +374,209 @@ test('the band word follows the score at each edge the bands name', () => {
     for (const other of bands.filter((one) => one !== band))
       assert.equal(line.includes(bandWord(other)), false, `${score} is not ${other}: ${line}`);
   }
+});
+
+// A person's interests, avatar, usual name and messages seen (spec 2026-11-12 what-the-frame-dropped, slice 2). A person
+// entry of the mind carries
+//   interests: Array<string>; usualName: string | null; messagesSeen: number | null
+// and an entry at the detail `whole` prints, after the manner of speech and before the claims, in this order:
+//   `memory.interests` (`{value}`, the interests joined by `; `), then `memory.avatar` (`{value}`, the description) or
+//   `memory.avatarDefault` for the platform's default avatar, of the account on the frame's interface, else of the first
+//   account with one, then `memory.usualName` (`{value}`) when the name differs from the heading's after folding, then
+//   `memory.messagesSeen` (`{count}`, rounded down by the step `memory.ownLines` uses).
+// The labels below are the test's own, each opening with a marker the test finds a line by.
+const SEEN_MEMORY: MemoryLabels = Object.assign({}, shippedLabels.memory, {
+  interests: 'INT {value}',
+  avatar: 'AVA {value}',
+  avatarDefault: 'AVD',
+  usualName: 'USU {value}',
+  messagesSeen: 'SEEN {count}',
+});
+const SEEN_LABELS: Labels = { ...shippedLabels, memory: SEEN_MEMORY };
+const MARKERS = ['INT ', 'AVA ', 'AVD', 'USU ', 'SEEN '];
+
+const renderSeen = (person: PersonEntry, author: FrameParty | null = null): string =>
+  section(
+    memoryBlockOf(mindOfEntries({ people: [person] }), frameOf(frameInput({ author })), SEEN_LABELS, nameOf).text,
+    'people'
+  );
+const seenLines = (person: PersonEntry, author: FrameParty | null = null): Array<string> =>
+  renderSeen(person, author).trim().split('\n');
+const lineOf = (lines: Array<string>, marker: string): string => lines.find((line) => line.startsWith(marker)) ?? '';
+const markersIn = (lines: Array<string>): Array<string> =>
+  MARKERS.filter((marker) => lines.some((line) => line.startsWith(marker)));
+
+const described = (text: string): string => JSON.stringify({ hash: 'h1', text, describedAt: null });
+const DEFAULT_AVATAR = JSON.stringify({ hash: null, default: true });
+const accountOf = (iface: string, native: string, avatar: string | null): PersonEntry['profileAccounts'][number] => ({
+  id: `${iface}:${native}`,
+  iface,
+  platformId: native,
+  handle: null,
+  displayName: null,
+  avatar,
+  profileText: null,
+});
+const KNOWN = personEntry('222', 'Νίκος', {
+  relation: 'ΣΧΕΣΗ',
+  character: 'ΧΑΡΑΚΤΗΡΑΣ',
+  style: 'ΤΡΟΠΟΣ',
+  claims: [{ id: 'claim:1', kind: 'fact', text: 'ΙΣΧΥΡΙΣΜΟΣ' }],
+  interests: ['ΜΟΥΣΙΚΗ', 'ΣΚΑΚΙ'],
+  usualName: 'Νικολάκης',
+  messagesSeen: 120,
+  profileAccounts: [accountOf('fake', '222', described('ΓΑΤΑ'))],
+});
+
+test('a full entry holds the interests, avatar, usual name and count after the manner of speech and before the claims', () => {
+  // Bug: the lines are pushed after the claims or before the character, so the order of the entry differs from the spec.
+  const lines = seenLines(KNOWN);
+  const order = ['ΤΡΟΠΟΣ', 'INT ', 'AVA ', 'USU ', 'SEEN ', 'ΙΣΧΥΡΙΣΜΟΣ'].map((part) =>
+    lines.findIndex((line) => line.includes(part))
+  );
+  assert.ok(
+    order.every((at) => at >= 0),
+    `every part stands in the entry: ${order.join(',')}`
+  );
+  assert.deepEqual(
+    order,
+    [...order].sort((a, b) => a - b),
+    lines.join(' | ')
+  );
+  const [interests, avatar, usual, seen] = ['INT ', 'AVA ', 'USU ', 'SEEN '].map((marker) => lineOf(lines, marker));
+  assert.equal(interests, 'INT ΜΟΥΣΙΚΗ; ΣΚΑΚΙ');
+  assert.ok(avatar.includes('ΓΑΤΑ') && usual.includes('Νικολάκης') && seen.includes('100'), lines.join(' | '));
+});
+
+test('an entry cut to compact holds none of the four lines', () => {
+  // Bug: the lines are printed for every detail, so the entry the budget cut down is as long as a whole one.
+  assert.deepEqual(markersIn(seenLines({ ...KNOWN, detail: 'compact' })), []);
+});
+
+test('an entry cut to its name holds none of the four lines', () => {
+  // Bug: the lines are printed for every detail, so the entry the budget cut down to a name is as long as a whole one.
+  assert.deepEqual(markersIn(seenLines({ ...KNOWN, detail: 'name' })), []);
+});
+
+const FOND_NOW = { score: 31.6, reason: 'ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ', moves: [] };
+
+test('the person she answers cut to a name holds her attitude and none of the four lines', () => {
+  // Bug: the new lines are bound to the attitude condition, so a short entry of the counterpart grows with them.
+  const { interests, usualName, messagesSeen } = KNOWN;
+  const cut = { ...ELENI, detail: 'name' as const, attitude: FOND_NOW, interests, usualName, messagesSeen };
+  const text = renderSeen(cut, AS_ELENI);
+  assert.ok(text.includes('ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ'), text);
+  assert.deepEqual(markersIn(text.trim().split('\n')), []);
+});
+
+test('a person the reader kept, cut to compact, holds her attitude and none of the four lines', () => {
+  // Bug: the entries that keep the attitude at a low detail also keep the lines of slice 2.
+  const kept = { ...KNOWN, detail: 'compact' as const, keep: true, attitude: FOND_NOW };
+  const lines = seenLines(kept);
+  assert.ok(lines.join('\n').includes('ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ'), lines.join(' | '));
+  assert.deepEqual(markersIn(lines), []);
+});
+
+test('a person with no interest, no avatar, no usual name and no count has none of the lines', () => {
+  // Bug: an empty value prints its label alone, a line that says nothing and costs tokens.
+  const bare = personEntry('222', 'Νίκος', { profileAccounts: [accountOf('fake', '222', null)] });
+  assert.deepEqual(markersIn(seenLines(bare)), []);
+});
+
+test('the usual name that equals the heading after folding gives no line, another name gives one', () => {
+  // Bug: the entry repeats its own name as the one she is called most, or compares without folding case and accents.
+  const same = markersIn(seenLines({ ...KNOWN, usualName: 'ΝΙΚΟΣ' }));
+  assert.equal(same.includes('USU '), false);
+  const accented = markersIn(seenLines({ ...personEntry('333', 'Ελένη'), usualName: 'ΕΛΕΝΗ' }));
+  assert.equal(accented.includes('USU '), false);
+  assert.ok(markersIn(seenLines({ ...KNOWN, usualName: 'Νικολάκης' })).includes('USU '));
+});
+
+test('the usual name reads as a name shown: its emoji are dropped', () => {
+  // Bug: the name goes into the entry raw, so an emoji of the platform name shows where every other name loses it.
+  const lines = seenLines({ ...KNOWN, usualName: 'Νικολάκης 🎉' });
+  assert.equal(lineOf(lines, 'USU '), 'USU Νικολάκης');
+});
+
+test('the default avatar of the platform reads through memory.avatarDefault and no description', () => {
+  // Bug: the stored JSON of the default avatar is printed as a description, or the default is dropped.
+  const person = { ...KNOWN, profileAccounts: [accountOf('fake', '222', DEFAULT_AVATAR)] };
+  const lines = seenLines(person);
+  assert.deepEqual(markersIn(lines), ['INT ', 'AVD', 'USU ', 'SEEN ']);
+  assert.equal(lineOf(lines, 'AVD'), 'AVD');
+});
+
+test('a described avatar reads through memory.avatar with its text, never the stored JSON', () => {
+  // Bug: the entry prints the stored field as it is, hash and all.
+  const lines = seenLines(KNOWN);
+  assert.equal(lineOf(lines, 'AVA '), 'AVA ΓΑΤΑ');
+  assert.equal(markersIn(lines).includes('AVD'), false);
+  assert.doesNotMatch(lines.join('\n'), /h1|describedAt/);
+});
+
+test('the avatar of the account on the frame interface wins over the avatar of another account listed before it', () => {
+  // Bug: the first account of the person with an avatar is taken, so a person who wears another face elsewhere is
+  // described by it in the place where she sees the face of this one.
+  const person = {
+    ...KNOWN,
+    profileAccounts: [accountOf('other', '555', described('ΑΛΛΟ')), accountOf('fake', '222', described('ΕΔΩ'))],
+  };
+  assert.equal(lineOf(seenLines(person), 'AVA '), 'AVA ΕΔΩ');
+});
+
+test('with no avatar on the account in this place the first account that has one is described', () => {
+  // Bug: the entry has no avatar line for a person whose face is stored on another account only.
+  const person = {
+    ...KNOWN,
+    profileAccounts: [
+      accountOf('fake', '222', null),
+      accountOf('other', '555', described('ΠΡΩΤΟ')),
+      accountOf('third', '777', described('ΔΕΥΤΕΡΟ')),
+    ],
+  };
+  assert.equal(lineOf(seenLines(person), 'AVA '), 'AVA ΠΡΩΤΟ');
+});
+
+test('an avatar field that is not a stored avatar gives no line and shows no raw text', () => {
+  // Bug: a hand-edited or old field is printed as it is.
+  const person = { ...KNOWN, profileAccounts: [accountOf('fake', '222', 'not json at all')] };
+  const text = renderSeen(person);
+  assert.equal(
+    markersIn(text.split('\n')).some((marker) => marker.startsWith('AV')),
+    false
+  );
+  assert.doesNotMatch(text, /not json at all/);
+});
+
+test('the count is the same across two renders while the person wrote fewer messages than a step, and changes at it', () => {
+  // Bug: the exact count is printed, so the entry changes bytes with every message and breaks the cached request.
+  const at = (messagesSeen: number): string => renderSeen({ ...KNOWN, messagesSeen });
+  assert.equal(at(120), at(199));
+  assert.notEqual(at(199), at(200));
+  assert.equal(lineOf(at(120).split('\n'), 'SEEN '), 'SEEN 100');
+});
+
+test('an interest that mentions a person reads with the handle the rest of the request uses', () => {
+  // Bug: the interests skip the mention path of the stored texts, so a bare `<@id>` with a platform id shows in <people>.
+  const person = { ...KNOWN, detail: 'whole' as const, interests: ['ΜΟΥΣΙΚΗ ΜΕ <@777>'] };
+  const items = memoryItemsOf(
+    mindOfEntries({ people: [person] }),
+    frameOf(frameInput({ author: null })),
+    { ...SEEN_LABELS, authors: WITH_AUTHORS.authors },
+    nameOf,
+    null,
+    new Set(),
+    () => null,
+    MENTIONS
+  );
+  const all = items.map((item) => item.text).join('\n');
+  assert.ok(all.includes('ΜΟΥΣΙΚΗ ΜΕ @u7ele'), all);
+  assert.doesNotMatch(all, /<@|&lt;@|\b777\b/);
+});
+
+test('two renders with nothing changed between them hold the same bytes', () => {
+  // Bug: a line takes the clock, a Map order or a random value, so the held part of the request changes by itself.
+  const first = renderSeen(KNOWN);
+  const second = renderSeen({ ...KNOWN, interests: [...KNOWN.interests] });
+  assert.equal(first, second);
 });

@@ -42,7 +42,7 @@ import {
   rootId,
   seedStemmer,
 } from './fixtures/memory-db/mind-world.ts';
-import type { World } from './fixtures/memory-db/mind-world.ts';
+import type { Audience, World } from './fixtures/memory-db/mind-world.ts';
 import { EDIT_DELAY_MS, minute, storeRevision } from './fixtures/memory-db/edited-line.ts';
 
 /** The owner's values of 2026-11-06 for `context.memory`. */
@@ -56,6 +56,7 @@ const SETTINGS: MindSettings = {
   candidatesMax: 3,
   commonWordEntries: 3,
   attitudeMoves: 2,
+  interests: 5,
   fanOut: { accounts: 10, memberships: 20, rooms: 10, members: 8, replies: 5, about: 30 },
 };
 
@@ -885,4 +886,215 @@ test('an edit of her line is not a second line of hers when the busiest rooms ar
     [w.room, busy].filter((id) => placeIds(mind).includes(placeNode(id))),
     [busy]
   );
+});
+
+// A person's interests, usual name and messages seen (spec 2026-11-12 what-the-frame-dropped, slice 2). A person entry
+// carries
+//   interests: Array<string>      the interest claims the context may read, best rank first, at most `settings.interests`
+//   usualName: string | null      the name the person is addressed by most, by the decayed score of `rankAddressed`
+//   messagesSeen: number | null   `people.message_count`
+const DAYS_MS = 86_400_000;
+const daysBefore = (days: number): string => new Date(NOW - days * DAYS_MS).toISOString();
+
+/** A person who writes in the room, with no interest, name or count stored yet. */
+function plainPerson(w: World): string {
+  const person = 'person:discord:a1';
+  addPerson(w.db, {
+    id: person,
+    accounts: [{ id: 'discord:a1', iface: 'discord', native: 'a1', names: ['Αρίστη'] }],
+  });
+  return person;
+}
+
+/** An interest claim about `person`: stored as a fact under `audience`, then marked as an interest with its weight and day. */
+function addInterest(
+  w: World,
+  person: string,
+  id: string,
+  text: string,
+  weight: number,
+  seen: string,
+  audience: Audience = { group: 'discord' }
+): void {
+  addClaim(w.db, { id, person, kind: 'fact', text, audience });
+  w.db.prepare("UPDATE claims SET kind = 'interest', weight = ?, last_seen_at = ? WHERE id = ?").run(weight, seen, id);
+}
+
+const interestsOf = (w: World & { room: string }, person: string, settings = SETTINGS, ctx = GROUP): Array<string> =>
+  counterpartIn(w, ctx, person, w.room, settings).interests;
+
+test('the interests of a person read best ranked first, the heavier above the lighter when seen on the same day', () => {
+  // Bug: the entry lists interests in the order they were stored, so the one she has seen most often comes last.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:i1', 'ΣΚΑΚΙ', 1, daysBefore(2));
+  addInterest(w, person, 'claim:i2', 'ΜΟΥΣΙΚΗ', 9, daysBefore(2));
+  addInterest(w, person, 'claim:i3', 'ΒΟΤΑΝΙΚΗ', 3, daysBefore(2));
+  assert.deepEqual(interestsOf(w, person), ['ΜΟΥΣΙΚΗ', 'ΒΟΤΑΝΙΚΗ', 'ΣΚΑΚΙ']);
+});
+
+test('an old heavy interest ranks below a fresh light one, the rank decays with the half-life of interests', () => {
+  // Bug: the order uses the weight alone, so an interest she has not heard of in two years stays on top.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:old', 'ΠΑΛΙΟ', 4, daysBefore(720));
+  addInterest(w, person, 'claim:new', 'ΝΕΟ', 1, daysBefore(1));
+  assert.deepEqual(interestsOf(w, person), ['ΝΕΟ', 'ΠΑΛΙΟ']);
+});
+
+test('the interests are cut to the setting and the setting at 0 shows none', () => {
+  // Bug: the cut is hard-coded, or a setting of 0 is read as "no limit" and every stored interest comes through.
+  const w = world();
+  const person = plainPerson(w);
+  ['α', 'β', 'γ', 'δ'].forEach((text, at) =>
+    addInterest(w, person, `claim:i${at}`, `ΘΕΜΑ-${text}`, 8 - at, daysBefore(2))
+  );
+  assert.deepEqual(interestsOf(w, person, { ...SETTINGS, interests: 2 }), ['ΘΕΜΑ-α', 'ΘΕΜΑ-β']);
+  assert.deepEqual(interestsOf(w, person, { ...SETTINGS, interests: 0 }), []);
+});
+
+test('a person with no interest claim has an empty list', () => {
+  // Bug: the list is null or holds a placeholder for a person nobody described.
+  const w = world();
+  const person = plainPerson(w);
+  assert.deepEqual(interestsOf(w, person), []);
+});
+
+test('a retired interest does not show', () => {
+  // Bug: the reader takes every interest row, so what the persona let go of keeps coming back.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:live', 'ΖΩΝΤΑΝΟ', 2, daysBefore(2));
+  addInterest(w, person, 'claim:gone', 'ΣΒΗΣΜΕΝΟ', 9, daysBefore(2));
+  w.db.prepare('UPDATE claims SET retired_at = ? WHERE id = ?').run(AT, 'claim:gone');
+  assert.deepEqual(interestsOf(w, person), ['ΖΩΝΤΑΝΟ']);
+});
+
+test('an interest stored under a direct chat the context may not read is not in the list, and is in that chat', () => {
+  // Bug: interests are read without the audience, so what a person told her in private shows in a room.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:open', 'ΔΗΜΟΣΙΟ', 2, daysBefore(2));
+  const dm = addDm(w.db, { iface: 'discord', native: 'a1', person, account: 'discord:a1' });
+  addInterest(w, person, 'claim:secret', 'ΙΔΙΩΤΙΚΟ', 9, daysBefore(2), { dm, iface: 'discord', person });
+  assert.deepEqual(interestsOf(w, person), ['ΔΗΜΟΣΙΟ']);
+  const inDm = counterpartIn(w, dmContext(person, 'discord', dm), person, dm, SETTINGS).interests;
+  assert.deepEqual(inDm, ['ΙΔΙΩΤΙΚΟ', 'ΔΗΜΟΣΙΟ']);
+});
+
+test('an interest that stands in the list is not also one of the claims of the entry', () => {
+  // Bug: the claims of the entry still hold the interest rows, so a listed interest is printed twice in `whole`.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:i1', 'ΜΟΥΣΙΚΗ', 3, daysBefore(2));
+  const entry = counterpartIn(w, GROUP, person, w.room, SETTINGS);
+  assert.deepEqual(entry.interests, ['ΜΟΥΣΙΚΗ']);
+  assert.deepEqual(
+    entry.claims.filter((claim) => claim.text === 'ΜΟΥΣΙΚΗ'),
+    []
+  );
+});
+
+test('an interest claim the list cut off stays among the claims of the entry', () => {
+  // Bug: every claim of kind interest is dropped from the claims, so one the cut left out of the list is nowhere.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:top', 'ΜΟΥΣΙΚΗ', 9, daysBefore(2));
+  addInterest(w, person, 'claim:cut', 'ΣΚΑΚΙ', 1, daysBefore(2));
+  const entry = counterpartIn(w, GROUP, person, w.room, { ...SETTINGS, interests: 1 });
+  assert.deepEqual(entry.interests, ['ΜΟΥΣΙΚΗ']);
+  assert.deepEqual(
+    entry.claims.map((claim) => claim.text),
+    ['ΣΚΑΚΙ']
+  );
+});
+
+test('the setting of interests is read from context.memory, 0 included', () => {
+  // Bug: a setting of 0 falls back to the shipped value, so the owner cannot switch the lines off.
+  assert.equal(mindSettingsOf(configOf({ interests: 3 })).interests, 3);
+  assert.equal(mindSettingsOf(configOf({ interests: 0 })).interests, 0);
+});
+
+/** Stores the names `person`'s membership of `place` is addressed by, each with its score and last day. */
+function addressedIn(w: World, place: string, names: Record<string, { score: number; days: number }>): void {
+  const id = addMembership(w.db, { account: 'discord:a1', place });
+  const stored = Object.fromEntries(
+    Object.entries(names).map(([name, one]) => [name, { score: one.score, last: daysBefore(one.days) }])
+  );
+  w.db.prepare('UPDATE memberships SET addressed_as = ? WHERE id = ?').run(JSON.stringify(stored), id);
+}
+
+test('the usual name is the one addressed most by the decayed score, over every place of the person', () => {
+  // Bug: the reader takes the highest stored score, so a name used heavily a year ago wins over the one she is called now.
+  const w = world();
+  const person = plainPerson(w);
+  const other = addRoom(w.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'αυλή' });
+  addressedIn(w, w.room, { Αρίκος: { score: 6, days: 300 } });
+  addressedIn(w, other, { Άρης: { score: 2, days: 1 } });
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).usualName, 'Άρης');
+});
+
+test('the usual name is null for a person nobody addressed, with a membership or without one', () => {
+  // Bug: the reader falls back to the display name or to an empty string, and the entry prints a line for nobody.
+  const w = world();
+  const person = plainPerson(w);
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).usualName, null);
+  addMembership(w.db, { account: 'discord:a1', place: w.room });
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).usualName, null);
+});
+
+test('the messages seen are the stored count of the person, and null where none is stored', () => {
+  // Bug: the count is taken from the lines of the window, or a person with no stored count reads 0.
+  const w = world();
+  const person = plainPerson(w);
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).messagesSeen, null);
+  w.db.prepare('UPDATE people SET message_count = ? WHERE id = ?').run(37, person);
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).messagesSeen, 37);
+});
+
+test('an entry of a person with interests needs more of the budget to stay whole than the same person without them', () => {
+  // Bug: the budget weighs the old render, so the new line pushes the entry past its share without a drop to `compact`.
+  // Two worlds that differ in the interest claims alone, under the same settings; the smallest budget that keeps the
+  // entry whole is found through the public `detail`.
+  const smallestWhole = (withInterests: boolean): number => {
+    const w = world();
+    const person = plainPerson(w);
+    if (withInterests)
+      for (let at = 0; at < 5; at += 1)
+        addInterest(w, person, `claim:i${at}`, `ΘΕΜΑ-${at} `.repeat(12).trim(), 9 - at, daysBefore(2));
+    const trigger = message('src:a1', 'τι λες εσύ;', { placeId: w.room, trigger: true, mentions: ['discord:a1'] });
+    for (let budgetTokens = 20; budgetTokens <= 4000; budgetTokens += 10) {
+      const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), { ...SETTINGS, budgetTokens }, NOW);
+      if (personIn(mind, person)?.detail === 'whole') return budgetTokens;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const without = smallestWhole(false);
+  const interested = smallestWhole(true);
+  assert.ok(Number.isFinite(without), 'the entry is whole at some budget');
+  assert.ok(interested > without, `${interested} > ${without}`);
+});
+
+test('an entry of a person with a described avatar needs more of the budget to stay whole than the same person without', () => {
+  // Bug: the text the budget weighs leaves the avatar description out, so a long description pushes the entry past its
+  // share on the request without a drop to `compact`. Two worlds that differ in the avatar of the account alone.
+  const description = 'ΠΕΡΙΓΡΑΦΗ-ΕΙΚΟΝΑΣ '.repeat(10).trim();
+  const smallestWhole = (withAvatar: boolean): number => {
+    const w = world();
+    const person = plainPerson(w);
+    if (withAvatar) {
+      const stored = JSON.stringify({ hash: 'h1', text: description, describedAt: null });
+      w.db.prepare('UPDATE accounts SET avatar = ? WHERE id = ?').run(stored, 'discord:a1');
+    }
+    const trigger = message('src:a1', 'τι λες εσύ;', { placeId: w.room, trigger: true, mentions: ['discord:a1'] });
+    for (let budgetTokens = 20; budgetTokens <= 4000; budgetTokens += 10) {
+      const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), { ...SETTINGS, budgetTokens }, NOW);
+      if (personIn(mind, person)?.detail === 'whole') return budgetTokens;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const without = smallestWhole(false);
+  const avatar = smallestWhole(true);
+  assert.ok(Number.isFinite(without), 'the entry is whole at some budget');
+  assert.ok(avatar > without, `${avatar} > ${without}`);
 });

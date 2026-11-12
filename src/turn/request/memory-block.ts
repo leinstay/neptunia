@@ -10,7 +10,9 @@
 import { fill, formatDate, formatDay, mentionsNamed } from '../../format.ts';
 import { factStateWords } from '../../memory/retrieval-input.ts';
 import { affinityBand } from '../../memory/affinity.ts';
+import { foldText } from '../../memory/recent.ts';
 import { EVIDENCE_ORDER, ownLinesShown } from '../../memory/db/mind-read.ts';
+import { storedAvatarOf } from '../../memory/db/person-fields.ts';
 import type {
   ClaimEntry,
   EpisodeEntry,
@@ -230,6 +232,44 @@ function attitudeLines(w: Words, attitude: PersonEntry['attitude']): Array<strin
   return [head, moves.length > 0 ? fill(w.l.attitudeMoves ?? '', { moves: moves.join('; ') }) : ''];
 }
 
+/** The avatar of the account on the frame's interface, else of the first account with a readable one. */
+function avatarOf(w: Words, person: PersonEntry): ReturnType<typeof storedAvatarOf> {
+  const read = (account: PersonEntry['profileAccounts'][number]): ReturnType<typeof storedAvatarOf> =>
+    storedAvatarOf(account.avatar);
+  const here = person.profileAccounts.filter((one) => one.iface === w.frame.interface).map(read);
+  return [...here, ...person.profileAccounts.map(read)].find((one) => one !== null) ?? null;
+}
+
+/** The avatar line of an entry: the description, the platform's default one, or none. */
+function avatarLine(w: Words, person: PersonEntry): string {
+  const avatar = avatarOf(w, person);
+  if (avatar === null) return '';
+  if ('default' in avatar) return w.l.avatarDefault ?? '';
+  return valueLine(w, w.l.avatar, avatar.text);
+}
+
+/** The usual name of a person when it differs from the heading's name after folding, as `memory.usualName`. */
+function usualNameLine(w: Words, person: PersonEntry): string {
+  if (person.usualName === null) return '';
+  const shown = shownName(person.usualName, w.keepEmoji);
+  if (shown === '' || foldText(shown) === foldText(personName(w, person))) return '';
+  return valueLine(w, w.l.usualName, shown);
+}
+
+/** The lines a whole entry holds beyond the descriptions: interests, avatar, usual name and messages seen. */
+function seenLines(w: Words, person: PersonEntry): Array<string> {
+  const interests = person.interests.map((one) => storedText(w, one.trim())).filter(Boolean);
+  const count = ownLinesShown(person.messagesSeen ?? 0);
+  return [
+    interests.length > 0 && typeof w.l.interests === 'string'
+      ? fill(w.l.interests, { value: interests.join('; ') })
+      : '',
+    avatarLine(w, person),
+    usualNameLine(w, person),
+    count > 0 && typeof w.l.messagesSeen === 'string' ? fill(w.l.messagesSeen, { count }) : '',
+  ];
+}
+
 function personText(w: Words, person: PersonEntry, counterpart: boolean, live: string | null): string {
   const origin = counterpart ? (w.l.counterpart ?? '') : (w.origin[person.evidence] ?? '');
   const lines = [heading(w, personName(w, person), origin, person.candidate)];
@@ -244,6 +284,7 @@ function personText(w: Words, person: PersonEntry, counterpart: boolean, live: s
   if (detail === 'whole') {
     lines.push(valueLine(w, w.l.character, person.character));
     lines.push(valueLine(w, w.l.style, person.style));
+    lines.push(...seenLines(w, person));
     for (const claim of claimsById(person))
       if (claim.kind !== 'alias') lines.push(fill(w.l.claim ?? '- {text}', { text: storedText(w, claim.text) }));
   }
