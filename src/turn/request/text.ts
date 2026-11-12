@@ -127,6 +127,12 @@ export function shownName(name: string, keepEmoji = false): string {
   return shown === '' ? name.trim() : shown;
 }
 
+/** `context.names.emoji` of a live config, read at the moment of use: whether names keep their emoji. */
+export function keepsEmoji(config: unknown): boolean {
+  // The live config as the request builders read it: any object, a missing or broken level counting as unset.
+  return (config as { context?: { names?: { emoji?: unknown } } } | null | undefined)?.context?.names?.emoji === true;
+}
+
 /** A name as a quoted value: escaped as any stored text, and a `"` written `\"`, so the name closes where it ends. */
 const quoted = (name: string): string => escapeStored(name).replace(/"/g, '\\"');
 
@@ -138,7 +144,9 @@ function linkText(
   keepEmoji: boolean | undefined
 ): string {
   const words = labels.places ?? {};
-  const name = quoted(link.name === null ? (labels.spatial?.unnamed ?? '') : shownName(link.name, keepEmoji));
+  const name = quoted(
+    typeof link.name === 'string' ? shownName(link.name, keepEmoji) : (labels.spatial?.unnamed ?? '')
+  );
   const noun = link.kind === null ? undefined : names?.nouns[link.kind];
   return noun
     ? fill(words.link ?? '{noun} "{name}"', { noun: escapeStored(noun), name })

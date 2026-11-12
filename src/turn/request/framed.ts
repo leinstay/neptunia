@@ -18,6 +18,7 @@ import { renderSenses } from './senses.ts';
 import type { SensesOf } from './senses.ts';
 import { selfreflectionFramedOf } from './selfreflection.ts';
 import { surroundingsOf } from './surroundings.ts';
+import { keepsEmoji } from './text.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
 import { seenOf } from './tail.ts';
 import type { Task } from './task.ts';
@@ -90,9 +91,10 @@ function surroundingsHeld(
   const { place } = frame;
   const path = place === null ? '' : place.path.join('/');
   const names = JSON.stringify(stored?.names ?? null);
+  const keepEmoji = keepsEmoji(given.config);
   return base.frozen(
     `surroundings:${place?.id ?? ''}`,
-    `${path}|${versions}|${names}|${handle ?? ''}|${partner ?? ''}`,
+    `${path}|${versions}|${names}|${handle ?? ''}|${partner ?? ''}|${keepEmoji}`,
     () =>
       surroundingsOf(
         frame,
@@ -103,7 +105,8 @@ function surroundingsHeld(
         partner ?? partnerHandleOf(frame, base),
         { mention: storedMention(given, base) },
         stored?.names,
-        handle
+        handle,
+        keepEmoji
       )
   );
 }

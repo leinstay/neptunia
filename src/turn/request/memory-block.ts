@@ -21,7 +21,7 @@ import type {
 } from '../../memory/db/mind-read.ts';
 import type { PersonAccount } from '../../memory/db/meta-person.ts';
 import type { Frame } from './frame.ts';
-import { block, escapeStored, placeRefText } from './text.ts';
+import { block, escapeStored, placeRefText, shownName } from './text.ts';
 import type { PlaceWords } from './text.ts';
 import type { LabelGroup, Labels, MemoryLabels, MemoryRead, NameOf, SurroundingsLabels } from './types.ts';
 
@@ -95,15 +95,19 @@ type Words = {
   unknown: string;
   /** `labels.surroundings`: the field line and the word of each field, shared with `<place>` of `<surroundings>`. */
   surroundings: SurroundingsLabels;
+  /** `context.names.emoji`: the names of people and places keep their emoji when true. */
+  keepEmoji: boolean;
 };
 
 /** The refs of a caller that gives none: a mention reads `authors.unknown`, a place the name `nameOf` gives it. */
-function plainRefs(labels: Labels, nameOf: NameOf): EntryRefs {
+function plainRefs(labels: Labels, nameOf: NameOf, keepEmoji: boolean): EntryRefs {
   const unknown = labels.authors?.unknown ?? '';
   return {
     mention: () => unknown,
     place: (id, fallback) =>
-      fallback ? placeRefText(labels, null, fallback) : escapeStored(nameOf(id) ?? labels.spatial?.unnamed ?? ''),
+      fallback
+        ? placeRefText(labels, null, { ...fallback, keepEmoji })
+        : escapeStored(shownName(nameOf(id) ?? labels.spatial?.unnamed ?? '', keepEmoji)),
     partnerOf: () => unknown,
   };
 }
@@ -149,7 +153,7 @@ const readsOf = (entry: { sources: ReadonlyArray<{ table: string; id: string }> 
  */
 function accountLine(w: Words, iface: string, id: string, names: ReadonlyArray<string>): string {
   const here = iface === w.frame.interface;
-  const shown = [...new Set(names.map((name) => name.trim()).filter(Boolean))];
+  const shown = [...new Set(names.map((name) => shownName(name, w.keepEmoji)).filter(Boolean))];
   const key = shown.length > 0 ? (here ? 'accountHere' : 'account') : here ? 'accountUnnamedHere' : 'accountUnnamed';
   const template = w.l[key];
   if (typeof template !== 'string') return '';
@@ -179,7 +183,7 @@ function aliasLine(w: Words, person: PersonEntry): string {
     ...new Set(
       claimsById(person)
         .filter((claim) => claim.kind === 'alias')
-        .map((claim) => claim.text.trim())
+        .map((claim) => shownName(claim.text, w.keepEmoji))
     ),
   ];
   const shown = aliases.filter(Boolean).map((alias) => storedText(w, alias));
@@ -189,7 +193,7 @@ function aliasLine(w: Words, person: PersonEntry): string {
 /** The name an entry of a person opens with: the person's, else the first name of an account, else `authors.unknown`. */
 function personName(w: Words, person: PersonEntry): string {
   const named = person.profileAccounts.map((one) => one.displayName).find((name) => Boolean(name));
-  return person.name ?? named ?? w.unknown;
+  return shownName(person.name ?? named ?? w.unknown, w.keepEmoji);
 }
 
 function personText(w: Words, person: PersonEntry, counterpart: boolean, live: string | null): string {
@@ -214,9 +218,18 @@ function personText(w: Words, person: PersonEntry, counterpart: boolean, live: s
 function wordsOfEntry(w: Words, place: PlaceEntry): PlaceWords {
   const iface = place.path[0] ?? '';
   if (place.kind === 'dm')
-    return { iface, chain: [{ id: place.placeId, kind: 'dm', name: null }], partner: w.refs.partnerOf(place.placeId) };
+    return {
+      iface,
+      chain: [{ id: place.placeId, kind: 'dm', name: null }],
+      partner: w.refs.partnerOf(place.placeId),
+      keepEmoji: w.keepEmoji,
+    };
   const names = place.path.slice(1).reverse();
-  return { iface, chain: names.map((name, at) => ({ id: `${place.placeId}:${at}`, kind: null, name })) };
+  return {
+    iface,
+    chain: names.map((name, at) => ({ id: `${place.placeId}:${at}`, kind: null, name })),
+    keepEmoji: w.keepEmoji,
+  };
 }
 
 /** One field of a place as `<place>` of `<surroundings>` prints it: `surroundings.field` with the word of `field` and `value`. */
@@ -247,7 +260,7 @@ function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string
 }
 
 const interfaceText = (w: Words, entry: InterfaceEntry): string =>
-  heading(w, entry.name ?? entry.iface, w.origin[entry.evidence] ?? '', entry.candidate);
+  heading(w, shownName(entry.name ?? entry.iface, w.keepEmoji), w.origin[entry.evidence] ?? '', entry.candidate);
 
 const loreText = (w: Words, claim: ClaimEntry): string =>
   fill(w.l.lore ?? '{subject}: {text}', { subject: w.refs.place(claim.subjectId), text: storedText(w, claim.text) });
@@ -310,7 +323,7 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
     first.push({
       subtag: 'people',
       text: [
-        heading(w, them.name ?? w.unknown, w.l.counterpart ?? '', false),
+        heading(w, shownName(them.name ?? w.unknown, w.keepEmoji), w.l.counterpart ?? '', false),
         them.nativeId ? accountLine(w, w.frame.interface, them.nativeId, [them.name ?? '']) : '',
         now ? valueLine(w, w.l.live, now) : '',
       ]
@@ -343,13 +356,14 @@ export type ChatStranger = {
 export function strangerItemsOf(
   strangers: ReadonlyArray<ChatStranger>,
   frame: FrameView,
-  labels: Labels
+  labels: Labels,
+  keepEmoji = false
 ): Array<MemoryItem> {
-  const w = wordsOf(labels, frame, () => null, null);
+  const w = wordsOf(labels, frame, () => null, null, keepEmoji);
   return strangers.map((one) => ({
     subtag: 'people',
     text: [
-      heading(w, one.name ?? w.unknown, w.origin[one.evidence] ?? '', false),
+      heading(w, shownName(one.name ?? w.unknown, w.keepEmoji), w.origin[one.evidence] ?? '', false),
       accountLine(w, frame.interface, one.native, [one.name ?? '']),
     ]
       .filter(Boolean)
@@ -380,7 +394,7 @@ export function factItemsOf(
 ): Array<MemoryItem> {
   const template = labels.memory?.fact;
   if (typeof template !== 'string' || template === '') return [];
-  const w = wordsOf(labels, { interface: '', timezone: 'UTC', counterpart: null }, () => null, refs);
+  const w = wordsOf(labels, { interface: '', timezone: 'UTC', counterpart: null }, () => null, refs, false);
   return facts
     .filter((fact) => fact.text.trim() !== '')
     .map((fact) => ({
@@ -397,7 +411,7 @@ export function factItemsOf(
 }
 
 /** The words of an entry under `labels`, its refs those of the request or, without them, plainRefs. */
-function wordsOf(labels: Labels, frame: FrameView, nameOf: NameOf, refs: EntryRefs | null): Words {
+function wordsOf(labels: Labels, frame: FrameView, nameOf: NameOf, refs: EntryRefs | null, keepEmoji: boolean): Words {
   const l = labels.memory ?? {};
   return {
     l,
@@ -405,9 +419,10 @@ function wordsOf(labels: Labels, frame: FrameView, nameOf: NameOf, refs: EntryRe
     frame,
     nameOf,
     locale: labels.locale,
-    refs: refs ?? plainRefs(labels, nameOf),
+    refs: refs ?? plainRefs(labels, nameOf, keepEmoji),
     unknown: labels.authors?.unknown ?? '',
     surroundings: labels.surroundings ?? {},
+    keepEmoji,
   };
 }
 
@@ -424,11 +439,12 @@ export function memoryItemsOf(
   live: LiveOf | null = null,
   selfreflectionIds: ReadonlySet<string> = new Set(),
   chatIdOf: ChatIdOf = () => null,
-  refs: EntryRefs | null = null
+  refs: EntryRefs | null = null,
+  keepEmoji = false
 ): Array<MemoryItem> {
   const mine = (place: PlaceEntry): boolean =>
     selfreflectionIds.has(place.kind === 'dm' ? '' : (chatIdOf(place.placeId) ?? ''));
-  const w = wordsOf(labels, frame, nameOf, refs);
+  const w = wordsOf(labels, frame, nameOf, refs, keepEmoji);
   const plain = (subtag: MemorySubtag, text: string, reads: Array<MemoryRead>): MemoryItem => ({
     subtag,
     text,
@@ -524,9 +540,10 @@ export function memoryBlockOf(
   frame: Frame,
   labels: Labels,
   nameOf: NameOf,
-  live: LiveOf | null = null
+  live: LiveOf | null = null,
+  keepEmoji = false
 ): { text: string; reads: Array<MemoryRead> } {
-  const items = memoryItemsOf(mind, frame, labels, nameOf, live);
+  const items = memoryItemsOf(mind, frame, labels, nameOf, live, undefined, undefined, null, keepEmoji);
   return { text: renderMemory(items, mind.leftOut, labels), reads: items.flatMap((one) => [...one.reads]) };
 }
 
@@ -542,9 +559,10 @@ export function peopleMemoryOf(
   labels: Labels,
   nameOf: NameOf,
   refs: EntryRefs | null = null,
-  handleOfKey: ((key: string) => string) | null = null
+  handleOfKey: ((key: string) => string) | null = null,
+  keepEmoji = false
 ): string {
-  const w = wordsOf(labels, view, nameOf, refs);
+  const w = wordsOf(labels, view, nameOf, refs, keepEmoji);
   const handled = (person: PersonEntry, text: string): string =>
     handleOfKey === null ? text : `@${handleOfKey(person.personId)} ${text}`;
   const items: Array<MemoryItem> = people.map((person) => ({
@@ -594,7 +612,8 @@ export function subjectMemoryOf(
   labels: Labels,
   nameOf: NameOf,
   changes: ReadonlyArray<AttitudeChange> | null = null,
-  mirrors: MirrorMarks = NO_MIRROR_MARKS
+  mirrors: MirrorMarks = NO_MIRROR_MARKS,
+  keepEmoji = false
 ): string {
   const l = labels.memory ?? {};
   const read = l.origin?.read ?? '';
@@ -610,9 +629,11 @@ export function subjectMemoryOf(
     nameOf,
     null,
     mirrors.selfreflectionIds,
-    mirrors.chatIdOf
+    mirrors.chatIdOf,
+    null,
+    keepEmoji
   );
-  const w = { ...wordsOf(labels, frame, nameOf, null), origin };
+  const w = { ...wordsOf(labels, frame, nameOf, null, keepEmoji), origin };
   const lines = (changes ?? []).map((change) => changeLine(w, change));
   const withChanges = items.map((item) =>
     item.subtag === 'people' && lines.length > 0 ? { ...item, text: [item.text, ...lines].join('\n') } : item

@@ -49,7 +49,8 @@ function placeBody(
   partner: string | null,
   refs: FieldRefs | null,
   names: InterfaceNames | undefined,
-  handle: string | null
+  handle: string | null,
+  keepEmoji: boolean
 ): string {
   const at = frame.chain.findIndex((link) => link.id === place.id);
   const chain = at < 0 ? [{ id: place.id, kind: place.kind, name: place.name }] : frame.chain.slice(at);
@@ -58,6 +59,7 @@ function placeBody(
     chain,
     ...(names === undefined ? {} : { names }),
     partner,
+    keepEmoji,
   });
   return [ref, ...fieldLines(fields, labels, refs)].join('\n');
 }
@@ -78,14 +80,15 @@ export function surroundingsOf(
   partner: string | null = null,
   refs: FieldRefs | null = null,
   names?: InterfaceNames,
-  handle: string | null = null
+  handle: string | null = null,
+  keepEmoji = false
 ): string {
   if (frame.place === null) return '';
   const root = frame.root !== null && frame.root.id !== frame.place.id ? frame.root : null;
   return [
     block('interface', interfaceText.trim()),
-    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels, null, refs, names, null)),
-    block('place', placeBody(frame, frame.place, place, labels, partner, refs, names, handle)),
+    root === null ? '' : block('root', placeBody(frame, root, rootPlace, labels, null, refs, names, null, keepEmoji)),
+    block('place', placeBody(frame, frame.place, place, labels, partner, refs, names, handle, keepEmoji)),
   ]
     .filter(Boolean)
     .join('\n');
