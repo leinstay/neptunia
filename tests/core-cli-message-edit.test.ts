@@ -318,3 +318,60 @@ test("an edit of the owner's line by its #N is refused as not hers and writes no
 test("an edit of the owner's line by its message id is refused as not hers and writes nothing", async () => {
   assert.deepEqual(await ownerLineRefused((rows) => idOfFirst(rows, 'seen')), [true, false]);
 });
+
+/** The numbered lines of the `<chat>` block of a request: number to the text after the time. */
+function chatOf(request: string): Map<number, string> {
+  const lines = new Map<number, string>();
+  for (const [, number, text] of request.matchAll(/#(\d+) \[\d\d:\d\d\] (.*?)(?=\\n)/g))
+    lines.set(Number(number), text ?? '');
+  return lines;
+}
+
+/**
+ * Her line (`#2`) said in one session, a fresh client, two more lines (`one`, her `second` reply, which holds `reply`),
+ * `change that` with her edit of `#2`, then `and now?`: the request of the last turn.
+ */
+async function editedLaterRequest(reply: string): Promise<string> {
+  let after = '';
+  await withCli(
+    [
+      toolAnswer(`<msg>${FIRST}</msg>`),
+      toolAnswer(`<msg>${reply}</msg>`),
+      toolAnswer('', [call('message.edit', { message: '#2', text: SECOND })]),
+      toolAnswer('<skip/>'),
+      toolAnswer('<msg>fine</msg>'),
+    ],
+    async (rig) => {
+      await rig.cli.turn('hello there');
+      await settled(rig.rows, (found) => found.some((row) => row.kind === 'said'));
+      await rig.restart();
+      await rig.cli.turn('one');
+      await rig.cli.turn('change that');
+      await settled(rig.rows, (found) => historyOf(found).length >= 2);
+      await rig.cli.turn('and now?');
+      after = rig.requests[4] ?? '';
+    }
+  );
+  return after;
+}
+
+// Production, 2026-11-12: her edit of a line from an earlier session of the client arrived with the moment of the edit,
+// so the line came back at the end of `<chat>` as the owner's, under a new number, and every line after its old place
+// moved up by one.
+test('her edit of a line said before the client restarted leaves it at its number, hers, with the new text and its mark', async () => {
+  const chat = chatOf(await editedLaterRequest('second line'));
+  assert.deepEqual([...chat.keys()], [1, 2, 3, 4, 5, 6], 'no line is added and none skips a number');
+  assert.match(chat.get(2) ?? '', new RegExp(`^Fake \\(you\\).*: ${SECOND} ${EDITED.replace(/[()]/g, '\\$&')}$`));
+  assert.ok(chat.get(3)?.endsWith(': one'), chat.get(3));
+  assert.ok(chat.get(4)?.includes('second line'), chat.get(4));
+  assert.ok(chat.get(5)?.endsWith(': change that'), chat.get(5));
+  assert.ok(chat.get(6)?.endsWith(': and now?'), chat.get(6));
+});
+
+// Production, 2026-11-12: the number she wrote in a reply named the line by its identity, and the line had moved.
+test('a number she wrote before the edit names the same line after it', async () => {
+  const chat = chatOf(await editedLaterRequest('second line about #2'));
+  const reply = [...chat.values()].find((text) => text.includes('second line about'));
+  assert.equal(/about #(\d+)/.exec(reply ?? '')?.[1], '2', 'her reply still reads #2');
+  assert.ok(chat.get(2)?.includes(SECOND), `#2 is the edited line, not ${chat.get(2)}`);
+});
