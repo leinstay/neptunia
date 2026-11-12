@@ -251,6 +251,42 @@ test('recordMessages: the newest revision stands with the edited stamp, a delete
   );
 });
 
+// Bug: the record reader takes a line as hers only when its row is `said`, and an edit is stored `seen`, so her edited
+// line reads as someone else's (named by the author's account) on every interface whose reads go through the record.
+test('recordMessages: an edit of her own line, stored seen at the moment of the line, still reads as hers', async () => {
+  const at = new Date(NOW - 5 * HOUR).toISOString();
+  const record = fakeRecord([
+    { ...line('mine', 5, 'before'), kind: 'said', by: undefined, occurredAt: at },
+    { ...line('mine', 5, 'after', { revision: 2, occurredAt: at }), by: 'bot-account' },
+  ]);
+  const found = await recordMessages(record, 'g1', {
+    placeId: 'c2',
+    from: NOW - 6 * HOUR,
+    nameOf: (id) => (id === 'bot-account' ? 'Someone Else' : null),
+    selfName: 'Bot',
+  });
+  assert.deepEqual(
+    found.map((m) => [m.content, m.self, m.authorName]),
+    [['after', true, 'Bot']]
+  );
+});
+
+// Bug (production, 2026-11-12): the command line stored her edit with the moment of the edit, so the line read as sent
+// 93 minutes later than it was.
+test('recordMessages: an edit stored with a later moment is dated by the first revision', async () => {
+  const first = new Date(NOW - 5 * HOUR).toISOString();
+  const edit = new Date(NOW - 5 * HOUR + 93 * 60_000).toISOString();
+  const record = fakeRecord([
+    { ...line('mine', 5, 'before'), kind: 'said', by: undefined, occurredAt: first },
+    { ...line('mine', 5, 'after', { revision: 2, occurredAt: edit }), by: 'bot-account' },
+  ]);
+  const found = await recordMessages(record, 'g1', { placeId: 'c2', from: NOW - 6 * HOUR, selfName: 'Bot' });
+  assert.deepEqual(
+    found.map((m) => [m.content, m.ts, m.self]),
+    [['after', Date.parse(first), true]]
+  );
+});
+
 test('last: the newest lines from the record with their handles, the paging line, no history asked', async () => {
   const refs = registry();
   const { calls, run } = runner({ refs });

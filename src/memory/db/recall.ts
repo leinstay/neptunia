@@ -51,7 +51,7 @@
 
 import { lineMedia, mediaHits, mediaMessageParts } from './media-store.ts';
 import type { MediaHit, MediaRow } from './media-store.ts';
-import { CURRENT_SOURCE } from './source-current.ts';
+import { CURRENT_SOURCE, LINE_KIND, LINE_MOMENT, writtenRowOf } from './source-current.ts';
 import { nativeLocatorOf } from './source-locator.ts';
 import { channelOfPlace } from './native-rows.ts';
 import { locatorText } from './message-locator.ts';
@@ -174,6 +174,8 @@ type Reader = {
   /** The interface's own id of a stored channel; null for a place that is no stored channel. */
   channelOfPlace: (placeId: string) => string | null;
   mediaOf: (sourceId: string) => ReadonlyArray<MediaRow>;
+  /** The row that says who wrote a line and when: its first revision's (source-current.ts#writtenRowOf). */
+  writtenOf: (row: Row) => Row;
 };
 /** The settings of a db recall: the recall settings with the keys of `recall.db` lifted out. */
 type DbKeys = { gateShare: number; candidates: number; minMeaning: number; wordPool?: number };
@@ -312,14 +314,16 @@ function messageOf(
     mediaOf,
     chatOf,
     channelOfPlace,
-  }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf' | 'chatOf' | 'channelOfPlace'>
+    writtenOf,
+  }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf' | 'chatOf' | 'channelOfPlace' | 'writtenOf'>
 ): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
-  const self = row.kind === 'said';
-  const author = authorOf(row.author_account);
+  const written = writtenOf(row);
+  const self = written.kind === 'said';
+  const author = authorOf(written.author_account);
   const name = self ? selfName : author.name;
   const media = mediaMessageParts(mediaOf(String(row.id)), row.native_id);
-  const ts = Date.parse(row.occurred_at as string);
+  const ts = Date.parse(written.occurred_at as string);
   const recordedAt = Date.parse(row.recorded_at as string);
   const mentions = parseJson(row.mentions);
   return {
@@ -479,13 +483,14 @@ function filters(
   const scope = scopeWhere(ctx, alias);
   const parts = [scope.sql];
   const params = [...scope.params];
-  if (mine) parts.push(`${alias}.kind = 'said'`);
+  // The line's first revision says whose it is and when it was written (source-current.ts), whatever an edit carried.
+  if (mine) parts.push(`${LINE_KIND} = 'said'`);
   if (isFiniteNumber(from)) {
-    parts.push(`${alias}.occurred_at >= ?`);
+    parts.push(`${LINE_MOMENT} >= ?`);
     params.push(iso(from));
   }
   if (isFiniteNumber(to)) {
-    parts.push(`${alias}.occurred_at <= ?`);
+    parts.push(`${LINE_MOMENT} <= ?`);
     params.push(iso(to));
   }
   if (placeId !== null) {
@@ -1058,6 +1063,7 @@ function readerOf(
   return {
     selfName,
     mediaOf: (sourceId) => lineMedia(db, [sourceId], ctx).get(sourceId) ?? [],
+    writtenOf: (row) => writtenRowOf(db, row),
     exclude: exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []),
     authorOf: (accountId) => {
       names ??= accountNames(db);
@@ -1347,7 +1353,7 @@ export function search(
           around: opts.recordContext,
           followMessages: opts.followMessages,
           followGapMinutes: opts.followGapMinutes,
-        }).filter((one) => scopeArgs.mine !== true || one.kind === 'said');
+        }).filter((one) => scopeArgs.mine !== true || read.writtenOf(one).kind === 'said');
     return windowOf(rows, new Set(rows.map((one) => one.id).filter((id) => hitIds.has(id))), read);
   });
   // An item found shows at its latest visible use, without counting among the message hits.
