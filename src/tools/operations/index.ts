@@ -35,13 +35,16 @@ import { idText, isObj, objOf } from '../types.ts';
 import type { Obj, OpContext } from '../types.ts';
 
 /** The result of an operation as `runOp` answers it. */
-export type OpResult = { status: string; code: string; summary: string; data: unknown };
+export type OpResult = { status: string; code: string; summary: string; data: unknown; reason?: string };
+
+/** A refusal's message that is a machine reason, a word such as `publication-boundary`, and no sentence. */
+const MACHINE_REASON = /^[a-z][a-z0-9]*(-[a-z0-9]+)+$/;
 
 export { defineOp, listOps, OpError, invalid, denied } from './registry.ts';
 
 /** A refusal result. */
 function refusal(status: string, code: string, summary: string): OpResult {
-  return { status, code, summary, data: null };
+  return { status, code, summary, data: null, ...(MACHINE_REASON.test(summary) ? { reason: summary } : {}) };
 }
 
 /** What an operation's `run` returned, as a result: a full result passes through; a reply text
