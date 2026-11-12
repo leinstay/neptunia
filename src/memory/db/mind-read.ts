@@ -56,11 +56,19 @@ type EntryBase = {
   anchorMessageId: string | null;
   sources: Array<EntrySource>;
 };
+/** One change of her attitude toward a person: the applied change, when it was stored and why. */
+export type AttitudeMove = { delta: number; at: string; reason: string | null };
 export type PersonEntry = EntryBase & {
   personId: string;
   name: string | null;
   realName: string | null;
   affinity: number | null;
+  /**
+   * Her attitude toward the person as the context may read it: the score and reason of the newest change of
+   * `affinity_events` (never `people.affinity`) and the newest changes, newest first, at most `attitudeMoves` of them.
+   * `delta` is the applied change, `at` the stored ISO string. Null when the context reads no change.
+   */
+  attitude: { score: number; reason: string | null; moves: ReadonlyArray<AttitudeMove> } | null;
   /** The account row ids she knows the person through. */
   accounts: Array<string>;
   /** Every account of `accounts` that has a row, with its interface and platform id, in id order. */
@@ -152,6 +160,8 @@ export type MindSettings = {
   counterpartTokens: number;
   candidatesMax: number;
   commonWordEntries: number;
+  /** How many of her latest attitude changes toward a person an entry carries after the score; 0 carries none. */
+  attitudeMoves: number;
   fanOut: { accounts: number; memberships: number; rooms: number; members: number; replies: number; about: number };
 };
 
@@ -165,6 +175,7 @@ export const MIND_DEFAULTS: Readonly<MindSettings> = Object.freeze({
   counterpartTokens: 1500,
   candidatesMax: 3,
   commonWordEntries: 3,
+  attitudeMoves: 2,
   fanOut: { accounts: 10, memberships: 20, rooms: 10, members: 8, replies: 5, about: 30 },
 });
 
@@ -906,9 +917,32 @@ type Built = {
   render: (detail: Detail) => string;
 };
 
+/** Her attitude toward a person under the walker's context: the newest change's score and reason, and the newest moves. */
+function attitudeOf(db: Db, walker: Walker, personId: string, settings: MindSettings): PersonEntry['attitude'] {
+  const audience = walker.aud('e');
+  const rows = db
+    .prepare(
+      `SELECT e.at, e.applied, e.score, e.reason FROM affinity_events e
+       WHERE e.person_id = ? AND e.retired_at IS NULL AND ${audience.sql}
+       ORDER BY e.at DESC, e.id DESC LIMIT ?`
+    )
+    .all(personId, ...audience.params, Math.max(1, Math.floor(settings.attitudeMoves)));
+  const [newest] = rows;
+  if (!newest || typeof newest.score !== 'number') return null;
+  const moves = rows
+    .slice(0, Math.floor(settings.attitudeMoves))
+    .flatMap((row) =>
+      typeof row.applied === 'number' && typeof row.at === 'string'
+        ? [{ delta: row.applied, at: row.at, reason: text(row.reason) }]
+        : []
+    );
+  return { score: newest.score, reason: text(newest.reason), moves };
+}
+
 function personOf(
   db: Db,
   walker: Walker,
+  settings: MindSettings,
   raised: Raised,
   trigger: ReadonlySet<string>,
   recent: Map<string, Raised>
@@ -940,6 +974,7 @@ function personOf(
     name: accountRows.flatMap((row) => namesIn(row.names))[0] ?? null,
     realName: namesIn(person.real_name)[0] ?? null,
     affinity: typeof person.affinity === 'number' ? person.affinity : null,
+    attitude: attitudeOf(db, walker, personId, settings),
     accounts,
     platformAccounts: accountRows.flatMap((row) =>
       typeof row.iface === 'string' && typeof row.native_id === 'string'
@@ -1292,7 +1327,7 @@ export function mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSetting
   const recent = new Map<string, Raised>();
   const build = (raised: Raised): Built | null =>
     raised.kind === 'person'
-      ? personOf(db, walker, raised, trigger, recent)
+      ? personOf(db, walker, settings, raised, trigger, recent)
       : raised.kind === 'place'
         ? placeOf(db, walker, raised, lore, recent, trigger)
         : interfaceOf(db, raised);
