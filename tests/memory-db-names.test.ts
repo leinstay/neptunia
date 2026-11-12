@@ -11,7 +11,7 @@
 // is verified, since a name raises a person. A hit is read under `ctx` as every scoped row is (scope.ts#audienceWhere).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchName, namesOf, placesNamed, rebuildNames } from '../src/memory/db/names.ts';
+import { namesOf, placesNamed, rebuildNames } from '../src/memory/db/names.ts';
 import type { NameHit } from '../src/memory/db/names.ts';
 import { applyPersonLinkWrite } from '../src/memory/db/person-links.ts';
 import { dmContext, groupAudienceId, groupContext } from '../src/memory/db/scope.ts';
@@ -273,8 +273,25 @@ test('a place written before the key existed is found by script once the fill ra
   );
 });
 
-test('a place of an interface the context may not read gives no script hit', () => {
-  // Bug: the key lookup skips the audience filter and a place of another interface is found by its other-script name.
-  const { w } = roomWorld('3d-сад');
-  assert.deepEqual(matchName(w.db, groupContext('telegram'), '3д сада'), []);
+test('a private alias in Cyrillic is found by its Latin spelling inside its own chat and not from a group', () => {
+  // Bug: the script lookup skips the audience filter, so a name learned in a private chat opens the person to the group.
+  const w = world();
+  const person = 'person:discord:s2';
+  addPerson(w.db, { id: person, accounts: [{ id: 'discord:s2', iface: 'discord', native: 's2', names: ['Stávros'] }] });
+  const dm = addDm(w.db, { iface: 'discord', native: 's2', person, account: 'discord:s2' });
+  addClaim(w.db, {
+    id: 'claim:alias:s2',
+    person,
+    kind: 'alias',
+    text: 'Вокзал кино',
+    audience: { dm, iface: 'discord', person },
+  });
+  assert.deepEqual(
+    hitsFor(namesOf(w.db, dmContext(person, 'discord', dm), ['vokzal kino']), personNode(person)).map(
+      (hit) => hit.match
+    ),
+    ['script'],
+    'inside its own chat'
+  );
+  assert.deepEqual(hitsFor(namesOf(w.db, GROUP, ['vokzal kino']), personNode(person)), [], 'from a group');
 });
