@@ -1785,7 +1785,7 @@
     },
     "src/tools/tool-calls.ts": {
       "toolResultText": {
-        "complexity": 24
+        "complexity": 23
       }
     },
     "src/tools/tools.ts": {

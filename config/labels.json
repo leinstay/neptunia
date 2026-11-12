@@ -600,6 +600,7 @@
         "unknown": "It is unclear whether the call went through ({reason}). Do not try it again.",
         "reasons": {
           "not-allowed": "the owner has not switched it on",
+          "publication-boundary": "from a private chat you write and change messages only in that chat, and the message you named is in another place",
           "safe-mode": "only ordinary replies pass right now",
           "owner-only": "only the owner can do that",
           "unknown-skill": "there is no such skill",
