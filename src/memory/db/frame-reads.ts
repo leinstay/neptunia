@@ -32,6 +32,7 @@ import type { PastEntry } from './selfreflection-past.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 import { placeLineNumbers } from './chat-lines.ts';
+import { LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND, LINE_MOMENT } from './source-current.ts';
 import type { PlaceLineNumbers } from './chat-lines.ts';
 
 /**
@@ -115,10 +116,17 @@ export function placeViewOf(db: Db, placeId: string): PlacePath | null {
 /** The message id of a line row: its route's (`route_message`), else its `native_id`, else its source id. */
 const messageIdOf = (row: Row): string => String(text(row.route_message) ?? row.native_id ?? row.id);
 
-/** The first row of each key, in order: a message's newest revision when the rows come newest revision first. */
-function firstOf(rows: ReadonlyArray<Row>, keyOf: (row: Row) => string): Array<Row> {
-  const seen = new Set<string>();
-  return rows.filter((row) => !seen.has(keyOf(row)) && Boolean(seen.add(keyOf(row))));
+/**
+ * One row per key, the one of the newest revision, at the position of the key's first row. Every revision of a message
+ * shares the moment of its first (LINE_MOMENT), so the rows of one message sit together whatever order they came in.
+ */
+function newestOf(rows: ReadonlyArray<Row>, keyOf: (row: Row) => string): Array<Row> {
+  const newest = new Map<string, Row>();
+  for (const row of rows) {
+    const held = newest.get(keyOf(row));
+    if (held === undefined || Number(row.revision ?? 1) > Number(held.revision ?? 1)) newest.set(keyOf(row), row);
+  }
+  return [...newest.values()];
 }
 
 const lineOf = (row: Row, media: ReadonlyArray<LineMediaItem> = []): FrameLine => ({
@@ -150,15 +158,16 @@ function linesOf(db: Db, ctx: Context, rows: ReadonlyArray<Row>): Array<FrameLin
 const AUTHOR_NAME = `COALESCE(
   (SELECT json_extract(pa.names, '$[0]') FROM accounts a JOIN people p ON p.id = a.person_id
      JOIN accounts pa ON pa.id = p.holder_id
-   WHERE a.id = s.author_account AND p.writer = 'profile'),
+   WHERE a.id = ${LINE_AUTHOR_ACCOUNT} AND p.writer = 'profile'),
   json_extract(aa.names, '$[0]')) AS author_name`;
 /** Lines with their author's account row, whose `native_id` is the author's platform id. */
-const LINE_FROM = 'sources s LEFT JOIN accounts aa ON aa.id = s.author_account';
+const LINE_FROM = `sources s LEFT JOIN accounts aa ON aa.id = ${LINE_AUTHOR_ACCOUNT}`;
 /** The person of a line's author's account: its meta-person, else its verified link (meta-person.ts#personOfAccount). */
 const AUTHOR_PERSON = `COALESCE(
-  (SELECT pm.person_id FROM person_accounts pm WHERE pm.id = s.author_account),
+  (SELECT pm.person_id FROM person_accounts pm WHERE pm.id = ${LINE_AUTHOR_ACCOUNT}),
   CASE WHEN aa.link = 'verified' THEN aa.person_id END) AS author_person`;
-const LINE_COLUMNS = `s.id, s.native_id, ${routeMessageSql('s')} AS route_message, s.place_id, s.occurred_at, s.author_account, s.author_kind, s.text,
+const LINE_COLUMNS = `s.id, s.native_id, ${routeMessageSql('s')} AS route_message, s.place_id, ${LINE_MOMENT} AS occurred_at,
+  ${LINE_AUTHOR_ACCOUNT} AS author_account, ${LINE_AUTHOR_KIND} AS author_kind, s.revision, s.text,
   aa.native_id AS author_native, aa.iface AS author_iface, ${AUTHOR_NAME}, ${AUTHOR_PERSON}`;
 /** A line that says something: its text, or a media item linked to it, as a post of a picture alone. */
 const LIVE_LINE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND (length(COALESCE(s.text, '')) > 0
@@ -178,13 +187,13 @@ export function ownLinesOf(
   const rows = db
     .prepare(
       `SELECT ${LINE_COLUMNS} FROM ${LINE_FROM}
-       WHERE s.author_kind = 'self' AND ${LIVE_LINE} AND s.place_id IS NOT ? AND ${where.sql}
-       ORDER BY s.occurred_at DESC, s.revision DESC LIMIT ?`
+       WHERE ${LINE_AUTHOR_KIND} = 'self' AND ${LIVE_LINE} AND s.place_id IS NOT ? AND ${where.sql}
+       ORDER BY ${LINE_MOMENT} DESC, s.revision DESC LIMIT ?`
     )
     .all(exceptPlace, ...where.params, Math.max(0, limit) * 2);
   const paths = new Map<string, PlacePath>();
   const out: Array<FrameLine & PlacePath> = [];
-  const kept = firstOf(rows, (row) => `${text(row.place_id) ?? ''}\u0000${messageIdOf(row)}`);
+  const kept = newestOf(rows, (row) => `${text(row.place_id) ?? ''}\u0000${messageIdOf(row)}`);
   for (const line of linesOf(db, ctx, kept.slice(0, Math.max(0, limit)))) {
     if (!paths.has(line.placeId)) paths.set(line.placeId, placePathOf(db, line.placeId));
     out.push({ ...line, ...(paths.get(line.placeId) ?? { iface: '', chain: [], dm: false, partner: null }) });
@@ -200,13 +209,13 @@ export function linesAroundOf(db: Db, ctx: Context, placeId: string, at: number,
     db
       .prepare(
         `SELECT ${LINE_COLUMNS} FROM ${LINE_FROM}
-         WHERE s.place_id = ? AND s.occurred_at ${compare} ? AND ${LIVE_LINE} AND ${where.sql}
-         ORDER BY s.occurred_at ${order}, s.revision DESC LIMIT ?`
+         WHERE s.place_id = ? AND ${LINE_MOMENT} ${compare} ? AND ${LIVE_LINE} AND ${where.sql}
+         ORDER BY ${LINE_MOMENT} ${order}, s.revision DESC LIMIT ?`
       )
       .all(placeId, iso, ...where.params, n);
   const before = read('DESC', '<=', count + 1).reverse();
   const after = read('ASC', '>', count);
-  return linesOf(db, ctx, firstOf([...before, ...after], messageIdOf));
+  return linesOf(db, ctx, newestOf([...before, ...after], messageIdOf));
 }
 
 /** The first `count` lines of `placeId` the context reads at or after epoch ms `from`, oldest first. */
@@ -217,11 +226,11 @@ export function linesSinceOf(db: Db, ctx: Context, placeId: string, from: number
   const rows = db
     .prepare(
       `SELECT ${LINE_COLUMNS} FROM ${LINE_FROM}
-       WHERE s.place_id = ? AND s.occurred_at >= ? AND ${LIVE_LINE} AND ${where.sql}
-       ORDER BY s.occurred_at ASC, s.revision DESC LIMIT ?`
+       WHERE s.place_id = ? AND ${LINE_MOMENT} >= ? AND ${LIVE_LINE} AND ${where.sql}
+       ORDER BY ${LINE_MOMENT} ASC, s.revision DESC LIMIT ?`
     )
     .all(placeId, new Date(from).toISOString(), ...where.params, limit * 2);
-  return linesOf(db, ctx, firstOf(rows, messageIdOf).slice(0, limit));
+  return linesOf(db, ctx, newestOf(rows, messageIdOf).slice(0, limit));
 }
 
 /**
@@ -366,7 +375,7 @@ export function lineOfIdentity(db: Db, ctx: Context, key: string): IdentityLine 
   const where = whereFor(ctx, 's');
   const rows = db
     .prepare(
-      `SELECT ${LINE_COLUMNS}, s.kind, s.revision FROM ${LINE_FROM}
+      `SELECT ${LINE_COLUMNS}, s.kind FROM ${LINE_FROM}
        WHERE s.iface = ? AND s.native_id = ? AND s.kind IN ('seen', 'said', 'deleted') AND s.retired_at IS NULL
          AND ${where.sql}
        ORDER BY s.revision DESC, s.rowid DESC`

@@ -195,7 +195,8 @@ const str = (value: unknown): string => (typeof value === 'string' ? value : '')
  * The messages of one channel the record holds from `from` (epoch ms) on, oldest first: the
  * newest revision of each (`editedAt` set from the second one on), a `deleted` one as a
  * placeholder (`deleted: true`, no text) at the time of the message it replaced. `said` lines are
- * the persona's own. Media rides as kinds only (the record keeps no more): one attachment of that
+ * the persona's own. The text and the edited stamp come from the newest revision, the author, whose line it is and
+ * the moment from the first revision the span holds. Media rides as kinds only (the record keeps no more): one attachment of that
  * kind per entry. A line `allowLine` refuses is skipped. Never throws: a failed read gives [].
  */
 export async function recordMessages(
@@ -217,6 +218,8 @@ export async function recordMessages(
 ): Promise<Array<ReadMessage>> {
   if (!record || typeof record.iterate !== 'function') return [];
   const latest = new Map<string, { line: Obj; revision: number }>();
+  // The first revision the span holds of each message: it says who wrote the line and when.
+  const first = new Map<string, { line: Obj; revision: number }>();
   const gone = new Map<string, Obj>();
   try {
     for await (const entry of record.iterate(placeId, {
@@ -233,6 +236,8 @@ export async function recordMessages(
       if ((line.kind !== 'seen' && line.kind !== 'said') || !Number.isFinite(Date.parse(str(line.occurredAt))))
         continue;
       const revision = Number.isInteger(line.revision) && (line.revision as number) > 0 ? (line.revision as number) : 1;
+      const earliest = first.get(id);
+      if (!earliest || revision < earliest.revision) first.set(id, { line, revision });
       const known = latest.get(id);
       if (known && known.revision >= revision) continue;
       latest.set(id, { line, revision });
@@ -241,11 +246,11 @@ export async function recordMessages(
     return [];
   }
   const out: Array<ReadMessage> = [];
-  const messageOf = (line: Obj, revision: number): ReadMessage => {
-    const self = line.kind === 'said';
-    const by = str(line.by) || null;
+  const messageOf = (line: Obj, revision: number, written: Obj): ReadMessage => {
+    const self = written.kind === 'said';
+    const by = str(written.by) || null;
     const name = self ? oneLine(selfName) : by && typeof nameOf === 'function' ? oneLine(nameOf(by) ?? '') : '';
-    const ts = Date.parse(str(line.occurredAt));
+    const ts = Date.parse(str(written.occurredAt));
     const recordedAt = Date.parse(str(line.recordedAt));
     return {
       id: line.messageId,
@@ -282,7 +287,7 @@ export async function recordMessages(
     };
   };
   for (const [id, { line, revision }] of latest) {
-    const message = messageOf(line, revision);
+    const message = messageOf(line, revision, first.get(id)?.line ?? line);
     if (gone.has(id))
       out.push({ ...message, content: '', attachments: [], links: [], replyToId: null, editedAt: null, deleted: true });
     else out.push(message);
