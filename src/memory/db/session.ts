@@ -63,6 +63,7 @@ import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { ASSERTION_HOW } from './semantic-registry.ts';
 import { validateSemanticAnswer } from './semantic-answer.ts';
 import { episodeLinesOf, intentionLinesOf } from './session-blocks.ts';
+import { sessionMadeLines } from './session-made.ts';
 import { peopleOf, profileAsOf, type BatchAccount, type BatchAuthor, type BatchPerson } from './session-people.ts';
 import { readRetrieved, retrievedLines, sessionEmbedding } from './session-retrieved.ts';
 import { cutByArrival, fewestParts, pageBudgetOf, shareOf, unitsOf } from './session-size.ts';
@@ -757,6 +758,13 @@ export function buildSessionRequest({
     nameOf,
   };
   const peopleBodies = [];
+  const madeLines = sessionMadeLines(db, ctx, {
+    from: batch.length > 0 ? Math.min(...batch.map((line) => line.at)) : cutoff,
+    to: cutoff,
+    people: shown.map((person) => person.id),
+    labels,
+    timezone: asText(timezone),
+  });
   const personScope = scopeWhere(ctx, 'c');
   for (const person of shown) {
     const account = db
@@ -791,6 +799,7 @@ export function buildSessionRequest({
       .all(person.id, ...personScope.params, cutoffIso, cutoffIso, settings.claimsPerPerson);
     const lines = [text || `## ${person.name}`, `id: <@${person.native}>`];
     if (row && Number.isFinite(row.affinity)) lines.push(`affinity: ${asText(row.affinity)}`);
+    lines.push(...(madeLines.get(person.id) ?? []));
     for (const claim of claims) {
       claimNumber += 1;
       maps.claims.set(`c${claimNumber}`, claim.id as string);

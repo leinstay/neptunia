@@ -207,3 +207,54 @@ export function madeAndGivenOf(db: Db, ctx: Context, input: MadeAndGivenInput): 
   for (const count of shown) count.addressedToday = started.get(count.person) ?? 0;
   return { answering, others, own, forOthers };
 }
+
+/** What she made for one person in a span and how many of her turns a line of theirs started in it. */
+export type SpanCount = { person: string; made: Record<string, number>; started: number };
+
+/**
+ * For each of `people` (person ids) with a thing made in the span from `from` to `to` (epoch ms, both included): what
+ * she made by skill and how many turns a line of theirs started, in the order of `people`. A call counts for the
+ * person whose line started its turn, wherever that turn began. Every row is read under `ctx`.
+ */
+export function madeInSpanOf(
+  db: Db,
+  ctx: Context,
+  input: { from: number; to: number; people: ReadonlyArray<string>; kinds: ReadonlyArray<string> }
+): Array<SpanCount> {
+  const kinds = new Set(input.kinds);
+  if (kinds.size === 0 || input.people.length === 0 || !(input.from <= input.to)) return [];
+  const where = whereFor(ctx);
+  const rows = db
+    .prepare(
+      `SELECT at, turn_id, extra FROM day
+       WHERE what = 'action' AND retired_at IS NULL AND at >= ? AND at <= ? AND ${where.sql}
+       ORDER BY at, position`
+    )
+    .all(new Date(input.from).toISOString(), new Date(input.to).toISOString(), ...where.params) as Array<
+    Record<string, unknown>
+  >;
+  const made = madeCalls(rows, kinds);
+  const turns = new Set(made.flatMap((call) => (call.turn ? [call.turn] : [])));
+  // A turn that started before the span still asked for what it made inside it.
+  const asked = new Map<string, string>();
+  if (turns.size > 0)
+    for (const start of startsOf(db, null, input.from - DAY_MS, input.to))
+      if (turns.has(start.turn)) asked.set(start.turn, start.person);
+  const byPerson = new Map<string, Record<string, number>>();
+  for (const call of made) {
+    const person = call.turn ? asked.get(call.turn) : undefined;
+    if (!person) continue;
+    const counts = byPerson.get(person) ?? {};
+    byPerson.set(person, counts);
+    add(counts, call.skill);
+  }
+  const started = new Map<string, number>();
+  for (const start of startsOf(db, ctx, input.from, input.to))
+    started.set(start.person, (started.get(start.person) ?? 0) + 1);
+  const result: Array<SpanCount> = [];
+  for (const person of input.people) {
+    const counts = byPerson.get(survivorOf(db, person));
+    if (counts) result.push({ person, made: counts, started: started.get(survivorOf(db, person)) ?? 0 });
+  }
+  return result;
+}

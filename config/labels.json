@@ -345,6 +345,8 @@
       "privateChannel": "private chat",
       "redaction": "someone",
       "placeUnwritten": "[{handle}] fields not written yet: {fields}",
+      "sessionMade": "While these lines were written you made for this person: {made}. Lines of theirs started {turns} of your turns.",
+      "sessionMadeDay": "That day, up to the last of these lines, you made for them: {made}.",
       "origin": {
         "native": "named in the message you answer",
         "reply": "the message you answer replies to it",

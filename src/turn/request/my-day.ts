@@ -151,7 +151,7 @@ function lineOf(one: Done, place: string | null, time: string, labels: MyDayLabe
 }
 
 /** The kinds `labels.kinds` names a word for, in the order the labels list them. */
-function kindsOf(labels: MyDayLabels | null | undefined): Array<[string, string]> {
+export function kindsOf(labels: MyDayLabels | null | undefined): Array<[string, string]> {
   const kinds = labels?.kinds;
   if (!kinds || typeof kinds !== 'object') return [];
   return Object.entries(kinds as Record<string, unknown>).flatMap(([skill, word]) =>
@@ -162,7 +162,7 @@ function kindsOf(labels: MyDayLabels | null | undefined): Array<[string, string]
 const wordOf = (labels: MyDayLabels, key: string): string => (typeof labels[key] === 'string' ? labels[key] : '');
 
 /** `3 pictures, 1 voice line`: the counts per kind in the labels' order, a skill with no word left out. A count of one reads through `kindsOne` when it holds the skill. */
-function madeText(counts: Record<string, number>, labels: MyDayLabels): string {
+export function madeText(counts: Record<string, number>, labels: MyDayLabels): string {
   const item = wordOf(labels, 'madeItem');
   const one =
     labels.kindsOne && typeof labels.kindsOne === 'object' ? (labels.kindsOne as Record<string, unknown>) : {};
