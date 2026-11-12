@@ -602,6 +602,12 @@ export const labels = {
     react: 'reaction',
     gif: 'GIF',
     skill: 'called {skill}',
+    madeFor: '{who} today: {made}; {lines} lines to you',
+    madeWeek: 'the last seven days: {made}',
+    madeItem: '{count} {kind}',
+    madeJoin: ', ',
+    kinds: { 'draw.create': 'pictures', 'media.find': 'GIF searches', 'voice.say': 'voice lines', 'errand.run': 'errands' },
+    madeDay: 'altogether {forOthers} made at asking, {own} unasked',
   },
   previousThink: {
     note: 'Your reasoning from your previous step, kept as context; it may be out of date or wrong; current messages and results win; do not quote it or retell it.',

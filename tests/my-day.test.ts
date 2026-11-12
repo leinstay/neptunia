@@ -11,7 +11,10 @@ import type { MemoryDbService } from '../src/memory/db/service.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createJournal } from '../src/memory/journal.ts';
-import { myDayOf } from '../src/turn/request/my-day.ts';
+import { handleOf } from '../src/behavior/handles.ts';
+import type { MadeAndGiven, PersonCount } from '../src/memory/db/made-and-given.ts';
+import { madeAndGivenLines, myDayOf } from '../src/turn/request/my-day.ts';
+import { labels } from './fixtures/labels.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { addAccount, addDmPlace, addGroupPlace } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -179,4 +182,72 @@ test('lists a board call of hers under its own name, not an errand tool that onc
   await w.act(CAFE, 'skill', NOW - 10 * MIN, 'task.status');
   const [line] = myDayOf(w.read(), groupContext('discord'), placeNames, NOW, TZ, { lines: 12 });
   assert.ok(line?.includes('task.status') && !line.includes('errand'), line);
+});
+
+// The lines above the day's lines (spec 2026-11-12 made-and-given, slice 1): `madeAndGivenLines` writes the value the
+// reader gives in the labels' words, a person by the `@handle` the rest of the request uses.
+
+const PEOPLE = { anna: 'person:0b7a4c1e', boris: 'person:6d2f9e03', carol: 'person:3c81a5d7' };
+const handle = (person: string): string => `@${handleOf(person)}`;
+const count = (person: string, today: Record<string, number>, extra: Partial<PersonCount> = {}): PersonCount => ({
+  person,
+  today,
+  week: today,
+  addressedToday: 0,
+  ...extra,
+});
+const DAY_OF_ASKING: MadeAndGiven = {
+  answering: count(PEOPLE.anna, { 'draw.create': 20, 'media.find': 14, 'voice.say': 3 }, { addressedToday: 117 }),
+  others: [],
+  own: 12,
+  forOthers: 35,
+};
+
+test('writes the counts, the kinds, the lines addressed to her and the handle of the person she answers', () => {
+  // Bug: the line leaves out a kind, shows the person's id or name, or loses the count of lines addressed to her.
+  const lines = madeAndGivenLines(DAY_OF_ASKING, labels.myDay);
+  const first = lines[0] ?? '';
+  for (const part of [handle(PEOPLE.anna), '20', 'pictures', '14', 'GIF searches', '3', 'voice lines', '117'])
+    assert.ok(first.includes(part), `${part} in: ${first}`);
+  const last = lines.at(-1) ?? '';
+  assert.ok(last.includes('35') && last.includes('12'), last);
+});
+
+test('writes the seven-day line only when the week holds more than today', () => {
+  // Bug: the week repeats today's line on a day that is all the week she has, or never shows when it holds more.
+  const same = madeAndGivenLines(DAY_OF_ASKING, labels.myDay);
+  const more = madeAndGivenLines(
+    {
+      ...DAY_OF_ASKING,
+      answering: count(
+        PEOPLE.anna,
+        { 'draw.create': 20, 'media.find': 14, 'voice.say': 3 },
+        { week: { 'draw.create': 57, 'media.find': 14, 'voice.say': 3 }, addressedToday: 117 }
+      ),
+    },
+    labels.myDay
+  );
+  assert.equal(more.length, same.length + 1);
+  assert.ok(more.some((line) => line.includes('57')));
+  assert.ok(!same.some((line) => line.includes('57')));
+});
+
+test('writes the person she answers first, then the others, and her day last', () => {
+  // Bug: the lines come in another order, so the person she answers is read as one of the others.
+  const lines = madeAndGivenLines(
+    {
+      ...DAY_OF_ASKING,
+      others: [count(PEOPLE.boris, { 'voice.say': 4 }), count(PEOPLE.carol, { 'draw.create': 2 })],
+    },
+    labels.myDay
+  );
+  const at = (person: string): number => lines.findIndex((line) => line.includes(handle(person)));
+  assert.ok(at(PEOPLE.anna) >= 0 && at(PEOPLE.anna) < at(PEOPLE.boris), lines.join('\n'));
+  assert.ok(at(PEOPLE.boris) < at(PEOPLE.carol), lines.join('\n'));
+  assert.ok((lines.at(-1) ?? '').includes('35'), lines.join('\n'));
+});
+
+test('writes no line for a day with nothing made', () => {
+  // Bug: an empty value still prints a header, a zero line or an empty string into `<my_day>`.
+  assert.deepEqual(madeAndGivenLines({ answering: null, others: [], own: 0, forOthers: 0 }, labels.myDay), []);
 });
