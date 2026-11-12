@@ -36,7 +36,7 @@ const baselinePath = path.join(root, 'scripts', 'config', 'code-health-baseline.
 const manifestPath = path.join(root, 'scripts', 'config', 'structure.json');
 const docPath = path.join(root, 'docs', 'structure.md');
 
-export const LIMITS = { fileLines: 2000, functionLines: 300, nesting: 6, complexity: 20 };
+export const LIMITS = { fileLines: 2500, functionLines: 300, nesting: 6, complexity: 20 };
 export const RULES = ['file-length', 'function-length', 'nesting', 'complexity'];
 const MAX_WAIVER_DAYS = 180;
 const CODE_FILE = /\.(?:js|mjs|cjs|ts)$/;

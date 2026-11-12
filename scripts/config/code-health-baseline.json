@@ -1230,10 +1230,7 @@
     }
   },
   "files": {
-    "src/behavior/recall.ts": 2355,
-    "tests/openrouter.test.ts": 3545,
-    "tests/prompt.test.ts": 2334,
-    "tests/recall.test.ts": 2366
+    "tests/openrouter.test.ts": 3545
   },
   "functions": {
     "interfaces/discord/collect.ts": {

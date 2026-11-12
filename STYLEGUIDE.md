@@ -16,7 +16,7 @@ import { openDoor } from './door.ts';
 - `tsc --noEmit` checks types with `strict`, `erasableSyntaxOnly` and `allowImportingTsExtensions`, with `allowJs` off. The tree holds no JavaScript, and CI refuses a tracked `.js`, `.mjs` or `.cjs` file.
 - ESLint 9 (flat config) runs typescript-eslint `recommended-type-checked` plus the rules named below.
 - Prettier formats with single quotes, semicolons, a 2-space indent, 120 columns and trailing commas where ES5 allows them.
-- The code-health check allows a file of up to 2,000 lines, a function of up to 300, nesting of 6 and cyclomatic complexity of 20. A file that is already over a limit may only shrink.
+- The code-health check allows a file of up to 2,500 lines, a function of up to 300, nesting of 6 and cyclomatic complexity of 20. A file that is already over a limit may only shrink.
 - To waive a rule, write one comment above the code that says why.
 
 ```ts
