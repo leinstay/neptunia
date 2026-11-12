@@ -975,6 +975,21 @@ function claimConsole(db: Db, e: Envelope, at: string): void {
   }
 }
 
+/**
+ * The envelope with its revision: an edit with none takes it from the database's count. `known` is the stored line when
+ * the edit's text is already that revision, `wrote` the moment the row is stored with, the first revision's when the line
+ * has one, since an edit event may carry the moment of the edit.
+ */
+function withEditRevision(db: Db, given: Envelope): { e: Envelope; known: string | null; wrote: string } {
+  if (Number.isInteger(given.native.revision)) return { e: given, known: null, wrote: given.occurredAt };
+  const edit = editRevisionOf(db, given);
+  return {
+    e: { ...given, native: { ...given.native, revision: edit.revision } },
+    known: edit.sourceId,
+    wrote: edit.firstAt ?? given.occurredAt,
+  };
+}
+
 function writeObservation(
   db: Db,
   given: Envelope,
@@ -983,17 +998,7 @@ function writeObservation(
   owner: string | null = null
 ): ObserveResult {
   adoptNativeAuthority(db, given.iface);
-  // An edit with no revision: the database's count says which revision it is.
-  let e: Envelope = given;
-  let wrote = given.occurredAt;
-  let known: string | null = null;
-  if (!Number.isInteger(given.native.revision)) {
-    const edit = editRevisionOf(db, given);
-    e = { ...given, native: { ...given.native, revision: edit.revision } };
-    // The line keeps the moment it was written: an edit event may carry the moment of the edit.
-    wrote = edit.firstAt ?? given.occurredAt;
-    known = edit.sourceId;
-  }
+  const { e, known, wrote } = withEditRevision(db, given);
   const n = e.native;
   const sourceId = known ?? storedLineOf(db, e, n.revision) ?? observedSourceId(e);
   if (db.prepare('SELECT 1 AS ok FROM sources WHERE id = ?').get(sourceId)) return replayOf(db, e, sourceId, at, owner);

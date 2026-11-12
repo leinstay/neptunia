@@ -191,6 +191,17 @@ function mergeById(...lists: Array<ReadonlyArray<ReadMessage> | null>): Array<Re
 /** A string, else ''. */
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 
+/** Keeps `entry` under `id` when the map holds none, or when its revision is higher (`newest`) or lower than the held one's. */
+function keepRevision(
+  held: Map<string, { line: Obj; revision: number }>,
+  id: string,
+  entry: { line: Obj; revision: number },
+  newest: boolean
+): void {
+  const known = held.get(id);
+  if (!known || (newest ? entry.revision > known.revision : entry.revision < known.revision)) held.set(id, entry);
+}
+
 /**
  * The messages of one channel the record holds from `from` (epoch ms) on, oldest first: the
  * newest revision of each (`editedAt` set from the second one on), a `deleted` one as a
@@ -236,11 +247,8 @@ export async function recordMessages(
       if ((line.kind !== 'seen' && line.kind !== 'said') || !Number.isFinite(Date.parse(str(line.occurredAt))))
         continue;
       const revision = Number.isInteger(line.revision) && (line.revision as number) > 0 ? (line.revision as number) : 1;
-      const earliest = first.get(id);
-      if (!earliest || revision < earliest.revision) first.set(id, { line, revision });
-      const known = latest.get(id);
-      if (known && known.revision >= revision) continue;
-      latest.set(id, { line, revision });
+      keepRevision(first, id, { line, revision }, false);
+      keepRevision(latest, id, { line, revision }, true);
     }
   } catch {
     return [];
