@@ -35,6 +35,7 @@ import { indexWords } from '../record-index.ts';
 import { graphNodeId } from './graph.ts';
 import { SELF_PERSON } from './ids.ts';
 import { profileAccountsOf } from './meta-person.ts';
+import { interestClaimsOf, usualNameOf } from './person-fields.ts';
 import type { PersonAccount, ProfileAccount } from './meta-person.ts';
 import { IS_WRITTEN_ROW, LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND, LINE_MOMENT } from './source-current.ts';
 import { loadStemmer } from './stems.ts';
@@ -80,6 +81,12 @@ export type PersonEntry = EntryBase & {
   character: string | null;
   style: string | null;
   claims: Array<{ id: string; kind: string; text: string }>;
+  /** The texts of the interest claims about the person that the context may read, the highest ranked first, at most `settings.interests`. */
+  interests: Array<string>;
+  /** The name the person is addressed by most, by the decayed score of `rankAddressed`, or null. */
+  usualName: string | null;
+  /** How many messages of the person she has seen, `people.message_count`, or null. */
+  messagesSeen: number | null;
   /** True for a person the reader keeps whatever their room: the person she answers, an author of the window, one the trigger names. */
   keep?: boolean;
 };
@@ -163,6 +170,8 @@ export type MindSettings = {
   commonWordEntries: number;
   /** How many of her latest attitude changes toward a person an entry carries after the score; 0 carries none. */
   attitudeMoves: number;
+  /** How many interests of a person an entry lists, the highest ranked first; 0 lists none. */
+  interests: number;
   fanOut: { accounts: number; memberships: number; rooms: number; members: number; replies: number; about: number };
 };
 
@@ -177,6 +186,7 @@ export const MIND_DEFAULTS: Readonly<MindSettings> = Object.freeze({
   candidatesMax: 3,
   commonWordEntries: 3,
   attitudeMoves: 2,
+  interests: 5,
   fanOut: { accounts: 10, memberships: 20, rooms: 10, members: 8, replies: 5, about: 30 },
 });
 
@@ -944,16 +954,34 @@ function attitudeOf(db: Db, walker: Walker, personId: string, settings: MindSett
   return { score: newest.score, reason: text(newest.reason), moves };
 }
 
+/** The text the budget weighs for a person's entry at `detail`: the heading, then what the detail adds. */
+function personRender(entry: PersonEntry, detail: Detail): string {
+  const head = [entry.name, entry.realName, ...entry.accounts].filter((one) => one !== null).join(' ');
+  if (detail === 'name') return head;
+  if (detail === 'compact') return [head, entry.relation].filter((one) => one !== null).join('\n');
+  const fields = [
+    entry.interests.join('; '),
+    entry.usualName,
+    entry.messagesSeen === null ? null : String(entry.messagesSeen),
+  ];
+  return [head, entry.relation, entry.character, entry.style, ...fields, ...entry.claims.map((claim) => claim.text)]
+    .filter((one) => one !== null && one !== '')
+    .join('\n');
+}
+
 function personOf(
   db: Db,
   walker: Walker,
   settings: MindSettings,
   raised: Raised,
   trigger: ReadonlySet<string>,
-  recent: Map<string, Raised>
+  recent: Map<string, Raised>,
+  now: number
 ): Built | null {
   const personId = raised.rowId;
-  const person = db.prepare('SELECT id, real_name, affinity, retired_at FROM people WHERE id = ?').get(personId);
+  const person = db
+    .prepare('SELECT id, real_name, affinity, message_count, retired_at FROM people WHERE id = ?')
+    .get(personId);
   if (!person || person.retired_at !== null) return null;
   const profileAccounts = profileAccountsOf(db, personId).filter((one) => walker.visible(nodeOf('account', one.id)));
   const accounts = [...new Set([...walker.accountsOf(raised.nodeId), ...profileAccounts.map((one) => one.id)])].sort();
@@ -967,10 +995,12 @@ function personOf(
   const descriptions = descriptionsOf(db, walker, 'person', personId);
   const said = walker.about(raised.nodeId);
   for (const one of said) if (one.kind === 'episode') recent.set(one.id, raised);
+  const listed = interestClaimsOf(db, walker.aud('c'), personId, settings.interests);
+  const listedIds = new Set(listed.map((one) => one.id));
   const claims = claimsOf(
     db,
     walker,
-    said.filter((one) => one.kind === 'claim').map((one) => one.id),
+    said.filter((one) => one.kind === 'claim' && !listedIds.has(one.id)).map((one) => one.id),
     trigger
   );
   const entry: PersonEntry = {
@@ -991,23 +1021,20 @@ function personOf(
     character: descriptions.get('character')?.text ?? null,
     style: descriptions.get('style')?.text ?? null,
     claims: claims.map((row) => ({ id: String(row.id), kind: String(row.kind), text: text(row.text) ?? '' })),
+    interests: listed.map((one) => one.text),
+    usualName: usualNameOf(db, accounts, (id) => walker.visible(nodeOf('place', id)), now),
+    messagesSeen: typeof person.message_count === 'number' ? person.message_count : null,
     ...(raised.keep ? { keep: true } : {}),
     sources: [
       { table: 'people', id: personId, version: null },
+      ...listed.map((one) => ({ table: 'claims', id: one.id, version: null })),
       ...accountRows.map((row) => ({ table: 'accounts', id: String(row.id), version: null })),
       ...[...descriptions.values()].map((one) => one.source),
       ...claims.map((row) => ({ table: 'claims', id: String(row.id), version: null })),
       ...raised.sources,
     ],
   };
-  const render = (detail: Detail): string => {
-    const head = [entry.name, entry.realName, ...entry.accounts].filter((one) => one !== null).join(' ');
-    if (detail === 'name') return head;
-    if (detail === 'compact') return [head, entry.relation].filter((one) => one !== null).join('\n');
-    return [head, entry.relation, entry.character, entry.style, ...entry.claims.map((claim) => claim.text)]
-      .filter((one) => one !== null)
-      .join('\n');
-  };
+  const render = (detail: Detail): string => personRender(entry, detail);
   return { subtag: 'people', raised, entry, render };
 }
 
@@ -1315,10 +1342,9 @@ function cut(settings: MindSettings, built: Array<Built>): { kept: Array<Built>;
 
 /**
  * What comes to her mind on a turn: the walk from `seeds` under `ctx`, ranked and cut to the budget of `settings`.
- * `now` is the turn's clock. The rank reads the times of the anchors, so it is not read yet.
+ * `now` is the turn's clock, the one the usual name of a person decays its scores to.
  */
 export function mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSettings, now: number): Mind {
-  void now;
   const walker = walkerOf(db, ctx, settings, seeds);
   const window = windowOf(seeds.messages, settings.windowMessages);
   const found = new Map<string, ExcerptSeed>();
@@ -1332,7 +1358,7 @@ export function mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSetting
   const recent = new Map<string, Raised>();
   const build = (raised: Raised): Built | null =>
     raised.kind === 'person'
-      ? personOf(db, walker, settings, raised, trigger, recent)
+      ? personOf(db, walker, settings, raised, trigger, recent, now)
       : raised.kind === 'place'
         ? placeOf(db, walker, raised, lore, recent, trigger)
         : interfaceOf(db, raised);

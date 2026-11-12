@@ -152,6 +152,7 @@
       "candidatesMax": 3,
       "commonWordEntries": 3,
       "attitudeMoves": 2,
+      "interests": 5,
       "fanOut": {
         "accounts": 10,
         "memberships": 20,
