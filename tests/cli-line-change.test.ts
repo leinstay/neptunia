@@ -69,3 +69,25 @@ test('a change for a message id the screen does not hold changes nothing', async
     assert.equal(screenOf(rig), before);
   });
 });
+
+// Production, 2026-11-12: a line of an earlier session is drawn from the stored history, and a change for it found no
+// entry because only the lines printed in this session carried their message id. A stored line of hers carries it
+// in `messageId` of the page `storedPage` returns, as `ChatEntry` names it.
+test('a line drawn from the stored history is redrawn by a change for its message id', async () => {
+  // Bug: the owner's screen keeps the words she edited in a line from before the restart.
+  const { env, listeners } = chatEnv({
+    storedPage: () =>
+      Promise.resolve([
+        { id: 'src-1', who: 'owner' as const, text: 'put the kettle on', number: 140 },
+        { id: 'src-2', who: 'her' as const, text: 'the kettle is on 🙂', number: 141, messageId: 'm-old' },
+      ]),
+  });
+  await withChat(env, async (rig) => {
+    await until(() => screenOf(rig).includes('the kettle is on 🙂'));
+    listeners.lineChange?.({ id: 'm-old', text: 'the kettle is on' });
+    await until(() => screenOf(rig).includes('the kettle is on (edited)'));
+    const after = screenOf(rig);
+    assert.equal(after.includes('🙂'), false);
+    assert.ok(after.includes('put the kettle on'), 'the owner line stays');
+  });
+});
