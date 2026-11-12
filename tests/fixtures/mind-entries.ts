@@ -42,6 +42,9 @@ export function personEntry(native: string, name: string, over: Partial<PersonEn
     character: null,
     style: null,
     claims: [],
+    interests: [],
+    usualName: null,
+    messagesSeen: null,
     ...over,
   };
 }
