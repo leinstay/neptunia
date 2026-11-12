@@ -111,6 +111,8 @@ export type BuildRequestInput = {
   meanwhileReads?: MeanwhileReads | null;
   /** The interface's text and the stored fields of the place and its root: `<surroundings>`. */
   surroundings?: SurroundingsInput | null;
+  /** Her lessons the turn's context may read, best first (frame-reads.ts#lessonsOf): `<lessons>` of `<self>`. */
+  lessons?: RequestInput['lessons'];
   /** Reads a line by its identity under the turn's scope, for the references in stored texts (src/turn/request/refs.ts). */
   refLineOf?: LineOf | null;
   /** The chat id of a stored place, from its row (frame-reads.ts#placeRefOf); null for a DM and a place no row holds. */

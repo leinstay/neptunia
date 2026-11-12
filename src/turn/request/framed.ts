@@ -18,6 +18,7 @@ import { renderSenses } from './senses.ts';
 import type { SensesOf } from './senses.ts';
 import { selfreflectionFramedOf } from './selfreflection.ts';
 import { surroundingsOf } from './surroundings.ts';
+import { lessonsBlockOf, lessonsBudgetOf } from './lessons.ts';
 import { keepsEmoji } from './text.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
 import { seenOf } from './tail.ts';
@@ -92,9 +93,11 @@ function surroundingsHeld(
   const path = place === null ? '' : place.path.join('/');
   const names = JSON.stringify(stored?.names ?? null);
   const keepEmoji = keepsEmoji(given.config);
+  // The in-jokes are claims, not description versions: a new or retired one shows at once too.
+  const injokes = stored?.root?.injokes ?? '';
   return base.frozen(
     `surroundings:${place?.id ?? ''}`,
-    `${path}|${versions}|${names}|${handle ?? ''}|${partner ?? ''}|${keepEmoji}`,
+    `${path}|${versions}|${names}|${handle ?? ''}|${partner ?? ''}|${keepEmoji}|${injokes}`,
     () =>
       surroundingsOf(
         frame,
@@ -108,6 +111,23 @@ function surroundingsHeld(
         handle,
         keepEmoji
       )
+  );
+}
+
+/**
+ * `<lessons>` of `<self>`, held like `<self_facts>` for the cache bucket while the stored lessons, their labels and the
+ * budget stay the same (the order they rank in changes the bytes only at the next bucket edge): the header and the lines
+ * that fit `context.lessons.budgetTokens`, none without lessons or a budget.
+ */
+function lessonsHeld(given: RequestInput, base: Base, room: Room): { header: string; lines: Array<string> } {
+  const lessons = given.lessons ?? [];
+  const budget = lessonsBudgetOf(given.config);
+  if (lessons.length === 0 || budget === null) return { header: '', lines: [] };
+  const { lessons: words, authors } = base.labels;
+  const wording = `${words?.header ?? ''}|${words?.line ?? ''}|${authors?.unknown ?? ''}`;
+  const stored = lessons.map((lesson) => `${lesson.teacher ?? ''}\u0000${lesson.text}`).sort();
+  return base.frozen('lessons', `${budget}|${wording}|${stored.join('\u0001')}`, () =>
+    lessonsBlockOf(lessons, budget, { labels: base.labels, mention: storedMention(given, base), cost: room.cost })
   );
 }
 
@@ -209,6 +229,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     senses: renderSenses(given.config, labels, { ...senses.sensesOptions, interfaceText: null }),
     toolsText: senses.toolsText,
     selfFacts,
+    lessons: lessonsHeld(given, base, room),
     surroundingsText,
     mind: given.mind ?? NO_MIND,
     facts: storedFactsOf(given.prefetch),
