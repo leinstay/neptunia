@@ -55,7 +55,8 @@ async function requestAfter(draws: number): Promise<string> {
         },
       ],
     });
-    return run.requests[0]?.[0] ?? '';
+    const first = run.requests[0] ?? [];
+    return first[0] ?? '';
   } finally {
     world.close();
   }
