@@ -42,6 +42,7 @@ import { loadStemmer } from './stems.ts';
 import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './names.ts';
 import type { NameHitRow, NameMatch, NodeRef } from './names.ts';
 import { placeChainInDb } from './place-tree.ts';
+import { placeStatsOf } from './place-stats.ts';
 import { allowedAudience, audienceWhere, dmAudienceId, groupAudienceId, AUD_INTERNAL } from './scope.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
@@ -100,6 +101,12 @@ export type PlaceEntry = EntryBase & {
   purpose: string | null;
   tone: string | null;
   topics: string | null;
+  /** The topic the interface gives the place (`places.topic`), null when it gives none. */
+  topic: string | null;
+  /** How active the place is by its tally (place-stats.ts), null for a place nothing was counted in. */
+  activity: 'live' | 'slow' | 'dead' | null;
+  /** The moment of the place's last message, milliseconds since the epoch, null without a tally. */
+  lastMessageAt: number | null;
   /** The moment she joined the place, milliseconds since the epoch: a root's, null when the store knows none. */
   joinedAt: number | null;
   ownLines: number;
@@ -1042,6 +1049,8 @@ function personOf(
 
 function placeOf(
   db: Db,
+  ctx: Context,
+  now: number,
   walker: Walker,
   raised: Raised,
   lore: Array<Built>,
@@ -1105,6 +1114,7 @@ function placeOf(
     purpose: descriptions.get('purpose')?.text ?? null,
     tone: descriptions.get('tone')?.text ?? null,
     topics: descriptions.get('topics')?.text ?? null,
+    ...placeStatsEntryOf(db, ctx, placeId, now),
     joinedAt: joinedAtOfPlace(db, placeId),
     ownLines: Number(mine?.n ?? 0),
     ownLastAt: text(mine?.last),
@@ -1115,15 +1125,40 @@ function placeOf(
       ...raised.sources,
     ],
   };
-  const render = (detail: Detail): string => {
-    const head = entry.path.join(' > ');
-    if (detail === 'name') return head;
-    if (detail === 'compact') return [head, entry.purpose].filter((one) => one !== null).join('\n');
-    return [head, entry.purpose, entry.tone, entry.topics, `${ownLinesShown(entry.ownLines)} ${entry.ownLastAt ?? ''}`]
-      .filter((one) => one !== null)
-      .join('\n');
-  };
+  const render = (detail: Detail): string => placeRender(entry, detail);
   return { subtag: 'places', raised, entry, render };
+}
+
+/** The topic, activity and last message of a place's entry, each null when the context reads none. */
+function placeStatsEntryOf(
+  db: Db,
+  ctx: Context,
+  placeId: string,
+  now: number
+): Pick<PlaceEntry, 'topic' | 'activity' | 'lastMessageAt'> {
+  const stats = placeStatsOf(db, ctx, placeId, now);
+  return {
+    topic: stats?.topic ?? null,
+    activity: stats?.activity ?? null,
+    lastMessageAt: stats?.lastMessageAt ?? null,
+  };
+}
+
+/** What the budget weighs of a place's entry at `detail`. */
+function placeRender(entry: PlaceEntry, detail: Detail): string {
+  const head = entry.path.join(' > ');
+  if (detail === 'name') return head;
+  if (detail === 'compact') return [head, entry.purpose, entry.topic].filter((one) => one !== null).join('\n');
+  return [
+    head,
+    entry.purpose,
+    entry.tone,
+    entry.topics,
+    entry.topic,
+    `${ownLinesShown(entry.ownLines)} ${entry.ownLastAt ?? ''}`,
+  ]
+    .filter((one) => one !== null)
+    .join('\n');
 }
 
 /** The moment she joined a place, from the `joinedAt` its `extra` holds; null when it holds none. */
@@ -1362,7 +1397,7 @@ export function mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSetting
     raised.kind === 'person'
       ? personOf(db, walker, settings, raised, trigger, recent, now)
       : raised.kind === 'place'
-        ? placeOf(db, walker, raised, lore, recent, trigger)
+        ? placeOf(db, ctx, now, walker, raised, lore, recent, trigger)
         : interfaceOf(db, raised);
   const first = [...walker.raised.values()].map(build).filter((one): one is Built => one !== null);
   const before = new Set(walker.raised.keys());

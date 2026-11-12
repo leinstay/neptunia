@@ -970,10 +970,19 @@
         "tone": "tone",
         "topics": "topics",
         "joined": "joined",
+        "topic": "topic",
+        "writers": "writes here most",
+        "activity": "activity",
+        "lastMessage": "last message",
         "patterns": "how people talk here",
         "starters": "how conversations start",
         "injokes": "in-jokes",
         "lore": "lore"
+      },
+      "activity": {
+        "live": "active",
+        "slow": "slow",
+        "dead": "dead"
       }
     },
     "lessons": {

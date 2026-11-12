@@ -316,6 +316,12 @@ function fieldLine(w: Words, field: string, value: string): string {
   return fill(template ?? '{field}: {value}', { field: fields?.[field] ?? field, value });
 }
 
+/** The word of a place's activity from `surroundings.activity`, '' for a place with none. */
+function activityWord(w: Words, place: PlaceEntry): string {
+  const words = w.surroundings.activity;
+  return place.activity === null || !words ? '' : (words[place.activity] ?? '');
+}
+
 function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string {
   // The place as every block of the request names it: in words, with its handle.
   const ref = w.refs.place(place.placeId, wordsOfEntry(w, place));
@@ -329,6 +335,12 @@ function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string
     }
     if (typeof place.joinedAt === 'number' && Number.isFinite(place.joinedAt))
       lines.push(fieldLine(w, 'joined', formatDay(place.joinedAt, w.frame.timezone)));
+    if (place.topic) lines.push(fieldLine(w, 'topic', storedText(w, place.topic)));
+    const activity = activityWord(w, place);
+    if (activity) lines.push(fieldLine(w, 'activity', activity));
+    // A day, not an age, so the entry keeps its bytes through the day.
+    if (typeof place.lastMessageAt === 'number' && Number.isFinite(place.lastMessageAt))
+      lines.push(fieldLine(w, 'lastMessage', formatDay(place.lastMessageAt, w.frame.timezone)));
     const date = place.ownLastAt ? formatDate(Date.parse(place.ownLastAt), w.frame.timezone, w.locale) : '';
     // The count rounded down to a step, so the entry stays the same bytes while she talks there.
     const count = ownLinesShown(place.ownLines);
