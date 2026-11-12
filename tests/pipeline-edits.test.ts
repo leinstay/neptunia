@@ -11,6 +11,9 @@ import type { Message } from '../src/protocol/events.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import type { TestMemory } from './fixtures/memory-db/service.ts';
 import { rig } from './fixtures/reads-rig.ts';
+import { chatLines } from '../src/memory/db/chat-lines.ts';
+import { linesAroundOf, linesSinceOf } from '../src/memory/db/frame-reads.ts';
+import { internalContext } from '../src/memory/db/scope.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 const ROOT = 'root';
@@ -256,6 +259,148 @@ test('an edit in a chat with a served root still stores the new text as revision
       [1, 'πρώτη μορφή'],
       [2, 'δεύτερη μορφή'],
     ]);
+  } finally {
+    await memory.close();
+  }
+});
+
+/** The stored revisions of a message with their kind and moment, oldest revision first. */
+function rowsOf(
+  memory: TestMemory,
+  native: string
+): Array<{ revision: unknown; kind: unknown; authorKind: unknown; at: unknown }> {
+  const db = memory.memoryDb.database();
+  if (!db) throw new Error('database unavailable');
+  return db
+    .prepare(
+      `SELECT revision, kind, author_kind, occurred_at FROM sources WHERE json_extract(extra, '$.$messageLocator.messageId') = ?
+       AND kind IN ('seen', 'said') ORDER BY revision`
+    )
+    .all(native)
+    .map((row) => ({ revision: row.revision, kind: row.kind, authorKind: row.author_kind, at: row.occurred_at }));
+}
+
+const EDIT_DELAY_MS = 93 * 60_000;
+
+/**
+ * Her line of the command line stored, then its edit as the client reports a line it does not hold: the message's own
+ * moment is the moment of the edit (interfaces/cli/link.ts), 93 minutes later.
+ */
+async function ownCliEdit(memory: TestMemory, id: string) {
+  const { observed, edits } = editsOver(memory);
+  const first = cliLine(id, 'the kettle is on 🙂', true);
+  const second = {
+    ...first,
+    content: 'the kettle is on',
+    sourceText: 'the kettle is on',
+    at: first.at + EDIT_DELAY_MS,
+  };
+  await observed.observeLine(cliEvent(`cli-create-${id}`, first), false, { placeId: 'cli:dm:owner' });
+  await edits.onMessageUpdate({ ...cliEvent(`cli-update-${id}`, second, { previous: first }), at: second.at });
+  return first;
+}
+
+// Bug (production, 2026-11-12): the edit's row took the moment of the edit, so every reader that orders by a row's
+// moment moved her line. Specified on the writer too, beside the readers that must cope with rows already stored so.
+test('an edit of her own line of the command line is stored at the moment of the line it changed', async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    const first = await ownCliEdit(memory, 'c10');
+    const at = new Date(first.at).toISOString();
+    assert.deepEqual(
+      rowsOf(memory, 'c10').map((row) => [row.revision, row.at]),
+      [
+        [1, at],
+        [2, at],
+      ]
+    );
+  } finally {
+    await memory.close();
+  }
+});
+
+// Bug: a `said` row for the edit would count her line twice in the counts of `said` rows, and the kind feeds source ids,
+// so the edit keeps the kind the writer gives every edit and the readers tell her line by the author.
+test('an edit of her own line of the command line reads back as hers while a count of said rows holds the line once', async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    await ownCliEdit(memory, 'c11');
+    const db = memory.memoryDb.database();
+    if (!db) throw new Error('database unavailable');
+    const rows = rowsOf(memory, 'c11');
+    assert.deepEqual(
+      rows.map((row) => [row.revision, row.kind, row.authorKind]),
+      [
+        [1, 'said', 'self'],
+        [2, 'seen', 'self'],
+      ]
+    );
+    const place = String(
+      db.prepare("SELECT place_id FROM sources WHERE json_extract(extra, '$.$messageLocator.messageId') = ?").get('c11')
+        ?.place_id
+    );
+    assert.deepEqual(
+      chatLines(db, place).map((line) => [line.nativeId, line.who, line.text]),
+      [['c11', 'her', 'the kettle is on']]
+    );
+  } finally {
+    await memory.close();
+  }
+});
+
+/** What a frame read gives of the place of the message `id` from or around `at`: its lines as `[id, self, text, at]`. */
+function readFrom(memory: TestMemory, id: string, at: number, read: typeof linesSinceOf | typeof linesAroundOf) {
+  const db = memory.memoryDb.database();
+  if (!db) throw new Error('database unavailable');
+  const place = db
+    .prepare("SELECT place_id FROM sources WHERE json_extract(extra, '$.$messageLocator.messageId') = ?")
+    .get(id)?.place_id;
+  return read(db, internalContext(), String(place), at, 3).map((line) => [line.id, line.self, line.text, line.at]);
+}
+
+// Guard (green before the fix): someone else's line edited in a chat with a root keeps being theirs, at its place.
+test("an edit of someone else's line in a chat with a root reads as their line at the moment it was written", async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    const { observed, edits } = editsOver(memory);
+    const first: Message = { ...created('9200'), content: 'πρώτη μορφή' };
+    const second: Message = { ...first, content: 'δεύτερη μορφή', editedAt: NOW };
+    await observed.observeLine(eventOf('create-9200', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-9200', second, first));
+    assert.deepEqual(readFrom(memory, '9200', first.at, linesSinceOf), [['9200', false, 'δεύτερη μορφή', first.at]]);
+  } finally {
+    await memory.close();
+  }
+});
+
+// Guard for the Discord shape (green before the fix, so the frame reads already tell her edit by the author's kind):
+// her own line edited in a chat with a root, the edit carrying the line's own moment.
+test('an edit of her own line in a chat with a root reads as hers with the new text', async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    const { observed, edits } = editsOver(memory);
+    const mine = { id: 'self', name: 'Nova', self: true, bot: false };
+    const first: Message = { ...created('9201'), content: 'πρώτη μορφή', author: mine };
+    const second: Message = { ...first, content: 'δεύτερη μορφή', editedAt: NOW };
+    await observed.observeLine(eventOf('create-9201', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-9201', second, first));
+    assert.deepEqual(readFrom(memory, '9201', first.at, linesSinceOf), [['9201', true, 'δεύτερη μορφή', first.at]]);
+  } finally {
+    await memory.close();
+  }
+});
+
+// Bug (found by the specifier): a read around a line puts the older revision first when both rows share a moment, and
+// keeps the first row it meets, so a platform's edit shows its old text in `<meanwhile>` and conversation.read.
+test("a read around a line gives someone else's edited line its new text when the edit keeps the moment", async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    const { observed, edits } = editsOver(memory);
+    const first: Message = { ...created('9202'), content: 'πρώτη μορφή' };
+    const second: Message = { ...first, content: 'δεύτερη μορφή', editedAt: NOW };
+    await observed.observeLine(eventOf('create-9202', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-9202', second, first));
+    assert.deepEqual(readFrom(memory, '9202', first.at, linesAroundOf), [['9202', false, 'δεύτερη μορφή', first.at]]);
   } finally {
     await memory.close();
   }

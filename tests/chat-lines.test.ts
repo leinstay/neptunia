@@ -2,8 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { chatLines, lineNumberOf } from '../src/memory/db/chat-lines.ts';
+import { chatLines, lineNumberOf, placeLineNumbers } from '../src/memory/db/chat-lines.ts';
 import type { Db } from '../src/memory/db/types.ts';
+import { EDIT_DELAY_MS, minute, storeProductionEdit, storeRevision } from './fixtures/memory-db/edited-line.ts';
 
 type Context = { after: (fn: () => void) => void };
 
@@ -200,4 +201,71 @@ test("a line's number is found by its platform id when the row keeps a key of it
   add('s2', 'said', 'key-2', '2026-11-05T00:00:02.000Z', 'two');
   routed(db, 's2', 'cli-2');
   assert.equal(lineNumberOf(db, 'cli:dm:owner', 'cli-2'), 2);
+});
+
+const CLI = { iface: 'cli', place: 'cli:dm:owner' };
+
+// Bug (production, 2026-11-12): her edit of a line from an earlier session of the command line was stored with the
+// moment of the edit and kind `seen`, so the line moved to the end of the chat, read as the owner's, and every line after
+// its old place changed number.
+test('a line of hers edited with the moment of the edit keeps its place, its number and its author, with the new text and its mark', (t) => {
+  const { db } = rig(t);
+  storeProductionEdit(db, CLI);
+  const lines = chatLines(db, CLI.place);
+  assert.deepEqual(
+    lines.map((line) => [line.nativeId, line.number, line.who]),
+    [
+      ['owner-1', 1, 'owner'],
+      ['hers-1', 2, 'her'],
+      ['owner-2', 3, 'owner'],
+      ['hers-2', 4, 'her'],
+    ]
+  );
+  const edited = lines[1];
+  assert.equal(edited?.text, 'the kettle is on');
+  assert.equal(edited?.editedAt, minute(1) + EDIT_DELAY_MS, 'the edited mark stands, dated by the edit');
+  assert.equal(edited?.at, minute(1), 'the line keeps the moment it was said');
+});
+
+// Bug: the numbers of the request's `<chat>` come from this count, so the moved line shifts every later number there.
+test('the numbers of the newest lines by message id are the same after an edit stored with the moment of the edit', (t) => {
+  const { db } = rig(t);
+  storeProductionEdit(db, CLI);
+  const found = placeLineNumbers(db, CLI.place, 10);
+  assert.equal(found.count, 4);
+  assert.deepEqual(
+    ['owner-1', 'hers-1', 'owner-2', 'hers-2'].map((id) => found.numbers.get(id)),
+    [1, 2, 3, 4]
+  );
+  assert.equal(lineNumberOf(db, CLI.place, 'hers-1'), 2, 'a number she wrote earlier names the same line');
+});
+
+// Bug: the same rule keyed on the author alone would fix her lines and leave the owner's edited line moving.
+test('a line of the owner edited with a later moment keeps its place and stays his', (t) => {
+  const { db } = rig(t);
+  storeRevision(db, CLI, { native: 'a', text: 'before', at: minute(0), kind: 'seen', by: 'someone' });
+  storeRevision(db, CLI, { native: 'b', text: 'between', at: minute(1), kind: 'said', by: 'her' });
+  storeRevision(db, CLI, { native: 'a', text: 'after', at: minute(90), revision: 2, kind: 'seen', by: 'someone' });
+  assert.deepEqual(
+    chatLines(db, CLI.place).map((line) => [line.nativeId, line.who, line.text]),
+    [
+      ['a', 'owner', 'after'],
+      ['b', 'her', 'between'],
+    ]
+  );
+});
+
+// Guard (green before the fix): an edit that keeps the moment, as a platform reports it, already holds its place.
+test('an edit of the owner line that keeps its moment stays at its place as his line with the new text', (t) => {
+  const { db } = rig(t);
+  storeRevision(db, CLI, { native: 'a', text: 'before', at: minute(0), kind: 'seen', by: 'someone' });
+  storeRevision(db, CLI, { native: 'b', text: 'between', at: minute(1), kind: 'said', by: 'her' });
+  storeRevision(db, CLI, { native: 'a', text: 'after', at: minute(0), revision: 2, kind: 'seen', by: 'someone' });
+  assert.deepEqual(
+    chatLines(db, CLI.place).map((line) => [line.nativeId, line.who, line.text, line.number]),
+    [
+      ['a', 'owner', 'after', 1],
+      ['b', 'her', 'between', 2],
+    ]
+  );
 });

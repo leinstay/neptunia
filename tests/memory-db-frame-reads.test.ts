@@ -5,7 +5,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { insertRows } from '../src/memory/db/rows.ts';
-import { chatPlacesOf, linesAroundOf, ownLinesOf, sourceRetiredOf } from '../src/memory/db/frame-reads.ts';
+import {
+  chatPlacesOf,
+  lineOfIdentity,
+  linesAroundOf,
+  linesSinceOf,
+  ownLinesOf,
+  sourceRetiredOf,
+} from '../src/memory/db/frame-reads.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
 import {
   addDm,
@@ -17,6 +24,7 @@ import {
   rootId,
 } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
+import { minute, storeProductionEdit } from './fixtures/memory-db/edited-line.ts';
 
 const AT = '2026-11-01T10:00:00.000Z';
 
@@ -347,6 +355,80 @@ test("every chat is a place a #handle may name: a direct chat and the command li
     assert.equal(listed.get(dm), 'u1');
     assert.equal(listed.get(cli), 'owner');
     assert.equal(listed.get(rootId('fake', 'g1')), undefined, 'a root is no chat');
+  } finally {
+    world.close();
+  }
+});
+
+/** The scene of production's edit (fixtures/memory-db/edited-line.ts) in a room of the `fake` interface. */
+function editedRoom(world: World): string {
+  noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+  const room = addRoom(world.db, { iface: 'fake', native: 'c7', root: rootId('fake', 'g1'), name: 'garden' });
+  storeProductionEdit(world.db, { iface: 'fake', place: room });
+  return room;
+}
+
+const shown = (lines: ReadonlyArray<{ id: string; self: boolean; text: string }>) =>
+  lines.map((line) => [line.id, line.self, line.text]);
+
+const IN_ORDER = [
+  ['owner-1', false, 'first words'],
+  ['hers-1', true, 'the kettle is on'],
+  ['owner-2', false, 'second words'],
+  ['hers-2', true, 'her next words'],
+];
+
+// Bug (production, 2026-11-12): an edit stored with the moment of the edit made a read from a moment hand back the first
+// revision's text at its old place, or the edit at the end of the window, so `<meanwhile>` and conversation.read showed
+// her line twice or in the wrong place.
+test('a read from a moment gives her edited line once, at the place it was said, with the new text', () => {
+  const world = openWorld();
+  try {
+    const room = editedRoom(world);
+    const lines = linesSinceOf(world.db, internalContext(), room, minute(0), 10);
+    assert.deepEqual(shown(lines), IN_ORDER);
+  } finally {
+    world.close();
+  }
+});
+
+test('a read around a line gives her edited line once, at the place it was said, with the new text', () => {
+  const world = openWorld();
+  try {
+    const room = editedRoom(world);
+    const lines = linesAroundOf(world.db, internalContext(), room, minute(2), 5);
+    assert.deepEqual(shown(lines), IN_ORDER);
+  } finally {
+    world.close();
+  }
+});
+
+// Bug: her newest lines elsewhere are ordered by the edit's moment, so an old line she fixed reads as her newest.
+test('her newest lines in other places date an edited line by the moment it was said', () => {
+  const world = openWorld();
+  try {
+    editedRoom(world);
+    const found = ownLinesOf(world.db, internalContext(), null, 10);
+    assert.deepEqual(
+      found.map((line) => [line.id, line.at]),
+      [
+        ['hers-2', minute(3)],
+        ['hers-1', minute(1)],
+      ]
+    );
+    assert.equal(found[1]?.text, 'the kettle is on');
+  } finally {
+    world.close();
+  }
+});
+
+// Bug: a reference to the line quotes it under the moment of its edit.
+test('a line by its identity is dated by the moment it was said once it is edited', () => {
+  const world = openWorld();
+  try {
+    editedRoom(world);
+    const line = lineOfIdentity(world.db, internalContext(), 'src:fake:hers-1');
+    assert.deepEqual([line?.at, line?.text, line?.self, line?.revision], [minute(1), 'the kettle is on', true, 2]);
   } finally {
     world.close();
   }

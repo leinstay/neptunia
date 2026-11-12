@@ -15,7 +15,9 @@ import { openBoard } from '../src/board/board.ts';
 import type { Board, BoardSettings } from '../src/board/board.ts';
 import { createTaskCommands } from '../src/board/commands.ts';
 import type { BoardDb } from '../src/board/schema.ts';
+import { chatLines } from '../src/memory/db/chat-lines.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { storeProductionEdit } from './fixtures/memory-db/edited-line.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const LINES: ReadonlyArray<SourceLine> = [
@@ -396,4 +398,35 @@ test('a chat opened before its place is stored starts at the root once the place
     page.lines.map((line) => line.id),
     ['s1', 's2', 's3']
   );
+});
+
+// Bug (production, 2026-11-12): the owner's screen loaded her edited line at the end of the chat, as his, under the
+// number of its edit, and every line after its old place changed number. The page carries no mark field, so the mark
+// is checked on the reader (tests/chat-lines.test.ts).
+test('a stored page holds her line edited with the moment of the edit once, at its old place, as hers', async () => {
+  const handle = openMemoryDb(':memory:');
+  try {
+    storeProductionEdit(handle.db as Parameters<typeof storeProductionEdit>[0], {
+      iface: 'cli',
+      place: 'cli:dm:owner',
+    });
+    const stored = chatLines(handle.db as Parameters<typeof chatLines>[0], 'cli:dm:owner');
+    const { run } = rig(stored);
+    await run({ name: 'session.open', args: {} });
+    const answer = await run({ name: 'session.page', args: { before: null, count: 10 } });
+    const { lines } = JSON.parse(answer.text) as {
+      lines: Array<{ messageId: string; who: string; text: string; number: number }>;
+    };
+    assert.deepEqual(
+      lines.map((line) => [line.messageId, line.number, line.who, line.text]),
+      [
+        ['owner-1', 1, 'owner', 'first words'],
+        ['hers-1', 2, 'her', 'the kettle is on'],
+        ['owner-2', 3, 'owner', 'second words'],
+        ['hers-2', 4, 'her', 'her next words'],
+      ]
+    );
+  } finally {
+    handle.close();
+  }
 });
