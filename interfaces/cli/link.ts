@@ -19,7 +19,8 @@ import { TURN_EVENT_STATUS, readTurnEvent } from '../../src/protocol/turn-contro
 import type { TurnEvent } from '../../src/protocol/turn-control.ts';
 import type { Transport } from '../../src/protocol/wire.ts';
 import { classifyAttachment } from '../../src/media/classify.ts';
-import type { Attachment } from '../../src/protocol/actions.ts';
+import { notOk, ok } from '../../src/protocol/actions.ts';
+import type { Attachment, PortResult } from '../../src/protocol/actions.ts';
 import type { InterfaceHost, RunningInterface } from '../../src/protocol/host.ts';
 import { UnansweredQuestion, unansweredText } from './questions.ts';
 
@@ -52,9 +53,9 @@ export type LinkAnswers = {
 /** A staged image going with a line: `reference` is what the core's readers open (src/media/staging.ts). */
 export type LineImage = { id: string; name: string; contentType: string; reference: string; size?: number };
 
-/** What the command line declares to the core: it sends text, keeps images and answers who its one chat is. */
+/** What the command line declares to the core: it sends text, edits and deletes her lines, keeps images and answers who its one chat is. */
 const CLI_CAPABILITIES: Capabilities = {
-  operations: ['message.send', 'chat.typing'],
+  operations: ['message.send', 'message.edit', 'message.delete', 'chat.typing'],
   maxChars: 100_000,
   maxFiles: 10,
   // One file of the socket's frame, as src/protocol/wire.ts sizes it.
@@ -73,8 +74,20 @@ const CLI_CAPABILITIES: Capabilities = {
   reads: ['chat.info', 'messages.history', 'messages.fetch'],
 };
 
-/** Takes her words for the screen, with the message id of the line they reply to, when they reply to one. */
-export type Print = (text: string, replyTo?: string | null) => void;
+/**
+ * Takes her words for the screen, with the message id of the line they reply to, when they reply to one, and the message
+ * id of the line itself, which a later edit or deletion of it names.
+ */
+export type Print = (text: string, replyTo?: string | null, messageId?: string) => void;
+
+/** One change of a line of her own, for the owner's screen: its new text, or that it is deleted. */
+export type LineChange = { id: string; text?: string; deleted?: true };
+
+/** What the adapter does for a change of one of her lines: reports it to the core, and tells the screen. */
+type LineChanges = {
+  report: (event: Record<string, unknown>) => Promise<string>;
+  onLineChange: ((change: LineChange) => void) | null;
+};
 
 /** How many lines of this session the chat keeps to answer the core's history reads. */
 const TRANSCRIPT_LINES = 200;
@@ -106,10 +119,25 @@ const unsupported = (): Promise<{
 function cliAdapter(
   print: Print | null,
   deliver: ((file: Attachment) => Promise<void>) | null,
-  transcript: Array<MessageEvent>
+  transcript: Array<MessageEvent>,
+  changes: LineChanges
 ): Adapter {
   const inChat = (chat: { chatId: string }): boolean => chat.chatId === CHAT_ID;
   const effectRefused = { status: 'unsupported' as const, error: { code: 'unsupported', retryable: false } };
+  /** The line of the chat `message` names when it is hers, else the refusal that says why not. */
+  const ownLine = (message: { chatId: string; messageId: string }): MessageEvent | PortResult => {
+    const line = inChat(message) ? transcript.find((one) => one.message.id === message.messageId) : undefined;
+    if (line === undefined) return notOk('failed', 'unknown-message');
+    const { author } = line.message;
+    return author?.self === true ? line : notOk('forbidden', 'not-own-message');
+  };
+  /** Reports `event` to the core and, once it took it, lets `apply` change what the owner reads. */
+  const reported = async (event: Record<string, unknown>, apply: () => void): Promise<PortResult> => {
+    const acked = await changes.report(event);
+    if (acked !== 'ok') return notOk('failed', 'not-taken', { retryable: true });
+    apply();
+    return ok();
+  };
   return {
     iface: CLI_IFACE,
     capabilities: () => CLI_CAPABILITIES,
@@ -126,14 +154,53 @@ function cliAdapter(
       const ref = { iface: CLI_IFACE, chatId: CHAT_ID, messageId: randomUUID() };
       const at = Date.now();
       if (typeof text === 'string' && text !== '') {
-        print(text, replyTo);
+        print(text, replyTo, ref.messageId);
         keep(transcript, lineEvent(text, at, { id: ref.messageId, self: true, replyTo }));
       }
       for (const file of files) await deliver?.(file);
       return { status: 'ok', ref, parts: [ref], at, idempotencyKey, error: null };
     },
-    edit: () => Promise.resolve(effectRefused),
-    delete: () => Promise.resolve(effectRefused),
+    async edit(message, content): Promise<PortResult> {
+      const text: unknown = isObject(content) ? content.text : null;
+      if (typeof text !== 'string' || text === '') return notOk('failed', 'invalid-content');
+      const line = ownLine(message);
+      if (!('kind' in line)) return line;
+      const at = Date.now();
+      const edited = { ...line.message, content: text, sourceText: text, editedAt: at };
+      const event = {
+        ...line,
+        at,
+        id: `${CLI_IFACE}:message:${line.message.id}:edit:${randomUUID()}`,
+        edit: true,
+        message: edited,
+        previous: line.message,
+      };
+      return reported(event, () => {
+        const index = transcript.indexOf(line);
+        if (index !== -1) transcript[index] = { ...line, message: edited };
+        changes.onLineChange?.({ id: line.message.id, text });
+      });
+    },
+    async delete(message): Promise<PortResult> {
+      const line = ownLine(message);
+      if (!('kind' in line)) return line;
+      const at = Date.now();
+      const event = {
+        kind: 'message.received',
+        iface: CLI_IFACE,
+        at,
+        id: `${CLI_IFACE}:message:${line.message.id}:delete:${randomUUID()}`,
+        chat: CHAT_RECORD,
+        deleted: true,
+        message: { id: line.message.id, at: line.message.at, author: line.message.author },
+        addressing: line.addressing,
+      };
+      return reported(event, () => {
+        const index = transcript.indexOf(line);
+        if (index !== -1) transcript.splice(index, 1);
+        changes.onLineChange?.({ id: line.message.id, deleted: true });
+      });
+    },
     react: () => Promise.resolve(effectRefused),
     unreact: () => Promise.resolve(effectRefused),
     typing: () => Promise.resolve({ status: 'ok' }),
@@ -287,6 +354,7 @@ export function openLinkOver(
     deliver = null,
     onTurnEvent = null,
     transcript = [],
+    onLineChange = null,
   }: {
     token: string;
     print: Print | null;
@@ -295,6 +363,8 @@ export function openLinkOver(
     onTurnEvent?: ((event: TurnEvent) => void) | null;
     /** The lines the core's history reads answer from. A reconnect hands the same array to the new link. */
     transcript?: Array<MessageEvent>;
+    /** One of her lines the core changed or took back: the owner's screen shows it so. */
+    onLineChange?: ((change: LineChange) => void) | null;
   }
 ): CliLink {
   const waiting = new Map<string, (result: Reply) => void>();
@@ -306,6 +376,7 @@ export function openLinkOver(
       resolve();
     })
   );
+  const changes: LineChanges = { report: (event) => served.emit(event), onLineChange };
   const served = serveAdapter({
     transport,
     hello: {
@@ -317,7 +388,7 @@ export function openLinkOver(
       resume: null,
     },
     token,
-    adapter: cliAdapter(print, deliver, transcript),
+    adapter: cliAdapter(print, deliver, transcript, changes),
     log: quiet,
     onCommandResult: (result: CommandResult) => {
       if (result.status === TURN_EVENT_STATUS) {
@@ -396,6 +467,8 @@ export type CliHost = Pick<InterfaceHost, 'connect' | 'token'> & {
   print: Print | null;
   deliver?: ((file: Attachment) => Promise<void>) | null;
   onTurnEvent?: ((event: TurnEvent) => void) | null;
+  /** One of her lines changed or taken back (`openLinkOver`'s `onLineChange`). */
+  onLineChange?: ((change: LineChange) => void) | null;
   /** The lines the core's history reads answer from, kept across a reconnect. */
   transcript?: Array<MessageEvent>;
 };
@@ -414,6 +487,7 @@ export async function start(host: CliHost): Promise<RunningCli> {
     print: host.print,
     deliver: host.deliver ?? null,
     onTurnEvent: host.onTurnEvent ?? null,
+    onLineChange: host.onLineChange ?? null,
     transcript: host.transcript ?? [],
   };
   let link = openLinkOver(await host.connect(), options);

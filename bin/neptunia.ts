@@ -151,7 +151,16 @@ import { chatImages, draftEditor, keepReceived, lineFilesOf, receivedActions, st
 import { addToHistory, readHistory, writeHistory } from './cli-history.ts';
 import type { HistoryRecord } from './cli-history.ts';
 import { CLI_CLIENT, start } from '../interfaces/cli/link.ts';
-import type { Answer, CliLink, Command, LineImage, LinkAnswers, RunningCli } from '../interfaces/cli/link.ts';
+import type {
+  Answer,
+  CliLink,
+  Command,
+  LineChange,
+  LineImage,
+  LinkAnswers,
+  Print,
+  RunningCli,
+} from '../interfaces/cli/link.ts';
 import { runDevelopment } from './development.ts';
 import { readTurnEvent } from '../src/protocol/turn-control.ts';
 import type { TurnEvent } from '../src/protocol/turn-control.ts';
@@ -307,10 +316,11 @@ function readObject(file: string): Settings | null {
  * core listens. `print` takes her replies, null for none.
  */
 async function openCliLink(
-  print: ((text: string) => void) | null,
+  print: Print | null,
   deliver?: (file: Attachment) => Promise<void>,
   chat: {
     onTurnEvent?: (event: TurnEvent) => void;
+    onLineChange?: (change: LineChange) => void;
     transcript?: Array<ChatLine>;
   } | null = null
 ): Promise<RunningCli> {
@@ -630,9 +640,11 @@ async function runInkChat(
   let question: (asked: Question) => void = () => {};
   let linked: (connected: boolean) => void = () => {};
   let turnEvent: (event: TurnEvent) => void = () => {};
+  let lineChange: (change: LineChange) => void = () => {};
   let coreRestarted: () => void = () => {};
   let showView: (entries: ReadonlyArray<ChatEntry>) => void = () => {};
-  const say = (text: string): void => entry({ who: 'her', text });
+  const say = (text: string, _replyTo?: string | null, messageId?: string): void =>
+    entry({ who: 'her', text, ...(messageId === undefined ? {} : { messageId }) });
   const transcript: Array<ChatLine> = [];
   let lastSeq = 0;
   let coreInstance: string | null = null;
@@ -657,7 +669,7 @@ async function runInkChat(
             : { who: 'her', text: '', attachments: [kept.attachment] }
         );
       },
-      { onTurnEvent, transcript }
+      { onTurnEvent, onLineChange: (change) => lineChange(change), transcript }
     );
   let link: RunningCli;
   try {
@@ -799,6 +811,7 @@ async function runInkChat(
       turnEvent = listeners.turn;
       coreRestarted = listeners.coreRestarted;
       showView = listeners.view;
+      lineChange = listeners.lineChange;
       void followTurns();
       // The chat starts as its root: a new process holds no branch's lines.
       void link.ask({ name: 'session.open', args: {} });
