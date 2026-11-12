@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  LIMITS,
   compareToBaseline,
   findImports,
   findOffenders,
@@ -67,10 +68,11 @@ test('findOffenders: a function of exactly 300 lines passes and one of 301 lines
   assert.deepEqual(findOffenders(fnOfLines('big', 301), 'a.js', NOW).functions, { big: { 'function-length': 301 } });
 });
 
-test('findOffenders: a file of exactly 2000 lines passes and one of 2001 lines is reported', () => {
+// The boundary follows LIMITS.fileLines, which the owner raised on 2026-11-12, so no number is pinned here.
+test('findOffenders: a file of exactly the line limit passes and one line more is reported', () => {
   const file = (n: number) => Array.from({ length: n }, () => '// x').join('\n') + '\n';
-  assert.equal(findOffenders(file(2000), 'a.js', NOW).lines, undefined);
-  assert.equal(findOffenders(file(2001), 'a.js', NOW).lines, 2001);
+  assert.equal(findOffenders(file(LIMITS.fileLines), 'a.js', NOW).lines, undefined);
+  assert.equal(findOffenders(file(LIMITS.fileLines + 1), 'a.js', NOW).lines, LIMITS.fileLines + 1);
 });
 
 test('findOffenders: the file limit of the manifest entry replaces the default', () => {
@@ -283,7 +285,7 @@ test('compareToBaseline: a smaller value and a vanished offender are shrinkage',
 });
 
 test('compareToBaseline: a new file over the limit is growth', () => {
-  const cur = { ...emptyBaseline, files: { 'src/new.js': 2001 } };
+  const cur = { ...emptyBaseline, files: { 'src/new.js': LIMITS.fileLines + 1 } };
   assert.equal(compareToBaseline(emptyBaseline, cur).grew.length, 1);
 });
 
