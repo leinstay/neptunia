@@ -38,7 +38,8 @@
 //     (upsert.ts#writeRow) instead of writing a second one;
 //   - an envelope with `edited: true` and no revision takes the newest stored revision of its native key: the same
 //     text is that revision (a replay), another text the next one (none stored: 2, the first was 1). The count lives in
-//     the database, so it survives a restart;
+//     the database, so it survives a restart. The edit's row takes the `occurredAt` of the first stored revision, whatever
+//     moment the event carried: a line stays where it was said;
 //   - `author.account_kind` (`user`, `bot`, `shared`, `self`) is the account's kind, updated on a stored account;
 //     `mentions` (native user ids) and `direct` are the line's columns;
 //   - a DM place observed with a partner (`place.partner`) names the partner's person, the meta-person a new partner
@@ -848,17 +849,28 @@ function storedLineOf(db: Db, envelope: Envelope, revision: unknown): string | n
  * The revision of an edit with none given (see the head of this file): `{ revision, sourceId }`, `sourceId` the stored
  * line when its newest revision already holds this text.
  */
-function editRevisionOf(db: Db, envelope: Envelope): { revision: number; sourceId: string | null } {
+function editRevisionOf(
+  db: Db,
+  envelope: Envelope
+): { revision: number; sourceId: string | null; firstAt: string | null } {
   const n = envelope.native;
+  const first = db
+    .prepare(
+      `SELECT occurred_at FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?
+    AND kind IN ('seen', 'said') AND revision IS NOT NULL AND retired_at IS NULL ORDER BY revision, rowid LIMIT 1`
+    )
+    .get(envelope.authority, n.kind, n.key, n.generation ?? 1);
+  const firstAt = typeof first?.occurred_at === 'string' ? first.occurred_at : null;
   const newest = db
     .prepare(
       `SELECT id, revision, text FROM sources WHERE authority_id = ? AND native_kind = ? AND native_id = ? AND generation = ?
     AND kind IN ('seen', 'said') AND revision IS NOT NULL AND retired_at IS NULL ORDER BY revision DESC, rowid LIMIT 1`
     )
     .get(envelope.authority, n.kind, n.key, n.generation ?? 1);
-  if (!newest) return { revision: 2, sourceId: null };
-  if (newest.text === envelope.text) return { revision: newest.revision as number, sourceId: newest.id as string };
-  return { revision: (newest.revision as number) + 1, sourceId: null };
+  if (!newest) return { revision: 2, sourceId: null, firstAt };
+  if (newest.text === envelope.text)
+    return { revision: newest.revision as number, sourceId: newest.id as string, firstAt };
+  return { revision: (newest.revision as number) + 1, sourceId: null, firstAt };
 }
 
 /** The source key of an envelope in `external_keys` (the native key, revision and subtype under its authority). */
@@ -973,10 +985,13 @@ function writeObservation(
   adoptNativeAuthority(db, given.iface);
   // An edit with no revision: the database's count says which revision it is.
   let e: Envelope = given;
+  let wrote = given.occurredAt;
   let known: string | null = null;
   if (!Number.isInteger(given.native.revision)) {
     const edit = editRevisionOf(db, given);
     e = { ...given, native: { ...given.native, revision: edit.revision } };
+    // The line keeps the moment it was written: an edit event may carry the moment of the edit.
+    wrote = edit.firstAt ?? given.occurredAt;
     known = edit.sourceId;
   }
   const n = e.native;
@@ -1035,7 +1050,7 @@ function writeObservation(
       author_participant: author.participant,
       author_kind: author.kind,
       reply_to: reply ? String(reply.target.key) : null,
-      occurred_at: e.occurredAt,
+      occurred_at: wrote,
       recorded_at: e.observedAt,
       seen_at: author.kind === 'self' ? null : e.observedAt,
       observed_at: e.observedAt,
