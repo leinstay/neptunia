@@ -7,6 +7,7 @@
 // knows no command's meaning but `/clear` and `/attach`. interfaces/cli/app.ts draws it.
 import type { Key } from 'ink';
 import { alternativeText } from './attachment-actions.ts';
+import type { LineChange } from './link.ts';
 import type { AttachmentActions, KeptRead } from './attachment-actions.ts';
 import { graphicBox, placementOf, viewFile } from './file-view.ts';
 import type { ResultGraphic, ViewedFile } from './file-view.ts';
@@ -110,6 +111,8 @@ export type ChatEntry = {
   replyTo?: number;
   /** The kinds of the files memory stores with the line, drawn as `[voice]` and the like after its text. */
   files?: ReadonlyArray<string>;
+  /** The message id of one of her lines as the link keeps it: an edit or a deletion of the line names it. */
+  messageId?: string;
 };
 /**
  * A file of a numbered line: its absolute path on this machine, null when the core did not keep it, and the description
@@ -162,6 +165,8 @@ export type ChatEnv = {
     coreRestarted: () => void;
     /** The transcript as a resumed or branched chat shows it, in place of what is on the screen. */
     view: (entries: ReadonlyArray<ChatEntry>) => void;
+    /** One of her lines was edited or taken back (interfaces/cli/link.ts, `onLineChange`). */
+    lineChange: (change: LineChange) => void;
   }) => void;
   status: () => Promise<StatusBrief | null>;
   /** The history after a submit, newest first, and the draft that was added to it. */
@@ -229,7 +234,13 @@ type ShownEntry = {
   replyTo?: number;
   /** the id of the stored line it is */
   storedId?: string;
+  /** the message id of her line, as a change of it names it */
+  messageId?: string;
 };
+
+/** What an edited line of hers ends with, and what a deleted one reads, as the labels word them (`model.transcript`). */
+const EDITED_MARK = '(edited)';
+const DELETED_LINE = 'message deleted';
 
 /** The id of the blank row between her line and the owner's line after it. */
 const GAP_PREFIX = 'gap-';
@@ -609,8 +620,24 @@ export class ChatController {
       ...this.timeOf(entry),
       ...(entry.number === undefined ? {} : { number: entry.number }),
       ...(entry.replyTo === undefined ? {} : { replyTo: entry.replyTo }),
+      ...(entry.messageId === undefined ? {} : { messageId: entry.messageId }),
     };
     this.update({ entries: [...this.model.entries, shown] });
+  }
+
+  /**
+   * One of her lines changed after it was said: an edit draws the new text and ends it with the edited mark, a deletion
+   * draws the deleted label in its place and drops its images. The line keeps its place and its number.
+   */
+  changeLine(change: LineChange): void {
+    const { entries } = this.model;
+    const at = entries.findIndex((one) => one.who === 'her' && one.messageId === change.id);
+    if (at < 0) return;
+    const old = entries[at];
+    const original = change.deleted === true ? DELETED_LINE : (change.text ?? old.original);
+    const text = drawnText({ who: 'her', text: change.deleted === true ? original : `${original} ${EDITED_MARK}` });
+    const next = { ...old, original, text, ...(change.deleted === true ? { attachments: [] } : {}) };
+    this.update({ entries: entries.map((one, index) => (index === at ? next : one)) });
   }
 
   /** The transcript entries on the screen. */
@@ -725,6 +752,7 @@ export class ChatController {
         if (lost > 0) this.say(`The core restarted, and ${lost} lines it held are gone: send them again.`);
       },
       view: (entries) => this.showView(entries),
+      lineChange: (change) => this.changeLine(change),
     });
     this.loadStoredPage();
   }

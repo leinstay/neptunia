@@ -6,6 +6,7 @@
 import type { Chat } from '../protocol/events.ts';
 import { turnBoundary } from '../tools/publication.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
+import { ifaceOfChat } from '../interface/cli-chat.ts';
 import { placeOfChat } from '../memory/addresses.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { DESTINATION_REQUIRED } from '../behavior/inner-output.ts';
@@ -345,6 +346,9 @@ export type SkillCalls = {
   runCalls: (plans: ReadonlyArray<CallPlan>, context: CallContext) => Promise<Array<CallOutcome>>;
   intentionNamed: (skill: string, args: Obj | null | undefined) => string | null;
 };
+
+/** `ref` with the interface its chat belongs to: the command line's chat is the command line's, whoever serves the turn. */
+const ownRef = (ref: ChatRef): ChatRef => ({ ...ref, iface: ifaceOfChat(ref.chatId, ref.iface) });
 
 // health: allow function-length until 2027-04-01 -- the calls share the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
@@ -846,8 +850,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           (await executeCall(executed, {
             publicationBoundary,
             port,
-            here: chatOf(channel),
-            refOf: (chatId) => chatOf({ id: String(chatId) }),
+            here: ownRef(chatOf(channel)),
+            refOf: (chatId) => ownRef(chatOf({ id: String(chatId) })),
             renderText,
             envelope,
             ...(runOp ? { runOp } : {}),
