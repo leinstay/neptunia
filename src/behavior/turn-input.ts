@@ -69,6 +69,7 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'lookups',
   'meanwhileReads',
   'surroundings',
+  'lessons',
   'refLineOf',
   'chatIdOf',
   'isSourceRetired',

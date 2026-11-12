@@ -253,6 +253,13 @@ export const labels = {
     learnedItemNoFrom: '{text}',
     unsureMark: ' (unconfirmed)',
   },
+  // `<lessons>` inside `<self>`: the header, then one line per lesson, `{from}` the teacher's `@handle`.
+  lessons: {
+    header: 'Things people taught you:',
+    line: '- {text} (from {from})',
+    // A lesson with no known teacher: no teacher part.
+    lineBare: '- {text}',
+  },
   server: {
     currentMark: ' ← you are here',
     topic: 'topic: {text}',
