@@ -51,7 +51,7 @@
 
 import { lineMedia, mediaHits, mediaMessageParts } from './media-store.ts';
 import type { MediaHit, MediaRow } from './media-store.ts';
-import { CURRENT_SOURCE, LINE_KIND, LINE_MOMENT, writtenRowOf } from './source-current.ts';
+import { CURRENT_SOURCE, LINE_KIND, LINE_MOMENT, LINE_ROWID, writtenRowOf } from './source-current.ts';
 import { nativeLocatorOf } from './source-locator.ts';
 import { channelOfPlace } from './native-rows.ts';
 import { locatorText } from './message-locator.ts';
@@ -698,7 +698,7 @@ function peopleRows(
   return db
     .prepare(
       `SELECT ${WORD_COLUMNS} FROM sources s WHERE s.author_account IN (${marks}) AND ${CURRENT_SOURCE} AND ${filter.sql}
-    ORDER BY s.occurred_at DESC LIMIT ?`
+    ORDER BY ${LINE_MOMENT} DESC LIMIT ?`
     )
     .all(...accounts, ...filter.params, limit);
 }
@@ -757,7 +757,7 @@ function timeRows(
   const few = rows('LIMIT ?', limit + 1);
   if (few.length <= limit) return few;
   const edge = (order: 'ASC' | 'DESC') =>
-    Date.parse(rows(`ORDER BY s.occurred_at ${order} LIMIT 1`)[0].occurred_at as string);
+    Date.parse(writtenRowOf(db, rows(`ORDER BY ${LINE_MOMENT} ${order} LIMIT 1`)[0]).occurred_at as string);
   const start = from ?? edge('ASC');
   const span = (to ?? edge('DESC')) - start;
   const at = (share: number) => iso(Math.round(start + span * share));
@@ -767,17 +767,18 @@ function timeRows(
     const end = slice === limit - 1 ? '<=' : '<';
     const near = [
       ...rows(
-        `AND s.occurred_at >= ? AND s.occurred_at ${end} ? ORDER BY s.occurred_at ASC, s.rowid ASC LIMIT 1`,
+        `AND ${LINE_MOMENT} >= ? AND ${LINE_MOMENT} ${end} ? ORDER BY ${LINE_MOMENT} ASC, ${LINE_ROWID} ASC LIMIT 1`,
         middle,
         at((slice + 1) / limit)
       ),
       ...rows(
-        'AND s.occurred_at >= ? AND s.occurred_at < ? ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT 1',
+        `AND ${LINE_MOMENT} >= ? AND ${LINE_MOMENT} < ? ORDER BY ${LINE_MOMENT} DESC, ${LINE_ROWID} DESC LIMIT 1`,
         at(slice / limit),
         middle
       ),
     ];
-    const distance = (row: Row) => Math.abs(Date.parse(row.occurred_at as string) - Date.parse(middle));
+    const distance = (row: Row) =>
+      Math.abs(Date.parse(writtenRowOf(db, row).occurred_at as string) - Date.parse(middle));
     const [nearest] = near.sort((a, b) => distance(a) - distance(b));
     if (nearest) picked.push(nearest);
   }
@@ -800,16 +801,17 @@ function neighbours(
 ): { rows: Array<Row>; stopped: 'hidden' | 'edge' | null } {
   if (!(count > 0)) return { rows: [], stopped: null };
   const earlier = direction < 0;
+  const written = writtenRowOf(db, row);
   const limitMs = isFiniteNumber(minutes)
-    ? Date.parse(row.occurred_at as string) + (earlier ? -1 : 1) * minutes * MINUTE_MS
+    ? Date.parse(written.occurred_at as string) + (earlier ? -1 : 1) * minutes * MINUTE_MS
     : null;
-  const bound = limitMs === null ? '' : ` AND s.occurred_at ${earlier ? '>=' : '<='} ?`;
+  const bound = limitMs === null ? '' : ` AND ${LINE_MOMENT} ${earlier ? '>=' : '<='} ?`;
   // The boundary is read as ids and scope columns only; the text is fetched for the lines the context may open.
   const sql = `SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.place_id = ? AND ${CURRENT_SOURCE}
-    AND (s.occurred_at, s.rowid) ${earlier ? '<' : '>'} (?, ?)${bound} ORDER BY s.occurred_at ${earlier ? 'DESC' : 'ASC'}, s.rowid ${earlier ? 'DESC' : 'ASC'} LIMIT ?`;
+    AND (${LINE_MOMENT}, ${LINE_ROWID}) ${earlier ? '<' : '>'} (?, ?)${bound} ORDER BY ${LINE_MOMENT} ${earlier ? 'DESC' : 'ASC'}, ${LINE_ROWID} ${earlier ? 'DESC' : 'ASC'} LIMIT ?`;
   const found = db
     .prepare(sql)
-    .all(row.place_id, row.occurred_at, row.rowid, ...(limitMs === null ? [] : [iso(limitMs)]), count);
+    .all(row.place_id, written.occurred_at, written.rowid, ...(limitMs === null ? [] : [iso(limitMs)]), count);
   const open: Array<unknown> = [];
   let stopped: 'hidden' | null = null;
   for (const next of found) {
@@ -906,6 +908,20 @@ function sourceForAnchor(db: Db, ctx: Context, raw: unknown, resolved?: Resolved
   );
 }
 
+/** `rows` oldest first by the moment each line was written (its first revision's), then by that revision's `rowid`. */
+function inWrittenOrder(db: Db, rows: Array<Row>): Array<Row> {
+  return rows
+    .map((row) => ({ row, written: writtenRowOf(db, row) }))
+    .sort((a, b) =>
+      (a.written.occurred_at as string) < (b.written.occurred_at as string)
+        ? -1
+        : (a.written.occurred_at as string) > (b.written.occurred_at as string)
+          ? 1
+          : (a.written.rowid as number) - (b.written.rowid as number)
+    )
+    .map((one) => one.row);
+}
+
 /** The stretch around a hit: reply chain, `around` lines each side, the followed chat. Rows, oldest first. */
 function stretchAround(
   db: Db,
@@ -925,32 +941,20 @@ function stretchAround(
   const after = neighbours(db, ctx, hit, 1, { count: around });
   for (const row of after.rows) chosen.set(row.rowid, row);
   // The chat goes on past the last line of the stretch while it does not fall silent.
-  const rows = [...chosen.values()].sort((a, b) =>
-    (a.occurred_at as string) < (b.occurred_at as string)
-      ? -1
-      : (a.occurred_at as string) > (b.occurred_at as string)
-        ? 1
-        : (a.rowid as number) - (b.rowid as number)
-  );
+  const rows = inWrittenOrder(db, [...chosen.values()]);
   const last = rows[rows.length - 1];
   if (after.stopped !== 'hidden') {
     const ahead = neighbours(db, ctx, last, 1, { count: FOLLOW_READ_MAX }).rows;
-    const lastTs = Date.parse(last.occurred_at as string);
+    const lastTs = Date.parse(writtenRowOf(db, last).occurred_at as string);
     const followed = followChat(
       lastTs,
-      ahead.map((row) => ({ ts: Date.parse(row.occurred_at as string), row })),
+      ahead.map((row) => ({ ts: Date.parse(writtenRowOf(db, row).occurred_at as string), row })),
       { followMessages, followGapMinutes }
     );
     // recall.js types what it follows as bare objects; each entry is the `{ ts, row }` handed in above.
     for (const { row } of followed as Array<{ row: Row }>) chosen.set(row.rowid, row);
   }
-  return [...chosen.values()].sort((a, b) =>
-    (a.occurred_at as string) < (b.occurred_at as string)
-      ? -1
-      : (a.occurred_at as string) > (b.occurred_at as string)
-        ? 1
-        : (a.rowid as number) - (b.rowid as number)
-  );
+  return inWrittenOrder(db, [...chosen.values()]);
 }
 
 /** Render and merge using stored identity while preserving native IDs on public messages. */
@@ -1319,7 +1323,7 @@ export function search(
         rowid: row.rowid,
         messageId: row.native_id,
         placeId: row.place_id,
-        ts: Date.parse(row.occurred_at as string),
+        ts: Date.parse(read.writtenOf(row).occurred_at as string),
         score: entry.score,
         streams: STREAMS.filter((_, i) => entry.ranks[i] !== null),
         terms: held.terms,
