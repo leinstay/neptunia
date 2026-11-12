@@ -7,6 +7,7 @@ import { sharedPlaceOf } from '../memory/addresses.ts';
 import type { ObserveLine, DeleteLine } from './observe.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import type { Reads } from '../interface/reads.ts';
+import { ifaceOfChat } from '../interface/cli-chat.ts';
 import { log } from '../log.ts';
 import { appendRevision, gifOpts, slimMessage, toRecordLine } from '../memory/index.ts';
 import type { Message, MessageReceived } from '../protocol/events.ts';
@@ -184,13 +185,14 @@ export function createEdits({
   }
 
   /**
-   * Whether the message of `event` may enter the record: a record injected, the served root, no system
-   * message, a chat outside threads.
+   * Whether the message of `event` may enter the record: a record injected, the served root or the command line's
+   * chat (which has no root), no system message, a chat outside threads.
    */
   function recordable(event: MessageReceived): boolean {
     if (!record) return false;
     const root = event.chat?.rootId ?? null;
-    if (!root || !isServedRoot(root)) return false;
+    const ownChat = !root && event.iface === 'cli' && ifaceOfChat(event.chat?.id ?? '', event.iface) === 'cli';
+    if (!ownChat && (!root || !isServedRoot(root))) return false;
     const message = event.message;
     if ('system' in message && message.system === true) return false;
     return true;
@@ -217,7 +219,7 @@ export function createEdits({
   async function recordEdit(event: MessageEvent, options?: MessageReadOptions): Promise<void> {
     try {
       if (event.partial || !recordable(event)) return;
-      // recordable holds only for the served root.
+      // recordable holds only for the served root and the command line's chat.
       const placeId = sharedPlaceOf(store, event.chat, event.iface);
       if (event.previous && sourceTextOf(event.previous) === sourceTextOf(event.message)) {
         if (bringsMedia(event, event.previous)) await observeLine(event, false, { placeId }, options?.acceptedEvent);
@@ -284,7 +286,7 @@ export function createEdits({
       const message = event?.message;
       const id = message?.id;
       if (!id || !recordable(event)) return;
-      // recordable holds only for the served root.
+      // recordable holds only for the served root and the command line's chat.
       const placeId = sharedPlaceOf(store, event.chat, event.iface);
       const line = toRecordLine(
         {

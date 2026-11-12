@@ -37,6 +37,7 @@ import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
 import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.ts';
+import { ifaceOfChat } from '../../interface/cli-chat.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
 import { mentionsUnderPings } from '../../turn/mentions.ts';
@@ -360,7 +361,8 @@ const handlers = perEnv((env) => {
     return {
       placeId,
       messageId: message.messageId,
-      ref: { iface: p.iface, chatId: placeId, messageId: message.messageId },
+      // A line of the command line's chat is the command line's, whichever interface the turn is served by.
+      ref: { iface: ifaceOfChat(placeId, p.iface), chatId: placeId, messageId: message.messageId },
     };
   }
 
