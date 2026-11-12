@@ -1074,3 +1074,27 @@ test('an entry of a person with interests needs more of the budget to stay whole
   assert.ok(Number.isFinite(without), 'the entry is whole at some budget');
   assert.ok(interested > without, `${interested} > ${without}`);
 });
+
+test('an entry of a person with a described avatar needs more of the budget to stay whole than the same person without', () => {
+  // Bug: the text the budget weighs leaves the avatar description out, so a long description pushes the entry past its
+  // share on the request without a drop to `compact`. Two worlds that differ in the avatar of the account alone.
+  const description = 'ΠΕΡΙΓΡΑΦΗ-ΕΙΚΟΝΑΣ '.repeat(10).trim();
+  const smallestWhole = (withAvatar: boolean): number => {
+    const w = world();
+    const person = plainPerson(w);
+    if (withAvatar) {
+      const stored = JSON.stringify({ hash: 'h1', text: description, describedAt: null });
+      w.db.prepare('UPDATE accounts SET avatar = ? WHERE id = ?').run(stored, 'discord:a1');
+    }
+    const trigger = message('src:a1', 'τι λες εσύ;', { placeId: w.room, trigger: true, mentions: ['discord:a1'] });
+    for (let budgetTokens = 20; budgetTokens <= 4000; budgetTokens += 10) {
+      const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), { ...SETTINGS, budgetTokens }, NOW);
+      if (personIn(mind, person)?.detail === 'whole') return budgetTokens;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const without = smallestWhole(false);
+  const avatar = smallestWhole(true);
+  assert.ok(Number.isFinite(without), 'the entry is whole at some budget');
+  assert.ok(avatar > without, `${avatar} > ${without}`);
+});
