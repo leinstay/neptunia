@@ -11,6 +11,7 @@ import type { Message } from '../src/protocol/events.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import type { TestMemory } from './fixtures/memory-db/service.ts';
 import { rig } from './fixtures/reads-rig.ts';
+import { chatLines } from '../src/memory/db/chat-lines.ts';
 import { linesAroundOf, linesSinceOf } from '../src/memory/db/frame-reads.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
 
@@ -264,16 +265,19 @@ test('an edit in a chat with a served root still stores the new text as revision
 });
 
 /** The stored revisions of a message with their kind and moment, oldest revision first. */
-function rowsOf(memory: TestMemory, native: string): Array<{ revision: unknown; kind: unknown; at: unknown }> {
+function rowsOf(
+  memory: TestMemory,
+  native: string
+): Array<{ revision: unknown; kind: unknown; authorKind: unknown; at: unknown }> {
   const db = memory.memoryDb.database();
   if (!db) throw new Error('database unavailable');
   return db
     .prepare(
-      `SELECT revision, kind, occurred_at FROM sources WHERE json_extract(extra, '$.$messageLocator.messageId') = ?
+      `SELECT revision, kind, author_kind, occurred_at FROM sources WHERE json_extract(extra, '$.$messageLocator.messageId') = ?
        AND kind IN ('seen', 'said') ORDER BY revision`
     )
     .all(native)
-    .map((row) => ({ revision: row.revision, kind: row.kind, at: row.occurred_at }));
+    .map((row) => ({ revision: row.revision, kind: row.kind, authorKind: row.author_kind, at: row.occurred_at }));
 }
 
 const EDIT_DELAY_MS = 93 * 60_000;
@@ -315,17 +319,29 @@ test('an edit of her own line of the command line is stored at the moment of the
   }
 });
 
-// Bug: the edit's row is `seen`, the kind of someone else's line, so a reader that tells hers by `said` loses her.
-test('an edit of her own line of the command line is stored as hers, kind said', async () => {
+// Bug: a `said` row for the edit would count her line twice in the counts of `said` rows, and the kind feeds source ids,
+// so the edit keeps the kind the writer gives every edit and the readers tell her line by the author.
+test('an edit of her own line of the command line reads back as hers while a count of said rows holds the line once', async () => {
   const memory = await openTestMemory({ now: () => NOW });
   try {
     await ownCliEdit(memory, 'c11');
+    const db = memory.memoryDb.database();
+    if (!db) throw new Error('database unavailable');
+    const rows = rowsOf(memory, 'c11');
     assert.deepEqual(
-      rowsOf(memory, 'c11').map((row) => [row.revision, row.kind]),
+      rows.map((row) => [row.revision, row.kind, row.authorKind]),
       [
-        [1, 'said'],
-        [2, 'said'],
+        [1, 'said', 'self'],
+        [2, 'seen', 'self'],
       ]
+    );
+    const place = String(
+      db.prepare("SELECT place_id FROM sources WHERE json_extract(extra, '$.$messageLocator.messageId') = ?").get('c11')
+        ?.place_id
+    );
+    assert.deepEqual(
+      chatLines(db, place).map((line) => [line.nativeId, line.who, line.text]),
+      [['c11', 'her', 'the kettle is on']]
     );
   } finally {
     await memory.close();

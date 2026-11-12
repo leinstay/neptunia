@@ -31,8 +31,10 @@ export type Revision = {
 
 /** `revision` as a row of `place` on `iface`, recorded at its own moment. */
 export function storeRevision(db: Db, { iface, place }: { iface: string; place: string }, revision: Revision): void {
-  const { native, text, at, kind, by } = revision;
-  const number = revision.revision ?? 1;
+  const { native, text, at, kind, by, revision: given } = revision;
+  const hers = by === 'her';
+  const moment = iso(at);
+  const number = given ?? 1;
   insertRows(db, {
     sources: [
       {
@@ -43,10 +45,10 @@ export function storeRevision(db: Db, { iface, place }: { iface: string; place: 
         native_kind: 'message',
         revision: number,
         place_id: place,
-        author_account: by === 'her' ? null : `${iface}:member`,
-        author_kind: by === 'her' ? 'self' : 'account',
-        occurred_at: iso(at),
-        recorded_at: iso(at),
+        author_account: hers ? null : `${iface}:member`,
+        author_kind: hers ? 'self' : 'account',
+        occurred_at: moment,
+        recorded_at: moment,
         text,
         scope_kind: 'group',
         scope_iface: iface,

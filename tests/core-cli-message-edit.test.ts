@@ -362,10 +362,10 @@ test('her edit of a line said before the client restarted leaves it at its numbe
   const chat = chatOf(await editedLaterRequest('second line'));
   assert.deepEqual([...chat.keys()], [1, 2, 3, 4, 5, 6], 'no line is added and none skips a number');
   assert.match(chat.get(2) ?? '', new RegExp(`^Fake \\(you\\).*: ${SECOND} ${EDITED.replace(/[()]/g, '\\$&')}$`));
-  assert.ok(chat.get(3)?.endsWith(': one'), chat.get(3));
-  assert.ok(chat.get(4)?.includes('second line'), chat.get(4));
-  assert.ok(chat.get(5)?.endsWith(': change that'), chat.get(5));
-  assert.ok(chat.get(6)?.endsWith(': and now?'), chat.get(6));
+  assert.ok(chat.get(3)?.endsWith(': one'), String(chat.get(3)));
+  assert.ok(chat.get(4)?.includes('second line'), String(chat.get(4)));
+  assert.ok(chat.get(5)?.endsWith(': change that'), String(chat.get(5)));
+  assert.ok(chat.get(6)?.endsWith(': and now?'), String(chat.get(6)));
 });
 
 // Production, 2026-11-12: the number she wrote in a reply named the line by its identity, and the line had moved.
