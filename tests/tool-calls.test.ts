@@ -235,6 +235,48 @@ test('toolResultText: reasonOf words a call that did not work in detail; a resul
   );
 });
 
+// A result's machine `reason` may have words of its own under `labels.tools.result.reasons`; they win over the words of
+// the code. Made-up texts: the tests check which entry is read, never what it says.
+const reasonLabels = {
+  tools: {
+    result: {
+      ok: 'worked',
+      refused: 'refused: {reason}',
+      reasons: {
+        'not-allowed': 'CODE WORDS',
+        'publication-boundary': 'REASON WORDS',
+        'message-deleted': 'DELETED WORDS',
+        'unknown-message': 'UNKNOWN WORDS',
+        other: 'OTHER WORDS',
+      },
+    },
+  },
+};
+
+test('toolResultText: a reason with words of its own is read instead of the words of the code', () => {
+  const denied = { status: 'denied', code: 'not-allowed', reason: 'publication-boundary' };
+  assert.equal(toolResultText(denied, reasonLabels), 'refused: REASON WORDS');
+});
+
+test('toolResultText: a reason without words leaves the words of the code', () => {
+  const { result } = reasonLabels.tools;
+  const reasons: Record<string, string> = { ...result.reasons };
+  delete reasons['publication-boundary'];
+  const bare = { tools: { result: { refused: 'refused: {reason}', reasons } } };
+  const denied = { status: 'denied', code: 'not-allowed', reason: 'publication-boundary' };
+  assert.equal(toolResultText(denied, bare), 'refused: CODE WORDS');
+});
+
+test('toolResultText: a deleted message keeps the words of message-deleted under its code unknown-message', () => {
+  const gone = { status: 'invalid', code: 'unknown-message', reason: 'message-deleted' };
+  assert.equal(toolResultText(gone, reasonLabels), 'refused: DELETED WORDS');
+});
+
+test('toolResultText: a reason equal to the code reads the words of that code once', () => {
+  const same = { status: 'denied', code: 'not-allowed', reason: 'not-allowed' };
+  assert.equal(toolResultText(same, reasonLabels), 'refused: CODE WORDS');
+});
+
 // A model sometimes writes a tool call as text with attributes, and what reaches the parser is a name such as
 // `media_look" tool_id="media1`. A name with a quote or a space is no tool: the call is refused as malformed with a
 // result she reads, and the broken name never goes back to the provider or into a result's attributes.

@@ -1714,6 +1714,22 @@ test('an internal turn cannot edit a message outside its origin', async () => {
   });
   assert.deepEqual([result.status, result.code], ['denied', 'not-allowed']);
   assert.equal(port.messagesIn(NEWS)[0].text, 'original group body');
+  // The call result carries the machine reason up to toolResultText, which words it apart from the code.
+  assert.equal(result.reason, 'publication-boundary');
+});
+
+test('an internal turn whose edit reaches another chat through the operation is refused with the reason publication-boundary', async () => {
+  // The executor looks at the call's `place` argument and the turn's own chat. Here neither names NEWS: the operation
+  // resolves the newest line of hers in the place its context holds, and its own boundary check refuses the edit.
+  const { admin, port } = makeAdmin();
+  port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'original group body' });
+  const result = await executeCall(resolve('message.edit', { message: 'last' }, 'private replacement'), {
+    ...deps(admin, port),
+    opContext: { placeId: NEWS },
+    publicationBoundary: internalPublication,
+  });
+  assert.deepEqual([result.status, result.code, result.reason], ['denied', 'not-allowed', 'publication-boundary']);
+  assert.equal(port.messagesIn(NEWS)[0].text, 'original group body');
 });
 
 test('an internal turn cannot add a reaction outside its origin', async () => {

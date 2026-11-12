@@ -120,6 +120,8 @@ function carriedOf(result: Obj): Obj {
   const route = result.route ?? objOf(result.data).route;
   return {
     ...(isObj(result.values) ? { values: result.values } : {}),
+    // The machine reason of a refusal travels with its code, so the result is worded by it (tool-calls.ts).
+    ...(result.status !== 'ok' && typeof result.reason === 'string' && result.reason ? { reason: result.reason } : {}),
     ...(route === 'core' || route === 'unavailable' ? { route } : {}),
     // A post the interface kept for a chat that is not open (src/interface/cli-chat.ts).
     ...(objOf(result.data).deferred === true ? { deferred: true } : {}),
