@@ -9,7 +9,7 @@
 
 import { fill } from '../format.ts';
 import { clampWithEllipsis } from '../memory/clamp.ts';
-import { CODE, reasonText } from './codes.ts';
+import { reasonText } from './codes.ts';
 import { apiNameOf } from './definitions.ts';
 import type { Definition } from './definitions.ts';
 import { skillRegistry } from './registry.ts';
@@ -183,6 +183,21 @@ function cutAtLimit(data: string, maxChars: number, labels: unknown): string {
 }
 
 /**
+ * The words of a machine reason that has words of its own in `labels.tools.result.reasons`, read over the code: a
+ * deleted message under `unknown-message`, the publication boundary under `not-allowed`. Null for a reason with none.
+ */
+function machineWords(
+  reason: unknown,
+  code: string,
+  labels: unknown,
+  values: Record<string, unknown> | null
+): string | null {
+  if (typeof reason !== 'string' || reason === '' || reason === code) return null;
+  const reasons = objOf(objOf(objOf(objOf(labels).tools).result).reasons);
+  return Object.hasOwn(reasons, reason) ? reasonText(labels, reason, values, fill) : null;
+}
+
+/**
  * What she reads for one call: the `labels.tools.result` line of its status (the status carried in
  * the words) with `{reason}` filled from `labels.tools.result.reasons[<code>]` (else `.other`, else
  * the code), then the call's data cut to `maxChars` (with the `labels.task.step.cut` line when it was cut), then the call's `memory` whole; before them, one `labels.tools.result.coerced`
@@ -215,10 +230,7 @@ export function toolResultText(
   const reasons = objOf(words.reasons);
   const code = typeof result.code === 'string' && result.code ? result.code : '';
   const values = isObj(result.values) ? result.values : null;
-  // A deleted message is its own reason of `unknown-message` (the machine reason names it).
-  const worded =
-    (result.reason === CODE.MESSAGE_DELETED ? reasonText(labels, CODE.MESSAGE_DELETED, values, fill) : null) ??
-    reasonText(labels, code, values, fill);
+  const worded = machineWords(result.reason, code, labels, values) ?? reasonText(labels, code, values, fill);
   const detailed = typeof reasonOf === 'function' && status !== 'ok' ? reasonOf(result) : '';
   const other = typeof reasons.other === 'string' ? reasons.other : code;
   const reason = detailed || (worded ?? other);
