@@ -8,10 +8,11 @@
 // from tests/fixtures/memory-db/place-claims.ts, synthetic names. The facts are read off the request, never its wording.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDm, addPerson } from './fixtures/memory-db/mind-world.ts';
+import { addAttitude, addDm, addPerson } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 import { addPlaceClaim, addSourceLine } from './fixtures/memory-db/place-claims.ts';
 import type { PlaceClaim } from './fixtures/memory-db/place-claims.ts';
+import { handleOf } from '../src/behavior/handles.ts';
 import { OWNER_PERSON } from './fixtures/owner-accounts.ts';
 import { useIface } from './fixtures/turn-world.ts';
 import { CLI_CHAT, ELENI, TURN_NOW, ZOE, blockOf, replyRun, serviceWorld } from './fixtures/service-turn.ts';
@@ -331,4 +332,125 @@ test('a lesson about herself, written by her memory session, shows with its teac
   const handle = HANDLE.exec(entry.split('\n')[0] ?? '')?.[0] ?? '';
   assert.match(handle, HANDLE, 'Νίκος has an entry in <people>');
   assert.ok(lineWith(lessonsOf(request), 'ΜΑΘΗΜΑ-ΓΙΑ-ΕΜΕΝΑ').includes(handle), lessonsOf(request));
+});
+
+// ---- C. the block <attitudes> ------------------------------------------------------------------------------------
+// The people she feels most strongly about (spec 2026-11-12-what-the-frame-dropped, slice 3): `<attitudes>` inside `<self>`
+// after `<lessons>`, at most `context.attitudes.shown` of them, the person she answers and the people of `<people>`
+// included, each by the handle and the name the rest of the request uses.
+
+const FELT = (shown: number): Record<string, unknown> => ({ lessons: { budgetTokens: 100_000 }, attitudes: { shown } });
+/** The setup of a world: one change of her attitude toward each person, the score after it, under the groups of `fake`. */
+const feelings =
+  (scores: ReadonlyArray<[string, number]>, audience: Parameters<typeof addAttitude>[1]['audience'] = GROUP) =>
+  (world: World): void => {
+    for (const [person, score] of scores) {
+      addAttitude(world.db, {
+        id: `aff:${person}`,
+        person,
+        at: '2026-10-30T10:00:00.000Z',
+        applied: score,
+        score,
+        reason: null,
+        audience,
+      });
+    }
+  };
+/** The body of `<attitudes>` inside `<self>`, '' when absent. */
+const attitudesOf = (request: string): string =>
+  /<attitudes>\n?([\s\S]*?)\n?<\/attitudes>/.exec(blockOf(request, 'self'))?.[1] ?? '';
+const handleIn = (person: string): string => `@${handleOf(person)}`;
+
+test('<attitudes> stands inside <self> after <lessons>', async () => {
+  // Bug: the block is put before the lessons or outside <self>, so the order of the held part of the request changes.
+  const [request = ''] = await inRoom(
+    [lesson('l1', 'ΜΑΘΗΜΑ-ΑΓΟΡΑΣ')],
+    [turn('r2', 1)],
+    FELT(6),
+    feelings([
+      [NIKOS, 50],
+      [ZOE, -40],
+    ])
+  );
+  const self = blockOf(request, 'self');
+  assert.ok(self.includes('</lessons>') && self.includes('<attitudes>'), self);
+  assert.ok(self.indexOf('<attitudes>') > self.indexOf('</lessons>'), self);
+});
+
+test('context.attitudes.shown at 0 gives no block, and the same world with 6 gives one', async () => {
+  // Bug: the setting is not read (the block shows whatever it says), or 0 reads as a missing setting and falls back to a
+  // default number.
+  const setup = feelings([[NIKOS, 50]]);
+  const [on = ''] = await inRoom([], [turn('r2', 1)], FELT(6), setup);
+  const [off = ''] = await inRoom([], [turn('r2', 1)], FELT(0), setup);
+  assert.match(attitudesOf(on), /Νίκος/);
+  assert.doesNotMatch(off, /<attitudes>/);
+});
+
+test('context.attitudes.shown is the number of people listed, the strongest of them', async () => {
+  // Bug: the number is fixed in the code and the setting changes nothing: of three people, two are listed.
+  const [request = ''] = await inRoom(
+    [],
+    [turn('r2', 1)],
+    FELT(2),
+    feelings([
+      [NIKOS, 20],
+      [ZOE, -70],
+      [ELENI, 45],
+    ])
+  );
+  const body = attitudesOf(request);
+  assert.ok(body.includes(handleIn(ZOE)) && body.includes(handleIn(ELENI)), body);
+  assert.ok(!body.includes(handleIn(NIKOS)), body);
+});
+
+test('a listed person reads as the handle and the name the rest of the request uses, with or without an entry', async () => {
+  // Bug: the line names the person by the stored id or a platform id, or by a handle another block does not use. Ελένη
+  // wrote in the chat and has an entry in <people>, Νίκος wrote nothing and has none: the line declares him itself.
+  const [request = ''] = await inRoom(
+    [],
+    [turn('r2', 1)],
+    FELT(6),
+    feelings([
+      [NIKOS, 50],
+      [ELENI, -40],
+    ])
+  );
+  const body = attitudesOf(request);
+  const entry = peopleOf(request).find((one) => one.includes('Ελένη')) ?? '';
+  const eleni = HANDLE.exec(entry.split('\n')[0] ?? '')?.[0] ?? '';
+  assert.match(eleni, HANDLE, 'Ελένη has an entry in <people>');
+  assert.ok(lineWith(body, 'Ελένη').includes(eleni), body);
+  assert.ok(lineWith(body, 'Νίκος').includes(handleIn(NIKOS)), body);
+  assert.doesNotMatch(body, /person:|fake:/);
+});
+
+test('a change under a direct chat the turn may not read lists nobody in a group', async () => {
+  // Bug: the block is read under a context wider than the turn's, so what she feels in a private chat shows in a room.
+  const [request = ''] = await inRoom([], [turn('r2', 1)], FELT(6), (world) => {
+    feelings([[NIKOS, 50]])(world);
+    feelings([[ZOE, -80]], { dm: ZOE_DM, iface: 'fake', person: ZOE })(world);
+  });
+  const body = attitudesOf(request);
+  assert.ok(body.includes(handleIn(NIKOS)), body);
+  assert.ok(!body.includes(handleIn(ZOE)), body);
+});
+
+test('two requests with nothing stored between them hold the same bytes in <attitudes>, whoever she answers', async () => {
+  // Bug: the block leaves out the person she answers or the people of <people>, so a turn that answers someone else
+  // lists other people, <self> changes bytes and the cached prefix is rewritten.
+  const toZoe = { ...trigger('r3', TURN_NOW - MIN), authorId: '5678', authorName: 'Ζωή' };
+  const [first = '', second = ''] = await inRoom(
+    [],
+    [turn('r2', 3), { trigger: toZoe, answers: [SAY] }],
+    FELT(6),
+    feelings([
+      [ELENI, 35],
+      [ZOE, -45],
+      [NIKOS, 60],
+    ])
+  );
+  const body = attitudesOf(first);
+  for (const person of [ELENI, ZOE, NIKOS]) assert.ok(body.includes(handleIn(person)), body);
+  assert.equal(attitudesOf(second), body);
 });

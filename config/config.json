@@ -131,6 +131,9 @@
     "lessons": {
       "budgetTokens": 1200
     },
+    "attitudes": {
+      "shown": 6
+    },
     "names": {
       "emoji": false
     },

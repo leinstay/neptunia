@@ -2,7 +2,7 @@
 // lines in other places and the lines around one line for `<meanwhile>`, each with its media, the descriptions of the
 // media of a place's lines for a read of lines the platform gives, one stored line by its identity for a reference in a
 // stored text, whether a lookup's source is retired, the stored fields of a place for `<surroundings>` with a root's
-// in-jokes, her lessons for `<lessons>`,
+// in-jokes, her lessons for `<lessons>`, the people she feels most strongly about for `<attitudes>`,
 // a place as its interface knows it (its interface, kind and native ids, for a call that speaks to the interface),
 // an interface's name and nouns and her past selfreflection entries for a selfreflection request's `<selfreflection>`.
 // Each read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
@@ -16,15 +16,16 @@ import type { Mind, Seeds } from './mind-read.ts';
 import { lineMedia, lineMediaItems } from './media-store.ts';
 import { interfaceTakes, routeMessageSql } from './message-locator.ts';
 import type { LineMediaItem } from './media-store.ts';
-import { personOfAccount as personOfMeta } from './meta-person.ts';
-import { interfaceDmWord, interfaceNouns, placesNamed } from './names.ts';
+import { personOfAccount as personOfMeta, profileAccountsOf } from './meta-person.ts';
+import { interfaceDmWord, interfaceNouns, namesIn, placesNamed } from './names.ts';
 import { ownerAccountOfPlace } from './person-links.ts';
 import { placeChainInDb } from './place-tree.ts';
 import type { PlaceChainLink } from './place-tree.ts';
 import type { InterfaceNames } from '../../protocol/serve.ts';
-import { allowedAudience, scopeWhere, whereFor } from './scope.ts';
+import { allowedAudience, audienceWhere, scopeWhere, whereFor } from './scope.ts';
 import { placeAudience } from './graph.ts';
 import { MEMORY_LIMITS } from '../text-limits.ts';
+import { affinityBand } from '../affinity.ts';
 import { sortRanked } from '../ranking.ts';
 import { readSelfreflection } from './selfreflection-past.ts';
 import { subjectOf } from './subject.ts';
@@ -513,6 +514,59 @@ export function lessonsOf(db: Db, ctx: Context): Array<Lesson> {
   }));
 }
 
+/** One person she feels strongly about under a context: the person, the score of the newest change the context reads, and the day of that change. */
+export type StrongAttitude = { person: string; score: number; at: string };
+
+/**
+ * The people with a score outside the band `neutral`, the largest distance from zero first, ties by the person id, at
+ * most `limit`. A person's score is the one of the newest change (`at`, then `id`) of `affinity_events` that is not
+ * retired and whose audience the context reads, as `attitudeOf` in src/memory/db/mind-read.ts picks it; `at` is that
+ * change's stored `at`.
+ */
+export function strongestAttitudesOf(db: Db, ctx: Context, limit: number): Array<StrongAttitude> {
+  if (!(limit > 0)) return [];
+  const audience = audienceWhere(ctx, 'e');
+  const rows = db
+    .prepare(
+      `SELECT person_id, score, at FROM (
+         SELECT e.person_id, e.score, e.at,
+           ROW_NUMBER() OVER (PARTITION BY e.person_id ORDER BY e.at DESC, e.id DESC) AS newest
+         FROM affinity_events e
+         WHERE e.person_id IS NOT NULL AND e.retired_at IS NULL AND ${audience.sql})
+       WHERE newest = 1`
+    )
+    .all(...audience.params);
+  return rows
+    .flatMap((row): Array<StrongAttitude> => {
+      const person = text(row.person_id);
+      const { score } = row;
+      if (person === null || typeof score !== 'number' || !Number.isFinite(score)) return [];
+      if (affinityBand(score) === 'neutral') return [];
+      return [{ person, score, at: text(row.at) ?? '' }];
+    })
+    .sort((a, b) => Math.abs(b.score) - Math.abs(a.score) || (a.person < b.person ? -1 : a.person > b.person ? 1 : 0))
+    .slice(0, Math.floor(limit));
+}
+
+/**
+ * The name each of `personIds` goes by, for a line that declares the person: the first display name of their profile
+ * accounts, else the first stored name of an account, else the person's real name. A person with none is left out.
+ */
+export function personNamesOf(db: Db, personIds: ReadonlyArray<string>): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const id of personIds) {
+    const accounts = profileAccountsOf(db, id);
+    const person = db.prepare('SELECT real_name FROM people WHERE id = ?').get(id);
+    const name =
+      accounts.map((one) => text(one.displayName)).find((one) => one !== null) ??
+      accounts.flatMap((one) => one.names ?? []).find((one) => one.trim() !== '') ??
+      namesIn(person?.real_name)[0] ??
+      null;
+    if (name !== null) names[id] = name;
+  }
+  return names;
+}
+
 /**
  * The `current_version` ids of the live descriptions of a place the context reads, sorted: what `placeFieldsOf` renders
  * changes only with one of them, so a request holds `<surroundings>` per cache bucket under these ids.
@@ -604,6 +658,8 @@ export type FrameReads = {
   placeFields(ctx: Context, placeId: string): Record<string, string>;
   /** Her live lessons the context reads, best first (lessonsOf). */
   lessons?(ctx: Context): Array<Lesson>;
+  /** The people she feels most strongly about under the context, each with the name that declares them (strongestAttitudesOf). */
+  attitudes?(ctx: Context, limit: number): { list: Array<StrongAttitude>; names: Record<string, string> };
   /** The description versions `placeFields` renders (placeVersionsOf). */
   placeVersions?(ctx: Context, placeId: string): Array<string>;
   interfaceNames(iface: string): { name: string | null; nouns: Record<string, string>; dm?: string | null };
@@ -677,6 +733,17 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     sourceRetired: (ctx, sourceId) => over(true, (db) => sourceRetiredOf(db, ctx, sourceId)),
     placeFields: (ctx, placeId) => over({}, (db) => placeFieldsOf(db, ctx, placeId)),
     lessons: (ctx) => over([], (db) => lessonsOf(db, ctx)),
+    attitudes: (ctx, limit) =>
+      over({ list: [], names: {} }, (db) => {
+        const list = strongestAttitudesOf(db, ctx, limit);
+        return {
+          list,
+          names: personNamesOf(
+            db,
+            list.map((one) => one.person)
+          ),
+        };
+      }),
     placeVersions: (ctx, placeId) => over([], (db) => placeVersionsOf(db, ctx, placeId)),
     interfaceNames: (iface) => over({ name: null, nouns: {}, dm: null }, (db) => interfaceNamesOf(db, iface)),
     interfaceIds: () => over([], (db) => interfaceIdsOf(db)),

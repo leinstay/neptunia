@@ -57,6 +57,14 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
       'Token budget of `<lessons>` in `<self>`, what people taught her from every place she may read. The lowest ranked lessons leave first. `0` leaves the block out',
   },
   {
+    'key': 'context.attitudes.shown',
+    'types': ['number'],
+    'reader': 'src/turn/request/attitudes.ts',
+    'default': 6,
+    'text':
+      'How many people `<attitudes>` in `<self>` lists, the ones she feels most strongly about, warm and cool together, the strongest first. A person at the band `neutral` is never listed. `0` leaves the block out',
+  },
+  {
     'key': 'context.names.emoji',
     'types': ['boolean'],
     'reader': 'src/turn/request/text.ts',

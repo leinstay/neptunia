@@ -4,7 +4,7 @@
 
 import type { Frame } from './frame.ts';
 import type { Mind } from '../../memory/db/mind-read.ts';
-import type { Lesson } from '../../memory/db/frame-reads.ts';
+import type { Lesson, StrongAttitude } from '../../memory/db/frame-reads.ts';
 import type { Lookup as RingLookup } from '../calls.ts';
 import type { MeanwhileReads } from './meanwhile.ts';
 import type { SurroundingsInput } from './reader.ts';
@@ -77,6 +77,7 @@ export type Labels = {
   readonly tempo: LabelGroup;
   readonly peopleNow?: PeopleNowLabels;
   readonly affinity?: { readonly bands?: LabelGroup };
+  /** `<attitudes>` of `<self>`: `header`, and `line` with `{who}` and `{band}` (src/turn/request/attitudes.ts). */
   readonly attitudes?: LabelGroup;
   readonly aboutChat: LabelGroup;
   readonly lore?: LabelGroup;
@@ -165,6 +166,8 @@ export type RequestConfig = {
     readonly around?: { readonly maxTokens?: number };
     /** `context.lessons.budgetTokens`: the tokens `<lessons>` may take (src/turn/request/lessons.ts). */
     readonly lessons?: { readonly budgetTokens?: unknown };
+    /** `context.attitudes.shown`: how many people `<attitudes>` lists (src/turn/request/attitudes.ts). */
+    readonly attitudes?: { readonly shown?: unknown };
   };
   readonly memory?: {
     readonly maxInterests?: number;
@@ -272,6 +275,9 @@ export type Episode = {
   readonly feeling?: string;
   readonly weight?: number;
 };
+
+/** The people `<attitudes>` lists, strongest first, and the name of each that has one. */
+export type AttitudesInput = { list: ReadonlyArray<StrongAttitude>; names: Readonly<Record<string, string>> };
 
 /** One move of an attitude (`affinity.history`). */
 export type Move = {
@@ -403,6 +409,8 @@ export type RequestInput = {
   readonly surroundings?: SurroundingsInput | null;
   /** Her lessons the turn's context may read, best first (frame-reads.ts#lessonsOf): `<lessons>` of `<self>`. */
   readonly lessons?: ReadonlyArray<Lesson> | null;
+  /** The people she feels most strongly about under the turn's context and the names that declare them (frame-reads.ts#strongestAttitudesOf): `<attitudes>` of `<self>`. */
+  readonly attitudes?: AttitudesInput | null;
   /** Reads a line by its identity under the turn's scope, for the references in stored texts (src/turn/request/refs.ts). */
   readonly refLineOf?: LineOf | null;
   /** The chat id of a stored place, from its row (frame-reads.ts#placeRefOf); null for a place no row holds an address of. */

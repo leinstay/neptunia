@@ -3,15 +3,19 @@
 //   lessonsOf(db: Db, ctx: Context): Array<Lesson>
 //   type Lesson = { text: string; teacher: string | null }, `teacher` the person id that taught it (`from_person`)
 //   placeFieldsOf(db, ctx, placeId) gains the field `injokes`: the in-jokes of the place the context reads, in one string
+// Slice 3 adds the read of the people she feels most strongly about (spec 2026-11-12-what-the-frame-dropped):
+//   strongestAttitudesOf(db: Db, ctx: Context, limit: number): Array<StrongAttitude>
+//   type StrongAttitude = { person: string; score: number; at: string }
 // `lessonsOf` reads the claims of kind `lesson` of every place whose audience the context may read, retired ones left out,
 // ranked as the old `<about_chat>` ranked them (src/memory/ranking.ts, `rank`): log2(weight + 0.5) plus the moment last seen
 // over a half-life of 720 days (`memory.learnedHalfLifeDays`), the best first. Synthetic SQLite rows over the mind-world.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lessonsOf, placeFieldsOf } from '../src/memory/db/frame-reads.ts';
+import { lessonsOf, placeFieldsOf, strongestAttitudesOf } from '../src/memory/db/frame-reads.ts';
 import { dmContext, groupContext } from '../src/memory/db/scope.ts';
-import { addDm, addPerson, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
+import { addAttitude, addDm, addPerson, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
+import type { Audience } from './fixtures/memory-db/mind-world.ts';
 import { addPlaceClaim, addSourceLine } from './fixtures/memory-db/place-claims.ts';
 
 const AGORA = rootId('fake', 'g1');
@@ -557,6 +561,204 @@ test('a lesson about herself is taught by the person who wrote its source line',
       ...SELF_LESSON,
     });
     assert.deepEqual(teachers(world), [NIKOS]);
+  } finally {
+    world.close();
+  }
+});
+
+// ---- The people she feels most strongly about --------------------------------------------------------------------
+// `strongestAttitudesOf` reads `affinity_events` under the context: a person's score is the score of their newest change
+// the context may read, retired changes left out. A person whose score lies in the band `neutral` (above -8 and below 8)
+// is not listed. The rest come by distance from zero, the largest first, ties by person id, at most `limit`.
+
+const day = (n: number): string => `2026-11-${String(n).padStart(2, '0')}T10:00:00.000Z`;
+
+/** A person with one account on `fake`, named for the id. */
+function known(world: World, id: string): string {
+  const native = id.replace(/\D/g, '') || id;
+  addPerson(world.db, { id, accounts: [{ id: `fake:${native}`, iface: 'fake', native, names: [`Name ${native}`] }] });
+  return id;
+}
+
+/** One change of the attitude toward `person` under the groups of `fake`, the score after it given. */
+function change(world: World, person: string, n: number, score: number, over: { audience?: Audience } = {}): string {
+  const id = `aff:${person}:${n}`;
+  addAttitude(world.db, {
+    id,
+    person,
+    at: day(n),
+    applied: score,
+    score,
+    reason: null,
+    audience: over.audience ?? GROUP,
+  });
+  return id;
+}
+
+const scoresOf = (world: World, limit = 10): Array<[string, number]> =>
+  strongestAttitudesOf(world.db, groupContext('fake'), limit).map((one) => [one.person, one.score]);
+
+test('the strongest attitudes come by distance from zero, warm and cool mixed', () => {
+  // Bug: the list is sorted by the signed score, so the people she dislikes most stand last instead of first.
+  const { world } = lessonWorld();
+  try {
+    const [a, b, c, d] = ['person:fake:1', 'person:fake:2', 'person:fake:3', 'person:fake:4'].map((id) =>
+      known(world, id)
+    );
+    change(world, a ?? '', 1, 30);
+    change(world, b ?? '', 1, -70);
+    change(world, c ?? '', 1, 62);
+    change(world, d ?? '', 1, -26);
+    assert.deepEqual(scoresOf(world), [
+      ['person:fake:2', -70],
+      ['person:fake:3', 62],
+      ['person:fake:1', 30],
+      ['person:fake:4', -26],
+    ]);
+  } finally {
+    world.close();
+  }
+});
+
+test('the list is cut to the limit, and a limit of zero gives none', () => {
+  // Bug: the limit is ignored, or applied before the sort so the cut keeps the first people stored, or 0 reads as no limit.
+  const { world } = lessonWorld();
+  try {
+    ['person:fake:1', 'person:fake:2', 'person:fake:3'].forEach((id, at) =>
+      change(world, known(world, id), 1, 30 + at * 10)
+    );
+    assert.deepEqual(scoresOf(world, 2), [
+      ['person:fake:3', 50],
+      ['person:fake:2', 40],
+    ]);
+    assert.deepEqual(scoresOf(world, 0), []);
+  } finally {
+    world.close();
+  }
+});
+
+test('a score in the band neutral is not listed, and the edges of the band are', () => {
+  // Bug: the neutral people fill the list, or the cut sits at the wrong side of the edge: 8 is warm and -8 is cool, while
+  // 7.9 and -7.9 are neutral.
+  const { world } = lessonWorld();
+  try {
+    change(world, known(world, 'person:fake:1'), 1, 7.9);
+    change(world, known(world, 'person:fake:2'), 1, -7.9);
+    change(world, known(world, 'person:fake:3'), 1, 8);
+    change(world, known(world, 'person:fake:4'), 1, -8);
+    change(world, known(world, 'person:fake:5'), 1, 0);
+    assert.deepEqual(scoresOf(world), [
+      ['person:fake:3', 8],
+      ['person:fake:4', -8],
+    ]);
+  } finally {
+    world.close();
+  }
+});
+
+test('a person who moved back into the neutral band is not listed for the older, stronger change', () => {
+  // Bug: the reader takes the strongest change of a person instead of the newest, so a settled feeling still lists them.
+  const { world } = lessonWorld();
+  try {
+    const person = known(world, 'person:fake:1');
+    change(world, person, 1, 55);
+    change(world, person, 3, 4);
+    assert.deepEqual(scoresOf(world), []);
+  } finally {
+    world.close();
+  }
+});
+
+test('the score is the one of the newest change, whatever the order of storage', () => {
+  // Bug: the first or the last stored row stands for the person, or the oldest change wins.
+  const { world } = lessonWorld();
+  try {
+    const person = known(world, 'person:fake:1');
+    change(world, person, 5, -40);
+    change(world, person, 2, 45);
+    change(world, person, 9, 12);
+    const [only] = strongestAttitudesOf(world.db, groupContext('fake'), 5);
+    assert.deepEqual([only?.person, only?.score, only?.at.slice(0, 10)], [person, 12, '2026-11-09']);
+  } finally {
+    world.close();
+  }
+});
+
+test('a change under a direct chat the context may not read neither lists a person nor moves a score in a group', () => {
+  // Bug: the read has no audience, so what her feeling was in a private chat shows in a group: the first has only a private
+  // change, the second has a group change and a newer private one.
+  const { world, zoeDm } = lessonWorld();
+  try {
+    const private_ = { dm: zoeDm, iface: 'fake', person: ZOE } as const;
+    change(world, known(world, 'person:fake:1'), 4, -80, { audience: private_ });
+    const two = known(world, 'person:fake:2');
+    change(world, two, 1, 30);
+    change(world, two, 5, -50, { audience: private_ });
+    assert.deepEqual(scoresOf(world), [['person:fake:2', 30]]);
+  } finally {
+    world.close();
+  }
+});
+
+test('a direct chat reads the changes made in it and in the groups, newest first', () => {
+  // Bug: the read keeps to groups, so a feeling that moved in a chat never shows in that chat.
+  const { world, zoeDm } = lessonWorld();
+  try {
+    const private_ = { dm: zoeDm, iface: 'fake', person: ZOE } as const;
+    change(world, known(world, 'person:fake:1'), 4, -80, { audience: private_ });
+    const two = known(world, 'person:fake:2');
+    change(world, two, 1, 30);
+    change(world, two, 5, -50, { audience: private_ });
+    const read = strongestAttitudesOf(world.db, dmContext(ZOE, 'fake', zoeDm), 5).map((one) => [one.person, one.score]);
+    assert.deepEqual(read, [
+      ['person:fake:1', -80],
+      ['person:fake:2', -50],
+    ]);
+  } finally {
+    world.close();
+  }
+});
+
+test('a retired change does not count, and a person with only retired changes is not listed', () => {
+  // Bug: the retired rows are read, so a withdrawn change still sets the score or lists a person.
+  const { world } = lessonWorld();
+  try {
+    const one = known(world, 'person:fake:1');
+    change(world, one, 1, 40);
+    const gone = change(world, one, 3, -70);
+    const two = known(world, 'person:fake:2');
+    const only = change(world, two, 2, 60);
+    for (const id of [gone, only]) {
+      world.db.prepare('UPDATE affinity_events SET retired_at = ? WHERE id = ?').run('2026-11-10T10:00:00.000Z', id);
+    }
+    assert.deepEqual(scoresOf(world), [['person:fake:1', 40]]);
+  } finally {
+    world.close();
+  }
+});
+
+test('people at the same distance from zero come in the order of their ids', () => {
+  // Bug: a tie keeps the order of storage or of the signed score, so the order of the block moves between reads.
+  const { world } = lessonWorld();
+  try {
+    change(world, known(world, 'person:fake:30'), 1, 40);
+    change(world, known(world, 'person:fake:10'), 1, -40);
+    change(world, known(world, 'person:fake:20'), 1, 40);
+    assert.deepEqual(
+      scoresOf(world).map(([person]) => person),
+      ['person:fake:10', 'person:fake:20', 'person:fake:30']
+    );
+  } finally {
+    world.close();
+  }
+});
+
+test('a world with no stored change reads as an empty list', () => {
+  // Bug: the reader throws or answers a placeholder row for a person with no change.
+  const { world } = lessonWorld();
+  try {
+    known(world, 'person:fake:1');
+    assert.deepEqual(strongestAttitudesOf(world.db, groupContext('fake'), 6), []);
   } finally {
     world.close();
   }
