@@ -53,9 +53,9 @@ export function lessonsCut(
 /** One lesson as a line: its text through the rendering of every stored text, its teacher by `@handle`. */
 function lineOf(lesson: Lesson, words: LessonWords): string {
   const { labels, mention } = words;
-  const from = lesson.teacher === null ? (labels.authors?.unknown ?? '') : `@${handleOf(lesson.teacher)}`;
   const text = escapeStored(String(mentionsNamed(lesson.text.trim(), mention)));
-  return fill(labels.lessons?.line ?? '{text} ({from})', { text, from });
+  if (lesson.teacher === null) return fill(labels.lessons?.lineBare ?? '{text}', { text });
+  return fill(labels.lessons?.line ?? '{text} ({from})', { text, from: `@${handleOf(lesson.teacher)}` });
 }
 
 /**

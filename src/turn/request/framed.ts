@@ -123,8 +123,8 @@ function lessonsHeld(given: RequestInput, base: Base, room: Room): { header: str
   const lessons = given.lessons ?? [];
   const budget = lessonsBudgetOf(given.config);
   if (lessons.length === 0 || budget === null) return { header: '', lines: [] };
-  const { lessons: words, authors } = base.labels;
-  const wording = `${words?.header ?? ''}|${words?.line ?? ''}|${authors?.unknown ?? ''}`;
+  const words = base.labels.lessons;
+  const wording = `${words?.header ?? ''}|${words?.line ?? ''}|${words?.lineBare ?? ''}`;
   const stored = lessons.map((lesson) => `${lesson.teacher ?? ''}\u0000${lesson.text}`).sort();
   return base.frozen('lessons', `${budget}|${wording}|${stored.join('\u0001')}`, () =>
     lessonsBlockOf(lessons, budget, { labels: base.labels, mention: storedMention(given, base), cost: room.cost })

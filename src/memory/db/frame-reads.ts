@@ -463,20 +463,35 @@ export type Lesson = { text: string; teacher: string | null };
  * Her live lessons of every place the context reads (a direct chat reads its own and the groups', never another
  * direct chat's), best first. The rank is the one of `rank` in src/memory/ranking.ts over the claim's `weight` (how
  * often it was confirmed) and the moment it was `last_seen_at`, else `first_seen_at`, with the half-life of
- * `MEMORY_LIMITS.learnedHalfLifeDays`. A tie goes to the newer date, then to the larger claim id.
+ * `MEMORY_LIMITS.learnedHalfLifeDays`. A tie goes to the newer date, then to the larger claim id. The teacher is the
+ * claim's `from_person`, else the author of the first source line, in the claim's source order, whose author is a
+ * person and not her and whom the context may read; else null.
  */
 export function lessonsOf(db: Db, ctx: Context): Array<Lesson> {
   const readable = scopeWhere(ctx, 'c');
+  const lines = scopeWhere(ctx, 's');
   const rows = db
-    .prepare(`${PLACE_CLAIMS} AND ${readable.sql} ORDER BY c.id`)
-    .all('lesson', ...readable.params)
+    .prepare(
+      `SELECT c.text, c.weight, c.first_seen_at, c.last_seen_at,
+         COALESCE(c.from_person, (
+           SELECT s.author_person FROM claim_sources cs JOIN sources s ON s.id = cs.source_id
+           WHERE cs.claim_id = c.id AND cs.retired_at IS NULL AND s.retired_at IS NULL AND s.author_kind <> 'self'
+             AND s.author_person IS NOT NULL AND ${lines.sql}
+           ORDER BY cs.position, cs.id LIMIT 1
+         )) AS teacher
+       FROM claims c
+       WHERE c.subject_kind = 'place' AND c.kind = 'lesson' AND c.retired_at IS NULL
+         AND COALESCE(c.truth, 'current') <> 'historical' AND ${readable.sql}
+       ORDER BY c.id`
+    )
+    .all(...lines.params, ...readable.params)
     .flatMap((row) => {
       const body = text(row.text);
       if (body === null) return [];
       return [
         {
           text: body,
-          teacher: text(row.from_person),
+          teacher: text(row.teacher),
           weight: typeof row.weight === 'number' ? row.weight : 0,
           lastSeen: text(row.last_seen_at),
           firstSeen: text(row.first_seen_at),

@@ -956,7 +956,8 @@
     },
     "lessons": {
       "header": "Things people taught you:",
-      "line": "- {text} (from {from})"
+      "line": "- {text} (from {from})",
+      "lineBare": "- {text}"
     },
     "recall": {
       "header": "What you looked up yourself in this chat lately, with the results. Run a lookup again only when you need something new:",
