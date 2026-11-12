@@ -3,6 +3,7 @@
 // was confirmed in `weight` and when it was last seen). Rows go in through `insertRows`, like the rest of the world of
 // tests/fixtures/memory-db/mind-world.ts. Names and texts are made up by the test that calls it.
 import { insertRows } from '../../../src/memory/db/rows.ts';
+import { SELF_PERSON } from '../../../src/memory/db/ids.ts';
 import type { Db } from '../../../src/memory/db/types.ts';
 import type { Audience } from './mind-world.ts';
 
@@ -13,8 +14,15 @@ export type PlaceClaim = {
   kind: 'injoke' | 'lesson';
   text: string;
   audience: Audience;
-  /** How often it was confirmed; a lesson ranks by it. */
-  weight?: number;
+  /** How often it was confirmed; a lesson ranks by it. `null` stores no weight, as her memory session leaves it. */
+  weight?: number | null;
+  /**
+   * What the claim is about: the place (the place-notes writer's lessons and in-jokes) or her (`'self'`, a lesson about
+   * herself that her memory session wrote), whose `subject_id` is the persona's id and which names no place.
+   */
+  subject?: 'place' | 'self';
+  /** How the claim was learned (`taught`, `saw`, `said`, `inferred`); a lesson reads `taught` by default. */
+  how?: string;
   /** An ISO moment: when it was last seen, and first. */
   seenAt?: string;
   /** The person who taught a lesson, by person id. */
@@ -37,19 +45,20 @@ const scopeOf = (audience: Audience): Record<string, string | null> =>
 /** Stores one claim of a place. */
 export function addPlaceClaim(db: Db, claim: PlaceClaim): void {
   const seen = claim.seenAt ?? SEEN;
+  const subject = claim.subject ?? 'place';
   insertRows(db, {
     claims: [
       {
         id: claim.id,
-        subject_kind: 'place',
-        subject_id: claim.place,
+        subject_kind: subject,
+        subject_id: subject === 'self' ? SELF_PERSON : claim.place,
         kind: claim.kind,
         text: claim.text,
-        weight: claim.weight ?? 1,
+        weight: claim.weight === undefined ? 1 : claim.weight,
         first_seen_at: seen,
         last_seen_at: seen,
         from_person: claim.kind === 'lesson' ? (claim.teacher ?? null) : null,
-        how: claim.kind === 'lesson' ? 'taught' : 'legacy',
+        how: claim.how ?? (claim.kind === 'lesson' ? 'taught' : 'legacy'),
         author: 'import',
         truth: 'current',
         shown: 1,

@@ -428,3 +428,136 @@ test('a source line the context may not read gives no teacher, and the next read
     world.close();
   }
 });
+
+// Her memory session writes lessons about herself: the subject `self` (`subject_id` the persona's id), the weight left
+// null, `how` one of `taught`, `saw`, `said` and `inferred`, under a group or a direct chat's audience. They are what she
+// learned about herself from everyone, and `lessonsOf` reads them beside the lessons of a place.
+const SELF_LESSON = { subject: 'self', how: 'saw' } as const;
+
+test('a lesson about herself comes back beside the lessons of a place', () => {
+  // Bug: the reader takes claims whose subject is a place, so the lessons her memory session wrote about herself never show.
+  const { world } = lessonWorld();
+  try {
+    addPlaceClaim(world.db, {
+      id: 'l-place',
+      place: AGORA,
+      kind: 'lesson',
+      text: 'about the place',
+      audience: GROUP,
+      weight: 3,
+    });
+    addPlaceClaim(world.db, {
+      id: 'l-self',
+      place: AGORA,
+      kind: 'lesson',
+      text: 'about her',
+      audience: GROUP,
+      weight: 1,
+      ...SELF_LESSON,
+    });
+    assert.deepEqual(texts(lessonsOf(world.db, groupContext('fake'))), ['about the place', 'about her']);
+  } finally {
+    world.close();
+  }
+});
+
+test('a lesson with no weight ranks as the weight 1', () => {
+  // Bug: a null weight ranks as 0 (log2(0.5) is -1), and every lesson her session wrote sinks below the weakest of a place.
+  // W3: weight 3 seen 2026-11-01 (rank 1.81). SELF: no weight seen 2026-11-05 (0.59, as weight 1). W1: weight 1 seen
+  // 2026-11-01 (0.58). The order is W3, SELF, W1.
+  const { world } = lessonWorld();
+  try {
+    const seen = (day: string) => `2026-11-${day}T10:00:00.000Z`;
+    addPlaceClaim(world.db, {
+      id: 'l-w1',
+      place: AGORA,
+      kind: 'lesson',
+      text: 'W1',
+      audience: GROUP,
+      weight: 1,
+      seenAt: seen('01'),
+    });
+    addPlaceClaim(world.db, {
+      id: 'l-w3',
+      place: AGORA,
+      kind: 'lesson',
+      text: 'W3',
+      audience: GROUP,
+      weight: 3,
+      seenAt: seen('01'),
+    });
+    addPlaceClaim(world.db, {
+      id: 'l-self',
+      place: AGORA,
+      kind: 'lesson',
+      text: 'SELF',
+      audience: GROUP,
+      weight: null,
+      seenAt: seen('05'),
+      ...SELF_LESSON,
+    });
+    assert.deepEqual(texts(lessonsOf(world.db, groupContext('fake'))), ['W3', 'SELF', 'W1']);
+  } finally {
+    world.close();
+  }
+});
+
+test('a lesson about herself under a direct chat audience shows in that chat and not in a group', () => {
+  // Bug: the audience of a `self` claim is ignored (shows in every group) or never matched (never shows in its chat).
+  const { world, zoeDm } = lessonWorld();
+  try {
+    const audience = { dm: zoeDm, iface: 'fake', person: ZOE };
+    addPlaceClaim(world.db, {
+      id: 'l-self',
+      place: zoeDm,
+      kind: 'lesson',
+      text: 'told in private',
+      audience,
+      weight: null,
+      ...SELF_LESSON,
+    });
+    assert.deepEqual(texts(lessonsOf(world.db, dmContext(ZOE, 'fake', zoeDm))), ['told in private']);
+  } finally {
+    world.close();
+  }
+});
+
+test('a lesson about herself under a direct chat audience stays out of a group read', () => {
+  // Bug: a lesson learned in a private chat shows in a room.
+  const { world, zoeDm } = lessonWorld();
+  try {
+    const audience = { dm: zoeDm, iface: 'fake', person: ZOE };
+    addPlaceClaim(world.db, {
+      id: 'l-self',
+      place: zoeDm,
+      kind: 'lesson',
+      text: 'told in private',
+      audience,
+      weight: null,
+      ...SELF_LESSON,
+    });
+    assert.deepEqual(lessonsOf(world.db, groupContext('fake')), []);
+  } finally {
+    world.close();
+  }
+});
+
+test('a lesson about herself is taught by the person who wrote its source line', () => {
+  // Bug: the teacher of a `self` lesson is read from `from_person` alone, which her session leaves null.
+  const { world } = teacherWorld();
+  try {
+    addPlaceClaim(world.db, {
+      id: 'l-self',
+      place: AGORA,
+      kind: 'lesson',
+      text: 'about her',
+      audience: GROUP,
+      weight: null,
+      sources: [LINE_BY_NIKOS],
+      ...SELF_LESSON,
+    });
+    assert.deepEqual(teachers(world), [NIKOS]);
+  } finally {
+    world.close();
+  }
+});

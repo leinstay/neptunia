@@ -316,3 +316,19 @@ test('a lesson nobody is known to have taught prints with no teacher part', asyn
   assert.doesNotMatch(line, HANDLE);
   assert.ok(!line.includes(unknown), line);
 });
+
+test('a lesson about herself, written by her memory session, shows with its teacher who has an entry in <people>', async () => {
+  // Bug: the block reads the lessons of places only, so what she learned about herself from people never shows, and with
+  // no teacher read its person has no entry. The claim has the subject `self`, no weight and a source line by Νίκος.
+  const line = 'src:fake:n1:1:seen';
+  const [request = ''] = await inRoom(
+    [lesson('l1', 'ΜΑΘΗΜΑ-ΓΙΑ-ΕΜΕΝΑ', { subject: 'self', how: 'saw', weight: null, sources: [line] })],
+    [turn('r2', 1)],
+    { lessons: { budgetTokens: 100_000 } },
+    (world) => addSourceLine(world.db, { id: line, place: AGORA, author: 'fake:4242', audience: GROUP })
+  );
+  const entry = peopleOf(request).find((one) => one.includes('Νίκος')) ?? '';
+  const handle = HANDLE.exec(entry.split('\n')[0] ?? '')?.[0] ?? '';
+  assert.match(handle, HANDLE, 'Νίκος has an entry in <people>');
+  assert.ok(lineWith(lessonsOf(request), 'ΜΑΘΗΜΑ-ΓΙΑ-ΕΜΕΝΑ').includes(handle), lessonsOf(request));
+});
