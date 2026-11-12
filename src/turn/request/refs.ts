@@ -50,7 +50,7 @@ function eachIdentity(text: string, render: (found: Found) => string): string {
 }
 
 /** The place of a quoted line in words, without a handle; from its names alone (a kind with no noun) when it has no words. */
-function placeOf(line: RefLine, labels: RefLabels): string {
+function placeOf(line: RefLine, labels: RefLabels, keepEmoji: boolean): string {
   const words: PlaceWords = line.place ?? {
     iface: line.path[0] ?? '',
     chain: line.path
@@ -58,15 +58,15 @@ function placeOf(line: RefLine, labels: RefLabels): string {
       .reverse()
       .map((name) => ({ id: name, kind: null, name })),
   };
-  return placeRefText(labels, null, words);
+  return placeRefText(labels, null, { ...words, keepEmoji });
 }
 
 /** A line quoted under its place and time, noted as edited when it changed since the revision referred to. */
-function quoteOf(line: RefLine, revision: number, labels: RefLabels, timezone: string): string {
+function quoteOf(line: RefLine, revision: number, labels: RefLabels, timezone: string, keepEmoji: boolean): string {
   const l = labels.refs ?? {};
   const template = line.revision > revision ? l.edited : l.quote;
   return fill(template ?? '"{text}"', {
-    path: placeOf(line, labels),
+    path: placeOf(line, labels, keepEmoji),
     when: pulledMoment(line.at, timezone, labels.locale),
     text: escapeStored(line.text.trim()),
   });
@@ -81,8 +81,11 @@ export function refResolverOf(given: {
   lineOf: LineOf;
   labels: RefLabels;
   timezone: string;
+  /** `context.names.emoji`: the names of a quoted line's place keep their emoji when true. */
+  keepEmoji?: boolean;
 }): (text: string) => string {
   const { window, lineOf, labels, timezone } = given;
+  const keepEmoji = given.keepEmoji === true;
   const unavailable = labels.refs?.unavailable ?? '';
   return (text) =>
     eachIdentity(text, ({ space, key, revision }) => {
@@ -90,7 +93,7 @@ export function refResolverOf(given: {
       if (n !== undefined) return `${space}#${n}`;
       const line = lineOf(key);
       if (line === null || line.deleted) return unavailable ? `${space}${unavailable}` : '';
-      return `${space}${quoteOf(line, revision, labels, timezone)}`;
+      return `${space}${quoteOf(line, revision, labels, timezone, keepEmoji)}`;
     });
 }
 
@@ -107,9 +110,11 @@ export function outgoingRefs(
     linkOf: (line: RefLine) => string | null;
     labels: RefLabels;
     timezone: string;
+    keepEmoji?: boolean;
   }
 ): { text: string; replyTo: string | null } {
   const { placeId, lineOf, linkOf, labels, timezone } = given;
+  const keepEmoji = given.keepEmoji === true;
   let replyTo: string | null = null;
   const out = eachIdentity(text, ({ space, key, revision }) => {
     const line = lineOf(key);
@@ -119,7 +124,7 @@ export function outgoingRefs(
       return '';
     }
     const link = linkOf(line);
-    return `${space}${link ?? quoteOf(line, revision, labels, timezone)}`;
+    return `${space}${link ?? quoteOf(line, revision, labels, timezone, keepEmoji)}`;
   });
   return { text: out === text ? text : out.trim(), replyTo };
 }

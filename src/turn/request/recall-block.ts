@@ -8,7 +8,7 @@
 
 import { fill, formatClock } from '../../format.ts';
 import type { Lookup, SearchRef } from '../calls.ts';
-import { escapeStored } from './text.ts';
+import { escapeStored, shownName } from './text.ts';
 import type { Labels } from './types.ts';
 
 /** The arguments that name what a lookup searched for, in the order they are read. */
@@ -42,21 +42,27 @@ const allRetired = (lookup: Lookup, retired: ReadonlySet<string>): boolean =>
 export type PlaceRefOf = (placeId: string) => string;
 
 /** The names of a kept path innermost first, the interface left out, for a lookup read with no way to name a stored place. */
-const namesOf = (path: ReadonlyArray<string>, labels: Labels): string =>
+const namesOf = (path: ReadonlyArray<string>, labels: Labels, keepEmoji: boolean): string =>
   path
     .slice(1)
     .reverse()
-    .map(escapeStored)
+    .map((name) => escapeStored(shownName(name, keepEmoji)))
     .join(labels.places?.join ?? ', ');
 
 /** One lookup in the labels' words. */
-function lookupText(lookup: Lookup, labels: Labels, timezone: string, placeRef: PlaceRefOf | null): string {
+function lookupText(
+  lookup: Lookup,
+  labels: Labels,
+  timezone: string,
+  placeRef: PlaceRefOf | null,
+  keepEmoji: boolean
+): string {
   const l = labels.recall ?? {};
   const place = textArg(lookup.args, PLACE_ARGS);
   const searched = place === null ? '' : placeRef === null ? escapeStored(place) : placeRef(place);
   const head = fill(l.item ?? '', {
     time: formatClock(lookup.at, timezone, labels.locale),
-    from: placeRef === null ? namesOf(lookup.place.path, labels) : placeRef(lookup.place.id),
+    from: placeRef === null ? namesOf(lookup.place.path, labels, keepEmoji) : placeRef(lookup.place.id),
     tool: escapeStored(lookup.tool),
     searched: place === null ? '' : fill(l.searched ?? '', { place: searched }),
     query: escapeStored(queryOf(lookup.args)),
@@ -223,12 +229,13 @@ export function recallBlockOf(
   window: { retired: ReadonlySet<string> },
   labels: Labels,
   timezone: string,
-  placeRef: PlaceRefOf | null = null
+  placeRef: PlaceRefOf | null = null,
+  keepEmoji = false
 ): string {
   const shown = shownLookups(lookups, window.retired);
   if (shown.length === 0) return '';
   const header = labels.recall?.header ?? '';
-  return [header, ...shown.map((lookup) => lookupText(lookup, labels, timezone, placeRef))]
+  return [header, ...shown.map((lookup) => lookupText(lookup, labels, timezone, placeRef, keepEmoji))]
     .filter(Boolean)
     .join('\n\n');
 }

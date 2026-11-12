@@ -217,7 +217,12 @@ function authorOf(
 /**
  * A window's place as words: a one-to-one chat names its partner by handle, `authors.unknown` when the reads name none.
  */
-function windowWords(window: MeanwhileWindow, labels: Labels, refs: MeanwhileRefs | null): PlaceWords {
+function windowWords(
+  window: MeanwhileWindow,
+  labels: Labels,
+  refs: MeanwhileRefs | null,
+  keepEmoji: boolean
+): PlaceWords {
   const partner = !window.dm
     ? null
     : window.partnerKey && refs !== null
@@ -228,6 +233,7 @@ function windowWords(window: MeanwhileWindow, labels: Labels, refs: MeanwhileRef
     chain: window.chain,
     ...(window.names === undefined ? {} : { names: window.names }),
     partner,
+    keepEmoji,
   };
 }
 
@@ -244,10 +250,11 @@ export function windowText(
   labels: Labels,
   nameOf: NameOf,
   handle: string | null = null,
-  refs: MeanwhileRefs | null = null
+  refs: MeanwhileRefs | null = null,
+  keepEmoji = false
 ): string {
   const l = labels.meanwhile ?? {};
-  const words = windowWords(window, labels, refs);
+  const words = windowWords(window, labels, refs, keepEmoji);
   const first = window.lines.at(0)?.at ?? frame.now;
   const own = placeOwnText(labels, words);
   const head = fill(l.place ?? '{path}, {date}:', {
@@ -295,9 +302,10 @@ export function meanwhileText(
   labels: Labels,
   nameOf: NameOf,
   handleOf: (window: MeanwhileWindow) => string | null = () => null,
-  refs: MeanwhileRefs | null = null
+  refs: MeanwhileRefs | null = null,
+  keepEmoji = false
 ): string {
   if (windows.length === 0) return '';
-  const texts = windows.map((window) => windowText(window, frame, labels, nameOf, handleOf(window), refs));
+  const texts = windows.map((window) => windowText(window, frame, labels, nameOf, handleOf(window), refs, keepEmoji));
   return [labels.meanwhile?.header ?? '', ...texts].filter(Boolean).join('\n\n');
 }

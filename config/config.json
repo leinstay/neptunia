@@ -127,6 +127,9 @@
     "myDay": {
       "lines": 12
     },
+    "names": {
+      "emoji": false
+    },
     "memory": {
       "windowMessages": 100,
       "serviceMessages": 100,

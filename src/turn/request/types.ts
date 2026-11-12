@@ -157,6 +157,8 @@ export type RequestConfig = {
     /** `context.chatSteps`: the line counts `<chat>` may be cut to (src/turn/request/reader.ts). */
     readonly chatSteps?: unknown;
     readonly customEmoji?: EmojiConfig;
+    /** `context.names.emoji`: whether the names of places and people keep their emoji (src/turn/request/text.ts#shownName). */
+    readonly names?: { readonly emoji?: unknown };
     readonly around?: { readonly maxTokens?: number };
   };
   readonly memory?: {

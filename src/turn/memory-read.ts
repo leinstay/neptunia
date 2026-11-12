@@ -28,6 +28,7 @@ import type { Mind, Seeds } from '../memory/db/mind-read.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { Subject, SubjectHere } from '../memory/db/subject.ts';
 import { subjectMemoryOf } from './request/memory-block.ts';
+import { shownName } from './request/text.ts';
 import type { AttitudeChange, MirrorMarks } from './request/memory-block.ts';
 import type { Labels } from './request/types.ts';
 
@@ -53,6 +54,8 @@ export type MemoryReadInput = {
   now: number;
   /** The chat ids of the places her selfreflection is mirrored to; none when not given. */
   selfreflectionIds?: ReadonlySet<string>;
+  /** `context.names.emoji`: the names keep their emoji when true. */
+  keepEmoji?: boolean;
 };
 
 export type MemoryReadAnswer = { status: string; code?: string; reason?: string; data?: { text: string } };
@@ -105,8 +108,15 @@ function narrowed(mind: Mind, section: Section, limit: number): Mind {
 const holdsAny = (mind: Mind): boolean => mind.people.length + mind.places.length + mind.lore.length > 0;
 
 /** The answer of a subject that names several things: the lead and one line per choice. */
-function severalAnswer(subject: Subject & { kind: 'several' }, given: string, word: (key: string) => string) {
-  const lines = subject.choices.map((choice) => fill(word('line'), { name: choice.name, ref: choice.ref }));
+function severalAnswer(
+  subject: Subject & { kind: 'several' },
+  given: string,
+  word: (key: string) => string,
+  keepEmoji: boolean
+) {
+  const lines = subject.choices.map((choice) =>
+    fill(word('line'), { name: shownName(choice.name, keepEmoji), ref: choice.ref })
+  );
   const text = [fill(word('several'), { given, count: subject.choices.length }), ...lines].filter(Boolean).join('\n');
   return { status: 'invalid', code: CODE.TARGET_AMBIGUOUS, data: { text } };
 }
@@ -147,7 +157,7 @@ function readSubject(
   { given, section, word }: { given: string; section: Section; word: (key: string) => string }
 ): MemoryReadAnswer {
   if (subject.kind === 'none') return noneAnswer(given, word);
-  if (subject.kind === 'several') return severalAnswer(subject, given, word);
+  if (subject.kind === 'several') return severalAnswer(subject, given, word, input.keepEmoji === true);
   if (section === 'changes' && subject.kind !== 'person') return sectionAnswer(section, word);
   const limit = limitOf(input.args.limit);
   const mind =
@@ -158,7 +168,15 @@ function readSubject(
   const changes = section === 'changes' && subject.kind === 'person' ? changesOf(input, subject, limit) : null;
   if (changes !== null && changes.length === 0) return { status: 'ok', data: { text: word('noChanges') } };
   const view = { interface: input.here.iface, timezone: input.timezone, counterpart: null };
-  const text = subjectMemoryOf(mind, view, input.labels as Labels, nameOfIn(mind, subject), changes, mirrorsOf(input));
+  const text = subjectMemoryOf(
+    mind,
+    view,
+    input.labels as Labels,
+    nameOfIn(mind, subject),
+    changes,
+    mirrorsOf(input),
+    input.keepEmoji === true
+  );
   return text === '' ? noneAnswer(given, word) : { status: 'ok', data: { text } };
 }
 

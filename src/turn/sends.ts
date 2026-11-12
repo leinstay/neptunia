@@ -28,6 +28,7 @@ import { inRoot } from './routing.ts';
 import { SETTLE_STEP_MS, paceSettings } from './settings.ts';
 import { withLink } from './targets.ts';
 import { outgoingRefs } from './request/refs.ts';
+import { keepsEmoji } from './request/text.ts';
 import type { LineOf } from './request/refs.ts';
 import type { HandleTarget } from './request/types.ts';
 
@@ -258,6 +259,7 @@ export function createSends(ctx: SendsContext): Sends {
       },
       labels,
       timezone: refs.timezone,
+      keepEmoji: keepsEmoji(hot.config),
     });
   }
 
