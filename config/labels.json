@@ -489,6 +489,12 @@
         "voice.say": "voice lines",
         "errand.run": "errands"
       },
+      "kindsOne": {
+        "draw.create": "picture",
+        "media.find": "GIF search",
+        "voice.say": "voice line",
+        "errand.run": "errand"
+      },
       "madeDay": "Today in all: {forOthers} things made because someone asked, {own} of your own accord."
     },
     "previousThink": {

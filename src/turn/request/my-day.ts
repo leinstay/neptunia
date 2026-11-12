@@ -161,13 +161,18 @@ function kindsOf(labels: MyDayLabels | null | undefined): Array<[string, string]
 
 const wordOf = (labels: MyDayLabels, key: string): string => (typeof labels[key] === 'string' ? labels[key] : '');
 
-/** `3 pictures, 1 voice line`: the counts per kind in the labels' order, a skill with no word left out. */
+/** `3 pictures, 1 voice line`: the counts per kind in the labels' order, a skill with no word left out. A count of one reads through `kindsOne` when it holds the skill. */
 function madeText(counts: Record<string, number>, labels: MyDayLabels): string {
   const item = wordOf(labels, 'madeItem');
+  const one =
+    labels.kindsOne && typeof labels.kindsOne === 'object' ? (labels.kindsOne as Record<string, unknown>) : {};
   return kindsOf(labels)
     .flatMap(([skill, kind]) => {
       const count = counts[skill];
-      return count ? [fill(item, { count: String(count), kind })] : [];
+      if (!count) return [];
+      const single = one[skill];
+      const word = count === 1 && typeof single === 'string' && single ? single : kind;
+      return [fill(item, { count: String(count), kind: word })];
     })
     .join(wordOf(labels, 'madeJoin'));
 }

@@ -4,8 +4,8 @@
 // started it carries `extra.input.skill`. The person a call was made for is the author of the message that started its
 // turn: the turn's `what = 'turn.start'` row holds `extra.trigger.authorId`, an account's native id on the interface of
 // the turn's place. A call of an inner turn, of a turn with no start row and of no turn is her own accord. A call counts
-// for the day it was made, by the turn's timezone, and the week holds today and the six days before it. Lines addressed
-// to her are a person's live `sources` rows of today that are `direct` or reply to a line of hers. Every row is read
+// for the day it was made, by the turn's timezone, and the week holds today and the six days before it. What a person addressed
+// to her is the number of turns of today that a line of theirs started, each turn once whatever its attempts. Every row is read
 // under the turn's context through `whereFor`, as `myDayOf` reads her day, so a group turn counts nothing made in a
 // direct chat.
 
@@ -85,23 +85,32 @@ function madeCalls(rows: ReadonlyArray<Record<string, unknown>>, kinds: Readonly
   return made;
 }
 
-/** The person each turn answered, keyed by turn id; a turn that answered nobody or has no start row is absent. */
-function askersOf(db: Db, turns: ReadonlySet<string>, from: number, to: number): Map<string, string> {
-  const asked = new Map<string, string>();
-  if (turns.size === 0) return asked;
+/** One `turn.start` row as the reader needs it: its turn, when it began and the person whose line started it. */
+type Start = { turn: string; at: number; person: string };
+
+/**
+ * The turn starts between `from` and `to` whose trigger's author is an account of a person, once per turn. A turn that
+ * an inner wake started, or whose author no account row holds, is left out. `ctx` narrows the rows to what the turn
+ * may read; null reads them all.
+ */
+function startsOf(db: Db, ctx: Context | null, from: number, to: number): Array<Start> {
+  const where = ctx ? whereFor(ctx, 'd') : { sql: '1 = 1', params: [] };
   const rows = db
     .prepare(
-      `SELECT d.turn_id, d.extra, p.iface FROM day d LEFT JOIN places p ON p.id = d.place_id
-       WHERE d.what = 'turn.start' AND d.retired_at IS NULL AND d.at >= ? AND d.at <= ?`
+      `SELECT d.turn_id, d.at, d.extra, p.iface FROM day d LEFT JOIN places p ON p.id = d.place_id
+       WHERE d.what = 'turn.start' AND d.retired_at IS NULL AND d.at >= ? AND d.at <= ? AND ${where.sql}`
     )
-    .all(new Date(from).toISOString(), new Date(to).toISOString());
+    .all(new Date(from).toISOString(), new Date(to).toISOString(), ...where.params);
   const account = db.prepare(
     'SELECT person_id FROM accounts WHERE iface = ? AND native_id = ? AND person_id IS NOT NULL AND retired_at IS NULL ORDER BY generation DESC LIMIT 1'
   );
   const known = new Map<string, string | null>();
+  const seen = new Set<string>();
+  const starts: Array<Start> = [];
   for (const row of rows) {
     const turn = textOf(row.turn_id);
-    if (!turn || !turns.has(turn) || asked.has(turn)) continue;
+    const at = Date.parse(String(row.at));
+    if (!turn || seen.has(turn) || !Number.isFinite(at)) continue;
     const author = textOf(objectOf(extraOf(row.extra).trigger).authorId);
     const iface = textOf(row.iface);
     if (!author || !iface) continue;
@@ -111,9 +120,11 @@ function askersOf(db: Db, turns: ReadonlySet<string>, from: number, to: number):
       known.set(key, person === null ? null : survivorOf(db, person));
     }
     const person = known.get(key);
-    if (person) asked.set(turn, person);
+    if (!person) continue;
+    seen.add(turn);
+    starts.push({ turn, at, person });
   }
-  return asked;
+  return starts;
 }
 
 const add = (counts: Record<string, number>, skill: string): void => {
@@ -122,48 +133,31 @@ const add = (counts: Record<string, number>, skill: string): void => {
 
 const sumOf = (counts: Record<string, number>): number => Object.values(counts).reduce((total, n) => total + n, 0);
 
-/**
- * How many lines each person addressed to her between `from` and `to` under `ctx`: live lines of their accounts that
- * are `direct` or reply to a line of hers, a line that is both counted once. Keyed by person.
- */
-function addressedOf(
-  db: Db,
-  ctx: Context,
-  people: ReadonlyArray<string>,
-  from: number,
-  to: number
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  if (people.length === 0) return counts;
-  const where = whereFor(ctx, 's');
-  const accounts = new Map<string, string>();
-  const members = db.prepare(
-    `WITH RECURSIVE ids(p) AS (SELECT ? UNION SELECT m.from_person FROM people_merges m JOIN ids ON m.into_person = ids.p)
-     SELECT a.id FROM accounts a WHERE a.person_id IN (SELECT p FROM ids)`
-  );
-  for (const person of people)
-    for (const row of members.all(person)) {
-      const id = textOf(row.id);
-      if (id) accounts.set(id, person);
+/** The calls added up: per person who asked, today and over the week, and today's sums of her own and of others'. */
+function tally(
+  made: ReadonlyArray<Made>,
+  asked: ReadonlyMap<string, string>,
+  dayStart: number
+): { byPerson: Map<string, PersonCount>; own: number; forOthers: number } {
+  const byPerson = new Map<string, PersonCount>();
+  let own = 0;
+  let forOthers = 0;
+  for (const call of made) {
+    const person = call.turn ? asked.get(call.turn) : undefined;
+    const today = call.at >= dayStart;
+    if (!person) {
+      if (today) own += 1;
+      continue;
     }
-  if (accounts.size === 0) return counts;
-  const ids = [...accounts.keys()];
-  const rows = db
-    .prepare(
-      `SELECT s.author_account AS account, COUNT(DISTINCT COALESCE(s.native_id, s.id)) AS n FROM sources s
-       WHERE s.author_account IN (${ids.map(() => '?').join(', ')}) AND s.retired_at IS NULL
-         AND s.occurred_at >= ? AND s.occurred_at <= ? AND ${where.sql}
-         AND (s.direct = 1 OR EXISTS (
-           SELECT 1 FROM source_relations r JOIN sources t ON t.id = r.target_source_id
-           WHERE r.source_id = s.id AND r.predicate = 'replies_to' AND t.kind = 'said'))
-       GROUP BY s.author_account`
-    )
-    .all(...ids, new Date(from).toISOString(), new Date(to).toISOString(), ...where.params);
-  for (const row of rows) {
-    const person = accounts.get(String(row.account));
-    if (person) counts.set(person, (counts.get(person) ?? 0) + Number(row.n));
+    const count = byPerson.get(person) ?? { person, today: {}, week: {}, addressedToday: 0 };
+    byPerson.set(person, count);
+    add(count.week, call.skill);
+    if (today) {
+      add(count.today, call.skill);
+      forOthers += 1;
+    }
   }
-  return counts;
+  return { byPerson, own, forOthers };
 }
 
 /**
@@ -193,25 +187,11 @@ export function madeAndGivenOf(db: Db, ctx: Context, input: MadeAndGivenInput): 
   const made = madeCalls(rows, kinds);
   const turns = new Set(made.flatMap((call) => (call.turn ? [call.turn] : [])));
   // A turn that started before the week's first moment still asked for what it made after it.
-  const asked = askersOf(db, turns, from - DAY_MS, input.now);
-  const byPerson = new Map<string, PersonCount>();
-  let own = 0;
-  let forOthers = 0;
-  for (const call of made) {
-    const person = call.turn ? asked.get(call.turn) : undefined;
-    const today = call.at >= dayStart;
-    if (!person) {
-      if (today) own += 1;
-      continue;
-    }
-    const count = byPerson.get(person) ?? { person, today: {}, week: {}, addressedToday: 0 };
-    byPerson.set(person, count);
-    add(count.week, call.skill);
-    if (today) {
-      add(count.today, call.skill);
-      forOthers += 1;
-    }
-  }
+  const asked = new Map<string, string>();
+  if (turns.size > 0)
+    for (const start of startsOf(db, null, from - DAY_MS, input.now))
+      if (turns.has(start.turn)) asked.set(start.turn, start.person);
+  const { byPerson, own, forOthers } = tally(made, asked, dayStart);
   if (own + forOthers === 0) return nothing();
   const asking = [...byPerson.values()]
     .filter((count) => sumOf(count.today) > 0)
@@ -221,13 +201,9 @@ export function madeAndGivenOf(db: Db, ctx: Context, input: MadeAndGivenInput): 
   const cap = Math.max(0, Math.floor(input.people));
   const others = asking.filter((count) => count !== answering).slice(0, cap);
   const shown = answering ? [answering, ...others] : others;
-  const addressed = addressedOf(
-    db,
-    ctx,
-    shown.map((count) => count.person),
-    dayStart,
-    input.now
-  );
-  for (const count of shown) count.addressedToday = addressed.get(count.person) ?? 0;
+  const started = new Map<string, number>();
+  for (const start of startsOf(db, ctx, dayStart, input.now))
+    started.set(start.person, (started.get(start.person) ?? 0) + 1);
+  for (const count of shown) count.addressedToday = started.get(count.person) ?? 0;
   return { answering, others, own, forOthers };
 }
