@@ -28,6 +28,8 @@ export type ChatLine = {
   number: number;
   /** The message id of the line it replies to, when it replies to one. */
   replyToId?: string;
+  /** When the current revision was recorded, for a line edited since it was said (a revision above 1). */
+  editedAt?: number;
   /** The number of the line it replies to, when this read holds that line. */
   replyNumber?: number;
 };
@@ -66,7 +68,7 @@ export function chatLines(db: Db | null, placeId: string): Array<ChatLine> {
   const counted = db.prepare(COUNT_SQL).get(placeId);
   const rows = db
     .prepare(
-      `SELECT s.id, s.kind, s.text, s.occurred_at, s.native_id, ${MESSAGE_ID} AS message_id, s.reply_to,
+      `SELECT s.id, s.kind, s.text, s.occurred_at, s.recorded_at, s.revision, s.native_id, ${MESSAGE_ID} AS message_id, s.reply_to,
          ${replyMessageSql('s')} AS reply_message, ${SOURCE_DELETED} AS deleted FROM sources s
        WHERE s.place_id = ? AND ${COUNTED}
        ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
@@ -94,6 +96,9 @@ export function chatLines(db: Db | null, placeId: string): Array<ChatLine> {
     ...(typeof row.message_id === 'string' ? { nativeId: row.message_id } : {}),
     ...(media.has(asText(row.id)) ? { media: media.get(asText(row.id)) } : {}),
     number,
+    ...(Number(row.revision) > 1 && Number.isFinite(Date.parse(asText(row.recorded_at)))
+      ? { editedAt: Date.parse(asText(row.recorded_at)) }
+      : {}),
     ...replyOf(row.reply_to, row.reply_message, byKey),
   }));
 }

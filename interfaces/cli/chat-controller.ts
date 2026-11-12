@@ -111,7 +111,7 @@ export type ChatEntry = {
   replyTo?: number;
   /** The kinds of the files memory stores with the line, drawn as `[voice]` and the like after its text. */
   files?: ReadonlyArray<string>;
-  /** The message id of one of her lines as the link keeps it: an edit or a deletion of the line names it. */
+  /** The message id of a line as the link keeps it, or as the stored page names it: an edit or a deletion of the line names it. */
   messageId?: string;
 };
 /**
@@ -692,6 +692,7 @@ export class ChatController {
           ...this.timeOf(entry),
           ...(entry.number === undefined ? {} : { number: entry.number }),
           ...(entry.replyTo === undefined ? {} : { replyTo: entry.replyTo }),
+          ...(entry.messageId === undefined ? {} : { messageId: entry.messageId }),
           storedId: entry.id,
         }));
         this.update({ entries: [...shown, ...this.model.entries] });
