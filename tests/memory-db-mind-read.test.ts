@@ -43,6 +43,7 @@ import {
   seedStemmer,
 } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
+import { EDIT_DELAY_MS, minute, storeRevision } from './fixtures/memory-db/edited-line.ts';
 
 /** The owner's values of 2026-11-06 for `context.memory`. */
 const SETTINGS: MindSettings = {
@@ -818,4 +819,70 @@ test('a person whose only changes sit in a direct chat the context may not read 
     audience: { dm, iface: 'discord', person },
   });
   assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).attitude, null);
+});
+
+/** Her line `native` stored in `place`, said at minute `at`, and, with `edit`, edited as production stores it. */
+function herLine(w: World, place: string, native: string, at: number, edit = false): void {
+  const where = { iface: 'discord', place };
+  storeRevision(w.db, where, { native, text: 'καλησπέρα', at: minute(at), kind: 'said', by: 'her' });
+  if (edit)
+    storeRevision(w.db, where, {
+      native,
+      text: 'καλησπέρα σας',
+      at: minute(at) + EDIT_DELAY_MS,
+      revision: 2,
+      kind: 'seen',
+      by: 'her',
+    });
+}
+
+// Bug (production, 2026-11-12): her edit of an old line, stored with the moment of the edit, made the place read as the
+// one she wrote in last, ahead of a place she wrote in after the line was said.
+test('an edit of her old line does not make its place the one she wrote in lately', () => {
+  const w = world();
+  const quiet = addRoom(w.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'ζωγραφική' });
+  herLine(w, w.room, 'old', 1, true);
+  herLine(w, quiet, 'newer', 30);
+  const settings: MindSettings = { ...SETTINGS, fanOut: { ...SETTINGS.fanOut, rooms: 1 } };
+  const mind = mindOf(w.db, GROUP, seedsOf([]), settings, NOW);
+  assert.deepEqual(
+    [w.room, quiet].filter((id) => placeIds(mind).includes(placeNode(id))),
+    [quiet]
+  );
+});
+
+// Bug: the count of her lines in a room adds the row of every edit, so a room where she fixed one line outranks a room
+// where she said two.
+test('an edit of her line is not a second line of hers when the busiest rooms are counted', () => {
+  const w = world();
+  const busy = addRoom(w.db, { iface: 'discord', native: 'c2', root: AGORA, name: 'ζωγραφική' });
+  herLine(w, w.room, 'once', 1, true);
+  herLine(w, busy, 'first', 1);
+  herLine(w, busy, 'second', 2);
+  const friend = 'person:telegram:f1';
+  addPerson(w.db, { id: friend, accounts: [{ id: 'telegram:f1', iface: 'telegram', native: 'f1', names: ['Nikos'] }] });
+  addMembership(w.db, { account: 'telegram:f1', place: AGORA });
+  const dm = addDm(w.db, { iface: 'telegram', native: 'f1', person: friend, account: 'telegram:f1' });
+  const text = 'ποια είναι τα αγαπημένα σου κανάλια στην Ágora;';
+  addLine(w.db, {
+    id: 'src:t1',
+    iface: 'telegram',
+    place: dm,
+    author: 'telegram:f1',
+    text,
+    audience: { dm, iface: 'telegram', person: friend },
+  });
+  const trigger = message('src:t1', text, { authorAccount: 'telegram:f1', placeId: dm, trigger: true });
+  const settings: MindSettings = { ...SETTINGS, fanOut: { ...SETTINGS.fanOut, rooms: 1 } };
+  const mind = mindOf(
+    w.db,
+    dmContext(friend, 'telegram', dm),
+    seedsOf([trigger], { place: dm, counterpart: { personId: friend, accountId: 'telegram:f1' } }),
+    settings,
+    NOW
+  );
+  assert.deepEqual(
+    [w.room, busy].filter((id) => placeIds(mind).includes(placeNode(id))),
+    [busy]
+  );
 });

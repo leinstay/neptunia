@@ -57,6 +57,7 @@ import { contextRow, internalContext, issueContext, scopeWhere } from './scope.t
 import { runColumns, scopesOf } from './session-scopes.ts';
 import type { RunColumns, SweepScope } from './session-scopes.ts';
 import { columnsOf } from './rows.ts';
+import { OF_FIRST_REVISION } from './source-current.ts';
 import { turnReadRows } from './service.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { ASSERTION_HOW } from './semantic-registry.ts';
@@ -362,15 +363,20 @@ export function batchOf(
     }
   }
   where.push(currentSql(db));
+  // The newest revision gives the text; the first gives who wrote the line and when (source-current.ts). A database
+  // before v8 has no message families to tell revisions apart, so its rows are read as they stand.
+  const columns = columnsOf(db, 'sources');
+  const written = (column: string): string => (columns.has('native_kind') ? OF_FIRST_REVISION(column) : `s.${column}`);
   if (since) {
-    where.push('s.occurred_at >= ?');
+    where.push(`${written('occurred_at')} >= ?`);
     params.push(since);
   }
   // Schema v8: a line by a thread-local poster names its participant.
-  const participant = columnsOf(db, 'sources').has('author_participant') ? 's.author_participant' : 'NULL';
+  const participant = columns.has('author_participant') ? written('author_participant') : 'NULL';
   const rows = db
     .prepare(
-      `SELECT s.rowid AS rowid, s.id, s.native_id, s.kind, s.place_id, s.author_account, ${participant} AS author_participant, s.occurred_at, s.text, s.direct
+      `SELECT s.rowid AS rowid, s.id, s.native_id, ${written('kind')} AS kind, s.place_id, ${written('author_account')} AS author_account,
+        ${participant} AS author_participant, ${written('occurred_at')} AS occurred_at, ${written('rowid')} AS written_rowid, s.text, s.direct
        FROM sources s WHERE ${where.join(' AND ')} ORDER BY s.rowid LIMIT ?`
     )
     .all(...params, maxMessages);
@@ -380,7 +386,7 @@ export function batchOf(
     if (Number.isFinite(settleBefore) && Number.isFinite(at) && at > settleBefore) break;
     out.push({ ...row, at: Number.isFinite(at) ? at : 0, rowid: row.rowid as number });
   }
-  return out.sort((a, b) => a.at - b.at || a.rowid - b.rowid);
+  return out.sort((a, b) => a.at - b.at || Number(a.written_rowid) - Number(b.written_rowid));
 }
 
 /**

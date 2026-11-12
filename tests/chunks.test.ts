@@ -122,3 +122,34 @@ test('newestRevisions: one line per message, its newest revision; deleted and fe
     ]
   );
 });
+
+const HER = 'cli:self';
+const FIRST = '2026-11-12T01:01:00Z';
+const EDITED = '2026-11-12T02:34:00Z';
+
+/** Her line `m2` and the lines around it, her edit of it stored as production holds it: `seen`, at the moment of the edit. */
+function editedChat(): Array<RecordLine> {
+  return [
+    seen('m1', '2026-11-12T01:00:00Z', 'first words'),
+    seen('m2', FIRST, 'the kettle is on 🙂', { kind: 'said', by: undefined, participants: [] }),
+    seen('m3', '2026-11-12T01:02:00Z', 'second words'),
+    seen('m2', EDITED, 'the kettle is on', { revision: 2, by: HER, participants: [HER] }),
+  ];
+}
+
+// Bug (production, 2026-11-12): the edit's line is `seen` by her account, so its chunk names the author by that
+// account's name, or by the bare id, and the meaning index reads her words as another's.
+test('newestRevisions and recordChunk: her edited line is written under her name', () => {
+  const line = newestRevisions(editedChat()).find((one) => one.messageId === 'm2');
+  assert.ok(line);
+  assert.equal(recordChunk(line, [], opts).text, 'Persona: the kettle is on');
+});
+
+// Bug: the line sorts by the moment of its edit, so the lines said after it come before it and the context of a later
+// line leaves it out.
+test('newestRevisions: her edited line stays between the lines said before and after it', () => {
+  assert.deepEqual(
+    newestRevisions(editedChat()).map((line) => line.messageId),
+    ['m1', 'm2', 'm3']
+  );
+});

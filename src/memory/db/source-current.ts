@@ -15,7 +15,7 @@ export const CURRENT_REVISION = `s.kind IN ('seen', 'said') AND s.retired_at IS 
  * revision is stored, else of `s` itself. The first revision says who wrote a line and when; the newest gives its text. A
  * row of the first revision costs no read. Needs the alias `s`.
  */
-const OF_FIRST_REVISION = (column: string): string => {
+export const OF_FIRST_REVISION = (column: string): string => {
   const earlier = `${SOURCE_FAMILY} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS NOT NULL`;
   return `CASE WHEN s.revision > 1 AND EXISTS (SELECT 1 FROM sources t WHERE ${earlier} AND t.revision < s.revision)
     THEN (SELECT t.${column} FROM sources t WHERE ${earlier} ORDER BY t.revision, t.rowid LIMIT 1) ELSE s.${column} END`;
@@ -30,6 +30,9 @@ export const LINE_KIND = OF_FIRST_REVISION('kind');
 export const LINE_AUTHOR_KIND = OF_FIRST_REVISION('author_kind');
 /** The author's account row of a chat line, its first revision's. */
 export const LINE_AUTHOR_ACCOUNT = OF_FIRST_REVISION('author_account');
+/** A row `s` that is no edit of a line whose earlier revision is stored: the row that says who wrote the line and when. */
+export const IS_WRITTEN_ROW = `(COALESCE(s.revision, 1) <= 1 OR NOT EXISTS (SELECT 1 FROM sources t WHERE ${SOURCE_FAMILY}
+    AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS NOT NULL AND t.revision < s.revision))`;
 /** Whether a `deleted` line stands for the message of the row `s`. */
 export const SOURCE_DELETED = `EXISTS (SELECT 1 FROM sources d WHERE d.native_id IS s.native_id AND d.iface IS s.iface
     AND d.place_id IS s.place_id AND d.kind = 'deleted' AND d.retired_at IS NULL
@@ -42,13 +45,13 @@ export const CURRENT_SOURCE = `${CURRENT_REVISION}
 
 /**
  * The row that says who wrote the line of `row` and when: its first stored revision, else `row` itself. One read for a
- * later revision, none for the first.
+ * later revision, none for the first. Its `rowid` is the first revision's.
  */
 export function writtenRowOf(db: Db, row: Row): Row {
   if (!(Number(row.revision) > 1)) return row;
   const first = db
     .prepare(
-      `SELECT t.* FROM sources s JOIN sources t ON ${SOURCE_FAMILY}
+      `SELECT t.*, t.rowid AS rowid FROM sources s JOIN sources t ON ${SOURCE_FAMILY}
        WHERE s.id = ? AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision < s.revision
        ORDER BY t.revision, t.rowid LIMIT 1`
     )

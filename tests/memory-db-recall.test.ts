@@ -1998,3 +1998,56 @@ for (const supplied of ['other-dm', 'group', 'current-dm'] as const) {
     }
   });
 }
+
+const MINUTE = 60_000;
+const EDIT_DELAY = 93 * MINUTE;
+
+/**
+ * Her line `e` said at minute 1 of a chat of ten lines, `a` before it and `l1` to `l8` after it, and edited 93 minutes
+ * later, the edit stored `seen` at that moment. Returns the moment `e` was written.
+ */
+function editedLineChat(env: ReturnType<typeof fixture>): number {
+  const at = NOW - DAY;
+  env.say({ native: 'a', at, text: 'πρώτη γραμμή', author: BOB });
+  env.say({ native: 'e', at: at + MINUTE, text: 'παλιο σπιτι', kind: 'said', author: ALICE });
+  for (let n = 1; n <= 8; n += 1)
+    env.say({ native: `l${n}`, at: at + (n + 1) * MINUTE, text: `γραμμή ${n}`, author: BOB });
+  env.say({ native: 'e', at: at + MINUTE + EDIT_DELAY, text: 'νεο σπιτι', revision: 2, author: ALICE });
+  env.stem();
+  return at + MINUTE;
+}
+
+// Bug (production, 2026-11-12): an edit stored with the moment of the edit placed her line after the lines that came
+// later, so a stretch of recall read the chat in the wrong order.
+test('recall: a window around a hit that was edited later keeps the hit at the place it was written', () => {
+  const env = fixture();
+  try {
+    editedLineChat(env);
+    // Two lines each side and no followed chat, so the window holds the hit's neighbours and nothing else.
+    const settings = { ...dbSettings({})!, recordContext: 2, followMessages: 0, followGapMinutes: 5 };
+    const found = run(env, ['σπιτι'], { settings });
+    const [first] = found.windows;
+    assert.deepEqual(
+      first.messages.map((message) => message.id),
+      ['a', 'e', 'l1', 'l2'],
+      'the lines written around the first revision, not the ones around the edit'
+    );
+  } finally {
+    env.done();
+  }
+});
+
+// Bug: the hit's `ts` is the moment of its edit, so the ranking by nearness to a date and the age shown follow the edit.
+test('recall: a hit that was edited later is dated by the moment it was written', () => {
+  const env = fixture();
+  try {
+    const written = editedLineChat(env);
+    const found = run(env, ['σπιτι']);
+    assert.deepEqual(
+      found.hits.map((hit) => [hit.messageId, hit.ts]),
+      [['e', written]]
+    );
+  } finally {
+    env.done();
+  }
+});
