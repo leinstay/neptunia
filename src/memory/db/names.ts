@@ -1,7 +1,8 @@
 // The name index of the graph reader: every name a person, a place or an interface goes by, one row per name, per node,
 // per audience and per stored row it came from. The table `names` holds the label as stored, its folded form
 // (`normalized`: its words in lower case with no accents, src/memory/record-index.ts#indexWords), the stems of its words under the learned stemmer
-// (src/memory/db/stems.ts), the kind of name, the graph node it raises, the audience it may be read in and the row it
+// (src/memory/db/stems.ts), the key of those stems across scripts (`script_key`, src/memory/db/script-key.ts; null for a row
+// written before it existed, until stems.ts#fillStems fills it), the kind of name, the graph node it raises, the audience it may be read in and the row it
 // came from. `names_tri` is a trigram index over `normalized`, kept by triggers.
 //
 // The rows come from:
@@ -22,20 +23,22 @@
 //       returns the nodes whose rows it rewrote, whose name sets object-vectors.ts#touchNameVectors compares.
 //   rebuildNames(db)   every row again from the stored rows.
 //   namesOf(db, ctx, words)   the nodes each word names, read under `ctx` (scope.ts#audienceWhere). A word is matched by
-//       its folded exact form first, then by its stems, then by trigrams; a weaker way is tried only when the stronger
-//       found nothing, and one node is one hit per word, by its strongest match.
+//       its folded exact form first, then by its stems, then by the key of its stems (a name in Cyrillic letters finds
+//       the same name in Latin letters and the other way round, by whole key), then by trigrams; a weaker way is tried
+//       only when the stronger found nothing, and one node is one hit per word, by its strongest match.
 //   placesNamed(db, ctx, name)   the live places a name she wrote in a tool's `place` argument names under `ctx`, by
 //       its exact folded form or its stems, each place once with its stored name (src/tools/executors.ts#resolveCall).
 // Pure of the bot; works on an opened database.
 
 import { indexWords } from '../record-index.ts';
 import { AUD_INTERNAL, AUD_NONE, audienceWhere, dmAudienceId, groupAudienceId } from './scope.ts';
+import { scriptKey } from './script-key.ts';
 import { loadStemmer, stemsOf } from './stems.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
 /** How a word matched a name. */
-export type NameMatch = 'exact' | 'stem' | 'trigram';
+export type NameMatch = 'exact' | 'stem' | 'script' | 'trigram';
 /** One node a word names: the graph node, the kind of name, the name as stored, how it matched and its audience. */
 export type NameHit = { nodeId: string; kind: string; label: string; match: NameMatch; audienceId: string };
 /** A graph node by its kind and the id of its row, as `graph_nodes` holds them. */
@@ -240,18 +243,20 @@ function hasNames(db: Db): boolean {
 /** Writes the rows of one stored row; returns the nodes it wrote rows for. */
 function writeRows(db: Db, sourceTable: string, sourceId: string, stem: (word: string) => string): Array<string> {
   const insert = db.prepare(
-    `INSERT OR IGNORE INTO names (label, normalized, stem, kind, node_id, audience_id, source_table, source_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT OR IGNORE INTO names (label, normalized, stem, script_key, kind, node_id, audience_id, source_table, source_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const nodes: Array<string> = [];
   for (const row of ROWS_OF[sourceTable]?.(db, sourceId) ?? []) {
     const normalized = normalName(row.label);
     if (normalized === '') continue;
     nodes.push(row.nodeId);
+    const stems = stemsOf(stem, normalized);
     insert.run(
       row.label,
       normalized,
-      stemsOf(stem, normalized),
+      stems,
+      scriptKey(stems),
       row.kind,
       row.nodeId,
       row.audienceId,
@@ -364,7 +369,8 @@ function onePerNode(hits: Array<NameHitRow>): Array<NameHitRow> {
 }
 
 /**
- * The names one word or phrase matches under `ctx`: exact, else by stems, else by trigrams (`only` limits the ways).
+ * The names one word or phrase matches under `ctx`: exact, else by stems, else by the key of its stems, else by trigrams
+ * (`only` limits the ways).
  * Each hit keeps its folded name and its node's kind and row as `graph_nodes` holds them. A caller matching many words passes `stem` once (stems.ts#loadStemmer reads the
  * stored stemmer on every call).
  */
@@ -372,7 +378,7 @@ export function matchName(
   db: Db,
   ctx: Context,
   word: string,
-  only: ReadonlyArray<NameMatch> = ['exact', 'stem', 'trigram'],
+  only: ReadonlyArray<NameMatch> = ['exact', 'stem', 'script', 'trigram'],
   stem?: (word: string) => string
 ): Array<NameHitRow> {
   const folded = normalName(word);
@@ -387,10 +393,14 @@ export function matchName(
     const exact = select('normalized', folded);
     if (exact.length > 0) return onePerNode(exact.map((row) => hitOf(row, 'exact')));
   }
+  const stems = only.includes('stem') || only.includes('script') ? stemsOf(stem ?? loadStemmer(db).stem, folded) : '';
   if (only.includes('stem')) {
-    const stems = stemsOf(stem ?? loadStemmer(db).stem, folded);
     const stemmed = stems === '' ? [] : select('stem', stems);
     if (stemmed.length > 0) return onePerNode(stemmed.map((row) => hitOf(row, 'stem')));
+  }
+  if (only.includes('script')) {
+    const scripted = stems === '' ? [] : select('script_key', scriptKey(stems));
+    if (scripted.length > 0) return onePerNode(scripted.map((row) => hitOf(row, 'script')));
   }
   return only.includes('trigram') ? onePerNode(trigramHits(db, ctx, folded)) : [];
 }
