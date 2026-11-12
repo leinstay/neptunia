@@ -41,6 +41,14 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'How many of her actions of today `<my_day>` lists, the newest kept. `0` leaves the block out',
   },
   {
+    'key': 'context.names.emoji',
+    'types': ['boolean'],
+    'reader': 'src/turn/request/text.ts',
+    'default': false,
+    'text':
+      "Whether a request keeps the emoji in the names of places and people. `false` leaves them out and trims the name: the links of a place reference, and a person's heading, account names and aliases. A name of nothing but emoji and a custom emoji written `:name:` stay. The stored name never changes",
+  },
+  {
     'key': 'context.memory',
     'types': ['map'],
     'reader': 'src/memory/db/mind-read.ts',
