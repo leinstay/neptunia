@@ -77,6 +77,11 @@ export type SkillCallsContext = {
   stemmer?: () => { stem: (word: string) => string } | null;
   /** The name index of the memory under a turn's context: the live places a name names (names.ts#placesNamed). */
   placesNamedFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesNamed'];
+  /** The stored line of a message id under a turn's context, for the author check of an edit and a deletion (frame-reads.ts#lineOfMessage). */
+  messageLineFor?: (
+    draft: CallsDraft | null,
+    channel: CallChannel
+  ) => ((iface: string, messageId: string) => ReturnType<NonNullable<CallView['messageLine']>>) | null;
   /** The memory graph under a turn's context: the places it ranks for words that name no place (graph-find.ts#placesFound). */
   placesFoundFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesFound'];
   /** The turn's embeddings for the finder, one memo per draft (graph-find.ts#createFindMeaning). */
@@ -357,6 +362,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     store,
     stemmer = () => null,
     placesNamedFor = () => null,
+    messageLineFor = () => null,
     placesFoundFor = () => null,
     findMeaningFor = () => null,
     knownPlaces = () => [],
@@ -469,6 +475,10 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       config: hot.config,
       stem: stemmer?.()?.stem ?? null,
       placesNamed: placesNamedFor(draft, channel) ?? null,
+      messageLine: ((read) =>
+        read === null ? null : (chatId: string, messageId: string) => read(ifaceOfChat(chatId, port.iface), messageId))(
+        messageLineFor(draft, channel)
+      ),
       placesFound: placesFoundFor(draft, channel) ?? null,
       findMeaning: findMeaningFor(draft) ?? null,
       knownPlaces: knownPlaces(),
