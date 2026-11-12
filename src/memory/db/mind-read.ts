@@ -549,6 +549,22 @@ function windowOf(messages: ReadonlyArray<SeedMessage>, size: number): Array<See
   return size <= 0 ? [] : sorted.slice(-size);
 }
 
+/** One node a phrase names, the way it matched and the folded name it matched by. */
+type WordNode = { target: Node; match: NameMatch; normalized: string };
+type WordHits = { nouns: Array<NameHitRow>; nodes: Array<WordNode>; candidate: boolean };
+
+/**
+ * One node matched exactly, or one matched by stem or by script key among the people present or the places under the
+ * current root, is the one the phrase names; any other match is a candidate.
+ */
+function isSure(nodes: ReadonlyArray<WordNode>, present: (target: Node) => boolean): boolean {
+  const [single] = nodes;
+  return (
+    nodes.length === 1 &&
+    (single.match === 'exact' || ((single.match === 'stem' || single.match === 'script') && present(single.target)))
+  );
+}
+
 /** What one word of the window names, after the narrowing and the common-word rule. */
 function wordHits(
   db: Db,
@@ -558,17 +574,17 @@ function wordHits(
   phrase: string,
   present: (target: Node) => boolean,
   only?: ReadonlyArray<NameMatch>
-): { nouns: Array<NameHitRow>; nodes: Array<{ target: Node; match: NameMatch }>; candidate: boolean } {
+): WordHits {
   const hits = matchName(db, ctx, phrase, only, walker.stem);
   const nouns = hits.filter((hit) => hit.kind === 'interface_noun');
-  const byNode = new Map<string, { target: Node; match: NameMatch }>();
+  const byNode = new Map<string, WordNode>();
   for (const hit of hits) {
     if (hit.kind === 'interface_noun' || hit.node === null) continue;
     const target =
       hit.node.kind === 'account' ? walker.personOfAccount(hit.nodeId) : { nodeId: hit.nodeId, ...hit.node };
     if (target === null || (target.kind === 'person' && target.rowId === SELF_PERSON) || byNode.has(target.nodeId))
       continue;
-    byNode.set(target.nodeId, { target, match: hit.match });
+    byNode.set(target.nodeId, { target, match: hit.match, normalized: hit.normalized });
   }
   let nodes = [...byNode.values()];
   if (nodes.length > 1) {
@@ -576,11 +592,28 @@ function wordHits(
     if (near.length > 0) nodes = near;
   }
   if (nodes.length > settings.commonWordEntries) return { nouns, nodes: [], candidate: false };
-  // One node matched by stem among the people present or the places under the current root is the one the word names.
-  const [single] = nodes;
-  const sure = nodes.length === 1 && (single.match === 'exact' || (single.match === 'stem' && present(single.target)));
-  const candidate = !sure && nodes.length > 0;
+  const candidate = nodes.length > 0 && !isSure(nodes, present);
   return { nouns, nodes: nodes.slice(0, Math.max(1, settings.candidatesMax)), candidate };
+}
+
+/**
+ * What a single word names once the longer phrases of its line are read: a hit of a phrase of two or three words that
+ * holds the word wins over the word's own hits, unless a hit of the word matches its name exactly and that name is no
+ * part of the name the longer phrase matched.
+ */
+function withoutInnerHits(
+  word: string,
+  found: WordHits,
+  longer: ReadonlyArray<{ phrase: string; nodes: ReadonlyArray<WordNode> }>,
+  present: (target: Node) => boolean
+): WordHits {
+  const holding = longer.filter((one) => one.nodes.length > 0 && ` ${one.phrase} `.includes(` ${word} `));
+  if (holding.length === 0 || found.nodes.length === 0) return found;
+  const names = holding.flatMap((one) => one.nodes.map((node) => ` ${node.normalized} `));
+  const nodes = found.nodes.filter(
+    (node) => node.match === 'exact' && !names.some((name) => name.includes(` ${node.normalized} `))
+  );
+  return { nouns: found.nouns, nodes, candidate: nodes.length > 0 && !isSure(nodes, present) };
 }
 
 /** The places of the current root and the people already raised as present: what narrows an ambiguous word. */
@@ -604,14 +637,23 @@ function seedWords(
   place: string | null
 ): void {
   const present = presenceOf(db, walker, place);
-  const cache = new Map<string, ReturnType<typeof wordHits>>();
+  const cache = new Map<string, WordHits>();
+  const hitsOf = (phrase: string): WordHits => {
+    let found = cache.get(phrase);
+    if (found === undefined) {
+      found = wordHits(db, ctx, walker, settings, phrase, present);
+      cache.set(phrase, found);
+    }
+    return found;
+  };
   for (const message of window) {
-    for (const phrase of new Set(phrasesOf(message.text))) {
-      let found = cache.get(phrase);
-      if (found === undefined) {
-        found = wordHits(db, ctx, walker, settings, phrase, present);
-        cache.set(phrase, found);
-      }
+    const phrases = [...new Set(phrasesOf(message.text))];
+    const longer = phrases
+      .filter((phrase) => phrase.includes(' '))
+      .map((phrase) => ({ phrase, nodes: hitsOf(phrase).nodes }));
+    for (const phrase of phrases) {
+      const read = hitsOf(phrase);
+      const found = phrase.includes(' ') ? read : withoutInnerHits(phrase, read, longer, present);
       const base = { evidence: 'word' as const, hop: 0, anchor: message.id, anchorAt: message.at, own: false };
       for (const one of found.nodes)
         walker.raise({

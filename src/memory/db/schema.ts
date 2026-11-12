@@ -96,8 +96,20 @@ function vectorSources(db: Db): void {
   }
 }
 
+/**
+ * Version 59: `names.script_key`, the key of a name's stems across scripts (script-key.ts), null for the rows already
+ * stored. A database whose stems were all filled has them marked pending again, so the next projection job's
+ * `fillStems` fills the key of those rows. A column already there is left as it is.
+ */
+function nameScripts(db: Db): void {
+  const held = db.prepare("SELECT 1 AS ok FROM pragma_table_info('names') WHERE name = 'script_key'").get();
+  if (!held) db.exec('ALTER TABLE names ADD COLUMN script_key TEXT');
+  db.exec(`CREATE INDEX IF NOT EXISTS names_script ON names(script_key);
+    UPDATE meta SET value = '1' WHERE key = 'stems_pending';`);
+}
+
 /** The steps above the baseline, version 57 first. */
-export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources];
+export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources, nameScripts];
 
 /** The tables that carry a scope and its `audience_id`. */
 export const SCOPED_TABLES = [
