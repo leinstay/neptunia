@@ -273,7 +273,8 @@ test("the client's shown line holds the new text after the edit, as the one line
   assert.equal(line?.message.sourceText, 'the kettle is on');
   assert.equal((line?.message.editedAt ?? 0) >= (line?.message.at ?? Infinity), true, 'the line is marked as edited');
   const read = await coreLink.adapter.fetchMessages(CHAT, [hers.messageId]);
-  assert.equal(read.status === 'ok' ? read.messages[0]?.text : read, 'the kettle is on');
+  const fetched = read.status === 'ok' ? read.messages[0] : read;
+  assert.equal(fetched && 'text' in fetched ? fetched.text : fetched, 'the kettle is on');
   link.close();
 });
 
@@ -320,7 +321,8 @@ test('her delete of her own line answers ok, reaches the core as a deletion of t
     'no line of the chat is hers any more'
   );
   const read = await coreLink.adapter.fetchMessages(CHAT, [hers.messageId]);
-  assert.equal(read.status === 'ok' ? read.messages[0]?.missing : read, true);
+  const fetched = read.status === 'ok' ? read.messages[0] : read;
+  assert.equal(fetched && 'missing' in fetched ? fetched.missing : fetched, true);
   link.close();
 });
 

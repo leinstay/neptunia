@@ -26,6 +26,8 @@ const REPO = fileURLToPath(new URL('..', import.meta.url));
 const LABELS = JSON.parse(readFileSync(join(REPO, 'config', 'labels.json'), 'utf8')) as {
   model: { transcript: { edited: string } };
 };
+const { transcript: WORDS } = LABELS.model;
+const EDITED = WORDS.edited;
 const FIRST = 'the kettle is on 🙂';
 const SECOND = 'the kettle is on';
 
@@ -179,7 +181,7 @@ test('her message.edit of her own line on the command line stores revision 2 bes
       [2, SECOND],
     ]
   );
-  assert.ok(after.includes(`${SECOND} ${LABELS.model.transcript.edited}`), 'the new text carries the edited mark');
+  assert.ok(after.includes(`${SECOND} ${EDITED}`), 'the new text carries the edited mark');
   assert.equal(after.includes(FIRST), false, 'the old text is gone from the request');
 });
 
