@@ -1,7 +1,8 @@
 // The reads of a request built on the turn frame beside the graph reader (src/memory/db/mind-read.ts): her own last
 // lines in other places and the lines around one line for `<meanwhile>`, each with its media, the descriptions of the
 // media of a place's lines for a read of lines the platform gives, one stored line by its identity for a reference in a
-// stored text, whether a lookup's source is retired, the stored fields of a place for `<surroundings>`,
+// stored text, whether a lookup's source is retired, the stored fields of a place for `<surroundings>` with a root's
+// in-jokes, her lessons for `<lessons>`,
 // a place as its interface knows it (its interface, kind and native ids, for a call that speaks to the interface),
 // an interface's name and nouns and her past selfreflection entries for a selfreflection request's `<selfreflection>`.
 // Each read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
@@ -21,8 +22,10 @@ import { ownerAccountOfPlace } from './person-links.ts';
 import { placeChainInDb } from './place-tree.ts';
 import type { PlaceChainLink } from './place-tree.ts';
 import type { InterfaceNames } from '../../protocol/serve.ts';
-import { allowedAudience, whereFor } from './scope.ts';
+import { allowedAudience, scopeWhere, whereFor } from './scope.ts';
 import { placeAudience } from './graph.ts';
+import { MEMORY_LIMITS } from '../text-limits.ts';
+import { sortRanked } from '../ranking.ts';
 import { readSelfreflection } from './selfreflection-past.ts';
 import { subjectOf } from './subject.ts';
 import type { Subject, SubjectHere } from './subject.ts';
@@ -420,7 +423,15 @@ export function sourceRetiredOf(db: Db, ctx: Context, sourceId: string): boolean
   return row?.live !== 1 || row.gone === 1;
 }
 
-/** The current stored fields of a place the context reads, by field name, a one-to-one chat's before a group's. */
+/** The live claims of a kind about places, as the notes writer stores them, one query for both readers below. */
+const PLACE_CLAIMS = `SELECT c.id, c.subject_id, c.text, c.weight, c.first_seen_at, c.last_seen_at, c.from_person
+  FROM claims c
+  WHERE c.subject_kind = 'place' AND c.kind = ? AND c.retired_at IS NULL AND COALESCE(c.truth, 'current') <> 'historical'`;
+
+/**
+ * The current stored fields of a place the context reads, by field name, a one-to-one chat's before a group's. The key
+ * `injokes` holds the place's live in-jokes the context reads, in the order the notes stored them, joined with `; `.
+ */
 export function placeFieldsOf(db: Db, ctx: Context, placeId: string): Record<string, string> {
   const where = whereFor(ctx, 'd');
   const rows = db
@@ -436,7 +447,46 @@ export function placeFieldsOf(db: Db, ctx: Context, placeId: string): Record<str
     const value = text(row.text);
     if (field !== null && value !== null && !Object.hasOwn(fields, field)) fields[field] = value;
   }
+  const readable = scopeWhere(ctx, 'c');
+  const jokes = db
+    .prepare(`${PLACE_CLAIMS} AND c.subject_id = ? AND ${readable.sql} ORDER BY c.position, c.id`)
+    .all('injoke', placeId, ...readable.params)
+    .flatMap((row) => text(row.text) ?? []);
+  if (jokes.length > 0) fields.injokes = jokes.join('; ');
   return fields;
+}
+
+/** One thing people taught her: its text and the person id of the teacher, null when the row names nobody. */
+export type Lesson = { text: string; teacher: string | null };
+
+/**
+ * Her live lessons of every place the context reads (a direct chat reads its own and the groups', never another
+ * direct chat's), best first. The rank is the one of `rank` in src/memory/ranking.ts over the claim's `weight` (how
+ * often it was confirmed) and the moment it was `last_seen_at`, else `first_seen_at`, with the half-life of
+ * `MEMORY_LIMITS.learnedHalfLifeDays`. A tie goes to the newer date, then to the larger claim id.
+ */
+export function lessonsOf(db: Db, ctx: Context): Array<Lesson> {
+  const readable = scopeWhere(ctx, 'c');
+  const rows = db
+    .prepare(`${PLACE_CLAIMS} AND ${readable.sql} ORDER BY c.id`)
+    .all('lesson', ...readable.params)
+    .flatMap((row) => {
+      const body = text(row.text);
+      if (body === null) return [];
+      return [
+        {
+          text: body,
+          teacher: text(row.from_person),
+          weight: typeof row.weight === 'number' ? row.weight : 0,
+          lastSeen: text(row.last_seen_at),
+          firstSeen: text(row.first_seen_at),
+        },
+      ];
+    });
+  return sortRanked(rows, MEMORY_LIMITS.learnedHalfLifeDays).map(({ text: body, teacher }) => ({
+    text: body,
+    teacher,
+  }));
 }
 
 /**
@@ -528,6 +578,8 @@ export type FrameReads = {
   /** Whether the line of the message a source row holds is gone (sourceRetiredOf). */
   sourceRetired?(ctx: Context, sourceId: string): boolean;
   placeFields(ctx: Context, placeId: string): Record<string, string>;
+  /** Her live lessons the context reads, best first (lessonsOf). */
+  lessons?(ctx: Context): Array<Lesson>;
   /** The description versions `placeFields` renders (placeVersionsOf). */
   placeVersions?(ctx: Context, placeId: string): Array<string>;
   interfaceNames(iface: string): { name: string | null; nouns: Record<string, string>; dm?: string | null };
@@ -600,6 +652,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     messageLine: (ctx, iface, messageId) => over(null, (db) => lineOfMessage(db, ctx, iface, messageId)),
     sourceRetired: (ctx, sourceId) => over(true, (db) => sourceRetiredOf(db, ctx, sourceId)),
     placeFields: (ctx, placeId) => over({}, (db) => placeFieldsOf(db, ctx, placeId)),
+    lessons: (ctx) => over([], (db) => lessonsOf(db, ctx)),
     placeVersions: (ctx, placeId) => over([], (db) => placeVersionsOf(db, ctx, placeId)),
     interfaceNames: (iface) => over({ name: null, nouns: {}, dm: null }, (db) => interfaceNamesOf(db, iface)),
     interfaceIds: () => over([], (db) => interfaceIdsOf(db)),
