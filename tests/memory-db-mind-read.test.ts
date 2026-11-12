@@ -982,16 +982,30 @@ test('an interest stored under a direct chat the context may not read is not in 
   assert.deepEqual(inDm, ['ΙΔΙΩΤΙΚΟ', 'ΔΗΜΟΣΙΟ']);
 });
 
-test('an interest is the list of the entry alone, not also one of its claims', () => {
-  // Bug: the claims of the entry still hold the interest rows, so the text is printed twice in `whole`.
+test('an interest that stands in the list is not also one of the claims of the entry', () => {
+  // Bug: the claims of the entry still hold the interest rows, so a listed interest is printed twice in `whole`.
   const w = world();
   const person = plainPerson(w);
   addInterest(w, person, 'claim:i1', 'ΜΟΥΣΙΚΗ', 3, daysBefore(2));
   const entry = counterpartIn(w, GROUP, person, w.room, SETTINGS);
   assert.deepEqual(entry.interests, ['ΜΟΥΣΙΚΗ']);
-  assert.equal(
-    entry.claims.some((claim) => claim.kind === 'interest'),
-    false
+  assert.deepEqual(
+    entry.claims.filter((claim) => claim.text === 'ΜΟΥΣΙΚΗ'),
+    []
+  );
+});
+
+test('an interest claim the list cut off stays among the claims of the entry', () => {
+  // Bug: every claim of kind interest is dropped from the claims, so one the cut left out of the list is nowhere.
+  const w = world();
+  const person = plainPerson(w);
+  addInterest(w, person, 'claim:top', 'ΜΟΥΣΙΚΗ', 9, daysBefore(2));
+  addInterest(w, person, 'claim:cut', 'ΣΚΑΚΙ', 1, daysBefore(2));
+  const entry = counterpartIn(w, GROUP, person, w.room, { ...SETTINGS, interests: 1 });
+  assert.deepEqual(entry.interests, ['ΜΟΥΣΙΚΗ']);
+  assert.deepEqual(
+    entry.claims.map((claim) => claim.text),
+    ['ΣΚΑΚΙ']
   );
 });
 
