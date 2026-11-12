@@ -44,16 +44,19 @@ function requestOf(w: MadeWorld, ids: ReadonlyArray<string>, now = NOW) {
   const db = w.read();
   const scope = scopesOf(db).find((entry) => entry.key === 'group:discord');
   if (!scope) throw new Error('the world has no group session scope');
-  const all = batchOf(db, scope.scope, { cursor: 0, since: null, maxMessages: 50, settleBefore: NOW });
+  const { scope: swept } = scope;
+  const all = batchOf(db, swept, { cursor: 0, since: null, maxMessages: 50, settleBefore: NOW });
   const batch = all.filter((line) => ids.includes(String(line.id)));
   return buildSessionRequest({ db, scope, batch, config: baseConfig(), prompts, selfName: 'Nep', now });
 }
 
 /** The lines of one person's entry of `<people>`, found by the id line the entry holds. */
 function entryOf(request: ReturnType<typeof requestOf>, native: string): Array<string> {
-  const text = textOf(request.messages[1]?.content);
+  const user = request.messages[1];
+  const text = textOf(user?.content);
   const people = /<people>\n([\s\S]*?)\n<\/people>/.exec(text)?.[1] ?? '';
-  const entry = people.split('\n\n').find((one) => one.split('\n').includes(`id: <@${native}>`));
+  const entries = people.split('\n\n');
+  const entry = entries.find((one) => one.split('\n').includes(`id: <@${native}>`));
   if (!entry) throw new Error(`no entry for ${native} in <people>`);
   return entry.split('\n');
 }
