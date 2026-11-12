@@ -2023,11 +2023,15 @@ test('recall: a window around a hit that was edited later keeps the hit at the p
   const env = fixture();
   try {
     editedLineChat(env);
-    const found = run(env, ['σπιτι']);
+    // Two lines each side and no followed chat, so the window holds the hit's neighbours and nothing else.
+    const settings = { ...dbSettings({})!, recordContext: 2, followMessages: 0, followGapMinutes: 5 };
+    const found = run(env, ['σπιτι'], { settings });
     const [first] = found.windows;
-    const shown = first.messages.map((message) => message.id);
-    assert.deepEqual(shown.slice(0, 3), ['a', 'e', 'l1'], 'the lines either side of where it was written');
-    assert.equal(shown.includes('l8'), false, 'not the lines of the end of the chat');
+    assert.deepEqual(
+      first.messages.map((message) => message.id),
+      ['a', 'e', 'l1', 'l2'],
+      'the lines written around the first revision, not the ones around the edit'
+    );
   } finally {
     env.done();
   }
