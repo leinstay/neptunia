@@ -90,7 +90,8 @@ test('the handle of a writer is the handle of that person in <people>', async ()
   try {
     withTally(BUSY)(world);
     const run = await replyRun({ world, steps: [turn('r2', 1)] });
-    const request = run.requests[0]?.[0] ?? '';
+    const [turnRequests = []] = run.requests;
+    const request = turnRequests[0] ?? '';
     const people = /<people>\n?([\s\S]*?)\n?<\/people>/.exec(blockOf(request, 'memory'))?.[1] ?? '';
     const entry = people.split(/\n\s*\n/).find((one) => one.includes('Ελένη')) ?? '';
     const first = entry.split('\n')[0] ?? '';
