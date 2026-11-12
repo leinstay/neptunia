@@ -9,6 +9,7 @@
 
 import { fill, formatDate, formatDay, mentionsNamed } from '../../format.ts';
 import { factStateWords } from '../../memory/retrieval-input.ts';
+import { affinityBand } from '../../memory/affinity.ts';
 import { EVIDENCE_ORDER, ownLinesShown } from '../../memory/db/mind-read.ts';
 import type {
   ClaimEntry,
@@ -95,6 +96,8 @@ type Words = {
   unknown: string;
   /** `labels.surroundings`: the field line and the word of each field, shared with `<place>` of `<surroundings>`. */
   surroundings: SurroundingsLabels;
+  /** `labels.affinity.bands`: the word of each band of her attitude. */
+  affinity: LabelGroup;
   /** `context.names.emoji`: the names of people and places keep their emoji when true. */
   keepEmoji: boolean;
 };
@@ -196,10 +199,44 @@ function personName(w: Words, person: PersonEntry): string {
   return shownName(person.name ?? named ?? w.unknown, w.keepEmoji);
 }
 
+/**
+ * Her attitude toward a person as two lines: `memory.attitude` (`memory.attitudeNoReason` with no reason) with the score
+ * rounded, the band of that rounded number and the reason, then `memory.attitudeMoves` holding one `memory.attitudeMove`
+ * per change (`{delta}` signed, `{date}` as `YYYY-MM-DD`, `{reason}`). A rounded score of zero with no reason gives
+ * none, and no move gives the first line alone.
+ */
+function attitudeLines(w: Words, attitude: PersonEntry['attitude']): Array<string> {
+  if (attitude === null || !Number.isFinite(attitude.score)) return [];
+  const score = Math.round(attitude.score) + 0;
+  const reason = attitude.reason?.trim() ?? '';
+  if (score === 0 && reason === '') return [];
+  const band = w.affinity[affinityBand(score)] ?? '';
+  const head = fill((reason === '' ? w.l.attitudeNoReason : w.l.attitude) ?? '', {
+    score,
+    band,
+    reason: storedText(w, reason),
+  });
+  const moves = attitude.moves.flatMap((move) => {
+    const at = Date.parse(move.at);
+    if (!Number.isFinite(at) || !Number.isFinite(move.delta)) return [];
+    const delta = Math.round(move.delta) + 0;
+    const line = fill(w.l.attitudeMove ?? '', {
+      delta: delta > 0 ? `+${delta}` : String(delta),
+      date: formatDay(at, w.frame.timezone),
+      reason: storedText(w, move.reason?.trim() ?? ''),
+    });
+    return [line.replace(/[\s,;:]+$/, '')];
+  });
+  return [head, moves.length > 0 ? fill(w.l.attitudeMoves ?? '', { moves: moves.join('; ') }) : ''];
+}
+
 function personText(w: Words, person: PersonEntry, counterpart: boolean, live: string | null): string {
   const origin = counterpart ? (w.l.counterpart ?? '') : (w.origin[person.evidence] ?? '');
   const lines = [heading(w, personName(w, person), origin, person.candidate)];
   const detail = counterpart && person.detail === 'name' ? 'compact' : person.detail;
+  // The person she answers and a person the reader keeps carry her attitude at every detail, another at full detail.
+  if (counterpart || person.keep === true || person.detail === 'whole')
+    lines.push(...attitudeLines(w, person.attitude));
   if (detail === 'whole') lines.push(valueLine(w, w.l.realName, person.realName));
   if (detail !== 'name') lines.push(aliasLine(w, person));
   lines.push(...accountLines(w, person));
@@ -422,6 +459,7 @@ function wordsOf(labels: Labels, frame: FrameView, nameOf: NameOf, refs: EntryRe
     refs: refs ?? plainRefs(labels, nameOf, keepEmoji),
     unknown: labels.authors?.unknown ?? '',
     surroundings: labels.surroundings ?? {},
+    affinity: labels.affinity?.bands ?? {},
     keepEmoji,
   };
 }

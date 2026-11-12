@@ -27,6 +27,7 @@ import {
   NOW,
   addClaim,
   addDm,
+  addAttitude,
   addLine,
   addMembership,
   addPerson,
@@ -53,6 +54,7 @@ const SETTINGS: MindSettings = {
   counterpartTokens: 1500,
   candidatesMax: 3,
   commonWordEntries: 3,
+  attitudeMoves: 2,
   fanOut: { accounts: 10, memberships: 20, rooms: 10, members: 8, replies: 5, about: 30 },
 };
 
@@ -688,4 +690,132 @@ test('a line naming the second word alone still raises the place named by it', (
   const trigger = strangerSays(w, 'src:g1', 'покажи сада', { trigger: true });
   const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
   assert.equal(placeIn(mind, plain)?.candidate, false);
+});
+
+// Her attitude toward a person (spec 2026-11-12 attitude-in-people): a person entry carries the score and the reason
+// of the newest change the context may read, and the newest changes, newest first, at most `attitudeMoves` of them.
+const DAY = (n: number): string => `2026-10-${String(n).padStart(2, '0')}T09:00:00.000Z`;
+
+/** A person who writes in the room, and `changes` toward them stored under the groups of Discord. */
+function personWithChanges(
+  w: World & { room: string },
+  changes: ReadonlyArray<[number, number, number, string]>
+): string {
+  const person = 'person:discord:a1';
+  addPerson(w.db, {
+    id: person,
+    accounts: [{ id: 'discord:a1', iface: 'discord', native: 'a1', names: ['Αρίστη'] }],
+  });
+  changes.forEach(([day, applied, score, reason]) =>
+    addAttitude(w.db, {
+      id: `aff:${day}`,
+      person,
+      at: DAY(day),
+      applied,
+      score,
+      reason,
+      audience: { group: 'discord' },
+    })
+  );
+  return person;
+}
+
+/** The entry of the person she answers in the room, read under `ctx` from a line of theirs. */
+function counterpartIn(
+  w: World & { room: string },
+  ctx: Context,
+  person: string,
+  place: string,
+  settings: MindSettings
+): PersonEntry {
+  const trigger = message('src:a1', 'γεια', { authorAccount: 'discord:a1', placeId: place, trigger: true });
+  const seeds = seedsOf([trigger], { place, counterpart: { personId: person, accountId: 'discord:a1' } });
+  const entry = personIn(mindOf(w.db, ctx, seeds, settings, NOW), person);
+  assert.ok(entry, 'the person she answers has an entry');
+  return entry;
+}
+
+test('a person entry carries the score and reason of the newest change and the newest two changes, newest first', () => {
+  // Bug: the entry reads the stored score column or the oldest rows, so she sees a stale attitude or the wrong moves.
+  const w = world();
+  const person = personWithChanges(w, [
+    [1, 5, 5, 'ΛΟΓΟΣ-1'],
+    [2, 6, 11, 'ΛΟΓΟΣ-2'],
+    [3, -4, 7, 'ΛΟΓΟΣ-3'],
+    [4, 12, 19, 'ΛΟΓΟΣ-4'],
+    [5, 8, 27, 'ΛΟΓΟΣ-5'],
+  ]);
+  const entry = counterpartIn(w, GROUP, person, w.room, SETTINGS);
+  assert.deepEqual(entry.attitude, {
+    score: 27,
+    reason: 'ΛΟΓΟΣ-5',
+    moves: [
+      { delta: 8, at: DAY(5), reason: 'ΛΟΓΟΣ-5' },
+      { delta: 12, at: DAY(4), reason: 'ΛΟΓΟΣ-4' },
+    ],
+  });
+});
+
+test('with the attitude setting at 0 the entry keeps the score and reason and carries no change', () => {
+  // Bug: a setting of 0 is read as "no attitude at all", or as no limit, and the changes all come through.
+  const w = world();
+  const person = personWithChanges(w, [
+    [1, 5, 5, 'ΛΟΓΟΣ-1'],
+    [2, 6, 11, 'ΛΟΓΟΣ-2'],
+    [3, -4, 7, 'ΛΟΓΟΣ-3'],
+  ]);
+  const entry = counterpartIn(w, GROUP, person, w.room, { ...SETTINGS, attitudeMoves: 0 });
+  assert.deepEqual(entry.attitude, { score: 7, reason: 'ΛΟΓΟΣ-3', moves: [] });
+});
+
+test('a change stored under a direct chat the context may not read gives no score, no reason and no move', () => {
+  // Bug: the reader takes the score from the person's stored score column or from every audience, so what she was told
+  // in a private chat shows in a room.
+  const w = world();
+  const person = personWithChanges(w, [
+    [1, 10, 10, 'ΟΜΑΔΑ-ΠΡΩΙΜΗ'],
+    [2, 8, 18, 'ΟΜΑΔΑ-ΑΡΓΗ'],
+  ]);
+  const dm = addDm(w.db, { iface: 'discord', native: 'a1', person, account: 'discord:a1' });
+  addAttitude(w.db, {
+    id: 'aff:secret',
+    person,
+    at: DAY(9),
+    applied: 23,
+    score: 41,
+    reason: 'ΙΔΙΩΤΙΚΟ',
+    audience: { dm, iface: 'discord', person },
+  });
+  const inRoom = counterpartIn(w, GROUP, person, w.room, SETTINGS).attitude;
+  const moves = inRoom?.moves ?? [];
+  assert.deepEqual(
+    [inRoom?.score, inRoom?.reason, moves.map((move) => move.reason)],
+    [18, 'ΟΜΑΔΑ-ΑΡΓΗ', ['ΟΜΑΔΑ-ΑΡΓΗ', 'ΟΜΑΔΑ-ΠΡΩΙΜΗ']]
+  );
+  const secret = counterpartIn(w, dmContext(person, 'discord', dm), person, dm, SETTINGS);
+  const inDm = secret.attitude;
+  const newest = inDm?.moves[0];
+  assert.deepEqual([inDm?.score, newest?.reason], [41, 'ΙΔΙΩΤΙΚΟ']);
+});
+
+test('a person whose only changes sit in a direct chat the context may not read has no attitude', () => {
+  // Bug: with nothing to read the reader falls back to the stored score column and a room learns it.
+  const w = world();
+  const person = 'person:discord:a1';
+  addPerson(w.db, {
+    id: person,
+    affinity: 41,
+    accounts: [{ id: 'discord:a1', iface: 'discord', native: 'a1', names: ['Αρίστη'] }],
+  });
+  const dm = addDm(w.db, { iface: 'discord', native: 'a1', person, account: 'discord:a1' });
+  addAttitude(w.db, {
+    id: 'aff:secret',
+    person,
+    at: DAY(9),
+    applied: 41,
+    score: 41,
+    reason: 'ΙΔΙΩΤΙΚΟ',
+    audience: { dm, iface: 'discord', person },
+  });
+  assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).attitude, null);
 });

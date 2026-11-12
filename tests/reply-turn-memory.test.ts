@@ -5,12 +5,12 @@
 // (tests/fixtures/service-turn.ts#replyTurns), a scripted model, synthetic names in Greek.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AT, addClaim, addLine, addPerson, addRoom, rootId } from './fixtures/memory-db/mind-world.ts';
+import { AT, addAttitude, addClaim, addLine, addPerson, addRoom, rootId } from './fixtures/memory-db/mind-world.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { useIface } from './fixtures/turn-world.ts';
-import { TURN_NOW, blockOf, replyTurns, rootTags, serviceWorld } from './fixtures/service-turn.ts';
+import { ELENI, TURN_NOW, blockOf, replyTurns, rootTags, serviceWorld } from './fixtures/service-turn.ts';
 import type { ReplyStep } from './fixtures/service-turn.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 
@@ -560,6 +560,99 @@ test("a reply request orders its root tags as the contract: the stable blocks, <
       tags,
       REPLY_ORDER.filter((tag) => tags.includes(tag))
     );
+  } finally {
+    world.close();
+  }
+});
+
+// Her attitude toward the person she answers, in a real reply turn (spec 2026-11-12 attitude-in-people): the entry of
+// Ελένη in `<people>` opens with the score, the band and the reason of the newest change toward her, and with her latest
+// changes, newest first, `context.memory.attitudeMoves` of them (2 when the setting is missing).
+const CHANGE_DAYS = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05'];
+
+/** The service world with five changes of her attitude toward Ελένη, one a day, each with its own reason. */
+function feltWorld(): World {
+  const world = serviceWorld();
+  const scores = [4, 9.5, 7, 21, 31.6];
+  CHANGE_DAYS.forEach((day, at) =>
+    addAttitude(world.db, {
+      id: `aff:${day}`,
+      person: ELENI,
+      at: `${day}T09:00:00.000Z`,
+      applied: at === 2 ? -2.5 : 5,
+      score: scores[at] ?? 0,
+      reason: `ΛΟΓΟΣ-${at + 1}`,
+      audience: { group: 'fake' },
+    })
+  );
+  return world;
+}
+
+/** The entry of the person she answers: the first of `<people>`. */
+const answeredEntry = (request: string | undefined): string => peopleOf(request).trim().split('\n\n')[0] ?? '';
+
+test('the entry of the person she answers opens with her attitude and her latest two changes by default', async () => {
+  // Bug: the turn builds the request with no attitude in <people> (as since 2026-11-09), so she cannot tell how she
+  // feels about the one she answers; or the setting that was never given reads as "no limit" and all five changes show.
+  const world = feltWorld();
+  try {
+    const [first = []] = await replyTurns({
+      world,
+      steps: [{ trigger: { id: 'r2', text: 'καλημέρα', at: TURN_NOW - MIN }, answers: [SAY] }],
+    });
+    const entry = answeredEntry(first[0]);
+    const [heading = '', attitude = '', moves = ''] = entry.split('\n');
+    assert.match(heading, /Ελένη/);
+    for (const part of ['32', 'ΛΟΓΟΣ-5']) assert.ok(attitude.includes(part), `${part}: ${attitude}`);
+    for (const part of ['2026-10-05', '2026-10-04', 'ΛΟΓΟΣ-4']) assert.ok(moves.includes(part), `${part}: ${moves}`);
+    for (const gone of ['2026-10-01', '2026-10-02', '2026-10-03', 'ΛΟΓΟΣ-1', 'ΛΟΓΟΣ-2', 'ΛΟΓΟΣ-3'])
+      assert.equal(entry.includes(gone), false, `${gone} is shown: ${entry}`);
+  } finally {
+    world.close();
+  }
+});
+
+test('with context.memory.attitudeMoves at 0 the entry keeps the attitude line and shows no change', async () => {
+  // Bug: the setting is read as unset and all changes show, or as "no attitude" and the line goes with them.
+  const world = feltWorld();
+  try {
+    const [first = []] = await replyTurns({
+      world,
+      settings: { attitudeMoves: 0 },
+      steps: [{ trigger: { id: 'r2', text: 'καλημέρα', at: TURN_NOW - MIN }, answers: [SAY] }],
+    });
+    const entry = answeredEntry(first[0]);
+    assert.ok((entry.split('\n')[1] ?? '').includes('ΛΟΓΟΣ-5'), entry);
+    assert.doesNotMatch(entry, /\d{4}-\d{2}-\d{2}/);
+  } finally {
+    world.close();
+  }
+});
+
+test('the entry of the person she answers holds the same bytes on two turns when nothing about her attitude changed', async () => {
+  // Bug: the lines hold something that moves with the turn, or order the changes of one instant differently from turn
+  // to turn, and the cached part of the request breaks at the entry on every reply.
+  const world = feltWorld();
+  addAttitude(world.db, {
+    id: 'aff:tie',
+    person: ELENI,
+    at: '2026-10-05T09:00:00.000Z',
+    applied: 0.6,
+    score: 31.6,
+    reason: 'ΛΟΓΟΣ-ΙΔΙΑ-ΣΤΙΓΜΗ',
+    audience: { group: 'fake' },
+  });
+  try {
+    const [first = [], second = []] = await replyTurns({
+      world,
+      steps: [
+        { trigger: { id: 'r2', text: 'καλημέρα', at: TURN_NOW - 3 * MIN }, answers: [SAY] },
+        { trigger: { id: 'r3', text: 'τι κάνεις;', at: TURN_NOW - MIN }, answers: [SAY] },
+      ],
+    });
+    const before = answeredEntry(first[0]);
+    assert.ok(before.includes('ΛΟΓΟΣ-5'), before);
+    assert.equal(answeredEntry(second[0]), before);
   } finally {
     world.close();
   }

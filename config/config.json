@@ -147,6 +147,7 @@
       "counterpartTokens": 1500,
       "candidatesMax": 3,
       "commonWordEntries": 3,
+      "attitudeMoves": 2,
       "fanOut": {
         "accounts": 10,
         "memberships": 20,
