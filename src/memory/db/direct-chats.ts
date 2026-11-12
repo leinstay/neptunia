@@ -17,6 +17,7 @@ import { accountsOfPerson } from './meta-person.ts';
 import { matchName } from './names.ts';
 import { dmPlacesOfAccounts, personMembers } from './person-links.ts';
 import type { Context } from './scope.ts';
+import { IS_WRITTEN_ROW } from './source-current.ts';
 import type { Db } from './types.ts';
 
 /** A person she may call again with: a found person and their handle. */
@@ -60,7 +61,7 @@ function chatsOfPerson(db: Db, person: string): Array<string> {
     .all(...partners))
     places.add(String(row.id));
   const newest = db.prepare(
-    "SELECT MAX(occurred_at) AS at FROM sources WHERE place_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL"
+    `SELECT MAX(s.occurred_at) AS at FROM sources s WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${IS_WRITTEN_ROW}`
   );
   const at = (id: string): string => {
     const value = newest.get(id)?.at;

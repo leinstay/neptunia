@@ -14,7 +14,7 @@ import path from 'node:path';
 import { projectRow } from './graph.ts';
 import { audienceOf, groupScope, scopeWhere } from './scope.ts';
 import { ensureAudience } from './rows.ts';
-import { CURRENT_SOURCE } from './source-current.ts';
+import { CURRENT_SOURCE, LINE_MOMENT, LINE_ROWID } from './source-current.ts';
 import { safeFileName } from '../../media/classify.ts';
 import { keptPathOf } from '../../media/kept-files.ts';
 import { mediaStamp } from './media-stems.ts';
@@ -1367,8 +1367,8 @@ function visibleUses(
   if (uses === 0) return { uses: 0, messages: [] };
   const messages = db
     .prepare(
-      `SELECT s.id AS id, s.rowid AS row_id, s.native_id AS native_id, s.place_id AS place_id, s.occurred_at AS occurred_at
-       ${where} ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ${HIT_MESSAGES}`
+      `SELECT s.id AS id, s.rowid AS row_id, s.native_id AS native_id, s.place_id AS place_id, ${LINE_MOMENT} AS occurred_at
+       ${where} ORDER BY ${LINE_MOMENT} DESC, ${LINE_ROWID} DESC LIMIT ${HIT_MESSAGES}`
     )
     .all(mediaId as string, ...filter.params)
     .map((row) => ({

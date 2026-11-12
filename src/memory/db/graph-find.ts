@@ -30,6 +30,7 @@ import { SELF_PERSON } from './ids.ts';
 import { OBJECT_KINDS, objectMeaning } from './object-vectors.ts';
 import { allowedAudience, audienceWhere, whereFor } from './scope.ts';
 import type { Context } from './scope.ts';
+import { CURRENT_REVISION, LINE_AUTHOR_ACCOUNT, LINE_MOMENT } from './source-current.ts';
 import { loadStemmer } from './stems.ts';
 import type { Db, Row } from './types.ts';
 
@@ -379,9 +380,9 @@ export function placesFound(
   if (candidates === 0 || indexWords(request).length === 0) return [];
   const where = whereFor(ctx, 's');
   const recent = db.prepare(
-    `SELECT s.author_account, s.text FROM sources s
-     WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${where.sql}
-     ORDER BY s.occurred_at DESC LIMIT ?`
+    `SELECT ${LINE_AUTHOR_ACCOUNT} AS author_account, s.text FROM sources s
+     WHERE s.place_id = ? AND ${CURRENT_REVISION} AND ${where.sql}
+     ORDER BY ${LINE_MOMENT} DESC LIMIT ?`
   );
   const shown = new Map<string, { name: string; about: string | null }>();
   const names = new Map<string, string | null>();
