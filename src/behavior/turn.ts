@@ -570,6 +570,13 @@ export function createTurnRunner({
         ? (name: string) => frameReads.placesNamed?.(context, name) ?? []
         : null;
     },
+    // The stored line of a message id she wrote out, read under the turn's memory context.
+    messageLineFor: (draft, channel) => {
+      const context = turnContextOf(draft, channel) as Context | null;
+      return frameReads?.messageLine && context
+        ? (iface: string, messageId: string) => frameReads.messageLine?.(context, iface, messageId) ?? null
+        : null;
+    },
     // The places the memory graph ranks for words of hers that name no place, read under the turn's memory context.
     placesFoundFor: (draft, channel) => {
       const context = turnContextOf(draft, channel) as Context | null;

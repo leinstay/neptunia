@@ -140,7 +140,7 @@ function callChannelHandles(
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
  * (`skills`: a skill's options are resolved by its dispatch), `places` (the channels a read call may name, from the
  * snapshot by the pull rail with `partnerId` as the reader of a private chat or the command line; left out without a
- * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `placesNamed` (the name index of the memory under the turn's context), `placesFound` (the places the memory graph ranks for words that name no place, under the turn's context), `placeRef` (a stored place by its id, so a place id of any shape names its place), `searchRefs` (the turn's quoted lines
+ * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `placesNamed` (the name index of the memory under the turn's context), `messageLine` (a stored line by its message id under the turn's context, whose author an edit or a deletion checks), `placesFound` (the places the memory graph ranks for words that name no place, under the turn's context), `placeRef` (a stored place by its id, so a place id of any shape names its place), `searchRefs` (the turn's quoted lines
  * of a memory.search, searchHandles), and `fileOf` (a file handle
  * of one of her errands -> the file, null when this chat may not use it), and `triggerText` (the
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
@@ -169,6 +169,7 @@ export function callViewOf({
   config = null,
   stem = null,
   placesNamed = null,
+  messageLine = null,
   placesFound = null,
   placeRef = null,
   findMeaning = null,
@@ -196,6 +197,7 @@ export function callViewOf({
   config?: Record<string, unknown> | null;
   stem?: ((word: string) => string) | null;
   placesNamed?: CallView['placesNamed'];
+  messageLine?: CallView['messageLine'];
   placesFound?: CallView['placesFound'];
   placeRef?: CallView['placeRef'];
   findMeaning?: CallView['findMeaning'];
@@ -237,6 +239,7 @@ export function callViewOf({
     ...(places ? { places } : {}),
     ...(stem ? { stem } : {}),
     ...(placesNamed ? { placesNamed } : {}),
+    ...(messageLine ? { messageLine } : {}),
     ...(placesFound ? { placesFound } : {}),
     ...(placeRef ? { placeRef } : {}),
     ...(findMeaning ? { findMeaning } : {}),

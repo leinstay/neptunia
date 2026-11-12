@@ -290,14 +290,27 @@ test("an edit of the owner's line is refused as not hers and nothing is sent or 
   link.close();
 });
 
-test('an edit of a line the chat does not hold is refused as unknown and nothing is sent', async () => {
-  // Bug: the client answers ok for any id, so the core is told of an edit of a line that never existed.
-  const { link, coreLink, events, idle } = await editRig();
-  const result = await coreLink.adapter.edit({ ...CHAT, messageId: 'no-such-line' }, { text: 'changed' });
-  assert.equal(result.status, 'failed');
-  assert.equal(result.error?.code, 'unknown-message');
+// Production, 2026-11-12: the owner restarted his command line and her `message.edit` by `#141` of a line from the
+// earlier session came back `unknown-message`, twice. The client holds only the lines of this session, so it is no
+// authority on what the chat holds: the core checked the line and named it, and the core decides.
+test('an edit of an id the client never sent answers ok, reports the edit to the core and tells the screen', async () => {
+  // Bug: the client refuses a line of an earlier session, so she cannot edit what the owner sees above the restart.
+  const changes: Array<LineChange> = [];
+  const { link, coreLink, events, idle } = await editRig(changes);
+  const result = await coreLink.adapter.edit({ ...CHAT, messageId: 'earlier-session-line' }, { text: 'changed' });
+  assert.equal(result.status, 'ok');
   await idle();
-  assert.deepEqual(events, []);
+  assert.equal(events.length, 1, 'the core took one event');
+  const [event] = events as Array<MessageEvent>;
+  assert.equal(event?.edit, true);
+  assert.equal(event?.chat.id, 'cli:dm:owner');
+  assert.equal(event?.message.id, 'earlier-session-line');
+  assert.equal(event?.message.content, 'changed');
+  const author = event?.message.author;
+  assert.equal(author?.self, true, 'her as the author');
+  assert.equal(event?.previous ?? null, null, 'the client holds no earlier copy');
+  assert.equal(event?.addressing?.mentioned, false);
+  assert.deepEqual(changes, [{ id: 'earlier-session-line', text: 'changed' }]);
   link.close();
 });
 
@@ -341,17 +354,22 @@ test("a delete of the owner's line is refused as not hers and nothing is sent or
   link.close();
 });
 
-test('a delete of a line the chat does not hold is refused as unknown and nothing is sent', async () => {
-  // Bug: the client answers ok for any id, so the core records the deletion of a line it never stored.
-  const { link, coreLink, events, idle } = await editRig();
-  const result = await coreLink.adapter.delete({ ...CHAT, messageId: 'no-such-line' });
-  assert.equal(result.status, 'failed');
-  assert.equal(result.error?.code, 'unknown-message');
+// The same production case as the edit above, for a deletion.
+test('a delete of an id the client never sent answers ok, reports the deletion to the core and tells the screen', async () => {
+  // Bug: the client refuses a line of an earlier session, so she cannot take back what the owner still reads.
+  const changes: Array<LineChange> = [];
+  const { link, coreLink, events, idle } = await editRig(changes);
+  const result = await coreLink.adapter.delete({ ...CHAT, messageId: 'earlier-session-line' });
+  assert.equal(result.status, 'ok');
   await idle();
-  assert.deepEqual(events, []);
+  assert.equal(events.length, 1, 'the core took one event');
+  const [event] = events as Array<MessageEvent>;
+  assert.equal(event?.deleted, true);
+  assert.equal(event?.chat.id, 'cli:dm:owner');
+  assert.equal(event?.message.id, 'earlier-session-line');
+  assert.deepEqual(changes, [{ id: 'earlier-session-line', deleted: true }]);
   link.close();
 });
-
 test('her edit of her own line tells the screen once, with the line id and the new text', async () => {
   // Bug: the screen is never told, so the owner keeps reading the words she took out until the chat is reopened.
   const changes: Array<LineChange> = [];
@@ -370,14 +388,12 @@ test('her delete of her own line tells the screen once, with the line id and del
   link.close();
 });
 
-test('a refused edit or delete tells the screen nothing', async () => {
+test("a refused edit or delete of the owner's line tells the screen nothing", async () => {
   // Bug: the screen changes a line before the refusal is known, so it shows what the core never stored.
   const changes: Array<LineChange> = [];
   const { link, coreLink, theirs } = await editRig(changes);
   await coreLink.adapter.edit({ ...CHAT, messageId: theirs }, { text: 'changed' });
   await coreLink.adapter.delete({ ...CHAT, messageId: theirs });
-  await coreLink.adapter.edit({ ...CHAT, messageId: 'no-such-line' }, { text: 'changed' });
-  await coreLink.adapter.delete({ ...CHAT, messageId: 'no-such-line' });
   assert.deepEqual(changes, []);
   link.close();
 });

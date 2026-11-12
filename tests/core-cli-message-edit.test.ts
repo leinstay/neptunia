@@ -37,10 +37,15 @@ type Rig = {
   printed: Array<string>;
   requests: Array<string>;
   rows: () => Array<Row>;
+  /** Stops the client and connects a fresh one, which holds none of the lines said before. */
+  restart: () => Promise<void>;
 };
 
+/** One answer of the scripted model, or a function that makes it when asked (it may read what was stored by then). */
+type Script = Completion | (() => Completion);
+
 /** The scripted model: `script` answers the persona's requests in order; the address check says yes. */
-function scripted(script: ReadonlyArray<Completion>, requests: Array<string>) {
+function scripted(script: ReadonlyArray<Script>, requests: Array<string>) {
   return {
     complete: (messages: unknown, given?: unknown): Promise<Completion> => {
       const purpose = (given as { purpose?: unknown } | undefined)?.purpose;
@@ -50,12 +55,12 @@ function scripted(script: ReadonlyArray<Completion>, requests: Array<string>) {
       requests.push(JSON.stringify(messages));
       const answer = script[requests.length - 1];
       assert.ok(answer, 'the model must not make an unscripted request');
-      return Promise.resolve(answer);
+      return Promise.resolve(typeof answer === 'function' ? answer() : answer);
     },
   };
 }
 
-async function withCli(script: ReadonlyArray<Completion>, body: (rig: Rig) => Promise<void>): Promise<Array<LogEntry>> {
+async function withCli(script: ReadonlyArray<Script>, body: (rig: Rig) => Promise<void>): Promise<Array<LogEntry>> {
   const root = mkdtempSync(join(tmpdir(), 'ce-'));
   const dataDir = join(root, 'd');
   mkdirSync(join(dataDir, 'config'), { recursive: true });
@@ -96,35 +101,41 @@ async function withCli(script: ReadonlyArray<Completion>, body: (rig: Rig) => Pr
         embedder: { embed: () => Promise.resolve([]) },
       });
       const printed: Array<string> = [];
-      const cli = await startCli({
-        connect: () => connectSocket({ path: join(dataDir, 'run', 'core.sock'), maxFrameBytes: 16 * 1024 * 1024 }),
-        token: readFileSync(join(dataDir, 'clients', 'cli.token'), 'utf8').trim(),
-        print: (text) => void printed.push(text),
-      });
-      try {
-        await body({
-          cli,
-          printed,
-          requests,
-          rows: () => {
-            const handle = openMemoryDb(join(dataDir, 'memory.db'), { readOnly: true });
-            try {
-              // A line's message id is the one its message family holds; `native_id` is the writer's own key.
-              const sql = `SELECT s.kind, s.revision, s.text, f.message_id FROM sources s
+      const open = (): Promise<RunningCli> =>
+        startCli({
+          connect: () => connectSocket({ path: join(dataDir, 'run', 'core.sock'), maxFrameBytes: 16 * 1024 * 1024 }),
+          token: readFileSync(join(dataDir, 'clients', 'cli.token'), 'utf8').trim(),
+          print: (text) => void printed.push(text),
+        });
+      const rig: Rig = {
+        cli: await open(),
+        printed,
+        requests,
+        restart: async () => {
+          await rig.cli.stop();
+          rig.cli = await open();
+        },
+        rows: () => {
+          const handle = openMemoryDb(join(dataDir, 'memory.db'), { readOnly: true });
+          try {
+            // A line's message id is the one its message family holds; `native_id` is the writer's own key.
+            const sql = `SELECT s.kind, s.revision, s.text, f.message_id FROM sources s
                 JOIN message_families f ON f.iface = s.iface AND f.authority_id = s.authority_id
                 AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation
                 WHERE s.kind IN ('seen', 'said', 'deleted') ORDER BY s.rowid`;
-              return (handle.db as { prepare(sql: string): { all(): Array<Row> } })
-                .prepare(sql)
-                .all()
-                .map((row) => ({ ...row }));
-            } finally {
-              handle.close();
-            }
-          },
-        });
+            return (handle.db as { prepare(sql: string): { all(): Array<Row> } })
+              .prepare(sql)
+              .all()
+              .map((row) => ({ ...row }));
+          } finally {
+            handle.close();
+          }
+        },
+      };
+      try {
+        await body(rig);
       } finally {
-        await cli.stop();
+        await rig.cli.stop();
         await core.stop();
       }
     });
@@ -213,4 +224,97 @@ test('her message.delete of her own line on the command line stores it as delete
   assert.equal(after.includes(FIRST), false, 'her words left with the window');
   assert.ok(after.includes('#1 ') && after.includes('#3 '), 'the lines around hers stay under their numbers');
   assert.equal(after.includes('#2 '), false, 'her line, #2, is not a line of the window');
+});
+
+/** The message id the memory holds for the first stored row of `kind`. */
+const idOfFirst = (rows: Array<Row>, kind: string): string => String(rows.find((row) => row.kind === kind)?.message_id);
+
+/**
+ * Her line stored in one session of the command line, then a fresh client that holds none of it, and a call of hers
+ * (`call`, by `#N` or by message id) for the line of the earlier session. What the rows and the next request say after.
+ */
+async function afterRestart(
+  call: Script,
+  last: string
+): Promise<{ rows: Array<Row>; after: string; logs: Array<LogEntry> }> {
+  let rows: Array<Row> = [];
+  let after = '';
+  const logs = await withCli(
+    [toolAnswer(`<msg>${FIRST}</msg>`), call, toolAnswer('<skip/>'), toolAnswer('<msg>fine</msg>')],
+    async (rig) => {
+      await rig.cli.turn('hello there');
+      await settled(rig.rows, (found) => found.some((row) => row.kind === 'said'));
+      await rig.restart();
+      await rig.cli.turn('change that');
+      rows = await settled(rig.rows, (found) => historyOf(found).length >= 2);
+      await rig.cli.turn(last);
+      after = rig.requests[3] ?? '';
+    }
+  );
+  return { rows, after, logs };
+}
+
+// Production, 2026-11-12: the owner restarted his command line and asked her to edit a line from before. The client
+// knew only the lines sent since it started, so `message.edit` by `#141` came back `unknown-message`, twice.
+test('her message.edit of a line said before the client restarted stores revision 2 beside the old text and shows edited', async () => {
+  const { rows, after, logs } = await afterRestart(
+    toolAnswer('', [call('message.edit', { message: '#2', text: SECOND })]),
+    'and now?'
+  );
+  assert.equal(calledOk(logs, 'message.edit'), true, 'the edit answered ok');
+  assert.deepEqual(
+    historyOf(rows).map(([, revision, text]) => [revision, text]),
+    [
+      [1, FIRST],
+      [2, SECOND],
+    ]
+  );
+  assert.ok(after.includes(`${SECOND} ${EDITED}`), 'the new text carries the edited mark');
+  assert.equal(after.includes(FIRST), false, 'the old text is gone from the request');
+});
+
+test('her message.delete of a line said before the client restarted stores it as deleted and the request drops the line', async () => {
+  // The same production case as the edit above, for a deletion.
+  const { rows, after, logs } = await afterRestart(toolAnswer('', [call('message.delete', { message: '#2' })]), 'now?');
+  assert.equal(calledOk(logs, 'message.delete'), true, 'the deletion answered ok');
+  assert.deepEqual(
+    historyOf(rows).map(([kind]) => kind),
+    ['said', 'deleted']
+  );
+  assert.equal(after.includes(FIRST), false, 'her words left with the window');
+  assert.equal(after.includes('#2 '), false, 'her line, #2, is not a line of the window');
+});
+
+/** Whether a call of hers on the owner's own line was refused as not hers and the stored lines stayed as they were. */
+async function ownerLineRefused(named: (rows: Array<Row>) => string): Promise<[boolean, boolean]> {
+  let rows: Array<Row> = [];
+  const logs = await withCli(
+    [
+      toolAnswer(`<msg>${FIRST}</msg>`),
+      () => toolAnswer('', [call('message.edit', { message: named(rows), text: 'changed' })]),
+      toolAnswer('<skip/>'),
+    ],
+    async (rig) => {
+      await rig.cli.turn('hello there');
+      rows = await settled(rig.rows, (found) => found.some((row) => row.kind === 'said'));
+      await rig.restart();
+      await rig.cli.turn('change my line');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      rows = rig.rows();
+    }
+  );
+  const refused = logs.some(
+    (entry) => entry.skill === 'message.edit' && entry.msg === 'skills: called' && entry.code === 'not-own-message'
+  );
+  return [refused, rows.some((row) => row.text === 'changed')];
+}
+
+// The client no longer knows whose a line is, so the core's check is the only one: the owner's line of this chat must
+// not be rewritten by her, whatever the client answers.
+test("an edit of the owner's line by its #N is refused as not hers and writes nothing", async () => {
+  assert.deepEqual(await ownerLineRefused(() => '#1'), [true, false]);
+});
+
+test("an edit of the owner's line by its message id is refused as not hers and writes nothing", async () => {
+  assert.deepEqual(await ownerLineRefused((rows) => idOfFirst(rows, 'seen')), [true, false]);
 });

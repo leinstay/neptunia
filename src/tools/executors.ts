@@ -49,6 +49,8 @@ export type ViewLine = {
 /** What the server knows of the turn that resolves a call: the skills, the names it may resolve and the transcript. */
 export type CallView = {
   currentIface?: string;
+  /** The turn's own chat, where a call that names no chat acts. */
+  currentChatId?: string;
   skills?: SkillMap;
   chats?: ReadonlyArray<{ id: unknown; name?: unknown }>;
   /** The places a read call may name (src/behavior/readable-places.ts); without it a read names `chats`. */
@@ -78,6 +80,8 @@ export type CallView = {
   memberHandles?: ReadonlyMap<string, string> | null;
   links?: ReadonlyMap<string, { chatId: string; messageId: string } | null> | null;
   messageAt?: (n: number) => ViewLine | null;
+  /** The stored line of a message id in a chat under the turn's context (frame-reads.ts#lineOfMessage), null when it reads none. */
+  messageLine?: ((chatId: string, messageId: string) => Pick<ViewLine, 'authorId' | 'self'> | null) | null;
   members?: ReadonlyArray<{ id: unknown; names?: ReadonlyArray<unknown>; aliases?: ReadonlyArray<{ name?: unknown }> }>;
   selfId?: string | null;
   fileOf?: (handle: string) => { expired?: boolean; errand?: Obj | null } | null;
@@ -185,6 +189,33 @@ function isOwnLine(line: ViewLine, selfId: string | null | undefined): boolean {
   return (
     line.self === true || (selfId !== null && selfId !== undefined && selfId !== '' && idText(line.authorId) === selfId)
   );
+}
+
+/** The refusal of a post whose `media` comes with another attachment, a `file` or a `gif`; null otherwise. */
+function mediaBesideAttachment(args: Obj, given: Obj): Refusal | null {
+  if (args[MEDIA_OPTION] === undefined) return null;
+  if (given.file !== undefined) return refused(CODE.INVALID_ARGS, 'args.media:file');
+  if (given.gif !== undefined) return refused(CODE.INVALID_ARGS, 'args.media:gif');
+  return null;
+}
+
+/**
+ * The refusal of an edit or a deletion whose `message` is an id written out, not a number or a link, when the stored line
+ * of that id is not hers: the memory says whose a line is, whatever the interface answers. A line the memory does not
+ * hold is left to the interface. Null otherwise.
+ */
+function strangerLine(
+  name: string,
+  args: Obj,
+  lines: Record<string, ViewLine>,
+  linked: Record<string, string>,
+  view: CallView | undefined
+): Refusal | null {
+  if ((name !== 'message.edit' && name !== 'message.delete') || lines.message !== undefined) return null;
+  const id = typeof args.message === 'string' ? args.message : '';
+  const chatId = linked.message ?? idText(args.place ?? view?.currentChatId);
+  const stored = id === '' || chatId === '' ? null : (view?.messageLine?.(chatId, id) ?? null);
+  return stored && !isOwnLine(stored as ViewLine, view?.selfId) ? refused(CODE.NOT_OWN_MESSAGE, 'author') : null;
 }
 
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
@@ -625,10 +656,8 @@ export function resolveCall(
     }
   }
   // One attachment per post: a picture of hers beside an errand's file or a library GIF is refused.
-  if (args[MEDIA_OPTION] !== undefined) {
-    if (given.file !== undefined) return refused(CODE.INVALID_ARGS, 'args.media:file');
-    if (given.gif !== undefined) return refused(CODE.INVALID_ARGS, 'args.media:gif');
-  }
+  const doubled = mediaBesideAttachment(args, given);
+  if (doubled) return doubled;
 
   // A line names its channel: the one the call gave must be it, else it fills the channel option.
   let repliedAuthorId: string | null = null;
@@ -648,6 +677,8 @@ export function resolveCall(
     }
     if (option === 'reply') repliedAuthorId = line.authorId ?? null;
   }
+  const stranger = strangerLine(name, args, lines, linked, view);
+  if (stranger) return stranger;
   // A link names its channel the same way (whose message it is, the operation's port checks).
   for (const at of Object.values(linked)) {
     if (!byName.has('place')) continue;

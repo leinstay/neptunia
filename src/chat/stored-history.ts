@@ -50,6 +50,7 @@ function eventOf(line: SourceLine, iface: string, partner: string): MessageEvent
       sourceText: line.text,
       system: false,
       at: line.at,
+      ...(line.editedAt === undefined ? {} : { editedAt: line.editedAt }),
       replyToId: line.replyToId ?? null,
       replyPingAccountId: null,
       forwardedFrom: null,
