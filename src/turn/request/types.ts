@@ -99,7 +99,7 @@ export type Labels = {
   readonly triggers?: LabelGroup;
   readonly elsewhere?: LabelGroup;
   readonly previousThink?: LabelGroup;
-  readonly myDay?: LabelGroup;
+  readonly myDay?: { readonly [key: string]: string | Readonly<Record<string, string>> };
   readonly draw?: LabelGroup;
   readonly spatial?: SpatialLabels;
   readonly memory?: MemoryLabels;

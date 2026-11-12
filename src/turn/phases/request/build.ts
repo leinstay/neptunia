@@ -152,6 +152,15 @@ function frameOfTurn(
   });
 }
 
+/** The person the turn answers, by the memory's account row of the trigger's author; null when it answers nobody. */
+function answeringPersonOf(ctx: Pick<PhaseContext, 'frameReads'>, frame: Frame): string | null {
+  const reads = ctx.frameReads;
+  const author = frame.answers?.authorId ?? null;
+  if (!reads || !author) return null;
+  const account = reads.account(frame.interface, author);
+  return account === null ? null : reads.person(account);
+}
+
 /**
  * What she did today under the turn's context, in the labels' words (`labels.myDay`), at most `context.myDay.lines`
  * read now; null on an inner turn, without a reader, a context or a positive number of lines, and on a failed read
@@ -165,7 +174,8 @@ function myDayLines(
     config: Prepared['config'];
     prompts: Prepared['prompts'];
     now: number;
-  }
+  },
+  answering: string | null
 ): Array<string> | null {
   const { draft, channel, config, prompts, now } = turn;
   const settings = config.context;
@@ -177,6 +187,8 @@ function myDayLines(
     const listed = ctx.myDay(memoryContext, now, String(config.bot?.timezone ?? 'UTC'), {
       lines,
       labels: (labels?.myDay as Readonly<Record<string, unknown>> | undefined) ?? null,
+      answering,
+      people: typeof settings?.myDay?.people === 'number' ? settings.myDay.people : 3,
     });
     return listed.length > 0 ? listed : null;
   } catch (error) {
@@ -828,7 +840,7 @@ export function plannerRequest(
       previousThink: null,
       callMarks: null,
       stableFreeze: null,
-      myDay: myDayLines(ctx, { draft, channel, config, prompts, now }),
+      myDay: myDayLines(ctx, { draft, channel, config, prompts, now }, null),
       whereabouts: whereaboutsOfFrame(frame),
       ...framed,
       ...namesInputOf(ctx.frameReads, ctx.store, frame.interface),
@@ -1040,7 +1052,7 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
     previousThink: earlierThinkFor({ channel, isDm, draft, mode: finalMode }),
     // `<my_day>`: what she did today, read under this turn's context (context.myDay.lines, read now).
-    myDay: myDayLines(ctx, { draft, channel, config, prompts, now }),
+    myDay: myDayLines(ctx, { draft, channel, config, prompts, now }, answeringPersonOf(ctx, frame)),
     // Her call marks, put among the lines of `<chat>` by time.
     callMarks,
     // `<self_facts>` held per cache bucket, so a memory batch rewrites the cache once at most.
