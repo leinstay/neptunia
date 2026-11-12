@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { addDm, addPerson } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
-import { addPlaceClaim } from './fixtures/memory-db/place-claims.ts';
+import { addPlaceClaim, addSourceLine } from './fixtures/memory-db/place-claims.ts';
 import type { PlaceClaim } from './fixtures/memory-db/place-claims.ts';
 import { OWNER_PERSON } from './fixtures/owner-accounts.ts';
 import { useIface } from './fixtures/turn-world.ts';
@@ -289,4 +289,30 @@ test('<root> holds no lessons line', async () => {
   assert.match(lessonsOf(request), /ΜΑΘΗΜΑ-ΑΓΟΡΑΣ/);
   assert.match(rootOf(request), /ΑΣΤΕΙΟ-ΑΓΟΡΑΣ/);
   assert.doesNotMatch(rootOf(request), /ΜΑΘΗΜΑ-ΑΓΟΡΑΣ/);
+});
+
+test('a lesson stored as production stores it names the writer of its source line, by the handle of that entry', async () => {
+  // Bug: the teacher is read from `from_person` alone, which production leaves null, so every lesson loses its teacher.
+  const line = 'src:fake:n1:1:seen';
+  const [request = ''] = await inRoom(
+    [lesson('l1', 'ΜΑΘΗΜΑ-ΝΙΚΟΥ', { sources: [line], extra: '{"from":"<@null>"}' })],
+    [turn('r2', 1)],
+    { lessons: { budgetTokens: 100_000 } },
+    (world) => addSourceLine(world.db, { id: line, place: AGORA, author: 'fake:4242', audience: GROUP })
+  );
+  const entry = peopleOf(request).find((one) => one.includes('Νίκος')) ?? '';
+  const handle = HANDLE.exec(entry.split('\n')[0] ?? '')?.[0] ?? '';
+  assert.match(handle, HANDLE, 'Νίκος has an entry in <people>');
+  assert.ok(lineWith(lessonsOf(request), 'ΜΑΘΗΜΑ-ΝΙΚΟΥ').includes(handle), lessonsOf(request));
+});
+
+test('a lesson nobody is known to have taught prints with no teacher part', async () => {
+  // A line that says "from someone" on every lesson tells her nothing, so the line carries neither a handle nor the word
+  // for an unknown author.
+  const [request = ''] = await inRoom([lesson('l1', 'ΜΑΘΗΜΑ-ΑΓΝΩΣΤΟ', { extra: '{"from":"<@null>"}' })]);
+  const line = lineWith(lessonsOf(request), 'ΜΑΘΗΜΑ-ΑΓΝΩΣΤΟ');
+  const unknown = shippedLabels.authors?.unknown ?? 'someone';
+  assert.match(line, /ΜΑΘΗΜΑ-ΑΓΝΩΣΤΟ/);
+  assert.doesNotMatch(line, HANDLE);
+  assert.ok(!line.includes(unknown), line);
 });

@@ -5,15 +5,16 @@ import assert from 'node:assert/strict';
 import { handleOf } from '../src/behavior/handles.ts';
 import { lessonsBlockOf, lessonsBudgetOf, lessonsCut, teachersOf } from '../src/turn/request/lessons.ts';
 import type { LessonWords } from '../src/turn/request/lessons.ts';
+import type { Labels } from '../src/turn/request/types.ts';
 import type { Lesson } from '../src/memory/db/frame-reads.ts';
-import { labels as fixtureLabels } from './fixtures/labels.ts';
+import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const lesson = (text: string, teacher: string | null = null): Lesson => ({ text, teacher });
 const withBudget = (budgetTokens: unknown) => ({ context: { lessons: { budgetTokens } } });
-const OWN_LABELS = {
-  ...fixtureLabels,
-  authors: { unknown: 'someone' },
-  lessons: { header: 'TAUGHT:', line: '* {text} <{from}>' },
+// The tracked labels with the words of the lessons replaced, so the object is a `Labels` with no cast.
+const OWN_LABELS: Labels = {
+  ...shippedLabels,
+  lessons: { header: 'TAUGHT:', line: '* {text} <{from}>', lineBare: '* {text}' },
 };
 const words = (over: Partial<LessonWords> = {}): LessonWords => ({
   labels: OWN_LABELS,
@@ -82,10 +83,11 @@ test('the block holds the header and one line per lesson, the teacher by handle'
   assert.deepEqual(block.lines, [`* mind the gap <@${handleOf('person:one')}>`]);
 });
 
-test('a lesson with no teacher reads through the word for an unknown author', () => {
-  // Catches line 56 if a missing teacher leaves `{from}` empty or throws on the null.
+test('a lesson with no teacher reads through lessons.lineBare, with no teacher part', () => {
+  // A line that says "from someone" on every lesson tells her nothing, so a lesson nobody is known to have taught has no
+  // teacher part at all. Catches the choice of the line label for a null teacher in `lineOf`.
   const block = lessonsBlockOf([lesson('mind the gap')], 1000, words());
-  assert.deepEqual(block.lines, ['* mind the gap <someone>']);
+  assert.deepEqual(block.lines, ['* mind the gap']);
 });
 
 test('a stored text goes through the mention and the escape of every stored text', () => {

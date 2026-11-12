@@ -19,6 +19,10 @@ export type PlaceClaim = {
   seenAt?: string;
   /** The person who taught a lesson, by person id. */
   teacher?: string | null;
+  /** The claim's remainder as the place-notes writer stores it (`extra`), such as `{"from":"<@null>"}`. */
+  extra?: string | null;
+  /** The source lines the claim rests on, by source id, in the claim's source order (`claim_sources.position`). */
+  sources?: ReadonlyArray<string>;
   retiredAt?: string | null;
 };
 
@@ -50,8 +54,41 @@ export function addPlaceClaim(db: Db, claim: PlaceClaim): void {
         truth: 'current',
         shown: 1,
         created_at: seen,
+        extra: claim.extra ?? null,
         retired_at: claim.retiredAt ?? null,
         ...scopeOf(claim.audience),
+      },
+    ],
+    claim_sources: (claim.sources ?? []).map((source, position) => ({
+      claim_id: claim.id,
+      source_id: source,
+      position,
+      retired_at: null,
+    })),
+  });
+}
+
+/** A source line of a place written by an account (`author` an account id, whose person the store derives) or by her (`'self'`), read under `audience`. */
+export function addSourceLine(
+  db: Db,
+  line: { id: string; place: string; author: string; audience: Audience; text?: string }
+): void {
+  const self = line.author === 'self';
+  insertRows(db, {
+    sources: [
+      {
+        id: line.id,
+        kind: self ? 'said' : 'seen',
+        iface: 'fake',
+        native_id: line.id,
+        native_kind: 'message',
+        place_id: line.place,
+        author_account: self ? null : line.author,
+        author_kind: self ? 'self' : 'account',
+        occurred_at: SEEN,
+        recorded_at: SEEN,
+        text: line.text ?? 'a line',
+        ...scopeOf(line.audience),
       },
     ],
   });

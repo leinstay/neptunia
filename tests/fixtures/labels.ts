@@ -257,6 +257,8 @@ export const labels = {
   lessons: {
     header: 'Things people taught you:',
     line: '- {text} (from {from})',
+    // A lesson with no known teacher: no teacher part.
+    lineBare: '- {text}',
   },
   server: {
     currentMark: ' ← you are here',
