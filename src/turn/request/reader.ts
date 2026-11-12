@@ -46,7 +46,7 @@ import type { InterfaceNames } from '../../protocol/serve.ts';
 import type { HandleBook } from '../../behavior/handles.ts';
 import type { EntryRefs } from './memory-block.ts';
 import type { MeanwhileRefs } from './meanwhile.ts';
-import { block, escapeStored, placeRefText } from './text.ts';
+import { block, escapeStored, keepsEmoji, placeRefText } from './text.ts';
 import type {
   Fit,
   HandleTarget,
@@ -407,6 +407,7 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
     },
     CHANNEL_HANDLE_PREFIX
   );
+  const keepEmoji = keepsEmoji(given.config);
   const unknown = labels.authors?.unknown ?? '';
   const partner = (key: string | null | undefined): string => (key ? `@${people.handleOf(key)}` : unknown);
   const mention = (native: string): string => {
@@ -426,6 +427,7 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
       chain: view.chain,
       ...(view.names === undefined ? {} : { names: view.names }),
       partner: view.dm ? partner(view.partnerKey) : null,
+      keepEmoji,
     });
   };
   return {
@@ -435,7 +437,9 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
       mention,
       place: (placeId, fallback) =>
         placeRef(placeId) ??
-        (fallback ? placeRefText(labels, null, fallback) : escapeStored(labels.spatial?.unnamed ?? '')),
+        (fallback
+          ? placeRefText(labels, null, { ...fallback, keepEmoji })
+          : escapeStored(labels.spatial?.unnamed ?? '')),
       partnerOf: (placeId) => partner(given.placePathOf?.(placeId)?.partnerKey),
       counterpartKey,
     },
@@ -558,6 +562,7 @@ function offeredOf(given: ReaderInput): Offered {
     lineOf: lineOf ?? (() => null),
     labels,
     timezone,
+    keepEmoji: keepsEmoji(given.config),
   });
   const gone = retiredOf(given.lookups, given.isSourceRetired);
   const retired = { retired: gone };
@@ -576,11 +581,12 @@ function offeredOf(given: ReaderInput): Offered {
     given.live,
     given.selfreflectionIds,
     chatIdOfInput(given),
-    handled(given) ? names.entryRefs : null
+    handled(given) ? names.entryRefs : null,
+    keepsEmoji(given.config)
   );
   const memory = memoryCut(given, [
     ...items,
-    ...(handled(given) ? strangerItemsOf(strangersOf(given, items), frame, labels) : []),
+    ...(handled(given) ? strangerItemsOf(strangersOf(given, items), frame, labels, keepsEmoji(given.config)) : []),
     ...factItemsOf(given.facts ?? [], labels, handled(given) ? names.entryRefs : null),
   ]);
   return {
@@ -591,7 +597,14 @@ function offeredOf(given: ReaderInput): Offered {
     ),
     memory: memory.items,
     memoryLeftOut: memory.leftOut,
-    recall: recallBlockOf(lookups, retired, labels, timezone, (placeId) => names.entryRefs.place(placeId)),
+    recall: recallBlockOf(
+      lookups,
+      retired,
+      labels,
+      timezone,
+      (placeId) => names.entryRefs.place(placeId),
+      keepsEmoji(given.config)
+    ),
     recallRefs: numbered.refs,
     chat: given.chatItems.map((item) => ({ ...item, text: resolveRef(item.text) })),
     windows,
@@ -602,7 +615,8 @@ function offeredOf(given: ReaderInput): Offered {
         labels,
         given.nameOf,
         windowHandle(given, names, window),
-        handled(given) ? names.meanwhileRefs : null
+        handled(given) ? names.meanwhileRefs : null,
+        keepsEmoji(given.config)
       )
     ),
     inner: innerItems(given.inner),
@@ -745,7 +759,8 @@ export function readerRequest(given: ReaderInput): ReaderResult {
       labels,
       given.nameOf,
       (window) => windowHandle(given, names, window),
-      named ? names.meanwhileRefs : null
+      named ? names.meanwhileRefs : null,
+      keepsEmoji(given.config)
     ),
     chat: renderTranscript(keptChat, timezone, labels, given.tempoText),
   });

@@ -96,18 +96,57 @@ export type PlaceWords = {
   chain: ReadonlyArray<PlaceChainLink>;
   names?: InterfaceNames;
   partner?: string | null;
+  /** `context.names.emoji`, read by the caller when it builds the request: the names keep their emoji when true. */
+  keepEmoji?: boolean;
 };
 
 /** The labels a place in words reads: `places`, the unnamed word of `spatial` and the unknown word of `authors`. */
 export type PlaceLabels = Pick<Labels, 'places' | 'spatial' | 'authors'>;
 
+const PICTOGRAPH = String.raw`(?:[\u00A9\u00AE\u2122](?=\uFE0F)|(?![\u00A9\u00AE\u2122])\p{Extended_Pictographic})`;
+const EXTENDERS = String.raw`[\p{Emoji_Modifier}\uFE0F\u{E0020}-\u{E007F}]*`;
+const EMOJI = String.raw`(?:\p{Regional_Indicator}{1,2}|[0-9#*]\uFE0F?\u20E3|${PICTOGRAPH}${EXTENDERS}(?:\u200D${PICTOGRAPH}${EXTENDERS})*)`;
+const EMOJI_RUN = new RegExp(String.raw`\s*${EMOJI}(?:\s*${EMOJI})*\s*`, 'gu');
+
+/**
+ * A name of a place or of a person as a request shows it: the emoji left out (a flag, a skin tone, a joined sequence and
+ * a keycap as one each), the name trimmed and one space left where an emoji stood between two words. A name of nothing
+ * but emoji, a `:name:` custom emoji and any digit or punctuation stay, and a name with no emoji comes back as it is.
+ * With `keepEmoji` the name is shown as stored, trimmed.
+ */
+export function shownName(name: string, keepEmoji = false): string {
+  if (keepEmoji) return name.trim();
+  let found = false;
+  const shown = name
+    .replace(EMOJI_RUN, (run) => {
+      found = true;
+      return /\s/.test(run) ? ' ' : '';
+    })
+    .trim();
+  if (!found) return name;
+  return shown === '' ? name.trim() : shown;
+}
+
+/** `context.names.emoji` of a live config, read at the moment of use: whether names keep their emoji. */
+export function keepsEmoji(config: unknown): boolean {
+  // The live config as the request builders read it: any object, a missing or broken level counting as unset.
+  return (config as { context?: { names?: { emoji?: unknown } } } | null | undefined)?.context?.names?.emoji === true;
+}
+
 /** A name as a quoted value: escaped as any stored text, and a `"` written `\"`, so the name closes where it ends. */
 const quoted = (name: string): string => escapeStored(name).replace(/"/g, '\\"');
 
 /** One link of a chain: the interface's noun for its kind and the name, the name alone for a kind with no noun. */
-function linkText(labels: PlaceLabels, link: PlaceChainLink, names: InterfaceNames | undefined): string {
+function linkText(
+  labels: PlaceLabels,
+  link: PlaceChainLink,
+  names: InterfaceNames | undefined,
+  keepEmoji: boolean | undefined
+): string {
   const words = labels.places ?? {};
-  const name = quoted(link.name ?? labels.spatial?.unnamed ?? '');
+  const name = quoted(
+    typeof link.name === 'string' ? shownName(link.name, keepEmoji) : (labels.spatial?.unnamed ?? '')
+  );
   const noun = link.kind === null ? undefined : names?.nouns[link.kind];
   return noun
     ? fill(words.link ?? '{noun} "{name}"', { noun: escapeStored(noun), name })
@@ -129,7 +168,7 @@ function dmText(labels: PlaceLabels, place: PlaceWords): string {
 export function placeOwnText(labels: PlaceLabels, place: PlaceWords): string {
   const first = place.chain.at(0);
   if (first === undefined) return '';
-  return first.kind === 'dm' ? dmText(labels, place) : linkText(labels, first, place.names);
+  return first.kind === 'dm' ? dmText(labels, place) : linkText(labels, first, place.names, place.keepEmoji);
 }
 
 /**
@@ -144,7 +183,7 @@ export function placeRefText(labels: PlaceLabels, handle: string | null, place: 
   const parts =
     place.chain.at(0)?.kind === 'dm'
       ? [dmText(labels, place)]
-      : place.chain.map((link) => linkText(labels, link, names));
+      : place.chain.map((link) => linkText(labels, link, names, place.keepEmoji));
   parts.push(fill(words.iface ?? 'interface "{name}"', { name: quoted(names?.interface || place.iface) }));
   const name = parts.join(words.join ?? ', ');
   return handle === null

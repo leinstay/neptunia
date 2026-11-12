@@ -19,7 +19,7 @@ import type { Held, MediaLookup } from './emoji-gifs.ts';
 import { orderedHistory } from '../history.ts';
 import { spatialAwarenessText } from './spatial.ts';
 import { nowBlock } from './tail.ts';
-import { TAG_OVERHEAD, fillPromptTemplate, requireLabels } from './text.ts';
+import { TAG_OVERHEAD, fillPromptTemplate, keepsEmoji, requireLabels } from './text.ts';
 import type {
   Caps,
   Cost,
@@ -199,6 +199,7 @@ export function requestHead(given: RequestInput): Base {
         timezone,
         labels,
         notes: config.spatial?.notes,
+        keepEmoji: keepsEmoji(config),
       })
     : '';
   const nowText = nowBlock(now, timezone, labels, given.offPeriods, spatialText === '');

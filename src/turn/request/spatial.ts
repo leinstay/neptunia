@@ -8,7 +8,7 @@
 import { fill, formatDay, formatNow } from '../../format.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
 import type { Frame } from './frame.ts';
-import { placeOwnText } from './text.ts';
+import { placeOwnText, shownName } from './text.ts';
 import type { Labels, SpatialLabels } from './types.ts';
 
 /** The labels the block reads: the locale of the clock, `labels.spatial` and the words of a place in words. */
@@ -82,10 +82,15 @@ function linkText(
   link: PlaceLink,
   l: SpatialLabels,
   nouns: Readonly<Record<string, string>>,
-  partner: string | null
+  partner: string | null,
+  keepEmoji: boolean
 ): string {
   const kinds = l.kinds ?? {};
-  const name = link.name ?? (link.kind === 'dm' ? partner : null) ?? l.unnamed ?? '';
+  const name =
+    (typeof link.name === 'string' ? shownName(link.name, keepEmoji) : null) ??
+    (link.kind === 'dm' ? partner : null) ??
+    l.unnamed ??
+    '';
   const own = link.kind !== null ? kinds[link.kind] : undefined;
   if (own !== undefined) return fill(own, { name });
   const noun = link.kind === null ? '' : (nouns[link.kind] ?? link.kind);
@@ -102,14 +107,20 @@ function joinedLine(
   chain: ReadonlyArray<PlaceLink>,
   nouns: Readonly<Record<string, string>>,
   labels: SpatialTextLabels,
-  timezone: string
+  timezone: string,
+  keepEmoji: boolean
 ): string {
   const root = chain.at(-1);
   const joinedAt = root?.joinedAt;
   const template = labels.spatial?.joined;
   if (root === undefined || typeof joinedAt !== 'number' || !Number.isFinite(joinedAt) || typeof template !== 'string')
     return '';
-  const link = placeOwnText(labels, { iface: '', chain: [root], names: { interface: '', nouns, dm: '' } });
+  const link = placeOwnText(labels, {
+    iface: '',
+    chain: [root],
+    names: { interface: '', nouns, dm: '' },
+    keepEmoji,
+  });
   return fill(template, { place: link, day: formatDay(joinedAt, timezone) });
 }
 
@@ -133,8 +144,11 @@ export function spatialAwarenessText(input: {
   timezone: string;
   labels: SpatialTextLabels;
   notes: unknown;
+  /** `context.names.emoji`: the names of the places keep their emoji when true. */
+  keepEmoji?: boolean;
 }): string {
   const { whereabouts, now, timezone, labels, notes } = input;
+  const keepEmoji = input.keepEmoji === true;
   const l = labels.spatial;
   if (!l) return '';
   const when = formatNow(now, timezone, labels.locale);
@@ -149,12 +163,12 @@ export function spatialAwarenessText(input: {
       return fill(l.world ?? '', { when });
     case 'place': {
       const path = whereabouts.chain
-        .map((link) => linkText(link, l, whereabouts.nouns ?? {}, whereabouts.partner ?? null))
+        .map((link) => linkText(link, l, whereabouts.nouns ?? {}, whereabouts.partner ?? null, keepEmoji))
         .join(l.within ?? ' ');
       const note = noteOf(whereabouts.chain, notes);
       return [
         fill(l.place ?? '', { path, iface: whereabouts.iface, when }),
-        joinedLine(whereabouts.chain, whereabouts.nouns ?? {}, labels, timezone),
+        joinedLine(whereabouts.chain, whereabouts.nouns ?? {}, labels, timezone, keepEmoji),
         whereabouts.private ? l.private : l.group,
         note === null ? '' : fill(l.note ?? '', { note }),
       ]

@@ -29,7 +29,7 @@ import type { LiveLines, ReadMessage } from '../tools/conversation-read.ts';
 import { chatOfStoredPlace } from '../interface/place-chat.ts';
 import { accountOf, notePlaceAddress, personOfMember, placeOfChat } from '../memory/addresses.ts';
 import { handleOf } from '../behavior/handles.ts';
-import { escapeStored } from './request/text.ts';
+import { escapeStored, keepsEmoji } from './request/text.ts';
 import type { RequestRefs } from './request/types.ts';
 import {
   firstLinkIn,
@@ -378,6 +378,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           timezone: hot.config.bot?.timezone ?? 'UTC',
           now: clock(),
           selfreflectionIds: selfreflectionChatIds(store),
+          keepEmoji: keepsEmoji(hot.config),
         }),
     };
   }
@@ -460,7 +461,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         labels,
         () => null,
         null,
-        (key) => personHandleOf(where.draft, key)
+        (key) => personHandleOf(where.draft, key),
+        keepsEmoji(hot.config)
       );
       if (memory === '') return plain;
       for (const person of people) shown.add(person.personId);
