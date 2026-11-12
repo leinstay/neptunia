@@ -35,7 +35,7 @@ import { indexWords } from '../record-index.ts';
 import { graphNodeId } from './graph.ts';
 import { SELF_PERSON } from './ids.ts';
 import { profileAccountsOf } from './meta-person.ts';
-import { interestClaimsOf, usualNameOf } from './person-fields.ts';
+import { interestClaimsOf, storedAvatarOf, usualNameOf } from './person-fields.ts';
 import type { PersonAccount, ProfileAccount } from './meta-person.ts';
 import { IS_WRITTEN_ROW, LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND, LINE_MOMENT } from './source-current.ts';
 import { loadStemmer } from './stems.ts';
@@ -959,8 +959,10 @@ function personRender(entry: PersonEntry, detail: Detail): string {
   const head = [entry.name, entry.realName, ...entry.accounts].filter((one) => one !== null).join(' ');
   if (detail === 'name') return head;
   if (detail === 'compact') return [head, entry.relation].filter((one) => one !== null).join('\n');
+  const described = entry.profileAccounts.map((one) => storedAvatarOf(one.avatar)).find((one) => one && 'text' in one);
   const fields = [
     entry.interests.join('; '),
+    described && 'text' in described ? described.text : null,
     entry.usualName,
     entry.messagesSeen === null ? null : String(entry.messagesSeen),
   ];

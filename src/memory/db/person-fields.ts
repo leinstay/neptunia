@@ -2,6 +2,7 @@
 // context may read, ranked, the name the person is addressed by most, and the count of messages seen. The ranks are the
 // ones of the profile block (src/turn/request/profiles.ts): `rank` for interests, `rankAddressed` for names.
 
+import { normalizeAvatar } from '../avatars.ts';
 import { decayedScore, rankAddressed } from '../addressed.ts';
 import { sortRanked } from '../ranking.ts';
 import { MEMORY_LIMITS } from '../text-limits.ts';
@@ -85,4 +86,9 @@ export function usualNameOf(
     .all(...accounts);
   const stored = rows.filter((row) => placeOk(String(row.place_id))).map((row) => parsed(row.addressed_as));
   return rankAddressed(bestEntries(stored, now), now, MEMORY_LIMITS.addressHalfLifeDays)[0] ?? null;
+}
+
+/** A stored `avatar` field (JSON text) read as `normalizeAvatar` reads it: null for nothing stored or text that is no avatar. */
+export function storedAvatarOf(stored: string | null): ReturnType<typeof normalizeAvatar> {
+  return normalizeAvatar(parsed(stored));
 }

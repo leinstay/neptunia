@@ -10,9 +10,9 @@
 import { fill, formatDate, formatDay, mentionsNamed } from '../../format.ts';
 import { factStateWords } from '../../memory/retrieval-input.ts';
 import { affinityBand } from '../../memory/affinity.ts';
-import { normalizeAvatar } from '../../memory/avatars.ts';
 import { foldText } from '../../memory/recent.ts';
 import { EVIDENCE_ORDER, ownLinesShown } from '../../memory/db/mind-read.ts';
+import { storedAvatarOf } from '../../memory/db/person-fields.ts';
 import type {
   ClaimEntry,
   EpisodeEntry,
@@ -233,14 +233,9 @@ function attitudeLines(w: Words, attitude: PersonEntry['attitude']): Array<strin
 }
 
 /** The avatar of the account on the frame's interface, else of the first account with a readable one. */
-function avatarOf(w: Words, person: PersonEntry): ReturnType<typeof normalizeAvatar> {
-  const read = (account: PersonEntry['profileAccounts'][number]): ReturnType<typeof normalizeAvatar> => {
-    try {
-      return normalizeAvatar(typeof account.avatar === 'string' ? JSON.parse(account.avatar) : null);
-    } catch {
-      return null;
-    }
-  };
+function avatarOf(w: Words, person: PersonEntry): ReturnType<typeof storedAvatarOf> {
+  const read = (account: PersonEntry['profileAccounts'][number]): ReturnType<typeof storedAvatarOf> =>
+    storedAvatarOf(account.avatar);
   const here = person.profileAccounts.filter((one) => one.iface === w.frame.interface).map(read);
   return [...here, ...person.profileAccounts.map(read)].find((one) => one !== null) ?? null;
 }
