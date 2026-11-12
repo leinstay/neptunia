@@ -86,17 +86,34 @@ const layerOf = (line: Pick<RecordLine, 'scope'>) =>
   line?.scope?.private === true && typeof line.scope.user === 'string' ? line.scope.user : '';
 
 /**
- * The embeddable lines of `lines`, one per message: its newest revision, in channel order.
+ * The embeddable lines of `lines`, one per message: its newest revision, in channel order. The newest revision gives the
+ * text, the first revision the line held gives the kind, the author, the members and the moment, as an edit is stored
+ * `seen` with the moment of the edit. A line whose first revision is not among `lines` stands as its newest revision.
  */
 export function newestRevisions(lines: Iterable<RecordLine>): Array<RecordLine> {
   const newest = new Map<string, RecordLine>();
+  const first = new Map<string, RecordLine>();
   for (const line of lines ?? []) {
     if (!embeddableLine(line)) continue;
     const key = `${layerOf(line)}|${line.messageId}`;
     const held = newest.get(key);
     if (!held || revisionOf(line) > revisionOf(held)) newest.set(key, line);
+    const earliest = first.get(key);
+    if (!earliest || revisionOf(line) < revisionOf(earliest)) first.set(key, line);
   }
-  return [...newest.values()].sort(compareLines);
+  return [...newest]
+    .map(([key, line]) => {
+      const written = first.get(key) as RecordLine;
+      if (written === line) return line;
+      return {
+        ...line,
+        kind: written.kind,
+        by: written.by,
+        participants: written.participants,
+        occurredAt: written.occurredAt,
+      };
+    })
+    .sort(compareLines);
 }
 
 /**

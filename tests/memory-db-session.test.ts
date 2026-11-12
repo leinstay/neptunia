@@ -58,6 +58,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { minute, storeProductionEdit } from './fixtures/memory-db/edited-line.ts';
+import { openWorld } from './fixtures/memory-db/mind-world.ts';
 
 // Its key variable went with `llm.keyByRole`: the key ring routes the role (src/keys/ring.ts).
 test('the memory role: its own chain and its own default model', () => {
@@ -1980,5 +1982,34 @@ test('a batch whose request would pass the request cap is cut to its first lines
     );
   } finally {
     env.done();
+  }
+});
+
+// Bug (production, 2026-11-12): her edit of a line stored `seen` with the moment of the edit reached the memory session
+// as a line of someone else's, at the end of the chat, and the session wrote about her as if another had said it.
+test('the memory session reads her edited line once, as hers, at the place it was said, with the new text', () => {
+  const world = openWorld();
+  try {
+    storeProductionEdit(world.db, { iface: 'fake', place: 'fake:channel:c7' });
+    const scope = scopesOf(world.db).find((entry) => entry.key === 'group:fake');
+    if (!scope) throw new Error('the synthetic lines have no group session scope');
+    const { scope: where } = scope;
+    const batch = batchOf(world.db, where, {
+      cursor: 0,
+      since: null,
+      maxMessages: 20,
+      settleBefore: minute(200),
+    });
+    assert.deepEqual(
+      batch.map((line) => [line.native_id, line.kind, line.at, line.text]),
+      [
+        ['owner-1', 'seen', minute(0), 'first words'],
+        ['hers-1', 'said', minute(1), 'the kettle is on'],
+        ['owner-2', 'seen', minute(2), 'second words'],
+        ['hers-2', 'said', minute(3), 'her next words'],
+      ]
+    );
+  } finally {
+    world.close();
   }
 });

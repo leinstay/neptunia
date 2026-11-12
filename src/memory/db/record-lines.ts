@@ -28,6 +28,7 @@ import { scopeFrom, scopeInto } from './scope-parts.ts';
 import { resolveMessageFamily } from './message-families.ts';
 import { familyError, hasMessageFamilies } from './message-family-catalog.ts';
 import { observedSourceId } from './observe.ts';
+import { writtenRowOf } from './source-current.ts';
 import { storeHeld } from './media-stems.ts';
 import { recordFieldsOf, takeRecordMedia, writeRecordMedia } from './media-store.ts';
 import { markStemsPending } from './stems.ts';
@@ -489,7 +490,18 @@ export function recordLines(db: Db, key: UnitKey): Array<string> {
   const ctx = storageContext(db, key);
   const rows = lineRows(db, owner, 'sources');
   addSourceMedia(db, rows);
-  return rows.map((row) => JSON.stringify(recordLineOf(row, ctx)));
+  return rows.map((row) => JSON.stringify(recordLineOf(whoseRow(db, row), ctx)));
+}
+
+/**
+ * `row` as the record reads it: an edit is stored `seen` with the author of the edit, so a later revision of a stored
+ * line takes the kind and the author of the first revision, whose line it is. Moment and revision stay the row's.
+ */
+function whoseRow(db: Db, row: Row): Row {
+  const written = writtenRowOf(db, row);
+  return written === row
+    ? row
+    : { ...row, kind: written.kind, author_kind: written.author_kind, author_account: written.author_account };
 }
 
 /** The interface of the place that holds a record: its stored one, else none. */

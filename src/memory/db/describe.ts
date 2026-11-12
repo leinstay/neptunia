@@ -38,6 +38,7 @@ import { asText } from './types.ts';
 import type { Config, Db, Row } from './types.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import type { Context, Scope } from './scope.ts';
+import { CURRENT_REVISION, LINE_KIND, LINE_MOMENT, LINE_ROWID } from './source-current.ts';
 import type { Completion, SessionContext } from './session.ts';
 
 export const DRAFT_PURPOSE = 'description-draft';
@@ -225,9 +226,9 @@ function placeLines(
   const rows = db
     .prepare(
       `WITH RECURSIVE under(id) AS (SELECT ? UNION SELECT p.id FROM places p JOIN under u ON p.parent_id = u.id)
-      SELECT s.id, s.kind, s.occurred_at, s.text FROM sources s JOIN under u ON u.id = s.place_id
-      WHERE s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${scope.sql}
-      ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
+      SELECT s.id, ${LINE_KIND} AS kind, ${LINE_MOMENT} AS occurred_at, s.text FROM sources s JOIN under u ON u.id = s.place_id
+      WHERE ${CURRENT_REVISION} AND ${scope.sql}
+      ORDER BY ${LINE_MOMENT} DESC, ${LINE_ROWID} DESC LIMIT ?`
     )
     .all(subject.id, ...scope.params, PLACE_LINES);
   return rows.reverse().map((row) => {

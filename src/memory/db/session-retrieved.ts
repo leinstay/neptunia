@@ -9,6 +9,7 @@ import { dbSettings } from './recall.ts';
 import { retrieveMemory } from './retrieve.ts';
 import type { RetrieveDeps } from './retrieve.ts';
 import { scopeWhere } from './scope.ts';
+import { LINE_MOMENT } from './source-current.ts';
 import type { Context } from './scope.ts';
 import type { MemoryPage, RetrievedAssertion } from './semantic-types.ts';
 import { asText } from './types.ts';
@@ -147,7 +148,9 @@ export function retrievedLines(given: {
     lines.push(`[${handle}] (${standingOf(fact)}) ${fact.text}${tail}`);
   }
   const scoped = scopeWhere(ctx, 's');
-  const stored = db.prepare(`SELECT s.id, s.text, s.occurred_at FROM sources s WHERE s.id = ? AND ${scoped.sql}`);
+  const stored = db.prepare(
+    `SELECT s.id, s.text, ${LINE_MOMENT} AS occurred_at FROM sources s WHERE s.id = ? AND ${scoped.sql}`
+  );
   const evidence = retrieved.assertions.flatMap((fact) => fact.evidence.map((one) => one.sourceId));
   const shown = new Set(sources.values());
   let { lineNumber } = given;
