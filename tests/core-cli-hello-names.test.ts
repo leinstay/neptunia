@@ -22,10 +22,10 @@ import { chainsOf } from './fixtures/chains.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const QUIET = { info() {}, warn() {}, error() {}, debug() {} };
-/** What `interfaces/cli/link.ts` declares as `CLI_NAMES`. */
-const CLI_NAMES = { name: 'CLI', nouns: {}, dm: 'chat' };
+/** What the hello of `interfaces/cli/link.ts` (`CLI_NAMES`) says, as the memory reads it back. */
+const EXPECTED = { name: 'CLI', nouns: {}, dm: 'chat' };
 
-type Rig = { dataDir: string; connect(): ReturnType<typeof connectSocket>; token: string };
+type Rig = { dataDir: string; connect: () => ReturnType<typeof connectSocket>; token: string };
 
 async function withCore(body: (rig: Rig) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), 'ch-'));
@@ -92,7 +92,7 @@ test('a command line client connected over the socket has its declared names sto
     const cli = await startCli({ connect, token, print: null });
     try {
       const found = await storedNames(dataDir, (one) => one.name !== null);
-      assert.deepEqual(found, { name: 'CLI', nouns: {}, dm: 'chat' });
+      assert.deepEqual(found, EXPECTED);
     } finally {
       await cli.stop();
     }
@@ -123,7 +123,7 @@ test('a later hello of the command line without names keeps the stored ones', as
       // A hello needs a moment to be written; the names must still stand after it.
       await new Promise((resolve) => setTimeout(resolve, 300));
       const found = await storedNames(dataDir, (one) => one.name !== null);
-      assert.deepEqual(found, { name: 'CLI', nouns: {}, dm: 'chat' });
+      assert.deepEqual(found, EXPECTED);
     } finally {
       bare.close();
     }
