@@ -7,13 +7,15 @@
 // with two or more endings), so the writer that fills the stems and the reader that stems a query use the same one.
 // `fillStems` runs from the writers' projection job (projection-job.ts, write kind `project`): it learns the stemmer when there is
 // none or the text grew by a quarter since it was learned (a new stemmer re-stamps every row and the name index of
-// names.ts), then fills the rows whose stems are still empty. A row whose text changes gets its stems emptied by the
+// names.ts), then fills the rows whose stems are still empty and the name rows whose script key (script-key.ts) is
+// still null. A row whose text changes gets its stems emptied by the
 // upsert (upsert.ts), so it is filled again. A media item's words are stemmed on its own row (media-stems.ts), never on a line that shows it, so `sources.text` and
 // `sources.stems` stay what was written.
 //
 // Pure of the bot; works on an opened database (the writer connection for `fillStems`, any for `loadStemmer`).
 
 import { indexWords, learnEndings, stemmerOf } from '../record-index.ts';
+import { scriptKey } from './script-key.ts';
 import { clearMediaStems, fillMediaStems } from './media-stems.ts';
 import type { Db, Row } from './types.ts';
 
@@ -91,9 +93,19 @@ export function loadStemmer(db: Db): Stemmer {
 function restemNames(db: Db): void {
   if (!db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'names'").get()) return;
   const { stem } = loadStemmer(db);
-  const update = db.prepare('UPDATE names SET stem = ? WHERE rowid = ?');
-  for (const row of db.prepare('SELECT rowid, normalized FROM names').all())
-    update.run(stemsOf(stem, row.normalized), row.rowid);
+  const update = db.prepare('UPDATE names SET stem = ?, script_key = ? WHERE rowid = ?');
+  for (const row of db.prepare('SELECT rowid, normalized FROM names').all()) {
+    const stems = stemsOf(stem, row.normalized);
+    update.run(stems, scriptKey(stems), row.rowid);
+  }
+}
+
+/** The script key (script-key.ts) of the name rows written before it existed, from their stems. */
+function fillNameKeys(db: Db): void {
+  if (!db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'names'").get()) return;
+  const update = db.prepare('UPDATE names SET script_key = ? WHERE rowid = ?');
+  for (const row of db.prepare('SELECT rowid, stem FROM names WHERE script_key IS NULL').all())
+    update.run(scriptKey(String(row.stem)), row.rowid);
 }
 
 function textRows(db: Db): number {
@@ -174,6 +186,7 @@ export function fillStems(db: Db): { stamped: number; relearned: boolean } {
     stamped += rows.length;
   }
   inTransaction(db, () => fillMediaStems(db, stem));
+  inTransaction(db, () => fillNameKeys(db));
   if (metaGet(db, PENDING_KEY) !== '0') metaSet(db, PENDING_KEY, '0');
   return { stamped, relearned };
 }
