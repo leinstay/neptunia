@@ -38,6 +38,7 @@ import type { Handles } from '../../handles.ts';
 import { messageSourceId, PERSONA_ID } from '../../../memory/db/ids.ts';
 import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
 import type { FrameReads, Lesson } from '../../../memory/db/frame-reads.ts';
+import { attitudesShownOf } from '../../request/attitudes.ts';
 import { lessonsBudgetOf, lessonsCut, teachersOf } from '../../request/lessons.ts';
 import type { Context } from '../../../memory/db/scope.ts';
 import { fill, formatClock, formatDate } from '../../../format.ts';
@@ -48,7 +49,7 @@ import { seedRefsOf } from '../../seed-ring.ts';
 import type { SurroundingsInput } from '../../request/reader.ts';
 import type { LineOf } from '../../request/refs.ts';
 import type { SourceRetired } from '../../request/reader.ts';
-import type { Message, PlacePathView } from '../../request/types.ts';
+import type { AttitudesInput, Message, PlacePathView } from '../../request/types.ts';
 
 /** The request as buildRequest builds it. */
 /** A partner's private layer with what they said in their other linked DMs; null with neither. */
@@ -234,6 +235,8 @@ type FramedInputs = {
   surroundings: SurroundingsInput | null;
   /** Her lessons the turn's context may read, best first, for `<lessons>` of `<self>`; null when it shows none. */
   lessons: ReadonlyArray<Lesson> | null;
+  /** The people she feels most strongly about under the turn's context, for `<attitudes>` of `<self>`; null when it shows none. */
+  attitudes: AttitudesInput | null;
   refLineOf: LineOf | null;
   isSourceRetired: SourceRetired | null;
   chatIdOf: ((placeId: string) => string | null) | null;
@@ -245,6 +248,7 @@ const NO_FRAMED: FramedInputs = {
   meanwhileReads: null,
   surroundings: null,
   lessons: null,
+  attitudes: null,
   refLineOf: null,
   isSourceRetired: null,
   chatIdOf: null,
@@ -276,6 +280,28 @@ function lessonsOfTurn(
   } catch (error) {
     log.warn('turn: lessons not read', { error });
     return none;
+  }
+}
+
+/**
+ * The people she feels most strongly about under the turn's context, at most `context.attitudes.shown` of them. A
+ * request that prints no `<self>`, a setting the config does not give, a setting of 0 and a failed read (logged) give
+ * none. The turn's own people never change the list, so the block holds the same bytes whoever she answers.
+ */
+function attitudesOfTurn(
+  ctx: Pick<PhaseContext, 'hot'>,
+  reads: FrameReads,
+  frame: Frame,
+  memoryContext: Context
+): AttitudesInput | null {
+  const shown = attitudesShownOf(ctx.hot.config as Parameters<typeof attitudesShownOf>[0]);
+  if (!reads.attitudes || shown === null || shown === 0 || !frame.blocks.includes('self')) return null;
+  try {
+    const read = reads.attitudes(memoryContext, shown);
+    return read.list.length > 0 ? read : null;
+  } catch (error) {
+    log.warn('turn: attitudes not read', { error });
+    return null;
   }
 }
 
@@ -568,6 +594,7 @@ function framedInputsOf(
       ],
     },
     lessons: taught.lessons,
+    attitudes: attitudesOfTurn(ctx, reads, frame, memoryContext),
     refLineOf,
     isSourceRetired,
     chatIdOf: chatIdReader(reads),
@@ -685,6 +712,7 @@ function serviceInputsOf(
     meanwhileReads,
     surroundings: null,
     lessons: taught.lessons,
+    attitudes: attitudesOfTurn(ctx, reads, frame, memoryContext),
     refLineOf,
     isSourceRetired: null,
     chatIdOf: chatIdReader(reads),

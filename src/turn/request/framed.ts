@@ -18,13 +18,15 @@ import { renderSenses } from './senses.ts';
 import type { SensesOf } from './senses.ts';
 import { selfreflectionFramedOf } from './selfreflection.ts';
 import { surroundingsOf } from './surroundings.ts';
+import { attitudesText } from './attitudes.ts';
 import { lessonsBlockOf, lessonsBudgetOf } from './lessons.ts';
-import { keepsEmoji } from './text.ts';
+import { escapeStored, keepsEmoji, shownName } from './text.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
 import { seenOf } from './tail.ts';
 import type { Task } from './task.ts';
 import { handleOf } from '../../behavior/handles.ts';
-import { mentionsNamed } from '../../format.ts';
+import { fill, mentionsNamed } from '../../format.ts';
+import { affinityBand } from '../../memory/affinity.ts';
 import type { RequestInput } from './types.ts';
 import type { WakeTexts } from './wake.ts';
 
@@ -131,6 +133,28 @@ function lessonsHeld(given: RequestInput, base: Base, room: Room): { header: str
   );
 }
 
+/**
+ * `<attitudes>` of `<self>`, held like `<lessons>` for the cache bucket while the bands, the order, the names and the
+ * labels stay the same (a score that moves inside its band changes nothing): the people as `@handle: Name`, the handle
+ * the rest of the request cuts from the person, '' without a list.
+ */
+function attitudesHeld(given: RequestInput, base: Base): string {
+  const attitudes = given.attitudes ?? null;
+  if (attitudes === null || attitudes.list.length === 0) return '';
+  const { labels } = base;
+  const keepEmoji = keepsEmoji(given.config);
+  const who = (person: string): string =>
+    fill(labels.people?.ref ?? '@{handle}: {name}', {
+      handle: handleOf(person),
+      name: escapeStored(shownName(attitudes.names[person] ?? labels.authors?.unknown ?? '', keepEmoji)),
+    });
+  const stored = attitudes.list.map((one) => `${one.person}\u0000${affinityBand(one.score)}\u0000${who(one.person)}`);
+  const wording = JSON.stringify([labels.attitudes, labels.affinity?.bands, labels.people?.ref]);
+  return base.frozen('attitudes', `${wording}|${stored.join('\u0001')}`, () =>
+    attitudesText(attitudes.list, { labels, who })
+  );
+}
+
 /** The stored facts among the prefetch's excerpts (`source: 'semantic'`), for `<found>`. */
 function storedFactsOf(prefetch: RequestInput['prefetch']): Array<StoredFact> {
   return (prefetch?.excerpts ?? []).flatMap((excerpt) =>
@@ -230,6 +254,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     toolsText: senses.toolsText,
     selfFacts,
     lessons: lessonsHeld(given, base, room),
+    attitudes: attitudesHeld(given, base),
     surroundingsText,
     mind: given.mind ?? NO_MIND,
     facts: storedFactsOf(given.prefetch),

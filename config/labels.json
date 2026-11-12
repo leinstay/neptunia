@@ -403,7 +403,7 @@
     },
     "attitudes": {
       "header": "People you feel most strongly about, warm and cool. This is background; draw on it when someone comes up or when people are the topic, but never read it out as a list or name the labels.",
-      "line": "{name}: {band}"
+      "line": "{who}, {band}"
     },
     "task": {
       "part": "This message has {total} parts; you are answering part {index}: {part}. The rest ({others}) get their own turns, so do not answer them or say you will get to them. Answer this part, or let it pass.",
