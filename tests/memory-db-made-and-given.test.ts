@@ -31,19 +31,26 @@ after(closeMadeWorlds);
 const input = (answering: string | null, people = 3) => ({ now: NOW, timezone: TZ, answering, kinds: KINDS, people });
 const group = groupContext('discord');
 
-test('counts each kind she made for the person she answers today, and the lines that person addressed to her', async () => {
-  // Bug: the counts mix kinds, or the addressed count takes yesterday's line, another person's lines, or a line that is
-  // both `direct` and a reply twice.
+test('counts each kind she made for the person she answers today, and the turns that person started', async () => {
+  // Bug: the counts mix kinds, or the addressed count takes the person's mentions and replies (`sources.direct`, a
+  // reply to her line), which cover only an explicit address while most lines of a talk reach her by the door's own
+  // judgement. The count is the turns of hers today that a line of the person started, each turn once, whatever
+  // lines the person wrote. The fixture's lines of Anna (five of today with a mention or a reply, none started a
+  // turn) must not count.
   const w = madeWorld();
   await w.turn(CAFE, { id: 't1', at: NOW - 4 * HOUR, by: NATIVE[ANNA] });
+  await w.turn(CAFE, { id: 't1', at: NOW - 4 * HOUR + MIN, by: NATIVE[ANNA], attempt: 2 });
   await w.calls(CAFE, { turn: 't1', skill: 'draw.create', at: NOW - 4 * HOUR, count: 3 });
   await w.calls(CAFE, { turn: 't1', skill: 'voice.say', at: NOW - 3 * HOUR, count: 1 });
   await w.turn(CAFE, { id: 't2', at: NOW - 2 * HOUR, by: NATIVE[ANNA] });
   await w.calls(CAFE, { turn: 't2', skill: 'media.find', at: NOW - 2 * HOUR, count: 2 });
+  await w.turn(CAFE, { id: 't3', at: NOW - HOUR, by: NATIVE[ANNA] });
+  await w.turn(CAFE, { id: 'tb', at: NOW - HOUR, by: NATIVE[BORIS] });
+  await w.turn(CAFE, { id: 'told', at: NOW - 30 * HOUR, by: NATIVE[ANNA] });
   const got = madeAndGivenOf(w.read(), group, input(ANNA));
   assert.equal(got.answering?.person, ANNA);
   assert.deepEqual(got.answering?.today, { 'draw.create': 3, 'voice.say': 1, 'media.find': 2 });
-  assert.equal(got.answering?.addressedToday, 6);
+  assert.equal(got.answering?.addressedToday, 3);
 });
 
 test('counts neither a failed call nor one that was only proposed, started or left unknown', async () => {
@@ -165,8 +172,8 @@ test('puts the person she answers first, then the most asking others, up to the 
   assert.equal(got.forOthers, 8);
 });
 
-test('reads nothing for a day with nothing made, though the person wrote to her', async () => {
-  // Bug: the addressed count alone opens a line, so a day of reads and posts adds text to `<my_day>`.
+test('reads nothing for a day with nothing made, though the person started turns', async () => {
+  // Bug: the count of turns the person started alone opens a line, so a day of reads and posts adds text to `<my_day>`.
   const w = madeWorld();
   await w.turn(CAFE, { id: 't1', at: NOW - 4 * HOUR, by: NATIVE[ANNA] });
   await w.call(CAFE, { turn: 't1', skill: 'memory.search', at: NOW - 3 * HOUR });

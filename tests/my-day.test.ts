@@ -251,3 +251,25 @@ test('writes no line for a day with nothing made', () => {
   // Bug: an empty value still prints a header, a zero line or an empty string into `<my_day>`.
   assert.deepEqual(madeAndGivenLines({ answering: null, others: [], own: 0, forOthers: 0 }, labels.myDay), []);
 });
+
+test('writes the word for one when the count is one and the labels hold it for the skill', () => {
+  // Bug: a count of one reads with the plural word, `1 pictures`.
+  const lines = madeAndGivenLines(
+    { answering: count(PEOPLE.anna, { 'draw.create': 1, 'voice.say': 1 }), others: [], own: 0, forOthers: 2 },
+    labels.myDay
+  );
+  const first = lines[0] ?? '';
+  assert.ok(first.includes('1 picture') && !first.includes('pictures'), first);
+  assert.ok(first.includes('1 voice line') && !first.includes('voice lines'), first);
+});
+
+test('writes the plural word for one when the labels hold no word for one, and for any other count', () => {
+  // Bug: the word for one is looked up for every count, or a skill without one loses its word at a count of one.
+  const lines = madeAndGivenLines(
+    { answering: count(PEOPLE.anna, { 'draw.create': 2, 'media.find': 1 }), others: [], own: 0, forOthers: 3 },
+    labels.myDay
+  );
+  const first = lines[0] ?? '';
+  assert.ok(first.includes('2 pictures'), first);
+  assert.ok(first.includes('1 GIF searches'), first);
+});

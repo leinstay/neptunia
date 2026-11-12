@@ -3,7 +3,9 @@
 // journal a turn writes through, on a clock the test moves. A turn is a `turn.start` line with its trigger's author
 // (a native account id, null for an inner turn), a call is an operation of the journal that shares its `turnId`.
 // The lines: Anna wrote to her six times today (three `direct`, two replies to a line of hers, one both), once
-// yesterday, and Boris twice today. Made-up ids, no real names.
+// yesterday, and Boris twice today. None of these lines started a turn of hers: what she was addressed by is counted
+// from the turns' start lines, so the lines stand for a mention or a reply that the door did not answer.
+// Made-up ids, no real names.
 import path from 'node:path';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { insertRows, addRelation } from '../../src/memory/db/rows.ts';
@@ -84,7 +86,7 @@ export type Call = {
 /** What a test drives: the read handle, the turns' start lines and the calls. */
 export type MadeWorld = {
   read: () => Db;
-  turn: (place: string, spec: { id: string; at: number; by: string | null }) => Promise<void>;
+  turn: (place: string, spec: { id: string; at: number; by: string | null; attempt?: number }) => Promise<void>;
   call: (place: string, one: Call) => Promise<void>;
   calls: (place: string, spec: { turn: string | null; skill: string; at: number; count: number }) => Promise<void>;
 };
@@ -149,7 +151,7 @@ export function madeWorld(): MadeWorld {
   const read = (): Db => dbOf(wrongly<Parameters<typeof dbOf>[0]>(memoryDb.readHandle()));
 
   /** The `turn.start` line of a turn in `place` that `by` (a native account id) asked, an inner turn when `by` is null. */
-  async function turn(place: string, spec: { id: string; at: number; by: string | null }) {
+  async function turn(place: string, spec: { id: string; at: number; by: string | null; attempt?: number }) {
     clock.at = spec.at;
     const trigger =
       spec.by === null
@@ -158,6 +160,7 @@ export function madeWorld(): MadeWorld {
     journal.start(place, {
       placeId: CHAT[place],
       turnId: spec.id,
+      ...(spec.attempt === undefined ? {} : { attemptId: spec.attempt }),
       mode: spec.by === null ? 'inner' : 'reply',
       trigger,
       ...(spec.by === null ? {} : { participants: [spec.by] }),
