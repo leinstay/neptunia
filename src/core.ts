@@ -767,6 +767,7 @@ async function buildCore(
       (greeting) => {
         const principal = link.principal();
         if (principal?.kind === 'interface') connectInterface(principal.name, greeting, link);
+        if (principal?.kind === 'cli' && greeting.names) store.noteRoots(greeting.iface, [], greeting.names);
         if (asUnits && servedName === null && principal?.kind === 'interface') servedName = principal.name;
         if (principal === null || principal.name !== (asUnits ? servedName : switched.current().principal()?.name))
           return;
