@@ -22,6 +22,7 @@ import {
   personEntry,
   placeEntry,
 } from './fixtures/mind-entries.ts';
+import type { Labels, MemoryLabels } from '../src/turn/request/types.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart', relation: 'ΣΧΕΣΗ-ΕΛΕΝΗΣ' });
@@ -384,17 +385,14 @@ test('the band word follows the score at each edge the bands name', () => {
 //   account with one, then `memory.usualName` (`{value}`) when the name differs from the heading's after folding, then
 //   `memory.messagesSeen` (`{count}`, rounded down by the step `memory.ownLines` uses).
 // The labels below are the test's own, each opening with a marker the test finds a line by.
-const SEEN_LABELS = {
-  ...shippedLabels,
-  memory: {
-    ...shippedLabels.memory,
-    interests: 'INT {value}',
-    avatar: 'AVA {value}',
-    avatarDefault: 'AVD',
-    usualName: 'USU {value}',
-    messagesSeen: 'SEEN {count}',
-  },
-};
+const SEEN_MEMORY: MemoryLabels = Object.assign({}, shippedLabels.memory, {
+  interests: 'INT {value}',
+  avatar: 'AVA {value}',
+  avatarDefault: 'AVD',
+  usualName: 'USU {value}',
+  messagesSeen: 'SEEN {count}',
+});
+const SEEN_LABELS: Labels = { ...shippedLabels, memory: SEEN_MEMORY };
 const MARKERS = ['INT ', 'AVA ', 'AVD', 'USU ', 'SEEN '];
 
 const renderSeen = (person: PersonEntry, author: FrameParty | null = null): string =>
@@ -405,7 +403,6 @@ const renderSeen = (person: PersonEntry, author: FrameParty | null = null): stri
 const seenLines = (person: PersonEntry, author: FrameParty | null = null): Array<string> =>
   renderSeen(person, author).trim().split('\n');
 const lineOf = (lines: Array<string>, marker: string): string => lines.find((line) => line.startsWith(marker)) ?? '';
-lines.findIndex((line) => line.startsWith(marker));
 const markersIn = (lines: Array<string>): Array<string> =>
   MARKERS.filter((marker) => lines.some((line) => line.startsWith(marker)));
 

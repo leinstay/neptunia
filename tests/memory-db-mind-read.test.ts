@@ -1052,25 +1052,25 @@ test('the messages seen are the stored count of the person, and null where none 
   assert.equal(counterpartIn(w, GROUP, person, w.room, SETTINGS).messagesSeen, 37);
 });
 
-test('an entry with interests needs more of the budget to stay whole than the same entry without them', () => {
-  // Bug: the budget weighs the old render, so the new lines push the entry past its share without a drop to `compact`.
-  // The smallest budget that keeps the entry whole is found through the public result, once with no interest shown and
-  // once with five long ones.
-  const w = world();
-  const person = plainPerson(w);
-  for (let at = 0; at < 5; at += 1)
-    addInterest(w, person, `claim:i${at}`, `ΘΕΜΑ-${at} `.repeat(12).trim(), 9 - at, daysBefore(2));
-  const trigger = message('src:a1', 'τι λες εσύ;', { placeId: w.room, trigger: true, mentions: ['discord:a1'] });
-  const detailAt = (budgetTokens: number, interests: number): string | undefined =>
-    personIn(
-      mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), { ...SETTINGS, budgetTokens, interests }, NOW),
-      person
-    )?.detail;
-  const smallestWhole = (interests: number): number => {
-    for (let budget = 20; budget <= 4000; budget += 10) if (detailAt(budget, interests) === 'whole') return budget;
+test('an entry of a person with interests needs more of the budget to stay whole than the same person without them', () => {
+  // Bug: the budget weighs the old render, so the new line pushes the entry past its share without a drop to `compact`.
+  // Two worlds that differ in the interest claims alone, under the same settings; the smallest budget that keeps the
+  // entry whole is found through the public `detail`.
+  const smallestWhole = (withInterests: boolean): number => {
+    const w = world();
+    const person = plainPerson(w);
+    if (withInterests)
+      for (let at = 0; at < 5; at += 1)
+        addInterest(w, person, `claim:i${at}`, `ΘΕΜΑ-${at} `.repeat(12).trim(), 9 - at, daysBefore(2));
+    const trigger = message('src:a1', 'τι λες εσύ;', { placeId: w.room, trigger: true, mentions: ['discord:a1'] });
+    for (let budgetTokens = 20; budgetTokens <= 4000; budgetTokens += 10) {
+      const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), { ...SETTINGS, budgetTokens }, NOW);
+      if (personIn(mind, person)?.detail === 'whole') return budgetTokens;
+    }
     return Number.POSITIVE_INFINITY;
   };
-  const without = smallestWhole(0);
+  const without = smallestWhole(false);
+  const interested = smallestWhole(true);
   assert.ok(Number.isFinite(without), 'the entry is whole at some budget');
-  assert.ok(smallestWhole(5) > without, `${smallestWhole(5)} > ${without}`);
+  assert.ok(interested > without, `${interested} > ${without}`);
 });
