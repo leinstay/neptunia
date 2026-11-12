@@ -29,7 +29,8 @@ const NIKOS = 'person:fake:4242';
 const GROUP = { group: 'fake' } as const;
 const HANDLE = /@u[0-9a-z]+/;
 /** The label of an in-joke line of `<root>`, read off the labels as `fieldLines` reads it. */
-const JOKES_LABEL = shippedLabels.surroundings?.fields?.injokes ?? 'injokes';
+const FIELD_LABELS = shippedLabels.surroundings?.fields;
+const JOKES_LABEL = FIELD_LABELS?.injokes ?? 'injokes';
 
 /** The service world, with Νίκος, who wrote nothing anywhere, and the owner with her command line chat. */
 function lessonWorld(): World {
@@ -178,7 +179,8 @@ test('<lessons> shows on the command line, an interface with no root, the lesson
       steps: [step],
       context: { lessons: { budgetTokens: 100_000 } },
     });
-    const body = lessonsOf(run.requests[0]?.[0] ?? '');
+    const [turnRequests = []] = run.requests;
+    const body = lessonsOf(turnRequests[0] ?? '');
     assert.ok(body.includes('ΜΑΘΗΜΑ-ΑΓΟΡΑΣ') && body.includes('ΜΑΘΗΜΑ-ΝΗΣΙΟΥ'), body);
   } finally {
     world.close();
