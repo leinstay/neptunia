@@ -208,7 +208,9 @@ test('stop closes the link and answers a command still waiting', async () => {
 });
 
 /** The client over a loopback to the core's link, with the `message.received` events the door took and her line sent. */
-async function editRig() {
+type LineChange = { id: string; text?: string; deleted?: true };
+
+async function editRig(changes: Array<LineChange> = []) {
   const { core, client } = createLoopback();
   const events: Array<Record<string, unknown>> = [];
   const door = createEventDoor({
@@ -222,7 +224,12 @@ async function editRig() {
     log: quiet,
   });
   const transcript: Array<MessageEvent> = [];
-  const link = openLinkOver(client, { token: 't', print: () => {}, transcript });
+  const link = openLinkOver(client, {
+    token: 't',
+    print: () => {},
+    transcript,
+    onLineChange: (change: LineChange) => void changes.push(change),
+  });
   await coreLink.hello;
   const sent = await coreLink.adapter.send(CHAT, { text: 'the kettle is on 🙂' });
   assert.equal(sent.status, 'ok');
@@ -340,5 +347,35 @@ test('a delete of a line the chat does not hold is refused as unknown and nothin
   assert.equal(result.error?.code, 'unknown-message');
   await idle();
   assert.deepEqual(events, []);
+  link.close();
+});
+
+test('her edit of her own line tells the screen once, with the line id and the new text', async () => {
+  // Bug: the screen is never told, so the owner keeps reading the words she took out until the chat is reopened.
+  const changes: Array<LineChange> = [];
+  const { link, coreLink, hers } = await editRig(changes);
+  await coreLink.adapter.edit(hers, { text: 'the kettle is on' });
+  assert.deepEqual(changes, [{ id: hers.messageId, text: 'the kettle is on' }]);
+  link.close();
+});
+
+test('her delete of her own line tells the screen once, with the line id and deleted', async () => {
+  // Bug: the screen is never told, so a line she took back stays drawn.
+  const changes: Array<LineChange> = [];
+  const { link, coreLink, hers } = await editRig(changes);
+  await coreLink.adapter.delete(hers);
+  assert.deepEqual(changes, [{ id: hers.messageId, deleted: true }]);
+  link.close();
+});
+
+test('a refused edit or delete tells the screen nothing', async () => {
+  // Bug: the screen changes a line before the refusal is known, so it shows what the core never stored.
+  const changes: Array<LineChange> = [];
+  const { link, coreLink, theirs } = await editRig(changes);
+  await coreLink.adapter.edit({ ...CHAT, messageId: theirs }, { text: 'changed' });
+  await coreLink.adapter.delete({ ...CHAT, messageId: theirs });
+  await coreLink.adapter.edit({ ...CHAT, messageId: 'no-such-line' }, { text: 'changed' });
+  await coreLink.adapter.delete({ ...CHAT, messageId: 'no-such-line' });
+  assert.deepEqual(changes, []);
   link.close();
 });
