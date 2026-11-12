@@ -391,6 +391,19 @@ export function lineOfIdentity(db: Db, ctx: Context, key: string): IdentityLine 
 }
 
 /**
+ * The stored line of an interface's message id as the context reads it (lineOfIdentity), found by its family's native
+ * key, else by the id itself; null when the context reads none, and `deleted` for a deleted message.
+ */
+export function lineOfMessage(db: Db, ctx: Context, iface: string, messageId: string): IdentityLine | null {
+  const family = db
+    .prepare(
+      'SELECT native_key FROM message_families WHERE iface = ? AND message_id = ? ORDER BY generation DESC LIMIT 1'
+    )
+    .get(iface, messageId);
+  return lineOfIdentity(db, ctx, `src:${iface}:${text(family?.native_key) ?? messageId}`);
+}
+
+/**
  * Whether the line of the message a source row holds is gone, found by the row's `iface` and `native_id` in one query:
  * true when the context reads no live revision of it or reads its deletion, and for a source id no row holds. The same
  * verdict as a null or deleted lineOfIdentity, without reading the line itself.
@@ -510,6 +523,8 @@ export type FrameReads = {
   /** The stored name of an account by its platform id, its interface first, then any (accountNameOf). */
   accountName?(iface: string, native: string): string | null;
   line(ctx: Context, key: string): IdentityLine | null;
+  /** The stored line of an interface's message id under the context, null when it reads none (lineOfMessage). */
+  messageLine?(ctx: Context, iface: string, messageId: string): IdentityLine | null;
   /** Whether the line of the message a source row holds is gone (sourceRetiredOf). */
   sourceRetired?(ctx: Context, sourceId: string): boolean;
   placeFields(ctx: Context, placeId: string): Record<string, string>;
@@ -582,6 +597,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     since: (ctx, placeId, from, count) => over([], (db) => linesSinceOf(db, ctx, placeId, from, count)),
     accountName: (iface, native) => over(null, (db) => accountNameOf(db, iface, native)),
     line: (ctx, key) => over(null, (db) => lineOfIdentity(db, ctx, key)),
+    messageLine: (ctx, iface, messageId) => over(null, (db) => lineOfMessage(db, ctx, iface, messageId)),
     sourceRetired: (ctx, sourceId) => over(true, (db) => sourceRetiredOf(db, ctx, sourceId)),
     placeFields: (ctx, placeId) => over({}, (db) => placeFieldsOf(db, ctx, placeId)),
     placeVersions: (ctx, placeId) => over([], (db) => placeVersionsOf(db, ctx, placeId)),

@@ -128,6 +128,8 @@ export function createChatState({
         at: line.at,
         who: line.who,
         text: line.text,
+        // The message id the line is stored under, which an edit or a deletion of it names.
+        messageId: line.nativeId ?? line.id,
         ...(line.number === undefined ? {} : { number: line.number }),
         // The kinds of its files, in the names memory stores, which the chat draws as `[voice]` and the like.
         ...(fileRows(line).length === 0 ? {} : { files: fileRows(line).map((row) => row.kind) }),

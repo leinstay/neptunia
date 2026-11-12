@@ -780,6 +780,7 @@ async function runInkChat(
           at?: number;
           who: 'owner' | 'her';
           text: string;
+          messageId?: string;
           number?: number;
           files?: Array<string>;
           replyNumber?: number;

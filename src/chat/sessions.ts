@@ -24,6 +24,8 @@ export type SourceLine = {
   /** The message id of the line it replies to, and that line's number when known. */
   replyToId?: string;
   replyNumber?: number;
+  /** When an edited line's current revision was recorded; absent on a line never edited. */
+  editedAt?: number;
 };
 
 /** When a branch was the selected session: lines written from `from` until `to` are its own. */

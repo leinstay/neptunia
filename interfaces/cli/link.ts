@@ -124,10 +124,15 @@ function cliAdapter(
 ): Adapter {
   const inChat = (chat: { chatId: string }): boolean => chat.chatId === CHAT_ID;
   const effectRefused = { status: 'unsupported' as const, error: { code: 'unsupported', retryable: false } };
-  /** The line of the chat `message` names when it is hers, else the refusal that says why not. */
-  const ownLine = (message: { chatId: string; messageId: string }): MessageEvent | PortResult => {
-    const line = inChat(message) ? transcript.find((one) => one.message.id === message.messageId) : undefined;
-    if (line === undefined) return notOk('failed', 'unknown-message');
+  /**
+   * The line of this session's transcript `message` names when it is hers, the refusal when it is another's, and null
+   * for an id the transcript does not hold: the client is no authority on what the chat holds (lines of an earlier
+   * session are stored by the core), so the core's check answers for those.
+   */
+  const ownLine = (message: { chatId: string; messageId: string }): MessageEvent | PortResult | null => {
+    if (!inChat(message)) return notOk('failed', 'unknown-message');
+    const line = transcript.find((one) => one.message.id === message.messageId);
+    if (line === undefined) return null;
     const { author } = line.message;
     return author?.self === true ? line : notOk('forbidden', 'not-own-message');
   };
@@ -164,41 +169,50 @@ function cliAdapter(
       const text: unknown = isObject(content) ? content.text : null;
       if (typeof text !== 'string' || text === '') return notOk('failed', 'invalid-content');
       const line = ownLine(message);
-      if (!('kind' in line)) return line;
+      if (line !== null && !('kind' in line)) return line;
       const at = Date.now();
-      const edited = { ...line.message, content: text, sourceText: text, editedAt: at };
+      // A line of an earlier session is not held here: it is reported by its id, with no copy of the old line.
+      const held = line ?? lineEvent(text, at, { id: message.messageId, self: true });
+      const edited = { ...held.message, content: text, sourceText: text, editedAt: at };
       const event = {
-        ...line,
+        ...held,
         at,
-        id: `${CLI_IFACE}:message:${line.message.id}:edit:${randomUUID()}`,
+        id: `${CLI_IFACE}:message:${message.messageId}:edit:${randomUUID()}`,
         edit: true,
         message: edited,
-        previous: line.message,
+        previous: line === null ? null : line.message,
       };
       return reported(event, () => {
-        const index = transcript.indexOf(line);
-        if (index !== -1) transcript[index] = { ...line, message: edited };
-        changes.onLineChange?.({ id: line.message.id, text });
+        if (line !== null) {
+          const index = transcript.indexOf(line);
+          if (index !== -1) transcript[index] = { ...line, message: edited };
+        }
+        changes.onLineChange?.({ id: message.messageId, text });
       });
     },
     async delete(message): Promise<PortResult> {
       const line = ownLine(message);
-      if (!('kind' in line)) return line;
+      if (line !== null && !('kind' in line)) return line;
       const at = Date.now();
       const event = {
         kind: 'message.received',
         iface: CLI_IFACE,
         at,
-        id: `${CLI_IFACE}:message:${line.message.id}:delete:${randomUUID()}`,
+        id: `${CLI_IFACE}:message:${message.messageId}:delete:${randomUUID()}`,
         chat: CHAT_RECORD,
         deleted: true,
-        message: { id: line.message.id, at: line.message.at, author: line.message.author },
-        addressing: line.addressing,
+        message:
+          line === null
+            ? { id: message.messageId, at }
+            : { id: message.messageId, at: line.message.at, author: line.message.author },
+        addressing: (line ?? lineEvent('', at, { id: message.messageId, self: true })).addressing,
       };
       return reported(event, () => {
-        const index = transcript.indexOf(line);
-        if (index !== -1) transcript.splice(index, 1);
-        changes.onLineChange?.({ id: line.message.id, deleted: true });
+        if (line !== null) {
+          const index = transcript.indexOf(line);
+          if (index !== -1) transcript.splice(index, 1);
+        }
+        changes.onLineChange?.({ id: message.messageId, deleted: true });
       });
     },
     react: () => Promise.resolve(effectRefused),
