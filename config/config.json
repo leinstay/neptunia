@@ -125,7 +125,8 @@
     },
     "turnLeaseMs": 300000,
     "myDay": {
-      "lines": 12
+      "lines": 12,
+      "people": 3
     },
     "lessons": {
       "budgetTokens": 1200

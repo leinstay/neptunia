@@ -3,10 +3,14 @@
 // to `now`, read under the turn's context so that a group turn never lists what she did in a direct chat. One line per
 // action with its clock and the place by name, newest last, the newest `lines` of them. The place is the one the call
 // acted in (its `started` line's `target.channel`) when that chat is a stored place the context may read, else the
-// place of the turn that made the call. buildTurnRequest
-// (src/turn/phases/request/build.ts) asks for them through the turn runner's `myDay` reader.
+// place of the turn that made the call. Above them stand the lines of what she made at people's asking
+// (`madeAndGivenLines`, over src/memory/db/made-and-given.ts). buildTurnRequest
+// (src/turn/phases/request/build.ts) asks for both through the turn runner's `myDay` reader.
 
+import { handleOf } from '../../behavior/handles.ts';
 import { fill, formatClock } from '../../format.ts';
+import { madeAndGivenOf } from '../../memory/db/made-and-given.ts';
+import type { MadeAndGiven, PersonCount } from '../../memory/db/made-and-given.ts';
 import { firstChannelOf, placeOfChannel } from '../../memory/db/native-rows.ts';
 import { placeVisibleWhere } from '../../memory/db/places-read.ts';
 import { whereFor } from '../../memory/db/scope.ts';
@@ -25,8 +29,16 @@ export type JournalReader = Db;
  */
 export type MyDayLabels = Readonly<Record<string, unknown>>;
 
-/** How many lines, and the words to write them in. */
-export type MyDayOptions = { lines: number; labels?: MyDayLabels | null };
+/**
+ * How many lines, the words to write them in, the person she answers (a person id) and how many other people the
+ * count of what she made names (`context.myDay.people`, 3 when absent).
+ */
+export type MyDayOptions = {
+  lines: number;
+  labels?: MyDayLabels | null;
+  answering?: string | null;
+  people?: number;
+};
 
 /** What the turn runner is given to read her day: myDayOf over the open memory, `[]` while it is closed. */
 export type MyDayReader = (ctx: unknown, now: number, timezone: string, options: MyDayOptions) => Array<string>;
@@ -138,6 +150,57 @@ function lineOf(one: Done, place: string | null, time: string, labels: MyDayLabe
   return [`[${time}]`, action, place].filter(Boolean).join(' ');
 }
 
+/** The kinds `labels.kinds` names a word for, in the order the labels list them. */
+function kindsOf(labels: MyDayLabels | null | undefined): Array<[string, string]> {
+  const kinds = labels?.kinds;
+  if (!kinds || typeof kinds !== 'object') return [];
+  return Object.entries(kinds as Record<string, unknown>).flatMap(([skill, word]) =>
+    typeof word === 'string' && word ? [[skill, word] as [string, string]] : []
+  );
+}
+
+const wordOf = (labels: MyDayLabels, key: string): string => (typeof labels[key] === 'string' ? labels[key] : '');
+
+/** `3 pictures, 1 voice line`: the counts per kind in the labels' order, a skill with no word left out. */
+function madeText(counts: Record<string, number>, labels: MyDayLabels): string {
+  const item = wordOf(labels, 'madeItem');
+  return kindsOf(labels)
+    .flatMap(([skill, kind]) => {
+      const count = counts[skill];
+      return count ? [fill(item, { count: String(count), kind })] : [];
+    })
+    .join(wordOf(labels, 'madeJoin'));
+}
+
+const totalOf = (counts: Record<string, number>): number => Object.values(counts).reduce((sum, n) => sum + n, 0);
+
+function personLine(one: PersonCount, labels: MyDayLabels): string {
+  return fill(wordOf(labels, 'madeFor'), {
+    who: `@${handleOf(one.person)}`,
+    made: madeText(one.today, labels),
+    lines: String(one.addressedToday),
+  });
+}
+
+/**
+ * What she made today at people's asking, in the labels' words (`labels.myDay`): the line of the person she answers,
+ * a line for the last seven days when it holds more than today, a line per other person, and her day last. No lines
+ * for a day with nothing made.
+ */
+export function madeAndGivenLines(value: MadeAndGiven, labels: MyDayLabels | null | undefined): Array<string> {
+  if (!labels || (!value.answering && value.others.length === 0 && value.own + value.forOthers === 0)) return [];
+  const lines: Array<string> = [];
+  const { answering } = value;
+  if (answering) {
+    lines.push(personLine(answering, labels));
+    if (totalOf(answering.week) > totalOf(answering.today))
+      lines.push(fill(wordOf(labels, 'madeWeek'), { made: madeText(answering.week, labels) }));
+  }
+  for (const other of value.others) lines.push(personLine(other, labels));
+  lines.push(fill(wordOf(labels, 'madeDay'), { forOthers: String(value.forOthers), own: String(value.own) }));
+  return lines;
+}
+
 /**
  * Her actions of the day that `now` falls in by `timezone`, as lines (see the file's head), read under `ctx` through
  * `whereFor`. `placeNames(id)` names a memory place, null when unknown (the line then names no place). Empty when
@@ -153,6 +216,16 @@ export function myDayOf(
 ): Array<string> {
   const cap = Math.floor(options.lines);
   if (!Number.isFinite(cap) || cap <= 0) return [];
+  const made = madeAndGivenLines(
+    madeAndGivenOf(journal, ctx as Context, {
+      now,
+      timezone,
+      answering: options.answering ?? null,
+      kinds: kindsOf(options.labels).map(([skill]) => skill),
+      people: options.people ?? 3,
+    }),
+    options.labels
+  );
   const start = zonedEpoch(zonedDay(now, timezone), 0, 0, timezone);
   const where = whereFor(ctx);
   const context = ctx as Context;
@@ -163,10 +236,11 @@ export function myDayOf(
        ORDER BY at, position`
     )
     .all(new Date(start).toISOString(), new Date(now).toISOString(), ...where.params) as Array<Record<string, unknown>>;
-  return actionsOf(rows)
+  const day = actionsOf(rows)
     .slice(-cap)
     .map((one) => {
       const placeId = placeOf(journal, context, one);
       return lineOf(one, placeId ? placeNames(placeId) : null, formatClock(one.at, timezone, 'en-GB'), options.labels);
     });
+  return [...made, ...day];
 }

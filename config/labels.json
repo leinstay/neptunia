@@ -478,7 +478,18 @@
       "post": "you wrote a message",
       "react": "you reacted to a message",
       "gif": "you sent a GIF",
-      "skill": "you called {skill}"
+      "skill": "you called {skill}",
+      "madeFor": "{who} asked you today for {made}, and wrote to you {lines} times.",
+      "madeWeek": "In the last seven days, for the same person: {made}.",
+      "madeItem": "{count} {kind}",
+      "madeJoin": ", ",
+      "kinds": {
+        "draw.create": "pictures",
+        "media.find": "GIF searches",
+        "voice.say": "voice lines",
+        "errand.run": "errands"
+      },
+      "madeDay": "Today you made {forOthers} things because someone asked and {own} of your own accord."
     },
     "previousThink": {
       "note": "This is your own reasoning from your previous step, kept so you know what you were doing and why. It may be out of date or wrong: the current messages and results win. Do not quote it, retell it or show it to anyone.",
