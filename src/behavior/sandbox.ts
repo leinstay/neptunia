@@ -230,6 +230,8 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   lookups: 'no earlier lookup in a replay: no <recall> block (a live turn keeps her lookups, src/turn/calls.ts)',
   meanwhileReads: 'no memory reads in a replay: no <meanwhile> block (a live turn reads her lines elsewhere)',
   surroundings: 'no stored fields in a replay: <surroundings> names the place by its path alone',
+  lessons:
+    'no memory reads in a replay: no <lessons> block (a live turn reads her lessons, src/memory/db/frame-reads.ts)',
   refLineOf: 'no memory reads in a replay: an identity outside the chat renders as unavailable',
   isSourceRetired: 'no memory reads in a replay: no <recall> block, so no source of a lookup is read',
   chatIdOf: 'no memory reads in a replay: no stored place in <memory> or <meanwhile> needs a channel handle',
@@ -851,6 +853,7 @@ export function sandboxRequestInput({
     lookups: null,
     meanwhileReads: null,
     surroundings: null,
+    lessons: null,
     refLineOf: null,
     isSourceRetired: null,
     chatIdOf: null,

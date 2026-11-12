@@ -87,6 +87,8 @@ export type ReaderInput = {
   senses: Senses;
   toolsText: string;
   selfFacts: Array<string>;
+  /** `<lessons>` of `<self>`: the header and the lines, best first, cut to their budget (src/turn/request/lessons.ts). */
+  lessons?: { header: string; lines: Array<string> };
   /**
    * The body of `<surroundings>`, rendered and held per cache bucket by the caller (src/turn/request/framed.ts), given the
    * handle of the turn's place (without `#`) and, in a direct chat, its partner's handle (with `@`), both as the request's
@@ -287,6 +289,7 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     { name: 'fixed', required: true, items: fixed },
     { name: 'counterpart', required: true, items: counterpart },
     { name: 'self', cap: caps.aboutChat, items: given.selfFacts },
+    { name: 'lessons', items: given.lessons?.lines ?? [] },
     // The memory items are cut to the memory's budget already (memoryCut); here only the request's limit cuts them.
     ...MEMORY_SUBTAGS.map((subtag) => ({
       name: subtag,
@@ -659,12 +662,17 @@ function selfreflectionInnerOf(given: SelfreflectionFramed | null, fit: Fit): st
     .join('\n');
 }
 
-/** The body of `<self>`: her senses, her tools in text and the facts about herself the budget kept. */
+/** The body of `<lessons>`: its header over the lines the budget kept; '' when it kept none. */
+const lessonsTextOf = (given: ReaderInput, kept: ReadonlyArray<string>): string =>
+  kept.length === 0 ? '' : [given.lessons?.header ?? '', ...kept].filter(Boolean).join('\n');
+
+/** The body of `<self>`: her senses, her tools in text, the facts about herself and what people taught her, as the budget kept them. */
 const selfTextOf = (given: ReaderInput, fit: Fit): string =>
   [
     block('senses', [given.senses.stable, given.senses.turn].filter(Boolean).join('\n')),
     block('tools', given.toolsText),
     block('self_facts', (fit.kept.self ?? []).join('\n')),
+    block('lessons', lessonsTextOf(given, fit.kept.lessons ?? [])),
   ]
     .filter(Boolean)
     .join('\n');

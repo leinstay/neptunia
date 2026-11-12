@@ -187,6 +187,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     lookups: input.lookups,
     meanwhileReads: input.meanwhileReads,
     surroundings: input.surroundings,
+    lessons: input.lessons,
     refLineOf: input.refLineOf,
     chatIdOf: input.chatIdOf,
     isSourceRetired: input.isSourceRetired,

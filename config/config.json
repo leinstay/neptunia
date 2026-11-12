@@ -127,6 +127,9 @@
     "myDay": {
       "lines": 12
     },
+    "lessons": {
+      "budgetTokens": 1200
+    },
     "names": {
       "emoji": false
     },

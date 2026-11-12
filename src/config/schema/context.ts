@@ -41,6 +41,14 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'How many of her actions of today `<my_day>` lists, the newest kept. `0` leaves the block out',
   },
   {
+    'key': 'context.lessons.budgetTokens',
+    'types': ['number'],
+    'reader': 'src/turn/request/lessons.ts',
+    'default': 1200,
+    'text':
+      'Token budget of `<lessons>` in `<self>`, what people taught her from every place she may read. The lowest ranked lessons leave first. `0` leaves the block out',
+  },
+  {
     'key': 'context.names.emoji',
     'types': ['boolean'],
     'reader': 'src/turn/request/text.ts',

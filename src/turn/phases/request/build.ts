@@ -15,7 +15,7 @@ import type { WakeBlockInput } from '../../../behavior/wake.ts';
 import { boardLines, landedLines, selfimprovementReason, workLines } from '../../../behavior/selfimprovement-text.ts';
 import { budgetDrops } from '../../../llm/budget.ts';
 import { toolsBlockText } from '../../../llm/tool-text.ts';
-import { estimateTools } from '../../../llm/tokens.ts';
+import { estimateTokens, estimateTools } from '../../../llm/tokens.ts';
 import { log } from '../../../log.ts';
 import { exposedSkillNames, placeSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
@@ -37,7 +37,8 @@ import type { Prepared } from '../request.ts';
 import type { Handles } from '../../handles.ts';
 import { messageSourceId, PERSONA_ID } from '../../../memory/db/ids.ts';
 import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
-import type { FrameReads } from '../../../memory/db/frame-reads.ts';
+import type { FrameReads, Lesson } from '../../../memory/db/frame-reads.ts';
+import { lessonsBudgetOf, lessonsCut, teachersOf } from '../../request/lessons.ts';
 import type { Context } from '../../../memory/db/scope.ts';
 import { fill, formatClock, formatDate } from '../../../format.ts';
 import type { Lookup } from '../../calls.ts';
@@ -219,6 +220,8 @@ type FramedInputs = {
   lookups: Array<Lookup> | null;
   meanwhileReads: MeanwhileReads | null;
   surroundings: SurroundingsInput | null;
+  /** Her lessons the turn's context may read, best first, for `<lessons>` of `<self>`; null when it shows none. */
+  lessons: ReadonlyArray<Lesson> | null;
   refLineOf: LineOf | null;
   isSourceRetired: SourceRetired | null;
   chatIdOf: ((placeId: string) => string | null) | null;
@@ -229,10 +232,40 @@ const NO_FRAMED: FramedInputs = {
   lookups: null,
   meanwhileReads: null,
   surroundings: null,
+  lessons: null,
   refLineOf: null,
   isSourceRetired: null,
   chatIdOf: null,
 };
+
+/**
+ * Her lessons under the turn's context, and the people who taught the ones `<lessons>` may show as the graph reader's
+ * candidates, so each of them has an entry of `<people>` when the budget allows. A request that prints no `<self>`, a
+ * budget the config does not set and a failed read (logged) give none. The seeds cut by the text alone, which is never
+ * dearer than the rendered line, so every teacher of a shown lesson is among them.
+ */
+function lessonsOfTurn(
+  ctx: Pick<PhaseContext, 'hot' | 'calibrator'>,
+  reads: FrameReads,
+  frame: Frame,
+  memoryContext: Context
+): { lessons: ReadonlyArray<Lesson> | null; teachers: Seeds['candidates'] } {
+  const none = { lessons: null, teachers: [] };
+  const budget = lessonsBudgetOf(ctx.hot.config as Parameters<typeof lessonsBudgetOf>[0]);
+  if (!reads.lessons || budget === null || !frame.blocks.includes('self')) return none;
+  try {
+    const lessons = reads.lessons(memoryContext);
+    const ratio = Number.isFinite(ctx.calibrator.ratio) ? ctx.calibrator.ratio : 1;
+    const shown = lessonsCut(lessons, budget, (lesson) => Math.floor(estimateTokens(lesson.text) * ratio));
+    return {
+      lessons: lessons.length > 0 ? lessons : null,
+      teachers: teachersOf(shown).map((rowId) => ({ kind: 'person', rowId, sourceIds: [], from: 'query' as const })),
+    };
+  } catch (error) {
+    log.warn('turn: lessons not read', { error });
+    return none;
+  }
+}
 
 /**
  * How a request names people and places (docs/prompt-contract.md, "Mention handles"): what a member's handle is cut
@@ -441,7 +474,10 @@ function interfaceTextOf(names: { name: string | null; nouns: Record<string, str
  * logged and leaves memory empty.
  */
 function framedInputsOf(
-  ctx: Pick<PhaseContext, 'frameReads' | 'lookupRing' | 'seedRing' | 'turnContextOf' | 'hot' | 'intentionRefsFor'>,
+  ctx: Pick<
+    PhaseContext,
+    'frameReads' | 'lookupRing' | 'seedRing' | 'turnContextOf' | 'hot' | 'intentionRefsFor' | 'calibrator'
+  >,
   frame: Frame,
   draft: Draft,
   channel: Prepared['channel'],
@@ -474,14 +510,17 @@ function framedInputsOf(
     ownMessages: (limit) => reads.ownLines(memoryContext, place.id, limit),
     around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
   });
+  const taught = lessonsOfTurn(ctx, reads, frame, memoryContext);
   let mind: Mind | null = null;
   try {
     const windows = frame.blocks.includes('meanwhile')
       ? meanwhileWindows(meanwhileReads, frame, meanwhileSettingsOf(ctx.hot.config, frame))
       : [];
     const turnId = draft.started?.turnId ?? null;
+    const base = seedsOf(frame, history, turn, reads);
     const seeds: Seeds = {
-      ...seedsOf(frame, history, turn, reads),
+      ...base,
+      candidates: [...base.candidates, ...taught.teachers],
       previous: turnId === null ? [] : ctx.seedRing.previous(place.id, turnId),
       seen: seenOf(windows, frame.blocks.includes('recall') ? lookups : [], reads),
     };
@@ -516,6 +555,7 @@ function framedInputsOf(
         ...(reads.placeVersions?.(memoryContext, place.id) ?? []),
       ],
     },
+    lessons: taught.lessons,
     refLineOf,
     isSourceRetired,
     chatIdOf: chatIdReader(reads),
@@ -601,7 +641,7 @@ function serviceSeedsOf(
  * earlier turn. A failed read of the mind is logged and leaves memory empty.
  */
 function serviceInputsOf(
-  ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf' | 'hot' | 'intentionRefsFor'>,
+  ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf' | 'hot' | 'intentionRefsFor' | 'calibrator'>,
   frame: Frame,
   draft: Draft,
   channel: Prepared['channel'],
@@ -614,10 +654,11 @@ function serviceInputsOf(
     ownMessages: (limit) => reads.ownLines(memoryContext, null, limit),
     around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
   });
+  const taught = lessonsOfTurn(ctx, reads, frame, memoryContext);
   let mind: Mind | null = null;
   try {
     const windows = meanwhileWindows(meanwhileReads, frame, meanwhileSettingsOf(ctx.hot.config, frame));
-    const candidates = intentionCandidatesOf(ctx.intentionRefsFor(), reads, memoryContext);
+    const candidates = [...intentionCandidatesOf(ctx.intentionRefsFor(), reads, memoryContext), ...taught.teachers];
     mind = reads.mind(memoryContext, serviceSeedsOf(windows, reads, candidates), now);
   } catch (error) {
     log.warn('turn: memory not read', { channel: null, error });
@@ -631,6 +672,7 @@ function serviceInputsOf(
     lookups: [],
     meanwhileReads,
     surroundings: null,
+    lessons: taught.lessons,
     refLineOf,
     isSourceRetired: null,
     chatIdOf: chatIdReader(reads),

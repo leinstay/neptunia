@@ -895,14 +895,18 @@ function descriptionsOf(
   return out;
 }
 
-/** The live claims of `ids` the context reads, those sharing a word with the trigger first. */
+/**
+ * The live claims of `ids` the context reads, those sharing a word with the trigger first. The in-jokes of a root and
+ * her lessons (whether stored about a place or about herself) are no claim of the graph reader's lore: `<root>` and `<lessons>` hold them.
+ */
 function claimsOf(db: Db, walker: Walker, ids: Array<string>, trigger: ReadonlySet<string>): Array<Row> {
   if (ids.length === 0) return [];
   const where = walker.aud('c');
   const rows = db
     .prepare(
       `SELECT c.id, c.kind, c.text, c.subject_id FROM claims c
-       WHERE c.id IN (${ids.map(() => '?').join(', ')}) AND c.retired_at IS NULL AND ${where.sql}`
+       WHERE c.id IN (${ids.map(() => '?').join(', ')}) AND c.retired_at IS NULL
+         AND COALESCE(c.kind, '') NOT IN ('injoke', 'lesson') AND ${where.sql}`
     )
     .all(...ids, ...where.params);
   const order = new Map(ids.map((id, i) => [id, i]));

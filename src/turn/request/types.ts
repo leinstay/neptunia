@@ -4,6 +4,7 @@
 
 import type { Frame } from './frame.ts';
 import type { Mind } from '../../memory/db/mind-read.ts';
+import type { Lesson } from '../../memory/db/frame-reads.ts';
 import type { Lookup as RingLookup } from '../calls.ts';
 import type { MeanwhileReads } from './meanwhile.ts';
 import type { SurroundingsInput } from './reader.ts';
@@ -79,6 +80,8 @@ export type Labels = {
   readonly attitudes?: LabelGroup;
   readonly aboutChat: LabelGroup;
   readonly lore?: LabelGroup;
+  /** `<lessons>` of `<self>`: `header`, and `line` with `{text}` and `{from}` (src/turn/request/lessons.ts). */
+  readonly lessons?: LabelGroup;
   readonly emoji?: LabelGroup;
   readonly gifs?: LabelGroup;
   readonly journal?: LabelGroup;
@@ -160,6 +163,8 @@ export type RequestConfig = {
     /** `context.names.emoji`: whether the names of places and people keep their emoji (src/turn/request/text.ts#shownName). */
     readonly names?: { readonly emoji?: unknown };
     readonly around?: { readonly maxTokens?: number };
+    /** `context.lessons.budgetTokens`: the tokens `<lessons>` may take (src/turn/request/lessons.ts). */
+    readonly lessons?: { readonly budgetTokens?: unknown };
   };
   readonly memory?: {
     readonly maxInterests?: number;
@@ -396,6 +401,8 @@ export type RequestInput = {
   readonly meanwhileReads?: MeanwhileReads | null;
   /** The interface's text and the stored fields of the place and its root: `<surroundings>`. */
   readonly surroundings?: SurroundingsInput | null;
+  /** Her lessons the turn's context may read, best first (frame-reads.ts#lessonsOf): `<lessons>` of `<self>`. */
+  readonly lessons?: ReadonlyArray<Lesson> | null;
   /** Reads a line by its identity under the turn's scope, for the references in stored texts (src/turn/request/refs.ts). */
   readonly refLineOf?: LineOf | null;
   /** The chat id of a stored place, from its row (frame-reads.ts#placeRefOf); null for a place no row holds an address of. */
