@@ -87,6 +87,7 @@ function editsOver(memory: TestMemory) {
     now: () => NOW,
     warmMediaCache: () => null,
     observeLine: observed.observeLine,
+    deleteLine: observed.deleteLine,
   });
   return { observed, edits, appended };
 }
@@ -154,6 +155,107 @@ test('an edit of a bot message stores its new text as the next revision', async 
       stored(memory, '9003').map((line) => line.revision),
       [1, 2]
     );
+  } finally {
+    await memory.close();
+  }
+});
+
+/** Every stored revision of a message with its text and kind, oldest first, read through the writer's database. */
+function revisionsOf(memory: TestMemory, native: string): Array<[unknown, unknown]> {
+  const db = memory.memoryDb.database();
+  if (!db) throw new Error('database unavailable');
+  return db
+    .prepare(
+      `SELECT revision, text FROM sources WHERE json_extract(extra, '$.$messageLocator.messageId') = ?
+       AND kind IN ('seen', 'said') ORDER BY revision`
+    )
+    .all(native)
+    .map((row) => [row.revision, row.text]);
+}
+
+/** A line of the command line's chat, which has no root: hers (`self`) or the owner's. */
+function cliLine(id: string, content: string, self: boolean): Message {
+  return {
+    ...created(id),
+    content,
+    sourceText: content,
+    author: self
+      ? { id: 'self', name: null, self: true, bot: false }
+      : { id: 'owner', name: 'owner', self, bot: false },
+  };
+}
+
+function cliEvent(
+  eventId: string,
+  message: Message,
+  extra: { previous?: Message; deleted?: boolean } = {}
+): MessageEvent {
+  return {
+    kind: 'message.received',
+    iface: 'cli',
+    id: eventId,
+    at: NOW,
+    ...(extra.previous ? { edit: true, previous: extra.previous } : {}),
+    ...(extra.deleted ? { deleted: true } : {}),
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
+    chat: { id: 'cli:dm:owner', kind: 'dm', rootId: null, name: 'owner', partnerId: 'owner' },
+    message,
+  };
+}
+
+// Bug: `recordable` and `onMessageUpdate` stop for a chat with no root, so her edit of a line on the command line is
+// answered ok by the client and never stored: the line keeps its old text for every later request.
+test('an edit of a line of the command line, whose chat has no root, stores the next revision and keeps the old one', async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    const { observed, edits } = editsOver(memory);
+    const first = cliLine('c1', 'the kettle is on 🙂', true);
+    const second = { ...first, content: 'the kettle is on', sourceText: 'the kettle is on', editedAt: NOW };
+    await observed.observeLine(cliEvent('cli-create-1', first), false, { placeId: 'cli:dm:owner' });
+    await edits.onMessageUpdate(cliEvent('cli-update-1', second, { previous: first }));
+    assert.deepEqual(revisionsOf(memory, 'c1'), [
+      [1, 'the kettle is on 🙂'],
+      [2, 'the kettle is on'],
+    ]);
+  } finally {
+    await memory.close();
+  }
+});
+
+// Bug: the same gap drops a deletion, so a line she took back stays a line in every later request.
+test('a deletion of a line of the command line, whose chat has no root, is stored as deleted beside the line', async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    const { observed, edits } = editsOver(memory);
+    const first = cliLine('c2', 'the kettle is on', true);
+    await observed.observeLine(cliEvent('cli-create-2', first), false, { placeId: 'cli:dm:owner' });
+    await edits.onMessageDelete(
+      cliEvent('cli-delete-2', { id: 'c2', at: first.at, author: first.author } as Message, { deleted: true })
+    );
+    const db = memory.memoryDb.database();
+    const kinds = db
+      ?.prepare(`SELECT kind FROM sources WHERE json_extract(extra, '$.$messageLocator.messageId') = ? ORDER BY rowid`)
+      .all('c2')
+      .map((row) => row.kind);
+    assert.deepEqual(kinds, ['said', 'deleted']);
+  } finally {
+    await memory.close();
+  }
+});
+
+// Guard: an edit in a chat with a root records as before, the old row kept beside the new text.
+test('an edit in a chat with a served root still stores the new text as revision 2 and keeps the old row', async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    const { observed, edits } = editsOver(memory);
+    const first: Message = { ...created('9100'), content: 'πρώτη μορφή' };
+    const second: Message = { ...first, content: 'δεύτερη μορφή', editedAt: NOW };
+    await observed.observeLine(eventOf('create-9100', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-9100', second, first));
+    assert.deepEqual(revisionsOf(memory, '9100'), [
+      [1, 'πρώτη μορφή'],
+      [2, 'δεύτερη μορφή'],
+    ]);
   } finally {
     await memory.close();
   }
