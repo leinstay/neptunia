@@ -21,7 +21,8 @@ export type LessonWords = {
 export function lessonsBudgetOf(
   config: { context?: { lessons?: { budgetTokens?: unknown } } } | null | undefined
 ): number | null {
-  const budget = config?.context?.lessons?.budgetTokens;
+  const lessons = config?.context?.lessons;
+  const budget = lessons?.budgetTokens;
   return typeof budget === 'number' && Number.isInteger(budget) && budget >= 0 ? budget : null;
 }
 
@@ -66,7 +67,8 @@ export function lessonsBlockOf(
   budget: number,
   words: LessonWords
 ): { header: string; lines: Array<string> } {
-  const header = words.labels.lessons?.header ?? '';
+  const own = words.labels.lessons;
+  const header = own?.header ?? '';
   const lines = lessonsCut(lessons, budget - words.cost(header), (lesson) => words.cost(lineOf(lesson, words))).map(
     (lesson) => lineOf(lesson, words)
   );
