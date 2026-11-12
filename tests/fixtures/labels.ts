@@ -293,6 +293,10 @@ export const labels = {
     warmer: '{date}: warmer by {amount}',
     cooler: '{date}: cooler by {amount}',
     changeReason: '{change}, because {reason}',
+    attitude: 'attitude: {score} ({band}), {reason}',
+    attitudeNoReason: 'attitude: {score} ({band})',
+    attitudeMoves: 'latest changes: {moves}',
+    attitudeMove: '{delta} on {date}, {reason}',
   },
   status: {
     probe: 'Reply with one word: pong',

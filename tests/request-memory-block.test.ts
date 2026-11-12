@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fill } from '../src/format.ts';
-import type { Mind } from '../src/memory/db/mind-read.ts';
+import type { Mind, PersonEntry } from '../src/memory/db/mind-read.ts';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { FrameParty } from '../src/turn/request/frame.ts';
 import { factItemsOf, memoryBlockOf, memoryItemsOf } from '../src/turn/request/memory-block.ts';
@@ -253,4 +253,124 @@ test('the root entry holds the day she joined in the turn timezone, a root with 
   assert.ok(known.split('\n').includes(fieldLine(WORDS.joined, tokyo)), known);
   const unknown = placesOf([placeEntry('place:srv', 'Αγορά', { kind: 'server' })], 'Asia/Tokyo');
   assert.equal(unknown.includes(`${WORDS.joined}:`), false, unknown);
+});
+
+// Her attitude toward a person in the entry (spec 2026-11-12 attitude-in-people). A person entry of the mind carries
+//   attitude: { score: number; reason: string | null; moves: ReadonlyArray<{ delta: number; at: string; reason: string | null }> } | null
+// (`moves` newest first, already cut to `context.memory.attitudeMoves` by the reader), and the entry opens with
+// `memory.attitude` (`{score}` rounded, `{band}` from `affinity.bands`, `{reason}`) and, under it, `memory.attitudeMoves`
+// (`{moves}`) holding one `memory.attitudeMove` (`{delta}` signed, `{date}` as YYYY-MM-DD, `{reason}`) per change. The tests
+// read the score, the band word, the reason, each change's sign and day, and never the wording around them.
+type Attitude = NonNullable<PersonEntry['attitude']>;
+
+const bandWord = (band: string): string => {
+  const bands = shippedLabels.affinity?.bands;
+  const word = bands?.[band];
+  if (typeof word !== 'string') throw new Error(`labels.affinity.bands.${band} is missing`);
+  return word;
+};
+
+const GRACE = personEntry('333', 'Γαλήνη', {
+  profileAccounts: [
+    {
+      id: 'fake:333',
+      iface: 'fake',
+      platformId: '333',
+      handle: null,
+      displayName: 'Γαλήνη',
+      avatar: null,
+      profileText: null,
+    },
+  ],
+  relation: 'ΣΧΕΣΗ-ΓΑΛΗΝΗΣ',
+});
+const FOND: Attitude = {
+  score: 31.6,
+  reason: 'ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ',
+  moves: [
+    { delta: 6, at: '2026-11-09T10:00:00.000Z', reason: 'ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ' },
+    { delta: -4, at: '2026-11-03T18:00:00.000Z', reason: 'ΛΟΓΟΣ-ΠΑΛΙΑΣ' },
+  ],
+};
+
+/** The lines of the entry `person` has in `<people>` on a turn that answers nobody. */
+const entryLines = (person: PersonEntry): Array<string> =>
+  section(render(mindOfEntries({ people: [person] }), null), 'people')
+    .trim()
+    .split('\n');
+
+test('a full entry opens with the attitude line and the latest changes, newest first, above the account lines', () => {
+  // Bug: the entry holds no attitude, or puts it below the accounts where a cut of the tail takes it, or lists the
+  // older change first.
+  const lines = entryLines({ ...GRACE, attitude: FOND });
+  const [heading = '', attitude = '', moves = ''] = lines;
+  assert.ok(heading.includes('Γαλήνη'), heading);
+  for (const part of ['32', bandWord('fond'), 'ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ'])
+    assert.ok(attitude.includes(part), `${part} in line 2: ${attitude}`);
+  for (const part of ['+6', '2026-11-09', 'ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ', '-4', '2026-11-03', 'ΛΟΓΟΣ-ΠΑΛΙΑΣ'])
+    assert.ok(moves.includes(part), `${part} in line 3: ${moves}`);
+  assert.ok(moves.indexOf('2026-11-09') < moves.indexOf('2026-11-03'), moves);
+  const below = lines.slice(3).join('\n');
+  assert.ok(below.includes('333') && below.includes('ΣΧΕΣΗ-ΓΑΛΗΝΗΣ'), below);
+});
+
+test('a person with no change and a score of zero has neither line while a person with a change beside them has both', () => {
+  // Bug: a stranger reads "0 (neutral)" with an empty reason, a line that says nothing and costs tokens.
+  const zero = { ...GRACE, attitude: { score: 0, reason: null, moves: [] } };
+  const felt = { ...personEntry('222', 'Νίκος'), attitude: FOND };
+  const people = section(render(mindOfEntries({ people: [zero, felt] }), null), 'people');
+  const [first = '', second = ''] = people.trim().split('\n\n');
+  assert.equal(first, entryLines({ ...GRACE, attitude: null }).join('\n'));
+  assert.ok(second.includes('ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ') && second.includes('2026-11-03'), second);
+});
+
+test('with no change to show the attitude line stands alone', () => {
+  // Bug: the line of changes prints empty (the label with nothing in it) when the setting holds no change back.
+  const lines = entryLines({ ...GRACE, attitude: { ...FOND, moves: [] } });
+  assert.ok((lines[1] ?? '').includes('ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ'), lines.join(' | '));
+  assert.equal(lines.filter((line) => /\d{4}-\d{2}-\d{2}/.test(line)).length, 0, lines.join(' | '));
+  assert.ok((lines[2] ?? '').includes('333'), lines.join(' | '));
+});
+
+test('the person she answers reads with the attitude line in an entry cut to its name', () => {
+  // Bug: the line is built for the entries that hold details only, so the one person she must answer well is the one
+  // who loses how she feels about them when the reader cuts the entry down.
+  const cut = { ...personEntry('111', 'Ελένη', { evidence: 'counterpart', detail: 'name' }), attitude: FOND };
+  const people = section(render(mindOfEntries({ people: [cut] }), AS_ELENI), 'people');
+  for (const part of ['32', bandWord('fond'), 'ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ', '2026-11-03'])
+    assert.ok(people.includes(part), `${part} in ${people}`);
+});
+
+test('a person the reader kept whatever the budget reads with the attitude line in an entry cut to its name', () => {
+  // Bug: an author of the lines she sees keeps a name and loses her attitude, so she reads a stranger where she knows someone.
+  const cut = { ...personEntry('222', 'Νίκος', { detail: 'name', keep: true }), attitude: FOND };
+  const people = section(render(mindOfEntries({ people: [cut] }), null), 'people');
+  for (const part of ['32', bandWord('fond'), 'ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ'])
+    assert.ok(people.includes(part), `${part} in ${people}`);
+});
+
+test('the band word follows the score at each edge the bands name', () => {
+  // Bug: a score on an edge lands in the neighbouring band, or the band comes from the rounded score of another edge.
+  const edges: Array<[number, string]> = [
+    [-61, 'hostile'],
+    [-60, 'hostile'],
+    [-59, 'dislike'],
+    [-25, 'dislike'],
+    [-24, 'cool'],
+    [-8, 'cool'],
+    [-7, 'neutral'],
+    [7, 'neutral'],
+    [8, 'warm'],
+    [24, 'warm'],
+    [25, 'fond'],
+    [59, 'fond'],
+    [60, 'devoted'],
+  ];
+  const bands = ['hostile', 'dislike', 'cool', 'neutral', 'warm', 'fond', 'devoted'];
+  for (const [score, band] of edges) {
+    const line = entryLines({ ...GRACE, attitude: { score, reason: 'ΛΟΓΟΣ', moves: [] } })[1] ?? '';
+    assert.ok(line.includes(String(score)) && line.includes(bandWord(band)), `${score} is ${band}: ${line}`);
+    for (const other of bands.filter((one) => one !== band))
+      assert.equal(line.includes(bandWord(other)), false, `${score} is not ${other}: ${line}`);
+  }
 });

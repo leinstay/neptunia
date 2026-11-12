@@ -130,6 +130,26 @@ export function addClaim(
   });
 }
 
+/** One change of her attitude toward a person: how far it moved the score (`applied`), the score after it and why. */
+export function addAttitude(
+  db: Db,
+  {
+    id,
+    person,
+    at,
+    applied,
+    score,
+    reason,
+    audience,
+  }: { id: string; person: string; at: string; applied: number; score: number; reason: string | null; audience: Audience }
+): void {
+  insertRows(db, {
+    affinity_events: [
+      { id, person_id: person, at, delta: applied, applied, score, reason, ...scopeOf(audience) },
+    ],
+  });
+}
+
 /** A chat line: hers (`author: 'self'`) or an account's, in a group room or a direct chat. */
 export function addLine(
   db: Db,
