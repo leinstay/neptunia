@@ -14,7 +14,8 @@ export type AttitudeWords = { labels: Labels; who: (person: string) => string };
 export function attitudesShownOf(
   config: { context?: { attitudes?: { shown?: unknown } } } | null | undefined
 ): number | null {
-  const shown = config?.context?.attitudes?.shown;
+  const attitudes = config?.context?.attitudes;
+  const shown = attitudes?.shown;
   return typeof shown === 'number' && Number.isInteger(shown) && shown >= 0 ? shown : null;
 }
 
@@ -24,8 +25,8 @@ export function attitudesShownOf(
  * missing.
  */
 export function attitudesText(list: ReadonlyArray<StrongAttitude>, words: AttitudeWords): string {
-  const own = words.labels.attitudes;
-  const bands = words.labels.affinity?.bands;
+  const { attitudes: own, affinity } = words.labels;
+  const bands = affinity?.bands;
   if (list.length === 0 || typeof own?.header !== 'string' || typeof own.line !== 'string') return '';
   const lines = list.map((one) =>
     fill(own.line ?? '', { who: words.who(one.person), band: bands?.[affinityBand(one.score)] ?? '' })
