@@ -897,7 +897,7 @@ function descriptionsOf(
 
 /**
  * The live claims of `ids` the context reads, those sharing a word with the trigger first. The in-jokes of a root and
- * her lessons are no claim of the graph reader's lore: `<root>` and `<lessons>` hold them.
+ * her lessons (whether stored about a place or about herself) are no claim of the graph reader's lore: `<root>` and `<lessons>` hold them.
  */
 function claimsOf(db: Db, walker: Walker, ids: Array<string>, trigger: ReadonlySet<string>): Array<Row> {
   if (ids.length === 0) return [];

@@ -460,8 +460,8 @@ export function placeFieldsOf(db: Db, ctx: Context, placeId: string): Record<str
 export type Lesson = { text: string; teacher: string | null };
 
 /**
- * Her live lessons of every place the context reads (a direct chat reads its own and the groups', never another
- * direct chat's), best first. The rank is the one of `rank` in src/memory/ranking.ts over the claim's `weight` (how
+ * Her live lessons, those stored about a place and those about herself, that the context reads (a direct chat reads its own and the groups', never another
+ * direct chat's), best first. A lesson with no weight ranks as the weight 1. The rank is the one of `rank` in src/memory/ranking.ts over the claim's `weight` (how
  * often it was confirmed) and the moment it was `last_seen_at`, else `first_seen_at`, with the half-life of
  * `MEMORY_LIMITS.learnedHalfLifeDays`. A tie goes to the newer date, then to the larger claim id. The teacher is the
  * claim's `from_person`, else the author of the first source line, in the claim's source order, whose author is a
@@ -480,7 +480,7 @@ export function lessonsOf(db: Db, ctx: Context): Array<Lesson> {
            ORDER BY cs.position, cs.id LIMIT 1
          )) AS teacher
        FROM claims c
-       WHERE c.subject_kind = 'place' AND c.kind = 'lesson' AND c.retired_at IS NULL
+       WHERE c.subject_kind IN ('place', 'self') AND c.kind = 'lesson' AND c.retired_at IS NULL
          AND COALESCE(c.truth, 'current') <> 'historical' AND ${readable.sql}
        ORDER BY c.id`
     )
@@ -492,7 +492,7 @@ export function lessonsOf(db: Db, ctx: Context): Array<Lesson> {
         {
           text: body,
           teacher: text(row.teacher),
-          weight: typeof row.weight === 'number' ? row.weight : 0,
+          weight: typeof row.weight === 'number' ? row.weight : 1,
           lastSeen: text(row.last_seen_at),
           firstSeen: text(row.first_seen_at),
         },
