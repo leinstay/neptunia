@@ -80,7 +80,8 @@ async function requestAfterStop(stopAgo: number, lastedMs: number, minMinutes: n
         },
       ],
     });
-    return run.requests[0]?.[0] ?? '';
+    const [first = []] = run.requests;
+    return first[0] ?? '';
   } finally {
     world.close();
   }
