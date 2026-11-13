@@ -1085,7 +1085,7 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
       finalMode === 'selfreflection'
         ? ''
         : intentionsInputFor({
-            ...{ placeId, channel, snapshot, isDm, config, now },
+            ...{ placeId, channel, isDm, config, now },
             labels: prompts?.labels,
             due: dueIds(wakeWords),
           }),

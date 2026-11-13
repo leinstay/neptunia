@@ -472,8 +472,8 @@
         "errand-missing": "errand {errand} is gone",
         "last-occurrence": "last occurrence before it expires"
       },
-      "destination": "for #{channel}",
-      "attend": "listening in #{place} · {wakes} of {perDay} wakes today · quiet {settle} s before a wake",
+      "destination": "for {channel}",
+      "attend": "listening in {place} · {wakes} of {perDay} wakes today · quiet {settle} s before a wake",
       "attendPeople": "people: {people}"
     },
     "myDay": {
@@ -500,7 +500,7 @@
         "voice.say": "voice line",
         "errand.run": "errand"
       },
-      "madeDay": "Today in all: {forOthers} things made because someone asked, {own} of your own accord."
+      "madeDay": "Made today in all because someone asked: {forOthers}. Made of your own accord: {own}."
     },
     "previousThink": {
       "note": "This is your own reasoning from your previous step, kept so you know what you were doing and why. It may be out of date or wrong: the current messages and results win. Do not quote it, retell it or show it to anyone.",

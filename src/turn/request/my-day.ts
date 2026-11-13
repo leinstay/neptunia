@@ -1,7 +1,7 @@
 // What she did today, for `<my_day>` inside `<inner>`: the journal's `post`, `skill`, `gif` and `react` operations that
 // succeeded and the executed actions of her inner turns, from the start of the day `now` falls in by the server zone
 // to `now`, read under the turn's context so that a group turn never lists what she did in a direct chat. One line per
-// action with its clock and the place by name, newest last, the newest `lines` of them. The place is the one the call
+// action with its clock and the place as the caller's namer gives it (the request's own naming of a place), newest last, the newest `lines` of them. The place is the one the call
 // acted in (its `started` line's `target.channel`) when that chat is a stored place the context may read, else the
 // place of the turn that made the call. Above them stand the lines of what she made at people's asking
 // (`madeAndGivenLines`, over src/memory/db/made-and-given.ts). buildTurnRequest
@@ -208,7 +208,7 @@ export function madeAndGivenLines(value: MadeAndGiven, labels: MyDayLabels | nul
 
 /**
  * Her actions of the day that `now` falls in by `timezone`, as lines (see the file's head), read under `ctx` through
- * `whereFor`. `placeNames(id)` names a memory place, null when unknown (the line then names no place). Empty when
+ * `whereFor`. `placeNames(id)` names a memory place the way the request names it, null when unknown (the line then names no place). Empty when
  * `options.lines` is not a positive number.
  */
 export function myDayOf(

@@ -184,11 +184,12 @@ const ENVELOPE_HEAD_RE = /^\{"v":\d+,"id":"[^"\\]*","kind":"([^"\\]+)","occurred
  * pause with no resume yet is left out (the persona says nothing while paused), and so is a
  * start with nothing before it. Periods that overlap or lie less than a minute apart are one,
  * of the kind of its longest part. Only periods that ended within `windowMs` before `now`
- * count; at most `max`, newest first. Pure.
+ * count, and with `minMs` only those that lasted at least that long once merged, taken before the cut to `max`, so
+ * short restarts never push a long absence out of the list; at most `max`, newest first. Pure.
  */
 export function offPeriods(
   timeline: Array<{ at: number; kind: string; event?: string | null }>,
-  { now, windowMs, max = OFF_PERIODS_MAX }: { now: number; windowMs: number; max?: number }
+  { now, windowMs, max = OFF_PERIODS_MAX, minMs = 0 }: { now: number; windowMs: number; max?: number; minMs?: number }
 ): Array<{ kind: 'paused' | 'stopped'; from: number; to: number }> {
   const entries = (Array.isArray(timeline) ? timeline : [])
     .filter((entry) => isFiniteNumber(entry?.at))
@@ -231,7 +232,7 @@ export function offPeriods(
     }
   }
   return merged
-    .filter((period) => period.to >= now - windowMs && period.to <= now)
+    .filter((period) => period.to >= now - windowMs && period.to <= now && period.to - period.from >= minMs)
     .sort((a, b) => b.to - a.to)
     .slice(0, max)
     .map(({ kind, from, to }) => ({ kind, from, to }));
@@ -239,7 +240,7 @@ export function offPeriods(
 
 /**
  * The off periods of a place's last `windowHours` hours (`DEFAULT_OFF_WINDOW_HOURS` when omitted), read through
- * `journal.timeline` and reused for a minute per place and window, so a busy channel does not read
+ * `journal.timeline` and reused for a minute per place, window and `minMinutes` (the shortest period kept, 0: all), so a busy channel does not read
  * the day files every turn. A read that fails gives no period and one warn (`journal: off periods
  * unread`, the place and the error code); no journal, or one without `timeline`, gives none.
  */
@@ -253,23 +254,25 @@ export function createOffPeriodsReader({
   log?: Pick<Log, 'warn'>;
 }): (
   placeId: string,
-  options?: { windowHours?: number }
+  options?: { windowHours?: number; minMinutes?: number }
 ) => Promise<Array<{ kind: string; from: number; to: number }>> {
-  const cache = new Map(); // `${placeId}:${hours}` -> { at, periods }
-  return async function read(placeId, { windowHours } = {}) {
+  const cache = new Map(); // `${placeId}:${hours}:${minMs}` -> { at, periods }
+  return async function read(placeId, { windowHours, minMinutes } = {}) {
     if (!journal || typeof journal.timeline !== 'function' || !placeId) return [];
     const hours =
       typeof windowHours === 'number' && isFiniteNumber(windowHours) && windowHours > 0
         ? windowHours
         : DEFAULT_OFF_WINDOW_HOURS;
     const at = now();
-    const key = `${placeId}:${hours}`;
+    const minMs =
+      typeof minMinutes === 'number' && isFiniteNumber(minMinutes) && minMinutes > 0 ? minMinutes * MINUTE_MS : 0;
+    const key = `${placeId}:${hours}:${minMs}`;
     const cached = cache.get(key);
     if (cached && at - cached.at >= 0 && at - cached.at < OFF_CACHE_MS) return cached.periods;
     const windowMs = hours * HOUR_MS;
     let periods: Array<{ kind: string; from: number; to: number }> = [];
     try {
-      periods = offPeriods(await journal.timeline(placeId, { from: at - windowMs }), { now: at, windowMs });
+      periods = offPeriods(await journal.timeline(placeId, { from: at - windowMs }), { now: at, windowMs, minMs });
     } catch (error) {
       log.warn('journal: off periods unread', { placeId: String(placeId), code: propOf(error, 'code') ?? null });
     }
