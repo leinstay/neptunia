@@ -13,7 +13,8 @@ import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import type { Completion, ToolCall } from './fixtures/tool-answers.ts';
 import { TURN_NOW, serviceTurn, serviceWake } from './fixtures/service-turn.ts';
 import { useIface } from './fixtures/turn-world.ts';
-import { contentText, coreTurn } from './fixtures/turn-harness.ts';
+import type { Fake } from './fixtures/turn-world.ts';
+import { contentText, coreTurn, journalOverMemory } from './fixtures/turn-harness.ts';
 import type { FakeLlm } from './fixtures/turn-harness.ts';
 
 useIface('fake');
@@ -39,6 +40,12 @@ const THINK = '<think>σχέδιο</think>';
 const SAY = '<think>τώρα σωστά</think><msg>ναι εντάξει</msg>';
 
 const texts = (sends: ReadonlyArray<Record<string, unknown>>): Array<string> => sends.map((send) => String(send.text));
+
+/** The texts the adapter was asked to send, in order, whenever the turn that sent them ran. */
+function sentTexts(port: Fake): Array<string> {
+  const { calls } = port;
+  return calls.filter((one) => one.op === 'send').map((one) => String((one.args[1] as { text?: string }).text));
+}
 
 /** Every message of request `i`, their texts joined: the marker may stand in any of them. */
 function wholeRequest(llm: FakeLlm, i: number): string {
@@ -85,7 +92,8 @@ test('the next request after a turn ended on bare text twice carries the diagnos
   await run.again();
   assert.equal(run.llm.calls.length, 3, 'the next turn asked once, and her answer in it stood');
   assert.ok(wholeRequest(run.llm, 2).includes(MARKER), 'the next turn tells her');
-  assert.deepEqual(texts(run.sends), ['ναι εντάξει']);
+  // `run.sends` is a snapshot of the first turn: the adapter's record holds the second turn's post too.
+  assert.deepEqual(sentTexts(run.port), ['ναι εντάξει']);
 });
 
 test('a reply whose last request answers with bare text posts nothing and asks no more', async () => {
@@ -110,6 +118,30 @@ test('a turn that ended on bare text at its last request leaves the diagnostic f
   assert.equal(wholeRequest(run.llm, 1).includes(MARKER), false, 'the last request is the answer to it');
   await run.again();
   assert.ok(wholeRequest(run.llm, 2).includes(MARKER), 'the next turn tells her');
+});
+
+// ---------- the turn's record ----------
+
+/** The `turn` record the journal wrote for the run: its `bare`, or null when the record has no such field. */
+function bareOfRecord(lines: ReadonlyArray<{ record: unknown }>): unknown {
+  const records = lines.map(({ record }) => asRecord(record));
+  const turn = records.find((record) => record.kind === 'turn');
+  assert.ok(turn, 'the journal wrote a turn record');
+  return 'bare' in turn ? turn.bare : null;
+}
+
+test('the turn record keeps the bare text of a turn that had some, in bare', async () => {
+  // Bug: her words that were never posted leave no trace, so nobody can tell afterwards what she wrote outside the tags.
+  const { journal, lines } = journalOverMemory();
+  await coreTurn({ answers: [`${THINK}${BARE}`, SAY], journal, prompts: { labels: replyLabels } });
+  assert.equal(bareOfRecord(lines), BARE);
+});
+
+test('the turn record of a turn with no bare text has no bare field', async () => {
+  // Bug: every record carries an empty `bare`, and the journal grows a field that says nothing.
+  const { journal, lines } = journalOverMemory();
+  await coreTurn({ answers: [SAY], journal, prompts: { labels: replyLabels } });
+  assert.equal(bareOfRecord(lines), null);
 });
 
 // ---------- an intention turn ----------
@@ -151,14 +183,13 @@ test('an intention turn with bare text beside the call that closes it runs the c
     },
     answers: [lateAnswer(`${THINK}${BARE}`, () => call('intention.update', { id: due.id, state: 'done' })), SAY],
     chat: { iface: 'fake', chatId: 'c1' },
+    currentChannel: 'fake:channel:c1',
     labels: innerLabels,
   });
   assert.equal(run.requests.length, 2);
   assert.equal(run.actions[0], 'intention.update:executed:ok', 'the call ran as it does');
   assert.ok(run.requests[1].includes(MARKED), 'the second request carries the diagnostic');
-  const posted = run.port.calls
-    .filter((one: { op: string }) => one.op === 'send')
-    .map((one: { args: Array<unknown> }) => String((one.args[1] as { text?: string }).text));
+  const posted = sentTexts(run.port);
   assert.deepEqual(posted, ['ναι εντάξει'], 'her <msg> of the second answer, in the turn’s place');
   assertNoWordOf(BARE, posted);
 });
