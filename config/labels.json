@@ -891,7 +891,9 @@
         "messagesMerged": "{count} of your messages were merged into the last one",
         "thinkUnclosed": "Your thinking was never closed, so nothing was posted",
         "thinkUnopened": "Your answer closed a thinking it never opened, so nothing was posted",
-        "thinkLeaked": "Two answers in a row broke their <think>, one left open or closed with no opening, so neither was posted and your turn ended there"
+        "thinkLeaked": "Two answers in a row broke their <think>, one left open or closed with no opening, so neither was posted and your turn ended there",
+        "bareText": "The {chars} characters you wrote outside <msg> were not posted. What is meant for the chat goes in <msg>.",
+        "bareTextEnded": "Two answers in a row held text outside <msg> and nothing else, so nothing was posted and your turn ended there"
       },
       "refusals": {
         "agentRequired": "{arg} was not given; name one of: {agents}",

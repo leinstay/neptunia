@@ -7,7 +7,7 @@ import { lateMediaTeller } from '../../behavior/turn-parts.ts';
 import { wakeCallKey } from '../../tools/wake-tools.ts';
 import { callEnvelope } from '../calls.ts';
 import type { Draft } from '../draft.ts';
-import { SKIP_SILENCE, SKIP_THINK_LEAKED } from '../journal.ts';
+import { SKIP_BARE_TEXT, SKIP_SILENCE, SKIP_THINK_LEAKED } from '../journal.ts';
 import type { Stepped } from '../tool-round.ts';
 import type { Acting } from './act.ts';
 import type { Ended, PhaseContext, PhaseParams } from './context.ts';
@@ -192,9 +192,10 @@ export async function toolRoundPhase<TTurn extends RoundNeeds>(
     draft.reason = 'cut-off';
     return { ended: { outcome: 'error', mode: finalMode, reason: 'cut-off' } };
   }
-  // Two answers of a later step broke their think and nothing of the turn reached the chat: an answer she lost, and a fact says so.
-  if (stepped.leakEnded && !stepped.delivered)
-    return { ended: { outcome: 'skip', mode: finalMode, reason: SKIP_THINK_LEAKED } };
+  // Two answers of a later step broke their think, or held text outside every tag and nothing else, and nothing of the
+  // turn reached the chat: an answer she lost, and a fact says so.
+  const lost = lostAnswerReason(stepped);
+  if (lost !== null && !stepped.delivered) return { ended: { outcome: 'skip', mode: finalMode, reason: lost } };
   // The rescue request answered with her silence and nothing of the turn reached the chat: she skipped.
   if (stepped.rescued && stepped.skipped && !stepped.delivered)
     return { ended: { outcome: 'skip', mode: finalMode, reason: SKIP_SILENCE } };
@@ -202,4 +203,10 @@ export async function toolRoundPhase<TTurn extends RoundNeeds>(
   if (draft.setShort !== undefined) return { ended: setShort(draft.setShort) };
 
   return { ...turn, ended: null, stepped };
+}
+
+/** The skip code of a turn whose steps two answers ended, or null when none did. */
+function lostAnswerReason(stepped: { leakEnded: boolean; bareEnded: boolean }): string | null {
+  if (stepped.leakEnded) return SKIP_THINK_LEAKED;
+  return stepped.bareEnded ? SKIP_BARE_TEXT : null;
 }

@@ -230,6 +230,8 @@ export async function responsePhase<TTurn extends ResponseNeeds>(
     );
     noteDiagnostics(draft, shaped, answered);
     noteThink(draft, shaped);
+    // Her words outside every tag are never sent: the journal keeps them with the turn, and no log line holds them.
+    if (shaped.untagged) draft.bare = [draft.bare, shaped.bare].filter(Boolean).join('\n');
     // The owner's status row shows the reason of each step; the note is a copy and her answer is not touched.
     const note = shaped.thinkLeak === null ? thinkNote(shaped.think) : null;
     if (note !== null) ctx.noteProgress(params.trigger?.id ?? null, { name: 'think', detail: note });
@@ -251,8 +253,9 @@ export async function responsePhase<TTurn extends ResponseNeeds>(
   const first = readAnswer(completion, 1);
   const parsed = first.parsed;
   const nothingToDo = parsed.messages.length === 0 && parsed.reactions.length === 0 && parsed.loweredCalls.length === 0;
-  // Nothing to post and nothing to call: silence (her calls run all the same when she wrote any).
-  const silent = (parsed.skip || nothingToDo) && first.calls.length === 0;
+  // Nothing to post and nothing to call: silence (her calls run all the same when she wrote any). An answer of bare text
+  // is no silence: the tool round asks once more (src/turn/tool-round.ts).
+  const silent = (parsed.skip || nothingToDo) && first.calls.length === 0 && !parsed.untagged;
   // The journal keeps the think; the log then carries its length only.
   if (draft.started) {
     draft.think = parsed.think;
@@ -272,6 +275,7 @@ export async function responsePhase<TTurn extends ResponseNeeds>(
     // Per user-message part: length and a short hash, to see which part changes between turns (no content).
     segments: request.segments,
     ...thinkField,
+    ...(parsed.untagged ? { bareChars: Array.from(parsed.bare).length } : {}),
     skip: parsed.skip || nothingToDo,
     messages: parsed.messages.length,
     reactions: parsed.reactions.length,

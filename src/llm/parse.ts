@@ -10,19 +10,19 @@
 // (src/llm/tool-text.ts). A leftover `<call>`, draw or `<gif>` tag (her history still holds some; a picture is the `draw.create` tool, a GIF the media pick's) is cut
 // out wherever it stands outside code, never run, and told as a `retiredTag` diagnostic.
 // `<audience>`, a selfreflection post's alone, is taken out before this parser runs (`takeAudience`, src/turn/phases/response.ts).
-// The parser is forgiving about everything but her thinking: a missing tag wrapper falls back to a single plain
-// message (`untagged`). An answer whose `<think>` is broken has no action at all and names its shape in `thinkLeak`:
+// Text outside every tag is never a message: an answer with no tag at all has no action, `bare` holds its text and
+// `untagged` is true (the turn asks once more, src/turn/tool-round.ts). The parser is forgiving about everything but her
+// thinking and that. An answer whose `<think>` is broken has no action at all and names its shape in `thinkLeak`:
 // `unclosed` (a think left open, `thinkOpen`, its text so far kept in `think` for the journal) or `unopened` (a closing
 // tag with no opening). A spelling of the tag other than plain `<think>` and `</think>` counts as broken, wherever it
 // stands, and a think tag in code, a whole one too, so no think tag is ever in a message that comes out. The parser never repairs such an answer. It also accounts for
 // what it did not use: `diagnostics`, one `{ kind, ... }` per thing it dropped, cut or joined
-// (`retiredTag` with its `tag`, `msgMalformed` with its counts, `messagesMerged`, `thinkUnclosed`, `thinkUnopened`), so the
+// (`retiredTag` with its `tag`, `msgMalformed` with its counts, `messagesMerged`, `thinkUnclosed`, `thinkUnopened`, `bareText` with its `chars`), so the
 // caller can tell the persona what happened to her output (src/behavior/turn.ts).
 
 import type { LimitsSink } from './limits.ts';
 
 const MAX_MESSAGES = 3;
-const MAX_FALLBACK_CHARS = 600;
 // A reaction body: a short unicode emoji, or a custom one as `:name:` / `<a:name:id>` (src/behavior/emoji.ts).
 const MAX_REACTION_CHARS = 16;
 const CUSTOM_REACTION_RE = /^(?::[A-Za-z0-9_]{2,32}:|<a?:[A-Za-z0-9_]{2,32}:\d{1,25}>)$/;
@@ -222,7 +222,8 @@ export type Diagnostic =
   | { kind: 'msgMalformed'; nested: number; unclosed: number; stray: number }
   | { kind: 'messagesMerged'; count: number }
   | { kind: 'thinkUnclosed' }
-  | { kind: 'thinkUnopened' };
+  | { kind: 'thinkUnopened' }
+  | { kind: 'bareText'; chars: number };
 
 /** The shape of a broken `<think>`: a closing tag with no opening, or an opening never closed. */
 export type ThinkLeak = 'unopened' | 'unclosed';
@@ -237,6 +238,8 @@ export type ParsedOutput = {
   thinkOpen: boolean;
   thinkLeak: ThinkLeak | null;
   untagged: boolean;
+  /** The text outside every tag when the answer is `untagged`, else ''. It is never sent. */
+  bare: string;
   diagnostics: Array<Diagnostic>;
 };
 
@@ -331,10 +334,10 @@ function markThinkLeak(result: ParsedOutput, leftover: string): boolean {
  * @returns `diagnostics`: what the parser did not use, in order -- `{ kind: 'retiredTag', tag: 'call'|'draw'|'gif' }`
  *   (a retired tag written outside code, cut out), at most one
  *   `{ kind: 'msgMalformed', nested, unclosed, stray }` (message tags out of place, counts only),
- *   `{ kind: 'messagesMerged', count }`, `{ kind: 'thinkUnclosed' }`, `{ kind: 'thinkUnopened' }`. `thinkLeak`: the shape of a
+ *   `{ kind: 'messagesMerged', count }`, `{ kind: 'thinkUnclosed' }`, `{ kind: 'thinkUnopened' }`, `{ kind: 'bareText', chars }` (the answer's text had no tag at all). `thinkLeak`: the shape of a
  *   broken think, whose answer has no action. `thinkOpen`: a `<think>` was never
- *   closed, with what it held so far appended to `think`. `untagged`: the one message is the
- *   plain text of an answer with no tag (the fallback), not a `<msg>`.
+ *   closed, with what it held so far appended to `think`. `untagged`: the answer is plain text with no
+ *   tag. It has no message and no skip: `bare` holds the text, however long, and it is never sent.
  */
 export function parseOutput(
   raw: unknown,
@@ -349,6 +352,7 @@ export function parseOutput(
     thinkOpen: false,
     thinkLeak: null,
     untagged: false,
+    bare: '',
     diagnostics: [],
   };
   let text = String(raw ?? '');
@@ -398,9 +402,10 @@ export function parseOutput(
   if (result.messages.length === 0 && result.reactions.length === 0 && result.untargetedReactions.length === 0) {
     const leftover = text.replace(/<skip\s*\/?>/gi, '').trim();
     const hasTags = /<\/?(msg|react|skip|draw|gif|call|tool_call)\b/i.test(text);
-    if (!hasTags && leftover && leftover.length <= MAX_FALLBACK_CHARS) {
-      result.messages.push({ text: leftover, replyTo: null });
+    if (!hasTags && leftover) {
+      result.bare = leftover;
       result.untagged = true;
+      result.diagnostics.push({ kind: 'bareText', chars: leftover.length });
     } else {
       result.skip = true;
     }
