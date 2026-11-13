@@ -146,10 +146,11 @@ test('an entry written with no mirrors at all reaches a mirror added later throu
 });
 
 test('the audience tag is no part of what she says', async () => {
-  // Catches: the tag falling into the untagged fallback and being posted on the channel.
+  // Text outside the tags is never sent since 2026-11-13 (specs/2026-11-13-bare-text-is-never-sent.md): the answer is
+  // written in `<msg>` now, as the untagged path that this test used no longer makes an entry.
+  // Catches: the audience tag staying in her words and being posted on the channel.
   const scene = await places(['fake:d1']);
-  // No `<msg>`: the whole answer takes the parser's untagged path, where a tag it does not know stays in the text.
-  const { entry } = await writeEntry(scene, `<audience>interface:fake</audience>${TEXT}`);
+  const { entry } = await writeEntry(scene, `<audience>interface:fake</audience><msg>${TEXT}</msg>`);
   assert.deepEqual(entry.messages, [TEXT]);
   await scene.publisher().publishEntry(entry);
   assert.deepEqual(scene.transport('fake').posted('d1'), [TEXT]);

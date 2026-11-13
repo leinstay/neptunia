@@ -122,23 +122,79 @@ test('parseOutput: a reaction names its message by to; one naming none is kept a
   assert.equal(none.skip, true);
 });
 
-test('parseOutput: plain text with no tags falls back to one message when short', () => {
+// Text outside the tags is never sent since 2026-11-13 (specs/2026-11-13-bare-text-is-never-sent.md).
+test('parseOutput: short plain text with no tags is no message and stays in bare', () => {
   const result = parseOutput('απλό κείμενο χωρίς ετικέτες');
   assert.equal(result.skip, false);
-  assert.deepEqual(result.messages, [{ text: 'απλό κείμενο χωρίς ετικέτες', replyTo: null }]);
-});
-
-test('parseOutput: plain text with no tags falls back to silence when too long', () => {
-  const result = parseOutput('α'.repeat(601));
-  assert.equal(result.skip, true);
   assert.deepEqual(result.messages, []);
+  assert.equal(result.bare, 'απλό κείμενο χωρίς ετικέτες');
 });
 
-test('parseOutput: plain text of exactly the fallback limit still becomes one message', () => {
+// Text outside the tags is never sent since 2026-11-13 (specs/2026-11-13-bare-text-is-never-sent.md).
+test('parseOutput: plain text with no tags that is too long is no message either, and no silence', () => {
+  const result = parseOutput('α'.repeat(601));
+  assert.equal(result.skip, false);
+  assert.deepEqual(result.messages, []);
+  assert.equal(result.bare, 'α'.repeat(601));
+});
+
+// Text outside the tags is never sent since 2026-11-13 (specs/2026-11-13-bare-text-is-never-sent.md).
+test('parseOutput: plain text of exactly the old fallback limit is no message', () => {
   const result = parseOutput('α'.repeat(600));
   assert.equal(result.skip, false);
-  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages.length, 0);
 });
+
+// ---- text outside the tags is never a message ----
+
+test('parseOutput: a think and two sentences with no tag give no message, the sentences in bare and one diagnostic', () => {
+  // Bug: the fallback posts her working words in the chat.
+  const sentences = 'ετοιμάζω πρώτα την εικόνα. έπειτα γράφω στον κήπο.';
+  const parsed = parseOutput(`<think>σχέδιο</think>${sentences}`);
+  assert.deepEqual(parsed.messages, []);
+  assert.equal(parsed.untagged, true);
+  assert.equal(parsed.bare, sentences);
+  assert.deepEqual(parsed.diagnostics, [{ kind: 'bareText', chars: sentences.length }]);
+  assert.equal(parsed.skip, false);
+});
+
+test('parseOutput: a text of 5000 characters with no tag has the same shape as a short one', () => {
+  // Bug: the old 600-character limit stays behind and a long answer is told apart from a short one.
+  const long = 'λέξη '.repeat(1000).trim();
+  const parsed = parseOutput(long);
+  assert.deepEqual(parsed.messages, []);
+  assert.equal(parsed.untagged, true);
+  assert.equal(parsed.bare, long);
+  assert.deepEqual(parsed.diagnostics, [{ kind: 'bareText', chars: long.length }]);
+  assert.equal(parsed.skip, false);
+});
+
+test('parseOutput: a <msg> with words around it gives the message and no bareText diagnostic', () => {
+  // Bug: tags beside bare text are held back, or the words around them are counted as a lost answer.
+  const parsed = parseOutput('<think>σχέδιο</think>πριν <msg>ναι</msg> μετά');
+  assert.deepEqual(parsed.messages, [{ text: 'ναι', replyTo: null }]);
+  assert.equal(parsed.untagged, false);
+  assert.equal(parsed.bare, '');
+  assert.equal(
+    parsed.diagnostics.some((diagnostic) => diagnostic.kind === 'bareText'),
+    false
+  );
+});
+
+for (const [name, raw] of [
+  ['<skip/> alone', '<skip/>'],
+  ['an empty answer', ''],
+  ['a think and nothing else', '<think>σχέδιο</think>'],
+] as const) {
+  test(`parseOutput: ${name} is a skip with no bare text`, () => {
+    // Bug: silence is read as bare text and she is told her words were not posted when she wrote none.
+    const parsed = parseOutput(raw);
+    assert.equal(parsed.skip, true);
+    assert.equal(parsed.bare, '');
+    assert.equal(parsed.untagged, false);
+    assert.deepEqual(parsed.diagnostics, []);
+  });
+}
 
 test('parseOutput: an emoji reaction longer than 16 chars is dropped', () => {
   const result = parseOutput('<react to="#1">this is way more than sixteen chars</react>');
@@ -224,9 +280,10 @@ test('parseOutput: an unclosed <think> keeps what it held so far in think and sa
   assert.equal(parseOutput('<think>σχέδιο</think><msg>ναι</msg>').thinkOpen, false);
 });
 
-test('parseOutput: untagged marks the plain-text fallback message only', () => {
+// Text outside the tags is never sent since 2026-11-13 (specs/2026-11-13-bare-text-is-never-sent.md).
+test('parseOutput: untagged marks an answer of bare text only, which carries no message', () => {
   const plain = parseOutput('<think>σχέδιο</think>ναι, θα έρθω');
-  assert.deepEqual([plain.untagged, plain.messages], [true, [{ text: 'ναι, θα έρθω', replyTo: null }]]);
+  assert.deepEqual([plain.untagged, plain.messages, plain.bare], [true, [], 'ναι, θα έρθω']);
   assert.equal(parseOutput('<msg>ναι</msg>').untagged, false);
   assert.equal(parseOutput('<skip/>').untagged, false);
 });
