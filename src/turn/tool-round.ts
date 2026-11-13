@@ -245,6 +245,8 @@ export type Stepped = {
   skipped: boolean;
   /** A later request's two answers broke their `<think>`, which ended the steps. */
   leakEnded: boolean;
+  /** Two answers held text outside every tag and nothing else, which ended the steps. */
+  bareEnded: boolean;
   /** Her last answer came from the rescue request. */
   rescued: boolean;
 };
@@ -423,9 +425,9 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * messages and `labels.task.step.rescue`, with the tool choice `none`, read as a final answer. A heartbeat turn ends
    * with its one intention change, a selfimprovement wake with its one filing. Logs `skills: loop` (`steps`, `calls`, `ms`).
    *
-   * Resolves `{ acts, cutOff, delivered, skipped, leakEnded, rescued }`: act's answers in order, whether a step was cut
+   * Resolves `{ acts, cutOff, delivered, skipped, leakEnded, bareEnded, rescued }`: act's answers in order, whether a step was cut
    * off with nothing complete, whether anything reached the chat (her speech, a post, a picture, an errand accepted),
-   * whether her last answer skipped, whether a broken think ended the steps, and whether her last answer was the rescue's.
+   * whether her last answer skipped, whether a broken think ended the steps, whether a second answer of bare text did, and whether her last answer was the rescue's.
    */
   async function runSteps(args: RunStepsArgs): Promise<Stepped> {
     // The typing lease of the calls (typingWhileCalls): started with the first step that has calls, stopped when no
@@ -503,6 +505,9 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     let delivered = false;
     let cutOff = false;
     let leakEnded = false;
+    // The answers of this turn that held text outside every tag, and whether a second one ended the steps.
+    let bareAnswers = 0;
+    let bareEnded = false;
     let made = 0;
     // The results no request has followed yet, and the inner actions of the calls that gave them.
     let unseen: Array<CallOutcome> = [];
@@ -623,6 +628,14 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       const { parsed } = answer;
       const records = answer.calls;
       const loweredCalls = parsed.loweredCalls ?? [];
+      const bare = parsed.untagged === true;
+      // Her text outside every tag is never sent. A second answer of it and nothing else ends the steps: she was told.
+      if (bare) bareAnswers += 1;
+      if (bare && bareAnswers > 1 && records.length === 0) {
+        (draft.diagnostics ??= []).push({ kind: 'bareTextEnded', told: false } as { told?: boolean });
+        bareEnded = true;
+        break;
+      }
       const isFinal: boolean = finalReason !== null;
       const room = roomLeft({
         step,
@@ -630,7 +643,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         elapsedMs: loopStartedAt === null ? 0 : clock() - loopStartedAt,
         timeBudgetMs: settings.timeBudgetMs,
       });
-      if (records.length === 0 && speechItemsOf(parsed) === 0 && !stagedSet()) break;
+      if (records.length === 0 && speechItemsOf(parsed) === 0 && !stagedSet() && !bare) break;
 
       // 1. Her calls, planned in her order and made.
       const plans: Array<CallPlan & { record: NormalCall; coerced: Array<{ arg: string; to: boolean | number }> }> = [];
@@ -773,9 +786,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       const seen =
         answersSomeone && !quietShown && results.some((result) => result.status === 'ok' && quietSkill(result.skill));
       if (seen) quietShown = true;
+      // Her text outside every tag is something left to read too: she is told it was not posted.
       const fresh =
-        records.length > 0 &&
-        (verdict.fresh || seen || results.some((result) => typeof result.note === 'string' && result.note !== ''));
+        bare ||
+        (records.length > 0 &&
+          (verdict.fresh || seen || results.some((result) => typeof result.note === 'string' && result.note !== '')));
       const labels = hot.prompts?.labels ?? {};
       // The room the calls left: the time they took counts.
       const left = roomLeft({
@@ -989,7 +1004,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     // An inner turn's loop end state, for its result (`inner.loop`): the steps made, the bound that cut it with calls dropped, how many.
     if (inner)
       draft.innerLoop = { steps: step, cut: draft.loopCut?.reason ?? null, droppedCalls: draft.loopCut?.dropped ?? 0 };
-    return { acts, cutOff, delivered, skipped: Boolean(answer.parsed.skip), leakEnded, rescued: fromRescue };
+    return { acts, cutOff, delivered, skipped: Boolean(answer.parsed.skip), leakEnded, bareEnded, rescued: fromRescue };
 
     /** Her speech of a step posted: the messages, reactions and picture through act, then an inner turn's lowered speech as calls. */
     async function postSpeech({

@@ -1022,7 +1022,7 @@ function sandboxMessages(input: Untyped, samples: Untyped, { segments = false } 
 /**
  * One parsed answer (parseOutput's) shaped like a real turn's under `config`: reactions with
  * `features.reactions` on, one message with `features.multiMessage` off; `skip`
- * when the model skipped or left nothing to do. With the request's `handles`
+ * when the model skipped or left nothing to do, `bare` the text outside every tag of an answer that held only that. With the request's `handles`
  * (features.mentionHandles on) a message whose text holds a handle-shaped token also carries
  * what a live turn would mention (handleMentions); its `text` stays as she wrote it.
  */
@@ -1031,7 +1031,14 @@ function shapeAnswer(parsed: Untyped, config: Untyped, handles: Map<string, stri
   const kept = parsed.messages;
   const replies = kept.map((message: Untyped) => ({ ...message, ...handleMentions(message.text, handles) }));
   const nothingToDo = replies.length === 0 && reactions.length === 0;
-  return { messages: replies, reactions, skip: parsed.skip || nothingToDo, think: parsed.think };
+  // Her text outside every tag is never a message (src/llm/parse.ts `bare`): it stays on the answer for whoever reads it.
+  return {
+    messages: replies,
+    reactions,
+    skip: parsed.skip || nothingToDo,
+    think: parsed.think,
+    ...(parsed.untagged ? { bare: parsed.bare } : {}),
+  };
 }
 
 /**
@@ -1464,6 +1471,19 @@ function readStep(
   };
 }
 
+/**
+ * Whether an answer of a skill scenario ends its loop at once: it made no call, and it is no first answer of bare text
+ * (`seen`: the answers of bare text so far, this one counted), which earns one more request with the diagnostic.
+ */
+function answerEndsLoop(calls: number, bare: boolean, seen: number): boolean {
+  return calls === 0 && !(bare && seen === 1);
+}
+
+/** Whether a step leaves something to read: a result that needs reading, or text outside every tag, which is never sent. */
+function leftToRead(fresh: boolean, bare: boolean): boolean {
+  return fresh || bare;
+}
+
 /** The tokens a provider usage reports, with the cache reads and writes when it gives them. */
 function usageNumbers(usage: Untyped) {
   const details = usage?.prompt_tokens_details ?? {};
@@ -1572,6 +1592,7 @@ async function runSkillLoop({
   let finalReason: Untyped = null;
   let loopStart = null;
   let stopped = false;
+  let bareSeen = 0;
   const tokenLimit = requestTokenLimit(config);
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
   const costOf = (list: Untyped) =>
@@ -1580,7 +1601,11 @@ async function runSkillLoop({
     const records = read.calls;
     const readAnswer = read.answer;
     const speechItems = readAnswer.messages.length + readAnswer.reactions.length;
-    if (records.length === 0) break;
+    // Her text outside every tag is never sent and is something left to read: the first answer of it with no call gets
+    // one more request that carries the parser's diagnostic, a second one ends the loop (as src/turn/tool-round.ts does).
+    const bare = read.parsed.untagged === true;
+    bareSeen += Number(bare);
+    if (answerEndsLoop(records.length, bare, bareSeen)) break;
     if (typeof onCall !== 'function') break;
     const isFinal = finalReason !== null;
     loopStart ??= clock();
@@ -1682,7 +1707,7 @@ async function runSkillLoop({
       timeBudgetMs: settings.timeBudgetMs,
     });
     const stoppedAll = results.some((result) => result.code === CODE.SKILLS_OFF);
-    if (isFinal || stoppedAll || !verdict.fresh || after.next === 'none') break;
+    if (isFinal || stoppedAll || !leftToRead(verdict.fresh, bare) || after.next === 'none') break;
 
     // 4. The request: the messages so far, her answer, a result for every call, the note.
     const detailOf = (result: Untyped) =>

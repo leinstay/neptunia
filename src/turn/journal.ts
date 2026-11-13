@@ -21,6 +21,8 @@ export const SKIP_SILENCE = 'silence';
 export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
 /** Two answers in a row broke their `<think>`, so the turn ended with no message (src/turn/calls.ts#askUnleaked). */
 export const SKIP_THINK_LEAKED = 'think-leaked';
+/** Two answers in a row held text outside every tag and nothing else, so the turn ended with nothing posted. */
+export const SKIP_BARE_TEXT = 'bare-text';
 
 /** The mode a journal's `turn.start` names: a follow-up or an overheard line by its kind, else the turn's mode. */
 function journalMode(mode: string | null | undefined, triggerKind: TriggerKind | null | undefined): string | null {
@@ -318,7 +320,7 @@ export function journalUsage(completion: Completion): JournalUsage {
  * output cap (finish reason `length`): null when it stopped on its own. A cut-off one logs `turn:
  * cut off` with the completion tokens, whether it came from the skill follow-up and whether
  * complete actions are kept (`kept`). Nothing is kept when the think never closed, the answer
- * left nothing to do (`empty`), or its one message is the untagged fallback text -- a fragment:
+ * left nothing to do (`empty`), or it is untagged bare text, which is never sent -- a fragment:
  * the caller then ends the turn `error` with reason `cut-off`, never a skip, and posts nothing.
  */
 export function cutOffOf(
@@ -382,6 +384,8 @@ export type JournalDraft = {
   reason?: string | null;
   participants?: Array<string> | null;
   think?: unknown;
+  /** Her text outside every tag, never sent (src/llm/parse.ts `bare`), the turn's answers joined by a line break. */
+  bare?: unknown;
   posted?: Array<unknown> | null;
   reactions?: Array<unknown> | null;
   actions?: Array<unknown> | null;
@@ -421,6 +425,10 @@ export function journalTurnRecord(
     participants: draft.participants ?? [],
     sourceMessageIds: seen.messageIds,
     think: typeof draft.think === 'string' ? (draft.handles?.canonical(draft.think) ?? draft.think) : null,
+    // Her text outside every tag is kept where the think is, and only when the turn had some.
+    ...(typeof draft.bare === 'string' && draft.bare !== ''
+      ? { bare: draft.handles?.canonical(draft.bare) ?? draft.bare }
+      : {}),
     posted: draft.posted ?? [],
     reactions: draft.reactions ?? [],
     actions: draft.actions ?? [],

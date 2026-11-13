@@ -164,6 +164,10 @@ export type ServiceTurnSpec = {
   context?: Record<string, unknown>;
   /** More interfaces the turn reaches, each answering the calls that name its `iface`. */
   adapters?: ReadonlyArray<Fake>;
+  /** The labels of the turn instead of the shipped ones, for a test that words one of them itself. */
+  labels?: object;
+  /** The place the drain names as the turn's current channel, as it does for an intention with a destination: null for none. */
+  currentChannel?: string | null;
 };
 
 /** The adapter that answers a call naming one of `others`' interfaces by that one, and every other call by `main`. */
@@ -206,7 +210,7 @@ function cliAdapter(): Fake {
   return cli;
 }
 
-type RigSpec = Pick<ServiceTurnSpec, 'seed' | 'adapters'> & {
+type RigSpec = Pick<ServiceTurnSpec, 'seed' | 'adapters' | 'labels'> & {
   mind: World;
   settings?: Record<string, number>;
   /** Laid over SERVICE_CONTEXT, such as `channelMessages`. */
@@ -253,7 +257,7 @@ function rigOf(spec: RigSpec) {
       inner: MARK.inner,
       heartbeat: MARK.heartbeat,
       selfimprovement: MARK.selfimprovement,
-      labels: shippedLabels,
+      labels: spec.labels ?? shippedLabels,
     },
   };
   const intentions = createIntentionService({
@@ -380,7 +384,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
     answer: (n) => answers[Math.min(n - 1, answers.length - 1)],
   });
   const wake = typeof spec.wake === 'function' ? spec.wake(intentions) : spec.wake;
-  const inner = { wake, currentChannel: null, shadow: false, mayAct: () => true };
+  const inner = { wake, currentChannel: spec.currentChannel ?? null, shadow: false, mayAct: () => true };
   const { result } = await withCapturedLogs(() =>
     turns.runTurn({ chat: spec.chat, mode: 'inner', triggerKind: 'inner', inner })
   );

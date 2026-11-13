@@ -2175,6 +2175,7 @@ async function runSelfreflection({
           { text: composeCall.text, toolCalls: composeCall.toolCalls ?? [], finishReason: composeCall.finishReason },
           { transport: mods.transportOf(hot.config) }
         );
+        // Text outside every tag is no message of the post (parseOutput `bare`), as in a live turn.
         const parsed = parseOutput(split.speechText);
         const live = hot.config;
         messages = parsed.messages.map((m: Rec) => m.text);
@@ -2580,6 +2581,8 @@ export function innerAnswerOf(
   const parsed = parseOutput(split.speechText);
   return {
     think: parsed.think,
+    // Her text outside every tag is no message (parseOutput `bare`): the report shows it apart.
+    ...(parsed.untagged ? { bare: parsed.bare } : {}),
     messages: parsed.messages.map((message: Untyped) => message.text),
     calls: split.calls.map((call: Rec) => ({
       skill: call.name,

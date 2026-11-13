@@ -1350,6 +1350,7 @@ export function stepsOf(answers: Untyped): Array<{
       { text: String(given.text ?? ''), toolCalls: given.toolCalls ?? [], finishReason: given.finishReason ?? null },
       { transport: given.transport === 'text' ? 'text' : 'native' }
     );
+    // Text outside every tag is no message (parseOutput `bare`): the week's count of what she said leaves it out, as a live turn does.
     const parsed = parseOutput(split.speechText);
     return {
       think: cut(parsed.think, THINK_CUT),
