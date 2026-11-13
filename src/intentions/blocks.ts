@@ -67,7 +67,7 @@ function activeLine(
   l: Untyped,
   { timezone, locale, channelNameOf, nameOf, handleOf, unknown, unnamed, now, noticeMs, whole = false }: LineOptions
 ): string {
-  // A person by their handle, a place by its name; the id only under labels with no word for one nobody names.
+  // A person by their handle, a place as the caller's namer gives it (the request's own naming of a place); the id only under labels with no word for one nobody names.
   const person = (id: string): string => (handleOf ? handleOf(id) : nameOf(id)) || unknown || id;
   const place = (id: string): string => channelNameOf(id) || unnamed || id;
   const state = typeof l.states?.[record.status] === 'string' ? l.states[record.status] : record.status;
@@ -113,7 +113,7 @@ function activeLine(
  * `maxTokens` (`cost` the estimate; whole lines, in order): `labels.intentions.header`, a line per
  * active one. '' when nothing fits or
  * the labels are missing.
- * `channelNameOf(id)` names a destination or attended channel;
+ * `channelNameOf(id)` names a destination or attended channel the way the request names a place (null: unnamed);
  * `handleOf(id)` names an attended person by the handle (with `@`) of the person behind the account, `authors.unknown`
  * when it gives none; without it `nameOf(id)` names them. A place no reader names reads `spatial.unnamed`. An id stands
  * only under labels that hold neither word. `now` (epoch ms) and

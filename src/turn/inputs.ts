@@ -6,7 +6,6 @@
 
 import type { Chat } from '../protocol/events.ts';
 import { accountOf } from '../memory/addresses.ts';
-import type { Snapshot } from '../behavior/snapshot.ts';
 import { placesBlockText } from '../behavior/wake.ts';
 import { innerSettings } from '../behavior/inner.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText, errandsBlockText } from '../errands/blocks.ts';
@@ -20,6 +19,7 @@ import { log } from '../log.ts';
 import type { ChatRef, MessageRef } from '../protocol/adapter.ts';
 import { checkReplyEffect } from '../tools/gateway.ts';
 import { PERSONA } from './calls.ts';
+import { placeToken } from './request/text.ts';
 import { inRoot } from './routing.ts';
 
 /** Whether an addressed turn's request carries `<places>`. Production value, config cut of 2026-10-31: off. */
@@ -73,6 +73,8 @@ export type InputsContext = {
   errands: InputsErrands;
   intentions: InputsIntentions;
   places: PlacesView;
+  /** Every stored chat with its native id (src/memory/db/frame-reads.ts#chatPlacesOf), as the memory holds them now. */
+  chatPlaces?: (() => Array<{ id: string; nativeId: string | null }>) | null;
 };
 
 /** What an attempt's draft holds that the inputs read and write. */
@@ -107,13 +109,13 @@ export type Inputs = {
   errandsInputFor: (
     args: InputArgs & { taskResult: ErrandRecord | null | undefined }
   ) => { list: string; result: string } | null;
-  intentionsInputFor: (args: InputArgs & { snapshot?: Snapshot | null; due?: ReadonlyArray<string> }) => string;
+  intentionsInputFor: (args: InputArgs & { due?: ReadonlyArray<string> }) => string;
   intentionRefsFor: () => { texts: Array<string>; places: Array<string> };
   placesInputFor: (args: { placeId: string; config: InputsConfig; labels: InputsLabels }) => string;
 };
 
 export function createInputs(ctx: InputsContext): Inputs {
-  const { store, iface: port, memoryContext, errands, intentions, places } = ctx;
+  const { store, iface: port, memoryContext, errands, intentions, places, chatPlaces = null } = ctx;
 
   /**
    * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
@@ -252,11 +254,11 @@ export function createInputs(ctx: InputsContext): Inputs {
   /**
    * The request's `<intentions>` body (features.intentions exactly true, read now): her open
    * intentions (`intentions.view`: a private chat's own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.ts).
+   * A place in a line is a place token the request builder names (src/turn/request/text.ts#placeToken).
    * '' with the switch off, without the service, or with nothing to show.
    */
   function intentionsInputFor({
     channel,
-    snapshot = null,
     isDm,
     config,
     labels,
@@ -271,7 +273,15 @@ export function createInputs(ctx: InputsContext): Inputs {
       log.warn('turn: intentions view failed', { channel: channel.id, error: err });
       return '';
     }
-    const channelNameOf = (id: string): string | null => (isDm ? null : (snapshot?.get(String(id))?.name ?? null));
+    // A destination or an attended place is the stored place of that chat; the request names it as it names every place
+    // (src/turn/request/text.ts#placeToken). A private chat names none.
+    const channelIface = portIface(channel) || portIface(port);
+    const stored = chatPlaces?.() ?? [];
+    const storedPlaceOf = (id: string): string => {
+      const given = placeOfChat(store, { id }, channelIface);
+      return stored.some((one) => one.id === given) ? given : (stored.find((one) => one.nativeId === id)?.id ?? given);
+    };
+    const channelNameOf = (id: string): string | null => (isDm || !id ? null : placeToken(storedPlaceOf(String(id))));
     const nameOf = (id: string): string | null =>
       typeof store?.getUser === 'function' ? (store.getUser(accountOf(store, String(id)))?.names?.[0] ?? null) : null;
     const contextCaps = config.context?.caps;

@@ -124,6 +124,9 @@
       "fetchTimeoutMs": 2000
     },
     "turnLeaseMs": 300000,
+    "away": {
+      "minMinutes": 5
+    },
     "myDay": {
       "lines": 12,
       "people": 3

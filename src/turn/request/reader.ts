@@ -46,7 +46,16 @@ import type { InterfaceNames } from '../../protocol/serve.ts';
 import type { HandleBook } from '../../behavior/handles.ts';
 import type { EntryRefs } from './memory-block.ts';
 import type { MeanwhileRefs } from './meanwhile.ts';
-import { block, escapeStored, keepsEmoji, placeRefText } from './text.ts';
+import {
+  block,
+  escapeStored,
+  keepsEmoji,
+  placeIdsIn,
+  placeOwnText,
+  placeRefText,
+  shownName,
+  withPlaces,
+} from './text.ts';
 import type {
   Fit,
   HandleTarget,
@@ -185,6 +194,8 @@ type Offered = {
   windows: Array<MeanwhileWindow>;
   windowTexts: Array<string>;
   inner: Array<{ key: keyof InnerParts; text: string }>;
+  /** `<inner>`'s parts with the places of `<my_day>` and `<intentions>` named as the rest of the request names them. */
+  innerParts: InnerParts;
   resolveRef: (text: string) => string;
   names: Names;
 };
@@ -197,6 +208,8 @@ type Names = {
   meanwhileRefs: MeanwhileRefs;
   /** A place id by its handle and path, null for a place the memory holds no row of. */
   placeRef: (placeId: string) => string | null;
+  /** A stored place as a line of `<my_day>` or `<intentions>` names it: its handle, else its name, else the unnamed word. */
+  placeNamed: (placeId: string) => string;
   /** The windows of `<meanwhile>`, every author keyed. */
   windows: Array<MeanwhileWindow>;
 };
@@ -380,6 +393,18 @@ function keyedWindows(given: ReaderInput, windows: ReadonlyArray<MeanwhileWindow
   }));
 }
 
+/** The texts of `<inner>` that hold place tokens: the lines of `<my_day>` and the body of `<intentions>`. */
+const innerTexts = (inner: InnerParts): Array<string | null> => [...inner.myDay, inner.intentions];
+
+/** `<inner>`'s parts with each place token of `<my_day>` and `<intentions>` named by `named`. */
+function innerNamed(inner: InnerParts, named: (placeId: string) => string): InnerParts {
+  return {
+    ...inner,
+    myDay: inner.myDay.map((line) => withPlaces(line, named)),
+    intentions: inner.intentions === null ? null : withPlaces(inner.intentions, named),
+  };
+}
+
 /**
  * The handles and names of the request, given before anything is rendered: the people book over the chat's handles,
  * then every person of the mind and every author of the windows; the places book over the current place, the places of
@@ -409,6 +434,7 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
         ...mind.places.map((place) => chatIdOf(place.placeId)),
         ...windows.map((window) => chatIdOf(window.placeId)),
         ...lookupPlaces(given.lookups).map((id) => chatIdOf(id)),
+        ...placeIdsIn(innerTexts(given.inner)).map((id) => chatIdOf(id)),
       ].filter((id): id is string => typeof id === 'string' && id !== ''),
     },
     CHANNEL_HANDLE_PREFIX
@@ -436,6 +462,21 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
       keepEmoji,
     });
   };
+  const placeNamed = (placeId: string): string => {
+    const view = given.placePathOf?.(placeId) ?? null;
+    if (view === null) return escapeStored(labels.spatial?.unnamed ?? '');
+    const chatId = handled(given) ? chatIdOf(placeId) : null;
+    if (chatId !== null && chatId !== '') return `#${places.handleOf(chatId)}`;
+    const name = view.chain.at(0)?.name;
+    if (typeof name === 'string') return escapeStored(shownName(name, keepEmoji));
+    return placeOwnText(labels, {
+      iface: view.iface,
+      chain: view.chain,
+      ...(view.names === undefined ? {} : { names: view.names }),
+      partner: view.dm ? partner(view.partnerKey) : null,
+      keepEmoji,
+    });
+  };
   return {
     people,
     places,
@@ -451,6 +492,7 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
     },
     meanwhileRefs: { handleOf: (key) => people.handleOf(key), mention },
     placeRef,
+    placeNamed,
     windows,
   };
 }
@@ -579,6 +621,7 @@ function offeredOf(given: ReaderInput): Offered {
     given.meanwhileReads ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettingsOf(given.config, frame)) : []
   );
   const { windows } = names;
+  const innerParts = innerNamed(given.inner, names.placeNamed);
   const items = memoryItemsOf(
     mind,
     frame,
@@ -625,7 +668,8 @@ function offeredOf(given: ReaderInput): Offered {
         keepsEmoji(given.config)
       )
     ),
-    inner: innerItems(given.inner),
+    inner: innerItems(innerParts),
+    innerParts,
     resolveRef,
     names,
   };
@@ -634,7 +678,7 @@ function offeredOf(given: ReaderInput): Offered {
 /** The body of `<inner>` from the parts the budget kept, the errand's result first. */
 function innerTextOf(given: ReaderInput, offered: Offered, fit: Fit): string {
   const kept = new Set(keptOf(offered.inner, fit.kept.inner, (one) => one.text).map((one) => one.key));
-  const { inner } = given;
+  const { innerParts: inner } = offered;
   const parts: InnerParts = {
     myDay: kept.has('myDay') ? inner.myDay : [],
     intentions: kept.has('intentions') ? inner.intentions : null,

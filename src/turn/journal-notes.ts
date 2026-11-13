@@ -28,6 +28,13 @@ const FAILED_TURNS_KEPT = 3;
 /** How old her previous think may be, in minutes, to be carried into a new turn. */
 const PREVIOUS_THINK_MINUTES = 30;
 
+/** `context.away.minMinutes` of a live config: the shortest off period listed, 0 (every period) when unset or not a number. */
+function awayMinMinutes(config: NotesConfig): number {
+  const context = config.context as { away?: { minMinutes?: unknown } } | null | undefined;
+  const value = context?.away?.minMinutes;
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 /** The journal (src/memory/journal.ts#createJournal) as far as the notes use it. */
 export type NotesJournal = {
   turn: (placeId: string, record: Record<string, unknown>) => unknown;
@@ -119,7 +126,7 @@ export type JournalNotesContext = {
   callMarks: Array<CallMark>;
   postedFromLinks: Map<string, string>;
   thinks: ThinkStore;
-  readOffPeriods: (placeId: string, options?: { windowHours?: number }) => Promise<unknown>;
+  readOffPeriods: (placeId: string, options?: { windowHours?: number; minMinutes?: number }) => Promise<unknown>;
   liveChannelName: (
     channel: NotesChannel | null | undefined,
     snapshot?: Snapshot | null
@@ -387,11 +394,12 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   /**
    * The off periods `<now>` shows (src/memory/journal.ts#offPeriods): read only with the journal
    * on and features.offPeriods on (a missing key counts as on), over the last
-   * `DEFAULT_OFF_WINDOW_HOURS` hours of src/memory/journal.ts, all read now; null otherwise. Never throws.
+   * `DEFAULT_OFF_WINDOW_HOURS` hours of src/memory/journal.ts, leaving out the periods shorter than
+   * `context.away.minMinutes`, all read now; null otherwise. Never throws.
    */
   async function offPeriodsFor(placeId: string): Promise<unknown> {
     if (!journalOn()) return null;
-    return readOffPeriods(placeId);
+    return readOffPeriods(placeId, { minMinutes: awayMinMinutes(ctx.hot.config) });
   }
 
   /** The turn records of runTurn's attempts, in order; a failed append is the journal's to log. */

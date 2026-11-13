@@ -190,3 +190,26 @@ export function placeRefText(labels: PlaceLabels, handle: string | null, place: 
     ? fill(words.refUnhandled ?? '{name}', { name })
     : fill(words.ref ?? '#{handle}: {name}', { handle, name });
 }
+
+// A stored place inside a text the turn renders before the request's handle books exist (`<my_day>` and `<intentions>`):
+// the turn writes the place as a token that holds the place's id, and the request builder (reader.ts) replaces each
+// token by the way the rest of the request names that place. Private-use characters keep a token from colliding with
+// a stored text.
+const TOKEN_OPEN = '\uE000';
+const TOKEN_CLOSE = '\uE001';
+const PLACE_TOKEN = new RegExp(`${TOKEN_OPEN}([^${TOKEN_OPEN}${TOKEN_CLOSE}]*)${TOKEN_CLOSE}`, 'g');
+
+/** The token of the stored place `placeId`, for a text the request builder resolves. */
+export const placeToken = (placeId: string): string =>
+  `${TOKEN_OPEN}${placeId.replace(/[\uE000\uE001]/g, '')}${TOKEN_CLOSE}`;
+
+/** The ids of the places the tokens of `texts` hold, each once, in the order they appear. */
+export function placeIdsIn(texts: ReadonlyArray<string | null | undefined>): Array<string> {
+  const ids = new Set<string>();
+  for (const text of texts) for (const [, id = ''] of (text ?? '').matchAll(PLACE_TOKEN)) if (id !== '') ids.add(id);
+  return [...ids];
+}
+
+/** `text` with each place token replaced by `named(placeId)`. */
+export const withPlaces = (text: string, named: (placeId: string) => string): string =>
+  text.replace(PLACE_TOKEN, (_all, id: string) => named(id));

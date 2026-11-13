@@ -30,6 +30,7 @@ import { mentionDirectory, pickOtherProfiles, resolveMentions, untaggedNote } fr
 import { continuationHistory } from '../turn/history.ts';
 import { myDayOf } from '../turn/request/my-day.ts';
 import type { JournalReader, MyDayReader } from '../turn/request/my-day.ts';
+import { placeToken } from '../turn/request/text.ts';
 import { placeChainInDb } from '../memory/db/place-tree.ts';
 import { createAct } from '../turn/act.ts';
 import { createSelfreflection } from '../turn/selfreflection.ts';
@@ -333,7 +334,9 @@ export function createTurnRunner({
     ? (context, now, timezone, options) => {
         const db = journalDb() as JournalReader | null;
         if (!db) return [];
-        return myDayOf(db, context, (id) => placeChainInDb(db, id)[0]?.name ?? null, now, timezone, options);
+        // A place with a stored name is a place token the request builder names (src/turn/request/text.ts#placeToken).
+        const placed = (id: string): string | null => (placeChainInDb(db, id)[0]?.name ? placeToken(id) : null);
+        return myDayOf(db, context, placed, now, timezone, options);
       }
     : null;
   // The reads of a framed request beside her day: the graph reader, her lines elsewhere, a line by its identity.
@@ -359,7 +362,15 @@ export function createTurnRunner({
   });
 
   const iface = port;
-  const inputs = createInputs({ store, iface, memoryContext, errands, intentions, places });
+  const inputs = createInputs({
+    store,
+    iface,
+    memoryContext,
+    errands,
+    intentions,
+    places,
+    chatPlaces: () => frameReads?.chatPlaces?.() ?? [],
+  });
   const { turnContextOf, chatOf, messageOf, checkEffect } = inputs;
 
   const { facts, setFactsSource } = createFacts({ clock });

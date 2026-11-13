@@ -34,6 +34,14 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'How long a turn waits for those fetches',
   },
   {
+    'key': 'context.away.minMinutes',
+    'types': ['number'],
+    'reader': 'src/turn/journal-notes.ts',
+    'default': 5,
+    'text':
+      'The shortest off period `<spatial_awareness>` lists under the lead line of her time away, in minutes, measured after neighbouring periods merge. A shorter one, such as a restart, is left out before the newest three are taken. `0` lists every period',
+  },
+  {
     'key': 'context.myDay.lines',
     'types': ['number'],
     'reader': 'src/turn/phases/request/build.ts',
