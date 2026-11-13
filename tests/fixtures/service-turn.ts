@@ -160,6 +160,8 @@ export type ServiceTurnSpec = {
   world?: World;
   /** Laid over `context.memory` of SERVICE_CONTEXT. */
   settings?: { serviceMessages?: number; budgetTokens?: number };
+  /** Laid over SERVICE_CONTEXT, such as `myDay`. */
+  context?: Record<string, unknown>;
   /** More interfaces the turn reaches, each answering the calls that name its `iface`. */
   adapters?: ReadonlyArray<Fake>;
 };

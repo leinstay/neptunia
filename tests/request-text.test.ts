@@ -14,7 +14,7 @@
 //   export function placeRefText(labels: Labels, handle: string | null, place: PlaceWords): string;
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeStored, placeRefText } from '../src/turn/request/text.ts';
+import { escapeStored, placeIdsIn, placeRefText, placeToken, withPlaces } from '../src/turn/request/text.ts';
 import type { PlaceWords } from '../src/turn/request/text.ts';
 import { labels } from './fixtures/labels.ts';
 
@@ -119,4 +119,51 @@ test('escapeStored keeps a > and a & as written and escapes a <', () => {
   // an entity would change every stored text that holds one.
   assert.equal(escapeStored('a > b'), 'a > b');
   assert.equal(escapeStored('<b>x</b> & y'), '&lt;b>x&lt;/b> & y');
+});
+
+test('a place token in a text is replaced by what the namer answers for that place id', () => {
+  // Bug: the token is replaced by the id itself, or the namer is asked for the whole text instead of the id, so a
+  // raw place id or a private-use mark reaches the request.
+  const asked: Array<string> = [];
+  const named = (id: string): string => {
+    asked.push(id);
+    return `#h-${id}`;
+  };
+  const text = `at ${placeToken('p1')} and later in ${placeToken('p2')}.`;
+  assert.equal(withPlaces(text, named), 'at #h-p1 and later in #h-p2.');
+  assert.deepEqual(asked, ['p1', 'p2']);
+});
+
+test('two tokens of one place give that id once in placeIdsIn, and ids come in the order they appear', () => {
+  // Bug: a place named twice is looked up twice, or the ids come back sorted so the first place seen is not first.
+  const first = `${placeToken('p2')} then ${placeToken('p1')}`;
+  const second = `${placeToken('p2')} and ${placeToken('p3')}`;
+  assert.deepEqual(placeIdsIn([first, null, undefined, second]), ['p2', 'p1', 'p3']);
+});
+
+test('a text with no token comes back unchanged and holds no id', () => {
+  // Bug: the replacement touches text that holds no token, such as a purpose that names a place in words.
+  const text = 'write in #c1x: channel "alpha" before noon';
+  assert.equal(
+    withPlaces(text, () => 'X'),
+    text
+  );
+  assert.deepEqual(placeIdsIn([text, '']), []);
+});
+
+test('a place id that holds a private-use character cannot break out of its token', () => {
+  // Bug: the id is put between the marks as it is, so an id with the closing mark ends the token early and the rest of
+  // the id, or the text after the token, is read as part of another one.
+  const hostile = ['pa\uE001b', 'pa\uE000b'];
+  for (const id of hostile) {
+    const asked: Array<string> = [];
+    const text = `${placeToken(id)} and after`;
+    const out = withPlaces(text, (given) => {
+      asked.push(given);
+      return 'NAME';
+    });
+    assert.equal(out, 'NAME and after', id);
+    assert.deepEqual(asked, ['pab'], id);
+    assert.deepEqual(placeIdsIn([text]), ['pab'], id);
+  }
 });

@@ -215,3 +215,67 @@ test('the destination of an intention in a stored place the interface snapshot l
   const unnamed: unknown = spatial?.unnamed;
   assert.ok(typeof unnamed === 'string' && unnamed !== '' && !line.includes(unnamed), line);
 });
+
+const PRIVATE_USE = /[\uE000\uE001]/;
+const PURPOSE = 'ΣΚΟΠΟΣ-ΣΤΟ-ΔΩΜΑΤΙΟ';
+
+/** The service world with the garden renamed and one post of hers in it today, as the day's rows hold it. */
+function dayWorld(): World {
+  const world = worldWithEmojiGarden();
+  insertRows(world.db, { day: postInGarden(TURN_NOW - 30 * MIN) });
+  return world;
+}
+
+/** The request of a heartbeat, nowhere, over the day world with an intention that begins in the garden. */
+async function heartbeatRequest(): Promise<string> {
+  const world = dayWorld();
+  try {
+    const run = await serviceTurn({
+      world,
+      wake: serviceWake('heartbeat'),
+      answers: ['<skip/>'],
+      chat: null,
+      context: { myDay: { lines: 12, people: 3 } },
+      seed: (service) => {
+        service.set({ purpose: PURPOSE, dueAt: TURN_NOW + 5 * HOUR, destination: 'c2', by: 'persona' });
+      },
+    });
+    return run.requests[0] ?? '';
+  } finally {
+    world.close();
+  }
+}
+
+/** The request of a reply in `c1` over the day world with an intention that begins in the garden. */
+async function replyRequest(): Promise<string> {
+  const seed: ServiceTurnSpec['seed'] = (service) => {
+    service.set({ purpose: PURPOSE, dueAt: TURN_NOW + 5 * HOUR, destination: 'c2', by: 'persona' });
+  };
+  const [request = ''] = await afterPostInGarden([turn('r2', 1)], seed);
+  return request;
+}
+
+test('no request of a reply, of a due intention or of a heartbeat holds a private-use mark', async () => {
+  // Bug: the mark a place is first written as in <my_day> and <intentions> stays in a request that no reader resolves,
+  // so she reads two characters that mean nothing in place of a place.
+  const requests = { reply: await replyRequest(), due: await intentionTurn('c2'), heartbeat: await heartbeatRequest() };
+  for (const [kind, request] of Object.entries(requests)) {
+    assert.ok(request !== '', `${kind}: the request is empty`);
+    assert.doesNotMatch(request, PRIVATE_USE, kind);
+  }
+});
+
+test('a place named in <my_day> or <intentions> reads as its handle in a reply, a due intention and a heartbeat', async () => {
+  // Bug: a kind of turn skips the resolution and names the place by its stored name or by nothing.
+  const requests = { reply: await replyRequest(), due: await intentionTurn('c2'), heartbeat: await heartbeatRequest() };
+  for (const [kind, request] of Object.entries(requests)) {
+    const handle = gardenHandle(request);
+    assert.match(handle, /^#c[0-9a-z]+$/, `${kind}: the garden has an entry of <places> with a handle`);
+    const intention = intentionLine(request);
+    assert.ok(intention.includes(handle), `${kind}: ${intention}`);
+    const lines = bodyOf(request, 'my_day').split('\n');
+    const day = lines.find((one) => one.startsWith('[')) ?? '';
+    if (kind !== 'due') assert.ok(day.includes(handle), `${kind}: ${day}`);
+    assert.ok(!day.includes(EMOJI), `${kind}: ${day}`);
+  }
+});
