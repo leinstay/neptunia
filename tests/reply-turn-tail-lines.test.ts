@@ -156,7 +156,7 @@ test('two requests with nothing stored between them hold the same bytes in <my_d
 });
 
 /** The intention turn of the room `c1` with one open intention that begins in that room. */
-async function intentionTurn(): Promise<string> {
+async function intentionTurn(destination = 'c1'): Promise<string> {
   const world = serviceWorld();
   try {
     const due = { id: '' };
@@ -174,7 +174,7 @@ async function intentionTurn(): Promise<string> {
         const made = service.set({
           purpose: 'ΣΚΟΠΟΣ-ΣΤΟ-ΔΩΜΑΤΙΟ',
           dueAt: TURN_NOW - MIN,
-          destination: 'c1',
+          destination,
           by: 'persona',
         }) as { intention?: { id: string } };
         due.id = made.intention?.id ?? '';
@@ -199,4 +199,20 @@ test('the destination of an intention reads as the handle of the room with one #
   assert.ok(line.includes(handle), line);
   assert.ok(!line.includes(`#${handle}`), line);
   assert.ok(!line.includes('γενικά'), line);
+});
+
+test('the destination of an intention in a stored place the interface snapshot lacks reads as that place handle', async () => {
+  // Bug: the destination is named through the interface's chat snapshot alone, so the garden, which memory holds and the
+  // snapshot lacks, reads as the word for an unnamed place.
+  const request = await intentionTurn('c2');
+  const handle = gardenHandle(request);
+  assert.match(handle, /^#c[0-9a-z]+$/, 'the garden has an entry of <places> with a handle');
+  const line =
+    bodyOf(request, 'intentions')
+      .split('\n')
+      .find((one) => one.includes('ΣΚΟΠΟΣ-ΣΤΟ-ΔΩΜΑΤΙΟ')) ?? '';
+  assert.ok(line.includes(handle), line);
+  const { spatial } = shippedLabels;
+  const unnamed: unknown = spatial?.unnamed;
+  assert.ok(typeof unnamed === 'string' && unnamed !== '' && !line.includes(unnamed), line);
 });
