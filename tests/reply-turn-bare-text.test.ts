@@ -47,9 +47,16 @@ function sentTexts(port: Fake): Array<string> {
   return calls.filter((one) => one.op === 'send').map((one) => String((one.args[1] as { text?: string }).text));
 }
 
+/** How many requests the model got. */
+function requestCount(llm: FakeLlm): number {
+  const { calls } = llm;
+  return calls.length;
+}
+
 /** Every message of request `i`, their texts joined: the marker may stand in any of them. */
 function wholeRequest(llm: FakeLlm, i: number): string {
-  return llm.calls[i].map((message) => contentText(message.content)).join('\n');
+  const request = llm.calls[i];
+  return request.map((message) => contentText(message.content)).join('\n');
 }
 
 /** Asserts that no word of `bare` stands in any of `posted`. */
@@ -64,7 +71,7 @@ function assertNoWordOf(bare: string, posted: ReadonlyArray<string>): void {
 test('a reply whose first answer is bare text posts nothing and asks once more with the diagnostic', async () => {
   // Bug: the bare words go out as one message, or the turn gives up without asking again.
   const run = await coreTurn({ answers: [`${THINK}${BARE}`, SAY], prompts: { labels: replyLabels } });
-  assert.equal(run.llm.calls.length, 2);
+  assert.equal(requestCount(run.llm), 2);
   assert.equal(wholeRequest(run.llm, 0).includes(MARKER), false, 'the first request holds no diagnostic yet');
   assert.ok(wholeRequest(run.llm, 1).includes(MARKED), 'the second request tells her the count of characters');
   assert.deepEqual(texts(run.sends), ['ναι εντάξει']);
@@ -78,7 +85,7 @@ test('a reply whose two answers are both bare text posts nothing and ends after 
     answers: [`${THINK}${BARE}`, `${THINK}${BARE_OTHER}`, SAY],
     prompts: { labels: replyLabels },
   });
-  assert.equal(run.llm.calls.length, 2);
+  assert.equal(requestCount(run.llm), 2);
   assert.deepEqual(texts(run.sends), []);
   assert.equal(asRecord(run.result).outcome, 'skip');
 });
@@ -90,7 +97,7 @@ test('the next request after a turn ended on bare text twice carries the diagnos
     prompts: { labels: replyLabels },
   });
   await run.again();
-  assert.equal(run.llm.calls.length, 3, 'the next turn asked once, and her answer in it stood');
+  assert.equal(requestCount(run.llm), 3, 'the next turn asked once, and her answer in it stood');
   assert.ok(wholeRequest(run.llm, 2).includes(MARKER), 'the next turn tells her');
   // `run.sends` is a snapshot of the first turn: the adapter's record holds the second turn's post too.
   assert.deepEqual(sentTexts(run.port), ['ναι εντάξει']);
@@ -103,7 +110,7 @@ test('a reply whose last request answers with bare text posts nothing and asks n
     loop: { maxSteps: 1 },
     prompts: { labels: replyLabels },
   });
-  assert.equal(run.llm.calls.length, 2, 'the read, then the last request');
+  assert.equal(requestCount(run.llm), 2, 'the read, then the last request');
   assert.deepEqual(texts(run.sends), []);
   assertNoWordOf(BARE, texts(run.sends));
 });
@@ -188,7 +195,8 @@ test('an intention turn with bare text beside the call that closes it runs the c
   });
   assert.equal(run.requests.length, 2);
   assert.equal(run.actions[0], 'intention.update:executed:ok', 'the call ran as it does');
-  assert.ok(run.requests[1].includes(MARKED), 'the second request carries the diagnostic');
+  const [, second = ''] = run.requests;
+  assert.ok(second.includes(MARKED), 'the second request carries the diagnostic');
   const posted = sentTexts(run.port);
   assert.deepEqual(posted, ['ναι εντάξει'], 'her <msg> of the second answer, in the turn’s place');
   assertNoWordOf(BARE, posted);
