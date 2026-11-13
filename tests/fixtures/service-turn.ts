@@ -411,6 +411,8 @@ export type ReplyLine = { id: string; text: string; at: number; authorId?: strin
 export type ReplyStep = {
   /** Runs before the step's lines join the chat, such as a write of lines to the world's memory. */
   before?: () => void;
+  /** Runs after `before`, with the run's journal: a write of records to it, such as the stop and start of a service. */
+  journalBefore?: (journal: ReturnType<typeof createJournal>) => Promise<void>;
   lines?: ReadonlyArray<ReplyLine>;
   trigger: ReplyLine;
   /** Each a model answer, or a function of the user text of the request it answers that gives one. */
@@ -519,6 +521,8 @@ export async function replyRun(spec: {
   /** Laid over the rig's `llm` settings, such as `maxRequestTokens`. */
   llm?: { maxRequestTokens?: number };
   chat?: ReplyChat;
+  /** What exists before the first turn: intentions made through the service. */
+  seed?: ServiceTurnSpec['seed'];
   /** The step that runs on a new turn runner after a restart (rigOf's `restart`), none when absent. */
   restartBefore?: number;
 }): Promise<ReplyRun> {
@@ -540,6 +544,7 @@ export async function replyRun(spec: {
     ...(spec.settings === undefined ? {} : { settings: spec.settings }),
     ...(spec.context === undefined ? {} : { context: spec.context }),
     ...(spec.llm === undefined ? {} : { llm: spec.llm }),
+    ...(spec.seed === undefined ? {} : { seed: spec.seed }),
     store: {
       placeOfChat: (given: { id?: unknown; iface?: unknown; kind?: unknown; partnerId?: unknown }) => {
         const iface = typeof given.iface === 'string' ? given.iface : chat.iface;
@@ -561,6 +566,7 @@ export async function replyRun(spec: {
     step = index;
     firstOfStep = requests.length + 1;
     one.before?.();
+    await one.journalBefore?.(rig.journal);
     const { id, text, at, authorId = '111', authorName = 'Ελένη' } = one.trigger;
     const lines = [...(one.lines ?? []), one.trigger];
     if (chat === C1_CHAT) world().seed('c1', lines.map(rawLine));

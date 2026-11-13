@@ -1033,6 +1033,58 @@ test('offPeriods: at most 3 periods, newest first; an overlap takes the kind of 
   ]);
 });
 
+const FIVE_MINUTES = 5 * MINUTE;
+
+test('offPeriods: with minMs a stop of 30 seconds is left out and one of six minutes stays', () => {
+  // Bug: every deploy restart fills the list of off periods, so a stop she cannot have felt reads as an absence.
+  const timeline = [
+    sys(T0, 'stop'),
+    sys(T0 + 30_000, 'start'),
+    sys(T0 + HOUR, 'stop'),
+    sys(T0 + HOUR + 6 * MINUTE, 'start'),
+  ];
+  const options = { now: T0 + 2 * HOUR, windowMs: DAY_WINDOW, minMs: FIVE_MINUTES };
+  assert.deepEqual(offPeriods(timeline, options), [{ kind: 'stopped', from: T0 + HOUR, to: T0 + HOUR + 6 * MINUTE }]);
+});
+
+test('offPeriods: two stops of three minutes under a minute apart are one period of seven and stay under minMs of five', () => {
+  // Bug: the cut measures each stop before the merge, so one outage that a restart interrupted is dropped as two
+  // short ones.
+  const timeline = [
+    sys(T0, 'stop'),
+    sys(T0 + 3 * MINUTE, 'start'),
+    sys(T0 + 3 * MINUTE + 30_000, 'stop'),
+    sys(T0 + 7 * MINUTE, 'start'),
+  ];
+  const options = { now: T0 + HOUR, windowMs: DAY_WINDOW, minMs: FIVE_MINUTES };
+  assert.deepEqual(offPeriods(timeline, options), [{ kind: 'stopped', from: T0, to: T0 + 7 * MINUTE }]);
+});
+
+test('offPeriods: the cut comes before the newest three are taken, so three short restarts do not hide an hour', () => {
+  // Bug: the newest three periods are taken first and the short ones filtered after, so an absence of an hour that
+  // three later restarts followed never reaches her.
+  const timeline = [
+    sys(T0, 'pause'),
+    sys(T0 + HOUR, 'resume'),
+    sys(T0 + 2 * HOUR, 'stop'),
+    sys(T0 + 2 * HOUR + 20_000, 'start'),
+    sys(T0 + 3 * HOUR, 'stop'),
+    sys(T0 + 3 * HOUR + 20_000, 'start'),
+    sys(T0 + 4 * HOUR, 'stop'),
+    sys(T0 + 4 * HOUR + 20_000, 'start'),
+  ];
+  const options = { now: T0 + 5 * HOUR, windowMs: DAY_WINDOW, minMs: FIVE_MINUTES };
+  assert.deepEqual(offPeriods(timeline, options), [{ kind: 'paused', from: T0, to: T0 + HOUR }]);
+});
+
+test('offPeriods: without minMs a period of 30 seconds stays', () => {
+  // Bug: a shipped cut is applied when the caller sets none, so the setting at 0 cannot keep every period.
+  const timeline = [sys(T0, 'stop'), sys(T0 + 30_000, 'start')];
+  assert.deepEqual(offPeriods(timeline, { now: T0 + HOUR, windowMs: DAY_WINDOW }), [
+    { kind: 'stopped', from: T0, to: T0 + 30_000 },
+  ]);
+});
+
 test('journal: timeline reads the root day files the window spans, oldest first, kind and event only', async () => {
   const clock = { ms: T0 - 36 * HOUR };
   const { journal } = journalAt(clock);
