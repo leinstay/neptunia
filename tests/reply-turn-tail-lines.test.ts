@@ -132,10 +132,8 @@ test('a line of <my_day> names the garden by the handle its entry of <places> op
   const [request = ''] = await afterPostInGarden([turn('r2', 1)]);
   const handle = gardenHandle(request);
   assert.match(handle, /^#c[0-9a-z]+$/, 'the garden has an entry of <places> with a handle');
-  const line =
-    bodyOf(request, 'my_day')
-      .split('\n')
-      .find((one) => one.startsWith('[')) ?? '';
+  const lines = bodyOf(request, 'my_day').split('\n');
+  const line = lines.find((one) => one.startsWith('[')) ?? '';
   assert.ok(line.includes(handle), line);
   assert.ok(!line.includes(EMOJI) && !line.includes('κήπος'), line);
 });
@@ -154,6 +152,12 @@ test('two requests with nothing stored between them hold the same bytes in <my_d
   assert.equal(bodyOf(second, 'my_day'), day);
   assert.equal(bodyOf(second, 'intentions'), intentions);
 });
+
+/** The line of `<intentions>` that holds the purpose of the intention the turns below seed, '' when none does. */
+function intentionLine(request: string): string {
+  const lines = bodyOf(request, 'intentions').split('\n');
+  return lines.find((one) => one.includes('ΣΚΟΠΟΣ-ΣΤΟ-ΔΩΜΑΤΙΟ')) ?? '';
+}
 
 /** The intention turn of the room `c1` with one open intention that begins in that room. */
 async function intentionTurn(destination = 'c1'): Promise<string> {
@@ -192,10 +196,7 @@ test('the destination of an intention reads as the handle of the room with one #
   const request = await intentionTurn();
   const handle = /#c[0-9a-z]+/.exec(bodyOf(request, 'place'))?.[0] ?? '';
   assert.match(handle, /^#c[0-9a-z]+$/, 'the room has a handle in <place>');
-  const line =
-    bodyOf(request, 'intentions')
-      .split('\n')
-      .find((one) => one.includes('ΣΚΟΠΟΣ-ΣΤΟ-ΔΩΜΑΤΙΟ')) ?? '';
+  const line = intentionLine(request);
   assert.ok(line.includes(handle), line);
   assert.ok(!line.includes(`#${handle}`), line);
   assert.ok(!line.includes('γενικά'), line);
@@ -207,10 +208,7 @@ test('the destination of an intention in a stored place the interface snapshot l
   const request = await intentionTurn('c2');
   const handle = gardenHandle(request);
   assert.match(handle, /^#c[0-9a-z]+$/, 'the garden has an entry of <places> with a handle');
-  const line =
-    bodyOf(request, 'intentions')
-      .split('\n')
-      .find((one) => one.includes('ΣΚΟΠΟΣ-ΣΤΟ-ΔΩΜΑΤΙΟ')) ?? '';
+  const line = intentionLine(request);
   assert.ok(line.includes(handle), line);
   const { spatial } = shippedLabels;
   const unnamed: unknown = spatial?.unnamed;
