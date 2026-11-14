@@ -29,9 +29,9 @@ For selfPicture, picture, photoset, randomSet and status, when <seeds> is presen
 
 The time of day from <spatial_awareness> shapes the idea: a night post belongs to the night. The season and the weather of that moment belong to where the persona lives. A post set elsewhere takes the season and the weather of that place, so a summer seed in November can be a trip to a warm country, a flight or a dream. The brief names no weekday, date or clock time. When <virtual_world> appears, it is the basis: the persona's home, places and routines, which a seed may leave and which stretch to hold what she does. Without it, the persona has no fixed home; pick from what the places and the people suggest.
 
-Write the brief in the language the people in <meanwhile> write in.
+Write the brief as a note about {{name}}, in the third person and in English. It names what the post is about and what happens in it. It is not a line of the post, so it holds no first person and no wording meant to be posted. The words of the post are {{name}}'s to find.
 
-Answer with a JSON object that has five fields. kind: the kind of this post from <kinds>. brief: one line, what the post is about. search: the query, or an empty string. picture: true or false. seed: a number.
+Answer with a JSON object that has five fields. kind: the kind of this post from <kinds>. brief: one line, a third-person note on what the post is about. search: the query, or an empty string. picture: true or false. seed: a number.
 
 `picture` is true when the post carries a drawing, false for text only.
 

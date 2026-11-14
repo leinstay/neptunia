@@ -4,7 +4,12 @@
 // `selfreflectionFramedOf` for the planner and the writer on the frame, and `selfreflectionOf` for a request with no frame.
 // None of it reaches a request of another kind.
 
-import { localDayKey, renderSelfreflectionBlock } from '../../behavior/selfreflection.ts';
+import {
+  localDayKey,
+  recentOpenings,
+  renderOpenings,
+  renderSelfreflectionBlock,
+} from '../../behavior/selfreflection.ts';
 import { fill } from '../../format.ts';
 import { refusedAudience } from '../../tools/publication.ts';
 import { kindOfRequest } from './frame.ts';
@@ -48,9 +53,14 @@ export function worldText(_config: unknown, prompts: Prompts | null | undefined,
 
 /**
  * The `<plan>` body: `labels.selfreflection.plan`, then one line per field of the plan: `planKind` and `planBrief` with
- * `{value}`, `planPicture` or `planNoPicture`, and `planTopic` with `{value}` when the owner gave one. '' without a plan.
+ * `{value}`, the `openings` lines (renderOpenings) under the brief, `planPicture` or `planNoPicture`, and `planTopic`
+ * with `{value}` when the owner gave one. '' without a plan.
  */
-export function planBody(plan: SelfreflectionPlan | null | undefined, labels: Labels): string {
+export function planBody(
+  plan: SelfreflectionPlan | null | undefined,
+  labels: Labels,
+  openings: ReadonlyArray<string> = []
+): string {
   if (!plan || typeof plan !== 'object') return '';
   const kind = typeof plan.kind === 'string' ? plan.kind : '';
   const brief = typeof plan.brief === 'string' ? plan.brief : '';
@@ -63,6 +73,7 @@ export function planBody(plan: SelfreflectionPlan | null | undefined, labels: La
     words.plan,
     line(words.planKind, kind),
     line(words.planBrief, brief),
+    ...openings,
     plan.picture === true ? words.planPicture : words.planNoPicture,
     line(words.planTopic, topic),
   ]
@@ -122,7 +133,7 @@ export function audienceRefusedBody(posts: unknown, labels: Labels, timezone: st
 export type SelfreflectionFramed = {
   /** The body of `<virtual_world>`, '' when world.md is empty. */
   world: string;
-  /** The first line of `<selfreflection>` and one line per past entry, oldest first; the budget cuts the oldest. */
+  /** The first line of `<selfreflection>` and one line per past entry, newest first; the budget cuts the oldest. */
   intro: string;
   entries: Array<string>;
   /** The parts of `<inner>` after `<selfreflection>`, each its tag and body, in order. The budget cuts none. */
@@ -134,10 +145,29 @@ export type SelfreflectionFramed = {
 /** How many past entries `<selfreflection>` shows by default. */
 export const DEFAULT_ENTRIES_SHOWN = 150;
 
-/** How many past entries `<selfreflection>` shows, the setting read now (docs/configuration.md, `selfreflection`). */
-export function entriesShownOf(config: { selfreflection?: { entries?: unknown } | null } | null | undefined): number {
-  const value = config?.selfreflection?.entries;
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : DEFAULT_ENTRIES_SHOWN;
+/** How many past entries the writer's `<selfreflection>` shows by default. */
+export const DEFAULT_WRITER_ENTRIES = 30;
+
+/** How many entries of the plan's kind `<plan>` tells how they opened, and how many words of each, by default. */
+export const DEFAULT_OPENINGS_SHOWN = 5;
+export const DEFAULT_OPENING_WORDS = 4;
+
+type SelfreflectionConfig = { selfreflection?: Readonly<Record<string, unknown>> | null } | null | undefined;
+
+/** A `selfreflection` setting that is a whole count from 0, else `fallback`; the setting read now. */
+function settingOf(config: SelfreflectionConfig, key: string, fallback: number): number {
+  const value = config?.selfreflection?.[key];
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+}
+
+/** How many past entries the planner's `<selfreflection>` shows, the setting read now (docs/configuration.md, `selfreflection`). */
+export function entriesShownOf(config: SelfreflectionConfig): number {
+  return settingOf(config, 'entries', DEFAULT_ENTRIES_SHOWN);
+}
+
+/** How many past entries the writer's `<selfreflection>` shows (`selfreflection.writerEntries`), read now. */
+export function writerEntriesShownOf(config: SelfreflectionConfig): number {
+  return settingOf(config, 'writerEntries', DEFAULT_WRITER_ENTRIES);
 }
 
 const textPart = (tag: string, text: unknown): Array<{ tag: string; text: string }> =>
@@ -145,17 +175,19 @@ const textPart = (tag: string, text: unknown): Array<{ tag: string; text: string
 
 /**
  * The parts of the planner's or the writer's request on the frame, null on any other kind. Both carry the world and
- * her past entries. The planner adds `<kinds>`, `<seeds>`, `<topic>` and `<stored_facts>`, what it chooses from. The writer
- * adds `<plan>` with what the search found, a set post's `<seeds>`, `<publication_places>` and the refused audiences.
+ * her past entries, newest first: the planner the newest `selfreflection.entries`, the writer the newest
+ * `selfreflection.writerEntries`. The planner adds `<kinds>`, `<seeds>`, `<topic>` and `<stored_facts>`, what it chooses from. The writer
+ * adds `<plan>` with what the search found and how her last entries of the plan's kind opened, a set post's `<seeds>`, `<publication_places>` and the refused audiences.
  */
 export function selfreflectionFramedOf(given: RequestInput & { labels: Labels }): SelfreflectionFramed | null {
   const { config, prompts, selfName, labels } = given;
   const kind = kindOfRequest(given);
   if (kind !== 'selfreflection' && kind !== 'selfreflection_plan') return null;
   const input = given.selfreflection ?? {};
-  const shown = renderSelfreflectionBlock(input.entries ?? [], labels, {
+  const past = input.entries ?? [];
+  const shown = renderSelfreflectionBlock(past, labels, {
     timezone: config.bot?.timezone,
-    max: (input.entries ?? []).length,
+    max: kind === 'selfreflection' ? writerEntriesShownOf(config) : past.length,
     sceneChars: config.selfreflection?.sceneChars,
   });
   const lines = shown ? shown.split('\n') : [];
@@ -165,6 +197,14 @@ export function selfreflectionFramedOf(given: RequestInput & { labels: Labels })
     typeof input.found === 'string' && input.found.trim()
       ? [labels.selfreflection?.found, input.found.trim()].filter(Boolean).join('\n')
       : '';
+  const planKind = typeof input.plan?.kind === 'string' ? input.plan.kind : '';
+  const openings = renderOpenings(
+    recentOpenings(past, planKind, {
+      count: settingOf(config, 'openingsShown', DEFAULT_OPENINGS_SHOWN),
+      words: settingOf(config, 'openingWords', DEFAULT_OPENING_WORDS),
+    }),
+    labels
+  );
   const parts =
     kind === 'selfreflection_plan'
       ? [
@@ -174,7 +214,7 @@ export function selfreflectionFramedOf(given: RequestInput & { labels: Labels })
           ...textPart('stored_facts', input.facts),
         ]
       : [
-          ...textPart('plan', [planBody(input.plan, labels), found].filter(Boolean).join('\n')),
+          ...textPart('plan', [planBody(input.plan, labels, openings), found].filter(Boolean).join('\n')),
           ...textPart('seeds', input.seeds),
           ...textPart('publication_places', publicationPlacesBody(input.publicationPlaces, labels)),
         ];

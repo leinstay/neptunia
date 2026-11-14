@@ -66,6 +66,14 @@ export type FrameTurnSpec = {
   mirrors?: ReadonlyArray<MirrorSpec>;
   /** How many entries are stored before the turn, the oldest first, one a day up to the day before FRAME_NOW. */
   entries?: number;
+  /** The kind of entry `i`, `status` past the end of the list. */
+  entryKinds?: ReadonlyArray<string>;
+  /** The gist and text of entry `i`, `gistOf(i)` when absent. */
+  entryGist?: (index: number) => string;
+  /** Wording laid over the shipped `selfreflection` labels, so a test names the markers it looks for. */
+  labels?: Record<string, string>;
+  /** How many turns run one after the other over the same memory, 1 when absent. */
+  turns?: number;
   /** The text of `world.md`. */
   world?: string;
   /** Laid over the `selfreflection` settings, which set `entries` and the planner's limits. */
@@ -117,13 +125,17 @@ function seedWorld(memoryDb: MemoryService): void {
 }
 
 /** `count` group entries of hers, the oldest first, entry `i` with the gist `gistOf(i)`. */
-function seedEntries(memoryDb: MemoryService, count: number): void {
+function seedEntries(
+  memoryDb: MemoryService,
+  count: number,
+  { kinds = [], gist = gistOf }: { kinds?: ReadonlyArray<string>; gist?: (index: number) => string } = {}
+): void {
   const rows = Array.from({ length: count }, (_, i) => ({
     id: `selfreflection:test:${String(i).padStart(3, '0')}`,
     at_ms: FRAME_NOW - (count - i) * DAY,
-    kind: 'status',
-    gist: gistOf(i),
-    text: gistOf(i),
+    kind: kinds[i] ?? 'status',
+    gist: gist(i),
+    text: gist(i),
     scope_kind: 'group',
     scope_iface: 'fake',
     scope_dm: null,
@@ -162,7 +174,9 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
       'selfreflection-seeds': '# place\na pier\n# light\nfog',
       world: spec.world ?? TEXT.world,
       draw: 'DRAW for {{name}}\n{{when}}\n{{request}}',
-      labels: shippedLabels,
+      labels: spec.labels
+        ? { ...shippedLabels, selfreflection: { ...shippedLabels.selfreflection, ...spec.labels } }
+        : shippedLabels,
     },
   };
 }
@@ -188,7 +202,7 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
     text: TEXT.mirrorOnly,
     at: iso(FRAME_NOW - 3 * DAY),
   });
-  seedEntries(memoryDb, spec.entries ?? 3);
+  seedEntries(memoryDb, spec.entries ?? 3, { kinds: spec.entryKinds, gist: spec.entryGist });
   const store = createStore({ dataDir, memoryDb });
   const writer: Array<string> = [];
   const planner: Array<string> = [];
@@ -218,9 +232,12 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
     memoryContext: (given: Record<string, unknown>) =>
       memoryDb.issueContext({ iface: 'fake', ...given, newId: () => `ctx:selfreflection:${(contexts += 1)}` }),
   });
-  const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ chat: null, mode: 'selfreflection', selfreflection: { kind: 'status', forced: true } })
-  );
+  const { result } = await withCapturedLogs(async () => {
+    let last: unknown = null;
+    for (let turn = 0; turn < (spec.turns ?? 1); turn += 1)
+      last = await turns.runTurn({ chat: null, mode: 'selfreflection', selfreflection: { kind: 'status', forced: true } });
+    return last;
+  });
   await store.flushSettled({});
   return { result, writer, planner, port: world().port };
 }

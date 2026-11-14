@@ -412,7 +412,7 @@ export const labels = {
     map: 'Measured: sound only during {spans}.',
   },
   selfreflection: {
-    intro: 'Your latest diary posts, oldest first:',
+    intro: 'Your latest diary posts, newest first:',
     line: '- {date} {kind}: {gist}',
     picture: ' [picture: {scene}]',
     pictureUnknown: 'not recorded',

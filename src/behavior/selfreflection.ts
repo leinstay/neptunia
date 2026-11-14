@@ -663,13 +663,13 @@ function pictureSuffix(post: Obj, labels: unknown, sceneChars: unknown): string 
 }
 
 /**
- * The body of the `<selfreflection>` block over `posts` (oldest first; each `{ at, kind, gist, picture, pictures }`, with `plan` and
+ * The body of the `<selfreflection>` block over `posts` (given oldest first; each `{ at, kind, gist, picture, pictures }`, with `plan` and
  * `pictureDescription` when the store has them): `labels.selfreflection.intro`, then one
  * `labels.selfreflection.line` per post (`{date}` the post's local date in
  * `timezone`, `{kind}` its kind key or `labels.selfreflection.kindUnknown`, `{gist}`)
  * with `labels.selfreflection.picture` appended when the post had a picture, its scene from sceneOf cut to `sceneChars`
  * (`labels.selfreflection.pictureSet` with the count for a set: `pictures` above 1). The
- * newest `max` (selfreflection.historyPosts) posts, oldest first. '' when there is no post.
+ * newest `max` posts, listed newest first. '' when there is no post.
  */
 export function renderSelfreflectionBlock(
   posts: unknown,
@@ -679,7 +679,7 @@ export function renderSelfreflectionBlock(
   const words = selfreflectionWords(labels);
   const list = listOf(posts);
   const limit = countOf(max ?? DEFAULT_HISTORY_POSTS);
-  const shown = limit > 0 ? list.slice(-limit) : [];
+  const shown = limit > 0 ? list.slice(-limit).reverse() : [];
   if (shown.length === 0) return '';
   const lines = shown.map((entry) => {
     const post = objOf(entry);
@@ -689,6 +689,43 @@ export function renderSelfreflectionBlock(
     return line + pictureSuffix(post, labels, sceneChars);
   });
   return [words.intro, ...lines].filter(Boolean).join('\n');
+}
+
+/**
+ * How the newest `count` posts of `kind` that have text open: the first `words` words of each gist, newest first.
+ * `posts` are oldest first, as the store keeps them. A post of another kind or with a blank gist is skipped and takes no
+ * place from `count`. `count` or `words` at 0 gives none, and a gist shorter than `words` gives its whole text.
+ */
+export function recentOpenings(
+  posts: unknown,
+  kind: string,
+  { count, words }: { count: unknown; words: unknown }
+): Array<string> {
+  const limit = countOf(count);
+  const length = countOf(words);
+  const openings: Array<string> = [];
+  if (limit === 0 || length === 0) return openings;
+  for (const post of [...listOf(posts)].reverse()) {
+    if (openings.length >= limit) break;
+    const entry = objOf(post);
+    if (entry.kind !== kind) continue;
+    const opening = oneLine(entry.gist).split(' ').filter(Boolean).slice(0, length).join(' ');
+    if (opening) openings.push(opening);
+  }
+  return openings;
+}
+
+/**
+ * The lines that list `openings` (recentOpenings) under the brief of `<plan>`: `labels.selfreflection.planOpenings` with
+ * `{count}`, then one `labels.selfreflection.planOpening` with `{words}` per opening, in the order given. [] when
+ * there is no opening or either label is missing.
+ */
+export function renderOpenings(openings: ReadonlyArray<string>, labels: unknown): Array<string> {
+  const words = selfreflectionWords(labels);
+  const lead = labelOf(words.planOpenings);
+  const line = labelOf(words.planOpening);
+  if (openings.length === 0 || !lead || !line) return [];
+  return [fill(lead, { count: openings.length }), ...openings.map((opening) => fill(line, { words: opening }))];
 }
 
 /**
@@ -749,10 +786,10 @@ export function parseSeedFamilies(text: unknown): Record<string, Array<string>> 
 
 /**
  * `sets` (selfreflection.seedSets) seed combinations from `families` (parseSeedFamilies): each one random line of every
- * non-empty family,
- * in the families' order. A line in `used` (usedSeedLines) is left out while its family has another line; a family whose
- * every line is used is drawn from whole. [] when no family has a line or `sets` is not a
- * positive count.
+ * non-empty family, in the families' order. A line in `used` (usedSeedLines) is left out while its family has another
+ * line; a family whose every line is used is drawn from whole. The combinations of one draw share no line of a family
+ * while the family has a line left for each of them; a family with fewer lines than combinations repeats once its lines
+ * are taken. [] when no family has a line or `sets` is not a positive count.
  */
 export function pickSeeds(
   families: unknown,
@@ -770,9 +807,17 @@ export function pickSeeds(
     });
   const count = countOf(sets);
   if (lists.length === 0 || count === 0) return [];
+  // One draw takes a line out of its family for each combination, so the combinations differ while a line is left.
+  const left = lists.map((lines) => [...lines]);
   const result: Array<Array<unknown>> = [];
   for (let i = 0; i < count; i += 1) {
-    result.push(lists.map((lines) => lines[Math.min(lines.length - 1, Math.floor(rng() * lines.length))]));
+    result.push(
+      lists.map((lines, family) => {
+        const rest = left[family].length > 0 ? left[family] : (left[family] = [...lines]);
+        const [line] = rest.splice(Math.min(rest.length - 1, Math.floor(rng() * rest.length)), 1);
+        return line;
+      })
+    );
   }
   return result;
 }

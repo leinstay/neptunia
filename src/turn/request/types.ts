@@ -191,7 +191,13 @@ export type RequestConfig = {
     readonly links?: { readonly enabled?: unknown };
     readonly quickSearch?: { readonly enabled?: unknown };
   };
-  readonly selfreflection?: { readonly entries?: number; readonly sceneChars?: number };
+  readonly selfreflection?: {
+    readonly entries?: number;
+    readonly writerEntries?: number;
+    readonly openingsShown?: number;
+    readonly openingWords?: number;
+    readonly sceneChars?: number;
+  };
   readonly media?: { readonly video?: { readonly sites?: ReadonlyArray<string> } };
   readonly models?: { readonly routes?: Record<string, unknown> };
 };
