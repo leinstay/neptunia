@@ -17,6 +17,8 @@ import {
   setSettings,
   validatePlan,
   renderSelfreflectionBlock,
+  recentOpenings,
+  renderOpenings,
   renderKindsBlock,
   parseSeedFamilies,
   pickSeeds,
@@ -30,6 +32,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { fill, localHour } from '../src/format.ts';
 import { MINUTE_MS, HOUR_MS } from '../src/time.ts';
 import { labels } from './fixtures/labels.ts';
+import { seeded } from './fixtures/selfreflection-prepare.ts';
 import { createStore } from '../src/memory/store.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -509,7 +512,8 @@ test('validatePlan: a long brief is cut to one line', () => {
   assert.ok([...plan.brief].length <= 300);
 });
 
-test('renderSelfreflectionBlock: oldest first, at most max lines, picture suffix when present', () => {
+test('renderSelfreflectionBlock: newest first, at most max lines, picture suffix when present', () => {
+  // newest first since 2026-11-14 (specs/2026-11-14-diary-in-her-own-words.md)
   const posts = [
     { at: Date.parse('2026-03-01T10:00:00Z'), kind: 'status', gist: 'oldest', picture: null },
     { at: Date.parse('2026-03-02T10:00:00Z'), kind: null, gist: 'from the backfill', picture: true },
@@ -520,16 +524,29 @@ test('renderSelfreflectionBlock: oldest first, at most max lines, picture suffix
   assert.equal(
     text,
     [
-      'Your latest diary posts, oldest first:',
-      '- 2026-03-02 post: from the backfill [picture: not recorded]',
-      '- 2026-03-04 selfPicture: on the pier [picture: a pier at dusk]',
+      'Your latest diary posts, newest first:',
       '- 2026-03-04 thought: café thoughts',
+      '- 2026-03-04 selfPicture: on the pier [picture: a pier at dusk]',
+      '- 2026-03-02 post: from the backfill [picture: not recorded]',
     ].join('\n')
   );
   assert.equal(renderSelfreflectionBlock([], labels, { timezone: 'UTC', max: 3 }), '');
 });
 
+test('renderSelfreflectionBlock: a cut to max keeps the newest posts, not the first ones given', () => {
+  // Bug: the list is reversed and then cut with the old `slice(-max)`, so the oldest posts stay.
+  const posts = ['one', 'two', 'three', 'four'].map((gist, index) => ({
+    at: Date.UTC(2026, 2, 1 + index, 10),
+    kind: 'status',
+    gist,
+    picture: null,
+  }));
+  const lines = renderSelfreflectionBlock(posts, labels, { timezone: 'UTC', max: 2 }).split('\n');
+  assert.deepEqual(lines.slice(1), ['- 2026-03-04 status: four', '- 2026-03-03 status: three']);
+});
+
 test('renderSelfreflectionBlock: a set renders its first scene with the picture count', () => {
+  // newest first since 2026-11-14 (specs/2026-11-14-diary-in-her-own-words.md)
   const posts = [
     { at: Date.parse('2026-03-01T10:00:00Z'), kind: 'tour', gist: 'a walk', picture: 'a harbour at noon', pictures: 5 },
     { at: Date.parse('2026-03-02T10:00:00Z'), kind: 'selfPicture', gist: 'alone', picture: 'a pier', pictures: 1 },
@@ -538,10 +555,94 @@ test('renderSelfreflectionBlock: a set renders its first scene with the picture 
   const lines = text.split('\n');
   assert.ok(labels.selfreflection.pictureSet, 'the fixture carries the label');
   assert.equal(
-    lines[1],
+    lines[2],
     `- 2026-03-01 tour: a walk${fill(labels.selfreflection.pictureSet, { count: 5, scene: 'a harbour at noon' })}`
   );
-  assert.equal(lines[2], '- 2026-03-02 selfPicture: alone [picture: a pier]', 'one picture keeps the plain suffix');
+  assert.equal(lines[1], '- 2026-03-02 selfPicture: alone [picture: a pier]', 'one picture keeps the plain suffix');
+});
+
+/** Past entries as the store keeps them, oldest first, one day apart: a `[kind, gist]` pair each. */
+const entriesOf = (...rows: Array<[string, string]>) =>
+  rows.map(([kind, gist], index) => ({ at: Date.UTC(2026, 2, 1 + index, 10), kind, gist, picture: null }));
+
+test('recentOpenings: the first words of the newest entries of the kind, newest first, up to count', () => {
+  // Bug: the openings come oldest first, whole gists, or more than count of them.
+  const posts = entriesOf(
+    ['status', 'first walk by the harbour today'],
+    ['status', 'second walk in the morning rain'],
+    ['status', 'third walk before the market opens']
+  );
+  assert.deepEqual(recentOpenings(posts, 'status', { count: 2, words: 3 }), ['third walk before', 'second walk in']);
+});
+
+test('recentOpenings: an entry of another kind is skipped', () => {
+  // Bug: the openings of a thought are shown to a status entry, so the kinds blur their own habits.
+  const posts = entriesOf(
+    ['status', 'harbour walk at dawn'],
+    ['thought', 'tides and the moon'],
+    ['thought', 'a note on sleep']
+  );
+  assert.deepEqual(recentOpenings(posts, 'status', { count: 5, words: 2 }), ['harbour walk']);
+});
+
+test('recentOpenings: an entry with no text is skipped and takes no place from count', () => {
+  // Bug: a picture entry with an empty gist gives an empty line or uses up the count.
+  const posts = [
+    ...entriesOf(['status', 'older walk by the pier']),
+    { at: Date.UTC(2026, 2, 2, 10), kind: 'status', gist: '', picture: 'a pier' },
+    { at: Date.UTC(2026, 2, 3, 10), kind: 'status', gist: '   ', picture: null },
+  ];
+  assert.deepEqual(recentOpenings(posts, 'status', { count: 1, words: 2 }), ['older walk']);
+});
+
+test('recentOpenings: count 0 gives none', () => {
+  // Bug: 0 reads as unset and the default count shows.
+  const posts = entriesOf(['status', 'a walk by the pier']);
+  assert.deepEqual(recentOpenings(posts, 'status', { count: 0, words: 3 }), []);
+});
+
+test('recentOpenings: words 0 gives none', () => {
+  // Bug: 0 words reads as the whole gist.
+  const posts = entriesOf(['status', 'a walk by the pier']);
+  assert.deepEqual(recentOpenings(posts, 'status', { count: 3, words: 0 }), []);
+});
+
+test('recentOpenings: a gist shorter than words gives its whole text', () => {
+  // Bug: the short gist is padded, dropped or ends on a stray separator.
+  const posts = entriesOf(['status', 'quiet day']);
+  assert.deepEqual(recentOpenings(posts, 'status', { count: 3, words: 4 }), ['quiet day']);
+});
+
+test('recentOpenings: no posts, or a value that is no list, give none', () => {
+  // Bug: an empty store or an old malformed value throws before the compose request is built.
+  assert.deepEqual(recentOpenings([], 'status', { count: 3, words: 3 }), []);
+  assert.deepEqual(recentOpenings(undefined, 'status', { count: 3, words: 3 }), []);
+});
+
+test('renderOpenings: the lead line with the count, then one line per opening in the given order', () => {
+  // Bug: the count in the lead is missing or wrong, or the lines come back reordered.
+  const words = { selfreflection: { planOpenings: 'RECENT {count}', planOpening: 'OPENED {words}' } };
+  assert.deepEqual(renderOpenings(['third walk', 'second walk'], words), [
+    'RECENT 2',
+    'OPENED third walk',
+    'OPENED second walk',
+  ]);
+});
+
+test('renderOpenings: an empty list gives no lines, not a lead with nothing under it', () => {
+  // Bug: a lead line that promises openings stands alone in the plan.
+  const words = { selfreflection: { planOpenings: 'RECENT {count}', planOpening: 'OPENED {words}' } };
+  assert.deepEqual(renderOpenings([], words), []);
+});
+
+test('renderOpenings: a missing lead label gives no lines', () => {
+  // Bug: a deployment that holds no label gets "undefined" lines in her request.
+  assert.deepEqual(renderOpenings(['third walk'], { selfreflection: { planOpening: 'OPENED {words}' } }), []);
+});
+
+test('renderOpenings: a missing line label gives no lines', () => {
+  // Bug: the lead stands alone, or the openings are listed with no label around them.
+  assert.deepEqual(renderOpenings(['third walk'], { selfreflection: { planOpenings: 'RECENT {count}' } }), []);
 });
 
 test('isSetKind: listed kinds, the default list when none is given', () => {
@@ -642,6 +743,40 @@ test('pickSeeds: a family whose every line is used is drawn from whole', () => {
   assert.equal(set?.length, 2);
   assert.ok(families.place.includes(String(set?.[0])), String(set?.[0]));
   assert.equal(set?.[1], 'swimming');
+});
+
+test('pickSeeds: two combinations of one draw share no line while the family has several', () => {
+  // Bug: the combinations are drawn independently and one draw offers the same activity twice (2026-11-13).
+  const families = { place: ['a pier', 'an alley', 'a roof'], light: ['fog', 'rain', 'snow', 'dusk'] };
+  const rng = seeded(7);
+  for (let draw = 0; draw < 500; draw += 1) {
+    const [first, second] = pickSeeds(families, 2, rng);
+    if (!first || !second) assert.fail(`draw ${draw} gave fewer than two combinations`);
+    first.forEach((line, family) => assert.notEqual(line, second[family], `draw ${draw}, family ${family}`));
+  }
+});
+
+test('pickSeeds: a family of one line repeats it while the other families still differ', () => {
+  // Bug: the draw refuses the repeat of the single line and comes back short, or drops the family.
+  const families = { place: ['a pier', 'an alley', 'a roof'], light: ['fog'] };
+  const rng = seeded(11);
+  for (let draw = 0; draw < 200; draw += 1) {
+    const [first, second] = pickSeeds(families, 2, rng);
+    if (!first || !second) assert.fail(`draw ${draw} gave fewer than two combinations`);
+    assert.deepEqual([first[1], second[1]], ['fog', 'fog']);
+    assert.notEqual(first[0], second[0], `draw ${draw}`);
+  }
+});
+
+test('pickSeeds: more combinations than lines still gives every combination a line of each family', () => {
+  // Bug: a draw without replacement runs out of lines and a combination comes back with a hole.
+  const families = { place: ['a pier', 'a roof'], light: ['fog', 'rain', 'snow'] };
+  const sets = pickSeeds(families, 3, seeded(3));
+  assert.equal(sets.length, 3);
+  for (const set of sets) {
+    assert.ok(families.place.includes(String(set[0])), String(set[0]));
+    assert.ok(families.light.includes(String(set[1])), String(set[1]));
+  }
 });
 
 /** A past entry the planner planned: `seeds` the combinations offered, `seed` the 1-based one taken (0 for none). */

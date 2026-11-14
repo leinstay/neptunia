@@ -29,6 +29,7 @@ import {
   FRAME_NOW,
   JOURNAL,
   PAGES,
+  PLAN as FRAME_PLAN,
   TEXT as FRAME_TEXT,
   blockOf,
   frameTurn,
@@ -323,7 +324,7 @@ test('diary turn: plans on the analyzer model, then composes with the card', asy
   const composeUser = userOf(compose);
   // Slice 6: the world is `<virtual_world>` whenever world.md has text, and the plan is lines in `<inner>`, no JSON.
   // Her past entries come from memory, which this fake store has not: '<selfreflection> holds the newest 150 of 200
-  // stored entries oldest first' below checks that they reach the writer. The writer is nowhere, so no diary channel
+  // stored entries newest first' below checks that they reach the writer. The writer is nowhere, so no diary channel
   // is named in its senses.
   assert.ok(composeUser.includes('<virtual_world>\nWORLD of Bot\n</virtual_world>'));
   assert.ok(
@@ -1242,18 +1243,21 @@ test('diary set: the compose request carries selfreflection.set.seedSets seeds f
 
 // The selfreflection turn on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of
 // 2026-11-07): `chat: null`, `<selfreflection>` in `<inner>` read from the `selfreflection` table, newest
-// `selfreflection.entries` oldest first, `<meanwhile>` as in the service template, and the entry still reaching
+// `selfreflection.entries` for the planner and `selfreflection.writerEntries` for the writer, newest first
+// (2026-11-14), `<meanwhile>` as in the service template, and the entry still reaching
 // every mirror. tests/fixtures/selfreflection-frame.ts holds the scene.
 
 /** The positions of the gists of entries `from` to `to` (inclusive) in `text`, -1 for an absent one. */
 const gistsAt = (text: string, from: number, to: number): Array<number> =>
   Array.from({ length: to - from + 1 }, (_, i) => text.indexOf(gistOf(from + i)));
 
-test('<selfreflection> holds the newest 150 of 200 stored entries oldest first', async () => {
-  // Bug: the block keeps the old history cut, reads the first mirror's messages, or renders newest first.
+test("the planner's <selfreflection> holds the newest 150 of 200 stored entries newest first", async () => {
+  // Bug: the block keeps the old history cut, reads the first mirror's messages, or renders oldest first.
   // Slice 6: the setting is `selfreflection.entries` (the owner's rule: `diary` only in prompts).
+  // newest first since 2026-11-14 (specs/2026-11-14-diary-in-her-own-words.md); the writer's count is
+  // `selfreflection.writerEntries` now, so this reads the planner's request, which keeps `selfreflection.entries`.
   const run = await frameTurn({ entries: 200, selfreflection: { entries: 150 } });
-  const text = run.writer[0] ?? '';
+  const text = run.planner[0] ?? '';
   const block = partOf(blockOf(text, 'inner'), 'selfreflection');
   const kept = gistsAt(block, 50, 199);
   assert.ok(
@@ -1262,8 +1266,8 @@ test('<selfreflection> holds the newest 150 of 200 stored entries oldest first',
   );
   assert.deepEqual(
     kept,
-    [...kept].sort((a, b) => a - b),
-    'oldest first'
+    [...kept].sort((a, b) => b - a),
+    'newest first'
   );
   assert.ok(
     gistsAt(block, 0, 49).every((at) => at < 0),
@@ -1283,15 +1287,101 @@ test('<selfreflection> reads no mirror place', async () => {
   assert.deepEqual(reads, []);
 });
 
-test('<selfreflection> is cut at selfreflection.entries', async () => {
+test("the planner's <selfreflection> is cut at selfreflection.entries", async () => {
   // Bug: the new setting is not read and the block keeps a constant 150.
   // Slice 6: the setting is `selfreflection.entries`, not `diaryEntries` (the owner's rule: `diary` only in prompts).
+  // The writer's cut is `selfreflection.writerEntries` since 2026-11-14 (specs/2026-11-14-diary-in-her-own-words.md),
+  // so this reads the planner's request.
   const run = await frameTurn({ entries: 5, selfreflection: { entries: 2 } });
-  const block = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'selfreflection');
+  const block = partOf(blockOf(run.planner[0] ?? '', 'inner'), 'selfreflection');
   assert.deepEqual(
     gistsAt(block, 0, 4).map((at) => at >= 0),
     [false, false, false, true, true]
   );
+});
+
+test("the writer's <selfreflection> is cut at selfreflection.writerEntries, whatever selfreflection.entries is", async () => {
+  // Bug: the writer keeps the planner's 150 and ships twenty thousand characters of her own past on every entry.
+  const run = await frameTurn({ entries: 8, selfreflection: { entries: 6, writerEntries: 3 } });
+  const block = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'selfreflection');
+  assert.deepEqual(
+    gistsAt(block, 0, 7).map((at) => at >= 0),
+    [false, false, false, false, false, true, true, true]
+  );
+});
+
+/** The marker texts of the openings under the brief: the test's own wording, so no shipped wording is read. */
+const OPENING_LABELS = { planOpenings: 'OPENINGS-LEAD {count}', planOpening: 'OPENING-LINE {words}' };
+
+/** A gist of four words whose first two are `gistOf(index)` and a marker, so a cut at two words is visible. */
+const longGist = (index: number): string => `${gistOf(index)} ΑΡΧΗ-${index} ΜΕΣΗ-${index} ΤΕΛΟΣ-${index}`;
+
+/** The three oldest entries are status, the three newest thought, so an opening that ignores the kind shows the newest. */
+const KINDS = ['status', 'status', 'status', 'thought', 'thought', 'thought'];
+
+test('the compose request holds the openings of the entry kind under the brief, newest first, and none of another kind', async () => {
+  // Bug: she is not told how her last entries of this kind began, or is told how a thought began for a status.
+  const run = await frameTurn({
+    entries: 6,
+    entryKinds: KINDS,
+    entryGist: longGist,
+    labels: OPENING_LABELS,
+    selfreflection: { openingsShown: 3, openingWords: 2 },
+  });
+  const plan = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'plan');
+  const at = (text: string): number => plan.indexOf(text);
+  const lines = [2, 1, 0].map((index) => `OPENING-LINE ${gistOf(index)} ΑΡΧΗ-${index}`);
+  const positions = [at(FRAME_PLAN.brief), at('OPENINGS-LEAD 3'), ...lines.map(at)];
+  assert.ok(
+    positions.every((one) => one >= 0),
+    plan
+  );
+  assert.deepEqual(
+    positions,
+    [...positions].sort((a, b) => a - b),
+    'under the brief, newest first'
+  );
+  assert.ok(!plan.includes('ΜΕΣΗ-'), 'only the first two words of each');
+  for (const index of [3, 4, 5]) assert.ok(!plan.includes(gistOf(index)), `no thought: ${gistOf(index)}`);
+});
+
+test("the openings go to the compose request and the planner's request holds none", async () => {
+  // Bug: the planner is shown how entries opened and writes a brief that already carries the entry's first words.
+  const run = await frameTurn({
+    entries: 6,
+    entryKinds: KINDS,
+    entryGist: longGist,
+    labels: OPENING_LABELS,
+    selfreflection: { openingsShown: 3, openingWords: 2 },
+  });
+  assert.ok((run.writer[0] ?? '').includes('OPENINGS-LEAD'), 'the writer holds them, so the planner has a reason to');
+  const text = run.planner[0] ?? '';
+  assert.ok(text.length > 0, 'the planner was asked');
+  assert.ok(!text.includes('OPENINGS-LEAD'), 'no lead');
+  assert.ok(!text.includes('OPENING-LINE'), 'no line');
+});
+
+test('two compose requests with nothing stored between them hold the same <plan> and <selfreflection>', async () => {
+  // Bug: something per request (a clock, a draw, an unordered set) enters the openings or the list and breaks the cache.
+  // Her answer skips, so the first turn stores nothing for the second to read.
+  const run = await frameTurn({
+    entries: 6,
+    entryKinds: KINDS,
+    entryGist: longGist,
+    labels: OPENING_LABELS,
+    selfreflection: { openingsShown: 3, openingWords: 2 },
+    answer: '<skip/>',
+    turns: 2,
+  });
+  assert.equal(run.writer.length, 2, 'one compose request per turn');
+  const [first = '', second = ''] = run.writer.map((text) => blockOf(text, 'inner'));
+  assert.ok(
+    partOf(first, 'plan').includes('OPENINGS-LEAD'),
+    'the plan holds openings, so the comparison means something'
+  );
+  assert.equal(partOf(second, 'plan'), partOf(first, 'plan'));
+  assert.notEqual(partOf(first, 'selfreflection'), '');
+  assert.equal(partOf(second, 'selfreflection'), partOf(first, 'selfreflection'));
 });
 
 test('<meanwhile> of the writer holds her lines from the groups of two interfaces and none from a direct chat', async () => {

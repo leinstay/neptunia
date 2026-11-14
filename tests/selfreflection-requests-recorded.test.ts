@@ -39,8 +39,9 @@ async function writerEntries(port: ReturnType<typeof createFakeAdapter> | null =
   return entriesPart(llm);
 }
 
-test("the writer's <selfreflection> holds her five entries from memory oldest first, the picture described", async () => {
-  // Bug: her entries do not reach the writer, come back newest first, or the picture post loses what she saw in it.
+test("the writer's <selfreflection> holds her five entries from memory newest first, the picture described", async () => {
+  // Bug: her entries do not reach the writer, come back oldest first, or the picture post loses what she saw in it.
+  // newest first since 2026-11-14 (specs/2026-11-14-diary-in-her-own-words.md)
   // Slice 6: the entries are `<selfreflection>` in `<inner>`, read from the selfreflection table, where the writer's
   // `<chat>` of the diary channel stood.
   const part = await writerEntries();
@@ -51,8 +52,8 @@ test("the writer's <selfreflection> holds her five entries from memory oldest fi
   );
   assert.deepEqual(
     at,
-    [...at].sort((a, b) => a - b),
-    'oldest first'
+    [...at].sort((a, b) => b - a),
+    'newest first'
   );
   assert.ok(part.includes(PICTURE.description), part);
 });
