@@ -320,7 +320,8 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     { name: 'meanwhile', keep: 'newest', items: offered.windowTexts },
     { name: 'inner', keep: 'first', items: offered.inner.map((one) => one.text) },
     { name: 'virtual_world', items: [given.selfreflection?.world ?? ''].filter(Boolean) },
-    { name: 'selfreflection', keep: 'newest', items: given.selfreflection?.entries ?? [] },
+    // The entries stand newest first, so the contiguous run from the start the budget keeps is the newest.
+    { name: 'selfreflection', keep: 'oldest', items: given.selfreflection?.entries ?? [] },
   ];
 }
 

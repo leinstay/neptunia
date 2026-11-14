@@ -430,6 +430,9 @@
     "quietDayChance": 0.3,
     "forceWaitMs": 120000,
     "entries": 150,
+    "writerEntries": 30,
+    "openingsShown": 5,
+    "openingWords": 4,
     "sceneChars": 400,
     "loop": {
       "maxSteps": 2,

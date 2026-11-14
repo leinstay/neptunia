@@ -315,7 +315,7 @@
       "map": "Measured from the file's audio levels: sound is audible only during {spans}. Everything outside those stretches is silence."
     },
     "selfreflection": {
-      "intro": "Your latest diary posts, oldest first:",
+      "intro": "Your latest diary posts, newest first:",
       "line": "- {date} {kind}: {gist}",
       "picture": " [picture: {scene}]",
       "pictureUnknown": "not recorded",
@@ -326,6 +326,8 @@
       "plan": "Plan for this post:",
       "planKind": "Kind: {value}",
       "planBrief": "Brief: {value}",
+      "planOpenings": "Your last {count} posts of this kind opened with these words, newest first. These openings are taken:",
+      "planOpening": "- {words}",
       "planPicture": "It carries a picture.",
       "planNoPicture": "It carries no picture.",
       "planTopic": "The owner's topic: {value}",

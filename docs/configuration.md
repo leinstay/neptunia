@@ -414,7 +414,10 @@ The engine proxy is described in [Proxy](proxy.md).
 | `selfreflection.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/selfreflection.ts` |
 | `selfreflection.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/selfreflection.ts` |
 | `selfreflection.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/selfreflection.ts` |
-| `selfreflection.entries` | number | `150` | How many of her newest stored entries `<selfreflection>` shows the planner and the writer, oldest first | `src/turn/request/selfreflection.ts` |
+| `selfreflection.entries` | number | `150` | How many of her newest stored entries `<selfreflection>` shows the planner, newest first | `src/turn/request/selfreflection.ts` |
+| `selfreflection.writerEntries` | number | `30` | How many of her newest stored entries `<selfreflection>` shows the writer, newest first | `src/turn/request/selfreflection.ts` |
+| `selfreflection.openingsShown` | number | `5` | How many of her newest entries of the post's kind `<plan>` tells the writer how they opened. 0 shows none | `src/turn/request/selfreflection.ts` |
+| `selfreflection.openingWords` | number | `4` | How many words of each of those entries `<plan>` shows. 0 shows none | `src/turn/request/selfreflection.ts` |
 | `selfreflection.sceneChars` | number | `400` | Characters of a past picture post's picture description that `<selfreflection>` shows as its scene when the post has no stored plan, cut at a word boundary | `src/turn/request/selfreflection.ts` |
 | `selfreflection.loop.maxSteps` | number | `2` | Further requests one selfreflection post makes | `src/turn/settings.ts` |
 | `selfreflection.loop.timeBudgetMs` | number | `600000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
