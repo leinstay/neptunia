@@ -110,8 +110,11 @@ test('catalogue: every entry has a known status, a group and only the values the
     assert.ok(statuses.has(entry.status), code);
     assert.ok(['skill', 'wake', 'internal', 'ok'].includes(entry.group), code);
     // `ability` and `why` are the values of `ability-unavailable` (PR E in detail, stage 4 cut spec).
+    // `minutes` and `window` are the values of `cooldown`: the minutes left and the window of the setting.
     assert.ok(
-      entry.params.every((param) => ['status', 'what', 'feature', 'ability', 'why'].includes(param)),
+      entry.params.every((param) =>
+        ['status', 'what', 'feature', 'ability', 'why', 'minutes', 'window'].includes(param)
+      ),
       code
     );
   }
@@ -120,7 +123,8 @@ test('catalogue: every entry has a known status, a group and only the values the
       .filter((code) => (CATALOGUE as Record<string, Untyped>)[code].params.length > 0)
       .sort(),
     // `ability-unavailable` names the ability and why its role is down (PR E in detail, stage 4 cut spec).
-    ['ability-unavailable', 'cap', 'http', 'not-configured', 'provider', 'timeout']
+    // `cooldown` names the minutes left and the window of `tools.destructiveCooldownMinutes`.
+    ['ability-unavailable', 'cap', 'cooldown', 'http', 'not-configured', 'provider', 'timeout']
   );
 });
 
@@ -224,6 +228,20 @@ test('reasonText: the values fill, a {what} or {feature} goes through labels.too
   assert.equal(reasonText(labels, 'not-found', { status: '9' }, fill), 'nothing found');
   assert.equal(reasonText(labels, 'unheard-of', {}, fill), null);
   assert.equal(reasonText({}, 'timeout', {}, fill), null);
+});
+
+// Bug: a cooldown refusal stored before it carried values is shown with `{minutes}` and `{window}` left in the text
+// instead of falling back to reasons.other.
+test('reasonText: a cooldown with no values gives no text, and with its values names both numbers', () => {
+  const labels = {
+    tools: { result: { reasons: { cooldown: 'own call within {window} min, again in {minutes} min' } } },
+  };
+  assert.equal(reasonText(labels, 'cooldown', null, fill), null);
+  assert.equal(reasonText(labels, 'cooldown', {}, fill), null);
+  assert.equal(
+    reasonText(labels, 'cooldown', { minutes: 7, window: 10 }, fill),
+    'own call within 10 min, again in 7 min'
+  );
 });
 
 test("an HTTP status in a port's code is the http reason with its status", () => {

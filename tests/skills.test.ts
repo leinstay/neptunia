@@ -648,6 +648,7 @@ test('skills gateway: a call she holds no grant for stays refused not-allowed wh
     assert.deepEqual(add(requester), { ok: false, code: 'not-allowed', reason: 'lore.add' }, JSON.stringify(requester));
 });
 
+// The refusal carries the minutes left and the window (`values`) since the cooldown refusal says how long is left.
 test('skills gateway: a destructive skill waits out its cooldown in a channel (tools.destructiveCooldownMinutes)', () => {
   const remove = (lastRunAt: null | number, cfg = config({ tools: { destructiveCooldownMinutes: 10 } })) =>
     check({ skill: 'lore.remove', args: { id: 'l1' }, granted: ['lore.remove'], lastRunAt, now: 1_000_000, cfg });
@@ -656,6 +657,7 @@ test('skills gateway: a destructive skill waits out its cooldown in a channel (t
     ok: false,
     code: 'cooldown',
     reason: 'tools.destructiveCooldownMinutes',
+    values: { minutes: 5, window: 10 },
   });
   assert.deepEqual(remove(1_000_000 - 5 * 60_000, config({ tools: { destructiveCooldownMinutes: 4 } })), { ok: true });
   // a write is no destructive call
@@ -669,6 +671,35 @@ test('skills gateway: a destructive skill waits out its cooldown in a channel (t
     }),
     { ok: true }
   );
+});
+
+/** The `values` of a `lore.remove` refused by its cooldown: the last run `agoMs` before `now` under `window` minutes. */
+function cooldownValues(agoMs: number, window: number): unknown {
+  const NOW_MS = 1_000_000;
+  const verdict = check({
+    skill: 'lore.remove',
+    args: { id: 'l1' },
+    granted: ['lore.remove'],
+    lastRunAt: NOW_MS - agoMs,
+    now: NOW_MS,
+    cfg: config({ tools: { destructiveCooldownMinutes: window } }),
+  });
+  return asRecord(verdict).values;
+}
+
+// Bug: a part of a minute left is rounded down, so the refusal says 0 minutes while the tool is still closed.
+test('skills gateway: a cooldown with 30 seconds left says 1 minute', () => {
+  assert.deepEqual(cooldownValues(9 * 60_000 + 30_000, 10), { minutes: 1, window: 10 });
+});
+
+// Bug: the minutes left are rounded to the nearest, so a call one second after the last says 9 minutes instead of 10.
+test('skills gateway: a cooldown that began a second ago says the whole window is left', () => {
+  assert.deepEqual(cooldownValues(1000, 10), { minutes: 10, window: 10 });
+});
+
+// Bug: the window and the minutes left come from the shipped default of 10 instead of tools.destructiveCooldownMinutes.
+test('skills gateway: the cooldown values follow tools.destructiveCooldownMinutes', () => {
+  assert.deepEqual(cooldownValues(60_000, 4), { minutes: 3, window: 4 });
 });
 
 // PR 7d: features.tools is code, so the switch-off half of this test went with it.
