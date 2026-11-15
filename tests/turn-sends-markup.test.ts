@@ -11,6 +11,7 @@ import { createIfaceRouter } from '../src/interface/link.ts';
 import type { Capabilities } from '../src/protocol/adapter.ts';
 import { createSends } from '../src/turn/sends.ts';
 import type { RenderedPost } from '../src/turn/sends.ts';
+import type { HandleTarget } from '../src/turn/request/types.ts';
 
 const MEMBER = '410000000000000001';
 const MEMBER_NAME = 'Robin';
@@ -125,6 +126,77 @@ test('the served interface keeps its mention, channel link, emoji and jump link 
   assert.ok(post.text.includes('<:wave:7>'), post.text);
   assert.ok(post.text.includes(`/${QUOTED}`), post.text);
   assert.deepEqual(post.accountIds, [MEMBER]);
+});
+
+/** A person the request held by their key, and the handle cut from it. */
+const PERSON = 'person:p1';
+const PERSON_HANDLE = handleOf(PERSON);
+const NO_ACCOUNT: HandleTarget = { name: null, accounts: [] };
+
+/** `written` posted in a direct chat of the served interface, over a store that links accounts `m1` and `m2`. */
+function renderServed(
+  written: string,
+  over: {
+    targets: ReadonlyMap<string, HandleTarget>;
+    directory: () => Array<{ id: string; name: string }>;
+  }
+): RenderedPost {
+  const persons: Record<string, string> = { m1: PERSON, m2: 'person:p2' };
+  const sends = createSends({
+    hot: { config: { features: {} }, prompts: null },
+    store: { personOfAccount: (account: string) => persons[account] ?? null },
+    emoji: { byName: () => null },
+    chatName: () => null,
+    clock: () => 0,
+    schedule: () => null,
+    activity: null,
+    iface: routerOf(),
+  });
+  return sends.renderPost(written, {
+    channel: { id: 'd1', rootId: null, iface: 'served' },
+    placeId: 'd1',
+    dmChat: true,
+    idByIndex: null,
+    handles: new Map([[PERSON_HANDLE, PERSON]]),
+    targets: over.targets,
+    directory: over.directory,
+  });
+}
+
+test('a handle held by its key with no account mentions the directory member whose person it names', () => {
+  // Catches: the key the map holds goes out as `<@person:p1>` instead of the member's platform id.
+  const post = renderServed(`ask @${PERSON_HANDLE}`, {
+    targets: new Map([[PERSON_HANDLE, NO_ACCOUNT]]),
+    directory: () => [{ id: 'm1', name: 'Ann' }],
+  });
+  assert.equal(post.text, 'ask <@m1>');
+  assert.deepEqual(post.accountIds, ['m1']);
+});
+
+test('a handle held by its key with no account and no member in the directory stays as she wrote it', () => {
+  // Catches: with no member to resolve to, the handle still goes out as a raw `<@person:p1>` token or notifies someone.
+  const post = renderServed(`ask @${PERSON_HANDLE}`, {
+    targets: new Map([[PERSON_HANDLE, NO_ACCOUNT]]),
+    directory: () => [{ id: 'm2', name: 'Bo' }],
+  });
+  assert.equal(post.text, `ask @${PERSON_HANDLE}`);
+  assert.deepEqual(post.accountIds, []);
+});
+
+test('a handle whose target has an account on the served interface mentions that account without the directory', () => {
+  // Catches: the fix sends every handle through the directory, so a person with a known account loses the mention or
+  // the directory is read on every post.
+  let asked = 0;
+  const post = renderServed(`ask @${PERSON_HANDLE}`, {
+    targets: new Map([[PERSON_HANDLE, { name: 'Ann', accounts: [{ iface: 'served', native: 'm9' }] }]]),
+    directory: () => {
+      asked += 1;
+      return [{ id: 'm1', name: 'Ann' }];
+    },
+  });
+  assert.equal(post.text, 'ask <@m9>');
+  assert.deepEqual(post.accountIds, ['m9']);
+  assert.equal(asked, 0);
 });
 
 test('a posted identity of a line in another place of this interface links through the chat its place row holds', () => {

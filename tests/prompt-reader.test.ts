@@ -23,6 +23,8 @@ import { claimEntry, excerptEntry, mindOfEntries, personEntry, placeEntry } from
 import { MIN, NOW, baseInput, exactly, fakeConfig, fakePrompts, makeMessage } from './fixtures/prompt-rig.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 import { handleOf } from '../src/behavior/handles.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
+import { createSends } from '../src/turn/sends.ts';
 
 const TIMEZONE = 'Europe/Moscow';
 const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart', relation: 'ΣΧΕΣΗ-ΕΛΕΝΗΣ' });
@@ -230,6 +232,65 @@ test('a counterpart the reader did not raise takes the @handle of the id the int
   const built = request({ frame, mind: mindOfEntries({}) });
   const handled = new Set(built.handles?.values() ?? []);
   assert.ok(handled.has('444'), [...handled].join(', '));
+});
+
+/**
+ * Ann is on her mind behind a crowd that fills `<people>` under a tight request, she is no member of the chat and wrote
+ * in no window, and `<attitudes>` still shows her handle.
+ */
+const ANN = personEntry('555', 'Ann', { relation: 'relation '.repeat(60) });
+const ANN_HANDLE = handleOf(ANN.personId);
+const AHEAD = Array.from({ length: 60 }, (_, i) =>
+  personEntry(String(6000 + i), `Someone-${i}`, { relation: 'relation '.repeat(60) })
+);
+function annOnlyInAttitudes(): Built {
+  return request({
+    mind: mindOfEntries({ people: [ELENI, ...AHEAD, ANN] }),
+    attitudes: {
+      list: [{ person: ANN.personId, score: 90, at: '2026-11-01T00:00:00Z' }],
+      names: { [ANN.personId]: 'Ann' },
+    },
+    config: fakeConfig({ context: CONTEXT, llm: { maxRequestTokens: exactly(3000) } }),
+  });
+}
+
+test('a handle shown with no entry, no chat membership and no window maps to the person key and gets a target with no account', () => {
+  // Catches: a handle read in <attitudes> carries only the person key, so a post wraps it as `<@person:…>`.
+  const built = annOnlyInAttitudes();
+  assert.ok(userOf(built).includes(`@${ANN_HANDLE}`), 'the handle stands in the request');
+  assert.ok(!block(built, 'memory').includes('Ann'), 'Ann has no entry in <people>');
+  assert.equal(built.handles?.get(ANN_HANDLE), ANN.personId);
+  const targets = built.refs?.targets;
+  const target = targets?.get(ANN_HANDLE);
+  assert.ok(target, 'the handle has a target');
+  assert.equal(target.name, null);
+  assert.deepEqual(target.accounts, []);
+});
+
+test('a post rendered with the handles and targets of a request mentions only platform ids', () => {
+  // Catches: the reader and renderPost disagree on a handle held by its key, and a raw `<@person:…>` goes out.
+  const built = annOnlyInAttitudes();
+  const sends = createSends({
+    hot: { config: { features: {} }, prompts: null },
+    store: { personOfAccount: (account: string) => (account === '555' ? ANN.personId : null) },
+    emoji: { byName: () => null },
+    chatName: () => null,
+    clock: () => 0,
+    schedule: () => null,
+    activity: null,
+    iface: createFakeAdapter({ iface: 'fake' }),
+  });
+  const post = sends.renderPost(`hi @${ANN_HANDLE}`, {
+    channel: { id: 'd1', rootId: null, iface: 'fake' },
+    placeId: 'd1',
+    dmChat: true,
+    idByIndex: null,
+    handles: built.handles,
+    targets: built.refs?.targets ?? null,
+    directory: () => [{ id: '555', name: 'Ann' }],
+  });
+  assert.equal(post.text, 'hi <@555>');
+  assert.deepEqual(post.accountIds, ['555']);
 });
 
 test('a place in <memory> takes the channel handle of the chat its row holds, never the text of its id', () => {
