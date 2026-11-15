@@ -49,12 +49,13 @@ const RETIRED_EFFORTS: ReadonlyArray<string> = ['minimal', 'xhigh', 'max', 'none
 export const isRouteEffort = (value: unknown): value is RouteEffort => ROUTE_EFFORTS.some((one) => one === value);
 
 /**
- * The level a harness runs `effort` at: the level itself, and for `disabled` the lowest every CLI takes, `low`, since
- * no CLI takes a `disabled` effort; the memory writer switches claude's thinking off apart. Null leaves
- * the CLI at its own default.
+ * The level a harness runs `effort` at: the level itself, and null for no effort, which leaves the CLI at its own
+ * default. No CLI takes a `disabled` effort. On claude it gives null, because `--effort low` shortens everything the
+ * model writes, and claude's thinking is switched off apart. On codex it gives `low`, because codex has no other
+ * switch that turns a reasoning model's thinking off.
  */
-export const harnessEffort = (effort: RouteEffort | null): EffortLevel | null =>
-  effort === null ? null : effort === 'disabled' ? 'low' : effort;
+export const harnessEffort = (effort: RouteEffort | null, backend: HarnessBackend): EffortLevel | null =>
+  effort === 'disabled' ? (backend === 'codex' ? 'low' : null) : effort;
 
 export type ApiRoute = { via: 'api'; key: string; model: string; effort: RouteEffort | null };
 export type HarnessRoute = { via: 'harness'; backend: HarnessBackend; model: string; effort: RouteEffort | null };

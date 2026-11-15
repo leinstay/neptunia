@@ -3,7 +3,7 @@
 // route, and a route written back as text. Which role takes a harness or an effort is checked here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRouteText, readRoute, routeText } from '../src/llm/route-text.ts';
+import { harnessEffort, parseRouteText, readRoute, routeText } from '../src/llm/route-text.ts';
 
 test('a key route keeps the slashes of the model id and reads a trailing effort', () => {
   // Catches: the model id cut at its first slash, so the request names `anthropic` as the model.
@@ -126,3 +126,15 @@ test('a route written as text parses back to itself', () => {
 function readCode(result: object): unknown {
   return 'code' in result ? result.code : null;
 }
+
+test('harnessEffort gives no effort for disabled on claude and low on codex, and keeps a level or none', () => {
+  // Catches: `disabled` turned into `--effort low` on claude, which shortens everything the model writes, or left
+  // without a level on codex, which has no other switch for its thinking.
+  assert.equal(harnessEffort('disabled', 'claude'), null);
+  assert.equal(harnessEffort('disabled', 'codex'), 'low');
+  for (const backend of ['claude', 'codex'] as const) {
+    assert.equal(harnessEffort('medium', backend), 'medium', backend);
+    assert.equal(harnessEffort('high', backend), 'high', backend);
+    assert.equal(harnessEffort(null, backend), null, backend);
+  }
+});

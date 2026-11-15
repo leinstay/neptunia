@@ -1399,7 +1399,7 @@ async function buildCore(
     checkHarness: (route) =>
       checkedRoute(
         { privateDir: paths.privateDir, runBackend: runSubharnessBackend, fetch: globalThis.fetch },
-        { ...route, effort: harnessEffort(route.effort) }
+        { ...route, effort: harnessEffort(route.effort, route.backend) }
       ),
     // `keys check memory` proves the path the writer runs on: the probe through the backend while config.json names one.
     memoryPath: routes.memoryCheckPath,

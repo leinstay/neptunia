@@ -184,11 +184,15 @@ test('claude thinks at the effort the route asks for, on a budget at most half t
 });
 
 test('claude runs with no native thinking when the route effort is disabled', async () => {
-  // Catches: `disabled`, which reaches the writer as `--effort low`, taken as a request to think at low.
+  // Changed: the route carries no effort for `disabled` on claude (it carried `low`). The old expectation was wrong:
+  // `disabled` means no native reasoning, claude turns that off with MAX_THINKING_TOKENS=0, and `--effort low` is a
+  // second switch that shortens everything the model writes (the owner, 2026-11-15).
+  // Catches: `disabled` taken as a request to think at low, or run with `--effort low` on top of the zero budget.
   const { deps, seen } = rig(claudeAnswers(ANSWER));
-  await throughChain(deps, { backend: 'claude', model: 'm', effort: 'low', isThinking: false }, 10_000);
-  const [{ env }] = seen;
+  await throughChain(deps, { backend: 'claude', model: 'm', effort: null, isThinking: false }, 10_000);
+  const [{ env, args }] = seen;
   assert.equal(env.MAX_THINKING_TOKENS, '0');
+  assert.equal(args.includes('--effort'), false);
 });
 
 test('claude keeps its own thinking default when the route names no effort', async () => {

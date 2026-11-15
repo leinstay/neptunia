@@ -109,16 +109,17 @@ export function createChainClient(deps: ChainClientDeps): ChainClient {
 
   /**
    * The options one route sends, its effort translated for it: through a harness the CLI's level (`harnessEffort`,
-   * `disabled` at the lowest one) with `isThinking`, false for `disabled`, which the memory writer reads; on the API the
-   * provider's `reasoning`, none for `disabled`. On the API also its key, and its model past the role's first.
+   * none for `disabled` on claude, `low` on codex) with `isThinking`, false for `disabled`, which the memory writer
+   * reads; on the API the provider's `reasoning`, none for `disabled`. On the API also its key, and its model past the
+   * role's first.
    */
   function optionsFor(chain: ReadonlyArray<Route>, given: Route, asked: Rec, counted: boolean): Rec {
     const route = withDefaultEffort(typeof asked.role === 'string' ? asked.role : 'core', given);
     const counting = counted ? { countAgainstDailyCap: false } : {};
     if (route.via === 'harness') {
-      // `disabled` reaches the CLI as its lowest level, so the run is told whether the effort asks for native thinking.
+      // `disabled` reaches claude with no effort, so the run is told whether the effort asks for native thinking.
       const thinking = route.effort === null ? {} : { isThinking: route.effort !== 'disabled' };
-      const chainRoute = { ...route, effort: harnessEffort(route.effort), ...thinking };
+      const chainRoute = { ...route, effort: harnessEffort(route.effort, route.backend), ...thinking };
       return { ...asked, chainRoute, ...counting };
     }
     const sent: Rec = { ...asked, chainRoute: route, ...counting };
