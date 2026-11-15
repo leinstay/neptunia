@@ -33,6 +33,7 @@ export type Refusal = {
   ok: false;
   code: string;
   reason: string;
+  values?: Readonly<Record<string, unknown>>;
   choices?: ReadonlyArray<PlaceCandidate>;
   place?: { match: PlaceChoices & { kind: 'several' | 'none' | 'found' }; given: string };
 };
@@ -88,9 +89,10 @@ const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Request
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
 
 /**
- * Null unless a destructive skill (src/tools/definitions.ts) ran from this channel less than
+ * Null unless a call of this destructive skill (src/tools/definitions.ts) from this channel succeeded less than
  * `tools.destructiveCooldownMinutes` ago (`context.lastRunAt`, the caller's record, against
- * `context.now`), else `cooldown`.
+ * `context.now`), else `cooldown` with its values: `window`, the setting's minutes, and `minutes`, the whole
+ * minutes left until the skill may run again (rounded up, at least 1).
  */
 function cooldownRefusal(skill: Skill, context: GateContext): Refusal | null {
   const { lastRunAt, now } = context;
@@ -98,7 +100,10 @@ function cooldownRefusal(skill: Skill, context: GateContext): Refusal | null {
   if (!Number.isFinite(lastRunAt) || !Number.isFinite(now)) return null;
   const given = objOf(objOf(context.config).tools).destructiveCooldownMinutes;
   const minutes = typeof given === 'number' ? given : DESTRUCTIVE_COOLDOWN_MINUTES;
-  return now - lastRunAt < minutes * MINUTE_MS ? refused(CODE.COOLDOWN, 'tools.destructiveCooldownMinutes') : null;
+  const left = minutes * MINUTE_MS - (now - lastRunAt);
+  if (left <= 0) return null;
+  const wait = Math.min(minutes, Math.max(1, Math.ceil(left / MINUTE_MS)));
+  return { ...refused(CODE.COOLDOWN, 'tools.destructiveCooldownMinutes'), values: { minutes: wait, window: minutes } };
 }
 
 /** Null when a paid skill with a budget still has some today, else the refusal; a budget it cannot read fails closed. */

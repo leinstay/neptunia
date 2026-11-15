@@ -52,7 +52,7 @@ export const CATALOGUE = Object.freeze({
   'not-requester': skill('denied'),
   forbidden: skill('denied'),
   'inner-stopped': skill('denied'),
-  cooldown: skill('denied'),
+  cooldown: skill('denied', ['minutes', 'window']),
   'no-budget': skill('denied'),
   'daily-cap': skill('denied'),
   'channel-no-permission': skill('denied'),

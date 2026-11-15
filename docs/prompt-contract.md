@@ -300,7 +300,7 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `not-requester` | denied | - | `tools.result.reasons.not-requester` |
 | `forbidden` | denied | - | `tools.result.reasons.forbidden` |
 | `inner-stopped` | denied | - | `tools.result.reasons.inner-stopped` |
-| `cooldown` | denied | - | `tools.result.reasons.cooldown` |
+| `cooldown` | denied | {minutes} {window} | `tools.result.reasons.cooldown` |
 | `no-budget` | denied | - | `tools.result.reasons.no-budget` |
 | `daily-cap` | denied | - | `tools.result.reasons.daily-cap` |
 | `channel-no-permission` | denied | - | `tools.result.reasons.channel-no-permission` |
