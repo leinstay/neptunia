@@ -21,6 +21,12 @@ function labelsWithCooldown() {
 // Bug: the refusal reaches her with no numbers, so she guesses which call closed the tool and for how long.
 test('a destructive call refused by its cooldown tells her the minutes left and the window', async () => {
   let elapsed = 0;
+  // The operation of `lore.remove` (a reply turn runs her calls through `runOp`): every run is kept, each answers ok.
+  const ran: Array<unknown> = [];
+  const runOp = (op: unknown, args: unknown) => {
+    ran.push({ op, args });
+    return Promise.resolve({ status: 'ok', code: 'ok', summary: 'lore entry removed' });
+  };
   const run = await coreTurn({
     answers: [
       toolAnswer('<think>x</think>', [call('lore.remove', { id: 'l1' }, { id: 'first' })]),
@@ -37,8 +43,10 @@ test('a destructive call refused by its cooldown tells her the minutes left and 
     onAnswer(index) {
       if (index === 1) elapsed = 3.5 * MINUTE_MS;
     },
-    runner: { now: () => NOW + elapsed },
+    runner: { now: () => NOW + elapsed, runOp },
   });
+  // The first call ran and answered ok, so the cooldown holds; the second never reached the operation.
+  assert.deepEqual(ran, [{ op: 'lore.remove', args: { id: 'l1' } }]);
   const refusals = run.logs
     .filter((entry) => entry.msg === 'skill: refused')
     .map((entry) => `${entry.skill} ${entry.code}`);
