@@ -45,7 +45,7 @@ export function createCoreRoutes(deps: { store: KeyStore; getConfig: () => unkno
   const pathOf = (role: RouteRole): MemoryPath => {
     const route = client.inForce(role);
     return route?.via === 'harness'
-      ? { kind: 'subharness', ...route, effort: harnessEffort(route.effort) }
+      ? { kind: 'subharness', ...route, effort: harnessEffort(route.effort, route.backend) }
       : { kind: 'direct' };
   };
   return {

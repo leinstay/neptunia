@@ -31,7 +31,12 @@ export function harnessPathOf(privateDir: string, role: 'core' | 'memory'): Memo
   if (first === undefined) return { kind: 'direct' };
   const route = readRoute(role, first);
   if (isRefusal(route) || route.via !== 'harness') return { kind: 'direct' };
-  return { kind: 'subharness', backend: route.backend, model: route.model, effort: harnessEffort(route.effort) };
+  return {
+    kind: 'subharness',
+    backend: route.backend,
+    model: route.model,
+    effort: harnessEffort(route.effort, route.backend),
+  };
 }
 
 /** The memory writer's path in config.json now. */

@@ -319,7 +319,12 @@ export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>)
   const memoryPath = (): MemoryPath => {
     const route = chain.inForce('memory');
     return route?.via === 'harness'
-      ? { kind: 'subharness', backend: route.backend, model: route.model, effort: harnessEffort(route.effort) }
+      ? {
+          kind: 'subharness',
+          backend: route.backend,
+          model: route.model,
+          effort: harnessEffort(route.effort, route.backend),
+        }
       : { kind: 'direct' };
   };
   // The key ring production builds over the chains, with the variant's roles on their own routes; none offline.
