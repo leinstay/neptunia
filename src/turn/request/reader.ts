@@ -834,7 +834,7 @@ export function readerRequest(given: ReaderInput): ReaderResult {
         offered,
         keptMemory.filter((one) => one.subtag === 'people')
       )
-    : new Map();
+    : new Map<string, HandleTarget>();
   const parts = userParts(blocks);
   const text = parts.map((part) => part.text).join('');
   const shown = (handle: string): boolean => new RegExp(`@${handle}(?![\\p{L}\\p{N}_])`, 'u').test(text);
