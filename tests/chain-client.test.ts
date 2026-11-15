@@ -295,14 +295,51 @@ test('an effort the route names wins over the default of llm.routeEffort', async
   assert.deepEqual(optionsOf(asked, 0).reasoning, { effort: 'high' });
 });
 
-test('disabled sends no reasoning on an API route and the lowest level a harness takes', async () => {
-  // Changed: `disabled` of the standard scale replaces `lowest` (the owner, 2026-11-09).
-  // Catches: `disabled` sent to the provider as an effort it does not know, or reasoning added to a core that sent none.
+test('disabled sends no reasoning on an API route and no effort on a claude harness', async () => {
+  // Changed: `disabled` of the standard scale replaces `lowest` (the owner, 2026-11-09). A claude harness at `disabled`
+  // reached its run as `low`, and the expectation was wrong: `disabled` means no native reasoning, claude turns that
+  // off with MAX_THINKING_TOKENS=0, and `--effort low` is a second switch that shortens everything the model writes
+  // (the owner, 2026-11-15).
+  // Catches: `disabled` sent to the provider as an effort it does not know, reasoning added to a core that sent none,
+  // or a claude core at `disabled` run with `--effort low` and a think of a few words.
   const config = { ...CORE_CHAIN, llm: { routeEffort: { core: 'disabled' } } };
   const { client, asked } = rig(config, { core: [coded('subscription-exhausted')] });
   await client.complete(MESSAGES, { role: 'core' });
-  assert.equal((optionsOf(asked, 0).chainRoute as { effort?: unknown }).effort, 'low');
+  const sent = optionsOf(asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
+  assert.equal(sent.effort, null);
+  assert.equal(sent.isThinking, false);
   assert.equal(optionsOf(asked, 1).reasoning, undefined);
+});
+
+test('a codex harness route at disabled runs at low with no native thinking', async () => {
+  // Catches: the claude fix applied to codex, which has no switch for its thinking, so `disabled` reaches it with no
+  // effort and it runs at its own default level.
+  const route = { via: 'harness', backend: 'codex', model: 'gpt-6.1-sol' };
+  const { client, asked } = rig({ models: { routes: { core: [route] } }, llm: { routeEffort: { core: 'disabled' } } });
+  await client.complete(MESSAGES, { role: 'core' });
+  const sent = optionsOf(asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
+  assert.equal(sent.effort, 'low');
+  assert.equal(sent.isThinking, false);
+});
+
+test('a claude harness route that names disabled runs with no effort whatever llm.routeEffort says', async () => {
+  // Catches: the route's own `:disabled` replaced by the role's default, or turned into `low` on the way to the CLI.
+  const route = { via: 'harness', backend: 'claude', model: 'claude-opus-4-6', effort: 'disabled' };
+  const { client, asked } = rig({ models: { routes: { core: [route] } }, llm: { routeEffort: { core: 'high' } } });
+  await client.complete(MESSAGES, { role: 'core' });
+  const sent = optionsOf(asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
+  assert.equal(sent.effort, null);
+  assert.equal(sent.isThinking, false);
+});
+
+test('a claude harness route at high runs at high with native thinking', async () => {
+  // Catches: the no-effort rule for claude applied to every level, so a route at `high` loses its `--effort`.
+  const route = { via: 'harness', backend: 'claude', model: 'claude-opus-4-6', effort: 'high' };
+  const { client, asked } = rig({ models: { routes: { core: [route] } }, llm: { routeEffort: { core: 'disabled' } } });
+  await client.complete(MESSAGES, { role: 'core' });
+  const sent = optionsOf(asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
+  assert.equal(sent.effort, 'high');
+  assert.equal(sent.isThinking, true);
 });
 
 test('an explicit disabled on a route wins over a default effort of llm.routeEffort', async () => {
@@ -317,6 +354,9 @@ test('an explicit disabled on a route wins over a default effort of llm.routeEff
 });
 
 test('a harness route whose effort is a level asks its run for native thinking, and disabled does not', async () => {
+  // Changed: `disabled` on claude reaches the run as no effort, not `low`. The old expectation was wrong: `disabled`
+  // means no native reasoning, claude turns that off with MAX_THINKING_TOKENS=0, and `--effort low` is a second
+  // switch that shortens everything the model writes (the owner, 2026-11-15).
   // Catches: the memory writer unable to tell `disabled` from `low` once both reach it as `--effort low`, so a
   // disabled role thinks, or a role at `medium` runs with its thinking switched off.
   const route = { via: 'harness', backend: 'claude', model: 'claude-opus-4-6' };
@@ -328,7 +368,7 @@ test('a harness route whose effort is a level asks its run for native thinking, 
   const disabled = rig({ models: { routes: { memory: [route] } }, llm: { routeEffort: { memory: 'disabled' } } });
   await disabled.client.complete(MESSAGES, { role: 'memory' });
   const off = optionsOf(disabled.asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
-  assert.equal(off.effort, 'low');
+  assert.equal(off.effort, null);
   assert.equal(off.isThinking, false);
 });
 
