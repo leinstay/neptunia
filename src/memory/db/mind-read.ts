@@ -88,6 +88,8 @@ export type PersonEntry = EntryBase & {
   usualName: string | null;
   /** How many messages of the person she has seen, `people.message_count`, or null. */
   messagesSeen: number | null;
+  /** The time in milliseconds of the person's newest line she saw, `people.last_seen_at`, or null. */
+  lastSeenAt: number | null;
   /** True for a person the reader keeps whatever their room: the person she answers, an author of the window, one the trigger names. */
   keep?: boolean;
 };
@@ -978,6 +980,13 @@ function personRender(entry: PersonEntry, detail: Detail): string {
     .join('\n');
 }
 
+/** The milliseconds of a stored ISO text, null for no text or a text that is no date. */
+function lastSeenOf(stored: unknown): number | null {
+  if (typeof stored !== 'string' || stored === '') return null;
+  const at = Date.parse(stored);
+  return Number.isFinite(at) ? at : null;
+}
+
 function personOf(
   db: Db,
   walker: Walker,
@@ -989,7 +998,7 @@ function personOf(
 ): Built | null {
   const personId = raised.rowId;
   const person = db
-    .prepare('SELECT id, real_name, affinity, message_count, retired_at FROM people WHERE id = ?')
+    .prepare('SELECT id, real_name, affinity, message_count, last_seen_at, retired_at FROM people WHERE id = ?')
     .get(personId);
   if (!person || person.retired_at !== null) return null;
   const profileAccounts = profileAccountsOf(db, personId).filter((one) => walker.visible(nodeOf('account', one.id)));
@@ -1033,6 +1042,7 @@ function personOf(
     interests: listed.map((one) => one.text),
     usualName: usualNameOf(db, accounts, (id) => walker.visible(nodeOf('place', id)), now),
     messagesSeen: typeof person.message_count === 'number' ? person.message_count : null,
+    lastSeenAt: lastSeenOf(person.last_seen_at),
     ...(raised.keep ? { keep: true } : {}),
     sources: [
       { table: 'people', id: personId, version: null },

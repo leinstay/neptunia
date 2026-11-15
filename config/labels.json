@@ -375,6 +375,7 @@
       "avatarDefault": "avatar: the default one",
       "usualName": "called most often: {value}",
       "messagesSeen": "you have seen {count} or more of their messages",
+      "lastWrote": "last wrote: {date}",
       "claim": "- {text}",
       "lore": "{subject}: {text}",
       "live": "right now: {value}",
