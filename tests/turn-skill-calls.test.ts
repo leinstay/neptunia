@@ -5,7 +5,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { labels } from './fixtures/labels.ts';
 import { call, toolAnswer, textAnswer } from './fixtures/tool-answers.ts';
-import { appended, contentText, coreTurn } from './fixtures/turn-harness.ts';
+import { appended, contentText, coreTurn, NOW, rawMessage, toolResults } from './fixtures/turn-harness.ts';
+import type { FakeLlm } from './fixtures/turn-harness.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import type { LogEntry } from './fixtures/capture-logs.ts';
 
 test('a message.create the interface kept for a closed chat is ok, and its result says it is shown when the chat opens', async () => {
   // Bug: she reads a plain success and believes the owner saw the message, though no chat was open to show it.
@@ -72,4 +75,159 @@ test('a sent voice message is one said line, its words empty and its voiced text
 test('a voice message that failed leaves no said line', async () => {
   const said = await voiceTurn({ status: 'failed', code: 'speech-not-configured', summary: 'no' });
   assert.deepEqual(said, []);
+});
+
+// A destructive call holds the cooldown of its skill in its chat (`destructiveRuns` of src/turn/skill-calls.ts, checked
+// by src/tools/gateway.ts#cooldownRefusal) only when its operation answered `ok`. Every other result, a timeout and a
+// thrown error leave the cooldown as it was. Her turns over one runner on an injected clock, each one step of
+// `message.delete` calls on her own line, then a skip; fake operations answer.
+
+const COOLDOWN_MINUTES = 10;
+const MINUTE_MS = 60_000;
+const HER_LINE = rawMessage({
+  id: 's1',
+  authorId: 'self-id',
+  authorName: 'Bot',
+  ts: NOW - 9000,
+  content: 'a typo here',
+});
+const DELETED = { status: 'ok', code: 'ok', summary: 'message deleted' };
+const NOT_FOUND = { status: 'failed', code: 'http-404', summary: 'no such message' };
+const HALF_DONE = { status: 'partial', code: 'partial', summary: 'one of two removed' };
+
+/** What the fake operation does for one `message.delete`: answers this, never answers, or throws. */
+type DeleteAnswer = object | 'never' | 'throw';
+/** One turn of hers: the clock while it runs and how many deletions its first step asks for. */
+type DeleteTurn = { at: number; calls?: number };
+
+const deletions = (count: number) =>
+  toolAnswer(
+    '',
+    Array.from({ length: count }, () => call('message.delete', { message: 's1' }))
+  );
+
+/** The codes of the refusals of `message.delete` among `logs`, in order. */
+const refusalCodes = (logs: Array<LogEntry>): Array<string> =>
+  logs
+    .filter((entry) => entry.msg === 'skill: refused' && entry.skill === 'message.delete')
+    .map((entry) => String(entry.code));
+
+/** Runs `turns` over one runner; `answers` answer the operations in order. How many ran, the refusals of each turn. */
+async function deleteTurns(
+  turns: Array<DeleteTurn>,
+  answers: Array<DeleteAnswer>,
+  { callTimeoutMs = 120_000 }: { callTimeoutMs?: number } = {}
+) {
+  let ran = 0;
+  const clock = { t: turns[0].at };
+  const runOwnOp = (op: string): Promise<unknown> => {
+    if (op !== 'message.delete') return Promise.resolve(DELETED);
+    const answer = answers[ran];
+    ran += 1;
+    if (answer === 'never') return new Promise(() => {});
+    if (answer === 'throw') return Promise.reject(new Error('socket closed'));
+    return Promise.resolve(answer);
+  };
+  const run = await coreTurn({
+    answers: turns.flatMap((turn) => [deletions(turn.calls ?? 1), '<skip/>']),
+    allowed: ['message.delete'],
+    earlier: [HER_LINE],
+    withHot(hot) {
+      const { tools } = hot.config;
+      tools.destructiveCooldownMinutes = COOLDOWN_MINUTES;
+      tools.callTimeoutMs = callTimeoutMs;
+    },
+    runner: { now: () => clock.t, runOwnOp },
+  });
+  const refusals = [refusalCodes(run.logs)];
+  for (const turn of turns.slice(1)) {
+    clock.t = turn.at;
+    const { logs } = await withCapturedLogs(() => run.again());
+    refusals.push(refusalCodes(logs));
+  }
+  return { ran: () => ran, refusals, llm: run.llm };
+}
+
+/** Whether the first tool result of request `i` begins as the label of `status` does. */
+function firstResultIs(llm: FakeLlm, i: number, status: 'ok' | 'failed' | 'unknown'): boolean {
+  const words = labels.tools.result;
+  const [prefix] = words[status].split('{reason}');
+  const line = toolResults(llm, i)[0] ?? '';
+  return line.slice(line.indexOf(': ') + 2).startsWith(prefix);
+}
+
+test('a destructive call that failed holds no cooldown: the corrected call four seconds later runs', async () => {
+  // Bug: a message.delete that came back failed (http-404) refused the corrected call with cooldown, and nothing was deleted.
+  const { ran, refusals, llm } = await deleteTurns([{ at: NOW }, { at: NOW + 4000 }], [NOT_FOUND, DELETED]);
+  assert.equal(firstResultIs(llm, 1, 'failed'), true, 'the first call failed');
+  assert.deepEqual(refusals, [[], []]);
+  assert.equal(ran(), 2);
+});
+
+test('a destructive call that answered ok refuses the next one of its skill from its chat with cooldown', async () => {
+  // Bug: a call that did delete took no cooldown, so a second deletion followed at once.
+  const { ran, refusals } = await deleteTurns([{ at: NOW }, { at: NOW + 4000 }], [DELETED, DELETED]);
+  assert.deepEqual(refusals, [[], ['cooldown']]);
+  assert.equal(ran(), 1);
+});
+
+test('a destructive call that timed out holds no cooldown: the next call runs', async () => {
+  // Bug: a call that timed out (unknown) took the cooldown, though the cooldown counts a full success only.
+  const { ran, refusals, llm } = await deleteTurns([{ at: NOW }, { at: NOW + 4000 }], ['never', DELETED], {
+    callTimeoutMs: 20,
+  });
+  assert.equal(firstResultIs(llm, 1, 'unknown'), true, 'the first call timed out');
+  assert.deepEqual(refusals, [[], []]);
+  assert.equal(ran(), 2);
+});
+
+test('a destructive call whose operation threw holds no cooldown: the next call runs', async () => {
+  // Bug: a failed result that holds a thrown error took the cooldown, though nothing reported a success.
+  const { ran, refusals, llm } = await deleteTurns([{ at: NOW }, { at: NOW + 4000 }], ['throw', DELETED]);
+  assert.equal(firstResultIs(llm, 1, 'failed'), true, 'the first call failed');
+  assert.deepEqual(refusals, [[], []]);
+  assert.equal(ran(), 2);
+});
+
+test('a destructive call that answered partial holds no cooldown: the next call runs', async () => {
+  // Bug: a partial result counted as a success and refused the call that finishes the job.
+  const { ran, refusals } = await deleteTurns([{ at: NOW }, { at: NOW + 4000 }], [HALF_DONE, DELETED]);
+  assert.deepEqual(refusals, [[], []]);
+  assert.equal(ran(), 2);
+});
+
+test('a call the cooldown refused moves nothing: the next one runs once the cooldown of the first call is over', async () => {
+  // Bug: the call the cooldown refused wrote its own time and stretched the cooldown past the first call's.
+  const { ran, refusals } = await deleteTurns(
+    [{ at: NOW }, { at: NOW + MINUTE_MS }, { at: NOW + COOLDOWN_MINUTES * MINUTE_MS }],
+    [DELETED, DELETED]
+  );
+  assert.deepEqual(refusals, [[], ['cooldown'], []]);
+  assert.equal(ran(), 2);
+});
+
+test('a failed call after an earlier cooldown ran out leaves that cooldown over, so the next call runs at once', async () => {
+  // Bug: the failed call kept its own time as the last run and refused the corrected call made right after it.
+  const later = NOW + COOLDOWN_MINUTES * MINUTE_MS;
+  const { ran, refusals } = await deleteTurns(
+    [{ at: NOW }, { at: later }, { at: later }],
+    [DELETED, NOT_FOUND, DELETED]
+  );
+  assert.deepEqual(refusals, [[], [], []]);
+  assert.equal(ran(), 3);
+});
+
+test('two deletions in one step, the first ok: the second is refused with cooldown', async () => {
+  // Bug: the time of a successful call was written too late for the next call of the same step to see it.
+  const { ran, refusals } = await deleteTurns([{ at: NOW, calls: 2 }], [DELETED, DELETED]);
+  assert.deepEqual(refusals, [['cooldown']]);
+  assert.equal(ran(), 1);
+});
+
+test('two deletions in one step, the first failed: the second runs', async () => {
+  // Bug: a failed call took the cooldown at dispatch and refused the corrected call of the same step.
+  const { ran, refusals, llm } = await deleteTurns([{ at: NOW, calls: 2 }], [NOT_FOUND, DELETED]);
+  assert.equal(firstResultIs(llm, 1, 'failed'), true, 'the first call failed');
+  assert.deepEqual(refusals, [[]]);
+  assert.equal(ran(), 2);
 });

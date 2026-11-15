@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { observeMessage } from '../src/memory/db/message-families.ts';
+import { chatsOfMessage, observeMessage } from '../src/memory/db/message-families.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import type { Envelope, ObserveResult } from '../src/memory/db/observe.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
@@ -480,4 +480,76 @@ test('a reused normalized message ID in a new generation receives another family
   } finally {
     handle.close();
   }
+});
+
+/** One message of `iface` in the channel `chatId`, as an interface reports it, for the writer to observe. */
+function messageIn(iface: string, chatId: string, messageId: string): Envelope {
+  const mapped = observationOf({
+    iface,
+    at: NOW,
+    chat: { id: chatId, kind: 'channel', chatType: 'channel' },
+    message: { id: messageId, at: NOW - 60000, content: 'Invented evidence', author: { id: 'member' } },
+  });
+  assert.ok(mapped);
+  return { ...mapped, messageChat: { id: chatId, chatType: 'channel' } };
+}
+
+/** `chatsOfMessage` asked after each write lands: the writer service observes `messages`, then the read connection answers. */
+async function chatsAfterWrites(messages: Array<Envelope>, ask: (db: Db) => Array<string>): Promise<Array<string>> {
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'chats-of-message-'));
+  const service = createMemoryDb({
+    iface: () => 'synthetic',
+    dataDir: root,
+    hot: { config: { memoryDb: { session: { mode: 'off' } } } },
+    worker: true,
+    now: () => NOW,
+    log: quiet,
+  });
+  try {
+    await service.tick();
+    for (const message of messages) {
+      const written = await service.observeMessage(message);
+      assert.equal(written && 'ok' in written ? written.ok : null, true, JSON.stringify(written));
+    }
+    const db = service.database();
+    assert.ok(db);
+    return ask(db);
+  } finally {
+    await service.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// Catches a read that misses the chat the writer stored a message in, so a bare id is looked for in the wrong chat.
+test('chatsOfMessage gives the chat the writer observed a message in', async () => {
+  const chats = await chatsAfterWrites([messageIn('synthetic', 'room-a', 'msg-1')], (db) =>
+    chatsOfMessage(db, 'synthetic', 'msg-1')
+  );
+  assert.deepEqual(chats, ['room-a']);
+});
+
+// Catches a read that stops at the first row, or repeats a chat, when one id lives in two chats of the interface.
+test('chatsOfMessage gives each chat of the interface holding the id once', async () => {
+  const chats = await chatsAfterWrites(
+    [messageIn('synthetic', 'room-a', 'msg-1'), messageIn('synthetic', 'room-b', 'msg-1')],
+    (db) => chatsOfMessage(db, 'synthetic', 'msg-1')
+  );
+  assert.deepEqual([...chats].sort(), ['room-a', 'room-b']);
+});
+
+// Catches a read that ignores the interface, so a chat of another platform with the same id is taken for hers.
+test('chatsOfMessage leaves out a chat of another interface holding the same id', async () => {
+  const chats = await chatsAfterWrites(
+    [messageIn('synthetic', 'room-a', 'msg-1'), messageIn('elsewhere', 'room-z', 'msg-1')],
+    (db) => chatsOfMessage(db, 'synthetic', 'msg-1')
+  );
+  assert.deepEqual(chats, ['room-a']);
+});
+
+// Catches a read that matches by prefix or returns some chat for an id memory never observed.
+test('chatsOfMessage gives an empty list for an id nobody observed', async () => {
+  const chats = await chatsAfterWrites([messageIn('synthetic', 'room-a', 'msg-1')], (db) =>
+    chatsOfMessage(db, 'synthetic', 'msg')
+  );
+  assert.deepEqual(chats, []);
 });

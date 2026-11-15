@@ -22,7 +22,8 @@ export const TOOLS: ReadonlyArray<SchemaEntry> = [
     'types': ['number'],
     'reader': 'src/tools/gateway.ts',
     'default': 10,
-    'text': 'Minutes between two destructive skill calls from the same channel',
+    'text':
+      'Minutes after a destructive skill call that succeeded before the next one of that skill from the same channel',
   },
   {
     'key': 'tools.callTimeoutMs',

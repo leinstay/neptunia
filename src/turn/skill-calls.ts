@@ -426,9 +426,13 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
   const placeUnnamed = (resolved: Resolved): boolean =>
     hasTrait(resolved.skill, 'here') && resolved.args.place === undefined;
 
-  // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
-  // from that channel (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
+  // `${skill}:${originChannelId}` -> when a destructive skill call of hers from that channel last
+  // answered `ok` (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
   const destructiveRuns = new Map<string, number>();
+
+  /** Whether a resolved call runs an operation of a destructive skill. */
+  const isDestructive = (resolved: Resolved): boolean =>
+    Boolean(resolved.dispatch) && (skills ?? defaultSkills()).get(resolved.skill)?.effects === 'destructive';
 
   /** What a `<call>` of the persona is resolved against: callViewOf over this runner's store, id and registry. */
   function callView({
@@ -846,9 +850,6 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       else {
         if (op.opId) await op.started({ target: callTarget(resolvedCall.args) });
         ran = true;
-        // A destructive call counts from its dispatch, whatever comes back.
-        if (resolvedCall.dispatch && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive')
-          destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
         const publicationBoundary = turnBoundary(draft, chatOf(channel));
         // An intention's text is stored: a `#n` in it becomes the identity of the line it named (src/turn/handles.ts).
         const text = resolvedCall.args?.text;
@@ -887,6 +888,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             // Her in-turn tools: run here, in the turn, over its context.
             ...(inTurn ? { inTurn } : {}),
           }));
+        // Only a destructive call that succeeded holds the cooldown of its skill in its chat.
+        if (result.status === 'ok' && isDestructive(resolvedCall))
+          destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
         if (kept === null) keepProcedure(draft, skill, executed.args, result);
         // A post the hold kept goes out when the wake completes: she is told so, and it has no message yet.
         const key = envelope.idempotencyKey;
