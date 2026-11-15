@@ -363,3 +363,13 @@ export function resolveMessageFamily(
   insertFamily(db, family);
   return family;
 }
+
+/** The chats of `iface` that hold a message with this id, each once. */
+export function chatsOfMessage(db: Db, iface: string, messageId: string): Array<string> {
+  return db
+    .prepare(
+      'SELECT DISTINCT conversation_id FROM message_families WHERE iface = ? AND message_id = ? ORDER BY conversation_id'
+    )
+    .all(iface, messageId)
+    .map((row) => String(row.conversation_id));
+}

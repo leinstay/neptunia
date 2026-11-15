@@ -12,7 +12,9 @@
 // (src/tools/operations/shared.ts#postingChat; a person may ask for her turn in any channel); edit and
 // delete reach only her own messages (the port refuses anyone else's). A message is named by its
 // id or its link; for an edit or a deletion also by `last`, her own most recent message in that
-// channel. A port answer that may have taken effect is `failed` with `data.unknown` true:
+// channel. An id with no channel is the message in the one chat memory holds it in, or in the chat
+// the command runs in when memory holds it in none or in several (`heldChat`). A port answer that
+// may have taken effect is `failed` with `data.unknown` true:
 // never retried. Her post may carry one file an errand of hers brought back (`file`, a handle
 // `file:<task id>/<name>`, src/errands/store.ts): read from the agent's out directory, refused
 // when unknown here (`unknown-file`: a private chat's file goes only back to that chat), larger
@@ -42,6 +44,19 @@ import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
 import { mentionsUnderPings } from '../../turn/mentions.ts';
 import type { PingState } from '../../memory/pings.ts';
+import { chatsOfMessage } from '../../memory/db/message-families.ts';
+import type { MemoryDbService } from '../../memory/db/service.ts';
+
+/**
+ * The one chat of `iface` memory holds a message with `messageId` in (src/memory/db/message-families.ts#chatsOfMessage);
+ * null when memory holds it in none, in several, or there is no memory to ask.
+ */
+function heldChat(env: Env, iface: string, messageId: string): string | null {
+  const db = (env.memoryDb as MemoryDbService | null | undefined)?.database() ?? null;
+  if (!db || !messageId) return null;
+  const chats = chatsOfMessage(db, iface, messageId);
+  return chats.length === 1 ? (chats[0] ?? null) : null;
+}
 
 /** The chat `chatId` names, checked for what `need` asks there (src/tools/operations/shared.ts#postingChat). */
 function checkedChat(
@@ -344,6 +359,7 @@ const handlers = perEnv((env) => {
   /**
    * The message `args.messageId` names, in the chat it may be acted on in -- the bot
    * holding there the permissions `need` names (src/tools/operations/shared.ts#CHANNEL_NEEDS): `{ placeId, ref }`.
+   * A bare id with no `place` is looked for in the chat memory holds it in (`heldChat`), else the chat the call runs in.
    */
   async function target(
     args: Obj,
@@ -357,7 +373,8 @@ const handlers = perEnv((env) => {
     const given = args.placeId ? idText(args.placeId) : null;
     if (given && message.placeId && given !== message.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const placeId = await checkedChat(env, p, context, given ?? message.placeId, need);
+    const named = given ?? message.placeId ?? heldChat(env, p.iface, message.messageId);
+    const placeId = await checkedChat(env, p, context, named, need);
     return {
       placeId,
       messageId: message.messageId,
