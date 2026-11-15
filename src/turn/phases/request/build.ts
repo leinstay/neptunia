@@ -546,12 +546,15 @@ function framedInputsOf(
     labels: unknown;
     now: number;
     selfId: string | null;
+    /** The turn's wake, whose due intentions join the seeds; absent on a turn no wake started. */
+    wake?: WakeBlockInput | null;
   }
 ): FramedInputs {
   const { history, now } = turn;
+  const due = dueIntentionsOf(turn.wake ?? null);
   const place = frame.place;
   if (!framedRequest(frame)) return NO_FRAMED;
-  if (place === null) return serviceInputsOf(ctx, frame, draft, channel, now);
+  if (place === null) return serviceInputsOf(ctx, frame, draft, channel, now, due);
   // The place by the names of its chain from the interface down, kept with a lookup of hers (the journal's form).
   const names = frame.chain.flatMap((link) => (link.name === null ? [] : [link.name])).reverse();
   draft.framePlace = { id: String(channel.id), path: [frame.interface, ...names] };
@@ -576,7 +579,7 @@ function framedInputsOf(
       ? meanwhileWindows(meanwhileReads, frame, meanwhileSettingsOf(ctx.hot.config, frame))
       : [];
     const turnId = draft.started?.turnId ?? null;
-    const base = seedsOf(frame, history, turn, reads);
+    const base = withDueIntentions(seedsOf(frame, history, turn, reads), due, place.id, now);
     const seeds: Seeds = {
       ...base,
       candidates: [...base.candidates, ...taught.teachers],
@@ -705,7 +708,8 @@ function serviceInputsOf(
   frame: Frame,
   draft: Draft,
   channel: Prepared['channel'],
-  now: number
+  now: number,
+  due: ReadonlyArray<DueIntention>
 ): FramedInputs {
   const reads = ctx.frameReads;
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
@@ -719,7 +723,11 @@ function serviceInputsOf(
   try {
     const windows = meanwhileWindows(meanwhileReads, frame, meanwhileSettingsOf(ctx.hot.config, frame));
     const candidates = [...intentionCandidatesOf(ctx.intentionRefsFor(), reads, memoryContext), ...taught.teachers];
-    mind = reads.mind(memoryContext, serviceSeedsOf(windows, reads, candidates), now);
+    mind = reads.mind(
+      memoryContext,
+      withDueIntentions(serviceSeedsOf(windows, reads, candidates), due, null, now),
+      now
+    );
   } catch (error) {
     log.warn('turn: memory not read', { channel: null, error });
   }
@@ -760,6 +768,47 @@ function awakeTextOf(
     lines.push(fill(template, { interfaces: names.join(', ') }));
   }
   return lines.join('\n') || null;
+}
+
+/** An intention a wake is due for, as the graph reader's seed needs it. */
+type DueIntention = { id: string; purpose: string; dueAt: number | null };
+
+/** The open intentions of `wake` it is due for, in the order of its items. None without a wake. */
+function dueIntentionsOf(wake: WakeBlockInput | null): Array<DueIntention> {
+  const records = new Map(
+    (wake?.intentions ?? []).flatMap((record: unknown) => {
+      const one = objOf(record);
+      const { id, purpose, dueAt } = one;
+      if (typeof id !== 'string' || typeof purpose !== 'string' || purpose === '') return [];
+      return [[id, { id, purpose, dueAt: typeof dueAt === 'number' && Number.isFinite(dueAt) ? dueAt : null }]];
+    })
+  );
+  return [...new Set(dueIds(wake))].flatMap((id) => records.get(id) ?? []);
+}
+
+/**
+ * `seeds` with one trigger line per due intention: its purpose, with no author, mention or reply, in `placeId`. The
+ * line is at the intention's due time, or at the newest line of the seeds when that is later, so the read's window,
+ * which keeps the newest lines, always holds it. Its words raise names as a line she answers does.
+ */
+function withDueIntentions(seeds: Seeds, due: ReadonlyArray<DueIntention>, placeId: string | null, now: number): Seeds {
+  if (due.length === 0) return seeds;
+  const newest = seeds.messages.reduce((latest, message) => (message.at > latest ? message.at : latest), '');
+  const atOf = (dueAt: number | null): string => {
+    const own = new Date(dueAt ?? now).toISOString();
+    return newest > own ? newest : own;
+  };
+  const lines = due.map((one) => ({
+    id: `intention:${one.id}`,
+    at: atOf(one.dueAt),
+    authorAccount: null,
+    placeId,
+    replyTo: null,
+    mentions: [],
+    text: one.purpose,
+    trigger: true,
+  }));
+  return { ...seeds, messages: [...seeds.messages, ...lines] };
 }
 
 /** The intentions a wake is due for: they lead `<intentions>`, each whole. */
@@ -1002,7 +1051,10 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     timezone: String(config.bot?.timezone ?? 'UTC'),
     placeId,
   });
-  const facts = { history, trigger, prefetch: prefetchResult, labels: prompts?.labels, now, selfId: selfId ?? null };
+  const facts = {
+    ...{ history, trigger, prefetch: prefetchResult, labels: prompts?.labels, now, selfId: selfId ?? null },
+    wake: wakeWords,
+  };
   const framed = framedInputsOf(ctx, frame, draft, channel, facts);
   const requestInput = turnRequestInput({
     frame,
