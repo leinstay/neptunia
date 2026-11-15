@@ -1184,11 +1184,11 @@ async function lastSeenAfter(write: (store: ReturnType<typeof createStore>) => P
     await write(store);
     const db = dbOf(memory.memoryDb.readHandle()!);
     const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(WROTE_ACCOUNT)?.person_id;
-    assert.equal(typeof person, 'string', 'the account has a person');
+    if (typeof person !== 'string') throw new Error(`the writer left no person for ${WROTE_ACCOUNT}`);
     const trigger = message('src:w1', 'γεια', { authorAccount: WROTE_ACCOUNT, trigger: true });
-    const seeds = seedsOf([trigger], { counterpart: { personId: String(person), accountId: WROTE_ACCOUNT } });
-    const entry = personIn(mindOf(db, GROUP, seeds, SETTINGS, NOW), String(person));
-    assert.ok(entry, 'the person she answers has an entry');
+    const seeds = seedsOf([trigger], { counterpart: { personId: person, accountId: WROTE_ACCOUNT } });
+    const entry = personIn(mindOf(db, GROUP, seeds, SETTINGS, NOW), person);
+    if (entry === undefined) throw new Error(`the person she answers, ${person}, has no entry`);
     return entry.lastSeenAt;
   } finally {
     await memory.close();
