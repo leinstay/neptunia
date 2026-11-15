@@ -201,3 +201,64 @@ test('an intention turn with bare text beside the call that closes it runs the c
   assert.deepEqual(posted, ['ναι εντάξει'], 'her <msg> of the second answer, in the turn’s place');
   assertNoWordOf(BARE, posted);
 });
+
+// ---------- a <thinking> block is her think ----------
+
+// The second spelling of her thinking (spec 2026-11-15-thinking-tag-is-her-think): a whole `<thinking>` block is read as
+// `<think>`, so it is no bare text, it is the turn's think, and her earlier answer stands in the next request with the
+// block as `<think>`. Her last answer holds no think of its own, so the think the record keeps can only be the block's.
+const THINKING_TEXT = 'κοιτάζω πρώτα τον κατάλογο';
+const THINKING = `<thinking>${THINKING_TEXT}</thinking>`;
+const SAY_NO_THINK = '<msg>ναι εντάξει</msg>';
+
+/** The `turn` record the journal wrote for the run. */
+function turnRecordOf(lines: ReadonlyArray<{ record: unknown }>): Record<string, unknown> {
+  const records = lines.map(({ record }) => asRecord(record));
+  const turn = records.find((record) => record.kind === 'turn');
+  assert.ok(turn, 'the journal wrote a turn record');
+  return turn;
+}
+
+test('a reply whose first answer is a <thinking> block and a call runs the call with no bare text diagnostic', async () => {
+  // Catches: the block read as text outside every tag, so the next request tells her words were lost that were her think.
+  const run = await coreTurn({
+    answers: [toolAnswer(THINKING, [call('lore.list')]), SAY_NO_THINK],
+    prompts: { labels: replyLabels },
+  });
+  const called = run.logs.filter((entry) => entry.msg === 'skills: called').map((entry) => String(entry.skill));
+  assert.deepEqual(called, ['lore.list']);
+  assert.equal(requestCount(run.llm), 2);
+  assert.equal(wholeRequest(run.llm, 1).includes(MARKER), false);
+  assert.deepEqual(texts(run.sends), ['ναι εντάξει']);
+});
+
+test('the request after a <thinking> block and a call shows her answer with the block as <think>', async () => {
+  // Catches: she reads the second spelling back in her own earlier answer and keeps writing it.
+  const run = await coreTurn({
+    answers: [toolAnswer(THINKING, [call('lore.list')]), SAY_NO_THINK],
+    prompts: { labels: replyLabels },
+  });
+  const [, second = []] = run.llm.calls;
+  const answer = second[2];
+  assert.equal(answer.role, 'assistant');
+  assert.equal(answer.content, `<think>${THINKING_TEXT}</think>`);
+  assert.equal(wholeRequest(run.llm, 1).includes('<thinking>'), false);
+});
+
+test('the turn record keeps the text of a first <thinking> block as the turn think', async () => {
+  // Catches: the think of a first answer in the second spelling is dropped, so the turn keeps an empty think.
+  const { journal, lines } = journalOverMemory();
+  await coreTurn({
+    answers: [toolAnswer(THINKING, [call('lore.list')]), SAY_NO_THINK],
+    journal,
+    prompts: { labels: replyLabels },
+  });
+  assert.equal(turnRecordOf(lines).think, THINKING_TEXT);
+});
+
+test('a reply whose only answer is a <thinking> block and a <msg> posts the message and is not asked again', async () => {
+  // Catches: the block taken for a broken think or bare text, so the message is held back and the turn asks once more.
+  const run = await coreTurn({ answers: [`${THINKING}${SAY_NO_THINK}`, SAY], prompts: { labels: replyLabels } });
+  assert.equal(requestCount(run.llm), 1);
+  assert.deepEqual(texts(run.sends), ['ναι εντάξει']);
+});

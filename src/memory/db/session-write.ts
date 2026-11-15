@@ -101,6 +101,7 @@ import { applyPersonBindWrite } from './person-bind.ts';
 import { OWNER_CONSOLE_IFACE } from './identity-links.ts';
 import { applyRequestArchiveWrite, sessionRequestId, setRequestOutcome } from './request-archive.ts';
 import { randomUUID } from 'node:crypto';
+import { wholeThinks } from '../../llm/parse.ts';
 import { applyOwnerNameWrite } from './owner-names.ts';
 import { applyProjectWrite } from './projection-job.ts';
 
@@ -366,8 +367,8 @@ function insertAnswer(
   db: Db,
   { id, kind, text, at, extra }: { id: string; kind: string; text: string; at: string; extra: unknown }
 ): string {
-  const thought = [...String(text).matchAll(/<think>([\s\S]*?)<\/think>/gi)]
-    .map((match) => match[1].trim())
+  const thought = wholeThinks(String(text))
+    .map((think) => think.trim())
     .filter(Boolean)
     .join('\n\n');
   db.prepare(
