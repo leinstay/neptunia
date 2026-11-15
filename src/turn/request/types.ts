@@ -434,7 +434,11 @@ export type RequestInput = {
   readonly isSourceRetired?: SourceRetired | null;
 };
 
-/** Where a person's handle may mention them: the name of their entry and every account by interface and platform id. */
+/**
+ * Where a person's handle may mention them: the name of their entry and every account by interface and platform id.
+ * A target with no account stands for a handle the request holds only by its key. A post resolves it through the
+ * directory of members, or leaves it as written.
+ */
 export type HandleTarget = {
   readonly name: string | null;
   readonly accounts: ReadonlyArray<{ readonly iface: string; readonly native: string }>;

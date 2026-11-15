@@ -270,6 +270,13 @@ function seenLines(w: Words, person: PersonEntry): Array<string> {
   ];
 }
 
+/** The day the person last wrote, as `memory.lastWrote`, or none when no time is stored. */
+function lastWroteLine(w: Words, person: PersonEntry): string {
+  if (person.lastSeenAt === null || !Number.isFinite(person.lastSeenAt)) return '';
+  if (typeof w.l.lastWrote !== 'string') return '';
+  return fill(w.l.lastWrote, { date: formatDay(person.lastSeenAt, w.frame.timezone) });
+}
+
 function personText(w: Words, person: PersonEntry, counterpart: boolean, live: string | null): string {
   const origin = counterpart ? (w.l.counterpart ?? '') : (w.origin[person.evidence] ?? '');
   const lines = [heading(w, personName(w, person), origin, person.candidate)];
@@ -281,6 +288,7 @@ function personText(w: Words, person: PersonEntry, counterpart: boolean, live: s
   if (detail !== 'name') lines.push(aliasLine(w, person));
   lines.push(...accountLines(w, person));
   if (detail !== 'name') lines.push(valueLine(w, w.l.relation, person.relation));
+  if (detail !== 'name') lines.push(lastWroteLine(w, person));
   if (detail === 'whole') {
     lines.push(valueLine(w, w.l.character, person.character));
     lines.push(valueLine(w, w.l.style, person.style));

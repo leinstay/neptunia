@@ -45,6 +45,7 @@ export function personEntry(native: string, name: string, over: Partial<PersonEn
     interests: [],
     usualName: null,
     messagesSeen: null,
+    lastSeenAt: null,
     ...over,
   };
 }
