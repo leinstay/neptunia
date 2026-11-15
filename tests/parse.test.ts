@@ -1,7 +1,7 @@
 // Tests for src/llm/parse.ts: the model output tag parser and JSON extractor.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOutput, parseJsonObject, takeAudience, shapedThink } from '../src/llm/parse.ts';
+import { parseOutput, parseJsonObject, takeAudience, shapedThink, hasThinkTag } from '../src/llm/parse.ts';
 
 test('parseOutput: a single <msg> with no reply', () => {
   const result = parseOutput('<msg>γεια</msg>');
@@ -493,4 +493,92 @@ test('shapedThink leaves an answer with no text empty', () => {
 test('shapedThink never repairs a broken answer', () => {
   assert.equal(shapedThink('σχέδιο</think><msg>γεια</msg>'), 'σχέδιο</think><msg>γεια</msg>');
   assert.equal(shapedThink('<think>σχέδιο'), '<think>σχέδιο');
+});
+
+// The second spelling of her thinking (spec 2026-11-15-thinking-tag-is-her-think): `<thinking>…</thinking>` is read
+// exactly as `<think>…</think>`. A block opened in one spelling and closed in the other, a lone tag of the second
+// spelling and the tag in code are broken the way a broken `<think>` is. Synthetic text only.
+
+const isBareText = (diagnostic: { kind: string }): boolean => diagnostic.kind === 'bareText';
+
+test('parseOutput: an answer that is one <thinking> block keeps its text as think and is no bare text', () => {
+  // Catches: the block read as text outside every tag, so her think is lost and she is told her words were not posted.
+  const parsed = parseOutput('<thinking> πρώτα διαβάζω τον κατάλογο </thinking>');
+  assert.equal(parsed.think, 'πρώτα διαβάζω τον κατάλογο');
+  assert.deepEqual(parsed.messages, []);
+  assert.equal(parsed.untagged, false);
+  assert.equal(parsed.bare, '');
+  assert.equal(parsed.diagnostics.some(isBareText), false);
+});
+
+test('parseOutput: a <thinking> block alone is a skip with no diagnostic, as a <think> block alone is', () => {
+  // Catches: the second spelling read as a different shape from the first, so a think-only answer is asked once more.
+  const parsed = parseOutput('<thinking>σχέδιο</thinking>');
+  assert.equal(parsed.skip, true);
+  assert.equal(parsed.thinkLeak, null);
+  assert.deepEqual(parsed.diagnostics, []);
+});
+
+test('parseOutput: a <thinking> block before a <msg> gives the message as written and the block as think', () => {
+  // Catches: the block kept as words beside the message, or the message cut where the block ends.
+  const parsed = parseOutput('<thinking>θα απαντήσω σύντομα</thinking><msg>ναι, έρχομαι</msg>');
+  assert.equal(parsed.think, 'θα απαντήσω σύντομα');
+  assert.deepEqual(parsed.messages, [{ text: 'ναι, έρχομαι', replyTo: null }]);
+  assert.equal(parsed.thinkLeak, null);
+});
+
+for (const raw of ['<thinking>σχέδιο</think><msg>γεια</msg>', '<think>σχέδιο</thinking><msg>γεια</msg>']) {
+  test(`parseOutput: a think opened in one spelling and closed in the other is broken: ${raw}`, () => {
+    // Catches: two different tags paired as one whole think, so a malformed answer posts its message.
+    const parsed = parseOutput(raw);
+    assert.equal(parsed.skip, true);
+    assert.deepEqual(parsed.messages, []);
+    assert.equal(parsed.thinkLeak, 'unclosed');
+    assert.deepEqual(parsed.diagnostics, [{ kind: 'thinkUnclosed' }]);
+  });
+}
+
+test('parseOutput: a lone <thinking> never closed is broken as an unclosed think and keeps its text in think', () => {
+  // Catches: an open block of the second spelling read as bare text, so the journal loses what she thought so far.
+  const parsed = parseOutput('<thinking>σχέδιο χωρίς τέλος');
+  assert.equal(parsed.skip, true);
+  assert.equal(parsed.thinkOpen, true);
+  assert.equal(parsed.thinkLeak, 'unclosed');
+  assert.equal(parsed.think, 'σχέδιο χωρίς τέλος');
+  assert.deepEqual(parsed.diagnostics, [{ kind: 'thinkUnclosed' }]);
+});
+
+test('parseOutput: a lone </thinking> is broken as an unopened think and the message after it is dropped', () => {
+  // Catches: an answer that began inside its thinking posts its message because the closing tag is of the second spelling.
+  const parsed = parseOutput('σχέδιο της απάντησης</thinking><msg>γεια</msg>');
+  assert.equal(parsed.skip, true);
+  assert.deepEqual(parsed.messages, []);
+  assert.equal(parsed.thinkLeak, 'unopened');
+  assert.deepEqual(parsed.diagnostics, [{ kind: 'thinkUnopened' }]);
+});
+
+test('parseOutput: a <thinking> tag inside a code span of a message is a broken think, as <think> in code is', () => {
+  // Catches: the second spelling in code goes out in the chat, where the first spelling never may.
+  const parsed = parseOutput('<msg>use `<thinking>` here</msg>');
+  assert.equal(parsed.skip, true);
+  assert.deepEqual(parsed.messages, []);
+  assert.equal(parsed.thinkLeak, 'unclosed');
+  assert.deepEqual(parsed.diagnostics, [{ kind: 'thinkUnclosed' }]);
+});
+
+for (const text of ['πριν <thinking> μετά', 'πριν </thinking> μετά', 'πριν </ thinking > μετά']) {
+  test(`hasThinkTag is true for the second spelling: ${text}`, () => {
+    // Catches: an outgoing text with a <thinking> tag passes the check that keeps every think tag out of the chat.
+    assert.equal(hasThinkTag(text), true);
+  });
+}
+
+test('hasThinkTag is false for the word thinking with no angle bracket', () => {
+  // Catches: a widened pattern that refuses every post holding the plain word.
+  assert.equal(hasThinkTag('I keep thinking about the garden'), false);
+});
+
+test('shapedThink gives an answer that opens with a <thinking> block that block as <think>, with no empty think in front', () => {
+  // Catches: the stored reply keeps the second spelling she then reads back, or gets an empty think beside her real one.
+  assert.equal(shapedThink('<thinking>σχέδιο</thinking><msg>γεια</msg>'), '<think>σχέδιο</think><msg>γεια</msg>');
 });
