@@ -519,7 +519,9 @@ function windowHandle(given: ReaderInput, names: Names, window: MeanwhileWindow)
 
 /**
  * Where each handle of the request may mention its person: the name and accounts of an entry of `<people>`, the
- * members of the chat on the turn's interface and the authors of the windows on theirs, joined by handle.
+ * members of the chat on the turn's interface and the authors of the windows on theirs, joined by handle. A target
+ * with no account on the interface of a post is no mention there. `handleIdsOf` adds one with no name and no
+ * account for each shown handle the map holds by its key.
  */
 function targetsOf(given: ReaderInput, offered: Offered, people: ReadonlyArray<MemoryItem>): Map<string, HandleTarget> {
   const book = offered.names.people;
@@ -547,12 +549,14 @@ function targetsOf(given: ReaderInput, offered: Offered, people: ReadonlyArray<M
 /**
  * The request's handle -> id map over the chat's handles and the others that stand in its text (`shown`): a handle to
  * the platform id of its person's account on the turn's interface, the one a member argument and the chat's lines name, else to what the
- * handle is cut from. A person the budget left out has no handle a tool would resolve.
+ * handle is cut from. A person the budget left out has no handle a tool would resolve. A handle held by its key with
+ * no target gains one with no name and no account in `targets`, so a post leaves the key out of its ids and resolves
+ * the handle through the directory of members.
  */
 function handleIdsOf(
   given: ReaderInput,
   offered: Offered,
-  targets: ReadonlyMap<string, HandleTarget>,
+  targets: Map<string, HandleTarget>,
   shown: (handle: string) => boolean
 ): Map<string, string> {
   const ids = new Map<string, string>();
@@ -563,6 +567,7 @@ function handleIdsOf(
     if (ids.has(handle) || !shown(handle)) continue;
     const here = targets.get(handle)?.accounts.find((account) => account.iface === given.frame.interface);
     ids.set(handle, here?.native ?? key);
+    if (!here && !targets.has(handle)) targets.set(handle, { name: null, accounts: [] });
   }
   return ids;
 }
