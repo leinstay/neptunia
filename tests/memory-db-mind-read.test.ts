@@ -45,6 +45,9 @@ import {
 import type { Audience, World } from './fixtures/memory-db/mind-world.ts';
 import { EDIT_DELAY_MS, minute, storeRevision } from './fixtures/memory-db/edited-line.ts';
 import { storeTally } from './fixtures/memory-db/place-tally.ts';
+import { createStore } from '../src/memory/store.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 /** The owner's values of 2026-11-06 for `context.memory`. */
 const SETTINGS: MindSettings = {
@@ -1165,4 +1168,72 @@ test('an entry of a place with a topic needs more of the budget to stay above it
   const topical = smallestAboveName(`ΘΕΜΑ-ΖΩΓΡΑΦΙΚΗΣ `.repeat(14).trim());
   assert.ok(Number.isFinite(without), 'the entry stands above its name at some budget');
   assert.ok(topical > without, `${topical} > ${without}`);
+});
+
+// The day a person last wrote (spec 2026-11-15 the-day-a-person-last-wrote). A person entry carries
+//   lastSeenAt: number | null   `people.last_seen_at` as milliseconds, null when the row holds none
+// Each test writes through the store, the memory's writer (`touchUser` for a line, `updateUser` for a profile with no
+// line), flushes it into the database and reads the entry back through `mindOf`.
+const WROTE_ACCOUNT = 'discord:771';
+
+/** The `lastSeenAt` of the entry of the person of `WROTE_ACCOUNT` after `write`, read as the person she answers. */
+async function lastSeenAfter(write: (store: ReturnType<typeof createStore>) => Promise<void>): Promise<number | null> {
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'discord' });
+  try {
+    const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
+    await write(store);
+    const db = dbOf(memory.memoryDb.readHandle()!);
+    const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(WROTE_ACCOUNT)?.person_id;
+    if (typeof person !== 'string') throw new Error(`the writer left no person for ${WROTE_ACCOUNT}`);
+    const trigger = message('src:w1', 'γεια', { authorAccount: WROTE_ACCOUNT, trigger: true });
+    const seeds = seedsOf([trigger], { counterpart: { personId: person, accountId: WROTE_ACCOUNT } });
+    const entry = personIn(mindOf(db, GROUP, seeds, SETTINGS, NOW), person);
+    if (entry === undefined) throw new Error(`the person she answers, ${person}, has no entry`);
+    return entry.lastSeenAt;
+  } finally {
+    await memory.close();
+  }
+}
+
+const flushed = async (store: ReturnType<typeof createStore>): Promise<void> => {
+  store.flush();
+  await store.flushSettled({});
+};
+
+test("a person's entry carries the moment of the line the writer observed", async () => {
+  // Catches: the entry never reads `people.last_seen_at`, or reads the ISO text the writer stores without turning it
+  // into milliseconds, so the printed day is missing or wrong.
+  const said = Date.parse('2026-11-01T17:45:00.000Z');
+  const seen = await lastSeenAfter(async (store) => {
+    store.touchUser(WROTE_ACCOUNT, 'Θάλεια', said);
+    await flushed(store);
+  });
+  assert.equal(seen, said);
+});
+
+test('a later line moves the moment forward and an earlier line stored after it does not move it back', async () => {
+  // Catches: the writer or the reader takes the line stored last instead of the newest one, so history fed late makes a
+  // person who wrote today look absent since the day of the old line.
+  const first = Date.parse('2026-10-20T09:00:00.000Z');
+  const latest = Date.parse('2026-11-01T21:10:00.000Z');
+  const backfilled = Date.parse('2026-10-05T12:00:00.000Z');
+  const seen = await lastSeenAfter(async (store) => {
+    store.touchUser(WROTE_ACCOUNT, 'Θάλεια', first);
+    await flushed(store);
+    store.touchUser(WROTE_ACCOUNT, 'Θάλεια', latest);
+    await flushed(store);
+    store.touchUser(WROTE_ACCOUNT, 'Θάλεια', backfilled);
+    await flushed(store);
+  });
+  assert.equal(seen, latest);
+});
+
+test('a person with no line has no moment of a last line', async () => {
+  // Catches: an empty `last_seen_at` reads as 0 or as the first-seen time, so a person who never wrote prints the epoch
+  // or the day they were met as the day they last wrote.
+  const seen = await lastSeenAfter(async (store) => {
+    store.updateUser(WROTE_ACCOUNT, { character: 'Calm.' }, { by: 'analyzer' });
+    await flushed(store);
+  });
+  assert.equal(seen, null);
 });
