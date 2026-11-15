@@ -7,7 +7,7 @@
 // refers to without carrying its name.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fill } from '../src/format.ts';
+import { fill, formatDay } from '../src/format.ts';
 import type { Mind, PersonEntry } from '../src/memory/db/mind-read.ts';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { FrameParty } from '../src/turn/request/frame.ts';
@@ -685,4 +685,61 @@ test('a topic that closes a tag renders escaped, and a mention in it reads as a 
   const all = items.map((item) => item.text).join('\n');
   assert.doesNotMatch(all, /<\/places>|<task>|<@|\b777\b/);
   assert.ok(all.includes('@u7ele'), all);
+});
+
+// The day a person last wrote (spec 2026-11-15 the-day-a-person-last-wrote). A person entry of the mind carries
+//   lastSeenAt: number | null
+// and an entry of detail `whole` or `compact` prints one line through `memory.lastWrote` (`{date}`, the day of that
+// moment as `formatDay` cuts it in the turn's timezone). An entry of detail `name`, or with null, prints none. The label
+// below is the test's own, opening with a marker the test finds the line by.
+const WROTE_LABELS: Labels = {
+  ...shippedLabels,
+  memory: Object.assign({}, shippedLabels.memory, { lastWrote: 'WROTE {date}' }),
+};
+const LATE_UTC = Date.parse('2026-11-01T23:30:00Z');
+const MIDDAY = Date.parse('2026-11-01T12:00:00Z');
+
+const wroteLines = (person: PersonEntry, timezone = 'UTC'): Array<string> =>
+  section(
+    memoryBlockOf(
+      mindOfEntries({ people: [person] }),
+      frameOf(frameInput({ author: null, timezone })),
+      WROTE_LABELS,
+      nameOf
+    ).text,
+    'people'
+  )
+    .trim()
+    .split('\n')
+    .filter((line) => line.startsWith('WROTE'));
+
+test('a whole entry holds the day the person last wrote', () => {
+  // Catches: the entry carries the moment but never prints it, so she still guesses the last day from dated claims.
+  const lines = wroteLines(personEntry('333', 'Θάλεια', { lastSeenAt: MIDDAY }));
+  assert.deepEqual(lines, [`WROTE ${formatDay(MIDDAY, 'UTC')}`]);
+});
+
+test('an entry cut to compact still holds the day the person last wrote', () => {
+  // Catches: the line is tied to the whole detail with the other seen lines, so a person the budget cut down loses it.
+  const lines = wroteLines(personEntry('333', 'Θάλεια', { lastSeenAt: MIDDAY, detail: 'compact' }));
+  assert.deepEqual(lines, [`WROTE ${formatDay(MIDDAY, 'UTC')}`]);
+});
+
+test('an entry cut to its name holds no day of a last line', () => {
+  // Catches: the line prints at every detail, so an entry cut to a name grows with it.
+  assert.deepEqual(wroteLines(personEntry('333', 'Θάλεια', { lastSeenAt: MIDDAY, detail: 'name' })), []);
+});
+
+test('a line written just before midnight UTC reads as the next day in a timezone ahead of UTC', () => {
+  // Catches: the day is cut in UTC or by the server clock, so a member in Tokyo who wrote at 08:30 his time reads as
+  // having last written the day before.
+  const day = formatDay(LATE_UTC, 'Asia/Tokyo');
+  assert.notEqual(day, formatDay(LATE_UTC, 'UTC'));
+  assert.deepEqual(wroteLines(personEntry('333', 'Θάλεια', { lastSeenAt: LATE_UTC }), 'Asia/Tokyo'), [`WROTE ${day}`]);
+});
+
+test('an entry with no moment of a last line holds no such line', () => {
+  // Catches: a null moment prints as the epoch day or as an empty date, so a person who never wrote reads as absent
+  // since 1970.
+  assert.deepEqual(wroteLines(personEntry('333', 'Θάλεια', { lastSeenAt: null })), []);
 });
