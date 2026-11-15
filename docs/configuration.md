@@ -358,7 +358,7 @@ The engine proxy is described in [Proxy](proxy.md).
 |---|---|---|---|---|
 | `tools.safeMode` | boolean | `false` | Only the persona's reply effects pass; every other tool is refused | `src/tools/access.ts` |
 | `tools.resultMaxChars` | number | `8000` | Characters of a tool's returned data shown in a call's result | `src/behavior/sandbox.ts` |
-| `tools.destructiveCooldownMinutes` | number | `10` | Minutes between two destructive skill calls from the same channel | `src/tools/gateway.ts` |
+| `tools.destructiveCooldownMinutes` | number | `10` | Minutes after a destructive skill call that succeeded before the next one of that skill from the same channel | `src/tools/gateway.ts` |
 | `tools.callTimeoutMs` | number | `120000` | How long a skill call may run before its outcome is `unknown` | `src/behavior/sandbox.ts` |
 | `tools.transport` | string | `"native"` | How tools reach the model. `native`: structured tool calls. `text`: tools described in the prompt, calls as `<tool_call>` blocks | `src/behavior/sandbox.ts` |
 | `tools.loop.maxSteps` | number | `100` | Most further requests one turn makes after her calls | `src/turn/tool-round.ts` |
