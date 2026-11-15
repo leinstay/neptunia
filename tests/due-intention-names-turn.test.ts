@@ -134,7 +134,8 @@ test('a reply turn with an open intention not yet due raises no one from the int
       steps: [{ trigger: { id: 'q1', text: 'καλημέρα σε όλους', at: TURN_NOW - 30_000 }, answers: ['<skip/>'] }],
       chat: C1_CHAT,
     });
-    const text = run.requests[0]?.[0] ?? '';
+    const [firstTurn] = run.requests;
+    const text = firstTurn?.[0] ?? '';
     assert.ok(text.includes('<people>'), 'the reply request has a <people> block (Ελένη answers)');
     assert.equal(peopleOf(text).includes(MYRTO_NAME), false, peopleOf(text));
   } finally {
