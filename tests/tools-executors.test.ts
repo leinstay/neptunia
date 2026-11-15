@@ -1,5 +1,7 @@
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
+import { observeMessage } from '../src/memory/db/message-families.ts';
+import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { fillStems } from '../src/memory/db/stems.ts';
 import { search as dbSearch, quotesOf } from '../src/memory/db/recall.ts';
@@ -993,6 +995,126 @@ test('executeCall: each operation needs its own permissions there -- edit, delet
   // a DM is never a target, whatever it would allow
   const dm = await executeCall(direct('message.delete', { message: '2002', place: DM }), deps(admin, port));
   assert.deepEqual([dm.status, dm.code], ['denied', 'channel-no-permission']);
+});
+
+/**
+ * A memory of the fake interface that observed each `[chatId, messageId]` through its writer, a DM when the chat is
+ * DM, and the operations' handle on it. The caller closes `handle`.
+ */
+function memoryHolding(messages: Array<[string, string]>) {
+  const handle = openMemoryDb(':memory:');
+  for (const [chatId, messageId] of messages) {
+    const dm = chatId === DM;
+    const chat = dm ? { id: chatId, chatType: 'dm', partnerId: OWNER } : { id: chatId, chatType: 'channel' };
+    const mapped = observationOf({
+      iface: 'fake',
+      at: 1000,
+      chat: { ...chat, kind: chat.chatType },
+      message: { id: messageId, at: 900, content: 'invented line', author: { id: SELF } },
+    });
+    assert.ok(mapped);
+    const written = observeMessage(
+      handle,
+      { ...mapped, messageChat: dm ? chat : { id: chatId, chatType: 'channel' } },
+      { now: () => 1000 }
+    );
+    assert.equal(written.ok, true, JSON.stringify(written));
+  }
+  return { handle, memoryDb: { database: () => dbOf(handle) } };
+}
+
+/** The `[chatId, messageId]` each of the port's `op` calls was asked for, in order. */
+function askedOf(port: ReturnType<typeof createFakeAdapter>, op: 'delete' | 'edit'): Array<[unknown, unknown]> {
+  return port.calls
+    .filter((call) => call.op === op)
+    .map((call) => {
+      const ref = asRecord(call.args[0]);
+      return [ref.chatId, ref.messageId];
+    });
+}
+
+// The bug of 2026-11-15: a bare id of a message in another chat was deleted in the chat the call ran in and got a 404.
+test('executeCall: message.delete of a bare id with no place goes to the chat memory holds the message in', async () => {
+  const { handle, memoryDb } = memoryHolding([[NEWS, '3001']]);
+  try {
+    const { admin, port } = makeAdmin({ extra: { memoryDb } });
+    port.seed(NEWS, { authorId: SELF, messageId: '3001', text: 'old line' });
+    const deleted = await executeCall(direct('message.delete', { message: '3001' }), deps(admin, port));
+    assert.deepEqual(askedOf(port, 'delete'), [[NEWS, '3001']]);
+    assert.equal(deleted.status, 'ok', JSON.stringify(deleted));
+  } finally {
+    handle.close();
+  }
+});
+
+// Catches a lookup that refuses or guesses a chat when memory never observed the id, instead of trying the chat here.
+test('executeCall: message.delete of a bare id memory does not know goes to the chat the call runs in', async () => {
+  const { handle, memoryDb } = memoryHolding([[NEWS, '3002']]);
+  try {
+    const { admin, port } = makeAdmin({ extra: { memoryDb } });
+    port.seed(HERE, { authorId: SELF, messageId: '3001', text: 'old line' });
+    const deleted = await executeCall(direct('message.delete', { message: '3001' }), deps(admin, port));
+    assert.deepEqual(askedOf(port, 'delete'), [[HERE, '3001']]);
+    assert.equal(deleted.status, 'ok', JSON.stringify(deleted));
+  } finally {
+    handle.close();
+  }
+});
+
+// Catches a lookup that picks the first of two chats holding the id, deleting in a chat chosen by row order.
+test('executeCall: message.delete of a bare id memory holds in two chats goes to the chat the call runs in', async () => {
+  const { handle, memoryDb } = memoryHolding([
+    [NEWS, '3001'],
+    [ELSEWHERE, '3001'],
+  ]);
+  try {
+    const { admin, port } = makeAdmin({ extra: { memoryDb } });
+    await executeCall(direct('message.delete', { message: '3001' }), deps(admin, port));
+    assert.deepEqual(askedOf(port, 'delete'), [[HERE, '3001']]);
+  } finally {
+    handle.close();
+  }
+});
+
+// Catches a lookup that overrides the place she named with the chat memory holds the id in.
+test('executeCall: message.delete of a bare id with a named place goes to that place whatever memory holds', async () => {
+  for (const held of [[[ELSEWHERE, '3001']], []] as Array<Array<[string, string]>>) {
+    const { handle, memoryDb } = memoryHolding(held);
+    try {
+      const { admin, port } = makeAdmin({ extra: { memoryDb } });
+      await executeCall(direct('message.delete', { message: '3001', place: NEWS }), deps(admin, port));
+      assert.deepEqual(askedOf(port, 'delete'), [[NEWS, '3001']], JSON.stringify(held));
+    } finally {
+      handle.close();
+    }
+  }
+});
+
+// Catches a fix made in the delete alone, leaving an edit of a bare id in the chat the call runs in.
+test('executeCall: message.edit of a bare id with no place goes to the chat memory holds the message in', async () => {
+  const { handle, memoryDb } = memoryHolding([[NEWS, '3001']]);
+  try {
+    const { admin, port } = makeAdmin({ extra: { memoryDb } });
+    port.seed(NEWS, { authorId: SELF, messageId: '3001', text: 'old line' });
+    const edited = await executeCall(direct('message.edit', { message: '3001', text: 'new line' }), deps(admin, port));
+    assert.deepEqual(askedOf(port, 'edit'), [[NEWS, '3001']]);
+    assert.equal(edited.status, 'ok', JSON.stringify(edited));
+  } finally {
+    handle.close();
+  }
+});
+
+// Catches a chat found in memory that skips the permission check a named place gets, acting where she may not.
+test('executeCall: message.delete of a bare id memory holds in a chat she may not act in is refused there', async () => {
+  const { handle, memoryDb } = memoryHolding([[DM, '3001']]);
+  try {
+    const { admin, port } = makeAdmin({ extra: { memoryDb } });
+    const refused = await executeCall(direct('message.delete', { message: '3001' }), deps(admin, port));
+    assert.deepEqual([refused.status, refused.code], ['denied', 'channel-no-permission']);
+    assert.deepEqual(askedOf(port, 'delete'), []);
+  } finally {
+    handle.close();
+  }
 });
 
 test('executeCall: draw.create to a channel without Attach Files is refused before anything is generated', async () => {
