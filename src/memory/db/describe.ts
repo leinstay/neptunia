@@ -27,6 +27,7 @@
 //   The review reads (and finds its description) through `audience_id`, not the triple.
 
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
+import { withoutThinks } from '../../llm/parse.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { shortHash } from './ids.ts';
 import { namedIface } from './live-iface.ts';
@@ -350,7 +351,7 @@ export function gatherReview(
 
 /** `<description>` and `<reason>` of an answer (the thinking removed); null when the description is missing or empty. */
 export function parseDescriptionAnswer(text: unknown): { description: string; reason: string } | null {
-  const raw = asText(text ?? '').replace(/<think>[\s\S]*?<\/think>/gi, '');
+  const raw = withoutThinks(asText(text ?? ''));
   const pick = (tag: string): string | null => {
     const open = raw.lastIndexOf(`<${tag}>`);
     if (open === -1) return null;

@@ -923,12 +923,6 @@
   "src/llm/parse.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 2
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
     }
   },
   "src/log.ts": {

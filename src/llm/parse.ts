@@ -1,5 +1,5 @@
 // Parses the model's tagged output (contract: prompts/format.md) into actions.
-//   <think>…</think>          hidden planning, discarded
+//   <think>…</think>          hidden planning, discarded; `<thinking>…</thinking>` is read the same
 //   <msg reply="#87">…</msg>   a chat message, optionally a reply to message #87 (at most 3:
 //                              any later one is joined into the third, a line each)
 //   <react to="#87">💀</react> a reaction on message #87 (a custom emoji as :name: too); a tag of another
@@ -12,10 +12,12 @@
 // `<audience>`, a selfreflection post's alone, is taken out before this parser runs (`takeAudience`, src/turn/phases/response.ts).
 // Text outside every tag is never a message: an answer with no tag at all has no action, `bare` holds its text and
 // `untagged` is true (the turn asks once more, src/turn/tool-round.ts). The parser is forgiving about everything but her
-// thinking and that. An answer whose `<think>` is broken has no action at all and names its shape in `thinkLeak`:
-// `unclosed` (a think left open, `thinkOpen`, its text so far kept in `think` for the journal) or `unopened` (a closing
-// tag with no opening). A spelling of the tag other than plain `<think>` and `</think>` counts as broken, wherever it
-// stands, and a think tag in code, a whole one too, so no think tag is ever in a message that comes out. The parser never repairs such an answer. It also accounts for
+// thinking and that. Her thinking has two names, `think` and `thinking`: a whole block opens and closes with the same
+// one. An answer whose think is broken has no action at all and names its shape in `thinkLeak`: `unclosed` (a think
+// left open, `thinkOpen`, its text so far kept in `think` for the journal) or `unopened` (a closing tag with no
+// opening). A block opened with one name and closed with the other is broken, and so is any other spelling of the tag
+// (`< think>`, `</think >`), wherever it stands, and a think tag in code, a whole one too, so no think tag is ever in a
+// message that comes out. The parser never repairs such an answer. It also accounts for
 // what it did not use: `diagnostics`, one `{ kind, ... }` per thing it dropped, cut or joined
 // (`retiredTag` with its `tag`, `msgMalformed` with its counts, `messagesMerged`, `thinkUnclosed`, `thinkUnopened`, `bareText` with its `chars`), so the
 // caller can tell the persona what happened to her output (src/behavior/turn.ts).
@@ -188,7 +190,8 @@ function readReactions(text: string): Array<Span & { attributes: string; emoji: 
 }
 
 /** What `takeAudience` leaves alone: a think block and code, where a tag is only being talked about. */
-const AUDIENCE_EXEMPT_RE = /(<think>[\s\S]*?(?:<\/think>|$)|```[\s\S]*?(?:```|$)|`[^`\n]*`)/i;
+const AUDIENCE_EXEMPT_RE =
+  /(<think>[\s\S]*?(?:<\/think>|$)|<thinking>[\s\S]*?(?:<\/thinking>|$)|```[\s\S]*?(?:```|$)|`[^`\n]*`)/i;
 
 /**
  * A selfreflection answer without its `<audience>` tags, and their bodies in order. A stray opening or closing tag counts as an
@@ -243,14 +246,36 @@ export type ParsedOutput = {
   diagnostics: Array<Diagnostic>;
 };
 
-/** Any spelling of a think tag, opening or closing. */
-const THINK_TAG_RE = /<\s*(\/?)\s*think\b/i;
-/** One whole think, the one spelling an answer's own thinking has. */
-const WHOLE_THINK_RE = /<think>([\s\S]*?)<\/think>/gi;
+/** Any spelling of a think tag, opening or closing, of the name `think` or `thinking`. */
+const THINK_TAG_RE = /<\s*(\/?)\s*think(?:ing)?\b/i;
+/** One whole think: `<think>…</think>` or `<thinking>…</thinking>`, opened and closed with the same name. */
+const WHOLE_THINK_RE = /<(think|thinking)>([\s\S]*?)<\/\1>/gi;
+/** A whole think, or a think opened and never closed, which runs to the end of the text. */
+const THINK_SPAN_RE = /<(think|thinking)>[\s\S]*?(?:<\/\1>|$)/gi;
 
 /** Whether `text` holds a think tag in any spelling. Outgoing text never may. */
 export function hasThinkTag(text: string): boolean {
   return THINK_TAG_RE.test(text);
+}
+
+/** The inner texts of the whole thinks of `text` in order, untrimmed, of either name. */
+export function wholeThinks(text: string): Array<string> {
+  return [...text.matchAll(WHOLE_THINK_RE)].map((match) => match[2]);
+}
+
+/** `text` with its whole thinks of either name cut out. */
+export function withoutThinks(text: string): string {
+  return text.replace(WHOLE_THINK_RE, '');
+}
+
+/** Where the whole thinks of `text` stand, and a think left open, as `[from, to)` spans in order. */
+export function thinkSpans(text: string): Array<[number, number]> {
+  return [...text.matchAll(THINK_SPAN_RE)].map((match) => [match.index, match.index + match[0].length]);
+}
+
+/** Whether the trimmed `text` opens with a think, `<think>` or `<thinking>`. */
+export function opensWithThink(text: string): boolean {
+  return /^<think(?:ing)?>/i.test(text.trim());
 }
 
 /** The shape of the broken think of a tag left over once the whole thinks are out, or null. */
@@ -267,11 +292,11 @@ function leakOfLeftover(leftover: string): ThinkLeak | null {
  */
 function thinkInCode(raw: string): ThinkLeak | null {
   if (!raw.includes('`')) return null;
-  const tokens = /```|`|<think>/gi;
+  const tokens = /```|`|<think(?:ing)?>/gi;
   for (let match = tokens.exec(raw); match; match = tokens.exec(raw)) {
     const token = match[0];
     if (!token.startsWith('`')) {
-      const closing = /<\/think>/gi;
+      const closing = new RegExp(`</${token.slice(1, -1)}>`, 'gi');
       closing.lastIndex = tokens.lastIndex;
       if (closing.exec(raw) === null) return null;
       tokens.lastIndex = closing.lastIndex;
@@ -295,12 +320,17 @@ export function thinkLeakOf(raw: string): ThinkLeak | null {
 }
 
 /**
- * An answer in the shape every stored reply has: text with no think tag at all gets an empty `<think></think>` in front.
- * An answer with no text and an answer that holds any think tag, a broken one too, stay as they are.
+ * An answer in the shape every stored reply has: text with no think tag at all gets an empty `<think></think>` in front,
+ * and a whole `<thinking>` block stands as `<think>` with its text unchanged. An answer with no text and an answer whose
+ * think is broken stay as they are.
  */
 export function shapedThink(raw: string): string {
-  if (raw.trim() === '' || hasThinkTag(raw)) return raw;
-  return `<think></think>${raw}`;
+  if (raw.trim() === '') return raw;
+  if (!hasThinkTag(raw)) return `<think></think>${raw}`;
+  if (thinkLeakOf(raw) !== null) return raw;
+  return raw.replace(WHOLE_THINK_RE, (all, name: string, inner: string) =>
+    name.toLowerCase() === 'thinking' ? `<think>${inner}</think>` : all
+  );
 }
 
 /** Whether `leftover`, the text with its whole thinks out, holds a think tag: `result` then says so and has no action. */
@@ -335,7 +365,7 @@ function markThinkLeak(result: ParsedOutput, leftover: string): boolean {
  *   (a retired tag written outside code, cut out), at most one
  *   `{ kind: 'msgMalformed', nested, unclosed, stray }` (message tags out of place, counts only),
  *   `{ kind: 'messagesMerged', count }`, `{ kind: 'thinkUnclosed' }`, `{ kind: 'thinkUnopened' }`, `{ kind: 'bareText', chars }` (the answer's text had no tag at all). `thinkLeak`: the shape of a
- *   broken think, whose answer has no action. `thinkOpen`: a `<think>` was never
+ *   broken think, whose answer has no action. `thinkOpen`: a think was never
  *   closed, with what it held so far appended to `think`. `untagged`: the answer is plain text with no
  *   tag. It has no message and no skip: `bare` holds the text, however long, and it is never sent.
  */
@@ -366,7 +396,7 @@ export function parseOutput(
     result.diagnostics.push({ kind: result.thinkOpen ? 'thinkUnclosed' : 'thinkUnopened' });
     return result;
   }
-  text = text.replace(WHOLE_THINK_RE, (all, inner) => {
+  text = text.replace(WHOLE_THINK_RE, (_all, _name, inner: string) => {
     result.think += inner.trim();
     return '';
   });

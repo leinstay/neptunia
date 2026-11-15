@@ -10,7 +10,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { REPLY_REQUEST } from './openrouter.ts';
-import { shapedThink } from './parse.ts';
+import { shapedThink, wholeThinks } from './parse.ts';
 
 type Row = Record<string, unknown>;
 /** What a request led to: `confirmed` by a receipt, `failed`, or `unlinked` with no receipt to read. */
@@ -103,13 +103,13 @@ function systemOf(messages: unknown): string | null {
 }
 
 /**
- * The think of an answer. `response_text` keeps the answer as it came and is never rewritten, so a reply request's answer with
- * text and no `<think>` shows the one shape of a stored reply here, an empty think. An analyzer's answer has none.
+ * The think of an answer, the text of its first whole think of either name. `response_text` keeps the answer as it came
+ * and is never rewritten, so a reply request's answer with text and no think tag shows the one shape of a stored reply
+ * here, an empty think. An analyzer's answer has none.
  */
 function thinkOf(text: unknown, purpose: unknown): string | null {
   if (typeof text !== 'string') return null;
-  const match = /<think>([\s\S]*?)<\/think>/.exec(purpose === REPLY_REQUEST.purpose ? shapedThink(text) : text);
-  return match?.[1] ?? null;
+  return wholeThinks(purpose === REPLY_REQUEST.purpose ? shapedThink(text) : text)[0] ?? null;
 }
 
 /** The row of a request as it goes out. */

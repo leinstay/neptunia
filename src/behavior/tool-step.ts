@@ -6,6 +6,7 @@
 // pass in what they know.
 
 import { fill } from '../format.ts';
+import { opensWithThink } from '../llm/parse.ts';
 import { clampWithEllipsis } from '../memory/clamp.ts';
 import { apiNameOf } from '../tools/definitions.ts';
 import { coversSpeech } from '../tools/tool-calls.ts';
@@ -369,9 +370,7 @@ export function cutToFit(texts: Array<string>, excess: number, floor: number = 4
   return texts.map((text, i) => (lengths[i] > low ? clampWithEllipsis(text, low) : text));
 }
 
-/** Whether her answer did not begin with her thinking: the trimmed text does not start with `<think>`. */
+/** Whether her answer did not begin with her thinking: the trimmed text opens with neither `<think>` nor `<thinking>`. */
 export function thinkMissing(text: string): boolean {
-  return !String(text ?? '')
-    .trim()
-    .startsWith('<think>');
+  return !opensWithThink(String(text ?? ''));
 }

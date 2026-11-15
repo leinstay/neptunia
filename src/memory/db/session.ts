@@ -44,6 +44,7 @@
 
 import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.ts';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
+import { withoutThinks } from '../../llm/parse.ts';
 import { estimateMessages } from '../../llm/tokens.ts';
 import { rulesPromptOf } from '../../rules-list.ts';
 import { memoryPathText } from '../../subharness/memory-path.ts';
@@ -878,7 +879,7 @@ export function resolveSessionReads(db: Db, request: SessionRequest, iface: stri
  * tolerated). `{ ok: true, value }` or `{ ok: false, code }` (`no_block`, `bad_json`, `not_object`).
  */
 export function parseSessionAnswer(text: unknown): { ok: true; value: Row } | { ok: false; code: string } {
-  const raw = asText(text ?? '').replace(/<think>[\s\S]*?<\/think>/gi, '');
+  const raw = withoutThinks(asText(text ?? ''));
   const open = raw.lastIndexOf('<memory>');
   if (open === -1) return { ok: false, code: 'no_block' };
   let body = raw.slice(open + '<memory>'.length);

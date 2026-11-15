@@ -2,9 +2,10 @@
 // `<tools>` block body) and the parser of the calls it writes back as
 // `<tool_call>{"name": "draw.create", "arguments": {...}}</tool_call>` blocks. Pure. The parser
 // returns the shape of `toolCallsOf` (src/llm/openrouter.ts) so the same normalisation serves both
-// transports. A block is never seen inside a closed or unclosed `<think>`, a code span or a fence.
+// transports. A block is never seen inside a closed or unclosed think of either name, a code span or a fence.
 
 import { canonicalJson } from '../tools/tools-json.ts';
+import { thinkSpans } from './parse.ts';
 import { skillNameOfApi } from '../tools/definitions.ts';
 import { isObj, objOf } from '../tools/types.ts';
 import type { ParsedToolCall } from './openrouter.ts';
@@ -44,19 +45,12 @@ function blank(text: string, spans: ReadonlyArray<readonly [number, number]>): s
   return out;
 }
 
-/** The text with what must never hold a call blanked out: closed and unclosed `<think>`, fences, code spans. */
+/**
+ * The text with what must never hold a call blanked out: closed and unclosed thinks of either name
+ * (src/llm/parse.ts#thinkSpans), fences, code spans.
+ */
 function masked(text: string): string {
-  const spans: Array<[number, number]> = [];
-  let at = 0;
-  for (;;) {
-    const from = text.indexOf('<think>', at);
-    if (from === -1) break;
-    const close = text.indexOf('</think>', from);
-    const to = close === -1 ? text.length : close + '</think>'.length;
-    spans.push([from, to]);
-    at = to;
-  }
-  let out = blank(text, spans);
+  let out = blank(text, thinkSpans(text));
   const code: Array<[number, number]> = [];
   for (const match of out.matchAll(/```[\s\S]*?(?:```|$)/g)) code.push([match.index, match.index + match[0].length]);
   out = blank(out, code);
