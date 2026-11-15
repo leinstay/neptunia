@@ -672,7 +672,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       op,
       envelope,
       resolved: verdict.ok ? resolved : null,
-      refusal: verdict.ok ? null : { code: verdict.code, reason: verdict.reason },
+      refusal: verdict.ok
+        ? null
+        : { code: verdict.code, reason: verdict.reason, ...(verdict.values ? { values: verdict.values } : {}) },
     };
   }
 

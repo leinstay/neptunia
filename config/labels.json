@@ -650,7 +650,7 @@
           "unsupported": "this chat cannot do that",
           "not-configured": "{feature} is not set up",
           "not-grantable": "that skill cannot be granted to you yet",
-          "cooldown": "a destructive skill was used recently in this place",
+          "cooldown": "your own call of this tool from this chat succeeded less than {window} min ago, and the tool runs again in {minutes} min",
           "self-grant": "the persona cannot change her own rights",
           "timeout": "{what} timed out",
           "link-closed": "the connection to the chat was lost",
@@ -795,7 +795,9 @@
             "daily-limit": "its daily limit is used up",
             "malformed": "its model keeps answering with nothing usable",
             "routes-exhausted": "every key and subscription it can run on is unavailable"
-          }
+          },
+          "minutes": {},
+          "window": {}
         }
       },
       "route": {
