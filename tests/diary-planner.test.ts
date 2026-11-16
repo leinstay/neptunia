@@ -39,7 +39,7 @@ test('the planner request holds the frame list and none of the old blocks', asyn
   const text = run.planner[0] ?? '';
   const tags = rootTags(text);
   assert.ok(inOrderOf(tags, PLANNER_TAGS), tags.join(' '));
-  for (const tag of ['self', 'inner', 'meanwhile', 'virtual_world', 'spatial_awareness', 'task'])
+  for (const tag of ['self', 'inner', 'meanwhile', 'spatial_awareness', 'task'])
     assert.ok(tags.includes(tag), `holds <${tag}>`);
   assert.ok(blockOf(text, 'task').includes(MARK.planner), 'its own task');
 });

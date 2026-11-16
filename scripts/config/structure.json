@@ -1088,7 +1088,7 @@
     },
     {
       "path": "src/turn/request/diary.ts",
-      "purpose": "A diary post's own blocks: `<world>`, `<diary>`, `<plan>`, `<seeds>` and `<found>`. Tested through the prompt diary and diary requests tests.",
+      "purpose": "A diary post's own blocks: `<diary>`, `<plan>`, `<seeds>` and `<found>`. Tested through the prompt diary and diary requests tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

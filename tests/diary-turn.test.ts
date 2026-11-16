@@ -245,7 +245,6 @@ function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Unty
       diary: 'DIARY_TASK for {{name}}',
       'diary-planner': 'PLAN_SYSTEM for {{name}}',
       'diary-seeds': '# place\na pier\n# light\nfog',
-      world: 'WORLD of {{name}}',
       draw: 'DRAW for {{name}}\n{{when}}\n{{request}}',
       labels,
       ...prompts,
@@ -306,13 +305,12 @@ test('diary turn: plans on the analyzer model, then composes with the card', asy
   assert.equal(llm.calls.length, 2);
   const [plan, compose] = llm.calls;
   // Slice 6: the planner is a frame request: the persona is its system message and the planner prompt its `<task>`,
-  // the time is in `<spatial_awareness>`, the world in `<virtual_world>`, the kinds and the seeds in `<inner>`.
+  // the time is in `<spatial_awareness>`, the kinds and the seeds in `<inner>`.
   assert.ok(String(plan[0].content).includes('CARD_TEXT'), 'the planner is the persona');
   const planUser = userOf(plan);
-  for (const tag of ['spatial_awareness', 'virtual_world', 'inner', 'kinds', 'seeds'])
+  for (const tag of ['spatial_awareness', 'inner', 'kinds', 'seeds'])
     assert.ok(planUser.includes(`<${tag}>`), `plan request: <${tag}>`);
   assert.ok(planUser.includes('<task>\nPLAN_SYSTEM for Bot\n</task>'), 'the planner prompt is the task');
-  assert.ok(planUser.includes('WORLD of Bot'));
   assert.ok(planUser.includes('- a pier; fog'), 'one seed line per family');
   assert.equal(llm.options[0].role, 'analyzer');
   assert.equal(llm.options[0].purpose, 'diary-planner');
@@ -322,11 +320,10 @@ test('diary turn: plans on the analyzer model, then composes with the card', asy
 
   assert.ok(compose[0].content.includes('CARD_TEXT'), 'the post is composed with the card');
   const composeUser = userOf(compose);
-  // Slice 6: the world is `<virtual_world>` whenever world.md has text, and the plan is lines in `<inner>`, no JSON.
+  // Slice 6: the plan is lines in `<inner>`, no JSON.
   // Her past entries come from memory, which this fake store has not: '<diary> holds the newest 150 of 200
   // stored entries newest first' below checks that they reach the writer. The writer is nowhere, so no diary channel
   // is named in its senses.
-  assert.ok(composeUser.includes('<virtual_world>\nWORLD of Bot\n</virtual_world>'));
   assert.ok(
     composeUser.includes(`<plan>\n${planLines({ kind: 'status', brief: 'tired of rain', picture: false })}\n</plan>`),
     composeUser

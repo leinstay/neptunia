@@ -35,7 +35,6 @@ import type {
 } from './prompt-types.ts';
 export { skillsInventoryText } from '../turn/request/senses.ts';
 export { usesFollowUpTask } from '../turn/request/task.ts';
-export { worldText } from '../turn/request/diary.ts';
 
 /**
  * The whole text of a user message's content: a string as it is; an array of

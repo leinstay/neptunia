@@ -1,4 +1,4 @@
-// A diary request's own parts: the persona's world (`<virtual_world>`), her past entries (`<diary>`), the
+// A diary request's own parts: her past entries (`<diary>`), the
 // post's `<plan>`, the planner's `<kinds>` and `<topic>`, the `<seeds>`, the mirrors to choose among
 // (`<publication_places>`) and the audiences she has not heard were refused. buildRequest (src/behavior/prompt.ts) calls
 // `diaryFramedOf` for the planner and the writer on the frame, and `diaryOf` for a request with no frame.
@@ -8,9 +8,8 @@ import { localDayKey, recentOpenings, renderOpenings, renderDiaryBlock } from '.
 import { fill } from '../../format.ts';
 import { refusedAudience } from '../../tools/publication.ts';
 import { kindOfRequest } from './frame.ts';
-import { fillPromptTemplate } from './text.ts';
 import type { KnownPlaces } from '../../tools/publication.ts';
-import type { Labels, Prompts, RequestInput } from './types.ts';
+import type { Labels, RequestInput } from './types.ts';
 
 /**
  * A diary request's own input (buildRequest's `input.diary`): the store's posts (their refused
@@ -35,16 +34,6 @@ export type DiaryPlan = {
   readonly picture?: unknown;
   readonly topic?: unknown;
 };
-
-/**
- * The world of a diary request (the plan and the post): prompts/world.md with `{{name}}` filled, '' with the
- * file missing or blank. Never part of an ordinary turn: only the diary's two requests call it.
- */
-export function worldText(_config: unknown, prompts: Prompts | null | undefined, selfName: string): string {
-  const text = prompts?.world;
-  if (typeof text !== 'string' || !text.trim()) return '';
-  return fillPromptTemplate(text, { name: selfName }).trim();
-}
 
 /**
  * The `<plan>` body: `labels.diary.plan`, then one line per field of the plan: `planKind` and `planBrief` with
@@ -122,10 +111,8 @@ export function audienceRefusedBody(posts: unknown, labels: Labels, timezone: st
     .join('\n');
 }
 
-/** What a diary request on the frame adds: `<virtual_world>`, her past entries and the other parts of `<inner>`. */
+/** What a diary request on the frame adds: her past entries and the other parts of `<inner>`. */
 export type DiaryFramed = {
-  /** The body of `<virtual_world>`, '' when world.md is empty. */
-  world: string;
   /** The first line of `<diary>` and one line per past entry, newest first; the budget cuts the oldest. */
   intro: string;
   entries: Array<string>;
@@ -167,13 +154,12 @@ const textPart = (tag: string, text: unknown): Array<{ tag: string; text: string
   typeof text === 'string' && text.trim() !== '' ? [{ tag, text: text.trim() }] : [];
 
 /**
- * The parts of the planner's or the writer's request on the frame, null on any other kind. Both carry the world and
- * her past entries, newest first: the planner the newest `diary.entries`, the writer the newest
+ * The parts of the planner's or the writer's request on the frame, null on any other kind. Both carry her past entries, newest first: the planner the newest `diary.entries`, the writer the newest
  * `diary.writerEntries`. The planner adds `<kinds>`, `<seeds>`, `<topic>` and `<stored_facts>`, what it chooses from. The writer
  * adds `<plan>` with what the search found and how her last entries of the plan's kind opened, a set post's `<seeds>`, `<publication_places>` and the refused audiences.
  */
 export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFramed | null {
-  const { config, prompts, selfName, labels } = given;
+  const { config, labels } = given;
   const kind = kindOfRequest(given);
   if (kind !== 'diary' && kind !== 'diary_plan') return null;
   const input = given.diary ?? {};
@@ -212,7 +198,6 @@ export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFr
           ...textPart('publication_places', publicationPlacesBody(input.publicationPlaces, labels)),
         ];
   return {
-    world: worldText(config, prompts, selfName),
     intro: entries.length > 0 ? intro : '',
     entries,
     parts,

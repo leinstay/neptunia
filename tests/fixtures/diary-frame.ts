@@ -41,7 +41,6 @@ export const TEXT = {
   ownHarbour: 'ΔΙΚΗ-ΤΗΣ-ΛΙΜΑΝΙ',
   ownPrivate: 'ΔΙΚΗ-ΤΗΣ-ΙΔΙΩΤΙΚΗ',
   eleniGarden: 'ΕΛΕΝΗ-ΣΤΟΝ-ΚΗΠΟ',
-  world: 'ΚΟΣΜΟΣ-ΤΗΣ-ΙΣΤΟΡΙΑΣ',
   /** A line of hers stored in the first mirror's place that no entry names. */
   mirrorOnly: 'ΜΟΝΟ-ΣΤΟΝ-ΚΑΘΡΕΦΤΗ',
   entry: 'ήσυχο βράδυ στο λιμάνι',
@@ -74,8 +73,6 @@ export type FrameTurnSpec = {
   labels?: Record<string, string>;
   /** How many turns run one after the other over the same memory, 1 when absent. */
   turns?: number;
-  /** The text of `world.md`. */
-  world?: string;
   /** Laid over the `diary` settings, which set `entries` and the planner's limits. */
   diary?: Record<string, unknown>;
   /** The writer's answer. */
@@ -172,7 +169,6 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
       diary: MARK.writer,
       'diary-planner': MARK.planner,
       'diary-seeds': '# place\na pier\n# light\nfog',
-      world: spec.world ?? TEXT.world,
       draw: 'DRAW for {{name}}\n{{when}}\n{{request}}',
       labels: spec.labels
         ? { ...shippedLabels, diary: { ...shippedLabels.diary, ...spec.labels } }

@@ -196,7 +196,7 @@ const LOADS = {
   errandResult: [...SYSTEM, 'errand-result'],
   private: [...SYSTEM, 'reply', 'private'],
   draw: ['draw', 'appearance'],
-  diary: [...SYSTEM, 'diary', 'world'],
+  diary: [...SYSTEM, 'diary'],
   inner: [...SYSTEM, 'inner'],
   heartbeat: [...SYSTEM, 'heartbeat'],
   describe: ['describe', 'describe-self'],
@@ -1146,7 +1146,7 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
   assertFilled(buildRequest(missing).messages, { files: LOADS.inner }, 'heartbeat with no heartbeat.md');
 });
 
-test('buildRequest: a diary post fills system-prompt, character-card, rules, format, diary.md and world.md', async () => {
+test('buildRequest: a diary post fills system-prompt, character-card, rules, format, and diary.md', async () => {
   const input = await turnInput({
     mode: 'diary',
     trigger: null,
@@ -1161,13 +1161,12 @@ test('buildRequest: a diary post fills system-prompt, character-card, rules, for
     diaryChannel: 'journal',
     diary: { posts: DIARY_POSTS, plan, found: 'Une comète passe ce soir.' },
   });
-  // Slice 7: the writer is built on its turn frame, so its blocks are the frame's: the plan in `<inner>` and the world
-  // in `<virtual_world>`, her entries coming from memory alone (slice 6).
+  // Slice 7: the writer is built on its turn frame, so its blocks are the frame's: the plan in `<inner>`, her entries coming from memory alone (slice 6).
   const text = assertFilled(
     request.messages,
     {
       files: LOADS.diary,
-      blocks: ['self', 'senses', 'inner', 'plan', 'virtual_world', 'spatial_awareness', 'task'],
+      blocks: ['self', 'senses', 'inner', 'plan', 'spatial_awareness', 'task'],
     },
     'diary'
   );
