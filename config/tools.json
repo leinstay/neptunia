@@ -243,7 +243,7 @@
   },
   "memory.journal.read": {
     "title": "Read journal",
-    "whenToUse": "Reads your journal of this chat, the records the engine keeps of your own turns and calls: the last records of one day, of one kind or all, or with message the whole turn that posted that message of yours, your thinking included. A turn record holds what you saw, how the turn ended and the start of your thinking. Kind answer lists the messages that may have gone without your answer, and kind inner the turns you started yourself, with no line to answer. It returns records of what you did, never the text of a post. It runs only when the owner asks, or in a turn of your own.",
+    "whenToUse": "Reads your journal, the records the engine keeps of your own turns and calls: the last records of one day, of one kind or all, or with message the whole turn that posted that message of yours, your thinking included. It covers the community you are in, or the direct chat, and in a turn with no place the turns you ran with none. A turn record holds what you saw, how the turn ended and the start of your thinking. Kind answer lists the messages that may have gone without your answer, and kind inner the turns you started yourself, with no line to answer. It returns records of what you did, never the text of a post. It runs only when the owner asks, or in a turn of your own.",
     "whenNotToUse": "For a post of yours, memory.search with mine, or conversation.read of its place with find. For what people said, memory.search.",
     "args": {
       "kind": "turn, action, memory, system, answer, inner or all (default).",
@@ -254,7 +254,7 @@
   },
   "memory.archive.read": {
     "title": "Read archive",
-    "whenToUse": "Reads the newest items that left your memory for the archive, newest first: the day each left, the event, its kind, its id and its text. With user, the items about that person. Without, the community's own. It runs only when the owner asks, or in a turn of your own.",
+    "whenToUse": "Reads the newest items that left your memory for the archive, newest first: the day each left, the event, its kind, its id and its text. With user, the items about that person. Without, the community's own. In a turn with no place it reads every community's. It runs only when the owner asks, or in a turn of your own.",
     "whenNotToUse": "For what memory holds now, memory.profile.read or memory.server.read.",
     "args": {
       "kind": "One item kind.",
