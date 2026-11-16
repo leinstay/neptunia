@@ -9,22 +9,15 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { main, tableHashes } from '../scripts/memory-db.ts';
-import { openBoard } from '../src/board/board.ts';
-import type { Board, BoardSettings } from '../src/board/board.ts';
+import { applyErrandSave } from '../src/board/errands.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-10-31T10:00:00.000Z');
-const SETTINGS: BoardSettings = {
-  leaseTtlMinutes: 30,
-  autoTriage: { role: 'dev', budget: 4, steps: 80, estimate: 30 },
-  projects: {},
-};
 
 type Hash = { table: string; rows: number; hash: string };
-type Handle = { db: object; close: () => void };
 
 // open.js types its connection as `object`; it is node:sqlite's DatabaseSync, which has every method BoardDb names.
 const dbOf = (handle: { db: object }): BoardDb => handle.db as BoardDb;
@@ -63,28 +56,31 @@ function run(...argv: Array<string>): { code: unknown; text: string } {
   return { code, text: lines.join('\n') };
 }
 
-/** Opens the memory file and its board, runs `fn`, closes. */
-function withBoard(env: Env, fn: (board: Board, handle: Handle) => void): void {
+/** Opens the memory file, runs `fn` on its connection, closes. */
+function withDb(env: Env, fn: (db: BoardDb) => void): void {
   const handle = openMemoryDb(env.file);
   try {
-    fn(openBoard({ db: dbOf(handle), privateDir: env.root, now: () => NOW, settings: () => SETTINGS }), handle);
+    fn(dbOf(handle));
   } finally {
     handle.close();
   }
 }
 
+/** Files errand `id` on the board the way the errand store writes it: its task at `approved` with its status event. */
+function fileErrand(db: BoardDb, id: string, goal: string): void {
+  const errand = { id, agent: 'scout', goal, state: 'queued', createdAt: NOW };
+  applyErrandSave(db, { id, at: NOW, errand, delivered: false }, NOW, () => {});
+}
+
 type Env = { root: string; file: string; backup: string };
 
-/** A seeded memory file with two board tasks, and a backup of it. */
+// Changed: the board holds errands only, so the fixture files errands where it filed development tasks and comments.
+/** A seeded memory file with two errands on the board, and a backup of it. */
 function seeded(): Env {
   const root = tempDir('nep-board-restore-');
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  fs.writeFileSync(
-    path.join(root, 'clients.json'),
-    JSON.stringify({ boss: { kind: 'cli', tokenFile: 'clients/boss.token', permissions: [], boardRoles: ['owner'] } })
-  );
   const env = { root, file: path.join(data, 'memory.db'), backup: path.join(root, 'backup') };
   const handle = openMemoryDb(env.file);
   try {
@@ -92,21 +88,19 @@ function seeded(): Env {
   } finally {
     handle.close();
   }
-  withBoard(env, (board) => {
-    const first = board.call('boss', 'task.add', { title: 'in the backup' });
-    board.call('boss', 'task.comment', { id: first.id, text: 'a comment in the backup' });
-    board.call('boss', 'task.add', { title: 'also in the backup' });
+  withDb(env, (db) => {
+    fileErrand(db, 'errand-in-backup-1', 'in the backup');
+    fileErrand(db, 'errand-in-backup-2', 'also in the backup');
   });
   backUp(env.file, env.backup);
   return env;
 }
 
-/** Changes both parts after the backup: a board task and a comment, a memory row. */
+/** Changes both parts after the backup: an errand on the board, a memory row. */
 function changeBoth(env: Env): void {
-  withBoard(env, (board, handle) => {
-    const later = board.call('boss', 'task.add', { title: 'after the backup' });
-    board.call('boss', 'task.comment', { id: later.id, text: 'a comment after the backup' });
-    dbOf(handle).prepare("INSERT INTO meta (key, value) VALUES ('after-backup', 'Ωμέγα')").run();
+  withDb(env, (db) => {
+    fileErrand(db, 'errand-after-backup', 'after the backup');
+    db.prepare("INSERT INTO meta (key, value) VALUES ('after-backup', 'Ωμέγα')").run();
   });
 }
 
@@ -143,8 +137,8 @@ test('a memory-only restore brings her memory back from the backup and leaves ev
 test('a board-only restore between two board versions is refused and changes nothing', () => {
   const env = seeded();
   // A board one version past the backup's.
-  withBoard(env, (_board, handle) =>
-    dbOf(handle).exec('INSERT INTO board_schema_version (version) SELECT MAX(version) + 1 FROM board_schema_version')
+  withDb(env, (db) =>
+    db.exec('INSERT INTO board_schema_version (version) SELECT MAX(version) + 1 FROM board_schema_version')
   );
   const before = hashesOf(env.file);
 

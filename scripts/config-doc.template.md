@@ -162,10 +162,6 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 
 <!-- settings: agents -->
 
-## board
-
-<!-- settings: board -->
-
 ## intentions
 
 <!-- settings: intentions -->

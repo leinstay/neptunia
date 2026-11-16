@@ -369,7 +369,7 @@ On every other command `--secret-stdin` is ordinary text. `keys add` and `keys s
 | `service` | The mechanic |
 | `enabled` | The saved flag |
 | `running` | Whether a run is going, `unknown` for a wake with no core and for a selfreflection even with one |
-| `readiness` | `ready`, or `not ready` and what is missing: the core, a role's subharness source or the repository |
+| `readiness` | `ready`, or `not ready: the core is not running` while no core answers |
 | `schedule` | The schedule, with the heartbeat's jitter. `windows` for a selfreflection with no `selfreflection.schedule` |
 | `next due` | The next time, `none` when disabled. For a selfreflection drawing from windows with no core it is the start of the next window that can post in `bot.timezone`, `none` when no window can |
 | `last result` | The core's last wake, `unknown` with no core |

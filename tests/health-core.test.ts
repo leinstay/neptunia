@@ -1,6 +1,6 @@
 // Tests for the core part of `/health` (src/health/core.ts#coreHealth) over a fixture memory database written row by
-// row: the errands stuck on an expired lease (the board's own reclaim condition) and the sends that failed or still
-// wait. The clock is the fixed NOW; no core runs.
+// row: the sends that failed or still wait and the errand ends not yet delivered. The clock is the fixed NOW; no core
+// runs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -11,31 +11,11 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-10-31T12:00:00Z');
 const HOUR = 60 * 60 * 1000;
-const iso = (ms: number): string => new Date(ms).toISOString();
 
 function fixture(): { db: DatabaseSync; close: () => void } {
   const dir = tempDir('health-core-');
   const handle = openMemoryDb(join(dir, 'memory.db'));
   return { db: handle.db as DatabaseSync, close: () => handle.close() };
-}
-
-/** A board task of `lane` in `status`, its lease held by a runner until `leaseUntil` (null: no lease). */
-function task(db: DatabaseSync, id: string, lane: string, status: string, leaseUntil: number | null): void {
-  db.prepare(
-    `INSERT INTO board_tasks (id, lane, title, requester, role, status, lease_owner, lease_expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    lane,
-    'find the release notes',
-    'persona:self',
-    lane === 'errand' ? 'scout' : 'dev',
-    status,
-    leaseUntil === null ? null : 'runner-1',
-    leaseUntil === null ? null : iso(leaseUntil),
-    iso(NOW - 5 * HOUR),
-    iso(NOW - 4 * HOUR)
-  );
 }
 
 /** A delivery of one wake in `state`. */
@@ -47,34 +27,6 @@ function delivery(db: DatabaseSync, key: string, state: string): void {
     "INSERT INTO deliveries (key, wake_id, target, payload, state, queued_at) VALUES (?, 'w1', 'c1', '{}', ?, ?)"
   ).run(key, state, NOW - HOUR);
 }
-
-test('counts an errand whose lease expired while it runs as stuck and names it', () => {
-  const { db, close } = fixture();
-  try {
-    task(db, 'e-stuck', 'errand', 'in_progress', NOW - HOUR);
-    task(db, 'e-live', 'errand', 'in_progress', NOW + HOUR);
-    task(db, 'e-done', 'errand', 'done', null);
-    const health = coreHealth(db, { now: NOW, turnDurationsMs: [] });
-    assert.deepEqual(
-      health.stuckErrands.map((row) => row.id),
-      ['e-stuck']
-    );
-    assert.notEqual(health.status, 'ok');
-    assert.ok(health.text.includes('e-stuck'), 'the text names the stuck errand');
-  } finally {
-    close();
-  }
-});
-
-test('a development task on an expired lease is not a stuck errand', () => {
-  const { db, close } = fixture();
-  try {
-    task(db, 'd-stale', 'dev', 'in_progress', NOW - HOUR);
-    assert.deepEqual(coreHealth(db, { now: NOW, turnDurationsMs: [] }).stuckErrands, []);
-  } finally {
-    close();
-  }
-});
 
 test('counts the failed sends and the queued ones apart from those sent', () => {
   const { db, close } = fixture();
@@ -91,12 +43,29 @@ test('counts the failed sends and the queued ones apart from those sent', () => 
   }
 });
 
-test('an empty database is healthy, with no stuck errand, no failed send and no latency', () => {
+test('counts the outbox rows of errand ends not yet delivered and leaves out the delivered ones', () => {
+  // Bug: a count over every outbox row, so /doctor core reports ends that her result turns already took.
+  const { db, close } = fixture();
+  try {
+    const insert = db.prepare(
+      "INSERT INTO board_outbox (task_id, to_whom, kind, payload, created_at, delivered_at) VALUES (?, 'persona', 'done', '{}', 'x', ?)"
+    );
+    insert.run('e-1', null);
+    insert.run('e-2', null);
+    insert.run('e-3', 'y');
+    assert.equal(coreHealth(db, { now: NOW, turnDurationsMs: [] }).queues.outbox, 2);
+  } finally {
+    close();
+  }
+});
+
+// Changed: the stuck-errand check goes, since no errand holds a lease, so the empty case no longer reports one.
+test('an empty database is healthy, with no failed send, no waiting outbox row and no latency', () => {
   const { db, close } = fixture();
   try {
     const health = coreHealth(db, { now: NOW, turnDurationsMs: [] });
     assert.equal(health.status, 'ok');
-    assert.deepEqual([health.stuckErrands.length, health.failedSends], [0, 0]);
+    assert.deepEqual([health.failedSends, health.queues.outbox], [0, 0]);
     assert.deepEqual(health.turnLatencyMs, { p50: null, p95: null });
   } finally {
     close();

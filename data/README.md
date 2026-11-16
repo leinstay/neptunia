@@ -9,7 +9,7 @@ The persona root: everything that makes one deployment's persona, kept apart fro
 | `config/` | Personal settings over the defaults of the engine's `config/`. |
 | `prompts/` | Personal prompts, each replacing the engine's file of the same name. |
 | `keys.json` | Model keys and service credentials, mode `0600`. |
-| `agents/<name>/` | Personal prompt and profile fields of an agent from the engine's `agents/`, and the watcher's reports. |
+| `agents/<name>/` | Personal prompt and profile fields of an agent from the engine's `agents/`. |
 | `skills/<name>/` | Authored skills, their scripts and their state. |
 | `interfaces/<name>/` | The settings, credentials and technical state of one interface. |
 | `subharness/<backend>/` | The native homes, logins and sessions of the agent backends. |

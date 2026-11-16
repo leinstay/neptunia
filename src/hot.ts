@@ -54,7 +54,8 @@ const valueAtKey = (config: Untyped, key: string): unknown =>
  * engine is in dollars: `wakes.caps.usdPerDay`, `wakes.estimatedTurnUsd`,
  * `wakes.errandReserveMaxMinutes`, `agents.<agent>.daily.usd` and `agents.<agent>.limits.usd` are
  * not read (the provider keys' own limits are the money bounds; costs are only reported). `selfimprovement.*`,
- * `development.*` and `models.development.*` name a development worker the engine does not have, so nothing reads them.
+ * `development.*` and `models.development.*` name a development worker the engine does not have, and `board.*` the
+ * board's own operations and reaper, so nothing reads them.
  */
 const RETIRED_CONFIG_KEYS = Object.freeze(
   [
@@ -80,6 +81,7 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'selfimprovement', use: null },
     { key: 'development', use: null },
     { key: 'models.development', use: null },
+    { key: 'board', use: null },
     ...['scout', 'server', 'thinker', 'dev'].flatMap((agent) => [
       { key: `agents.${agent}.daily.usd`, use: null },
       { key: `agents.${agent}.limits.usd`, use: null },

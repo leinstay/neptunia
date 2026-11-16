@@ -160,7 +160,6 @@ import type { Root } from './roots.ts';
 import { applyMediaEmbed } from './media-store.ts';
 import { applyIngestWrite } from './ingest.ts';
 import { applyWakeQueueWrite } from './wake-queue.ts';
-import { applyBoardWrite } from '../../board/writer.ts';
 import { takeOverClaim } from './session-rows.ts';
 import { asText, dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
@@ -948,7 +947,6 @@ function linkRequest(db: Db, run: SessionRunRow | null | undefined, applied: boo
 /** The writers that take the handle and the whole update, by the update's kind. */
 const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unknown>([
   ['wake-queue', applyWakeQueueWrite],
-  ['board', applyBoardWrite],
   ['person-link', applyPersonLinkWrite],
   ['person-merge', applyPersonMergeWrite],
   ['person-bind', applyPersonBindWrite],
@@ -1029,7 +1027,7 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
   if (kind === 'entry-media') return applyEntryMedia(handle, update);
   // Schema v16: the event door's ingestion record (ingest.ts).
   if (kind === 'ingest' || kind === 'ingest-ack' || kind === 'ingest-release') return applyIngestWrite(handle, update);
-  // Schema v18: the inner life's wake queue and leases (wake-queue.ts); the task board (src/board/writer.ts).
+  // Schema v18: the inner life's wake queue and leases (wake-queue.ts).
   const whole = WHOLE_WRITES.get(asText(kind));
   if (whole) return whole(handle, update);
   if (kind !== 'session') throw coded('BAD_UPDATE');

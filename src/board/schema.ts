@@ -1,7 +1,7 @@
-// The task board's names in the memory database. Its tables are part of the memory's baseline
-// (src/memory/db/schema-baseline.ts), and `board_schema_version` still holds the version they had there, which the
-// board's readers check before they answer. The tables are internal-only: no graph projection, recall, export or sync
-// reads them.
+// The task board's names in the memory database. Its four tables, `board_tasks`, `board_events`, `board_outbox` and
+// `board_results`, hold her errands (src/board/errands.ts) in the shape step 60 of src/memory/db/schema.ts gives them,
+// and `board_schema_version` holds the version they had in the memory's baseline, which the memory handle reports
+// (src/memory/db/open.ts). The tables are internal-only: no graph projection, recall, export or sync reads them.
 
 // The connection the board needs: node:sqlite's DatabaseSync has every method named here.
 export type BoardDb = {

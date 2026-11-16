@@ -30,7 +30,6 @@ const WORDS: Record<string, string> = {
   private: 'Direct message rules',
   errands: 'Agent tasks',
   agents: 'Agent settings',
-  board: 'Task board',
   intentions: 'Plans',
   wakes: 'Autonomous turns',
   heartbeat: 'Heartbeat',
@@ -130,8 +129,6 @@ const EXPLANATIONS: Record<string, string> = {
   'recall.db.vectorEviction':
     'Remove older vectors from the search index daily. Stored messages remain in the archive.',
   'tools.transport': 'Use native for structured tool calls, or text for tool calls written inside the model response.',
-  'board.reapSeconds': 'How often to release expired task claims so the tasks can be picked up again, in seconds.',
-  'board.briefWaitMs': 'Time to wait for review before offering a completed task again, in milliseconds.',
   'wakes.mode': 'Use shadow to record proposed actions without executing them, or live to allow permitted actions.',
   'wakes.review.historyDays': 'How many days of the persona’s messages are used when deciding whether a review is due.',
   'appendStore.retryMax': 'Maximum queued records held in memory while writes fail.',

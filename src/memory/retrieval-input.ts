@@ -25,12 +25,6 @@ export type RetrievalInput =
       intention: { purpose: string; people: Ids; entities: Ids; place: string | null };
     }
   | { purpose: 'reflection'; from: string; to: string; participants: Ids; entities: Ids }
-  | {
-      purpose: 'improvement';
-      failures: ReadonlyArray<{ tool: string; code: string | null }>;
-      lessons: Ids;
-      entities: Ids;
-    }
   | { purpose: 'session'; batch: Ids; people: Ids; places: Ids; entities: Ids }
   | { purpose: 'task'; goal: string; refs: ReadonlyArray<SemanticRef> };
 
@@ -88,11 +82,6 @@ function seedsOf(input: RetrievalInput): { lines: ReadonlyArray<string>; anchors
     }
     case 'reflection':
       return { lines: [], anchors: [...refs('person', input.participants), ...refs('entity', input.entities)] };
-    case 'improvement':
-      return {
-        lines: [...input.failures.map((one) => `${one.tool} ${one.code ?? ''}`), ...input.lessons],
-        anchors: refs('entity', input.entities),
-      };
     case 'session':
       return {
         lines: input.batch,

@@ -96,11 +96,6 @@ const INPUTS: ReadonlyArray<[string, RetrievalInput, MemoryQuery['purpose']]> = 
     'reflection',
   ],
   [
-    'an improvement wake seeded only by a failure',
-    { purpose: 'improvement', failures: [{ tool: 'web.search', code: 'TIMEOUT' }], lessons: [], entities: [] },
-    'improvement',
-  ],
-  [
     'a memory session',
     { purpose: 'session', batch: ['lumen shipped'], people: [ALEX], places: [ROOM], entities: [] },
     'session',
@@ -148,16 +143,6 @@ test('a heartbeat with no intention purpose still has seeds from what changed an
   );
   assert.deepEqual(made.anchors, [person(ALEX)]);
   assert.match(made.text, /Lumen shipped/);
-});
-
-test('an improvement wake seeded only by a failure searches for that failure', () => {
-  // Bug: a wake with no lesson and no project has nothing to search for.
-  const made = memoryQueryFor(
-    { purpose: 'improvement', failures: [{ tool: 'web.search', code: 'TIMEOUT' }], lessons: [], entities: [] },
-    BOUNDS
-  );
-  assert.match(made.text, /web\.search/);
-  assert.match(made.text, /TIMEOUT/);
 });
 
 test('an attention wake reads under its own purpose, people, entities and place', () => {
@@ -291,17 +276,6 @@ test('a reflection with no mirror retrieves under the groups context and reads n
   const page = await retrieveMemory(world.db, world.contexts.groups, made, deps);
   assert.ok(versions(page).includes(fact.versionId));
   assert.ok(!JSON.stringify(page).includes(secret.versionId));
-  world.handle.close();
-});
-
-test('an improvement wake seeded by a failure finds the plain line about it', async () => {
-  // Bug: a failure with no entity behind it finds nothing, so the same fault returns every week.
-  const { world, open } = known();
-  const made = memoryQueryFor(
-    { purpose: 'improvement', failures: [{ tool: 'web.search', code: 'TIMEOUT' }], lessons: [], entities: [] },
-    BOUNDS
-  );
-  assert.ok((await retrieveMemory(world.db, world.contexts.internal, made, deps)).sourceIds.includes(open));
   world.handle.close();
 });
 

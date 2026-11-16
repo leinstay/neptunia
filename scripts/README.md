@@ -48,7 +48,7 @@ A flag `--<role> <route>` replaces one role for that run alone and writes nothin
 | `search-compare.ts` | Runs the same queries through multiple search engines. Writes results, a blind sheet and a key (not under `data/`) | no | no | yes, 1 summary per query per engine |
 | `graph-retrieval-bench.ts` | Builds identical synthetic graphs in temporary databases (`--sizes`, `--shapes` uniform, zipf, star) and reads them with source-only recall and with graph-enabled retrieval, idle and under a concurrent ingest. Prints p50 and p95 latency, peak RSS, WAL size, pages stopped on a bound, write latency and the query plans | no (temporary folder only) | no | no |
 | `vision-compare.ts` | Describes the same media with each model. `--from-cache` reads from the guild's media cache via Discord REST. Writes one HTML page | `data/vision-compare/` only | no | yes, 1 request per item and model |
-| `memory-db.ts` | The memory database: `stats`, `hash`, `reproject`, `rebuild`, `media-check`, `index-policy`, `restore-tables`, `board`. Opens the database read-only | no | no | no |
+| `memory-db.ts` | The memory database: `stats`, `hash`, `reproject`, `rebuild`, `media-check`, `index-policy`, `restore-tables`. Opens the database read-only | no | no | no |
 | `memory-session.ts` | Runs her memory session once, on a copy, in shadow. Says what she proposed | no | no | yes |
 
 Pure helpers live in `scripts/lib/` and are tested by `tests/tools-*.test.js`.

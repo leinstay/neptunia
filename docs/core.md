@@ -163,4 +163,4 @@ The main thread holds no long read or copy, because nothing else in the core mov
 
 ## The task board
 
-The [board](board.md) stores delegated work in the same database. Its roles govern task operations independently from conversational memory access.
+The board holds her errands in the memory database, one `board_tasks` row per errand, written only through the errand store. [Errands](errands.md#the-board) describes its rows and statuses.

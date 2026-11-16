@@ -108,8 +108,58 @@ function nameScripts(db: Db): void {
     UPDATE meta SET value = '1' WHERE key = 'stems_pending';`);
 }
 
+/**
+ * Version 60: the board holds her errands and nothing else (the maintainer's decision of 2026-11-16). Every task
+ * outside the errand lane, a task with no lane among them, goes with its events, outbox rows and results, and so do
+ * the events that name no task. The seven tables only development used are dropped. `board_tasks` keeps the columns
+ * the errand store writes and the five statuses an errand stands in, `board_results` the handoff, each rebuilt
+ * through a copy because a CHECK cannot be altered; the copy keeps the rowids, which give the order errands were
+ * filed in. `board_events`, `board_outbox` and `board_schema_version` stay as they are. The selfimprovement wakes not
+ * yet handled, which no service claims, go with their deliveries.
+ */
+function errandBoard(db: Db): void {
+  const hasColumn = (table: string, column: string): boolean =>
+    db.prepare(`SELECT 1 AS ok FROM pragma_table_info('${table}') WHERE name = ?`).get(column) !== undefined;
+  // A board already in this shape is left as it is, as step 59 leaves a column already there.
+  if (hasColumn('board_tasks', 'lane')) {
+    const notErrand = "SELECT id FROM board_tasks WHERE lane IS NOT 'errand'";
+    db.exec(`DELETE FROM board_events WHERE task_id IS NULL OR task_id IN (${notErrand});
+      DELETE FROM board_outbox WHERE task_id IS NULL OR task_id IN (${notErrand});
+      DELETE FROM board_results WHERE task_id IN (${notErrand});
+      DELETE FROM board_tasks WHERE lane IS NOT 'errand';
+      CREATE TABLE board_tasks_new (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, role TEXT,
+        status TEXT NOT NULL CHECK (status IN ('approved','in_progress','done','failed','cancelled')),
+        close_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata TEXT
+      );
+      INSERT INTO board_tasks_new (rowid, id, title, role, status, close_reason, created_at, updated_at, metadata)
+        SELECT rowid, id, title, role, status, close_reason, created_at, updated_at, metadata FROM board_tasks;
+      DROP TABLE board_tasks;
+      ALTER TABLE board_tasks_new RENAME TO board_tasks;
+      CREATE INDEX board_tasks_status ON board_tasks(status);`);
+  }
+  if (hasColumn('board_results', 'attempt_id')) {
+    db.exec(`CREATE TABLE board_results_new (
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, kind TEXT CHECK (kind IN ('handoff')), body TEXT, created_at TEXT
+      );
+      INSERT INTO board_results_new (rowid, id, task_id, kind, body, created_at)
+        SELECT rowid, id, task_id, kind, body, created_at FROM board_results WHERE kind = 'handoff';
+      DROP TABLE board_results;
+      ALTER TABLE board_results_new RENAME TO board_results;`);
+  }
+  db.exec(`DROP TABLE IF EXISTS board_agent_runs;
+    DROP TABLE IF EXISTS board_attempts;
+    DROP TABLE IF EXISTS board_comments;
+    DROP TABLE IF EXISTS board_dependencies;
+    DROP TABLE IF EXISTS board_idempotency;
+    DROP TABLE IF EXISTS board_questions;
+    DROP TABLE IF EXISTS board_reviews;
+    DELETE FROM deliveries WHERE wake_id IN (SELECT id FROM wakes WHERE kind = 'selfimprovement' AND state <> 'handled');
+    DELETE FROM wakes WHERE kind = 'selfimprovement' AND state <> 'handled';`);
+}
+
 /** The steps above the baseline, version 57 first. */
-export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources, nameScripts];
+export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources, nameScripts, errandBoard];
 
 /** The tables that carry a scope and its `audience_id`. */
 export const SCOPED_TABLES = [

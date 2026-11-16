@@ -694,12 +694,9 @@ const AGENT_WINDOWS: ReadonlyArray<string> = Object.freeze(['today', 'last7', 'l
  * gives []): one line per agent in the given order, `agentLine` ({agent} {parts}) with one
  * `agentWindow` part ({window} {runs} {in} {out} {usd}; tokens compact, the window named through
  * `agentWindows.today | last7 | last30`) per window joined by `partSeparator`, or `agentNoRuns`
- * ({agent}) when the agent has no run in the last 30 days or no record at all; an agent whose
- * totals carry a `last_wave` with a context figure is followed by
- * `agentContext` ({agent} {wave} {turns} {mean} {peak} {usd}; the context in compact tokens, `-`
- * for a missing one); then `agentEstimate`, the note that the dollars are OpenCode's estimate. Pure.
- * `totals` is as src/errands/costs.ts#agentCosts or src/board/costs.ts#agentCosts returns; an agent it lacks has
- * no run.
+ * ({agent}) when the agent has no run in the last 30 days or no record at all; then `agentEstimate`, the
+ * note that the dollars are OpenCode's estimate. Pure. `totals` is as src/errands/costs.ts#agentCosts returns; an
+ * agent it lacks has no run.
  */
 export function agentCostsLines({
   agents,
@@ -715,10 +712,9 @@ export function agentCostsLines({
   const names = objOf(L.agentWindows);
   const lines = (Array.isArray(agents) ? agents : []).flatMap((agent): Array<string | null> => {
     const row = isObj(totals) && isObj(totals[agent]) ? (totals[agent] as Untyped) : null;
-    const context = contextLine(L, agent, row?.last_wave);
     const counted =
       row && AGENT_WINDOWS.some((window) => amountOr0(row[window]?.runs) > 0 || amountOr0(row[window]?.usd) > 0);
-    if (!counted) return [line(L.agentNoRuns, { agent }), context];
+    if (!counted) return [line(L.agentNoRuns, { agent })];
     const parts = AGENT_WINDOWS.map((window) => {
       const sums = objOf(row[window]);
       const shown = names[window];
@@ -731,26 +727,7 @@ export function agentCostsLines({
         usd: usd(sums.usd),
       });
     }).filter(Boolean);
-    return [parts.length > 0 ? line(L.agentLine, { agent, parts: parts.join(L.partSeparator ?? '') }) : null, context];
+    return [parts.length > 0 ? line(L.agentLine, { agent, parts: parts.join(L.partSeparator ?? '') }) : null];
   });
   return [...lines, line(L.agentEstimate, {})].filter((text): text is string => Boolean(text));
-}
-
-/** An agent's `agentContext` line from its `last_wave`, or null when the wave has no context figure. */
-function contextLine(L: Untyped, agent: string, lastWave: unknown): string | null {
-  if (!isObj(lastWave)) return null;
-  const figure = (value: unknown): string =>
-    typeof value === 'number' && Number.isFinite(value) ? compactTokens(value) : '-';
-  const mean = lastWave.context_mean;
-  const peak = lastWave.context_peak;
-  if (!(typeof mean === 'number' && Number.isFinite(mean)) && !(typeof peak === 'number' && Number.isFinite(peak)))
-    return null;
-  return line(L.agentContext, {
-    agent,
-    wave: lastWave.wave ?? '-',
-    turns: amountOr0(lastWave.turns),
-    mean: figure(mean),
-    peak: figure(peak),
-    usd: usd(lastWave.usd),
-  });
 }

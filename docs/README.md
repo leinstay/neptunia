@@ -29,7 +29,6 @@ Start with the task you want to do. These guides describe the engine and its pub
 | [Interfaces](interfaces.md) | Connect a chat platform |
 | [Skills](skills.md) | Add a procedure with optional scripts |
 | [Errands](errands.md) | Configure delegated work |
-| [Task board](board.md) | Follow work, results and approvals |
 | [Prompt contract](prompt-contract.md) | Change prompts without breaking their readers |
 | [Configuration](configuration.md) | Look up setting types, defaults and readers |
 | [Repository structure](structure.md) | Locate implementation modules |

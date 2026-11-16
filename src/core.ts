@@ -126,8 +126,6 @@ import { coreSocketPath, listenSocket } from './interface/socket.ts';
 import { MAX_FRAME_BYTES, connectSocket } from './protocol/wire.ts';
 import { createAroundStore } from './behavior/around-store.ts';
 import { createScheduler } from './behavior/scheduler.ts';
-import { boardSettings, boardTimings } from './board/board.ts';
-import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
 import { currentIface, withIface } from './memory/db/current-iface.ts';
 import { createRootRoutes } from './core-routing.ts';
@@ -384,14 +382,6 @@ async function buildCore(
   const untapUsage = onLog(usageTap(usage));
   cleanups.push(untapUsage);
 
-  // The task board (src/board/, docs/core.md "The task board"): its tables in the memory database, every write of it
-  // a write of the memory writer, over the core's clock, the live `board.*` settings and the private layer's
-  // clients.json, read at each call. The reaper's beat uses it.
-  const board = createBoardPort({
-    write: (write) => memoryDb.memoryWrite({ kind: 'board', write }),
-    context: () => ({ at: clock(), settings: boardSettings(settings.config), privateDir: paths.privateDir }),
-    briefWaitMs: () => boardTimings(settings.config).briefWaitMs,
-  });
   // Her skills (src/skills/wiring.ts): the SKILL.md files of `skills/` and `skills.local/` read at each call, their
   // registry in the memory database written through the memory writer, and the index of the active ones for a
   // request. An activation grants no tool.
@@ -903,7 +893,7 @@ async function buildCore(
   // someone waits until they stop writing (pace.settleMs).
   const activity = createActivity();
   // The persona's errands (`errands.*`, `agents.<profile>` overrides): a task she or a member asks for goes to its agent runner over
-  // its socket in the background (src/errands/); the errands are tasks of the board's errand lane in memory.db.
+  // its socket in the background (src/errands/); the errands are tasks of the board in memory.db.
   const agentPaths = { rootDir: paths.rootDir, dataDir: paths.dataDir, env };
   const errandClient = createErrandClient({ hot, log, agentPaths });
   const taskStores = createErrandStores({ config: () => hot.config, journal, log, memoryDb, agentPaths });
@@ -1673,17 +1663,6 @@ async function buildCore(
     run: async () => {
       await selfreflection.tick();
       await mirrors.drainQueued();
-    },
-  });
-  // The board's reaper (src/board/board.ts#reap), every board.reapSeconds (read before each wait): a lease past its
-  // expiry goes back to approved with its generation raised, so the late holder's next call is refused. Nothing to
-  // do while the memory database is not open.
-  scheduler.add({
-    name: 'board.reap',
-    everyMs: () => boardTimings(settings.config).reapSeconds * 1000,
-    run: async () => {
-      const ids = await board.reap();
-      if (ids.length > 0) log.info('board: leases expired', { count: ids.length, tasks: ids });
     },
   });
   // The inner life's tick, every wakes.tickSeconds (read before each wait).

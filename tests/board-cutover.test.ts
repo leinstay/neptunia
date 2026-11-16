@@ -103,9 +103,10 @@ function errandConfig(runner: string, out: string, extra: Settings = {}): Settin
   };
 }
 
-/** Her errand-lane tasks on the board, oldest first. */
+/** Her errands' tasks on the board, oldest first. */
+// Changed: the board holds errands only and its tasks have no lane, so every task is one of her errands.
 const errandTasks = (dirs: Dirs): Array<Record<string, unknown>> =>
-  query(dirs, "SELECT id, role, status FROM board_tasks WHERE lane = 'errand' ORDER BY created_at, rowid");
+  query(dirs, 'SELECT id, role, status FROM board_tasks ORDER BY created_at, rowid');
 
 test('her errand goes from her errand.run to its scout and back to her once, through the core alone', async () => {
   const sockets = tempDir('nb-');
