@@ -3063,3 +3063,90 @@ test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pi
   assert.equal('totalSeconds' in loose(cacheView(pinned.store, 'g1'))[`video:${link.itemId}`], false);
   assert.equal(pinned.llm.calls[0].messages[0].content, VIDEO_PROMPT);
 });
+
+// --- A picture's caption is the whole answer; her own picture is captioned under her name ---------------
+
+/** `count` words of five characters each, so a text of known length is built without sentence marks. */
+function fiveCharWords(count: number) {
+  return Array.from({ length: count }, (_, i) => `mot${i % 10}é`).join(' ');
+}
+
+const SELF_PROMPT = 'The picture may show you, {{name}}. You look like this: {{appearance}}.';
+
+function selfHot(appearance: string) {
+  return fakeHot({
+    prompts: { describe: 'Caption the picture. {{self}}', 'describe-self': SELF_PROMPT, appearance },
+  });
+}
+
+async function systemMessageFor(appearance: string) {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm({ text: 'A woman with silver hair.' });
+  const placeIds: Array<string> = [];
+  const selfName = (placeId: string) => {
+    placeIds.push(placeId);
+    return 'Mira';
+  };
+  const describer = createDescriber({
+    hot: selfHot(appearance),
+    store,
+    llm,
+    imageFetcher: fakeImageFetcher(),
+    selfName,
+  });
+  await describer.describe('g1', pictureItem('a1'));
+  return { system: String(llm.calls[0].messages[0].content), placeIds };
+}
+
+test('describe: a picture keeps every paragraph of the answer, joined into one line', async () => {
+  const { result } = await describeWith(
+    'A street at night, a man in a red coat.\n\nThe left hand is drawn with six fingers.\n\nA sign reads "OPEN".'
+  );
+  assert.equal(
+    loose(result).text,
+    'A street at night, a man in a red coat. The left hand is drawn with six fingers. A sign reads "OPEN".'
+  );
+});
+
+test('describe: a caption of 2900 characters is kept whole', async () => {
+  const answer = fiveCharWords(483); // 483 words and 482 spaces: 2897 characters
+  const { result } = await describeWith(answer);
+  assert.equal(loose(result).text, answer);
+});
+
+test('describe: a longer answer is cut on a word boundary at or under 3000 characters', async () => {
+  const answer = fiveCharWords(700);
+  const { result } = await describeWith(answer);
+  const text = String(loose(result).text);
+  assert.ok(text.length <= 3000, `length ${text.length}`);
+  assert.ok(text.length > 2900, `cut too early, length ${text.length}`);
+  assert.ok(answer.startsWith(text));
+  assert.equal(answer[text.length], ' ');
+});
+
+test('describe: the system message of a picture holds her name and her appearance, with no placeholder left', async () => {
+  const { system, placeIds } = await systemMessageFor('tall, silver hair, a green scarf');
+  assert.ok(system.includes('Mira'), system);
+  assert.ok(system.includes('tall, silver hair, a green scarf'), system);
+  assert.ok(!system.includes('{{'), system);
+  assert.deepEqual(placeIds, ['g1']);
+});
+
+test('describe: a blank appearance leaves nothing of describe-self in the system message', async () => {
+  const { system } = await systemMessageFor('   ');
+  assert.ok(system.includes('Caption the picture.'), system);
+  assert.ok(!system.includes('Mira'), system);
+  assert.ok(!system.includes('look like'), system);
+  assert.ok(!system.includes('{{'), system);
+});
+
+test('describe: a GIF action line of 800 characters is still cut to 500', async () => {
+  const action = fiveCharWords(134); // 803 characters
+  const llm = fakeLlm({ text: `reaction: calm\naction: ${action}\ntext: none` });
+  const { describer, store } = gifDescriber({ llm });
+  await describer.describe('g1', gifEmbedItem());
+  const entry = loose(cacheView(store, 'g1'))['m1#e0'];
+  assert.ok(entry.action.length <= 500, `action ${entry.action.length}`);
+  assert.ok(entry.action.length > 400, `action cut too early, ${entry.action.length}`);
+  assert.ok(entry.text.length <= 500, `text ${entry.text.length}`);
+});
