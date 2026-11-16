@@ -689,36 +689,36 @@ test('buildRecallRequest: no prompt or no window line gives null; no people leav
 });
 
 test('parseRecallAnswer: a stretch line names a section; out of range or none names nothing', () => {
-  assert.deepEqual(parseSummaryNote('stretch: 2\nAna did it on October 1.', { maxChars: 500, count: 3 }), {
+  assert.deepEqual(parseSummaryNote('stretch: 2\nAna did it on October 1.', { count: 3 }), {
     text: 'Ana did it on October 1.',
     stretch: 2,
   });
-  assert.deepEqual(parseSummaryNote('Stretch: #1\nΗ Άννα.', { maxChars: 500, count: 1 }), {
+  assert.deepEqual(parseSummaryNote('Stretch: #1\nΗ Άννα.', { count: 1 }), {
     text: 'Η Άννα.',
     stretch: 1,
   });
-  assert.deepEqual(parseSummaryNote('stretch: 4\nAna.', { maxChars: 500, count: 3 }), {
+  assert.deepEqual(parseSummaryNote('stretch: 4\nAna.', { count: 3 }), {
     text: 'Ana.',
     stretch: null,
   });
-  assert.deepEqual(parseSummaryNote('stretch: none\nAna.', { maxChars: 500, count: 3 }), {
+  assert.deepEqual(parseSummaryNote('stretch: none\nAna.', { count: 3 }), {
     text: 'Ana.',
     stretch: null,
   });
   assert.deepEqual(
-    parseSummaryNote('Ana did it.\nstretch: 1', { maxChars: 500, count: 3 }),
+    parseSummaryNote('Ana did it.\nstretch: 1', { count: 3 }),
     { text: 'Ana did it.\nstretch: 1', stretch: null },
     'only a first line names one'
   );
 });
 
-test('parseRecallAnswer: nothing or an empty answer gives no text and no stretch; the text is clamped', () => {
+// The owner on 2026-11-16: a recall answer is kept whole; the limit of `maxChars` is gone.
+test('parseRecallAnswer: nothing or an empty answer gives no text and no stretch; a long text is kept whole', () => {
   for (const raw of ['none', 'None.', '"none"', 'stretch: 1\nnone', '', '  ', 'stretch: 2', null]) {
-    assert.deepEqual(parseSummaryNote(raw, { maxChars: 500, count: 3 }), { text: null, stretch: null }, String(raw));
+    assert.deepEqual(parseSummaryNote(raw, { count: 3 }), { text: null, stretch: null }, String(raw));
   }
-  const long = 'Ana did it. '.repeat(40).trim();
-  const { text } = parseSummaryNote(long, { maxChars: 100, count: 0 });
-  assert.ok((text?.length ?? Infinity) <= 125 && text?.endsWith('.'), text ?? '');
+  const long = 'Ana did it. '.repeat(400).trim();
+  assert.equal(parseSummaryNote(long, { count: 0 }).text, long);
 });
 
 // ---- stored memory -------------------------------------------------------------------------

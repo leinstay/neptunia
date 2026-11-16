@@ -176,7 +176,8 @@ test('errands service: an http proxy is sent as it is', async () => {
 });
 
 // PR 7d: `errands.recentLines` is the constant 6, so the channel's four lines with text all go.
-test("errands service: a task carries context.recent, the origin channel's last errands.recentLines lines as of its queuing; a dm task sends none", async () => {
+// The owner on 2026-11-16: a line given to an errand agent is kept whole; the limit of 200 is gone.
+test("errands service: a task carries context.recent, the origin channel's last errands.recentLines lines as of its queuing, whole; a dm task sends none", async () => {
   const rootDir = tempDir('nep-errands-service-');
   const hot = {
     config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } },
@@ -186,7 +187,7 @@ test("errands service: a task carries context.recent, the origin channel's last 
     { placeId: 'c2', authorName: 'Νίκος', content: 'elsewhere' },
     { placeId: 'c1', authorName: 'Νίκος', content: 'δεύτερη\n  με   κενά' },
     { placeId: 'c1', authorName: 'Ελένη', content: '' },
-    { placeId: 'c1', authorName: 'A'.repeat(250), content: 'x'.repeat(250) },
+    { placeId: 'c1', authorName: 'A'.repeat(1500), content: 'x'.repeat(1500) },
     { placeId: 'c1', authorName: 'Ελένη', content: 'τελευταία' },
     { placeId: 'dm1', authorName: 'Ελένη', content: 'ιδιωτικό' },
   ];
@@ -224,7 +225,7 @@ test("errands service: a task carries context.recent, the origin channel's last 
   assert.deepEqual(group.context.recent, [
     { author: 'Ελένη', text: 'πρώτη' },
     { author: 'Νίκος', text: 'δεύτερη με κενά' },
-    { author: 'A'.repeat(200), text: 'x'.repeat(200) },
+    { author: 'A'.repeat(1500), text: 'x'.repeat(1500) },
     { author: 'Ελένη', text: 'τελευταία' },
   ]);
   assert.deepEqual([group.context.scope, group.context.channel, group.context.asker], ['group', 'c1', '7']);
