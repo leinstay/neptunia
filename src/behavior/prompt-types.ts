@@ -95,7 +95,12 @@ export type BuildRequestInput = {
   wake?: string | null;
   awake?: string | null;
   wakeKind?: string | null;
-  previousThink?: { text: string; relation: 'same' | 'earlier'; ageMs?: number } | null;
+  previousThink?: {
+    text: string;
+    relation: 'same' | 'earlier';
+    ageMs?: number;
+    earlier?: ReadonlyArray<{ text: string; ageMs: number }>;
+  } | null;
   myDay?: ReadonlyArray<string> | null;
   callMarks?: ReadonlyArray<CallMark> | null;
   stableFreeze?: Map<string, Untyped> | null;

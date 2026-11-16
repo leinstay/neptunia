@@ -46,15 +46,27 @@ export type NotesRecord = {
   append: (placeId: string, lines: Array<object>) => unknown;
 };
 
-/** What her previous think store (src/behavior/previous-think.js#createThinkStore) answers. */
-type ThinkPick =
-  | { think: null; why: string; turnId?: string | null; source?: undefined }
-  | {
-      think: string;
-      source: { turnId: string | null; relation: string; ageMs: number };
-      why?: undefined;
-      turnId?: undefined;
-    };
+/** What her previous think store (src/behavior/previous-think.ts#createThinkStore) answers: thinks oldest first. */
+type ThinkPick = {
+  thinks: Array<{ think: string; turnId: unknown; ageMs: number }>;
+  why?: string;
+  turnId?: unknown;
+};
+
+/** The previous think a new turn carries: the newest, with the older ones before it, oldest first. */
+type EarlierThink = {
+  text: string;
+  relation: 'earlier';
+  ageMs: number;
+  earlier: Array<{ text: string; ageMs: number }>;
+};
+
+/** `context.previousThinks` of a live config: how many thinks a new turn carries, 1 when unset or not a positive integer. */
+function previousThinksOf(config: NotesConfig): number {
+  const context = config.context as { previousThinks?: unknown } | null | undefined;
+  const value = context?.previousThinks;
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
+}
 
 /** Her previous think per place (src/behavior/previous-think.js#createThinkStore). */
 export type ThinkStore = {
@@ -68,7 +80,7 @@ export type ThinkStore = {
     ran: string;
     delivered: Array<string>;
   }) => void;
-  select: (place: string, at: { now: number; minutes: number; isDm: boolean }) => ThinkPick;
+  select: (place: string, at: { now: number; minutes: number; isDm: boolean; count: number }) => ThinkPick;
 };
 
 /** A skill call of hers as the notes remember it (src/format.ts#callMarksFor reads it). */
@@ -145,7 +157,7 @@ export type JournalNotes = {
     isDm: boolean;
     draft: NotesDraft;
     mode: string | null | undefined;
-  }) => { text: string; relation: 'earlier'; ageMs: number } | null;
+  }) => EarlierThink | null;
   recordTurnThink: (
     args: { inner?: unknown; [key: string]: unknown },
     draft: NotesDraft,
@@ -268,9 +280,9 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   }
 
   /**
-   * The think a NEW turn's first request carries (an inner turn imports none), chosen once, logged
-   * `turn: previous think` with the source (turn id, relation, age) or why there is none. Null when
-   * nothing is carried.
+   * The thinks a NEW turn's first request carries (an inner turn imports none), up to `context.previousThinks`, chosen
+   * once, logged `turn: previous think` with the source of the newest (turn id, relation, age) and the count carried,
+   * or why there is none. Null when nothing is carried.
    */
   function earlierThinkFor({
     channel,
@@ -282,14 +294,16 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     isDm: boolean;
     draft: NotesDraft;
     mode: string | null | undefined;
-  }): { text: string; relation: 'earlier'; ageMs: number } | null {
+  }): EarlierThink | null {
     if (draft.inner || mode === 'diary') return null;
     const picked = thinks.select(placeOf(channel), {
       now: clock(),
       minutes: PREVIOUS_THINK_MINUTES,
       isDm,
+      count: previousThinksOf(ctx.hot.config),
     });
-    if (!picked.think) {
+    const newest = picked.thinks.at(-1);
+    if (!newest) {
       log.info('turn: previous think', {
         channel: channel.id,
         none: picked.why,
@@ -299,11 +313,13 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     }
     log.info('turn: previous think', {
       channel: channel.id,
-      source: picked.source.turnId,
-      relation: picked.source.relation,
-      ageSeconds: Math.round(picked.source.ageMs / 1000),
+      source: newest.turnId,
+      relation: 'earlier',
+      ageSeconds: Math.round(newest.ageMs / 1000),
+      count: picked.thinks.length,
     });
-    return { text: picked.think, relation: 'earlier', ageMs: picked.source.ageMs };
+    const earlier = picked.thinks.slice(0, -1).map(({ think, ageMs }) => ({ text: think, ageMs }));
+    return { text: newest.think, relation: 'earlier', ageMs: newest.ageMs, earlier };
   }
 
   /**

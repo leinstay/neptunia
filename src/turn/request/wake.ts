@@ -7,23 +7,39 @@ import { fill, formatDate, formatDuration } from '../../format.ts';
 import { inertThink } from '../../behavior/previous-think.ts';
 import type { Labels, RequestInput } from './types.ts';
 
-/** Her one previous think (src/behavior/previous-think.ts), and whether it was this chat's last request. */
-export type PreviousThink = { readonly text: string; readonly relation: 'same' | 'earlier'; readonly ageMs?: number };
+/**
+ * Her previous think (src/behavior/previous-think.ts), whether it was this chat's last request, and for an earlier
+ * turn the older thinks before it, oldest first.
+ */
+export type PreviousThink = {
+  readonly text: string;
+  readonly relation: 'same' | 'earlier';
+  readonly ageMs?: number;
+  readonly earlier?: ReadonlyArray<{ readonly text: string; readonly ageMs: number }>;
+};
+
+/** One think under its line of age (`labels.previousThink.earlier` with `{ago}`), '' for an empty think. */
+function earlierThinkLines(text: unknown, ageMs: unknown, meta: string, labels: Labels): string {
+  const think = inertThink(text);
+  if (!think) return '';
+  const ago = formatDuration(Math.max(0, Number(ageMs) || 0), labels.units ?? {});
+  return `${fill(meta, { ago })}\n${think}`;
+}
 
 /**
- * The `<previous_think>` body (docs/prompt-contract.md): `labels.previousThink.note`, then one line of
- * engine metadata (`labels.previousThink.same`, or `earlier` with `{ago}`), then the think as inert
- * text (src/behavior/previous-think.ts#inertThink). '' without a think, without the note label or
- * without the metadata label of its relation. Pure.
+ * The `<previous_think>` body (docs/prompt-contract.md): `labels.previousThink.note`, then each think under its line
+ * of engine metadata (`labels.previousThink.same`, or `earlier` with `{ago}`) as inert text
+ * (src/behavior/previous-think.ts#inertThink), the older thinks of an earlier turn first. '' without a think, without
+ * the note label or without the metadata label of its relation. Pure.
  */
 export function previousThinkBody(previous: PreviousThink | null | undefined, labels: Labels): string {
   const l = labels?.previousThink;
-  const think = inertThink(previous?.text);
-  if (!previous || !think || typeof l?.note !== 'string' || !l.note) return '';
+  if (!previous || !inertThink(previous.text) || typeof l?.note !== 'string' || !l.note) return '';
   const meta = previous.relation === 'same' ? l.same : l.earlier;
   if (typeof meta !== 'string' || !meta) return '';
-  const ago = formatDuration(Math.max(0, Number(previous.ageMs) || 0), labels.units ?? {});
-  return [l.note, fill(meta, { ago }), think].join('\n');
+  const older = previous.relation === 'same' ? [] : (previous.earlier ?? []);
+  const thinks = [...older, previous].map((one) => earlierThinkLines(one.text, one.ageMs, meta, labels));
+  return [l.note, ...thinks.filter(Boolean)].join('\n');
 }
 
 /** What the turn rendered from her own life for the tail: her errands, her intentions, the wake, the places, her day, her think. */

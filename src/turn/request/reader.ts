@@ -342,6 +342,11 @@ function keptOf<T>(all: ReadonlyArray<T>, kept: ReadonlyArray<string> | undefine
   });
 }
 
+/** Every think text the previous think holds, the earlier ones first, as the budget counts them. */
+function thinkTextsOf(think: NonNullable<InnerParts['previousThink']>): string {
+  return [...(think.earlier ?? []).map((one) => one.text), think.text].join('\n');
+}
+
 /** `<inner>`'s parts as single items, so the budget can keep the first of them. */
 function innerItems(parts: InnerParts): Array<{ key: keyof InnerParts; text: string }> {
   const out: Array<{ key: keyof InnerParts; text: string }> = [];
@@ -351,7 +356,8 @@ function innerItems(parts: InnerParts): Array<{ key: keyof InnerParts; text: str
     const text = parts[key];
     if (typeof text === 'string' && text.trim()) out.push({ key, text });
   }
-  if (parts.previousThink?.text) out.push({ key: 'previousThink', text: parts.previousThink.text });
+  const think = parts.previousThink;
+  if (think?.text) out.push({ key: 'previousThink', text: thinkTextsOf(think) });
   return out;
 }
 
