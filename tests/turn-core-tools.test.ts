@@ -680,7 +680,6 @@ test('previous think, steps of one turn: no <previous_think> block in a step; he
   for (const i of [0, 1, 2]) assert.equal(thinkBlock(requestText(run.llm, i)), null, `request ${i}`);
   assert.equal(run.llm.calls[1][2].content, '<think>why I look at the lore</think>');
   assert.equal(run.llm.calls[2][2].content, '<think>why I look at the lore</think>', 'it stays in every later request');
-  assert.ok(!run.logs.some((entry) => entry.msg === 'turn: previous think' && entry.relation === 'same'));
 });
 
 const MIN_MS = 60_000;

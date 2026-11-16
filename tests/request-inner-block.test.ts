@@ -1,7 +1,7 @@
 // src/turn/request/inner-block.ts: `<inner>`, her own state that lasts between turns (plan 2026-11-06-turn-frame,
 // slice 4 (a)). Contract:
 //   innerBlockOf({ myDay: Array<string>, intentions: string | null, errands: string | null, feedback: string | null,
-//     previousThink: { text; relation: 'same' | 'earlier'; ageMs?: number } | null }, labels: Labels,
+//     previousThink: { text; ageMs?: number } | null }, labels: Labels,
 //     resolveRef: (text: string) => string): string
 // Every stored text in it passes through `resolveRef` (src/turn/request/refs.ts), so a line's identity never reaches
 // the model raw.
@@ -22,7 +22,7 @@ test('an intention renders through resolveRef, with no identity left raw', () =>
 
 test('the previous think renders through resolveRef too', () => {
   // Bug: only intentions are resolved, and her unresolved thought quotes an identity.
-  const previousThink = { text: 'περιμένω το src:fake:m77:1', relation: 'same' as const };
+  const previousThink = { text: 'περιμένω το src:fake:m77:1' };
   const text = innerBlockOf({ ...EMPTY, previousThink }, shippedLabels, resolveRef);
   assert.ok(text.includes('#12'));
   assert.doesNotMatch(text, /src:fake/);
