@@ -506,7 +506,7 @@
       "madeDay": "Made today in all because someone asked: {forOthers}. Made of your own accord: {own}."
     },
     "previousThink": {
-      "note": "This is your own reasoning from earlier, kept so you know what you were doing and why. Each piece stands under a line that says when you thought it. It may be out of date or wrong: the current messages and results win. Do not quote it, retell it or show it to anyone.",
+      "note": "This is your own reasoning from your earlier turns here, kept so you know what you were doing and why. It may be out of date or wrong: the current messages and results win. Do not quote it, retell it or show it to anyone.",
       "same": "(this turn, your previous step)",
       "earlier": "(an earlier turn here, {ago} ago)"
     },
