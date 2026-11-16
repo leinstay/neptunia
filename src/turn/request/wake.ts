@@ -8,12 +8,11 @@ import { inertThink } from '../../behavior/previous-think.ts';
 import type { Labels, RequestInput } from './types.ts';
 
 /**
- * Her previous think (src/behavior/previous-think.ts), whether it was this chat's last request, and for an earlier
- * turn the older thinks before it, oldest first.
+ * Her think of the latest earlier turn in this place (src/behavior/previous-think.ts), and the older thinks before
+ * it, oldest first.
  */
 export type PreviousThink = {
   readonly text: string;
-  readonly relation: 'same' | 'earlier';
   readonly ageMs?: number;
   readonly earlier?: ReadonlyArray<{ readonly text: string; readonly ageMs: number }>;
 };
@@ -28,17 +27,17 @@ function earlierThinkLines(text: unknown, ageMs: unknown, meta: string, labels: 
 
 /**
  * The `<previous_think>` body (docs/prompt-contract.md): `labels.previousThink.note`, then each think under its line
- * of engine metadata (`labels.previousThink.same`, or `earlier` with `{ago}`) as inert text
- * (src/behavior/previous-think.ts#inertThink), the older thinks of an earlier turn first. '' without a think, without
- * the note label or without the metadata label of its relation. Pure.
+ * of age (`labels.previousThink.earlier` with `{ago}`) as inert text (src/behavior/previous-think.ts#inertThink), the
+ * older thinks first. '' without a think, without the note label or without the label of the line of age. Pure.
  */
 export function previousThinkBody(previous: PreviousThink | null | undefined, labels: Labels): string {
   const l = labels?.previousThink;
   if (!previous || !inertThink(previous.text) || typeof l?.note !== 'string' || !l.note) return '';
-  const meta = previous.relation === 'same' ? l.same : l.earlier;
+  const meta = l.earlier;
   if (typeof meta !== 'string' || !meta) return '';
-  const older = previous.relation === 'same' ? [] : (previous.earlier ?? []);
-  const thinks = [...older, previous].map((one) => earlierThinkLines(one.text, one.ageMs, meta, labels));
+  const thinks = [...(previous.earlier ?? []), previous].map((one) =>
+    earlierThinkLines(one.text, one.ageMs, meta, labels)
+  );
   return [l.note, ...thinks.filter(Boolean)].join('\n');
 }
 

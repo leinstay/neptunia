@@ -611,7 +611,6 @@ export const labels = {
   },
   previousThink: {
     note: 'Your reasoning from your previous step, kept as context; it may be out of date or wrong; current messages and results win; do not quote it or retell it.',
-    same: '(this turn, your previous step)',
     earlier: '(an earlier turn here, {ago} ago)',
   },
   wake: {
