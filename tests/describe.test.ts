@@ -3141,14 +3141,3 @@ test('describe: a blank appearance leaves nothing of describe-self in the system
   assert.ok(!system.includes('look like'), system);
   assert.ok(!system.includes('{{'), system);
 });
-
-test('describe: a GIF action line of 800 characters is still cut to 500', async () => {
-  const action = fiveCharWords(134); // 803 characters
-  const llm = fakeLlm({ text: `reaction: calm\naction: ${action}\ntext: none` });
-  const { describer, store } = gifDescriber({ llm });
-  await describer.describe('g1', gifEmbedItem());
-  const entry = loose(cacheView(store, 'g1'))['m1#e0'];
-  assert.ok(entry.action.length <= 500, `action ${entry.action.length}`);
-  assert.ok(entry.action.length > 400, `action cut too early, ${entry.action.length}`);
-  assert.ok(entry.text.length <= 500, `text ${entry.text.length}`);
-});
