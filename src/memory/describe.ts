@@ -299,7 +299,7 @@ export function parseGifDescription(
   raw: unknown,
   { descriptionChars }: { descriptionChars: number }
 ): { text: string; reaction: string; action: string; screen: string } | null {
-  const source = String(raw ?? '');
+  const source = typeof raw === 'string' ? raw : '';
   const fields: Record<string, Array<string>> = { reaction: [], action: [], text: [] };
   let current: string | null = null;
   let labelled = false;
@@ -633,7 +633,9 @@ function buildDescriber({
     const name = selfName?.(placeId);
     const template = prompts?.['describe-self'];
     if (!name || typeof template !== 'string') return '';
-    const appearance = fillPromptTemplate(String(prompts?.appearance ?? ''), { name }).trim();
+    const appearance = fillPromptTemplate(typeof prompts?.appearance === 'string' ? prompts.appearance : '', {
+      name,
+    }).trim();
     if (!appearance) return '';
     return fillPromptTemplate(template, { name, appearance }).trim();
   }
