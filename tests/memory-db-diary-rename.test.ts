@@ -568,6 +568,20 @@ test('step 61 throws and leaves the file at 60 when a renamed picture path alrea
   assert.equal(rawRead(file, versionOf), 60);
 });
 
+test('step 61 renames two picture rows that share one file before it and leaves them sharing it', () => {
+  // Bug: the collision check counts two rows that name one file before the step, a diary picture and the same file
+  // as an interface's attachment, as a merge the rename would make, so the step refuses a database that has no clash.
+  const file = at60(
+    `${ENTRIES}${PICTURES}
+    INSERT INTO media (id, kind, path, owner, scope_kind) VALUES
+      ('media:discord:9001', 'image', 'media/selfreflection/selfreflection_e1-1.png', NULL, 'group');`
+  );
+  const paths = opened(file, (db) =>
+    values(db, "SELECT path FROM media WHERE id IN ('media:discord:9001', 'media:diary:diary_e1-1') ORDER BY id")
+  );
+  assert.deepEqual(paths, ['media/diary/diary_e1-1.png', 'media/diary/diary_e1-1.png']);
+});
+
 test('step 61 throws and leaves the file at 60 when a renamed publication key already exists', () => {
   // Bug: a renamed key meets a publication already under it, and one post's delivery record is lost or merged.
   const file = at60(

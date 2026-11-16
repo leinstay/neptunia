@@ -230,7 +230,11 @@ const personaOwner = (kind: string): string =>
     .digest('hex')
     .slice(0, 32)}`;
 
-/** The ids, paths and keys the rename would give a row that another row already holds, as `table.column` names. */
+/**
+ * The ids, paths and keys the rename would give a row that another row already holds, or two rows with different
+ * values would come to share, as `table.column` names. Rows that share a value before the step share it after it and
+ * meet no one new: a diary picture and the same file kept as an interface's attachment are two rows with one path.
+ */
 function renameCollisions(db: Db, has: (table: string, column: string) => boolean): Array<string> {
   const found: Array<string> = [];
   for (const [table, column] of UNIQUE_VALUES) {
@@ -240,7 +244,7 @@ function renameCollisions(db: Db, has: (table: string, column: string) => boolea
         `SELECT 1 AS hit FROM "${table}" a WHERE instr(a."${column}", ?) > 0 AND EXISTS (
            SELECT 1 FROM "${table}" b WHERE b."${column}" = replace(a."${column}", ?, ?) AND b.rowid <> a.rowid)
          UNION ALL SELECT 1 FROM "${table}" WHERE instr("${column}", ?) > 0
-           GROUP BY replace("${column}", ?, ?) HAVING COUNT(*) > 1 LIMIT 1`
+           GROUP BY replace("${column}", ?, ?) HAVING COUNT(DISTINCT "${column}") > 1 LIMIT 1`
       )
       .get(OLD_WORD, OLD_WORD, NEW_WORD, OLD_WORD, OLD_WORD, NEW_WORD);
     if (met) found.push(`${table}.${column}`);
