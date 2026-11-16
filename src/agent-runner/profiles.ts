@@ -1174,25 +1174,39 @@ export function listSharedAgents({
   return Object.freeze(sharedAgents(path.resolve(rootDir)));
 }
 
-/** Enumerates only configured personal directories. Ordinary root files do not define agents. */
-function personalAgents(dataDir: string, shared: ReadonlyArray<AgentDefinition>): ReadonlySet<string> {
+/** A folder under `<data>/agents/` that names no agent the engine ships. */
+export type RefusedAgent = { name: string; code: 'no-shared-definition'; reason: string };
+
+/** Sorts the personal folders into those of shared agents and the stray ones. Links and ordinary files are handled as before. */
+function personalFolders(
+  dataDir: string,
+  shared: ReadonlyArray<AgentDefinition>
+): { personal: Set<string>; refused: Array<RefusedAgent> } {
   const folder = path.join(dataDir, AGENTS_DIRNAME);
   refuseLink(folder, 'agents', 'id');
+  const personal = new Set<string>();
+  const refused: Array<RefusedAgent> = [];
   let entries: Array<fs.Dirent>;
   try {
     entries = fs.readdirSync(folder, { withFileTypes: true });
   } catch (error) {
-    if (errorFields(error).code === 'ENOENT') return new Set();
+    if (errorFields(error).code === 'ENOENT') return { personal, refused };
     throw error;
   }
-  const personal = new Set<string>();
   for (const entry of entries) {
     if (entry.isSymbolicLink()) throw new AgentProfileError(entry.name, 'id', 'symbolic links are not allowed');
-    if (entry.isDirectory() && !shared.some((definition) => definition.id === entry.name))
-      throw new AgentProfileError(entry.name, 'id', 'has no shared definition');
-    if (entry.isDirectory()) personal.add(entry.name);
+    if (!entry.isDirectory()) continue;
+    if (shared.some((definition) => definition.id === entry.name)) personal.add(entry.name);
+    else refused.push({ name: entry.name, code: 'no-shared-definition', reason: 'has no shared definition' });
   }
-  return personal;
+  refused.sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+  return { personal, refused };
+}
+
+/** The folders under `<data>/agents/` that name no shared agent: the loaders skip them, callers report them. */
+export function refusedAgents(options: AgentPaths = {}): ReadonlyArray<RefusedAgent> {
+  const { rootDir, dataDir } = agentPaths(options);
+  return Object.freeze(personalFolders(dataDir, listSharedAgents({ rootDir })).refused);
 }
 
 function personalDefinition(definition: AgentDefinition, dataDir: string): AgentDefinition {
@@ -1217,7 +1231,7 @@ function personalDefinition(definition: AgentDefinition, dataDir: string): Agent
 export function listAgents(options: AgentPaths = {}): ReadonlyArray<AgentDefinition> {
   const { rootDir, dataDir } = agentPaths(options);
   const shared = listSharedAgents({ rootDir });
-  const personal = personalAgents(dataDir, shared);
+  const { personal } = personalFolders(dataDir, shared);
   return Object.freeze(
     shared.map((definition) => (personal.has(definition.id) ? personalDefinition(definition, dataDir) : definition))
   );
