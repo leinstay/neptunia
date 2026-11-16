@@ -261,8 +261,10 @@ test('validateRequest: context.recent passes as { author, text } lines, the late
     goal: 'g',
     context: { recent: [{ author: 'a'.repeat(300), text: 'b'.repeat(3000) }] },
   });
-  const [kept] = loose(long).message.context.recent;
-  assert.deepEqual([kept.author.length, kept.text.length], [300, 3000]);
+  assert.deepEqual(
+    [loose(long).message.context.recent[0].author.length, loose(long).message.context.recent[0].text.length],
+    [300, 3000]
+  );
   assert.deepEqual(
     loose(validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: [] } })).message.context.recent,
     []

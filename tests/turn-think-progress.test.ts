@@ -22,7 +22,8 @@ async function noted(
   return steps.filter((step) => step.name === 'think');
 }
 
-test('notes the think of each step answer, in order, on one line and cut to 400 characters', async () => {
+// The owner on 2026-11-16: a think in the status row is kept whole; the limit of 400 is gone.
+test('notes the think of each step answer, in order, whole and on one line', async () => {
   // Bug: a multi-line or long think breaks the one-row status line, or the first step's think is lost.
   const long = `second step\nwith a break ${'x'.repeat(600)}`;
   const thinks = await noted([
@@ -34,8 +35,7 @@ test('notes the think of each step answer, in order, on one line and cut to 400 
   assert.equal(thinks[0]?.detail, 'first step looks at the list');
   const second = thinks[1]?.detail ?? '';
   assert.ok(!/[\r\n]/.test(second), 'no line break');
-  assert.ok(second.length <= 400, `cut: ${second.length}`);
-  assert.ok(second.startsWith('second step with a break xxx'));
+  assert.equal(second, `second step with a break ${'x'.repeat(600)}`);
 });
 
 test('notes nothing for an answer with no think, and keeps the think of the step before', async () => {
