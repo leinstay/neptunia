@@ -378,7 +378,8 @@ test("task store: a finished task's files expire once the runner removed its dir
     assert.equal(store.fileOf(fileHandle(idOf(gone), 'meme.png')), null);
     assert.ok(store.fileOf(fileHandle(idOf(kept), 'meme.png')));
     assert.ok(loose(store.unseen().find((t) => t.id === idOf(gone))).filesExpired);
-    const saved = loose((await boardTask(store, dataDir, idOf(gone))).task.metadata).errand;
+    // Changed: the board's reader returns a task row as stored, so its metadata is JSON text.
+    const saved = loose(JSON.parse(String((await boardTask(store, dataDir, idOf(gone))).task.metadata))).errand;
     assert.equal(loose(saved).filesExpired, true, 'written to the board');
     assert.equal(store.expireFiles(), 0, 'marked once');
     fs.rmSync(path.join(out, idOf(kept)), { recursive: true });

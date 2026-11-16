@@ -52,19 +52,7 @@
       "deep": 2,
       "repeated": 0
     },
-    "tests/board-commands.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/board-cutover.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "tests/board-development-return.test.ts": {
-      "deep": 1,
-      "repeated": 1
-    },
-    "tests/board-workflow.test.ts": {
       "deep": 1,
       "repeated": 0
     },
@@ -188,30 +176,6 @@
       "deep": 117,
       "repeated": 0
     },
-    "tests/development-boundary.test.ts": {
-      "deep": 4,
-      "repeated": 0
-    },
-    "tests/development-owner-changes.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "tests/development-pull-request.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "tests/development-risk-gate.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "tests/development-unit-layout.test.ts": {
-      "deep": 0,
-      "repeated": 2
-    },
-    "tests/development-worker.test.ts": {
-      "deep": 6,
-      "repeated": 0
-    },
     "tests/discord-port-voice.test.ts": {
       "deep": 3,
       "repeated": 0
@@ -300,10 +264,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/fixtures/development-rig.ts": {
-      "deep": 0,
-      "repeated": 3
-    },
     "tests/fixtures/events-rig.ts": {
       "deep": 1,
       "repeated": 0
@@ -356,10 +316,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/fixtures/wake-life.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/format.test.ts": {
       "deep": 92,
       "repeated": 0
@@ -398,14 +354,6 @@
     },
     "tests/images.test.ts": {
       "deep": 18,
-      "repeated": 0
-    },
-    "tests/inner-selfimprovement-daily.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "tests/inner-selfimprovement.test.ts": {
-      "deep": 3,
       "repeated": 0
     },
     "tests/inner-skip-outcome.test.ts": {
@@ -916,22 +864,6 @@
       "deep": 3,
       "repeated": 0
     },
-    "tests/selfimprovement-answers.test.ts": {
-      "deep": 6,
-      "repeated": 0
-    },
-    "tests/selfimprovement-landed.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "tests/selfimprovement-view.test.ts": {
-      "deep": 7,
-      "repeated": 0
-    },
-    "tests/selfimprovement-wake-request.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/selfreflection-audience-refusal.test.ts": {
       "deep": 2,
       "repeated": 0
@@ -945,7 +877,7 @@
       "repeated": 1
     },
     "tests/service-mechanics.test.ts": {
-      "deep": 3,
+      "deep": 1,
       "repeated": 0
     },
     "tests/setup-mechanics.test.ts": {
@@ -958,22 +890,14 @@
     },
     "tests/setup-run.test.ts": {
       "deep": 0,
-      "repeated": 7
+      "repeated": 5
     },
     "tests/setup-subharness.test.ts": {
       "deep": 7,
       "repeated": 0
     },
-    "tests/setup-watcher.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "tests/skills-task-activation.test.ts": {
-      "deep": 53,
-      "repeated": 0
-    },
     "tests/skills-wiring.test.ts": {
-      "deep": 16,
+      "deep": 7,
       "repeated": 0
     },
     "tests/skills.test.ts": {
@@ -1071,10 +995,6 @@
     "tests/tools-executors.test.ts": {
       "deep": 12,
       "repeated": 1
-    },
-    "tests/tools-operations-board.test.ts": {
-      "deep": 4,
-      "repeated": 0
     },
     "tests/tools-operations-errand.test.ts": {
       "deep": 2,
@@ -1186,42 +1106,6 @@
     },
     "tests/usage.test.ts": {
       "deep": 3,
-      "repeated": 0
-    },
-    "tests/wake-separation.test.ts": {
-      "deep": 7,
-      "repeated": 0
-    },
-    "tests/watcher-lifecycle.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "tests/watcher-requests.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "tests/watcher-retry.test.ts": {
-      "deep": 6,
-      "repeated": 0
-    },
-    "tests/watcher-risk.test.ts": {
-      "deep": 6,
-      "repeated": 0
-    },
-    "tests/watcher-template.test.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
-    "tests/watcher-transcripts.test.ts": {
-      "deep": 4,
-      "repeated": 0
-    },
-    "tests/watcher-trash.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "tests/watcher-versions.test.ts": {
-      "deep": 5,
       "repeated": 0
     },
     "tests/youtube-check.test.ts": {
@@ -1402,7 +1286,7 @@
     "src/behavior/inner/drain.ts": {
       "drain": {
         "complexity": 79,
-        "function-length": 347
+        "function-length": 344
       }
     },
     "src/behavior/inner/facts.ts": {
