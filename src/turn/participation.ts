@@ -4,7 +4,7 @@
 // with createParticipation; the attempt, the act and the journal notes call its functions.
 
 import type { AroundSnapshot } from '../behavior/around-store.ts';
-import { selfreflectionChatIds } from '../behavior/mirror.ts';
+import { diaryChatIds } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
 import { collectPictures } from '../media/classify.ts';
@@ -87,19 +87,19 @@ export function createParticipation({ store, around, clock }: ParticipationConte
   /**
    * Whether a server turn in `channel` has the persona's participation store: features.memory
    * and features.participation on (`config`, the turn's live config; a missing key counts as on),
-   * a server channel that is not a place of her selfreflection (src/behavior/mirror.ts#selfreflectionChatIds), and a store that
+   * a server channel that is not a place of her diary (src/behavior/mirror.ts#diaryChatIds), and a store that
    * keeps one. Recording asks this.
    */
   function participationOn(channel: ChatInfo): boolean {
     if (!inRoot(channel) || typeof store.getParticipation !== 'function') return false;
-    return !selfreflectionChatIds(store).has(String(channel.id));
+    return !diaryChatIds(store).has(String(channel.id));
   }
 
   /**
    * The live part of `<people_now>` (src/behavior/around-store.ts): the snapshot of the voice channels and
    * of the statuses (the prompt builder computes each person's row from it) and the voice channels' names -- only those a member without any role may see, so
    * she never names who sits in a room this chat cannot see. Null without the store, with
-   * `features.around` off (a missing key counts as on), in a private chat and in a selfreflection post.
+   * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
    * Read at the moment of the request; nothing of it is kept.
    */
   function aroundInputFor({
@@ -112,7 +112,7 @@ export function createParticipation({ store, around, clock }: ParticipationConte
     isDm: boolean;
     snapshot?: Snapshot | null;
   }): AroundInput | null {
-    if (!around || isDm || mode === 'selfreflection') return null;
+    if (!around || isDm || mode === 'diary') return null;
     return {
       snapshot: around.view(),
       channelNameOf: (placeId) => {

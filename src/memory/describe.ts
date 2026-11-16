@@ -6,7 +6,7 @@
 // picture at once (a message prefill and a turn) share one download and one
 // request. Results are cached per
 // attachment/embed id on the item's row of `media` (src/memory/store-media.ts), the rows of a place capped by last
-// use at `MEDIA_CACHE_ENTRIES` (src/memory/db/media-store.ts), what a stored line or selfreflection post links
+// use at `MEDIA_CACHE_ENTRIES` (src/memory/db/media-store.ts), what a stored line or diary post links
 // never trimmed. A failure is cached as a miss for an
 // hour, so a broken picture is not retried on every turn/batch -- except a
 // refusal by `llm.maxRequestsPerDay`, which says nothing about the picture.

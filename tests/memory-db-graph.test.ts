@@ -107,7 +107,7 @@ test('the manifest names only tables and columns the schema has, every projected
       'person',
       'place',
       'publication',
-      'selfreflection',
+      'diary',
       'semantic_entity',
       'skill',
       'source',

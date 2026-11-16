@@ -820,7 +820,7 @@ function callPublicationRefusal(
   if (!hasTrait(resolved.skill, 'publishes')) return null;
   if (
     resolved.skill === 'message.create' &&
-    resolved.args.selfreflection === true &&
+    resolved.args.diary === true &&
     !resolved.args.place &&
     !resolved.args.replyTo
   )

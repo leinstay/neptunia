@@ -40,9 +40,9 @@ const PROMPTS = {
   'character-card': 'CARD_TEXT',
   format: 'FORMAT_TEXT',
   reply: 'Someone called you: {{author}}.',
-  selfreflection: 'DIARY_TASK for {{name}}',
-  'selfreflection-planner': 'PLAN_SYSTEM for {{name}}',
-  'selfreflection-seeds': '# place\na pier\n# light\nfog',
+  diary: 'DIARY_TASK for {{name}}',
+  'diary-planner': 'PLAN_SYSTEM for {{name}}',
+  'diary-seeds': '# place\na pier\n# light\nfog',
   draw: 'A drawing by {{name}}.\n\n{{appearance}}\n\n{{when}}\n\nScene: {{request}}',
   appearance: '{{name}} has silver hair and a green scarf.',
   labels: LABELS,
@@ -50,7 +50,7 @@ const PROMPTS = {
 
 function hot() {
   return {
-    // PR 7d: the switches are code and the diary's kinds and sets are constants of src/behavior/selfreflection.ts (`photoset`
+    // PR 7d: the switches are code and the diary's kinds and sets are constants of src/behavior/diary.ts (`photoset`
     // is a set of 4 to 6 pictures), so the config holds only the keys that are still settings.
     config: {
       bot: { timezone: TZ, owners: ['42'] },
@@ -64,7 +64,7 @@ function hot() {
       models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
-      selfreflection: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },
   };
@@ -152,8 +152,8 @@ function store() {
     listUserProfiles: () => [],
     getLore: () => [],
     ...objectMediaCache({}),
-    getSelfreflection: () => ({ posts: [], updatedAt: 0 }),
-    appendSelfreflectionPost: () => ({ dropped: [] }),
+    getDiary: () => ({ posts: [], updatedAt: 0 }),
+    appendDiaryPost: () => ({ dropped: [] }),
     state: { data: {}, markDirty() {} },
   };
 }
@@ -164,8 +164,7 @@ function llm(post: Untyped, plan: Record<string, unknown> | null = null) {
   return {
     complete: async (_messages: Untyped, opts: Untyped) => {
       // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-      if (opts?.purpose === 'selfreflection-planner')
-        return { text: planAnswerText(plan, opts), usage: {}, estimated: 5 };
+      if (opts?.purpose === 'diary-planner') return { text: planAnswerText(plan, opts), usage: {}, estimated: 5 };
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;
       return completionOf(answer);
@@ -254,8 +253,8 @@ test("draw parity: a diary post's single self picture", async () => {
   const { result } = await withCapturedLogs(() =>
     turns.runTurn({
       channel: channel('d1', 'journal'),
-      mode: 'selfreflection',
-      selfreflection: { kind: null, forced: false },
+      mode: 'diary',
+      diary: { kind: null, forced: false },
     })
   );
   assert.equal(loose(result).outcome, 'spoke');
@@ -282,8 +281,8 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
   const { result } = await withCapturedLogs(() =>
     turns.runTurn({
       channel: channel('d1', 'journal'),
-      mode: 'selfreflection',
-      selfreflection: { kind: 'photoset', forced: false },
+      mode: 'diary',
+      diary: { kind: 'photoset', forced: false },
     })
   );
   assert.equal(loose(result).outcome, 'spoke');

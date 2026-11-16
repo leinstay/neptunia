@@ -16,7 +16,7 @@
 // link takes the audience of its evidence source when it has one, else the audience of the account's place (an
 // account lives in its interface: the group of that interface; a participant lives in its scope place), else internal;
 // a membership takes the audience of its place; a publication (schema v10) once sent takes the audience of its
-// destination place (the selfreflection entry's when it names none), and before that is internal. A place's own audience is its chat's (`dm` -> its DM audience,
+// destination place (the diary entry's when it names none), and before that is internal. A place's own audience is its chat's (`dm` -> its DM audience,
 // `group` -> the group of its interface, a container such as a server -> the group of its interface, anything else
 // internal). `node_access` holds one witness per (node, audience, evidence): a node with its own audience (a source, a
 // claim, ...) witnesses itself; every live edge witnesses both of its ends with its own audience.
@@ -86,8 +86,8 @@ export const NODE_KINDS: Readonly<Record<string, NodeKindSpec>> = Object.freeze(
     retired: 'retired_at',
   },
   episode: { table: 'episodes', key: 'id', created: 'created_at', audience: 'audience_id', retired: 'retired_at' },
-  selfreflection: {
-    table: 'selfreflection',
+  diary: {
+    table: 'diary',
     key: 'id',
     created: 'at_ms',
     ms: true,
@@ -285,13 +285,13 @@ export const PREDICATES = Object.freeze({
     audience: 'the claim or the description',
   },
   published_as: {
-    from: ['selfreflection'],
+    from: ['diary'],
     to: ['publication'],
     table: 'publications',
     columns: ['row_kind', 'row_id', 'id', 'status', 'destination_place_id', 'created_at', 'retired_at'],
-    rule: 'every publication of a selfreflection entry (row kind selfreflection; a selfreflection mirror is one, schema v10)',
+    rule: 'every publication of a diary entry (row kind diary; a diary mirror is one, schema v10)',
     audience:
-      'a sent publication: its destination place, else the selfreflection entry; one not sent (queued, failed, unknown): internal',
+      'a sent publication: its destination place, else the diary entry; one not sent (queued, failed, unknown): internal',
   },
   publication_source: {
     from: ['publication'],
@@ -340,7 +340,7 @@ export const UNIT_OF: Readonly<Record<string, readonly [string, string] | null>>
   claims: null,
   descriptions: null,
   episodes: null,
-  selfreflection: null,
+  diary: null,
   publications: null,
   media: null,
   intentions: null,
@@ -374,7 +374,7 @@ export const UNIT_ORDER: ReadonlyArray<string> = Object.freeze([
   'claims',
   'descriptions',
   'episodes',
-  'selfreflection',
+  'diary',
   'publications',
   'media',
   'intentions',

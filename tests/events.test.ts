@@ -5167,15 +5167,15 @@ test('onMessage: no recent own post, a bot or the diary channel never touch the 
   );
   assert.equal(bot.writes.length, 0);
 
-  const selfreflection = participationEventsStore(ownAt);
+  const diary = participationEventsStore(ownAt);
   await withCapturedLogs(() =>
     makeHandler({
-      store: selfreflection,
+      store: diary,
       turns: { ...fakeTurns(), lastPostAt: () => ownAt },
-      config: baseConfig({ selfreflection: { placeId: 'c1' } }),
+      config: baseConfig({ diary: { placeId: 'c1' } }),
     })(line())
   );
-  assert.equal(selfreflection.writes.length, 0);
+  assert.equal(diary.writes.length, 0);
 });
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 // The `<spatial_awareness>` body: where the persona is, with the whole nesting of the place, whether it is a group or a
 // private place, the present moment, and the owner's note on the place from `config.spatial.notes`, inherited down the
-// tree. The owner's command line is a private place with a note of its own, as a direct chat on another interface is. A wake with no chat place is at the command line of her own server, a selfreflection post in her own
+// tree. The owner's command line is a private place with a note of its own, as a direct chat on another interface is. A wake with no chat place is at the command line of her own server, a diary post in her own
 // world (the owner's word of 2026-11-06). `whereaboutsOfFrame` states a turn's whereabouts from its frame, with the
 // interface's own nouns for its kinds of place; the head of the request (src/turn/request/head.ts) renders the body.
 // Pure.
@@ -19,7 +19,7 @@ export type PlaceLink = PlaceChainLink;
 
 /**
  * Where a turn is: the owner's command line with the chain of its place, her own server (a wake with no chat place), her
- * own world (a selfreflection post), or a place with its chain up to the top.
+ * own world (a diary post), or a place with its chain up to the top.
  */
 export type Whereabouts =
   | { kind: 'cli'; chain?: ReadonlyArray<PlaceLink> }

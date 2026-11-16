@@ -281,7 +281,7 @@ export function untaggedNote(
 
 /**
  * Who one of her messages notifies, under each member's own ping state (`stateOf`, store.getPings): every posting path
- * (a turn's messages, her `message.create`, a selfreflection entry) asks here. The message concerns the author it
+ * (a turn's messages, her `message.create`, a diary entry) asks here. The message concerns the author it
  * replies to (`repliedAuthorId`, when `replying`) and every member it names (`users`). A member with `off` is left out
  * of `users` and gets no reply ping. `notify` is set, true, only when the message concerns someone and every one of
  * them has `on`. `asked` is set whenever the message concerns someone: the named members whose state is `on`, in the

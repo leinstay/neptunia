@@ -1,14 +1,14 @@
 // The last step of a turn's request: her tools for the turn, the request input with every block named, the request
 // built (twice for a heartbeat whose handles follow the request's own lines), the record of the memory rows it carried
 // and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last. Beside
-// it, the selfreflection planner's request on the same frame (`plannerRequest`), which the setup step hands the plan.
+// it, the diary planner's request on the same frame (`plannerRequest`), which the setup step hands the plan.
 
 import { accountOf, personOfMember, placeOfChat } from '../../../memory/addresses.ts';
 import { reactorIdsOf } from '../../../format.ts';
 import { handleOf } from '../../../behavior/handles.ts';
 import type { InterfaceNames } from '../../../protocol/serve.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
-import { NO_PLACES, selfreflectionChatIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
+import { NO_PLACES, diaryChatIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
 import { awakeLines, feedbackText } from '../../../behavior/wake.ts';
 import type { WakeBlockInput } from '../../../behavior/wake.ts';
@@ -25,9 +25,9 @@ import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
 import { PLANNER_MODE, frameOf, framedRequest } from '../../request/frame.ts';
-import { entriesShownOf } from '../../request/selfreflection.ts';
-import type { PlanParts } from '../../selfreflection.ts';
-import type { PastEntry } from '../../../memory/db/selfreflection-past.ts';
+import { entriesShownOf } from '../../request/diary.ts';
+import type { PlanParts } from '../../diary.ts';
+import type { PastEntry } from '../../../memory/db/diary-past.ts';
 import type { Frame, FrameParty } from '../../request/frame.ts';
 import { whereaboutsOfFrame } from '../../request/spatial.ts';
 import type { PlaceLink } from '../../request/spatial.ts';
@@ -819,8 +819,8 @@ function dueIds(wake: { items?: ReadonlyArray<unknown> } | null | undefined): Ar
 }
 
 /**
- * Her newest selfreflection entries the turn's context may read, as many as `entriesShownOf` says, oldest first, read
- * from memory alone (src/memory/db/selfreflection-past.ts#readSelfreflection). None without a reader or a context.
+ * Her newest diary entries the turn's context may read, as many as `entriesShownOf` says, oldest first, read
+ * from memory alone (src/memory/db/diary-past.ts#readDiary). None without a reader or a context.
  */
 function pastEntriesOf(
   ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf'>,
@@ -830,13 +830,13 @@ function pastEntriesOf(
 ): Array<PastEntry> {
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
   if (!memoryContext) return [];
-  return ctx.frameReads?.selfreflection?.(memoryContext, entriesShownOf(config)) ?? [];
+  return ctx.frameReads?.diary?.(memoryContext, entriesShownOf(config)) ?? [];
 }
 
 /**
- * The selfreflection planner's request on the turn frame: the kind `selfreflection_plan`, nowhere, with the service
+ * The diary planner's request on the turn frame: the kind `diary_plan`, nowhere, with the service
  * template's `<memory>`, `<meanwhile>` and `<my_day>`, the world, her past entries and what it chooses from in `<inner>`,
- * and prompts/selfreflection-planner.md as its task. Nothing of a chat: it answers nobody and offers no tool.
+ * and prompts/diary-planner.md as its task. Nothing of a chat: it answers nobody and offers no tool.
  */
 export function plannerRequest(
   ctx: PhaseContext,
@@ -895,11 +895,11 @@ export function plannerRequest(
       mediaCache: null,
       gifs: null,
       tasks: null,
-      selfreflectionChannel: null,
-      selfreflectionChannelIds: [],
+      diaryChannel: null,
+      diaryChannelIds: [],
       elsewhereDestination: null,
       offPeriods: null,
-      selfreflection: { entries: pastEntriesOf(ctx, draft, channel, config), ...parts },
+      diary: { entries: pastEntriesOf(ctx, draft, channel, config), ...parts },
       skillsInventory: null,
       toolsGranted: null,
       toolsBlock: null,
@@ -956,7 +956,7 @@ type BuildNeeds = Pick<
   | 'reads'
   | 'prefetchResult'
   | 'drawOn'
-  | 'selfreflectionPrep'
+  | 'diaryPrep'
   | 'prompts'
   | 'factsText'
   | 'tasks'
@@ -970,18 +970,18 @@ type BuildNeeds = Pick<
 export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: Draft, turn: BuildNeeds): BuiltRequest {
   const { store, calibrator, skills, lookup, emoji, memoryReads, turnContextOf } = ctx;
   const { aroundInputFor, errandsInputFor, intentionsInputFor, earlierThinkFor } = ctx;
-  const { selfreflectionChannelName, stableFreezeOf } = ctx;
+  const { diaryChannelName, stableFreezeOf } = ctx;
   const { callMarksOf } = ctx;
   const { trigger = null, triggerKind = null } = params;
   const { taskResult = null } = params;
   const { channel, placeId, libraryPlace, isDm, config, transport, memoryOn, selfId, selfName, now, snapshot } = turn;
   const { serverOn, finalMode, history, descriptions, videos, imageAnswers, reads } = turn;
-  const { prefetchResult, drawOn, selfreflectionPrep, prompts } = turn;
+  const { prefetchResult, drawOn, diaryPrep, prompts } = turn;
   const { factsText, tasks, placeMemory, taggedCall, offPeriods, activeSkills } = turn;
   // Her tools, pinned for this turn (a grant removed meanwhile is still caught at each call): the skills granted to her
   // and the carried-over ones, as native tool definitions (or `<tools>` text), then one entry per active skill she can
   // use. The array is the same for every turn kind, so every turn shares one cached prefix: a wake refuses a call outside
-  // its own set when the call is made (src/tools/wake-tools.ts#wakeRefusalCode). A selfreflection post has the same
+  // its own set when the call is made (src/tools/wake-tools.ts#wakeRefusalCode). A diary post has the same
   // tools; only `draw.create` runs there (runSteps). A tool the interface of the turn's place cannot carry out (a reaction
   // in the owner's command line) is left out, so a turn of another interface has a prefix of its own.
   const registry = skills ?? defaultSkills();
@@ -1058,7 +1058,7 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
           store.getUser(accountOf(store, id))?.names?.[0] ?? ctx.frameReads?.accountName?.(frame.interface, id) ?? null
       : null,
     currentChannelId: channel.id,
-    selfreflectionChannelIds: selfreflectionChatIds(store),
+    diaryChannelIds: diaryChatIds(store),
     descriptions: descriptions ?? null,
     videos: videos ?? null,
     imageAnswers,
@@ -1079,16 +1079,16 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
       emoji || typeof store.getGifs === 'function' ? (key: string) => store.mediaEntry(libraryPlace, key) : null,
     elsewhereDestination: null,
     tasks: tasks.input,
-    // `<senses>`: where the persona keeps its selfreflection, when one is set.
-    selfreflectionChannel: selfreflectionChannelName(placeId, config, snapshot, null),
-    // A selfreflection post: its past entries from memory, its plan, what its search found and the mirrors.
-    selfreflection: selfreflectionPrep
+    // `<senses>`: where the persona keeps its diary, when one is set.
+    diaryChannel: diaryChannelName(placeId, config, snapshot, null),
+    // A diary post: its past entries from memory, its plan, what its search found and the mirrors.
+    diary: diaryPrep
       ? {
-          posts: selfreflectionPrep.posts,
+          posts: diaryPrep.posts,
           entries: pastEntriesOf(ctx, draft, channel, config),
-          plan: selfreflectionPrep.plan,
-          found: selfreflectionPrep.found,
-          seeds: selfreflectionPrep.seeds ?? '',
+          plan: diaryPrep.plan,
+          found: diaryPrep.found,
+          seeds: diaryPrep.seeds ?? '',
           publicationPlaces: readMirrors(store, publicationPlaces, NO_PLACES),
         }
       : null,
@@ -1102,14 +1102,14 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     toolsTokens,
     // `<people_now>`'s live part: the voice and status snapshot (null: none).
     around: aroundInputFor({ config, mode: finalMode, isDm, snapshot }),
-    // `<errands>` and `<errand_result>`: her errands (none on a selfreflection post).
+    // `<errands>` and `<errand_result>`: her errands (none on a diary post).
     errands:
-      finalMode === 'selfreflection'
+      finalMode === 'diary'
         ? null
         : errandsInputFor({ placeId, channel, isDm, taskResult, config, labels: prompts?.labels, now }),
-    // `<intentions>`: hers and the proposed ones (features.intentions; none on a selfreflection post).
+    // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
     intentions:
-      finalMode === 'selfreflection'
+      finalMode === 'diary'
         ? ''
         : intentionsInputFor({
             ...{ placeId, channel, isDm, config, now },

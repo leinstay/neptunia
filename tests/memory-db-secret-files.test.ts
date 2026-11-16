@@ -26,7 +26,7 @@ test('leaves ordinary files alone, including names that only look like a secret 
     'memory.db',
     'prompts/keys.md',
     'config/environment.json',
-    'media/selfreflection/d-1-1.png',
+    'media/diary/d-1-1.png',
     'notes/backups.txt',
     'notes/clients.md',
     'skills/auth/SKILL.md',

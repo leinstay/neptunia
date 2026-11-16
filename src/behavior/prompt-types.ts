@@ -76,9 +76,9 @@ export type BuildRequestInput = {
     failedEarlier?: Array<{ author: string; messageId: string; link?: string; at: number; code: string }>;
   } | null;
   elsewhereDestination?: { name: string } | null;
-  selfreflectionChannel?: string | null;
-  selfreflectionChannelIds?: Iterable<string>;
-  selfreflection?: {
+  diaryChannel?: string | null;
+  diaryChannelIds?: Iterable<string>;
+  diary?: {
     posts?: Array<Untyped>;
     plan?: { kind: string | null; brief: string; picture: boolean; topic?: string } | null;
     found?: string | null;

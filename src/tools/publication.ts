@@ -14,7 +14,7 @@ export type PublicationRefusal = Readonly<{
   reason: 'publication-boundary';
 }>;
 
-/** Who may read a selfreflection entry, as she chose it: a post's `publicationAudience`. */
+/** Who may read a diary entry, as she chose it: a post's `publicationAudience`. */
 export type PublicationAudience = Readonly<
   { kind: 'unrestricted' } | { kind: 'interface'; iface: string } | { kind: 'place'; placeId: string }
 >;
@@ -22,7 +22,7 @@ export type PublicationAudience = Readonly<
 export type AudienceProblem = 'audience-unknown-place' | 'audience-unknown-interface' | 'audience-malformed';
 /** What her `<audience>` tags come to: an audience, or the concrete reason none could be read. */
 export type AudienceChoice = { ok: true; audience: PublicationAudience } | { ok: false; code: AudienceProblem };
-/** The places she can name in `<audience>` (src/memory/db/selfreflection-audience.ts#publicationPlaces). */
+/** The places she can name in `<audience>` (src/memory/db/diary-audience.ts#publicationPlaces). */
 export type KnownPlaces = Readonly<{
   interfaces: ReadonlyArray<string>;
   places: ReadonlyArray<Readonly<{ id: string; name: string | null; parentId: string | null; iface?: string }>>;
@@ -84,7 +84,7 @@ export function publicationBoundaryOf(context: unknown, origin: ChatRef): Public
 /**
  * The restriction of a turn: the one it inherited from deferred work (a finished errand, a due intention), else the one
  * its own internal context gives. A turn that is nowhere reads as herself with no origin to keep to, so only an
- * inherited label restricts it. A selfreflection post is the exception: issued an internal context, its entry keeps
+ * inherited label restricts it. A diary post is the exception: issued an internal context, its entry keeps
  * the restriction and stays out of the mirrors. An inherited label is a restriction, never a grant of memory authority.
  */
 export function turnBoundary(
@@ -95,7 +95,7 @@ export function turnBoundary(
   origin: ChatRef
 ): PublicationBoundary | undefined {
   if (isPublicationBoundary(draft?.publicationBoundary)) return draft.publicationBoundary;
-  if (draft?.nowhere === true && draft.mode !== 'selfreflection') return undefined;
+  if (draft?.nowhere === true && draft.mode !== 'diary') return undefined;
   return publicationBoundaryOf(draft?.memoryContext, origin);
 }
 
@@ -151,8 +151,8 @@ export function bindPublicationPort<TPort extends object>(
   });
 }
 
-/** Persisted selfreflection metadata fails closed when its JSON cannot be read. */
-export function selfreflectionMetadataOf(value: unknown): Record<string, unknown> {
+/** Persisted diary metadata fails closed when its JSON cannot be read. */
+export function diaryMetadataOf(value: unknown): Record<string, unknown> {
   if (value === null || value === undefined) return {};
   try {
     const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
@@ -163,11 +163,11 @@ export function selfreflectionMetadataOf(value: unknown): Record<string, unknown
   return { publicationBoundary: null };
 }
 
-export function selfreflectionRestricted(post: unknown): boolean {
+export function diaryRestricted(post: unknown): boolean {
   return objOf(post).publicationBoundary !== undefined;
 }
 
-export function selfreflectionPublicationRefusal(value: unknown, destination: ChatRef): PublicationRefusal | null {
+export function diaryPublicationRefusal(value: unknown, destination: ChatRef): PublicationRefusal | null {
   if (value === undefined) return null;
   if (isPublicationBoundary(value)) return publicationRefusal(value, destination);
   return { status: 'denied', code: 'not-allowed', reason: 'publication-boundary' };

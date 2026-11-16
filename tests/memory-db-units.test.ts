@@ -78,7 +78,7 @@ function logs() {
 const configOf = (memoryDb = {}) => ({
   features: { record: true, journal: true, archive: true },
   memoryDb: { session: { mode: 'off' }, ...memoryDb },
-  selfreflection: { placeId: CHANNEL },
+  diary: { placeId: CHANNEL },
 });
 
 /**
@@ -448,17 +448,17 @@ test('a unit write that still fails at the shutdown is logged lost and leaves no
       },
       // The task store has its own write kind (src/memory/db/errand-write.ts), refused the same way.
       writeErrand: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
-      // A lorebook and her selfreflection have their own write kinds (src/memory/db/place-lore.ts,
-      // selfreflection-entries.ts), refused the same way.
+      // A lorebook and her diary have their own write kinds (src/memory/db/place-lore.ts,
+      // diary-entries.ts), refused the same way.
       writePlaceLore: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
-      writeSelfreflection: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
+      writeDiary: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
     };
     const m = await modules(data, { log, memoryDb: down });
     m.store.setLore(placeOfRoot(m.store, GUILD), [{ title: 'Η αποβάθρα', keys: ['αποβάθρα'], text: 'The old pier.' }], {
       source: 'owner',
       now: NOW,
     });
-    m.store.appendSelfreflectionPost(
+    m.store.appendDiaryPost(
       // @ts-expect-error a post without a picture is null, the shape the diary writes before one is drawn
       { at: NOW, kind: 'day', gist: 'une journée de pluie', picture: null, messageIds: [], search: null },
       { max: 150, now: NOW }

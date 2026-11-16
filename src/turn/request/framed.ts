@@ -16,12 +16,12 @@ import type { SurroundingsInput } from './reader.ts';
 import { ordered } from './reads.ts';
 import { renderSenses } from './senses.ts';
 import type { SensesOf } from './senses.ts';
-import { selfreflectionFramedOf } from './selfreflection.ts';
+import { diaryFramedOf } from './diary.ts';
 import { surroundingsOf } from './surroundings.ts';
 import { attitudesText } from './attitudes.ts';
 import { lessonsBlockOf, lessonsBudgetOf } from './lessons.ts';
 import { escapeStored, keepsEmoji, shownName } from './text.ts';
-import type { SelfreflectionFramed } from './selfreflection.ts';
+import type { DiaryFramed } from './diary.ts';
 import { seenOf } from './tail.ts';
 import type { Task } from './task.ts';
 import { handleOf } from '../../behavior/handles.ts';
@@ -166,9 +166,9 @@ function storedFactsOf(prefetch: RequestInput['prefetch']): Array<StoredFact> {
   );
 }
 
-/** What she has not been told: the turn's facts, then a selfreflection request's refused audiences; null with neither. */
-function feedbackOf(told: string, selfreflection: SelfreflectionFramed | null): string | null {
-  return [told, selfreflection?.feedback ?? ''].filter(Boolean).join('\n') || null;
+/** What she has not been told: the turn's facts, then a diary request's refused audiences; null with neither. */
+function feedbackOf(told: string, diary: DiaryFramed | null): string | null {
+  return [told, diary?.feedback ?? ''].filter(Boolean).join('\n') || null;
 }
 
 /** The handle (with `@`) a one-to-one chat's path ends in: its partner's, by the key their lines carry; null elsewhere. */
@@ -234,7 +234,7 @@ function reactorsOf(history: RequestInput['history']): Array<{ id: string; name:
 export function framedBuild(given: RequestInput, steps: FramedSteps): BuildRequestResult {
   const { frame, base, task, senses, own, room, tempo, tempoText } = steps;
   const { labels, nameOf } = base;
-  const selfreflection = selfreflectionFramedOf({ ...given, labels });
+  const diary = diaryFramedOf({ ...given, labels });
   const surroundingsText = (handle: string | null, partner: string | null): string =>
     surroundingsHeld(given, base, frame, handle, partner);
   const selfFacts = base.frozen('self', '', () =>
@@ -260,7 +260,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     surroundingsText,
     mind: given.mind ?? NO_MIND,
     facts: storedFactsOf(given.prefetch),
-    selfreflectionIds: new Set(given.selfreflectionChannelIds ?? []),
+    diaryIds: new Set(given.diaryChannelIds ?? []),
     lookups: given.lookups ?? [],
     meanwhileReads: given.meanwhileReads ?? null,
     chatItems: base.chatItems,
@@ -269,10 +269,10 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
       myDay: own.myDayText ? [own.myDayText] : [],
       intentions: own.intentionsText || null,
       errands: own.errandsText.list || null,
-      feedback: feedbackOf(own.wakeText, selfreflection),
+      feedback: feedbackOf(own.wakeText, diary),
       previousThink: given.previousThink ?? null,
     },
-    selfreflection,
+    diary,
     errandResult: own.errandsText.result,
     nameOf,
     lineOf: given.refLineOf ?? null,

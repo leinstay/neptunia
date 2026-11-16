@@ -11,7 +11,7 @@
 //     `claim_versions.recorded_at`, `semantic_assertion_versions.recorded_at`, `description_versions.written_at`,
 //     `episodes.created_at`, `affinity_events.at`, `graph_nodes.created_at`, `graph_edges.recorded_at`,
 //     `source_relations.recorded_at`, `ingest.committed_at`, `external_keys.recorded_at`, `publications.created_at`,
-//     `wake_runs.started_at`, `wake_actions.at`, `vectors.occurred_at`, `selfreflection.at_ms`,
+//     `wake_runs.started_at`, `wake_actions.at`, `vectors.occurred_at`, `diary.at_ms`,
 //     `intentions.created_ms`, `work.created_ms`, `work_events.at_ms`, `wakes.queued_at`. Also `turn_reads` of a
 //     turn that started at or after T or of a context issued then, and the rows that hang on a row the cut deleted
 //     (its links, sources, vectors, versions). A row whose owner was gone before the cut stays.
@@ -56,7 +56,7 @@ const DATED: ReadonlyArray<{ table: string; column: string; ms?: boolean }> = [
   { table: 'wake_actions', column: 'at' },
   { table: 'wake_runs', column: 'started_at' },
   { table: 'vectors', column: 'occurred_at' },
-  { table: 'selfreflection', column: 'at_ms', ms: true },
+  { table: 'diary', column: 'at_ms', ms: true },
   { table: 'intentions', column: 'created_ms', ms: true },
   { table: 'work', column: 'created_ms', ms: true },
   { table: 'work_events', column: 'at_ms', ms: true },
@@ -86,7 +86,7 @@ const OWNER_KEYS: Readonly<Record<string, ReadonlyArray<string>>> = {
   semantic_assertion_versions: ['version_id'],
   episodes: ['id'],
   graph_nodes: ['id'],
-  selfreflection: ['id'],
+  diary: ['id'],
   work: ['id'],
   wake_runs: ['id'],
 };
@@ -100,9 +100,9 @@ const HANGING: ReadonlyArray<{ table: string; column: string; owner: string; key
   {
     table: 'media_links',
     column: 'owner_id',
-    owner: 'selfreflection',
+    owner: 'diary',
     key: 'id',
-    where: "owner_kind = 'selfreflection'",
+    where: "owner_kind = 'diary'",
   },
   { table: 'claim_sources', column: 'source_id', owner: 'sources', key: 'id' },
   { table: 'claim_sources', column: 'claim_id', owner: 'claims', key: 'id' },
@@ -120,7 +120,7 @@ const HANGING: ReadonlyArray<{ table: string; column: string; owner: string; key
   { table: 'graph_edges', column: 'src', owner: 'graph_nodes', key: 'id' },
   { table: 'graph_edges', column: 'dst', owner: 'graph_nodes', key: 'id' },
   { table: 'node_access', column: 'node_id', owner: 'graph_nodes', key: 'id' },
-  { table: 'selfreflection_mirrors', column: 'selfreflection_id', owner: 'selfreflection', key: 'id' },
+  { table: 'diary_mirrors', column: 'diary_id', owner: 'diary', key: 'id' },
   { table: 'work_events', column: 'work_id', owner: 'work', key: 'id' },
   { table: 'wake_actions', column: 'run_id', owner: 'wake_runs', key: 'id' },
 ];

@@ -1047,7 +1047,7 @@ function fakeGuild(specs: Untyped) {
 test('readableChannels: threads, non-text and unreadable channels are left out', () => {
   const guild = fakeGuild([
     { id: 'open', granted: [READ, SEND] },
-    { id: 'selfreflection', granted: [READ] },
+    { id: 'diary', granted: [READ] },
     { id: 'thread', granted: [READ, SEND], thread: true },
     { id: 'voice', granted: [READ, SEND], text: false },
     { id: 'hidden', granted: [SEND] },
@@ -1056,13 +1056,13 @@ test('readableChannels: threads, non-text and unreadable channels are left out',
   const bot = {};
   assert.deepEqual(
     readableChannels(guild, bot).map((c) => c.id),
-    ['open', 'selfreflection']
+    ['open', 'diary']
   );
   assert.deepEqual(
     readableChannels(guild, bot, 'open').map((c) => c.id),
-    ['selfreflection']
+    ['diary']
   );
-  assert.equal(isReadableChannel(guild.channels.cache.get('selfreflection')), true);
+  assert.equal(isReadableChannel(guild.channels.cache.get('diary')), true);
 });
 
 // --- audienceOf: who can view a channel, in the shape audienceCovers takes ---
@@ -1415,7 +1415,7 @@ test('fetchMessage: a missing or empty id is null without a request', async () =
 test('isWritableChannel: readable and sendable; never an unreadable channel', () => {
   const guild = fakeGuild([
     { id: 'open', granted: [READ, SEND] },
-    { id: 'selfreflection', granted: [READ] },
+    { id: 'diary', granted: [READ] },
     { id: 'blind', granted: [SEND] },
     { id: 'thread', granted: [READ, SEND], thread: true },
   ]);

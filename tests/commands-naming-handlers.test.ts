@@ -27,7 +27,7 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NOW = Date.parse('2026-11-04T12:00:00Z');
-const MECHANICS = ['heartbeat', 'selfreflection'] as const;
+const MECHANICS = ['heartbeat', 'diary'] as const;
 
 type Answer = { text: string; status: string };
 
@@ -164,7 +164,7 @@ function rig(local: Record<string, unknown> | null = null, memory = true): Rig {
 /** Schedules that differ per mechanism, so a row of one status cannot be mistaken for another's. */
 const LOCAL = {
   heartbeat: { enabled: false, schedule: 'every 2h' },
-  selfreflection: { enabled: true, schedule: 'at 09:15' },
+  diary: { enabled: true, schedule: 'at 09:15' },
 };
 
 // ---- /services list --------------------------------------------------------------------------------------------------
@@ -209,12 +209,12 @@ test('/services list asks no model: the only operation the console may run is th
 
 test('/services list shows a mechanism as disabled after /services disable, from the same flag /config reads', async () => {
   // Catches: the list reads a flag of its own, so it disagrees with the setting a status and the settings panel show.
-  const r = rig({ selfreflection: { enabled: true, schedule: 'at 09:15' } });
+  const r = rig({ diary: { enabled: true, schedule: 'at 09:15' } });
   const before = await r.say('/services list');
-  assert.equal((await r.say('/services selfreflection disable')).status, 'ok');
+  assert.equal((await r.say('/services diary disable')).status, 'ok');
   const after = await r.say('/services list');
   assert.notEqual(after.text, before.text);
-  const status = await r.say('/services selfreflection status');
+  const status = await r.say('/services diary status');
   for (const row of status.text.split('\n').filter((one) => one !== '' && !one.startsWith('service:')))
     assert.ok(after.text.includes(row), row);
 });

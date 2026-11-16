@@ -2454,11 +2454,11 @@ test('store: eviction returns the dropped items with their itemId', () => {
     messageIds: [],
     search: '',
   }));
-  store.setSelfreflectionPosts(posts.slice(0, 2), { max: 2, now: ID_NOW });
-  const firstPostId = asRecord(store.getSelfreflection().posts[0]).itemId;
-  const selfreflection = store.appendSelfreflectionPost(posts[2], { max: 2, now: ID_NOW });
+  store.setDiaryPosts(posts.slice(0, 2), { max: 2, now: ID_NOW });
+  const firstPostId = asRecord(store.getDiary().posts[0]).itemId;
+  const diary = store.appendDiaryPost(posts[2], { max: 2, now: ID_NOW });
   assert.deepEqual(
-    selfreflection.dropped.map((p) => [asRecord(p).gist, asRecord(p).itemId]),
+    diary.dropped.map((p) => [asRecord(p).gist, asRecord(p).itemId]),
     [['ένα', firstPostId]]
   );
   assert.ok(firstPostId.startsWith('dy-u'));

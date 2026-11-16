@@ -27,7 +27,7 @@ import { privateLayerOfUnit } from './db/private-layer.ts';
 import { proseVersionsOfUnit } from './db/prose-versions.ts';
 import { unitHeld, unitSubjects, unitValue } from './db/readers/common.ts';
 import { recentLinesOfUnit } from './db/recent-lines.ts';
-import { selfreflectionOfUnit } from './db/selfreflection-entries.ts';
+import { diaryOfUnit } from './db/diary-entries.ts';
 import { keyText } from './db/unit-keys.ts';
 import type { UnitKey, UnitKind } from './db/unit-keys.ts';
 import type { Db, Row } from './db/types.ts';
@@ -52,7 +52,7 @@ const DIRECT_WRITES: ReadonlyArray<[keyof MemoryDb, (update: Row) => object | nu
   ['writePlaceLore', placeLoreOfUnit],
   ['writeParticipation', participationOfUnit],
   ['writeRecentLines', recentLinesOfUnit],
-  ['writeSelfreflection', selfreflectionOfUnit],
+  ['writeDiary', diaryOfUnit],
 ];
 
 /** The write of one unit: the direct write of its kind; a unit no kind takes is refused with `UNIT_UNMAPPED`. */

@@ -2,6 +2,9 @@
 // starts from the baseline (src/memory/db/schema-baseline.ts); src/memory/db/open.ts then applies each entry of
 // `MIGRATIONS` in order, one version per entry, and never edits a shipped one.
 
+import { createHash } from 'node:crypto';
+import { edgeIdOf } from './graph.ts';
+import { PERSONA_ID } from './ids.ts';
 import type { Db } from './types.ts';
 
 /** One migration: SQL text, or a function of the connection. */
@@ -158,8 +161,249 @@ function errandBoard(db: Db): void {
     DELETE FROM wakes WHERE kind = 'selfimprovement' AND state <> 'handled';`);
 }
 
+/** The stored word step 61 replaces, and the word it puts in its place. */
+const OLD_WORD = 'selfreflection';
+const NEW_WORD = 'diary';
+/** The three spellings of the old word step 61 replaces in a stored JSON word, each with its new spelling. */
+const WORD_FORMS = [
+  ['selfreflection', 'diary'],
+  ['Selfreflection', 'Diary'],
+  ['SELFREFLECTION', 'DIARY'],
+] as const;
+
+/** The columns whose values step 61 renames by replacing the word wherever it stands, table by table. */
+const RENAMED_COLUMNS: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
+  ['diary', ['id']],
+  ['diary_mirrors', ['diary_id', 'id']],
+  ['publications', ['id', 'row_kind', 'row_id', 'grant_id', 'idempotency_key']],
+  ['publication_grants', ['id', 'row_kind', 'row_id']],
+  ['mirrors', ['id', 'row_kind', 'backfill_high_water']],
+  ['media', ['id', 'path', 'owner']],
+  ['media_links', ['owner_id', 'media_id']],
+  ['vectors', ['item_id', 'chunk_key']],
+  ['turn_reads', ['row_kind', 'row_id']],
+  ['decisions', ['target_kind', 'target_id']],
+  ['model_requests', ['service', 'purpose']],
+];
+
+/** The values a rename may not merge with another row's: a table and the column whose values are unique. */
+const UNIQUE_VALUES: ReadonlyArray<readonly [string, string]> = [
+  ['selfreflection', 'id'],
+  ['selfreflection_mirrors', 'id'],
+  ['publications', 'id'],
+  ['publications', 'idempotency_key'],
+  ['publication_grants', 'id'],
+  ['mirrors', 'id'],
+  ['media', 'id'],
+  ['media', 'path'],
+  ['vectors', 'chunk_key'],
+  ['graph_nodes', 'id'],
+];
+
+/** The JSON columns whose engine words step 61 renames: keys and string values without whitespace. */
+const JSON_COLUMNS: ReadonlyArray<readonly [string, string]> = [
+  ['day', 'extra'],
+  ['deliveries', 'receipt'],
+  ['operational', 'value'],
+  ['publications', 'delivery'],
+  ['vectors', 'context'],
+  ['model_requests', 'outcome'],
+];
+
+/** `text` with the old word replaced in each of its three spellings. */
+const withNewWord = (text: string): string => WORD_FORMS.reduce((out, [from, to]) => out.replaceAll(from, to), text);
+
+/** A stored JSON value with the old word replaced in every key and every string that holds no whitespace. */
+function renamedJson(value: unknown): unknown {
+  if (typeof value === 'string') return /\s/.test(value) ? value : withNewWord(value);
+  if (Array.isArray(value)) return value.map(renamedJson);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, inner]) => [/\s/.test(key) ? key : withNewWord(key), renamedJson(inner)])
+  );
+}
+
+/** The `operational` owner of the persona's value of `kind`, as `collectionId` in unit-keys.ts computes it. */
+const personaOwner = (kind: string): string =>
+  `unit:${createHash('sha256')
+    .update(JSON.stringify({ kind, subject: { type: 'persona', id: PERSONA_ID } }))
+    .digest('hex')
+    .slice(0, 32)}`;
+
+/** The ids, paths and keys the rename would give a row that another row already holds, as `table.column` names. */
+function renameCollisions(db: Db, has: (table: string, column: string) => boolean): Array<string> {
+  const found: Array<string> = [];
+  for (const [table, column] of UNIQUE_VALUES) {
+    if (!has(table, column)) continue;
+    const met = db
+      .prepare(
+        `SELECT 1 AS hit FROM "${table}" a WHERE instr(a."${column}", ?) > 0 AND EXISTS (
+           SELECT 1 FROM "${table}" b WHERE b."${column}" = replace(a."${column}", ?, ?) AND b.rowid <> a.rowid)
+         UNION ALL SELECT 1 FROM "${table}" WHERE instr("${column}", ?) > 0
+           GROUP BY replace("${column}", ?, ?) HAVING COUNT(*) > 1 LIMIT 1`
+      )
+      .get(OLD_WORD, OLD_WORD, NEW_WORD, OLD_WORD, OLD_WORD, NEW_WORD);
+    if (met) found.push(`${table}.${column}`);
+  }
+  const oldOwner = personaOwner(OLD_WORD);
+  if (
+    has('operational', 'kind') &&
+    db.prepare('SELECT 1 AS hit FROM operational WHERE kind = ? AND owner = ?').get(OLD_WORD, oldOwner) &&
+    db.prepare('SELECT 1 AS hit FROM operational WHERE kind = ? AND owner = ?').get(NEW_WORD, personaOwner(NEW_WORD))
+  )
+    found.push('operational.owner');
+  return found;
+}
+
+/**
+ * The graph under the new word: the nodes whose id, kind or row id holds it, the edges whose ends, evidence, key or
+ * owner hold it with each edge id recomputed from its new ends, and the witnesses that name a renamed node or edge.
+ * An edge id that is neither hash of its old tuple, one with a qualifier, keeps its id.
+ */
+function renameGraph(db: Db): void {
+  const hit = `instr(id, '${OLD_WORD}') > 0 OR instr(kind, '${OLD_WORD}') > 0 OR instr(row_id, '${OLD_WORD}') > 0`;
+  db.exec(`UPDATE graph_nodes SET id = replace(id, '${OLD_WORD}', '${NEW_WORD}'),
+      kind = replace(kind, '${OLD_WORD}', '${NEW_WORD}'), row_id = replace(row_id, '${OLD_WORD}', '${NEW_WORD}')
+    WHERE ${hit};
+    UPDATE node_access SET node_id = replace(node_id, '${OLD_WORD}', '${NEW_WORD}')
+    WHERE instr(node_id, '${OLD_WORD}') > 0;`);
+  const edges = db
+    .prepare(
+      `SELECT id, src, dst, predicate, evidence_id FROM graph_edges WHERE instr(src, ?) > 0 OR instr(dst, ?) > 0
+         OR instr(evidence_id, ?) > 0 OR instr(projection_key, ?) > 0 OR instr(owner_key, ?) > 0`
+    )
+    .all(OLD_WORD, OLD_WORD, OLD_WORD, OLD_WORD, OLD_WORD);
+  const setEdge = db.prepare(
+    `UPDATE graph_edges SET id = ?, src = replace(src, ?, ?), dst = replace(dst, ?, ?),
+       evidence_id = replace(evidence_id, ?, ?), projection_key = replace(projection_key, ?, ?),
+       owner_key = replace(owner_key, ?, ?) WHERE id = ?`
+  );
+  const setWitness = db.prepare('UPDATE node_access SET evidence_id = ? WHERE evidence_id = ?');
+  const renamed = (id: unknown): unknown => (typeof id === 'string' ? withNewWord(id) : id);
+  for (const edge of edges) {
+    const { id, src, dst, predicate, evidence_id: evidence } = edge;
+    const next =
+      edgeIdOf(predicate, src, dst, evidence) === id
+        ? edgeIdOf(predicate, renamed(src), renamed(dst), renamed(evidence))
+        : edgeIdOf(predicate, src, dst, null) === id
+          ? edgeIdOf(predicate, renamed(src), renamed(dst), null)
+          : String(id);
+    const word = [OLD_WORD, NEW_WORD];
+    setEdge.run(next, ...word, ...word, ...word, ...word, ...word, id);
+    if (next !== id) setWitness.run(next, id);
+  }
+  db.exec(`UPDATE node_access SET evidence_id = replace(evidence_id, '${OLD_WORD}', '${NEW_WORD}')
+    WHERE instr(evidence_id, '${OLD_WORD}') > 0`);
+}
+
+/** `media_links` again with the owner kind `diary` in its CHECK, which SQLite cannot change in place. */
+function rebuildMediaLinks(db: Db): void {
+  const links = String(
+    db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_links'").get()?.sql
+  );
+  if (links.includes(`'${OLD_WORD}'`)) {
+    const indexes = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'media_links' AND sql IS NOT NULL")
+      .all();
+    db.exec(`${links
+      .replace(/^CREATE TABLE\s+"?media_links"?/, 'CREATE TABLE media_links_next')
+      .replaceAll(`'${OLD_WORD}'`, `'${NEW_WORD}'`)};
+      INSERT INTO media_links_next (owner_kind, owner_id, position, media_id)
+        SELECT replace(owner_kind, '${OLD_WORD}', '${NEW_WORD}'), owner_id, position, media_id FROM media_links;
+      DROP TABLE media_links;
+      ALTER TABLE media_links_next RENAME TO media_links;`);
+    for (const index of indexes) db.exec(String(index.sql));
+  }
+}
+
+/**
+ * Version 61: the stored word `selfreflection` becomes `diary` (the maintainer's decision of 2026-11-16), as a whole
+ * word inside ids and paths too. The step first deletes the media vectors under `media:diary:` that no `media` row
+ * holds and whose twin under `media:selfreflection:` is live, since the twin takes their key, and refuses the whole
+ * step when a renamed id, path or key meets one another row holds. It renames the tables `selfreflection` and
+ * `selfreflection_mirrors`, the column `selfreflection_id`, their indexes and the trigger, and rebuilds `media_links`
+ * so its CHECK names `diary`. It then renames every `writer`, the columns of `RENAMED_COLUMNS` with the guards of
+ * `publications` and `publication_grants` dropped and restored, the graph, the `operational` row of the persona's
+ * entries with its owner, and the engine words of `JSON_COLUMNS`. A second run finds nothing to change.
+ */
+function diaryNames(db: Db): void {
+  const tableNames = (): Set<string> =>
+    new Set(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all()
+        .map((row) => String(row.name))
+    );
+  const has = (table: string, column: string): boolean =>
+    db.prepare(`SELECT 1 AS ok FROM pragma_table_info('${table}') WHERE name = ?`).get(column) !== undefined;
+  const tables = tableNames();
+  db.exec(`DELETE FROM vectors WHERE instr(item_id, 'media:${NEW_WORD}:') = 1
+      AND item_id NOT IN (SELECT id FROM media)
+      AND chunk_key IN (SELECT replace(w.chunk_key, '${OLD_WORD}', '${NEW_WORD}') FROM vectors w
+        WHERE instr(w.chunk_key, '${OLD_WORD}') > 0 AND w.item_id IN (SELECT id FROM media))`);
+  const collisions = renameCollisions(db, has);
+  if (collisions.length > 0)
+    throw new Error(
+      `diary-rename-collision: renaming ${OLD_WORD} to ${NEW_WORD} would merge rows in ${collisions.join(', ')}; ` +
+        'resolve those rows by hand, then open the database again'
+    );
+  if (tables.has(OLD_WORD)) db.exec(`ALTER TABLE "${OLD_WORD}" RENAME TO "${NEW_WORD}"`);
+  if (tables.has(`${OLD_WORD}_mirrors`)) db.exec(`ALTER TABLE "${OLD_WORD}_mirrors" RENAME TO "${NEW_WORD}_mirrors"`);
+  if (has(`${NEW_WORD}_mirrors`, `${OLD_WORD}_id`))
+    db.exec(`ALTER TABLE "${NEW_WORD}_mirrors" RENAME COLUMN "${OLD_WORD}_id" TO "${NEW_WORD}_id"`);
+  // SQLite carries an index's and a trigger's name through a table rename, so those named after the word are made again.
+  for (const object of db
+    .prepare("SELECT type, name, sql FROM sqlite_master WHERE type IN ('index', 'trigger') AND instr(name, ?) > 0")
+    .all(OLD_WORD)) {
+    db.exec(`DROP ${String(object.type).toUpperCase()} "${String(object.name)}"`);
+    db.exec(String(object.sql).replaceAll(OLD_WORD, NEW_WORD));
+  }
+  rebuildMediaLinks(db);
+  db.exec('PRAGMA defer_foreign_keys = ON');
+  const guards = db
+    .prepare(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name IN ('publications', 'publication_grants')"
+    )
+    .all();
+  for (const guard of guards) db.exec(`DROP TRIGGER "${String(guard.name)}"`);
+  for (const table of tableNames()) {
+    if (has(table, 'writer'))
+      db.exec(`UPDATE "${table}" SET writer = replace(writer, '${OLD_WORD}', '${NEW_WORD}')
+        WHERE instr(writer, '${OLD_WORD}') > 0`);
+  }
+  for (const [table, columns] of RENAMED_COLUMNS)
+    for (const column of columns)
+      if (has(table, column))
+        db.exec(`UPDATE "${table}" SET "${column}" = replace("${column}", '${OLD_WORD}', '${NEW_WORD}')
+          WHERE instr("${column}", '${OLD_WORD}') > 0`);
+  for (const guard of guards) db.exec(String(guard.sql));
+  if (tableNames().has('graph_nodes')) renameGraph(db);
+  db.prepare('UPDATE operational SET kind = ?, owner = CASE owner WHEN ? THEN ? ELSE owner END WHERE kind = ?').run(
+    NEW_WORD,
+    personaOwner(OLD_WORD),
+    personaOwner(NEW_WORD),
+    OLD_WORD
+  );
+  for (const [table, column] of JSON_COLUMNS) {
+    if (!has(table, column)) continue;
+    const write = db.prepare(`UPDATE "${table}" SET "${column}" = ? WHERE rowid = ?`);
+    for (const row of db
+      .prepare(`SELECT rowid AS rowid, "${column}" AS value FROM "${table}" WHERE "${column}" LIKE ?`)
+      .all(`%${OLD_WORD}%`)) {
+      let stored: unknown;
+      try {
+        stored = JSON.parse(String(row.value));
+      } catch {
+        continue; // Not JSON: no engine word can be told from free text.
+      }
+      const next = JSON.stringify(renamedJson(stored));
+      if (next !== JSON.stringify(stored)) write.run(next, row.rowid);
+    }
+  }
+}
+
 /** The steps above the baseline, version 57 first. */
-export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources, nameScripts, errandBoard];
+export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources, nameScripts, errandBoard, diaryNames];
 
 /** The tables that carry a scope and its `audience_id`. */
 export const SCOPED_TABLES = [
@@ -170,7 +414,7 @@ export const SCOPED_TABLES = [
   'episodes',
   'affinity_events',
   'day',
-  'selfreflection',
+  'diary',
   'media',
   'intentions',
   'work',

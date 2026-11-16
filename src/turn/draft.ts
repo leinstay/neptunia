@@ -56,7 +56,7 @@ type ModuleDrafts = ToolRoundDraft &
  * runAttempt creates the draft with its limits, and the request phase sets the tools and the response phase the
  * format counts before the tool round reads them.
  */
-export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfreflection'> & {
+export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'> & {
   limits: Limits;
   // An inner turn (mode `inner`): her calls pass its gate.
   inner?: InnerTurn | null;
@@ -64,8 +64,8 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   info?: ChatInfo;
   // The journal's ids, while features.journal follows the attempt.
   started?: Started;
-  // A selfreflection post: whether its kind is a set of pictures.
-  selfreflection?: { set: boolean } | null;
+  // A diary post: whether its kind is a set of pictures.
+  diary?: { set: boolean } | null;
   // The turn of every call's effect key (src/turn/phases/tool-round.ts): the journal's, else one id per attempt.
   turnKey?: { turnId: string };
   /** The turn's one handle registry (src/turn/handles.ts): every `#n` its requests issued, to the line it names. */
@@ -80,6 +80,6 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   replyTargets?: Array<string>;
   /** The trigger author's lines answered with the call (src/turn/phases/outcome.ts), for the end hook. */
   folded?: Array<string>;
-  /** The bodies of her `<audience>` tags over every answer of a selfreflection turn (src/llm/parse.ts#takeAudience). */
-  selfreflectionAudience?: Array<string>;
+  /** The bodies of her `<audience>` tags over every answer of a diary turn (src/llm/parse.ts#takeAudience). */
+  diaryAudience?: Array<string>;
 };

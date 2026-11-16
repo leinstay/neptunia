@@ -18,7 +18,7 @@ import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-const NAMES = ['heartbeat', 'selfreflection'] as const;
+const NAMES = ['heartbeat', 'diary'] as const;
 const ACTIONS = ['setup', 'enable', 'disable', 'status'] as const;
 
 for (const name of NAMES) {
@@ -41,9 +41,9 @@ test('setup takes --at and --every as flags', () => {
     name: 'services.heartbeat.setup',
     args: { at: '00:00,12:00' },
   });
-  assert.deepEqual(parseCommandLine('/services selfreflection setup --every 90m'), {
+  assert.deepEqual(parseCommandLine('/services diary setup --every 90m'), {
     ok: true,
-    name: 'services.selfreflection.setup',
+    name: 'services.diary.setup',
     args: { every: '90m' },
   });
 });
@@ -83,7 +83,7 @@ for (const line of [
   '/services heartbeat setup --every 6d',
   // Only the heartbeat has a jitter, only on an interval, and it is a duration of zero or more.
 
-  '/services selfreflection setup --every 6h --jitter 5m',
+  '/services diary setup --every 6h --jitter 5m',
   '/services heartbeat setup --at 06:00 --jitter 5m',
   '/services heartbeat setup --every 3h --jitter -5m',
   '/services heartbeat setup --every 3h --jitter soon',
@@ -92,7 +92,7 @@ for (const line of [
   '/services heartbeat status --at 00:00',
   // No mechanic has the operations of one run.
   '/services heartbeat trigger',
-  '/services selfreflection cancel',
+  '/services diary cancel',
   // A name or an action outside the family, and the verbs of the system units, which belong to the shell.
   // Changed: the watcher's lines are gone with the watcher (maintainer, 2026-11-16).
   '/services bogus status',
@@ -153,12 +153,12 @@ test('what setup saves in the chat is what a /config read answers', async () => 
   assert.equal(JSON.parse(read.text), 'every 2h');
 });
 
-// Changed: the mechanic is selfreflection, since selfimprovement is no service.
+// Changed: the mechanic is diary, since selfimprovement is no service.
 test('a schedule in the settings file, where /config set writes it, is what the family shows', async () => {
   // Catches: the family reads a copy of its own, so a change through the settings panel does not reach it.
   const { dir, run } = consoleOver();
-  writeFileSync(localConfigPath(dir), JSON.stringify({ selfreflection: { schedule: 'at 05:00' } }));
-  const status = await run('/services selfreflection status');
+  writeFileSync(localConfigPath(dir), JSON.stringify({ diary: { schedule: 'at 05:00' } }));
+  const status = await run('/services diary status');
   assert.equal(status.status, 'ok', status.text);
   assert.match(status.text, /^schedule: at 05:00$/m);
 });
@@ -166,10 +166,10 @@ test('a schedule in the settings file, where /config set writes it, is what the 
 test('enable and disable in the chat move the same flag a /config read answers', async () => {
   // Catches: the chat path writes through another handler than the shell, and the flag lands under another key.
   const { run } = consoleOver();
-  assert.equal((await run('/services selfreflection disable')).status, 'ok');
-  assert.equal(JSON.parse((await run('/config get selfreflection.enabled')).text), false);
-  assert.equal((await run('/services selfreflection enable')).status, 'ok');
-  assert.equal(JSON.parse((await run('/config get selfreflection.enabled')).text), true);
+  assert.equal((await run('/services diary disable')).status, 'ok');
+  assert.equal(JSON.parse((await run('/config get diary.enabled')).text), false);
+  assert.equal((await run('/services diary enable')).status, 'ok');
+  assert.equal(JSON.parse((await run('/config get diary.enabled')).text), true);
 });
 
 test('setup in the chat writes the local settings file and leaves the flag as it was', async () => {
@@ -221,7 +221,7 @@ test('the settings schema knows the schedule of each of the two', () => {
   // Catches: `/config check` and the doctor warn about the key the family itself writes.
   const settings = {
     heartbeat: { schedule: 'every 3h' },
-    selfreflection: { schedule: 'at 09:00' },
+    diary: { schedule: 'at 09:00' },
   };
   assert.deepEqual(checkConfig(settings, CONFIG_SCHEMA), []);
 });

@@ -17,8 +17,8 @@ const SET = toolAnswer(THINK, [call('intention.set', { due: '1h', text: 'ask how
 test('heartbeat: the request carries no diary task', async () => {
   // Bug: heartbeat turns back into the wake that writes the diary.
   const run = await wakeTurn({ wake: BEAT, answers: ['<skip/>'] });
-  assert.ok(!run.offered.some((name) => name.startsWith('selfreflection')));
-  assert.ok(!requestText(run.requests[0] ?? []).includes(PROMPT_MARK.selfreflection));
+  assert.ok(!run.offered.some((name) => name.startsWith('diary')));
+  assert.ok(!requestText(run.requests[0] ?? []).includes(PROMPT_MARK.diary));
 });
 
 // Changed: the filing is an errand, since her tools hold no `task.propose`.

@@ -26,7 +26,7 @@ export type SensesOptions = {
   dmChat?: boolean;
   interfaceText?: string | null;
   gifWatching?: boolean;
-  selfreflectionChannel?: string | null;
+  diaryChannel?: string | null;
   toolsGranted?: Array<string>;
   /** The messages the request shows: the media of an off role among them is told once (mediaOffLines). */
   window?: ReadonlyArray<object>;
@@ -138,9 +138,9 @@ function abilitiesOffLine(config: RequestConfig, labels: SensesLabels): string |
  * swaps `senses.gifDescribed` for `senses.gifWatched` when the labels have it.
  * Right after the files line, `senses.abilitiesOff` while an optional model role is off (abilitiesOffLine), then `senses.time` (how to read clock times, line
  * ages and gap markers), private chats included, when the label is a non-empty string.
- * With a `selfreflectionChannel`
- * (the bare name of the selfreflection channel; the label carries the `#`),
- * `senses.selfreflection` with `{channel}` follows. A missing label adds nothing.
+ * With a `diaryChannel`
+ * (the bare name of the diary channel; the label carries the `#`),
+ * `senses.diary` with `{channel}` follows. A missing label adds nothing.
  */
 // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.js in stage 5d, a pure move
 export function renderSenses(
@@ -153,7 +153,7 @@ export function renderSenses(
     dmChat = false,
     interfaceText = null,
     gifWatching = false,
-    selfreflectionChannel = null,
+    diaryChannel = null,
     toolsGranted = [],
     window = [],
   }: SensesOptions = {}
@@ -212,9 +212,9 @@ export function renderSenses(
   turnLines.push(...mediaOffLines(config, labels, window));
   // How to read clock times, line ages and gap markers; private chats too.
   if (typeof senses.time === 'string' && senses.time) lines.push(senses.time);
-  // Where the persona keeps its selfreflection, so it can speak of it anywhere.
-  if (senses.selfreflection && typeof selfreflectionChannel === 'string' && selfreflectionChannel)
-    lines.push(fill(senses.selfreflection, { channel: selfreflectionChannel }));
+  // Where the persona keeps its diary, so it can speak of it anywhere.
+  if (senses.diary && typeof diaryChannel === 'string' && diaryChannel)
+    lines.push(fill(senses.diary, { channel: diaryChannel }));
   // Private chat: the one line for this chat (per turn), or -- on the
   // server, with the feature on -- the rule about what was said in private.
   if (dmChat) turnLines.push(senses.dmChat);
@@ -348,7 +348,7 @@ export function sensesOf(given: RequestInput & Base): SensesOf {
     interfaceText: customEmoji.length > 0 ? (given.mediaPickText ?? null) : null,
     // Whether a GIF in the transcript was watched rather than seen in one frame, under the live config and prompts.
     gifWatching: gifWatchBlocker(prompts) === null,
-    selfreflectionChannel: typeof given.selfreflectionChannel === 'string' ? given.selfreflectionChannel : null,
+    diaryChannel: typeof given.diaryChannel === 'string' ? given.diaryChannel : null,
   };
   const senses = renderSenses(config, labels, sensesOptions);
   // The persona's skills: the catalogue

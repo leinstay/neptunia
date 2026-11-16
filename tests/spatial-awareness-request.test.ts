@@ -4,7 +4,7 @@
 //
 // The request input gains `whereabouts?: Whereabouts | null` (src/turn/request/spatial.ts). A heartbeat is her
 // own time: its block says she is at the command line of her own server, and a
-// selfreflection post that she is in her own world, whatever place the input names (stage AC, the owner's word of
+// diary post that she is in her own world, whatever place the input names (stage AC, the owner's word of
 // 2026-11-06). With the block the clock leaves `<now>`, which keeps her recent time away (the lead's ruling for stage AC).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -108,12 +108,12 @@ for (const wakeKind of ['heartbeat']) {
   });
 }
 
-test('a selfreflection post is in her own world, even when it is published to a channel', () => {
+test('a diary post is in her own world, even when it is published to a channel', () => {
   // Bug: the diary names the channel it goes to, and the illusion of her own world breaks.
   const request = buildRequest(
     baseInput({
-      mode: 'selfreflection',
-      prompts: fakePrompts({ selfreflection: 'SELFREFLECTION_TASK' }),
+      mode: 'diary',
+      prompts: fakePrompts({ diary: 'DIARY_TASK' }),
       whereabouts: placeIn('general'),
     })
   );

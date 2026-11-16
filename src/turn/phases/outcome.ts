@@ -1,11 +1,11 @@
 // The last phase of a turn attempt: what its steps posted, noted for the journal, the end hook and the pending pings,
-// a selfreflection post's entry recorded before any publication, and the result the attempt returns. Beside it, how an attempt
+// a diary post's entry recorded before any publication, and the result the attempt returns. Beside it, how an attempt
 // that threw ends (outcomeOfError) and what every attempt past its preflight closes whatever it returned
 // (closeAttempt), and what runTurn hears of the attempt (attemptReport). runAttempt (src/turn/phases/attempt.ts)
 // calls them all.
 
 import { audienceChoice, turnBoundary } from '../../tools/publication.ts';
-import { recordEntry } from '../../behavior/selfreflection-turn.ts';
+import { recordEntry } from '../../behavior/diary-turn.ts';
 import { NO_PLACES, publicationPlaces, readMirrors } from '../../behavior/mirror.ts';
 import { limitOf } from '../../behavior/limits.ts';
 import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.ts';
@@ -24,8 +24,8 @@ import type { Rounded } from './tool-round.ts';
 
 /** What her `<audience>` tags came to, over the places memory knows now. A refused one is logged by its code. */
 function audienceOfTurn(store: unknown, draft: Draft): AudienceChoice {
-  const choice = audienceChoice(draft.selfreflectionAudience ?? [], readMirrors(store, publicationPlaces, NO_PLACES));
-  if (!choice.ok) log.warn('selfreflection: audience refused', { code: choice.code });
+  const choice = audienceChoice(draft.diaryAudience ?? [], readMirrors(store, publicationPlaces, NO_PLACES));
+  if (!choice.ok) log.warn('diary: audience refused', { code: choice.code });
   return choice;
 }
 
@@ -47,12 +47,12 @@ function isQuietInner(draft: Draft, stepped: Rounded['stepped']): boolean {
 /** What the outcome phase reads of the attempt. */
 type OutcomeNeeds = Pick<
   Rounded,
-  'channel' | 'now' | 'finalMode' | 'history' | 'selfreflectionPrep' | 'notAnswered' | 'folded' | 'stepped'
+  'channel' | 'now' | 'finalMode' | 'history' | 'diaryPrep' | 'notAnswered' | 'folded' | 'stepped'
 >;
 
 export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds): AttemptResult {
   const { hot, store, noteSpokeSaw, recordSkillUses } = ctx;
-  const { channel, now, finalMode, history, selfreflectionPrep, notAnswered, folded, stepped } = turn;
+  const { channel, now, finalMode, history, diaryPrep, notAnswered, folded, stepped } = turn;
   // The lines her steps read carry their message ids, as the history's do.
   const loopSeen = (draft.loopSeen ?? []) as ReadonlyArray<{ id: string }>;
   noteSpokeSaw(channel, [...history, ...loopSeen], notAnswered);
@@ -68,27 +68,27 @@ export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds
     .flatMap((acted) => acted.posts ?? [])
     .map((post) => post?.replyTo)
     .filter((id): id is string => typeof id === 'string' && Boolean(id));
-  // A selfreflection post holds what it would send (holdSpeech): the entry is recorded and counted before any publication.
+  // A diary post holds what it would send (holdSpeech): the entry is recorded and counted before any publication.
   const held = acts.filter((one): one is HeldSpeech => 'held' in one && one.held === true);
   const recorded =
-    selfreflectionPrep && held.length > 0
+    diaryPrep && held.length > 0
       ? {
-          selfreflection: recordEntry({
+          diary: recordEntry({
             publicationBoundary: turnBoundary(draft, ctx.chatOf(channel)),
             audience: audienceOfTurn(store, draft),
             ...(draft.started?.turnId ? { turnId: draft.started.turnId } : {}),
             store,
             config: hot.config,
             now,
-            plan: selfreflectionPrep.plan,
+            plan: diaryPrep.plan,
             held: {
               texts: held.flatMap((one) => one.texts),
               // The entry keeps the mentions as the act rendered them; its type names them as member ids.
               rendered: held.flatMap((one) => one.rendered) as Parameters<typeof recordEntry>[0]['held']['rendered'],
             },
             staged: held.findLast((one) => one.staged.length > 0)?.staged ?? [],
-            set: Boolean(draft.selfreflection?.set),
-            voice: draft.selfreflectionVoice ?? null,
+            set: Boolean(draft.diary?.set),
+            voice: draft.diaryVoice ?? null,
           }),
         }
       : {};
@@ -105,8 +105,8 @@ export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds
     );
   }
   if (isQuietInner(draft, stepped)) return { outcome: 'skip', mode: finalMode, reason: SKIP_NOTHING_TO_DO };
-  // A selfreflection turn that held no speech recorded no entry: ended on her skip, it skipped, whatever it called.
-  if (selfreflectionPrep && stepped.skipped && held.length === 0)
+  // A diary turn that held no speech recorded no entry: ended on her skip, it skipped, whatever it called.
+  if (diaryPrep && stepped.skipped && held.length === 0)
     return { outcome: 'skip', mode: finalMode, reason: SKIP_NOTHING_TO_DO };
   // An inner turn in shadow mode delivers nothing, whatever it proposed.
   const delivered = stepped.delivered && draft.inner?.shadow !== true;

@@ -65,7 +65,7 @@ export type Log = {
 /** The settings these files read. Every key may be missing or hold anything, and each reader checks what it takes. */
 export type Config = {
   bot?: { timezone?: unknown; ownerPerson?: unknown };
-  selfreflection?: { placeId?: unknown };
+  diary?: { placeId?: unknown };
   focus?: Row | null;
   wakes?: { loop?: { timeBudgetMs?: unknown } };
   llm?: { maxRequestTokens?: unknown };

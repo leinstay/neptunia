@@ -1,5 +1,5 @@
 // The query builder: the step before a search that plans whether to search, where, and with which forms. One module for
-// every caller, a DM, a group on any interface, the selfreflection planner and the heartbeat.
+// every caller, a DM, a group on any interface, the diary planner and the heartbeat.
 // Contract, plan 2026-11-04-cli-and-memory B4 and B9, module src/behavior/query-builder.ts:
 //   `parseQueryPlan(raw, { timezone, now, maxForms, skillNames })` reads the labelled lines `web:`, `history:`, `who:`,
 //   `when:`, `recent:`, `when-role:` and `skills:` into `{ web, history, reason, skills? }`

@@ -64,7 +64,7 @@
       "deep": 4,
       "repeated": 1
     },
-    "tests/channels-selfreflection.test.ts": {
+    "tests/channels-diary.test.ts": {
       "deep": 1,
       "repeated": 0
     },
@@ -292,7 +292,7 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/fixtures/selfreflection-history.ts": {
+    "tests/fixtures/diary-history.ts": {
       "deep": 1,
       "repeated": 2
     },
@@ -592,7 +592,7 @@
       "deep": 2,
       "repeated": 0
     },
-    "tests/memory-db-selfreflection-media.test.ts": {
+    "tests/memory-db-diary-media.test.ts": {
       "deep": 13,
       "repeated": 0
     },
@@ -748,7 +748,7 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/prompt-selfreflection.test.ts": {
+    "tests/prompt-diary.test.ts": {
       "deep": 1,
       "repeated": 0
     },
@@ -864,15 +864,15 @@
       "deep": 3,
       "repeated": 0
     },
-    "tests/selfreflection-audience-refusal.test.ts": {
+    "tests/diary-audience-refusal.test.ts": {
       "deep": 2,
       "repeated": 0
     },
-    "tests/selfreflection-turn.test.ts": {
+    "tests/diary-turn.test.ts": {
       "deep": 27,
       "repeated": 0
     },
-    "tests/selfreflection.test.ts": {
+    "tests/diary.test.ts": {
       "deep": 12,
       "repeated": 1
     },
@@ -1000,7 +1000,7 @@
       "deep": 2,
       "repeated": 0
     },
-    "tests/tools-operations-selfreflection.test.ts": {
+    "tests/tools-operations-diary.test.ts": {
       "deep": 1,
       "repeated": 0
     },
@@ -1231,10 +1231,10 @@
       "runRecord": {
         "complexity": 21
       },
-      "runSelfreflection": {
+      "runDiary": {
         "complexity": 51
       },
-      "runSelfreflectionDay": {
+      "runDiaryDay": {
         "complexity": 31
       },
       "runSkills": {
@@ -1492,8 +1492,8 @@
         "complexity": 38
       }
     },
-    "src/memory/db/selfreflection-media.ts": {
-      "createSelfreflectionMedia>handleRow": {
+    "src/memory/db/diary-media.ts": {
+      "createDiaryMedia>handleRow": {
         "complexity": 30
       }
     },

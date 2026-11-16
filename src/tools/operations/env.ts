@@ -294,7 +294,7 @@ function buildEnv({
     intentions,
     // The persona's inner life (src/behavior/inner.ts): `inner.status`.
     inner,
-    // The selfreflection's publisher (src/behavior/mirror.ts): what she writes to her selfreflection with message.create is held there.
+    // The diary's publisher (src/behavior/mirror.ts): what she writes to her diary with message.create is held there.
     // Her skills (src/tools/operations/skill.ts): `skill.read` and `skill.disable`.
     skills,
     now,

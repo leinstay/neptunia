@@ -419,7 +419,7 @@ function cacheScene({
     recallAvailable: true,
     searchAvailable: true,
     elsewhereDestination: { name: 'général' },
-    selfreflectionChannel: 'ημερολόγιο',
+    diaryChannel: 'ημερολόγιο',
     ...overrides,
   });
 }

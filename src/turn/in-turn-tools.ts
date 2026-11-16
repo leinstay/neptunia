@@ -1,9 +1,9 @@
 // Her in-turn tools for one turn: `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`,
-// `conversation.read`, `memory.read` (src/turn/memory-read.ts), `draw.create`, `person.link` and a selfreflection post's `voice.say`, each run over the turn's own context in place of
+// `conversation.read`, `memory.read` (src/turn/memory-read.ts), `draw.create`, `person.link` and a diary post's `voice.say`, each run over the turn's own context in place of
 // the operation's command (src/tools/executors.ts#executeCall). createTurnRunner (src/behavior/turn.ts) builds it once
 // per runner with createInTurnTools; the attempt hands the tools to its calls.
 
-import { selfreflectionVoiceTool } from '../behavior/selfreflection-turn.ts';
+import { diaryVoiceTool } from '../behavior/diary-turn.ts';
 import { pullPictures } from '../behavior/pull.ts';
 import { checkPull } from '../behavior/pull-fetch.ts';
 import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.ts';
@@ -20,7 +20,7 @@ import type { FindMeaningSource } from '../memory/db/graph-find.ts';
 import type { Seeds } from '../memory/db/mind-read.ts';
 import { peopleMemoryOf } from './request/memory-block.ts';
 import { runMemoryRead } from './memory-read.ts';
-import { selfreflectionChatIds } from '../memory/db/mirrors.ts';
+import { diaryChatIds } from '../memory/db/mirrors.ts';
 import type { Labels } from './request/types.ts';
 import { nativeChatOf } from '../memory/db/frame-reads.ts';
 import { lineItemParts } from '../memory/db/media-store.ts';
@@ -119,7 +119,7 @@ export type InTurnToolsContext = {
 export type InTurnDraft = NonNullable<Parameters<DrawGif['drawTool']>[1]['draft']> & {
   searchRefs?: SearchRefs;
   handleFloor?: number | null;
-  selfreflectionVoice?: Parameters<typeof selfreflectionVoiceTool>[0]['held']['selfreflectionVoice'];
+  diaryVoice?: Parameters<typeof diaryVoiceTool>[0]['held']['diaryVoice'];
   /** The people this turn's request showed in `<memory>` and its reads told of since (people rows by person id). */
   memoryPeople?: Set<string>;
   /** The request's people and places for the rest of the turn (src/behavior/handles.ts#handleBook). */
@@ -290,8 +290,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           person: typeof args.person === 'string' ? args.person : '',
         });
       },
-      // The attempt always hands its draft to a selfreflection post's tools.
-      ...(mode === 'selfreflection' ? selfreflectionVoiceTool({ speech, held: draft as InTurnDraft }) : {}),
+      // The attempt always hands its draft to a diary post's tools.
+      ...(mode === 'diary' ? diaryVoiceTool({ speech, held: draft as InTurnDraft }) : {}),
       'web.search': (args) =>
         runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, placeId, args }),
       'web.read': (args, call) =>
@@ -377,7 +377,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           labels: hot.prompts?.labels ?? {},
           timezone: hot.config.bot?.timezone ?? 'UTC',
           now: clock(),
-          selfreflectionIds: selfreflectionChatIds(store),
+          diaryIds: diaryChatIds(store),
           keepEmoji: keepsEmoji(hot.config),
         }),
     };

@@ -15,7 +15,7 @@ import type { MemoryPage } from '../src/memory/db/semantic-types.ts';
 import { reviewDescription } from '../src/memory/db/describe.ts';
 import { memoryQueryFor } from '../src/memory/retrieval-input.ts';
 import type { RetrievalInput } from '../src/memory/retrieval-input.ts';
-import { createSelfreflection } from '../src/turn/selfreflection.ts';
+import { createDiary } from '../src/turn/diary.ts';
 import { labels } from './fixtures/labels.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
@@ -213,13 +213,13 @@ test('a diary plan is told the stored facts of group chats and no private one', 
   // Bug: the diary reads under an internal context and a mirror publishes a private fact.
   const { world } = known();
   const asked: Array<unknown> = [];
-  const { prepareSelfreflection } = createSelfreflection(
+  const { prepareDiary } = createDiary(
     wrongly({
-      hot: { prompts: { labels, 'selfreflection-planner': 'plan the entry', 'selfreflection-seeds': '' } },
+      hot: { prompts: { labels, 'diary-planner': 'plan the entry', 'diary-seeds': '' } },
       store: {
         state: { data: {} },
         getPlace: () => null,
-        getSelfreflection: () => ({ posts: [] }),
+        getDiary: () => ({ posts: [] }),
         topPlaces: () => [],
         listChannels: () => [],
         getLore: () => [],
@@ -239,12 +239,12 @@ test('a diary plan is told the stored facts of group chats and no private one', 
       images: null,
       journalOp: () => null,
       recentOfPlaces: () => ({ lines: null, audience: null }),
-      selfreflectionFacts: (input: RetrievalInput) =>
+      diaryFacts: (input: RetrievalInput) =>
         retrieveMemory(world.db, world.contexts.groups, memoryQueryFor(input, BOUNDS), deps),
     })
   );
-  await wrongly<(input: object) => Promise<unknown>>(prepareSelfreflection)({
-    config: { selfreflection: {}, llm: { maxRequestTokens: 100000 }, bot: { timezone: 'UTC' } },
+  await wrongly<(input: object) => Promise<unknown>>(prepareDiary)({
+    config: { diary: {}, llm: { maxRequestTokens: 100000 }, bot: { timezone: 'UTC' } },
     channel: { id: 'c1', rootId: null, permissions: {} },
     selfName: 'Nep',
     history: [],

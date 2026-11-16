@@ -104,9 +104,8 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
-  // Split into families and drawn from line by line (src/behavior/selfreflection.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
-  'selfreflection-seeds':
-    'drawn from line by line into <seeds> (src/behavior/selfreflection.ts#pickSeeds), never sent whole',
+  // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
+  'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
   // tests/memory-db-session.test.ts and tests/memory-db-describe.test.ts check what they load.
   'memory-session': 'built over the memory database (src/memory/db/session.ts)',
@@ -120,10 +119,10 @@ const NOT_BUILT = {
   'query-builder': 'loaded by the replay and the evaluation scripts; a live turn runs no planner (plan B4)',
   'search-summary': 'loaded behind her web.search call (src/web/lookup.ts), which no turn here makes',
   'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.ts), which no turn here makes',
-  // Slice 7: the planner's request is built on the turn frame inside the selfreflection turn, which no builder here
-  // reaches; tests/selfreflection-turn.test.ts and tests/selfreflection-planner.test.ts check what it loads.
-  'selfreflection-planner':
-    'built on the turn frame by the selfreflection turn (src/behavior/selfreflection.ts), checked in tests/selfreflection-turn.test.ts',
+  // Slice 7: the planner's request is built on the turn frame inside the diary turn, which no builder here
+  // reaches; tests/diary-turn.test.ts and tests/diary-planner.test.ts check what it loads.
+  'diary-planner':
+    'built on the turn frame by the diary turn (src/behavior/diary.ts), checked in tests/diary-turn.test.ts',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
   // agent runner process (src/agent-runner/profiles.ts), never by a bot request.
 };
@@ -197,7 +196,7 @@ const LOADS = {
   errandResult: [...SYSTEM, 'errand-result'],
   private: [...SYSTEM, 'reply', 'private'],
   draw: ['draw', 'appearance'],
-  selfreflection: [...SYSTEM, 'selfreflection', 'world'],
+  diary: [...SYSTEM, 'diary', 'world'],
   inner: [...SYSTEM, 'inner'],
   heartbeat: [...SYSTEM, 'heartbeat'],
   describe: ['describe'],
@@ -1002,7 +1001,7 @@ test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the pe
 // ---- the diary ----------------------------------------------------------------------
 
 /** Two past diary posts, one with a picture. */
-const SELFREFLECTION_POSTS = [
+const DIARY_POSTS = [
   { at: NOW - 2 * DAY_MS, kind: 'status', gist: 'pluie toute la journée', picture: null, messageIds: [], search: null },
   {
     at: NOW - DAY_MS,
@@ -1149,33 +1148,30 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
 
 test('buildRequest: a diary post fills system-prompt, character-card, rules, format, diary.md and world.md', async () => {
   const input = await turnInput({
-    mode: 'selfreflection',
+    mode: 'diary',
     trigger: null,
     triggerKind: null,
     interlocutor: null,
     currentChannelId: DIARY,
   });
-  input.config = shippedConfig({ selfreflection: { world: true, placeId: DIARY } });
+  input.config = shippedConfig({ diary: { world: true, placeId: DIARY } });
   const plan = { kind: 'selfPicture', brief: 'a pier in the fog', picture: true };
   const request = buildRequest({
     ...input,
-    selfreflectionChannel: 'journal',
-    selfreflection: { posts: SELFREFLECTION_POSTS, plan, found: 'Une comète passe ce soir.' },
+    diaryChannel: 'journal',
+    diary: { posts: DIARY_POSTS, plan, found: 'Une comète passe ce soir.' },
   });
   // Slice 7: the writer is built on its turn frame, so its blocks are the frame's: the plan in `<inner>` and the world
   // in `<virtual_world>`, her entries coming from memory alone (slice 6).
   const text = assertFilled(
     request.messages,
     {
-      files: LOADS.selfreflection,
+      files: LOADS.diary,
       blocks: ['self', 'senses', 'inner', 'plan', 'virtual_world', 'spatial_awareness', 'task'],
     },
-    'selfreflection'
+    'diary'
   );
-  assert.ok(
-    text.includes(fill(LABELS.senses.selfreflection, { channel: 'journal' })),
-    'senses.selfreflection names the channel'
-  );
+  assert.ok(text.includes(fill(LABELS.senses.diary, { channel: 'journal' })), 'senses.diary names the channel');
 });
 
 // ---- the Discord fakes ---------------------------------------------------------------------

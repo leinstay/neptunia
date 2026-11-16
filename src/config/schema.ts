@@ -27,7 +27,7 @@ import { IMAGE } from './schema/image.ts';
 import { SPEECH } from './schema/speech.ts';
 import { TOOLS } from './schema/tools.ts';
 import { SKILLS } from './schema/skills.ts';
-import { SELFREFLECTION } from './schema/selfreflection.ts';
+import { DIARY } from './schema/diary.ts';
 import { MIRRORS } from './schema/mirrors.ts';
 import { DM } from './schema/dm.ts';
 import { PRIVATE } from './schema/private.ts';
@@ -81,7 +81,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...SPEECH,
   ...TOOLS,
   ...SKILLS,
-  ...SELFREFLECTION,
+  ...DIARY,
   ...MIRRORS,
   ...DM,
   ...PRIVATE,

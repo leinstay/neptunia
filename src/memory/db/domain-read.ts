@@ -22,7 +22,7 @@ export type DomainFamily =
   | 'descriptions'
   | 'description_versions'
   | 'episodes'
-  | 'selfreflection'
+  | 'diary'
   | 'media'
   | 'publications'
   | 'grants'
@@ -68,7 +68,7 @@ const FAMILIES: Readonly<Record<DomainFamily, FamilySpec>> = {
     audience: { parent: 'descriptions', through: 'description_id' },
   },
   episodes: { table: 'episodes', key: 'id', audience: 'own' },
-  selfreflection: { table: 'selfreflection', key: 'id', audience: 'own' },
+  diary: { table: 'diary', key: 'id', audience: 'own' },
   media: { table: 'media', key: 'id', audience: 'own' },
   publications: { table: 'publications', key: 'id', audience: 'owner' },
   grants: { table: 'publication_grants', key: 'id', audience: 'owner' },
@@ -146,7 +146,7 @@ const READ_FAMILIES: Readonly<Record<string, { row: DomainFamily; version?: Doma
   sources: { row: 'sources' },
   episode: { row: 'episodes' },
   episodes: { row: 'episodes' },
-  selfreflection: { row: 'selfreflection' },
+  diary: { row: 'diary' },
   media: { row: 'media' },
 };
 
@@ -214,9 +214,9 @@ function linksOfRecord(db: Db, family: DomainFamily, id: string): Array<DomainLi
       );
     case 'episodes':
       return linksOf(rows('SELECT source_id AS id FROM episode_sources WHERE episode_id = ?'), 'sources', 'source');
-    case 'selfreflection':
+    case 'diary':
       return linksOf(
-        rows("SELECT id FROM publications WHERE row_kind = 'selfreflection' AND row_id = ?"),
+        rows("SELECT id FROM publications WHERE row_kind = 'diary' AND row_id = ?"),
         'publications',
         'publication'
       );

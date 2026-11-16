@@ -1,5 +1,5 @@
-// The reads of the selfreflection's mirrors over the memory database (schema v15, `mirrors`): the places her selfreflection is posted
-// to and whether a chat is one of them. The memory side (the selfreflection media job, the writer's destination, the
+// The reads of the diary's mirrors over the memory database (schema v15, `mirrors`): the places her diary is posted
+// to and whether a chat is one of them. The memory side (the diary media job, the writer's destination, the
 // memory updater) and the behaviour side (src/behavior/mirror.ts, which passes them on to the turn, the pipeline, the
 // scheduler and the sandbox) read them here. Pure reads over a node:sqlite connection; a failed read is logged with
 // its code and answers nothing.
@@ -7,7 +7,7 @@
 import { log } from '../../log.ts';
 
 /** A place an entry is posted to: the place id, its interface, the chat it is and its name. */
-export type SelfreflectionPlace = { placeId: string; iface: string; chatId: string; name: string | null };
+export type DiaryPlace = { placeId: string; iface: string; chatId: string; name: string | null };
 
 type Row = Record<string, unknown>;
 type Db = {
@@ -21,8 +21,8 @@ export function hasMirrors(db: Db): boolean {
   return db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").get() !== undefined;
 }
 
-/** A place row as a selfreflection place, or null when it names no interface or chat. */
-export function placeOf(row: Row | undefined): SelfreflectionPlace | null {
+/** A place row as a diary place, or null when it names no interface or chat. */
+export function placeOf(row: Row | undefined): DiaryPlace | null {
   const placeId = text(row?.id);
   const iface = text(row?.iface);
   const chatId = text(row?.native_id);
@@ -30,11 +30,11 @@ export function placeOf(row: Row | undefined): SelfreflectionPlace | null {
 }
 
 /**
- * The places her selfreflection is posted to, read on `connection` (a node:sqlite connection of the memory database): the
- * places of the enabled `selfreflection` mirrors, oldest mirror first; with none, the place the last entry was published to;
+ * The places her diary is posted to, read on `connection` (a node:sqlite connection of the memory database): the
+ * places of the enabled `diary` mirrors, oldest mirror first; with none, the place the last entry was published to;
  * with neither, none.
  */
-export function selfreflectionPlaces(connection: unknown): Array<SelfreflectionPlace> {
+export function diaryPlaces(connection: unknown): Array<DiaryPlace> {
   const db = connection as Db; // a node:sqlite connection; the queries below read it
   const mirrored = mirrorPlaces(db);
   if (mirrored.length > 0) return mirrored;
@@ -42,25 +42,25 @@ export function selfreflectionPlaces(connection: unknown): Array<SelfreflectionP
     db
       .prepare(
         `SELECT p.id, p.iface, p.native_id, p.name FROM publications x JOIN places p ON p.id = x.destination_place_id
-          WHERE x.row_kind = 'selfreflection' AND x.retired_at IS NULL ORDER BY x.created_at DESC, x.id DESC LIMIT 1`
+          WHERE x.row_kind = 'diary' AND x.retired_at IS NULL ORDER BY x.created_at DESC, x.id DESC LIMIT 1`
       )
       .get()
   );
   return last ? [last] : [];
 }
 
-/** The places of the enabled `selfreflection` mirrors, read on `connection`, oldest mirror first; none before schema v15. */
-export function mirrorPlaces(connection: unknown): Array<SelfreflectionPlace> {
+/** The places of the enabled `diary` mirrors, read on `connection`, oldest mirror first; none before schema v15. */
+export function mirrorPlaces(connection: unknown): Array<DiaryPlace> {
   const db = connection as Db; // a node:sqlite connection; the query below reads it
   if (!hasMirrors(db)) return [];
   return db
     .prepare(
       `SELECT p.id, p.iface, p.native_id, p.name FROM mirrors m JOIN places p ON p.id = m.place_id
-        WHERE m.row_kind = 'selfreflection' AND m.enabled = 1 ORDER BY m.created_at, m.id`
+        WHERE m.row_kind = 'diary' AND m.enabled = 1 ORDER BY m.created_at, m.id`
     )
     .all()
     .map(placeOf)
-    .filter((place): place is SelfreflectionPlace => place !== null);
+    .filter((place): place is DiaryPlace => place !== null);
 }
 
 /** What the mirrors are read from: the memory service (its read connection), or the store (`readMemory`). */
@@ -85,17 +85,13 @@ export function readMirrors<TValue>(source: unknown, read: (db: unknown) => TVal
   }
 }
 
-/** The chat ids of her selfreflection's places in `memoryDb` (selfreflectionPlaces): where she keeps her selfreflection. */
-export function selfreflectionChatIds(memoryDb: unknown): Set<string> {
-  return readMirrors(
-    memoryDb,
-    (db) => new Set(selfreflectionPlaces(db).map((place) => place.chatId)),
-    new Set<string>()
-  );
+/** The chat ids of her diary's places in `memoryDb` (diaryPlaces): where she keeps her diary. */
+export function diaryChatIds(memoryDb: unknown): Set<string> {
+  return readMirrors(memoryDb, (db) => new Set(diaryPlaces(db).map((place) => place.chatId)), new Set<string>());
 }
 
-/** Whether `chatId` of `iface` is the place of an enabled selfreflection mirror in `memoryDb`. */
+/** Whether `chatId` of `iface` is the place of an enabled diary mirror in `memoryDb`. */
 export function isMirrorPlace(memoryDb: unknown, iface: unknown, chatId: unknown): boolean {
-  const here = (place: SelfreflectionPlace): boolean => place.iface === iface && place.chatId === String(chatId);
+  const here = (place: DiaryPlace): boolean => place.iface === iface && place.chatId === String(chatId);
   return readMirrors(memoryDb, (db) => mirrorPlaces(db).some(here), false);
 }

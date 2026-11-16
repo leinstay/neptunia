@@ -1,5 +1,5 @@
 // The one store of media: the table `media`, one row per item, and `media_links(owner_kind, owner_id, position, media_id)`, which
-// ties an item to the messages and selfreflection entries that show it. `kind` is the closed list `MEDIA_KINDS`, `native_ref` the
+// ties an item to the messages and diary entries that show it. `kind` is the closed list `MEDIA_KINDS`, `native_ref` the
 // interface's reference, opaque here, and `path` null or a file under `media/`. An item's text form is `description`, in English
 // with speech and on-screen text quoted, and its origin `extra.textOrigin` (`MEDIA_ORIGINS`); what else a kind has sits in
 // `extra`. Audience comes only from a link: an item is read through an owner the reader may open.
@@ -23,8 +23,8 @@ import { loadStemmer } from './stems.ts';
 import { asText, dbOf, isFiniteNumber, transactionOf } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';
 
-/** The prefix of the id of a picture of a selfreflection entry, `media:selfreflection:<entry>-<n>`. */
-export const ENTRY_MEDIA = 'media:selfreflection:';
+/** The prefix of the id of a picture of a diary entry, `media:diary:<entry>-<n>`. */
+export const ENTRY_MEDIA = 'media:diary:';
 
 export const MEDIA_KINDS = [
   'image',
@@ -43,7 +43,7 @@ export const MEDIA_ORIGINS = ['retelling', 'frame', 'transcript', 'voiced', 'emb
 export type MediaOrigin = (typeof MEDIA_ORIGINS)[number];
 export const MEDIA_STATES = ['present', 'missing', 'unknown', 'unreadable'] as const;
 export type MediaState = (typeof MEDIA_STATES)[number];
-export type MediaOwnerKind = 'source' | 'selfreflection';
+export type MediaOwnerKind = 'source' | 'diary';
 
 /** What a later text form may replace: a watched retelling outranks a still frame and an embed; nothing replaces what she voiced. */
 const ORIGIN_RANK: Readonly<Record<MediaOrigin, number>> = {
@@ -213,7 +213,7 @@ function recordItems(line: Row): Array<MediaItem> {
 
 // ---------- the read ----------
 
-const OWNER_TABLE: Readonly<Record<MediaOwnerKind, string>> = { source: 'sources', selfreflection: 'selfreflection' };
+const OWNER_TABLE: Readonly<Record<MediaOwnerKind, string>> = { source: 'sources', diary: 'diary' };
 
 /** The media of these owners by owner id, in position order. An owner the context may not open has no entry. */
 export function lineMedia(
@@ -381,14 +381,14 @@ export function mediaMessageParts(
   return parts;
 }
 
-/** The items of a selfreflection entry in its order, with what its post keeps of each. */
+/** The items of a diary entry in its order, with what its post keeps of each. */
 export function entryMedia(db: Db, entryId: string): Array<Row> {
   return db
     .prepare(
       `SELECT l.position AS position, m.id AS id, m.kind AS kind, m.native_ref AS native_ref, m.path AS path, m.mime AS mime,
          m.bytes AS bytes, m.extra AS extra
        FROM media_links l JOIN media m ON m.id = l.media_id
-       WHERE l.owner_kind = 'selfreflection' AND l.owner_id = ? AND m.retired_at IS NULL ORDER BY l.position`
+       WHERE l.owner_kind = 'diary' AND l.owner_id = ? AND m.retired_at IS NULL ORDER BY l.position`
     )
     .all(entryId);
 }
@@ -404,7 +404,7 @@ export function entryPictureDescriptions(db: Db, entryIds: ReadonlyArray<string>
     .prepare(
       `SELECT l.owner_id AS owner_id, m.description AS description
        FROM media_links l JOIN media m ON m.id = l.media_id
-       WHERE l.owner_kind = 'selfreflection' AND l.owner_id IN (SELECT value FROM json_each(?))
+       WHERE l.owner_kind = 'diary' AND l.owner_id IN (SELECT value FROM json_each(?))
          AND m.kind = 'image' AND m.retired_at IS NULL
        ORDER BY l.owner_id, l.position`
     )
@@ -431,11 +431,11 @@ export function checkMediaFiles(
   for (const row of db
     .prepare(
       `SELECT m.id AS id, m.path AS path, m.bytes AS bytes, m.availability AS availability, EXISTS
-         (SELECT 1 FROM media_links l WHERE l.media_id = m.id AND l.owner_kind = 'selfreflection') AS in_selfreflection
+         (SELECT 1 FROM media_links l WHERE l.media_id = m.id AND l.owner_kind = 'diary') AS in_diary
        FROM media m WHERE m.retired_at IS NULL`
     )
     .iterate()) {
-    if (!row.in_selfreflection || !filled(row.path)) {
+    if (!row.in_diary || !filled(row.path)) {
       counts.unknown += 1;
       continue;
     }
@@ -807,7 +807,7 @@ export function unlinkedLineItems(db: Db): Array<{ sourceId: string; mediaId: st
 // answer. A key names a reference and, by its prefix, a kind (`cacheKeyParts`), and every place of an interface reads
 // the same rows. A write puts one entry and stamps the row with `writer` `media`, the place as `holder_id` and the
 // moment as `used_at`, unless the GIF library holds the row (`writer` `gifs`). The rows a place holds are capped at
-// `MEDIA_CACHE_ENTRIES` by last use, the rows a line or a selfreflection entry links aside.
+// `MEDIA_CACHE_ENTRIES` by last use, the rows a line or a diary entry links aside.
 
 /** Successful describer payloads: a caption, or a question's answer, with their stamp. */
 export type MediaDescriptionEntry =
@@ -1131,9 +1131,9 @@ export function adoptSameItem(db: Db, id: string, at: unknown): void {
   }
 }
 
-// ---------- a selfreflection entry's files ----------
+// ---------- a diary entry's files ----------
 
-/** A file of a selfreflection entry, as a post keeps it. */
+/** A file of a diary entry, as a post keeps it. */
 export type EntryFile = {
   id: string;
   position: number;
@@ -1159,7 +1159,7 @@ export function kindOfFile(mime: unknown, extra: Row): MediaKind {
 }
 
 /**
- * The files of a selfreflection entry as items linked to it at their positions, with their paths. A file the platform names through a
+ * The files of a diary entry as items linked to it at their positions, with their paths. A file the platform names through a
  * message she posted is the same item as that message's, so it has two links. The entry's scope goes on a row it creates.
  */
 export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFile>, at: unknown): void {
@@ -1169,11 +1169,11 @@ export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFi
     const iface = entry.scope_iface ?? null;
     const held = (file.attachmentId !== null ? itemByRef(db, iface, file.attachmentId) : undefined) ?? undefined;
     const previous = db
-      .prepare("SELECT media_id FROM media_links WHERE owner_kind = 'selfreflection' AND owner_id = ? AND position = ?")
+      .prepare("SELECT media_id FROM media_links WHERE owner_kind = 'diary' AND owner_id = ? AND position = ?")
       .get(entry.id, position);
     const id = held ? String(held.id) : file.id;
     const voiced = filled(file.extra.text) ? file.extra.text : null;
-    // A read that named no attachment is not asked again (pendingSelfreflectionRows).
+    // A read that named no attachment is not asked again (pendingDiaryRows).
     const extra: Row = {
       ...parsedObject(held?.extra),
       ...file.extra,
@@ -1207,7 +1207,7 @@ export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFi
         entry.audience_id ?? null
       );
     }
-    link.run('selfreflection', entry.id, position, id);
+    link.run('diary', entry.id, position, id);
     if (previous && previous.media_id !== id) dropIfBare(db, previous.media_id);
     const row = db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
     if (voiced !== null) writeText(db, row, { text: voiced, origin: 'voiced', at });

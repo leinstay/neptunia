@@ -26,7 +26,7 @@ const SCOPE_TABLES = [
   'sources',
   'vectors',
   'day',
-  'selfreflection',
+  'diary',
   'intentions',
   'work',
   'media',

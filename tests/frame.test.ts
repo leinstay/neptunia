@@ -46,7 +46,7 @@ const SERVICE_LIST: ReadonlyArray<BlockName> = [
   'task',
 ];
 // The owner's decision of 2026-11-11 (cache layout): the world after `<meanwhile>`, then the turn's own blocks.
-const SELFREFLECTION_LIST: ReadonlyArray<BlockName> = [
+const DIARY_LIST: ReadonlyArray<BlockName> = [
   'persona',
   'self',
   'memory',
@@ -65,8 +65,8 @@ const KINDS: ReadonlyArray<TurnKind> = [
   'intention',
   'feedback',
   'errand_result',
-  'selfreflection_plan',
-  'selfreflection',
+  'diary_plan',
+  'diary',
 ];
 
 // ---- the list of each kind ----
@@ -123,16 +123,16 @@ test('a feedback wake without a place reads the service list and is nowhere', ()
   assert.deepEqual(frame.blocks, SERVICE_LIST);
 });
 
-test('a selfreflection post reads the service list with her virtual world after meanwhile', () => {
+test('a diary post reads the service list with her virtual world after meanwhile', () => {
   // Bug: the writer's request is still built as a reply in the mirror, or the world block goes missing.
-  const frame = frameOf(wakeInput(null, { mode: 'selfreflection', triggerKind: null }));
-  assert.equal(frame.kind, 'selfreflection');
-  assert.deepEqual(frame.blocks, SELFREFLECTION_LIST);
+  const frame = frameOf(wakeInput(null, { mode: 'diary', triggerKind: null }));
+  assert.equal(frame.kind, 'diary');
+  assert.deepEqual(frame.blocks, DIARY_LIST);
 });
 
-test('the selfreflection planner reads the same list as the writer', () => {
+test('the diary planner reads the same list as the writer', () => {
   // Bug: the planner has no entry in the table, and slice 6 finds an undefined list.
-  assert.deepEqual(blocksOf('selfreflection_plan', null), SELFREFLECTION_LIST);
+  assert.deepEqual(blocksOf('diary_plan', null), DIARY_LIST);
 });
 
 // ---- what a kind may not omit ----
@@ -225,12 +225,12 @@ test('a group turn with no trigger has no counterpart', () => {
   assert.equal(frame.answers, null);
 });
 
-test('a selfreflection post is nowhere and awake says so', () => {
+test('a diary post is nowhere and awake says so', () => {
   // Bug: the writer inherits the mirror's place, and the post reads as a reply there.
-  const frame = frameOf(wakeInput(null, { mode: 'selfreflection', triggerKind: null, chain: ROOM_CHAIN }));
+  const frame = frameOf(wakeInput(null, { mode: 'diary', triggerKind: null, chain: ROOM_CHAIN }));
   assert.equal(frame.place, null);
   assert.equal(frame.scope, 'internal');
-  assert.equal(frame.awake, 'selfreflection');
+  assert.equal(frame.awake, 'diary');
 });
 
 // ---- which requests are the frame's own ----
@@ -270,7 +270,7 @@ const KIND_CASES: ReadonlyArray<[Mode, TriggerKind, WakeKind, TurnKind]> = [
   ['inner', 'inner', 'attend', 'intention'],
   ['inner', 'inner', 'errand_deadline', 'intention'],
   ['inner', 'inner', 'feedback', 'feedback'],
-  ['selfreflection', null, null, 'selfreflection'],
+  ['diary', null, null, 'diary'],
 ];
 
 for (const [mode, triggerKind, wakeKind, kind] of KIND_CASES) {

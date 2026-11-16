@@ -49,24 +49,24 @@ const serviceOfRole = (role: unknown): string => (role === 'memory' ? 'memory' :
 
 /** The service a turn's requests belong to, by the turn's mode and, for an inner turn, its wake. */
 export function turnService(mode: unknown, wakeKind: unknown): string {
-  if (mode === 'selfreflection') return 'selfreflection';
+  if (mode === 'diary') return 'diary';
   if (mode === 'inner' && wakeKind === 'heartbeat') return wakeKind;
   return 'core';
 }
 
 /**
- * The outcome a turn's result proves for its last request: a skip, the selfreflection entry it recorded, a delivery with
- * its receipt, or a failure; else none. A selfreflection turn sends nothing itself, the mirrors publish its entry, so the
+ * The outcome a turn's result proves for its last request: a skip, the diary entry it recorded, a delivery with
+ * its receipt, or a failure; else none. A diary turn sends nothing itself, the mirrors publish its entry, so the
  * entry is its proof and its `delivered` says nothing.
  */
 export function turnOutcome(
-  result: { outcome: string; delivered?: boolean; selfreflection?: { entry: { id: string } } } | undefined,
+  result: { outcome: string; delivered?: boolean; diary?: { entry: { id: string } } } | undefined,
   ref: string | null
 ): RequestOutcome | null {
   if (result === undefined) return null;
   if (result.outcome === 'skip') return { kind: 'skip', state: 'confirmed', ref: null };
   if (result.outcome === 'error') return { kind: 'delivery', state: 'failed', ref };
-  const entry = result.selfreflection?.entry;
+  const entry = result.diary?.entry;
   if (result.outcome === 'spoke' && entry !== undefined) return { kind: 'entry', state: 'confirmed', ref: entry.id };
   if (result.outcome !== 'spoke' || result.delivered === undefined) return null;
   return { kind: 'delivery', state: result.delivered ? 'confirmed' : 'failed', ref };

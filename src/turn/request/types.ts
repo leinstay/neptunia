@@ -18,7 +18,7 @@ import type { SkillRow } from './senses.ts';
 import type { Tasks } from './task.ts';
 import type { PreviousThink } from './wake.ts';
 import type { MediaCache, MediaLookup } from './emoji-gifs.ts';
-import type { SelfreflectionInput } from './selfreflection.ts';
+import type { DiaryInput } from './diary.ts';
 import type { Whereabouts } from './spatial.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
 import type { InterfaceNames } from '../../protocol/serve.ts';
@@ -95,7 +95,7 @@ export type Labels = {
   readonly participation?: LabelGroup;
   readonly pull?: LabelGroup;
   readonly server?: LabelGroup;
-  readonly selfreflection?: LabelGroup;
+  readonly diary?: LabelGroup;
   readonly room?: LabelGroup;
   readonly triggers?: LabelGroup;
   readonly elsewhere?: LabelGroup;
@@ -191,7 +191,7 @@ export type RequestConfig = {
     readonly links?: { readonly enabled?: unknown };
     readonly quickSearch?: { readonly enabled?: unknown };
   };
-  readonly selfreflection?: {
+  readonly diary?: {
     readonly entries?: number;
     readonly writerEntries?: number;
     readonly openingsShown?: number;
@@ -380,9 +380,9 @@ export type RequestInput = {
   readonly gifs?: unknown;
   readonly tasks?: Tasks | null;
   readonly elsewhereDestination?: { readonly name?: string } | null;
-  readonly selfreflectionChannel?: unknown;
-  readonly selfreflectionChannelIds?: Iterable<string> | null;
-  readonly selfreflection?: SelfreflectionInput | null;
+  readonly diaryChannel?: unknown;
+  readonly diaryChannelIds?: Iterable<string> | null;
+  readonly diary?: DiaryInput | null;
   readonly offPeriods?: unknown;
   readonly skillsInventory?: Array<SkillRow | null> | null;
   readonly toolsGranted?: unknown;

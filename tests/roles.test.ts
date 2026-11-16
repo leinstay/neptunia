@@ -64,7 +64,7 @@ test("roleModel: models.byPurpose for the purpose, else the role's first route, 
 
 test('roles: the lookup purposes go out on the analyzer, each pinnable by itself', () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  for (const purpose of ['recall-summary', 'selfreflection-planner', 'web-search']) {
+  for (const purpose of ['recall-summary', 'diary-planner', 'web-search']) {
     assert.equal(purposeRoles[purpose], 'analyzer', purpose);
     assert.equal(
       roleModel(

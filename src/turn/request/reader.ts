@@ -1,14 +1,14 @@
 // The user message of a request built on the turn frame (docs/prompt-contract.md, "Blocks per kind"): every kind carries
 // the tags of `frame.blocks` in that list's order. The stable segment holds `<self>`, the surroundings segment
 // `<surroundings>`, each with its own cache marker (src/llm/openrouter.ts#withCacheMarker). The tail holds `<memory>`
-// from the graph reader, `<meanwhile>` from her lines elsewhere, a selfreflection request's `<virtual_world>`, `<chat>`,
+// from the graph reader, `<meanwhile>` from her lines elsewhere, a diary request's `<virtual_world>`, `<chat>`,
 // `<recall>` from her lookups, `<found>` with what the reader and the prefetch found, `<inner>`, `<spatial_awareness>`
 // with the clock and her time away, and `<task>`. The budget fits them in this priority: the fixed part, the person she answers, the memory shares, the
 // recall, the chat (cut to a step of `context.chatSteps`), the background, her own state, the world, her past entries.
 // Handles are given before the blocks are rendered (src/behavior/handles.ts#handleBook): a person's from the meta-person,
 // the chat's as it was rendered, then the people of `<memory>` and the authors of `<meanwhile>`, and a person a stored
 // text mentions when it is met; a place's from its chat id. Every block names a line's author and a place by them. A
-// selfreflection request gives none. buildRequest (src/behavior/prompt.ts) calls it. Pure.
+// diary request gives none. buildRequest (src/behavior/prompt.ts) calls it. Pure.
 
 import { CHANNEL_HANDLE_PREFIX } from '../../behavior/handles.ts';
 import { fill, renderTranscript } from '../../format.ts';
@@ -38,7 +38,7 @@ import { refResolverOf } from './refs.ts';
 import type { LineOf } from './refs.ts';
 import type { Senses } from './senses.ts';
 import type { PlaceFields } from './surroundings.ts';
-import type { SelfreflectionFramed } from './selfreflection.ts';
+import type { DiaryFramed } from './diary.ts';
 import { blockRecords, userParts } from './tail.ts';
 import type { BlockRecord, ListedBlock, UserPart } from './tail.ts';
 import { handleBook } from '../../behavior/handles.ts';
@@ -107,8 +107,8 @@ export type ReaderInput = {
    */
   surroundingsText: (handle: string | null, partner: string | null) => string;
   mind: Mind;
-  /** The chat ids of the places her selfreflection is mirrored to, marked in `<memory>`. */
-  selfreflectionIds?: ReadonlySet<string>;
+  /** The chat ids of the places her diary is mirrored to, marked in `<memory>`. */
+  diaryIds?: ReadonlySet<string>;
   /** The stored facts the prefetch found, shown in `<found>` after the mind's excerpts. */
   facts?: ReadonlyArray<StoredFact>;
   lookups: ReadonlyArray<Lookup>;
@@ -116,8 +116,8 @@ export type ReaderInput = {
   chatItems: Array<TranscriptItem>;
   tempoText: string;
   inner: InnerParts;
-  /** A selfreflection request's world, past entries and own parts of `<inner>`; null on any other kind. */
-  selfreflection?: SelfreflectionFramed | null;
+  /** A diary request's world, past entries and own parts of `<inner>`; null on any other kind. */
+  diary?: DiaryFramed | null;
   errandResult: string;
   nameOf: NameOf;
   lineOf: LineOf | null;
@@ -214,8 +214,8 @@ type Names = {
   windows: Array<MeanwhileWindow>;
 };
 
-/** What of a selfreflection request the budget never cuts: its own parts of `<inner>` and the first line of its entries. */
-const selfreflectionFixed = (given: SelfreflectionFramed | null): Array<string> =>
+/** What of a diary request the budget never cuts: its own parts of `<inner>` and the first line of its entries. */
+const diaryFixed = (given: DiaryFramed | null): Array<string> =>
   given === null ? [] : [...given.parts.map((part) => part.text), given.intro];
 
 /**
@@ -296,7 +296,7 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     offered.surroundings,
     given.tempoText,
     given.errandResult,
-    ...selfreflectionFixed(given.selfreflection ?? null),
+    ...diaryFixed(given.diary ?? null),
   ].filter(Boolean);
   const counterpart = offered.memory.filter((one) => one.counterpart).map((one) => one.text);
   const { caps } = given.config.context;
@@ -319,9 +319,9 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     { name: 'chat', keep: 'newest', steps: chatStepsOf(given.config), items: offered.chat.map((item) => item.text) },
     { name: 'meanwhile', keep: 'newest', items: offered.windowTexts },
     { name: 'inner', keep: 'first', items: offered.inner.map((one) => one.text) },
-    { name: 'virtual_world', items: [given.selfreflection?.world ?? ''].filter(Boolean) },
+    { name: 'virtual_world', items: [given.diary?.world ?? ''].filter(Boolean) },
     // The entries stand newest first, so the contiguous run from the start the budget keeps is the newest.
-    { name: 'selfreflection', keep: 'oldest', items: given.selfreflection?.entries ?? [] },
+    { name: 'diary', keep: 'oldest', items: given.diary?.entries ?? [] },
   ];
 }
 
@@ -501,8 +501,8 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
 /** The subtags `<memory>` prints; `<found>` is a root tag of its own, printed after `<chat>`. */
 const IN_MEMORY: ReadonlyArray<MemorySubtag> = ['people', 'places', 'lore', 'recent'];
 
-/** Whether the request names people by handle: every one but a selfreflection's, which names them by name alone. */
-const handled = (given: ReaderInput): boolean => given.selfreflection === null || given.selfreflection === undefined;
+/** Whether the request names people by handle: every one but a diary's, which names them by name alone. */
+const handled = (given: ReaderInput): boolean => given.diary === null || given.diary === undefined;
 
 /** The handle of the partner of the turn's own place when it is a one-to-one chat the request holds a view of; else null. */
 function directPartnerOf(given: ReaderInput, names: Names): string | null {
@@ -634,7 +634,7 @@ function offeredOf(given: ReaderInput): Offered {
     labels,
     given.nameOf,
     given.live,
-    given.selfreflectionIds,
+    given.diaryIds,
     chatIdOfInput(given),
     handled(given) ? names.entryRefs : null,
     keepsEmoji(given.config)
@@ -695,18 +695,18 @@ function innerTextOf(given: ReaderInput, offered: Offered, fit: Fit): string {
   return [
     block('errand_result', given.errandResult),
     innerBlockOf(parts, given.labels, offered.resolveRef),
-    selfreflectionInnerOf(given.selfreflection ?? null, fit),
+    diaryInnerOf(given.diary ?? null, fit),
   ]
     .filter(Boolean)
     .join('\n');
 }
 
-/** A selfreflection request's parts of `<inner>`: her past entries the budget kept, then the request's own parts. */
-function selfreflectionInnerOf(given: SelfreflectionFramed | null, fit: Fit): string {
+/** A diary request's parts of `<inner>`: her past entries the budget kept, then the request's own parts. */
+function diaryInnerOf(given: DiaryFramed | null, fit: Fit): string {
   if (given === null) return '';
-  const entries = fit.kept.selfreflection ?? [];
+  const entries = fit.kept.diary ?? [];
   return [
-    block('selfreflection', entries.length > 0 ? [given.intro, ...entries].filter(Boolean).join('\n') : ''),
+    block('diary', entries.length > 0 ? [given.intro, ...entries].filter(Boolean).join('\n') : ''),
     ...given.parts.map((part) => block(part.tag, part.text)),
   ]
     .filter(Boolean)

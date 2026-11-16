@@ -5,7 +5,7 @@
 // Messages in  { id, type: 'open', path, context }             open the database with the writer lock (`context`:
 //                                                               `{ dataDir }`, which recovers the request archive)
 //              { id, type: 'turnReads', turnId, step, rows }    the turn_reads rows, resolved by the caller at assembly time
-//              { id, type: 'selfreflectionApply', update }               one selfreflection row's text and picture rows (selfreflection-media.ts)
+//              { id, type: 'diaryApply', update }               one diary row's text and picture rows (diary-media.ts)
 //              { id, type: 'memoryWrite', update }              one write of any kind (session-write.ts)
 //              { id, type: 'focus', now, config }               the focus job: recount and recompute (focus.ts#runFocusDay)
 //              { id, type: 'observe', envelope, now, owner }    one observation of the live message path (observe.ts#observe;
@@ -21,7 +21,7 @@ import { parentPort } from 'node:worker_threads';
 import process from 'node:process';
 import { openMemoryDb } from './open.ts';
 import { insertTurnReads, sqliteDetailOf, turnReadRows } from './service.ts';
-import { applySelfreflectionUpdate } from './selfreflection-media.ts';
+import { applyDiaryUpdate } from './diary-media.ts';
 import { applyMemoryWrite } from './session-write.ts';
 import { runFocusDay } from './focus.ts';
 import { deleteMessage, observeMessage } from './message-families.ts';
@@ -78,8 +78,8 @@ const handlers: Record<string, (message: Row) => unknown> = {
     insertTurnReads(open, turnId as string, step, rows);
     return { rows: rows.length };
   },
-  selfreflectionApply({ update }) {
-    applySelfreflectionUpdate(opened(), update);
+  diaryApply({ update }) {
+    applyDiaryUpdate(opened(), update);
     return {};
   },
   memoryWrite({ update }) {

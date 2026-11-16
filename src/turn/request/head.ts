@@ -159,12 +159,12 @@ export function requestHead(given: RequestInput): Base {
   const frozen = <T>(key: string, signature: string, compute: () => T): T =>
     freezePerBucket(stableFreeze, key, { now, bucketMs: cacheTtlMs(config), signature }, compute);
   // The live line of a person in `<memory>`: the snapshot of the voice states and presences, never in a private chat
-  // or a selfreflection post. The live glance as the turn hands it: checked to be an object with a snapshot below.
+  // or a diary post. The live glance as the turn hands it: checked to be an object with a snapshot below.
   const aroundInput = given.around as
     { snapshot?: AroundSnapshot | null; channelNameOf?: (placeId: string) => string | null } | null | undefined;
   const liveOn =
     !dmChat &&
-    mode !== 'selfreflection' &&
+    mode !== 'diary' &&
     isPlainObject(aroundInput) &&
     Boolean(aroundInput?.snapshot) &&
     Boolean(labels.peopleNow);

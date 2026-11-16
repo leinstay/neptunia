@@ -4,7 +4,7 @@
 // writes `<name>.schedule` and `<name>.enabled` of the local settings, which every mechanic's own scheduler reads. The
 // persona's wakes run in the core and call no manager. A status asks no model and writes nothing. An answer is `key: value` lines; `invalid` is missing syntax.
 
-import { nextWindowStart } from '../behavior/selfreflection.ts';
+import { nextWindowStart } from '../behavior/diary.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { setPath } from '../tools/operations/shared.ts';
 import { objOf } from '../tools/types.ts';
@@ -49,13 +49,13 @@ const invalid = (text: string): ServiceAnswer => ({ text, status: 'invalid' });
 const lines = (fields: ReadonlyArray<readonly [string, string]>): string =>
   fields.map(([key, value]) => `${key}: ${value}`).join('\n');
 
-/** The schedule in force: null for a selfreflection with none set, which keeps its windows. */
+/** The schedule in force: null for a diary with none set, which keeps its windows. */
 function scheduleOf(name: ServiceName, config: unknown): ServiceSchedule | null {
   switch (name) {
     case 'heartbeat':
       return innerSettings(config).heartbeat.schedule;
-    case 'selfreflection':
-      return parseSchedule(objOf(objOf(config).selfreflection).schedule);
+    case 'diary':
+      return parseSchedule(objOf(objOf(config).diary).schedule);
   }
 }
 
@@ -70,7 +70,7 @@ function scheduleText(name: ServiceName, config: unknown): string {
 }
 
 function nextOf(name: ServiceName, schedule: ServiceSchedule, now: number, count: number): Array<number> {
-  return nextMoments(schedule, now, count, { onDayGrid: name === 'selfreflection' });
+  return nextMoments(schedule, now, count, { onDayGrid: name === 'diary' });
 }
 
 function setupSchedule(args: Readonly<Record<string, unknown>>): ServiceSchedule | null {
@@ -137,18 +137,14 @@ function nextDue(
   const now = deps.now();
   if (clock?.nextAt != null && clock.nextAt > now) return iso(clock.nextAt);
   const schedule = scheduleOf(name, config);
-  if (schedule === null && name === 'selfreflection') {
+  if (schedule === null && name === 'diary') {
     const zone = objOf(objOf(config).bot).timezone;
-    const start = nextWindowStart(
-      objOf(objOf(config).selfreflection).windows,
-      now,
-      typeof zone === 'string' ? zone : undefined
-    );
+    const start = nextWindowStart(objOf(objOf(config).diary).windows, now, typeof zone === 'string' ? zone : undefined);
     return start === null ? 'none' : iso(start);
   }
   if (schedule === null) return 'unknown';
   const [next] =
-    name === 'selfreflection'
+    name === 'diary'
       ? nextOf(name, schedule, now, 1)
       : [evaluateSchedule({ schedule, enabled, now, last: clock?.lastAt ?? null }).next];
   return next == null ? 'none' : iso(next);
@@ -202,7 +198,7 @@ export function serviceFamily(
   }
 }
 
-/** The clock of a wake out of the running inner life and selfreflection, for the core's console. */
+/** The clock of a wake out of the running inner life and diary, for the core's console. */
 export function wakeClockOf(
   name: ServiceName,
   sources: {
@@ -214,14 +210,14 @@ export function wakeClockOf(
         inflight: { kind: string } | null;
       } | null;
     };
-    selfreflection: {
+    diary: {
       status(): { slots: ReadonlyArray<number>; done: ReadonlyArray<number>; lastPosted?: number | null };
     };
   }
 ): WakeClock | null {
-  const { now, inner, selfreflection } = sources;
-  if (name === 'selfreflection') {
-    const { slots, done, lastPosted } = selfreflection.status();
+  const { now, inner, diary } = sources;
+  if (name === 'diary') {
+    const { slots, done, lastPosted } = diary.status();
     return {
       running: null,
       lastAt: lastPosted ?? null,

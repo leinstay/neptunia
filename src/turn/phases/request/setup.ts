@@ -1,10 +1,10 @@
 // The first step of a turn's request: the settings read for the attempt, the bar and its cancellation point, the typing
 // indicator while it prepares, the root's listing, the history with its reply parents, the memory prefetch and a
-// selfreflection post's plan. The request phase (src/turn/phases/request.ts) runs it first; the later steps read what it made.
+// diary post's plan. The request phase (src/turn/phases/request.ts) runs it first; the later steps read what it made.
 
 import { accountOf, placeOfChat } from '../../../memory/addresses.ts';
 import { isCliOwner } from '../../../behavior/core-pause.ts';
-import { forcedPictureRefusal } from '../../../behavior/selfreflection-turn.ts';
+import { forcedPictureRefusal } from '../../../behavior/diary-turn.ts';
 import { refreshEmojiIfOn } from '../../../behavior/emoji-index.ts';
 import { PERSONA_ID } from '../../../memory/db/ids.ts';
 import { takeSnapshotOf } from '../../../behavior/snapshot.ts';
@@ -15,7 +15,7 @@ import type { Context } from '../../../memory/db/scope.ts';
 import type { MemberInfo } from '../../../protocol/adapter.ts';
 import { transportOf } from '../../../tools/tool-calls.ts';
 import { replyOptionsOf } from '../../calls.ts';
-import type { Selfreflection } from '../../selfreflection.ts';
+import type { Diary } from '../../diary.ts';
 import type { Draft } from '../../draft.ts';
 import { chatHead, chatHeadStepOf, numberLines, withReplyParents } from '../../history.ts';
 import type { StoredNumbers } from '../../history.ts';
@@ -89,9 +89,7 @@ export type Setup = {
   servedSnapshot: Snapshot | null;
   candidate: TurnTrigger | null;
   prefetching: ReturnType<Lookup['startPrefetch']>;
-  selfreflectionPending: Promise<
-    { value: Awaited<ReturnType<Selfreflection['prepareSelfreflection']>> } | { error: unknown }
-  > | null;
+  diaryPending: Promise<{ value: Awaited<ReturnType<Diary['prepareDiary']>> } | { error: unknown }> | null;
 };
 
 /**
@@ -116,18 +114,18 @@ export async function setupRequest(
     ifaceReads,
     selfIdOf,
     getSelfName,
-    selfreflectionPictureGate,
+    diaryPictureGate,
     privatePartner,
     readHistory,
     linkTriggers,
     linkCalls,
     startPrefetch,
     turnContextOf,
-    prepareSelfreflection,
+    prepareDiary,
     cancelOf,
   } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, reuseHistory = null } = params;
-  const selfreflectionParams = params.selfreflection ?? null;
+  const diaryParams = params.diary ?? null;
   const { channel, placeId, reading, libraryPlace, isDm, prepStep, life } = turn;
   const config = hot.config;
   // How her tools travel this turn (tools.transport, read once): native tool calls, or text blocks.
@@ -137,12 +135,12 @@ export async function setupRequest(
   const selfName = getSelfName(placeId);
   const now = life.turnStartedAt;
   const startedAt = now;
-  // A forced selfreflection picture kind (/nep selfreflection post <kind>) the post may not carry is refused before any request.
-  const kind = mode === 'selfreflection' ? selfreflectionParams?.kind : null;
+  // A forced diary picture kind (/nep diary post <kind>) the post may not carry is refused before any request.
+  const kind = mode === 'diary' ? diaryParams?.kind : null;
   const pictureRefusal = forcedPictureRefusal({
     config,
     kind,
-    gate: () => selfreflectionPictureGate(config, channel, now),
+    gate: () => diaryPictureGate(config, channel, now),
   });
   if (pictureRefusal) return { ended: pictureRefusal };
   // The turn's pace: an unhurried turn (unprompted or overheard) has no bar or deadline.
@@ -284,15 +282,15 @@ export async function setupRequest(
     journalStep: prepStep,
     wake: draft.inner?.wake ?? null,
   });
-  // A selfreflection post plans itself first (prepareSelfreflection), alongside the preparation below; settled
+  // A diary post plans itself first (prepareDiary), alongside the preparation below; settled
   // into a value or an error so a refusal waits for its turn to be thrown.
-  const selfreflectionPending =
-    mode === 'selfreflection'
-      ? prepareSelfreflection({
+  const diaryPending =
+    mode === 'diary'
+      ? prepareDiary({
           config,
           channel,
           now,
-          params: selfreflectionParams,
+          params: diaryParams,
           memoryOn,
           // The planner's request on the turn frame, built when the plan has what it chooses from.
           planMessages: (parts) =>
@@ -330,6 +328,6 @@ export async function setupRequest(
     servedSnapshot,
     candidate,
     prefetching,
-    selfreflectionPending,
+    diaryPending,
   };
 }

@@ -1,7 +1,7 @@
 // Tests for the destination of an intention at the call (src/tools/operations/intention.ts): a place that is a mirror of
-// her selfreflection is no place a due turn can post in, so `intention.set` and `intention.update` refuse it with the code
-// `selfreflection-mirror` and store nothing, while any other place she may write in is stored as the destination. The
-// operations run through `runOp` over a real memory database holding a mirror (tests/fixtures/selfreflection-mirror.ts),
+// her diary is no place a due turn can post in, so `intention.set` and `intention.update` refuse it with the code
+// `diary-mirror` and store nothing, while any other place she may write in is stored as the destination. The
+// operations run through `runOp` over a real memory database holding a mirror (tests/fixtures/diary-mirror.ts),
 // a real intention store and service, and the fake interface of the test's world for the chats. Synthetic data only.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +16,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
-import { seedMirror } from './fixtures/selfreflection-mirror.ts';
+import { seedMirror } from './fixtures/diary-mirror.ts';
 import { OWNER_PERSON } from './fixtures/owner-accounts.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 
@@ -90,7 +90,7 @@ const hers = (env: unknown) => ({
 const destinations = (intentions: ReturnType<typeof makeEnv>['intentions']) =>
   intentions.list({ closed: true, all: true }).map((record) => record.destination ?? null);
 
-test('intention.set refuses the place of her diary mirror with selfreflection-mirror and stores nothing', async () => {
+test('intention.set refuses the place of her diary mirror with diary-mirror and stores nothing', async () => {
   const { env, intentions } = makeEnv();
   await withCapturedLogs(async () => {
     const result = await runOp(
@@ -98,7 +98,7 @@ test('intention.set refuses the place of her diary mirror with selfreflection-mi
       { text: 'post the sketch there', due: '1h', placeId: MIRROR_CHAT },
       wrongly(hers(env))
     );
-    assert.equal(result.code, 'selfreflection-mirror', result.summary);
+    assert.equal(result.code, 'diary-mirror', result.summary);
     assert.notEqual(result.status, 'ok');
     assert.deepEqual(destinations(intentions), [], 'no intention was stored');
   });
@@ -128,7 +128,7 @@ test('intention.update refuses moving an intention to the place of her diary mir
     assert.equal(set.status, 'ok', set.summary);
     const id = (set.data as { intention: { id: string } }).intention.id;
     const result = await runOp('intention.update', { id, placeId: MIRROR_CHAT }, wrongly(hers(env)));
-    assert.equal(result.code, 'selfreflection-mirror', result.summary);
+    assert.equal(result.code, 'diary-mirror', result.summary);
     assert.notEqual(result.status, 'ok');
     assert.deepEqual(destinations(intentions), [ELSEWHERE], 'the destination is the one set before');
   });

@@ -4,7 +4,7 @@
 // stored text, whether a lookup's source is retired, the stored fields of a place for `<surroundings>` with a root's
 // in-jokes, her lessons for `<lessons>`, the people she feels most strongly about for `<attitudes>`,
 // a place as its interface knows it (its interface, kind and native ids, for a call that speaks to the interface),
-// an interface's name and nouns and her past selfreflection entries for a selfreflection request's `<selfreflection>`.
+// an interface's name and nouns and her past diary entries for a diary request's `<diary>`.
 // Each read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
 
 import { directChatsOf } from './direct-chats.ts';
@@ -29,12 +29,12 @@ import type { PlaceStats } from './place-stats.ts';
 import { MEMORY_LIMITS } from '../text-limits.ts';
 import { affinityBand } from '../affinity.ts';
 import { sortRanked } from '../ranking.ts';
-import { readSelfreflection } from './selfreflection-past.ts';
+import { readDiary } from './diary-past.ts';
 import { subjectOf } from './subject.ts';
 import type { Subject, SubjectHere } from './subject.ts';
 import { affinityChangesOf } from '../affinity-changes.ts';
 import type { AffinityChange } from '../affinity-changes.ts';
-import type { PastEntry } from './selfreflection-past.ts';
+import type { PastEntry } from './diary-past.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 import { placeLineNumbers } from './chat-lines.ts';
@@ -680,8 +680,8 @@ export type FrameReads = {
   source?(iface: string, messageId: string): string | null;
   /** The stored line of a message id in a stored place of any interface, null when none (sourceInPlace). */
   sourceInPlace?(placeId: string, messageId: string): string | null;
-  /** Her newest `limit` selfreflection entries the context may read, oldest first (readSelfreflection). */
-  selfreflection?(ctx: Context, limit: number): Array<PastEntry>;
+  /** Her newest `limit` diary entries the context may read, oldest first (readDiary). */
+  diary?(ctx: Context, limit: number): Array<PastEntry>;
   /** The live places a name she wrote names under the context, each once with its stored name (names.ts#placesNamed). */
   placesNamed?(ctx: Context, name: string): Array<{ id: string; name: string }>;
   /** The places the memory graph ranks for words she wrote, best first (graph-find.ts#placesFound, `context.find`). */
@@ -760,7 +760,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     person: (account) => over(null, (db) => personOfAccount(db, account)),
     source: (iface, messageId) => over(null, (db) => sourceOfMessage(db, iface, messageId)),
     sourceInPlace: (placeId, messageId) => over(null, (db) => sourceInPlace(db, placeId, messageId)),
-    selfreflection: (ctx, limit) => over([], (db) => readSelfreflection(db, ctx, limit)),
+    diary: (ctx, limit) => over([], (db) => readDiary(db, ctx, limit)),
     placesNamed: (ctx, name) => over([], (db) => placesNamed(db, ctx, name)),
     placesFound: (ctx, words, meaning) =>
       over([], (db) => placesFound(db, ctx, words, findSettingsOf(configOf()), meaning)),

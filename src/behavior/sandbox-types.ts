@@ -57,7 +57,7 @@ export type LiveViewResult = {
     listChannels: () => Array<Untyped>;
     getLore: () => Array<Untyped>;
     getRecent: () => { nextId: number; lines: Array<Untyped> } | null;
-    selfreflectionChannelIds: () => Array<string>;
+    diaryChannelIds: () => Array<string>;
     accountOf: (nativeId: string, iface?: string) => string;
     personOfAccount: (accountId: string) => string | null;
   };
@@ -359,7 +359,7 @@ export type SandboxMemory = {
   listChannels: () => Array<Untyped>;
   getLore: () => Array<Untyped>;
   getRecent?: () => { nextId: number; lines: Array<Untyped> } | null;
-  selfreflectionChannelIds?: () => Array<string>;
+  diaryChannelIds?: () => Array<string>;
   /** The addresses of src/memory/store-addresses.ts a replay reads its place tree through. */
   placeOfChat?: (chat: { id: string }, iface?: string) => string | null;
   placeChainOf?: (placeId: string) => ReadonlyArray<PlaceChainLink>;

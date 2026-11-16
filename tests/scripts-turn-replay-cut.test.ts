@@ -80,7 +80,7 @@ test('clears a picture description written after the moment and keeps the pictur
 });
 
 // Regression: the first cut of a real copy deleted every claim version whose claim the copy no longer held and every
-// picture link of a selfreflection entry, rows the cut itself never touched.
+// picture link of a diary entry, rows the cut itself never touched.
 test('keeps the rows that lacked their owner before the cut and the links of other owners', () => {
   const handle = freshMemoryDb();
   const db = handle.db as Db;
@@ -89,7 +89,7 @@ test('keeps the rows that lacked their owner before the cut and the links of oth
     `INSERT INTO claim_versions (id, claim_id, text, recorded_at) VALUES ('cv:old', 'clm:gone', 'Παλιά', ?)`
   ).run(BEFORE);
   db.prepare(
-    `INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('selfreflection', 'sr:1', 0, 'med:1')`
+    `INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('diary', 'sr:1', 0, 'med:1')`
   ).run();
   cutMemory(db, MOMENT);
   assert.deepEqual(ids(db, 'claim_versions'), ['cv:1', 'cv:old']);

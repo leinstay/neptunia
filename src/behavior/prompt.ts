@@ -36,7 +36,7 @@ import type {
 } from './prompt-types.ts';
 export { skillsInventoryText } from '../turn/request/senses.ts';
 export { usesFollowUpTask } from '../turn/request/task.ts';
-export { worldText } from '../turn/request/selfreflection.ts';
+export { worldText } from '../turn/request/diary.ts';
 
 /**
  * The whole text of a user message's content: a string as it is; an array of
@@ -103,7 +103,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
 /**
  * The request of one turn on its frame (`input.frame`, required: without one it throws). A heartbeat's
  * request reads no chat, since her own time is in no place; its whereabouts are her own server,
- * and a selfreflection's are her own world, whatever place the turn rode in on. The result carries the messages, the
+ * and a diary's are her own world, whatever place the turn rode in on. The result carries the messages, the
  * budget's line (`stats`), the cache segments, the archive's blocks, the transcript's numbers (`idByIndex`), the
  * handles of her `@` and `#` tags, the people shown and what of memory and of the chat window went in.
  */
@@ -117,12 +117,12 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   });
   const ownTime = turnKind === 'heartbeat';
   if (ownTime) input = { ...input, history: [], currentChannelId: null };
-  // Her own time is at the command line of her own server, a selfreflection post in her own world (the owner's word of
+  // Her own time is at the command line of her own server, a diary post in her own world (the owner's word of
   // 2026-11-06), whatever place the turn rode in on.
   const turnPlace = input.whereabouts ?? null;
   const ownPlace = ownTime
     ? { kind: 'server' as const }
-    : turnKind === 'selfreflection' || turnKind === 'selfreflection_plan'
+    : turnKind === 'diary' || turnKind === 'diary_plan'
       ? { kind: 'world' as const }
       : null;
   const whereabouts = turnPlace && ownPlace ? ownPlace : turnPlace;
@@ -162,9 +162,9 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     gifs: input.gifs,
     tasks: input.tasks,
     elsewhereDestination: input.elsewhereDestination,
-    selfreflectionChannel: input.selfreflectionChannel,
-    selfreflectionChannelIds: input.selfreflectionChannelIds,
-    selfreflection: input.selfreflection,
+    diaryChannel: input.diaryChannel,
+    diaryChannelIds: input.diaryChannelIds,
+    diary: input.diary,
     offPeriods: input.offPeriods,
     skillsInventory: input.skillsInventory,
     toolsGranted: input.toolsGranted,

@@ -5180,7 +5180,7 @@ async function callTurn({
   store = fakeStore(),
   beforeSend = null,
   failNext = null,
-  selfreflection = null,
+  diary = null,
   configExtra = {},
   turnExtra = {},
   emoji = null,
@@ -5223,7 +5223,7 @@ async function callTurn({
     reads: world().adopt(port),
     port,
     ...(images ? { images } : {}),
-    ...(selfreflection ? { selfreflection: selfreflection(hot) } : {}),
+    ...(diary ? { diary: diary(hot) } : {}),
   });
   const llm = sequenceLlm(answers);
   const complete = llm.complete;

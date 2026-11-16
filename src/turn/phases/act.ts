@@ -3,7 +3,7 @@
 // the tool round posts through the routing it made.
 
 import { accountOf } from '../../memory/addresses.ts';
-import { setSettings } from '../../behavior/selfreflection.ts';
+import { setSettings } from '../../behavior/diary.ts';
 import { createLinker, messageLinkOf } from '../../behavior/elsewhere.ts';
 import { log } from '../../log.ts';
 import type { Draft } from '../draft.ts';
@@ -92,12 +92,12 @@ export function actPhase<TTurn extends ActNeeds>(
     linkFor,
     plain,
   };
-  // A set below selfreflection.set.minPosted (read now) is not posted at all: not even its messages.
+  // A set below diary.set.minPosted (read now) is not posted at all: not even its messages.
   const setShort = (pictures: number, extra: Record<string, unknown> = {}): AttemptResult => {
     log.info('turn: set short', {
       channel: channel.id,
       pictures,
-      wanted: setSettings(hot.config.selfreflection).minPosted,
+      wanted: setSettings(hot.config.diary).minPosted,
       ...extra,
     });
     return { outcome: 'refused', mode: finalMode, reason: 'set-short', ...extra };

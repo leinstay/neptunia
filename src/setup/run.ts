@@ -13,7 +13,7 @@
 //   services         the optional YouTube Data API key, with the link that says how to get one, and optional quick
 //                    search, declined by default (src/setup/services.ts)
 //   subharness       the backends her agents may run through, installed and logged in (src/setup/subharness.ts)
-//   mechanics        heartbeat and selfreflection on or off (src/setup/mechanics.ts)
+//   mechanics        heartbeat and diary on or off (src/setup/mechanics.ts)
 //   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ, and the
 //                    client of the owner's command line with its token (src/setup/clients.ts), which needs no core
 //                    socket
