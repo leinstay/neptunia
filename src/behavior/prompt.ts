@@ -84,8 +84,7 @@ export function classifierTranscript(
  * (its own `{{name}}` filled) for a picture the persona is in, else blanked;
  * `{{when}}` filled with `labels.draw.when` (`{when}`: the local time) when
  * `when` is given, else blanked; then runs of blank lines collapse to one and
- * the result is trimmed. `request` is expected already clamped to
- * `image.maxPromptChars` by the caller (src/behavior/turn.ts).
+ * the result is trimmed. `request` is the scene as she wrote it.
  *   `when`: the local date and time the picture is made at (src/format.ts#formatNow).
  */
 export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }: BuildDrawPromptInput): string {

@@ -48,8 +48,6 @@ import {
   transition,
   waitOn,
   CHAIN_CHARS,
-  CONDITION_CHARS,
-  PURPOSE_CHARS,
 } from './model.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { CODE } from '../tools/codes.ts';
@@ -360,8 +358,7 @@ export function createIntentionService({
       let next = record;
       let changed = false;
       const fields: Partial<Intention> = {};
-      if (typeof patch.purpose === 'string' && patch.purpose.trim())
-        fields.purpose = clampChars(oneLine(patch.purpose), PURPOSE_CHARS);
+      if (typeof patch.purpose === 'string' && patch.purpose.trim()) fields.purpose = oneLine(patch.purpose);
       if (patch.dueAt !== undefined) fields.dueAt = patch.dueAt;
       if (patch.every !== undefined) fields.every = patch.every;
       if (patch.expiresAt !== undefined && patch.expiresAt !== null) {
@@ -370,7 +367,7 @@ export function createIntentionService({
       }
       if (patch.destination !== undefined) fields.destination = patch.destination ? String(patch.destination) : null;
       if (typeof patch.completionCondition === 'string')
-        fields.completionCondition = clampChars(oneLine(patch.completionCondition), CONDITION_CHARS) || null;
+        fields.completionCondition = oneLine(patch.completionCondition) || null;
       if (typeof patch.chainId === 'string') fields.chainId = clampChars(oneLine(patch.chainId), CHAIN_CHARS) || null;
       if (patch.attend !== undefined && patch.attend !== null) {
         if (!isAttend(record)) return { ok: false, code: CODE.NOT_ATTEND };

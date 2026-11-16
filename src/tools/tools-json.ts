@@ -107,7 +107,7 @@ export function skillEntries(skills: ReadonlyArray<OfferedSkill>, procedure = ''
  * parameters } }]` sorted by API name, keys in a fixed order, then the entries of her active `skills` (skillEntries,
  * with `procedure`). A name with no skill in `registry` or no API name is left out. Same input, same bytes.
  * `names` are the dotted skill names granted to the persona. `texts` is `hot.prompts.tools`;
- * `fill` holds the values for the `{{key}}` placeholders of the texts (`{ drawChars }`).
+ * `fill` holds the values for the `{{key}}` placeholders of the texts, when a text has any.
  */
 export function buildTools(
   names: Iterable<string> | null | undefined,

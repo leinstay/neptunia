@@ -1004,7 +1004,6 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     {
       registry,
       texts: prompts?.tools,
-      fill: { drawChars: config.image?.maxPromptChars ?? 1600 },
       skills: offered,
       procedure: procedureSentence(prompts?.labels),
     }
