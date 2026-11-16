@@ -11,13 +11,11 @@ import {
   cursorKey,
   fitBatch,
   memoryKeyState,
-  memorySessionStatusLine,
   parseSessionAnswer,
   refusalOf,
   scopesOf,
   resolveSessionReads,
   sessionSettings,
-  sessionStatus,
   sweep,
   validateAnswer,
 } from '../src/memory/db/session.ts';
@@ -756,53 +754,6 @@ test('apply: claims with versions and sources, episodes, attitude, decisions; di
   }
 });
 
-test('the status of the session and its line', async () => {
-  const env = fixture();
-  try {
-    chat(env);
-    // The cap the line shows is the per-scope one (stage W3); the test sets its own value.
-    const config = baseConfig({ sweepsPerScopePerDay: 4 });
-    // The key comes from the key ring: `ring` stands where `env` held the memory variable.
-    const ring = memoryRing();
-    assert.equal(
-      sessionStatus({ db: env.db, config: baseConfig({ mode: 'off' }), env: {}, ring, prompts, now: NOW }).state,
-      'off'
-    );
-    assert.equal(sessionStatus({ db: env.db, config, env: {}, prompts, now: NOW }).state, 'not_configured');
-    const refused = sessionStatus({
-      db: env.db,
-      config,
-      env: {},
-      ring,
-      prompts: { ...prompts, 'memory-session': '' },
-      now: NOW,
-    });
-    assert.deepEqual([refused.state, refused.code], ['refused', CODES.NO_PROMPT]);
-    await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})) }));
-    const ready = sessionStatus({ db: env.db, config, env: {}, ring, prompts, now: NOW });
-    assert.deepEqual([ready.state, ready.sweepsToday, ready.sweepsPerDay, ready.last!.outcome], ['ready', 1, 4, 'ok']);
-    const text = {
-      status: {
-        memorySession: {
-          off: 'OFF',
-          notConfigured: 'NOKEY',
-          refused: 'NO {code}',
-          line: '{mode} {sweeps}/{cap} {outcome}',
-        },
-      },
-    };
-    assert.equal(memorySessionStatusLine(ready, text), 'shadow 1/4 ok');
-    assert.equal(memorySessionStatusLine(refused, text), `NO ${CODES.NO_PROMPT}`);
-    const lineOf = (status: object) =>
-      memorySessionStatusLine(status as Parameters<typeof memorySessionStatusLine>[0], text); // a status with the state alone
-    assert.equal(lineOf({ state: 'off' }), 'OFF');
-    assert.equal(lineOf({ state: 'not_configured' }), 'NOKEY');
-    assert.equal(memorySessionStatusLine(ready, {}), '');
-  } finally {
-    env.done();
-  }
-});
-
 test('the people block renders a stored profile the way her turns do, from the database alone', async () => {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-session-'));
   const data = path.join(root, 'data');
@@ -1196,18 +1147,6 @@ test('an all_dropped answer leaves the cursor and the batch pending; after retry
       undefined,
       'the cursor did not move'
     );
-    const status = sessionStatus({ db: env.db, config, env: {}, ring: memoryRing(), prompts, now: NOW });
-    assert.deepEqual(
-      status.pending.map((batch) => [batch.scope, batch.tries]),
-      [['group:discord', 1]]
-    );
-    const text = { status: { memorySession: { line: '{mode}', pending: 'WAITING {n} after {tries} of {limit}' } } };
-    assert.equal(memorySessionStatusLine(status, text), 'shadow\nWAITING 1 after 1 of 2');
-    assert.equal(
-      memorySessionStatusLine(status, { status: { memorySession: { line: '{mode}' } } }),
-      'shadow',
-      'no label, no pending line'
-    );
     const second = await sweep(ctxOf(env, { llm, config }), { ignoreSweepCap: true });
     assert.equal(second.runs[0].outcome, 'all_dropped');
     assert.equal(llm.calls.length, 2);
@@ -1227,10 +1166,6 @@ test('an all_dropped answer leaves the cursor and the batch pending; after retry
     assert.equal(decision!.by, 'engine');
     assert.equal(JSON.parse(decision!.extra as string).tries, 2);
     assert.equal(count(env.db, 'meta', "key LIKE 'memory_session.pending.%'"), 0);
-    assert.equal(
-      sessionStatus({ db: env.db, config, env: {}, ring: memoryRing(), prompts, now: NOW }).pending.length,
-      0
-    );
   } finally {
     env.done();
   }

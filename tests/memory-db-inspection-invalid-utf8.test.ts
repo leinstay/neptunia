@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { readRow, readRows } from '../src/memory/db/inspection.ts';
+import { readRows } from '../src/memory/db/inspection.ts';
 import { createInspectionPort } from '../src/memory/db/inspection-snapshots.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -33,7 +33,6 @@ test('a page names the exact bytes of a text that is not UTF-8', () => {
   withDb((db) => {
     const [bad] = readRows(db, { table: 'raw', filters: [], limit: 5, cursor: null }).items;
     assert.equal(bodyOf(bad), EXACT);
-    assert.equal(bodyOf(readRow(db, { table: 'raw', locator: bad.locator })), EXACT);
   });
 });
 

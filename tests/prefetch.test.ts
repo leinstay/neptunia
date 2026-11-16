@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import {
   fitExcerpts,
   focusHits,
-  indexedPlan,
   isTrivialTrigger,
   lanePlan,
   lexicalKeep,
@@ -168,49 +167,6 @@ test('lanePlan: long words and stored names as forms, a short trigger as a phras
   const short = lanePlan({ kind: 'message', words: 'plus ultra' }, { trigger: 'plus ultra' });
   assert.deepEqual([short!.phrases, short!.forms, short!.need], [['plus ultra'], ['ultra'], 1]);
   assert.equal(lanePlan({ kind: 'reply', words: 'a b' }, { trigger: 'a b' }), null, 'nothing to search');
-});
-
-test("indexedPlan: the index's terms (rarest first) replace the forms, its phrases join the quoted ones, the names stay", () => {
-  const plan = { forms: ['longword'], who: ['éloïse'], phrases: ['plus ultra'], need: 1, from: null, to: null };
-  const queries = [
-    {
-      terms: [
-        { word: 'dog', weight: 3 },
-        { word: 'forest', weight: 5 },
-      ],
-      phrases: [{ text: 'big red' }],
-    },
-    {
-      terms: [
-        { word: 'dog', weight: 4 },
-        { word: 'kite', weight: 2 },
-      ],
-      phrases: [],
-    },
-  ];
-  assert.deepEqual(indexedPlan(plan, queries, { maxForms: 2, minFormsMatched: 2 }), {
-    forms: ['forest', 'dog'],
-    who: ['éloïse'],
-    phrases: ['plus ultra', 'big red'],
-    need: 2,
-    from: null,
-    to: null,
-  });
-  assert.equal(
-    indexedPlan(plan, [{ terms: [], phrases: [] }]),
-    plan,
-    'nothing from the index: the lane plan as it was'
-  );
-  assert.equal(indexedPlan(null, [{ terms: [], phrases: [] }]), null);
-  assert.deepEqual(
-    (
-      indexedPlan(null, [{ terms: [{ word: 'kite', weight: 1 }], phrases: [] }], { minFormsMatched: 2 }) as {
-        need: number;
-      }
-    ).need,
-    1,
-    'never more than the forms'
-  );
 });
 
 test('lexicalKeep: a phrase always; two terms unless the cosine is weak; one term only with a good cosine; words alone without the meaning search', () => {

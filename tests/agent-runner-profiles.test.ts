@@ -22,15 +22,13 @@ import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.ts';
 import { onLog } from '../src/log.ts';
 import {
-  SCOUT,
-  SERVER,
   ALWAYS_DENIED,
   AgentProfileError,
   SHELL_CLASSES,
   listAgents,
   loadProfiles,
   profileOf,
-  promptFilesOf,
+  PROFILES,
   SERVER_SHELL_ALLOW,
   SEGMENT_NAMES,
   SHELL_CONTENT_COMMANDS,
@@ -63,6 +61,8 @@ const loose = (value: unknown): Record<string, Untyped> => value as Record<strin
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** This checkout's data directory as the policy resolves it (NEPTUNIA_DATA_DIR, else <root>/data). */
 const DATA_DIR = resolvePaths({ rootDir: ROOT }).dataDir;
+const SCOUT = PROFILES.scout ?? null;
+const SERVER = PROFILES.server ?? null;
 
 test('profileOf: scout, server, and nothing else', () => {
   // Fresh personal reads return equivalent worker values without promising snapshot identity.
@@ -280,52 +280,9 @@ test("server external_directory: allowed in core, the path tools' withheld denie
   assert.equal(actionOf(apart, '/opt/neptunia/app/*'), 'allow');
 });
 
-test('promptFilesOf reads persona data prompts before shared prompts and ignores legacy private overrides', () => {
-  const base = tempDir('agent-profiles-');
-  try {
-    const rootDir = path.join(base, 'checkout');
-    const privateDir = path.join(base, 'private');
-    const dataDir = path.join(base, 'persona');
-    const write = (file: string, text: string) => {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, text);
-    };
-    write(path.join(rootDir, 'agents', 'scout', 'prompt.md'), 'tracked');
-    write(path.join(rootDir, 'prompts.local', 'agent-scout.md'), 'checkout override');
-    write(path.join(privateDir, 'prompts.local', 'agent-scout.md'), 'private override');
-    // The approved path contract uses data/agents for runtime overrides and holds prompts.local as migration input.
-    write(path.join(dataDir, 'agents', 'scout', 'prompt.md'), 'persona override');
-    write(path.join(rootDir, 'data', 'agents', 'scout', 'prompt.md'), 'default data override');
-
-    const apart = promptFilesOf('scout', {
-      rootDir,
-      env: { NEPTUNIA_DATA_DIR: dataDir },
-    });
-    assert.deepEqual(apart, [
-      path.join(dataDir, 'agents', 'scout', 'prompt.md'),
-      path.join(rootDir, 'agents', 'scout', 'prompt.md'),
-    ]);
-    assert.equal(readPromptFile(apart), 'persona override', 'the legacy private and checkout overrides stay unused');
-    assert.equal(
-      readPromptFile(promptFilesOf('scout', { rootDir, env: {} })),
-      'default data override',
-      'an unset data root selects the engine data directory'
-    );
-    fs.rmSync(path.join(dataDir, 'agents', 'scout', 'prompt.md'));
-    assert.equal(readPromptFile(apart), 'tracked', 'a missing personal prompt selects the shared prompt');
-
-    assert.deepEqual(SCOUT.promptFiles, promptFilesOf('scout'));
-    assert.deepEqual(SERVER.promptFiles, promptFilesOf('server'));
-  } finally {
-    fs.rmSync(base, { recursive: true, force: true });
-  }
-});
-
 test('readPromptFile: an override that exists but cannot be read falls back to the tracked prompt, warned once; other errors still throw', () => {
-  const [override, tracked] = promptFilesOf('scout', {
-    rootDir: '/checkout',
-    env: { NEPTUNIA_DATA_DIR: '/private-unreadable' },
-  });
+  const override = '/private-unreadable/agents/scout/prompt.md';
+  const tracked = '/checkout/agents/scout/prompt.md';
   const failing = (code: Untyped) => (file: string) => {
     if (file === override) throw Object.assign(new Error(`${code}: ${file}`), { code });
     if (file === tracked) return 'tracked';

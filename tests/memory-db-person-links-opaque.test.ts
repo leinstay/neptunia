@@ -94,7 +94,7 @@ test('a context issued after a bind reads the DM the link brought', async () => 
 });
 
 test('a context of the survivor of an owner merge reads the DMs of the merged person', () => {
-  // Bug: `accountLinks` compares `person_id` to the one id it was given and never follows `people_merges`.
+  // Bug: the link read of an account compares `person_id` to the one id it was given and never follows `people_merges`.
   const service = serviceOver((handle) => {
     const db = dbOf(handle);
     seedOpaqueWorld(db);

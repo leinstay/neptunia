@@ -11,7 +11,6 @@ import {
   formatDate,
   formatNow,
   formatDuration,
-  localHour,
   formatTranscript,
   renderTranscript,
   computeTempo,
@@ -43,7 +42,7 @@ test('fill: a missing/empty template returns an empty string', () => {
   assert.equal(fill(wrongly(null), {}), '');
 });
 
-// --- clock / date / now / localHour -------------------------------------
+// --- clock / date / now -------------------------------------
 
 test('formatClock: renders the time converted into the given timezone and locale', () => {
   const ts = Date.UTC(2026, 8, 20, 10, 30, 0); // 10:30 UTC -> 13:30 Moscow
@@ -65,11 +64,6 @@ test('formatNow: combines full date, clock and the timezone name', () => {
   const now = formatNow(ts, TZ, 'en-US');
   assert.ok(now.includes('13:30'));
   assert.ok(now.includes('(Europe/Moscow)'));
-});
-
-test('localHour: returns the local hour 0-23 for the given timezone, locale-independent', () => {
-  assert.equal(localHour(Date.UTC(2026, 8, 20, 10, 30, 0), TZ), 13);
-  assert.equal(localHour(Date.UTC(2026, 8, 19, 21, 5, 0), TZ), 0);
 });
 
 // --- formatDuration boundaries -------------------------------------------

@@ -6,17 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  CATALOGUE,
-  CODE,
-  FEATURE,
-  INVALID_CODES,
-  WHAT,
-  codesOf,
-  httpCode,
-  normalCode,
-  reasonText,
-} from '../src/tools/codes.ts';
+import { CATALOGUE, CODE, FEATURE, INVALID_CODES, WHAT, httpCode, normalCode, reasonText } from '../src/tools/codes.ts';
 import { joinLabels } from '../src/config/labels.ts';
 import { callMarksFor, fill, formatTranscript } from '../src/format.ts';
 import { orderedHistory } from '../src/turn/history.ts';
@@ -192,7 +182,7 @@ const valuesOf = (code: string) =>
 
 test('codes: no code of the catalogue reaches reasons.other, in the mark or in the <result> block', () => {
   const other = asRecord(shipped.tools).result.reasons.other;
-  for (const code of codesOf('skill')) {
+  for (const [code] of Object.entries(CATALOGUE).filter(([, entry]) => entry.group === 'skill')) {
     const values = valuesOf(code);
     const text = reasonText(shipped, code, values, fill);
     assert.ok(text, code);

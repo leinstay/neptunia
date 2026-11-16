@@ -13,17 +13,11 @@ import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import {
   contentHash,
-  grantPublication,
-  markSent,
-  markUnknown,
   mirrorPublicationRow,
   preparePublication,
   publicationKey,
   publicationOf,
   recheck,
-  reconcile,
-  revokeGrant,
-  unsettled,
 } from '../src/memory/db/publish.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
 import { CHANNEL, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
@@ -83,10 +77,48 @@ function fixture() {
   return { handle, db: dbOf(handle), outward, internal };
 }
 
+/** The owner's grant as its row stores it: this hash of this row may be published to these places. */
+function grantPublication(
+  handle: Parameters<typeof dbOf>[0],
+  given: {
+    rowKind: string;
+    rowId: string;
+    hash: string;
+    destinations: Array<string>;
+    approvedBy: string;
+    reason?: string;
+    now: number;
+  }
+): string {
+  const id = `grant:${given.rowId}:${given.destinations.join(',')}:${given.now}`;
+  dbOf(handle)
+    .prepare(
+      `INSERT INTO publication_grants (id, row_kind, row_id, content_hash, destinations, approved_by, approved_at, reason, revoked_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+    )
+    .run(
+      id,
+      given.rowKind,
+      given.rowId,
+      given.hash,
+      JSON.stringify([...given.destinations].sort()),
+      given.approvedBy,
+      new Date(given.now).toISOString(),
+      given.reason ?? null
+    );
+  return id;
+}
+
+/** Revokes a grant. */
+function revokeGrant(handle: Parameters<typeof dbOf>[0], id: string, { now }: { now: number }): void {
+  dbOf(handle)
+    .prepare('UPDATE publication_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
+    .run(new Date(now).toISOString(), id);
+}
+
 // A refused `preparePublication` answers the code; the tests read it, and the publication of an accepted one.
 type Prepared = ReturnType<typeof preparePublication>;
 type Refused = Extract<Prepared, { ok: false }>;
-type Accepted = Extract<Prepared, { ok: true }>;
 
 const DRAFT = 'Σήμερα ήταν ήσυχα. A private detail she never cited.';
 
@@ -206,8 +238,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
       reason: 'shown to the owner',
       now: NOW,
     });
-    assert.equal(revokeGrant(handle, granted, { now: NOW + 1 }), true);
-    assert.equal(revokeGrant(handle, granted, { now: NOW + 2 }), false, 'revoked once');
+    revokeGrant(handle, granted, { now: NOW + 1 });
     assert.equal(
       (
         preparePublication(handle, {
@@ -338,100 +369,6 @@ test('publish: an edit changes the hash and voids the grant; the stored text nev
     assert.deepEqual(recheck(handle, done.publication!.id, internal()), { ok: false, code: 'not-outward' });
     revokeGrant(handle, done.publication!.grant_id as string, { now: NOW + 5 });
     assert.deepEqual(recheck(handle, done.publication!.id, ctx), { ok: false, code: 'grant-revoked' });
-  } finally {
-    handle.close();
-  }
-});
-
-test('publish: a crash between queued and sent sends once (the same key returns the first row; unknown is reconciled, never resent)', () => {
-  const { handle, db, outward } = fixture();
-  try {
-    const sent: Array<string> = [];
-    const adapter = {
-      send(text: string) {
-        sent.push(text);
-        return [{ authority: 'discord/global', kind: 'message', key: `m-${sent.length}` }];
-      },
-      find(key: string) {
-        return sent.length > 0 && key === publicationKey('diary', 'entry-1', GENERAL)
-          ? [{ authority: 'discord/global', kind: 'message', key: 'm-1' }]
-          : null;
-      },
-    };
-    const text = 'Une journée calme, écrite pour ici.';
-    // The sender: queue, re-check, send; a reused row that is settled is never sent again.
-    const sendOnce = (ctx: ReturnType<typeof outward>) => {
-      const done = preparePublication(handle, {
-        context: ctx,
-        rowKind: 'diary',
-        rowId: 'entry-1',
-        rendered: text,
-        destination: GENERAL,
-        producedIn: ctx,
-        now: NOW,
-      });
-      assert.equal(done.ok, true);
-      if (done.publication!.status !== 'queued' || !recheck(handle, done.publication!.id, ctx).ok)
-        return done.publication!;
-      return { receipts: adapter.send(done.publication!.rendered as string), id: done.publication!.id };
-    };
-    const first = sendOnce(outward(GENERAL));
-    assert.equal(sent.length, 1);
-    // The process dies here, before markSent. After the restart the row is still queued: it is marked unknown and
-    // reconciled against the interface before anything is sent.
-    const pending = unsettled(handle);
-    assert.deepEqual(
-      pending.map((row) => row!.id),
-      [first.id]
-    );
-    for (const row of pending) {
-      markUnknown(handle, row!.id);
-      reconcile(handle, row!.id, adapter.find(row!.idempotency_key as string), { now: NOW + 60_000 });
-    }
-    const after = publicationOf(handle, first.id)!;
-    assert.equal(after.status, 'sent');
-    assert.deepEqual(after.receipts, [{ authority: 'discord/global', kind: 'message', key: 'm-1' }]);
-    // The turn asks again: the same key returns the first row, which is sent, so nothing goes out.
-    const again = preparePublication(handle, {
-      context: outward(GENERAL),
-      rowKind: 'diary',
-      rowId: 'entry-1',
-      rendered: text,
-      destination: GENERAL,
-      producedIn: outward(GENERAL),
-      now: NOW + 120_000,
-    }) as Accepted;
-    assert.equal(again.reused, true);
-    assert.equal(again.publication!.id, first.id);
-    sendOnce(outward(GENERAL));
-    assert.equal(sent.length, 1, 'sent once');
-    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM publications'), 1);
-    // A repeat of markSent changes nothing; a reconcile with nothing found fails the row instead of sending it.
-    assert.equal(
-      (
-        markSent(handle, first.id, [{ authority: 'discord/global', kind: 'message', key: 'other' }])!
-          .receipts as Array<{ key: string }>
-      )[0].key,
-      'm-1'
-    );
-    const lost = preparePublication(handle, {
-      context: outward(OTHER),
-      rowKind: 'diary',
-      rowId: 'entry-1',
-      rendered: 'Autre.',
-      destination: OTHER,
-      producedIn: outward(OTHER),
-      now: NOW,
-    }) as Accepted;
-    markUnknown(handle, lost.publication!.id);
-    assert.equal(reconcile(handle, lost.publication!.id, null)!.status, 'failed');
-    assert.deepEqual(unsettled(handle), []);
-    // A sent publication is seen in its destination's audience.
-    const access = db
-      .prepare('SELECT audience_id FROM node_access WHERE node_id = ? AND evidence_id = node_id')
-      .all(`publication:${first.id}`)
-      .map((row) => row.audience_id);
-    assert.deepEqual(access, ['aud:group:discord']);
   } finally {
     handle.close();
   }

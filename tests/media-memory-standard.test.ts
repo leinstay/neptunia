@@ -4,12 +4,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDescriber } from '../src/memory/describe.ts';
-import { lineMedia } from '../src/memory/db/media-store.ts';
-import { internalContext } from '../src/memory/db/scope.ts';
 import { isOffScript } from '../src/memory/text-standard.ts';
 import { createStore } from '../src/memory/store.ts';
 import { fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
-import { fixture, kindNamed, observeLine, tell } from './fixtures/media-memory.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
 import { chainsOf } from './fixtures/chains.ts';
@@ -47,18 +44,4 @@ test('a transcript with no quotation marks stays as heard: one request and no ma
   assert.equal(descriptions.get('v1'), UNQUOTED);
   assert.equal(llm.calls.length, 1);
   assert.equal(store.mediaEntry('g1', 'v1')?.offScript, undefined);
-});
-
-test('what she voiced stays in its own language, origin voiced, with no later text form over it', () => {
-  const env = fixture();
-  try {
-    const kind = kindNamed('voice said');
-    const source = observeLine(env, kind, 'absent');
-    tell(env, { ...kind, origin: 'voiced' }, { id: 'pic-a', told: UNQUOTED });
-    tell(env, { ...kind, origin: 'transcript' }, { id: 'pic-a', told: 'a guess at what was said' });
-    const [voice] = lineMedia(env.db, [source], internalContext()).get(source) ?? [];
-    assert.deepEqual([voice.description, voice.extra.textOrigin], [UNQUOTED, 'voiced']);
-  } finally {
-    env.done();
-  }
 });

@@ -1,7 +1,7 @@
 // src/turn/request/memory-block.ts: the `<memory>` of a turn, what the graph reader brought to her mind rendered as
 // entries (plan 2026-11-06-turn-frame, slice 4 (a), "The ordinary turn" and "How memory fills"). Contract:
-//   memoryBlockOf(mind: Mind, frame: Frame, labels: Labels, nameOf: (id: string) => string | null): { text: string;
-//     reads: Array<MemoryRead> }
+//   renderMemory(memoryItemsOf(mind: Mind, frame: Frame, labels: Labels, nameOf: (id: string) => string | null),
+//     mind.leftOut, labels): string
 // `<people>` opens with the person she answers, marked so and always present, then everyone else once; `<places>`,
 // `<lore>`, `<recent>` and `<found>` follow, one entry per thing in one subtag only. `nameOf` names an id an entry
 // refers to without carrying its name.
@@ -11,7 +11,7 @@ import { fill, formatDay } from '../src/format.ts';
 import type { Mind, PersonEntry } from '../src/memory/db/mind-read.ts';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { FrameParty } from '../src/turn/request/frame.ts';
-import { factItemsOf, memoryBlockOf, memoryItemsOf } from '../src/turn/request/memory-block.ts';
+import { factItemsOf, memoryItemsOf, renderMemory } from '../src/turn/request/memory-block.ts';
 import type { EntryRefs } from '../src/turn/request/memory-block.ts';
 import { frameInput } from './fixtures/frame-input.ts';
 import {
@@ -24,6 +24,14 @@ import {
 } from './fixtures/mind-entries.ts';
 import type { Labels, MemoryLabels } from '../src/turn/request/types.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
+
+/** The body of `<memory>` with every entry of `mind`, as the request renders it. */
+const memoryBlockOf = (
+  mind: Parameters<typeof memoryItemsOf>[0],
+  frame: Parameters<typeof memoryItemsOf>[1],
+  labels: Parameters<typeof memoryItemsOf>[2],
+  nameOf: Parameters<typeof memoryItemsOf>[3]
+): { text: string } => ({ text: renderMemory(memoryItemsOf(mind, frame, labels, nameOf), mind.leftOut, labels) });
 
 const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart', relation: 'ΣΧΕΣΗ-ΕΛΕΝΗΣ' });
 const NIKOS = personEntry('222', 'Νίκος', { evidence: 'author', relation: 'ΣΧΕΣΗ-ΝΙΚΟΥ' });

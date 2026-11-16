@@ -19,7 +19,7 @@ import type { InnerTurnParams } from '../src/behavior/inner/types.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import { deliveriesIn, deliveryOf, queuedDeliveries, wakeOf } from '../src/memory/db/wake-queue.ts';
+import { deliveriesIn, deliveryOf, wakeOf } from '../src/memory/db/wake-queue.ts';
 import type { WakeQueueUpdate } from '../src/memory/db/wake-queue.ts';
 import { notOk } from '../src/interface/port.ts';
 import { CODE } from '../src/tools/codes.ts';
@@ -281,7 +281,7 @@ async function core(
               }
             : update;
         const answer: unknown = await memory.memoryDb.memoryWrite(stored);
-        if (committed.sends === null && queuedDeliveries(readHandleOf(memory)).length > 0) {
+        if (committed.sends === null && deliveriesIn(readHandleOf(memory), 'queued').length > 0) {
           committed.sends = sendsOf(port).length;
           if (life) start.atCommit?.(life);
           if (start.dieAtCommit === true) {
@@ -430,7 +430,7 @@ test('a crash after completion abandons the held message across repeated starts'
     const tick = run.life.tick().then(() => 'ended' as const);
     assert.equal(await Promise.race([run.dead, tick]), 'died', 'the completion recorded the held send');
     assert.deepEqual(sendsOf(run.port), [], 'the process died before anything was sent');
-    const [held] = queuedDeliveries(readHandleOf(run.memory));
+    const [held] = deliveriesIn(readHandleOf(run.memory), 'queued');
     assert.ok(held, 'completion retained the exact payload and effect key');
     await run.restart({ answers: ['<skip/>'] });
     run.clock.t = T + 10 * MINUTE;
@@ -496,7 +496,7 @@ test('a crash before completion retains the original turn without rerunning or s
     void run.life.tick();
     await run.dead;
     assert.deepEqual(sendsOf(run.port), [], 'the held send never left');
-    assert.deepEqual(queuedDeliveries(readHandleOf(run.memory)), [], 'no completion, so no delivery');
+    assert.deepEqual(deliveriesIn(readHandleOf(run.memory), 'queued'), [], 'no completion, so no delivery');
     await run.restart({ answers: [toolAnswer('', [call('message.create', { text: 'δεύτερη' })]), '<skip/>'] });
     run.clock.t = T + 10 * MINUTE;
     await run.life.tick();
@@ -597,7 +597,7 @@ test('the stop switch turned on after the completion keeps the deliveries queued
     assert.equal(run.committed.sends, 0, 'the completion recorded the held post before any send');
     assert.deepEqual(sendsOf(run.port), [], 'the drain asked the switch again before it sent');
     assert.deepEqual(
-      queuedDeliveries(readHandleOf(run.memory)).map((delivery) => delivery.state),
+      deliveriesIn(readHandleOf(run.memory), 'queued').map((delivery) => delivery.state),
       ['queued']
     );
   } finally {
@@ -622,7 +622,7 @@ test('a heartbeat in shadow mode holds nothing and sends nothing: her post is re
     assert.equal(run.calls[0]?.inner.wake.kind, 'heartbeat');
     assert.deepEqual(actionsOf(run.results[0]), ['message.create:heartbeat-only']);
     assert.deepEqual(sendsOf(run.port), []);
-    assert.deepEqual(queuedDeliveries(readHandleOf(run.memory)), [], 'nothing was recorded to send');
+    assert.deepEqual(deliveriesIn(readHandleOf(run.memory), 'queued'), [], 'nothing was recorded to send');
   } finally {
     await run.close();
   }

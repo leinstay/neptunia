@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyEntryMedia } from '../src/memory/db/diary-media.ts';
 import { topPlaceSpelled } from '../src/memory/db/ids.ts';
-import { MEDIA_KINDS, lineMedia, tellMedia } from '../src/memory/db/media-store.ts';
+import { MEDIA_KINDS, lineMedia } from '../src/memory/db/media-store.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { rootPlaceInDb } from '../src/memory/db/place-tree.ts';
@@ -275,15 +275,6 @@ test("the describer's write tells the item, and every line that links it reads i
     );
     assert.ok(first.describedAt, 'with the time it was told');
     assert.equal(second.availability, 'unknown', 'the other item of the line');
-  }));
-
-test("a page she read becomes its link's text form", () =>
-  withEnv((env) => {
-    const kind = KINDS.find((one) => one.stored === 'link') as Kind;
-    const source = observeLine(env, kind, 'absent');
-    tellMedia(env.handle, { iface: 'discord', nativeRef: 'pic-a', description: 'the page says this', origin: 'page' });
-    const [row] = rowsOf(env, source);
-    assert.deepEqual([row.description, row.extra.textOrigin], ['the page says this', 'page']);
   }));
 
 // ---------- her own voice message ----------

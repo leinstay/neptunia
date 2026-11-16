@@ -11,13 +11,21 @@ import type { Line } from '../src/behavior/lines.ts';
 import { spatialAwarenessText } from '../src/turn/request/spatial.ts';
 import { block } from '../src/turn/request/text.ts';
 import { frameOf } from '../src/turn/request/frame.ts';
-import { memoryBlockOf } from '../src/turn/request/memory-block.ts';
+import { memoryItemsOf, renderMemory } from '../src/turn/request/memory-block.ts';
 import { recallBlockOf } from '../src/turn/request/recall-block.ts';
 import { chatInTimeOrder, counterpartFirst, lookupRecalled, placeBound } from '../scripts/lib/frame-checks.ts';
 import { labels } from './fixtures/labels.ts';
 import { frameInput } from './fixtures/frame-input.ts';
 import { mindOfEntries, personEntry } from './fixtures/mind-entries.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
+
+/** The body of `<memory>` with every entry of `mind`, as the request renders it. */
+const memoryBlockOf = (
+  mind: Parameters<typeof memoryItemsOf>[0],
+  frame: Parameters<typeof memoryItemsOf>[1],
+  labels: Parameters<typeof memoryItemsOf>[2],
+  nameOf: Parameters<typeof memoryItemsOf>[3]
+): { text: string } => ({ text: renderMemory(memoryItemsOf(mind, frame, labels, nameOf), mind.leftOut, labels) });
 
 const MIN = 60_000;
 const TZ = 'UTC';

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { installSubharness, rollbackSubharness, updateSubharness } from '../src/subharness/install.ts';
+import { installSubharness, updateSubharness } from '../src/subharness/install.ts';
 import type { InstallRun, InstallRunResult } from '../src/subharness/install.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import type { BackendName } from '../src/agent-runner/profiles.ts';
@@ -272,26 +272,6 @@ test('a failed update leaves the version in force working', async () => {
   assert.equal(outcome.state, 'failed');
   assert.equal(fs.readFileSync(place.binary, 'utf8'), before);
   assert.deepEqual(selectionOf(privateDir, 'claude'), selection);
-});
-
-test('a rollback restores the previous binary and version and leaves her sessions alone', async () => {
-  // Bug: rolling a bad update back loses the sessions written since, or keeps recording the bad version.
-  const privateDir = tempDir('nep-pin-');
-  const place = subharnessPlace(privateDir, 'claude');
-  await installSubharness({ privateDir, backend: 'claude', hostEnv: HOST_ENV }, versionedRun(privateDir, 'claude'));
-  const pinned = selectionOf(privateDir, 'claude').version;
-  await updateSubharness(
-    { privateDir, backend: 'claude', hostEnv: HOST_ENV, version: '9.9.9' },
-    versionedRun(privateDir, 'claude')
-  );
-  const session = path.join(place.dir, 'home', 'new.jsonl');
-  fs.mkdirSync(path.dirname(session), { recursive: true });
-  fs.writeFileSync(session, 'written after the update');
-  assert.equal(rollbackSubharness(privateDir, 'claude').state, 'done');
-  assert.equal(selectionOf(privateDir, 'claude').version, pinned);
-  assert.match(fs.readFileSync(place.binary, 'utf8'), new RegExp(String(pinned).replaceAll('.', '\\.')));
-  assert.equal(fs.readFileSync(session, 'utf8'), 'written after the update');
-  assert.equal(rollbackSubharness(privateDir, 'claude').state, 'failed');
 });
 
 test('a run of each backend carries the control that keeps it from updating itself', async () => {

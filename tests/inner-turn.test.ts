@@ -22,7 +22,6 @@ import { checkSkill } from '../src/tools/gateway.ts';
 import { createAdmin } from '../src/admin.ts';
 import {
   awakeLines,
-  diagnosticLines,
   diagnosticText,
   feedbackFactText,
   feedbackInTurnText,
@@ -1386,7 +1385,7 @@ test('awakeLines: a retried wake is followed by its delayed line with the minute
   assert.equal(awakeLines(wake, { ...labels, ...bare }).includes('delayed 7 timeout'), false);
 });
 
-test('diagnosticText and diagnosticLines: one line per parser diagnostic from tools.diagnostics; nothing without the labels', () => {
+test('diagnosticText: one line per parser diagnostic from tools.diagnostics; nothing without the labels', () => {
   const retired = { kind: 'retiredTag', tag: 'draw' };
   assert.equal(
     diagnosticText(retired, labels),
@@ -1406,12 +1405,6 @@ test('diagnosticText and diagnosticLines: one line per parser diagnostic from to
     'a kept fact names its kind'
   );
   assert.equal(diagnosticText({ kind: 'strange' }, labels), '');
-  assert.deepEqual(diagnosticLines([retired, { kind: 'strange' }], labels), [
-    labels.task.diagnostics,
-    `- ${diagnosticText(retired, labels)}`,
-  ]);
-  assert.deepEqual(diagnosticLines([], labels), []);
-  assert.deepEqual(diagnosticLines([retired], { ...labels, task: { ...labels.task, diagnostics: '' } }), []);
   // As a kept fact it is worded in the facts block of the next turn, and only when the labels are at hand.
   const fact = { kind: 'diagnostic', diagnostic: 'messageCut', chars: 7 };
   assert.equal(

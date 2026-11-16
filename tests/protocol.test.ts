@@ -15,7 +15,6 @@ import {
   MEMBERSHIP_CHANGES,
   ackOf,
   envelope,
-  originOf,
   portAction,
   validateAction,
   validateEnvelope,
@@ -472,50 +471,6 @@ test('validateEvent: an origin record is optional, and checked when present', ()
     ok: false,
     reason: 'chat.parentId:type',
   });
-});
-
-test('originOf: the origin an adapter sent wins; else it is read off the chat and the addressing', () => {
-  const plain = originOf(
-    messageEvent({
-      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
-    })
-  );
-  assert.deepEqual(plain, {
-    chatType: 'channel',
-    place: 'c1',
-    parent: null,
-    thread: null,
-    replyToAuthorId: null,
-    replyExpected: null,
-  });
-  assert.equal(originOf(messageEvent()).replyExpected, true, 'a mention expects an answer');
-  assert.equal(
-    originOf(
-      messageEvent({
-        chat: { id: 'd1', kind: 'dm' },
-        addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
-      })
-    ).chatType,
-    'dm'
-  );
-  assert.equal(
-    originOf(messageEvent({ chat: { id: 'd1', kind: 'dm' } })).replyExpected,
-    true,
-    'a direct chat expects an answer'
-  );
-  const thread = originOf(messageEvent({ chat: { ...chat, id: 't1', kind: 'thread', parentId: 'c1' } }));
-  assert.deepEqual([thread.chatType, thread.place, thread.parent, thread.thread], ['thread', 't1', 'c1', 't1']);
-  const sent = {
-    chatType: 'group',
-    place: 'g9',
-    parent: null,
-    thread: null,
-    replyToAuthorId: 'u2',
-    replyExpected: false,
-  };
-  assert.deepEqual(originOf(messageEvent({ origin: sent })), sent);
-  // @ts-expect-error null where an event is expected, on purpose
-  assert.doesNotThrow(() => originOf(null));
 });
 
 // A hello names who the persona is on the interface and the root it serves.

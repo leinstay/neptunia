@@ -7,9 +7,20 @@ import type { Untyped } from '../../../src/tools/types.ts';
 import type { MapContext } from '../../../src/memory/db/row-columns.ts';
 import type { Db, MemoryHandle, Rows } from '../../../src/memory/db/types.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
-import { insertRows, readRows } from '../../../src/memory/db/rows.ts';
+import { insertRows } from '../../../src/memory/db/rows.ts';
 
 let shared: MemoryHandle | null = null;
+
+/** Every row of each named table as a plain object, in rowid order. */
+function readRows(db: Db, tables: ReadonlyArray<string>): Rows {
+  const out: Rows = {};
+  for (const table of tables)
+    out[table] = db
+      .prepare(`SELECT * FROM "${table.replaceAll('"', '""')}" ORDER BY rowid`)
+      .all()
+      .map((row) => ({ ...row }));
+  return out;
+}
 
 /** A mapper as the round trip calls it: `fromRows` may read the context the rows came with. */
 type RoundTripMapper = {

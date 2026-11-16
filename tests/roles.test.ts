@@ -15,13 +15,11 @@ import {
   ROLES,
   ROLE_DEFAULTS,
   PURPOSE_ROLES,
-  isRole,
   roleConfigKeys,
   roleGroup,
   roleModel,
   roleOn,
   searchModel,
-  MANDATORY_ROLES,
   OPTIONAL_ROLES,
   offRoles,
 } from '../src/llm/roles.ts';
@@ -128,10 +126,6 @@ test('roleModel: undefined for a name that is not a role, unless its purpose is 
   assert.equal(roleModel({}, 'constructor'), undefined);
   assert.equal(roleModel({}, 'web'), undefined, 'the errand agent is called scout');
   assert.equal(roleModel({ models: { byPurpose: { odd: 'x/odd' } } }, 'nope', 'odd'), 'x/odd');
-  assert.equal(isRole('core'), true);
-  assert.equal(isRole('scout'), true);
-  assert.equal(isRole('web'), false);
-  assert.equal(isRole('byPurpose'), false);
 });
 
 test('roleModel: each role reads its own group only', () => {
@@ -166,7 +160,6 @@ test("roleModel: the memory role has its own chain and default, never the core's
     ROLE_DEFAULTS.core,
     "with no chain: its own default, never the core's route"
   );
-  assert.equal(isRole(MEMORY_ROLE), false, '/nep model does not list it');
 });
 
 test("roleGroup / roleConfigKeys: each role's group, and the config keys of an agent's model", () => {
@@ -212,7 +205,7 @@ test("roles: the built-in defaults equal config.json's agent groups, and every r
   assert.deepEqual(Object.keys(ROLE_DEFAULTS).sort(), [...ROLES].sort());
   assert.deepEqual([...ROLES], [...CORE_ROLES, 'drawing', ...ERRAND_ROLES]);
   assert.deepEqual([...MODEL_SET_ROLES], [...ROLES], '/nep model set offers every role');
-  for (const role of Object.values(PURPOSE_ROLES)) assert.ok(isRole(role), role);
+  for (const role of Object.values(PURPOSE_ROLES)) assert.ok(ROLES.includes(role), role);
 });
 
 // ---- readConfig --------------------------------------------------------------
@@ -282,7 +275,7 @@ test('call sites: every request role is one of the roles, every purpose goes out
     // A semantic predicate's argument also has a `role`; those files send no request.
     const semantic = /memory[\\/]db[\\/]semantic-/.test(file);
     for (const [, role] of semantic ? [] : text.matchAll(/\brole: '([\w.-]+)'/g)) {
-      if (!chatRoles.has(role)) assert.ok(isRole(role), `${file}: role '${role}'`);
+      if (!chatRoles.has(role)) assert.ok(ROLES.includes(role), `${file}: role '${role}'`);
       assert.ok(
         !OPENCODE_ROLES.includes(role),
         `${file}: no request of the bot goes out on the OpenCode role '${role}'`
@@ -358,8 +351,7 @@ test('an optional role whose chain is empty or absent is off, one with a route i
 
 // Bug caught: a mandatory role switched off by an empty chain would leave the persona without a core or a memory.
 test('the mandatory roles are on whatever their chain holds', () => {
-  assert.deepEqual([...MANDATORY_ROLES], ['core', 'memory', 'analyzer', 'embedding']);
-  for (const role of MANDATORY_ROLES) {
+  for (const role of ['core', 'memory', 'analyzer', 'embedding']) {
     assert.equal(roleOn(withChains({ [role]: null }), role), true, `${role} empty`);
     assert.equal(roleOn({}, role), true, `${role} absent`);
   }

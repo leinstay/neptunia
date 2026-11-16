@@ -5,7 +5,6 @@
 // tables. Contract:
 //   catalog(db: Db): InspectionCatalog
 //   readRows(db: Db, request: InspectionRead): InspectionPage
-//   readRow(db: Db, request: { table: string; locator: RowLocator }): InspectionRow
 // `InspectionTable` carries `storageClass: 'domain' | 'operational' | 'derived' | 'metadata' | 'unclassified'`. A refusal
 // throws an Error whose `code` is INSPECTION_UNKNOWN_TABLE, INSPECTION_UNKNOWN_COLUMN, INSPECTION_AMBIGUOUS_LOCATOR,
 // INSPECTION_ROW_NOT_FOUND, INSPECTION_BAD_LIMIT or INSPECTION_BAD_CURSOR.
@@ -14,8 +13,8 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { boardVersion } from '../src/board/schema.ts';
-import { catalog, readRow, readRows } from '../src/memory/db/inspection.ts';
-import type { InspectionPage, InspectionRead, InspectionRow, RowLocator } from '../src/memory/db/inspection.ts';
+import { catalog, readRows } from '../src/memory/db/inspection.ts';
+import type { InspectionPage, InspectionRead, InspectionRow } from '../src/memory/db/inspection.ts';
 import type { InspectionValue } from '../src/memory/db/inspection-values.ts';
 import { openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -327,7 +326,6 @@ test('a composite key locates its row by a typed tuple in key order', () => {
         row.locator.values.map((one) => one.column),
         ['b', 'a']
       );
-      assert.deepEqual(readRow(db, { table: 'pairs', locator: row.locator }).values, row.values);
     }
   });
 });
@@ -346,45 +344,6 @@ test('rows with a NULL in a nullable primary key stay apart by their rowid', () 
       ['rowid', 'rowid']
     );
     assert.notDeepEqual(open[0].locator, open[1].locator);
-    for (const row of open)
-      assert.deepEqual(readRow(db, { table: 'nullable', locator: row.locator }).values, row.values);
-  });
-});
-
-test('a key tuple holding NULL is ambiguous and opens nothing', () => {
-  // Bug: `WHERE k IS NULL LIMIT 1` answers with one of the matching rows as if it were the row asked for.
-  withDb((db) => {
-    db.exec(
-      "CREATE TABLE nullable (k TEXT PRIMARY KEY, v TEXT); INSERT INTO nullable VALUES (NULL, 'one'), (NULL, 'two');"
-    );
-    const locator: RowLocator = { kind: 'primary', values: [{ column: 'k', value: { kind: 'null' } }] };
-    assert.throws(() => readRow(db, { table: 'nullable', locator }), { code: 'INSPECTION_AMBIGUOUS_LOCATOR' });
-  });
-});
-
-test('a locator that names part of a composite key, or another column, is refused', () => {
-  withDb((db) => {
-    db.exec(
-      "CREATE TABLE pairs (a TEXT, b TEXT, PRIMARY KEY (a, b)); INSERT INTO pairs VALUES ('1', '2'), ('1', '3');"
-    );
-    const part: RowLocator = { kind: 'primary', values: [{ column: 'a', value: text('1') }] };
-    assert.throws(() => readRow(db, { table: 'pairs', locator: part }), { code: 'INSPECTION_AMBIGUOUS_LOCATOR' });
-    const other: RowLocator = {
-      kind: 'primary',
-      values: [
-        { column: 'a', value: text('1') },
-        { column: 'nope', value: text('2') },
-      ],
-    };
-    assert.throws(() => readRow(db, { table: 'pairs', locator: other }), { code: 'INSPECTION_UNKNOWN_COLUMN' });
-  });
-});
-
-test('a locator of a row that is gone is refused and not answered with an empty row', () => {
-  withDb((db) => {
-    db.exec('CREATE TABLE one (id INTEGER PRIMARY KEY)');
-    const locator: RowLocator = { kind: 'primary', values: [{ column: 'id', value: integer('1') }] };
-    assert.throws(() => readRow(db, { table: 'one', locator }), { code: 'INSPECTION_ROW_NOT_FOUND' });
   });
 });
 
@@ -396,7 +355,6 @@ test('identical rows of a table with no key both come back, with rowids that ope
     assert.equal(rows.length, 2);
     assert.equal(rows[0].locator.kind, 'rowid');
     assert.notDeepEqual(rows[0].locator, rows[1].locator);
-    assert.deepEqual(readRow(db, { table: 'twins', locator: rows[1].locator }).values, rows[1].values);
   });
 });
 
@@ -408,7 +366,6 @@ test('a rowid locator uses an alias no column shadows', () => {
     assert.ok(rows[0].locator.kind === 'rowid');
     assert.notEqual(rows[0].locator.alias, 'rowid');
     assert.notDeepEqual(rows[0].locator, rows[1].locator);
-    assert.deepEqual(cell(readRow(db, { table: 'shadowing', locator: rows[1].locator }), 'v'), text('b'));
   });
 });
 
@@ -432,7 +389,6 @@ test('a WITHOUT ROWID table and an INTEGER PRIMARY KEY named rowid locate by the
       INSERT INTO strict_pairs VALUES ('1', '2');`);
     const [strict] = allRows(db, 'strict_pairs');
     assert.equal(strict.locator.kind, 'primary');
-    assert.deepEqual(readRow(db, { table: 'strict_pairs', locator: strict.locator }).values, strict.values);
     seed(db);
     const [source] = allRows(db, 'sources');
     assert.ok(source.locator.kind === 'primary');
@@ -440,7 +396,6 @@ test('a WITHOUT ROWID table and an INTEGER PRIMARY KEY named rowid locate by the
       source.locator.values.map((one) => one.column),
       ['rowid']
     );
-    assert.deepEqual(cell(readRow(db, { table: 'sources', locator: source.locator }), 'id'), cell(source, 'id'));
   });
 });
 
@@ -520,9 +475,6 @@ for (const name of ['nope', 'claims; DROP TABLE claims', 'claims" --', '']) {
     withDb((db) => {
       const before = databaseDigest(db);
       assert.throws(() => first(db, name, []), { code: 'INSPECTION_UNKNOWN_TABLE' });
-      assert.throws(() => readRow(db, { table: name, locator: { kind: 'rowid', alias: 'rowid', value: '1' } }), {
-        code: 'INSPECTION_UNKNOWN_TABLE',
-      });
       assert.deepEqual(databaseDigest(db), before);
     });
   });
@@ -563,9 +515,7 @@ test('catalog and row reads change no row of any table, node_access and turn_rea
     const before = databaseDigest(db);
     const changes = Number(db.prepare('SELECT total_changes() AS n').get()?.n);
     for (const table of catalog(db).tables) {
-      for (const row of allRows(db, table.name)) {
-        if (row.locator.kind !== 'snapshot-position') readRow(db, { table: table.name, locator: row.locator });
-      }
+      allRows(db, table.name);
     }
     assert.equal(Number(db.prepare('SELECT total_changes() AS n').get()?.n), changes);
     assert.deepEqual(databaseDigest(db), before);

@@ -8,7 +8,7 @@ import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { personDetail } from '../src/memory/db/people-read.ts';
-import { accountLinks, personMembers } from '../src/memory/db/person-links.ts';
+import { personMembers } from '../src/memory/db/person-links.ts';
 import { dmContext, groupContext, internalContext } from '../src/memory/db/scope.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
@@ -120,7 +120,7 @@ test('a stranger under her name stays a stranger, and all her accounts read as o
         .sort(),
       [accountOf(db, 'discord', 'her-id')?.id, accountOf(db, 'telegram', 'her-other-id')?.id].sort()
     );
-    assert.equal(accountLinks(db, 'discord', 'her-id').person, SELF);
+    assert.equal(accountOf(db, 'discord', 'her-id')?.person_id, SELF);
   });
 });
 

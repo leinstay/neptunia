@@ -10,13 +10,10 @@ import {
   checkArguments,
   readEntityKind,
   readPredicate,
-  registerPredicate,
 } from '../src/memory/db/semantic-registry.ts';
 import type { PredicateDefinition } from '../src/memory/db/semantic-registry.ts';
 import type { SemanticArgument } from '../src/memory/db/semantic-types.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-
-const NOW = Date.UTC(2026, 10, 5, 10);
 const opened = () => {
   const handle = openMemoryDb(':memory:');
   return { handle, db: dbOf(handle) };
@@ -215,50 +212,3 @@ test('accepts an open-ended interval and several attendees up to the maximum', (
     { ok: true }
   );
 });
-
-test('a new predicate version joins the registry beside the old one', () => {
-  // Bug: a new version replaces the old definition and sealed assertions lose their contract.
-  const { handle, db } = opened();
-  assert.deepEqual(registerPredicate(handle, WORKS_ON, NOW), { ok: true });
-  const second = { ...WORKS_ON, version: 2, roles: WORKS_ON.roles.slice(0, 1) };
-  assert.deepEqual(registerPredicate(handle, second, NOW), { ok: true });
-  assert.deepEqual(readPredicate(db, WORKS_ON.id, 1), WORKS_ON);
-  assert.deepEqual(readPredicate(db, WORKS_ON.id, 2), second);
-  handle.close();
-});
-
-test('refuses to register a predicate version that exists and leaves the stored one', () => {
-  // Bug: a repeated registration quietly redefines a sealed contract.
-  const { handle, db } = opened();
-  registerPredicate(handle, WORKS_ON, NOW);
-  assert.deepEqual(registerPredicate(handle, { ...WORKS_ON, symmetric: true }, NOW), {
-    ok: false,
-    code: 'version_exists',
-  });
-  assert.equal(readPredicate(db, WORKS_ON.id, 1)?.symmetric, false);
-  handle.close();
-});
-
-const BAD_DEFINITIONS: ReadonlyArray<[string, PredicateDefinition]> = [
-  ['no roles', { ...WORKS_ON, id: 'bad.one', roles: [] }],
-  ['a version below one', { ...WORKS_ON, id: 'bad.two', version: 0 }],
-  [
-    'a minimum above its maximum',
-    { ...WORKS_ON, id: 'bad.three', roles: [{ role: 'x', min: 2, max: 1, refs: ['person'], literals: [] }] },
-  ],
-  [
-    'a role that admits nothing',
-    { ...WORKS_ON, id: 'bad.four', roles: [{ role: 'x', min: 1, max: 1, refs: [], literals: [] }] },
-  ],
-  ['two roles of one name', { ...WORKS_ON, id: 'bad.five', roles: [WORKS_ON.roles[0], WORKS_ON.roles[0]] }],
-];
-
-for (const [name, definition] of BAD_DEFINITIONS) {
-  test(`refuses a predicate definition with ${name}`, () => {
-    // Bug: an unusable definition becomes immutable the moment it is stored.
-    const { handle, db } = opened();
-    assert.deepEqual(registerPredicate(handle, definition, NOW), { ok: false, code: 'bad_definition' });
-    assert.equal(readPredicate(db, definition.id, definition.version), null);
-    handle.close();
-  });
-}

@@ -16,7 +16,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { allowedAudience, dmAudienceId, dmUserOf, issueContext, readContextSpec } from '../src/memory/db/scope.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { journalKey, placeCollection } from '../src/memory/db/unit-keys.ts';
+import { placeCollection } from '../src/memory/db/unit-keys.ts';
 import { resolveRow } from '../src/memory/db/rows.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -69,7 +69,7 @@ const answerLine = (native: string): Row => ({
 
 /** A journal line's rows and the line back, in a day unit of a place, as the journal writer and reader build them. */
 const journalMapper = (db: Db) => {
-  const key = journalKey('discord:channel:c1', '2026-11-08');
+  const key = placeCollection('journal', 'discord:channel:c1', { partition: '2026-11-08' });
   // The interface of the write names the place's, since no row holds it.
   const ctx = storageContext(db, key, 'discord');
   // A journal day's key always names its owner columns (line-owner.ts#lineOwnerOf).

@@ -4,7 +4,7 @@
 // gives the suite a port and a neutral view of what reached its chats.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CAPABILITIES, STATUSES } from '../src/interface/port.ts';
+import { CAPABILITIES } from '../src/interface/port.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import * as discordInterface from '../interfaces/discord/index.ts';
 import { createDiscordAdapter, createDiscordInterface, discordFailure } from '../interfaces/discord/index.ts';
@@ -321,7 +321,7 @@ for (const [name, makeAny] of table([
       () => port.typing(wrongly({}), noLease),
     ]) {
       const result = await call();
-      assert.ok(STATUSES.includes(result.status));
+      assert.ok(['ok', 'failed', 'unknown', 'unsupported', 'forbidden'].includes(result.status));
       assert.notEqual(result.status, 'ok');
     }
   });

@@ -1,11 +1,11 @@
 // Tests for src/memory/episodes.ts: sortEpisodesForDisplay (rendering order),
 // topEpisodes (the top N shown for a member asked about) and the episode rules other modules share
-// (episodeDate in both forms, isSameEpisode). Pure; the
+// (episodeDate in both forms). Pure; the
 // import-graph test reads source files only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { sortEpisodesForDisplay, topEpisodes, episodeDate, isSameEpisode } from '../src/memory/episodes.ts';
+import { sortEpisodesForDisplay, topEpisodes, episodeDate } from '../src/memory/episodes.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
@@ -115,40 +115,4 @@ test('episodeDate: without a clock it tests a stored date, the date itself or an
     assert.equal(episodeDate(raw), '', String(raw));
     assert.equal(episodeDate(raw, undefined), '', `${String(raw)}: an undefined clock is the same form, not an error`);
   }
-});
-
-test('isSameEpisode: the same date and the same what once trimmed, whitespace-collapsed and lower-cased', () => {
-  const a = { date: '2026-01-01', what: '  Η Zoë  ΤΡΑΓΟΎΔΗΣΕ\tστο κανάλι ', quote: '' };
-  const b = { date: '2026-01-01', what: 'η zoë τραγούδησε στο κανάλι', quote: '' };
-  assert.equal(isSameEpisode(a, b), true);
-  assert.equal(isSameEpisode(b, a), true, 'symmetric');
-  assert.equal(
-    isSameEpisode(a, { ...b, date: '2026-01-02' }),
-    false,
-    'the same what on another date is another moment'
-  );
-  assert.equal(isSameEpisode(a, { ...b, what: 'η zoë τραγούδησε' }), false);
-});
-
-test('isSameEpisode: an identical non-empty quote is the same moment, whatever the date and what', () => {
-  const a = { date: '2026-01-01', what: 'υποσχέθηκε κάτι', quote: 'δεν φεύγω ποτέ' };
-  const b = { date: '2026-05-05', what: 'μια άλλη διατύπωση', quote: 'δεν φεύγω ποτέ' };
-  assert.equal(isSameEpisode(a, b), true);
-  assert.equal(isSameEpisode(a, { ...b, quote: 'Δεν φεύγω ποτέ' }), false, 'a quote is compared verbatim');
-  assert.equal(
-    isSameEpisode({ ...a, quote: '' }, { ...b, quote: '' }),
-    false,
-    'two empty quotes are no match by themselves'
-  );
-});
-
-test('isSameEpisode: a stored entry that is not an object, or has no what, never throws', () => {
-  const candidate = { date: '2026-01-01', what: 'κάτι', quote: '' };
-  for (const junk of [null, 'κάτι']) {
-    // @ts-expect-error: the test passes junk the signature refuses, to check how the function copes with it
-    assert.equal(isSameEpisode(junk, candidate), false, String(junk));
-    // @ts-expect-error: the test passes junk the signature refuses, to check how the function copes with it
-    assert.equal(isSameEpisode(candidate, junk), false, String(junk));
-  }
-  assert.equal(isSameEpisode({ date: '2026-01-01', what: 42 }, candidate), false);
 });

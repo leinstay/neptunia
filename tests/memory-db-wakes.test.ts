@@ -16,7 +16,6 @@ import {
   interruptStale,
   recordAction,
   startRun,
-  wakeRunOf,
 } from '../src/memory/db/wakes.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
@@ -27,7 +26,23 @@ import { WAKE_POLICY_VERSION } from '../src/tools/access.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
-import { dbOf, type Db } from '../src/memory/db/types.ts';
+import { dbOf, type Db, type Row } from '../src/memory/db/types.ts';
+
+/** The stored run and its actions (in order), or null. */
+function wakeRunOf(
+  db: Db,
+  id: unknown
+): (Row & { actions: Array<Row & { n: number; kind: string; status: string }> }) | null {
+  const run = db.prepare('SELECT * FROM wake_runs WHERE id = ?').get(id);
+  if (!run) return null;
+  return {
+    ...run,
+    actions: db
+      .prepare('SELECT * FROM wake_actions WHERE run_id = ? ORDER BY n')
+      .all(id)
+      .map((row) => ({ ...row }) as Row & { n: number; kind: string; status: string }),
+  };
+}
 
 // The chat she wakes in is held by a fake interface named `fake`.
 useIface('fake');

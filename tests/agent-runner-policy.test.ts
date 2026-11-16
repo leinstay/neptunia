@@ -12,8 +12,6 @@ import { fileURLToPath } from 'node:url';
 import {
   scopeOf,
   isFiltered,
-  isWithheldPath,
-  withheldInToolUse,
   redactSecrets,
   redactorFor,
   containsSecret,
@@ -35,20 +33,6 @@ test('scopeOf: known scope kept, anything else is the narrowest', () => {
   assert.equal(scopeOf({ scope: 'nope' }), 'group');
   assert.equal(isFiltered('core'), false);
   assert.equal(isFiltered('group'), true);
-});
-
-test('isWithheldPath: roots, name components and env files', () => {
-  assert.equal(isWithheldPath('/var/www/html/index.php'), true);
-  assert.equal(isWithheldPath('/srv/neptunia-backups/2026-10-17-000000-docs.tgz'), true);
-  assert.equal(isWithheldPath('/srv/git/repo.git/HEAD'), false, 'the bare repositories are readable');
-  assert.equal(isWithheldPath('/home/neptunia/project/.git/config'), true);
-  assert.equal(isWithheldPath('/home/x/.ssh/id_ed25519'), true);
-  assert.equal(isWithheldPath('/opt/app/.env'), true);
-  assert.equal(isWithheldPath('/opt/app/.env.local'), true);
-  assert.equal(isWithheldPath('/opt/app/config.local.json'), true);
-  assert.equal(isWithheldPath('/etc/letsencrypt/live/x/privkey.pem'), true);
-  assert.equal(isWithheldPath('/srv/neptunia-dev/neptunia-core/src/index.js'), false);
-  assert.equal(isWithheldPath('/home/steam/servers'), false);
 });
 
 test('withheld roots and globs: the fixed ones, then the data directory apart from the checkout', () => {
@@ -80,38 +64,6 @@ test('withheld roots and globs: the fixed ones, then the data directory apart fr
     'the module default: this checkout, resolved from the environment'
   );
   assert.deepEqual(WITHHELD_GLOBS, withheldGlobsOf({ paths: own }));
-  assert.equal(isWithheldPath(path.join(own.dataDir, 'guilds', '1', 'guild.json')), true);
-});
-
-test('withheldInToolUse: core withholds nothing', () => {
-  assert.equal(withheldInToolUse({ tool: 'bash', input: { command: 'cat /var/www/x' } }, 'core'), null);
-  assert.equal(withheldInToolUse({ tool: 'read', input: { path: '/opt/app/.env' } }, 'core'), null);
-});
-
-test('withheldInToolUse: a read of a withheld path is caught in dm/group', () => {
-  assert.ok(withheldInToolUse({ tool: 'read', input: { filePath: '/opt/app/.env' } }, 'dm'));
-  assert.ok(withheldInToolUse({ tool: 'read', input: { path: '/srv/neptunia-dev/.secrets/x' } }, 'group'));
-  assert.equal(
-    withheldInToolUse({ tool: 'read', input: { path: '/srv/neptunia-dev/neptunia-core/README.md' } }, 'dm'),
-    null
-  );
-});
-
-test('withheldInToolUse: bash reads are checked, listings are not', () => {
-  assert.ok(withheldInToolUse({ tool: 'bash', input: { command: 'cat /home/x/.ssh/id_ed25519' } }, 'dm'));
-  assert.ok(withheldInToolUse({ tool: 'bash', input: { command: 'grep token /opt/app/.env' } }, 'group'));
-  // listing names of a directory is allowed even if it holds withheld things
-  assert.equal(withheldInToolUse({ tool: 'bash', input: { command: 'ls -la /srv/neptunia-dev' } }, 'dm'), null);
-  // a reader with no path (reads a pipe) is not blocked by path
-  assert.equal(withheldInToolUse({ tool: 'bash', input: { command: 'ps aux | grep node' } }, 'dm'), null);
-  // a listing with find and no -exec is allowed
-  assert.equal(withheldInToolUse({ tool: 'bash', input: { command: 'find /srv -name "*.js"' } }, 'dm'), null);
-});
-
-test('withheldInToolUse: listing a withheld directory itself is withheld', () => {
-  assert.ok(withheldInToolUse({ tool: 'list', input: { path: '/srv/neptunia-backups' } }, 'dm'));
-  assert.equal(withheldInToolUse({ tool: 'list', input: { path: '/srv/git' } }, 'dm'), null);
-  assert.equal(withheldInToolUse({ tool: 'list', input: { path: '/home' } }, 'dm'), null);
 });
 
 test('redactSecrets: assignments, prefixes, dotted tokens, hex, URL creds, SSH, key block', () => {

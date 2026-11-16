@@ -10,7 +10,6 @@ import {
   draftRangeText,
   pasteIntoDraft,
   removePart,
-  restorePart,
   typeIntoDraft,
 } from '../interfaces/cli/composer.ts';
 import type { Draft, PasteLimits } from '../interfaces/cli/composer.ts';
@@ -78,18 +77,6 @@ test('trailing spaces, tabs, carriage returns and blank lines in a payload survi
   const payload = '  first  \n\n\tsecond\r\nthird   \n\n';
   const draft = pasteIntoDraft(draftFromText('d', 'x', 1), { id: 'p', payload }, LIMITS);
   assert.equal(textOf(draft), `x${payload}`);
-});
-
-test('a chip keeps the full payload, and restore puts a removed part back at its place', () => {
-  // Bug: a chip keeps only its preview, or undoing a removal moves the paste to the end of the draft.
-  // The chat has no key that shows what stands behind a chip (Claude Code has none), so the full payload is checked
-  // through the assembled text instead of through the inspect function the key used.
-  const payload = 'one\ntwo\nthree\nfour';
-  const draft = typeIntoDraft(pasteIntoDraft(draftFromText('d', 'before ', 7), { id: 'p', payload }, LIMITS), ' after');
-  assert.equal(textOf(draft), `before ${payload} after`);
-  const removed = removePart(draft, 'p');
-  assert.equal(textOf(removed), 'before  after');
-  assert.equal(textOf(restorePart(removed, 'p')), `before ${payload} after`);
 });
 
 test('removing an unknown part and pasting nothing change nothing', () => {

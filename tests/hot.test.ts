@@ -170,7 +170,7 @@ test('createHot: does not emit "change" when reloadConfig fails', () => {
   }
 });
 
-test('readPrompts: strips a UTF-8 BOM and normalizes CRLF to LF, trimming edges', () => {
+test('createHot: prompts strip a UTF-8 BOM and normalize CRLF to LF, trimming edges', () => {
   const dir = makeRoot();
   fs.writeFileSync(path.join(dir, 'prompts', 'format.md'), '﻿  line one\r\nline two  \r\n');
   const hot = createHot({ rootDir: dir });

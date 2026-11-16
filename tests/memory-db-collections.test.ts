@@ -3,7 +3,6 @@
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   accountCollection(kind, accountId, options?): UnitKey     subject { type: 'account', id }
 //   placeCollection(kind, placeId, options?): UnitKey         subject { type: 'place', id }
-//   journalKey(placeId, day): UnitKey
 // `options` is { partition?, selector? }. An empty id throws code `BAD_COLLECTION_ID`.
 // Appendix entries: src/memory/db/unit-keys.ts, src/memory/db/upsert.ts.
 import { test } from 'node:test';
@@ -11,7 +10,7 @@ import assert from 'node:assert/strict';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import * as keys from '../src/memory/db/unit-keys.ts';
-import { accountCollection, journalKey, placeCollection, collectionId } from '../src/memory/db/unit-keys.ts';
+import { accountCollection, placeCollection, collectionId } from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
@@ -56,19 +55,6 @@ test('an empty id is refused with a code', () => {
       (error: { code?: string }) => error.code === 'BAD_COLLECTION_ID'
     );
   }
-  assert.throws(
-    () => journalKey('', '2026-11-01'),
-    (error: { code?: string }) => error.code === 'BAD_COLLECTION_ID'
-  );
-});
-
-test('the journal of a day belongs to its place', () => {
-  // Bug: the three keyed helpers keep asking a service for its namespace and a root for its scope.
-  assert.deepEqual(journalKey('place:dm-a11', '2026-11-01'), {
-    kind: 'journal',
-    subject: { type: 'place', id: 'place:dm-a11' },
-    partition: '2026-11-01',
-  });
 });
 
 test('no constructor that takes a root remains', () => {

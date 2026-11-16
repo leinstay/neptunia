@@ -7,7 +7,7 @@ import { createEventDoor, eventIdOf } from '../src/interface/door.ts';
 import type { EventHandlerContext, From, IngestRow } from '../src/interface/door.ts';
 import type { AuthenticatedSender } from '../src/interface/principals.ts';
 import { envelope } from '../src/protocol/index.ts';
-import type { ErrandDone, ReactionChanged } from '../src/protocol/events.ts';
+import type { ReactionChanged } from '../src/protocol/events.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 
@@ -124,7 +124,10 @@ test('door: the same id while its handler still runs is a duplicate', async () =
 test("door: the core's own events get derived ids: an errand end by task and status, a tick by time", async () => {
   const seen: Array<Untyped> = [];
   const door = createEventDoor({
-    handlers: { 'errand.done': (e: ErrandDone) => seen.push(e.errandId), 'scheduler.tick': () => seen.push('tick') },
+    handlers: {
+      'errand.done': (e: { errandId: string }) => seen.push(e.errandId),
+      'scheduler.tick': () => seen.push('tick'),
+    },
     log: quiet(),
   });
   const done = { kind: 'errand.done', at: 5, errandId: 't1', status: 'done', rootId: 'g1' };
