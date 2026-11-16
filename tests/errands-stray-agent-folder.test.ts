@@ -24,17 +24,18 @@ function rig() {
       calls.push({ level, msg, fields });
   const log = { info: record('info'), warn: record('warn'), error: record('error') };
   const pinged: Array<string> = [];
-  const client: Untyped = {
+  const client = {
     configured: () => true,
     onLink: () => {},
-    ping: async (agent: string) => (pinged.push(agent), { ok: true }),
-    run: async () => ({ status: 'done', result: { text: '' }, usage: {} }),
+    ping: (agent: string) => (pinged.push(agent), Promise.resolve({ ok: true })),
+    run: () => Promise.resolve({ status: 'done' as const, result: { text: '' }, usage: {} }),
   };
   const hot = { config: { errands: { maxOpen: 3 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   const memory = openTestMemorySync({ dataDir: path.join(f.base, 'memory') });
   MEMORIES.push(memory);
   const stores = createErrandStores({ memoryDb: memory.memoryDb, config: () => hot.config, log });
   const errands = createErrandService({
+    // @ts-expect-error: the stand-in answers a ping and a run with their bare fields; the real client adds the rest
     client,
     stores,
     hot,
