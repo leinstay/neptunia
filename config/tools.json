@@ -243,7 +243,7 @@
   },
   "memory.journal.read": {
     "title": "Read journal",
-    "whenToUse": "Reads your journal, the records the engine keeps of your own turns and calls: the last records of one day, of one kind or all, or with message the whole turn that posted that message of yours. It returns records of what you did, never the text of a post. It runs only when the owner asks, or in a turn of your own.",
+    "whenToUse": "Reads your journal of this chat, the records the engine keeps of your own turns and calls: the last records of one day, of one kind or all, or with message the whole turn that posted that message of yours, your thinking included. A turn record holds what you saw, how the turn ended and the start of your thinking. Kind answer lists the messages that may have gone without your answer, and kind inner the turns you started yourself, with no line to answer. It returns records of what you did, never the text of a post. It runs only when the owner asks, or in a turn of your own.",
     "whenNotToUse": "For a post of yours, memory.search with mine, or conversation.read of its place with find. For what people said, memory.search.",
     "args": {
       "kind": "turn, action, memory, system, answer, inner or all (default).",
