@@ -115,7 +115,9 @@ test('describe: a successful call downloads the picture, sends it as a data: URL
   const describer = createDescriber({ hot, store, llm, imageFetcher });
 
   const result = await describer.describe('g1', pictureItem('a1'));
-  assert.equal(loose(result).text, 'A grey cat sleeping on a couch.');
+  // The owner on 2026-11-16: a caption is the whole answer on one line, at most 3,000 characters. The expectation of
+  // the first line alone was the old rule.
+  assert.equal(loose(result).text, 'A grey cat sleeping on a couch. some extra line ignored');
   assert.equal(loose(result).cached, undefined);
   assert.deepEqual(loose(result).usage, { prompt_tokens: 200 });
 
@@ -127,7 +129,7 @@ test('describe: a successful call downloads the picture, sends it as a data: URL
   );
 
   const cache = cacheView(store, 'g1');
-  assert.equal(loose(cache).a1.text, 'A grey cat sleeping on a couch.');
+  assert.equal(loose(cache).a1.text, 'A grey cat sleeping on a couch. some extra line ignored');
 });
 
 /** A prose line of `words` short words, sentence-free, so a cut can only land on a space. */
@@ -144,19 +146,19 @@ async function describeWith(text: string, prompt?: string) {
   return { result, llm };
 }
 
-// PR 7d: `media.descriptionChars` is the describer's constant, 500.
+// The describer's constant is 3,000 since the owner's word of 2026-11-16; the line grew with it so the cut still happens.
 test('describe: an over-long line is cut at or under the description length on a boundary', async () => {
-  const line = proseLine(100);
+  const line = proseLine(600);
   const { result } = await describeWith(line);
-  assert.ok(loose(result).text.length <= 500, `length ${loose(result).text.length}`);
+  assert.ok(loose(result).text.length <= 3000, `length ${loose(result).text.length}`);
   assert.ok(line.startsWith(String(loose(result).text)));
   assert.equal(line[loose(result).text.length], ' ');
 });
 
-// PR 7d: `media.descriptionChars` is the describer's constant, 500.
+// The describer's constant is 3,000 since the owner's word of 2026-11-16.
 test('describe: {{maxChars}} in the describe prompt is filled with the description length', async () => {
   const { llm } = await describeWith('Une chatte grise.', 'Say it in at most {{maxChars}} characters. Keep {{other}}.');
-  assert.equal(llm.calls[0].messages[0].content, 'Say it in at most 500 characters. Keep {{other}}.');
+  assert.equal(llm.calls[0].messages[0].content, 'Say it in at most 3000 characters. Keep {{other}}.');
 });
 
 test('describe: a cache hit is free -- no download, no LLM request, marked cached', async () => {
@@ -1177,15 +1179,16 @@ test('describeVideo: a missing prompt or a non-video item -> null without any re
   }
 });
 
-// PR 7d: `media.video.summaryChars` is the describer's constant, 1500.
-test('describeVideo: the text is collapsed to one line and capped at 1500 chars on a word boundary', async () => {
-  const long = `  Première   scène\n\nκάποιος χορεύει\t${'mot '.repeat(600)}`;
+// The owner on 2026-11-16: every kind of media is described under one length, 3,000 characters.
+test('describeVideo: the text is collapsed to one line and capped at 3000 chars on a word boundary', async () => {
+  const long = `  Première   scène\n\nκάποιος χορεύει\t${'mot '.repeat(1200)}`;
   const { describer } = videoDescriber({ llm: fakeLlm({ text: long }) });
   const text = String(loose(await describer.describeVideo('g1', videoAttachment())).text);
 
   assert.ok(text.startsWith('Première scène κάποιος χορεύει mot'));
   assert.ok(!/\s{2,}|[\n\t]/.test(text));
-  assert.ok([...text].length <= 1500);
+  assert.ok([...text].length <= 3000);
+  assert.ok([...text].length > 2900, 'the cut happens near the limit');
   assert.ok(text.endsWith('mot'), 'cut at a word boundary');
 });
 
@@ -1754,21 +1757,22 @@ test('rewatchVideo: a pinned agentic link passes directUrlTokensPerSecond like a
 
 // --- account length: media.video.summaryChars ------------------------------
 
-// PR 7d: `media.video.summaryChars` is the describer's constant, 1500.
-test('describeVideo: the account is capped at media.video.summaryChars and {{maxChars}} is filled with it', async () => {
+// The owner on 2026-11-16: every kind of media is described under one length, 3,000 characters.
+test('describeVideo: the account is capped at the description length and {{maxChars}} is filled with it', async () => {
   const hot = videoHot({ prompts: { 'describe-video': 'Summarise in at most {{maxChars}} characters.' } });
-  const { describer, llm } = videoDescriber({ hot, llm: fakeLlm({ text: `Première scène ${'mot '.repeat(500)}` }) });
+  const { describer, llm } = videoDescriber({ hot, llm: fakeLlm({ text: `Première scène ${'mot '.repeat(1000)}` }) });
   const text = String(loose(await describer.describeVideo('g1', videoAttachment())).text);
 
-  assert.ok([...text].length <= 1500, text);
+  assert.ok([...text].length <= 3000, text);
   assert.ok(text.startsWith('Première scène mot'));
-  assert.equal(llm.calls[0].messages[0].content, 'Summarise in at most 1500 characters.');
+  assert.equal(llm.calls[0].messages[0].content, 'Summarise in at most 3000 characters.');
 });
 
 // --- rewatchVideo: the second look on a question ---------------------------------
 
 const REWATCH_PROMPT = 'Question: {{question}}. At most {{maxChars}} characters.';
-// PR 7d: the second look's daily cap is gone and its answer length (1200) is the describer's constant.
+// The second look has no daily cap, and its answer takes the one description length (3,000) since the owner's word of
+// 2026-11-16.
 const REWATCH_CFG = { maxOutputTokens: 600 };
 
 function rewatchHot({ video = {}, rewatch = {}, prompts = {} }: Opts = {}) {
@@ -1802,7 +1806,7 @@ test('rewatchVideo: one fetch and one video request with the question and answer
   assert.equal(videoFetcher.calls[0].fn, 'fetchAttachment');
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
-  assert.equal(system.content, 'Question: De quelle couleur est la voiture ?. At most 1200 characters.');
+  assert.equal(system.content, 'Question: De quelle couleur est la voiture ?. At most 3000 characters.');
   assert.deepEqual(user.content, [
     { type: 'text', text: 'De quelle couleur est la voiture ?' },
     { type: 'video_url', video_url: { url: CLIP_DATA_URL } },
@@ -1924,7 +1928,7 @@ test('relookImage: one download and one vision request with the question; the an
   assert.equal(imageFetcher.calls[0].url, 'https://previews.example/a1.webp', 'the preview address as given');
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
-  assert.equal(system.content, 'Question: Y a-t-il un chargeur dans la pupille ?. At most 1200 characters.');
+  assert.equal(system.content, 'Question: Y a-t-il un chargeur dans la pupille ?. At most 3000 characters.');
   assert.deepEqual(user.content, [
     { type: 'text', text: 'Y a-t-il un chargeur dans la pupille ?' },
     { type: 'image_url', image_url: { url: SUCCESSFUL_DOWNLOAD.dataUrl } },
@@ -1949,7 +1953,7 @@ test('relookImage: with no {{question}} in the prompt the question goes only as 
   await describer.relookImage('g1', item, 'Quelle couleur ?');
 
   const [system, user] = llm.calls[0].messages;
-  assert.equal(system.content, 'Answer in at most 1200 characters.');
+  assert.equal(system.content, 'Answer in at most 3000 characters.');
   assert.ok(!system.content.includes('{{question}}'));
   assert.ok(!system.content.includes('Quelle couleur'));
   assert.deepEqual(user.content, [
@@ -2024,8 +2028,8 @@ test('describe: {{today}} in the describe prompt is filled with the date of the 
   const llm = fakeLlm({ text: 'Une affiche datée.' });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => TODAY_NOW });
   await describer.describe('g1', pictureItem('a1'));
-  // PR 7d: `media.descriptionChars` is the describer's constant, 500.
-  assert.equal(llm.calls[0].messages[0].content, 'Today is 2026-09-30; at most 500 characters.');
+  // The describer's constant is 3,000 since the owner's word of 2026-11-16.
+  assert.equal(llm.calls[0].messages[0].content, 'Today is 2026-09-30; at most 3000 characters.');
 });
 
 // cachedDescriptions / cachedVideos: the cache-only accessors the address
@@ -2079,7 +2083,7 @@ const GIF_CLIP_URL = 'data:video/mp4;base64,Z2lm';
 const GIF_VIDEO_PROMPT = 'Account of this clip, up to {{maxChars}} characters.';
 
 /** videoHot plus the GIF settings and a describe-video prompt that shows its cap. */
-// PR 7d: GIF watching is code, its length (15 s) and the caption length (500) are the describer's constants, and the
+// PR 7d: GIF watching is code, its length (15 s) and the caption length (3,000 since the owner's word of 2026-11-16) are the describer's constants, and the
 // daily GIF cap is gone.
 function gifHot({ video = {}, media = {}, prompts = {} }: Opts = {}) {
   const hot = videoHot({ video, prompts: { 'describe-video': GIF_VIDEO_PROMPT, ...prompts } });
@@ -2171,7 +2175,7 @@ test('describe: a gifv embed is watched from its mp4 by the video model, cached 
   });
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
-  assert.deepEqual(system, { role: 'system', content: 'Account of this clip, up to 500 characters.' });
+  assert.deepEqual(system, { role: 'system', content: 'Account of this clip, up to 3000 characters.' });
   assert.deepEqual(user.content, [{ type: 'video_url', video_url: { url: GIF_CLIP_URL } }]);
   const options = llm.calls[0].options;
   assert.equal(options.role, 'video');
@@ -2228,10 +2232,11 @@ test('describe: the GIF length (15 s) caps the watched length', async () => {
 });
 
 test('describe: the watched caption keeps media.descriptionChars, collapsed to one line', async () => {
-  const words = Array.from({ length: 120 }, (_, i) => `mot${i % 10}é`).join(' ');
+  // 700 words pass the one length of 3,000 (the owner on 2026-11-16), so the cut is still exercised.
+  const words = Array.from({ length: 700 }, (_, i) => `mot${i % 10}é`).join(' ');
   const { describer } = gifDescriber({ llm: fakeLlm({ text: `Première ligne.\n${words}` }) });
   const result = await describer.describe('g1', gifEmbedItem());
-  assert.ok(loose(result).text.length <= 500, `${loose(result).text.length} chars`);
+  assert.ok(loose(result).text.length <= 3000, `${loose(result).text.length} chars`);
   assert.ok(!loose(result).text.includes('\n'));
   assert.ok(loose(result).text.startsWith('Première ligne. mot0é'));
 });
@@ -2431,7 +2436,7 @@ test('describe: a GIF watch uses describe-gif when present, with {{maxChars}} an
   await run.describer.describe('g1', gifEmbedItem());
   assert.deepEqual(run.llm.calls[0].messages[0], {
     role: 'system',
-    content: 'Silent loop of 15 s, caption up to 500, 2026-10-01.',
+    content: 'Silent loop of 15 s, caption up to 3000, 2026-10-01.',
   });
   assert.equal(run.llm.calls[0].options.role, 'video');
 });
@@ -2443,7 +2448,7 @@ test('describe: describe-gif alone (no describe-video) is enough to watch GIFs',
   assert.equal(run.describer.gifWatchBlocker(), null);
   await run.describer.describe('g1', gifEmbedItem());
   assert.equal(run.videoFetcher.calls[0].fn, 'fetchGif');
-  assert.equal(run.llm.calls[0].messages[0].content, 'Loop, 500.');
+  assert.equal(run.llm.calls[0].messages[0].content, 'Loop, 3000.');
 });
 
 // --- The GIF describer's three fields ------------------------------------------
@@ -2626,7 +2631,7 @@ test('rewatchGif: one GIF clip fetch and one video request with the question; th
   );
   assert.equal(run.llm.calls.length, 1);
   const [system, user] = run.llm.calls[0].messages;
-  assert.equal(system.content, 'Question: Qui est dans le miroir ?. At most 1200 characters.');
+  assert.equal(system.content, 'Question: Qui est dans le miroir ?. At most 3000 characters.');
   assert.deepEqual(user.content, [{ type: 'video_url', video_url: { url: GIF_CLIP_URL } }]);
   const options = run.llm.calls[0].options;
   assert.equal(options.role, 'video');
@@ -3062,4 +3067,82 @@ test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pi
   assert.equal('watchedSeconds' in loose(cacheView(pinned.store, 'g1'))[`video:${link.itemId}`], false);
   assert.equal('totalSeconds' in loose(cacheView(pinned.store, 'g1'))[`video:${link.itemId}`], false);
   assert.equal(pinned.llm.calls[0].messages[0].content, VIDEO_PROMPT);
+});
+
+// --- A picture's caption is the whole answer; her own picture is captioned under her name ---------------
+
+/** `count` words of five characters each, so a text of known length is built without sentence marks. */
+function fiveCharWords(count: number) {
+  return Array.from({ length: count }, (_, i) => `mot${i % 10}é`).join(' ');
+}
+
+const SELF_PROMPT = 'The picture may show you, {{name}}. You look like this: {{appearance}}.';
+
+function selfHot(appearance: string) {
+  return fakeHot({
+    prompts: { describe: 'Caption the picture. {{self}}', 'describe-self': SELF_PROMPT, appearance },
+  });
+}
+
+async function systemMessageFor(appearance: string) {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm({ text: 'A woman with silver hair.' });
+  const placeIds: Array<string> = [];
+  const selfName = (placeId: string) => {
+    placeIds.push(placeId);
+    return 'Mira';
+  };
+  const describer = createDescriber({
+    hot: selfHot(appearance),
+    store,
+    llm,
+    imageFetcher: fakeImageFetcher(),
+    selfName,
+  });
+  await describer.describe('g1', pictureItem('a1'));
+  const [call] = llm.calls;
+  const [system] = call.messages;
+  return { system: String(system.content), placeIds };
+}
+
+test('describe: a picture keeps every paragraph of the answer, joined into one line', async () => {
+  const { result } = await describeWith(
+    'A street at night, a man in a red coat.\n\nThe left hand is drawn with six fingers.\n\nA sign reads "OPEN".'
+  );
+  assert.equal(
+    loose(result).text,
+    'A street at night, a man in a red coat. The left hand is drawn with six fingers. A sign reads "OPEN".'
+  );
+});
+
+test('describe: a caption of 2900 characters is kept whole', async () => {
+  const answer = fiveCharWords(483); // 483 words and 482 spaces: 2897 characters
+  const { result } = await describeWith(answer);
+  assert.equal(loose(result).text, answer);
+});
+
+test('describe: a longer answer is cut on a word boundary at or under 3000 characters', async () => {
+  const answer = fiveCharWords(700);
+  const { result } = await describeWith(answer);
+  const text = String(loose(result).text);
+  assert.ok(text.length <= 3000, `length ${text.length}`);
+  assert.ok(text.length > 2900, `cut too early, length ${text.length}`);
+  assert.ok(answer.startsWith(text));
+  assert.equal(answer[text.length], ' ');
+});
+
+test('describe: the system message of a picture holds her name and her appearance, with no placeholder left', async () => {
+  const { system, placeIds } = await systemMessageFor('tall, silver hair, a green scarf');
+  assert.ok(system.includes('Mira'), system);
+  assert.ok(system.includes('tall, silver hair, a green scarf'), system);
+  assert.ok(!system.includes('{{'), system);
+  assert.deepEqual(placeIds, ['g1']);
+});
+
+test('describe: a blank appearance leaves nothing of describe-self in the system message', async () => {
+  const { system } = await systemMessageFor('   ');
+  assert.ok(system.includes('Caption the picture.'), system);
+  assert.ok(!system.includes('Mira'), system);
+  assert.ok(!system.includes('look like'), system);
+  assert.ok(!system.includes('{{'), system);
 });

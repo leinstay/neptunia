@@ -1972,6 +1972,8 @@ export function diaryTurnRunner(
     state,
     youtubeApiKey: serviceKey('youtube'),
     proxy: () => (proxySettings(hot.config).enabled ? serviceKey('proxy') : null),
+
+    selfName: () => String(self.name),
   });
   const lookup = mods.createLookup({
     hot,
