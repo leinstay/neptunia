@@ -115,7 +115,9 @@ test('describe: a successful call downloads the picture, sends it as a data: URL
   const describer = createDescriber({ hot, store, llm, imageFetcher });
 
   const result = await describer.describe('g1', pictureItem('a1'));
-  assert.equal(loose(result).text, 'A grey cat sleeping on a couch.');
+  // The owner on 2026-11-16: a caption is the whole answer on one line, at most 3,000 characters. The expectation of
+  // the first line alone was the old rule.
+  assert.equal(loose(result).text, 'A grey cat sleeping on a couch. some extra line ignored');
   assert.equal(loose(result).cached, undefined);
   assert.deepEqual(loose(result).usage, { prompt_tokens: 200 });
 
@@ -127,7 +129,7 @@ test('describe: a successful call downloads the picture, sends it as a data: URL
   );
 
   const cache = cacheView(store, 'g1');
-  assert.equal(loose(cache).a1.text, 'A grey cat sleeping on a couch.');
+  assert.equal(loose(cache).a1.text, 'A grey cat sleeping on a couch. some extra line ignored');
 });
 
 /** A prose line of `words` short words, sentence-free, so a cut can only land on a space. */
@@ -144,19 +146,19 @@ async function describeWith(text: string, prompt?: string) {
   return { result, llm };
 }
 
-// PR 7d: `media.descriptionChars` is the describer's constant, 500.
+// The describer's constant is 3,000 since the owner's word of 2026-11-16; the line grew with it so the cut still happens.
 test('describe: an over-long line is cut at or under the description length on a boundary', async () => {
-  const line = proseLine(100);
+  const line = proseLine(600);
   const { result } = await describeWith(line);
-  assert.ok(loose(result).text.length <= 500, `length ${loose(result).text.length}`);
+  assert.ok(loose(result).text.length <= 3000, `length ${loose(result).text.length}`);
   assert.ok(line.startsWith(String(loose(result).text)));
   assert.equal(line[loose(result).text.length], ' ');
 });
 
-// PR 7d: `media.descriptionChars` is the describer's constant, 500.
+// The describer's constant is 3,000 since the owner's word of 2026-11-16.
 test('describe: {{maxChars}} in the describe prompt is filled with the description length', async () => {
   const { llm } = await describeWith('Une chatte grise.', 'Say it in at most {{maxChars}} characters. Keep {{other}}.');
-  assert.equal(llm.calls[0].messages[0].content, 'Say it in at most 500 characters. Keep {{other}}.');
+  assert.equal(llm.calls[0].messages[0].content, 'Say it in at most 3000 characters. Keep {{other}}.');
 });
 
 test('describe: a cache hit is free -- no download, no LLM request, marked cached', async () => {
@@ -2024,8 +2026,8 @@ test('describe: {{today}} in the describe prompt is filled with the date of the 
   const llm = fakeLlm({ text: 'Une affiche datée.' });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => TODAY_NOW });
   await describer.describe('g1', pictureItem('a1'));
-  // PR 7d: `media.descriptionChars` is the describer's constant, 500.
-  assert.equal(llm.calls[0].messages[0].content, 'Today is 2026-09-30; at most 500 characters.');
+  // The describer's constant is 3,000 since the owner's word of 2026-11-16.
+  assert.equal(llm.calls[0].messages[0].content, 'Today is 2026-09-30; at most 3000 characters.');
 });
 
 // cachedDescriptions / cachedVideos: the cache-only accessors the address
