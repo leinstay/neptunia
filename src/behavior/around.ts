@@ -12,7 +12,7 @@
 // comes from `labels.peopleNow`.
 
 import { fill, formatDuration } from '../format.ts';
-import { clampChars, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { isFiniteNumber } from '../tools/types.ts';
 import type { PresenceRecord, VoiceRecord } from './around-store.ts';
 
@@ -44,22 +44,17 @@ function peopleNowOf(labels: AroundLabels): PeopleNow | undefined {
   return labels?.peopleNow as PeopleNow | undefined;
 }
 
-/** Longest member-supplied text kept, in code points. */
-export const AROUND_TEXT_CHARS = 80;
-/** Longest activity details (a game's rich presence) shown in a row, in code points. */
-export const NOW_DETAIL_CHARS = 40;
-
 export const STATUSES = new Set(['online', 'idle', 'dnd', 'offline']);
 // An activity's `kind` (the protocol's word) is the key of `labels.peopleNow.activity`; an unknown kind uses `other`.
 const LISTENING = 'listening';
 
 /**
- * One line of member-supplied text, at most AROUND_TEXT_CHARS code points, without angle brackets.
+ * One line of member-supplied text, whole, without angle brackets.
  * @returns '' for anything that is not text.
  */
 export function cleanText(text: unknown): string {
   if (typeof text !== 'string') return '';
-  return clampChars(oneLine(text.replace(/[<>]/g, '')), AROUND_TEXT_CHARS).trim();
+  return oneLine(text.replace(/[<>]/g, ''));
 }
 
 /**
@@ -96,7 +91,7 @@ function yesNo(l: PeopleNow, flag: boolean | undefined) {
  * One activity as a phrase: `labels.peopleNow.activity[kind]` (else `other`; `{name}`), then a
  * listening activity of Spotify with a track (details) and an artist (state) as `activityTrack`
  * (`{activity}` `{track}` `{artist}`), any other with details or state as `activityDetails`
- * (`{activity}` `{details}`, the two joined by ` / `, clamped to NOW_DETAIL_CHARS).
+ * (`{activity}` `{details}`, the two joined by ` / `).
  */
 function activityPhrase(activity: ActivityRecord, l: PeopleNow) {
   const forms = l.activity ?? {};
@@ -107,7 +102,7 @@ function activityPhrase(activity: ActivityRecord, l: PeopleNow) {
   if (spotify && activity.details && activity.state && l.activityTrack) {
     return fill(l.activityTrack, { activity: phrase, track: activity.details, artist: activity.state });
   }
-  const details = clampChars([activity.details, activity.state].filter(Boolean).join(' / '), NOW_DETAIL_CHARS).trim();
+  const details = [activity.details, activity.state].filter(Boolean).join(' / ').trim();
   return details && l.activityDetails ? fill(l.activityDetails, { activity: phrase, details }) : phrase;
 }
 

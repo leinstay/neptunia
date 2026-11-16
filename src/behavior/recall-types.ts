@@ -264,7 +264,6 @@ export type BuildRecallRequestInput = {
   memory?: Array<{ kind: string; text: string; date: string | null; accountId: string | null }>;
   context?: Array<Untyped>;
   contextDescriptions?: Map<string, string>;
-  replyQuoteChars?: number;
   nameOf?: (id: string) => string | null | undefined;
   labels: Untyped;
   timezone?: string;

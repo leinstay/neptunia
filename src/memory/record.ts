@@ -28,7 +28,7 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.ts';
-import { clampChars, clampWithEllipsis, oneLine } from './clamp.ts';
+import { clampChars, oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
 
 import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/record-lines.ts';
@@ -45,8 +45,6 @@ const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The most links one record line keeps. */
 export const RECORD_LINKS_MAX = 3;
-/** The longest title or description of a recorded link, in code points (the ellipsis included). */
-const LINK_TEXT_CHARS = 200;
 /** The longest URL and cache id of a recorded link, in code points. */
 const LINK_URL_CHARS = 500;
 /** The longest site name of a recorded link, in code points. */
@@ -94,7 +92,7 @@ function mediaKinds(slim: Untyped) {
  * The compact links of a record line, from a normalized message's links (src/protocol/events.ts#Message:
  * `{ id, kind, url, title, text, site }`) or from links already in this shape (`description`
  * instead of `text`): each `{ id?, url, title, description, site }` on one line, the title and the
- * description clamped to LINK_TEXT_CHARS at a boundary (clampWithEllipsis). Only a link (`kind`
+ * description kept whole. Only a link (`kind`
  * `link`, or no kind: never a GIF, whose URL leaves the text) with a title or a description is
  * kept, at most RECORD_LINKS_MAX, in order. `id` is the link's media-cache key, when it has one.
  * Pure.
@@ -107,8 +105,8 @@ export function recordLinks(
   for (const item of Array.isArray(items) ? items : []) {
     if (out.length >= RECORD_LINKS_MAX) break;
     if (!item || typeof item !== 'object' || (item.kind !== undefined && item.kind !== 'link')) continue;
-    const title = clampWithEllipsis(str(item.title), LINK_TEXT_CHARS);
-    const description = clampWithEllipsis(str(item.description ?? item.text), LINK_TEXT_CHARS);
+    const title = str(item.title);
+    const description = str(item.description ?? item.text);
     if (!title && !description) continue;
     const id = clampChars(str(item.id), LINK_URL_CHARS);
     out.push({
