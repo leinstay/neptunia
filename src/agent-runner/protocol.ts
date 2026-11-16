@@ -113,8 +113,11 @@ export const LIMIT_KEYS = Object.freeze(['steps', 'seconds', 'toolResultChars', 
 export const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** The longest goal a `run` may carry (characters). */
 export const MAX_GOAL_CHARS = 4000;
-/** The longest `context` a `run` may carry, as JSON (characters). */
-export const MAX_CONTEXT_CHARS = 20_000;
+/**
+ * The longest `context` a `run` may carry, as JSON (characters). It holds the most the core itself puts there: six
+ * recent lines whole, each a platform message of at most 2,000 characters, and 8,000 characters of memory lines.
+ */
+export const MAX_CONTEXT_CHARS = 24_000;
 /** The longest line either side reads (characters). */
 export const MAX_LINE_CHARS = 1_000_000;
 /** The most lines a `run`'s `context.recent` keeps (the latest; the earlier ones are dropped). */
