@@ -5,6 +5,8 @@
 // Changed: the model roles run on their chains in `models.routes` (spec 2026-11-09-model-routes, slice 4), so the
 // tests of `models.harness`, `llm.boundKeys` and the direct `model set` of a model role are deleted with them, and
 // keys.json holds named keys under `keys`.
+// Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
+// so the agent checks use `server`.
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -47,14 +49,14 @@ test("an agent's route lands in config.json and keys.json gains nothing", async 
   // Catches: the agents' writer left on keys.json, so the routing moves back into the secrets file.
   const { dir, deps } = rig();
   const before = keysText(dir);
-  assert.equal((await setAgentModel(deps, 'dev', 'claude-sonnet-5-5', 'high', 'claude')).ok, true);
-  assert.equal((await setAgentMode(dir, 'dev', 'full')).ok, true);
+  assert.equal((await setAgentModel(deps, 'server', 'claude-sonnet-5-5', 'high', 'claude')).ok, true);
+  assert.equal((await setAgentMode(dir, 'server', 'full')).ok, true);
   const { models } = configOf(dir);
   assert.deepEqual(models?.agents, {
-    via: { dev: 'claude' },
-    model: { dev: 'claude-sonnet-5-5' },
-    effort: { dev: 'high' },
-    mode: { dev: 'full' },
+    via: { server: 'claude' },
+    model: { server: 'claude-sonnet-5-5' },
+    effort: { server: 'high' },
+    mode: { server: 'full' },
   });
   assert.equal(keysText(dir), before);
 });

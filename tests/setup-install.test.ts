@@ -40,7 +40,7 @@ function rig() {
 }
 
 test('an agent with no unit of its own is left alone', async () => {
-  // Bug: dev gets a unit file written that nothing starts.
+  // Bug: an agent with no unit gets a unit file written that nothing starts.
   const { target, run, calls } = rig();
   assert.equal(await applyModeToUnit(target, run, 'nobody'), null);
   assert.deepEqual(calls, []);
@@ -97,14 +97,10 @@ test('inside the core a mode change names neptunia setup for an agent with a uni
 });
 
 test('inside the core an agent with no unit, or no agent, gets no unit line', () => {
-  // Catches: dev, which runs in no unit of its own, is told to re-render a unit that does not exist.
-  // Changed: the watcher runs inside the core's unit (owner, 2026-11-09), so its mode needs no unit rendered.
-  assert.equal(deferModeToUnit('watcher'), null);
-  // dev now has a unit of its own, so a mode change names it.
-  assert.equal(
-    deferModeToUnit('dev'),
-    'neptunia-development.service takes the mode when you run "neptunia setup" in a shell'
-  );
+  // Catches: an agent that runs in no unit of its own is told to re-render a unit that does not exist.
+  // Changed: the watcher is gone (maintainer, 2026-11-16); `dev` below stands for a name with no unit.
+  // Changed: the development unit and the agent `dev` are gone (maintainer, 2026-11-16).
+  assert.equal(deferModeToUnit('dev'), null);
   assert.equal(deferModeToUnit('nobody'), null);
 });
 
@@ -124,12 +120,11 @@ test("the units take the backend from keys.json, so the agent units bind that ba
 });
 
 // The units of the agents that follow a mode (src/setup/install.ts#unitText over src/setup/units.ts): `NoNewPrivileges=yes`
-// stays in `read`, `write` and `full`, and only `sudo` drops it. The renderer can already do that for any template, but
-// the development unit is not on `UNIT_AGENTS`, so it renders the default mode whatever the owner set for `dev`.
+// stays in `read`, `write` and `full`, and only `sudo` drops it.
 
 const DEPLOY = path.join(fileURLToPath(new URL('..', import.meta.url)), 'deploy');
+// Changed: the development unit and the agent `dev` are gone (maintainer, 2026-11-16).
 const UNITS = [
-  ['neptunia-development.service', 'dev'],
   ['neptunia-agent-scout.service', 'scout'],
   ['neptunia-agent-server.service', 'server'],
 ] as const;
@@ -145,7 +140,6 @@ function rendered(file: string, agent: string, mode: string): string {
     privateDir: dataDir,
     dataDir,
     node: '/home/alice/.nvm/bin/node',
-    developmentCheckout: '/srv/checkout',
     system: false,
   };
   return unitText(target, fs.readFileSync(path.join(DEPLOY, file), 'utf8'), file);

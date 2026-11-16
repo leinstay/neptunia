@@ -4,17 +4,10 @@ import { CONFIG_SCHEMA, schemaDefaults } from '../src/config/schema.ts';
 import { deepMerge } from '../src/config.ts';
 import { COMMANDS, parseCommandLine, takesName, wordOf } from '../src/interface/commands/table.ts';
 import type { Panel, PanelResult, PanelRow } from '../interfaces/cli/panel.ts';
-import { approvalPanel } from '../interfaces/cli/approval-view.ts';
-import type { GateView } from '../interfaces/cli/approval-view.ts';
 import { contextLine } from '../interfaces/cli/context-line.ts';
 import type { ContextFacts } from '../interfaces/cli/context-line.ts';
-import { boundaryPanel, checkpointPanel, sessionsPanel } from '../interfaces/cli/session-picker.ts';
-import type {
-  CheckpointPoint,
-  SessionClient,
-  SessionLineView,
-  SessionRowView,
-} from '../interfaces/cli/session-picker.ts';
+import { boundaryPanel, sessionsPanel } from '../interfaces/cli/session-picker.ts';
+import type { SessionClient, SessionLineView, SessionRowView } from '../interfaces/cli/session-picker.ts';
 import type { PickerEnv } from '../interfaces/cli/model-picker.ts';
 import { modelRoleRegistry } from '../src/subharness/model-capabilities.ts';
 import type { RoleSources } from '../src/subharness/model-capabilities.ts';
@@ -270,28 +263,6 @@ function sessionClient(run: Run, view: ChatView): SessionClient {
   };
 }
 
-/** `/checkpoints`, or `/checkpoints take <task>` for a checkpoint of a development task's worktree. */
-async function checkpointsPanel(line: string, run: Run): Promise<Panel> {
-  const [, word, task] = line.split(/\s+/);
-  if (word === 'take') {
-    const taken = await run({ name: 'checkpoint.take', args: { task: task ?? '' } });
-    return { title: 'Checkpoints', lines: [taken.text] };
-  }
-  const answer = await run({ name: 'checkpoint.list', args: {} });
-  if (answer.status !== 'ok') return { title: 'Checkpoints', lines: [answer.text], rows: [] };
-  const { capability, points } = JSON.parse(answer.text) as {
-    capability: Parameters<typeof checkpointPanel>[0];
-    points: Array<Omit<CheckpointPoint, 'restore'> & { taskId: string }>;
-  };
-  return checkpointPanel(
-    capability,
-    points.map((point) => ({
-      ...point,
-      restore: (id) => run({ name: 'checkpoint.restore', args: { task: point.taskId, id, revision: point.revision } }),
-    }))
-  );
-}
-
 /** The session `/branch` cuts: the one it names, else the one the chat is in. */
 async function branchPanel(line: string, client: SessionClient, run: Run): Promise<Panel> {
   const named = line.split(/\s+/)[1];
@@ -301,27 +272,6 @@ async function branchPanel(line: string, client: SessionClient, run: Run): Promi
   return session === null
     ? { title: 'Branch', lines: ['No chat is stored yet.'], rows: [] }
     : boundaryPanel(client, session.id);
-}
-
-/** `/approvals`: the gate it names or the one that waits, or a row per gate when several wait. */
-async function approvalsPanel(line: string, run: Run): Promise<Panel> {
-  const answer = await run({ name: 'approval.list', args: {} });
-  if (answer.status !== 'ok') return { title: 'Approvals', lines: [answer.text], rows: [] };
-  const gates = JSON.parse(answer.text) as Array<GateView>;
-  const named = line.split(/\s+/)[1];
-  const chosen = named === undefined && gates.length === 1 ? gates[0] : gates.find((one) => one.taskId === named);
-  if (chosen !== undefined)
-    return approvalPanel(chosen, { respond: (given) => run({ name: 'approval.answer', args: given }) });
-  if (named !== undefined) return { title: 'Approvals', lines: [`No gate waits on ${named}.`], rows: [] };
-  if (gates.length === 0) return { title: 'Approvals', lines: ['Nothing waits for your approval.'], rows: [] };
-  const rows = gates.map((gate): PanelRow => ({
-    id: gate.taskId,
-    label: `${gate.scope} ${gate.taskId}`,
-    detail: gate.title,
-    group: 'Gates',
-    prefill: `/approvals ${gate.taskId}`,
-  }));
-  return { title: 'Approvals', lines: [], rows };
 }
 
 /** What each menu reads and which command its actions belong to. A family with no operation has neither. */
@@ -497,8 +447,6 @@ async function localPanel(line: string, run: Run, view: ChatView): Promise<Panel
     return { title: 'Sessions', lines: [answer.text] };
   }
   if (word === '/branch') return branchPanel(line, client, run);
-  if (word === '/checkpoints') return checkpointsPanel(line, run);
-  if (word === '/approvals') return approvalsPanel(line, run);
   const memory = MEMORY_PANELS[line];
   if (memory !== undefined) return memory(run);
   if (line === '/tools' || line === '/skills' || line === '/interfaces' || line === '/agent')

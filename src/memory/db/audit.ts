@@ -1,4 +1,4 @@
-// The memory audit (scripts/memory-audit.ts, and the watcher's `audit`): counts of what breaks the rules of the stored rows,
+// The memory audit (scripts/memory-audit.ts): counts of what breaks the rules of the stored rows,
 // over a read connection. It writes nothing and returns no word, id or name of a row. Retired rows are history and are not
 // looked at. Each check is one rule:
 //   placeExists        a live row's place is a row of `places`

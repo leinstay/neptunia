@@ -1,5 +1,5 @@
 // The persona's errands, one store per place, on the task board of the memory database (src/board/errands.ts): each
-// errand is a task of the board's errand lane with the errand's id, written as the principal `core`, and the store
+// errand is a task of the board with the errand's id, its events written by the actor `core`, and the store
 // loads every errand of its place from the board at its creation. An errand moves `queued` -> `running` -> `done` |
 // `failed` | `cancelled` (a queued one may also be cancelled or failed directly); a finished errand is never reopened,
 // and an end that arrives after a cancel is ignored. The list in memory keeps the open errands, then the finished ones

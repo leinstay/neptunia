@@ -1,4 +1,4 @@
-// The one seam every agent run goes through: errands (scout and server), development and the watcher. It reads the
+// The one seam every agent run goes through: the errands of scout and server. It reads the
 // agent's route from config.json (src/subharness/routing.ts) at the moment of the run, as Hermes' approval guard reads its mode on each check
 // (hermes_cli/approval_mode.py), so a logout and "agent mode" act on the next run without a restart.
 //
@@ -12,15 +12,11 @@
 // the stored Exa key (`searchKey`), that key as `EXA_API_KEY`. A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided
 // the backend, model, effort, mode and provider when it dispatched the task, because a runner unit may hide the private
 // folder. Such a run uses exactly the route and opens neither config.json nor keys.json. A run in `full` or `sudo` writes one log line before it starts, with
-// the agent and the mode and never the brief, so the log shows who worked without a sandbox. A claude whose `--help` lists
-// `--session-id` gets a fresh one on each run, and src/subharness/sessions.ts maps it to the agent and the run, so the
-// watcher can tell whose transcript it reads. The child reaches the network through the engine proxy the caller decided
-// (`proxy`, src/net/proxy.ts#proxyEnvOf): every proxy variable in the http form, or none at all on the direct path,
-// whatever the caller's `env` or the host held. A map that cannot be written is a gap on the result, never a stopped run.
-// A step or output cap asked of a backend with no control for it (`backendLimits`: codex) is a gap too, so nobody reads
+// the agent and the mode and never the brief, so the log shows who worked without a sandbox. The child reaches the
+// network through the engine proxy the caller decided (`proxy`, src/net/proxy.ts#proxyEnvOf): every proxy variable in
+// the http form, or none at all on the direct path, whatever the caller's `env` or the host held. A step or output cap asked of a backend with no control for it (`backendLimits`: codex) is a gap too, so nobody reads
 // the cap as enforced where only the timeout ends a run.
 
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,13 +30,12 @@ import { backendOfAgent, modeOf } from './control.ts';
 import type { AgentMode } from './control.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { opencodeKey, readRouting } from './routing.ts';
-import { helpOfInstalled, isInstalled, modelOfBackend } from './place.ts';
-import { recordSession } from './sessions.ts';
+import { modelOfBackend } from './place.ts';
 import { PROXY_ENV_NAMES, proxyEnvOf } from '../net/proxy.ts';
 
 /** One agent run. */
 export type AgentRun = {
-  /** The agent's name: scout, server, dev or watcher; any other runs in `read`. */
+  /** The agent's name: scout or server; any other runs in `read`. */
   agent: string;
   /** the prompt text: the task alone */
   brief: string;
@@ -99,8 +94,6 @@ export function sandboxOfMode(mode: AgentMode): 'read-only' | 'workspace-write' 
   return 'none';
 }
 
-/** The gap on a run whose session id reached no map. */
-export const SESSION_MAP_GAP = 'session-map-write-failed';
 /** The gap on a run that asked for a step cap its backend cannot enforce. */
 const STEP_LIMIT_GAP = 'step-limit-not-enforced';
 /** The gap on a run that asked for an output cap its backend cannot enforce. */
@@ -225,36 +218,6 @@ function pathFromRoute(run: AgentRun, route: unknown): Path | BackendResult {
   return { ...checked, name: checked.backend, keyValue: run.routeKey };
 }
 
-/** The session id a run of `name` starts with: a claude whose help lists the flag gets one, anything else none. */
-async function sessionIdOf(name: BackendName, deps: RunDeps): Promise<string | undefined> {
-  if (name !== 'claude' || !isInstalled(deps.privateDir, name)) return undefined;
-  try {
-    return /(?:^|\s)--session-id\b/.test(await helpOfInstalled(deps.privateDir, name)) ? randomUUID() : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** The run on the session map; false when the map could not be written. */
-function mapped(run: AgentRun, deps: RunDeps, name: BackendName, sessionId: string): boolean {
-  try {
-    recordSession(deps.privateDir, {
-      sessionId,
-      agent: run.agent,
-      backend: name,
-      runId: run.runId ?? null,
-      at: Date.now(),
-    });
-    return true;
-  } catch (error) {
-    log.warn('subharness: the session map could not be written', {
-      agent: run.agent,
-      code: (error as NodeJS.ErrnoException).code ?? (error as Error).name,
-    });
-    return false;
-  }
-}
-
 /**
  * Runs one agent through its backend, in the mode the owner gave it. With a route the path is the route's and
  * the private folder stays closed; without one it resolves `subharness-off` while config.json names no backend for the
@@ -284,12 +247,8 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     ...(run.system === undefined ? {} : { system: run.system }),
   };
   const backend = deps.backendFactory?.(name) ?? createInstalledBackend(name, deps.privateDir);
-  const sessionId = await sessionIdOf(name, deps);
   const gaps = limitGaps(name, run);
   if (gaps.length > 0)
     log.info('subharness: a cap has no control on this backend', { agent: run.agent, backend: name, gaps });
-  if (sessionId === undefined) return withGaps(await backend.run(run.brief, options), gaps);
-  const onMap = mapped(run, deps, name, sessionId);
-  const done = await backend.run(run.brief, { ...options, sessionId });
-  return withGaps({ ...done, sessionId }, onMap ? gaps : [SESSION_MAP_GAP, ...gaps]);
+  return withGaps(await backend.run(run.brief, options), gaps);
 }

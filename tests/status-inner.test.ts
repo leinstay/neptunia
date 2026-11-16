@@ -128,11 +128,12 @@ test("status inner: the core role's tokens today come from the usage accumulator
   );
 });
 
-test('status inner: in the whole card, between costs.development and limits', async () => {
+test('status inner: in the whole card, between costs.errands and limits', async () => {
+  // Changed: `costs.development` left the card with the development agents (maintainer, 2026-11-16).
   const { env } = envOf();
   const names = (await show(env, {}, '42')).map((f) => f.name);
   assert.ok(
-    names.indexOf('inner') > names.indexOf('costs.development') && names.indexOf('inner') < names.indexOf('limits'),
+    names.indexOf('inner') > names.indexOf('costs.errands') && names.indexOf('inner') < names.indexOf('limits'),
     names.join()
   );
 });
@@ -218,11 +219,12 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
   );
   assert.deepEqual(
     (await persona({ part: 'models' })).map((f) => f.name),
-    ['models.base', 'models.errands', 'models.development']
+    // Changed: the development fields left the card (maintainer, 2026-11-16).
+    ['models.base', 'models.errands']
   );
   assert.deepEqual(
     (await persona({ part: 'errands' })).map((f) => f.name),
-    ['tasks', 'costs.errands', 'costs.development']
+    ['tasks', 'costs.errands']
   );
   assert.deepEqual(
     (await persona({ part: 'inner' })).map((f) => f.name),

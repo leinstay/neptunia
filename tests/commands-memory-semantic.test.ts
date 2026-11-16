@@ -1033,8 +1033,9 @@ for (const name of [
   'memory.entities.relations',
 ]) {
   const event = { name, args: {}, chat: { id: 'cli:dm:owner' }, requester: { id: 'owner', roles: [] } };
-  test(`${name} reaches the console from the owner's chat and from no agent or interface`, async () => {
-    // Bug: a worker on the board or a chat platform names the route and reads the DM's entities.
+  test(`${name} reaches the console from the owner's chat and from no interface`, async () => {
+    // Bug: a chat platform names the route and reads the DM's entities.
+    // Changed: no agent principal exists to try (maintainer, 2026-11-16).
     const calls: Array<string> = [];
     const deps: CommandDeps = {
       console: {
@@ -1045,13 +1046,10 @@ for (const name of [
       },
       interfaces: { list: () => [], enable: () => {}, disable: () => Promise.resolve({ drained: 0, unknown: 0 }) },
       facts: () => wrongly({}),
-      tasks: { command: () => Promise.resolve(wrongly({ text: 'no such board command', status: 'invalid' })) },
     };
     const desk = createCommandDesk(deps);
-    const agent = await desk.run(event, { kind: 'agent', name: 'dev' });
     const platform = await desk.run(event, { kind: wrongly('interface'), name: 'discord' });
     assert.deepEqual(calls, []);
-    assert.notEqual('status' in agent ? agent.status : '', 'ok');
     assert.equal('status' in platform ? platform.status : '', 'denied');
     await desk.run(event, { kind: 'cli', name: 'cli' });
     assert.deepEqual(calls, [name]);

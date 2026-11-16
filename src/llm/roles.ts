@@ -1,10 +1,9 @@
 // The model roles: every LLM request names the model role it goes out on, and each model role has its own
-// model. The models sit in three groups, matching the status card:
+// model. The models sit in two groups, matching the status card:
 // - the base roles, her `core` and the other model roles the bot's own requests go out on: the model of the first
 //   route of the role's chain in `models.routes.<role>` (src/llm/route-chain.ts); a mandatory role with no chain has its
 //   built-in default, an optional one is off;
-// - `models.errands.<role>`: the delegated agents, each with its own OpenCode loop, async;
-// - `models.development.<role>`: the agents outside her, working on this repository.
+// - `models.errands.<role>`: the delegated agents, each with its own OpenCode loop, async.
 // A model role never takes another model role's model: an unset model role is its own default, so
 // changing one model role can never move another. `models.byPurpose` pins a single purpose (one role
 // request, one kind of request) to a model of its own whatever its model role.
@@ -25,10 +24,7 @@
 //                client (src/llm/images.ts), no loop, with a bare OpenRouter image model id.
 // models.errands
 // - `scout`, `server`  the persona's errand agents (src/agent-runner/, profiles `scout` and `server`);
-// models.development
-// - `thinker`, `dev`  the development agents (outside this repository): `thinker` picks up and
-//                steers the tasks, `dev` writes the code and the texts.
-// No request of the bot goes out on an errand or development model role (OPENCODE_ROLES): they run on
+// No request of the bot goes out on an errand model role (OPENCODE_ROLES): they run on
 // OpenCode, not through the bot's OpenRouter client, and their models are OpenCode model ids
 // (`openrouter/<vendor>/<model>`), unlike the bare OpenRouter ids of the base model roles.
 // `models.abilities.<model id>` lists what a model can do (modelAbilities), and ROLE_ABILITY names the ability each
@@ -72,11 +68,8 @@ export const BASE_ROLES = Object.freeze([...CORE_ROLES, 'drawing']);
 /** The errand model roles: their models sit under `models.errands`. */
 export const ERRAND_ROLES = Object.freeze(['scout', 'server']);
 
-/** The development model roles: their models sit under `models.development`. */
-export const DEVELOPMENT_ROLES = Object.freeze(['thinker', 'dev']);
-
 /** The model roles whose model an OpenCode worker runs on, never the bot's own client. */
-export const OPENCODE_ROLES = Object.freeze([...ERRAND_ROLES, ...DEVELOPMENT_ROLES]);
+export const OPENCODE_ROLES = Object.freeze([...ERRAND_ROLES]);
 
 /** The model roles, in display order (`/nep model`, the status card). */
 export const ROLES = Object.freeze([...BASE_ROLES, ...OPENCODE_ROLES]);
@@ -98,8 +91,6 @@ export const ROLE_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({
   drawing: 'openai/gpt-image-2.5-flare',
   scout: 'openrouter/openai/gpt-6.1-sol',
   server: 'openrouter/openai/gpt-6.1-sol',
-  thinker: 'openrouter/anthropic/claude-opus-5.5',
-  dev: 'openrouter/anthropic/claude-sonnet-5.5',
 });
 
 /** What a model can do, as `models.abilities.<model id>` lists it. */
@@ -128,15 +119,11 @@ export function modelAbilities(config: unknown, model: unknown): Array<string> {
   return ABILITIES.filter((ability) => listed.includes(ability));
 }
 
-/**
- * The group of `models` a model role's model sits in: `base`, `errands` or `development`, undefined for
- * a name that is not a model role.
- */
-export function roleGroup(role: unknown): 'base' | 'errands' | 'development' | undefined {
+/** The group of `models` a model role's model sits in: `base` or `errands`, undefined for a name that is not a model role. */
+export function roleGroup(role: unknown): 'base' | 'errands' | undefined {
   if (typeof role !== 'string') return undefined;
   if (role === MEMORY_ROLE || BASE_ROLES.includes(role)) return 'base';
   if (ERRAND_ROLES.includes(role)) return 'errands';
-  if (DEVELOPMENT_ROLES.includes(role)) return 'development';
   return undefined;
 }
 
@@ -146,7 +133,7 @@ export function roleGroup(role: unknown): 'base' | 'errands' | 'development' | u
  */
 export function roleConfigKeys(role: unknown): Array<string> | undefined {
   const group = roleGroup(role);
-  return group === 'errands' || group === 'development' ? ['models', group, String(role)] : undefined;
+  return group === 'errands' ? ['models', group, String(role)] : undefined;
 }
 
 /**

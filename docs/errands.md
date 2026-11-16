@@ -4,6 +4,16 @@ An errand is work the persona delegates through `errand.run`, such as researchin
 
 The core chooses the requested agent profile and submits the work to an errand runner. The result is associated with the original work and can wake the persona. Starting an errand is different from executing a quick in-turn tool.
 
+## The board
+
+The errand store in `src/errands/store.ts` keeps every errand as one row of `board_tasks` in `memory.db`. `saveErrand` in `src/board/errands.ts` is the board's only writer, and it runs inside a write of the kind `errand` of the memory writer. A row holds the errand's id, its goal as `title`, its agent as `role`, its status, its error as `close_reason`, the times it was filed and last changed, and every other field of the errand with its place as JSON in `metadata`. `src/board/archive.ts` maps an errand to its row and back.
+
+A task stands in one of five statuses. A queued errand is `approved`, a running one `in_progress`, and the ends are `done`, `failed` and `cancelled`. A task at an end never moves again, and an errand that started and ended between two writes still passes through `in_progress`.
+
+Three tables refer to the task by its id. `board_events` takes one row of type `status` for each change of status, with `core` as the actor and the old and new status. `board_outbox` takes one row to `persona` for each move to an end, in the same transaction as the move and the closing journal line. That row stays undelivered until the door takes the errand's `errand.done`, and `pendingEnds` lists the ends still waiting, so a core that starts after a crash delivers them. `board_results` holds the errand's result once, as a `handoff` with its text, its sources and the names of its files.
+
+`board_schema_version` holds the board's version, `3`, which the memory handle reports. `/doctor core` counts the outbox rows not yet delivered. No graph projection, recall or export reads the board.
+
 ## The subharness
 
 ### Backends

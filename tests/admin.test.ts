@@ -335,7 +335,6 @@ test('run: set and unset read a key with a dot as one key, never a path', async 
   hot.config.models = {
     ...hot.config.models,
     errands: { scout: 'openrouter/a/b' },
-    development: { dev: 'openrouter/c/d' },
   };
   hot.config.names = { 'x.web': 'old' };
 
@@ -429,29 +428,15 @@ test("run: model.show lists each role with its own model; an unset role shows it
   assert.ok(lines.includes('vision: anthropic/claude-haiku-4.5'));
   assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`), 'the analyzer is not the vision model');
   assert.ok(!lines.some((line: string) => line.startsWith('reasoner')), 'the reasoner is merged into the analyzer');
+  // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
   assert.deepEqual(
-    lines.slice(0, 12).map((line: string) => line.split(':')[0]),
-    [
-      'base',
-      'core',
-      'analyzer',
-      'vision',
-      'video',
-      'embedding',
-      'speech',
-      'drawing',
-      'errands',
-      'scout',
-      'server',
-      'development',
-    ],
-    'the base roles, then the errand and development roles each under their group line'
+    lines.map((line: string) => line.split(':')[0]),
+    ['base', 'core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing', 'errands', 'scout', 'server'],
+    'the base roles, then the errand roles under their group line'
   );
   assert.equal(lines[0], 'base:');
   assert.equal(lines[8], 'errands:');
-  assert.equal(lines[11], 'development:');
   assert.deepEqual(lines.slice(9, 11), [`scout: ${ROLE_DEFAULTS.scout}`, `server: ${ROLE_DEFAULTS.server}`]);
-  assert.deepEqual(lines.slice(12, 14), [`thinker: ${ROLE_DEFAULTS.thinker}`, `dev: ${ROLE_DEFAULTS.dev}`]);
 });
 
 /** `hot` with a chain of one route on `main` for each role of `models`, over the chains it holds. */
@@ -483,7 +468,6 @@ test("run: model.set puts the model on each route of a base role's chain and wri
   await admin.run('model.set', { role: 'drawing', id: 'openai/gpt-image-x' }, {});
   await admin.run('model.set', { role: 'scout', id: 'openrouter/x-ai/web-model' }, {});
   await admin.run('model.set', { role: 'server', id: 'openrouter/x-ai/server-model' }, {});
-  await admin.run('model.set', { role: 'dev', id: 'openrouter/anthropic/dev-model' }, {});
   assert.deepEqual(readLocal(rootDir), {
     models: {
       routes: chainsOf({
@@ -498,14 +482,12 @@ test("run: model.set puts the model on each route of a base role's chain and wri
         scout: 'openrouter/x-ai/web-model',
         server: 'openrouter/x-ai/server-model',
       },
-      development: {
-        dev: 'openrouter/anthropic/dev-model',
-      },
     },
     // The video model changed (the vision one was set to the model it already had).
     media: { recacheBefore: new Date(changedAt).toISOString() },
   });
-  assert.equal(hot.reloadConfigCalls, 9);
+  // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
+  assert.equal(hot.reloadConfigCalls, 8);
 });
 
 test('run: model.set vision or video sets media.recacheBefore to the moment of the change and says so; other roles never do', async () => {
@@ -526,7 +508,8 @@ test('run: model.set vision or video sets media.recacheBefore to the moment of t
     assert.match(reply, /^Set (vision|video) model to google\/a-new-model \(reload ok\)\n/);
     assert.ok(reply.includes(`media.recacheBefore set to ${iso}`), role);
   }
-  for (const role of ['core', 'analyzer', 'embedding', 'scout', 'server', 'thinker', 'dev', 'drawing']) {
+  // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
+  for (const role of ['core', 'analyzer', 'embedding', 'scout', 'server', 'drawing']) {
     const rootDir = makeRoot();
     const hot = withChains(makeHotWithMedia(rootDir), everyChain);
     const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
@@ -555,11 +538,12 @@ test('run: model.set rejects an unknown role and a role name that is no longer o
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
-  for (const role of ['bogus', 'web', 'voice', 'writer', 'memory', 'byPurpose']) {
+  // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
+  for (const role of ['bogus', 'web', 'voice', 'writer', 'memory', 'byPurpose', 'thinker', 'dev']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
       new RegExp(
-        `unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, vision, video, embedding, speech, drawing, scout, server, thinker, dev\\)`
+        `unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, vision, video, embedding, speech, drawing, scout, server\\)`
       ),
       role
     );
@@ -1346,8 +1330,7 @@ test('status: the card carries the fields in order and the member variant drops 
       'costs.base',
       'models.errands',
       'costs.errands',
-      'models.development',
-      'costs.development',
+      // Changed: the development fields are gone with the development agents (maintainer, 2026-11-16).
       'inner',
       'limits',
       'memory',
@@ -1390,11 +1373,6 @@ test('status: the card carries the fields in order and the member variant drops 
     [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`].join('\n'),
     'one line per errand role with its own model'
   );
-  assert.equal(
-    value('models.development'),
-    [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`].join('\n'),
-    'one line per development role with its own model'
-  );
   // PR 7d: the daily caps of videos, recall and lookups are gone, so the limits field is the request rail alone.
   assert.match(value('limits'), /^requests \d+\/300\nresets 00:00 UTC$/);
   assert.deepEqual(
@@ -1422,7 +1400,7 @@ test('status: the card carries the fields in order and the member variant drops 
   const memberFields = member.fields;
   assert.deepEqual(
     memberFields.map((f: Field) => f.name),
-    ['state', 'tasks', 'models.base', 'models.errands', 'models.development', 'limits']
+    ['state', 'tasks', 'models.base', 'models.errands', 'limits']
   );
   assert.deepEqual(
     memberFields[0].value.split('\n').slice(0, 2),
@@ -1574,11 +1552,8 @@ test('status: the field option renders that field alone and runs only its work',
     (await only('models.errands')).map((f: Field) => f.name),
     ['models.errands']
   );
-  assert.deepEqual(
-    (await only('models.development')).map((f: Field) => f.name),
-    ['models.development']
-  );
-  assert.deepEqual([llm.calls.length, llm.listings.length], [0, 0], 'the errand and development fields probe nothing');
+  // Changed: the development fields are gone with the development agents (maintainer, 2026-11-16).
+  assert.deepEqual([llm.calls.length, llm.listings.length], [0, 0], 'the errand field probes nothing');
   assert.deepEqual(
     (await only('models.base')).map((f: Field) => f.name),
     ['models.base']
@@ -1590,10 +1565,11 @@ test('status: the field option renders that field alone and runs only its work',
   hot.config.bot.access = { 'status.show': { everyone: true, roles: [], users: [] } };
   assert.deepEqual(
     (await only('memory', '999')).map((f: Field) => f.name),
-    ['state', 'tasks', 'models.base', 'models.errands', 'models.development', 'limits']
+    ['state', 'tasks', 'models.base', 'models.errands', 'limits']
   );
   // PR 7d: the inner life is code, so the whole card carries its `inner` field too.
-  assert.equal((await only('nonsense')).length, 13);
+  // Changed: the development fields are gone with the development agents (maintainer, 2026-11-16).
+  assert.equal((await only('nonsense')).length, 11);
 });
 
 /** A clock the test moves by hand. */
@@ -1886,8 +1862,7 @@ test('status: the card lists one item per line in every field, the models one li
       'costs.base',
       'models.errands',
       'costs.errands',
-      'models.development',
-      'costs.development',
+      // Changed: the development fields are gone with the development agents (maintainer, 2026-11-16).
       'inner',
       'limits',
       'memory',
@@ -1904,7 +1879,7 @@ test('status: the card lists one item per line in every field, the models one li
     ['requests N/300', 'resets 00:00 UTC']
   );
   const head = (line: string) => line.split(' · ').slice(0, 2).join(' · ');
-  for (const name of ['models.base', 'models.errands', 'models.development']) {
+  for (const name of ['models.base', 'models.errands']) {
     assert.ok(!lines(name).some((line: string) => line.startsWith('**')), `${name}: no bold heading`);
     assert.ok(!lines(name).some((line: string) => line.startsWith(' ')), `${name}: no detail line under a role`);
   }
@@ -1925,10 +1900,6 @@ test('status: the card lists one item per line in every field, the models one li
   assert.deepEqual(lines('models.errands').map(head), [
     `scout · ${ROLE_DEFAULTS.scout}`,
     `server · ${ROLE_DEFAULTS.server}`,
-  ]);
-  assert.deepEqual(lines('models.development').map(head), [
-    `thinker · ${ROLE_DEFAULTS.thinker}`,
-    `dev · ${ROLE_DEFAULTS.dev}`,
   ]);
   for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 });
@@ -1987,7 +1958,6 @@ test("status: the owner card probes every role's model and shows its provider an
   const { result, logs } = await withCapturedLogs(() => admin.run('status.show', {}, { accountId: '42' }));
   const lines = roleLinesOf(result.fields.find((f: Field) => f.name === 'models.base').value);
   const errands = roleLinesOf(result.fields.find((f: Field) => f.name === 'models.errands').value);
-  const development = roleLinesOf(result.fields.find((f: Field) => f.name === 'models.development').value);
 
   assert.deepEqual(
     llm.calls.map((call) => call.options.role).sort(),
@@ -2016,14 +1986,9 @@ test("status: the owner card probes every role's model and shows its provider an
     [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`],
     'just role and model'
   );
-  assert.deepEqual(
-    development,
-    [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`],
-    'just role and model'
-  );
   assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
   assert.ok(
-    !llm.calls.some((call) => ['scout', 'server', 'thinker', 'dev'].includes(call.options.role)),
+    !llm.calls.some((call) => ['scout', 'server'].includes(call.options.role)),
     'no request goes out on an OpenCode role'
   );
 
@@ -2059,10 +2024,6 @@ test('status: the member card shows the models one line per role without probing
   assert.equal(
     valueOf('models.errands'),
     [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`].join('\n')
-  );
-  assert.equal(
-    valueOf('models.development'),
-    [`thinker · ${ROLE_DEFAULTS.thinker}`, `dev · ${ROLE_DEFAULTS.dev}`].join('\n')
   );
   assert.equal(llm.calls.length, 0, 'no probe request');
   assert.equal(llm.listings.length, 0, 'no listing request');

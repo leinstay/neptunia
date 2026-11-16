@@ -1,15 +1,14 @@
 // What a real `neptunia` process does with the renamed commands (the command naming spec of 2026-11-04): a retired
 // spelling ends with exit 2, names the new one and starts nothing, `neptunia services` reaches the unit verbs and the
-// family, `/doctor watcher` reads the saved reports with no core and never opens the journal, and a secret never reaches
-// the command line. The children share a recording core where the point is that nothing was sent to it (tests/fixtures/
-// recording-core.ts), and a folder with no core where the point is that nothing is needed. `systemctl` and `journalctl`
-// are fakes on an otherwise empty PATH that log every call, so "starts nothing" is a file that does not exist.
+// family, `/logs` reads the journal, and a secret never reaches the command line. The children share a recording core
+// where the point is that nothing was sent to it (tests/fixtures/recording-core.ts), and a folder with no core where
+// the point is that nothing is needed. `systemctl` and `journalctl` are fakes on an otherwise empty PATH that log every
+// call, so "starts nothing" is a file that does not exist.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
 import { cliFolders, handled, runChild, startRecordingCore } from './fixtures/recording-core.ts';
 import type { RecordingCore } from './fixtures/recording-core.ts';
 import type { Dirs } from './fixtures/core-units.ts';
@@ -38,12 +37,6 @@ before(async () => {
     mode: 0o755,
   });
   LOCAL.PATH = bin;
-  const reports = reportsDirOf(offline.privateDir, watcherDir({}));
-  mkdirSync(reports, { recursive: true });
-  writeFileSync(join(reports, '2026-11-02.md'), '# older\n\nzeta-older\n');
-  writeFileSync(join(reports, '2026-11-03.md'), '# newer\n\nzeta-newer\n');
-  writeFileSync(join(reports, 'yesterday.md'), 'zeta-word\n');
-  writeFileSync(join(reports, '..', 'x.md'), 'zeta-outside\n');
 });
 
 after(async () => {
@@ -98,24 +91,15 @@ for (const argv of [
   });
 }
 
-test('neptunia task is refused and names tasks, while neptunia tasks reaches the board and reports no core', async () => {
-  // Catches: the board's shell family keeps the singular, or the plural is not wired and answers a usage.
-  fresh();
-  const singular = await run(offline, ['task', 'list']);
-  assert.equal(singular.code, 2, singular.stderr.slice(0, 300));
-  assert.ok(singular.stderr.includes('tasks'), singular.stderr.slice(0, 300));
-  const plural = await run(offline, ['tasks', 'list']);
-  assert.equal(plural.code, 1, plural.stderr.slice(0, 300));
-  assert.ok(plural.stderr.startsWith('unavailable:'), plural.stderr.slice(0, 300));
-});
+// Changed: `neptunia tasks` is gone with the board's command line (maintainer, 2026-11-16).
 
-test('neptunia services list answers with no core, lists the three mechanisms and changes nothing', async () => {
+test('neptunia services list answers with no core, lists the two mechanisms and changes nothing', async () => {
   // Catches: the list needs the core, lists a unit, or writes a setting or moves a timer while it reads.
   fresh();
   const before = digest(offline.dataDir);
   const done = await run(offline, ['services', 'list']);
   assert.equal(done.code, 0, done.stderr.slice(0, 300));
-  for (const name of ['heartbeat', 'selfreflection', 'selfimprovement']) assert.ok(done.stdout.includes(name), name);
+  for (const name of ['heartbeat', 'selfreflection']) assert.ok(done.stdout.includes(name), name);
   assert.equal(digest(offline.dataDir), before);
   const calls = existsSync(unitLog) ? readFileSync(unitLog, 'utf8').split('\n').filter(Boolean) : [];
   assert.deepEqual(
@@ -124,52 +108,23 @@ test('neptunia services list answers with no core, lists the three mechanisms an
   );
 });
 
-test('/services selfimprovement status gives the same answer from the chat line and from argv, with no core', async () => {
+test('/services selfreflection status gives the same answer from the chat line and from argv, with no core', async () => {
   // Catches: the two spellings of one command reach different handlers.
-  // Changed: the watcher left the services (owner, 2026-11-09); selfimprovement, whose next time has no jitter, stands in.
+  // Changed: the watcher left the services (owner, 2026-11-09), and selfimprovement is no service; selfreflection,
+  // whose next time has no jitter, stands in.
   fresh();
-  const direct = await run(offline, ['services', 'selfimprovement', 'status']);
-  const line = await run(offline, ['-p', '/services selfimprovement status']);
+  const direct = await run(offline, ['services', 'selfreflection', 'status']);
+  const line = await run(offline, ['-p', '/services selfreflection status']);
   assert.equal(direct.code, 0, direct.stderr.slice(0, 300));
   assert.equal(line.code, 0, line.stderr.slice(0, 300));
   assert.equal(line.stdout, direct.stdout);
-  assert.ok(direct.stdout.includes('selfimprovement'));
+  assert.ok(direct.stdout.includes('selfreflection'));
 });
 
-// ---- /doctor watcher -------------------------------------------------------------------------------------------------
-
-// Changed: `/logs watcher` became `/doctor watcher` (owner, 2026-11-09). The reports here are day files from before run
-// records, which the list numbers by their day.
-for (const [argv, expected] of [
-  [['doctor', 'watcher', 'read'], 'zeta-newer'],
-  [['doctor', 'watcher', '1'], 'zeta-older'],
-  [['-p', '/doctor watcher 1'], 'zeta-older'],
-] as const) {
-  test(`neptunia ${argv.join(' ')} prints the saved report with no core and never opens the journal`, async () => {
-    // Catches: the report view needs the core, reads the journal, or writes while it reads.
-    fresh();
-    const before = digest(offline.dataDir);
-    const done = await run(offline, argv);
-    assert.equal(done.code, 0, done.stderr.slice(0, 300));
-    assert.ok(done.stdout.includes(expected), done.stdout.slice(0, 300));
-    assert.equal(existsSync(journalLog), false, 'journalctl was not run');
-    assert.equal(digest(offline.dataDir), before);
-  });
-}
-
-for (const target of ['yesterday', '../x', '2026-11-02 extra', '2026-1-2']) {
-  test(`neptunia doctor watcher "${target}" fails before it reads any report or the journal`, async () => {
-    // Catches: a selector that is no number reads a file by name, or falls back to the journal.
-    fresh();
-    const done = await run(offline, ['doctor', 'watcher', target]);
-    assert.notEqual(done.code, 0);
-    assert.equal(done.stdout.includes('zeta-'), false, done.stdout.slice(0, 300));
-    assert.equal(existsSync(journalLog), false, 'journalctl was not run');
-  });
-}
+// ---- logs ------------------------------------------------------------------------------------------------------------
 
 test('neptunia logs errors still reads the core journal at priority err', async () => {
-  // Catches: the watcher view takes over the journal's filters.
+  // Catches: the journal's filters lost on the way to journalctl.
   fresh();
   const done = await run(offline, ['logs', 'errors']);
   assert.equal(done.code, 0, done.stderr.slice(0, 300));

@@ -101,8 +101,8 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
 }
 
 /**
- * The request of one turn on its frame (`input.frame`, required: without one it throws). A heartbeat's and a
- * selfimprovement turn's request reads no chat, since her own time is in no place; their whereabouts are her own server,
+ * The request of one turn on its frame (`input.frame`, required: without one it throws). A heartbeat's
+ * request reads no chat, since her own time is in no place; its whereabouts are her own server,
  * and a selfreflection's are her own world, whatever place the turn rode in on. The result carries the messages, the
  * budget's line (`stats`), the cache segments, the archive's blocks, the transcript's numbers (`idByIndex`), the
  * handles of her `@` and `#` tags, the people shown and what of memory and of the chat window went in.
@@ -115,7 +115,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     triggerKind: input.triggerKind,
     wakeKind: input.wakeKind,
   });
-  const ownTime = turnKind === 'heartbeat' || turnKind === 'selfimprovement';
+  const ownTime = turnKind === 'heartbeat';
   if (ownTime) input = { ...input, history: [], currentChannelId: null };
   // Her own time is at the command line of her own server, a selfreflection post in her own world (the owner's word of
   // 2026-11-06), whatever place the turn rode in on.
@@ -175,7 +175,6 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     intentions: input.intentions,
     wake: input.wake,
     awake: input.awake,
-    serviceInner: input.serviceInner,
     wakeKind: input.wakeKind,
     previousThink: input.previousThink,
     myDay: input.myDay,

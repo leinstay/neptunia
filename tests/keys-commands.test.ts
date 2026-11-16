@@ -279,13 +279,14 @@ test('keys check with no key for the role fails without sending anything', async
   assert.deepEqual(calls, []);
 });
 
-test('model set for an errand or development role saves at once: its ids are not OpenRouter model ids', async () => {
+test('model set for an errand role saves at once: its ids are not OpenRouter model ids', async () => {
   const { keys, saved, calls } = rig();
-  for (const role of ['scout', 'server', 'thinker', 'dev'])
+  // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
+  for (const role of ['scout', 'server'])
     assert.equal((await keys.run('model.set', { role, model: 'openrouter/x/model' }, null)).status, 'ok', role);
   // Bug caught: a chat completion sent for an OpenCode id, which OpenRouter answers with 404 and blocks the change.
   assert.deepEqual(calls, []);
-  assert.equal(saved.length, 4);
+  assert.equal(saved.length, 2);
 });
 
 test('the table parses the keys commands to the names and arguments the commands answer to', () => {

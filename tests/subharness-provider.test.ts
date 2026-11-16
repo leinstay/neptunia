@@ -1,6 +1,8 @@
 // The OpenRouter provider of an opencode route: `/model set <agent> <model> --via opencode --provider <slug>` stores it
 // in keys.json (`subharness.providers`, by agent), `/subharness status` shows it, `routeOfAgent` puts it into the task's
 // route, and `runAgent` hands it to the backend. The binaries are fakes, no request goes out.
+// Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
+// so the agent checks use `server`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -85,7 +87,7 @@ function recording(dir: string): { deps: RunDeps; seen: Array<BackendRunOptions>
 }
 
 const devRun = (dir: string, extra: Partial<AgentRun> = {}): AgentRun => ({
-  agent: 'dev',
+  agent: 'server',
   brief: 'B',
   cwd: dir,
   timeoutMs: 5_000,
@@ -97,25 +99,25 @@ const devRun = (dir: string, extra: Partial<AgentRun> = {}): AgentRun => ({
 test('setAgentModel stores the provider of an opencode route beside its model', async () => {
   // Catches: `--provider` accepted and dropped, so the route is written without the pin the owner asked for.
   const dir = installed();
-  const result = await setAgentModel(selectionDeps(dir), 'dev', MODEL, undefined, 'opencode', 'anthropic');
+  const result = await setAgentModel(selectionDeps(dir), 'server', MODEL, undefined, 'opencode', 'anthropic');
   assert.equal(result.ok, true, result.message);
-  assert.deepEqual(providersOf(dir), { dev: 'anthropic' });
-  assert.equal(readKeysFile(dir).subharness.models?.dev, `openrouter/${MODEL}`);
+  assert.deepEqual(providersOf(dir), { server: 'anthropic' });
+  assert.equal(readKeysFile(dir).subharness.models?.server, `openrouter/${MODEL}`);
 });
 
 test('the answer of a pinned selection says which provider the agent is pinned to', async () => {
   // Catches: the owner sets a pin and the reply reads like an unpinned selection, so he cannot tell it took.
   const dir = installed();
-  const result = await setAgentModel(selectionDeps(dir), 'dev', MODEL, undefined, 'opencode', 'google-vertex');
+  const result = await setAgentModel(selectionDeps(dir), 'server', MODEL, undefined, 'opencode', 'google-vertex');
   assert.ok(result.message.includes('google-vertex'), result.message);
 });
 
 test('a model set with no provider drops the provider stored for that agent', async () => {
   // Catches: a provider chosen for one model staying on the next model, which that provider may not serve at all.
   const dir = installed();
-  await setAgentModel(selectionDeps(dir), 'dev', MODEL, undefined, 'opencode', 'anthropic');
-  assert.deepEqual(providersOf(dir), { dev: 'anthropic' }, 'the pin was stored first');
-  const result = await setAgentModel(selectionDeps(dir), 'dev', 'deepseek/deepseek-v4', undefined, 'opencode');
+  await setAgentModel(selectionDeps(dir), 'server', MODEL, undefined, 'opencode', 'anthropic');
+  assert.deepEqual(providersOf(dir), { server: 'anthropic' }, 'the pin was stored first');
+  const result = await setAgentModel(selectionDeps(dir), 'server', 'deepseek/deepseek-v4', undefined, 'opencode');
   assert.equal(result.ok, true, result.message);
   assert.deepEqual(providersOf(dir) ?? {}, {});
 });
@@ -123,18 +125,18 @@ test('a model set with no provider drops the provider stored for that agent', as
 test('a provider of one agent is not stored for another', async () => {
   // Catches: the providers held in one slot, so dev's pin also pins scout.
   const dir = installed();
-  await setAgentModel(selectionDeps(dir), 'dev', MODEL, undefined, 'opencode', 'anthropic');
+  await setAgentModel(selectionDeps(dir), 'server', MODEL, undefined, 'opencode', 'anthropic');
   await setAgentModel(selectionDeps(dir), 'scout', 'deepseek/deepseek-v4', undefined, 'opencode', 'deepinfra');
-  assert.deepEqual(providersOf(dir), { dev: 'anthropic', scout: 'deepinfra' });
+  assert.deepEqual(providersOf(dir), { server: 'anthropic', scout: 'deepinfra' });
 });
 
 test('moving an agent to claude drops its provider', async () => {
   // Catches: a stale pin kept under a backend that cannot honour it, which the next route then refuses as bad-route.
   const dir = installed();
   fakeVendor(dir, 'claude', { loggedIn: true });
-  await setAgentModel(selectionDeps(dir), 'dev', MODEL, undefined, 'opencode', 'anthropic');
-  assert.deepEqual(providersOf(dir), { dev: 'anthropic' }, 'the pin was stored first');
-  const result = await setAgentModel(selectionDeps(dir), 'dev', 'sonnet', undefined, 'claude');
+  await setAgentModel(selectionDeps(dir), 'server', MODEL, undefined, 'opencode', 'anthropic');
+  assert.deepEqual(providersOf(dir), { server: 'anthropic' }, 'the pin was stored first');
+  const result = await setAgentModel(selectionDeps(dir), 'server', 'sonnet', undefined, 'claude');
   assert.equal(result.ok, true, result.message);
   assert.deepEqual(providersOf(dir) ?? {}, {});
 });
@@ -145,7 +147,7 @@ for (const backend of ['claude', 'codex'] as const) {
     const dir = installed();
     fakeVendor(dir, backend, { loggedIn: true });
     const before = JSON.stringify(readKeysFile(dir));
-    const result = await setAgentModel(selectionDeps(dir), 'dev', 'sonnet', undefined, backend, 'anthropic');
+    const result = await setAgentModel(selectionDeps(dir), 'server', 'sonnet', undefined, backend, 'anthropic');
     assert.equal(result.ok, false);
     assert.equal(result.code, 'provider-unsupported');
     assert.equal(JSON.stringify(readKeysFile(dir)), before);
@@ -156,8 +158,8 @@ test('a provider on an agent whose stored source is claude is refused when --via
   // Catches: the check looking at `--via` alone, so a pin slips onto an agent that already runs through claude.
   const dir = installed();
   fakeVendor(dir, 'claude', { loggedIn: true });
-  await setAgentModel(selectionDeps(dir), 'dev', 'sonnet', undefined, 'claude');
-  const result = await setAgentModel(selectionDeps(dir), 'dev', 'opus', undefined, undefined, 'anthropic');
+  await setAgentModel(selectionDeps(dir), 'server', 'sonnet', undefined, 'claude');
+  const result = await setAgentModel(selectionDeps(dir), 'server', 'opus', undefined, undefined, 'anthropic');
   assert.equal(result.code, 'provider-unsupported');
 });
 
@@ -166,7 +168,7 @@ for (const provider of ['two words', '--flag', 'Upper']) {
     // Catches: a free-form string stored and later written into the child's config.
     const dir = installed();
     const before = JSON.stringify(readKeysFile(dir));
-    const result = await setAgentModel(selectionDeps(dir), 'dev', MODEL, undefined, 'opencode', provider);
+    const result = await setAgentModel(selectionDeps(dir), 'server', MODEL, undefined, 'opencode', provider);
     assert.equal(result.code, 'bad-provider');
     assert.equal(JSON.stringify(readKeysFile(dir)), before);
   });
@@ -177,12 +179,13 @@ for (const provider of ['two words', '--flag', 'Upper']) {
 test('the route of an agent carries the provider stored for it', async () => {
   // Catches: the pin kept in keys.json and never put into the task, so every errand runs unpinned.
   const dir = installed();
-  await setAgentModel(selectionDeps(dir), 'dev', MODEL, undefined, 'opencode', 'anthropic');
-  assert.deepEqual(routeOfAgent(dir, 'dev'), {
+  await setAgentModel(selectionDeps(dir), 'server', MODEL, undefined, 'opencode', 'anthropic');
+  assert.deepEqual(routeOfAgent(dir, 'server'), {
     backend: 'opencode',
     model: `openrouter/${MODEL}`,
     effort: null,
-    mode: 'write',
+    // Changed: the agent is the server, whose default mode is `read`, the agent `dev` being gone (2026-11-16).
+    mode: 'read',
     provider: 'anthropic',
   });
 });
@@ -193,9 +196,9 @@ test('the route of an agent with no provider has no provider key', () => {
   const stored = readKeysFile(dir);
   writeKeysFile(dir, {
     ...stored,
-    subharness: { ...stored.subharness, uses: { dev: 'opencode' }, models: { dev: `openrouter/${MODEL}` } },
+    subharness: { ...stored.subharness, uses: { server: 'opencode' }, models: { server: `openrouter/${MODEL}` } },
   });
-  assert.deepEqual(Object.keys(routeOfAgent(dir, 'dev') ?? {}).sort(), ['backend', 'effort', 'mode', 'model']);
+  assert.deepEqual(Object.keys(routeOfAgent(dir, 'server') ?? {}).sort(), ['backend', 'effort', 'mode', 'model']);
 });
 
 // the commands
@@ -206,20 +209,20 @@ test('/model set <agent> <model> --via opencode --provider stores the provider a
   const dir = installed();
   const answer = await consoleOver(dir).run(
     'model.set',
-    { role: 'dev', model: MODEL, via: 'opencode-harness', provider: 'google-vertex' },
+    { role: 'server', model: MODEL, via: 'opencode-harness', provider: 'google-vertex' },
     OWNER
   );
   assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(providersOf(dir), { dev: 'google-vertex' });
+  assert.deepEqual(providersOf(dir), { server: 'google-vertex' });
   const status = await subharnessCommand(selectionDeps(dir), 'subharness.status', {});
-  const row = status.text.split('\n').find((line) => line.trim().startsWith('dev ')) ?? '';
+  const row = status.text.split('\n').find((line) => line.trim().startsWith('server ')) ?? '';
   assert.ok(row.includes('google-vertex'), status.text);
 });
 
 test('/subharness status shows no provider on the row of an agent that has none', async () => {
   // Catches: a "provider none" or empty column on every row, which reads like a pin that is not there.
   const dir = installed();
-  await setAgentModel(selectionDeps(dir), 'dev', MODEL, undefined, 'opencode', 'anthropic');
+  await setAgentModel(selectionDeps(dir), 'server', MODEL, undefined, 'opencode', 'anthropic');
   await setAgentModel(selectionDeps(dir), 'scout', 'deepseek/deepseek-v4', undefined, 'opencode');
   const status = await subharnessCommand(selectionDeps(dir), 'subharness.status', {});
   const row = status.text.split('\n').find((line) => line.trim().startsWith('scout ')) ?? '';
@@ -231,8 +234,12 @@ test('/model set <agent> <model> --provider with no --via on a claude agent is r
   // Catches: the old blanket refusal text with no code, or the pin stored for an agent whose source takes none.
   const dir = installed();
   fakeVendor(dir, 'claude', { loggedIn: true });
-  await consoleOver(dir).run('model.set', { role: 'dev', model: 'sonnet', via: 'claude-harness' }, OWNER);
-  const answer = await consoleOver(dir).run('model.set', { role: 'dev', model: 'opus', provider: 'anthropic' }, OWNER);
+  await consoleOver(dir).run('model.set', { role: 'server', model: 'sonnet', via: 'claude-harness' }, OWNER);
+  const answer = await consoleOver(dir).run(
+    'model.set',
+    { role: 'server', model: 'opus', provider: 'anthropic' },
+    OWNER
+  );
   assert.equal(answer.code, 'provider-unsupported');
   assert.deepEqual(providersOf(dir) ?? {}, {});
 });
@@ -247,7 +254,8 @@ test('a run with a route that names a provider hands it to the backend', async (
     backend: 'opencode',
     model: `openrouter/${MODEL}`,
     effort: null,
-    mode: 'write',
+    // Changed: the agent is the server, whose default mode is `read`, the agent `dev` being gone (2026-11-16).
+    mode: 'read',
     provider: 'anthropic',
   } as const;
   const result = await runAgent(devRun(dir, { route, routeKey: KEY }), deps);
@@ -258,7 +266,7 @@ test('a run with a route that names a provider hands it to the backend', async (
 test('a run from keys.json hands the stored provider to the backend', async () => {
   // Catches: only the route path carries the pin, so a run on the owner's own machine (no route) goes out unpinned.
   const dir = installed();
-  await setAgentModel(selectionDeps(dir), 'dev', MODEL, undefined, 'opencode', 'anthropic');
+  await setAgentModel(selectionDeps(dir), 'server', MODEL, undefined, 'opencode', 'anthropic');
   const { deps, seen } = recording(dir);
   const result = await runAgent(devRun(dir), deps);
   assert.equal(result.ok, true);

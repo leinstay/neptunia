@@ -6,31 +6,16 @@ import { chatPanel } from '../bin/chat-panels.ts';
 import { createChatSessions } from '../src/chat/sessions.ts';
 import type { ChatStore, SessionRow, SourceLine } from '../src/chat/sessions.ts';
 import type { MediaKind, MediaRow } from '../src/memory/db/media-store.ts';
-import type { CheckpointDesk } from '../src/development/checkpoint-desk.ts';
 import { createChatState } from '../src/interface/commands/chat-state.ts';
-import fs from 'node:fs';
-import path from 'node:path';
-import type { ApprovalGate, ApprovalResult } from '../src/board/approval-view.ts';
-import { openBoard } from '../src/board/board.ts';
-import type { Board, BoardSettings } from '../src/board/board.ts';
-import { createTaskCommands } from '../src/board/commands.ts';
-import type { BoardDb } from '../src/board/schema.ts';
 import { chatLines } from '../src/memory/db/chat-lines.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { storeProductionEdit } from './fixtures/memory-db/edited-line.ts';
-import { tempDir } from './fixtures/tmp.ts';
 
 const LINES: ReadonlyArray<SourceLine> = [
   { id: 's1', placeId: 'cli:dm:owner', at: 10, who: 'owner', text: 'First', nativeId: 'n1' },
   { id: 's2', placeId: 'cli:dm:owner', at: 20, who: 'her', text: 'Answer' },
   { id: 's3', placeId: 'cli:dm:owner', at: 30, who: 'owner', text: 'Second' },
 ];
-
-const noCheckpoints: CheckpointDesk = {
-  list: () => Promise.resolve({ capability: { restore: false, reason: 'zeta73 reason' }, points: [] }),
-  take: () => Promise.resolve({ ok: false, code: 'no-worktree' }),
-  restore: () => Promise.resolve({ status: 'refused', code: 'no-worktree' }),
-};
 
 function rig(lines: ReadonlyArray<SourceLine> = LINES, place: () => string | null = () => 'cli:dm:owner') {
   const rows: Array<SessionRow> = [];
@@ -46,11 +31,6 @@ function rig(lines: ReadonlyArray<SourceLine> = LINES, place: () => string | nul
   let serial = 0;
   const state = createChatState({
     sessions: createChatSessions({ store, now: () => 100, newId: () => `id${(serial += 1)}` }),
-    checkpoints: noCheckpoints,
-    approvals: {
-      gates: () => Promise.resolve([]),
-      answer: () => Promise.resolve({ status: 'refused', code: 'unused', message: '' }),
-    },
     context: () => ({ usedTokens: null, limitTokens: 50000, route: 'zeta-route', model: 'zeta-model' }),
     place,
   });
@@ -133,14 +113,6 @@ test('a missing boundary refuses with its code and writes nothing', async () => 
   const answer = await run({ name: 'session.branch', args: { from: rows[0]?.id, boundary: 'gone' } });
   assert.equal(answer.status, 'invalid');
   assert.equal(rows.length, 1);
-});
-
-test('/checkpoints shows the reason of a backend that cannot restore, and offers no row', async () => {
-  // Bug: the panel offers a restore that reports success with nothing behind it.
-  const { run, view } = rig();
-  const panel = await chatPanel('/checkpoints', run, [], view);
-  assert.deepEqual(panel?.rows ?? [], []);
-  assert.match(panel?.lines.join('\n') ?? '', /zeta73 reason/);
 });
 
 test('a stored page gives each line the time it was sent', async () => {
@@ -277,93 +249,12 @@ test('a stored page gives each line the kinds of its files, and no link', async 
   );
 });
 
-// `/approvals` from the chat's panel over src/interface/commands/chat-state.ts, down to a real board's commands: the gate the
-// panel shows, one answer reaching the board, and a refusal coming back. `/context` and the panel's menus beside it.
+// Changed: the checkpoints and the approvals left the chat with the development worker (maintainer, 2026-11-16).
 
-const SETTINGS: BoardSettings = {
-  leaseTtlMinutes: 30,
-  autoTriage: { role: 'dev', budget: 4, steps: 80, estimate: 30 },
-  projects: {},
-};
-
-type Context = { after: (fn: () => void) => void };
-
-function approvalsRig(t: Context) {
-  const dir = tempDir('nep-chat-approvals-');
-  fs.writeFileSync(
-    path.join(dir, 'clients.json'),
-    JSON.stringify({ owner: { kind: 'agent', tokenFile: 'clients/o.token', permissions: [], boardRoles: ['owner'] } })
-  );
-  const handle = openMemoryDb(':memory:');
-  t.after(() => handle.close());
-  const board: Board = openBoard({
-    db: handle.db as BoardDb,
-    privateDir: dir,
-    now: () => Date.parse('2026-11-05T00:00:00Z'),
-    settings: () => SETTINGS,
-  });
-  const commands = createTaskCommands({ board: () => board, briefWaitMs: () => 1000 });
-  const added = board.call('owner', 'task.add', { title: 'zeta74 task', lane: 'dev', project: 'core' });
-  const triaged = board.call('owner', 'task.transition', {
-    id: added.id,
-    status: 'triaged',
-    revision: added.revision,
-    set: { role: 'dev', estimate: 20, budget: 2 },
-  });
-  const state = createChatState({
-    sessions: {} as never,
-    checkpoints: {} as never,
-    approvals: {
-      gates: async () => ((await commands.run('owner', 'task.approvals', {})).data ?? []) as Array<ApprovalGate>,
-      answer: async (answer) => {
-        const reply = await commands.run('owner', 'task.approval.answer', answer);
-        return (reply.data ?? { status: 'refused', code: reply.status, message: reply.text }) as ApprovalResult;
-      },
-    },
-    context: () => ({ usedTokens: null, limitTokens: 50000, route: 'zeta-route', model: 'zeta-model' }),
-    place: () => 'cli:dm:owner',
-  });
-  const run = async (command: { name: string; args: Record<string, unknown> }) =>
-    (await state.command(command.name, command.args)) ?? { text: 'no such command', status: 'failed' };
-  return { board, run, id: triaged.id };
-}
-
-test('/approvals shows the one gate, and its approve row moves the task on the board once', async (t) => {
-  // Bug: the panel reads one list and answers through another path than the board's.
-  const { board, run, id } = approvalsRig(t);
-  const panel = await chatPanel('/approvals', run);
-  assert.match(panel?.lines.join('\n') ?? '', /zeta74 task/);
-  const approve = panel?.rows?.find((row) => row.id === 'approve');
-  assert.equal((await approve?.apply?.(''))?.status, 'ok');
-  const view = board.call('owner', 'task.show', { id });
-  assert.equal(view.task.status, 'approved');
-  assert.equal(view.approvals.length, 1);
-  assert.equal(view.task.lease_owner, null, 'an approval starts no work');
-  assert.match((await chatPanel('/approvals', run))?.lines.join('\n') ?? '', /Nothing waits/);
-});
-
-test('an answer against a revision the board has passed comes back refused, and the task stays', async (t) => {
-  // Bug: a panel left open approves the plan as it stood before someone changed it.
-  const { board, run, id } = approvalsRig(t);
-  const panel = await chatPanel('/approvals', run);
-  const before = board.call('owner', 'task.show', { id }).task;
-  board.call('owner', 'task.update', { id, revision: before.revision, set: { estimate: 21 } });
-  const answer = await panel?.rows?.find((row) => row.id === 'approve')?.apply?.('');
-  assert.equal(answer?.status, 'invalid');
-  assert.equal(answer?.code, 'stale');
-  assert.equal(board.call('owner', 'task.show', { id }).task.status, 'triaged');
-});
-
-test('/approvals names a gate that does not wait, and says so', async (t) => {
-  // Bug: a typed id opens another task's gate.
-  const { run } = approvalsRig(t);
-  assert.match((await chatPanel('/approvals T9', run))?.lines.join('\n') ?? '', /T9/);
-});
-
-test('/status full ends with the numbers the core holds of a request and names the rest unknown, and /context is gone', async (t) => {
+test('/status full ends with the numbers the core holds of a request and names the rest unknown, and /context is gone', async () => {
   // Changed: `/context` was a panel of its own beside the status. Bug: the line reads as 0 tokens used when nothing
   // measured it.
-  const { run } = approvalsRig(t);
+  const { run } = rig();
   assert.equal(await chatPanel('/context', run), null);
   const shown = (await chatPanel('/status full', run))?.lines.join('\n') ?? '';
   assert.match(shown, /unknown of 50000 tokens/);

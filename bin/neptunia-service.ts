@@ -6,23 +6,17 @@
 
 import { spawnSync } from 'node:child_process';
 import { readConfig } from '../src/config.ts';
-import { readLabels } from '../src/hot.ts';
 import { serviceFamily } from '../src/service/commands.ts';
 import type { ServiceAnswer, ServiceDeps } from '../src/service/commands.ts';
 import { managerCall, managerRead } from '../src/service/manager.ts';
 import { SERVICE_NAMES, formatSchedule, nextMoments, parseSchedule } from '../src/service/schedule.ts';
 import { spawnRun } from '../src/setup/install.ts';
-import path from 'node:path';
-import { watcherDoctor } from '../src/watcher/doctor.ts';
-import { runStoreOf } from '../src/watcher/lifecycle.ts';
-import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
-import { renderMarkdown } from './markdown.ts';
 
 type Where = { rootDir: string; privateDir: string; dataDir: string };
 type ServiceRequest = { name: string; args: Record<string, unknown> };
 
-/** The second words of the family: the three mechanics, and `watcher`, whose agent reads its evidence there. */
-const FAMILY_WORDS: ReadonlyArray<string> = [...SERVICE_NAMES, 'watcher'];
+/** The second words of the family: the mechanics. */
+const FAMILY_WORDS: ReadonlyArray<string> = SERVICE_NAMES;
 
 /** The units the verbs act on when none is named: the core and the two errand runners (deploy/). */
 const DEFAULT_UNITS = ['neptunia-core.service', 'neptunia-agent-scout.service', 'neptunia-agent-server.service'];
@@ -49,24 +43,6 @@ export function runServiceHere(request: ServiceRequest, where: Where): Promise<S
     coreUp: false,
   };
   return serviceFamily(deps, request.name, request.args);
-}
-
-/**
- * `/doctor watcher stop|read|list|accepted|accept|unaccept|<number>` from the files, with the core up or down; `run` goes to the core, which
- * starts the worker. A report opened here is rendered for the terminal.
- */
-export function watcherDoctorHere(request: ServiceRequest, where: Where, color: boolean): ServiceAnswer {
-  const reportsDir = reportsDirOf(
-    where.privateDir,
-    watcherDir(readConfig(where.rootDir, { privateDir: where.privateDir }))
-  );
-  const answer = watcherDoctor(request.name, request.args, {
-    store: runStoreOf(path.dirname(reportsDir)),
-    reportsDir,
-    labels: readLabels(where.rootDir, where.privateDir),
-  });
-  const isReport = request.name === 'doctor.watcher.read' || request.name === 'doctor.watcher';
-  return isReport && answer.status === 'ok' ? { ...answer, text: renderMarkdown(answer.text, { color }) } : answer;
 }
 
 /**
@@ -102,7 +78,6 @@ export function runUnitVerbs(words: ReadonlyArray<string>, refuse: (reason: stri
     refuse(
       `usage: neptunia services list, neptunia services <name> setup|enable|disable|status, or neptunia services ${UNIT_VERBS.join('|')} [<unit> ...]`
     );
-  if (second === 'watcher') refuse(`services ${first} watcher is not a form: use neptunia doctor watcher list`);
   if (SERVICE_NAMES.some((name) => name === second)) {
     const action = first === 'status' ? 'status' : 'enable or disable';
     refuse(`services ${first} ${second ?? ''} is not a form: use neptunia services ${second ?? ''} ${action}`);

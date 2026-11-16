@@ -1,7 +1,7 @@
 // What an inner turn's wake says in its request (src/behavior/inner.ts, docs/inner-life.md), as facts she reads and
 // never a rule. `awakeLines` says why she is awake with nobody's message in front of her, one line per wake of the turn
 // (an intention whose time came, a wait past its deadline, people talking in a place she attends, a heartbeat, a
-// selfimprovement wake, a feedback wake), for `<spatial_awareness>`. `feedbackText` is the body of `<feedback>`: what
+// feedback wake), for `<spatial_awareness>`. `feedbackText` is the body of `<feedback>`: what
 // did not go through in her previous turn (feedbackFactText, each fact worded by `wake.feedback.<kind>`), the place a
 // due intention could not be reached in, and the facts kept for her and not told yet under `wake.feedbackInTurn`, which
 // stand alone as the feedback of an addressed turn (feedbackInTurnText). The places page stands alone as the
@@ -12,7 +12,6 @@ import { fill, formatClock, formatDate } from '../format.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
-import type { SelfimprovementFacts } from './selfimprovement-view.ts';
 
 /** `value` as text (String over a value of any type). */
 const asText = (value: unknown): string => String(value);
@@ -268,8 +267,6 @@ export type WakeBlockInput = {
   notes?: Readonly<Record<string, string>>;
   timezone?: string;
   facts?: ReadonlyArray<unknown>;
-  /** A selfimprovement wake's facts, for `<work>` and `<board>` (src/behavior/selfimprovement-text.ts). */
-  selfimprovement?: SelfimprovementFacts | null;
   /** The code of the place a due intention named and could not be reached in (`unavailable`, `dm-off`, `not-writable`). */
   placeFailure?: string | null;
 };
@@ -277,7 +274,7 @@ export type WakeBlockInput = {
 /**
  * Why she is awake with nobody's message in front of her, as lines for `<spatial_awareness>`: one `labels.wake.kinds`
  * line per wake of the turn (an intention whose time came with its purpose, a wait past its deadline, people talking in
- * a place she attends with the place, the lines and who wrote them, a heartbeat, a selfimprovement wake, a feedback
+ * a place she attends with the place, the lines and who wrote them, a heartbeat, a feedback
  * wake), with the note of a recurring intention's last occurrence (`labels.intentions.notes`) and, for a wake retried
  * after a failed turn, `labels.wake.delayed`. [] without `labels.wake.kinds` or a wake.
  */

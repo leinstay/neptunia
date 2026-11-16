@@ -19,9 +19,7 @@ import { idText, objOf } from '../types.ts';
 import type { Untyped } from '../types.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { RoleHealth } from '../../llm/role-health.ts';
-import type { BoardCaller } from './board.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
-import type { ReportReader } from '../../watcher/read.ts';
 import type { CardKeys } from '../../keys/card-keys.ts';
 
 /** What `createOpsEnv` is given: the persona's subsystems, the reads of the interface and the clock. */
@@ -46,12 +44,8 @@ export type OpsDeps = {
   dataDir?: string | null;
   /** Which model roles are down (src/llm/role-health.ts), shared with the turn runner. */
   roleHealth?: RoleHealth | null;
-  /** The task board her board tools file on and read (src/board/writer.ts#createBoardPort); null when there is none. */
-  board?: BoardCaller | null;
   /** Her skills (src/skills/port.ts) that `skill.read` and `skill.disable` use; null when the core has none. */
   skills?: SkillsAccess | null;
-  /** The watcher's reports (src/watcher/read.ts) that `watcher.read` answers; null when the core has none. */
-  watcher?: ReportReader | null;
   /** The status card's key read at the moment of the card (src/keys/card-keys.ts); when given, it stands in for `managementKey`. */
   cardKeys?: (() => CardKeys) | null;
   [subsystem: string]: Untyped;
@@ -99,9 +93,7 @@ function buildEnv({
   fetchImpl = null,
   intentions = null,
   inner = null,
-  board = null,
   skills = null,
-  watcher = null,
   now = Date.now,
   // The data directory src/index.ts resolved (src/paths.ts); `<hot.rootDir>/data` when not given.
   dataDir = hot?.rootDir ? path.join(hot.rootDir as string, 'data') : null,
@@ -303,12 +295,8 @@ function buildEnv({
     // The persona's inner life (src/behavior/inner.ts): `inner.status`.
     inner,
     // The selfreflection's publisher (src/behavior/mirror.ts): what she writes to her selfreflection with message.create is held there.
-    // The task board (src/tools/operations/board.ts): `task.propose` and `task.status`, and the status card's agent costs.
-    board,
     // Her skills (src/tools/operations/skill.ts): `skill.read` and `skill.disable`.
     skills,
-    // The watcher's reports (src/tools/operations/watcher.ts): `watcher.read`.
-    watcher,
     now,
     dataDir,
     connection,

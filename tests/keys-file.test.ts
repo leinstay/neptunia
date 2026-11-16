@@ -37,7 +37,7 @@ test('a write is mode 600 and keeps a section it does not know', () => {
 });
 
 test('a file that still holds the core list or the extra section is refused, with no value in the error', () => {
-  // Catches: a keys.json the migration missed read as holding no key, so the subharness and the watcher run keyless.
+  // Catches: a keys.json the migration missed read as holding no key, so the subharness runs keyless.
   const dir = tempDir('nep-keysfile-');
   fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ extra: { helpers: 'sk-or-secret' } }));
   assert.throws(
@@ -59,6 +59,7 @@ const writeRouting = (agents: Record<string, unknown>): string => {
 
 test('the backend each agent runs through keeps only backend names', () => {
   // Catches: a hand-edited `via` entry such as "sh" is passed to the run as a backend.
-  const dir = writeRouting({ via: { watcher: 'claude', scout: 'sh' } });
-  assert.deepEqual(readRouting(dir).subharness.uses, { watcher: 'claude' });
+  // Changed: the watcher is gone (maintainer, 2026-11-16), so the agent with a backend name is the server.
+  const dir = writeRouting({ via: { server: 'claude', scout: 'sh' } });
+  assert.deepEqual(readRouting(dir).subharness.uses, { server: 'claude' });
 });

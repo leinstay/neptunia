@@ -176,21 +176,20 @@ test("system agent units bind nothing of the installing user's home, and their P
   }
 });
 
-// The core and the watcher find the subharness backend (spec 2026-11-02, follow-up 6): their units carry the PATH of
-// the installing user's own tools and may write the backend's home, so the enable check and the watcher's run reach
-// the binary and its login.
+// The core finds the subharness backend (spec 2026-11-02, follow-up 6): its unit carries the PATH of the installing
+// user's own tools and may write the backend's home, so the enable check reaches the binary and its login.
 
-// Changed: the watcher runs inside the core's unit (owner, 2026-11-09), so the core stands for both.
-const CORE_AND_WATCHER = ['neptunia-core.service'];
+// Changed: the watcher is gone (maintainer, 2026-11-16), so the core's unit is the one under test.
+const CORE_UNITS = ['neptunia-core.service'];
 
 /** The folders of the unit's `Environment=PATH=` line. */
 const pathDirsOf = (text: string): Array<string> =>
   (valuesOf(text, 'Environment').find((one) => one.startsWith('PATH=')) ?? '').slice(5).split(':').filter(Boolean);
 
 for (const scope of ['user', 'system'] as const) {
-  test(`${scope} core and watcher units put the user's ~/.local/bin and the node's folder on PATH`, () => {
-    // Catches: codex installed under ~/.local/bin is not found by the core's enable check or the watcher's run.
-    for (const name of CORE_AND_WATCHER) {
+  test(`${scope} core unit puts the user's ~/.local/bin and the node's folder on PATH`, () => {
+    // Catches: codex installed under ~/.local/bin is not found by the core's enable check.
+    for (const name of CORE_UNITS) {
       // Changed for spec 2026-11-02 PR 5 "Several subharnesses": UnitVars carries the list `backends`.
       const dirs = pathDirsOf(renderUnit(template(name), scope, { ...VARS, backends: ['codex'] }));
       assert.ok(dirs.includes(`${VARS.home}/.local/bin`), name);
@@ -200,11 +199,11 @@ for (const scope of ['user', 'system'] as const) {
   });
 }
 
-test('the core and the watcher of a deployment with no backend name no backend home', () => {
+test('the core of a deployment with no backend names no backend home', () => {
   // Catches: a deployment without the subharness gets a ReadWritePaths of a folder that does not exist and the unit fails.
   // Changed for spec 2026-11-02 PR 5: the core writes the backend's folder in the private layer, checked by the test
   // "the core may write her backend's folder"; ~/.codex and ~/.claude are no longer its write paths.
-  for (const name of CORE_AND_WATCHER) {
+  for (const name of CORE_UNITS) {
     // Changed for spec 2026-11-02 PR 5 "Several subharnesses": UnitVars carries the list `backends`.
     const text = renderUnit(template(name), 'user', { ...VARS, backends: [] });
     assert.equal(text.includes('/.codex') || text.includes('/.claude'), false, name);
@@ -294,9 +293,8 @@ test("the core may write her backend's folder and names neither ~/.codex nor ~/.
   }
 });
 
-// Several subharnesses and the watcher's hour (spec 2026-11-02, PR 5 "Several subharnesses", "`selfimprovement` daily,
-// after the watcher"): an agent unit binds the folder of every connected backend, and the watcher timer fires at
-// `watcher.at`.
+// Several subharnesses (spec 2026-11-02, PR 5 "Several subharnesses"): an agent unit binds the folder of every
+// connected backend.
 
 test('agent units bind the folder of every connected backend', () => {
   // Catches: only the first backend's folder is bound, so an agent the owner moved to claude cannot write claude's home.
@@ -512,15 +510,3 @@ for (const [file, mode] of [
       );
   });
 }
-
-test('the rendered system core joins the group that reads the journal, and a user core names no group', () => {
-  // Bug: the watcher the core starts runs as a user outside `systemd-journal`, journalctl answers nothing, and the
-  // report says the server was quiet. A user manager refuses `SupplementaryGroups=` with status 216, so that form
-  // must not carry it.
-  const rendered = (scope: 'user' | 'system') => renderUnit(template('neptunia-core.service'), scope, VARS).split('\n');
-  assert.ok(rendered('system').includes('SupplementaryGroups=systemd-journal'));
-  assert.equal(
-    rendered('user').some((line) => line.startsWith('SupplementaryGroups=')),
-    false
-  );
-});

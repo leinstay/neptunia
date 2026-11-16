@@ -1,5 +1,5 @@
-// One live inner turn of a chosen wake kind over the real turn runner, the real operations, a real intention service,
-// a real task board in memory and a fake model, for the tests of what a heartbeat and a selfimprovement wake may do.
+// One live inner turn of a chosen wake kind over the real turn runner, the real operations, a real intention service
+// and a fake model, for the tests of what a heartbeat may do.
 // The fake interface holds the anchor channel; no network and no provider. Synthetic data only.
 import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.ts';
 import { createAdmin } from '../../src/admin.ts';
@@ -9,7 +9,6 @@ import { createIntentionService } from '../../src/intentions/service.ts';
 import { createIntentionStores } from '../../src/intentions/store.ts';
 import '../../src/tools/operations/index.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
-import type { BoardCaller } from '../../src/tools/operations/board.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import { labels } from './labels.ts';
@@ -31,8 +30,6 @@ export const PROMPT_MARK = {
   card: 'MARK-CHARACTER-CARD',
   inner: 'MARK-INNER-TASK',
   heartbeat: 'MARK-HEARTBEAT-TASK',
-  selfimprovement: 'MARK-SELFIMPROVEMENT-WAKE',
-  brief: 'MARK-EXECUTOR-BRIEF',
   selfreflection: 'MARK-DIARY-TASK',
 } as const;
 
@@ -51,11 +48,6 @@ const GRANTED = [
   'skill.read',
   'skill.run',
   'skill.disable',
-  'task.propose',
-  'task.status',
-  'task.cancel',
-  'task.comment',
-  'task.answer',
 ];
 
 export type WakeTurn = {
@@ -75,7 +67,7 @@ export type WakeTurn = {
 export function wakeOfKind(kind: string, chainId: string, facts: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     kind,
-    items: [{ kind, reason: kind === 'selfimprovement' ? 'daily' : kind, intentionIds: [], errandId: null }],
+    items: [{ kind, reason: kind, intentionIds: [], errandId: null }],
     intentions: [],
     now: WAKE_NOW,
     timezone: 'UTC',
@@ -97,19 +89,16 @@ export function requestText(messages: ReadonlyArray<Record<string, Untyped>>): s
 }
 
 /**
- * The turn of `wake` answered by `answers`. `board` is the board her operations call; `service` and `turnId` let a
- * test run the same wake twice over the same stores, as a restarted turn does.
+ * The turn of `wake` answered by `answers`. `service` and `turnId` let a test run the same wake twice over the same stores, as a restarted turn does.
  */
 export async function wakeTurn({
   wake,
   answers,
-  board,
   lore = [],
   service = null,
 }: {
   wake: Record<string, unknown>;
   answers: ReadonlyArray<unknown>;
-  board: BoardCaller | null;
   lore?: ReadonlyArray<Record<string, unknown>>;
   service?: ReturnType<typeof createIntentionService> | null;
 }): Promise<WakeTurn> {
@@ -148,8 +137,6 @@ export async function wakeTurn({
       initiate: 'Start a topic.',
       inner: PROMPT_MARK.inner,
       heartbeat: PROMPT_MARK.heartbeat,
-      selfimprovement: PROMPT_MARK.selfimprovement,
-      'executor-brief': PROMPT_MARK.brief,
       selfreflection: PROMPT_MARK.selfreflection,
       labels,
     },
@@ -202,7 +189,6 @@ export async function wakeTurn({
     port,
     reads,
     intentions,
-    board,
     now: () => WAKE_NOW,
   });
   const requests: WakeTurn['requests'] = [];

@@ -53,7 +53,7 @@ function insert(db: Db, record: Row): number {
 /** The row of the one request a memory session run makes; `session-write.ts` links its outcome by this id. */
 export const sessionRequestId = (runId: string): string => `request:${runId}`;
 
-/** What a request led to, on its row: read by the watcher (src/watcher/requests.ts). No row, no change. */
+/** What a request led to, on its row. No row, no change. */
 export function setRequestOutcome(db: Db, id: unknown, outcome: unknown): number {
   const result = db.prepare('UPDATE model_requests SET outcome = ? WHERE id = ?').run(JSON.stringify(outcome), id);
   return Number(result.changes);

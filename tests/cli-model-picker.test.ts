@@ -107,7 +107,8 @@ test('the steps run in the agreed order, and opening asks nothing', () => {
   // Catches: a role list ahead of the categories, or a chooser that probes by being opened.
   const first = opened();
   assert.equal(first.step, 'group');
-  assert.deepEqual(rowIds(first), ['main', 'errand', 'development']);
+  // Changed: the Development group is gone with the development agents (maintainer, 2026-11-16).
+  assert.deepEqual(rowIds(first), ['main', 'errand']);
   const role = play(first, choose('main'));
   assert.equal(role.state.step, 'role');
   assert.deepEqual(role.effects, []);
@@ -146,20 +147,11 @@ test('nothing commits before the confirmation, and a double confirmation commits
   ]);
 });
 
-test('Development offers thinker and dev, and watcher is a separate row', () => {
-  // Catches: a stale list hiding thinker, or watcher treated as one more development agent.
-  const rows = pickerRows(play(opened(), choose('development')).state);
-  assert.deepEqual(
-    rows
-      .filter((one) => one.utility !== true)
-      .map((one) => one.id)
-      .sort(),
-    ['dev', 'thinker']
-  );
-  assert.deepEqual(
-    rows.filter((one) => one.utility === true).map((one) => one.id),
-    ['watcher']
-  );
+test('Errand offers scout and server', () => {
+  // Catches: an agent missing from Errand, or a role of another group listed there.
+  // Changed: the watcher and its utility row are gone (maintainer, 2026-11-16), so Errand holds the two agents alone.
+  const rows = pickerRows(play(opened(), choose('errand')).state);
+  assert.deepEqual(rows.map((one) => one.id).sort(), ['scout', 'server']);
 });
 
 test('the three kinds of evidence are told apart on the rows and in the review', () => {

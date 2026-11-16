@@ -31,12 +31,6 @@
 //        that holds a `memory.db`, refused when it holds none. `board` replaces every `board_*` table (`board_schema_version` included)
 //        with the backup's; `memory` replaces every other table, the full-text indexes rebuilt from the restored
 //        lines. Refused, with nothing changed, when the part's schema versions differ between the two files.
-//   node scripts/memory-db.ts board list --db <file> [--json]
-//   node scripts/memory-db.ts board show <id> --db <file> [--json]
-//        The task board read with the core down or running: every task, or one task with its dependencies,
-//        attempts, questions, reviews, results, comments and latest events. Opens the database read-only. `--json`
-//        prints one line, the answer of `task.list` or `task.show`. An unknown id, or a board that is not at the
-//        engine's version, exits 1.
 //
 // reproject, rebuild, restore-tables, index-policy --apply and media-check --apply take the database's writer lock
 // and refuse while the bot (or another tool) holds it.
@@ -50,27 +44,20 @@ import { createHash } from 'node:crypto';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.ts';
 import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-policy.ts';
-import { readBoard } from '../src/board/board.ts';
-import { BoardError } from '../src/board/machine.ts';
 import type { BoardDb as BoardDbShape } from '../src/board/schema.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './lib/sql.ts';
 import type { SqlDb } from './lib/sql.ts';
-import type { TaskView } from '../src/board/board.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
 
-const FLAGS = new Set(['apply', 'json']);
+const FLAGS = new Set(['apply']);
 
 function parseArgs(argv: Untyped) {
   const [command, ...rest] = argv;
   const options: Untyped = {};
-  const positionals: Array<string> = [];
-  // `board` takes its subcommand and an id before its flags.
-  while (command === 'board' && rest.length && !rest[0].startsWith('--')) positionals.push(rest.shift());
-  options._ = positionals;
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (!arg.startsWith('--')) throw new Error(`unexpected argument ${arg}`);
@@ -452,60 +439,6 @@ function runRestoreTables(io: Io, options: Record<string, unknown>): number {
   }
 }
 
-// ---------- board ----------
-
-/** Prints one task of `board show` as lines. */
-function printTask(io: Io, view: TaskView) {
-  const { task } = view;
-  const lease = task.lease_owner ? `, held by ${task.lease_owner} until ${task.lease_expires_at ?? '?'}` : '';
-  io.out(`${task.id}  ${task.status}  ${task.lane}  ${task.title}`);
-  io.out(
-    `requester ${task.requester}, risk ${task.risk}, priority ${task.priority}, revision ${task.revision}${lease}`
-  );
-  io.out(
-    `attempts ${view.attempts.length}, questions ${view.questions.length}, reviews ${view.approvals.length}, results ${view.results.length}, comments ${view.comments.length}`
-  );
-  for (const event of view.events) {
-    io.out(`${String(event.seq).padStart(6)}  ${event.created_at}  ${event.actor}  ${event.type}  ${event.new ?? ''}`);
-  }
-}
-
-/** `board list` and `board show <id>` over a read-only open (see the head of this file). */
-function runBoard(io: Io, options: Record<string, unknown>): number {
-  need(options, 'db');
-  const [sub, id, ...extra] = Array.isArray(options._) ? options._.map(String) : [];
-  if (sub !== 'list' && sub !== 'show') throw new Error('usage: board list|show <id> --db <file> [--json]');
-  if (sub === 'show' && !id) throw new Error('board show needs a task id');
-  const surplus = sub === 'list' ? [id, ...extra] : extra;
-  if (surplus.some((arg) => arg !== undefined)) throw new Error(`unexpected argument ${String(surplus.find(Boolean))}`);
-  const handle = openMemoryDb(String(options.db), { readOnly: true });
-  try {
-    // node:sqlite's DatabaseSync, which open.js types as `object`, has every method BoardDb names.
-    const board = readBoard(sqlOf(handle), Date.now);
-    if (sub === 'list') {
-      const tasks = board.list();
-      if (options.json) io.out(JSON.stringify(tasks));
-      else
-        for (const task of tasks)
-          io.out(`${task.id}  ${task.status.padEnd(16)}  p${task.priority}  ${task.lane}  ${task.title}`);
-      return 0;
-    }
-    const view = board.show(String(id));
-    if (options.json) io.out(JSON.stringify(view));
-    else printTask(io, view);
-    return 0;
-  } catch (error) {
-    // An unknown id or a board at another version is an answer, not a usage error.
-    if (error instanceof BoardError && (error.code === 'not-found' || error.code === 'board-unavailable')) {
-      io.err(`memory-db: ${error.message}`);
-      return 1;
-    }
-    throw error;
-  } finally {
-    handle.close();
-  }
-}
-
 // ---------- entry ----------
 
 const COMMANDS: Untyped = {
@@ -516,7 +449,6 @@ const COMMANDS: Untyped = {
   'index-policy': runIndexPolicy,
   'media-check': runMediaCheck,
   'restore-tables': runRestoreTables,
-  board: runBoard,
 };
 
 /** Runs a command line; returns the exit code, or a promise of it. `io` is { out(line), err(line) }. */

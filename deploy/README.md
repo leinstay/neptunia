@@ -7,11 +7,10 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 | `neptunia-core.service` | The core with no interface of its own. The one unit setup starts. | yes |
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`. | yes |
 | `neptunia-agent-scout.service`, `neptunia-agent-server.service` | The errand agents, `neptunia errand-runner --profile <name>`. See [Errands](../docs/errands.md#the-subharness). | yes |
-| `neptunia-development.service` | The long-lived development worker, `neptunia worker development`, run from the install and working on the dev checkout `selfimprovement.checkout` names. Setup writes it and never enables it; the owner's step is in [Self-development](../docs/selfimprovement.md#enabling-the-worker). | when `selfimprovement.checkout` names another checkout |
 
 ## How a template becomes a unit
 
-The templates keep the paths of the first deployment (`/opt/neptunia/app`, `/opt/neptunia/etc`, `/opt/neptunia/data`, `/opt/node/bin/node`, `/home/neptunia`). `renderUnit` in `src/setup/units.ts` maps them onto the checkout, the private folder, the data folder, the node binary and the home of the installing user. The development unit has `/opt/neptunia/checkout` too, which becomes `selfimprovement.checkout`. Its `WorkingDirectory` stays the install, and its `ReadWritePaths` hold the dev checkout, `<data>/skills`, `<data>/subharness`, `<data>/run` and `<data>/config`, and neither the install nor the whole data folder. The render is pure, so a rerun renders the same text and writes only the units whose text changed.
+The templates keep the paths of the first deployment (`/opt/neptunia/app`, `/opt/neptunia/etc`, `/opt/neptunia/data`, `/opt/node/bin/node`, `/home/neptunia`). `renderUnit` in `src/setup/units.ts` maps them onto the checkout, the private folder, the data folder, the node binary and the home of the installing user. The render is pure, so a rerun renders the same text and writes only the units whose text changed.
 
 The node binary is the one `neptunia setup` was started with, as it was typed or found on `PATH` and never resolved through a link, so a unit names `/opt/node/bin/node` when `/opt/node` is a link to a versioned folder. `neptunia setup --node <path>` names another one.
 

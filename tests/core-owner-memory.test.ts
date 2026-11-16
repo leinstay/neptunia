@@ -255,7 +255,8 @@ for (const kind of ['group', 'dm'] as const) {
   });
 }
 
-for (const sender of ['absent', 'interface', 'agent'] as const) {
+// Changed: the agent principal kind is gone (maintainer, 2026-11-16).
+for (const sender of ['absent', 'interface'] as const) {
   test(`a direct CLI-shaped event with ${sender} authentication receives no internal memory authority`, async () => {
     await withRig({ config: CONFIG }, async ({ dirs, cores, clis, logs, units }) => {
       seed(dirs);

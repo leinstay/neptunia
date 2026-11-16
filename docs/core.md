@@ -53,7 +53,7 @@ A heartbeat or completed errand can also cause a turn. It uses the same persona 
 
 | Field | What it holds |
 |---|---|
-| `kind` | The `TurnKind`: `reply`, `heartbeat`, `selfimprovement`, `intention`, `feedback`, `errand_result`, `selfreflection_plan` or `selfreflection`. |
+| `kind` | The `TurnKind`: `reply`, `heartbeat`, `intention`, `feedback`, `errand_result`, `selfreflection_plan` or `selfreflection`. |
 | `place` | A `FramePlace` with `id`, `name`, `kind` and `path`, or null when she is nowhere. |
 | `root` | The top of the place's tree as a `FramePlace`, null in a one-to-one chat, with no place and for a place with no stored parent. |
 | `chain` | The stored chain of the place, the place first, which `<spatial_awareness>` renders link by link. |
@@ -66,7 +66,7 @@ A heartbeat or completed errand can also cause a turn. It uses the same persona 
 | `wakeKind` | The wake beside `awake`, null on any other turn. |
 | `blocks` | The tags of the kind from `blocksOf`, listed in [the prompt contract](prompt-contract.md#blocks-per-kind). |
 
-`reply` and `interject` make a `reply`, and a trigger of kind `errand` makes an `errand_result`. An inner turn takes its wake's kind, with `intention_due`, `attend` and `errand_deadline` making an `intention` and a `feedback` wake a `feedback`. A `heartbeat`, a `selfimprovement` and both `selfreflection` kinds are nowhere, and so is a turn the drain runs with `chat: null`. The path of a place runs from the interface down by names, and a one-to-one chat's path is the interface, the interface's word for the chat and the partner's native id, with no name. `frameOf` throws `FrameError` with the code `PLACE_REQUIRED` for a `reply` with no place.
+`reply` and `interject` make a `reply`, and a trigger of kind `errand` makes an `errand_result`. An inner turn takes its wake's kind, with `intention_due`, `attend` and `errand_deadline` making an `intention` and a `feedback` wake a `feedback`. A `heartbeat` and both `selfreflection` kinds are nowhere, and so is a turn the drain runs with `chat: null`. The path of a place runs from the interface down by names, and a one-to-one chat's path is the interface, the interface's word for the chat and the partner's native id, with no name. `frameOf` throws `FrameError` with the code `PLACE_REQUIRED` for a `reply` with no place.
 
 ## The request on the frame
 
@@ -134,15 +134,15 @@ A call of hers runs on her grants alone, whoever asked for it: one person, sever
 
 The owner's narrow reads of one subject, `memory.profile.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `lore.list` and `lore.show`, stay registered, grantable operations that run when called, and `REPLACED_BY_MEMORY_READ` in `src/tools/discovery.ts` leaves them out of the list she is offered. Her read of one subject is `memory.read`, which runs only inside a turn (`src/turn/in-turn-tools.ts`). Its operation in `src/tools/operations/search.ts` answers `unsupported` anywhere else. A stored grant or wake envelope under one of the six names opens `memory.read` through `grantNamesFor` in `src/tools/operations/grants.ts`.
 
-`effectsOf(name)` reads a tool's effect class from its row, and the turn's outcome in `src/turn/phases/outcome.ts` counts an executed `read` call as one that changed nothing. A change to a tool's traits changes who may run it, so `src/development/risk.ts` counts `src/tools/definitions.ts` among the `permissions` paths.
+`effectsOf(name)` reads a tool's effect class from its row, and the turn's outcome in `src/turn/phases/outcome.ts` counts an executed `read` call as one that changed nothing.
 
 ## Boundaries
 
 The core writes memory through one writer. Interfaces neither open the database nor decide what the persona remembers. A history line that enters a turn's `<chat>` or that an analyzer reads is stored when memory lacks it ([Lines in her context](memory.md#lines-in-her-context)). Stored recall and fetching live platform history are separate operations with separate access checks.
 
-A chat session of the owner's CLI (`src/chat/`) is a view over stored lines, kept in its own file, and memory never reads it. Selecting one changes what the next turn's history shows, and memory stays continuous. [CLI](cli.md#sessions-and-checkpoints) explains them.
+A chat session of the owner's CLI (`src/chat/`) is a view over stored lines, kept in its own file, and memory never reads it. Selecting one changes what the next turn's history shows, and memory stays continuous. [CLI](cli.md#sessions) explains them.
 
-An approval from the owner's CLI goes through the board's own `task.approve` (`src/board/approval-view.ts`), and an agent's mode is set before its run, so no tool call waits on a person. [CLI](cli.md#approvals-and-capability-menus) explains what that panel shows.
+An agent's mode is set before its run, so no tool call waits on a person. [CLI](cli.md#capability-menus) explains it.
 
 The execution context carries trusted access information outside message text. An account claiming to be the owner in a message does not acquire owner CLI access. [Memory](memory.md#who-can-recall-what) explains the audience rules.
 
@@ -163,4 +163,4 @@ The main thread holds no long read or copy, because nothing else in the core mov
 
 ## The task board
 
-The [board](board.md) stores delegated work in the same database. Its roles govern task operations independently from conversational memory access.
+The board holds her errands in the memory database, one `board_tasks` row per errand, written only through the errand store. [Errands](errands.md#the-board) describes its rows and statuses.

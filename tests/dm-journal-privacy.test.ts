@@ -289,7 +289,7 @@ test("a wake's post into a DM leaves a row a group turn cannot read", async () =
 });
 
 test("a wake's post into a DM stays out of the journal every wake reads", async () => {
-  // Bug: the heartbeat and selfimprovement views and their `memory.journal.read` read the persona's journal.
+  // Bug: the heartbeat's view and its `memory.journal.read` read the persona's journal.
   const w = world();
   const inner = await wakePostInDm(w);
   const lines = await inner.read({ day: DAY, n: 100 });

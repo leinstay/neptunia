@@ -370,77 +370,12 @@
       "id": "The errand's id."
     }
   },
-  "task.propose": {
-    "title": "Propose a change to your code",
-    "whenToUse": "Files a proposal on the task board when something in how you work keeps going wrong, an ability is missing, or a chain of calls you keep repeating deserves a skill, and only a change would fix it. The owner decides whether it gets built. A title you already have open is refused with that task's id.",
-    "whenNotToUse": "Not for a one-off slip or for an errand. To see where a proposal stands, task.status.",
-    "args": {
-      "title": "The change, in a few words.",
-      "evidence": "What went wrong or repeated, where and how often. The reviewer reads only this.",
-      "acceptance": "How to tell the change works.",
-      "kind": "skill: a procedure over your tools, written as a SKILL.md. fix: a change to the code. Leave it out for any other proposal, and then the next four are not asked.",
-      "examples": "With a kind: the turns or cases that show it. At least one.",
-      "counterexamples": "With a kind: cases that look alike and must not count.",
-      "benefit": "With a kind: what gets better, in a sentence.",
-      "evaluation": "With a kind: a case that shows the change works."
-    }
-  },
-  "task.status": {
-    "title": "Check your proposals",
-    "whenToUse": "Reads every task filed for you on the board, with its state, the questions put to you and the reviews. Choose it to see where a proposal of yours stands.",
-    "whenNotToUse": "To file a new one, task.propose."
-  },
-  "task.cancel": {
-    "title": "Cancel a task of yours",
-    "whenToUse": "Withdraws a task you filed and no longer want built. It runs only in your selfimprovement wake.",
-    "whenNotToUse": "Not to reword it: task.comment.",
-    "args": {
-      "id": "The task's id as your wake or task.status names it.",
-      "reason": "Why you no longer want it, in a sentence."
-    }
-  },
-  "task.comment": {
-    "title": "Comment on a task of yours",
-    "whenToUse": "Adds something to a task you filed: a correction, a narrower scope, a case you just saw. The task stays where it is. It runs only in your selfimprovement wake.",
-    "whenNotToUse": "Not for a question put to you: task.answer lets the work go on.",
-    "args": {
-      "id": "The task's id as your wake or task.status names it.",
-      "text": "What you want the people working on it to read."
-    }
-  },
-  "task.answer": {
-    "title": "Answer a question put to you on a task",
-    "whenToUse": "Answers a question or a proposal addressed to you on a task, so its holder can go on. It runs only in your selfimprovement wake.",
-    "whenNotToUse": "Not for a question put to the owner, which stays his. To add to a task unasked, task.comment.",
-    "args": {
-      "id": "The task's id, not the question's.",
-      "text": "Your answer or your decision on the proposal."
-    }
-  },
-  "task.unblock": {
-    "title": "Let a blocked task of yours go on",
-    "whenToUse": "Lifts the block of a task of yours when your wake shows why it is blocked and you know what it needs or what you decided. It runs only in your selfimprovement wake.",
-    "whenNotToUse": "Not while the reason still holds, and not for a task you no longer want: task.cancel ends that one.",
-    "args": {
-      "id": "The task's id as your wake or task.status names it.",
-      "note": "What changed or what you decided, for whoever goes on."
-    }
-  },
   "skill.read": {
     "title": "Read a skill",
     "whenToUse": "Returns the whole text of one of your active skills: when it applies, the steps and the way out. A call of the skill's own entry among your tools does the same. Read it before you follow it.",
     "whenNotToUse": "Not for a skill that is not among your tools.",
     "args": {
       "name": "The skill's name, as its entry among your tools has it."
-    }
-  },
-  "watcher.read": {
-    "title": "Read the watcher's report",
-    "whenToUse": "Reads a report of the watcher, an agent that looks over you, the project and the server on its schedule: the latest, the newest of one day, or one run's. It runs only when the owner asks, or in a turn of your own.",
-    "whenNotToUse": "Not for your own memory or your own skills.",
-    "args": {
-      "day": "YYYY-MM-DD. Leave it out for the latest report.",
-      "run": "The run identity of one report, when a day has several."
     }
   },
   "skill.run": {

@@ -1,7 +1,7 @@
 // interfaces/cli/session-picker.ts: the panels over the session service, and the same panel mounted over a fake core.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boundaryPanel, checkpointPanel, sessionsPanel } from '../interfaces/cli/session-picker.ts';
+import { boundaryPanel, sessionsPanel } from '../interfaces/cli/session-picker.ts';
 import type { SessionClient } from '../interfaces/cli/session-picker.ts';
 import { KEY, chatEnv, press, shows, withChat } from './fixtures/chat-rig.ts';
 
@@ -83,33 +83,6 @@ test('a failed branch answers with its failure', async () => {
   const panel = await boundaryPanel(client, 's1');
   const answer = await panel.rows?.[0]?.apply?.('');
   assert.equal(answer?.status, 'failed');
-});
-
-test('an unsupported checkpoint backend shows its reason and has no restore row', () => {
-  // Bug: a restore row on a backend that cannot restore reports success.
-  const panel = checkpointPanel({ restore: false, reason: 'no worktree authority' }, []);
-  assert.deepEqual(panel.rows ?? [], []);
-  assert.ok(panel.lines.join('\n').includes('no worktree authority'));
-});
-
-test('a restore row carries the previewed paths before its action', async () => {
-  // Bug: restore runs with no sight of what it will change.
-  const restored: Array<string> = [];
-  const panel = checkpointPanel({ restore: true }, [
-    {
-      id: 'c1',
-      revision: 3,
-      changes: [{ path: 'src/a.ts', change: 'modified' }],
-      restore: (id) => {
-        restored.push(id);
-        return Promise.resolve({ status: 'ok', text: 'restored' });
-      },
-    },
-  ]);
-  const row = panel.rows?.[0];
-  assert.match(`${row?.label} ${row?.detail} ${row?.value}`, /src\/a\.ts/);
-  await row?.apply?.('');
-  assert.deepEqual(restored, ['c1']);
 });
 
 test('the mounted picker keeps the draft, and Enter on its row resumes without a chat line', async () => {

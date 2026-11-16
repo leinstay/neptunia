@@ -72,7 +72,7 @@ export type ErrandUsage = {
 /** The limits an errand runs under. */
 export type Limits = { steps?: number; seconds?: number };
 
-/** An errand as the store keeps it (a task of the board's errand lane holds one, src/board/archive.ts). */
+/** An errand as the store keeps it (a task of the board holds one, src/board/archive.ts). */
 export type ErrandRecord = {
   id: string;
   agent: string;

@@ -592,13 +592,13 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       });
       return { call, op, envelope, resolved: null, refusal: { code: call.refuse.code, reason: call.refuse.reason } };
     }
-    // A wake's own set: a call outside it, and a task answer outside the selfimprovement wake, are refused before resolution.
+    // A wake's own set: a call outside it is refused before resolution.
     const wakeKind = wakeOf(draft)?.kind ?? null;
     const wakeRefusal = wakeRefusalCode(wakeKind, call.skill);
     if (wakeRefusal !== null) {
-      const reason = `${String(wakeKind ?? 'selfimprovement')}:only`;
+      const reason = `${String(wakeKind)}:only`;
       log.info('skill: refused', { skill: call.skill, code: wakeRefusal, reason, channel: channel.id });
-      log.info(`${String(wakeKind ?? 'selfimprovement')}: call refused`, { skill: call.skill, code: wakeRefusal });
+      log.info(`${String(wakeKind)}: call refused`, { skill: call.skill, code: wakeRefusal });
       return { call, op, envelope, resolved: null, refusal: { code: wakeRefusal, reason } };
     }
     // A skill her tools array offered is read as `skill.read` of its name: the journal records the read, and her grant

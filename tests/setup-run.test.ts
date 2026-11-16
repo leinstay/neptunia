@@ -9,10 +9,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SETUP_STEPS, SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { RunResult, SetupDeps, SetupOptions } from '../src/setup/run.ts';
-import { DEVELOPMENT_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
+import { UNIT_FILES } from '../src/setup/units.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
-import { keysPath, readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
-import { fakeVendor } from './fixtures/fake-vendor.ts';
+import { keysPath, readKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -164,8 +163,9 @@ test('a user setup reloads the user manager, enables linger, enables and starts 
     calls.some((call) => call[0] === 'systemctl' && call[1] !== '--user'),
     false
   );
+  // Changed: the watcher has no unit to guard against (maintainer, 2026-11-16).
   assert.equal(
-    lines.some((line) => /enable.*neptunia-(agent|interface|watcher)/.test(line)),
+    lines.some((line) => /enable.*neptunia-(agent|interface)/.test(line)),
     false,
     'only the core is started by setup'
   );
@@ -188,7 +188,9 @@ test('the report lists every step done and the commands that come next, in the o
   // Changed: the self-development step is skipped in this rig (no selfimprovement.checkout, no ask), every other step is done.
   // Changed again for spec 2026-11-02 PR 5: the subharness, mechanics and watcher steps are skipped too (no terminal).
   // Changed: the interfaces step asks too.
-  const asking = ['interfaces', 'services', 'subharness', 'selfimprovement', 'mechanics', 'watcher'];
+  // Changed: the self-development step is gone with the development worker (maintainer, 2026-11-16).
+  // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
+  const asking = ['interfaces', 'services', 'subharness', 'mechanics'];
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
     SETUP_STEPS.map((step) => [step, asking.includes(step) ? 'skipped' : 'done'])
@@ -247,9 +249,9 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
       ['interfaces', 'skipped'],
       ['services', 'skipped'],
       ['subharness', 'skipped'],
-      ['selfimprovement', 'skipped'],
+      // Changed: the self-development step is gone with the development worker (maintainer, 2026-11-16).
       ['mechanics', 'skipped'],
-      ['watcher', 'skipped'],
+      // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
       ['units', 'already'],
       ['linger', 'already'],
       ['core', 'done'],
@@ -285,9 +287,9 @@ test('a single step runs alone and leaves the others skipped, with no command an
       ['interfaces', 'skipped'],
       ['services', 'skipped'],
       ['subharness', 'skipped'],
-      ['selfimprovement', 'skipped'],
+      // Changed: the self-development step is gone with the development worker (maintainer, 2026-11-16).
       ['mechanics', 'skipped'],
-      ['watcher', 'skipped'],
+      // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
       ['units', 'skipped'],
       ['linger', 'skipped'],
       ['core', 'skipped'],
@@ -414,115 +416,31 @@ test('nodeOf falls back to execPath when argv0 is bare and not on PATH, or PATH 
   );
 });
 
-// The development worker's unit: setup renders neptunia-development.service only when `selfimprovement.checkout` names a
-// dev checkout, so the worker never runs on the deployed checkout.
+// Changed: the development unit and the self-development step are gone with the development worker (maintainer,
+// 2026-11-16).
 
-/** Writes `selfimprovement` into the private layer's config/config.json before setup runs. */
-function withSelfimprovement(privateDir: string, selfimprovement: Record<string, unknown>): void {
-  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
-  fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ selfimprovement }));
-}
+// The subharness and mechanics steps (spec 2026-11-02, PR 5 "Several subharnesses", "The three ticking mechanics"):
+// asked before the units are written, so the units bind the backends just connected.
 
-const unitValues = (text: string, key: string): Array<string> =>
-  text
-    .split('\n')
-    .filter((line) => line.startsWith(`${key}=`))
-    .map((line) => line.slice(key.length + 1));
-
-test('setup writes no development unit while selfimprovement.checkout is unset', async () => {
-  // Catches: the worker is installed on every deployment and works on the deployed checkout itself.
-  const { options, deps, unitDir } = rig();
-  await runSetup({ ...options, only: 'units' }, deps);
-  for (const name of DEVELOPMENT_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
-});
-
-test('setup writes the development unit, which runs from the install over the checkout selfimprovement.checkout names', async () => {
-  // Catches: the unit is missing, or a dev run edits the code the worker runs from. The expectation below names the
-  // install because the checkout is only the worker's working repository, which its write paths hold.
-  const { options, deps, unitDir } = rig();
-  const checkout = path.join(path.dirname(options.privateDir), 'dev-checkout');
-  withSelfimprovement(options.privateDir, { checkout });
-  const report = await runSetup({ ...options, only: 'units' }, deps);
-  assert.equal(report.ok, true);
-  // Changed: the worker is long-lived and woken by board events, so one unit ships and no timer.
-  assert.deepEqual([...DEVELOPMENT_UNIT_FILES], ['neptunia-development.service']);
-  const service = fs.readFileSync(path.join(unitDir, 'neptunia-development.service'), 'utf8');
-  assert.deepEqual(unitValues(service, 'WorkingDirectory'), [options.rootDir]);
-  // Changed: `worker selfimprovement` ran one beat and is retired; the unit starts the long-lived worker.
-  assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts worker development$/);
-  assert.ok(unitValues(service, 'Environment').includes(`NEPTUNIA_DATA_DIR=${options.dataDir}`));
-  assert.equal(service.includes('/opt/neptunia'), false);
-  const core = fs.readFileSync(path.join(unitDir, 'neptunia-core.service'), 'utf8');
-  assert.deepEqual(unitValues(core, 'WorkingDirectory'), [options.rootDir]);
-});
-
-test('setup writes no development unit when selfimprovement.checkout is the deployed checkout itself', async () => {
-  // Catches: a checkout setting copied from the deployment makes the worker edit and push the code that is running.
-  const { options, deps, unitDir } = rig();
-  withSelfimprovement(options.privateDir, { checkout: options.rootDir });
-  await runSetup({ ...options, only: 'units' }, deps);
-  for (const name of DEVELOPMENT_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
-});
-
-// The self-development step (spec 2026-11-02, PR 5 "Forks"): last, after the core, and optional, so a refusal of it
-// leaves the install whole.
-
-test('a refused self-development step leaves the run ok, stores no repository and still opens the chat', async () => {
-  // Catches: an optional step without gh fails the install, so the owner never reaches the chat that sets her keys.
-  const { options, deps, chat } = rig();
-  withSelfimprovement(options.privateDir, { checkout: path.join(path.dirname(options.privateDir), 'dev-checkout') });
-  const report = await runSetup(options, {
-    ...deps,
-    ask: () => Promise.resolve('example/engine'),
-    gh: () => Promise.resolve({ found: false }),
-  });
-  assert.equal(report.ok, true);
-  assert.equal(report.steps.find((step) => step.step === 'selfimprovement')?.state, 'refused');
-  assert.deepEqual(chat, ['/keys add']);
-  const local = JSON.parse(fs.readFileSync(path.join(options.privateDir, 'config', 'config.json'), 'utf8')) as {
-    selfimprovement: Record<string, unknown>;
-  };
-  assert.equal('repository' in local.selfimprovement || 'mode' in local.selfimprovement, false);
-});
-
-// The subharness, mechanics and watcher steps (spec 2026-11-02, PR 5 "Several subharnesses", "The three ticking
-// mechanics"): asked before the units are written, so the units bind the backends just connected.
-
-test('the questions of the subharness, the mechanics and the watcher come before the units, and the core comes last', () => {
+test('the questions of the subharness and the mechanics come before the units, and the core comes last', () => {
   // Catches: the backends are asked after the units were rendered, so the agent units carry the old values until a
   // second setup run.
+  // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
   const at = (step: string): number => SETUP_STEPS.findIndex((one) => one === step);
-  for (const step of ['subharness', 'mechanics', 'watcher']) {
+  for (const step of ['subharness', 'mechanics']) {
     assert.notEqual(at(step), -1, step);
     assert.ok(at(step) < at('units'), step);
   }
-  assert.ok(at('subharness') < at('mechanics'), 'mechanics refuses selfimprovement without a connected backend');
-  assert.ok(at('selfimprovement') < at('mechanics'), 'mechanics refuses selfimprovement without her repository');
   assert.equal(SETUP_STEPS.at(-1), 'core');
 });
 
-test('without a terminal the subharness, mechanics and watcher steps are skipped and the install still opens the chat', async () => {
+test('without a terminal the subharness and mechanics steps are skipped and the install still opens the chat', async () => {
   // Catches: a setup run by a script with no terminal fails on a question nobody can answer and never starts the core.
+  // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
   const { options, deps, chat } = rig();
   const report = await runSetup(options, deps);
   const stateOf = (step: string): string | undefined => report.steps.find((one) => one.step === step)?.state;
-  assert.deepEqual(['subharness', 'mechanics', 'watcher'].map(stateOf), ['skipped', 'skipped', 'skipped']);
+  assert.deepEqual(['subharness', 'mechanics'].map(stateOf), ['skipped', 'skipped']);
   assert.equal(report.ok, true);
   assert.deepEqual(chat, ['/keys add']);
-});
-
-test('the watcher route given in a setup run is stored, and no watcher timer is written', async () => {
-  // Catches: the step still asks for a switch and an hour, so the answers land in the wrong questions, or a unit that
-  // nothing starts any more is installed beside the core.
-  // Changed: the watcher runs on /doctor watcher run (owner, 2026-11-09); the step asks only the backend and the model.
-  const { options, deps, unitDir } = rig();
-  writeKeysFile(options.privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
-  fakeVendor(options.privateDir, 'codex', { loggedIn: true });
-  // The first three answers decline the interface step, the YouTube key and quick search, which ask before the watcher.
-  const answers = ['no', '', '', 'codex', 'model-w'];
-  const report = await runSetup(options, { ...deps, ask: () => Promise.resolve(answers.shift() ?? '') });
-  assert.equal(report.steps.find((step) => step.step === 'watcher')?.state, 'done');
-  assert.equal(readKeysFile(options.privateDir).subharness.models?.watcher, 'model-w');
-  assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-watcher.timer')), false);
-  assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-watcher.service')), false);
 });

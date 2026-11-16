@@ -180,7 +180,6 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  drawing: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
     `  scout: ${ROLE_DEFAULTS.scout} -> OpenCode's own routing (llm.providerByModel not read)`,
     `  server: ${ROLE_DEFAULTS.server} -> OpenCode's own routing (llm.providerByModel not read)`,
-    `  thinker: ${ROLE_DEFAULTS.thinker} -> OpenCode's own routing (llm.providerByModel not read)`,
-    `  dev: ${ROLE_DEFAULTS.dev} -> OpenCode's own routing (llm.providerByModel not read)`,
+    // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
   ]);
 });

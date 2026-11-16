@@ -21,8 +21,6 @@ import type { ChatInfo } from '../../protocol/adapter.ts';
 import { deliveriesOf, holdFor, sendDeliveries } from './deliveries.ts';
 import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
 import { logHeartbeatOutcome } from './heartbeat.ts';
-import { committedSelfimprovement, selfimprovementFacts } from './selfimprovement.ts';
-import type { SelfimprovementFacts } from '../selfimprovement-view.ts';
 import { attendFactsOf } from './places.ts';
 import {
   contextOf,
@@ -92,8 +90,8 @@ function restrictedBy(records: ReadonlyArray<unknown>): { publicationBoundary?: 
  * cause. An `intention_due` wake: the intention's destination when recorded, else the channel it
  * was asked in (the wake's `placeId`, targetOf; a private chat's is that chat); `attend`: the
  * place; `errand_deadline`: the channel of the intention that waits on the errand; `feedback`:
- * the current channel of the turn it reports (`here`, null when that turn had none). A heartbeat, a
- * selfimprovement wake or a wake with no channel: none. `why` is a short machine word (`destination`, `asked`, `attend`,
+ * the current channel of the turn it reports (`here`, null when that turn had none). A heartbeat
+ * or a wake with no channel: none. `why` is a short machine word (`destination`, `asked`, `attend`,
  * `errand`, `feedback`), null with no channel.
  * `records` are the open intentions of the group, for the destination.
  */
@@ -242,7 +240,7 @@ export function createCostMeter({
 }
 
 /**
- * Where a turn runs. `channel` is its chat, null when it runs nowhere: a heartbeat, a selfimprovement wake, an
+ * Where a turn runs. `channel` is its chat, null when it runs nowhere: a heartbeat, an
  * intention or a feedback wake with no place, and a due intention whose place cannot be reached, with that place's code
  * in `placeFailure`. `drop` with `why` when the wakes cannot run at all: an attention whose place is gone.
  */
@@ -348,14 +346,13 @@ type WakeView = {
   records: Array<Intention>;
   notes: Record<string, string>;
   shownFacts: Array<Fact>;
-  selfimprovement: SelfimprovementFacts | null;
   /** The code of the place a due intention named and could not be reached in, null when it was or named none. */
   placeFailure: string | null;
 };
 
-/** The wake an inner turn of `group` carries for its request (src/behavior/wake.ts and selfimprovement-text.ts word it). */
+/** The wake an inner turn of `group` carries for its request (src/behavior/wake.ts words it). */
 function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: WakeView): WakeInfo {
-  const { anchor, at, timezone, records, notes, shownFacts, selfimprovement, placeFailure } = view;
+  const { anchor, at, timezone, records, notes, shownFacts, placeFailure } = view;
   const state = stateOf(life);
   // The facts a feedback wake carries that are still untold.
   const factsOfWake = (wake: Wake): Array<FactPayload> =>
@@ -388,28 +385,7 @@ function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: WakeVi
     now: at,
     timezone,
     chainId: anchor.chainId,
-    ...(selfimprovement ? { selfimprovement } : {}),
     ...(placeFailure ? { placeFailure } : {}),
-  };
-}
-
-/** The facts of the wake kinds that carry their own view: the heartbeat's and the selfimprovement wake's, each null for a group without it. */
-async function kindFacts(
-  life: InnerContext,
-  group: ReadonlyArray<Wake>,
-  when: { settings: InnerSettings; at: number }
-): Promise<{
-  selfimprovement: SelfimprovementFacts | null;
-  improvementWake: Wake | null;
-  improvementReadAt: number;
-}> {
-  const improvementWake = group.find((wake) => wake.kind === 'selfimprovement') ?? null;
-  // Taken before the read: a row made during it shows again in the next wake and is never lost.
-  const improvementReadAt = life.now();
-  return {
-    selfimprovement: improvementWake ? await selfimprovementFacts(life, when.at) : null,
-    improvementWake,
-    improvementReadAt,
   };
 }
 
@@ -669,7 +645,6 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   })
     .filter((fact) => !ownFactIds.has(fact.id))
     .slice(0, FACTS_SHOWN_MAX);
-  const kinds = await kindFacts(life, group, { settings, at });
   const info = wakeInfoOf(life, group, {
     anchor,
     at,
@@ -677,7 +652,6 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     records,
     notes,
     shownFacts,
-    selfimprovement: kinds.selfimprovement,
     placeFailure,
   });
   // The turn's wakes are claimed before it runs: a process that dies in it leaves them running (wake-queue.ts).
@@ -843,7 +817,6 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   save(life);
   const recorded = await finishWakes(life, group, deliveriesOf(hold, { turnId: turnKey, chainId }));
   await sendDeliveries(life, recorded);
-  await committedSelfimprovement(life, { ...kinds, outcome });
   let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;

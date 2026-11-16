@@ -1,20 +1,14 @@
-// The `services` family: `services list` and `services <name> setup|enable|disable|status` for the three scheduled mechanics,
-// and `evidence` and `select`, the watcher agent's reads (src/service/watcher.ts). bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
+// The `services` family: `services list` and `services <name> setup|enable|disable|status` for the two scheduled mechanics.
+// bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
 // console (src/interface/commands/console.ts) for a chat that reaches the core, so one handler answers every form. It
 // writes `<name>.schedule` and `<name>.enabled` of the local settings, which every mechanic's own scheduler reads. The
 // persona's wakes run in the core and call no manager. A status asks no model and writes nothing. An answer is `key: value` lines; `invalid` is missing syntax.
 
-import type { BackendName } from '../agent-runner/profiles.ts';
-import { readRouting } from '../subharness/routing.ts';
-import { backendOfAgent } from '../subharness/control.ts';
-import { sourceProblem, sourceState } from '../subharness/sources.ts';
-import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { nextWindowStart } from '../behavior/selfreflection.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { setPath } from '../tools/operations/shared.ts';
 import { objOf } from '../tools/types.ts';
 import { updateLocalSettings } from './local-settings.ts';
-import { watcherEvidence, watcherSelect } from './watcher.ts';
 import type { Environment, RunManager } from './manager.ts';
 import {
   evaluateSchedule,
@@ -60,8 +54,6 @@ function scheduleOf(name: ServiceName, config: unknown): ServiceSchedule | null 
   switch (name) {
     case 'heartbeat':
       return innerSettings(config).heartbeat.schedule;
-    case 'selfimprovement':
-      return innerSettings(config).wakes.selfimprovement.schedule;
     case 'selfreflection':
       return parseSchedule(objOf(objOf(config).selfreflection).schedule);
   }
@@ -126,37 +118,9 @@ function moveFlag(deps: ServiceDeps, name: ServiceName, enabled: boolean): Servi
   return { text: lines(fields), status: 'ok' };
 }
 
-/** The agent roles a mechanic needs a source for: the wake's tasks the thinker's and the dev's. */
-const SOURCE_ROLES: Readonly<Record<ServiceName, ReadonlyArray<string>>> = {
-  heartbeat: [],
-  selfreflection: [],
-  selfimprovement: ['thinker', 'dev'],
-};
-
-/** Why `role` cannot run now, null when its source can. An unreadable config.json names no source. */
-async function sourceMissing(privateDir: string, role: string): Promise<string | null> {
-  let backend: BackendName | null = null;
-  try {
-    backend = backendOfAgent(readRouting(privateDir).subharness, role);
-  } catch {
-    // no source
-  }
-  if (backend === null) return `${role} has no subharness source`;
-  const state = await sourceState(privateDir, backend);
-  return state.available ? null : `${role}: ${sourceProblem(state)}`;
-}
-
 /** What stops the mechanic from running, apart from its saved flag. */
-async function missingOf(deps: ServiceDeps, name: ServiceName, config: unknown): Promise<Array<string>> {
-  const missing: Array<string> = [];
-  if (!deps.coreUp) missing.push('the core is not running');
-  for (const role of SOURCE_ROLES[name]) {
-    const problem = await sourceMissing(deps.privateDir, role);
-    if (problem !== null) missing.push(problem);
-  }
-  if (name === 'selfimprovement' && selfimprovementSettings(config).repository === null)
-    missing.push('selfimprovement.repository is unset');
-  return missing;
+function missingOf(deps: ServiceDeps): Array<string> {
+  return deps.coreUp ? [] : ['the core is not running'];
 }
 
 const runningText = (running: boolean | null | undefined): string => (running == null ? 'unknown' : String(running));
@@ -190,11 +154,11 @@ function nextDue(
   return next == null ? 'none' : iso(next);
 }
 
-async function status(deps: ServiceDeps, name: ServiceName): Promise<ServiceAnswer> {
+function status(deps: ServiceDeps, name: ServiceName): ServiceAnswer {
   const config = deps.config();
   const enabled = isEnabled(name, config);
   const clock = deps.wakeClock?.(name) ?? null;
-  const missing = await missingOf(deps, name, config);
+  const missing = missingOf(deps);
   const lastWake = clock === null ? 'unknown' : clock.lastAt === null ? 'none' : iso(clock.lastAt);
   const fields: Array<readonly [string, string]> = [
     ['service', name],
@@ -208,9 +172,9 @@ async function status(deps: ServiceDeps, name: ServiceName): Promise<ServiceAnsw
   return { text: lines(fields), status: 'ok' };
 }
 
-/** The three mechanics, each as its own status answers: `services list` keeps no copy of what a status reads. */
-async function list(deps: ServiceDeps): Promise<ServiceAnswer> {
-  const answers = await Promise.all(SERVICE_NAMES.map((name) => status(deps, name)));
+/** The two mechanics, each as its own status answers: `services list` keeps no copy of what a status reads. */
+function list(deps: ServiceDeps): ServiceAnswer {
+  const answers = SERVICE_NAMES.map((name) => status(deps, name));
   return { text: answers.map((answer) => answer.text).join('\n\n'), status: 'ok' };
 }
 
@@ -221,10 +185,8 @@ export function serviceFamily(
   args: Readonly<Record<string, unknown>>
 ): Promise<ServiceAnswer> {
   const [, word, action] = parsedName.split('.');
-  if (word === 'list') return list(deps);
-  if (action === 'evidence') return watcherEvidence(deps, args);
-  if (action === 'select') return Promise.resolve(watcherSelect(deps, args));
-  // The table only hands over its own names, so `word` is one of the three.
+  if (word === 'list') return Promise.resolve(list(deps));
+  // The table only hands over its own names, so `word` is one of the two.
   const name = word as ServiceName;
   switch (action) {
     case 'setup':
@@ -234,7 +196,7 @@ export function serviceFamily(
     case 'disable':
       return Promise.resolve(moveFlag(deps, name, false));
     case 'status':
-      return status(deps, name);
+      return Promise.resolve(status(deps, name));
     default:
       return Promise.resolve(invalid(`no such command: services ${String(word)} ${String(action)}`));
   }
@@ -248,7 +210,6 @@ export function wakeClockOf(
     inner: {
       state(): {
         heartbeat: { nextAt: number | null; lastAt: number | null } | null;
-        selfimprovement: { lastAt: number | null } | null;
         queue: ReadonlyArray<{ kind: string }>;
         inflight: { kind: string } | null;
       } | null;
@@ -270,7 +231,5 @@ export function wakeClockOf(
   const state = inner.state();
   if (!state) return null;
   const running = state.inflight?.kind === name || state.queue.some((wake) => wake.kind === name);
-  return name === 'heartbeat'
-    ? { running, lastAt: state.heartbeat?.lastAt ?? null, nextAt: state.heartbeat?.nextAt ?? null }
-    : { running, lastAt: state.selfimprovement?.lastAt ?? null, nextAt: null };
+  return { running, lastAt: state.heartbeat?.lastAt ?? null, nextAt: state.heartbeat?.nextAt ?? null };
 }

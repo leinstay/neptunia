@@ -42,8 +42,6 @@ import {
 import { DAY_MS, utcDay } from './time.ts';
 import { createCalibrator } from './llm/tokens.ts';
 import { archivedLlm } from './llm/archive.ts';
-import type { ArchiveWriteGap } from './llm/archive.ts';
-import { noteArchiveGap } from './watcher/requests.ts';
 import { createLlm } from './llm/openrouter.ts';
 import type { CompleteResult } from './llm/openrouter.ts';
 import { reportingFailures } from './llm/chain-client.ts';
@@ -111,17 +109,10 @@ import { createChatStore } from './chat/store.ts';
 import { withStoredHistory } from './chat/stored-history.ts';
 import { echoThrough, keepLineFiles, withKeptSends } from './chat/kept-media.ts';
 import { createKeptFetch } from './media/kept-files.ts';
-import type { ApprovalGate, ApprovalResult } from './board/approval-view.ts';
-import { createCheckpointDesk } from './development/checkpoint-desk.ts';
-import { WORKTREE_FOLDER } from './development/edges.ts';
-import { selfimprovementSettings } from './selfimprovement/settings.ts';
 import { chatLines, recentGroupLines } from './memory/db/chat-lines.ts';
 import { ownerConsoleName, ownerConsolePlace } from './memory/db/identity-links.ts';
 import { mediaText } from './memory/db/media-store.ts';
-import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
-import { coreWatcherStarter } from './watcher/doctor.ts';
-import { failRunOfLastCore, runStoreOf } from './watcher/lifecycle.ts';
 import { statusBrief } from './interface/commands/status-brief.ts';
 import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
@@ -135,8 +126,6 @@ import { coreSocketPath, listenSocket } from './interface/socket.ts';
 import { MAX_FRAME_BYTES, connectSocket } from './protocol/wire.ts';
 import { createAroundStore } from './behavior/around-store.ts';
 import { createScheduler } from './behavior/scheduler.ts';
-import { boardSettings, boardTimings } from './board/board.ts';
-import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
 import { currentIface, withIface } from './memory/db/current-iface.ts';
 import { createRootRoutes } from './core-routing.ts';
@@ -148,7 +137,6 @@ import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
 import { wireSkills } from './skills/wiring.ts';
-import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.ts';
 import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
@@ -234,8 +222,8 @@ export async function startCore(options: {
   stop(signal?: string): Promise<void>;
   interfaces: { list(): Array<InterfaceState>; disable(name: string): Promise<Drained>; enable(name: string): void };
 }> {
-  // What the start opened, closed in reverse order when it fails: a failed start leaves no socket, link, watcher, timer or
-  // database lock behind, so a process that tried to start a core can end.
+  // What the start opened, closed in reverse order when it fails: a failed start leaves no socket, link, file watcher,
+  // timer or database lock behind, so a process that tried to start a core can end.
   const cleanups: Array<() => unknown> = [];
   try {
     return await buildCore(options, cleanups);
@@ -265,9 +253,6 @@ async function buildCore(
   const clock = options.now ?? Date.now;
   // The checkout and canonical persona data root are logged once. privateDir aliases dataDir.
   log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });
-  // A watcher run is a child of the core, so one still open at this start died with the core before it.
-  if (failRunOfLastCore(runStoreOf(path.dirname(reportsDirOf(paths.privateDir)))) !== null)
-    log.info('watcher: run ended by the restart', { code: 'core-restarted' });
   if (interfaces.length > 1) fail(`index: the core starts one interface at most, got ${interfaces.length}.`);
   // No interface in this process: they run as units, and the root comes from the settings.
   const asUnits = interfaces.length === 0;
@@ -397,22 +382,13 @@ async function buildCore(
   const untapUsage = onLog(usageTap(usage));
   cleanups.push(untapUsage);
 
-  // The task board (src/board/, docs/core.md "The task board"): its tables in the memory database, every write of it
-  // a write of the memory writer, over the core's clock, the live `board.*` settings and the private layer's
-  // clients.json, read at each call. The agents' `task.*` commands, her board tools and the reaper's beat use it.
-  const board = createBoardPort({
-    write: (write) => memoryDb.memoryWrite({ kind: 'board', write }),
-    context: () => ({ at: clock(), settings: boardSettings(settings.config), privateDir: paths.privateDir }),
-    briefWaitMs: () => boardTimings(settings.config).briefWaitMs,
-  });
   // Her skills (src/skills/wiring.ts): the SKILL.md files of `skills/` and `skills.local/` read at each call, their
-  // registry in the memory database written through the memory writer, the index of the active ones for a request and
-  // the skill facts of the selfimprovement wake. An activation grants no tool.
+  // registry in the memory database written through the memory writer, and the index of the active ones for a
+  // request. An activation grants no tool.
   const skillsWiring = wireSkills({
     // The live settings and prompts, read at each use.
     hot: settings,
     memoryDb,
-    board,
     selfId: () => identity.selfId,
     rootDir: paths.rootDir,
     privateDir: paths.privateDir,
@@ -487,7 +463,6 @@ async function buildCore(
     write: (update: Record<string, unknown>) => memoryDb.memoryWrite(update),
     log,
     backend: 'openrouter',
-    noteGap: (gap: ArchiveWriteGap) => noteArchiveGap(paths.privateDir, gap),
   };
   const directLlm = (options.llm ??
     createLlm({
@@ -918,7 +893,7 @@ async function buildCore(
   // someone waits until they stop writing (pace.settleMs).
   const activity = createActivity();
   // The persona's errands (`errands.*`, `agents.<profile>` overrides): a task she or a member asks for goes to its agent runner over
-  // its socket in the background (src/errands/); the errands are tasks of the board's errand lane in memory.db.
+  // its socket in the background (src/errands/); the errands are tasks of the board in memory.db.
   const agentPaths = { rootDir: paths.rootDir, dataDir: paths.dataDir, env };
   const errandClient = createErrandClient({ hot, log, agentPaths });
   const taskStores = createErrandStores({ config: () => hot.config, journal, log, memoryDb, agentPaths });
@@ -1131,9 +1106,6 @@ async function buildCore(
     // A live wake turn's posts go out through the guarded port once the wake completed (src/behavior/inner/deliveries.ts).
     port: iface,
     now: clock,
-    // The selfimprovement wake's facts beyond the journal (src/behavior/selfimprovement-view.ts): her grants, her
-    // skills with their use counts, and her proposals and her outbox rows on the board.
-    selfimprovement: skillsWiring.selfimprovement,
     log,
   });
   // The drops, holds and failures kept for her next request in a chat live in the inner life's state.
@@ -1282,12 +1254,8 @@ async function buildCore(
   const admin = createAdmin({
     hot,
     store,
-    // Her board tools (src/tools/operations/board.ts): she files and reads as the builtin principal `persona`.
-    board,
     // Her skill tools (src/tools/operations/skill.ts): `skill.read` and `skill.disable`.
     skills: skillsWiring.access,
-    // Her tool `watcher.read` (src/tools/operations/watcher.ts): the reports folder follows `watcher.dir` at each read.
-    watcher: createReportReader(() => reportsDirOf(paths.dataDir, watcherDir(hot.config))),
     roleHealth,
     // The operations' `env.reads`: the chat they post in, a message's event.
     reads,
@@ -1434,29 +1402,10 @@ async function buildCore(
     now: clock,
     config: (): unknown => hot.config,
   });
-  // The chat's sessions and development checkpoints (docs/cli.md).
+  // The chat's sessions (docs/cli.md).
   chatState = createChatState({
     sessions: chatSessions,
     place: () => ownerConsolePlace(memoryDb.database()),
-    checkpoints: createCheckpointDesk({
-      tasks: async () => (await board.command(OWNER_CLIENT.name, 'task.list', { lane: 'dev' })).data,
-      worktreeRoot: () => {
-        const { checkout } = selfimprovementSettings(hot.config);
-        return checkout === null ? null : path.join(checkout, WORKTREE_FOLDER);
-      },
-      storeDir: path.join(paths.privateDir, 'development', 'checkpoints'),
-      now: clock,
-      newId: randomUUID,
-    }),
-    // The owner's gates, under the owner's own board name: the board's rights decide.
-    approvals: {
-      gates: async () =>
-        ((await board.command(OWNER_CLIENT.name, 'task.approvals', {})).data ?? []) as ReadonlyArray<ApprovalGate>,
-      answer: async (answer) => {
-        const reply = await board.command(OWNER_CLIENT.name, 'task.approval.answer', answer);
-        return (reply.data ?? { status: 'refused', code: reply.status, message: reply.text }) as ApprovalResult;
-      },
-    },
     // No read holds the last request's size, so that number stays unknown.
     context: () => ({
       usedTokens: null,
@@ -1465,7 +1414,7 @@ async function buildCore(
       model: stringOrNull(roleModel(objOf(hot.config), 'core')),
     }),
   });
-  // The owner's commands over the link: the `neptunia` chat and `-p`, and the board commands of the agents.
+  // The owner's commands over the link: the `neptunia` chat and `-p`.
   commandDesk = createCommandDesk({
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
@@ -1491,7 +1440,6 @@ async function buildCore(
       privateDir: paths.privateDir,
       dataDir,
       memoryDb,
-      startWatcher: coreWatcherStarter(paths),
       joining: rootJoining,
       usage,
       metrics,
@@ -1538,11 +1486,6 @@ async function buildCore(
       disable: (name) => interfaceLinks.disable(name),
       installed: () => interfacePackageNames(paths.rootDir, dataDir),
     },
-    // The agents' board commands (src/board/commands.ts), each run in the memory writer.
-    tasks: board,
-    // The agents' `skill.pending` (src/skills/agent-commands.ts), which binds a package on the board.
-    skills: skillsWiring.access,
-    board,
     facts: () =>
       coreStatusFacts({
         hot,
@@ -1720,27 +1663,6 @@ async function buildCore(
     run: async () => {
       await selfreflection.tick();
       await mirrors.drainQueued();
-    },
-  });
-  // The board's reaper (src/board/board.ts#reap), every board.reapSeconds (read before each wait): a lease past its
-  // expiry goes back to approved with its generation raised, so the late holder's next call is refused. Nothing to
-  // do while the memory database is not open.
-  scheduler.add({
-    name: 'board.reap',
-    everyMs: () => boardTimings(settings.config).reapSeconds * 1000,
-    run: async () => {
-      const ids = await board.reap();
-      if (ids.length > 0) log.info('board: leases expired', { count: ids.length, tasks: ids });
-    },
-  });
-  // Her done skill tasks activate the version each one bound (src/skills/task-activation.ts), on the reaper's clock. Only the
-  // core holds the skills access and the board together. A sweep looks at the board and not at a notification, so a crash
-  // between a task's end and its activation recovers on the first beat after the start.
-  scheduler.add({
-    name: 'skills.settle',
-    everyMs: () => boardTimings(settings.config).reapSeconds * 1000,
-    run: async () => {
-      for (const one of await skillsWiring.settle()) log.info('skills: task settled', { ...one });
     },
   });
   // The inner life's tick, every wakes.tickSeconds (read before each wait).

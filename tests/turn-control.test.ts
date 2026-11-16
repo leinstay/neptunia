@@ -227,13 +227,14 @@ test('replay after a sequence returns what the client missed, in order and with 
   assert.deepEqual(control.replay(events.at(-1)?.seq ?? 0), []);
 });
 
-test('the control knows only its own turns: a watcher or task id is unknown to it', async () => {
-  // Bug: a chat cancel ends the watcher or an errand because they share one controller.
+test('the control knows only its own turns: an agent run or task id is unknown to it', async () => {
+  // Bug: a chat cancel ends an agent run or an errand because they share one controller.
+  // Changed: the watcher is gone (maintainer, 2026-11-16), so the foreign run id is `run-1`.
   const { control, runs } = rig();
   const id = accepted(control.submit({ requestId: 'r1', text: 'one', attachments: [] }));
   await tick();
   control.cancel(id);
-  assert.equal(control.cancel('watcher').status, 'unknown');
+  assert.equal(control.cancel('run-1').status, 'unknown');
   assert.equal(control.cancel('task-1').status, 'unknown');
   runs[0]?.finish({ status: 'cancelled' });
 });

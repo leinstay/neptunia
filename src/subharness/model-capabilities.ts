@@ -12,17 +12,15 @@ import type { BackendName } from '../agent-runner/profiles.ts';
 import { opencodeKey, readRouting, SUBHARNESS_AGENTS } from './routing.ts';
 import { harnessPathOf } from './memory-path.ts';
 import { roleModelListing } from '../keys/models.ts';
-import { BASE_ROLES, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../llm/roles.ts';
+import { BASE_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../llm/roles.ts';
 import { FIXED_MODELS } from './models.ts';
 import { effortLevelsOfHelp } from './place.ts';
 import { sourceState } from './sources.ts';
 
 export type ModelRoleRow = {
-  group: 'main' | 'errand' | 'development';
+  group: 'main' | 'errand';
   role: string;
   label: string;
-  /** a report's model, not one more agent of the group: it has no `models.development` key */
-  utility: boolean;
 };
 
 export type SourceDescriptor = {
@@ -85,19 +83,8 @@ const isAgent = (role: string): boolean => SUBHARNESS_AGENTS.some((agent) => age
 
 /** Every role the chooser offers, Main first, each agent under the group the role table gives it. */
 export function modelRoleRegistry(): Array<ModelRoleRow> {
-  const row = (group: ModelRoleRow['group'], role: string, utility = false): ModelRoleRow => ({
-    group,
-    role,
-    label: labelOf(role),
-    utility,
-  });
-  const grouped: ReadonlyArray<string> = [...ERRAND_ROLES, ...DEVELOPMENT_ROLES];
-  return [
-    ...MAIN_ROLES.map((role) => row('main', role)),
-    ...ERRAND_ROLES.map((role) => row('errand', role)),
-    ...DEVELOPMENT_ROLES.map((role) => row('development', role)),
-    ...SUBHARNESS_AGENTS.filter((agent) => !grouped.includes(agent)).map((agent) => row('development', agent, true)),
-  ];
+  const row = (group: ModelRoleRow['group'], role: string): ModelRoleRow => ({ group, role, label: labelOf(role) });
+  return [...MAIN_ROLES.map((role) => row('main', role)), ...ERRAND_ROLES.map((role) => row('errand', role))];
 }
 
 /** The backends `role` can run through: an agent all of them, the memory writer those that carry a system prompt. */

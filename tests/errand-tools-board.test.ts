@@ -11,8 +11,8 @@ import { runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
-import { readBoard } from '../src/board/board.ts';
-import type { BoardDb } from '../src/board/schema.ts';
+import { errandTask } from '../src/board/errands.ts';
+import type { ErrandTaskRow } from '../src/board/errands.ts';
 import type { Obj } from '../src/tools/types.ts';
 import type { ErrandClient, ErrandService, ErrandStores, RunOutcome } from '../src/errands/types.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
@@ -109,13 +109,14 @@ function idOf(answer: Answer): string {
   return id;
 }
 
-/** The board as the read connection of `memoryDb` shows it. */
-function boardOf(memoryDb: MemoryDb): ReturnType<typeof readBoard> {
+/** Errand `id`'s task on the board as the read connection of `memoryDb` shows it. */
+function taskOf(memoryDb: MemoryDb, id: string): ErrandTaskRow {
   // service.js types its read handle loosely; it is open.js's handle, `{ db }`, or null while the database is closed.
   const handle = memoryDb.readHandle() as { db: object } | null;
   if (!handle) throw new Error('the memory database is not open');
-  // The connection is node:sqlite's DatabaseSync, which has every method BoardDb names.
-  return readBoard(handle.db as BoardDb, () => NOW);
+  const view = errandTask(handle.db, id);
+  if (view === null) throw new Error(`the board holds no task ${id}`);
+  return view.task;
 }
 
 /** A memory service over a new data directory, written first by `prepare` when given. */
@@ -135,8 +136,9 @@ test('errand.run files the errand on the board as a scout task in progress once 
     const id = idOf(await ask(env, 'errand.run', { agent: 'scout', goal: 'find the changelog' }));
     await tick();
     await stores.flush();
-    const { task } = boardOf(memoryDb).show(id);
-    assert.deepEqual([task.lane, task.role, task.status], ['errand', 'scout', 'in_progress']);
+    const task = taskOf(memoryDb, id);
+    // Changed: the board holds errands only, so a task has no lane left to check.
+    assert.deepEqual([task.role, task.status], ['scout', 'in_progress']);
   });
 });
 
@@ -149,6 +151,6 @@ test('errand.cancel moves the board task to cancelled', async () => {
     assert.equal((await ask(env, 'errand.cancel', { id })).status, 'ok');
     await errands.idle();
     await stores.flush();
-    assert.equal(boardOf(memoryDb).show(id).task.status, 'cancelled');
+    assert.equal(taskOf(memoryDb, id).status, 'cancelled');
   });
 });

@@ -97,7 +97,7 @@ test('a database that is not there is a usage error and is not created', () => {
   assert.equal(runAudit([]).status, 2);
 });
 
-// Bug: the watcher has to spawn a process and parse a line to read the same counts.
+// Bug: a reader in the engine has to spawn a process and parse a line to read the same counts.
 test('auditMemory answers the counts over an open read connection', async () => {
   const file = await auditWorld((db) => {
     db.exec(NONE_CLAIM);
@@ -352,7 +352,7 @@ for (const { name, edit } of FINE) {
   });
 }
 
-// Bug: an audit run on production copies chat lines, ids or names into a log the watcher reads.
+// Bug: an audit run on production copies chat lines, ids or names into a log an agent reads.
 test('nothing of a row reaches the output, on a clean run or a damaged one', async () => {
   const damaged = await auditWorld((db) => {
     db.exec(NONE_CLAIM);

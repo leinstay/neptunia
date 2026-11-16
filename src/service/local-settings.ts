@@ -1,7 +1,7 @@
 // The one writer of `<private>/config.local/config.json` for a command that runs beside others: `updateLocalSettings`
 // takes the file's lock, reads it, applies one change and renames the result into place. A change that alters nothing touches neither the file nor the lock, so a repeated command wakes no
-// reader of the hot settings. The service commands (src/service/commands.ts) and the setup steps that ask for a schedule
-// (src/setup/mechanics.ts, src/setup/watcher.ts) write through it.
+// reader of the hot settings. The service commands (src/service/commands.ts) and the mechanics step of setup
+// (src/setup/mechanics.ts) write through it.
 
 import fs from 'node:fs';
 import path from 'node:path';

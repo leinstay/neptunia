@@ -10,8 +10,6 @@ import type { Reads } from '../../interface/reads.ts';
 import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
 import type { SendHold } from '../../tools/send-hold.ts';
 import type { Handle, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
-import type { Landed } from '../../selfimprovement/landed.ts';
-import type { OutboxRow, ProposalEntry, SelfimprovementFacts, SkillUseRow } from '../selfimprovement-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
 import type { WAKE_KINDS } from './settings.ts';
 
@@ -161,8 +159,6 @@ export type InnerState = {
   queue: Array<Wake>;
   handled: Record<string, Handled>;
   heartbeat: { nextAt: number | null; lastAt: number | null } | null;
-  // The selfimprovement wake's clock: when its last wake committed and when a failure cause last raised one.
-  selfimprovement: { lastAt: number | null; raisedAt: number | null; schedule?: string } | null;
   turns: Array<TurnRecord>;
   spend: Array<{ at: number; usd: number }>;
   turnIds: Array<string>;
@@ -185,10 +181,6 @@ export type InnerSettings = {
     maxRecurring: number;
   };
   caps: { perChain: number };
-  /** `selfimprovement.enabled`: false only when the config says so; the wake then never falls due. */
-  selfimprovement: { enabled: boolean };
-  /** `schedule`: when the wake falls due (`selfimprovement.schedule`). */
-  wakes: { selfimprovement: { schedule: ServiceSchedule; failuresPerShape: number } };
   attention: {
     settleSeconds: number;
     perDayDefault: number;
@@ -284,20 +276,6 @@ export type InnerStore = {
   getSelfreflection?(): { posts?: unknown } | null | undefined;
 };
 
-/** The sources of the selfimprovement wake's facts (src/behavior/selfimprovement-view.ts) that are not the journal. */
-export type SelfimprovementSources = {
-  /** Her granted tool names now. */
-  granted?(): ReadonlyArray<string>;
-  /** Her skills with their use counts from a time on. */
-  skills?(since: number): ReadonlyArray<SkillUseRow>;
-  /** The tasks she filed with the board's answers, and her undelivered outbox rows. */
-  proposals?(): Promise<{ entries: Array<ProposalEntry>; outbox: Array<OutboxRow> }>;
-  /** Marks the outbox rows with these numbers delivered. */
-  ackOutbox?(seqs: ReadonlyArray<number>): Promise<void>;
-  /** The fixes that merged and were not told to her yet (src/selfimprovement/landed.ts). */
-  landed?(): Promise<ReadonlyArray<Landed>>;
-};
-
 /** The facts an inner turn's request carries in `<wake>` (the drain builds them, src/behavior/wake.ts words them). */
 export type WakeInfo = {
   kind: string;
@@ -308,7 +286,6 @@ export type WakeInfo = {
   now: number;
   timezone: string;
   chainId: string;
-  selfimprovement?: SelfimprovementFacts;
   /** The code of the place a due intention named and could not be reached in: the turn runs nowhere. */
   placeFailure?: string;
 };
@@ -441,7 +418,6 @@ export type InnerContext = {
   ready: () => Promise<unknown>;
   uuid: () => string;
   costs: CostMeter;
-  selfimprovementSources: SelfimprovementSources;
   memoryDb: InnerMemoryDb | null;
   /** The port a completed wake's deliveries go out through; without one a wake turn holds nothing. */
   port: InnerPort | null;

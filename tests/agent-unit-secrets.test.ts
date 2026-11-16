@@ -1,16 +1,10 @@
-// What the development worker's unit hides from the agents it runs. It runs as the user of the core,
-// so the mount namespace is all that keeps a child of theirs from reading another client's token, an interface's
-// credentials or keys.json. `renderUnit` (src/setup/units.ts) takes the names of the clients (`clients`) and of the
-// interfaces (`interfaces`) the install has and writes one `InaccessiblePaths=-<path>` entry per token that is not the
-// unit's own and per interface `credentials.json`. The leading `-` lets the unit start when a file is missing.
-//
-// keys.json stays readable to the unit on purpose: it reads the route of its agent (backend, model, effort) from it at
-// the moment of the run (`runAgent` in src/subharness/run.ts opens it unless the core handed it a `route`, and the
-// development worker is started by systemd, not dispatched by the core).
-// Changed: the watcher's unit is gone (owner, 2026-11-09); the watcher runs inside the core's unit.
-//
-// The last test is the board half: a development client that asks for an approval it has no right to is refused by the
-// real board. No systemd is touched; the folders are temporary ones.
+// What the server agent's unit hides from the agent it runs. It runs as the user of the core, so the mount namespace is
+// all that keeps a child of its agent from reading a client's token or an interface's credentials. `renderUnit`
+// (src/setup/units.ts) takes the names of the clients (`clients`) and of the interfaces (`interfaces`) the install has
+// and writes one `InaccessiblePaths=-<path>` entry per token and per interface `credentials.json`. The leading `-` lets
+// the unit start when a file is missing. No systemd is touched; the folders are temporary ones.
+// Changed: the development worker's unit is gone with the worker (maintainer, 2026-11-16), so the generic checks of a
+// hiding unit run over the server unit, which connects as no client and so hides every token.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -20,8 +14,6 @@ import type { SetupDeps, SetupOptions } from '../src/setup/run.ts';
 import { addClient } from '../src/setup/clients.ts';
 import { renderUnit } from '../src/setup/units.ts';
 import type { UnitVars } from '../src/setup/units.ts';
-import { BoardError } from '../src/board/machine.ts';
-import { WORKER, developmentWorld } from './fixtures/development-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -34,13 +26,12 @@ const VARS: UnitVars = {
   privateDir: DATA,
   dataDir: DATA,
   node: '/usr/bin/node',
-  developmentCheckout: '/srv/dev-checkout',
   clients: ['cli', 'owner', 'development', 'watcher', 'discord'],
   interfaces: ['discord', 'telegram'],
 };
 
 /** The units under test and the client each one connects as. */
-const AGENT_UNITS = [{ file: 'neptunia-development.service', own: 'development' }] as const;
+const AGENT_UNITS = [{ file: 'neptunia-agent-server.service' }] as const;
 
 const template = (file: string): string => fs.readFileSync(path.join(ROOT, 'deploy', file), 'utf8');
 const render = (file: string, scope: 'user' | 'system', over: Partial<UnitVars> = {}): string =>
@@ -60,14 +51,13 @@ const credentials = (name: string): string => `${DATA}/interfaces/${name}/creden
 /** Whether `child` is `parent` or lies inside it. */
 const covers = (parent: string, child: string): boolean => child === parent || child.startsWith(`${parent}/`);
 
-for (const { file, own } of AGENT_UNITS) {
+for (const { file } of AGENT_UNITS) {
   for (const scope of ['user', 'system'] as const) {
-    test(`${file} as a ${scope} unit hides every other client's token from its agent`, () => {
-      // Bug: the agent runs as the core's user, so owner.token is readable, and a child that connects to the core's
-      // socket with it acts as the owner on the board: it approves its own task, spends keys, reads the Discord token.
+    test(`${file} as a ${scope} unit hides every client's token from its agent`, () => {
+      // Bug: the agent runs as the core's user, so cli.token is readable, and a child that connects to the core's
+      // socket with it acts as the owner: it spends keys and reads the Discord token.
       const hidden = hiddenOf(render(file, scope));
       for (const other of VARS.clients ?? []) {
-        if (other === own) continue;
         assert.ok(hidden.includes(`-${token(other)}`), `${token(other)} missing from ${hidden.join(' ')}`);
       }
     });
@@ -79,16 +69,6 @@ for (const { file, own } of AGENT_UNITS) {
         assert.ok(hidden.includes(`-${credentials(name)}`), `${credentials(name)} missing from ${hidden.join(' ')}`);
       }
     });
-
-    test(`${file} as a ${scope} unit leaves its own token readable, and hides nothing that contains it`, () => {
-      // Bug: hiding clients/ whole (or the token itself) leaves the worker unable to connect to the board at all.
-      const hidden = hiddenOf(render(file, scope)).map((one) => one.replace(/^-/, ''));
-      assert.equal(
-        hidden.some((one) => covers(one, token(own))),
-        false,
-        `${token(own)} is under ${hidden.join(' ')}`
-      );
-    });
   }
 
   test(`${file} writes every hidden path with the leading minus, so a missing file does not stop the unit`, () => {
@@ -98,15 +78,6 @@ for (const { file, own } of AGENT_UNITS) {
     assert.deepEqual(
       hidden.filter((one) => !one.startsWith('-/')),
       []
-    );
-  });
-
-  test(`${file} keeps keys.json readable, because its own process reads the agent's route from it`, () => {
-    // The decision: runAgent opens keys.json for the route of the watcher and of the development agents at the moment of
-    // the run. Hiding it fails every run with `subharness-off`. The gap is named in docs/watcher.md.
-    assert.equal(
-      hiddenOf(render(file, 'system')).some((one) => one.includes('keys.json')),
-      false
     );
   });
 
@@ -172,22 +143,18 @@ test('the server unit hides every token and every credentials.json, and drops th
 
 // ---------- the same lines, through `neptunia setup` ----------
 
-/** One setup rig with a dev checkout named in the settings, a Discord interface folder and an interface client. */
+/** One setup rig with a Discord interface folder and an interface client. */
 function rig() {
   const base = tempDir('nep-agent-secrets-');
   const dataDir = path.join(base, 'data');
-  const checkout = path.join(base, 'dev-checkout');
   const xdg = path.join(base, 'xdg');
   fs.mkdirSync(path.join(dataDir, 'config'), { recursive: true });
-  fs.writeFileSync(
-    path.join(dataDir, 'config', 'config.json'),
-    JSON.stringify({ selfimprovement: { checkout, repository: 'example/engine' } })
-  );
+  fs.writeFileSync(path.join(dataDir, 'config', 'config.json'), JSON.stringify({}));
   fs.mkdirSync(path.join(dataDir, 'interfaces', 'discord'), { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'interfaces', 'discord', 'credentials.json'), '{"token":"x"}\n');
   fs.mkdirSync(path.join(dataDir, 'clients'), { recursive: true });
   // An interface client whose folder does not exist yet: its token is still another client's.
-  addClient(dataDir, 'matrix', { kind: 'interface', iface: 'matrix', permissions: [], boardRoles: null });
+  addClient(dataDir, 'matrix', { kind: 'interface', iface: 'matrix', permissions: [] });
   const options: SetupOptions = {
     system: false,
     user: 'alice',
@@ -208,58 +175,18 @@ function rig() {
   return { options, deps, dataDir, rendered };
 }
 
-test('setup writes the development unit with the clients and interfaces the install has', async () => {
+test('setup writes the server unit with the clients and interfaces the install has', async () => {
   // Bug: the generator can hide paths, but setup never hands it the names, so the units on disk keep the hole.
   const { options, deps, dataDir, rendered } = rig();
   await runSetup(options, deps);
-  for (const { file, own } of AGENT_UNITS) {
+  for (const { file } of AGENT_UNITS) {
     const hidden = hiddenOf(rendered(file));
-    // cli and owner are made by this very step, so they are hidden on the first render, not the second.
-    for (const other of ['cli', 'owner', 'development', 'matrix'].filter((name) => name !== own)) {
+    // cli is made by this very step, so it is hidden on the first render, not the second.
+    // Changed: setup makes no owner and no development client, and the server unit keeps no token of its own.
+    for (const other of ['cli', 'matrix']) {
       assert.ok(hidden.includes(`-${path.join(dataDir, 'clients', `${other}.token`)}`), `${file}: ${other}`);
     }
     assert.ok(hidden.includes(`-${path.join(dataDir, 'interfaces', 'discord', 'credentials.json')}`), file);
     assert.ok(hidden.includes(`-${path.join(dataDir, 'interfaces', 'matrix', 'credentials.json')}`), file);
-    assert.equal(hidden.includes(`-${path.join(dataDir, 'clients', `${own}.token`)}`), false, file);
   }
-});
-
-// ---------- the board half ----------
-
-test('a development client that asks for an approval as the owner is refused by the board, and the task stays', (t) => {
-  // Bug: a dev agent that can reach the socket with the development token approves its own high-risk task, or a deploy.
-  // The board decides by the principal the token names, never by a field of the request.
-  const world = developmentWorld(t);
-  const added = world.board.call('boss', 'task.add', {
-    lane: 'dev',
-    title: 'Rotate the keys',
-    description: 'A change to how keys are spent.',
-    risk: 'high',
-  });
-  const triaged = world.board.call('boss', 'task.transition', {
-    id: added.id,
-    status: 'triaged',
-    revision: added.revision,
-    set: { role: 'dev', estimate: 20, budget: 2 },
-  });
-  const before = world.show(triaged.id).task;
-  const refusal = (args: Record<string, unknown>): string => {
-    try {
-      world.board.call(WORKER, 'task.approve', { id: triaged.id, ...args });
-      return 'passed';
-    } catch (error) {
-      return error instanceof BoardError ? error.code : String(error);
-    }
-  };
-  assert.equal(refusal({ scope: 'plan' }), 'forbidden');
-  assert.equal(refusal({ scope: 'plan', as: 'owner', principal: 'owner', actor: 'owner', role: 'owner' }), 'forbidden');
-  assert.equal(refusal({ scope: 'deploy' }), 'forbidden');
-  assert.notEqual(refusal({ scope: 'merge' }), 'passed');
-  const after = world.show(triaged.id).task;
-  assert.equal(after.status, before.status);
-  assert.equal(after.status, 'triaged');
-  assert.equal(
-    world.board.eventsSince().some((row) => row.task_id === triaged.id && row.type === 'approval'),
-    false
-  );
 });

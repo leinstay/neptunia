@@ -270,8 +270,6 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
       intentions: own.intentionsText || null,
       errands: own.errandsText.list || null,
       feedback: feedbackOf(own.wakeText, selfreflection),
-      work: given.serviceInner?.work || null,
-      board: given.serviceInner?.board || null,
       previousThink: given.previousThink ?? null,
     },
     selfreflection,

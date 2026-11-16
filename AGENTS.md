@@ -15,7 +15,7 @@ For the coding agents that work on this repository: where things are, how to run
 |---|---|
 | `src/` | The core: turns, memory, wakes, tools, errands, the protocol between the core and its interfaces. No npm dependency, no platform code. |
 | `interfaces/<name>/` | One package per chat platform with its own `node_modules`. Only an interface imports a platform SDK. |
-| `agents/<name>/` | The errand and development agents: a `profile.json` and a `prompt.md` each. |
+| `agents/<name>/` | The errand agents: a `profile.json` and a `prompt.md` each. |
 | `prompts/` | The tracked prompt files the model reads. A deployment overrides them from `prompts.local/`. |
 | `config/` | The tracked settings and labels. A deployment overrides them from `config.local/`. |
 | `docs/` | How the engine works, one topic per file, indexed in `docs/README.md`. |
@@ -54,18 +54,17 @@ The engine's words, for anyone naming something in the code, the database, a doc
 | `turn frame` | The facts of one turn, fixed before any block of its request: its kind, why she is awake, whom she answers, where she is and which blocks it holds. |
 | `turn kind` | Which of the frame's lists of blocks a turn takes. |
 | `wake` | A row of the queue of turns the engine starts itself. |
-| `service` | One of the three scheduled mechanics: `heartbeat`, `selfreflection`, `selfimprovement`. |
+| `service` | One of the two scheduled mechanics: `heartbeat`, `selfreflection`. |
 | `heartbeat` | The service that wakes her every few hours with no chat and no place, so she can notice what goes on and decide whether to act or stay silent. `heartbeat.schedule` sets the interval, default `every 3h`, and `heartbeat.jitterMinutes` its spread, default 60. |
 | `selfreflection` | The service that turns selected experience into her dated entries, each with an optional illustration and a copy to a `mirror`, and those entries as a store. Prompts tell her she keeps a diary. |
-| `selfimprovement` | The service whose turn reads her recent work, the failed calls, repeated chains, unused tools and her board tasks, and files one development task for herself or skips. Its document is titled self-development. |
 | `mirror` | A place a stored entry of `selfreflection` is copied to. |
 | `intention` | Something the persona decided to do later. It is no service. |
 | `tool` | Code with a schema that the model calls. |
 | `skill` | A prose procedure over tools. |
 | `command` | What a person types in the CLI. |
-| `doctor` | The command that checks every part of a deployment. `doctor watcher` writes and reads its deep reports. |
+| `doctor` | The command that checks every part of a deployment. |
 | `errand` | A background job handed to an agent. |
-| `agent` | A model with a profile that works on an errand or a development task. |
+| `agent` | A model with a profile that works on an errand. |
 | `route` | One way to reach a model: a key and a model through the API, or a harness and a model. Each model role holds a chain of routes, and the next answers when one is unavailable. |
 
 ### What the engine keeps
@@ -78,8 +77,8 @@ The engine's words, for anyone naming something in the code, the database, a doc
 | `profile` | What memory holds about one account or person: names, claims and descriptions. |
 | `episode` | A remembered stretch of conversation, kept as one memory item with its messages. |
 | `affinity` | The persona's attitude toward a person, kept as a history of changes. |
-| `board` | The ledger inside the core where errands and development work are filed and moved. |
-| `task` | A row of the board: one piece of work with its state and history. |
+| `board` | The ledger inside the core where errands are filed and moved. |
+| `task` | A row of the board: one errand with its state and history. |
 
 ## Commands
 

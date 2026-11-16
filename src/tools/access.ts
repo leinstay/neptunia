@@ -7,10 +7,9 @@
 // a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. One switch, read by the caller from the live config:
 // `tools.safeMode` true lets only the carried-over tags pass.
 // Wake envelopes (schema v11 stage, spec 2026-10-24-memory-schema-v7, sections 6 and 11): an inner turn's call is
-// also checked against the envelope of its wake kind, `wakes.kinds.<kind>`, and for the heartbeat and the
-// selfimprovement wake the same keys of their own sections, `heartbeat.tools` and `selfimprovement.tools` (`tools`: `"*"` or a list of skill
-// names, `family.*` naming a family; `maxActs`: the most calls that change something per turn; `maxTasks`: the most
-// errands per turn; `inputTokens`: the input budget the envelope declares). The default of every kind is `"*"` with no
+// also checked against the envelope of its wake kind, `wakes.kinds.<kind>`, and for the heartbeat the same keys of
+// its own section, `heartbeat.tools` (`tools`: `"*"` or a list of skill names, `family.*` naming a family;
+// `maxActs`: the most calls that change something per turn; `maxTasks`: the most errands per turn; `inputTokens`: the input budget the envelope declares). The default of every kind is `"*"` with no
 // caps, today's behaviour. The check runs at the resolved call (skillAccess, through the gateway) and again where a
 // skill reaches another capability inside its own operation (NESTED_CAPABILITIES: a picture or a voice message is a
 // post), so a skill the envelope allows cannot post where the envelope forbids posting. A refusal is the access code
@@ -47,7 +46,7 @@ export const NESTED_CAPABILITIES: Readonly<Record<string, ReadonlyArray<string>>
 
 const EFFECTS_OF = new Map(SKILL_DEFINITIONS.map((definition) => [definition.name, definition.effects]));
 /** The wake kinds whose limits are keys of their own section (`heartbeat.tools`), not of `wakes.kinds.<kind>`. */
-const OWN_LIMITS: ReadonlyArray<string> = ['heartbeat', 'selfimprovement'];
+const OWN_LIMITS: ReadonlyArray<string> = ['heartbeat'];
 const own = (kind: unknown): boolean => typeof kind === 'string' && OWN_LIMITS.includes(kind);
 const capOf = (value: unknown): number | null =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
@@ -64,8 +63,8 @@ export type WakeEnvelope = {
 export type WakeAction = { skill?: string; status?: string };
 
 /**
- * The envelope of wake kind `kind` (`wakes.kinds.<kind>`, or the kind's own section for `heartbeat` and
- * `selfimprovement`, read now): `{ tools, maxActs, maxTasks, inputTokens }`,
+ * The envelope of wake kind `kind` (`wakes.kinds.<kind>`, or the kind's own section for `heartbeat`, read
+ * now): `{ tools, maxActs, maxTasks, inputTokens }`,
  * `tools` `'*'` or a list of names; a missing or malformed value is today's behaviour (`'*'`, no cap).
  */
 export function wakeEnvelope(config: unknown, kind: unknown): WakeEnvelope {

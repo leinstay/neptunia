@@ -5,6 +5,8 @@
 // before the core sees the caption. In every case no model request goes out (the provider is a fetch that fails the
 // test, and a backend run is counted), the memory database holds the same rows, and no key file moved but by the one
 // choice a test makes on purpose. Synthetic content only.
+// Changed: the agent `thinker` is gone with the development agents (maintainer, 2026-11-16),
+// so the agent checks use `server`.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -166,12 +168,6 @@ test('a principal that is not the owner is refused at the desk and nothing behin
     facts: () => {
       throw new Error('a refused command reads no fact');
     },
-    tasks: {
-      command: (_principal, name) => {
-        reached.push(name);
-        return Promise.resolve({ text: 'ran', status: 'ok', data: null });
-      },
-    },
   });
   try {
     for (const name of ['memory.users.list', 'memory.inspect.export', 'model.set', 'status']) {
@@ -276,16 +272,16 @@ test('a model check that finished after the owner chose again is refused as stal
     return held;
   });
   const before = digestOf(one);
-  const slow = one.say('model', 'set', 'thinker', 'slow', '--via', 'claude-harness');
+  const slow = one.say('model', 'set', 'server', 'slow', '--via', 'claude-harness');
   await slowStarted;
-  const quick = await one.say('model', 'set', 'thinker', 'quick', '--via', 'codex-harness');
+  const quick = await one.say('model', 'set', 'server', 'quick', '--via', 'codex-harness');
   assert.equal(quick.status, 'ok', quick.text);
   release({ ok: true, text: 'ok', exitCode: 0 });
   const stale = await slow;
   assert.notEqual(stale.status, 'ok');
   assert.equal(stale.code, 'selection-changed');
   const stored = readKeysFile(one.dir).subharness;
-  assert.deepEqual([stored.uses?.thinker, stored.models?.thinker], ['codex', 'quick']);
+  assert.deepEqual([stored.uses?.server, stored.models?.server], ['codex', 'quick']);
   assert.deepEqual(
     one.checks.map((entry) => entry.model),
     ['slow', 'quick']
@@ -300,11 +296,11 @@ test('a model check that fails is reported with the reason it gave and saves not
   const before = digestOf(one);
   // Changed: the rig's old list of backends is written as every agent's `models.agents.via`, so the thinker's source
   // before the refusal is the list's first backend, and the refusal must leave it as it was.
-  const sourceBefore = readKeysFile(one.dir).subharness.uses?.thinker;
+  const sourceBefore = readKeysFile(one.dir).subharness.uses?.server;
   const network = noNetwork();
   let answer: Answer;
   try {
-    answer = await one.say('model', 'set', 'thinker', 'sonnet', '--via', 'claude-harness');
+    answer = await one.say('model', 'set', 'server', 'sonnet', '--via', 'claude-harness');
   } finally {
     network.restore();
   }
@@ -312,8 +308,8 @@ test('a model check that fails is reported with the reason it gave and saves not
   assert.equal(answer.code, 'model-rejected');
   assert.ok(answer.text.includes('that model is not on this plan'), answer.text);
   const stored = readKeysFile(one.dir).subharness;
-  assert.equal(stored.uses?.thinker, sourceBefore);
-  assert.equal(stored.models?.thinker, undefined);
+  assert.equal(stored.uses?.server, sourceBefore);
+  assert.equal(stored.models?.server, undefined);
   assert.equal(one.checks.length, 1, 'the one check the owner asked for');
   assert.deepEqual(network.reached, []);
   assert.deepEqual(digestOf(one), before);

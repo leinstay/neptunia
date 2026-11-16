@@ -1,6 +1,6 @@
 // Tests for src/errands/store.ts: the persona's errand tasks, per guild, in the memory database of a
-// temp data/ directory. A task moves queued -> running -> done | failed | cancelled, each one a task of the board's
-// errand lane with one status event per transition, the caps refuse with their codes (open at
+// temp data/ directory. A task moves queued -> running -> done | failed | cancelled, each one a task of the board
+// with one status event per transition, the caps refuse with their codes (open at
 // once, tasks and dollars per UTC day), the journal gets one operation per task with counts
 // only, and a file handle resolves only to a file the task's result lists.
 import { consumers, consumerRig } from './fixtures/agent-consumers.ts';
@@ -13,7 +13,8 @@ import { createErrandStore, fileHandle, parseFileHandle } from '../src/errands/s
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemorySync, tempDataDir as deliveryTempDataDir } from './fixtures/memory-db/service.ts';
-import { readBoard } from '../src/board/board.ts';
+import { errandTask } from '../src/board/errands.ts';
+import type { ErrandTaskView } from '../src/board/errands.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { AddInput, ErrandStore } from '../src/errands/types.ts';
 import { T0 as T0_DELIVERY } from './fixtures/errand-archive.ts';
@@ -45,10 +46,16 @@ function memoryOf(dataDir: string) {
 /**
  * Task `id` as the board of `dataDir` shows it, once `store`'s writes landed.
  */
-async function boardTask(store: ReturnType<typeof createErrandStore>, dataDir: string, id: string) {
+async function boardTask(
+  store: ReturnType<typeof createErrandStore>,
+  dataDir: string,
+  id: string
+): Promise<ErrandTaskView> {
   await store.flush();
-  // @ts-expect-error: the read handle is null only after close; its db is the connection BoardDb describes
-  return readBoard(memoryOf(dataDir).readHandle().db, () => T0).show(id);
+  // @ts-expect-error: the read handle is null only after close
+  const view = errandTask(memoryOf(dataDir).readHandle().db, id);
+  if (view === null) throw new Error(`the board holds no task ${id}`);
+  return view;
 }
 
 /**
@@ -103,8 +110,6 @@ const asked: AddInput = {
   scope: 'group',
 };
 
-// PR 6d: the errands live on the board, so the unit errands.json and its lines in errands.jsonl became one task of the
-// errand lane and its status events; the test checks the same write and read-back there.
 test('task store: a new task is queued and written to the board as an approved errand task', async () => {
   await withCapturedLogs(async () => {
     const { store, dataDir } = makeStore();
@@ -122,7 +127,8 @@ test('task store: a new task is queued and written to the board as an approved e
     assert.equal(task.seen, false);
     assert.equal(task.result, null);
     const view = await boardTask(store, dataDir, task.id);
-    assert.deepEqual([view.task.lane, view.task.status], ['errand', 'approved']);
+    // Changed: the board holds errands only, so a task has no lane left to check.
+    assert.equal(view.task.status, 'approved');
     assert.deepEqual(statusesOf(view), ['approved']);
     // A second store over the same directory reads the list back.
     // @ts-expect-error: createErrandStore takes no `dataDir`; the memory database holds the board, so the key is ignored
@@ -131,7 +137,6 @@ test('task store: a new task is queued and written to the board as an approved e
   });
 });
 
-// PR 6d: the transitions errands.jsonl held are the board task's status events; the test reads them there.
 test('task store: queued -> running -> done; the end is written once, a late one ignored', async () => {
   await withCapturedLogs(async () => {
     const { store, dataDir, clock } = makeStore();
@@ -373,7 +378,8 @@ test("task store: a finished task's files expire once the runner removed its dir
     assert.equal(store.fileOf(fileHandle(idOf(gone), 'meme.png')), null);
     assert.ok(store.fileOf(fileHandle(idOf(kept), 'meme.png')));
     assert.ok(loose(store.unseen().find((t) => t.id === idOf(gone))).filesExpired);
-    const saved = loose((await boardTask(store, dataDir, idOf(gone))).task.metadata).errand;
+    // Changed: the board's reader returns a task row as stored, so its metadata is JSON text.
+    const saved = loose(JSON.parse(String((await boardTask(store, dataDir, idOf(gone))).task.metadata))).errand;
     assert.equal(loose(saved).filesExpired, true, 'written to the board');
     assert.equal(store.expireFiles(), 0, 'marked once');
     fs.rmSync(path.join(out, idOf(kept)), { recursive: true });

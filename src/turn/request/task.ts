@@ -144,7 +144,7 @@ export type Task = {
 };
 
 /**
- * The task text of a turn: the mode's prompt file, or the overheard, errand, follow-up, heartbeat or selfimprovement file in its place,
+ * The task text of a turn: the mode's prompt file, or the overheard, errand, follow-up or heartbeat file in its place,
  * then what else the author waits for and the private chat's addition.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
@@ -165,11 +165,10 @@ export function taskOf(given: RequestInput & Base): Task {
   // it (missing or blank) the mode's text frames the line as said to the persona: degraded.
   const overheardTask =
     overheard && typeof prompts.overheard === 'string' && prompts.overheard.trim() ? prompts.overheard : null;
-  // A heartbeat's and a selfimprovement wake's inner turn have their own task text (prompts.heartbeat,
-  // prompts.selfimprovement) INSTEAD of inner.md; without it (missing or blank) inner.md applies (degraded).
+  // A heartbeat's inner turn has its own task text (prompts.heartbeat) INSTEAD of inner.md; without it (missing or
+  // blank) inner.md applies (degraded).
   const turnKind = kindOfRequest(given);
-  const ownWakeMd =
-    turnKind === 'heartbeat' ? prompts.heartbeat : turnKind === 'selfimprovement' ? prompts.selfimprovement : null;
+  const ownWakeMd = turnKind === 'heartbeat' ? prompts.heartbeat : null;
   const ownWakeTask = typeof ownWakeMd === 'string' && ownWakeMd.trim() ? ownWakeMd : null;
   // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
   // the message is gone) has its own task text (prompts['errand-result']) instead of the mode's. Missing or blank, the

@@ -347,7 +347,7 @@ function innerItems(parts: InnerParts): Array<{ key: keyof InnerParts; text: str
   const out: Array<{ key: keyof InnerParts; text: string }> = [];
   const myDay = parts.myDay.filter(Boolean).join('\n');
   if (myDay) out.push({ key: 'myDay', text: myDay });
-  for (const key of ['intentions', 'errands', 'feedback', 'work', 'board'] as const) {
+  for (const key of ['intentions', 'errands', 'feedback'] as const) {
     const text = parts[key];
     if (typeof text === 'string' && text.trim()) out.push({ key, text });
   }
@@ -690,8 +690,6 @@ function innerTextOf(given: ReaderInput, offered: Offered, fit: Fit): string {
     intentions: kept.has('intentions') ? inner.intentions : null,
     errands: kept.has('errands') ? inner.errands : null,
     feedback: kept.has('feedback') ? inner.feedback : null,
-    work: kept.has('work') ? (inner.work ?? null) : null,
-    board: kept.has('board') ? (inner.board ?? null) : null,
     previousThink: kept.has('previousThink') ? inner.previousThink : null,
   };
   return [

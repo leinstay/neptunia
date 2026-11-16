@@ -85,8 +85,6 @@ export type BackendRunOptions = {
   tools?: ReadonlyArray<string>;
   /** aborting it kills the process group and answers `cancelled` */
   signal?: AbortSignal;
-  /** claude: `--session-id <uuid>`, so the transcript can be tied to this run */
-  sessionId?: string;
   /**
    * The system instructions, any length, which replace the backend's own: claude `--system-prompt-file`, codex
    * `-c model_instructions_file=<path>`, opencode the `build` agent's `prompt` in the config file `OPENCODE_CONFIG`
@@ -133,8 +131,6 @@ export type BackendResult = {
   error?: BackendError;
   /** A run that failed on its own: the last line the child printed, for the owner's answer and never for a log. */
   detail?: string;
-  /** claude: the id its transcript has, when the run was given one */
-  sessionId?: string;
   /** What this run knows it could not record, by code; a gap never stops a run. */
   gaps?: ReadonlyArray<string>;
   /** opencode: the `websearch` calls that ended in an error, absent when there were none */
@@ -235,7 +231,6 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
       'stream-json',
       '--verbose',
       ...(systemFile === undefined ? [] : ['--system-prompt-file', systemFile]),
-      ...(options.sessionId === undefined ? [] : ['--session-id', options.sessionId]),
       ...claudeToolArgs(options),
       ...(options.maxSteps === undefined ? [] : ['--max-turns', String(options.maxSteps)]),
       ...(options.model === undefined ? [] : ['--model', options.model]),

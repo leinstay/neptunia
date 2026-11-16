@@ -4,7 +4,6 @@
 
 import { parseSchedule } from '../../service/schedule.ts';
 import type { ServiceSchedule } from '../../service/schedule.ts';
-import { isClockTime } from '../../time.ts';
 import { toolsWith } from '../../tools/definitions.ts';
 import { isPositive, objOf } from '../../tools/types.ts';
 import type { InnerSettings } from './types.ts';
@@ -16,21 +15,12 @@ export const WAKE_KINDS = Object.freeze([
   'attend',
   'feedback',
   'heartbeat',
-  'selfimprovement',
 ] as const);
-
-/**
- * The selfimprovement wake's defaults: once a day at 03:00 (UTC, owner 2026-11-02), and when one chain shape fails this many times in a UTC day (decision of 2026-10-24).
- */
-const IMPROVEMENT_WAKE_DEFAULTS = Object.freeze({
-  schedule: Object.freeze({ kind: 'at', at: Object.freeze(['03:00']) }),
-  failuresPerShape: 3,
-});
 
 /**
  * The inner life's measures: production values of the config cut of 2026-10-31, and the fallbacks of the keys the
  * live config holds (`mode`, `tickSeconds`, `caps.perChain`, `loop`, `retry` and `factsKeepDays` of `wakes`; the
- * heartbeat's switch and clock of `heartbeat`; the selfimprovement wake's switch and clock of `selfimprovement`).
+ * heartbeat's switch and clock of `heartbeat`).
  */
 export const INNER_DEFAULTS = Object.freeze({
   mode: 'shadow',
@@ -46,8 +36,6 @@ export const INNER_DEFAULTS = Object.freeze({
     dueJitterMinutes: 20,
   }),
   caps: Object.freeze({ perChain: 3 }),
-  selfimprovement: Object.freeze({ enabled: true }),
-  wakes: Object.freeze({ selfimprovement: IMPROVEMENT_WAKE_DEFAULTS }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
   retry: Object.freeze({ delaysMinutes: Object.freeze([1, 5, 15, 60]), maxHours: 6 }),
@@ -97,18 +85,9 @@ function heartbeatSchedule(heartbeat: Record<string, unknown>): ServiceSchedule 
   );
 }
 
-/** `selfimprovement.schedule`, or the old `selfimprovement.at` of a config that did not pass the loader's moves. */
-function improvementSchedule(improvement: Record<string, unknown>): ServiceSchedule {
-  return (
-    parseSchedule(improvement.schedule) ??
-    (isClockTime(improvement.at) ? { kind: 'at', at: [improvement.at] } : IMPROVEMENT_WAKE_DEFAULTS.schedule)
-  );
-}
-
 /**
  * The inner life's settings: INNER_DEFAULTS, with the keys the live config holds each checked against its default
- * (a missing or bad value takes the default). The heartbeat's keys are read from the `heartbeat` section and the
- * selfimprovement wake's from `selfimprovement`. `mode` is `live` only when it says so exactly. `loop`: the tool loop's
+ * (a missing or bad value takes the default). The heartbeat's keys are read from the `heartbeat` section. `mode` is `live` only when it says so exactly. `loop`: the tool loop's
  * bounds of an inner turn (src/behavior/turn.ts#loopSettings with `inner`; nobody waits for
  * one, so its budget is generous): `maxSteps`, `timeBudgetMs`, `maxCallsPerStep` as
  * `tools.loop`'s, `callTimeoutMs` the most one call of hers may run.
@@ -119,7 +98,6 @@ export function innerSettings(config: unknown): InnerSettings {
   const heartbeat = objOf(objOf(config).heartbeat);
   const loop = objOf(raw.loop);
   const retry = objOf(raw.retry);
-  const improvement = objOf(objOf(config).selfimprovement);
   const d = INNER_DEFAULTS;
   return {
     mode: raw.mode === 'live' ? 'live' : 'shadow',
@@ -136,13 +114,6 @@ export function innerSettings(config: unknown): InnerSettings {
     },
     caps: {
       perChain: Math.floor(count(caps.perChain, d.caps.perChain)),
-    },
-    selfimprovement: { enabled: improvement.enabled !== false },
-    wakes: {
-      selfimprovement: {
-        schedule: improvementSchedule(improvement),
-        failuresPerShape: whole(improvement.failuresPerShape, IMPROVEMENT_WAKE_DEFAULTS.failuresPerShape),
-      },
     },
     attention: { ...d.attention },
     loop: {

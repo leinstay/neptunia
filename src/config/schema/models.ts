@@ -40,26 +40,12 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'text': 'OpenCode model id of the server errand agent',
   },
   {
-    'key': 'models.development.thinker',
-    'types': ['string'],
-    'reader': 'src/tools/operations/status.ts',
-    'default': 'openrouter/anthropic/claude-opus-5.5',
-    'text': 'OpenCode model id of the orchestrator',
-  },
-  {
-    'key': 'models.development.dev',
-    'types': ['string'],
-    'reader': 'src/llm/roles.ts',
-    'default': 'openrouter/anthropic/claude-sonnet-5.5',
-    'text': 'OpenCode model id of the coding and writing worker',
-  },
-  {
     'key': 'models.agents.via',
     'types': ['map'],
     'reader': 'src/subharness/routing.ts',
     'default': {},
     'text':
-      'The backend each agent runs through, by agent (`scout`, `server`, `dev`, `watcher`, `thinker`): `claude`, `codex` or `opencode`. An agent with no entry has no route and its runs are refused `subharness-off`. `/model set <agent> <model> --via <route>` writes it',
+      'The backend each agent runs through, by agent (`scout`, `server`): `claude`, `codex` or `opencode`. An agent with no entry has no route and its runs are refused `subharness-off`. `/model set <agent> <model> --via <route>` writes it',
   },
   {
     'key': 'models.agents.model',

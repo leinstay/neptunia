@@ -50,7 +50,7 @@ const TABLE = [
   'status',
   'doctor',
   'logs',
-  // Changed: `/report` is retired, the report reads as `/logs watcher`, so the one new command is `services`.
+  // Changed: `/report` is retired, so the one new command is `services`.
   'services',
   'usage',
   'errands',
@@ -650,8 +650,6 @@ test('every operation no grant opens to her runs from a command of the chat', as
     now: () => T0,
     // Changed: no line moves a timer any more (owner, 2026-11-09), but a status still asks the manager; this keeps it fake.
     serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
-    // `/doctor watcher run` is a line of the table: without this it would start a real worker.
-    startWatcher: () => null,
   };
   const desk = createConsole(deps);
   for (const line of everyLine()) {
@@ -817,7 +815,6 @@ function deskOf(mnemonic: unknown): { run: ReturnType<typeof createConsole>['run
     chatLines: () => [],
     now: () => Date.parse('2026-11-09T12:00:00Z'),
     serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
-    startWatcher: () => null,
   };
   const desk = createConsole(deps);
   return { run: (...given) => desk.run(...given), calls };
@@ -870,7 +867,6 @@ test('reports a switch that config.set refused', async () => {
     chatLines: () => [],
     now: () => 0,
     serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
-    startWatcher: () => null,
   });
   const answer = await desk.run('mnemonic', { language: 'ru' }, { id: 'owner-1' });
   assert.equal(answer.status, 'failed');

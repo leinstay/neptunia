@@ -2,6 +2,8 @@
 // the command table, the answers of the handlers over keys.json in a temp dir with a fake runner and fetch, the routing
 // of the console, and the rule that only the owner's chat changes a mode. The tests assert on the data they put in (a
 // key name, a mode, a file's content) and on statuses, not on the wording of an answer.
+// Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
+// so these checks use `scout`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -30,17 +32,18 @@ test('the table parses /subharness: a bare line is the status', () => {
 test('the table parses /agent mode with an agent, an optional mode, and refuses other words', () => {
   // Bug: a mode outside the four reaches the handler, or an agent outside the four is accepted.
   // Changed: the execution mode moved from `/subharness mode` to `/agent mode`.
-  assert.deepEqual(parseCommandLine('/agent mode dev sudo'), {
+  assert.deepEqual(parseCommandLine('/agent mode scout sudo'), {
     ok: true,
     name: 'agent.mode',
-    args: { agent: 'dev', mode: 'sudo' },
+    args: { agent: 'scout', mode: 'sudo' },
   });
-  assert.deepEqual(parseCommandLine('/agent mode watcher'), {
+  // Changed: the watcher is gone (maintainer, 2026-11-16), so the agent with no mode given is the server.
+  assert.deepEqual(parseCommandLine('/agent mode server'), {
     ok: true,
     name: 'agent.mode',
-    args: { agent: 'watcher' },
+    args: { agent: 'server' },
   });
-  for (const line of ['/agent mode', '/agent mode dev root', '/agent mode editor read'])
+  for (const line of ['/agent mode', '/agent mode scout root', '/agent mode editor read'])
     assert.equal(parseCommandLine(line).ok, false, line);
 });
 
@@ -74,8 +77,8 @@ test('a mode and the status change and read keys.json and answer ok', async () =
   const { dir, deps } = rig();
   const stored = readKeysFile(dir);
   writeKeysFile(dir, { ...stored, subharness: { ...stored.subharness, key: 'opencode' } });
-  assert.equal((await subharnessCommand(deps, 'agent.mode', { agent: 'dev', mode: 'sudo' })).status, 'ok');
-  assert.equal(readKeysFile(dir).subharness.modes.dev, 'sudo');
+  assert.equal((await subharnessCommand(deps, 'agent.mode', { agent: 'scout', mode: 'sudo' })).status, 'ok');
+  assert.equal(readKeysFile(dir).subharness.modes.scout, 'sudo');
   const status = await subharnessCommand(deps, 'subharness.status', {});
   assert.equal(status.status, 'ok');
   assert.ok(status.text.includes('opencode') && status.text.includes('sudo'));
@@ -129,7 +132,7 @@ test('without the runner and fetch the console refuses a model selection and run
   const desk = consoleOver(dir, undefined);
   const answer = await desk.run(
     'model.set',
-    { role: 'dev', model: 'gpt-6-sol', via: 'codex-harness' },
+    { role: 'scout', model: 'gpt-6-sol', via: 'codex-harness' },
     { id: 'owner' }
   );
   assert.equal(answer.status, 'failed');
@@ -137,12 +140,11 @@ test('without the runner and fetch the console refuses a model selection and run
     vendor.calls().filter((one) => one !== 'login status'),
     []
   );
-  assert.equal(readKeysFile(dir).subharness.uses?.dev, undefined);
+  assert.equal(readKeysFile(dir).subharness.uses?.scout, undefined);
 });
 
 function deskOver() {
   const consoleCalls: Array<string> = [];
-  const taskCalls: Array<string> = [];
   const desk = createCommandDesk({
     console: {
       run: (name: string) => {
@@ -155,14 +157,8 @@ function deskOver() {
       throw new Error('not used');
     },
     placeId: () => null,
-    tasks: {
-      command: (_principal: string, name: string) => {
-        taskCalls.push(name);
-        return Promise.resolve({ text: 'board', status: 'invalid' });
-      },
-    },
   } as unknown as Parameters<typeof createCommandDesk>[0]);
-  return { desk, consoleCalls, taskCalls };
+  return { desk, consoleCalls };
 }
 
 const eventOf = (name: string, args: Record<string, unknown>): CommandEvent => ({
@@ -172,11 +168,12 @@ const eventOf = (name: string, args: Record<string, unknown>): CommandEvent => (
   requester: { id: 'someone', roles: [] },
 });
 
-test("an agent's command to change a mode never reaches the console", async () => {
-  // Bug: a development agent whose report asks for sudo gets it, because its command is run as the owner's.
+test("an interface's command to change a mode never reaches the console", async () => {
+  // Bug: a client other than the owner's chat asks for sudo and gets it, because its command is run as the owner's.
+  // Changed: the agent principal kind is gone (maintainer, 2026-11-16), so the interface is the client tried.
   const { desk, consoleCalls } = deskOver();
-  for (const kind of ['agent', 'interface'] as const) {
-    const answer = await desk.run(eventOf('agent.mode', { agent: 'dev', mode: 'sudo' }), { kind, name: 'dev' });
+  for (const kind of ['interface'] as const) {
+    const answer = await desk.run(eventOf('agent.mode', { agent: 'scout', mode: 'sudo' }), { kind, name: 'scout' });
     assert.notEqual(answer.status, 'ok', kind);
   }
   assert.deepEqual(consoleCalls, []);
@@ -185,7 +182,7 @@ test("an agent's command to change a mode never reaches the console", async () =
 test('the same command from the owner chat reaches the console', async () => {
   // Bug: the guard is so wide that the owner's own chat cannot change a mode either.
   const { desk, consoleCalls } = deskOver();
-  await desk.run(eventOf('agent.mode', { agent: 'dev', mode: 'sudo' }), { kind: 'cli', name: 'cli' });
+  await desk.run(eventOf('agent.mode', { agent: 'scout', mode: 'sudo' }), { kind: 'cli', name: 'cli' });
   assert.deepEqual(consoleCalls, ['agent.mode']);
 });
 

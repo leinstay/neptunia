@@ -43,11 +43,7 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
 ];
 
 const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
-  {
-    file: 'src/development/edges.ts',
-    pattern: /credential\.https:\/\/github\.com\.helper/,
-    why: "git's own configuration key for its credential program, not a model",
-  },
+  // Changed: src/development/edges.ts is gone with the development worker (maintainer, 2026-11-16).
   { file: 'src/llm/limits.ts', pattern: /'helper-(timeout|fallback)'/, why: 'limit kinds the journal stores' },
   { file: 'src/turn/phases/request/wait.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/act.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },

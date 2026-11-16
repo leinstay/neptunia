@@ -1,6 +1,5 @@
-// Tests for src/llm/roles.ts (the model roles in three groups: the core, its helpers and drawing on the first route of
-// their chains in `models.routes`, `models.errands` for the errand agents, `models.development` for the development
-// agents; one resolver, no cross-role fallback), src/config.ts#readConfig and the call sites.
+// Tests for src/llm/roles.ts (the model roles in two groups: the core, its helpers and drawing on the first route of
+// their chains in `models.routes`, and `models.errands` for the errand agents; one resolver, no cross-role fallback), src/config.ts#readConfig and the call sites.
 // Changed: `models.base` is retired (spec 2026-11-09-model-routes, slice 4), so a base role's model comes from its chain.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +9,6 @@ import { fileURLToPath } from 'node:url';
 import {
   BASE_ROLES,
   CORE_ROLES,
-  DEVELOPMENT_ROLES,
   ERRAND_ROLES,
   MEMORY_ROLE,
   OPENCODE_ROLES,
@@ -110,7 +108,8 @@ test('roleModel: a byPurpose that is not a plain object, or an entry that is not
 
 test("roleModel: a mandatory role with no chain takes its own default, never another role's model", () => {
   const config = { models: { routes: { ...on('core', 'x/core'), ...on('analyzer', 'x/analyzer') } } };
-  for (const role of ['embedding', 'memory', 'scout', 'dev'])
+  // Changed: `dev` left the roles with the development agents (maintainer, 2026-11-16).
+  for (const role of ['embedding', 'memory', 'scout', 'server'])
     assert.equal(roleModel(config, role), ROLE_DEFAULTS[role] ?? ROLE_DEFAULTS.core, role);
   assert.equal(roleModel(undefined, 'core'), ROLE_DEFAULTS.core);
   assert.equal(roleModel({ models: { routes: { analyzer: [] } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
@@ -150,12 +149,11 @@ test('roleModel: each role reads its own group only', () => {
     models: {
       routes: on('drawing', 'x/draw'),
       errands: { scout: 'openrouter/x/scout' },
-      development: { dev: 'openrouter/x/dev' },
     },
   };
   assert.equal(roleModel(own, 'drawing'), 'x/draw');
   assert.equal(roleModel(own, 'scout'), 'openrouter/x/scout');
-  assert.equal(roleModel(own, 'dev'), 'openrouter/x/dev');
+  // Changed: the `dev` role and its `models.development` group are gone (maintainer, 2026-11-16).
   assert.equal(roleModel(own, 'server'), ROLE_DEFAULTS.server, "never another agent role's model");
   for (const models of [null, 'x', ['a'], { routes: 7 }, { routes: [], errands: 'x', development: null }])
     assert.equal(roleModel({ models }, 'core'), ROLE_DEFAULTS.core, JSON.stringify(models));
@@ -181,11 +179,8 @@ test("roleGroup / roleConfigKeys: each role's group, and the config keys of an a
     assert.equal(roleGroup(role), 'errands', role);
     assert.deepEqual(roleConfigKeys(role), ['models', 'errands', role]);
   }
-  for (const role of DEVELOPMENT_ROLES) {
-    assert.equal(roleGroup(role), 'development', role);
-    assert.deepEqual(roleConfigKeys(role), ['models', 'development', role]);
-  }
-  for (const name of ['byPurpose', 'web', 'voice', 'agents', 'helpers', 'base', undefined]) {
+  // Changed: the development roles are gone, so `thinker` and `dev` are names of no role (maintainer, 2026-11-16).
+  for (const name of ['byPurpose', 'web', 'voice', 'agents', 'helpers', 'base', 'thinker', 'dev', undefined]) {
     assert.equal(roleGroup(name), undefined, String(name));
     assert.equal(roleConfigKeys(name), undefined, String(name));
   }
@@ -200,23 +195,22 @@ test("roles: the built-in defaults equal config.json's agent groups, and every r
     'byPurpose',
     'abilities',
     'errands',
-    'development',
+    // Changed: `models.development` left with the development agents (maintainer, 2026-11-16).
     'agents',
     'routes',
   ]);
   assert.deepEqual(shipped.models.routes, {});
   assert.deepEqual(Object.keys(shipped.models.errands), [...ERRAND_ROLES]);
-  assert.deepEqual(Object.keys(shipped.models.development), [...DEVELOPMENT_ROLES]);
   assert.equal(
     roleModel({}, 'memory'),
     roleModel({}, 'core'),
     "with no chain: the built-in default of the memory role is the core's default"
   );
   const agents = Object.fromEntries(Object.entries(ROLE_DEFAULTS).filter(([role]) => OPENCODE_ROLES.includes(role)));
-  assert.deepEqual({ ...shipped.models.errands, ...shipped.models.development }, agents);
+  assert.deepEqual({ ...shipped.models.errands }, agents);
   assert.deepEqual(shipped.models.byPurpose, {});
   assert.deepEqual(Object.keys(ROLE_DEFAULTS).sort(), [...ROLES].sort());
-  assert.deepEqual([...ROLES], [...CORE_ROLES, 'drawing', ...ERRAND_ROLES, ...DEVELOPMENT_ROLES]);
+  assert.deepEqual([...ROLES], [...CORE_ROLES, 'drawing', ...ERRAND_ROLES]);
   assert.deepEqual([...MODEL_SET_ROLES], [...ROLES], '/nep model set offers every role');
   for (const role of Object.values(PURPOSE_ROLES)) assert.ok(isRole(role), role);
 });

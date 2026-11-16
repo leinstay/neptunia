@@ -1,5 +1,7 @@
 // The model of each agent (src/subharness/models.ts, control.ts#setAgentModel, run.ts): a selection is checked with one
 // reply before it is stored, and the runner passes the stored model on. The backend runner and fetch are fakes; keys.json is in a temp dir.
+// Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
+// so the agent checks use `server`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -37,16 +39,16 @@ test('subharness model checks the model and stores it for one agent, and status 
   // Changed: the selection reads the real source, and the status reads each agent's path.
   writeKeysFile(dir, { extra: {}, subharness: { backend: 'claude', key: null, modes: {}, models: {} } });
   fakeVendor(dir, 'claude', { loggedIn: true });
-  assert.equal((await setAgentModel(deps, 'dev', 'nope')).ok, false);
-  assert.equal((await setAgentModel(deps, 'dev', 'opus')).ok, true);
-  assert.equal(readKeysFile(dir).subharness.models?.dev, 'opus');
+  assert.equal((await setAgentModel(deps, 'server', 'nope')).ok, false);
+  assert.equal((await setAgentModel(deps, 'server', 'opus')).ok, true);
+  assert.equal(readKeysFile(dir).subharness.models?.server, 'opus');
   assert.ok(statusText(await subharnessView(dir), agentPaths(dir)).includes('opus'));
 });
 
 test('the runner passes the stored model of the agent and none for an agent without one', async () => {
   // Bug: every agent runs on the one model, or an agent with none gets "undefined" as a flag.
   const dir = tempDir('nep-models-run-');
-  writeKeysFile(dir, { subharness: { backend: 'codex', key: null, modes: {}, models: { dev: 'gpt-x' } } });
+  writeKeysFile(dir, { subharness: { backend: 'codex', key: null, modes: {}, models: { server: 'gpt-x' } } });
   const seen: Array<BackendRunOptions> = [];
   const deps = {
     privateDir: dir,
@@ -60,7 +62,7 @@ test('the runner passes the stored model of the agent and none for an agent with
       },
     }),
   };
-  for (const agent of ['dev', 'scout']) await runAgent({ agent, brief: 'b', cwd: dir, timeoutMs: 1000 }, deps);
+  for (const agent of ['server', 'scout']) await runAgent({ agent, brief: 'b', cwd: dir, timeoutMs: 1000 }, deps);
   assert.deepEqual(
     seen.map((one) => one.model),
     ['gpt-x', undefined]

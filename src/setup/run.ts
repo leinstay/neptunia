@@ -1,8 +1,8 @@
-// `neptunia setup`: the install of one user, one flow of eleven internal steps, like the sections of the setup of Hermes
+// `neptunia setup`: the install of one user, one flow of nine internal steps, like the sections of the setup of Hermes
 // (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). The steps are no public commands, and
 // `parseSetupArgs` refuses their names. Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
-// stops the run, the steps after it are `skipped`, and no chat opens. The six steps that ask come before `units`, so
+// stops the run, the steps after it are `skipped`, and no chat opens. The four steps that ask come before `units`, so
 // the units bind the backends just installed; each is `skipped` with
 // no terminal. After the last step the owner's chat opens on `keys add`, and the chat takes over.
 //
@@ -13,16 +13,10 @@
 //   services         the optional YouTube Data API key, with the link that says how to get one, and optional quick
 //                    search, declined by default (src/setup/services.ts)
 //   subharness       the backends her agents may run through, installed and logged in (src/setup/subharness.ts)
-//   selfimprovement  development, optional: gh, the repository her pull requests go to with the push right checked, and
-//                    the development checkout, cloned when its folder is empty (src/setup/development.ts)
-//   mechanics        heartbeat, selfreflection and selfimprovement on or off, and `selfimprovement.schedule`
-//                    (src/setup/mechanics.ts)
-//   watcher          the watcher's backend and its model (src/setup/watcher.ts)
-//   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the
-//                    development unit too when `selfimprovement.checkout` names a checkout other than this one; and the
-//                    clients of the owner's command line, of the owner on the task board and of the units that need
-//                    one, with their tokens
-//                    (src/setup/clients.ts), which need no core socket
+//   mechanics        heartbeat and selfreflection on or off (src/setup/mechanics.ts)
+//   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ, and the
+//                    client of the owner's command line with its token (src/setup/clients.ts), which needs no core
+//                    socket
 //   linger           `loginctl enable-linger` for the user, so the user units run without a login (user units only)
 //   core             `enable --now neptunia-core.service`, the one unit setup starts
 //
@@ -35,22 +29,16 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { readConfig } from '../config.ts';
-import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
-import type { GhRunner } from '../selfimprovement/repository.ts';
-import { CLI_CLIENT, OWNER_CLIENT, provisionClients } from './clients.ts';
-import { offerDevelopment } from './development.ts';
-import type { GhInstall } from './development.ts';
+import { CLI_CLIENT, provisionClients } from './clients.ts';
 import { interfacesStep } from './interfaces.ts';
 import { servicesStep } from './services.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
 import { mechanicsStep } from './mechanics.ts';
 import { subharnessStep } from './subharness.ts';
-import { watcherStep } from './watcher.ts';
 import type { InstallRun } from '../subharness/install.ts';
-import { DEVELOPMENT_UNIT_FILES, UNIT_FILES } from './units.ts';
+import { UNIT_FILES } from './units.ts';
 
 export type { RunResult };
 
@@ -61,9 +49,7 @@ export const SETUP_STEPS = [
   'interfaces',
   'services',
   'subharness',
-  'selfimprovement',
   'mechanics',
-  'watcher',
   'units',
   'linger',
   'core',
@@ -82,10 +68,6 @@ export type SetupDeps = {
   report?(report: SetupReport): void;
   /** Asks the owner at the terminal; absent when no terminal is there, and the steps that ask are skipped. */
   ask?: (question: string, offered: string | null, options?: { secret: boolean }) => Promise<string>;
-  /** The system's gh, for the push-right check of the self-development and mechanics steps. */
-  gh?: GhRunner;
-  /** Installs gh when the development step finds none; without it that step says what to install. */
-  installGh?: () => Promise<GhInstall>;
   /** npm for the subharness step's install (src/subharness/install.ts); without it that step is skipped. */
   install?: InstallRun;
   /** The environment npm is started with; `process.env` by default. */
@@ -200,48 +182,23 @@ function keysFileStep(options: SetupOptions): Outcome {
   return done('keys.json kept, its mode set to 0600');
 }
 
-/**
- * The dev checkout the development worker works on, or why there is none: `selfimprovement.checkout` unset, or naming this
- * checkout, where the worker would edit and push the code that is running.
- */
-function developmentCheckoutOf(options: SetupOptions): { checkout: string } | { why: string } {
-  const { checkout } = selfimprovementSettings(readConfig(options.rootDir, { privateDir: options.privateDir }));
-  if (checkout === null) return { why: 'no development unit: selfimprovement.checkout is unset' };
-  if (path.resolve(checkout) === path.resolve(options.rootDir))
-    return {
-      why: 'no development unit: selfimprovement.checkout is the deployed checkout, and the worker works on a dev checkout',
-    };
-  return { checkout };
-}
-
-/** The client of the development worker's unit, with its board roles. */
-const DEVELOPMENT_CLIENT = { name: 'development', boardRoles: ['reviewer', 'worker'] };
-
 async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
-  const development = developmentCheckoutOf(options);
-  const hasDevelopment = 'checkout' in development;
   let clients: ReturnType<typeof provisionClients>;
   try {
-    clients = provisionClients(
-      options.privateDir,
-      hasDevelopment ? [CLI_CLIENT, OWNER_CLIENT, DEVELOPMENT_CLIENT] : [CLI_CLIENT, OWNER_CLIENT]
-    );
+    clients = provisionClients(options.privateDir, [CLI_CLIENT]);
   } catch (err) {
     return failed(`the clients cannot be written: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`);
   }
-  const files = hasDevelopment ? [...UNIT_FILES, ...DEVELOPMENT_UNIT_FILES] : UNIT_FILES;
-  const target = hasDevelopment ? { ...options, developmentCheckout: development.checkout } : options;
-  const result = await installUnits(target, (command, args) => deps.run(command, args), files);
+  const result = await installUnits(options, (command, args) => deps.run(command, args), UNIT_FILES);
   if (!result.ok) return failed(result.reason);
   const where = unitDirOf(options);
-  const note = 'why' in development ? `; ${development.why}` : '';
   const made = clients.made.length === 0 ? '' : `; tokens written for ${clients.made.join(', ')}`;
   const there = clients.there.length === 0 ? '' : `; clients in place: ${clients.there.join(', ')}`;
   const units =
     result.written.length === 0
-      ? `${files.length} units are in ${where}`
+      ? `${UNIT_FILES.length} units are in ${where}`
       : `${result.written.length} units written to ${where}`;
-  const detail = `${units}${note}${made}${there}`;
+  const detail = `${units}${made}${there}`;
   return result.written.length === 0 && clients.made.length === 0 ? already(detail) : done(detail);
 }
 
@@ -262,24 +219,7 @@ export async function coreStep(options: SetupOptions, deps: Pick<SetupDeps, 'run
   return started.code === 0 ? done('the core is enabled and running') : failed(`enable --now: ${whyFailed(started)}`);
 }
 
-const GH_BY_HAND: GhInstall = {
-  code: 'manual',
-  what: 'Install the GitHub CLI from https://cli.github.com and run neptunia setup again.',
-};
-
 const NOT_AT_TERMINAL: Outcome = { state: 'skipped', detail: 'not at a terminal' };
-
-async function selfimprovementSetupStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
-  const { ask, gh } = deps;
-  if (ask === undefined || gh === undefined) return NOT_AT_TERMINAL;
-  const outcome = await offerDevelopment(options, {
-    run: (command, args, given) => deps.run(command, args, given),
-    ask,
-    gh,
-    installGh: deps.installGh ?? (() => Promise.resolve(GH_BY_HAND)),
-  });
-  return { state: outcome.state, detail: outcome.detail };
-}
 
 async function subharnessSetupStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
   const { ask, install } = deps;
@@ -311,14 +251,8 @@ async function stepOutcome(step: SetupStep, options: SetupOptions, deps: SetupDe
       return deps.ask === undefined ? NOT_AT_TERMINAL : servicesStep(options, { ask: deps.ask });
     case 'subharness':
       return subharnessSetupStep(options, deps);
-    case 'selfimprovement':
-      return selfimprovementSetupStep(options, deps);
     case 'mechanics':
-      return deps.ask === undefined || deps.gh === undefined
-        ? NOT_AT_TERMINAL
-        : mechanicsStep(options, { ask: deps.ask, gh: deps.gh });
-    case 'watcher':
-      return deps.ask === undefined ? NOT_AT_TERMINAL : watcherStep(options, { ask: deps.ask });
+      return deps.ask === undefined ? NOT_AT_TERMINAL : mechanicsStep(options, { ask: deps.ask });
     case 'units':
       return unitsStep(options, deps);
     case 'linger':

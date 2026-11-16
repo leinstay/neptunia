@@ -26,9 +26,8 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const BIN = join(REPO, 'bin', 'neptunia.ts');
-// Changed: the watcher left the services for `/doctor watcher` (owner, 2026-11-09).
-const MECHANICS = ['heartbeat', 'selfreflection', 'selfimprovement'] as const;
-const WAKES = ['heartbeat', 'selfreflection', 'selfimprovement'] as const;
+const MECHANICS = ['heartbeat', 'selfreflection'] as const;
+const WAKES = ['heartbeat', 'selfreflection'] as const;
 const CORE = 'neptunia-core.service';
 /** The clock of the runs in this process, between the two slots most tests name. */
 const NOW = Date.parse('2026-11-04T10:00:00Z');
@@ -250,7 +249,7 @@ for (const { form, parse } of FORMS) {
 
 for (const name of MECHANICS) {
   test(`services ${name} setup --every saves one interval and answers times one interval apart`, async () => {
-    // Catches: one of the three keeps its own key or answers a time that is no step of its schedule.
+    // Catches: one of the two keeps its own key or answers a time that is no step of its schedule.
     const where = rig();
     const done = await run(where, `${name} setup --every 6h`);
     assert.equal(done.code, 0, done.stderr.slice(0, 300));
@@ -276,11 +275,12 @@ test('setup stores minutes that make whole hours in the one spelling of the sett
   assert.equal(settingsOf(where).selfreflection?.schedule, 'every 6h');
 });
 
+// Changed: the mechanic is selfreflection, since selfimprovement is no service.
 test('setup takes an interval in minutes', async () => {
   // Catches: only hours are accepted, so the 90m of the plan is refused.
   const where = rig();
-  assert.equal((await run(where, 'selfimprovement setup --every 90m')).code, 0);
-  assert.equal(settingsOf(where).selfimprovement?.schedule, 'every 90m');
+  assert.equal((await run(where, 'selfreflection setup --every 90m')).code, 0);
+  assert.equal(settingsOf(where).selfreflection?.schedule, 'every 90m');
 });
 
 test('setup replaces the mode that was there, leaving no second schedule', async () => {
@@ -290,6 +290,7 @@ test('setup replaces the mode that was there, leaving no second schedule', async
   assert.equal(settingsOf(where).heartbeat?.schedule, 'at 03:00');
 });
 
+// Changed: the lines that named selfimprovement name selfreflection, since selfimprovement is no service.
 for (const [what, words, names] of [
   ['mixed modes', 'heartbeat setup --at 00:00 --every 6h', '--every'],
   ['a duplicate slot', 'heartbeat setup --at 00:00,00:00', '--at'],
@@ -297,14 +298,13 @@ for (const [what, words, names] of [
   ['a time missing its zero', 'heartbeat setup --at 7:00', '--at'],
   ['a trailing comma', 'heartbeat setup --at 00:00,', '--at'],
   ['a zero interval', 'selfreflection setup --every 0h', '--every'],
-  ['a zero interval in minutes', 'selfimprovement setup --every 0m', '--every'],
+  ['a zero interval in minutes', 'selfreflection setup --every 0m', '--every'],
   ['a negative interval', 'heartbeat setup --every -1h', '--every'],
   ['an interval with no unit', 'heartbeat setup --every 6', '--every'],
   ['--jitter on selfreflection', 'selfreflection setup --every 6h --jitter 5m', '--jitter'],
-  ['--jitter on selfimprovement', 'selfimprovement setup --every 6h --jitter 5m', '--jitter'],
   ['--jitter on daily times', 'heartbeat setup --at 06:00 --jitter 5m', '--jitter'],
   ['a negative jitter', 'heartbeat setup --every 3h --jitter -5m', '--jitter'],
-  ['--at with no value', 'selfimprovement setup --at', '--at'],
+  ['--at with no value', 'selfreflection setup --at', '--at'],
 ] as const) {
   for (const { form, parse } of FORMS) {
     test(`${form}: setup refuses ${what} with exit 2, names ${names} and writes nothing`, async () => {
@@ -400,16 +400,6 @@ test('enable keeps the other settings of the file', async () => {
   assert.deepEqual(settingsOf(where), { heartbeat: { enabled: true, jitterMinutes: 45 }, bot: { timezone: 'UTC' } });
 });
 
-test('selfimprovement enable saves the flag with no repository and no backend, and status says what is missing', async () => {
-  // Catches: readiness refuses the flag, as the old setup step did, so the saved state cannot be set before the backend.
-  const where = rig({ selfimprovement: { enabled: false } });
-  assert.equal((await run(where, 'selfimprovement enable')).code, 0);
-  assert.equal(settingsOf(where).selfimprovement?.enabled, true);
-  const status = await run(where, 'selfimprovement status');
-  assert.equal(field(status.stdout, 'enabled'), 'true');
-  assert.match(field(status.stdout, 'readiness'), /^not ready/);
-});
-
 // ---- status ---------------------------------------------------------------------------------------------------------
 
 /** Every file and folder under `dir`, to prove a read wrote none. */
@@ -501,22 +491,13 @@ test('child: service restart in a user install goes to the user manager', async 
   assert.deepEqual(childCalls(where), ['systemctl --user restart neptunia-core.service']);
 });
 
-test('child: the worker the core starts for /doctor watcher run is a word the command knows', async () => {
-  // Catches: the core spawns a command that was retired or never added, so every run ends in a usage error.
-  const exec = 'worker watcher';
-  // No board and no backend here, so the worker ends by itself with its own failure, never with usage.
-  const worker = await child(rig(), exec.split(' '), {}, 20_000);
-  assert.notEqual(worker.code, 2, worker.out.slice(0, 300));
-  assert.equal(worker.stderr.startsWith('neptunia: usage:'), false, worker.stderr.slice(0, 300));
-});
-
-test('children: concurrent setups of the three keep every schedule', async () => {
+test('children: concurrent setups of the two keep every schedule', async () => {
   // Catches: each process reads and rewrites the whole settings file, so the last writer drops the others' schedules.
   const where = rig({ bot: { timezone: 'UTC' } });
   const runs = await Promise.all(MECHANICS.map((name) => child(where, ['services', name, 'setup', '--at', '06:00'])));
   assert.deepEqual(
     runs.map((one) => one.code),
-    [0, 0, 0]
+    [0, 0]
   );
   const saved = settingsOf(where);
   for (const name of MECHANICS) assert.equal(saved[name]?.schedule, 'at 06:00', name);

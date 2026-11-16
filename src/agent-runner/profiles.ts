@@ -2,10 +2,8 @@
 // `agents/<id>/profile.json` per agent, beside its tracked prompt
 // (`agents/<id>/prompt.md`). Persona files under `data/agents/<id>/` override shared defaults. A profile describes its
 // kind (`worker`, run under this runner on a socket; `consultation`, a
-// model role tools call directly; `development`, an agent of the
-// workspace's development side that a dispatcher outside this engine runs
-// on OpenCode; `watcher`, a subharness report definition). The runner loads only workers. Model roles
-// (`scout`, `server`, `thinker`, `dev`) remain stable. Definitions carry a prompt filename and migration override metadata.
+// model role tools call directly). The runner loads only workers. Model
+// roles (`scout`, `server`) remain stable. Definitions carry a prompt filename and migration override metadata.
 // Worker definitions also list tools, a shell class, default limits, daily caps, socket and out directory, and
 // environment variable names their run may fall back on (the core sends
 // the keys with each task). It never authorizes anything: the shell classes
@@ -55,7 +53,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from './policy.ts';
-import { DEVELOPMENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../llm/roles.ts';
+import { OPENCODE_ROLES, ROLE_DEFAULTS } from '../llm/roles.ts';
 import { resolvePaths } from '../paths.ts';
 import { errorFields } from '../error-fields.ts';
 import { scalarText } from '../tools/types.ts';
@@ -110,32 +108,11 @@ export type WorkerDefinition = Readonly<
   }
 >;
 
-/** A development agent's profile.json: an agent that works on this repository, outside the runner. */
-export type DevelopmentDefinition = Readonly<
-  CommonDefinition & {
-    kind: 'development';
-    tools: ReadonlyArray<string>;
-    permission: Readonly<Record<string, Permission>>;
-    effort: string;
-    limits: Readonly<Record<string, number>>;
-    cost: { input: number; output: number };
-  }
->;
-
 /** A consultation's profile.json: the common keys only. */
 export type ConsultationDefinition = Readonly<CommonDefinition & { kind: 'consultation' }>;
 
-/** A report watcher uses subharness policy without a worker model role or permissions. */
-export type WatcherDefinition = Readonly<{
-  id: 'watcher';
-  kind: 'watcher';
-  prompt: string;
-  override: null;
-  description: string;
-}>;
-
 /** The validated profile.json of any agent. */
-export type AgentDefinition = WorkerDefinition | DevelopmentDefinition | ConsultationDefinition | WatcherDefinition;
+export type AgentDefinition = WorkerDefinition | ConsultationDefinition;
 
 /** The engine and persona agent trees, resolved independently of private credentials. */
 export type AgentPaths = {
@@ -895,54 +872,11 @@ const WORKER_KEYS = Object.freeze([
   'env',
 ]);
 
-/**
- * The keys only a development profile carries: the OpenCode tools it asks for (DEVELOPMENT_TOOLS),
- * the permission rules that narrow them (PERMISSION_ACTIONS), its reasoning effort
- * (DEVELOPMENT_EFFORTS, OpenCode's `--variant`), its default per-run caps `{ steps, minutes }` and its price `cost`.
- */
-const DEVELOPMENT_KEYS = Object.freeze(['tools', 'permission', 'effort', 'limits', 'cost']);
-
 /** The keys of each kind, all required. */
 const KEYS_BY_KIND: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   worker: Object.freeze([...COMMON_KEYS, ...WORKER_KEYS]),
   consultation: COMMON_KEYS,
-  development: Object.freeze([...COMMON_KEYS, ...DEVELOPMENT_KEYS]),
-  watcher: Object.freeze(['id', 'kind', 'prompt', 'override', 'description']),
 });
-
-/**
- * The OpenCode (v1.19.3) tool and permission keys a development profile may ask for. A
- * development agent runs outside this runner, under the dispatcher that builds its config from
- * the profile; this list only bounds what a profile can name. `task` (subagents) and `question`
- * (a headless run cannot answer it) are never on it, nor the experimental `lsp`, `plan_exit`
- * and `execute`.
- */
-export const DEVELOPMENT_TOOLS = Object.freeze([
-  'bash',
-  'read',
-  'grep',
-  'glob',
-  'list',
-  'edit',
-  'write',
-  'patch',
-  'webfetch',
-  'websearch',
-  'todowrite',
-  'skill',
-  'external_directory',
-]);
-
-/**
- * The OpenCode permission actions a development profile's `permission` rules may name. `permission`
- * maps a tool of the profile's `tools` to one action or to an object of command patterns (OpenCode
- * wildcards: `*`, `?`; the last matching pattern wins) and their actions. It can only narrow what the
- * dispatcher grants, never widen it.
- */
-export const PERMISSION_ACTIONS = Object.freeze(['allow', 'ask', 'deny']);
-
-/** The reasoning efforts a development profile may name (OpenCode's `--variant`). */
-export const DEVELOPMENT_EFFORTS = Object.freeze(['low', 'medium', 'high', 'max']);
 
 /** An agent id, the name of its folder: lowercase letters, digits and dashes. */
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -1064,36 +998,6 @@ function checkTools(
   if (new Set(tools).size !== tools.length) throw new AgentProfileError(agent, 'tools', 'names a tool twice');
 }
 
-/** Checks a development profile's `permission`: tool -> action, or tool -> { pattern: action }, tools from `tools`. */
-function checkPermission(agent: string, permission: unknown, tools: ReadonlyArray<string>): void {
-  if (!isObject(permission))
-    throw new AgentProfileError(
-      agent,
-      'permission',
-      'must be an object of tool -> action or tool -> { pattern: action }'
-    );
-  const actions = `must be one of ${PERMISSION_ACTIONS.join(', ')}`;
-  for (const [tool, rules] of Object.entries(permission)) {
-    if (!tools.includes(tool))
-      throw new AgentProfileError(agent, `permission.${tool}`, 'names a tool the profile does not ask for');
-    if (typeof rules === 'string') {
-      if (!PERMISSION_ACTIONS.includes(rules)) throw new AgentProfileError(agent, `permission.${tool}`, actions);
-      continue;
-    }
-    if (!isObject(rules) || Object.keys(rules).length === 0)
-      throw new AgentProfileError(
-        agent,
-        `permission.${tool}`,
-        'must be an action or a non-empty object of pattern -> action'
-      );
-    for (const [pattern, action] of Object.entries(rules)) {
-      if (!pattern.trim()) throw new AgentProfileError(agent, `permission.${tool}`, 'has an empty pattern');
-      if (!PERMISSION_ACTIONS.some((known) => known === action))
-        throw new AgentProfileError(agent, `permission.${tool}.${pattern}`, actions);
-    }
-  }
-}
-
 /** Checks an absolute path default (`socket`, `out`). */
 function checkAbsolute(agent: string, key: string, value: unknown): void {
   if (typeof value !== 'string' || !path.isAbsolute(value) || value.includes('\0'))
@@ -1121,13 +1025,10 @@ function checkId(agent: string): void {
 
 /** Checks identity and prompt fields shared by every definition kind. */
 function checkDefinitionIdentity(agent: string, raw: Record<string, unknown>): void {
-  if (raw.id !== agent || (raw.kind === 'watcher' && agent !== 'watcher'))
-    throw new AgentProfileError(agent, 'id', 'must be the folder name and match the agent kind');
+  if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
   checkId(agent);
-  if (raw.kind !== 'watcher') {
-    const roles = raw.kind === 'development' ? DEVELOPMENT_ROLES : OPENCODE_ROLES;
-    if (!isOneOf(roles, raw.role)) throw new AgentProfileError(agent, 'role', `must be one of ${roles.join(', ')}`);
-  } else if (raw.override !== null) throw new AgentProfileError(agent, 'override', 'must be null');
+  if (!isOneOf(OPENCODE_ROLES, raw.role))
+    throw new AgentProfileError(agent, 'role', `must be one of ${OPENCODE_ROLES.join(', ')}`);
   checkFileName(agent, 'prompt', raw.prompt, raw.kind === 'consultation');
   checkFileName(agent, 'override', raw.override, raw.kind !== 'worker');
   if (typeof raw.description !== 'string' || !raw.description.trim())
@@ -1147,7 +1048,6 @@ function validateProfile(agent: string, raw: unknown) {
   if (!hasKey(KEYS_BY_KIND, raw.kind))
     throw new AgentProfileError(agent, 'kind', `must be one of ${Object.keys(KEYS_BY_KIND).join(', ')}`);
   const worker = raw.kind === 'worker';
-  const development = raw.kind === 'development';
   const keys = KEYS_BY_KIND[raw.kind];
   const allowed = [...keys, ...optionalKeysOf(raw.kind)];
   for (const key of Object.keys(raw)) {
@@ -1166,15 +1066,6 @@ function validateProfile(agent: string, raw: unknown) {
 
   checkOptional(agent, raw);
   checkDefinitionIdentity(agent, raw);
-  if (development) {
-    checkTools(agent, raw.tools, DEVELOPMENT_TOOLS, 'for a development profile');
-    checkPermission(agent, raw.permission, raw.tools);
-    if (!DEVELOPMENT_EFFORTS.some((known) => known === raw.effort))
-      throw new AgentProfileError(agent, 'effort', `must be one of ${DEVELOPMENT_EFFORTS.join(', ')}`);
-    checkNumbers(agent, 'limits', raw.limits, { steps: true, minutes: false });
-    checkCost(agent, raw.cost);
-    return;
-  }
   if (!worker) return;
 
   if (!hasKey(SHELL_CLASSES, raw.shell))
@@ -1418,7 +1309,7 @@ function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): P
 
 /**
  * The worker profiles under `<rootDir>/agents/`, by id: every agent of kind `worker` (a
- * consultation or a development profile has no runner here and is skipped), each validated (listAgents) and built into the
+ * consultation has no runner here and is skipped), each validated (listAgents) and built into the
  * profile object the runner and the core use. Throws AgentProfileError on the first profile that
  * cannot be used, so a bad file stops the process at start.
  */
@@ -1441,7 +1332,7 @@ export function loadProfiles(options: AgentPaths = {}): Readonly<Record<string, 
 
 /** The settings of one agent, from its profile with the deployment's override over it. */
 export type AgentSettings = {
-  /** a worker's switch (a development agent has none) */
+  /** the worker's switch */
   enabled?: boolean;
   /** USD per million tokens */
   cost: { input: number; output: number };
@@ -1449,7 +1340,7 @@ export type AgentSettings = {
   socket?: string;
   /** a worker's out directory */
   out?: string;
-  /** `{ steps, seconds }` of a worker, `{ steps, minutes }` of a development agent */
+  /** `{ steps, seconds }` */
   limits: Record<string, number>;
   /** a worker's daily caps, `{ tasks }` */
   daily?: Record<string, number>;
@@ -1460,7 +1351,6 @@ export type AgentSettings = {
 /** The keys of the settings of each kind of agent. */
 const SETTING_KEYS = Object.freeze({
   worker: Object.freeze(['enabled', 'cost', 'socket', 'out', 'limits', 'daily', 'searchProvider']),
-  development: Object.freeze(['cost', 'limits']),
 });
 
 /** `override` laid over `base`: a plain object merged key by key, anything else replaced. */
@@ -1479,7 +1369,7 @@ function overlaid(base: unknown, override: unknown): unknown {
 /**
  * The settings of agent `name`: current shared and personal profiles with `config.agents.<name>` laid over them.
  * Nested objects merge key by key. A worker gives `{ enabled, cost, socket, out,
- * limits, daily, searchProvider }`, a development agent `{ cost, limits }`. A socket or out path that is not a
+ * limits, daily, searchProvider }`. A socket or out path that is not a
  * non-empty string in the override falls back to the profile's. The one reader of these settings for the core, the
  * runner and the dispatcher, read from the config it is given at each call. Null for a name that is no agent
  * (a key of `agents` that names no profile).
@@ -1489,7 +1379,7 @@ function overlaid(base: unknown, override: unknown): unknown {
 export function agentSettings(name: unknown, config: unknown, options: AgentPaths = {}): AgentSettings | null {
   if (typeof name !== 'string') return null;
   const profile = listAgents(options).find((definition) => definition.id === name);
-  if (profile === undefined || (profile.kind !== 'worker' && profile.kind !== 'development')) return null;
+  if (profile === undefined || profile.kind !== 'worker') return null;
   const { env } = agentPaths(options);
   const values: Record<string, unknown> = { ...profile };
   const section = isObject(config) && isObject(config.agents) ? config.agents : {};

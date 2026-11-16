@@ -88,7 +88,6 @@ import { createCostMeter, drain, onTaskFinished } from './inner/drain.ts';
 import type { DrainAnswer } from './inner/drain.ts';
 import { markFactsTold, pendingFactsOf } from './inner/facts.ts';
 import { heartbeatDue } from './inner/heartbeat.ts';
-import { selfimprovementDue } from './inner/selfimprovement.ts';
 import { attendWakes, places, refreshPlaces } from './inner/places.ts';
 import type { PlacesQuery } from './inner/places.ts';
 import {
@@ -120,7 +119,6 @@ import type {
   CostMeter,
   FactsApi,
   InnerContext,
-  SelfimprovementSources,
   InnerIntentions,
   InnerJournal,
   InnerMemoryDb,
@@ -185,8 +183,6 @@ export type InnerLifeOptions = {
   uuid?: () => string;
   /** createCostMeter's. */
   meter?: CostMeter | null;
-  /** The sources of the selfimprovement wake's facts that are not the journal (src/behavior/selfimprovement-view.ts). */
-  selfimprovement?: SelfimprovementSources;
   /**
    * The memory database (src/memory/db/service.ts): the wake queue is kept in it through its writer, and with
    * `memoryDb.wakeRuns` on each inner turn is recorded as a wake run with its actions. Without one the queue lives in
@@ -251,7 +247,6 @@ export function createInnerLife({
   ready = () => Promise.resolve(),
   uuid = randomUUID,
   meter = null,
-  selfimprovement: selfimprovementSources = {},
   memoryDb = null,
   port = null,
   rng = Math.random,
@@ -276,7 +271,6 @@ export function createInnerLife({
     ready,
     uuid,
     costs: meter ?? createCostMeter(),
-    selfimprovementSources,
     memoryDb,
     port,
     rng,
@@ -292,7 +286,7 @@ export function createInnerLife({
 
   /**
    * One tick: with the switch on and nothing paused or stopped, what is due is listed and handed
-   * to the door (intentions due, waits past their deadline, the heartbeat, the selfimprovement wake), the waits are
+   * to the door (intentions due, waits past their deadline, the heartbeat), the waits are
    * reconciled, then the queue is drained by one inner turn when the attention is free. Never
    * throws; answers what it did.
    */
@@ -323,7 +317,6 @@ export function createInnerLife({
       }
       const beat = heartbeatDue(life, settings, at);
       if (beat) listed.push(beat);
-      listed.push(...(await selfimprovementDue(life, settings, at)));
       if (intentions) {
         await refreshPlaces(life, at, settings);
         listed.push(...attendWakes(life, at));

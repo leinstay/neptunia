@@ -49,11 +49,12 @@ const ROWS_OF_TASK = `SELECT (SELECT COUNT(*) FROM board_events WHERE task_id = 
   (SELECT COUNT(*) FROM board_outbox WHERE task_id = ? AND to_whom = 'persona') AS ends`;
 
 // The status events of the errand tasks titled `title` on the board, in order.
+// Changed: the board holds errands only and its tasks have no lane, so the title alone picks the errand.
 const errandEvents = (db: Db, title: string): Array<unknown> =>
   db
     .prepare(
       `SELECT e.new AS status FROM board_events e JOIN board_tasks t ON t.id = e.task_id
-       WHERE t.lane = 'errand' AND t.title = ? AND e.type = 'status' ORDER BY e.seq`
+       WHERE t.title = ? AND e.type = 'status' ORDER BY e.seq`
     )
     .all(title)
     .map((row) => row.status);

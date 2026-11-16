@@ -9,8 +9,7 @@
 // (the override under the persona data directory, the tracked prompt in
 // agents/<id>/), and the agents/ folder the profiles are built from: the
 // real one, and temporary trees with a valid worker, an unknown tool, an
-// unknown shell class, a missing key, a consultation and development
-// profiles the runner skips (and a bad development key refused);
+// unknown shell class, a missing key and a consultation the runner skips;
 // the tools every agent is denied (skill, todowrite, ...) and the scout
 // agent's shell allow list.
 // Pure but for reading config.json, agents/ and a temporary directory.
@@ -27,7 +26,6 @@ import {
   SERVER,
   ALWAYS_DENIED,
   AgentProfileError,
-  DEVELOPMENT_TOOLS,
   SHELL_CLASSES,
   listAgents,
   loadProfiles,
@@ -53,7 +51,7 @@ import {
   withheldGlobsOf,
   withheldRootsOf,
 } from '../src/agent-runner/policy.ts';
-import { DEVELOPMENT_ROLES, OPENCODE_ROLES, ROLE_DEFAULTS } from '../src/llm/roles.ts';
+import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { resolvePaths } from '../src/paths.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -1362,25 +1360,12 @@ test('loadProfiles: enabled must be a boolean and cost two prices that are finit
   );
 });
 
-test('development profiles: cost must be two prices that are finite and not negative, and a development agent has no enabled key', () => {
-  const cases: Array<[Record<string, unknown>, string]> = [
-    [{ cost: 'cheap' }, 'cost'],
-    [{ cost: { input: -1, output: 10 } }, 'cost.input'],
-    [{ cost: { input: 2 } }, 'cost.output'],
-    [{ enabled: true }, 'enabled'],
-  ];
-  for (const [changes, key] of cases) {
-    withAgentsTree({ build: developmentProfile('build', changes) }, (rootDir: string) =>
-      assertRefused(rootDir, 'build', key)
-    );
-  }
-});
-
 test('a consultation is skipped by loadProfiles and listed by listAgents with the workers', () => {
   const consult = {
     id: 'consult',
     kind: 'consultation',
-    role: 'dev',
+    // Changed: `dev` is no model role (maintainer, 2026-11-16), so the consultation takes an errand role.
+    role: 'scout',
     prompt: null,
     override: null,
     description: 'A test consultation.',
@@ -1404,92 +1389,6 @@ test('a consultation is skipped by loadProfiles and listed by listAgents with th
   withAgentsTree({ consult: { ...consult, role: 'agent.advice' } }, (rootDir: string) =>
     assertRefused(rootDir, 'consult', 'role')
   );
-});
-
-/** A development profile.json that passes every check, `changes` merged over it (an `undefined` value drops the key). */
-function developmentProfile(id: string, changes: Record<string, unknown> = {}) {
-  const base = {
-    id,
-    kind: 'development',
-    role: 'dev',
-    prompt: 'prompt.md',
-    override: null,
-    tools: ['bash', 'read', 'edit'],
-    permission: { bash: { '*': 'allow', '*node --test*': 'deny' }, edit: 'allow' },
-    effort: 'medium',
-    limits: { steps: 50, minutes: 30 },
-    cost: { input: 2, output: 10 },
-    description: 'A test development agent.',
-  };
-  const merged = { ...base, ...changes };
-  for (const [key, value] of Object.entries(merged)) if (value === undefined) delete loose(merged)[key];
-  return merged;
-}
-
-test('development profiles: listed by listAgents, skipped by loadProfiles; roles are the development agents of OPENCODE_ROLES', () => {
-  assert.deepEqual([...DEVELOPMENT_ROLES], ['thinker', 'dev']);
-  for (const role of DEVELOPMENT_ROLES) assert.ok(OPENCODE_ROLES.includes(role), role);
-  assert.ok(!DEVELOPMENT_TOOLS.includes('task'), 'no subagents');
-  withAgentsTree({ build: developmentProfile('build'), probe: workerProfile('probe') }, (rootDir: string) => {
-    assert.deepEqual(Object.keys(loadProfiles({ rootDir, env: {} })), ['probe']);
-    const all = listAgents({ rootDir });
-    assert.deepEqual(
-      all.map((agent) => [agent.id, agent.kind]),
-      [
-        ['build', 'development'],
-        ['probe', 'worker'],
-      ]
-    );
-    assert.deepEqual(
-      {
-        ...all[0],
-        tools: [...loose(all[0]).tools],
-        limits: { ...loose(all[0]).limits },
-        permission: structuredClone(loose(all[0]).permission),
-      },
-      developmentProfile('build')
-    );
-  });
-});
-
-test('development profiles: a bad key is refused with AgentProfileError naming the agent and the key', () => {
-  const cases: Array<[Record<string, unknown>, string]> = [
-    [{ role: 'scout' }, 'role'],
-    [{ role: 'drawing' }, 'role'],
-    [{ tools: ['bash', 'task'] }, 'tools'],
-    [{ tools: [] }, 'tools'],
-    [{ tools: ['read', 'read'] }, 'tools'],
-    [{ permission: undefined }, 'permission'],
-    [{ permission: 'allow' }, 'permission'],
-    [{ permission: { write: 'allow' } }, 'permission.write'],
-    [{ permission: { bash: 'maybe' } }, 'permission.bash'],
-    [{ permission: { bash: {} } }, 'permission.bash'],
-    [{ permission: { bash: { '*node --test*': 'block' } } }, 'permission.bash.*node --test*'],
-    [{ effort: 'extreme' }, 'effort'],
-    [{ effort: undefined }, 'effort'],
-    [{ limits: { steps: 50 } }, 'limits.minutes'],
-    [{ limits: { steps: 1.5, minutes: 30 } }, 'limits.steps'],
-    [{ limits: { steps: 50, minutes: 30, seconds: 60 } }, 'limits.seconds'],
-    [{ prompt: null }, 'prompt'],
-    [{ shell: 'server-read-only' }, 'shell'],
-    [{ socket: '/run/x/sock' }, 'socket'],
-  ];
-  for (const [changes, key] of cases) {
-    withAgentsTree({ build: developmentProfile('build', changes) }, (rootDir: string) =>
-      assertRefused(rootDir, 'build', key)
-    );
-  }
-});
-
-test("the development agents' folders hold no absolute server path and no Cyrillic", () => {
-  for (const id of DEVELOPMENT_ROLES) {
-    const dir = path.join(ROOT, 'agents', id);
-    for (const name of fs.readdirSync(dir)) {
-      const text = fs.readFileSync(path.join(dir, name), 'utf8');
-      assert.doesNotMatch(text, /(^|[^A-Za-z0-9._-])\/(srv|var|opt|etc|home|root|run)(\/|\b)/, `${id}/${name}`);
-      assert.doesNotMatch(text, /[\u0400-\u04FF]/, `${id}/${name}`);
-    }
-  }
 });
 
 test('the scout unit: runs the scout profile with the state and runtime dirs the profile and config.json name', () => {
@@ -1629,7 +1528,7 @@ test('new reproduction: a prompt swapped for a link after the check does not rea
 // `agentSettings(name, config)` (src/agent-runner/profiles.ts) is the one reader of an agent's settings for the core,
 // the runner and the dispatcher: the tracked profile of the agent (`agents/<name>/profile.json`) with the deployment's
 // override, `config.agents.<name>` of the live config, laid over it. It returns `{ enabled, cost, socket, out, limits,
-// daily, searchProvider }` for a worker and the keys the profile has for a development agent, and null for a name that
+// daily, searchProvider }` for a worker, and null for a name that
 // is no agent (`ledger` is a key of `agents`, not an agent). The values the profile alone gives are the ones
 // `config.json` carried before the profile took them over, and an override lands field by field, a nested object
 // merged key by key.

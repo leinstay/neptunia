@@ -452,7 +452,7 @@ export function createKeysCommands(deps: KeysDeps): {
     const role = text(args.role);
     const model = text(args.model);
     const group = roleGroup(role);
-    if (group !== 'errands' && group !== 'development') return invalid(name, `the roles are ${ROUTE_ROLES.join(', ')}`);
+    if (group !== 'errands') return invalid(name, `the roles are ${ROUTE_ROLES.join(', ')}`);
     if (model === '') return invalid(name, 'a role and a model are needed');
     if (text(args.provider) !== '' || text(args.effort) !== '')
       return invalid(name, `the ${role} role takes no provider and no effort here`);

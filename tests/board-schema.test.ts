@@ -1,6 +1,6 @@
-// The board's schema in the memory database (src/board/schema.ts and the baseline of
-// src/memory/db/schema-baseline.ts): a new database holds the board's tables at the board's version, and a reopen
-// keeps the board's rows. Temporary files only.
+// The board's schema in the memory database (src/board/schema.ts, the baseline of src/memory/db/schema-baseline.ts and
+// step 60 of src/memory/db/schema.ts): a new database holds the errand board's four tables at the board's version, and
+// a reopen keeps the board's rows. Temporary files only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -24,26 +24,15 @@ const columnsOf = (db: BoardDb, table: string): Array<string> =>
     .all()
     .map((row) => String(row.name));
 
-test('a new memory database holds the eleven board tables and the board at version 3', () => {
+// Changed: step 60 narrows the board to what errands use, so a new database holds four board tables, not eleven.
+test('a new memory database holds the four board tables of errands and the board at version 3', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const db = dbOf(handle);
-    const tables = tableNames(db);
-    const board = [
-      'board_agent_runs',
-      'board_attempts',
-      'board_comments',
-      'board_dependencies',
-      'board_events',
-      'board_idempotency',
-      'board_outbox',
-      'board_questions',
-      'board_results',
-      'board_reviews',
-      'board_tasks',
-    ];
-    for (const table of board) assert.ok(tables.includes(table), `${table} is missing`);
-    assert.ok(tables.includes('board_schema_version'));
+    assert.deepEqual(
+      tableNames(db).filter((name) => name.startsWith('board_')),
+      ['board_events', 'board_outbox', 'board_results', 'board_schema_version', 'board_tasks']
+    );
     assert.equal(BOARD_VERSION, 3);
     assert.equal(boardVersion(db), 3);
     assert.equal(handle.board.ok, true);
@@ -52,111 +41,17 @@ test('a new memory database holds the eleven board tables and the board at versi
   }
 });
 
-// The cutover (PR 6e) copies ledger.db's rows column by column, so each board table keeps its ledger v3 columns.
-// PR 6b: board v2 appends three columns to board_tasks after the ledger's, so the v3 columns keep their order and the
-// cutover's copy names only those.
-test('the board tables have the columns of the ledger schema v3, approvals as reviews, and the v2 task columns', () => {
+// Changed: step 60 keeps only the columns the errand store writes in board_tasks and board_results; the events and
+// the outbox keep theirs.
+test('the board tables have the columns the errand store writes and reads', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const db = dbOf(handle);
     const expected: Record<string, Array<string>> = {
-      board_tasks: [
-        'id',
-        'lane',
-        'project',
-        'title',
-        'description',
-        'acceptance',
-        'requester',
-        'priority',
-        'risk',
-        'role',
-        'budget_usd',
-        'step_cap',
-        'estimate_minutes',
-        'status',
-        'close_reason',
-        'defer_until',
-        'is_blocked',
-        'revision',
-        'lease_owner',
-        'lease_expires_at',
-        'heartbeat_at',
-        'subscriber',
-        'created_at',
-        'updated_at',
-        'metadata',
-        'lease_generation',
-        'blocked_reason',
-        'unblocks',
-      ],
-      board_dependencies: ['task_id', 'depends_on_id', 'type', 'created_by', 'created_at'],
-      board_attempts: [
-        'id',
-        'task_id',
-        'n',
-        'principal',
-        'role',
-        'model',
-        'provider_pin',
-        'worktree',
-        'branch',
-        'db_path',
-        'started_at',
-        'ended_at',
-        'exit_code',
-        'finish_reason',
-        'steps',
-        'tokens_in',
-        'tokens_out',
-        'tokens_reasoning',
-        'cache_read',
-        'cache_write',
-        'cost_est_usd',
-        'cost_billed_usd',
-        'rejected_asks',
-        'failed_tools',
-        'loop_signals',
-        'stall_signals',
-        'outcome',
-      ],
-      board_questions: [
-        'id',
-        'task_id',
-        'attempt_id',
-        'asked_by',
-        'text',
-        'to_whom',
-        'answer',
-        'answered_by',
-        'answered_at',
-        'created_at',
-      ],
-      board_reviews: ['id', 'task_id', 'principal', 'decision', 'scope', 'note', 'created_at'],
-      board_results: ['id', 'task_id', 'attempt_id', 'kind', 'body', 'uri', 'created_at'],
-      board_comments: ['id', 'task_id', 'author', 'text', 'created_at'],
+      board_tasks: ['id', 'title', 'role', 'status', 'close_reason', 'created_at', 'updated_at', 'metadata'],
+      board_results: ['id', 'task_id', 'kind', 'body', 'created_at'],
       board_events: ['seq', 'task_id', 'actor', 'type', 'old', 'new', 'created_at'],
       board_outbox: ['seq', 'task_id', 'to_whom', 'kind', 'payload', 'created_at', 'delivered_at'],
-      board_idempotency: ['key', 'principal', 'response', 'created_at'],
-      board_agent_runs: [
-        'id',
-        'agent',
-        'session_id',
-        'wave',
-        'started_at',
-        'ended_at',
-        'trigger_seqs',
-        'steps',
-        'tokens_in',
-        'tokens_out',
-        'cache_read',
-        'cache_write',
-        'cost_est_usd',
-        'context_mean',
-        'context_peak',
-        'compactions',
-        'outcome',
-      ],
     };
     for (const [table, columns] of Object.entries(expected)) assert.deepEqual(columnsOf(db, table), columns, table);
   } finally {
@@ -168,9 +63,10 @@ test('the board tables have the columns of the ledger schema v3, approvals as re
 test('a reopened file keeps its board rows and its board version rows', () => {
   const file = path.join(tempDir('nep-board-schema-'), 'memory.db');
   const first = openMemoryDb(file);
+  // Changed: the task is filed in the narrow shape of step 60, at a status an errand stands in.
   dbOf(first)
     .prepare(
-      "INSERT INTO board_tasks (id, title, requester, status, created_at, updated_at) VALUES ('T-aaaaaa', 'kept', 'owner', 'proposed', 'x', 'x')"
+      "INSERT INTO board_tasks (id, title, role, status, created_at, updated_at) VALUES ('T-aaaaaa', 'kept', 'scout', 'approved', 'x', 'x')"
     )
     .run();
   first.close();

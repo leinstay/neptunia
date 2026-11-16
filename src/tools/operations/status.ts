@@ -3,13 +3,11 @@
 // most important field first, for a phone; `field` keeps only that field and computes nothing
 // for the others. A member (anyone the owner check refuses) gets the card without the storage line,
 // the keys, costs, memory and speed fields. Every field lists one item per line; the state field ends
-// with the gateway and the uptime. The card keeps three groups, matching the model config: the base
-// (`models.base`, `keys.base`, `costs.base`: her `core` and the other model roles), the errands (`models.errands`,
-// `costs.errands`: the delegated agents) and the development agents (`models.development`,
-// `costs.development`: outside her). The models sit in three fields, one line per role, `<role> · <model> ...`:
-// `models.base` (core, memory, then the model roles analyzer, vision, video, embedding, speech, then drawing),
-// `models.errands` (scout, server) and `models.development` (thinker, dev), which an OpenCode worker runs,
-// so they are never probed. The owner's card probes on every call: one minimal chat completion per
+// with the gateway and the uptime. The card keeps two groups, matching the model config: the base
+// (`models.base`, `keys.base`, `costs.base`: her `core` and the other model roles) and the errands (`models.errands`,
+// `costs.errands`: the delegated agents). The models sit in two fields, one line per role, `<role> · <model> ...`:
+// `models.base` (core, memory, then the model roles analyzer, vision, video, embedding, speech, then drawing) and
+// `models.errands` (scout, server), which an OpenCode worker runs, so they are never probed. The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
 // request for the embedding role, and one free GET of the drawing model's provider listing; a
@@ -21,9 +19,7 @@
 // field reads the limit of each API key of the core (one free GET per key; the errand agents' key
 // is left out: their spend is `costs.errands`) and the rolling 7/30-day sums per key; `costs.base`
 // reads today's per-role accumulator (src/tools/operations/usage.ts, drawing's row included); `costs.errands` the errand records' spend
-// per agent (src/errands/costs.ts through the place's task store); `costs.development` the development agents'
-// (thinker, dev) from the board's `costs.agents` by role (src/board/costs.ts, with the thinker's last-wave
-// context), both shown with no runs when the board does not answer. The owner's `inner`
+// per agent (src/errands/costs.ts through the place's task store). The owner's `inner`
 // field (only while features.wakes is on) is the inner life's own status (src/behavior/inner.ts#status):
 // its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
@@ -36,7 +32,7 @@ import { ARCHIVE_EVENTS } from '../../memory/index.ts';
 import { clampChars, oneLine } from '../../memory/clamp.ts';
 import { isOwnerCaller } from './grants.ts';
 import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.ts';
-import { CORE_ROLE, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
+import { CORE_ROLE, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
 import { EMBED_ROLE } from '../../llm/embed.ts';
 import { missedCounts, missedStatusLine } from '../../behavior/missed.ts';
 import { SPEED_METRICS } from './metrics.ts';
@@ -51,12 +47,6 @@ import { idText, isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 import type { AccountRead } from './usage.ts';
 
-/**
- * The principal the card reads the board's agent costs as: the thinker, a development client with the board role
- * `reviewer` in clients.json. `costs.agents` is a read, so the card writes nothing in its name.
- */
-const COSTS_READER = 'thinker';
-
 /** The tokens line of the `inner` field: the core role's tokens today. */
 type InnerTokens = { prompt: number; cached: number; completion: number };
 
@@ -70,23 +60,15 @@ export { STATUS_FIELDS };
 export const PART_FIELDS: Readonly<Record<string, ReadonlyArray<string> | null>> = Object.freeze({
   overview: ['state', 'limits'],
   limits: ['limits', 'costs.base'],
-  models: ['models.base', 'models.errands', 'models.development'],
+  models: ['models.base', 'models.errands'],
   memory: ['memory'],
   inner: ['inner'],
-  errands: ['tasks', 'costs.errands', 'costs.development'],
+  errands: ['tasks', 'costs.errands'],
   all: null,
 });
 
 /** The fields a member's card leaves out. */
-const OWNER_FIELDS = new Set([
-  'keys.base',
-  'costs.base',
-  'costs.errands',
-  'costs.development',
-  'inner',
-  'memory',
-  'speed',
-]);
+const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.errands', 'inner', 'memory', 'speed']);
 
 /** The model roles of the errand agents (src/agent-runner/profiles.ts) and `drawing`, which shares
  * their key: a key only they use is the errands' key, which `keys.base` leaves out. */
@@ -197,7 +179,7 @@ function agentLine(role: string, cfg: Untyped): string {
   return roleHead(role, roleModel(cfg, role) ?? 'no model configured');
 }
 
-/** The `models.errands` or `models.development` field: each role's `agentLine`. */
+/** The `models.errands` field: each role's `agentLine`. */
 function agentModels(cfg: Untyped, roles: ReadonlyArray<string>): string {
   return roles.map((role) => agentLine(role, cfg)).join('\n');
 }
@@ -394,7 +376,6 @@ const handlers = perEnv((env) => {
     embedder,
     embedQueue,
     memoryDb,
-    board,
   } = env;
   // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
   const clock = typeof env.now === 'function' ? env.now : Date.now;
@@ -693,23 +674,6 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The owner's `costs.development` field (src/tools/operations/usage.ts#agentCostsLines): thinker and dev from the board's
-   * `costs.agents` by role (src/board/costs.ts), read as COSTS_READER; a missing, refusing or failing board shows them
-   * with no runs and never fails the field. `-` when the labels give no line. */
-  async function developmentCostsValue() {
-    let boardTotals: Readonly<Record<string, unknown>> | null = null;
-    try {
-      boardTotals = board ? await board.call(COSTS_READER, 'costs.agents', { now: clock(), by: 'role' }) : null;
-    } catch (err) {
-      log.warn('status: board costs failed', { error: err });
-    }
-    const totals = Object.fromEntries(
-      DEVELOPMENT_ROLES.filter((agent) => isObj(boardTotals?.[agent])).map((agent) => [agent, boardTotals?.[agent]])
-    );
-    const lines = agentCostsLines({ agents: DEVELOPMENT_ROLES, totals, labels: hot.prompts?.labels });
-    return lines.length > 0 ? lines.join('\n') : '-';
-  }
-
   /** The owner's `inner` field: the inner life's status, `-` without it. */
   function innerValue(): string {
     if (typeof env.inner?.status !== 'function') return '-';
@@ -981,8 +945,6 @@ const handlers = perEnv((env) => {
       'costs.base': () => roleCostsValue(),
       'models.errands': () => agentModels(cfg, ERRAND_ROLES),
       'costs.errands': () => errandCostsValue(),
-      'models.development': () => agentModels(cfg, DEVELOPMENT_ROLES),
-      'costs.development': () => developmentCostsValue(),
       inner: () => innerValue(),
       limits: () => limitsValue(cfg, data),
       memory: () => memoryOfPlaces(places),

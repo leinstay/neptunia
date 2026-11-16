@@ -15,7 +15,7 @@ export const MODEL_ROLES: ReadonlyArray<string> = Object.freeze([...CORE_ROLES])
 
 /**
  * The roles whose model `model.show` lists and `model.set` changes (src/llm/roles.ts#ROLES): the base roles (the core,
- * the other model roles, drawing), whose model is their chain's, then the errand and development roles, whose model is
+ * the other model roles, drawing), whose model is their chain's, then the errand roles, whose model is
  * their `models.<group>.<role>` and which take no request of the bot (OpenCode workers run them). Drawing
  * (src/llm/images.ts#IMAGE_ROLE) takes no chat completion. The choices of `model.set` and `/model set`.
  */
@@ -47,8 +47,6 @@ export const STATUS_FIELDS = Object.freeze([
   'costs.base',
   'models.errands',
   'costs.errands',
-  'models.development',
-  'costs.development',
   'inner',
   'limits',
   'memory',
@@ -62,8 +60,7 @@ export const STATUS_FIELDS = Object.freeze([
  */
 export const STATUS_PARTS = Object.freeze(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'all']);
 
-/** The roles a route may name: the `model.set` roles but the OpenCode ones (`scout`, `server`,
- * `thinker`, `dev`), whose workers never read `llm.providerByModel`, and `speech`, whose one model
+/** The roles a route may name: the `model.set` roles but the OpenCode ones (`scout`, `server`), whose workers never read `llm.providerByModel`, and `speech`, whose one model
  * is routed by its own prefix. */
 export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.includes(role) && role !== 'speech');
 

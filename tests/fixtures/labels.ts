@@ -336,7 +336,6 @@ export const labels = {
       agentWindow: '{window} {runs} runs, in {in}, out {out}, {usd} USD',
       agentWindows: { today: 'day', last7: '7d', last30: '30d' },
       agentNoRuns: '{agent}: no runs',
-      agentContext: '{agent} wave {wave}: {turns} turns, ctx {mean}/{peak}, {usd} USD',
       agentEstimate: 'USD estimated',
     },
   },
@@ -616,7 +615,7 @@ export const labels = {
     earlier: '(an earlier turn here, {ago} ago)',
   },
   wake: {
-    kinds: { intention_due: 'due: {id} {purpose} ({due})', errand_deadline: 'deadline passed: {id} {purpose} errand {errand}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:', heartbeat: 'heartbeat', selfimprovement: 'selfimprovement' },
+    kinds: { intention_due: 'due: {id} {purpose} ({due})', errand_deadline: 'deadline passed: {id} {purpose} errand {errand}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:', heartbeat: 'heartbeat' },
     delayed: 'delayed {minutes} {code}',
     feedbackInTurn: 'kept for you:',
     feedbackItem: '* {fact}',

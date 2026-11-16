@@ -1,5 +1,5 @@
 // Every turn of hers carries `<spatial_awareness>`: a reply in a channel, an inner turn that runs in a place, a
-// heartbeat and a selfimprovement wake, over the real turn runner with a fake model. The store hands the turn its place
+// heartbeat, over the real turn runner with a fake model. The store hands the turn its place
 // chain through `placeChainOf(placeId)`, the store method over `placeChainInDb` (src/memory/db/place-tree.ts); the
 // owner's notes come from `config.spatial.notes`. The labels are the fixture's markers. Synthetic names only.
 import { test } from 'node:test';
@@ -73,11 +73,11 @@ test('an inner turn that runs in a channel names that place', async () => {
   assert.ok(body?.startsWith('SPATIAL-PLACE channel general < server'), String(body));
 });
 
-for (const kind of ['heartbeat', 'selfimprovement']) {
+for (const kind of ['heartbeat']) {
   test(`a ${kind} wake says she is on her own server, with the time`, async () => {
     // Bug: her own time carries no block at all, or names the anchor channel the wake rode in on.
     // Stage AC, the owner's word of 2026-11-06: a wake with no chat place is at the command line of her server.
-    const run = await wakeTurn({ wake: wakeOfKind(kind, `${kind}:1`), answers: ['<skip/>'], board: null });
+    const run = await wakeTurn({ wake: wakeOfKind(kind, `${kind}:1`), answers: ['<skip/>'] });
     const body = spatialOf(wakeRequestText(run.requests[0] ?? []));
     // Slice 5 (d): a service's whereabouts add the wake kind as the reason she is awake, after the place and the clock.
     const [where, ...rest] = String(body).split('\n');

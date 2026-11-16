@@ -104,8 +104,6 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
-  // The executor's brief moved to executor-brief.md; selfimprovement.md is her wake, loaded below.
-  'executor-brief': 'filled by src/development/brief.ts#briefFrom, an agent run of the development worker reads it',
   // Split into families and drawn from line by line (src/behavior/selfreflection.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
   'selfreflection-seeds':
     'drawn from line by line into <seeds> (src/behavior/selfreflection.ts#pickSeeds), never sent whole',
@@ -202,7 +200,6 @@ const LOADS = {
   selfreflection: [...SYSTEM, 'selfreflection', 'world'],
   inner: [...SYSTEM, 'inner'],
   heartbeat: [...SYSTEM, 'heartbeat'],
-  selfimprovement: [...SYSTEM, 'selfimprovement'],
   describe: ['describe'],
   avatar: ['avatar'],
   describeGif: ['describe-gif'],
@@ -1148,17 +1145,6 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
   const missing = await wakeInput('heartbeat');
   missing.prompts = { ...SHIPPED.prompts, heartbeat: '  ' } as typeof SHIPPED.prompts;
   assertFilled(buildRequest(missing).messages, { files: LOADS.inner }, 'heartbeat with no heartbeat.md');
-});
-
-test('buildRequest: an inner turn woken by the selfimprovement wake fills selfimprovement.md in place of inner.md', async () => {
-  const wake = await wakeInput('selfimprovement');
-  const text = assertFilled(
-    buildRequest(wake).messages,
-    { files: LOADS.selfimprovement, blocks: ['task'] },
-    'wake turn'
-  );
-  assert.ok(!carries(text, 'inner'), 'inner.md is not sent as well');
-  assert.ok(!carries(text, 'executor-brief'), 'the executor brief is not sent to her');
 });
 
 test('buildRequest: a diary post fills system-prompt, character-card, rules, format, diary.md and world.md', async () => {

@@ -1,4 +1,4 @@
-// The key store as the subharness, the watcher and `neptunia setup` see it: `<privateDir>/keys.json` (mode 600), read
+// The key store as the subharness and `neptunia setup` see it: `<privateDir>/keys.json` (mode 600), read
 // and written whole and synchronously, so the paid scripts can read it from plain code. The file holds secrets alone:
 // the named keys under `keys`, the service credentials under `services` and the `management` key. Which part runs on
 // which key or backend is routing, and lives in config.json (`models.routes`, src/llm/route-chain.ts, and the agents'

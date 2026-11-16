@@ -2,8 +2,7 @@
 // firewall when `ufw` exists. `serverHealth` judges what a probe reports and is pure;
 // `systemProbe` is the real probe over `statfs`, `node:os`, `systemctl` and `ufw`, a `ufw` that refuses to answer
 // counting as none. The owner's console
-// (src/interface/commands/console.ts) calls both for `/doctor server`, and the daily watcher reads it through
-// `neptunia -p`.
+// (src/interface/commands/console.ts) calls both for `/doctor server`.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';

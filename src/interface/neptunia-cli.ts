@@ -1,11 +1,6 @@
 // The core's side of the commands over the link: what answers a `command.requested` event. src/core.ts hands each one
 // here before the event door sees it, so a command never reaches her memory, her turns or her requests. The link
-// (link.ts) lets a command through only from the `cli` principal (the `neptunia` chat and `neptunia -p`, the owner) or
-// from an `agent` principal (a development agent of the task board, `neptunia tasks`).
-//
-// A command of an `agent` principal, and a `task.*` command of the `cli` principal, is a board command: it runs as
-// the principal's name through `tasks` (src/board/commands.ts, run in the memory writer by src/board/writer.ts), so
-// the board's rights decide it, and it answers whether the core is paused or not.
+// (link.ts) lets a command through only from the `cli` principal (the `neptunia` chat and `neptunia -p`, the owner).
 //
 // A command of the `cli` principal is a command of the chat's table (src/interface/commands/table.ts), parsed by the chat, and runs with the owner's rights:
 // `status` (the short summary), `header` (the chat's opening line, no row of the table), `help`, and
@@ -30,7 +25,7 @@
 // waiting for no such result ignores it.
 //
 // Every line of the command line goes through the door when it arrives, and src/interface/chat-turns.ts tracks the state of its
-// turn for the client. The `turn.*` commands of the `cli` principal reach it, and a `chatCommands` dependency answers the chat's other reads (sessions, approvals, checkpoints).
+// turn for the client. The `turn.*` commands of the `cli` principal reach it, and a `chatCommands` dependency answers the chat's other reads (sessions).
 
 import fs from 'node:fs';
 import { roleModel } from '../llm/roles.ts';
@@ -47,12 +42,8 @@ import type { Adapter } from '../protocol/adapter.ts';
 import type { RoleDown } from '../llm/role-health.ts';
 import type { Logger } from '../protocol/serve.ts';
 import type { Envelope } from '../protocol/wire.ts';
-import type { TaskAnswer } from '../board/commands.ts';
 import type { AdapterLink, From, LinkDoor } from './link.ts';
 import type { Principal } from './principals.ts';
-import { SKILL_COMMAND_PREFIX, skillCommandOf } from '../skills/agent-commands.ts';
-import type { BoardCaller } from '../tools/operations/board.ts';
-import type { SkillsAccess } from '../skills/port.ts';
 
 /** One command's answer: the text the owner reads and its outcome. */
 export type Answer = { text: string; status: string; code?: string };
@@ -109,16 +100,7 @@ export type CommandDeps = {
     installed?(): ReadonlyArray<string>;
   };
   facts(): StatusFacts;
-  /** The board's `task.*` commands, run under a principal's name. */
-  tasks: { command(principal: string, name: string, args: Record<string, unknown>): Promise<TaskAnswer> };
-  /** Her skills: an agent lists the pending versions and files a package (`skill.pending`); absent, the command fails. */
-  skills?: SkillsAccess | null;
-  /** The board `skill.pending { name, task }` binds a package on, as the calling agent. */
-  board?: BoardCaller | null;
 };
-
-/** The prefix of the board's commands. */
-const TASK_PREFIX = 'task.';
 
 const money = (value: number): string => `$${value.toFixed(value >= 1 ? 2 : 4)}`;
 
@@ -247,28 +229,11 @@ export function createCommandDesk(deps: CommandDeps): {
     return dialogs.start(name, (dialog) => deps.console.run(name, args, event.requester, dialog));
   }
 
-  async function skillCommandOfAgent(event: CommandEvent, principal: string): Promise<Answer> {
-    if (deps.skills == null) return { text: 'skills are not available here', status: 'failed' };
-    const answer = await skillCommandOf(deps.skills, { name: principal }, event.name, event.args, {
-      board: deps.board,
-    });
-    return { text: answer.text, status: answer.status };
-  }
-
-  async function boardCommand(event: CommandEvent, principal: string): Promise<Answer> {
-    const answer = await deps.tasks.command(principal, event.name, event.args);
-    return { text: answer.text, status: answer.status };
-  }
-
   return {
     async run(event, principal) {
       try {
-        if (principal.kind === 'agent' && event.name.startsWith(SKILL_COMMAND_PREFIX))
-          return await skillCommandOfAgent(event, principal.name);
-        if (principal.kind === 'agent' || (principal.kind === 'cli' && event.name.startsWith(TASK_PREFIX)))
-          return await boardCommand(event, principal.name);
         if (principal.kind === 'cli') return await cliCommand(event);
-        return { text: 'commands come from the owner or an agent', status: 'denied' };
+        return { text: 'commands come from the owner', status: 'denied' };
       } catch (err) {
         log.warn('commands: command failed', { command: event.name, error: err });
         return failed(err);

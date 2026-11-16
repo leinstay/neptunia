@@ -1,6 +1,6 @@
-// The panels of `/sessions`, `/branch` and `/checkpoints`, over what the caller reads from the core: bin/chat-panels.ts supplies
-// the client. Opening a panel only reads. Resuming, branching and restoring each happen on their own row, and a branch's row
-// shows the exact stored line it cuts at. Memory is another resource: the panels say so and never promise a forgetting.
+// The panels of `/sessions` and `/branch`, over what the caller reads from the core: bin/chat-panels.ts supplies the
+// client. Opening a panel only reads. Resuming and branching each happen on their own row, and a branch's row shows the
+// exact stored line it cuts at. Memory is another resource: the panels say so and never promise a forgetting.
 import type { Panel, PanelResult, PanelRow } from './panel.ts';
 import { displaySafe } from './transcript.ts';
 
@@ -57,41 +57,6 @@ export async function boundaryPanel(client: SessionClient, sessionId: string): P
   return {
     title: 'Branch',
     lines: rows.length === 0 ? ['This chat has no line to branch at.', MEMORY_STATEMENT] : [MEMORY_STATEMENT],
-    rows,
-  };
-}
-
-export type CheckpointPoint = {
-  id: string;
-  revision: number;
-  changes: ReadonlyArray<{ path: string; change: string }>;
-  restore: (id: string) => Promise<PanelResult>;
-};
-
-/** The file checkpoints of the development worktrees. A backend that cannot restore shows why and has no row to press. */
-export function checkpointPanel(
-  capability: { restore: true } | { restore: false; reason: string },
-  points: ReadonlyArray<CheckpointPoint>
-): Panel {
-  if (!capability.restore)
-    return { title: 'Checkpoints', lines: [`File checkpoints are unavailable: ${capability.reason}.`], rows: [] };
-  const rows = points.map((point): PanelRow => {
-    const paths = point.changes.map((one) => `${one.change} ${one.path}`).join(', ');
-    return {
-      id: point.id,
-      label: `Restore ${point.id}`,
-      detail: `Enter restores these files: ${paths === '' ? 'nothing differs' : paths}. The state it replaces stays as a new checkpoint.`,
-      group: 'Checkpoints',
-      value: paths,
-      apply: () => point.restore(point.id),
-    };
-  });
-  return {
-    title: 'Checkpoints',
-    lines:
-      rows.length === 0
-        ? ['No checkpoint yet. /checkpoints take <task> takes one of a development task.']
-        : ['A restore touches this worktree alone, never data, credentials, settings or what she already sent.'],
     rows,
   };
 }

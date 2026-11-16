@@ -22,7 +22,6 @@ import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 
 import { tempDir } from './fixtures/tmp.ts';
 import * as control from '../src/subharness/control.ts';
-import { fakeVendor } from './fixtures/fake-vendor.ts';
 
 const SECRET = 'sk-or-v1-oc-secret-0123456789';
 const CORE_SECRET = 'sk-or-v1-core-secret-9876543210';
@@ -69,8 +68,8 @@ test('no result, log line or status text holds a key value', async () => {
   const failing: EnableDeps = { ...deps, fetch: () => Promise.reject(new Error(`connect failed for ${SECRET}`)) };
   const { result, logs } = await withCapturedLogs(async () => {
     const results = [
-      await setAgentModel(deps, 'dev', 'vendor/model', undefined, 'opencode'),
-      await setAgentModel(failing, 'dev', 'vendor/other', undefined, 'opencode'),
+      await setAgentModel(deps, 'server', 'vendor/model', undefined, 'opencode'),
+      await setAgentModel(failing, 'server', 'vendor/other', undefined, 'opencode'),
     ];
     const status = statusText(await subharnessView(deps.privateDir), agentPaths(deps.privateDir));
     return { results, status };
@@ -88,15 +87,14 @@ test('mode sets one agent and leaves the others at what they were', async () => 
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
   await setAgentMode(dir, 'scout', 'read');
-  const result = await setAgentMode(dir, 'dev', 'sudo');
+  // Changed: the agent `dev` is gone (maintainer, 2026-11-16), so the server is the agent set.
+  const result = await setAgentMode(dir, 'server', 'sudo');
   assert.equal(result.ok, true);
   assert.equal(result.changed, true);
   assert.deepEqual((await subharnessView(dir)).modes, {
     scout: 'read',
-    server: 'read',
-    dev: 'sudo',
-    watcher: 'read',
-    thinker: 'write',
+    server: 'sudo',
+    // Changed: the watcher is gone (maintainer, 2026-11-16), so the view holds the two errand agents.
   });
 });
 
@@ -104,7 +102,8 @@ test('mode with no value reports the current mode and writes nothing', async () 
   // Bug: an inspection (Hermes /approvals without an argument) changes the setting it was asked to show.
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
-  const result = await setAgentMode(dir, 'dev');
+  // Changed: the agent `dev` is gone (maintainer, 2026-11-16), so the scout, also `write` by default, is read.
+  const result = await setAgentMode(dir, 'scout');
   assert.equal(result.ok, true);
   assert.equal(result.changed, false);
   assert.equal(result.mode, 'write');
@@ -115,7 +114,7 @@ test('an unknown agent or mode is refused and the file is not touched', async ()
   // Bug: "root" or "thinker" is written into keys.json and read later as a mode no code maps to a flag.
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
-  assert.equal((await setAgentMode(dir, 'dev', 'root')).code, 'unknown-mode');
+  assert.equal((await setAgentMode(dir, 'scout', 'root')).code, 'unknown-mode');
   assert.equal((await setAgentMode(dir, 'editor', 'read')).code, 'unknown-agent');
   assert.deepEqual(readKeysFile(dir).subharness.modes, {});
 });
@@ -123,9 +122,10 @@ test('an unknown agent or mode is refused and the file is not touched', async ()
 test('a stored mode that is no mode reads as the default, never as an unsandboxed one', async () => {
   // Bug: a hand-edited or damaged value such as "root" is passed on and an agent runs with more than the owner gave it.
   const dir = tempDir('nep-subharness-');
-  writeKeysFile(dir, { subharness: { backend: 'codex', key: null, modes: { dev: 'root', scout: 'sudo' } } });
+  // Changed: the agent `dev` is gone (maintainer, 2026-11-16), so the damaged value is the server's, default `read`.
+  writeKeysFile(dir, { subharness: { backend: 'codex', key: null, modes: { server: 'root', scout: 'sudo' } } });
   const view = await subharnessView(dir);
-  assert.equal(view.modes.dev, 'write');
+  assert.equal(view.modes.server, 'read');
   assert.equal(view.modes.scout, 'sudo');
 });
 
@@ -133,7 +133,7 @@ test('the status text names the backend, the key name and every agent with its m
   // Bug: the status leaves out an agent, so a sudo mode is set and nobody sees it.
   // Changed: the status takes each agent's path, and opencode reads as a source by its seeded key.
   const { dir } = rig();
-  await setAgentMode(dir, 'dev', 'sudo');
+  await setAgentMode(dir, 'server', 'sudo');
   const text = statusText(await subharnessView(dir), agentPaths(dir));
   for (const word of ['opencode', ...SUBHARNESS_AGENTS, 'sudo']) assert.ok(text.includes(word), word);
 });
@@ -173,7 +173,14 @@ function deps(dir: string, status: number, bodies: Array<Record<string, unknown>
 test('the check of a pinned selection asks OpenRouter for that provider alone with no fallback', async () => {
   // Catches: the check goes out unpinned, so a model that only another provider serves passes and the pinned runs fail.
   const bodies: Array<Record<string, unknown>> = [];
-  const result = await setAgentModel(deps(installed(), 200, bodies), 'dev', MODEL, undefined, 'opencode', 'anthropic');
+  const result = await setAgentModel(
+    deps(installed(), 200, bodies),
+    'server',
+    MODEL,
+    undefined,
+    'opencode',
+    'anthropic'
+  );
   assert.equal(result.ok, true, result.message);
   assert.equal(bodies.length, 1);
   assert.deepEqual(bodies[0].provider, { order: ['anthropic'], allow_fallbacks: false });
@@ -182,17 +189,17 @@ test('the check of a pinned selection asks OpenRouter for that provider alone wi
 test('the check of an unpinned selection sends no provider block', async () => {
   // Catches: an empty or default block on every check, which changes how unpinned selections are served.
   const bodies: Array<Record<string, unknown>> = [];
-  await setAgentModel(deps(installed(), 200, bodies), 'dev', MODEL, undefined, 'opencode');
+  await setAgentModel(deps(installed(), 200, bodies), 'server', MODEL, undefined, 'opencode');
   assert.equal(Object.hasOwn(bodies[0], 'provider'), false);
 });
 
 test('a pin the provider refuses is not saved', async () => {
   // Catches: the pin stored after a check that never used it, then every run of the agent failing at OpenRouter.
   const dir = installed();
-  const result = await setAgentModel(deps(dir, 404, []), 'dev', MODEL, undefined, 'opencode', 'deepinfra');
+  const result = await setAgentModel(deps(dir, 404, []), 'server', MODEL, undefined, 'opencode', 'deepinfra');
   assert.equal(result.ok, false);
   assert.equal(result.code, 'model-rejected');
-  assert.equal(readKeysFile(dir).subharness.models?.dev, undefined);
+  assert.equal(readKeysFile(dir).subharness.models?.server, undefined);
 });
 
 // src/subharness/control.ts#routeOfAgent: the path of an agent the core puts inside a task, as keys.json holds it now.
@@ -225,65 +232,4 @@ test('an agent has no route while nothing is connected', () => {
   assert.equal(control.routeOfAgent(dir, 'scout'), null);
 });
 
-// src/subharness/control.ts: the thinker is an agent of the subharness like the others: it takes a backend, a model and
-// an effort, the status lists it, and it runs in `write` by default. keys.json lives in a temp dir; the backend runner
-// and its `--help` are fakes.
-
-function thinkerRig() {
-  const dir = tempDir('nep-thinker-');
-  // Changed: the thinker's source is seeded in the store, and a selection reads the real source.
-  writeKeysFile(dir, { subharness: { key: null, modes: {}, models: {}, uses: { thinker: 'claude' } } });
-  fakeVendor(dir, 'codex', { loggedIn: true });
-  fakeVendor(dir, 'claude', { loggedIn: true });
-  const ran: Array<{ name: string; model: string | undefined; effort: string | undefined }> = [];
-  const deps: EnableDeps = {
-    privateDir: dir,
-    runBackend: (name, _brief, model, effort) => {
-      ran.push({ name, model, effort });
-      return Promise.resolve({ ok: true, text: 'ok', exitCode: 0 });
-    },
-    fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
-    helpOf: () => Promise.resolve('Usage: claude [options]\n  --model <model>\n  --effort <level>\n'),
-  };
-  return { dir, deps, ran };
-}
-
-test('a selection through a source takes the thinker', async () => {
-  // Catches: "/model set thinker <model> --via codex" is refused unknown-agent, so the thinker has no path of its own.
-  // Changed: `subharness use` left the family, and --via is what names a source.
-  const { dir, deps } = thinkerRig();
-  const result = await setAgentModel(deps, 'thinker', 'gpt-6-sol', undefined, 'codex');
-  assert.equal(result.ok, true);
-  assert.equal(readKeysFile(dir).subharness.uses?.thinker, 'codex');
-});
-
-test('model set takes the thinker with an effort, after one reply through its backend', async () => {
-  // Catches: the model of the thinker cannot be set, or it is checked on the first connected backend and not on claude.
-  const { dir, deps, ran } = thinkerRig();
-  const result = await setAgentModel(deps, 'thinker', 'claude-opus-5-5', 'medium');
-  assert.equal(result.ok, true);
-  assert.deepEqual(ran, [{ name: 'claude', model: 'claude-opus-5-5', effort: 'medium' }]);
-  const stored = readKeysFile(dir).subharness;
-  assert.equal(stored.models?.thinker, 'claude-opus-5-5');
-  assert.equal(stored.efforts?.thinker, 'medium');
-});
-
-test('the paths list the thinker with its backend, model and effort', async () => {
-  // Catches: the thinker runs on a path no caller of agentPaths can see.
-  const { dir, deps } = thinkerRig();
-  await setAgentModel(deps, 'thinker', 'claude-opus-5-5', 'medium');
-  assert.deepEqual(
-    agentPaths(dir).find((one) => String(one.agent) === 'thinker'),
-    { agent: 'thinker', backend: 'claude', model: 'claude-opus-5-5', effort: 'medium' }
-  );
-});
-
-test('the status lists the thinker in write with its backend, model and effort', async () => {
-  // Catches: the owner reads the status and cannot see which CLI and model the thinker runs on.
-  const { dir, deps } = thinkerRig();
-  await setAgentModel(deps, 'thinker', 'claude-opus-5-5', 'medium');
-  const text = statusText(await subharnessView(dir), agentPaths(dir));
-  const row = text.split('\n').find((line) => line.startsWith('  thinker ')) ?? '';
-  for (const word of ['write', 'claude', 'claude-opus-5-5', 'medium'])
-    assert.ok(row.includes(word), `${word} on "${row}"`);
-});
+// Changed: the thinker is gone with the development agents (maintainer, 2026-11-16), so its tests are deleted.

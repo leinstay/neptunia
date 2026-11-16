@@ -4,6 +4,8 @@
 // agent role and memory, verified before it is saved and committed only if nothing moved while the check ran. Execution
 // settings are `/agent mode <agent> [<mode>]`, the same writes and the same unit re-render as the old `mode`. The backend
 // checks are injected, the vendor CLIs disposable fakes.
+// Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
+// so the agent checks use `server`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -99,7 +101,9 @@ test('the core answers a status of one backend, and tells a login to go to a ter
 
 // /model set
 
-for (const role of ['scout', 'server', 'dev', 'watcher', 'thinker']) {
+// Changed: the agents `dev` and `thinker` are gone with the development agents, and `watcher` with the watcher
+// (maintainer, 2026-11-16).
+for (const role of ['scout', 'server']) {
   test(`/model set ${role} --via stores the source, the model and the effort after one reply`, async () => {
     // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
     // Catches: --via open to memory alone, or an agent's source and model written in two steps that can part.
@@ -119,13 +123,17 @@ test('a missing install, a missing login and a provider rejection are three answ
   // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: "gave no reply" for all three, or a model request spent on a backend that cannot answer.
   const absent = rig();
-  const noInstall = await absent.desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude-harness' }, OWNER);
+  const noInstall = await absent.desk.run(
+    'model.set',
+    { role: 'server', model: 'sonnet', via: 'claude-harness' },
+    OWNER
+  );
   assert.equal(noInstall.code, 'not-installed');
   assert.deepEqual(absent.checks, []);
 
   const out = rig();
   fakeVendor(out.privateDir, 'claude');
-  const noLogin = await out.desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude-harness' }, OWNER);
+  const noLogin = await out.desk.run('model.set', { role: 'server', model: 'sonnet', via: 'claude-harness' }, OWNER);
   assert.equal(noLogin.code, 'not-logged-in');
   assert.deepEqual(out.checks, []);
 
@@ -133,7 +141,7 @@ test('a missing install, a missing login and a provider rejection are three answ
   fakeVendor(rejecting.privateDir, 'claude', { loggedIn: true });
   const rejected = await rejecting.desk.run(
     'model.set',
-    { role: 'dev', model: 'sonnet', via: 'claude-harness' },
+    { role: 'server', model: 'sonnet', via: 'claude-harness' },
     OWNER
   );
   assert.equal(rejected.code, 'model-rejected');
@@ -141,8 +149,8 @@ test('a missing install, a missing login and a provider rejection are three answ
 
   for (const one of [absent, out, rejecting]) {
     const stored = readKeysFile(one.privateDir).subharness;
-    assert.equal(stored.uses?.dev, undefined);
-    assert.equal(stored.models?.dev, undefined);
+    assert.equal(stored.uses?.server, undefined);
+    assert.equal(stored.models?.server, undefined);
   }
 });
 
@@ -156,16 +164,16 @@ test('a stale check of an agent never overwrites the choice made while it ran', 
   );
   fakeVendor(privateDir, 'claude', { loggedIn: true });
   fakeVendor(privateDir, 'codex', { loggedIn: true });
-  const slow = desk.run('model.set', { role: 'dev', model: 'slow', via: 'claude-harness' }, OWNER);
+  const slow = desk.run('model.set', { role: 'server', model: 'slow', via: 'claude-harness' }, OWNER);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  const quick = await desk.run('model.set', { role: 'dev', model: 'quick', via: 'codex-harness' }, OWNER);
+  const quick = await desk.run('model.set', { role: 'server', model: 'quick', via: 'codex-harness' }, OWNER);
   assert.equal(quick.status, 'ok', quick.text);
   releaseFirst({ ok: true, text: 'ok', exitCode: 0 });
   const answer = await slow;
   assert.equal(answer.code, 'selection-changed');
   const stored = readKeysFile(privateDir).subharness;
-  assert.equal(stored.uses?.dev, 'codex');
-  assert.equal(stored.models?.dev, 'quick');
+  assert.equal(stored.uses?.server, 'codex');
+  assert.equal(stored.models?.server, 'quick');
 });
 
 test('a logout while the check runs keeps the selection from being saved', async () => {
@@ -175,12 +183,12 @@ test('a logout while the check runs keeps the selection from being saved', async
   const held = new Promise<BackendResult>((resolve) => (release = resolve));
   const { desk, privateDir } = rig({}, () => held);
   const vendor = fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const slow = desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude-harness' }, OWNER);
+  const slow = desk.run('model.set', { role: 'server', model: 'sonnet', via: 'claude-harness' }, OWNER);
   await new Promise((resolve) => setTimeout(resolve, 20));
   fs.rmSync(path.join(vendor.home, 'credentials'));
   release({ ok: true, text: 'ok', exitCode: 0 });
   assert.equal((await slow).code, 'source-changed');
-  assert.equal(readKeysFile(privateDir).subharness.uses?.dev, undefined);
+  assert.equal(readKeysFile(privateDir).subharness.uses?.server, undefined);
 });
 
 test('/agent mode stores the mode and re-renders the unit, as subharness mode did', async () => {
@@ -195,10 +203,10 @@ test('/agent mode stores the mode and re-renders the unit, as subharness mode di
 
 test('/agent mode with no mode reports it, writes nothing and touches no unit', async () => {
   // Catches: a read that re-renders and restarts a running agent.
-  const { desk, privateDir, applied } = rig({ modes: { dev: 'full' } });
-  const answer = await desk.run('agent.mode', { agent: 'dev' }, OWNER);
+  const { desk, privateDir, applied } = rig({ modes: { server: 'full' } });
+  const answer = await desk.run('agent.mode', { agent: 'server' }, OWNER);
   assert.equal(answer.status, 'ok');
   assert.ok(answer.text.includes('full'), answer.text);
   assert.deepEqual(applied, []);
-  assert.equal(readKeysFile(privateDir).subharness.modes.dev, 'full');
+  assert.equal(readKeysFile(privateDir).subharness.modes.server, 'full');
 });

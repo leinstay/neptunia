@@ -15,10 +15,8 @@ Interactive setup uses a keyboard selector for `on` or `off` and `yes` or `no` q
 | `interfaces` | Ask the installed interfaces' setup questions, register each chosen interface's client with its token, and start its unit |
 | `services` | Offer the optional YouTube metadata key and optional quick search |
 | `subharness` | Install the chosen agent backends and run their logins |
-| `selfimprovement` | Offer development: install `gh`, check the repository and set up the folder of the development checkout, as in [self-development](selfimprovement.md#configure) |
-| `mechanics` | Switch heartbeat and reflection, switch and schedule the development wake |
-| `watcher` | Choose the watcher's backend and model. The watcher runs only on `/doctor watcher run` |
-| `units` | Make the clients `cli` and `owner` with their tokens, and `development` when `selfimprovement.checkout` names a checkout other than this one, then render the service files. The development and server units hide the other clients' tokens and the interfaces' `credentials.json` from their agents, for the clients and interfaces that exist at that moment |
+| `mechanics` | Switch heartbeat and reflection |
+| `units` | Make the client `cli` with its token, then render the service files. The server unit hides the clients' tokens and the interfaces' `credentials.json` from its agent, for the clients and interfaces that exist at that moment |
 | `linger` | Let user services continue without an interactive login |
 | `core` | Enable and start the core service |
 
@@ -86,7 +84,7 @@ A backend is available when it is installed and its login works: `sourceState` i
 
 `neptunia subharness <backend> status` asks the vendor's own status command, sends no model request and exits `1` when the backend is absent or not logged in. `neptunia subharness <backend> logout` removes that login and exits `1` with `busy` while an agent or the memory writer runs through the backend, in any process. All three run with no core, so they can repair a core that does not start. The same words work in the chat as `/subharness <backend> status`, and there a vendor's login answers the shell command to type.
 
-Login and logout change availability alone. No role moves, no model is chosen, and a role whose source logged out stays on it, shown `unavailable` by `/subharness status`, with no fallback to another source. Model and source are chosen in the [`/model` selector](keys.md#the-model-selector) or with `/model set <role> <model> --via <route>` and execution permissions with `/agent mode <agent> [<mode>]`. Every such choice, and the watcher's backend and model from its setup step, is written to `config/config.json` of the data folder under `models.agents` and `models.harness`, and `keys.json` keeps the secrets alone. See [keys and models](keys.md#model-sources).
+Login and logout change availability alone. No role moves, no model is chosen, and a role whose source logged out stays on it, shown `unavailable` by `/subharness status`, with no fallback to another source. Model and source are chosen in the [`/model` selector](keys.md#the-model-selector) or with `/model set <role> <model> --via <route>` and execution permissions with `/agent mode <agent> [<mode>]`. Every such choice is written to `config/config.json` of the data folder under `models.agents` and `models.harness`, and `keys.json` keeps the secrets alone. See [keys and models](keys.md#model-sources).
 
 Versions are recorded in `version.json`, and a normal setup preserves the recorded choice. The installer preserves the backend home when replacing its binary. Keep that home in persona backups so native sessions remain available for later inspection. Pinning does not guarantee that a provider will continue accepting an old client.
 

@@ -1,13 +1,16 @@
-// Her errands as rows of the board's errand lane. An errand is
-// one `board_tasks` row with the errand's id, `lane` `errand`, its agent as `role`, its goal as `title`, `persona` as
-// requester and subscriber, its state as the board's status (`queued` approved, `running` in_progress, the ends as
-// they are) and its error as `close_reason`; its result text is the task's `handoff` result, and every other field of
-// the errand, with the place it belongs to, is kept in `metadata` (`{ placeId, errand }`), so the record comes back
+// Her errands as rows of the board. An errand is one `board_tasks` row with the errand's id, its agent as `role`, its
+// goal as `title`, its state as the board's status (`queued` approved, `running` in_progress, the ends as they are)
+// and its error as `close_reason`; its result text is the task's `handoff` result, and every other field of the
+// errand, with the place it belongs to, is kept in `metadata` (`{ placeId, errand }`), so the record comes back
 // exactly as the errand store (src/errands/store.ts) keeps it. `work` and `work_events` are an archive the engine
 // neither writes nor reads. Nothing here logs.
 
-import type { Status } from './machine.ts';
 import type { BoardDb } from './schema.ts';
+
+/** The statuses a board task stands in, the CHECK of `board_tasks.status` (src/memory/db/schema.ts, step 60). */
+export type Status = 'approved' | 'in_progress' | 'done' | 'failed' | 'cancelled';
+/** The ends: a task in one of them never moves again, and the move into one writes an outbox row to `persona`. */
+export const CLOSED: ReadonlyArray<Status> = ['done', 'failed', 'cancelled'];
 
 /** An errand as the store keeps it (src/errands/types.ts#ErrandRecord), seen from the board as plain data. */
 export type ErrandData = Record<string, unknown> & { id: string };
@@ -104,7 +107,7 @@ const parsed = (text: unknown): unknown => {
   }
 };
 
-/** The errand a task row of the errand lane holds (`handoff` the body of its latest handoff); null for none. */
+/** The errand a task row holds (`handoff` the body of its latest handoff); null for none. */
 export function errandOf(row: Record<string, unknown>): ErrandData | null {
   const meta = parsed(row.metadata);
   const kept = isObject(meta) && isObject(meta.errand) ? meta.errand : null;
@@ -134,17 +137,19 @@ export const TASKS_WITH_HANDOFF = `SELECT t.*, (SELECT body FROM board_results r
 /** A new errand task at `approved`, as the archive's `queued` line and the store's `add` file it. */
 export function insertTask(db: BoardDb, errand: ErrandData, at: string): void {
   db.prepare(
-    `INSERT INTO board_tasks (id, lane, title, requester, role, status, close_reason, subscriber, created_at, updated_at,
-      metadata) VALUES (?, 'errand', ?, 'persona', ?, 'approved', NULL, 'persona', ?, ?, ?)`
+    `INSERT INTO board_tasks (id, title, role, status, close_reason, created_at, updated_at, metadata)
+    VALUES (?, ?, ?, 'approved', NULL, ?, ?, ?)`
   ).run(errand.id, textOr(errand.goal, ''), textOr(errand.agent, ''), at, at, metadataOf(errand));
 }
 
 /** The handoff of an errand's result, written once per task. */
 export function insertHandoff(db: BoardDb, id: string, result: Record<string, unknown>, at: string): void {
-  db.prepare(
-    `INSERT INTO board_results (id, task_id, attempt_id, kind, body, uri, created_at)
-    VALUES (?, ?, NULL, 'handoff', ?, NULL, ?)`
-  ).run(`R-${id}`, id, handoffOf(result), at);
+  db.prepare(`INSERT INTO board_results (id, task_id, kind, body, created_at) VALUES (?, ?, 'handoff', ?, ?)`).run(
+    `R-${id}`,
+    id,
+    handoffOf(result),
+    at
+  );
 }
 
 /**

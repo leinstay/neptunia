@@ -42,20 +42,13 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/tools/operations/status.ts` |
 | `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/tools/operations/status.ts` |
 
-## models.development
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `models.development.thinker` | string | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the orchestrator | `src/tools/operations/status.ts` |
-| `models.development.dev` | string | `"openrouter/anthropic/claude-sonnet-5.5"` | OpenCode model id of the coding and writing worker | `src/llm/roles.ts` |
-
 ## models.agents
 
 Which backend, model, effort, provider and mode each agent runs on, and the named key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.agents.via` | map | `{}` | The backend each agent runs through, by agent (`scout`, `server`, `dev`, `watcher`, `thinker`): `claude`, `codex` or `opencode`. An agent with no entry has no route and its runs are refused `subharness-off`. `/model set <agent> <model> --via <route>` writes it | `src/subharness/routing.ts` |
+| `models.agents.via` | map | `{}` | The backend each agent runs through, by agent (`scout`, `server`): `claude`, `codex` or `opencode`. An agent with no entry has no route and its runs are refused `subharness-off`. `/model set <agent> <model> --via <route>` writes it | `src/subharness/routing.ts` |
 | `models.agents.model` | map | `{}` | The model each agent runs on, by agent. An agent with no entry runs on its backend's own default | `src/subharness/routing.ts` |
 | `models.agents.effort` | map | `{}` | The reasoning effort each agent runs at, by agent. An agent with no entry runs at its model's default | `src/subharness/routing.ts` |
 | `models.agents.provider` | map | `{}` | The OpenRouter provider each agent on `opencode` is pinned to, by agent, with no fallback. `/model set <agent> <model> --via opencode-harness --provider <slug>` writes it | `src/subharness/routing.ts` |
@@ -375,36 +368,6 @@ The engine proxy is described in [Proxy](proxy.md).
 | `skills.run.timeoutMs` | number | `60000` | How long one `skill.run` script may run; past it the process group is killed and the outcome is unknown | `src/skills/settings.ts` |
 | `skills.run.maxOutputBytes` | number | `1000000` | How much one `skill.run` script may write to stdout before it is stopped | `src/skills/settings.ts` |
 
-## watcher
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `watcher.degradedAfterMinutes` | number | `60` | Minutes a route of the core may stay down before `services watcher evidence` lists it under `routes`: the engine proxy, the YouTube check and a harness login, read from the core journal | `src/watcher/settings.ts` |
-
-## selfimprovement
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `selfimprovement.enabled` | boolean | `true` | Whether the selfimprovement wake falls due. A task already filed goes on, because the development worker depends on the board alone | `src/selfimprovement/settings.ts` |
-| `selfimprovement.mode` | string | `"approve"` | Who merges a pull request she opened for her own code: `approve` waits for the owner once CI is green, `auto` has the engine merge it when CI is green | `src/selfimprovement/settings.ts` |
-| `selfimprovement.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfimprovement/settings.ts` |
-| `selfimprovement.checkout` | string, null | `null` | The absolute path of the dev checkout the development worker works on: its working repository, with one worktree per task under `.worktrees/`. The worker's own code runs from the install. `neptunia setup` asks for the folder and clones `selfimprovement.repository` into it when it is empty, and it and the worker refuse the folder the engine runs from. Setup renders no development unit while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
-| `selfimprovement.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when the system's gh login can push there, so someone else's installation names a fork. While it is unset a filed task blocks with that reason | `src/selfimprovement/settings.ts` |
-| `selfimprovement.schedule` | string | `"at 03:00"` | When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`. `neptunia services selfimprovement setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
-| `selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
-| `selfimprovement.tools` | string, array | `"*"` | The tools a selfimprovement wake may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
-| `selfimprovement.maxActs` | number, null | `null` | The most actions a selfimprovement wake may take; null: no cap | `src/tools/access.ts` |
-| `selfimprovement.maxTasks` | number, null | `null` | The most errands a selfimprovement wake may start; null: no cap | `src/tools/access.ts` |
-| `selfimprovement.inputTokens` | number, null | `null` | The input token budget of a selfimprovement wake; null: the loop budget | `src/tools/access.ts` |
-
-## development
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `development.thinkerTurns` | number | `12` | The most thinker turns on one task. Past it the task blocks with that reason, and her unblock or the owner's gives it new turns | `src/development/settings.ts` |
-| `development.lookEveryMs` | number | `120000` | How often the development worker looks at GitHub while a pull request is watched, in milliseconds, at least 10000. With none watched it waits for board events and sets no clock | `src/development/settings.ts` |
-| `development.startedAt` | string, null | `null` | The moment the development worker first started, an ISO time it writes itself. A task approved before it waits for the owner: `neptunia worker development held` lists them, and `neptunia tasks update <id> --meta admitted=yes` lets one run | `src/development/settings.ts` |
-
 ## selfreflection
 
 | Key | Type | Default | What it does | Read by |
@@ -462,19 +425,6 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `agents` | map | `{}` | Per agent name, overrides of the settings in `agents/<name>/profile.json`, laid over the profile key by key | `src/agent-runner/profiles.ts` |
-
-## board
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `board.leaseTtlMinutes` | number | `30` | Minutes a claim holds a task when the claim or the heartbeat names no lease of its own | `src/board/board.ts` |
-| `board.autoTriage.role` | string | `"dev"` | The role `task.add` with `auto` fills in when the caller left it out | `src/board/board.ts` |
-| `board.autoTriage.budget` | number | `4` | The budget in USD `task.add` with `auto` fills in when the caller left it out | `src/board/board.ts` |
-| `board.autoTriage.steps` | number | `80` | The step cap `task.add` with `auto` fills in when the caller left it out | `src/board/board.ts` |
-| `board.autoTriage.estimate` | number | `30` | The estimate in minutes `task.add` with `auto` fills in when the caller left it out | `src/board/board.ts` |
-| `board.projects` | map | `{}` | Per project: `autoTriage` overrides the board-wide one field by field, and `ci: false` marks a project without CI, whose tasks a reviewer merges on recorded passing tests | `src/board/board.ts` |
-| `board.reapSeconds` | number | `60` | Seconds between two beats of the reaper, which returns each task whose lease expired to `approved`, and of the sweep that activates the skill versions of her done tasks (`1` to `3600`) | `src/board/board.ts` |
-| `board.briefWaitMs` | number | `1800000` | Milliseconds `task.next` holds back a task whose answer no reviewer has acted on yet (`0` to 7 days) | `src/board/board.ts` |
 
 ## intentions
 

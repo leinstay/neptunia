@@ -35,8 +35,6 @@ export type UnitTarget = {
   xdgConfigHome?: string;
   /** the unit folder, instead of the default of the scope */
   unitDir?: string;
-  /** the dev checkout the development unit may write (`selfimprovement.checkout`); every unit runs in `rootDir` */
-  developmentCheckout?: string | null;
 };
 
 /** The unit folder of the scope: `/etc/systemd/system`, or the user manager's folder under the config home. */

@@ -1,8 +1,9 @@
 // The SKILL.md format: a block of front matter between two `---` lines, then the prose. `parseSkillFile` answers a
 // skill or one code for the first thing wrong, so the loader (load.ts) can name a broken file and skip only it.
 // Front matter holds one `key: value` per line: `name` (kebab-case), `description` (one line, her words), `tools`
-// (a flow list `[a.b, c.d]`, empty allowed, or a block list of `- a.b` lines) and the optional `task`, the board task
-// the skill came from. Any other key and any other YAML is refused. Pure text in, no disk.
+// (a flow list `[a.b, c.d]`, empty allowed, or a block list of `- a.b` lines) and the optional `task`, which the registry
+// keeps as the version's `origin_work_id` and nothing acts on. Any other key and any other YAML is refused. Pure text
+// in, no disk.
 
 import { createHash } from 'node:crypto';
 

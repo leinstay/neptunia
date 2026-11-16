@@ -112,17 +112,7 @@ export type MemoryQuery = {
   validAt: string | null;
   recordedBefore: string | null;
   includeHistorical: boolean;
-  purpose:
-    | 'turn'
-    | 'search'
-    | 'prefetch'
-    | 'heartbeat'
-    | 'attention'
-    | 'reflection'
-    | 'improvement'
-    | 'session'
-    | 'task'
-    | 'watcher';
+  purpose: 'turn' | 'search' | 'prefetch' | 'heartbeat' | 'attention' | 'reflection' | 'session' | 'task';
   bounds: RetrievalBounds;
   cursor: string | null;
 };

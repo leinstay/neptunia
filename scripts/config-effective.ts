@@ -26,7 +26,6 @@ import { dbSettings } from '../src/memory/db/recall.ts';
 import { graphSettings } from '../src/memory/db/graph.ts';
 import { focusSettings } from '../src/memory/db/focus.ts';
 import { sessionSettings } from '../src/memory/db/session.ts';
-import { boardSettings } from '../src/board/board.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/selfreflection.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
@@ -71,13 +70,12 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['mediaPickSettings', (config) => mediaPickSettings(config)],
   ['loopSettings selfreflection', (config) => loopSettings(config, { selfreflection: true })],
   ['hedgeSettings', (config) => hedgeSettings(config)],
-  ['boardSettings', (config) => boardSettings(config)],
   ['splitSettings', (config) => splitSettings(config)],
   ['elsewhereSettings', (config) => elsewhereSettings(config)],
   ['missedSettings', (config) => missedSettings(config)],
   ['paceSettings', (config) => paceSettings(config)],
   ['loopSettings', (config) => loopSettings(config)],
-  ...['scout', 'server', 'thinker', 'dev'].map((agent): [string, (config: Tree) => unknown] => [
+  ...['scout', 'server'].map((agent): [string, (config: Tree) => unknown] => [
     `agentSettings ${agent}`,
     (config) => agentSettings(agent, config, { rootDir: ROOT_DIR }),
   ]),

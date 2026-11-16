@@ -57,7 +57,6 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'intentions',
   'wake',
   'awake',
-  'serviceInner',
   'wakeKind',
   'previousThink',
   'myDay',

@@ -1,6 +1,6 @@
-// The errand store (src/errands/store.ts) on the task board (PR 6d): it reads her errands back from the board as the
-// `work` archive held them, writes nothing to the archive or to an errand unit, ends an errand in one writer
-// transaction (the board move, the outbox row to `persona`, the closing journal line, all or none), keeps an end it
+// The errand store (src/errands/store.ts) on the task board: it reads her errands back from the board as the `work`
+// archive held them, writes nothing to the archive or to an errand unit, ends an errand in one writer transaction (the
+// board move, its status event, the outbox row to `persona`, the closing journal line, all or none), keeps an end it
 // committed pending until its `errand.done` is marked delivered, and her journal lines of an errand reference its task.
 // The memory service is the real one on the calling thread (fixtures/memory-db/service.ts), the journal the real one
 // over it, the clock fixed. A failure inside the end's transaction is injected with a SQLite trigger on the database
@@ -13,7 +13,8 @@ import { createErrandStore, createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';
 import { createJournal } from '../src/memory/journal.ts';
-import { readBoard } from '../src/board/board.ts';
+import { errandTask } from '../src/board/errands.ts';
+import type { ErrandTaskRow } from '../src/board/errands.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import type { ErrandStore } from '../src/errands/types.ts';
 import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.ts';
@@ -117,8 +118,14 @@ const closingLines = (memoryDb: MemoryDb, id: string): number =>
 const outboxRows = (memoryDb: MemoryDb, id: string): Array<Record<string, unknown>> =>
   readDb(memoryDb).prepare('SELECT * FROM board_outbox WHERE task_id = ? ORDER BY seq').all(id);
 
-const statusOf = (memoryDb: MemoryDb, id: string): string =>
-  readBoard(readDb(memoryDb), () => NOW).show(id).task.status;
+/** Errand `id`'s task on the board as the read connection of `memoryDb` shows it. */
+function taskOf(memoryDb: MemoryDb, id: string): ErrandTaskRow {
+  const view = errandTask(readDb(memoryDb), id);
+  if (view === null) throw new Error(`the board holds no task ${id}`);
+  return view.task;
+}
+
+const statusOf = (memoryDb: MemoryDb, id: string): string => taskOf(memoryDb, id).status;
 
 /** An errand of the scout queued and started, its writes landed. */
 async function running(rig: Rig): Promise<string> {
@@ -174,6 +181,23 @@ test('a failing outbox row leaves the errand in progress on the board with no cl
   assert.equal(closingLines(rig.memoryDb, id), 0);
 });
 
+test('a failing status event leaves the errand in progress with no outbox row and no closing journal line', async () => {
+  // Bug: an end that writes its status and outbox row outside the transaction of its event, so a failed event leaves
+  // an errand done on the board with no history of the move, or an end delivered twice.
+  const rig = setUp();
+  const id = await running(rig);
+  inject(
+    rig.dataDir,
+    `CREATE TRIGGER fail_event BEFORE INSERT ON board_events WHEN NEW.new = 'done'
+     BEGIN SELECT RAISE(ABORT, 'injected'); END;`
+  );
+  rig.store.finish(id, DONE);
+  await settle(rig.store);
+  assert.equal(statusOf(rig.memoryDb, id), 'in_progress');
+  assert.deepEqual(outboxRows(rig.memoryDb, id), []);
+  assert.equal(closingLines(rig.memoryDb, id), 0);
+});
+
 test('a failing board move leaves no outbox row and no closing journal line', async () => {
   const rig = setUp();
   const id = await running(rig);
@@ -220,7 +244,7 @@ test('her journal lines of an errand reference its task, whose title is what she
     .prepare("SELECT json_extract(extra, '$.input.agent') AS agent FROM day WHERE work_id = ? ORDER BY rowid LIMIT 1")
     .get(id);
   assert.equal(proposed?.agent, 'scout');
-  assert.equal(readBoard(readDb(rig.memoryDb), () => NOW).show(id).task.title, ASKED.goal);
+  assert.equal(taskOf(rig.memoryDb, id).title, ASKED.goal);
 });
 
 test('an errand.done delivered twice opens one result turn and leaves one closing journal line', async () => {

@@ -4,12 +4,8 @@
 // 0600, in a folder of mode 0700. The core reads both at every envelope, so a change applies to the next one and a
 // rotated or revoked token closes that client's live link.
 //
-//   node scripts/client-token.ts add <name> --kind interface|cli|agent [--iface <iface>] [--permission <p> ...]
-//        [--roles <role>,<role>]
+//   node scripts/client-token.ts add <name> --kind interface|cli [--iface <iface>] [--permission <p> ...]
 //        Writes a new token and the client's entry. An interface needs `--iface`, the namespace its events carry.
-//        `--roles` takes the client's task board roles (src/board/machine.ts `BOARD_ROLES`) as a comma list and writes
-//        them as the entry's `boardRoles`, for any kind; an agent (a development agent of the board) needs them to be
-//        let in by the board. A role outside the list writes nothing.
 //   node scripts/client-token.ts rotate <name>
 //        Writes a new token over the client's old one.
 //   node scripts/client-token.ts revoke <name>
@@ -21,14 +17,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BOARD_ROLES } from '../src/board/machine.ts';
 import { PRINCIPAL_KINDS } from '../src/interface/principals.ts';
 import { ClientsError, addClient, readClients, writeClients, writeToken } from '../src/setup/clients.ts';
 import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
 
 const USAGE = [
-  'usage: node scripts/client-token.ts add <name> --kind interface|cli|agent [--iface <iface>]',
-  '         [--permission <p> ...] [--roles <role>,<role>]',
+  'usage: node scripts/client-token.ts add <name> --kind interface|cli [--iface <iface>] [--permission <p> ...]',
   '       node scripts/client-token.ts rotate <name>',
   '       node scripts/client-token.ts revoke <name>',
 ].join('\n');
@@ -41,24 +35,8 @@ type Flags = {
   _: Array<string>;
   '--kind'?: string;
   '--iface'?: string;
-  '--roles'?: string;
   '--permission'?: Array<string>;
 };
-
-/** The board roles of `--roles`, null when the flag is absent. Throws a CliError naming a role outside BOARD_ROLES. */
-function rolesOf(given?: string): Array<string> | null {
-  if (given === undefined) return null;
-  const roles = given
-    .split(',')
-    .map((role) => role.trim())
-    .filter((role) => role !== '');
-  const unknown = roles.filter((role) => !(BOARD_ROLES as ReadonlyArray<string>).includes(role));
-  if (unknown.length > 0)
-    throw new CliError(
-      `client-token: unknown board role ${unknown.join(', ')}; the roles are ${BOARD_ROLES.join(', ')}`
-    );
-  return [...new Set(roles)];
-}
 
 function add(privateDir: string, name: string, flags: Flags) {
   const kind = flags['--kind'] ?? '';
@@ -71,11 +49,10 @@ function add(privateDir: string, name: string, flags: Flags) {
     kind,
     iface,
     permissions: flags['--permission'] ?? [],
-    boardRoles: rolesOf(flags['--roles']),
   });
   return (
     `added ${name} (${kind}${iface ? `, iface ${iface}` : ''}): its token is in ${tokenFile}\n` +
-    'the watcher, development and server units still see it until `neptunia setup` renders them again\n'
+    'the server unit still sees it until `neptunia setup` renders it again\n'
   );
 }
 
@@ -98,7 +75,7 @@ function revoke(privateDir: string, name: string) {
 
 function run(argv: Array<string>): string {
   const flags = parseFlags(argv, {
-    values: ['--kind', '--iface', '--roles'],
+    values: ['--kind', '--iface'],
     lists: ['--permission'],
     usage: USAGE,
   }) as Flags;

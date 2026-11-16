@@ -297,8 +297,6 @@ const ENTRIES: Array<Definition> = [
         'costs.base',
         'models.errands',
         'costs.errands',
-        'models.development',
-        'costs.development',
         'inner',
         'limits',
         'memory',
@@ -374,19 +372,7 @@ const ENTRIES: Array<Definition> = [
     traits: ['ungrantable'],
     params: obj(
       {
-        role: oneOf([
-          'core',
-          'analyzer',
-          'vision',
-          'video',
-          'embedding',
-          'speech',
-          'drawing',
-          'scout',
-          'server',
-          'thinker',
-          'dev',
-        ]),
+        role: oneOf(['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing', 'scout', 'server']),
         id: str(),
       },
       ['role', 'id']
@@ -662,58 +648,6 @@ const ENTRIES: Array<Definition> = [
     toArgs: taskStatusArgs('read'),
   }),
   def('errand.resolve', { params: obj({ id: str() }, ['id']), effects: 'write', toArgs: taskStatusArgs('resolve') }),
-  def('task.propose', {
-    params: obj(
-      {
-        title: str(200),
-        evidence: str(4000),
-        acceptance: str(2000),
-        kind: oneOf(['skill', 'fix']),
-        examples: strings(300, 8),
-        counterexamples: strings(300, 8),
-        benefit: str(600),
-        evaluation: str(600),
-      },
-      ['title', 'evidence']
-    ),
-    body: 'evidence',
-    effects: 'write',
-    toArgs: (a) => ({
-      title: val(a, 'title'),
-      evidence: val(a, 'evidence'),
-      acceptance: val(a, 'acceptance'),
-      // The proposal's kind and the fields that go with it ride along only when she gave them.
-      ...Object.fromEntries(
-        ['kind', 'examples', 'counterexamples', 'benefit', 'evaluation']
-          .filter((name) => val(a, name) !== null)
-          .map((name) => [name, val(a, name)])
-      ),
-    }),
-  }),
-  def('task.status', { params: EMPTY(), effects: 'read', toArgs: none }),
-  def('task.cancel', {
-    params: obj({ id: str(), reason: str(600) }, ['id', 'reason']),
-    effects: 'write',
-    toArgs: (a) => ({ id: val(a, 'id'), reason: val(a, 'reason') }),
-  }),
-  def('task.comment', {
-    params: obj({ id: str(), text: str(2000) }, ['id', 'text']),
-    body: 'text',
-    effects: 'write',
-    toArgs: (a) => ({ id: val(a, 'id'), text: val(a, 'text') }),
-  }),
-  def('task.answer', {
-    params: obj({ id: str(), text: str(2000) }, ['id', 'text']),
-    body: 'text',
-    effects: 'write',
-    toArgs: (a) => ({ id: val(a, 'id'), text: val(a, 'text') }),
-  }),
-  def('task.unblock', {
-    params: obj({ id: str(), note: str(2000) }, ['id', 'note']),
-    body: 'note',
-    effects: 'write',
-    toArgs: (a) => ({ id: val(a, 'id'), note: val(a, 'note') }),
-  }),
   def('skill.read', {
     traits: ['self'],
     params: obj({ name: str(60) }, ['name']),
@@ -733,11 +667,6 @@ const ENTRIES: Array<Definition> = [
     body: 'name',
     effects: 'write',
     toArgs: (a) => ({ name: val(a, 'name') }),
-  }),
-  def('watcher.read', {
-    params: obj({ day: str(10), run: str(80) }),
-    effects: 'read',
-    toArgs: (a) => ({ day: opt(a, 'day'), run: opt(a, 'run') }),
   }),
   def('intention.set', {
     traits: ['self'],
@@ -1021,8 +950,8 @@ export function hasTrait(name: string, trait: Trait): boolean {
 
 /**
  * The tools whose names changed, old to new: a journal written before the rename names them by the old one. The call
- * path never reads it: a tool written under an old name is `unknown-skill`. An old name a live tool holds again stays
- * out (`task.status` and `task.cancel` are board tools), so a stored row of that name reads as the board tool.
+ * path never reads it: a tool written under an old name is `unknown-skill`. `task.status` and `task.cancel` stay
+ * out: a stored row of either name may come from an older tool of the board, not from an errand.
  */
 export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({
   'skills.describe': 'tools.describe',

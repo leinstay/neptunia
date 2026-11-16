@@ -78,7 +78,9 @@ test('the table holds every operation, in the operations registry order', () => 
   // 75 since `inner.status` left: it repeated the `inner` field of the owner's status card.
   // 73 since `memory.affinity.read` and `errand.status` merged into `memory.profile.read` and `errand.list`.
   // Changed: 74 since `memory.read` (lookup loop slice 12): one operation, one row; the six reads it replaces for her stay.
-  assert.equal(SKILL_DEFINITIONS.length, 74);
+  // Changed: 68 since her six board tools left with the selfimprovement wake (the maintainer's decision of 2026-11-16).
+  // Changed: 67 since `watcher.read` left with the watcher (2026-11-16).
+  assert.equal(SKILL_DEFINITIONS.length, 67);
   assert.deepEqual(
     SKILL_DEFINITIONS.map((definition) => definition.name),
     listOps().map((op) => op.name)
@@ -210,14 +212,16 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 74, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 67, well-formed, unique, a round trip, no longer than 64', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
   // Changed: task.unblock is the 77th tool.
   // 75 since `inner.status` left, 73 since the two merged reads.
   // Changed: 74 since `memory.read` (lookup loop slice 12).
-  assert.equal(apis.length, 74);
-  assert.equal(new Set(apis).size, 74);
+  // Changed: 68 since her six board tools left (2026-11-16).
+  // Changed: 67 since `watcher.read` left with the watcher (2026-11-16).
+  assert.equal(apis.length, 67);
+  assert.equal(new Set(apis).size, 67);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);
@@ -297,7 +301,8 @@ const PLACE_TOOLS: ReadonlyArray<string> = [
 const PLATFORM_WORD = /\b(?:channel|server|root|discord)s?\b/i;
 
 /** A non-platform word spelled the same, where a tool means it: the errand agent named `server` and the machine she runs on. */
-const MACHINE_SERVER: ReadonlySet<string> = new Set(['errand_run', 'watcher_read']);
+// Changed: `watcher_read` is gone with the watcher (maintainer, 2026-11-16).
+const MACHINE_SERVER: ReadonlySet<string> = new Set(['errand_run']);
 const NOT_A_MACHINE = /\b(?:channel|root|discord)s?\b/i;
 
 /** `text` without the names of the tools it refers to (`memory.server.read`, `memory_server_read`) and its `{{fill}}`s. */

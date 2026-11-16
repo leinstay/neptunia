@@ -1,6 +1,8 @@
 // A path per role on the subharness side (spec 2026-11-02 PR 5, "A path per role"): `model set <agent> <model> [--effort
 // <level>]` names its model and effort after one reply on the source the store names for it, the status lists each agent's path, and the six direct roles have no subharness path. keys.json lives
 // in a temp dir; the backend runner, its `--help` and fetch are fakes, so no process starts and no request goes out.
+// Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
+// so the agent checks use `server`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -66,13 +68,13 @@ const lineOf = (text: string, agent: string): string =>
 test('model set with an effort checks one reply on that model and effort, then stores both', async () => {
   // Catches: the effort is stored without the reply check, or the check runs without the effort it will run at.
   const { dir, deps, ran } = rig();
-  seedUses(dir, 'dev', 'codex');
-  const result = await setAgentModel(deps, 'dev', 'gpt-6.1-sol', 'high');
+  seedUses(dir, 'server', 'codex');
+  const result = await setAgentModel(deps, 'server', 'gpt-6.1-sol', 'high');
   assert.equal(result.ok, true);
   assert.deepEqual(ran, [{ name: 'codex', model: 'gpt-6.1-sol', effort: 'high' }]);
   const stored = readKeysFile(dir).subharness;
-  assert.equal(stored.models?.dev, 'gpt-6.1-sol');
-  assert.equal(stored.efforts?.dev, 'high');
+  assert.equal(stored.models?.server, 'gpt-6.1-sol');
+  assert.equal(stored.efforts?.server, 'high');
 });
 
 test('model set checks through the backend the agent uses, not the first connected one', async () => {
@@ -86,18 +88,18 @@ test('model set checks through the backend the agent uses, not the first connect
 test('a model whose reply check fails keeps the model and the effort stored before', async () => {
   // Catches: the effort written before the check, left beside the old model when the new one is refused.
   const { dir, deps } = rig();
-  await setAgentModel(deps, 'dev', 'gpt-6.1-sol', 'high');
-  const result = await setAgentModel(deps, 'dev', 'bad-model', 'low');
+  await setAgentModel(deps, 'server', 'gpt-6.1-sol', 'high');
+  const result = await setAgentModel(deps, 'server', 'bad-model', 'low');
   assert.equal(result.ok, false);
   const stored = readKeysFile(dir).subharness;
-  assert.equal(stored.models?.dev, 'gpt-6.1-sol');
-  assert.equal(stored.efforts?.dev, 'high');
+  assert.equal(stored.models?.server, 'gpt-6.1-sol');
+  assert.equal(stored.efforts?.server, 'high');
 });
 
 test('an effort that is no level is refused before anything runs', async () => {
   // Catches: "max" or "xhigh" passed to the CLI, which refuses it at the agent's next real run.
   const { dir, deps, ran } = rig();
-  const result = await setAgentModel(deps, 'dev', 'gpt-6.1-sol', 'max');
+  const result = await setAgentModel(deps, 'server', 'gpt-6.1-sol', 'max');
   assert.equal(result.code, 'unknown-effort');
   assert.deepEqual(ran, []);
   assert.deepEqual(readKeysFile(dir).subharness.models, {});
@@ -106,44 +108,44 @@ test('an effort that is no level is refused before anything runs', async () => {
 test('claude takes an effort when its --help lists --effort', async () => {
   // Catches: the help check refuses every effort on claude, or reads the help of another binary.
   const { dir, deps } = rig({ help: HELP_WITH_EFFORT });
-  seedUses(dir, 'dev', 'claude');
-  const result = await setAgentModel(deps, 'dev', 'claude-opus-5-5', 'medium');
+  seedUses(dir, 'server', 'claude');
+  const result = await setAgentModel(deps, 'server', 'claude-opus-5-5', 'medium');
   assert.equal(result.ok, true);
-  assert.equal(readKeysFile(dir).subharness.efforts?.dev, 'medium');
+  assert.equal(readKeysFile(dir).subharness.efforts?.server, 'medium');
 });
 
 test('claude refuses an effort when its --help does not list --effort, and runs nothing', async () => {
   // Catches: "--effort" passed to a claude that does not know it, so every run of the agent exits with an error.
   const { dir, deps, ran } = rig({ help: HELP_WITHOUT_EFFORT });
-  seedUses(dir, 'dev', 'claude');
-  const result = await setAgentModel(deps, 'dev', 'claude-opus-5-5', 'medium');
+  seedUses(dir, 'server', 'claude');
+  const result = await setAgentModel(deps, 'server', 'claude-opus-5-5', 'medium');
   assert.equal(result.code, 'effort-unsupported');
   assert.deepEqual(ran, []);
-  assert.equal(readKeysFile(dir).subharness.efforts?.dev, undefined);
+  assert.equal(readKeysFile(dir).subharness.efforts?.server, undefined);
 });
 
 test('claude refuses an effort when its --help cannot be read', async () => {
   // Catches: a missing help reader taken as "supported", which ends in the same failed runs.
   const { dir, deps } = rig({ help: null });
-  seedUses(dir, 'dev', 'claude');
-  assert.equal((await setAgentModel(deps, 'dev', 'claude-opus-5-5', 'high')).code, 'effort-unsupported');
+  seedUses(dir, 'server', 'claude');
+  assert.equal((await setAgentModel(deps, 'server', 'claude-opus-5-5', 'high')).code, 'effort-unsupported');
 });
 
 test('claude without an effort needs no --help check', async () => {
   // Catches: the help check applied to every claude model set, so a claude without --effort cannot change models at all.
   const { dir, deps } = rig({ help: HELP_WITHOUT_EFFORT });
-  seedUses(dir, 'dev', 'claude');
-  assert.equal((await setAgentModel(deps, 'dev', 'claude-sonnet-5-5')).ok, true);
+  seedUses(dir, 'server', 'claude');
+  assert.equal((await setAgentModel(deps, 'server', 'claude-sonnet-5-5')).ok, true);
 });
 
 test('a model set without an effort keeps the effort stored before', async () => {
   // Catches: changing the model wipes the effort the owner set, and the agent drops to the CLI's default.
   const { dir, deps } = rig();
-  await setAgentModel(deps, 'dev', 'gpt-6.1-sol', 'high');
-  await setAgentModel(deps, 'dev', 'gpt-6-sol');
+  await setAgentModel(deps, 'server', 'gpt-6.1-sol', 'high');
+  await setAgentModel(deps, 'server', 'gpt-6-sol');
   const stored = readKeysFile(dir).subharness;
-  assert.equal(stored.models?.dev, 'gpt-6-sol');
-  assert.equal(stored.efforts?.dev, 'high');
+  assert.equal(stored.models?.server, 'gpt-6-sol');
+  assert.equal(stored.efforts?.server, 'high');
 });
 
 // the run and the status
@@ -152,7 +154,7 @@ test('the runner passes the stored effort of the agent and none for an agent wit
   // Catches: the effort is stored but never reaches the CLI, or every agent runs at one agent's effort.
   const dir = tempDir('nep-paths-run-');
   writeKeysFile(dir, {
-    subharness: { backends: ['codex'], key: null, modes: {}, models: {}, efforts: { dev: 'high' } },
+    subharness: { backends: ['codex'], key: null, modes: {}, models: {}, efforts: { server: 'high' } },
   });
   const seen: Array<BackendRunOptions> = [];
   const deps = {
@@ -167,7 +169,7 @@ test('the runner passes the stored effort of the agent and none for an agent wit
       },
     }),
   };
-  for (const agent of ['dev', 'scout']) await runAgent({ agent, brief: 'b', cwd: dir, timeoutMs: 1000 }, deps);
+  for (const agent of ['server', 'scout']) await runAgent({ agent, brief: 'b', cwd: dir, timeoutMs: 1000 }, deps);
   assert.deepEqual(
     seen.map((one) => one.effort),
     ['high', undefined]
@@ -177,10 +179,10 @@ test('the runner passes the stored effort of the agent and none for an agent wit
 test('the status lists each agent with its backend, model and effort', async () => {
   // Catches: the status shows the modes alone, so the owner cannot see which CLI and model an agent runs on.
   const { dir, deps } = rig();
-  seedUses(dir, 'dev', 'claude');
-  await setAgentModel(deps, 'dev', 'claude-opus-5-5', 'high');
+  seedUses(dir, 'server', 'claude');
+  await setAgentModel(deps, 'server', 'claude-opus-5-5', 'high');
   const status = await subharnessCommand(deps, 'subharness.status', {});
-  const dev = lineOf(status.text, 'dev');
+  const dev = lineOf(status.text, 'server');
   for (const word of ['claude', 'claude-opus-5-5', 'high']) assert.ok(dev.includes(word), `${word} on "${dev}"`);
 });
 
@@ -219,20 +221,21 @@ function withoutPrivateDir<T extends { privateDir?: unknown }>(deps: T): Omit<T,
 }
 
 test('model set for an agent goes through its subharness with the effort, not to the key commands', async () => {
-  // Catches: "/model set dev" written into models.development.dev, which no subharness run reads.
+  // Catches: "/model set server" written into models.development.server, which no subharness run reads.
   const { dir, deps, ran } = rig();
   const { desk, ops } = consoleOver(dir, withoutPrivateDir(deps));
-  const answer = await desk.run('model.set', { role: 'dev', model: 'gpt-6.1-sol', effort: 'low' }, { id: 'owner' });
+  const answer = await desk.run('model.set', { role: 'server', model: 'gpt-6.1-sol', effort: 'low' }, { id: 'owner' });
   assert.equal(answer.status, 'ok');
   assert.notEqual(answer.text, 'keys answered');
   assert.deepEqual(ops, []);
   assert.equal(ran[0]?.effort, 'low');
-  assert.equal(readKeysFile(dir).subharness.models?.dev, 'gpt-6.1-sol');
+  assert.equal(readKeysFile(dir).subharness.models?.server, 'gpt-6.1-sol');
 });
 
 test('the table parses model set for an agent with an effort', () => {
-  // Catches: the table refuses "watcher" as no model role, or drops --effort, so the dialog never sees it.
-  const parsed = parseCommandLine('/model set watcher gpt-6-astra --effort medium');
+  // Catches: the table refuses an agent as no model role, or drops --effort, so the dialog never sees it.
+  // Changed: the watcher is gone (maintainer, 2026-11-16), so the agent named is the server.
+  const parsed = parseCommandLine('/model set server gpt-6-astra --effort medium');
   assert.equal(parsed.ok, true);
-  if (parsed.ok) assert.deepEqual(parsed.args, { role: 'watcher', model: 'gpt-6-astra', effort: 'medium' });
+  if (parsed.ok) assert.deepEqual(parsed.args, { role: 'server', model: 'gpt-6-astra', effort: 'medium' });
 });

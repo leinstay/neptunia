@@ -5,15 +5,7 @@
 
 import { MODEL_SET_ROLES } from './catalog.ts';
 import { IMAGE_ROLE } from '../../llm/images.ts';
-import {
-  CORE_ROLE,
-  DEVELOPMENT_ROLES,
-  ERRAND_ROLES,
-  NON_CORE_ROLES,
-  roleConfigKeys,
-  roleGroup,
-  roleModel,
-} from '../../llm/roles.ts';
+import { CORE_ROLE, ERRAND_ROLES, NON_CORE_ROLES, roleConfigKeys, roleGroup, roleModel } from '../../llm/roles.ts';
 import { routesOf } from '../../llm/route-chain.ts';
 import { isRouteRole } from '../../llm/route-text.ts';
 import { reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.ts';
@@ -26,7 +18,7 @@ const MEDIA_ROLES = new Set(['vision', 'video']);
 const handlers = perEnv((env) => {
   const { hot, writeLocalPath, editLocalConfig, imageModelLabel, now } = env;
 
-  /** One `<role>: <model>` line per role: the base roles (the core, the model roles other than `core`, drawing), then the errand and development roles each under a group line (`errands:`, `development:`). */
+  /** One `<role>: <model>` line per role: the base roles (the core, the model roles other than `core`, drawing), then the errand roles under the group line `errands:`. */
   function cmdModelShow() {
     const cfg = hot.config;
     const lineOf = (role: string): string => `${role}: ${modelForRole(role, cfg) ?? '-'}`;
@@ -37,8 +29,6 @@ const handlers = perEnv((env) => {
       `${IMAGE_ROLE}: ${imageModelLabel(cfg)}`,
       'errands:',
       ...ERRAND_ROLES.map(lineOf),
-      'development:',
-      ...DEVELOPMENT_ROLES.map(lineOf),
     ];
     return lines.join('\n');
   }

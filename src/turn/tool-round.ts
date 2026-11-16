@@ -423,7 +423,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * 400 characters each at least) made the last. When the steps end with no final answer (the next request does not
    * fit even cut, or it throws), a turn that answers someone and delivered nothing makes one rescue request: the first
    * messages and `labels.task.step.rescue`, with the tool choice `none`, read as a final answer. A heartbeat turn ends
-   * with its one intention change, a selfimprovement wake with its one filing. Logs `skills: loop` (`steps`, `calls`, `ms`).
+   * with its one intention change. Logs `skills: loop` (`steps`, `calls`, `ms`).
    *
    * Resolves `{ acts, cutOff, delivered, skipped, leakEnded, bareEnded, rescued }`: act's answers in order, whether a step was cut
    * off with nothing complete, whether anything reached the chat (her speech, a post, a picture, an errand accepted),

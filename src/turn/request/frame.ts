@@ -7,14 +7,7 @@ import type { WakeKind } from '../../behavior/inner/types.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
 
 export type TurnKind =
-  | 'reply'
-  | 'heartbeat'
-  | 'selfimprovement'
-  | 'intention'
-  | 'feedback'
-  | 'errand_result'
-  | 'selfreflection_plan'
-  | 'selfreflection';
+  'reply' | 'heartbeat' | 'intention' | 'feedback' | 'errand_result' | 'selfreflection_plan' | 'selfreflection';
 
 export type AwakeReason = 'message' | 'wake' | 'errand' | 'selfreflection';
 
@@ -102,7 +95,6 @@ export class FrameError extends Error {
 /** The kind of an inner turn by its wake. */
 const KIND_OF_WAKE: Readonly<Record<WakeKind, TurnKind>> = Object.freeze({
   heartbeat: 'heartbeat',
-  selfimprovement: 'selfimprovement',
   feedback: 'feedback',
   intention_due: 'intention',
   attend: 'intention',
@@ -190,7 +182,6 @@ export function blocksOf(kind: TurnKind, place: FramePlace | null): ReadonlyArra
     case 'errand_result':
       return place === null ? SERVICE : ORDINARY;
     case 'heartbeat':
-    case 'selfimprovement':
       return SERVICE;
     case 'selfreflection_plan':
     case 'selfreflection':
@@ -204,7 +195,6 @@ const ALWAYS: ReadonlyArray<BlockName> = Object.freeze(['persona', 'self', 'spat
 export const REQUIRED_BY_KIND: Readonly<Record<TurnKind, ReadonlyArray<BlockName>>> = Object.freeze({
   reply: Object.freeze([...ALWAYS, 'chat'] as const),
   heartbeat: ALWAYS,
-  selfimprovement: ALWAYS,
   intention: ALWAYS,
   feedback: ALWAYS,
   errand_result: ALWAYS,
@@ -213,12 +203,7 @@ export const REQUIRED_BY_KIND: Readonly<Record<TurnKind, ReadonlyArray<BlockName
 });
 
 /** The kinds that are nowhere: whatever place their turn rides in on is transport. */
-const NOWHERE: ReadonlySet<TurnKind> = new Set<TurnKind>([
-  'heartbeat',
-  'selfimprovement',
-  'selfreflection_plan',
-  'selfreflection',
-]);
+const NOWHERE: ReadonlySet<TurnKind> = new Set<TurnKind>(['heartbeat', 'selfreflection_plan', 'selfreflection']);
 
 function placeAndRoot(input: FrameInput, chain: ReadonlyArray<PlaceChainLink>): Pick<Frame, 'place' | 'root'> {
   const [here] = chain;
@@ -274,7 +259,6 @@ const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
   'reply',
   'errand_result',
   'heartbeat',
-  'selfimprovement',
   'intention',
   'feedback',
   'selfreflection_plan',
