@@ -30,7 +30,7 @@ export const PROMPT_MARK = {
   card: 'MARK-CHARACTER-CARD',
   inner: 'MARK-INNER-TASK',
   heartbeat: 'MARK-HEARTBEAT-TASK',
-  selfreflection: 'MARK-DIARY-TASK',
+  diary: 'MARK-DIARY-TASK',
 } as const;
 
 const GRANTED = [
@@ -137,7 +137,7 @@ export async function wakeTurn({
       initiate: 'Start a topic.',
       inner: PROMPT_MARK.inner,
       heartbeat: PROMPT_MARK.heartbeat,
-      selfreflection: PROMPT_MARK.selfreflection,
+      diary: PROMPT_MARK.diary,
       labels,
     },
   };

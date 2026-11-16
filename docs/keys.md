@@ -96,7 +96,7 @@ The review's Enter sends one `model.set`, the same checked command a typed line 
 
 ## Quick search
 
-Quick search has its own `web.quickSearch.engine` and its own chain of routes, `models.routes.search`, independent of the analyzer. Neither has a default, so it stays off until `neptunia setup` or `/search engine` chooses an engine. The engines are `openrouter`, `brave` and `exa`, and nothing answers in place of the chosen one. `openrouter` needs a `search` chain and sends a model request with the search plugin on its route, so the model and its cost matter. `brave` and `exa` need their service keys, and they condense a search for the selfreflection on the model of the `search` chain when it has one.
+Quick search has its own `web.quickSearch.engine` and its own chain of routes, `models.routes.search`, independent of the analyzer. Neither has a default, so it stays off until `neptunia setup` or `/search engine` chooses an engine. The engines are `openrouter`, `brave` and `exa`, and nothing answers in place of the chosen one. `openrouter` needs a `search` chain and sends a model request with the search plugin on its route, so the model and its cost matter. `brave` and `exa` need their service keys, and they condense a search for the diary on the model of the `search` chain when it has one.
 
 Use `/search` to inspect and change the engine and the enabled state. `/model set search <name>/<model>` puts quick search on a key, `/search model <id>` puts another model on each route of its chain and is refused while it has none, and `/keys check search` checks the route in force. The setup's services step asks the route of `openrouter` as `<key>/<model>` and writes it as the chain with no check (`setSearchRoute` in `src/interface/commands/search.ts`).
 

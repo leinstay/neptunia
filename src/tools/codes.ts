@@ -64,7 +64,7 @@ export const CATALOGUE = Object.freeze({
   'heartbeat-cap': skill('denied'),
   'heartbeat-recurring-cap': skill('denied'),
   paused: skill('denied'),
-  'selfreflection-draw-only': skill('denied'),
+  'diary-draw-only': skill('denied'),
 
   // A call that was not right.
   'invalid-args': skill('invalid'),
@@ -159,8 +159,8 @@ export const CATALOGUE = Object.freeze({
   'gif-failed': skill('partial'),
   'no-result': skill('failed'),
   'send-failed': skill('failed'),
-  // A send to a selfreflection mirror's place, refused by the guarded port (src/behavior/mirror.ts#guardMirrorPort).
-  'selfreflection-mirror': skill('failed'),
+  // A send to a diary mirror's place, refused by the guarded port (src/behavior/mirror.ts#guardMirrorPort).
+  'diary-mirror': skill('failed'),
   'link-closed': skill('unknown'),
   // A post with files to the owner's command line chat while no chat is open (src/interface/cli-chat.ts).
   'chat-closed': skill('failed'),

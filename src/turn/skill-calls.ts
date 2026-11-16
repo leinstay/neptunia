@@ -184,8 +184,8 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     innerIntentIds?: Set<string>;
     ownPosts?: Array<string | null>;
     deliveredIn?: Set<string>;
-    selfreflection?: unknown;
-    selfreflectionVoice?: { text: unknown; durationSecs: unknown };
+    diary?: unknown;
+    diaryVoice?: { text: unknown; durationSecs: unknown };
     turnMarks?: Array<CallMark>;
     snapshot?: Snapshot | null;
     /** The turn's handle registry (src/turn/handles.ts). */
@@ -625,13 +625,13 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       }
       if (String(current) !== String(channel.id)) call = { ...call, args: { ...call.args, channel: String(current) } };
     }
-    // A selfreflection turn posts nothing itself: its picture and voice are kept for the entry, so a place she named
+    // A diary turn posts nothing itself: its picture and voice are kept for the entry, so a place she named
     // is set aside and the call is checked as one in the turn's own place.
-    if (draft?.selfreflection && hasTrait(call.skill, 'attaches') && call.args?.place !== undefined) {
+    if (draft?.diary && hasTrait(call.skill, 'attaches') && call.args?.place !== undefined) {
       const args = { ...call.args };
       delete args.place;
       call = { ...call, args };
-      log.info('selfreflection: named place set aside', { skill: call.skill });
+      log.info('diary: named place set aside', { skill: call.skill });
     }
     const resolved = await resolveCallWithMeaning(call, view);
     if (!resolved.ok) {
@@ -661,9 +661,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         },
       };
     }
-    // A turn that is nowhere has no place of its own: a call that takes a place needs it named. A selfreflection post's
+    // A turn that is nowhere has no place of its own: a call that takes a place needs it named. A diary post's
     // picture and voice are kept for its entry, so they need none.
-    if (draft?.nowhere === true && !draft.selfreflection && placeUnnamed(resolved)) {
+    if (draft?.nowhere === true && !draft.diary && placeUnnamed(resolved)) {
       log.info('skill: refused', { skill: call.skill, code: CODE.PLACE_REQUIRED, reason: 'nowhere', channel: null });
       return { call, op, envelope, resolved: null, refusal: { code: CODE.PLACE_REQUIRED, reason: 'nowhere:channel' } };
     }
@@ -962,9 +962,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       if (!turnPosts.includes(posted.id)) turnPosts.push(posted.id);
       if (draft) (draft.deliveredIn ??= new Set()).add(where);
       if (where !== String(channel.id)) notePostedFrom(posted.id, String(channel.id));
-      // A voice message a selfreflection turn posted through her operation: the post keeps its text as voiced and its length.
-      if (skill === 'voice.say' && draft?.selfreflection && result.voice)
-        draft.selfreflectionVoice = { text: result.voice.text, durationSecs: result.voice.durationSecs };
+      // A voice message a diary turn posted through her operation: the post keeps its text as voiced and its length.
+      if (skill === 'voice.say' && draft?.diary && result.voice)
+        draft.diaryVoice = { text: result.voice.text, durationSecs: result.voice.durationSecs };
       // A voice message is a line of hers with no words of its own: what she voiced is its item's text form.
       if (skill === 'voice.say' && result.voice) {
         recordSaid({

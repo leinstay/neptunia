@@ -76,7 +76,7 @@ test('the service writes an owner name through its own method and offers no unit
   }
 });
 
-test('a selfreflection the store writes names the first enabled mirror as the destination of its publications', async () => {
+test('a diary the store writes names the first enabled mirror as the destination of its publications', async () => {
   // Bug: the destination was stamped on the unit write alone, so the direct write left her publications with none.
   const opened = await openTestMemory({ now: () => NOW, iface: () => 'discord' });
   try {
@@ -85,7 +85,7 @@ test('a selfreflection the store writes names the first enabled mirror as the de
     writer.exec(`
       INSERT OR IGNORE INTO places (id, iface, kind, native_id) VALUES ('discord:channel:c9', 'discord', 'channel', 'c9');
       INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by)
-        VALUES ('mirror-1', 'selfreflection', 'discord:channel:c9', 1, '2026-11-01T00:00:00.000Z', 'owner');
+        VALUES ('mirror-1', 'diary', 'discord:channel:c9', 1, '2026-11-01T00:00:00.000Z', 'owner');
     `);
     const post = {
       at: NOW,
@@ -96,9 +96,9 @@ test('a selfreflection the store writes names the first enabled mirror as the de
       search: null,
       itemId: 'd-1',
     };
-    await opened.memoryDb.writeSelfreflection({ value: { updatedAt: NOW, posts: [post] } });
+    await opened.memoryDb.writeDiary({ value: { updatedAt: NOW, posts: [post] } });
     const rows = db
-      .prepare("SELECT destination_place_id AS place FROM publications WHERE row_kind = 'selfreflection'")
+      .prepare("SELECT destination_place_id AS place FROM publications WHERE row_kind = 'diary'")
       .all()
       .map((row) => row.place);
     assert.ok(rows.length > 0, 'the post has a publication');

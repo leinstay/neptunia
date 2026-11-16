@@ -67,7 +67,7 @@
 //   - `writeChannelEntry(write)` (channel-entry.ts): the whole entry of one channel.
 //   - `writePlaceLore(write)`, `writeParticipation(write)`, `writeRecentLines(write)` (place-lore.ts,
 //     participation-episodes.ts, recent-lines.ts): a place's whole lorebook, participation or recent lines.
-//   - `writeSelfreflection(write)` (selfreflection-entries.ts): her whole selfreflection, or one appended post.
+//   - `writeDiary(write)` (diary-entries.ts): her whole diary, or one appended post.
 //   - `writeMediaEntry(write)` (media-store.ts): one entry of the describer's cache put on its row, or one key dropped.
 //   - `writeGifLibrary(write)` (gif-library.ts): the entries of the GIF library a change put and dropped, and its rest;
 //     `writeGifVector(write)` (gif-vectors.ts): the caption vector of one entry.
@@ -125,7 +125,7 @@ import type { GifVectorWrite } from './gif-vectors.ts';
 import type { ErrandWrite } from './errand-write.ts';
 import type { ParticipationWrite } from './participation-episodes.ts';
 import type { RecentLinesWrite } from './recent-lines.ts';
-import type { SelfreflectionWrite } from './selfreflection-entries.ts';
+import type { DiaryWrite } from './diary-entries.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
@@ -146,7 +146,7 @@ import { memoryQueryFor, retrievalBounds } from '../retrieval-input.ts';
 import type { RetrievalInput } from '../retrieval-input.ts';
 import type { PrivatePersonView, PrivatePlaceView } from './private-read.ts';
 import { recoverRequestArchive } from './request-archive.ts';
-import { applySelfreflectionUpdate, createSelfreflectionMedia } from './selfreflection-media.ts';
+import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
 import { embedMedia } from './media-store.ts';
 import { embedObjects } from './object-vectors.ts';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.ts';
@@ -178,7 +178,7 @@ import type { Context } from './scope.ts';
 const DEFAULT_FILE = 'memory.db';
 /**
  * The write kinds of other writers than the store that reach rows a store unit reads back (a profile, a private layer, a
- * place's notes and channels, the selfreflection): `writeGeneration` counts them, and the store reads a unit again after
+ * place's notes and channels, the diary): `writeGeneration` counts them, and the store reads a unit again after
  * one (src/memory/store-writes.ts). The store's own kinds are not here: it knows what it wrote.
  */
 const UNIT_ROW_WRITES = new Set([
@@ -192,8 +192,8 @@ const UNIT_ROW_WRITES = new Set([
   'publication',
   'mirror',
   'entry-media',
-  // The selfreflection media job's text and pictures (selfreflection-media.ts).
-  'selfreflection-media',
+  // The diary media job's text and pictures (diary-media.ts).
+  'diary-media',
 ]);
 /**
  * The write kinds of the values the store reads back through its last read (src/memory/store-writes.ts): written through
@@ -208,7 +208,7 @@ const STORE_VALUE_KINDS = new Set([
   'place-lore',
   'participation-episodes',
   'recent-lines',
-  'selfreflection-entries',
+  'diary-entries',
   'prose-versions',
 ]);
 const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
@@ -567,8 +567,8 @@ export type MemoryDbService = {
   writeParticipation(write: ParticipationWrite): Promise<unknown>;
   /** The whole recent lines of one place (recent-lines.ts): resolves the rows it wrote and retired. */
   writeRecentLines(write: RecentLinesWrite): Promise<unknown>;
-  /** Her whole selfreflection or one appended post (selfreflection-entries.ts): resolves the rows it wrote and retired. */
-  writeSelfreflection(write: SelfreflectionWrite): Promise<unknown>;
+  /** Her whole diary or one appended post (diary-entries.ts): resolves the rows it wrote and retired. */
+  writeDiary(write: DiaryWrite): Promise<unknown>;
   /** One entry of the describer's cache put on its row, or one key dropped (media-store.ts): resolves the rows it wrote and retired. */
   writeMediaEntry(write: MediaEntryWrite): Promise<unknown>;
   /** The entries of the GIF library a change put and dropped, and its rest (gif-library.ts): resolves the rows it wrote and retired. */
@@ -618,8 +618,8 @@ export type MemoryDbService = {
 
 /**
  * Everything `createMemoryDb` takes: the live config, the data directory and the seams the tests replace.
- * `selfreflectionMediaDeps` (read at each tick) gives the interface port and the image fetcher the selfreflection media job needs
- * (selfreflection-media.ts); without it the job does nothing. `defer` runs a function on the next turn of the event loop
+ * `diaryMediaDeps` (read at each tick) gives the interface port and the image fetcher the diary media job needs
+ * (diary-media.ts); without it the job does nothing. `defer` runs a function on the next turn of the event loop
  * (setImmediate), injected by the tests. `embed` is the embedding client's `embed(texts, { config, purpose })` (the
  * re-embed job; none: the job does nothing), `commit` the engine commit an inspection snapshot names (default
  * `git rev-parse HEAD`), `selfName()` her name in a rebuilt embedding input.
@@ -634,8 +634,8 @@ export type MemoryDbOptions = {
   worker?: boolean;
   workerFile?: string | URL;
   readerFile?: string | URL;
-  selfreflectionMediaDeps?: (() => { port?: unknown; imageFetcher?: unknown } | null) | null;
-  selfreflectionSleep?: (ms: number) => Promise<void>;
+  diaryMediaDeps?: (() => { port?: unknown; imageFetcher?: unknown } | null) | null;
+  diarySleep?: (ms: number) => Promise<void>;
   embed?: ((texts: ReadonlyArray<string>, opts: Row) => Promise<unknown>) | null;
   commit?: string | null;
   selfName?: () => string | null | undefined;
@@ -720,8 +720,8 @@ export function createMemoryDb({
   worker: useWorker,
   workerFile = WORKER_FILE,
   readerFile = READER_FILE,
-  selfreflectionMediaDeps = null,
-  selfreflectionSleep,
+  diaryMediaDeps = null,
+  diarySleep,
   embed = null,
   commit = null,
   selfName = () => '',
@@ -846,34 +846,32 @@ export function createMemoryDb({
     log.info('memory db: closed', {});
   }
 
-  // The selfreflection's text and pictures (selfreflection-media.ts): off by default, one run per start over the rows still without text.
-  const selfreflectionJob = createSelfreflectionMedia({
+  // The diary's text and pictures (diary-media.ts): off by default, one run per start over the rows still without text.
+  const diaryJob = createDiaryMedia({
     db: () => (handle ? dbOf(handle) : null),
     apply: (update: Row) =>
       counted<unknown>(
-        { kind: 'selfreflection-media' },
+        { kind: 'diary-media' },
         engine
-          ? engine.call('selfreflectionApply', { update })
-          : Promise.resolve().then(() => applySelfreflectionUpdate(opened(), update))
+          ? engine.call('diaryApply', { update })
+          : Promise.resolve().then(() => applyDiaryUpdate(opened(), update))
       ),
-    port: () => selfreflectionMediaDeps?.()?.port ?? null,
-    imageFetcher: () => selfreflectionMediaDeps?.()?.imageFetcher ?? null,
+    port: () => diaryMediaDeps?.()?.port ?? null,
+    imageFetcher: () => diaryMediaDeps?.()?.imageFetcher ?? null,
     config: () => hot.config,
     dataDir,
     log,
-    sleep: selfreflectionSleep,
+    sleep: diarySleep,
   });
-  function startSelfreflectionMedia() {
+  function startDiaryMedia() {
     if (closing || !handle) return;
     if (engine?.dead) return;
-    if (!selfreflectionJob.hasWork()) return;
-    selfreflectionJob
-      .run()
-      .catch((error: unknown) => log.warn('selfreflection media: run failed', { code: codeOf(error) }));
+    if (!diaryJob.hasWork()) return;
+    diaryJob.run().catch((error: unknown) => log.warn('diary media: run failed', { code: codeOf(error) }));
   }
 
-  /** A selfreflection write, its destination the place of the selfreflection's first enabled mirror when it names none. */
-  function withDestination(entries: SelfreflectionWrite): SelfreflectionWrite {
+  /** A diary write, its destination the place of the diary's first enabled mirror when it names none. */
+  function withDestination(entries: DiaryWrite): DiaryWrite {
     if (entries.destination !== undefined) return entries;
     const destination = readMirrors({ readHandle }, mirrorPlaces, [])[0]?.placeId;
     return destination ? { ...entries, destination } : entries;
@@ -1427,7 +1425,7 @@ export function createMemoryDb({
     }
     drainObservations();
     startProject();
-    startSelfreflectionMedia();
+    startDiaryMedia();
     startFocus();
     startIndexPolicy();
     startReembed();
@@ -1576,7 +1574,7 @@ export function createMemoryDb({
   async function memoryWrite(given: unknown): Promise<unknown> {
     const update = given as Row;
     if (!handle || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
-    // The target check reads through `audience_id`; a selfreflection entry's media go under the data directory.
+    // The target check reads through `audience_id`; a diary entry's media go under the data directory.
     const stamped = { ...update, audienceColumn: true, dataDir };
     // A session's batch read its lines: touched while eviction is on.
     if (update?.kind === 'session' && Array.isArray(update.reads))
@@ -1659,16 +1657,7 @@ export function createMemoryDb({
     if (current !== null) {
       try {
         rows = 0;
-        for (const table of [
-          'sources',
-          'claims',
-          'episodes',
-          'descriptions',
-          'places',
-          'people',
-          'day',
-          'selfreflection',
-        ]) {
+        for (const table of ['sources', 'claims', 'episodes', 'descriptions', 'places', 'people', 'day', 'diary']) {
           rows += dbOf(current).prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE retired_at IS NULL`).get()
             ?.n as number;
         }
@@ -1697,7 +1686,7 @@ export function createMemoryDb({
     const { closeMs } = settings();
     const deadline = performance.now() + closeMs;
     await stopReader(closeMs);
-    await waitFor(selfreflectionJob.stop(), closeMs);
+    await waitFor(diaryJob.stop(), closeMs);
     await waitFor(focusRun, Math.max(0, deadline - performance.now()));
     await waitFor(indexRun, Math.max(0, deadline - performance.now()));
     await waitFor(reembedRun, Math.max(0, deadline - performance.now()));
@@ -1751,8 +1740,8 @@ export function createMemoryDb({
       write(withLiveIface({ ...participation, kind: 'participation-episodes', now: now() }, iface)),
     writeRecentLines: (lines: RecentLinesWrite) =>
       write(withLiveIface({ ...lines, kind: 'recent-lines', now: now() }, iface)),
-    writeSelfreflection: (entries: SelfreflectionWrite) =>
-      write(withLiveIface({ ...withDestination(entries), kind: 'selfreflection-entries', now: now() }, iface)),
+    writeDiary: (entries: DiaryWrite) =>
+      write(withLiveIface({ ...withDestination(entries), kind: 'diary-entries', now: now() }, iface)),
     writeMediaEntry: (entry: MediaEntryWrite) =>
       write(withLiveIface({ ...entry, kind: 'media-entry', now: now() }, iface)),
     writeGifLibrary: (library: GifLibraryWrite) =>

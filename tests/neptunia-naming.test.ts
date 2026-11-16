@@ -99,7 +99,7 @@ test('neptunia services list answers with no core, lists the two mechanisms and 
   const before = digest(offline.dataDir);
   const done = await run(offline, ['services', 'list']);
   assert.equal(done.code, 0, done.stderr.slice(0, 300));
-  for (const name of ['heartbeat', 'selfreflection']) assert.ok(done.stdout.includes(name), name);
+  for (const name of ['heartbeat', 'diary']) assert.ok(done.stdout.includes(name), name);
   assert.equal(digest(offline.dataDir), before);
   const calls = existsSync(unitLog) ? readFileSync(unitLog, 'utf8').split('\n').filter(Boolean) : [];
   assert.deepEqual(
@@ -108,17 +108,17 @@ test('neptunia services list answers with no core, lists the two mechanisms and 
   );
 });
 
-test('/services selfreflection status gives the same answer from the chat line and from argv, with no core', async () => {
+test('/services diary status gives the same answer from the chat line and from argv, with no core', async () => {
   // Catches: the two spellings of one command reach different handlers.
-  // Changed: the watcher left the services (owner, 2026-11-09), and selfimprovement is no service; selfreflection,
+  // Changed: the watcher left the services (owner, 2026-11-09), and selfimprovement is no service; diary,
   // whose next time has no jitter, stands in.
   fresh();
-  const direct = await run(offline, ['services', 'selfreflection', 'status']);
-  const line = await run(offline, ['-p', '/services selfreflection status']);
+  const direct = await run(offline, ['services', 'diary', 'status']);
+  const line = await run(offline, ['-p', '/services diary status']);
   assert.equal(direct.code, 0, direct.stderr.slice(0, 300));
   assert.equal(line.code, 0, line.stderr.slice(0, 300));
   assert.equal(line.stdout, direct.stdout);
-  assert.ok(direct.stdout.includes('selfreflection'));
+  assert.ok(direct.stdout.includes('diary'));
 });
 
 // ---- logs ------------------------------------------------------------------------------------------------------------

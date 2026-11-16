@@ -120,7 +120,7 @@ export function createInputs(ctx: InputsContext): Inputs {
   /**
    * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
    * (a memory search, the request's record) and kept on the draft, so recall and the turn's read record carry one id.
-   * A turn that runs nowhere reads as herself (`internal`), except a selfreflection post, which reads as the interface's
+   * A turn that runs nowhere reads as herself (`internal`), except a diary post, which reads as the interface's
    * group, the audience of the mirrors its entry is copied to. A private chat reads as a DM of its partner, anything
    * else as the interface's group. Null without the dependency
    * or the draft, for a private chat whose partner is unknown or has no stored person, or when issuing fails (never a
@@ -136,8 +136,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     let ctx: unknown = null;
     try {
       if (draft.nowhere === true) {
-        const spec: MemorySpec =
-          draft.mode === 'selfreflection' ? { kind: 'group', destination: null } : { kind: 'internal' };
+        const spec: MemorySpec = draft.mode === 'diary' ? { kind: 'group', destination: null } : { kind: 'internal' };
         ctx = memoryContext(spec) ?? null;
         draft.memoryContext = ctx;
         return ctx;

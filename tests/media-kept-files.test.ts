@@ -42,7 +42,7 @@ test('a reference that climbs out of the kept folder names no file', (t) => {
   // Bug: a crafted reference reads any file of the data folder.
   const dir = dataDir(t);
   assert.equal(keptPathOf('neptunia-media:///media/cli/../../memory.db'), null);
-  assert.equal(keptLocation(dir, 'neptunia-media:///media/selfreflection/x.png'), null);
+  assert.equal(keptLocation(dir, 'neptunia-media:///media/diary/x.png'), null);
 });
 
 test('a reference whose file was removed answers not found', async (t) => {

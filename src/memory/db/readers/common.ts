@@ -2,9 +2,9 @@
 // UnitKey. A key of an operational kind reads its row by kind and subject (operational.ts), a key of the intentions
 // reads their rows (readers/intentions.ts), a day of the record or of the journal and a month of the archive their
 // lines (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's profile, a private layer, a history of
-// prose, a place's notes, a channel's entry, a lorebook, a participation, recent lines and her selfreflection their
+// prose, a place's notes, a channel's entry, a lorebook, a participation, recent lines and her diary their
 // value (account-profile.ts, private-layer.ts, prose-versions.ts, place-notes.ts, channel-entry.ts, place-lore.ts,
-// participation-episodes.ts, recent-lines.ts, selfreflection-entries.ts). A key of any other kind reads as not found. A
+// participation-episodes.ts, recent-lines.ts, diary-entries.ts). A key of any other kind reads as not found. A
 // closed service refuses reads with DB_CLOSED; failures are logged once with their reader and code, without stored
 // contents.
 
@@ -21,7 +21,7 @@ import { channelEntryHeld, channelEntryValue } from '../channel-entry.ts';
 import { placeLoreValue } from '../place-lore.ts';
 import { participationValue } from '../participation-episodes.ts';
 import { recentLinesValue } from '../recent-lines.ts';
-import { selfreflectionValue } from '../selfreflection-entries.ts';
+import { diaryValue } from '../diary-entries.ts';
 import type { UnitKey } from '../unit-keys.ts';
 import type { Db } from '../types.ts';
 
@@ -39,7 +39,7 @@ const DIRECT_KINDS: ReadonlyArray<string> = [
   'lore',
   'participation',
   'recent',
-  'selfreflection',
+  'diary',
 ];
 
 /** The key of a unit whose kind its own reader answers (an operational kind or one of `DIRECT_KINDS`), else null. */
@@ -72,7 +72,7 @@ export function unitValue(dbGiven: unknown, key: UnitKey): { found: true; value:
   if (direct?.kind === 'lore') return placeLoreValue(db, direct);
   if (direct?.kind === 'participation') return participationValue(db, direct);
   if (direct?.kind === 'recent') return recentLinesValue(db, direct);
-  if (direct?.kind === 'selfreflection') return selfreflectionValue(db, direct);
+  if (direct?.kind === 'diary') return diaryValue(db, direct);
   return { found: false };
 }
 

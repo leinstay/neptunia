@@ -6,10 +6,9 @@
 import type { WakeKind } from '../../behavior/inner/types.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
 
-export type TurnKind =
-  'reply' | 'heartbeat' | 'intention' | 'feedback' | 'errand_result' | 'selfreflection_plan' | 'selfreflection';
+export type TurnKind = 'reply' | 'heartbeat' | 'intention' | 'feedback' | 'errand_result' | 'diary_plan' | 'diary';
 
-export type AwakeReason = 'message' | 'wake' | 'errand' | 'selfreflection';
+export type AwakeReason = 'message' | 'wake' | 'errand' | 'diary';
 
 /** The root tags of the ordinary turn and of the service template. */
 export type BlockName =
@@ -103,16 +102,16 @@ const KIND_OF_WAKE: Readonly<Record<WakeKind, TurnKind>> = Object.freeze({
 
 const isWakeKind = (value: string): value is WakeKind => Object.hasOwn(KIND_OF_WAKE, value);
 
-/** The mode of the selfreflection planner's request, which runs inside a selfreflection turn before its writer. */
-export const PLANNER_MODE = 'selfreflection-planner';
+/** The mode of the diary planner's request, which runs inside a diary turn before its writer. */
+export const PLANNER_MODE = 'diary-planner';
 
 /**
  * The kind of a turn from the fields the callers pass. `reply` and `interject` give a reply, and
  * an errand's trigger on any of them gives `errand_result`.
  */
 export function turnKindOf(mode: string, triggerKind: string | null, wakeKind: string | null): TurnKind {
-  if (mode === 'selfreflection') return 'selfreflection';
-  if (mode === PLANNER_MODE) return 'selfreflection_plan';
+  if (mode === 'diary') return 'diary';
+  if (mode === PLANNER_MODE) return 'diary_plan';
   if (mode === 'inner') {
     if (wakeKind !== null && isWakeKind(wakeKind)) return KIND_OF_WAKE[wakeKind];
     return triggerKind === 'errand' ? 'errand_result' : 'intention';
@@ -159,7 +158,7 @@ const SERVICE: ReadonlyArray<BlockName> = Object.freeze([
   'task',
 ] as const);
 
-const SELFREFLECTION: ReadonlyArray<BlockName> = Object.freeze([
+const DIARY: ReadonlyArray<BlockName> = Object.freeze([
   'persona',
   'self',
   'memory',
@@ -183,9 +182,9 @@ export function blocksOf(kind: TurnKind, place: FramePlace | null): ReadonlyArra
       return place === null ? SERVICE : ORDINARY;
     case 'heartbeat':
       return SERVICE;
-    case 'selfreflection_plan':
-    case 'selfreflection':
-      return SELFREFLECTION;
+    case 'diary_plan':
+    case 'diary':
+      return DIARY;
   }
 }
 
@@ -198,12 +197,12 @@ export const REQUIRED_BY_KIND: Readonly<Record<TurnKind, ReadonlyArray<BlockName
   intention: ALWAYS,
   feedback: ALWAYS,
   errand_result: ALWAYS,
-  selfreflection_plan: ALWAYS,
-  selfreflection: ALWAYS,
+  diary_plan: ALWAYS,
+  diary: ALWAYS,
 });
 
 /** The kinds that are nowhere: whatever place their turn rides in on is transport. */
-const NOWHERE: ReadonlySet<TurnKind> = new Set<TurnKind>(['heartbeat', 'selfreflection_plan', 'selfreflection']);
+const NOWHERE: ReadonlySet<TurnKind> = new Set<TurnKind>(['heartbeat', 'diary_plan', 'diary']);
 
 function placeAndRoot(input: FrameInput, chain: ReadonlyArray<PlaceChainLink>): Pick<Frame, 'place' | 'root'> {
   const [here] = chain;
@@ -222,7 +221,7 @@ function placeAndRoot(input: FrameInput, chain: ReadonlyArray<PlaceChainLink>): 
 }
 
 function awakeOf(kind: TurnKind, wakeKind: string | null): AwakeReason {
-  if (kind === 'selfreflection' || kind === 'selfreflection_plan') return 'selfreflection';
+  if (kind === 'diary' || kind === 'diary_plan') return 'diary';
   if (kind === 'errand_result') return 'errand';
   return wakeKind === null ? 'message' : 'wake';
 }
@@ -261,8 +260,8 @@ const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
   'heartbeat',
   'intention',
   'feedback',
-  'selfreflection_plan',
-  'selfreflection',
+  'diary_plan',
+  'diary',
 ]);
 
 /** Whether a request built with `frame` is the frame's own (`<memory>`, `<recall>`, `<meanwhile>` and the rest). */

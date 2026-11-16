@@ -13,7 +13,7 @@ import { createEventDoor } from '../src/interface/door.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
 import { createLoopback, envelope } from '../src/protocol/index.ts';
 import { createFakeAdapter, replayFixture } from '../src/interface/fake.ts';
-import { createSelfreflection } from '../src/behavior/selfreflection.ts';
+import { createDiary } from '../src/behavior/diary.ts';
 import { heartbeatWake } from '../src/behavior/inner.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.ts';
@@ -85,7 +85,7 @@ describe('inner turns with no interface', () => {
   });
 
   // Stage 3, item "The inner life and the diary": with no interface to describe a chat, the heartbeat runs its
-  // turn with no chat, in the served root, the way the selfreflection wake does.
+  // turn with no chat, in the served root, the way the diary wake does.
   test('a heartbeat turn runs to the end with no interface connected and its run is in memory', async () => {
     const core = await rig({ interface: false });
     await core.beat();
@@ -97,18 +97,18 @@ describe('inner turns with no interface', () => {
     );
   });
 
-  // Stage 3, same item: the diary is the `selfreflection` wake. The turn runs with no chat and records the entry
-  // in memory before anything is published: a `selfreflection` row with her full text. No mirror is set up and no reads of an
+  // Stage 3, same item: the `diary` wake. The turn runs with no chat and records the entry
+  // in memory before anything is published: a `diary` row with her full text. No mirror is set up and no reads of an
   // interface are given to the scheduler, so nothing is sent anywhere, and no `diary.placeId` is set.
-  test('a selfreflection turn leaves its entry in memory with no interface connected', async () => {
+  test('a diary turn leaves its entry in memory with no interface connected', async () => {
     const memory = await openTestMemory({ now: () => START });
     OPEN.push(memory);
     const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
     const hot = hotWith({
       // @ts-expect-error: hotWith has no `features` option, so the key is ignored
-      features: { selfreflection: true },
+      features: { diary: true },
       config: {
-        selfreflection: {
+        diary: {
           world: false,
           kinds: { status: 1 },
           maxPerDay: 3,
@@ -122,9 +122,9 @@ describe('inner turns with no interface', () => {
       },
     });
     Object.assign(hot.prompts, {
-      selfreflection: 'Write your diary.',
-      'selfreflection-planner': 'Plan the entry.',
-      'selfreflection-seeds': '# place\na pier',
+      diary: 'Write your diary.',
+      'diary-planner': 'Plan the entry.',
+      'diary-seeds': '# place\na pier',
       world: 'The world.',
     });
     // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
@@ -132,27 +132,26 @@ describe('inner turns with no interface', () => {
     const llm = {
       complete: (_messages: unknown, options: { purpose?: string }) =>
         Promise.resolve({
-          text:
-            options?.purpose === 'selfreflection-planner' ? planAnswerText(plan, options) : '<msg>μια ήσυχη μέρα</msg>',
+          text: options?.purpose === 'diary-planner' ? planAnswerText(plan, options) : '<msg>μια ήσυχη μέρα</msg>',
           usage: {},
           estimated: 5,
         }),
     };
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START });
-    const selfreflection = createSelfreflection({
+    const diary = createDiary({
       hot,
       store,
       reads: null,
-      // @ts-expect-error: createSelfreflection takes no `iface` dependency, so the key is ignored
+      // @ts-expect-error: createDiary takes no `iface` dependency, so the key is ignored
       iface: () => 'fake',
       turns: runnerOver({ port, hot, llm, store }),
       isServedRoot: (id: unknown) => id === GUILD,
       now: () => START,
     });
-    await selfreflection.force({ kind: 'status' });
+    await diary.force({ kind: 'status' });
     await store.flushSettled({});
     assert.deepEqual(
-      rowsOf(memory.memoryDb, 'SELECT kind, text FROM selfreflection'),
+      rowsOf(memory.memoryDb, 'SELECT kind, text FROM diary'),
       [{ kind: 'status', text: 'μια ήσυχη μέρα' }],
       'the entry exists in memory with its text'
     );

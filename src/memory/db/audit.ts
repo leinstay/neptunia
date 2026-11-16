@@ -7,7 +7,7 @@
 //   danglingLinks      a live link between rows points at live rows, and a version belongs to a row that exists (a claim version names a claim or an episode,
 //                      retired or not, because an expired episode's archive line is kept as a version beside it)
 //   unexplainedNone    a live row under `aud:none` has a live `decisions` row of `AUDIENCE_NONE_KEPT` naming it
-//   linkedMediaKept    no media row a live line or a live selfreflection entry links is retired
+//   linkedMediaKept    no media row a live line or a live diary entry links is retired
 //   unlinkedLineMedia  no live media row of a message's item (`<message id>#<item>`) stands apart from the message's live line
 //                      (src/memory/db/media-store.ts#unlinkedLineItems); the media backfill links them
 //   placeUnnamed       a live room or root has a name (a direct chat has none by design)
@@ -189,7 +189,7 @@ function linkedMediaKept(db: Db): number {
     db,
     `SELECT COUNT(*) AS n FROM media_links l JOIN media m ON m.id = l.media_id
      LEFT JOIN sources s ON l.owner_kind = 'source' AND s.id = l.owner_id
-     LEFT JOIN selfreflection d ON l.owner_kind = 'selfreflection' AND d.id = l.owner_id
+     LEFT JOIN diary d ON l.owner_kind = 'diary' AND d.id = l.owner_id
      WHERE m.retired_at IS NOT NULL AND (s.id IS NOT NULL OR d.id IS NOT NULL)
        AND COALESCE(s.retired_at, d.retired_at) IS NULL`
   );
@@ -208,7 +208,7 @@ function deadMediaLinks(db: Db): number {
     db,
     `SELECT COUNT(*) AS n FROM media_links l WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.id = l.media_id)
        OR (l.owner_kind = 'source' AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = l.owner_id))
-       OR (l.owner_kind = 'selfreflection' AND NOT EXISTS (SELECT 1 FROM selfreflection d WHERE d.id = l.owner_id))`
+       OR (l.owner_kind = 'diary' AND NOT EXISTS (SELECT 1 FROM diary d WHERE d.id = l.owner_id))`
   );
 }
 

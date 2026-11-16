@@ -46,8 +46,9 @@ export const OPERATIONAL_PATTERNS = Object.freeze([
   pattern('guilds/*/[private/*/]archive/pending*.jsonl', `${G}${P}archive/pending[^/]*\\.jsonl`),
   pattern('vault/**', 'vault/.+'),
   pattern('snapshots/**', 'snapshots/.+'),
+  // Changed: the legacy `media/diary/**` and the live `media/selfreflection/**` became one pattern with the rename of
+  // selfreflection to diary, since the live folder is `media/diary/` again.
   pattern('media/diary/**', 'media/diary/.+'),
-  pattern('media/selfreflection/**', 'media/selfreflection/.+'),
   pattern('memory.db*', 'memory\\.db[^/]*'),
   pattern('{mentor,recall-eval,vision-compare}/**', TOOL_OUTPUT),
   pattern('guilds/*/{mentor,recall-eval,vision-compare}/**', `${G}${TOOL_OUTPUT}`),
@@ -198,8 +199,8 @@ function legacySelector(kind: UnitKind, rel: string): UnitSelector | undefined {
   return undefined;
 }
 
-/** Whether `owner` is the file path the selfreflection unit was stored under before the units had keys. */
-export const isLegacySelfreflectionFile = (owner: string): boolean => /\/diary\.json$/.test(owner);
+/** Whether `owner` is the file path the diary unit was stored under before the units had keys. */
+export const isLegacyDiaryFile = (owner: string): boolean => /\/diary\.json$/.test(owner);
 
 /** A legacy wrapper's community scope stays separate from its exact account or place subject. */
 function legacySubject(
@@ -209,7 +210,7 @@ function legacySubject(
   scope: string,
   selector?: UnitSelector
 ): UnitSubject {
-  if (['selfreflection', 'intentions', 'errands', 'inner'].includes(kind))
+  if (['diary', 'intentions', 'errands', 'inner'].includes(kind))
     return { type: 'persona', id: 'persona:local' };
   const itemId = /([^/]+)\.json$/.exec(rel)?.[1];
   if (kind === 'user' || kind === 'private') return { type: 'account', id: accountId(iface, itemId) };

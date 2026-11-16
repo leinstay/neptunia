@@ -17,7 +17,7 @@ export type UnitKind =
   | 'lore'
   | 'participation'
   | 'recent'
-  | 'selfreflection'
+  | 'diary'
   | 'intentions'
   | 'errands'
   | 'archive'
@@ -63,7 +63,7 @@ export function keyText(key: UnitKey): string {
 
 /**
  * A fixed opaque id of a value, from its key: the `owner` of the `operational` row a new history, participation, recent
- * lines or selfreflection writes.
+ * lines or diary writes.
  */
 export const collectionId = (key: UnitKey): string =>
   `unit:${createHash('sha256').update(keyText(key)).digest('hex').slice(0, 32)}`;

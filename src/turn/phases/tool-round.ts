@@ -1,5 +1,5 @@
 // The fifth phase of a turn attempt: her calls, then her speech, then one more request while something is left to read
-// (runSteps), each call under the effect key of the turn, and the cut-off and the short selfreflection set that end the turn
+// (runSteps), each call under the effect key of the turn, and the cut-off and the short diary set that end the turn
 // here. runAttempt (src/turn/phases/attempt.ts) calls it after the act phase; the outcome phase reads what it posted.
 
 import { randomUUID } from 'node:crypto';
@@ -40,7 +40,7 @@ type RoundNeeds = Pick<
   | 'captionCandidates'
   | 'history'
   | 'descriptions'
-  | 'selfreflectionPrep'
+  | 'diaryPrep'
   | 'pendingMedia'
   | 'request'
   | 'sentMessages'
@@ -67,7 +67,7 @@ export async function toolRoundPhase<TTurn extends RoundNeeds>(
   const { channel, placeId, isDm, prep, transport, memoryOn, selfId, selfName, startedAt, servedSnapshot, partner } =
     turn;
   const { cancel, finalMode, videoStage, videoCandidates, captions, captionCandidates } = turn;
-  const { history, descriptions, selfreflectionPrep, pendingMedia } = turn;
+  const { history, descriptions, diaryPrep, pendingMedia } = turn;
   const { knownNames, directory, handles, channelHandles, plain } = routing;
   // Every call of the attempt: its turn (the journal's turn, else one id per attempt) and its index over every step.
   // Its key is the effect's record, `<turnId>:<effectIndex>:<target>` (the chat it names, else the turn's),
@@ -107,7 +107,7 @@ export async function toolRoundPhase<TTurn extends RoundNeeds>(
     trigger,
     selfName,
     ...routing,
-    mediaPicks: !selfreflectionPrep,
+    mediaPicks: !diaryPrep,
     participation: isDm ? null : { descriptions: descriptions ?? null },
     draft,
   };
@@ -199,7 +199,7 @@ export async function toolRoundPhase<TTurn extends RoundNeeds>(
   // The rescue request answered with her silence and nothing of the turn reached the chat: she skipped.
   if (stepped.rescued && stepped.skipped && !stepped.delivered)
     return { ended: { outcome: 'skip', mode: finalMode, reason: SKIP_SILENCE } };
-  // A set kind that ended below selfreflection.set.minPosted staged pictures (runSteps): nothing was posted.
+  // A set kind that ended below diary.set.minPosted staged pictures (runSteps): nothing was posted.
   if (draft.setShort !== undefined) return { ended: setShort(draft.setShort) };
 
   return { ...turn, ended: null, stepped };

@@ -377,7 +377,7 @@
       "maxOutputBytes": 1000000
     }
   },
-  "selfreflection": {
+  "diary": {
     "enabled": true,
     "schedule": null,
     "windows": [

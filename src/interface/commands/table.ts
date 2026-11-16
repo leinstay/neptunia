@@ -201,7 +201,7 @@ const DOMAIN_FAMILIES: ReadonlyArray<string> = [
   'claims',
   'descriptions',
   'episodes',
-  'selfreflection',
+  'diary',
   'media',
   'publications',
   'grants',
@@ -378,7 +378,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'services',
-    help: 'Schedule, switch and inspect heartbeat and selfreflection',
+    help: 'Schedule, switch and inspect heartbeat and diary',
     args: [],
     needsSubcommand: true,
     check: checkService,
@@ -610,17 +610,17 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'mirror',
-    help: 'Choose where selfreflection entries are published and settle what was delivered',
+    help: 'Choose where diary entries are published and settle what was delivered',
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
       sub('list', 'Every mirror and whether it is enabled'),
       sub('status', 'Each mirror with its queue, failures, uncertain sends and backfill'),
-      sub(
-        'add',
-        'Publish selfreflection entries to a known place; --backfill true --every 4h also sends its old entries',
-        [arg('destination'), flagArg('backfill', false), flagArg('every', false)]
-      ),
+      sub('add', 'Publish diary entries to a known place; --backfill true --every 4h also sends its old entries', [
+        arg('destination'),
+        flagArg('backfill', false),
+        flagArg('every', false),
+      ]),
       sub('configure', 'Change a mirror: --enabled, --backfill or --every', [
         arg('mirror'),
         flagArg('enabled', false),

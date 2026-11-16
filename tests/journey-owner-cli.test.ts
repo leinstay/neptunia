@@ -130,7 +130,7 @@ before(async () => {
       wakeClockOf(name, {
         now: clock.t,
         inner: life,
-        selfreflection: { status: () => ({ slots: [], done: [] }) },
+        diary: { status: () => ({ slots: [], done: [] }) },
       }),
     subharness: {
       runBackend: (_name, _brief, model): Promise<BackendResult> => {

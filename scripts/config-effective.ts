@@ -27,7 +27,7 @@ import { graphSettings } from '../src/memory/db/graph.ts';
 import { focusSettings } from '../src/memory/db/focus.ts';
 import { sessionSettings } from '../src/memory/db/session.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
-import { setSettings } from '../src/behavior/selfreflection.ts';
+import { setSettings } from '../src/behavior/diary.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
 import { splitSettings } from '../src/behavior/split.ts';
 import { mediaPickSettings } from '../src/behavior/media-pick.ts';
@@ -66,9 +66,9 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['attentionSettings', (config) => attentionSettings(config)],
   ['loopSettings inner', (config) => loopSettings(config, { inner: true })],
   ['audioMapSettings', (config) => audioMapSettings(treeOf(treeOf(treeOf(config).media).video).audioMap)],
-  ['setSettings', (config) => setSettings(treeOf(config).selfreflection)],
+  ['setSettings', (config) => setSettings(treeOf(config).diary)],
   ['mediaPickSettings', (config) => mediaPickSettings(config)],
-  ['loopSettings selfreflection', (config) => loopSettings(config, { selfreflection: true })],
+  ['loopSettings diary', (config) => loopSettings(config, { diary: true })],
   ['hedgeSettings', (config) => hedgeSettings(config)],
   ['splitSettings', (config) => splitSettings(config)],
   ['elsewhereSettings', (config) => elsewhereSettings(config)],

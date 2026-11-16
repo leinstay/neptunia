@@ -1,14 +1,14 @@
 // The eighth step of a turn's request: what the preparation brought, taken as the request will show it. The deleted
-// lines put back, every line numbered, the late video states, the captions, reads and searches that came in time, a selfreflection post's
+// lines put back, every line numbered, the late video states, the captions, reads and searches that came in time, a diary post's
 // plan and the drawing quota. The request phase
 // (src/turn/phases/request.ts) runs it after the wait.
 
 import { accountOf } from '../../../memory/addresses.ts';
 import { DELETED_LINES_MAX, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.ts';
-import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/selfreflection.ts';
+import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/diary.ts';
 import { lateVideoStates } from '../../../media/classify.ts';
 import { log } from '../../../log.ts';
-import type { Selfreflection } from '../../selfreflection.ts';
+import type { Diary } from '../../diary.ts';
 import type { Draft } from '../../draft.ts';
 import type { VideoState } from '../../rewatch.ts';
 import type { HistoryLine, PhaseContext, PhasePrompts } from '../context.ts';
@@ -25,7 +25,7 @@ export type Gathered = {
   imageAnswers: Map<string, unknown> | null;
   reads: Map<string, unknown> | undefined;
   prefetchResult: unknown;
-  selfreflectionPrep: Awaited<ReturnType<Selfreflection['prepareSelfreflection']>> | null;
+  diaryPrep: Awaited<ReturnType<Diary['prepareDiary']>> | null;
   drawOn: boolean;
   prompts: PhasePrompts;
 };
@@ -41,7 +41,7 @@ type GatherNeeds = Pick<
   | 'selfId'
   | 'selfName'
   | 'prefetching'
-  | 'selfreflectionPending'
+  | 'diaryPending'
   | 'beforeBar'
   | 'previewed'
   | 'captions'
@@ -58,7 +58,7 @@ type GatherNeeds = Pick<
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
 export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: GatherNeeds): Promise<Gathered> {
   const { hot, store, clock, record, images } = ctx;
-  const { channel, placeId, isDm, prep, memoryOn, selfId, selfName, prefetching, selfreflectionPending } = turn;
+  const { channel, placeId, isDm, prep, memoryOn, selfId, selfName, prefetching, diaryPending } = turn;
   const { beforeBar, previewed, captions, captionCandidates, videoStage, videoCandidates, prefetchStage } = turn;
   const { slot, videosSoFar, linksStage, timings } = turn;
   const rewatchStage = slot.rewatch;
@@ -139,20 +139,19 @@ export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: Gathe
   prep.take('captions', Boolean(captions?.done), { hold: Boolean(captions) });
   prep.take('videos', Boolean(videoStage?.done), { hold: Boolean(videoStage) });
   prep.take('links', Boolean(linksStage?.done));
-  // A selfreflection post's plan, search and picture check (a request or token cap refuses the turn).
-  let selfreflectionPrep: Gathered['selfreflectionPrep'] = null;
-  if (selfreflectionPending) {
-    const settled = await beforeBar(selfreflectionPending);
+  // A diary post's plan, search and picture check (a request or token cap refuses the turn).
+  let diaryPrep: Gathered['diaryPrep'] = null;
+  if (diaryPending) {
+    const settled = await beforeBar(diaryPending);
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- the plan's failure as it came, a rail error the turn's end reads
     if ('error' in settled && settled.error) throw settled.error;
     // A settled plan without an error is its value.
-    selfreflectionPrep = (settled as { value: NonNullable<Gathered['selfreflectionPrep']> }).value;
+    diaryPrep = (settled as { value: NonNullable<Gathered['diaryPrep']> }).value;
     // The post's kind decides how many pictures it takes (drawTool, runSteps): a set kind several, any other one.
-    draft.selfreflection = { set: isSetKind(selfreflectionPrep.plan.kind, DEFAULT_SET_KINDS) };
+    draft.diary = { set: isSetKind(diaryPrep.plan.kind, DEFAULT_SET_KINDS) };
   }
-  // Drawing needs the image client and Attach Files here. A selfreflection post draws only while its picture check allowed it.
-  const drawOn =
-    Boolean(images) && channel.permissions.attach && (!selfreflectionPrep || selfreflectionPrep.pictureAllowed);
+  // Drawing needs the image client and Attach Files here. A diary post draws only while its picture check allowed it.
+  const drawOn = Boolean(images) && channel.permissions.attach && (!diaryPrep || diaryPrep.pictureAllowed);
   // The prompts this request is built from, read once: the task labels below decide what it names.
   const prompts = hot.prompts;
   return {
@@ -163,7 +162,7 @@ export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: Gathe
     imageAnswers,
     reads,
     prefetchResult,
-    selfreflectionPrep,
+    diaryPrep,
     drawOn,
     prompts,
   };

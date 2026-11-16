@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { selfreflectionRows, seedMirror } from './fixtures/selfreflection-mirror.ts';
+import { diaryRows, seedMirror } from './fixtures/diary-mirror.ts';
 import { FOUR_HOURS, LEASE, T0, mirrorScene, restoreFile, settle } from './fixtures/mirror-scene.ts';
 
 /** A scene with one enabled mirror on `d1` and one entry `e1`. */
@@ -387,7 +387,7 @@ test('among ten mirrors a forbidden, a broken and an offline one stop none of th
   assert.equal(state('d5')?.status, 'uncertain');
   assert.equal(state('d9')?.status, 'queued');
   assert.deepEqual(
-    selfreflectionRows(scene.memory.memoryDb).map((row) => row.id),
+    diaryRows(scene.memory.memoryDb).map((row) => row.id),
     ['e1'],
     'the entry stays in memory'
   );
@@ -436,7 +436,7 @@ test('zero mirrors publishes nothing, fails nothing and keeps the entry', async 
   assert.deepEqual(await mirrors.publishEntry(ONE), []);
   assert.equal(await mirrors.drainQueued(), 0);
   assert.deepEqual(scene.transport().attempts, []);
-  assert.equal(selfreflectionRows(scene.memory.memoryDb).length, 1);
+  assert.equal(diaryRows(scene.memory.memoryDb).length, 1);
 });
 
 /** `work`, or a failure when it has not ended within five seconds: how a test sees a hang. */

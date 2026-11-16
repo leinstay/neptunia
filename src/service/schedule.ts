@@ -7,7 +7,7 @@
 import { DAY_MS, MINUTE_MS } from '../time.ts';
 
 /** The two scheduled mechanics of the `services` family. */
-export const SERVICE_NAMES = ['heartbeat', 'selfreflection'] as const;
+export const SERVICE_NAMES = ['heartbeat', 'diary'] as const;
 export type ServiceName = (typeof SERVICE_NAMES)[number];
 
 export type ServiceSchedule = { kind: 'at'; at: ReadonlyArray<string> } | { kind: 'every'; everyMinutes: number };
@@ -123,7 +123,7 @@ export function evaluateSchedule(input: {
 }
 
 /**
- * The next `count` moments of `schedule` after `now`, for an answer to read. `onDayGrid` is the selfreflection, which lays an
+ * The next `count` moments of `schedule` after `now`, for an answer to read. `onDayGrid` is the diary, which lays an
  * interval from the start of the UTC day; the other mechanics count an interval from their last run.
  */
 export function nextMoments(

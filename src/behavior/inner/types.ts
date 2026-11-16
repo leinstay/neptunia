@@ -269,11 +269,11 @@ export type InnerJournalOp = {
   unknown(result?: Obj): Promise<void> | void;
 };
 
-/** The memory store as the inner life reads it: its pause, the profiles and her selfreflection for the heartbeat. */
+/** The memory store as the inner life reads it: its pause, the profiles and her diary for the heartbeat. */
 export type InnerStore = {
   state?: { data?: { paused?: unknown; pausedAt?: unknown } };
   listUserProfiles?(): unknown;
-  getSelfreflection?(): { posts?: unknown } | null | undefined;
+  getDiary?(): { posts?: unknown } | null | undefined;
 };
 
 /** The facts an inner turn's request carries in `<wake>` (the drain builds them, src/behavior/wake.ts words them). */

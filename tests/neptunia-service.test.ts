@@ -26,8 +26,8 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const BIN = join(REPO, 'bin', 'neptunia.ts');
-const MECHANICS = ['heartbeat', 'selfreflection'] as const;
-const WAKES = ['heartbeat', 'selfreflection'] as const;
+const MECHANICS = ['heartbeat', 'diary'] as const;
+const WAKES = ['heartbeat', 'diary'] as const;
 const CORE = 'neptunia-core.service';
 /** The clock of the runs in this process, between the two slots most tests name. */
 const NOW = Date.parse('2026-11-04T10:00:00Z');
@@ -271,16 +271,16 @@ for (const name of MECHANICS) {
 test('setup stores minutes that make whole hours in the one spelling of the setting', async () => {
   // Catches: the same schedule reads two ways through /config, depending on how it was typed.
   const where = rig();
-  assert.equal((await run(where, 'selfreflection setup --every 360m')).code, 0);
-  assert.equal(settingsOf(where).selfreflection?.schedule, 'every 6h');
+  assert.equal((await run(where, 'diary setup --every 360m')).code, 0);
+  assert.equal(settingsOf(where).diary?.schedule, 'every 6h');
 });
 
-// Changed: the mechanic is selfreflection, since selfimprovement is no service.
+// Changed: the mechanic is diary, since selfimprovement is no service.
 test('setup takes an interval in minutes', async () => {
   // Catches: only hours are accepted, so the 90m of the plan is refused.
   const where = rig();
-  assert.equal((await run(where, 'selfreflection setup --every 90m')).code, 0);
-  assert.equal(settingsOf(where).selfreflection?.schedule, 'every 90m');
+  assert.equal((await run(where, 'diary setup --every 90m')).code, 0);
+  assert.equal(settingsOf(where).diary?.schedule, 'every 90m');
 });
 
 test('setup replaces the mode that was there, leaving no second schedule', async () => {
@@ -290,26 +290,26 @@ test('setup replaces the mode that was there, leaving no second schedule', async
   assert.equal(settingsOf(where).heartbeat?.schedule, 'at 03:00');
 });
 
-// Changed: the lines that named selfimprovement name selfreflection, since selfimprovement is no service.
+// Changed: the lines that named selfimprovement name diary, since selfimprovement is no service.
 for (const [what, words, names] of [
   ['mixed modes', 'heartbeat setup --at 00:00 --every 6h', '--every'],
   ['a duplicate slot', 'heartbeat setup --at 00:00,00:00', '--at'],
-  ['a malformed time', 'selfreflection setup --at 25:00', '--at'],
+  ['a malformed time', 'diary setup --at 25:00', '--at'],
   ['a time missing its zero', 'heartbeat setup --at 7:00', '--at'],
   ['a trailing comma', 'heartbeat setup --at 00:00,', '--at'],
-  ['a zero interval', 'selfreflection setup --every 0h', '--every'],
-  ['a zero interval in minutes', 'selfreflection setup --every 0m', '--every'],
+  ['a zero interval', 'diary setup --every 0h', '--every'],
+  ['a zero interval in minutes', 'diary setup --every 0m', '--every'],
   ['a negative interval', 'heartbeat setup --every -1h', '--every'],
   ['an interval with no unit', 'heartbeat setup --every 6', '--every'],
-  ['--jitter on selfreflection', 'selfreflection setup --every 6h --jitter 5m', '--jitter'],
+  ['--jitter on diary', 'diary setup --every 6h --jitter 5m', '--jitter'],
   ['--jitter on daily times', 'heartbeat setup --at 06:00 --jitter 5m', '--jitter'],
   ['a negative jitter', 'heartbeat setup --every 3h --jitter -5m', '--jitter'],
-  ['--at with no value', 'selfreflection setup --at', '--at'],
+  ['--at with no value', 'diary setup --at', '--at'],
 ] as const) {
   for (const { form, parse } of FORMS) {
     test(`${form}: setup refuses ${what} with exit 2, names ${names} and writes nothing`, async () => {
       // Catches: a value the schedule cannot run is stored, and the service then never falls due, or the manager reloads.
-      const local = { selfreflection: { enabled: true, schedule: 'at 01:00' }, heartbeat: { schedule: 'every 3h' } };
+      const local = { diary: { enabled: true, schedule: 'at 01:00' }, heartbeat: { schedule: 'every 3h' } };
       const where = rig(local);
       const before = rawSettings(where);
       const done = await run(where, words, {}, parse);

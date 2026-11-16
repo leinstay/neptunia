@@ -15,7 +15,7 @@ import type { ChannelEntryWrite } from './db/channel-entry.ts';
 import type { PlaceLoreWrite } from './db/place-lore.ts';
 import type { ParticipationWrite } from './db/participation-episodes.ts';
 import type { RecentLinesWrite } from './db/recent-lines.ts';
-import type { SelfreflectionWrite } from './db/selfreflection-entries.ts';
+import type { DiaryWrite } from './db/diary-entries.ts';
 import type { OperationalWrite } from './db/operational.ts';
 import type { MemoryHandle, Row } from './db/types.ts';
 // The shapes the memory modules share: the live settings handle a module reads at the moment of use, and the logger
@@ -83,7 +83,7 @@ export type MemoryDb = {
   writePlaceLore?: (write: PlaceLoreWrite) => Promise<unknown>;
   writeParticipation?: (write: ParticipationWrite) => Promise<unknown>;
   writeRecentLines?: (write: RecentLinesWrite) => Promise<unknown>;
-  writeSelfreflection?: (write: SelfreflectionWrite) => Promise<unknown>;
+  writeDiary?: (write: DiaryWrite) => Promise<unknown>;
   writeMediaEntry?: (write: MediaEntryWrite) => Promise<unknown>;
   writeGifLibrary?: (write: GifLibraryWrite) => Promise<unknown>;
   writeGifVector?: (write: GifVectorWrite) => Promise<unknown>;

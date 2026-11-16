@@ -330,12 +330,12 @@ function activityWord(w: Words, place: PlaceEntry): string {
   return place.activity === null || !words ? '' : (words[place.activity] ?? '');
 }
 
-function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string {
+function placeText(w: Words, place: PlaceEntry, diary: boolean): string {
   // The place as every block of the request names it: in words, with its handle.
   const ref = w.refs.place(place.placeId, wordsOfEntry(w, place));
   const lines = [heading(w, ref, w.origin[place.evidence] ?? '', place.candidate, true)];
-  // A place her selfreflection is mirrored to is marked at every detail, so she knows it as hers wherever it shows.
-  if (selfreflection) lines.push(w.l.selfreflection ?? '');
+  // A place her diary is mirrored to is marked at every detail, so she knows it as hers wherever it shows.
+  if (diary) lines.push(w.l.diary ?? '');
   if (place.detail !== 'name') {
     for (const field of ['purpose', 'tone', 'topics'] as const) {
       const value = place[field];
@@ -526,8 +526,8 @@ function wordsOf(labels: Labels, frame: FrameView, nameOf: NameOf, refs: EntryRe
 }
 
 /**
- * Every entry of `mind` as an item, in the order of the subtags and, inside one, the reader's rank. `selfreflectionIds`
- * are the chat ids of the places her selfreflection is mirrored to (src/memory/db/mirrors.ts), `refs` how the request
+ * Every entry of `mind` as an item, in the order of the subtags and, inside one, the reader's rank. `diaryIds`
+ * are the chat ids of the places her diary is mirrored to (src/memory/db/mirrors.ts), `refs` how the request
  * names a mention and a place.
  */
 export function memoryItemsOf(
@@ -536,13 +536,12 @@ export function memoryItemsOf(
   labels: Labels,
   nameOf: NameOf,
   live: LiveOf | null = null,
-  selfreflectionIds: ReadonlySet<string> = new Set(),
+  diaryIds: ReadonlySet<string> = new Set(),
   chatIdOf: ChatIdOf = () => null,
   refs: EntryRefs | null = null,
   keepEmoji = false
 ): Array<MemoryItem> {
-  const mine = (place: PlaceEntry): boolean =>
-    selfreflectionIds.has(place.kind === 'dm' ? '' : (chatIdOf(place.placeId) ?? ''));
+  const mine = (place: PlaceEntry): boolean => diaryIds.has(place.kind === 'dm' ? '' : (chatIdOf(place.placeId) ?? ''));
   const w = wordsOf(labels, frame, nameOf, refs, keepEmoji);
   const plain = (subtag: MemorySubtag, text: string, reads: Array<MemoryRead>): MemoryItem => ({
     subtag,
@@ -694,15 +693,15 @@ function changeLine(w: Words, change: AttitudeChange): string {
     : line;
 }
 
-/** The places her selfreflection is mirrored to, as memoryItemsOf takes them: their chat ids and a place's chat id. */
-export type MirrorMarks = { selfreflectionIds: ReadonlySet<string>; chatIdOf: ChatIdOf };
+/** The places her diary is mirrored to, as memoryItemsOf takes them: their chat ids and a place's chat id. */
+export type MirrorMarks = { diaryIds: ReadonlySet<string>; chatIdOf: ChatIdOf };
 
-const NO_MIRROR_MARKS: MirrorMarks = { selfreflectionIds: new Set(), chatIdOf: () => null };
+const NO_MIRROR_MARKS: MirrorMarks = { diaryIds: new Set(), chatIdOf: () => null };
 
 /**
  * A `<memory>` of what memory.read found for one subject: every entry of `mind` as memoryItemsOf renders it, none marked
  * as the one she answers, each with the read's own origin (`memory.origin.read`) in its heading, and the place of a
- * mirror of her selfreflection (`mirrors`) marked as `<places>` marks it. With `changes` the people of `mind` render as
+ * mirror of her diary (`mirrors`) marked as `<places>` marks it. With `changes` the people of `mind` render as
  * their heading alone followed by those changes, newest first. '' with nothing.
  */
 export function subjectMemoryOf(
@@ -727,7 +726,7 @@ export function subjectMemoryOf(
     told,
     nameOf,
     null,
-    mirrors.selfreflectionIds,
+    mirrors.diaryIds,
     mirrors.chatIdOf,
     null,
     keepEmoji

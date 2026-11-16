@@ -1,11 +1,11 @@
 // The act of a turn: her reactions, her messages and the GIF the media pick chose posted for real, each checked by the gateway right before it, typed
-// out like a person would, journaled and recorded; and a selfreflection post's speech held where the act would send it.
+// out like a person would, journaled and recorded; and a diary post's speech held where the act would send it.
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createAct; the attempt and her calls call act
 // and holdSpeech.
 
 import { bindPublicationPort, turnBoundary } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
-import { setSettings } from '../behavior/selfreflection.ts';
+import { setSettings } from '../behavior/diary.ts';
 import { chunkPictures, filesPerMessage } from '../behavior/mirror.ts';
 import type { EntryPicture } from '../behavior/mirror.ts';
 import { between, typingMs } from '../behavior/random.ts';
@@ -40,7 +40,7 @@ type TypingSettings = Parameters<typeof typingMs>[1] & {
 /** The live config, as far as the act reads it. */
 export type ActConfig = {
   typing: TypingSettings;
-  selfreflection?: unknown;
+  diary?: unknown;
 };
 
 /** An answer of the interface port: its result, and a platform's own code for a refused send. */
@@ -168,7 +168,7 @@ export type ActOutcome = {
   reacted: Array<ReactNote>;
 };
 
-/** A selfreflection set's picture as the turn staged it, with what its generation logged. */
+/** A diary set's picture as the turn staged it, with what its generation logged. */
 type HeldPicture = EntryPicture & { text: string; seconds?: unknown; cost?: unknown; self?: unknown };
 
 export type HoldArgs = Omit<RenderArgs, 'channel' | 'snapshot' | 'placeId' | 'dmChat' | 'link'> & {
@@ -233,9 +233,9 @@ export function createAct(ctx: ActContext): Act {
   }
 
   /**
-   * A selfreflection post's speech held where act would send it: her messages as written and as renderPost renders them (the
+   * A diary post's speech held where act would send it: her messages as written and as renderPost renders them (the
    * members it names under their ping states, mentionsUnderPings) and the staged pictures; the turn records the entry
-   * (selfreflection-turn.ts#recordEntry), its mirrors post it.
+   * (diary-turn.ts#recordEntry), its mirrors post it.
    */
   function holdSpeech({ channel, placeId, dmChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
     const options = { channel, snapshot: snapshotOfDraft(draft), placeId, dmChat, ...routing, link: null };
@@ -251,11 +251,7 @@ export function createAct(ctx: ActContext): Act {
       const { seconds, cost, self, buffer } = picture;
       log.info('turn: drew', { channel: channel.id, seconds, cost, self, bytes: buffer?.length ?? 0, set: true });
     }
-    const files = chunkPictures(
-      staged,
-      setSettings(hot.config.selfreflection).maxMessageBytes,
-      filesPerMessage(iface)
-    ).length;
+    const files = chunkPictures(staged, setSettings(hot.config.diary).maxMessageBytes, filesPerMessage(iface)).length;
     if (files > 0) log.info('turn: set posted', { channel: channel.id, pictures: staged.length, messages: files });
     return { held: true, delivered: false, answered: new Set(), texts, rendered, staged, posts: [], reacted: [] };
   }
@@ -265,7 +261,7 @@ export function createAct(ctx: ActContext): Act {
    * anything reached the chat (a reaction put, a message, the picked GIF or the
    * picture posted; a limit notice is not the persona's answer), and the ids
    * of the pulled lines what reached it answered (a reaction put on one, a
-   * message, the GIF or a selfreflection set's pictures posted answering one: stampShownCalls).
+   * message, the GIF or a diary set's pictures posted answering one: stampShownCalls).
    *
    * Everything is posted in `channel`. A reaction on a pulled line
    * (`pulledIds`) is put in that line's channel when the bot may react there,
@@ -303,7 +299,7 @@ export function createAct(ctx: ActContext): Act {
    * `knownNames`: the stored names `@name` resolves by too (storedNames); `directory`: the
    * fallback behind them (mentionDirectory, a thunk); `handles`: the request's handle -> member
    * id map, in place of all three (renderPost);
-   * `mediaPicks`: false keeps the media pick from running (a selfreflection post); `participation` (`{ descriptions }`: the captions the turn had, or
+   * `mediaPicks`: false keeps the media pick from running (a diary post); `participation` (`{ descriptions }`: the captions the turn had, or
    * null): each message sent in a server channel is recorded in the participation store
    * (recordOwnParticipation) with the lines of `history` before it.
    * Resolves `delivered`, `answered`, `messageIds` (the ids of the messages posted, in order), `texts` (the messages

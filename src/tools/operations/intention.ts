@@ -9,7 +9,7 @@
 // candidate), `intention.list`. Her own state, so her own calls run on her grant alone
 // (src/tools/definitions.ts, trait `self`). A call never widens anything: a wait
 // names only an errand the errand store holds, a place to begin in is recorded once the interface says
-// she may write there and the place is no mirror of her diary (`selfreflection-mirror`), and a candidate is accepted only where its origin allows
+// she may write there and the place is no mirror of her diary (`diary-mirror`), and a candidate is accepted only where its origin allows
 // (src/intentions/model.ts#acceptRefusal). An update or a cancel without `id=` whose body is one bare
 // intention id takes that as the id (isIntentionId);
 // any other body stays the update's purpose (or is ignored by the cancel). Off unless
@@ -258,7 +258,7 @@ const handlers = perEnv((env) => {
 
   /**
    * A place to begin in, refused when she cannot write there (src/tools/operations/shared.ts#writablePlace) and when it
-   * is the place of a selfreflection mirror, where only the mirrors' publisher posts (src/behavior/mirror.ts).
+   * is the place of a diary mirror, where only the mirrors' publisher posts (src/behavior/mirror.ts).
    */
   async function checkBegin(place: string | undefined, context: OpContext): Promise<void> {
     if (!place) return;
@@ -266,7 +266,7 @@ const handlers = perEnv((env) => {
     const iface = typeof port?.iface === 'string' ? port.iface : '';
     const target = await writablePlace({ reads: env.reads, store: env.store, iface, id: place, context });
     if (isMirrorPlace(env.memoryDb, target.iface, target.chatId))
-      throw denied(`a mirror of your diary, ${place}`, CODE.SELFREFLECTION_MIRROR);
+      throw denied(`a mirror of your diary, ${place}`, CODE.DIARY_MIRROR);
   }
 
   /**

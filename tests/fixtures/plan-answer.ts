@@ -1,6 +1,6 @@
 // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
 // A planner fake's answer in the form the strict schema of the plan request lets through
-// (src/behavior/selfreflection.ts#selfreflectionPlanFormat).
+// (src/behavior/diary.ts#diaryPlanFormat).
 
 /** The one kind the plan request offers by its schema, or null when it offers several or none. */
 export function offeredKind(options: unknown): string | null {

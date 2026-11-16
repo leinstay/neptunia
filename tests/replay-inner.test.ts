@@ -151,7 +151,7 @@ function heartbeatFixture({ stopped = false } = {}) {
     record,
     reads: world().reads,
     iface: () => 'fake',
-    store: { state: { data: {} }, listUserProfiles: () => [], getSelfreflection: () => ({ posts: [] }) },
+    store: { state: { data: {} }, listUserProfiles: () => [], getDiary: () => ({ posts: [] }) },
     nameOf: () => null,
   };
   const hot = {

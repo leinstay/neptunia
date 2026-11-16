@@ -46,7 +46,7 @@
       "count": 2
     }
   },
-  "scripts/lib/selfreflection-day.ts": {
+  "scripts/lib/diary-day.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 6
     },
@@ -2071,7 +2071,7 @@
       "count": 3
     }
   },
-  "tests/channels-selfreflection.test.ts": {
+  "tests/channels-diary.test.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
@@ -2177,7 +2177,7 @@
       "count": 10
     }
   },
-  "tests/selfreflection-turn.test.ts": {
+  "tests/diary-turn.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 10
     },
@@ -2200,7 +2200,7 @@
       "count": 5
     }
   },
-  "tests/selfreflection.test.ts": {
+  "tests/diary.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 6
     },
@@ -3115,7 +3115,7 @@
       "count": 1
     }
   },
-  "tests/memory-db-selfreflection-media.test.ts": {
+  "tests/memory-db-diary-media.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 8
     },
@@ -3557,7 +3557,7 @@
       "count": 1
     }
   },
-  "tests/prompt-selfreflection.test.ts": {
+  "tests/prompt-diary.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 6
     }

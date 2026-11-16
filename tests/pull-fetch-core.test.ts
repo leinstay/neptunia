@@ -180,7 +180,7 @@ async function listing(viewers: Array<string> = []) {
 
 test('checkPull checks the rails without a request and gives the chat when they pass', async () => {
   const main = mainChannel();
-  const selfreflection = addChannel({
+  const diary = addChannel({
     id: '760000000000000046',
     permissions: { send: false },
     messages: [{ ts: LAST }],
@@ -188,18 +188,18 @@ test('checkPull checks the rails without a request and gives the chat when they 
   const snapshot = await listing();
   const check = (placeId: string, destination: ChatInfo | null, cfg: Config = config()) =>
     checkPull({ snapshot, placeId, destination, config: cfg, now: NOW });
-  assert.equal(check(selfreflection.id, main.info).channel?.id, selfreflection.id);
-  assert.equal(check(selfreflection.id, main.info).skip, null);
-  assert.deepEqual(check(selfreflection.id, null), { channel: null, skip: 'audience' });
+  assert.equal(check(diary.id, main.info).channel?.id, diary.id);
+  assert.equal(check(diary.id, main.info).skip, null);
+  assert.deepEqual(check(diary.id, null), { channel: null, skip: 'audience' });
   assert.deepEqual(check('', main.info), { channel: null, skip: 'not-found' }, 'no id is not found');
   const railOff = config({ pull: { sameAudience: false } });
   assert.deepEqual(
-    check(selfreflection.id, dmChat(), railOff),
+    check(diary.id, dmChat(), railOff),
     { channel: null, skip: 'private-chat' },
     'a private chat without a partner never pulls, even with the audience rail off'
   );
-  assert.equal(check(selfreflection.id, null, railOff).channel?.id, selfreflection.id);
-  assert.deepEqual(selfreflection.calls(), []);
+  assert.equal(check(diary.id, null, railOff).channel?.id, diary.id);
+  assert.deepEqual(diary.calls(), []);
 });
 
 test('checkPull lets a private chat with its partner pass what the partner can view and refuses the rest as audience', async () => {

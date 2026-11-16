@@ -1,7 +1,7 @@
-// The selfreflection's mirrors. A mirror is one place her selfreflection entries are posted to, a `mirrors` row the owner set up
+// The diary's mirrors. A mirror is one place her diary entries are posted to, a `mirrors` row the owner set up
 // (src/memory/db/mirror-config.ts); there may be none or many. `createMirrors` (wired in src/core.ts) publishes a recorded
 // entry once to every enabled mirror: each mirror gets one `publications` row (src/memory/db/publish.ts), keyed
-// `selfreflection:<entry id>:<place id>`, prepared `queued` under the mirror's standing grant, claimed through the writer so only
+// `diary:<entry id>:<place id>`, prepared `queued` under the mirror's standing grant, claimed through the writer so only
 // one publisher sends it (`sending`, src/memory/db/publication-delivery.ts), then sent through the port of its interface
 // and marked `sent` with the message ids as receipts, `failed` with the port's code, or `unknown` when nobody knows what
 // reached the platform. A second publication of the same entry to the same place reuses the row and sends nothing. While
@@ -9,46 +9,39 @@
 // the interface connects and on the scheduler's tick. Every write goes through the memory service's writer
 // (`memoryWrite`, kinds `publication` and `mirror`).
 //
-// An entry goes out as segments, in the order a selfreflection post goes out from the turn: the voice message, her messages one by
+// An entry goes out as segments, in the order a diary post goes out from the turn: the voice message, her messages one by
 // one, then the pictures in messages of files (`entryPlan`). Each segment has its idempotency key and its receipt, kept as
 // it goes out, so a retry resumes at the segment that stopped under the same key. A send that throws, hangs past
 // `mirrors.sendTimeoutMs` or answers `unknown` makes the row `unknown` and nothing more goes out: only a receipt, an
 // adapter's lookup or the owner settles it. The turn's act path (src/behavior/turn.ts#act) splits a set with the same
 // `chunkPictures` and names its files with `pictureAttachments`; `voice.say` (src/tools/operations/voice.ts) builds its file
 // with `voiceAttachment`. Before any send the entry's pictures and voice file are kept in memory as files under the data
-// directory and `media` rows (memoryWrite kind `entry-media`, src/memory/db/selfreflection-media.ts), so a row still queued after
+// directory and `media` rows (memoryWrite kind `entry-media`, src/memory/db/diary-media.ts), so a row still queued after
 // a restart goes out whole, and a row whose file is gone holds as `incomplete` with nothing posted
 // (src/behavior/mirror-stored.ts).
 //
 // What may reach a place is read from the stored row at queue time and again right before a send, never from the entry a
-// turn held: `storedSelfreflectionPublicationRefusal` (src/memory/db/publish.ts) intersects the trusted restrictions with the
-// audience she chose (src/memory/db/selfreflection-audience.ts). A mirror an entry's audience leaves out gets no row, and a row
+// turn held: `storedDiaryPublicationRefusal` (src/memory/db/publish.ts) intersects the trusted restrictions with the
+// audience she chose (src/memory/db/diary-audience.ts). A mirror an entry's audience leaves out gets no row, and a row
 // queued before a narrowing ends `failed` with `audience-excluded`.
 //
-// The reads of the mirrors (`mirrorPlaces`, `selfreflectionPlaces`, `isMirrorPlace`, `selfreflectionChatIds`) live with the memory
+// The reads of the mirrors (`mirrorPlaces`, `diaryPlaces`, `isMirrorPlace`, `diaryChatIds`) live with the memory
 // database (src/memory/db/mirrors.ts) and are passed on from here to the behaviour modules. A mirror place is not hers
 // to write in (the owner, 2026-10-27): `guardMirrorPort` is the core's outbound port, which refuses every send
-// there with the code `selfreflection-mirror`, and the message handler opens no turn for an event there (src/behavior/
+// there with the code `diary-mirror`, and the message handler opens no turn for an event there (src/behavior/
 // pipeline.js). The owner's commands read and change the mirrors through src/behavior/mirror-desk.ts. Logs carry counts
 // and codes, never a text.
 
-import { selfreflectionPublicationRefusal } from '../tools/publication.ts';
+import { diaryPublicationRefusal } from '../tools/publication.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import { log } from '../log.ts';
 import { portLimit } from '../interface/capabilities.ts';
 import { issueContext } from '../memory/db/scope.ts';
-import { storedSelfreflectionPublicationRefusal, recheck } from '../memory/db/publish.ts';
-import { NO_PLACES, publicationPlaces } from '../memory/db/selfreflection-audience.ts';
-import { setSettings } from './selfreflection.ts';
-import {
-  selfreflectionChatIds,
-  selfreflectionPlaces,
-  isMirrorPlace,
-  mirrorPlaces,
-  placeOf,
-  readMirrors,
-} from '../memory/db/mirrors.ts';
-import type { SelfreflectionPlace } from '../memory/db/mirrors.ts';
+import { storedDiaryPublicationRefusal, recheck } from '../memory/db/publish.ts';
+import { NO_PLACES, publicationPlaces } from '../memory/db/diary-audience.ts';
+import { setSettings } from './diary.ts';
+import { diaryChatIds, diaryPlaces, isMirrorPlace, mirrorPlaces, placeOf, readMirrors } from '../memory/db/mirrors.ts';
+import type { DiaryPlace } from '../memory/db/mirrors.ts';
 import { CODE } from '../tools/codes.ts';
 import { createMirrorDesk } from './mirror-desk.ts';
 import type { MirrorDesk } from './mirror-desk.ts';
@@ -70,11 +63,11 @@ export type EntryVoice = { ogg: Uint8Array; durationSecs: number; waveform: stri
 export type EntryFile = { message: number; name: string; data: Uint8Array; contentType: string | null };
 
 /**
- * A selfreflection entry as it is published: its `selfreflection` row's id, her messages as they are sent, the members each message may
+ * A diary entry as it is published: its `diary` row's id, her messages as they are sent, the members each message may
  * notify (`mentions[i]` for `messages[i]`, none when absent), whether everyone a message names chose to be pinged (`notify[i]`,
  * src/turn/mentions.ts#mentionsUnderPings), the pictures and the voice message.
  */
-export type SelfreflectionEntry = {
+export type DiaryEntry = {
   publicationBoundary?: PublicationBoundary;
   id: string;
   messages: ReadonlyArray<string>;
@@ -84,7 +77,7 @@ export type SelfreflectionEntry = {
   voice?: EntryVoice | null;
   /** The files her messages carry, each with the index of its message in `messages`. */
   files?: ReadonlyArray<EntryFile>;
-  /** The bytes of one message of pictures (`selfreflection.set.maxMessageBytes` when the entry was recorded). */
+  /** The bytes of one message of pictures (`diary.set.maxMessageBytes` when the entry was recorded). */
   maxMessageBytes?: number;
 };
 
@@ -169,8 +162,8 @@ export function imageFileName(mediaType: unknown): string {
 }
 
 /**
- * A selfreflection set's pictures split into messages, in order: a message holds at most `maxFiles` files, and a picture whose
- * bytes would take its message past `maxBytes` (`selfreflection.set.maxMessageBytes`) starts the next one; a picture larger
+ * A diary set's pictures split into messages, in order: a message holds at most `maxFiles` files, and a picture whose
+ * bytes would take its message past `maxBytes` (`diary.set.maxMessageBytes`) starts the next one; a picture larger
  * than `maxBytes` on its own goes alone. Pure.
  */
 export function chunkPictures<TPicture extends { buffer?: { length: number } | null }>(
@@ -220,7 +213,7 @@ export function voiceAttachment(voice: EntryVoice, at: number): Attachment {
 }
 
 /** The entry's text as one string: her messages, one per line. It is the publication's rendered text. */
-export function entryText(entry: Pick<SelfreflectionEntry, 'messages'>): string {
+export function entryText(entry: Pick<DiaryEntry, 'messages'>): string {
   return entry.messages.join('\n');
 }
 
@@ -233,7 +226,7 @@ export type EntrySegment = { content: Content; items: Array<number> };
  */
 export function entryPlan(
   port: MirrorPort,
-  entry: SelfreflectionEntry,
+  entry: DiaryEntry,
   { maxMessageBytes, now }: { maxMessageBytes: number; now: () => number }
 ): Array<EntrySegment> {
   // Each send with the entry's files it carries, numbered as the entry keeps them: the pictures, then the voice.
@@ -351,10 +344,10 @@ export async function sendPlan(
 export async function sendEntry(
   port: MirrorPort,
   chat: ChatRef,
-  entry: SelfreflectionEntry,
+  entry: DiaryEntry,
   { maxMessageBytes, now }: { maxMessageBytes: number; now: () => number }
 ): Promise<EntrySent> {
-  if (selfreflectionPublicationRefusal(entry.publicationBoundary, chat))
+  if (diaryPublicationRefusal(entry.publicationBoundary, chat))
     return { status: 'failed', code: 'not-allowed', messageIds: [], attachmentIds: [], posted: [] };
   return sendPlan(port, chat, entryPlan(port, entry, { maxMessageBytes, now }));
 }
@@ -370,41 +363,32 @@ function postedOf(sent: Delivery, content: Content, items: Array<number>): Poste
   };
 }
 
-/** The places of her selfreflection a sandbox's view names (`memory.selfreflectionChannelIds`, src/behavior/sandbox.ts), else none. */
-export function viewSelfreflectionIds(view: unknown): Array<string> {
-  const read = (view as { memory?: { selfreflectionChannelIds?: unknown } } | null | undefined)?.memory
-    ?.selfreflectionChannelIds;
+/** The places of her diary a sandbox's view names (`memory.diaryChannelIds`, src/behavior/sandbox.ts), else none. */
+export function viewDiaryIds(view: unknown): Array<string> {
+  const read = (view as { memory?: { diaryChannelIds?: unknown } } | null | undefined)?.memory?.diaryChannelIds;
   return typeof read === 'function' ? (read as () => Array<string>)() : [];
 }
 
-export {
-  NO_PLACES,
-  selfreflectionChatIds,
-  selfreflectionPlaces,
-  isMirrorPlace,
-  mirrorPlaces,
-  publicationPlaces,
-  readMirrors,
-};
-export type { SelfreflectionPlace };
+export { NO_PLACES, diaryChatIds, diaryPlaces, isMirrorPlace, mirrorPlaces, publicationPlaces, readMirrors };
+export type { DiaryPlace };
 
 /**
- * The core's outbound port: `port` with every `send` to the place of an enabled selfreflection mirror refused with the code
- * `selfreflection-mirror` (nothing reaches the interface), read in `memoryDb` at each send. Only the mirrors' publisher, which
+ * The core's outbound port: `port` with every `send` to the place of an enabled diary mirror refused with the code
+ * `diary-mirror` (nothing reaches the interface), read in `memoryDb` at each send. Only the mirrors' publisher, which
  * holds the interface's own port, writes there. Everything else passes through.
  */
 export function guardMirrorPort<TPort extends MirrorPort>(port: TPort, { memoryDb }: { memoryDb: unknown }): TPort {
   async function send(chat: ChatRef, content: Content, options?: SendOptions): Promise<Delivery> {
     // The options pass through: the idempotency key of a send is what a reconcile finds it by.
     if (!isMirrorPlace(memoryDb, chat.iface, chat.chatId)) return port.send(chat, content, options);
-    log.info('mirror: send refused', { code: CODE.SELFREFLECTION_MIRROR });
+    log.info('mirror: send refused', { code: CODE.DIARY_MIRROR });
     return {
       status: 'failed',
       ref: null,
       parts: [],
       at: null,
       idempotencyKey: '',
-      error: { code: CODE.SELFREFLECTION_MIRROR, retryable: false, retryAfterMs: null },
+      error: { code: CODE.DIARY_MIRROR, retryable: false, retryAfterMs: null },
     };
   }
   return new Proxy(port, {
@@ -426,7 +410,7 @@ type MediaItem = {
 };
 
 /** The entry's files in the order memory numbers them: the pictures, the voice file, then her messages' files. */
-function mediaItems(entry: SelfreflectionEntry): Array<MediaItem> {
+function mediaItems(entry: DiaryEntry): Array<MediaItem> {
   return [
     ...(entry.pictures ?? []).map((picture) => ({ data: picture.buffer, mime: picture.mediaType, extra: null })),
     ...(entry.voice
@@ -467,19 +451,19 @@ const segmentOf = ({ segments }: StoredDelivery, segment: number) => segments[se
 
 /** The publisher's whole surface: publishing, draining, and the owner's desk. */
 export type Mirrors = MirrorDesk & {
-  publishEntry(entry: SelfreflectionEntry): Promise<Array<PublishOutcome>>;
-  queueEntry(entry: SelfreflectionEntry): Promise<void>;
+  publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>>;
+  queueEntry(entry: DiaryEntry): Promise<void>;
   drainQueued(): Promise<number>;
-  keepEntryMedia(entry: SelfreflectionEntry): Promise<void>;
-  /** A selfreflection turn begins: until the answered function is called, a drain leaves entries with no publication alone. */
+  keepEntryMedia(entry: DiaryEntry): Promise<void>;
+  /** A diary turn begins: until the answered function is called, a drain leaves entries with no publication alone. */
   beginEntry(): () => void;
 };
 
 /**
- * The publisher of the selfreflection's mirrors over the memory service `memoryDb` and the port of each interface (`port(iface)`:
+ * The publisher of the diary's mirrors over the memory service `memoryDb` and the port of each interface (`port(iface)`:
  * null while that interface is not connected). `dataDir` is the memory service's data directory, where the entries' media
  * files are kept. `config()` is the live config: `mirrors.claimLeaseMs`, `mirrors.sendTimeoutMs`, and
- * `selfreflection.set.maxMessageBytes` for an entry that names no `maxMessageBytes`.
+ * `diary.set.maxMessageBytes` for an entry that names no `maxMessageBytes`.
  */
 export function createMirrors({
   memoryDb,
@@ -501,13 +485,13 @@ export function createMirrors({
 
   const desk = createMirrorDesk({ memoryDb, database, port, now });
 
-  /** The enabled mirror's place `placeId` as a selfreflection place, or null when it is no longer an enabled mirror. */
-  function mirroredPlace(db: Db, placeId: string): SelfreflectionPlace | null {
+  /** The enabled mirror's place `placeId` as a diary place, or null when it is no longer an enabled mirror. */
+  function mirroredPlace(db: Db, placeId: string): DiaryPlace | null {
     return placeOf(
       db
         .prepare(
           `SELECT p.id, p.iface, p.native_id, p.name FROM mirrors m JOIN places p ON p.id = m.place_id
-            WHERE m.row_kind = 'selfreflection' AND m.enabled = 1 AND m.place_id = ?`
+            WHERE m.row_kind = 'diary' AND m.enabled = 1 AND m.place_id = ?`
         )
         .get(placeId)
     );
@@ -517,7 +501,7 @@ export function createMirrors({
     memoryDb.memoryWrite({ kind: 'publication', ...update });
 
   /** The entry's pictures, then its voice file, kept in memory before anything is sent (in that order: numbered so). */
-  async function keepMedia(entry: SelfreflectionEntry, sent: EntrySent | null = null): Promise<void> {
+  async function keepMedia(entry: DiaryEntry, sent: EntrySent | null = null): Promise<void> {
     const items = mediaItems(entry);
     // Once sent, each file names the message and the platform's attachment it became.
     for (const message of sent?.posted ?? [])
@@ -531,7 +515,7 @@ export function createMirrors({
   /** A refusal or a hold with nothing sent: the row keeps its code, and a drain's next look at it writes nothing new. */
   async function hold(
     publication: Publication,
-    place: SelfreflectionPlace,
+    place: DiaryPlace,
     status: 'failed' | 'incomplete',
     code: string,
     paced: boolean
@@ -544,8 +528,8 @@ export function createMirrors({
   /** The claimed row's segments sent one after another, each receipt written as it goes out; the row's end. */
   async function sendClaimed(
     publication: Publication,
-    place: SelfreflectionPlace,
-    entry: SelfreflectionEntry,
+    place: DiaryPlace,
+    entry: DiaryEntry,
     connected: MirrorPort,
     plan: Array<EntrySegment>,
     claimant: string,
@@ -597,14 +581,14 @@ export function createMirrors({
    */
   async function send(
     publication: Publication,
-    place: SelfreflectionPlace,
-    entry: SelfreflectionEntry,
+    place: DiaryPlace,
+    entry: DiaryEntry,
     { paced = false, missing = false }: { paced?: boolean; missing?: boolean } = {}
   ): Promise<PublishOutcome> {
     const db = database();
     const destination = { iface: place.iface, chatId: place.chatId };
     const context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
-    const refusal = selfreflectionPublicationRefusal(entry.publicationBoundary, destination);
+    const refusal = diaryPublicationRefusal(entry.publicationBoundary, destination);
     const checked = db ? recheck(db, publication.id, context) : { ok: false };
     // Another publisher took the row since it was read.
     if ('code' in checked && checked.code === 'not-pending')
@@ -617,8 +601,8 @@ export function createMirrors({
     if (!connected || connected.iface !== place.iface)
       return { placeId: place.placeId, status: publication.status as PublishOutcome['status'], code: null };
     if (missing) return hold(publication, place, 'incomplete', 'media-missing', paced);
-    const selfreflection = (config() as { selfreflection?: unknown } | null)?.selfreflection ?? null;
-    const maxMessageBytes = entry.maxMessageBytes ?? setSettings(selfreflection).maxMessageBytes;
+    const diary = (config() as { diary?: unknown } | null)?.diary ?? null;
+    const maxMessageBytes = entry.maxMessageBytes ?? setSettings(diary).maxMessageBytes;
     const plan = entryPlan(connected, entry, { maxMessageBytes, now });
     const claimant = nextClaimant();
     const claim = (await write({
@@ -636,23 +620,18 @@ export function createMirrors({
   }
 
   /** The entry's `queued` publication to one place, or the code that refuses it; `pending` when it has no content yet. */
-  async function prepareFor(
-    db: Db,
-    entry: SelfreflectionEntry,
-    place: SelfreflectionPlace,
-    pending: boolean
-  ): Promise<Prepared> {
-    const carried = selfreflectionPublicationRefusal(entry.publicationBoundary, {
+  async function prepareFor(db: Db, entry: DiaryEntry, place: DiaryPlace, pending: boolean): Promise<Prepared> {
+    const carried = diaryPublicationRefusal(entry.publicationBoundary, {
       iface: place.iface,
       chatId: place.chatId,
     });
-    const refusal = carried?.code ?? storedSelfreflectionPublicationRefusal(db, entry.id, place.placeId);
+    const refusal = carried?.code ?? storedDiaryPublicationRefusal(db, entry.id, place.placeId);
     if (refusal) return { ok: false, code: refusal };
     const context: Context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
     const rendered = entryText(entry);
     const input = {
       context,
-      rowKind: 'selfreflection',
+      rowKind: 'diary',
       rowId: entry.id,
       rendered,
       destination: place.placeId,
@@ -662,16 +641,16 @@ export function createMirrors({
   }
 
   /**
-   * The entry's `queued` publication to every enabled mirror's place, keyed `selfreflection:<entry>:<place>` and prepared once
+   * The entry's `queued` publication to every enabled mirror's place, keyed `diary:<entry>:<place>` and prepared once
    * (a later call reuses it); `pending` for an entry a turn is still writing, whose content its send fills. Each with
    * its place.
    */
   async function prepareAll(
     db: Db,
-    entry: SelfreflectionEntry,
+    entry: DiaryEntry,
     pending: boolean
-  ): Promise<Array<{ place: SelfreflectionPlace; prepared: Prepared }>> {
-    const out: Array<{ place: SelfreflectionPlace; prepared: Prepared }> = [];
+  ): Promise<Array<{ place: DiaryPlace; prepared: Prepared }>> {
+    const out: Array<{ place: DiaryPlace; prepared: Prepared }> = [];
     for (const mirror of desk.listMirrors().filter((one) => one.enabled)) {
       const place = mirroredPlace(db, mirror.placeId);
       if (place) out.push({ place, prepared: await prepareFor(db, entry, place, pending) });
@@ -684,14 +663,14 @@ export function createMirrors({
    * mirror. Nothing is sent: `publishEntry` sends it when the turn ends, and after a stop `drainQueued` of a new
    * publisher does.
    */
-  async function queueEntry(entry: SelfreflectionEntry): Promise<void> {
+  async function queueEntry(entry: DiaryEntry): Promise<void> {
     const db = database();
     if (!db) return;
     await keepMedia(entry);
     await prepareAll(db, entry, true);
   }
 
-  async function publishEntry(entry: SelfreflectionEntry): Promise<Array<PublishOutcome>> {
+  async function publishEntry(entry: DiaryEntry): Promise<Array<PublishOutcome>> {
     const db = database();
     if (!db) return [];
     await keepMedia(entry);

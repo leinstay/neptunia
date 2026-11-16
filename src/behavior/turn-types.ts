@@ -70,8 +70,8 @@ export type CreateTurnRunnerInput = {
   intentions?: Untyped;
   places?: Untyped;
   memoryReads?: Untyped;
-  /** A selfreflection post's stored facts through the one retrieval service. */
-  selfreflectionFacts?: Untyped;
+  /** A diary post's stored facts through the one retrieval service. */
+  diaryFacts?: Untyped;
   /** The memory's read handle while it is open (null while closed), for `<my_day>` (src/turn/request/my-day.ts). */
   journalDb?: (() => unknown) | null;
   /** Her link tool (src/interface/person-link.ts): `person.link`; null: none. */

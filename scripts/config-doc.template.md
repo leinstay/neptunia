@@ -136,9 +136,11 @@ The engine proxy is described in [Proxy](proxy.md).
 
 <!-- settings: skills -->
 
-## selfreflection
+## diary
 
-<!-- settings: selfreflection -->
+The settings of the `diary` service. A deployment keeps its own values under the key `diary` of `data/config/config.json`. [Setup](setup.md#one-flow-and-its-steps) names the prompt files and the picture folder the diary reads.
+
+<!-- settings: diary -->
 
 ## mirrors
 

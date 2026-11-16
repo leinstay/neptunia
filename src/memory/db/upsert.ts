@@ -11,7 +11,7 @@ import {
   ensureLinks,
   ensureNodeKeys,
   ensureRelations,
-  restrictSelfreflectionMedia,
+  restrictDiaryMedia,
   syncPersonAccounts,
 } from './rows.ts';
 import { projectRow } from './graph.ts';
@@ -39,7 +39,7 @@ export const OWNED: Record<string, ReadonlyArray<string>> = {
   episodes: ['id'],
   affinity_events: ['id'],
   day: ['id'],
-  selfreflection: ['id'],
+  diary: ['id'],
   media: ['id'],
   intentions: ['id'],
   work: ['id'],
@@ -53,7 +53,7 @@ export const OWNED: Record<string, ReadonlyArray<string>> = {
 const CHILDREN: Record<string, [string, string]> = {
   episode_sources: ['episodes', 'episode_id'],
   claim_sources: ['claims', 'claim_id'],
-  selfreflection_mirrors: ['selfreflection', 'selfreflection_id'],
+  diary_mirrors: ['diary', 'diary_id'],
 };
 
 const quote = (name: string): string => `"${name}"`;
@@ -119,7 +119,7 @@ const ROW_WRITERS: ReadonlySet<unknown> = new Set([
   'lore',
   'participation',
   'recent',
-  'selfreflection',
+  'diary',
   'profile',
   'private',
   'versions',
@@ -221,7 +221,7 @@ function writeRow(db: Db, table: string, given: Row, opts: { ignore?: boolean; a
   // v9: the row is projected (ensureRelations projects a source with its relations).
   if (table === 'sources') ensureRelations(db, derived, { at: opts.at });
   else projectRow(db, table, derived, { at: opts.at });
-  if (table === 'selfreflection') restrictSelfreflectionMedia(db, derived, opts.at);
+  if (table === 'diary') restrictDiaryMedia(db, derived, opts.at);
   if (found && !mine && row.writer !== undefined && row.writer !== null)
     unsharePlaceRow(db, table, keyOf(table, row), ownerOf(row));
   return true;
@@ -243,13 +243,11 @@ function writeChildren(
       const out: Row = { ...row, retired_at: null };
       const cols = Object.keys(out);
       const where =
-        child === 'selfreflection_mirrors'
-          ? "selfreflection_id = ? AND iface = ? AND coalesce(place_id, '') = ?"
+        child === 'diary_mirrors'
+          ? "diary_id = ? AND iface = ? AND coalesce(place_id, '') = ?"
           : `${quote(link)} = ? AND position = ?`;
       const args =
-        child === 'selfreflection_mirrors'
-          ? [row.selfreflection_id, row.iface, row.place_id ?? '']
-          : [row[link], bind(row.position)];
+        child === 'diary_mirrors' ? [row.diary_id, row.iface, row.place_id ?? ''] : [row[link], bind(row.position)];
       const found = prepared(
         db,
         `SELECT rowid, * FROM ${quote(child)} WHERE ${where} ORDER BY ${unowned} DESC, rowid LIMIT 1`
@@ -301,7 +299,7 @@ export function writeMapping(
   count += writeChildren(db, mapping, skippedParents, touched);
   // Schema v10: a mirror's publication follows the mirror (publish.ts#deriveMirrorPublication), on this one path.
   for (const [child, row] of touched) {
-    if (child === 'selfreflection_mirrors') deriveMirrorPublication(db, row, { at });
+    if (child === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
     projectRow(db, child, row, { at });
   }
   return count;

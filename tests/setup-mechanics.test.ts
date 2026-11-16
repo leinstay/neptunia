@@ -1,4 +1,4 @@
-// src/setup/mechanics.ts: the mechanics step of `neptunia setup`. It asks on or off for `heartbeat` and `selfreflection`
+// src/setup/mechanics.ts: the mechanics step of `neptunia setup`. It asks on or off for `heartbeat` and `diary`
 // and stores the answers in the local config. The terminal is a fake; the private folder is a temp dir and the tracked
 // layer is this checkout's. Each test names the bug it catches.
 // Changed: the selfimprovement switch, its schedule and its gh and repository checks left the step with the mechanic.
@@ -45,13 +45,13 @@ function rig(config: Record<string, unknown> = {}): Rig {
 
 test('both on stores each switch', async () => {
   // Catches: the step asks but writes nothing.
-  const r = rig({ heartbeat: { enabled: false }, selfreflection: { enabled: false } });
+  const r = rig({ heartbeat: { enabled: false }, diary: { enabled: false } });
   r.answers = ['on', 'on'];
   const outcome = await mechanicsStep(r.options, r.deps);
   const config = local(r.options.privateDir);
   assert.equal(outcome.state, 'done');
   assert.equal(config.heartbeat?.enabled, true);
-  assert.equal(config.selfreflection?.enabled, true);
+  assert.equal(config.diary?.enabled, true);
 });
 
 test("storing the switches keeps the owner's other settings", async () => {
@@ -68,7 +68,7 @@ test('off answers store false, so a tracked default of on does not win', async (
   r.answers = ['off', 'off'];
   await mechanicsStep(r.options, r.deps);
   const config = local(r.options.privateDir);
-  assert.deepEqual([config.heartbeat?.enabled, config.selfreflection?.enabled], [false, false]);
+  assert.deepEqual([config.heartbeat?.enabled, config.diary?.enabled], [false, false]);
 });
 
 test('each question offers the value in force, so an empty answer keeps it', async () => {
@@ -82,7 +82,7 @@ test('each question offers the value in force, so an empty answer keeps it', asy
 
 test('a rerun that changes nothing is already done and leaves the file as it was', async () => {
   // Catches: every rerun rewrites config.json, so the step never reports already and the live-config drift check fires.
-  const r = rig({ heartbeat: { enabled: true }, selfreflection: { enabled: false } });
+  const r = rig({ heartbeat: { enabled: true }, diary: { enabled: false } });
   const before = fs.readFileSync(configFile(r.options.privateDir), 'utf8');
   r.answers = ['', ''];
   const outcome = await mechanicsStep(r.options, r.deps);

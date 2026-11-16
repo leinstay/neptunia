@@ -1,16 +1,16 @@
 // memory.read, her one read of what memory holds about one subject, run inside a turn (src/turn/in-turn-tools.ts) under
 // the turn's memory context and never as an owner's command.
 //
-//   runMemoryRead({ args, reads, context, here, labels, timezone, now, selfreflectionIds? })
+//   runMemoryRead({ args, reads, context, here, labels, timezone, now, diaryIds? })
 //     -> { status, code?, reason?, data?: { text } }
 //
 // `args.subject` names a person, a place, the word `community` or a lore title (src/memory/db/subject.ts#subjectOf).
 // A person or a place is the one seed of the graph reader, read alone (src/memory/db/mind-read.ts, `Seeds.alone`): a
 // person as the counterpart, so their entry comes at whole detail with their claims and episodes, a place as the place,
 // with its lore and episodes. A lore entry comes as its claim. The renderer of `<memory>` renders it
-// (src/turn/request/memory-block.ts#subjectMemoryOf), and the entry of a place whose chat id is in `selfreflectionIds`, a
-// mirror of her selfreflection (src/memory/db/mirrors.ts#selfreflectionChatIds), carries the mark `<places>` gives it
-// (`labels.memory.selfreflection`). `args.section` narrows what is rendered: `summary` (the default)
+// (src/turn/request/memory-block.ts#subjectMemoryOf), and the entry of a place whose chat id is in `diaryIds`, a
+// mirror of her diary (src/memory/db/mirrors.ts#diaryChatIds), carries the mark `<places>` gives it
+// (`labels.memory.diary`). `args.section` narrows what is rendered: `summary` (the default)
 // renders every entry, `episodes` the episodes alone, `changes` a person's attitude changes, newest first. `args.limit`
 // caps the claims, episodes and changes, default 25, at most 100. What the context may not read never comes back: the
 // reader filters every row by the audience of the context (src/memory/db/scope.ts#audienceWhere).
@@ -52,8 +52,8 @@ export type MemoryReadInput = {
   labels: unknown;
   timezone: string;
   now: number;
-  /** The chat ids of the places her selfreflection is mirrored to; none when not given. */
-  selfreflectionIds?: ReadonlySet<string>;
+  /** The chat ids of the places her diary is mirrored to; none when not given. */
+  diaryIds?: ReadonlySet<string>;
   /** `context.names.emoji`: the names keep their emoji when true. */
   keepEmoji?: boolean;
 };
@@ -180,13 +180,13 @@ function readSubject(
   return text === '' ? noneAnswer(given, word) : { status: 'ok', data: { text } };
 }
 
-/** The mirrors of her selfreflection as the renderer marks them: their chat ids and a stored place's chat id. */
+/** The mirrors of her diary as the renderer marks them: their chat ids and a stored place's chat id. */
 function mirrorsOf(input: MemoryReadInput): MirrorMarks {
   const chatIdOf = (placeId: string): string | null => {
     const ref = input.reads?.placeRef?.(placeId) ?? null;
     return ref === null || ref.kind === 'dm' ? null : ref.nativeId;
   };
-  return { selfreflectionIds: input.selfreflectionIds ?? new Set(), chatIdOf };
+  return { diaryIds: input.diaryIds ?? new Set(), chatIdOf };
 }
 
 /** Her attitude changes toward the person, newest first, under the turn's context. */

@@ -6,7 +6,7 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'bot.timezone',
     'types': ['string'],
-    'reader': 'src/behavior/selfreflection.ts',
+    'reader': 'src/behavior/diary.ts',
     'default': 'UTC',
     'text': 'Timezone for model timestamps',
   },

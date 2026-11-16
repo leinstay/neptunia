@@ -88,7 +88,7 @@ import { toolsBlockText } from '../llm/tool-text.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { isPlainObject } from '../config.ts';
-import { selfreflectionChatIds, viewSelfreflectionIds } from './mirror.ts';
+import { diaryChatIds, viewDiaryIds } from './mirror.ts';
 import { utcDay } from '../time.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
@@ -202,9 +202,8 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   drawOn: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
   tasks:
     "no part of a split message, no queued or folded call: a replay knows none (a skill scenario's burst hands in its waiting calls: `queued`)",
-  selfreflectionChannel:
-    'no selfreflection is offered: a sandbox turn never posts, so <senses> has no selfreflection line',
-  selfreflection: 'never a selfreflection post: no <virtual_world>, <selfreflection>, <plan> or <found> block',
+  diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
+  diary: 'never a diary post: no <virtual_world>, <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
   skillsInventory: 'no catalogue: a replay runs no classifier (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   around:
@@ -592,7 +591,7 @@ export function liveView({ hot, store, placeId, calibrator }: LiveViewInput): Li
       listChannels: () => store.listChannels(placeId),
       getLore: () => store.getLore(placeId),
       getRecent: () => (typeof store.getRecent === 'function' ? store.getRecent(placeId) : null),
-      selfreflectionChannelIds: () => [...selfreflectionChatIds(store)],
+      diaryChannelIds: () => [...diaryChatIds(store)],
       // The store's address reads, so a replayed request cuts a person's handle as a live turn does.
       accountOf: (nativeId, iface) => accountOf(store, nativeId, iface),
       personOfAccount: (accountId) => personOfMemberAccount(store, accountId),
@@ -820,9 +819,9 @@ export function sandboxRequestInput({
     drawOn: false,
     // Absent but on a burst's turn with calls still waiting (`queued`).
     tasks,
-    selfreflectionChannel: null,
-    selfreflectionChannelIds: viewSelfreflectionIds(view),
-    selfreflection: null,
+    diaryChannel: null,
+    diaryChannelIds: viewDiaryIds(view),
+    diary: null,
     offPeriods: null,
     around: null,
     // Absent but in a skill scenario: the catalogue rows it hands in.

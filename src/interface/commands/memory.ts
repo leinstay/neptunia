@@ -52,7 +52,7 @@ const FAMILY_WORDS: ReadonlyArray<DomainFamily> = [
   'claims',
   'descriptions',
   'episodes',
-  'selfreflection',
+  'diary',
   'media',
   'publications',
   'grants',

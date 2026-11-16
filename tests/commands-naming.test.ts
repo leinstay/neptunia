@@ -94,7 +94,7 @@ test('the help panel lists the plural collections and none of the retired comman
 /** One command of the family, how its parsed name ends and the arguments it must carry. */
 const SERVICE_LINES: ReadonlyArray<{ words: string; tail: string; args: Record<string, string> }> = [
   { words: 'heartbeat status', tail: 'heartbeat.status', args: {} },
-  { words: 'selfreflection enable', tail: 'selfreflection.enable', args: {} },
+  { words: 'diary enable', tail: 'diary.enable', args: {} },
   {
     words: 'heartbeat setup --every 3h --jitter 30m',
     tail: 'heartbeat.setup',
@@ -123,7 +123,7 @@ test('services takes the two mechanisms and the list, and no process unit', () =
   const services = COMMANDS.find((command) => command.name === 'services');
   assert.ok(services);
   const first = new Set(services.subcommands.map((one) => one.name.split('.')[0]));
-  assert.deepEqual([...first].sort(), ['heartbeat', 'list', 'selfreflection']);
+  assert.deepEqual([...first].sort(), ['diary', 'heartbeat', 'list']);
 });
 
 for (const words of [

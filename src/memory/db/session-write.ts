@@ -34,12 +34,12 @@
 //       Schema v11: handed to wakes.ts#applyWakeWrite, skills.ts#applySkillsWrite and index-policy.ts#applyIndexWrite.
 //       Bookkeeping of the database itself, not her memory: no mode.
 //   { kind: 'publication', op: 'prepare' | 'sent' | 'failed' | 'unknown', ... }
-//       The selfreflection's mirrors (src/behavior/mirror.ts), handed to publish.ts#applyPublicationWrite; the claim and the
+//       The diary's mirrors (src/behavior/mirror.ts), handed to publish.ts#applyPublicationWrite; the claim and the
 //       segments of a send (`claim`, `segment`, `settle` and the rest) to publication-delivery.ts#applyDeliveryWrite.
 //   { kind: 'mirror', op: 'add' | 'configure' | 'remove' | 'slot' | 'complete', ... }
 //       The owner's configuration of the mirrors, handed to mirror-config.ts#applyMirrorWrite.
 //   { kind: 'entry-media', id, items, dataDir }
-//       A selfreflection entry's pictures and voice file, kept as files and `media` rows (selfreflection-media.ts#applyEntryMedia).
+//       A diary entry's pictures and voice file, kept as files and `media` rows (diary-media.ts#applyEntryMedia).
 //   { kind: 'place-address', placeId, address, at }
 //       The chat an interface opened for a place that held no address (observe.ts#applyPlaceAddress). No mode.
 //   { kind: 'owner-name', personId, name, remove? } | { kind: 'project', sliceUnits?, maxSlices? }
@@ -148,12 +148,12 @@ import { applyGifVectorWrite } from './gif-vectors.ts';
 import { applyErrandWrite } from './errand-write.ts';
 import { applyParticipationWrite } from './participation-episodes.ts';
 import { applyRecentLinesWrite } from './recent-lines.ts';
-import { applySelfreflectionWrite } from './selfreflection-entries.ts';
+import { applyDiaryWrite } from './diary-entries.ts';
 import { applyOperationalWrite } from './operational.ts';
 import { applyPublicationWrite } from './publish.ts';
 import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
 import { applyMirrorWrite } from './mirror-config.ts';
-import { applyEntryMedia } from './selfreflection-media.ts';
+import { applyEntryMedia } from './diary-media.ts';
 import { applyPlaceAddress } from './observe.ts';
 import { isInterfaceNames, noteRoots } from './roots.ts';
 import type { Root } from './roots.ts';
@@ -977,8 +977,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['place-lore', applyPlaceLoreWrite],
   ['participation-episodes', applyParticipationWrite],
   ['recent-lines', applyRecentLinesWrite],
-  // Her selfreflection: a whole value or one appended post (selfreflection-entries.ts).
-  ['selfreflection-entries', applySelfreflectionWrite],
+  // Her diary: a whole value or one appended post (diary-entries.ts).
+  ['diary-entries', applyDiaryWrite],
   // One entry of the describer's cache, put on its row or dropped (media-store.ts).
   ['media-entry', applyMediaEntryWrite],
   // The entries of the GIF library and their caption vectors (gif-library.ts, gif-vectors.ts).
@@ -989,7 +989,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   // A name the owner gives a person (owner-names.ts), and one tick of the projection job (projection-job.ts).
   ['owner-name', applyOwnerNameWrite],
   ['project', applyProjectWrite],
-  // The selfreflection's mirrors: the state of a send, then the owner's configuration.
+  // The diary's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',
     (handle, update) => (isDeliveryOp(update.op) ? applyDeliveryWrite : applyPublicationWrite)(handle, update),

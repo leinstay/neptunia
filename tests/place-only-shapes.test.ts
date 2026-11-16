@@ -38,8 +38,8 @@ const BOUNDARY = [
   'src/protocol/events.ts#VoiceChanged',
   // A mirror row maps one place to its own native chat, the one its posts go to (plan T.4).
   'src/memory/db/mirror-config.ts#MirrorRow',
-  // A selfreflection place maps one place to its own native chat (plan T.4).
-  'src/memory/db/mirrors.ts#SelfreflectionPlace',
+  // A diary place maps one place to its own native chat (plan T.4).
+  'src/memory/db/mirrors.ts#DiaryPlace',
 ];
 
 const exemptFile = (file: string): boolean =>

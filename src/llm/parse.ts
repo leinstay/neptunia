@@ -9,7 +9,7 @@
 // transport's `<tool_call>` blocks are cut out before this parser sees the text
 // (src/llm/tool-text.ts). A leftover `<call>`, draw or `<gif>` tag (her history still holds some; a picture is the `draw.create` tool, a GIF the media pick's) is cut
 // out wherever it stands outside code, never run, and told as a `retiredTag` diagnostic.
-// `<audience>`, a selfreflection post's alone, is taken out before this parser runs (`takeAudience`, src/turn/phases/response.ts).
+// `<audience>`, a diary post's alone, is taken out before this parser runs (`takeAudience`, src/turn/phases/response.ts).
 // Text outside every tag is never a message: an answer with no tag at all has no action, `bare` holds its text and
 // `untagged` is true (the turn asks once more, src/turn/tool-round.ts). The parser is forgiving about everything but her
 // thinking and that. Her thinking has two names, `think` and `thinking`: a whole block opens and closes with the same
@@ -194,7 +194,7 @@ const AUDIENCE_EXEMPT_RE =
   /(<think>[\s\S]*?(?:<\/think>|$)|<thinking>[\s\S]*?(?:<\/thinking>|$)|```[\s\S]*?(?:```|$)|`[^`\n]*`)/i;
 
 /**
- * A selfreflection answer without its `<audience>` tags, and their bodies in order. A stray opening or closing tag counts as an
+ * A diary answer without its `<audience>` tags, and their bodies in order. A stray opening or closing tag counts as an
  * empty body: the caller reads that as malformed, so a tag she failed to close never reads as no restriction.
  */
 export function takeAudience(raw: string): { text: string; audience: Array<string> } {

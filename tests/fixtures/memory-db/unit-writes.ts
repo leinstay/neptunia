@@ -1,7 +1,7 @@
 // A memory unit as the tests and the seed fixtures spell it (`{ op, key | owner, value | lines }`, the shape the store
 // keeps by key), written through the writer's own kind for it: an operational value or trace line, the intentions, a
 // profile, a private layer, a history of prose, a place's notes, a channel's entry, a lorebook, a participation, recent
-// lines, her selfreflection, a day of the record or the journal, a month of the archive, a month of line vectors, an
+// lines, her diary, a day of the record or the journal, a month of the archive, a month of line vectors, an
 // owner's name or an errand. The engine has no unit write; this only turns a fixture's unit into the write it is.
 // Synthetic data only.
 import { accountProfileOfUnit } from '../../../src/memory/db/account-profile.ts';
@@ -15,7 +15,7 @@ import { placeNotesOfUnit } from '../../../src/memory/db/place-notes.ts';
 import { privateLayerOfUnit } from '../../../src/memory/db/private-layer.ts';
 import { proseVersionsOfUnit } from '../../../src/memory/db/prose-versions.ts';
 import { recentLinesOfUnit } from '../../../src/memory/db/recent-lines.ts';
-import { selfreflectionOfUnit } from '../../../src/memory/db/selfreflection-entries.ts';
+import { diaryOfUnit } from '../../../src/memory/db/diary-entries.ts';
 import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';
 import type { UnitKey } from '../../../src/memory/db/unit-keys.ts';
 import { dbOf } from '../../../src/memory/db/types.ts';
@@ -46,7 +46,7 @@ const VALUE_KINDS: ReadonlyArray<[string, (update: Row) => object | null]> = [
   ['place-lore', placeLoreOfUnit],
   ['participation-episodes', participationOfUnit],
   ['recent-lines', recentLinesOfUnit],
-  ['selfreflection-entries', selfreflectionOfUnit],
+  ['diary-entries', diaryOfUnit],
 ];
 
 const placeOf = (key: UnitKey): string | null => (key.subject.type === 'persona' ? null : key.subject.id);
@@ -90,8 +90,8 @@ export function unitAsWrite(update: Row): Row {
   const stamp = { ...(update.now !== undefined ? { now: update.now } : {}), iface: update.iface ?? 'discord' };
   if (update.op === 'owner-name') return { ...update, kind: 'owner-name' };
   if (update.op === 'errand') return { ...(update.value as Row), ...stamp, kind: 'errand' };
-  if (update.op === 'selfreflection')
-    return { append: update.post, max: update.max, updatedAt: update.updatedAt, ...stamp, kind: 'selfreflection-entries' };
+  if (update.op === 'diary')
+    return { append: update.post, max: update.max, updatedAt: update.updatedAt, ...stamp, kind: 'diary-entries' };
   const iface = typeof update.iface === 'string' ? update.iface : undefined;
   const key = (update.key as UnitKey | undefined) ?? legacyStorageKey(String(update.owner), iface);
   const write = update.op === 'vectors' ? vectorsWrite(update, key) : (linesWrite(update, key) ?? ownWrite({ ...update, key }));

@@ -691,7 +691,7 @@ test('the reader opens while another connection holds the writer lock and refuse
       'observe',
       'observeMessage',
       'deleteMessage',
-      'selfreflectionApply',
+      'diaryApply',
       'focus',
       'turnReads',
     ]) {

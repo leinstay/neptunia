@@ -1,5 +1,5 @@
 // What memory learned of a place, as a request quotes it: the stored place notes (`PlaceMemory`, read by `<self>` and
-// the selfreflection's notes) and the settings and text of what people taught the persona (`learnedText`).
+// the diary's notes) and the settings and text of what people taught the persona (`learnedText`).
 
 import { fill } from '../../format.ts';
 import { isConfirmed } from '../../memory/index.ts';

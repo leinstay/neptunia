@@ -16,7 +16,7 @@
 // `chain` runs from the place itself up to the top of its tree. `notes` is `config.spatial.notes`: stored place id ->
 // the owner's note.
 // Stage AC, the owner's word of 2026-11-06: a wake with no chat place says she is at the command line of her own
-// server, a selfreflection post that she is in her own world; `nowhere` is gone, and these tests follow.
+// server, a diary post that she is in her own world; `nowhere` is gone, and these tests follow.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatNow } from '../src/format.ts';
@@ -116,7 +116,7 @@ test('a turn with no chat place is on her own server, with the time', () => {
   );
 });
 
-test('a selfreflection post is in her own world, with the time', () => {
+test('a diary post is in her own world, with the time', () => {
   // Bug: the diary names the channel it is published to, and the illusion of her world breaks.
   assert.equal(
     spatialAwarenessText({ whereabouts: { kind: 'world' }, now: NOW, timezone: 'UTC', labels, notes: {} }),

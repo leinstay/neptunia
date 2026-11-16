@@ -37,7 +37,7 @@ const NOUN_PLACEHOLDER_KEYS: ReadonlySet<string> = new Set([
   'model.transcript.callReasons.file-elsewhere',
   'model.transcript.postedFrom',
   'model.transcript.forwardedFrom',
-  'model.senses.selfreflection',
+  'model.senses.diary',
   'model.lookup.stretch',
   'model.prefetch.excerpt',
   'model.pull.header',

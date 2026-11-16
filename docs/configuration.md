@@ -18,7 +18,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/selfreflection.ts` |
+| `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/diary.ts` |
 | `bot.ownerPerson` | string | `""` | The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity) | `src/tools/operations/grants.ts` |
 | `bot.mnemonic` | string | `"en"` | The language of the word list of the one-time phrases that prove an account, `en` for `src/mnemonic/bip-en` or `ru` for `src/mnemonic/bip-ru`. `/mnemonic` shows it and `/mnemonic en` or `/mnemonic ru` switches it, for the owner only. A phrase issued before a switch is refused after it. See [Phrase codes](interfaces.md#phrase-codes) | `src/interface/phrase-codes.ts` |
 | `bot.access` | map | `{}` | The tools granted to the persona, each an operation name holding her user id, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
@@ -33,7 +33,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `selfreflection-planner`, `planner`, `web-search` and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
+| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `diary-planner`, `planner`, `web-search` and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
 
 ## models.errands
 
@@ -368,24 +368,26 @@ The engine proxy is described in [Proxy](proxy.md).
 | `skills.run.timeoutMs` | number | `60000` | How long one `skill.run` script may run; past it the process group is killed and the outcome is unknown | `src/skills/settings.ts` |
 | `skills.run.maxOutputBytes` | number | `1000000` | How much one `skill.run` script may write to stdout before it is stopped | `src/skills/settings.ts` |
 
-## selfreflection
+## diary
+
+The settings of the `diary` service. A deployment keeps its own values under the key `diary` of `data/config/config.json`. [Setup](setup.md#one-flow-and-its-steps) names the prompt files and the picture folder the diary reads.
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `selfreflection.enabled` | boolean | `true` | Whether her selfreflection posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs | `src/behavior/selfreflection.ts` |
-| `selfreflection.schedule` | string, null | `null` | Exact UTC slots of the selfreflection, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/selfreflection.ts` |
-| `selfreflection.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/selfreflection.ts` |
-| `selfreflection.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/selfreflection.ts` |
-| `selfreflection.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/selfreflection.ts` |
-| `selfreflection.entries` | number | `150` | How many of her newest stored entries `<selfreflection>` shows the planner, newest first | `src/turn/request/selfreflection.ts` |
-| `selfreflection.writerEntries` | number | `30` | How many of her newest stored entries `<selfreflection>` shows the writer, newest first | `src/turn/request/selfreflection.ts` |
-| `selfreflection.openingsShown` | number | `5` | How many of her newest entries of the post's kind `<plan>` tells the writer how they opened. 0 shows none | `src/turn/request/selfreflection.ts` |
-| `selfreflection.openingWords` | number | `4` | How many words of each of those entries `<plan>` shows. 0 shows none | `src/turn/request/selfreflection.ts` |
-| `selfreflection.sceneChars` | number | `400` | Characters of a past picture post's picture description that `<selfreflection>` shows as its scene when the post has no stored plan, cut at a word boundary | `src/turn/request/selfreflection.ts` |
-| `selfreflection.loop.maxSteps` | number | `2` | Further requests one selfreflection post makes | `src/turn/settings.ts` |
-| `selfreflection.loop.timeBudgetMs` | number | `600000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
-| `selfreflection.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/selfreflection.ts` |
-| `selfreflection.planTimeoutMs` | number | `60000` | Timeout for the plan request (ms) | `src/turn/selfreflection.ts` |
+| `diary.enabled` | boolean | `true` | Whether her diary posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs | `src/behavior/diary.ts` |
+| `diary.schedule` | string, null | `null` | Exact UTC slots of the diary, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/diary.ts` |
+| `diary.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
+| `diary.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
+| `diary.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/diary.ts` |
+| `diary.entries` | number | `150` | How many of her newest stored entries `<diary>` shows the planner, newest first | `src/turn/request/diary.ts` |
+| `diary.writerEntries` | number | `30` | How many of her newest stored entries `<diary>` shows the writer, newest first | `src/turn/request/diary.ts` |
+| `diary.openingsShown` | number | `5` | How many of her newest entries of the post's kind `<plan>` tells the writer how they opened. 0 shows none | `src/turn/request/diary.ts` |
+| `diary.openingWords` | number | `4` | How many words of each of those entries `<plan>` shows. 0 shows none | `src/turn/request/diary.ts` |
+| `diary.sceneChars` | number | `400` | Characters of a past picture post's picture description that `<diary>` shows as its scene when the post has no stored plan, cut at a word boundary | `src/turn/request/diary.ts` |
+| `diary.loop.maxSteps` | number | `2` | Further requests one diary post makes | `src/turn/settings.ts` |
+| `diary.loop.timeBudgetMs` | number | `600000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
+| `diary.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/diary.ts` |
+| `diary.planTimeoutMs` | number | `60000` | Timeout for the plan request (ms) | `src/turn/diary.ts` |
 
 ## mirrors
 
@@ -393,8 +395,8 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `mirrors.claimLeaseMs` | number | `600000` | How long a claimed selfreflection publication stands with no word from its publisher. Past it the publisher counts as gone and the send as uncertain | `src/behavior/mirror.ts` |
-| `mirrors.sendTimeoutMs` | number | `120000` | How long one send of a selfreflection publication may take before its result counts as uncertain, at most `mirrors.claimLeaseMs` | `src/behavior/mirror.ts` |
+| `mirrors.claimLeaseMs` | number | `600000` | How long a claimed diary publication stands with no word from its publisher. Past it the publisher counts as gone and the send as uncertain | `src/behavior/mirror.ts` |
+| `mirrors.sendTimeoutMs` | number | `120000` | How long one send of a diary publication may take before its result counts as uncertain, at most `mirrors.claimLeaseMs` | `src/behavior/mirror.ts` |
 
 ## dm
 

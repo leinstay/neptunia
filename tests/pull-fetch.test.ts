@@ -258,12 +258,12 @@ test('audienceAllows: same audience passes, a narrower source or no destination 
 test('checkPull: the rails without a request, the channel when they pass', () => {
   const guild = fakeGuild();
   const main = mainChannel(guild);
-  const selfreflection = addChannel(guild, { id: '760000000000000046', granted: [READ], messages: [{ ts: LAST }] });
-  assert.deepEqual(checkPull({ guild, channelId: selfreflection.id, destination: main, config: config(), now: NOW }), {
-    channel: selfreflection,
+  const diary = addChannel(guild, { id: '760000000000000046', granted: [READ], messages: [{ ts: LAST }] });
+  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: main, config: config(), now: NOW }), {
+    channel: diary,
     skip: null,
   });
-  assert.deepEqual(checkPull({ guild, channelId: selfreflection.id, destination: null, config: config(), now: NOW }), {
+  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: null, config: config(), now: NOW }), {
     channel: null,
     skip: 'audience',
   });
@@ -275,15 +275,15 @@ test('checkPull: the rails without a request, the channel when they pass', () =>
   const dmChat = { id: '790000000000000001', guild: null };
   const railOff = config({ pull: { sameAudience: false } });
   assert.deepEqual(
-    checkPull({ guild, channelId: selfreflection.id, destination: dmChat, config: railOff, now: NOW }),
+    checkPull({ guild, channelId: diary.id, destination: dmChat, config: railOff, now: NOW }),
     { channel: null, skip: 'private-chat' },
     'a private chat never pulls, even with the audience rail off'
   );
-  assert.deepEqual(checkPull({ guild, channelId: selfreflection.id, destination: null, config: railOff, now: NOW }), {
-    channel: selfreflection,
+  assert.deepEqual(checkPull({ guild, channelId: diary.id, destination: null, config: railOff, now: NOW }), {
+    channel: diary,
     skip: null,
   });
-  assert.deepEqual(selfreflection.fetchCalls, []);
+  assert.deepEqual(diary.fetchCalls, []);
 });
 
 test('audienceAllows: a private chat lets in exactly the sources its partner can view, whatever the audience rail', () => {

@@ -1,5 +1,5 @@
-// The files of the owner's command line chat kept in the persona's data folder, under `media/cli/`, as the selfreflection
-// keeps its pictures under `media/selfreflection/`. A chat client's staged file lasts a week (src/media/staging.ts), so
+// The files of the owner's command line chat kept in the persona's data folder, under `media/cli/`, as the diary
+// keeps its pictures under `media/diary/`. A chat client's staged file lasts a week (src/media/staging.ts), so
 // the core copies each file of a line into this folder, and the line's `media` row names the copy in `path`
 // (src/memory/db/media-store.ts#mediaItemsOf). A kept file is named by a `neptunia-media:` reference, which
 // `createKeptFetch` answers for the core's media readers as a server would. The chat client turns a reference into the

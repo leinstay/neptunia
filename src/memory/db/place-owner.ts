@@ -16,7 +16,7 @@ import { asText } from './types.ts';
 import type { Db, Row, Rows } from './types.ts';
 
 /** The writers whose rows own themselves through these columns. */
-export type PlaceWriter = 'place' | 'channel' | 'lore' | 'participation' | 'recent' | 'selfreflection';
+export type PlaceWriter = 'place' | 'channel' | 'lore' | 'participation' | 'recent' | 'diary';
 
 /** The owner columns of a place's row. */
 export type PlaceOwner = { writer: PlaceWriter; holder_id: string };
@@ -28,24 +28,24 @@ const TABLES_OF: Record<PlaceWriter, ReadonlyArray<string>> = {
   lore: ['claims'],
   participation: ['episodes', 'operational'],
   recent: ['claims', 'operational'],
-  selfreflection: ['selfreflection', 'operational'],
+  diary: ['diary', 'operational'],
 };
 
 /** The links a writer's rows hold under them: the table, its parent table, the parent's column and a link's key. */
 type Links = { table: string; parent: string; link: string; key: ReadonlyArray<string> };
 const LINKS_OF: Partial<Record<PlaceWriter, Links>> = {
   participation: { table: 'episode_sources', parent: 'episodes', link: 'episode_id', key: ['episode_id', 'position'] },
-  selfreflection: {
-    table: 'selfreflection_mirrors',
-    parent: 'selfreflection',
-    link: 'selfreflection_id',
-    key: ['selfreflection_id', 'iface', 'place_id'],
+  diary: {
+    table: 'diary_mirrors',
+    parent: 'diary',
+    link: 'diary_id',
+    key: ['diary_id', 'iface', 'place_id'],
   },
 };
 
-/** The place a holder of `owner` is, null for the persona, whose selfreflection no place shares. */
+/** The place a holder of `owner` is, null for the persona, whose diary no place shares. */
 export const placeOfHolder = (owner: { writer?: unknown; holder_id?: unknown }): string | null =>
-  isPlaceWriter(owner.writer) && owner.writer !== 'selfreflection' && typeof owner.holder_id === 'string'
+  isPlaceWriter(owner.writer) && owner.writer !== 'diary' && typeof owner.holder_id === 'string'
     ? owner.holder_id
     : null;
 
@@ -189,7 +189,7 @@ function retireLinksAbsent(db: Db, owner: PlaceOwner, links: Links, mapping: Row
   ).all(owner.writer, owner.holder_id, owner.writer, owner.holder_id)) {
     if (keep.has(keyOf(row))) continue;
     preparedPlace(db, `UPDATE "${links.table}" SET retired_at = ? WHERE rowid = ?`).run(at, row.rowid);
-    if (links.table === 'selfreflection_mirrors') deriveMirrorPublication(db, row, { at });
+    if (links.table === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
     projectRow(db, links.table, row, { at });
     count += 1;
   }

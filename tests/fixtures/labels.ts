@@ -141,7 +141,7 @@ export const labels = {
     channels: 'you see only the channels shown here',
     participation: 'a <participation> block holds slices of your own exchanges on other channels',
     elsewhere: 'read-only channels: read and react only; a call there is answered in #{destination}',
-    selfreflection: 'You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it.',
+    diary: 'You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it.',
   },
   tempo: {
     counts: 'messages in the last 10 min: {last10min}, last hour: {lastHour}, last day: {lastDay}',
@@ -206,7 +206,7 @@ export const labels = {
     stretch: '[stretch of {date} in #{channel}]',
     timeEstimate: '[time cue {range}, an estimate]',
   },
-  selfreflectionFacts: {
+  diaryFacts: {
     header: 'Stored facts:',
     fact: '- ({state}) {text}',
   },
@@ -273,7 +273,7 @@ export const labels = {
     activityLive: 'live',
     activitySlow: 'slow',
     activityDead: 'dead',
-    selfreflection: 'Your diary.',
+    diary: 'Your diary.',
   },
   triggers: {
     mention: 'tagged you',
@@ -290,7 +290,7 @@ export const labels = {
   memory: {
     privateChannel: 'direct chat',
     redaction: 'someone',
-    selfreflection: 'her diary',
+    diary: 'her diary',
     placeUnwritten: '[{handle}] UNWRITTEN {fields}',
     origin: { read: 'looked up' },
     relation: 'relation: {value}',
@@ -410,7 +410,7 @@ export const labels = {
     none: 'Measured: no audible sound in this clip.',
     map: 'Measured: sound only during {spans}.',
   },
-  selfreflection: {
+  diary: {
     intro: 'Your latest diary posts, newest first:',
     line: '- {date} {kind}: {gist}',
     picture: ' [picture: {scene}]',
@@ -420,7 +420,7 @@ export const labels = {
     kinds: 'Post kinds and their recent use:',
     kindLine: '{key} weight {weight}, used {count} of the last {window}',
     plan: 'Plan for this post:',
-    // Slice 6: the plan is rendered as lines (src/turn/request/selfreflection.ts#planBody), one label per field.
+    // Slice 6: the plan is rendered as lines (src/turn/request/diary.ts#planBody), one label per field.
     planKind: 'Kind: {value}',
     planBrief: 'Brief: {value}',
     planPicture: 'With a picture.',
@@ -454,7 +454,7 @@ export const labels = {
     note: 'SPATIAL-NOTE {note}',
     cli: 'SPATIAL-CLI AT {when}',
     // Stage AC, the owner's word of 2026-11-06: a wake with no chat place is on her own server, a
-    // selfreflection post in her own world; no turn is "nowhere".
+    // diary post in her own world; no turn is "nowhere".
     server: 'SPATIAL-SERVER AT {when}',
     world: 'SPATIAL-WORLD AT {when}',
     // The day she joined the root (the top of the chain), when the store knows it: `{place}` is the root's own link in
@@ -524,8 +524,8 @@ export const labels = {
         'malformed-call': 'call unreadable',
         'truncated-call': 'call cut off',
         'think-in-text': 'a think tag in the text, nothing sent',
-        'selfreflection-draw-only': 'a diary post takes only draw.create',
-        'selfreflection-mirror': 'the diary\'s mirror',
+        'diary-draw-only': 'a diary post takes only draw.create',
+        'diary-mirror': 'the diary\'s mirror',
         other: 'other failure',
       },
     },
