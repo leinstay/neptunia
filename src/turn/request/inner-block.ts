@@ -20,11 +20,16 @@ export type InnerParts = {
 const textOf = (text: string | null, resolveRef: (text: string) => string): string =>
   typeof text === 'string' && text.trim() !== '' ? resolveRef(text) : '';
 
+/** The previous think with every text in it, the earlier ones too, passed through `resolveRef`. */
+const resolvedThink = (previous: PreviousThink, resolveRef: (text: string) => string): PreviousThink => ({
+  ...previous,
+  text: resolveRef(previous.text),
+  ...(previous.earlier ? { earlier: previous.earlier.map((one) => ({ ...one, text: resolveRef(one.text) })) } : {}),
+});
+
 /** The body of `<inner>`, '' when none of its parts has anything. */
 export function innerBlockOf(parts: InnerParts, labels: Labels, resolveRef: (text: string) => string): string {
-  const think = parts.previousThink
-    ? previousThinkBody({ ...parts.previousThink, text: resolveRef(parts.previousThink.text) }, labels)
-    : '';
+  const think = parts.previousThink ? previousThinkBody(resolvedThink(parts.previousThink, resolveRef), labels) : '';
   return [
     block('my_day', parts.myDay.filter((line) => typeof line === 'string' && line !== '').join('\n')),
     block('intentions', textOf(parts.intentions, resolveRef)),
