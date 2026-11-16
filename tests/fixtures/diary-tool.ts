@@ -28,7 +28,6 @@ export function diaryToolHot({ maxPerDay }: { maxPerDay: number }): ReturnType<t
     diary: 'Write your diary.',
     'diary-planner': 'Plan the entry.',
     'diary-seeds': '# place\na pier',
-    world: 'The world.',
   });
   return hot;
 }

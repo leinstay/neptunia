@@ -44,13 +44,12 @@ const SERVICE_LIST: ReadonlyArray<BlockName> = [
   'spatial_awareness',
   'task',
 ];
-// The owner's decision of 2026-11-11 (cache layout): the world after `<meanwhile>`, then the turn's own blocks.
+// The owner's decision of 2026-11-11 (cache layout): `<meanwhile>`, then the turn's own blocks. The world block went on 2026-11-16.
 const DIARY_LIST: ReadonlyArray<BlockName> = [
   'persona',
   'self',
   'memory',
   'meanwhile',
-  'virtual_world',
   'recall',
   'found',
   'inner',
@@ -112,8 +111,8 @@ test('a feedback wake without a place reads the service list and is nowhere', ()
   assert.deepEqual(frame.blocks, SERVICE_LIST);
 });
 
-test('a diary post reads the service list with her virtual world after meanwhile', () => {
-  // Bug: the writer's request is still built as a reply in the mirror, or the world block goes missing.
+test('a diary post reads the service list after meanwhile', () => {
+  // Bug: the writer's request is still built as a reply in the mirror.
   const frame = frameOf(wakeInput(null, { mode: 'diary', triggerKind: null }));
   assert.equal(frame.kind, 'diary');
   assert.deepEqual(frame.blocks, DIARY_LIST);

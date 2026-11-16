@@ -835,7 +835,7 @@ function pastEntriesOf(
 
 /**
  * The diary planner's request on the turn frame: the kind `diary_plan`, nowhere, with the service
- * template's `<memory>`, `<meanwhile>` and `<my_day>`, the world, her past entries and what it chooses from in `<inner>`,
+ * template's `<memory>`, `<meanwhile>` and `<my_day>`, her past entries and what it chooses from in `<inner>`,
  * and prompts/diary-planner.md as its task. Nothing of a chat: it answers nobody and offers no tool.
  */
 export function plannerRequest(

@@ -1,10 +1,10 @@
 // The user message of a request built on the turn frame (docs/prompt-contract.md, "Blocks per kind"): every kind carries
 // the tags of `frame.blocks` in that list's order. The stable segment holds `<self>`, the surroundings segment
 // `<surroundings>`, each with its own cache marker (src/llm/openrouter.ts#withCacheMarker). The tail holds `<memory>`
-// from the graph reader, `<meanwhile>` from her lines elsewhere, a diary request's `<virtual_world>`, `<chat>`,
+// from the graph reader, `<meanwhile>` from her lines elsewhere, `<chat>`,
 // `<recall>` from her lookups, `<found>` with what the reader and the prefetch found, `<inner>`, `<spatial_awareness>`
 // with the clock and her time away, and `<task>`. The budget fits them in this priority: the fixed part, the person she answers, the memory shares, the
-// recall, the chat (cut to a step of `context.chatSteps`), the background, her own state, the world, her past entries.
+// recall, the chat (cut to a step of `context.chatSteps`), the background, her own state, her past entries.
 // Handles are given before the blocks are rendered (src/behavior/handles.ts#handleBook): a person's from the meta-person,
 // the chat's as it was rendered, then the people of `<memory>` and the authors of `<meanwhile>`, and a person a stored
 // text mentions when it is met; a place's from its chat id. Every block names a line's author and a place by them. A
@@ -116,7 +116,7 @@ export type ReaderInput = {
   chatItems: Array<TranscriptItem>;
   tempoText: string;
   inner: InnerParts;
-  /** A diary request's world, past entries and own parts of `<inner>`; null on any other kind. */
+  /** A diary request's past entries and own parts of `<inner>`; null on any other kind. */
   diary?: DiaryFramed | null;
   errandResult: string;
   nameOf: NameOf;
@@ -319,7 +319,6 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     { name: 'chat', keep: 'newest', steps: chatStepsOf(given.config), items: offered.chat.map((item) => item.text) },
     { name: 'meanwhile', keep: 'newest', items: offered.windowTexts },
     { name: 'inner', keep: 'first', items: offered.inner.map((one) => one.text) },
-    { name: 'virtual_world', items: [given.diary?.world ?? ''].filter(Boolean) },
     // The entries stand newest first, so the contiguous run from the start the budget keeps is the newest.
     { name: 'diary', keep: 'oldest', items: given.diary?.entries ?? [] },
   ];
@@ -764,7 +763,6 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     },
     tail('memory', 'mind', bodies.memory, 'people'),
     tail('meanwhile', 'meanwhile', bodies.meanwhile, 'meanwhile'),
-    tail('virtual_world', 'world', kept.virtual_world?.[0] ?? '', 'virtual_world'),
     tail('chat', 'kept.chat', bodies.chat, 'chat'),
     tail('recall', 'lookups', kept.recall?.[0] ?? '', 'recall'),
     tail('found', 'mind', bodies.found, 'found'),
