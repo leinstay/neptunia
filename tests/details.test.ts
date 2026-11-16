@@ -15,7 +15,7 @@ const NOW = Date.UTC(2026, 8, 21, 12, 0, 0); // 2026-09-21T12:00:00Z
 const HOUR = 3_600_000;
 
 function opts(overrides = {}) {
-  return { maxDetails: 15, fieldChars: 200, confirmGapHours: 12, seenAt: NOW, nextId: 1, ...overrides };
+  return { maxDetails: 15, confirmGapHours: 12, seenAt: NOW, nextId: 1, ...overrides };
 }
 
 // ---- applyDetailOps: add, a brand new item -----------------------------------
@@ -152,9 +152,11 @@ test('applyDetailOps: nextId defaults to 1 when omitted or invalid', () => {
 
 // ---- clamping / rejection -----------------------------------------------------
 
-test('applyDetailOps: text is clamped tolerantly to fieldChars (a single long word hard-cuts at the tolerance ceiling)', () => {
-  const { items } = applyDetailOps([], { add: ['x'.repeat(60)] }, opts({ fieldChars: 5, clampTolerance: 1.25 }));
-  assert.equal(loose(items[0]).text.length, 6, '5 * the tolerance 1.25, floored');
+// The owner on 2026-11-16: a fact is kept whole; the limit of 1000 is gone.
+test('applyDetailOps: a long text is kept whole, trimmed', () => {
+  const long = 'x'.repeat(3000);
+  const { items } = applyDetailOps([], { add: [`  ${long}  `] }, opts());
+  assert.equal(loose(items[0]).text, long);
 });
 
 test('applyDetailOps: an empty/whitespace-only text is rejected', () => {

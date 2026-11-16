@@ -22,7 +22,7 @@ const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 
 function opts(overrides = {}) {
-  return { maxInterests: 12, topicChars: 40, noteChars: 120, confirmGapHours: 12, seenAt: NOW, ...overrides };
+  return { maxInterests: 12, confirmGapHours: 12, seenAt: NOW, ...overrides };
 }
 
 // ---- normalizeTopic ---------------------------------------------------------
@@ -225,14 +225,13 @@ test('applyInterestOps: remove deletes the item matching that topic, case-insens
 
 // ---- clamping / rejection ----------------------------------------------------
 
-test('applyInterestOps: topic is a hard identity clamp; note is clamped tolerantly (both hard-cut here, a single long word)', () => {
-  const items = applyInterestOps(
-    [],
-    { add: [{ topic: 'x'.repeat(60), note: 'y'.repeat(200) }] },
-    opts({ topicChars: 5, noteChars: 8, clampTolerance: 1.25 })
-  );
-  assert.equal(items[0].topic.length, 5, 'identity fields never exceed their limit, tolerance or not');
-  assert.equal(items[0].note.length, 10, '8 * the tolerance 1.25');
+// The owner on 2026-11-16: an interest's topic and note are kept whole; the limits of 40 and 120 are gone.
+test('applyInterestOps: a long topic and a long note are kept whole', () => {
+  const topic = 'x'.repeat(300);
+  const note = 'y'.repeat(1000);
+  const items = applyInterestOps([], { add: [{ topic, note }] }, opts());
+  assert.equal(items[0].topic, topic);
+  assert.equal(items[0].note, note);
 });
 
 test('applyInterestOps: an item with an empty topic (or whitespace-only) is rejected', () => {
@@ -403,7 +402,7 @@ test('applyInterestOps: no cap when maxInterests is not an integer', () => {
     ['a', 1, 'x'],
     ['b', 1, 'y'],
   ]);
-  const items = applyInterestOps(existing, {}, { topicChars: 40, noteChars: 120, seenAt: NOW });
+  const items = applyInterestOps(existing, {}, { seenAt: NOW });
   assert.equal(items.length, 2);
 });
 

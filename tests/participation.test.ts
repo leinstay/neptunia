@@ -202,16 +202,17 @@ test('recordOwnLine: past maxMessages a continuation takes what did not fit', ()
   assert.deepEqual(ids(state.episodes[1]), ['m5', 'o2', 'm7', 'o3']);
 });
 
-test('recordOwnLine: texts stay on one line and are cut to maxTextChars at a word boundary', () => {
-  const long = 'αλφα βήτα\nγάμμα δέλτα έψιλον';
+// The owner on 2026-11-16: a line of an episode is kept whole; the limit of 400 is gone.
+test('recordOwnLine: texts stay on one line and are kept whole', () => {
+  const long = `${'αλφα βήτα\n'.repeat(100)}γάμμα δέλτα έψιλον`;
   const state = recordOwnLine(
     emptyParticipation(),
     { placeId: 'c1', own: own('o', 1), before: [msg('m', 0, { text: long, caption: ' une\nimage ' })] },
-    { ...S, maxTextChars: 16 },
+    S,
     T0
   );
   const [first] = state.episodes[0].messages;
-  assert.equal(first.text, 'αλφα βήτα γάμμα');
+  assert.equal(first.text, `${'αλφα βήτα '.repeat(100)}γάμμα δέλτα έψιλον`);
   assert.equal(first.caption, 'une image');
 });
 

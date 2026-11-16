@@ -8,7 +8,6 @@ import {
   applyDelta,
   decayAffinity,
   roundScore,
-  REASON_CHARS,
   deltaCapOf,
 } from '../src/memory/affinity.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -96,9 +95,9 @@ test('applyDelta: a delta that clamps to zero net change at the score boundary i
   assert.deepEqual(result, atCap);
 });
 
-test('applyDelta: reason within the clamp tolerance is kept whole, trimmed', () => {
-  const result = applyDelta(emptyAffinity(), 1, `  ${'x'.repeat(250)}  `, { ...OPTS, clampTolerance: 1.25 });
-  assert.equal(result.reason.length, 250);
+// The owner on 2026-11-16: an attitude reason is kept whole; the limit of 200 is gone.
+test('applyDelta: a long reason is kept whole, trimmed', () => {
+  const result = applyDelta(emptyAffinity(), 1, `  ${'x'.repeat(250)}  `, OPTS);
   assert.equal(result.reason, 'x'.repeat(250));
 });
 
@@ -126,15 +125,12 @@ test('applyDelta: each history entry records the reason of its own move, empty w
   assert.equal(loose(given.history[1]).reason, 'νέος λόγος', 'a given reason is recorded trimmed');
 });
 
-test('REASON_CHARS: the limit applyDelta cuts a reason at, on the entry and the stored reason alike', () => {
-  const result = applyDelta(undefined, 5, 'α'.repeat(1000), {
-    maxDelta: 15,
-    historySize: 10,
-    now: OPTS.now,
-    clampTolerance: 1,
-  });
-  assert.equal([...result.reason].length, REASON_CHARS);
-  assert.equal(loose(result.history[0]).reason, result.reason);
+// The owner on 2026-11-16: an attitude reason is kept whole; the limit of 200 is gone.
+test('applyDelta: a reason of a thousand characters is kept whole on the entry and the stored reason alike', () => {
+  const long = 'α'.repeat(1000);
+  const result = applyDelta(undefined, 5, long, OPTS);
+  assert.equal(result.reason, long);
+  assert.equal(loose(result.history[0]).reason, long);
 });
 
 // --- deltaCapOf: the one reading of relationships.maxDeltaPerUpdate ----------

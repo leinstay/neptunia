@@ -277,7 +277,6 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
     {
       maxLearned: 20,
       maxLearnedStored: 60,
-      learnedChars: 160,
       learnedHalfLifeDays: 720,
       confirmGapHours: 12,
       seenAt: NOW,

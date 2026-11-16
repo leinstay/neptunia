@@ -876,7 +876,8 @@ test('journal: a .running marker left over at start writes an unclean-stop recor
   }
 });
 
-test('journalLine: one short line per kind', async () => {
+// The owner on 2026-11-16: the think in a journal line is kept whole; the limit of 80 is gone.
+test('journalLine: one line per kind, the think whole', async () => {
   const { journalLine } = await import('../src/memory/journal.ts');
   const at = '2026-10-13T08:09:10.000Z';
   assert.equal(
@@ -888,7 +889,7 @@ test('journalLine: one short line per kind', async () => {
       seen: { messageIds: ['a', 'b', 'c'] },
       think: `Ζωή\n${'x'.repeat(100)}`,
     }),
-    `08:09:10 turn reply spoke 3 msgs, think: Ζωή ${'x'.repeat(76)}`
+    `08:09:10 turn reply spoke 3 msgs, think: Ζωή ${'x'.repeat(100)}`
   );
   assert.equal(
     journalLine({ kind: 'turn', occurredAt: at, mode: 'interject', outcome: 'skip', think: null }),
