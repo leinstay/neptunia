@@ -566,6 +566,8 @@ async function buildCore(
     youtubeApiKey,
     proxy: () => proxy.current(),
     track: loopWatch.track,
+    // Her name in the place, for the picture prompt; getSelfName is defined below and read at each description.
+    selfName: (placeId: string) => getSelfName(placeId),
   };
   const describer = createDescriber(describerDeps);
   // The web lookup (features.webLookup, off by default): link reader + search on a question.

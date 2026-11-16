@@ -6,6 +6,14 @@ The persona uses descriptions of media as durable conversational evidence. It do
 
 A saved description is reused after a restart or after the cache's cap retired its row: `getMediaDescription` reads it from the retired row, and the describer writes it back. An explicit rewatch replaces the entry with its new answer. A failed refresh keeps the successful description and stamps it with the failure.
 
+## How a picture is described
+
+`describe` in `src/memory/describe.ts` sends the picture to the `vision` role as a data URL under the system message of `prompts.describe`. The caption is the whole answer: every line joined into one line with single spaces, cut on a word boundary at `DESCRIPTION_CHARS`, 3000 characters. Stickers and emoji take the same path. The prompt asks for what the picture shows, each figure and what it wears, the legible words, what could not work as drawn, and the place and the light.
+
+Every description reads that one limit: a picture's caption, each field of a GIF's description, a video summary, an audio summary and the answer of a second look.
+
+The vision model learns who she is through `{{self}}` in the prompt. When `prompts.appearance` is not blank and the core knows her name in the place (`selfName`, given to `createDescriber` and read from `getSelfName` in `src/core.ts`), `{{self}}` is the prompt `describe-self` with `{{name}}` and `{{appearance}}`. A figure that matches the appearance is named by her name. Otherwise `{{self}}` is empty and leaves no blank paragraph. The GIF and video prompts carry no `{{self}}`.
+
 The engine does not promise to download every attachment it encounters. Diary originals are preserved under `data/media/`, with database references and checksums. Every file of the owner's command line chat, in both directions, is copied to `data/media/cli/` by `src/chat/kept-media.ts`, and the `path` of its `media` row names the copy ([cli](cli.md#kept-files)). A GIF of the library keeps every link it was seen under in the `extra` of its `media` row, and `src/memory/gif-keeper.ts` caches its file under `data/media/gifs/` when a download gives one. `path` on a `media` row is null or a file under `media/`. The vector of a GIF's caption is a row of `vectors` under `gif:<item id>`, read by `src/memory/db/gif-vectors.ts`, so a flush of the library writes no vector. A cached description, an external URL and a preserved original are different things when preparing a backup.
 
 ## Available abilities
