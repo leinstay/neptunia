@@ -293,10 +293,10 @@ export function isStale(item: { lastSeen?: string | null }, nowMs: number, stale
  * - An op (`add`/`update`) with `sure: false` on an EXISTING item changes
  *   nothing at all, not even the note or the dates.
  * - `remove` deletes the item matching that identity, if any.
- * - The identity and the note lose their links (src/memory/clamp.ts#stripUrls),
- *   then the identity is clamped to `identityChars`, the note (if any) to
- *   `noteChars`; an item whose identity is empty after that is rejected
- *   outright.
+ * - The identity and the note lose their links (src/memory/clamp.ts#stripUrls);
+ *   the note is kept whole and the identity is clamped to `identityChars` when
+ *   the caller gives one (an interest's topic is kept whole); an item whose
+ *   identity is empty after that is rejected outright.
  * - Once over `opts.cap`, the lowest-RANKED items are evicted first (see
  *   src/memory/ranking.ts#rank, driven by `halfLifeDays`) -- this runs on
  *   every call, even one with no ops, so a profile left over-stuffed by a
@@ -312,9 +312,8 @@ export function isStale(item: { lastSeen?: string | null }, nowMs: number, stale
  *   `recordedAt`, the ISO time of `now` (else `seenAt`).
  *
  * @param ops  Untrusted, model-extracted.
- *   The identity (`topic`/`name`) is a HARD clamp (no tolerance, still boundary-safe -- see
- *   src/memory/clamp.ts); the note, when there is one, is clamped with `clampTolerance`
- *   (soft by default) since it is free text, not an identity.
+ *   The identity (`topic`/`name`) is a HARD clamp when `identityChars` is given (no tolerance, still
+ *   boundary-safe -- see src/memory/clamp.ts); the note, when there is one, is kept whole.
  */
 export function applyRankedOps(
   existing: Array<RankedItem> | undefined,
@@ -323,24 +322,20 @@ export function applyRankedOps(
     identityField,
     noteField,
     identityChars,
-    noteChars,
     confirmGapHours,
     seenAt = Date.now(),
     halfLifeDays,
     cap,
-    clampTolerance,
     mintId,
     now,
   }: {
     identityField: string;
     noteField?: string;
     identityChars?: number;
-    noteChars?: number;
     confirmGapHours?: number;
     seenAt?: number;
     halfLifeDays?: number;
     cap?: number;
-    clampTolerance?: number;
     mintId?: () => string;
     now?: number;
   }
@@ -369,10 +364,7 @@ export function applyRankedOps(
         typeof raw[identityField] === 'string'
           ? clampText(stripUrls(raw[identityField]), identityChars, { tolerance: 1 })
           : '';
-      note =
-        typeof raw[noteField] === 'string'
-          ? clampText(stripUrls(raw[noteField]), noteChars, { tolerance: clampTolerance })
-          : '';
+      note = typeof raw[noteField] === 'string' ? stripUrls(raw[noteField]).trim() : '';
       sure = raw.sure !== false;
     } else {
       const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw[identityField] : raw;
@@ -665,23 +657,17 @@ export function applyInterestOps(
   {
     maxInterests,
     maxInterestsStored,
-    topicChars,
-    noteChars,
     confirmGapHours,
     seenAt = Date.now(),
     halfLifeDays,
-    clampTolerance,
     mintId,
     now,
   }: {
     maxInterests?: number;
     maxInterestsStored?: number;
-    topicChars?: number;
-    noteChars?: number;
     confirmGapHours?: number;
     seenAt?: number;
     halfLifeDays?: number;
-    clampTolerance?: number;
     mintId?: () => string;
     now?: number;
   } = {}
@@ -693,12 +679,9 @@ export function applyInterestOps(
   const items = applyRankedOps(resolvedExisting, finalOps, {
     identityField: 'topic',
     noteField: 'note',
-    identityChars: topicChars,
-    noteChars,
     confirmGapHours,
     seenAt,
     halfLifeDays,
-    clampTolerance,
     mintId,
     now,
     cap: effectiveStorageCap(maxInterestsStored, maxInterests),

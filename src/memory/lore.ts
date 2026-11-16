@@ -11,8 +11,6 @@ import { clampText, stripUrls } from './clamp.ts';
 import { isFiniteNumber } from './types.ts';
 import type { Untyped } from './types.ts';
 
-const MAX_TITLE = 80;
-const DEFAULT_MAX_TEXT = 600; // config.json's lore.textChars, used only when a caller passes none
 const MIN_KEY = 2;
 const MAX_KEY = 40;
 const MAX_KEYS = 8;
@@ -148,10 +146,7 @@ function evictOverflow(entries: Array<LoreEntry>, maxEntries: number): Array<Lor
  * @param incoming            Untrusted `{ title, keys, text, always? }[]`.
  *   The title, every key and the text lose their links first (src/memory/clamp.ts#stripUrls): an
  *   entry left with no title, no key or no text is skipped like one sent without them.
- *   `title` is a hard identity clamp at MAX_TITLE; `text` is free prose: a first write (a new
- *   entry, or one with no text) is clamped tolerantly (see src/memory/clamp.ts) to `textChars`
- *   (DEFAULT_MAX_TEXT when the caller passes none); a rewrite is stored as given, never
- *   cut, whatever its length.
+ *   `title` and `text` are stored whole, trimmed; a key is clamped to MAX_KEY.
  *   `upserted`: entries inserted or actually changed. `changes`: one pair per existing entry whose
  *   text this call replaced with a different one (the stored text before, the text after), for the
  *   store's version history; an inserted entry or a change of keys alone adds none.
@@ -163,14 +158,10 @@ export function upsertLore(
     source,
     now: nowMs = Date.now(),
     maxEntries = Infinity,
-    textChars,
-    clampTolerance,
   }: {
     source: string;
     now?: number;
     maxEntries?: number;
-    textChars?: number;
-    clampTolerance?: number;
   }
 ): {
   entries: Array<LoreEntry>;
@@ -182,25 +173,20 @@ export function upsertLore(
 
   const byTitle = new Map(stored.map((entry, index) => [normalizeTitle(entry.title), index]));
   const nowIso = new Date(nowMs).toISOString();
-  const effectiveTextChars = isFiniteNumber(textChars) && textChars > 0 ? textChars : DEFAULT_MAX_TEXT;
   let upserted = 0;
   let salt = 0;
   const changes = [];
 
   for (const raw of incoming) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
-    const title = typeof raw.title === 'string' ? clampText(stripUrls(raw.title), MAX_TITLE, { tolerance: 1 }) : '';
+    const title = typeof raw.title === 'string' ? stripUrls(raw.title).trim() : '';
     const keys = normalizeKeys(raw.keys);
     const rawText = typeof raw.text === 'string' ? stripUrls(raw.text) : '';
     if (!title || keys.length === 0 || !rawText.trim()) continue;
 
     const normalized = normalizeTitle(title);
     const existingIndex = byTitle.get(normalized);
-    // Only a first write is clamped (no entry, or one with no text): a rewrite over the limit is
-    // stored whole.
-    const previousText = existingIndex === undefined ? '' : stored[existingIndex].text;
-    const firstWrite = typeof previousText !== 'string' || previousText.trim() === '';
-    const text = firstWrite ? clampText(rawText, effectiveTextChars, { tolerance: clampTolerance }) : rawText.trim();
+    const text = rawText.trim();
     if (!text) continue;
 
     if (existingIndex === undefined) {

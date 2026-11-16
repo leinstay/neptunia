@@ -1,7 +1,7 @@
 // The memory limits in one home: the measures of what the store keeps and shows and the fixed lengths of the texts
 // it writes, so one text is never cut at two limits. This module imports nothing, so every memory module can take its
 // limits from here without an import cycle. The episode, attitude and teacher rules have their own homes:
-// src/memory/episodes.ts (episodeDate), src/memory/affinity.ts (REASON_CHARS, deltaCapOf) and src/memory/mentions.ts
+// src/memory/episodes.ts (episodeDate), src/memory/affinity.ts (deltaCapOf) and src/memory/mentions.ts
 // (TEACHER_TOKEN_RE).
 
 /**
@@ -15,7 +15,6 @@ export const MEMORY_LIMITS = Object.freeze({
   recentHours: 72,
   maxRecentStored: 150,
   maxNewRecent: 3,
-  recentChars: 160,
   recentShown: 12,
   channelWritersStored: 20,
   channelWritersHalfLifeDays: 30,
@@ -26,7 +25,6 @@ export const MEMORY_LIMITS = Object.freeze({
   detailHalfLifeDays: 720,
   maxLearned: 20,
   maxLearnedStored: 60,
-  learnedChars: 160,
   learnedHalfLifeDays: 720,
   maxAliases: 5,
   maxAliasesStored: 15,
@@ -37,7 +35,6 @@ export const MEMORY_LIMITS = Object.freeze({
   confirmAfter: 2,
   confirmGapHours: 12,
   interestStaleDays: 90,
-  clampTolerance: 1.25,
 });
 
 /** The attitude's measures (they were `relationships.<name>`). Production values, config cut of 2026-10-31. */
@@ -61,5 +58,4 @@ export const LORE_LIMITS = Object.freeze({
   maxEntries: 500,
   scanMessages: 30,
   maxMatches: 8,
-  textChars: 600,
 });

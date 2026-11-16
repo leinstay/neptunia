@@ -631,7 +631,7 @@ export function createLookup(deps: LookupDeps): Lookup {
         };
       }
       if (!String(completion.text ?? '').trim()) return { failure: { reason: 'empty' } };
-      const note = parseSummaryNote(completion.text, { maxChars: summaryChars });
+      const note = parseSummaryNote(completion.text);
       if (!note.text) return { result: { query: asked, text: '', sources: [] } };
       const text = cleanText(note.text, summaryChars);
       const sources = citationsOf(completion.annotations).map((c) => ({ ...c, site: siteOf(c.url) }));

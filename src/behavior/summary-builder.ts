@@ -1,4 +1,4 @@
-// The summary builder: the step after a search. One contract, evidence in and a bounded note out, over two prompt files,
+// The summary builder: the step after a search. One contract, evidence in and a note out, over two prompt files,
 // because chat stretches with people and notes read differently from web results with a title, a URL and an age. Chat
 // evidence reads prompts/recall-summary.md on the analyzer, web evidence prompts/search-summary.md on the `search` role.
 // The single word `none` is no note. Every caller goes through it: src/behavior/recall-run.ts and src/web/lookup.ts.
@@ -6,7 +6,7 @@
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { SEARCH_ROLE, roleModel, searchModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
-import { clampText, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { utcDay } from '../time.ts';
 import { objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
@@ -19,18 +19,17 @@ const AROUND = /^["'`«“‘*\s]+|["'`»”’*.!…\s]+$/gu;
 /**
  * A summary's answer. A first non-empty line `stretch: <n>` (any case) names the section that answers the question: `n`
  * within `1..count` (a `#` before it tolerated) is `stretch` n, anything else null, and that line is not part of the text.
- * The rest, trimmed and clamped to `maxChars`, is the text. Empty, or the single word `none` with quotes and trailing
+ * The rest, trimmed and whole, is the text. Empty, or the single word `none` with quotes and trailing
  * punctuation aside, gives no text and no stretch. Pure.
  */
 export function parseSummaryNote(
   raw: unknown,
-  { maxChars, count = 0 }: { maxChars?: number; count?: number } = {}
+  { count = 0 }: { count?: number } = {}
 ): { text: string | null; stretch: number | null } {
   // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's answer as it came, read as text
   const { body, stretch } = stretchLineOf(String(raw ?? ''), count);
   if (!body || body.replace(AROUND, '').toLowerCase() === 'none') return { text: null, stretch: null };
-  const text = clampText(body, maxChars, { tolerance: 1 });
-  return text ? { text, stretch } : { text: null, stretch: null };
+  return { text: body, stretch };
 }
 
 /** One web result as the note's evidence. */
@@ -60,7 +59,7 @@ export type SummaryEvidence =
     }
   | { kind: 'web'; query: string; results: Array<WebResult> };
 
-/** The bound of a note and of its request. */
+/** The length a note's prompt asks for (`maxChars`, never enforced in code) and the bound of its request. */
 export type SummaryLimits = { maxChars: number; maxOutputTokens: number; signal?: AbortSignal; timeoutMs?: number };
 
 /** A note, or why there is none. `reason` is the rail code of a failure, and `empty` for a blank answer. */
@@ -162,12 +161,12 @@ export function createSummaryBuilder({
       log.info('summary: failed', { kind: evidence.kind, reason });
       return NONE('failed', { reason, error: err });
     }
-    const note = parseSummaryNote(raw, { maxChars: limits.maxChars, count: history ? evidence.windows.length : 0 });
+    const note = parseSummaryNote(raw, { count: history ? evidence.windows.length : 0 });
     const answered = typeof raw === 'string' ? raw : null;
     if (!note.text) return NONE('none', { raw: answered, ...(answered?.trim() ? {} : { reason: 'empty' }) });
     // A web note runs on one line and names no stretch.
     if (history) return { status: 'note', text: note.text, stretch: note.stretch, raw: answered };
-    const text = clampText(oneLine(note.text), limits.maxChars, { tolerance: 1 });
+    const text = oneLine(note.text);
     return { status: 'note', text, stretch: null, raw: answered };
   };
 }

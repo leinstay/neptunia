@@ -7,7 +7,7 @@ import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import { LORE_LIMITS, MEMORY_LIMITS } from '../../memory/text-limits.ts';
+import { LORE_LIMITS } from '../../memory/text-limits.ts';
 
 const handlers = perEnv((env) => {
   const { store, assertNotPaused, freshenIfPaused, requirePlaceId } = env;
@@ -31,8 +31,6 @@ const handlers = perEnv((env) => {
       by: 'owner',
       now: Date.now(),
       maxEntries,
-      textChars: LORE_LIMITS.textChars,
-      clampTolerance: MEMORY_LIMITS.clampTolerance,
     });
     if (upserted === 0) {
       throw invalid('invalid lore entry: needs a title, at least one key of 2+ characters, and non-empty text');

@@ -710,8 +710,7 @@ function relationshipScoreOf(opts: Untyped, affinity: Untyped) {
  * stamps -- the one writer of that field for `applyProfileOps` and `applyPrivateOps`. The text
  * loses its links first (`stripUrls`); only a non-empty string is written (an absent or blank one,
  * or one that was only links, never blanks the stored text). A first write
- * (the stored text is empty) is clamped to `opts.relationshipChars` (`relationships.textChars`),
- * else `opts.fieldChars`; a rewrite is stored as given, never cut (`firstWriteText`). Stamped next to
+ * and a rewrite alike are stored whole, trimmed. Stamped next to
  * it: `relationshipScore` (see `relationshipScoreOf`) and `relationshipWrittenAt`, the ISO time of
  * `opts.now` (else the wall clock) -- the clock the batch's attitude moves are stamped with
  * (src/memory/affinity.ts#applyDelta). A profile written before the stamp existed keeps none
@@ -730,28 +729,12 @@ function writeRelationship(
 ) {
   const text = typeof raw === 'string' ? stripUrls(raw) : raw;
   if (typeof text !== 'string' || !text.trim()) return;
-  const next = firstWriteText(
-    target.relationship,
-    text,
-    opts.relationshipChars ?? opts.fieldChars,
-    opts.clampTolerance
-  );
+  const next = text.trim();
   onWrite?.(target.relationship, next);
   target.relationship = next;
   target.relationshipScore = relationshipScoreOf(opts, target.affinity);
   target.relationshipWrittenAt = new Date(isFiniteNumber(opts.now) ? opts.now : Date.now()).toISOString();
   delete target.relationshipRewrite;
-}
-
-/**
- * The text a prose writer stores: a first write (`previous` empty, nothing to lose yet) is
- * clamped to `limit` as before; a rewrite is only trimmed, never cut, whatever its length.
- * @param previous  The stored text.
- * @param text       A non-blank string.
- */
-function firstWriteText(previous: unknown, text: string, limit: number | undefined, tolerance?: number): string {
-  const first = typeof previous !== 'string' || previous.trim() === '';
-  return first ? clampText(text, limit, { tolerance }) : text.trim();
 }
 
 /**
@@ -815,11 +798,8 @@ function applyItemOps(
     const interests = applyInterestOps(target.interests, ops.interests, {
       maxInterests: opts.maxInterests,
       maxInterestsStored: opts.maxInterestsStored,
-      topicChars: opts.topicChars,
-      noteChars: opts.noteChars,
       confirmGapHours: opts.confirmGapHours,
       halfLifeDays: opts.interestHalfLifeDays,
-      clampTolerance: opts.clampTolerance,
       seenAt,
       mintId: () => `${ITEM_ID_PREFIX.interest}${newId()}`,
       now: opts.now,
@@ -837,10 +817,8 @@ function applyItemOps(
     } = applyDetailOps(target.details, ops.details, {
       maxDetails: opts.maxDetails,
       maxDetailsStored: opts.maxDetailsStored,
-      fieldChars: opts.fieldChars,
       confirmGapHours: opts.confirmGapHours,
       halfLifeDays: opts.detailHalfLifeDays,
-      clampTolerance: opts.clampTolerance,
       seenAt,
       nextId: target.detailsSeq,
       mintId: () => `${ITEM_ID_PREFIX.detail}${newId()}`,
@@ -1087,18 +1065,14 @@ type LearnedOpsOptions = {
   seenAt?: number;
   maxLearned?: number;
   maxLearnedStored?: number;
-  learnedChars?: number;
   learnedHalfLifeDays?: number;
   confirmGapHours?: number;
-  clampTolerance?: number;
 };
 
 type SetLoreOptions = {
   source: string;
   now?: number;
   maxEntries?: number;
-  textChars?: number;
-  clampTolerance?: number;
 };
 
 type RecentOpsOptions = {
@@ -1106,8 +1080,6 @@ type RecentOpsOptions = {
   hours?: number;
   maxStored?: number;
   maxNew?: number;
-  chars?: number;
-  clampTolerance?: number;
   removeIds?: Array<unknown>;
 };
 
@@ -1911,10 +1883,9 @@ function buildStore({
      * Apply one analyzer batch's INCREMENTAL profile update (see
      * docs/prompt-contract.md, "The analyzer"): `character`/`style`/
      * `relationship` replace the stored text only when given as a non-empty
-     * string, clamped to `opts.fieldChars` (`relationship` to
-     * `opts.relationshipChars` when given) -- an absent or empty field never
+     * string, stored whole -- an absent or empty field never
      * blanks what is already stored. Every text of the batch (prose, items, aliases, the real
-     * name) loses its links before it is clamped (`stripUrls`); one that was only links counts as
+     * name) loses its links first (`stripUrls`); one that was only links counts as
      * empty. `ops.interests` (`{ add, update, seen,
      * remove }`) merges via src/memory/interests.ts#applyInterestOps;
      * `ops.details` (`{ add, seen, remove }`) merges via
@@ -1933,24 +1904,17 @@ function buildStore({
      *   is written (falls back to the stored score), and `profile.relationshipWrittenAt` = the ISO
      *   time of `opts.now` (else the wall clock) next to it -- the score and the moment the text
      *   was written.
-     *   `relationshipChars`: the relationship text's limit (`relationships.textChars`); omitted ->
-     *   `fieldChars`.
      *   `maxInterestsStored`/`maxDetailsStored`/`interestHalfLifeDays`/`detailHalfLifeDays` drive the
      *   storage-cap-vs-shown-cap split and the rank decay -- see
      *   docs/prompt-contract.md, "More is stored than shown, and rank decays with age".
-     *   `clampTolerance` (see src/memory/clamp.ts) governs how far prose text may run over
-     *   `fieldChars`/`noteChars`/etc. before it is cut, at a clean boundary, never mid-token.
      * @returns The updated profile.
      */
     applyProfileOps(
       accountId: string,
       ops: ProfileOpsOptions,
       opts: {
-        fieldChars?: number;
         maxInterests?: number;
         maxInterestsStored?: number;
-        topicChars?: number;
-        noteChars?: number;
         interestHalfLifeDays?: number;
         maxDetails?: number;
         maxDetailsStored?: number;
@@ -1961,9 +1925,7 @@ function buildStore({
         confirmGapHours?: number;
         seenAt?: number;
         now?: number;
-        clampTolerance?: number;
         relationshipScore?: number;
-        relationshipChars?: number;
         by?: string;
         versions?: { enabled?: boolean; kept?: number };
       } = {}
@@ -1977,7 +1939,7 @@ function buildStore({
       for (const key of ['character', 'style'] as const) {
         const value = typeof ops?.[key] === 'string' ? stripUrls(ops[key]) : undefined;
         if (typeof value === 'string' && value.trim()) {
-          const next = firstWriteText(profile[key], value, opts.fieldChars, opts.clampTolerance);
+          const next = value.trim();
           recordVersion(null, 'users', accountId, key, profile[key], next, opts);
           profile[key] = next;
         }
@@ -2168,8 +2130,7 @@ function buildStore({
      * `applyProfileOps` (an absent or empty `relationship` never blanks the
      * stored one). `character`, `style`, `aliases` and `portrait` are public
      * only and ignored here. Creates the file. Tolerates garbage `ops`, never throws.
-     * @param [opts]  As for `applyProfileOps` (a first text clamped to `relationshipChars`,
-     *   else `fieldChars`, and stamped `relationshipScore` and `relationshipWrittenAt` in this
+     * @param [opts]  As for `applyProfileOps` (a text stamped `relationshipScore` and `relationshipWrittenAt` in this
      *   layer); `relationshipScore` falls back to this layer's own score (the analyzer passes the
      *   effective one it showed the model).
      * @returns The updated private layer.
@@ -2536,10 +2497,8 @@ function buildStore({
       const { items, nextId, dropped } = applyDetailOps(place.learned, ops, {
         maxDetails: opts.maxLearned,
         maxDetailsStored: opts.maxLearnedStored,
-        fieldChars: opts.learnedChars,
         halfLifeDays: opts.learnedHalfLifeDays,
         confirmGapHours: opts.confirmGapHours,
-        clampTolerance: opts.clampTolerance,
         seenAt: isFiniteNumber(opts.seenAt) ? opts.seenAt : Date.now(),
         nextId: place.learnedNextId,
         // A lesson carries no validity fields.

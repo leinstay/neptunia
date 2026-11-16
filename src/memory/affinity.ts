@@ -3,17 +3,13 @@
 // scale, 0 = neutral. The memory-update analyzer is the only writer of a
 // `delta`; this module clamps it, folds it into the stored score and keeps a
 // short history of what moved it. See docs/prompt-contract.md, "The analyzer".
-// It is also the one home of two attitude rules: the reason's length
-// (`REASON_CHARS`) and the reading of the delta cap (`deltaCapOf`).
+// It is also the home of the reading of the delta cap (`deltaCapOf`).
 
-import { clampText, stripUrls } from './clamp.ts';
+import { stripUrls } from './clamp.ts';
 import { DAY_MS } from '../time.ts';
 import { attachDropped } from './interests.ts';
 import { isFiniteNumber } from './types.ts';
 import type { Untyped } from './types.ts';
-
-/** How long an attitude reason may be, in characters, before `memory.clampTolerance`. */
-export const REASON_CHARS = 200;
 
 /**
  * The size a delta is clamped to (`relationships.maxDeltaPerUpdate`, read by the caller): the
@@ -108,7 +104,7 @@ export function roundScore(score: number): number {
  *
  * @param affinity           Current `{ score, reason, history }`, or malformed/undefined.
  * @param delta              Raw delta from the model; coerced to an integer (unless `opts.truncate` is false).
- * @param reason             One-line reason for this change, trimmed and clamped. The new
+ * @param reason             One-line reason for this change, its links removed and trimmed, kept whole. The new
  *   history entry records it as given (`''` when there is none). It also
  *   becomes `affinity.reason`; with none, `affinity.reason` keeps the previous one. The newest
  *   entry's reason is therefore not always the stored one: a reader that restores an earlier
@@ -118,9 +114,6 @@ export function roundScore(score: number): number {
  *   and before it is applied.
  * @param opts.historySize   History is trimmed to the last N entries.
  * @param [opts.now]         Epoch ms for the history entry's timestamp.
- * @param [opts.clampTolerance]  `reason` loses its links first (src/memory/clamp.ts#stripUrls).
- *   How far `reason` (free text) may run over its
- *   `REASON_CHARS` limit before being cut, at a clean boundary -- see src/memory/clamp.ts.
  * @param [opts.damping=false]  `relationships.damping`. When true, `dampedDelta` above
  *   decides how much of the (already clamped) delta actually lands; when false (or omitted), the
  *   whole clamped delta is applied, same as before this option existed.
@@ -145,7 +138,6 @@ export function applyDelta(
     maxDelta,
     historySize,
     now = Date.now(),
-    clampTolerance,
     damping = false,
     dampingPower = 1,
     truncate = true,
@@ -153,7 +145,6 @@ export function applyDelta(
     maxDelta: number;
     historySize: number;
     now?: number;
-    clampTolerance?: number;
     damping?: boolean;
     dampingPower?: number;
     truncate?: boolean;
@@ -172,8 +163,7 @@ export function applyDelta(
   const appliedDelta = round2(newScore - base.score);
   if (appliedDelta === 0) return affinity && typeof affinity === 'object' && !Array.isArray(affinity) ? affinity : base;
 
-  const trimmedReason =
-    typeof reason === 'string' ? clampText(stripUrls(reason), REASON_CHARS, { tolerance: clampTolerance }) : '';
+  const trimmedReason = typeof reason === 'string' ? stripUrls(reason).trim() : '';
   const finalReason = trimmedReason || base.reason;
 
   // The entry is this move's own record: an earlier reason is never copied onto a move it did not cause.
