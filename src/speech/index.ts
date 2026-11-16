@@ -11,7 +11,7 @@ import { roleModel } from '../llm/roles.ts';
 import type { KeyOf } from '../keys/ring.ts';
 import { CODE } from '../tools/codes.ts';
 import { prepareSpeech } from './prepare.ts';
-import { SpeechSynthError, SPEECH_ROLE, synthesizeSpeech } from './synth.ts';
+import { SpeechSynthError, synthesizeSpeech } from './synth.ts';
 import { SpeechConvertError, toVoiceNote } from './convert.ts';
 
 /** A voice message that could not be made; `stage` is 'prepare' | 'synth' | 'convert', `code` the skill code. */

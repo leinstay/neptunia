@@ -241,38 +241,6 @@ export function whereFor(ctx: unknown, alias = ''): { sql: string; params: Array
   return { sql: `${sql})`, params };
 }
 
-/** The narrower of two scopes that are each a group or a DM, `internal` when they cannot both be shown anywhere. */
-function meetScopes(result: Scope, next: Scope): Scope {
-  if (result.scope_kind === 'none') return next;
-  const sameIface = result.scope_iface === next.scope_iface;
-  if (result.scope_kind === 'group' && next.scope_kind === 'group') return result;
-  if (result.scope_kind === 'group') return next;
-  if (next.scope_kind === 'group') return result;
-  return sameIface && result.scope_dm === next.scope_dm ? result : { ...SCOPE_INTERNAL };
-}
-
-/**
- * The narrowest scope of the sources a derived row came from. `none` sources do not narrow. Group is narrower than
- * none, a DM narrower than any group. Different DMs and malformed evidence give `internal`.
- * Groups retain the first source interface as provenance because every valid group has the same visibility.
- */
-export function narrowest(scopes: unknown): Scope {
-  let result: Scope = { ...SCOPE_NONE };
-  for (const scope of (Array.isArray(scopes) ? scopes : []) as Array<Partial3 | null | undefined>) {
-    const kind = scope?.scope_kind;
-    if (!scope || !wellFormed(scope)) return { ...SCOPE_INTERNAL };
-    if (kind === 'none') continue;
-    if (kind !== 'group' && kind !== 'dm') return { ...SCOPE_INTERNAL };
-    result = meetScopes(result, {
-      scope_kind: kind,
-      scope_iface: scope.scope_iface ?? null,
-      scope_dm: kind === 'dm' ? (scope.scope_dm ?? null) : null,
-    });
-    if (result.scope_kind === 'internal') return result;
-  }
-  return result;
-}
-
 // ---------- audiences (schema v7) ----------
 
 export const AUD_NONE = 'aud:none';

@@ -12,7 +12,7 @@ import { createAdmin } from '../src/admin.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
 import { createLoopback, envelope } from '../src/protocol/index.ts';
-import { createFakeAdapter, replayFixture } from '../src/interface/fake.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiary } from '../src/behavior/diary.ts';
 import { heartbeatWake } from '../src/behavior/inner.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
@@ -311,7 +311,16 @@ describe('a replay after a reconnect', () => {
       log: SILENT,
     });
     const fixture = { iface: 'fake', events: [received('m1', 'καλημέρα', 2), received('m2', 'τι κάνεις', 1)] };
-    const answers = await replayFixture(fixture, door, { port });
+    const answers: Array<{ id: string | null; status: string }> = [];
+    for (const { redeliver, ...fields } of fixture.events) {
+      const event = { iface: fixture.iface, ...fields };
+      const { chat: where, message } = event;
+      port.seed(where.id, { authorId: message.author.id, text: message.content, messageId: message.id });
+      for (let delivery = 0; delivery <= redeliver; delivery += 1) {
+        const { status, id } = await door.submit(structuredClone(event));
+        answers.push({ id, status });
+      }
+    }
     assert.deepEqual(
       answers.map((answer) => `${answer.id}:${answer.status}`),
       [

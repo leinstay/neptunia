@@ -3,15 +3,14 @@
 // a private name of one node are two rows and a retired claim or a revoked link takes exactly its own rows with it.
 // Contract:
 //   table names(label, normalized, stem, kind, node_id, audience_id, source_table, source_id), trigram table names_tri
-//   rebuildNames(db: Db): void                                  every row again from the stored rows
 //   touchNames(db: Db, sourceTable: string, sourceId: string): void   the rows of one stored row, again; the writers call it
-//   namesOf(db: Db, ctx: Context, words: Array<string>): Array<NameHit>
+//   matchName(db: Db, ctx: Context, word: string): Array<NameHitRow>
 //   NameHit = { nodeId; kind; label; match: 'exact' | 'stem' | 'trigram'; audienceId }
 // A hit's `nodeId` is a graph node id (`graphNodeId`). A name of an account points at the account's person while the link
 // is verified, since a name raises a person. A hit is read under `ctx` as every scoped row is (scope.ts#audienceWhere).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { namesOf, placesNamed, rebuildNames } from '../src/memory/db/names.ts';
+import { matchName, placesNamed, touchNames } from '../src/memory/db/names.ts';
 import type { NameHit } from '../src/memory/db/names.ts';
 import { applyPersonLinkWrite } from '../src/memory/db/person-links.ts';
 import { dmContext, groupAudienceId, groupContext } from '../src/memory/db/scope.ts';
@@ -43,6 +42,12 @@ function world(): World {
   return opened;
 }
 
+/** The nodes `words` name, read under `ctx`: per word, one hit per node by its strongest match. */
+const namesOf = (
+  db: Parameters<typeof matchName>[0],
+  ctx: Parameters<typeof matchName>[1],
+  words: Array<string>
+): Array<NameHit> => words.flatMap((word) => matchName(db, ctx, word));
 const GROUP = groupContext('discord');
 const hitsFor = (hits: Array<NameHit>, nodeId: string): Array<NameHit> => hits.filter((hit) => hit.nodeId === nodeId);
 
@@ -154,29 +159,6 @@ test('a revoked link takes the account name away from the person', () => {
   );
 });
 
-test('a rebuild gives the rows the writers left', () => {
-  // Bug: the writers' touch and the full rebuild compute the rows two ways, and the index drifts after a rebuild.
-  const w = world();
-  const person = 'person:discord:a1';
-  addPerson(w.db, {
-    id: person,
-    realName: 'Anthí Mavroú',
-    accounts: [{ id: 'discord:a1', iface: 'discord', native: 'a1', names: ['Anthoúla'] }],
-  });
-  addClaim(w.db, { id: 'claim:alias:a1', person, kind: 'alias', text: 'Ánthi', audience: { group: 'discord' } });
-  addRoom(w.db, { iface: 'discord', native: 'c1', root: rootId('discord', 'g1'), name: 'λέσχη' });
-  const all = (): Array<string> =>
-    w.db
-      .prepare('SELECT label, normalized, stem, kind, node_id, audience_id, source_table, source_id FROM names')
-      .all()
-      .map((row) => JSON.stringify(row))
-      .sort();
-  const written = all();
-  assert.ok(written.length >= 5, 'the writers filled the index');
-  rebuildNames(w.db);
-  assert.deepEqual(all(), written);
-});
-
 test('a real name stored as the people mapper writes it, an object with its name, is found by that name', () => {
   // Bug: `people.real_name` holds `{ name, from, to, itemId, recordedAt }` (src/memory/db/account-profile.ts), the index read
   // only a string or a list, and no person of a live database was found by the name a user gave.
@@ -193,7 +175,7 @@ test('a real name stored as the people mapper writes it, an object with its name
     }),
     accounts: [{ id: 'discord:e1', iface: 'discord', native: 'e1', names: ['lena'] }],
   });
-  rebuildNames(w.db);
+  touchNames(w.db, 'people', person);
   const hits = hitsFor(namesOf(w.db, GROUP, ['Daskaláki']), personNode(person));
   assert.deepEqual(
     hits.map((hit) => hit.kind),

@@ -15,7 +15,9 @@ import { observe } from '../../src/memory/db/observe.ts';
 import { dbSettings } from '../../src/memory/db/recall.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
 import { dmScope, groupContext, groupScope } from '../../src/memory/db/scope.ts';
-import { tellMedia } from '../../src/memory/db/media-store.ts';
+import { mediaStamp } from '../../src/memory/db/media-stems.ts';
+import { loadStemmer } from '../../src/memory/db/stems.ts';
+import { dbOf, transactionOf } from '../../src/memory/db/types.ts';
 import type { MediaOrigin } from '../../src/memory/db/media-store.ts';
 import { runMemorySearch } from '../../src/tools/tools.ts';
 import { fillEnvAudiences } from './memory-db/audiences.ts';
@@ -297,7 +299,25 @@ export function eventOf(
 /** Tells a line's item its text form, as the describer's write and the voice operation do. */
 export function tell(env: Env, kind: Kind, item: Item, iface = 'discord'): void {
   if (kind.origin === null) return;
-  tellMedia(env.handle, { iface, nativeRef: item.id, description: item.told, origin: kind.origin });
+  const db = dbOf(env.handle);
+  transactionOf(env.handle)(() => {
+    const row = db
+      .prepare('SELECT * FROM media WHERE native_ref = ? AND scope_iface IS ? AND retired_at IS NULL ORDER BY rowid LIMIT 1')
+      .get(item.id, iface);
+    if (!row) return;
+    const held = JSON.parse(typeof row.extra === 'string' ? row.extra : '{}') as Record<string, unknown>;
+    const extra = { ...held, textOrigin: kind.origin };
+    db.prepare(
+      "UPDATE media SET description = ?, described_at = ?, availability = 'present', extra = ?, stems = ? WHERE id = ?"
+    ).run(
+      item.told,
+      new Date().toISOString(),
+      JSON.stringify(extra),
+      mediaStamp(loadStemmer(db).stem, { kind: row.kind, description: item.told, extra }),
+      row.id
+    );
+    db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(`media:${String(row.id)}`);
+  });
 }
 
 /** One observed line of `kind` and its text forms: both told (`full`), the first (`part`), none (`absent`). */

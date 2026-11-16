@@ -7,44 +7,9 @@ import { test } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { memorySessionStatusLine, sessionStatus } from '../src/memory/db/session.ts';
-import { openMemoryDb } from '../src/memory/db/open.ts';
-import { dbOf } from '../src/memory/db/types.ts';
 import { memoryPath } from '../src/subharness/memory-path.ts';
 import { CONFIG_DIR, CONFIG_FILE } from '../src/config/files.ts';
-import { memoryRing } from './fixtures/memory-db/session-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
-
-test('the memory status line names the subharness path it runs on', () => {
-  // Catches: the status card shows the session as healthy with no word of the CLI it depends on.
-  const handle = openMemoryDb(':memory:');
-  const status = sessionStatus({
-    db: dbOf(handle),
-    config: { memoryDb: { session: { mode: 'apply' } } },
-    env: {},
-    ring: memoryRing(),
-    prompts: { 'memory-session': 'SESSION' },
-    path: { kind: 'subharness', backend: 'codex', model: 'gpt-6.1-sol', effort: null },
-  });
-  handle.close();
-  const line = memorySessionStatusLine(status, { status: { memorySession: { line: 'session {mode} {path}' } } });
-  assert.ok(line.includes('codex') && line.includes('gpt-6.1-sol'), line);
-});
-
-test('the memory status line says direct when no path is given', () => {
-  // Catches: an absent path rendered as "{path}" or "undefined" on every deployment that never set one.
-  const handle = openMemoryDb(':memory:');
-  const status = sessionStatus({
-    db: dbOf(handle),
-    config: { memoryDb: { session: { mode: 'apply' } } },
-    env: {},
-    ring: memoryRing(),
-    prompts: { 'memory-session': 'SESSION' },
-  });
-  handle.close();
-  const line = memorySessionStatusLine(status, { status: { memorySession: { line: 'session {mode} {path}' } } });
-  assert.ok(line.includes('direct'), line);
-});
 
 /** A private layer whose config.json names `route` as the only route of the memory role. */
 function layerWithMemoryRoute(route: Record<string, unknown>): string {

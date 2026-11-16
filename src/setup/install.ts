@@ -1,6 +1,6 @@
 // Writing the rendered units: the part of `neptunia setup` that touches the unit folder and systemd, used by the `units`
-// step (src/setup/run.ts); `applyModeToUnit` re-renders the one unit whose mode changed. Inside the core a mode change
-// renders nothing (`deferModeToUnit`): the core runs under `NoNewPrivileges` and cannot `sudo`. A user
+// step (src/setup/run.ts). Inside the core a mode change renders nothing (`deferModeToUnit`): the core runs under
+// `NoNewPrivileges` and cannot `sudo`, so the unit takes the mode at the next `neptunia setup`. A user
 // unit is written straight into `~/.config/systemd/user`. A system unit is rendered into a folder of its own and put in
 // place with `sudo install`, so nothing writes to `/etc/systemd/system` without sudo. Every command goes through the
 // injected `run`, so no test touches systemd.
@@ -152,28 +152,6 @@ export function unitOfAgent(agent: string): string | null {
 export function deferModeToUnit(agent: string): string | null {
   const file = unitOfAgent(agent);
   return file === null ? null : `${file} takes the mode when you run "neptunia setup" in a shell`;
-}
-
-/**
- * Puts the mode of `agent` into its unit: renders the one unit again, reloads the manager and restarts the unit when it
- * runs. Resolves with a line for the owner, or null when the agent has no unit. The unit's file is left alone when the
- * scope has none installed.
- */
-export async function applyModeToUnit(
-  target: UnitTarget,
-  run: (command: string, args: ReadonlyArray<string>) => Promise<RunResult>,
-  agent: string
-): Promise<string | null> {
-  const file = unitOfAgent(agent);
-  if (file === null) return null;
-  if (!fs.existsSync(path.join(unitDirOf(target), file)))
-    return `${file} is not installed here; the mode holds from the next run`;
-  const done = await installUnits(target, run, [file]);
-  if (!done.ok) return `${file} could not be updated: ${done.reason}`;
-  const [command, args] = systemctlOf(target, 'try-restart', file);
-  const restarted = await run(command, args);
-  if (restarted.code !== 0) return `${file} was updated and could not be restarted: ${whyFailed(restarted)}`;
-  return done.written.length === 0 ? `${file} had this mode already` : `${file} was updated and restarted`;
 }
 
 /** Runs a command to its end and resolves with its output; `sudo` never waits for a password without a terminal. */

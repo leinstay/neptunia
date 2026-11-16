@@ -117,9 +117,6 @@ export type Action =
       choices?: Array<string>;
     };
 
-/** Every result status. */
-export const STATUSES = Object.freeze(['ok', 'failed', 'unknown', 'unsupported', 'forbidden']);
-
 /**
  * The capability name of each port operation; the skills registry's `interfaceCapability` uses
  * the same names (src/tools/registry.ts), and each is the `action` of the operation's action
@@ -142,12 +139,6 @@ export const COMMAND_RESULT = 'command.result';
 
 /** Every action name: the port's capabilities and the command result. */
 export const ACTIONS = Object.freeze([...Object.values(CAPABILITIES), COMMAND_RESULT]);
-
-/** The incoming-event hooks every adapter declares. */
-export const INCOMING_HOOKS = Object.freeze(['onMessage', 'onEdit', 'onDelete']);
-
-/** The mentions of content that names none: nobody is notified. */
-export const NO_MENTIONS = Object.freeze({ users: Object.freeze([]), repliedUser: false });
 
 /**
  * The action object of one port call: `operation` is a key of CAPABILITIES (`send`, `edit`,

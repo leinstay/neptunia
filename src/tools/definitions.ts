@@ -112,12 +112,7 @@ export const oneOf = (values: ReadonlyArray<string>): Schema => ({
   maxLength: STRING_MAX,
   enum: [...values],
 });
-/** A list of free strings, each 1 to `itemMax` characters, at most `maxItems` of them. */
-export const strings = (itemMax: number, maxItems: number): Schema => ({
-  type: 'array',
-  items: str(itemMax),
-  maxItems,
-});
+
 /** An integer, with the bounds given. */
 export const int = (min?: number, max?: number): Schema => ({
   type: 'integer',

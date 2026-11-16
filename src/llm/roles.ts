@@ -74,9 +74,6 @@ export const OPENCODE_ROLES = Object.freeze([...ERRAND_ROLES]);
 /** The model roles, in display order (`/nep model`, the status card). */
 export const ROLES = Object.freeze([...BASE_ROLES, ...OPENCODE_ROLES]);
 
-/** The base roles that are always on: without them there is no persona. One with no chain has its built-in default. */
-export const MANDATORY_ROLES = Object.freeze(['core', 'memory', 'analyzer', 'embedding'] as const);
-
 /** The base roles an owner may leave off, in the order of the tool roles. Off while their chain holds no route. */
 export const OPTIONAL_ROLES = Object.freeze(['vision', 'video', 'drawing', 'speech'] as const);
 
@@ -172,11 +169,6 @@ export const MEMORY_PURPOSES = Object.freeze([
   'description-check',
   'description-merge',
 ]);
-
-/** Whether `role` is one of ROLES. */
-export function isRole(role: unknown): boolean {
-  return typeof role === 'string' && ROLES.includes(role);
-}
 
 /** A model on the direct path as a source-qualified selection, as readiness records its check. */
 export const directSelectionOf = (model: string): string => `openrouter:${model}`;

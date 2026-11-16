@@ -150,12 +150,3 @@ export function applyIntentionsWrite(handle: MemoryHandle, update: Row): { writt
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   return handle.transaction(() => writeIntentions(dbOf(handle), write, at));
 }
-
-/** The intentions write a unit write of the intention units carries, or null for any other unit. */
-export function intentionsOfUnit(update: Row): IntentionsWrite | null {
-  const key = update.key as { kind?: unknown; selector?: { collection?: unknown } } | undefined;
-  if (key?.kind !== 'intentions') return null;
-  if (key.selector?.collection === 'archive') return intentionsWriteOf({ op: 'archive', records: update.lines });
-  const value = isRecord(update.value) ? update.value : {};
-  return intentionsWriteOf({ op: 'value', intentions: value.intentions });
-}

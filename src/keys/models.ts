@@ -64,12 +64,3 @@ export async function roleModelListing(
     return { ok: false };
   }
 }
-
-/** The ids of the listing on the key `value` that fit `role`; [] when unreadable, which leaves the owner to type the model. */
-export async function listRoleModels(
-  input: { fetch: typeof fetch; baseUrl: string; value: string },
-  role: string
-): Promise<Array<string>> {
-  const reading = await roleModelListing(input, role);
-  return reading.ok ? reading.models : [];
-}

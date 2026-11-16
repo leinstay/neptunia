@@ -4,9 +4,6 @@
 // address. Plain data with no platform in it: the memory database and the core read these, and an interface may declare
 // its authority on a chat (events.ts).
 
-import type { Chat } from './events.ts';
-
-export type ChatAddress = { interfaceId: string; authorityId: string; placeId: string };
 export type AccountAddress = { interfaceId: string; authorityId: string; nativeId: string; generation: number };
 
 /** The core's own namespace (`person:self`, rows with no interface). */
@@ -17,19 +14,4 @@ export function nativeAuthorityOf(iface: unknown): string {
   if (typeof iface !== 'string' || !iface) return CORE_AUTHORITY;
   if (iface === 'cli' || iface === 'core') return `${iface}/local`;
   return `${iface}/global`;
-}
-
-export const chatKey = ({ interfaceId, authorityId, placeId }: ChatAddress): string =>
-  JSON.stringify([interfaceId, authorityId, placeId]);
-
-export const accountKey = ({ interfaceId, authorityId, nativeId, generation }: AccountAddress): string =>
-  JSON.stringify([interfaceId, authorityId, nativeId, generation]);
-
-/** The address of an event's chat, under the authority it declares or the interface's native one. */
-export function chatAddressOf({ iface, chat }: { iface: string; chat: Chat }): ChatAddress {
-  return {
-    interfaceId: iface,
-    authorityId: chat.authorityId ?? nativeAuthorityOf(iface),
-    placeId: chat.id,
-  };
 }

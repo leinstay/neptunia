@@ -67,13 +67,8 @@ export function sortRanked<TItem extends Ranked>(items: Array<TItem>, halfLifeDa
     .map(({ item }) => item);
 }
 
-/** `sortRanked` for a caller that does not read the items' fields back: the same order, as plain objects. */
-export function sortByRank(items: Array<object>, halfLifeDays?: number): Array<object> {
-  return sortRanked(items, halfLifeDays);
-}
-
 /**
- * The top `n` items by rank (see `sortByRank`), best first. `n` not a
+ * The top `n` items by rank (see `sortRanked`), best first. `n` not a
  * non-negative integer -> every item (no cap).
  */
 export function topRanked<TItem extends Ranked>(items: Array<TItem>, n?: number, halfLifeDays?: number): Array<TItem> {

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { accountLinks, linkedDmScopes } from '../src/memory/db/person-links.ts';
+import { linkedDmScopes } from '../src/memory/db/person-links.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { allowed, allowedAudience, audienceWhere, dmContext, whereFor } from '../src/memory/db/scope.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
@@ -109,7 +109,14 @@ test('an unbound account leaves the person, and the DMs stop being shared', () =
     bind(handle, ['discord', '222'], ['discord', '111']);
     applyMemoryWrite(handle, { kind: 'person-link', op: 'unbind', accountId: 'discord:222', now: 2000 });
     assert.equal(allowed(dmRow('discord', '222'), contextOf(handle, 'discord', '111')), false);
-    assert.deepEqual(accountLinks(dbOf(handle), 'discord', '111').accounts, [{ iface: 'discord', native: '111' }]);
+    const siblings = dbOf(handle)
+      .prepare(
+        `SELECT iface, COALESCE(native_key, native_id) AS native FROM accounts WHERE link = 'verified' AND person_id =
+           (SELECT person_id FROM accounts WHERE iface = 'discord' AND native_id = '111') ORDER BY iface, native`
+      )
+      .all()
+      .map((row) => ({ iface: row.iface, native: row.native }));
+    assert.deepEqual(siblings, [{ iface: 'discord', native: '111' }]);
   });
 });
 

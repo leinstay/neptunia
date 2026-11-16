@@ -4,7 +4,7 @@
 //     the path of its place by names from the interface down and whether that place is a one-to-one chat (`dm`)
 //   reads.around(placeId, at, count) -> the lines of that place from `count` before the line at `at` to `count` after
 //     it, the line itself included, oldest first
-// The fake applies no access rule and no exclusion, so a test sees what meanwhileOf itself keeps out.
+// The fake applies no access rule and no exclusion, so a test sees what `meanwhileWindows` itself keeps out.
 
 import type { PlaceChainLink } from '../../src/memory/db/place-tree.ts';
 

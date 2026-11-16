@@ -605,8 +605,8 @@ export const PICTURES_RECACHE_SKIPS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 /** A channel's stored `topWriters` (`{ id, count }[]`) resolved to current stored names, comma
- * -separated -- an id with no stored profile (e.g. someone who left) is skipped silently, same as
- * src/memory/channels.ts#renderChannel's own topWriters line. `''` when there is nothing to show. */
+ * -separated -- an id with no stored profile (e.g. someone who left) is skipped silently. `''` when
+ * there is nothing to show. */
 export function channelTopWritersText(topWriters: unknown, nameOf: (id: string) => string | null | undefined): string {
   return (Array.isArray(topWriters) ? topWriters : [])
     .map((writer): string | null => {

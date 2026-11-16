@@ -1,22 +1,18 @@
 // The checks over the settings of PR 7c (src/config/check.ts). `checkConfig` lists the keys of a local layer the
 // schema does not know, at the first segment it does not know, and the keys whose value has none of the schema's
-// types. A map's keys are free. `checkReaders` lists the keys whose reader module does not exist or does not read
-// them: a module reads a key when its source holds the dotted key, or holds both the key's first and its last segment
-// as whole words. The checks run over small schemas and temporary trees, and once over the real tree, where every key
-// of the schema has a reader that reads it. `/config check` in the owner's chat and `neptunia doctor` report what
+// types. A map's keys are free. The checks run over small schemas. `/config check` in the owner's chat and
+// `neptunia doctor` report what
 // `checkConfig` finds in the live local layer, and the core starts with such a layer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkConfig, checkReaders } from '../src/config/check.ts';
-import { CONFIG_SCHEMA } from '../src/config/schema.ts';
+import { checkConfig } from '../src/config/check.ts';
 import type { SchemaEntry } from '../src/config/schema.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { folders, runCli, startUnitsCore, withRig } from './fixtures/core-units.ts';
-import { ROOT } from './fixtures/private-layer.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const T0 = Date.parse('2026-10-31T12:00:00Z');
@@ -66,54 +62,6 @@ test('reports a number where a section belongs', () => {
 test('takes any key inside a map, dots included', () => {
   const local = { bot: { access: { 'voice.say': { users: ['1'] }, 'web.search': { everyone: true } } } };
   assert.deepEqual(checkConfig(local, SCHEMA), []);
-});
-
-// ---- checkReaders --------------------------------------------------------------------------------------------------
-
-function tree(files: Record<string, string>): string {
-  const dir = tempDir('nep-readers-');
-  for (const [rel, text] of Object.entries(files)) {
-    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
-    fs.writeFileSync(path.join(dir, rel), text);
-  }
-  return dir;
-}
-
-const entry = (key: string, reader: string): SchemaEntry => ({ key, types: ['number'], reader, default: 1, text: key });
-
-test('takes a reader whose source holds the dotted key', () => {
-  const root = tree({ 'src/a.js': 'const ms = config.llm.timeoutMs;\n' });
-  assert.deepEqual(checkReaders([entry('llm.timeoutMs', 'src/a.js')], root), []);
-});
-
-test('takes a reader that names the section and destructures the last segment', () => {
-  const root = tree({ 'src/a.js': 'const { retries } = hot.config.llm ?? {};\n' });
-  assert.deepEqual(checkReaders([entry('llm.retries', 'src/a.js')], root), []);
-});
-
-test('reports a reader whose source names the last segment but never the section', () => {
-  const root = tree({ 'src/a.js': 'const retries = settings.retries;\n' });
-  assert.deepEqual(checkReaders([entry('llm.retries', 'src/a.js')], root), [
-    { key: 'llm.retries', reader: 'src/a.js', kind: 'not-read' },
-  ]);
-});
-
-test('reports a reader whose source holds the key only inside a longer word', () => {
-  const root = tree({ 'src/a.js': 'const x = config.llm.retriesMax;\n' });
-  assert.deepEqual(checkReaders([entry('llm.retries', 'src/a.js')], root), [
-    { key: 'llm.retries', reader: 'src/a.js', kind: 'not-read' },
-  ]);
-});
-
-test('reports a reader module that does not exist', () => {
-  const root = tree({ 'src/a.js': 'config.llm.timeoutMs\n' });
-  assert.deepEqual(checkReaders([entry('llm.timeoutMs', 'src/gone.js')], root), [
-    { key: 'llm.timeoutMs', reader: 'src/gone.js', kind: 'no-module' },
-  ]);
-});
-
-test('every key of the schema has a reader module that reads it', () => {
-  assert.deepEqual(checkReaders(CONFIG_SCHEMA, ROOT), []);
 });
 
 // ---- /config check -------------------------------------------------------------------------------------------------

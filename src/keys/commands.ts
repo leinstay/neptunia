@@ -105,7 +105,7 @@ export type KeysDeps = {
   harnessOf?: (role: string) => string | null;
   /** The path her memory writer runs on now (its chain's route in force), read at every check. */
   memoryPath?: () => MemoryCheckPath | null;
-  /** One probe through the subharness path of the memory writer (src/subharness/memory-probe.ts#memoryProbe). */
+  /** One probe through the subharness path of the memory writer (src/subharness/memory-probe.ts#routeProbe). */
   probeMemory?: () => Promise<MemoryCheckProbe>;
   /** The chain of `role` now (src/llm/route-chain.ts). */
   chainOf: (role: RouteRole) => Array<Route>;

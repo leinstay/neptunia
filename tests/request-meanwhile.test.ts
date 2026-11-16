@@ -1,7 +1,7 @@
 // src/turn/request/meanwhile.ts: `<meanwhile>`, her last messages in other places with a few lines around each, as
 // background (plan 2026-11-06-turn-frame, slice 4 (a) and "The ordinary turn"). Contract:
-//   meanwhileOf(reads, frame: Frame, settings: { messages: number; around: number }, labels: Labels,
-//     nameOf: (id: string) => string | null): string
+//   meanwhileText(meanwhileWindows(reads, frame: Frame, settings: { messages: number; around: number }), frame,
+//     labels: Labels, nameOf: (id: string) => string | null): string
 // `reads` is the shape of tests/fixtures/meanwhile-reads.ts. Her last `messages` lines outside the current place, each
 // with `around` lines before and after, overlapping windows merged, under the path of their place. A one-to-one chat's
 // lines only at the command line (the place `cli:dm:owner`) or on a turn that is nowhere; a group's lines always.
@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { Frame } from '../src/turn/request/frame.ts';
-import { meanwhileOf, meanwhileText, meanwhileWindows } from '../src/turn/request/meanwhile.ts';
+import { meanwhileText, meanwhileWindows } from '../src/turn/request/meanwhile.ts';
 import { formatDate } from '../src/format.ts';
 import { DM, DM_CHAIN, PARTNER, frameInput } from './fixtures/frame-input.ts';
 import { line, meanwhileReads } from './fixtures/meanwhile-reads.ts';
@@ -27,6 +27,15 @@ import {
   openWorld,
   rootId,
 } from './fixtures/memory-db/mind-world.ts';
+
+/** The body of `<meanwhile>` as the request builds it: the windows of her lines elsewhere, worded. */
+const meanwhileOf = (
+  reads: Parameters<typeof meanwhileWindows>[0],
+  frame: Frame,
+  settings: Parameters<typeof meanwhileWindows>[2],
+  labels: Parameters<typeof meanwhileText>[2],
+  nameOf: Parameters<typeof meanwhileText>[3]
+): string => meanwhileText(meanwhileWindows(reads, frame, settings), frame, labels, nameOf);
 
 const NOW = Date.parse('2026-11-07T12:00:00.000Z');
 const MIN = 60_000;

@@ -1,6 +1,6 @@
-// Schema v9 (spec 2026-10-24-memory-schema-v7, stage 3): the graph projection and its manifest, the four traversal
-// examples on a fixture of two interfaces with a group, a thread, a DM and a private link between two public nodes,
-// truncation reports, cycles, re-projection after an edit, a link revocation and a retirement, the three contracts
+// Schema v9 (spec 2026-10-24-memory-schema-v7, stage 3): the graph projection and its manifest, on a fixture of two
+// interfaces with a group, a thread, a DM and a private link between two public nodes: truncation reports,
+// re-projection after an edit, a link revocation and a retirement, the three contracts
 // (a replay of the unit writes re-projects to the same rows, the VACUUM round trip, rebuildability), version-level evidence and the compare-and-set on
 // claim edits. Synthetic text only (Greek or accented Latin for non-ASCII); the ids and handles are made up.
 import { test } from 'node:test';
@@ -14,18 +14,7 @@ import { insertRows } from '../src/memory/db/rows.ts';
 import { OBSERVATION_VERSION, observe } from '../src/memory/db/observe.ts';
 import { applyMemoryWrite, newestClaimVersion } from '../src/memory/db/session-write.ts';
 import { DEFERRED, NODE_KINDS, PREDICATES, UNIT_OF, UNIT_ORDER } from '../src/memory/db/graph-manifest.ts';
-import {
-  continuationsOf,
-  graphNodeId,
-  graphPending,
-  inPlace,
-  projectRow,
-  rebuildGraph,
-  repliesTo,
-  reproject,
-  saidBy,
-  walk,
-} from '../src/memory/db/graph.ts';
+import { graphNodeId, graphPending, projectRow, rebuildGraph, reproject, walk } from '../src/memory/db/graph.ts';
 import { dmContext, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
 import { main, tableHashes } from '../scripts/memory-db.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
@@ -319,166 +308,6 @@ function rowIds(result: { rows: ReadonlyArray<{ rowId: unknown }> }): Array<stri
   });
 }
 
-test('everything a person said across interfaces keeps private links out of a group', () => {
-  const env = traversalFixture();
-  const { db, ids, ctx } = env;
-  try {
-    const group = saidBy(wrongly(db), ctx.group, 'person:alice');
-    assert.deepEqual(
-      rowIds(group),
-      // Policy 2 includes group evidence from every interface while retaining private link checks.
-      [ids.main, ids.inThread, ids.telegram, ids.reply],
-      'her main account from the link on; the line before the link is not hers yet'
-    );
-    assert.equal(group.truncated, false);
-    assert.ok(!rowIds(group).includes(ids.early));
-    assert.ok(
-      !rowIds(group).includes(ids.alt) && !rowIds(group).includes(ids.replyToReply),
-      'the alt is linked on DM evidence: invisible in a group'
-    );
-    assert.ok(rowIds(group).includes(ids.telegram), 'group evidence remains eligible across interfaces');
-    // The private link's existence does not show either: not from the alt, not from the person.
-    const fromAlt = walk(wrongly(db), ctx.group, {
-      from: graphNodeId('account', env.accounts.alt),
-      predicates: ['account_of'],
-    });
-    assert.deepEqual(
-      fromAlt.rows.map((row) => row.node),
-      [graphNodeId('account', env.accounts.alt)],
-      'the alt is a public node, its link is not'
-    );
-    const toPerson = walk(wrongly(db), ctx.group, {
-      from: graphNodeId('person', 'person:alice'),
-      predicates: ['account_of'],
-      direction: 'in',
-    });
-    assert.deepEqual(
-      toPerson.rows.map((row) => row.rowId).sort(),
-      ['person:alice', env.accounts.main, env.accounts.tg].sort()
-    );
-    assert.equal(
-      walk(wrongly(db), ctx.group, { from: graphNodeId('place', env.places.dm) }).rows.length,
-      0,
-      'the DM place is not even a start in a group'
-    );
-
-    // Policy 2 lets the DM and both group contexts see all group lines. Only the DM sees its private link.
-    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.dm, 'person:alice')), [
-      ids.main,
-      ids.inThread,
-      ids.alt,
-      ids.telegram,
-      ids.reply,
-      ids.replyToReply,
-    ]);
-    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.telegram, 'person:alice')), [
-      ids.main,
-      ids.inThread,
-      ids.telegram,
-      ids.reply,
-    ]);
-    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.internal, 'person:alice')), [
-      ids.main,
-      ids.inThread,
-      ids.alt,
-      ids.telegram,
-      ids.reply,
-      ids.replyToReply,
-    ]);
-    // Her own lines are said by her person row directly.
-    assert.deepEqual(rowIds(saidBy(wrongly(db), ctx.group, 'person:self')), [ids.her]);
-  } finally {
-    env.handle.close();
-  }
-});
-
-test("what happened in a place: the lines of the place and of every place inside it, never another audience's", () => {
-  const env = traversalFixture();
-  const { db, ids, ctx, places } = env;
-  try {
-    const server = inPlace(wrongly(db), ctx.group, places.guild);
-    assert.deepEqual(
-      rowIds(server).sort(),
-      [ids.early, ids.main, ids.inThread, ids.alt, ids.her, ids.reply, ids.replyToReply, ids.cycleA, ids.cycleB].sort()
-    );
-    // Policy 2 makes a group place eligible from any interface.
-    assert.deepEqual(rowIds(inPlace(wrongly(db), ctx.telegram, places.guild)).sort(), rowIds(server).sort());
-    assert.deepEqual(rowIds(inPlace(wrongly(db), ctx.dm, places.dm)).sort(), [ids.evidence, ids.privateReply].sort());
-    assert.equal(inPlace(wrongly(db), ctx.group, places.dm).rows.length, 0);
-  } finally {
-    env.handle.close();
-  }
-});
-
-test('who replied to her line: replies and replies to replies; a private reply only in its DM; a cycle ends', () => {
-  const env = traversalFixture();
-  const { db, ids, ctx } = env;
-  try {
-    assert.deepEqual(rowIds(repliesTo(wrongly(db), ctx.group, ids.her)), [ids.reply, ids.replyToReply]);
-    assert.deepEqual(
-      rowIds(repliesTo(wrongly(db), ctx.dm, ids.her)).sort(),
-      [ids.reply, ids.privateReply, ids.replyToReply].sort()
-    );
-    const cycle = repliesTo(wrongly(db), ctx.group, ids.cycleA);
-    assert.deepEqual(rowIds(cycle), [ids.cycleB], 'the cycle comes back to its start and stops there');
-    assert.equal(cycle.truncated, false);
-    const both = walk(wrongly(db), ctx.group, {
-      from: graphNodeId('source', ids.cycleA),
-      predicates: ['replies_to'],
-      direction: 'both',
-    });
-    assert.deepEqual(
-      both.rows.map((row) => row.rowId),
-      [ids.cycleA, ids.cycleB],
-      'each node once, whatever the direction'
-    );
-  } finally {
-    env.handle.close();
-  }
-});
-
-test('the DM that continued a group, and the group that grew out of the DM: only the DM sees the chain', () => {
-  const env = traversalFixture();
-  const { db, ctx, places } = env;
-  try {
-    // A second group channel; no writer fills the column yet, so the test sets it and projects as a writer would.
-    insertRows(
-      db,
-      {
-        places: [
-          {
-            id: 'discord:channel:c3',
-            iface: 'discord',
-            kind: 'channel',
-            native_id: 'c3',
-            parent_id: places.guild,
-            scope_kind: 'group',
-          },
-        ],
-      },
-      { log: quiet }
-    );
-    handleTx(env, () => {
-      db.prepare('UPDATE places SET continues_place_id = ? WHERE id = ?').run(places.channel, places.dm);
-      db.prepare('UPDATE places SET continues_place_id = ? WHERE id = ?').run(places.dm, 'discord:channel:c3');
-      projectRow(wrongly(db), 'places', { id: places.dm });
-      projectRow(wrongly(db), 'places', { id: 'discord:channel:c3' });
-    });
-    assert.deepEqual(rowIds(continuationsOf(wrongly(db), ctx.dm, places.channel)), [places.dm, 'discord:channel:c3']);
-    assert.deepEqual(
-      rowIds(continuationsOf(wrongly(db), ctx.group, places.channel)),
-      [],
-      'a group never learns a DM went on from it, nor what grew out of that DM'
-    );
-    assert.deepEqual(rowIds(continuationsOf(wrongly(db), ctx.internal, places.channel)), [
-      places.dm,
-      'discord:channel:c3',
-    ]);
-  } finally {
-    env.handle.close();
-  }
-});
-
 function handleTx(env: Record<string, Untyped>, fn: Untyped) {
   return env.handle.transaction(fn);
 }
@@ -487,7 +316,16 @@ test('truncation reports: the row cap pages with `next`, the depth cap says dept
   const env = traversalFixture();
   const { db, ctx, places } = env;
   try {
-    const all = inPlace(wrongly(db), ctx.group, places.guild, { maxRows: 1000 });
+    const inPlace = (opts: { maxRows?: number; maxDepth?: number }) => {
+      const result = walk(wrongly(db), ctx.group, {
+        ...opts,
+        from: graphNodeId('place', places.guild),
+        predicates: ['contained_in', 'located_in'],
+        direction: 'in',
+      });
+      return { ...result, rows: result.rows.filter((row) => row.kind === 'source') };
+    };
+    const all = inPlace({ maxRows: 1000 });
     const first = walk(wrongly(db), ctx.group, {
       from: graphNodeId('place', places.guild),
       predicates: ['contained_in', 'located_in'],
@@ -514,7 +352,7 @@ test('truncation reports: the row cap pages with `next`, the depth cap says dept
         .slice(0, 8),
       'pages follow the one fixed order'
     );
-    const shallow = inPlace(wrongly(db), ctx.group, places.guild, { maxDepth: 1 });
+    const shallow = inPlace({ maxDepth: 1 });
     assert.deepEqual([shallow.truncated, shallow.reason], [true, 'depth'], 'the server holds a channel holding more');
     assert.equal(rowIds(shallow).length, 0, 'no line sits in the server itself');
     assert.deepEqual([all.truncated, all.reason], [false, null]);
@@ -566,17 +404,6 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
       at(60),
       'retired at the end of the link'
     );
-    assert.deepEqual(
-      rowIds(saidBy(wrongly(db), ctx.group, 'person:alice')),
-      // Policy 2 retains the other interface's public account after the main link is revoked.
-      [ids.telegram],
-      'the remaining public account keeps its group evidence visible'
-    );
-    assert.deepEqual(
-      rowIds(saidBy(wrongly(db), ctx.dm, 'person:alice')),
-      [ids.alt, ids.telegram, ids.replyToReply],
-      'the private alt and public foreign account are still hers'
-    );
 
     // A retirement: the reply leaves; its edges retire with it, its witness goes, the walks lose it.
     handleTx(env, () => {
@@ -620,7 +447,13 @@ test('re-projection after an edit, a link revocation and a retirement: stale edg
       'the line replying to it still names it, with its own audience'
     );
     assert.deepEqual(
-      rowIds(repliesTo(wrongly(db), ctx.group, ids.her)),
+      rowIds({
+        rows: walk(wrongly(db), ctx.group, {
+          from: graphNodeId('source', ids.her),
+          predicates: ['replies_to'],
+          direction: 'in',
+        }).rows.filter((row) => row.node !== graphNodeId('source', ids.her)),
+      }),
       [],
       'the reply to the reply hung off the retired line'
     );

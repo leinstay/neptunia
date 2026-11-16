@@ -6,13 +6,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../src/tools/operations/index.ts';
-import {
-  CHANNEL_HANDLE_PREFIX,
-  HANDLE_DIGITS,
-  assignChannelHandles,
-  assignHandles,
-  handleOf,
-} from '../src/behavior/handles.ts';
 import { afterScenarioTurn } from '../src/behavior/sandbox.ts';
 import { channelDirectoryOf as guildChannelDirectory } from '../interfaces/discord/index.ts';
 import { formatTranscript } from '../src/format.ts';
@@ -24,10 +17,6 @@ import type { Untyped } from '../src/tools/types.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
-
-// Two ids whose four-digit hashes collide (the fixture of tests/handles.test.ts).
-const OLDER = '400000000000807738';
-const NEWER = '400000000005693761';
 
 const NOW = Date.UTC(2026, 9, 15, 10, 0, 0);
 const SELF_ID = '900000000000000001';
@@ -46,23 +35,6 @@ const CHANNELS = [
   { id: GENERAL, name: 'γενικά' },
   { id: KITCHEN, name: 'κουζίνα', category: 'Κοινότητα' },
 ];
-
-test('channel handles: `c` and four base-36 digits, stable per id, never a member handle', () => {
-  const handles = assignChannelHandles([GENERAL, NEWS]);
-  // @ts-expect-error: the map holds a handle for every id it was built from
-  assert.match(handles.get(GENERAL), new RegExp(`^${CHANNEL_HANDLE_PREFIX}[0-9a-z]{${HANDLE_DIGITS}}$`));
-  assert.equal(handles.get(GENERAL), handleOf(GENERAL, HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX));
-  assert.deepEqual(assignChannelHandles([NEWS, GENERAL]), handles, 'the order the ids come in changes nothing');
-  assert.notEqual(
-    handles.get(GENERAL),
-    assignHandles({ profiled: [GENERAL] }).get(GENERAL),
-    'a member handle has another prefix'
-  );
-  // A collision: the older channel keeps the short form.
-  const collided = assignChannelHandles([NEWER, OLDER]);
-  assert.equal(collided.get(OLDER), handleOf(OLDER, HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX));
-  assert.equal(collided.get(NEWER), handleOf(NEWER, HANDLE_DIGITS + 1, CHANNEL_HANDLE_PREFIX));
-});
 
 test('linkChannels: an exact #handle links its channel first; a name still links behind it', () => {
   const handles = new Map([['c1a2b', KITCHEN]]);

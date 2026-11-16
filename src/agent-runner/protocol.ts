@@ -103,8 +103,7 @@ export type TaskUsage = {
 
 /** The operations the core may send. */
 export const OPS = Object.freeze(['run', 'cancel', 'ping']);
-/** The events the runner sends. */
-export const EVENTS = Object.freeze(['progress', 'end', 'pong', 'error']);
+
 /** The final states of a task, as an `end` event carries them. */
 export const RESULT_STATUSES = Object.freeze(['done', 'failed', 'cancelled']);
 /** The limit keys a `run` may carry (each a positive finite number). */

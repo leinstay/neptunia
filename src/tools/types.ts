@@ -45,9 +45,6 @@ export function textOf(value: unknown): string {
 /** What an operation declares about itself (src/tools/operations/registry.ts#defineOp): whether it only reads or writes. */
 export type Rights = { kind: 'read' | 'write' };
 
-/** An operation as a grant sees it: its name and its rights. */
-export type OpInfo = { name: string; rights: Rights };
-
 /** A grant of one operation to the persona: the user ids it holds, and (`via`) the group or `*` each id came from. */
 export type GrantEntry = {
   users: Array<unknown>;

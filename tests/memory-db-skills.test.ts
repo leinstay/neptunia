@@ -20,7 +20,6 @@ import {
   rollbackSkill,
   setDisabled,
   syncSkills,
-  useCountsBySkill,
 } from '../src/memory/db/skills.ts';
 import type { SkillSource, SkillsHandle, UseKind } from '../src/memory/db/skills.ts';
 
@@ -237,11 +236,8 @@ test('uses are appended and counted per skill from a moment on', (t) => {
     use('discovered', 't2', T0 + DAY),
   ]);
   assert.equal(written, 5);
-  const all = useCountsBySkill(handle, { since: 0 })['look-it-up'];
+  const all = reviewOf(handle, 'look-it-up')?.active?.uses;
   assert.deepEqual(all, { discovered: 2, read: 1, tried: 1, succeeded: 1, corrected: 0, declined: 0 });
-  const late = useCountsBySkill(handle, { since: T0 + DAY })['look-it-up'];
-  assert.equal(late?.discovered, 1);
-  assert.equal(late?.read, 0);
   assert.equal(reviewOf(handle, 'look-it-up')?.active?.uses.tried, 1);
 });
 
@@ -320,8 +316,5 @@ test('every kind the registry names can be appended and counted', (t) => {
     at: T0 + 10 + n,
   }));
   assert.equal(appendUses(handle, uses), SKILL_USE_KINDS.length);
-  assert.deepEqual(
-    Object.keys(useCountsBySkill(handle, { since: 0 })['look-it-up'] ?? {}).sort(),
-    [...SKILL_USE_KINDS].sort()
-  );
+  assert.deepEqual(Object.keys(reviewOf(handle, 'look-it-up')?.active?.uses ?? {}).sort(), [...SKILL_USE_KINDS].sort());
 });

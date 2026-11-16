@@ -188,19 +188,6 @@ export function blocksOf(kind: TurnKind, place: FramePlace | null): ReadonlyArra
   }
 }
 
-const ALWAYS: ReadonlyArray<BlockName> = Object.freeze(['persona', 'self', 'spatial_awareness', 'task'] as const);
-
-/** The tags a kind may not omit. */
-export const REQUIRED_BY_KIND: Readonly<Record<TurnKind, ReadonlyArray<BlockName>>> = Object.freeze({
-  reply: Object.freeze([...ALWAYS, 'chat'] as const),
-  heartbeat: ALWAYS,
-  intention: ALWAYS,
-  feedback: ALWAYS,
-  errand_result: ALWAYS,
-  diary_plan: ALWAYS,
-  diary: ALWAYS,
-});
-
 /** The kinds that are nowhere: whatever place their turn rides in on is transport. */
 const NOWHERE: ReadonlySet<TurnKind> = new Set<TurnKind>(['heartbeat', 'diary_plan', 'diary']);
 
@@ -267,6 +254,3 @@ const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
 /** Whether a request built with `frame` is the frame's own (`<memory>`, `<recall>`, `<meanwhile>` and the rest). */
 export const framedRequest = (frame: Frame | null | undefined): frame is Frame =>
   frame !== null && frame !== undefined && FRAMED_KINDS.has(frame.kind);
-
-/** Whether a turn will build the frame's request, known before its frame is: every turn without a `source`. */
-export const framedTurn = (_mode: string, source: unknown): boolean => !source;

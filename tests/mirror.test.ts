@@ -6,7 +6,7 @@
 // scripted model. Synthetic text only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { sendEntry, createMirrors } from '../src/behavior/mirror.ts';
+import { createMirrors } from '../src/behavior/mirror.ts';
 import { createDiary } from '../src/behavior/diary.ts';
 import { createStore } from '../src/memory/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
@@ -605,23 +605,6 @@ test('recheck refuses a queued diary publication whose stored origin became rest
   assert.ok(publication && typeof publication.id === 'string');
   const context = issueContext({ kind: 'group', iface: 'fake', destination: core.places[0], now: () => NOW });
   assert.deepEqual(recheck(handle, publication.id, context), { ok: false, code: 'not-allowed' });
-});
-
-test('sendEntry refuses the same native chat on a different origin interface', async () => {
-  // Catches comparing only chat IDs at the actual attachment and text send boundary.
-  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
-  const entry = {
-    id: 'direct-restricted',
-    messages: [TEXT],
-    publicationBoundary: RESTRICTED_ENTRY,
-    pictures: [{ buffer: new Uint8Array([1, 2]), mediaType: 'image/png' }],
-  };
-  const result = await sendEntry(world().port, { iface: 'fake', chatId: 'd1' }, entry, {
-    maxMessageBytes: 1000000,
-    now: () => NOW,
-  });
-  assert.deepEqual([result.status, result.code], ['failed', 'not-allowed']);
-  assert.deepEqual(core.texts('d1'), []);
 });
 
 test('a same-origin restriction permits a mirror send without changing ordinary standing grants', async () => {

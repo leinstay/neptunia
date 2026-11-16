@@ -4,7 +4,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FrameError,
-  REQUIRED_BY_KIND,
   blocksOf,
   frameOf,
   framedRequest,
@@ -57,16 +56,6 @@ const DIARY_LIST: ReadonlyArray<BlockName> = [
   'inner',
   'spatial_awareness',
   'task',
-];
-
-const KINDS: ReadonlyArray<TurnKind> = [
-  'reply',
-  'heartbeat',
-  'intention',
-  'feedback',
-  'errand_result',
-  'diary_plan',
-  'diary',
 ];
 
 // ---- the list of each kind ----
@@ -133,28 +122,6 @@ test('a diary post reads the service list with her virtual world after meanwhile
 test('the diary planner reads the same list as the writer', () => {
   // Bug: the planner has no entry in the table, and slice 6 finds an undefined list.
   assert.deepEqual(blocksOf('diary_plan', null), DIARY_LIST);
-});
-
-// ---- what a kind may not omit ----
-
-test('every kind requires the persona, herself, her whereabouts and the task, and only a reply requires the chat', () => {
-  // Bug: the list a kind may not omit forgets a kind, so a request goes out with no task.
-  for (const kind of KINDS) {
-    for (const block of ['persona', 'self', 'spatial_awareness', 'task'] as const)
-      assert.ok(REQUIRED_BY_KIND[kind].includes(block), `${kind} requires ${block}`);
-    assert.equal(REQUIRED_BY_KIND[kind].includes('chat'), kind === 'reply', kind);
-  }
-});
-
-test('what a kind requires is on the list of that kind, with a place and without', () => {
-  // Bug: the two tables drift apart, and a required block can never be emitted.
-  const place = frameOf(frameInput()).place;
-  for (const kind of KINDS) {
-    for (const given of [place, null]) {
-      const list = blocksOf(kind, given);
-      for (const block of REQUIRED_BY_KIND[kind]) assert.ok(list.includes(block), `${kind} lists ${block}`);
-    }
-  }
 });
 
 // ---- the place, the counterpart, why she is awake ----

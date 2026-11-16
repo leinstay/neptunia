@@ -112,7 +112,7 @@ export function mergeEmojiUsage(
   for (const [id, use] of countEmojiUses(messages)) {
     const before = next[id];
     const newer = !before || use.last >= before.last;
-    // Re-inserted so a just-used emoji sits last: an exact rank tie keeps it (see sortByRank).
+    // Re-inserted so a just-used emoji sits last: an exact rank tie keeps it (see sortRanked).
     delete next[id];
     next[id] = {
       name: newer ? use.name : before.name,

@@ -17,8 +17,7 @@ import { wakeTexts } from '../turn/request/wake.ts';
 // The block builders live in src/turn/request/; their importers read them from here.
 export { block, fillPromptTemplate, hasRequiredLabels } from '../turn/request/text.ts';
 export { previousThinkBody } from '../turn/request/wake.ts';
-export { profileStateFields, renderProfile } from '../turn/request/profiles.ts';
-export { learnedConfig, learnedText } from '../turn/request/server.ts';
+export { renderProfile } from '../turn/request/profiles.ts';
 export {
   freezePerBucket,
   gifCaption,

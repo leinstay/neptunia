@@ -29,7 +29,6 @@ import {
   groupsContext,
   internalContext,
   issueContext,
-  narrowest,
   narrowestAudience,
   scopeOfAudience,
   scopeWhere,
@@ -231,25 +230,6 @@ test('narrowestAudience: the full meet table', () => {
   ];
   // Changed with ids-by-links slice 3: a DM audience's interface comes from its place row, so the meet reads places.
   for (const [input, want] of table) assert.equal(narrowestAudience(input, placeLookup), want, JSON.stringify(input));
-  // The same meet as the triple's narrowest, over every pair of well-formed scopes.
-  const names = ['none', 'internal', 'group', 'groupOther', 'dmAlice', 'dmBob', 'dmAliceOther'];
-  const placeOfScope = (scope: Scope) =>
-    scope.scope_kind === 'dm'
-      ? (Object.entries(PARTNERS).find(
-          ([, partner]) => partner.iface === scope.scope_iface && partner.partner_person === scope.scope_dm
-        )?.[0] ?? null)
-      : null;
-  for (const a of names) {
-    for (const b of names) {
-      const meet = narrowest([SCOPES[a], SCOPES[b]]);
-      const viaTriple = audienceOf(meet, { dmPlace: placeOfScope(meet) }).audience_id;
-      assert.equal(
-        narrowestAudience([resolvedOf(a).audience_id, resolvedOf(b).audience_id], placeLookup),
-        viaTriple,
-        `${a} with ${b}`
-      );
-    }
-  }
 });
 
 test('an unresolved DM audience fails closed while an opaque place resolved by lookup remains private', () => {

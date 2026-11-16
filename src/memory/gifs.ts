@@ -351,10 +351,10 @@ export function markOwnGif(
 
 /**
  * The library's entries as `[{ key, ...entry }]`, best first (see
- * src/memory/ranking.ts#sortByRank: `count` is the weight, `last` the date;
+ * src/memory/ranking.ts#sortRanked: `count` is the weight, `last` the date;
  * `halfLifeDays` not a positive number -> count alone). Every entry with a
  * positive count comes before every entry at count 0 (a reset one not seen
- * again), whatever their dates; each group is ordered by sortByRank.
+ * again), whatever their dates; each group is ordered by sortRanked.
  * @param gifs  A stored library (normalised here).
  */
 export function rankGifs(gifs: unknown, halfLifeDays?: number): Array<GifEntry & { key: string }> {
@@ -545,7 +545,7 @@ export function mergeGifs(
       const before = next.entries[held];
       const entry = counted(before, item, ts, `g${next.nextId}`);
       if (!before) next.nextId += 1;
-      // Re-inserted so a just-used GIF sits last: an exact rank tie keeps it (see sortByRank).
+      // Re-inserted so a just-used GIF sits last: an exact rank tie keeps it (see sortRanked).
       delete next.entries[held];
       next.entries[held] = entry;
       byNative.set(item.key, held);
@@ -663,22 +663,6 @@ export function captionOfCached(cached: unknown): string {
   );
   if (fields.length > 0) return fields.join('; ');
   return typeof cached.text === 'string' ? cached.text.trim() : '';
-}
-
-/** An entry of a place's library with its counter under the place of its latest message and the cached caption. */
-function carriedEntry(key: string, entry: GifEntry, place: string, cache: Record<string, unknown>): GifEntry {
-  const counter: GifPlace = {
-    count: entry.count,
-    last: entry.last,
-    ...(entry.ownLast ? { ownLast: entry.ownLast } : {}),
-    ...(entry.ownUses ? { ownUses: entry.ownUses } : {}),
-  };
-  const caption = entry.caption ?? captionOfCached(cache[entry.itemId] ?? cache[key]);
-  return {
-    ...entry,
-    places: Object.keys(entry.places).length > 0 ? entry.places : { [entry.placeId || place]: counter },
-    ...(caption ? { caption } : {}),
-  };
 }
 
 /** Lowercase with accents off, so a query matches a caption in any case. */

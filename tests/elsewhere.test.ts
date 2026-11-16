@@ -4,11 +4,8 @@
 // destination pick and the jump link. No I/O; the clock is passed in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { audienceCovers, markSeen, messageLink } from '../src/behavior/elsewhere.ts';
+import { audienceCovers, messageLink } from '../src/behavior/elsewhere.ts';
 import type { Untyped } from '../src/tools/types.ts';
-
-const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
-const MIN = 60_000;
 
 /** An audience record: who can view one channel. */
 function audience({
@@ -40,29 +37,6 @@ function audience({
       : {}),
   };
 }
-
-// ---- settings -------------------------------------------------------------------
-
-// ---- settle -----------------------------------------------------------------------
-
-// ---- the ring of calls ----------------------------------------------------------------
-
-// ---- seen marks ---------------------------------------------------------------------
-
-test('markSeen: never moves backwards and never mutates the stored map', () => {
-  const seen = { src: NOW - 5 * MIN };
-  const later = markSeen(seen, 'src', NOW - MIN);
-  assert.deepEqual(seen, { src: NOW - 5 * MIN });
-  assert.deepEqual(later, { src: NOW - MIN });
-  assert.deepEqual(markSeen(later, 'src', NOW - 10 * MIN), { src: NOW - MIN });
-  assert.deepEqual(markSeen(later, 'other', NOW), { src: NOW - MIN, other: NOW });
-});
-
-test('markSeen: a missing map starts empty, a garbage mark is replaced, a non-finite ts changes nothing', () => {
-  assert.deepEqual(markSeen(undefined, 'src', NOW), { src: NOW });
-  assert.deepEqual(markSeen({ src: 'yesterday' }, 'src', NOW), { src: NOW });
-  assert.deepEqual(markSeen({ src: NOW - MIN }, 'src', Number.NaN), { src: NOW - MIN });
-});
 
 // ---- the liveness of a noticed comment -----------------------------------------------------
 

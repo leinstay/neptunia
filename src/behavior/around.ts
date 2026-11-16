@@ -178,30 +178,3 @@ export function liveFields(
   lines.push(fieldLine(labels, 'activity', unknown ? (values[unknown] ?? '') : doing.join('; ') || values.none || ''));
   return lines.filter((line): line is string => Boolean(line));
 }
-
-/**
- * One person's `<people_now>` entry: a heading line, then one field line each (fieldLine). The
- * heading is `labels.peopleNow.heading` (`{who}`), or `labels.peopleNow.headingMarked` (`{who}`
- * `{mark}`) with a mark (a tag about the person in this request, from `labels.peopleNow.marks`).
- * `{who}` is `@handle` (the member's mention handle, src/behavior/handles.ts, the join key with
- * `<people>` and `<directory>`) and the name (member text: cleaned like any). '' with nothing to
- * say (no field, no mark), no name and no handle, or the labels missing.
- * @param labels  The whole labels object.
- */
-export function personRow(
-  {
-    handle = null,
-    name = '',
-    mark = '',
-    fields = [],
-  }: { handle?: string | null; name?: string; mark?: string; fields?: Array<string> },
-  labels: AroundLabels
-): string {
-  const l = peopleNowOf(labels);
-  const who = [handle ? `@${handle}` : '', cleanText(name)].filter(Boolean).join(' ');
-  const lines = fields.filter(Boolean);
-  if (!l || !who || (lines.length === 0 && !mark)) return '';
-  const heading = mark ? fill(l.headingMarked, { who, mark }) : fill(l.heading, { who });
-  if (!heading) return '';
-  return [oneLine(heading), ...lines].join('\n');
-}

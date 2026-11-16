@@ -6,8 +6,8 @@
 // Synthetic data only.
 import { accountProfileOfUnit } from '../../../src/memory/db/account-profile.ts';
 import { channelEntryOfUnit } from '../../../src/memory/db/channel-entry.ts';
-import { intentionsOfUnit } from '../../../src/memory/db/intentions-write.ts';
-import { monthLines } from '../../../src/memory/db/line-vectors.ts';
+import { intentionsWriteOf } from '../../../src/memory/db/intentions-write.ts';
+import type { StoredLine } from '../../../src/memory/db/line-vectors.ts';
 import { operationalOfUnit } from '../../../src/memory/db/operational.ts';
 import { participationOfUnit } from '../../../src/memory/db/participation-episodes.ts';
 import { placeLoreOfUnit } from '../../../src/memory/db/place-lore.ts';
@@ -18,7 +18,7 @@ import { recentLinesOfUnit } from '../../../src/memory/db/recent-lines.ts';
 import { diaryOfUnit } from '../../../src/memory/db/diary-entries.ts';
 import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';
 import type { UnitKey } from '../../../src/memory/db/unit-keys.ts';
-import { dbOf } from '../../../src/memory/db/types.ts';
+import { asText, dbOf } from '../../../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../../../src/memory/db/types.ts';
 import { writeRecordDay } from '../../../src/memory/db/record-lines.ts';
 import { writeJournalDay } from '../../../src/memory/db/journal-lines.ts';
@@ -33,6 +33,46 @@ const DAY_WRITERS: Partial<
   archive: writeArchiveMonth,
 };
 import { legacyStorageKey } from './legacy-paths.ts';
+
+const isRecord = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** The intentions write a unit write of the intention units carries, or null for any other unit. */
+function intentionsOfUnit(update: Row): object | null {
+  const key = update.key as { kind?: unknown; selector?: { collection?: unknown } } | undefined;
+  if (key?.kind !== 'intentions') return null;
+  if (key.selector?.collection === 'archive') return intentionsWriteOf({ op: 'archive', records: update.lines });
+  const value = isRecord(update.value) ? update.value : {};
+  return intentionsWriteOf({ op: 'value', intentions: value.intentions });
+}
+
+/**
+ * The stored lines of a month's files (`{ manifest, meta, i8 }`, what an older index wrote): each complete jsonl line
+ * the index would write the same way, with its `dims` bytes. Null when the text is not such lines, or the manifest names
+ * no vector size or fewer bytes than the lines need.
+ */
+function monthLines(files: Row): Array<StoredLine> | null {
+  const manifest = isRecord(files.manifest) ? files.manifest : {};
+  const dims = manifest.dims;
+  if (typeof dims !== 'number' || !Number.isInteger(dims) || dims <= 0) return null;
+  const meta = Buffer.isBuffer(files.meta) ? files.meta.toString('utf8') : asText(files.meta ?? '');
+  const i8 = Buffer.from((files.i8 as ArrayLike<number> | undefined) ?? []);
+  if (meta === '') return [];
+  if (!meta.endsWith('\n')) return null;
+  const lines: Array<StoredLine> = [];
+  for (const text of meta.slice(0, -1).split('\n')) {
+    let value: unknown;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      return null;
+    }
+    if (!isRecord(value) || JSON.stringify(value) !== text) return null;
+    const offset = lines.length * dims;
+    if (i8.length < offset + dims) return null;
+    lines.push({ line: value, bytes: new Uint8Array(i8.subarray(offset, offset + dims)) });
+  }
+  return lines;
+}
 
 /** The value writes by kind: each converter answers the write of its kind, or null for a unit of another kind. */
 const VALUE_KINDS: ReadonlyArray<[string, (update: Row) => object | null]> = [

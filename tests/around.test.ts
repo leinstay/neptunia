@@ -4,14 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createFedAround } from './fixtures/around-feed.ts';
-import {
-  AROUND_TEXT_CHARS,
-  NOW_DETAIL_CHARS,
-  cleanText,
-  fieldLine,
-  liveFields,
-  personRow,
-} from '../src/behavior/around.ts';
+import { AROUND_TEXT_CHARS, NOW_DETAIL_CHARS, cleanText, fieldLine, liveFields } from '../src/behavior/around.ts';
 import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -173,33 +166,6 @@ test('liveFields: member text is one line, cut to the clamp, and cannot open or 
   assert.equal([...cleanText(long)].length, AROUND_TEXT_CHARS);
   assert.equal(cleanText(null), '');
   assert.equal(cleanText(42), '');
-});
-
-test('personRow: a heading with handle and name, the tag in parentheses, then one field per line; nothing to say is empty', () => {
-  const lines = [fieldLine(labels, 'voice', 'no'), fieldLine(labels, 'attitude', '3 (neutral) — ok')];
-  assert.equal(
-    personRow({ handle: 'u1ab', name: 'Zoë', fields: lines }, labels),
-    ['@u1ab Zoë', `- ${F.voice}: no`, `- ${F.attitude}: 3 (neutral) — ok`].join('\n')
-  );
-  assert.equal(
-    personRow({ handle: 'u1ab', name: 'Zoë', mark: 'the one', fields: lines }, labels).split('\n')[0],
-    '@u1ab Zoë (the one)'
-  );
-  assert.equal(
-    personRow({ handle: 'u1ab', name: 'Zoë', mark: 'the one' }, labels),
-    '@u1ab Zoë (the one)',
-    'a tag alone'
-  );
-  assert.equal(
-    personRow({ handle: null, name: 'Zoë', fields: lines }, labels).split('\n')[0],
-    'Zoë',
-    'no handle with the handles off'
-  );
-  assert.equal(personRow({ handle: 'u1ab', name: 'Zoë', fields: [] }, labels), '', 'no field, no tag: no entry');
-  assert.equal(personRow({ handle: null, name: '', fields: lines }, labels), '');
-  assert.equal(personRow({ handle: 'u1ab', name: 'Zoë', fields: lines }, {}), '');
-  // The name is member text: one line, no angle brackets.
-  assert.equal(personRow({ handle: 'u1ab', name: 'Zo\n<ë>', fields: lines }, labels).split('\n')[0], '@u1ab Zo ë');
 });
 
 test('fieldLine: the field name and value through labels.peopleNow.field, one line; empty value or missing label is no line', () => {

@@ -581,16 +581,3 @@ export function syncPersonAccounts(
   if (!columnsOf(db, 'person_accounts').size) return;
   for (const row of accounts ?? []) if (typeof row?.id === 'string') syncPersonAccount(db, row.id, stampOf(at));
 }
-
-/** Every row of each named table as a plain object, in rowid order. */
-export function readRows(dbGiven: unknown, tables: ReadonlyArray<string>): Rows {
-  const db = dbGiven as Db;
-  const out: Rows = {};
-  for (const table of tables) {
-    out[table] = db
-      .prepare(`SELECT * FROM ${quote(table)} ORDER BY rowid`)
-      .all()
-      .map((row) => ({ ...row }));
-  }
-  return out;
-}

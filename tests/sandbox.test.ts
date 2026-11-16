@@ -846,12 +846,10 @@ test('sandboxToolset: her granted and carried-over skills as native definitions,
 });
 
 test('sandboxRequestInput: a skill scenario passes its inventory and her tools set; everything else SANDBOX_OMITS leaves out stays out', () => {
-  const { SKILL_SCENARIO_OMITS } = sandbox;
-  assert.deepEqual(
-    Object.keys(SKILL_SCENARIO_OMITS).sort(),
-    Object.keys(SANDBOX_OMITS)
-      .filter((key) => !['skillsInventory', 'toolsGranted', 'toolsBlock', 'toolsTokens'].includes(key))
-      .sort()
+  const SKILL_SCENARIO_OMITS = Object.fromEntries(
+    Object.entries(SANDBOX_OMITS).filter(
+      ([key]) => !['skillsInventory', 'toolsGranted', 'toolsBlock', 'toolsTokens'].includes(key)
+    )
   );
   const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const wanted = buildRequestInputs();

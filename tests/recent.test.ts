@@ -7,15 +7,7 @@ import { after, test } from 'node:test';
 import { keyOfRel, unitText } from './fixtures/store-kit.ts';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {
-  emptyRecent,
-  foldText,
-  liveRecent,
-  accountIdOf,
-  mergeRecent,
-  normalizeRecent,
-  purgeRecentFor,
-} from '../src/memory/recent.ts';
+import { emptyRecent, foldText, liveRecent, accountIdOf, mergeRecent, normalizeRecent } from '../src/memory/recent.ts';
 import { tokenIds } from '../src/memory/mentions.ts';
 import { createStore } from '../src/memory/store.ts';
 import { HOUR_MS } from '../src/time.ts';
@@ -555,61 +547,6 @@ test('recent: liveRecent shows only the lines inside the window', () => {
     [2]
   );
   assert.equal(lines.length, 4, 'never mutated');
-});
-
-// --- purgeRecentFor --------------------------------------------------------------
-
-test("recent: purge removes lines with the member's token or a whole-word stored name", () => {
-  const before = stored([
-    line(1, { text: `<@${ELENI}> χάρισε έναν βάτραχο` }),
-    line(2, { text: 'η Ελένη ήρθε αργά' }),
-    line(3, { text: 'η ελενη ξανά' }),
-    line(4, { text: 'οι Ελένηδες της γειτονιάς' }),
-    line(5, { text: `<@${NIKOS}> τραγούδησε` }),
-    line(6, { text: 'ο Βάτος έφυγε νωρίς' }),
-    line(7, { text: 'λι και λα' }),
-    line(8, { text: `μίλησε με <@${ELENI}>`, who: [] }), // a stored `who` is not trusted: recomputed from the text
-  ]);
-  const snapshot = structuredClone(before);
-
-  const { value, removed } = purgeRecentFor(before, ELENI, ['Ελένη', 'Βάτος', 'Λι', '', null, 42]);
-  assert.equal(removed, 5);
-  assert.deepEqual(
-    value.lines.map((l) => l.id),
-    [4, 5, 7],
-    'a name inside a longer word and a name under 3 letters remove nothing'
-  );
-  assert.equal(value.nextId, before.nextId);
-  assert.deepEqual(before, snapshot, 'never mutated');
-
-  assert.equal(purgeRecentFor(before, '333333333333333333', []).removed, 0);
-
-  // an id outside the snowflake range forms no token `who` holds: the text is searched for it
-  const odd = stored([line(1, { text: 'μίλησε με <@u1>' }), line(2, { text: 'μίλησε με <@u10>' })]);
-  assert.deepEqual(odd.lines[0].who, []);
-  assert.deepEqual(
-    purgeRecentFor(odd, 'u1', []).value.lines.map((l) => l.id),
-    [2]
-  );
-});
-
-test("recent: purge counts only letters and digits toward a name's minimum, so a symbol-only name removes nothing", () => {
-  const before = stored([
-    line(1, { text: 'ήσυχο βράδυ -_- για όλους' }),
-    line(2, { text: 'τι έγινε ???' }),
-    line(3, { text: 'καλημέρα *** σε όλους' }),
-    line(4, { text: 'ο x_x πάλι εδώ' }),
-    line(5, { text: 'πάλι ο Ζωή-3 κέρδισε' }),
-    line(6, { text: 'το ___ έμεινε κενό' }),
-  ]);
-  const { value, removed } = purgeRecentFor(before, '333333333333333333', ['-_-', '???', '***', 'x_x', '___', '  ']);
-  assert.equal(removed, 0, 'no name with three letters or digits');
-  assert.equal(value.lines.length, 6);
-
-  assert.deepEqual(
-    purgeRecentFor(before, '333333333333333333', ['-_-', 'Ζωή-3']).value.lines.map((l) => l.id),
-    [1, 2, 3, 4, 6]
-  );
 });
 
 test('recent: accountIdOf gives an id as a string, anything else null', () => {

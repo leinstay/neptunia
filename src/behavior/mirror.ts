@@ -340,18 +340,6 @@ export async function sendPlan(
   return out;
 }
 
-/** Sends `entry` to `chat` through `port`, unless its restriction refuses the place (`entryPlan`, `sendPlan`). */
-export async function sendEntry(
-  port: MirrorPort,
-  chat: ChatRef,
-  entry: DiaryEntry,
-  { maxMessageBytes, now }: { maxMessageBytes: number; now: () => number }
-): Promise<EntrySent> {
-  if (diaryPublicationRefusal(entry.publicationBoundary, chat))
-    return { status: 'failed', code: 'not-allowed', messageIds: [], attachmentIds: [], posted: [] };
-  return sendPlan(port, chat, entryPlan(port, entry, { maxMessageBytes, now }));
-}
-
 /** One send of an entry as posted: its message, its time, its text and the entry's files with the ids the port named. */
 function postedOf(sent: Delivery, content: Content, items: Array<number>): PostedMessage {
   const named = sent.attachments ?? [];

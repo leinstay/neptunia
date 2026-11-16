@@ -14,7 +14,10 @@ import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { sweep } from '../src/memory/db/session.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 import type { SubharnessMemoryPath } from '../src/subharness/memory-path.ts';
-import { MEMORY_DOWN, createMemoryWatch, memoryProbe } from '../src/subharness/memory-probe.ts';
+import { MEMORY_DOWN, createMemoryWatch, routeProbe } from '../src/subharness/memory-probe.ts';
+import type { MemoryProbeDeps } from '../src/subharness/memory-probe.ts';
+import { memoryPath } from '../src/subharness/memory-path.ts';
+import { MEMORY_ROLE } from '../src/llm/roles.ts';
 import * as memoryWriter from '../src/subharness/memory-writer.ts';
 import { memoryWriterClient, runMemoryWriter } from '../src/subharness/memory-writer.ts';
 import type { MemoryWriterDeps } from '../src/subharness/memory-writer.ts';
@@ -25,6 +28,10 @@ import { fakeFetch, fakePause } from './fixtures/keys-rig.ts';
 import { chat, ctxOf, fakeLlm, fixture, memoryBlock } from './fixtures/memory-db/session-rig.ts';
 import type { LlmCall } from './fixtures/memory-db/session-shapes.ts';
 import { tempDir } from './fixtures/tmp.ts';
+
+/** One probe of the writer's path as config.json names it now, as the route watch runs it for the memory role. */
+const memoryProbe = (deps: MemoryProbeDeps, now: number) =>
+  routeProbe({ ...deps, role: MEMORY_ROLE, path: () => memoryPath(deps.privateDir) }, now);
 
 const CLAUDE: SubharnessMemoryPath = { kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6', effort: null };
 const CODEX: SubharnessMemoryPath = { kind: 'subharness', backend: 'codex', model: 'gpt-6.1-sol', effort: null };
@@ -94,7 +101,6 @@ const INVENTED = /max.?(output|tokens|budget)/i;
 test('claude gets the output cap in the variable it enforces, and reports no gap', async () => {
   // Catches: the sweep's cap stopping at the subharness path, or a guessed flag or a dollar budget that makes the CLI exit.
   // Changed: the variable was measured enforced, where the help alone had left this a gap.
-  assert.equal(memoryWriter.memoryCapabilities('claude').maxOutputTokens, 'enforced');
   assert.deepEqual(memoryWriter.memoryGaps('claude'), []);
   const { deps, seen } = boundary('claude', envelope({ result: 'text' }));
   await runMemoryWriter(CLAUDE, INPUT, deps);
@@ -109,7 +115,6 @@ test('claude gets the output cap in the variable it enforces, and reports no gap
 
 test('codex reports maxOutputTokens as a gap and no invented control reaches its argv or environment', async () => {
   // Catches: a limit passed to a mock and called enforced, or a guessed flag that makes the CLI exit.
-  assert.equal(memoryWriter.memoryCapabilities('codex').maxOutputTokens, 'gap');
   const { deps, seen } = boundary('codex', 'exit 0', JSON.stringify({ answer: 'text' }));
   await runMemoryWriter(CODEX, INPUT, deps);
   const { argv, env } = seen();
@@ -229,19 +234,15 @@ test('claude: its system prompt is replaced and it has no tools, in the argv the
   assert.equal(after(argv, '--system-prompt'), INPUT.system);
   assert.equal(after(argv, '--tools'), '');
   assert.equal(stdin, INPUT.user);
-  assert.equal(memoryWriter.memoryCapabilities('claude').systemPrompt, 'replaced');
-  assert.equal(memoryWriter.memoryCapabilities('claude').tools, 'none');
 });
 
-test('codex: the system text arrives in its stdin in a read-only sandbox, and the capabilities say that is not the same', async () => {
+test('codex: the system text arrives in its stdin in a read-only sandbox', async () => {
   // Catches: codex reported as equal to claude, when its own instructions stay in force and its shell stays available.
   const { deps, seen } = boundary('codex', 'exit 0', JSON.stringify({ answer: 'text' }));
   await runMemoryWriter(CODEX, INPUT, deps);
   const { argv, stdin } = seen();
   assert.equal(after(argv, '-s'), 'read-only');
   assert.ok(stdin.startsWith(INPUT.system), stdin);
-  assert.equal(memoryWriter.memoryCapabilities('codex').systemPrompt, 'prefixed');
-  assert.equal(memoryWriter.memoryCapabilities('codex').tools, 'read-only-sandbox');
 });
 
 test('the child gets her own home and no key of the core', async () => {

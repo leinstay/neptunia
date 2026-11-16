@@ -12,13 +12,11 @@ import path from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import {
   acquireLease,
-  claimWake,
-  completeWake,
+  applyWakeQueueWrite,
+  deliveriesIn,
   deliveryOf,
   leaseOf,
-  markDelivered,
   queueWake,
-  queuedDeliveries,
   recoverWakes,
   renewLease,
   wakeOf,
@@ -56,20 +54,39 @@ function tokenOf(grant: { ok: boolean; token?: number; code?: string }): number 
   return grant.token;
 }
 
-/** One start's sender: every `queued` delivery sent and marked `sent`, in the order the store lists them; the keys sent. */
-function sendQueued(handle: Handle, now: number): Array<string> {
-  const sent: Array<string> = [];
-  for (const delivery of queuedDeliveries(handle)) {
-    sent.push(delivery.key);
-    markDelivered(handle, { key: delivery.key, now });
-  }
-  return sent;
-}
-
-/** A queued wake claimed by `holder` at `now`: its token. */
+/** A queued wake claimed by `holder` at `now` through the writer's group claim: its token. */
 function queuedAndClaimed(handle: Handle, holder: string, now: number): number {
   assert.deepEqual(queueWake(handle, { wake: WAKE, now: now - MINUTE }), { status: 'queued' });
-  return tokenOf(claimWake(handle, { id: WAKE.id, holder, now, leaseMs: LEASE_MS }));
+  const claim = applyWakeQueueWrite(handle, {
+    kind: 'wake-queue',
+    op: 'claim-group',
+    ids: [WAKE.id],
+    holder,
+    now,
+    leaseMs: LEASE_MS,
+    turnId: 't-1',
+    turn: { kind: WAKE.kind, placeId: WAKE.placeId, dmChat: false, privateAccountId: null },
+  }) as { ok: boolean; tokens?: Record<string, number>; code?: string };
+  return tokenOf({ ...claim, token: claim.tokens?.[WAKE.id] });
+}
+
+/** Running wake `WAKE` handled with `outcome` and its deliveries recorded, through the writer's group finish. */
+function completeWake(
+  handle: Handle,
+  input: {
+    token: number;
+    outcome: string;
+    now: number;
+    deliveries?: Array<{ key: string; target: string; payload: object }>;
+  }
+): unknown {
+  return applyWakeQueueWrite(handle, {
+    kind: 'wake-queue',
+    op: 'finish-group',
+    now: input.now,
+    done: [{ id: WAKE.id, token: input.token, outcome: input.outcome, deliveries: input.deliveries ?? [] }],
+    back: [],
+  });
 }
 
 test('a wake cut off between claim and completion is interrupted without creating deliveries', () => {
@@ -87,11 +104,7 @@ test('a wake cut off between claim and completion is interrupted without creatin
     assert.deepEqual(recoverWakes(after, { now: at }), { interrupted: 1, slept: 0 });
     assert.equal(wakeOf(after, WAKE.id)?.state, 'handled');
     assert.equal(wakeOf(after, WAKE.id)?.outcome, 'interrupted');
-    assert.deepEqual(claimWake(after, { id: WAKE.id, holder: 'core-2', now: at, leaseMs: LEASE_MS }), {
-      ok: false,
-      code: 'not-queued',
-    });
-    assert.deepEqual(queuedDeliveries(after), []);
+    assert.deepEqual(deliveriesIn(after, 'queued'), []);
     assert.deepEqual(recoverWakes(after, { now: at + MINUTE }), { interrupted: 0, slept: 0 });
   } finally {
     after.close();
@@ -107,7 +120,7 @@ test('restart interrupts a running wake even while its old lease has time remain
     const wake = wakeOf(handle, WAKE.id);
     assert.equal(wake?.state, 'handled');
     assert.equal(wake?.outcome, 'interrupted');
-    assert.deepEqual(completeWake(handle, { id: WAKE.id, token, outcome: 'spoke', now: T }), {
+    assert.deepEqual(completeWake(handle, { token, outcome: 'spoke', now: T }), {
       ok: false,
       code: 'stale-lease',
     });
@@ -122,7 +135,7 @@ test('wake recovery preserves completed wake evidence and leaves delivery recove
   try {
     const token = queuedAndClaimed(before, 'core-1', T);
     const deliveries = [{ key: FIRST, target: 'c1', payload: TEXT }];
-    assert.deepEqual(completeWake(before, { id: WAKE.id, token, outcome: 'spoke', now: T, deliveries }), { ok: true });
+    assert.deepEqual(completeWake(before, { token, outcome: 'spoke', now: T, deliveries }), { ok: true });
     // The process dies after the commit, before the send.
   } finally {
     before.close();
@@ -134,7 +147,7 @@ test('wake recovery preserves completed wake evidence and leaves delivery recove
       assert.deepEqual(recoverWakes(handle, { now: start }), { interrupted: 0, slept: 0 });
       assert.equal(wakeOf(handle, WAKE.id)?.state, 'handled');
       assert.deepEqual(
-        queuedDeliveries(handle).map(({ key, target, payload }) => ({ key, target, payload })),
+        deliveriesIn(handle, 'queued').map(({ key, target, payload }) => ({ key, target, payload })),
         [{ key: FIRST, target: 'c1', payload: TEXT }]
       );
     } finally {
@@ -145,41 +158,6 @@ test('wake recovery preserves completed wake evidence and leaves delivery recove
   try {
     assert.equal(deliveryOf(handle, FIRST)?.state, 'queued');
     assert.equal(deliveryOf(handle, FIRST)?.target, 'c1');
-  } finally {
-    handle.close();
-  }
-});
-
-test("a stale holder's claim and completion are refused, and it has nothing to send", () => {
-  const handle = openMemoryDb(':memory:');
-  try {
-    const stale = queuedAndClaimed(handle, 'core-1', T);
-    assert.deepEqual(claimWake(handle, { id: WAKE.id, holder: 'core-2', now: T + 1, leaseMs: LEASE_MS }), {
-      ok: false,
-      code: 'not-queued',
-    });
-    const at = T + 2 * MINUTE;
-    recoverWakes(handle, { now: at });
-    // Terminal recovery also fences the old holder rather than granting a replay.
-    assert.deepEqual(claimWake(handle, { id: WAKE.id, holder: 'core-2', now: at, leaseMs: LEASE_MS }), {
-      ok: false,
-      code: 'not-queued',
-    });
-    assert.deepEqual(
-      completeWake(handle, {
-        id: WAKE.id,
-        token: stale,
-        outcome: 'spoke',
-        now: at,
-        deliveries: [{ key: FIRST, target: 'c1', payload: TEXT }],
-      }),
-      { ok: false, code: 'stale-lease' }
-    );
-    assert.deepEqual(sendQueued(handle, at), [], 'nothing of the stale turn leaves');
-    const wake = wakeOf(handle, WAKE.id);
-    assert.equal(wake?.state, 'handled');
-    assert.equal(wake?.outcome, 'interrupted');
-    assert.equal(wake?.leaseHolder, null);
   } finally {
     handle.close();
   }

@@ -4,9 +4,8 @@
 // shared story reaches her without anyone choosing a query for her. No model writes the query and
 // none reads the results before she does: the lanes are built from the messages as they were
 // written (the trigger verbatim; with the line it replies to, speaker by speaker; for a short or
-// deictic trigger also the few lines just before it), each lane goes through the record index (its
-// rarest words and phrases, src/memory/record-index.js), the stored memory and the meaning search
-// (src/behavior/recall-run.ts `prefetch`), and this module decides which hits are relevant enough
+// deictic trigger also the few lines just before it), each lane goes through the stored memory and
+// the database's word and meaning search (src/behavior/recall-run.ts `prefetch`), and this module decides which hits are relevant enough
 // (lexicalKeep: a rare phrase, two distinctive terms, or one confirmed by its cosine), fuses the
 // lanes by reciprocal rank (stored memory at half weight) and keeps a few deduplicated excerpts
 // under a token cap, each cut around its best hit (focusHits). Zero excerpts is a valid answer.
@@ -254,8 +253,7 @@ export function wakeLanes(purposes: Array<string>): {
 }
 
 /**
- * The stored-memory search of one lane when the record index gives no terms (indexedPlan replaces
- * its forms when it does): fallbackLookupPlan over its `words` (the stored members' names and
+ * The stored-memory search of one lane: fallbackLookupPlan over its `words` (the stored members' names and
  * aliases it holds as `who`, its words of 5+ letters as forms, the persona's name left out, at
  * most `maxForms` each), plus its `phrases` -- the quoted phrases of the words (quotedPhrases)
  * and, for a trigger of two to `shortWords` words, the whole trigger -- searched as forms first
@@ -304,43 +302,7 @@ export function lanePlan(
 }
 
 /**
- * The plan a lane's stored-memory search uses once the record index chose its terms (`queries`:
- * src/memory/record-index.js#indexQuery's, one per index searched): the distinctive terms' words as
- * forms (the rarest first, each once, at most `maxForms`), the lane plan's own phrases (quoted) and
- * the index's phrases, the lane plan's names (`who`); `need` as lanePlan's (`minFormsMatched`, at
- * most the forms' number). The lane plan unchanged when the index gave no term and no phrase; null
- * when there is nothing to search. Pure.
- * @param plan  lanePlan's
- */
-export function indexedPlan(
-  plan: { forms: Array<string>; who: Array<string>; phrases: Array<string> } | null,
-  queries: Array<{ terms: Array<{ word: string; weight: number }>; phrases: Array<{ text: string }> }>,
-  { maxForms = 8, minFormsMatched = 2 }: { maxForms?: number; minFormsMatched?: number } = {}
-):
-  | { forms: Array<string>; who: Array<string>; phrases: Array<string> }
-  | { forms: Array<string>; who: Array<string>; phrases: Array<string>; need: number; from: null; to: null }
-  | null {
-  const terms = (Array.isArray(queries) ? queries : [])
-    .flatMap((query) => query?.terms ?? [])
-    .sort((a, b) => b.weight - a.weight);
-  const forms = [...new Set(terms.map((term) => term.word))].slice(0, Math.max(0, maxForms));
-  const phrases = [
-    ...new Set([
-      ...(plan?.phrases ?? []),
-      ...(Array.isArray(queries) ? queries : []).flatMap((query) =>
-        (query?.phrases ?? []).map((phrase) => phrase.text)
-      ),
-    ]),
-  ];
-  if (forms.length === 0 && phrases.length === (plan?.phrases ?? []).length) return plan ?? null;
-  const who = plan?.who ?? [];
-  if (forms.length === 0 && who.length === 0 && phrases.length === 0) return null;
-  return { forms, who, phrases, need: Math.min(Math.max(0, minFormsMatched), forms.length), from: null, to: null };
-}
-
-/**
- * Whether a word hit of the record index (src/memory/record-index.js#searchRecordIndex's: `terms`
- * and `phrases` matched) is relevant. Without the meaning search (`cosines` null): a phrase or at
+ * Whether a word hit (its `terms` and `phrases` matched) is relevant. Without the meaning search (`cosines` null): a phrase or at
  * least two terms. With it (`cosines`: the hits' cosines to the lane's text, a message without a
  * row in the vector index absent): a phrase always; two terms or more when the cosine is at least
  * `minMeaningScore` (or there is none); one term only when the cosine is at least

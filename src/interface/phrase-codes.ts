@@ -22,8 +22,7 @@ import { indexWords } from '../memory/record-index.ts';
 export const PHRASE_WORDS = 6;
 /** The most words of the list a message may hold and still be checked. */
 export const MAX_DICTIONARY_WORDS = 18;
-/** A phrase as a label shows it, six words joined by one space, for a line that carries one. */
-export const PHRASE_PATTERN = '[\\p{L}\\p{N}]+(?: [\\p{L}\\p{N}]+){5}';
+
 /** The most distinct list words a message may match; past it the sets of six to hash grow too many. */
 const MAX_CANDIDATES = 24;
 /** Draws before the issue gives up finding six words that no shared key confuses. */

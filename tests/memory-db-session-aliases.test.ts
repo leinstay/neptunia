@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sweep } from '../src/memory/db/session.ts';
 import { dmContext, groupContext } from '../src/memory/db/scope.ts';
-import { namesOf } from '../src/memory/db/names.ts';
+import { matchName } from '../src/memory/db/names.ts';
+import type { NameHit } from '../src/memory/db/names.ts';
 import {
   ADA,
   BOB,
@@ -18,6 +19,13 @@ import {
   memoryBlock,
   personOf,
 } from './fixtures/memory-db/session-rig.ts';
+
+/** The nodes `words` name, read under `ctx`: per word, one hit per node by its strongest match. */
+const namesOf = (
+  db: Parameters<typeof matchName>[0],
+  ctx: Parameters<typeof matchName>[1],
+  words: Array<string>
+): Array<NameHit> => words.flatMap((word) => matchName(db, ctx, word));
 
 // Place aliases (plan 2026-11-06, slice 9 c): a place alias goes through the session as a person's does and the name
 // index reads it under the place's audience.

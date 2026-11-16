@@ -49,7 +49,7 @@ test('a prompt-only personal directory preserves the shared definition', (t) => 
   fs.mkdirSync(f.personal, { recursive: true });
   fs.writeFileSync(path.join(f.personal, 'prompt.md'), 'personal marker');
   assert.deepEqual(agents.listAgents(f.options), [f.definition]);
-  assert.equal(readPromptFile(agents.promptFilesOf('scout', f.options)), 'personal marker');
+  assert.equal(readPromptFile(agents.loadProfiles(f.options).scout.promptFiles), 'personal marker');
 });
 
 test('an empty personal object retains every shared field', (t) => {
@@ -270,7 +270,7 @@ test('an explicitly empty environment excludes process user-unit and data settin
     XDG_RUNTIME_DIR: '/wrong-runtime',
   };
   assert.equal(agents.agentSettings('scout', {}, f.options)?.socket, f.definition.socket);
-  assert.deepEqual(agents.promptFilesOf('scout', { rootDir: f.rootDir, env: {} }), [
+  assert.deepEqual(agents.loadProfiles({ rootDir: f.rootDir, env: {} }).scout.promptFiles, [
     path.join(f.rootDir, 'data/agents/scout/prompt.md'),
     path.join(f.shared, 'prompt.md'),
   ]);
@@ -289,7 +289,7 @@ test('canonical prompts prefer the explicit data root and ignore private legacy 
     env: { NEPTUNIA_DATA_DIR: path.join(f.base, 'other-data') },
     override: 'legacy.md',
   };
-  const files = agents.promptFilesOf('scout', options);
+  const files = agents.loadProfiles(options).scout.promptFiles;
   assert.deepEqual(files, [path.join(f.personal, 'prompt.md'), path.join(f.shared, 'prompt.md')]);
   assert.equal(readPromptFile(files), 'personal marker');
 });
@@ -298,7 +298,7 @@ test('an omitted explicit data root follows the injected relative environment pa
   const f = fixture();
   t.after(f.close);
   assert.deepEqual(
-    agents.promptFilesOf('scout', { rootDir: f.rootDir, env: { NEPTUNIA_DATA_DIR: 'environment-persona' } }),
+    agents.loadProfiles({ rootDir: f.rootDir, env: { NEPTUNIA_DATA_DIR: 'environment-persona' } }).scout.promptFiles,
     [path.join(f.rootDir, 'environment-persona/agents/scout/prompt.md'), path.join(f.shared, 'prompt.md')]
   );
 });
@@ -306,10 +306,10 @@ test('an omitted explicit data root follows the injected relative environment pa
 test('a relative explicit data root resolves against the engine root', (t) => {
   const f = fixture();
   t.after(f.close);
-  assert.deepEqual(agents.promptFilesOf('scout', { rootDir: f.rootDir, dataDir: 'relative-persona', env: {} }), [
-    path.join(f.rootDir, 'relative-persona/agents/scout/prompt.md'),
-    path.join(f.shared, 'prompt.md'),
-  ]);
+  assert.deepEqual(
+    agents.loadProfiles({ rootDir: f.rootDir, dataDir: 'relative-persona', env: {} }).scout.promptFiles,
+    [path.join(f.rootDir, 'relative-persona/agents/scout/prompt.md'), path.join(f.shared, 'prompt.md')]
+  );
 });
 
 test('worker prompt candidates use the effective personal filename', (t) => {
@@ -321,22 +321,6 @@ test('worker prompt candidates use the effective personal filename', (t) => {
     path.join(f.shared, 'custom.md'),
   ]);
 });
-
-for (const name of ['../scout', 'a/b', 'scout\0', '']) {
-  test(`prompt resolution refuses invalid agent id ${JSON.stringify(name)}`, (t) => {
-    const f = fixture();
-    t.after(f.close);
-    assert.throws(() => agents.promptFilesOf(name, f.options), profileError(name, 'id'));
-  });
-}
-
-for (const prompt of ['../prompt.md', 'nested/prompt.md', 'bad\0.md', 'prompt.txt']) {
-  test(`prompt resolution refuses invalid filename ${JSON.stringify(prompt)}`, (t) => {
-    const f = fixture();
-    t.after(f.close);
-    assert.throws(() => agents.promptFilesOf('scout', { ...f.options, prompt }), profileError('scout', 'prompt'));
-  });
-}
 
 for (const part of ['directory', 'profile', 'prompt'] as const) {
   test(`a personal ${part} symlink is rejected before shared fallback`, (t) => {
@@ -351,7 +335,7 @@ for (const part of ['directory', 'profile', 'prompt'] as const) {
     }
     const key = part === 'directory' ? 'id' : part === 'profile' ? 'profile.json' : 'prompt';
     assert.throws(
-      () => (part === 'prompt' ? agents.promptFilesOf('scout', f.options) : agents.listAgents(f.options)),
+      () => (part === 'prompt' ? agents.loadProfiles(f.options).scout.promptFiles : agents.listAgents(f.options)),
       profileError('scout', key)
     );
   });
@@ -381,7 +365,7 @@ test('an unreadable personal agents root propagates its filesystem error', (t) =
 test('a missing personal prompt selects the shared prompt', (t) => {
   const f = fixture();
   t.after(f.close);
-  assert.equal(readPromptFile(agents.promptFilesOf('scout', f.options)), 'shared marker');
+  assert.equal(readPromptFile(agents.loadProfiles(f.options).scout.promptFiles), 'shared marker');
 });
 
 test('an empty selected personal prompt fails instead of falling through to shared content', (t) => {
@@ -389,7 +373,7 @@ test('an empty selected personal prompt fails instead of falling through to shar
   t.after(f.close);
   fs.mkdirSync(f.personal, { recursive: true });
   fs.writeFileSync(path.join(f.personal, 'prompt.md'), ' \n');
-  assert.throws(() => readPromptFile(agents.promptFilesOf('scout', f.options)));
+  assert.throws(() => readPromptFile(agents.loadProfiles(f.options).scout.promptFiles));
 });
 
 test('a consultation definition uses the same overlay without entering worker selection', (t) => {
@@ -435,9 +419,9 @@ test('shared compatibility snapshots ignore process persona links before explici
   fs.symlinkSync(f.personal, path.join(processData, 'agents', 'scout'));
   const moduleUrl = new URL('../src/agent-runner/profiles.ts', import.meta.url).href;
   const script = `
-    const { SCOUT, PROFILES, loadProfiles } = await import(${JSON.stringify(moduleUrl)});
+    const { PROFILES, loadProfiles } = await import(${JSON.stringify(moduleUrl)});
     const selected = loadProfiles(${JSON.stringify(f.options)});
-    process.stdout.write(JSON.stringify([SCOUT.name, Object.keys(PROFILES).sort(), selected.scout.defaultLimits.seconds]));
+    process.stdout.write(JSON.stringify([PROFILES.scout.name, Object.keys(PROFILES).sort(), selected.scout.defaultLimits.seconds]));
   `;
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
     encoding: 'utf8',

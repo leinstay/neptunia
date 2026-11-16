@@ -4,7 +4,7 @@
 // with speech and on-screen text quoted, and its origin `extra.textOrigin` (`MEDIA_ORIGINS`); what else a kind has sits in
 // `extra`. Audience comes only from a link: an item is read through an owner the reader may open.
 //
-// `lineMedia` is the one read of a line's or an entry's media, `tellMedia` the one write of a text form, and the describer's
+// `lineMedia` is the one read of a line's or an entry's media, `writeText` the one write of a text form, and the describer's
 // cache (`src/memory/describe.ts`, through the write kind `media-entry`) keeps its entries on the same rows. A text form is
 // stemmed and embedded once on its row: `media_fts`, `media_tri` and a vector whose `chunk_key` names the row. `mediaHits` turns
 // the rows a search finds into one hit per item, with its use count and its latest visible use, grouping re-uploads by `sha1`.
@@ -490,24 +490,6 @@ function writeText(
   return true;
 }
 
-/** Tells the item with this reference on this interface its text form. Returns how many rows changed. Runs on the writer. */
-export function tellMedia(
-  connection: Connection,
-  {
-    iface,
-    nativeRef,
-    description,
-    origin,
-    at = null,
-  }: { iface: string | null; nativeRef: string; description: string; origin: MediaOrigin; at?: unknown }
-): number {
-  const db = dbOf(connection);
-  return transactionOf(connection)(() => {
-    const row = itemByRef(db, iface, nativeRef);
-    return row && writeText(db, row, { text: description, origin, at }) ? 1 : 0;
-  });
-}
-
 /** What a cache key of the describer names: a reference, and the kinds and origin its prefix gives. Pure. */
 export function cacheKeyParts(key: string): { ref: string; kinds: ReadonlyArray<MediaKind> | null; watched: boolean } {
   // A video site's link is itself `video:url:<hash>`: that prefix is part of its reference.
@@ -541,20 +523,6 @@ export function mediaRowOfCacheKey(db: Db, iface: unknown, key: string): Row | u
   if (kinds === null) return undefined;
   const row = itemByRef(db, iface, ref);
   return row && kinds.includes(row.kind as MediaKind) ? row : undefined;
-}
-
-/**
- * The describer's write reaching an item: its cache key names a reference and, for a prefixed key, the kinds the prefix
- * belongs to. A plain key is the reference as it came, so a reference that looks like a key is still only a reference.
- */
-export function tellFromCacheKey(
-  db: Db,
-  { iface, key, text, at }: { iface: unknown; key: string; text: string; at: unknown }
-): number {
-  const row = mediaRowOfCacheKey(db, iface, key);
-  if (!row) return 0;
-  const watched = itemByRef(db, iface, key) === undefined && cacheKeyParts(key).watched;
-  return writeText(db, row, { text, origin: originOf(row.kind, watched), at }) ? 1 : 0;
 }
 
 const BARE_ID = (sourceId: unknown, position: number): string => `media:bare:${asText(sourceId)}:${position}`;
@@ -1215,10 +1183,6 @@ export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFi
     projectRow(db, 'media', { id }, { at });
   }
 }
-
-/** What the describer's cache holds for a reference, for an entry whose file her post named. */
-export const heldDescription = (db: Db, iface: unknown, ref: unknown): string | null =>
-  filled(ref) ? orNull(itemByRef(db, iface, ref)?.description) : null;
 
 // ---------- the vector of a text form ----------
 

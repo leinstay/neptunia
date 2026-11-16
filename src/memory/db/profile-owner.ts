@@ -29,9 +29,6 @@ export const PROFILE_TABLES = [
   'operational',
 ] as const;
 
-/** The tables her memory session's rows of a person are read from (session-rows.ts). */
-export const SESSION_TABLES = ['claims', 'episodes', 'affinity_events'] as const;
-
 /** The primary key of each profile table. */
 const KEYS: Record<string, ReadonlyArray<string>> = { operational: ['kind', 'owner'] };
 const keyOf = (table: string): ReadonlyArray<string> => KEYS[table] ?? ['id'];

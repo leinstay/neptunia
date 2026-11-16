@@ -7,7 +7,6 @@ import {
   listAgents,
   loadProfiles,
   profileOf,
-  promptFilesOf,
 } from '../../src/agent-runner/profiles.ts';
 import type { AgentDefinition, AgentSettings, Profile, WorkerDefinition } from '../../src/agent-runner/profiles.ts';
 import { tempDir } from './tmp.ts';
@@ -22,10 +21,9 @@ export type AgentPaths = {
 export const agents: {
   listAgents: (options?: AgentPaths) => ReadonlyArray<AgentDefinition>;
   loadProfiles: (options?: AgentPaths) => Readonly<Record<string, Profile>>;
-  promptFilesOf: (name: string, options?: AgentPaths & { override?: string; prompt?: string }) => Array<string>;
   agentSettings: (name: unknown, config: unknown, options?: AgentPaths) => AgentSettings | null;
   profileOf: (name: unknown, options?: AgentPaths) => Profile | null;
-} = { listAgents, loadProfiles, promptFilesOf, agentSettings, profileOf };
+} = { listAgents, loadProfiles, agentSettings, profileOf };
 
 export function fixture(): {
   base: string;

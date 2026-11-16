@@ -12,8 +12,8 @@
 // the new number; raising it again brings none of them back. Besides expiry a
 // line leaves only through the storage cap (`memory.maxRecentStored`: when a
 // write adds lines, the lightest, then the oldest go), an explicit remove of its
-// id (the analyzer takes back a line that is wrong), a forget of a member it
-// names (`purgeRecentFor`) or a wipe of the place (src/memory/store.ts). A line
+// id (the analyzer takes back a line that is wrong) or a wipe of the place
+// (src/memory/store.ts). A line
 // is never promoted: nothing here copies or moves it into another store.
 //
 // Every line records the channel it comes from (`placeId`): a later view
@@ -41,7 +41,7 @@
 import { isRecord, isFiniteNumber, isIntegerNumber } from './types.ts';
 import { HOUR_MS } from '../time.ts';
 import { clampText, oneLine, stripUrls } from './clamp.ts';
-import { isWordChar, occursAsWholeWord, tokenIds } from './mentions.ts';
+import { tokenIds } from './mentions.ts';
 import { MEMORY_LIMITS } from './text-limits.ts';
 import type { Untyped } from './types.ts';
 
@@ -58,10 +58,6 @@ export const RECENT_DEFAULTS = Object.freeze({ hours: 72, maxStored: 150, maxNew
 const MIN_WEIGHT = 1;
 const MAX_WEIGHT = 3;
 const DEFAULT_WEIGHT = 2;
-
-/** The fewest letters and digits a member name (once folded) needs for a purge to match it as a
- * word: symbols and underscores do not count, so a name like `-_-` matches nothing. */
-const MIN_PURGE_NAME = 3;
 
 /**
  * The recent layer's settings (MEMORY_LIMITS of src/memory/text-limits.ts), spread into the options of
@@ -380,35 +376,6 @@ export function liveRecent(lines: unknown, { now, hours }: { now?: number; hours
   if (!Array.isArray(lines)) return [];
   const cutoff = windowStart(nowOf(now), hours);
   return lines.filter((line) => isRecord(line) && isFiniteNumber(line.at) && line.at >= cutoff);
-}
-
-/**
- * The store without the lines about one member, for a forget: a line goes when
- * its `who` holds `accountId`, its text holds the token `<@accountId>` (the one case
- * `who` misses: an id outside the snowflake range forms no token), or its
- * folded text holds one of `names` (the member's stored names and aliases,
- * folded, each with at least 3 letters or digits: a name of symbols alone
- * would match symbol runs in anyone's line) as a whole word
- * (src/memory/mentions.ts#occursAsWholeWord). Pure: `stored` is never mutated;
- * `nextId` is kept.
- */
-export function purgeRecentFor(
-  stored: unknown,
-  accountId: string,
-  names: Array<unknown> = []
-): { value: { nextId: number; lines: Array<RecentLine> }; removed: number } {
-  const base = normalizeRecent(stored);
-  const id = String(accountId);
-  const token = `<@${id}>`;
-  const folded = [
-    ...new Set((Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map(foldText)),
-  ].filter((name) => [...name].filter((ch) => isWordChar(ch) && ch !== '_').length >= MIN_PURGE_NAME);
-  const lines = base.lines.filter((line) => {
-    if (line.who.includes(id) || line.text.includes(token)) return false;
-    const text = foldText(line.text);
-    return !folded.some((name) => occursAsWholeWord(text, name));
-  });
-  return { value: { nextId: base.nextId, lines }, removed: base.lines.length - lines.length };
 }
 
 /**

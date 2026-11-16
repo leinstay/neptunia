@@ -4,11 +4,91 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
+import {
+  activateNamedVersion,
+  activateSkill,
+  appendUses,
+  rejectPending,
+  rollbackSkill,
+  setDisabled,
+  syncSkills,
+} from '../../src/memory/db/skills.ts';
 import type { SkillsHandle } from '../../src/memory/db/skills.ts';
 import { loadSkills } from '../../src/skills/load.ts';
-import { createSkillsPort } from '../../src/skills/port.ts';
+import type { LoadedSkill, SkillProblem } from '../../src/skills/load.ts';
+import { skillsReads } from '../../src/skills/port.ts';
 import type { SkillsPort } from '../../src/skills/port.ts';
 import { tempDir } from './tmp.ts';
+
+/** A skills port over a writer handle: every method but `record` and `sync` syncs the folders first, as the core's client does. */
+export function createSkillsPort(deps: {
+  handle: SkillsHandle;
+  now: () => number;
+  load: () => { skills: Array<LoadedSkill>; problems: Array<SkillProblem> };
+  granted: () => ReadonlySet<string>;
+  registered: () => ReadonlySet<string>;
+  reviewDays: () => number;
+}): SkillsPort {
+  const { handle } = deps;
+  const reads = skillsReads(handle, deps);
+
+  function sync(): { skills: number; versions: number; stale: number } {
+    return syncSkills(handle, deps.load().skills, { at: deps.now() });
+  }
+
+  return {
+    sync,
+    active() {
+      sync();
+      return reads.active();
+    },
+    list() {
+      sync();
+      return reads.list();
+    },
+    problems: () => deps.load().problems,
+    diskHash: (name) => deps.load().skills.find((one) => one.name === name)?.contentHash ?? null,
+    show(name) {
+      sync();
+      return reads.show(name);
+    },
+    pending() {
+      sync();
+      return reads.pending();
+    },
+    review(name) {
+      sync();
+      return reads.review(name);
+    },
+    activate(name, by) {
+      sync();
+      return activateSkill(handle, name, { at: deps.now(), by });
+    },
+    activateVersion(name, versionId, by) {
+      sync();
+      return activateNamedVersion(handle, name, versionId, { at: deps.now(), by });
+    },
+    rollback(name, by) {
+      sync();
+      return rollbackSkill(handle, name, { at: deps.now(), by });
+    },
+    reject(name, by) {
+      sync();
+      return rejectPending(handle, name, { at: deps.now(), by });
+    },
+    disable(name, by) {
+      sync();
+      return setDisabled(handle, name, true, { at: deps.now(), by });
+    },
+    enable(name, by) {
+      sync();
+      return setDisabled(handle, name, false, { at: deps.now(), by });
+    },
+    record(uses) {
+      return appendUses(handle, uses);
+    },
+  };
+}
 
 export const SKILLS_T0 = Date.parse('2026-11-01T09:00:00Z');
 

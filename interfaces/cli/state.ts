@@ -92,12 +92,6 @@ export function foldedText(
   return { text: lines.slice(0, limit).join('\n'), hidden: lines.length - limit };
 }
 
-/** Lines of a panel that hold what the owner typed in its search. */
-export function filterLines(lines: ReadonlyArray<string>, asked: string): Array<string> {
-  const wanted = asked.trim().toLowerCase();
-  return wanted === '' ? [...lines] : lines.filter((line) => line.toLowerCase().includes(wanted));
-}
-
 function coreState(core: StatusBrief['core']): StateWord {
   if (core.state === 'paused') return STATE_WORDS.paused;
   return core.state === 'running' && core.bound ? STATE_WORDS.active : STATE_WORDS.error;

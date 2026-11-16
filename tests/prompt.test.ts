@@ -15,25 +15,14 @@ import {
 } from '../src/behavior/prompt.ts';
 import { buildRequest, type Built, type Part } from './fixtures/built-request.ts';
 import { blockTags, bodyOf, userText } from './fixtures/prompt-text.ts';
-import { profileStateFields, renderProfile } from './fixtures/profile-render.ts';
+import { renderProfile } from './fixtures/profile-render.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { SAFETY_MARGIN } from '../src/llm/budget.ts';
 
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 
-import {
-  F,
-  MIN,
-  NOW,
-  V,
-  baseInput,
-  exactly,
-  fakeConfig,
-  fakePrompts,
-  fieldsOf,
-  makeMessage,
-} from './fixtures/prompt-rig.ts';
+import { MIN, NOW, baseInput, exactly, fakeConfig, fakePrompts, makeMessage } from './fixtures/prompt-rig.ts';
 
 test('buildRequest: system message is system-prompt + character-card + rules + format, joined', () => {
   const request = buildRequest(baseInput());
@@ -455,22 +444,6 @@ test('buildRequest: the stable part is byte-identical across the turns of a day,
   }
 });
 
-test('profileStateFields: the message count is rounded down, to tens from 10 and to hundreds from 100, as it is below 10, none without; never in <people>', () => {
-  const profile = (messageCount: unknown) => ({ id: 'p1', names: ['Zoé'], character: 'calme', messageCount });
-  const shown = (messageCount: unknown) => fieldsOf(profileStateFields(profile(messageCount), labels))[F.messages];
-  assert.equal(shown(10), '10');
-  assert.equal(shown(47), '40');
-  assert.equal(shown(99), '90');
-  assert.equal(shown(100), '100');
-  assert.equal(shown(1_234), '1200');
-  assert.equal(shown(12_999), '12900');
-  assert.equal(shown(7), '7');
-  for (const none of [0, undefined, null, -5, Number.NaN, '50']) assert.equal(shown(none), V.none, String(none));
-  // A compact profile's entry has no count; a profile never has one.
-  assert.deepEqual(profileStateFields(profile(500), labels, { compact: true }), []);
-  assert.equal(renderProfile(profile(500), labels, { interlocutor: true }), '## Zoé\ncharacter: calme');
-});
-
 test('buildRequest: throws a clear error when prompts.labels is missing', () => {
   assert.throws(() => buildRequest(baseInput({ prompts: fakePrompts({ labels: undefined }) })), /labels/);
 });
@@ -580,238 +553,15 @@ test('buildRequest: with no stored note and no channel facts anywhere in history
   assert.ok(!contentText(request.messages[1].content).includes('<server>'));
 });
 
-// --- profileStateFields: the attitude and its moves, in the <people_now> entry -----
-
-test('profileStateFields: relationships off gives no attitude field, even with a non-zero score', () => {
-  const profile = {
-    id: 'p1',
-    names: ['Carl'],
-    character: 'calm',
-    affinity: { score: 80, reason: 'saved my day', history: [] },
-  };
-  assert.deepEqual(profileStateFields(profile, labels, { relationships: false, compact: true }), []);
-});
-
-test('profileStateFields: relationships on gives the attitude field first; the profile itself never shows it', () => {
-  const profile = {
-    id: 'p1',
-    names: ['Carl'],
-    character: 'calm',
-    affinity: { score: 80, reason: 'saved my day', history: [] },
-  };
-  assert.deepEqual(profileStateFields(profile, labels, { relationships: true, compact: true }), [
-    `- ${F.attitude}: 80 (devoted) — saved my day`,
-  ]);
-  assert.equal(renderProfile(profile, labels, { relationships: true }), '## Carl\ncharacter: calm');
-});
-
-test('profileStateFields: a neutral score with no reason is the attitude none, with no moves field', () => {
-  const profile = {
-    id: 'p1',
-    names: ['Carl'],
-    character: 'calm',
-    affinity: { score: 0, reason: '', history: [attitudeMove(1, 2, 'α')] },
-  };
-  assert.deepEqual(
-    fieldsOf(profileStateFields(profile, labels, { relationships: true, shownMoves: 4, compact: true })),
-    { [F.attitude]: V.none }
-  );
-  assert.deepEqual(
-    fieldsOf(
-      profileStateFields({ id: 'p2', names: ['Dee'] }, labels, { relationships: true, shownMoves: 4, compact: true })
-    ),
-    { [F.attitude]: V.none },
-    'no affinity at all'
-  );
-});
-
-test('profileStateFields: a zero score with a non-empty reason still gives an attitude', () => {
-  const profile = {
-    id: 'p1',
-    names: ['Carl'],
-    character: 'calm',
-    affinity: { score: 0, reason: 'used to dislike them, now unsure', history: [] },
-  };
-  assert.equal(
-    fieldsOf(profileStateFields(profile, labels, { relationships: true }))[F.attitude],
-    '0 (neutral) — used to dislike them, now unsure'
-  );
-});
-
 test('renderProfile: a profile whose only content is an attitude is still rendered, by its heading alone', () => {
   const profile = { id: 'p1', names: ['Carl'], affinity: { score: -30, reason: 'annoying', history: [] } };
   assert.equal(renderProfile(profile, labels, { relationships: true, interlocutor: false }), '## Carl');
-  assert.equal(
-    fieldsOf(profileStateFields(profile, labels, { relationships: true }))[F.attitude],
-    '-30 (dislike) — annoying'
-  );
   assert.equal(renderProfile(profile, labels, { relationships: false }), '', 'without relationships: nothing to show');
-});
-
-test('profileStateFields: a damped (fractional) score is rounded to an integer, the band still uses the precise value', () => {
-  // 24.6 rounds to 25 for display, while the band itself is computed on the precise 24.6, which
-  // is still "warm" (the "fond" threshold is 25 and up) -- see src/memory/affinity.ts#affinityBand.
-  const profile = { id: 'p1', names: ['Carl'], affinity: { score: 24.6, reason: 'saved my day', history: [] } };
-  assert.equal(
-    fieldsOf(profileStateFields(profile, labels, { relationships: true }))[F.attitude],
-    '25 (warm) — saved my day'
-  );
 });
 
 test('renderProfile: a profile with no affinity at all (pre-relationships data) renders as before', () => {
   const profile = { id: 'p1', names: ['Carl'], character: 'calm' };
   assert.equal(renderProfile(profile, labels, { relationships: true }), '## Carl\ncharacter: calm');
-});
-
-/** One stored attitude move on 2026-03-`day` at `hour` UTC. */
-function attitudeMove(day: number, delta: number, reason: string, hour = 12) {
-  return { ts: new Date(Date.UTC(2026, 2, day, hour)).toISOString(), delta, appliedDelta: delta, score: 0, reason };
-}
-
-/** Carl with a score of 40, the attitude's reason `reason` and the given moves. */
-function movedProfile(history: Array<unknown>, reason = 'latest reason') {
-  return { id: 'p1', names: ['Carl'], character: 'calm', affinity: { score: 40, reason, history } };
-}
-
-/** The moves of a profile's state fields, in their order; null without a moves field. */
-function movesOf(lines: Array<string>) {
-  const value = fieldsOf(lines)[F.moves];
-  return value === undefined ? null : value === V.none ? [] : value.split('; ');
-}
-
-test('profileStateFields: the moves follow the attitude on their own line, oldest first, signed and dated in the time zone', () => {
-  const history = [
-    attitudeMove(5, -2, 'mocked <@223456789012345678>'),
-    attitudeMove(1, 3, 'linked a game to a myth', 22),
-  ];
-  const nameOf = (id: string) => (id === '223456789012345678' ? 'Zoë' : null);
-  const lines = profileStateFields(movedProfile(history), labels, {
-    relationships: true,
-    shownMoves: 4,
-    timezone: 'Europe/Athens',
-    nameOf,
-    compact: true,
-  });
-  assert.deepEqual(
-    lines,
-    [
-      `- ${F.attitude}: 40 (fond) — latest reason`,
-      // 22:00 UTC on 03-01 is already 03-02 in Athens.
-      `- ${F.moves}: move +3 on 2026-03-02: linked a game to a myth`,
-    ],
-    'a compact profile: one move'
-  );
-  const full = profileStateFields(movedProfile(history), labels, {
-    relationships: true,
-    shownMoves: 4,
-    timezone: 'Europe/Athens',
-    nameOf,
-  });
-  assert.deepEqual(movesOf(full), [
-    'move +3 on 2026-03-02: linked a game to a myth',
-    'move -2 on 2026-03-05: mocked Zoë',
-  ]);
-  assert.equal(
-    renderProfile(movedProfile(history), labels, {
-      relationships: true,
-      shownMoves: 4,
-      timezone: 'Europe/Athens',
-      nameOf,
-    }),
-    '## Carl\ncharacter: calm'
-  );
-});
-
-test('profileStateFields: shownMoves caps the moves, keeping the strongest', () => {
-  const history = [attitudeMove(1, 1, 'α'), attitudeMove(2, 5, 'β'), attitudeMove(3, 2, 'γ'), attitudeMove(4, 4, 'δ')];
-  const lines = profileStateFields(movedProfile(history), labels, {
-    relationships: true,
-    shownMoves: 2,
-    timezone: 'UTC',
-  });
-  assert.deepEqual(movesOf(lines), ['move +5 on 2026-03-02: β', 'move +4 on 2026-03-04: δ']);
-});
-
-test('profileStateFields: the moves keep both signs when there are both and the cap allows', () => {
-  const history = [
-    attitudeMove(1, -1, 'impatient again'),
-    attitudeMove(2, 5, 'α'),
-    attitudeMove(3, 4, 'β'),
-    attitudeMove(4, 3, 'γ'),
-  ];
-  const lines = profileStateFields(movedProfile(history), labels, {
-    relationships: true,
-    shownMoves: 2,
-    timezone: 'UTC',
-  });
-  assert.deepEqual(movesOf(lines), ['move -1 on 2026-03-01: impatient again', 'move +5 on 2026-03-02: α']);
-});
-
-test('profileStateFields: the move whose reason the attitude shows is not repeated; with no other move the field says none', () => {
-  const history = [attitudeMove(1, 2, 'α'), attitudeMove(2, -6, 'latest reason')];
-  const lines = profileStateFields(movedProfile(history), labels, {
-    relationships: true,
-    shownMoves: 4,
-    timezone: 'UTC',
-  });
-  assert.deepEqual(movesOf(lines), ['move +2 on 2026-03-01: α']);
-  assert.equal(lines.join('\n').split('latest reason').length, 2, 'the current reason appears once, on the attitude');
-  assert.deepEqual(
-    movesOf(
-      profileStateFields(movedProfile([attitudeMove(2, -6, 'latest reason')]), labels, {
-        relationships: true,
-        shownMoves: 4,
-      })
-    ),
-    []
-  );
-});
-
-test('profileStateFields: a move with an empty reason is skipped', () => {
-  const history = [attitudeMove(1, 9, ''), attitudeMove(2, 2, 'α')];
-  const lines = profileStateFields(movedProfile(history), labels, {
-    relationships: true,
-    shownMoves: 4,
-    timezone: 'UTC',
-  });
-  assert.deepEqual(movesOf(lines), ['move +2 on 2026-03-02: α']);
-});
-
-test('profileStateFields: shownMoves 0 shows no moves field, the attitude stays', () => {
-  const lines = profileStateFields(movedProfile([attitudeMove(1, 2, 'α')]), labels, {
-    relationships: true,
-    shownMoves: 0,
-    timezone: 'UTC',
-    compact: true,
-  });
-  assert.deepEqual(lines, [`- ${F.attitude}: 40 (fond) — latest reason`]);
-});
-
-test('profileStateFields: relationships off shows no moves', () => {
-  const lines = profileStateFields(movedProfile([attitudeMove(1, 2, 'α')]), labels, {
-    relationships: false,
-    shownMoves: 4,
-    timezone: 'UTC',
-  });
-  assert.equal(movesOf(lines), null);
-});
-
-test('profileStateFields: a compact profile shows at most the one strongest move, and no moves field with shownMoves 0', () => {
-  const history = [attitudeMove(1, -1, 'β'), attitudeMove(2, 5, 'α'), attitudeMove(3, 2, 'γ')];
-  const compact = profileStateFields(movedProfile(history), labels, {
-    compact: true,
-    relationships: true,
-    shownMoves: 4,
-    timezone: 'UTC',
-  });
-  assert.deepEqual(movesOf(compact), ['move +5 on 2026-03-02: α']);
-  const none = profileStateFields(movedProfile(history), labels, {
-    compact: true,
-    relationships: true,
-    shownMoves: 0,
-    timezone: 'UTC',
-  });
-  assert.equal(movesOf(none), null);
 });
 
 // --- renderProfile: episodes --------------------------------------------------
@@ -1388,19 +1138,6 @@ test('renderProfile: episode "what"/"feeling" resolve <@id> tokens via nameOf', 
   assert.ok(text.includes('annoyed at Dana'));
 });
 
-test('profileStateFields: the affinity reason resolves <@id> tokens via nameOf', () => {
-  const profile = {
-    id: 'p1',
-    names: ['Carl'],
-    affinity: { score: 10, reason: 'stood up for <@223456789012345678>', history: [] },
-  };
-  const lines = profileStateFields(profile, labels, {
-    relationships: true,
-    nameOf: (id: string) => (id === '223456789012345678' ? 'Dana' : null),
-  });
-  assert.ok(fieldsOf(lines)[F.attitude].includes('stood up for Dana'));
-});
-
 // --- buildRequest: <@id> tokens resolved for the chat model, wired through ------
 
 // --- buildRequest: silent members pulled into <people> by name/alias -----------
@@ -1448,11 +1185,6 @@ test('renderProfile: compact renders current name, aliases, character and up to 
     ['## Carl', 'Called: Carlito', 'character: calm', 'interests: Chess; Anime; Coffee; Hiking; Chess variants'].join(
       '\n'
     )
-  );
-  assert.deepEqual(
-    profileStateFields(profile, labels, { compact: true, relationships: true }),
-    [`- ${F.attitude}: 10 (warm) — helped once`],
-    'no message count in a compact entry'
   );
 });
 

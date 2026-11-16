@@ -1,9 +1,8 @@
 // Tests for src/memory/lore.ts: upsertLore (identity, owner protection, key
-// normalization, eviction) and matchLore/keywordMatches (whole-word matching,
-// scoring, always entries). Pure, no I/O.
+// normalization, eviction). Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { upsertLore, matchLore, keywordMatches } from '../src/memory/lore.ts';
+import { upsertLore } from '../src/memory/lore.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import type { LoreEntry } from '../src/memory/lore.ts';
@@ -145,7 +144,7 @@ test('upsertLore: only a first write is clamped; a re-send of the clamped text c
   });
   assert.equal(same.upserted, 0);
   assert.equal(same.entries[0].updatedAt, new Date(NOW).toISOString());
-  // A rewrite over the limit is the caller's to refuse (src/memory/prose.ts#acceptProse): stored as given.
+  // A rewrite over the limit is stored as given.
   const rewritten = upsert(clamped, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(2000) }], {
     ...CLAMP,
     source: 'analyzer',
@@ -388,93 +387,4 @@ test('upsertLore: an entry without updatedAt is aged by its createdAt', () => {
   assert.deepEqual(evictedOf('2026-03-01T00:00:00.000Z', undefined), ['B'], 'created after the other was last updated');
   assert.deepEqual(evictedOf('2026-01-15T00:00:00.000Z', null), ['A'], 'created before the other was last updated');
   assert.deepEqual(evictedOf('2026-01-15T00:00:00.000Z', ''), ['A'], 'an empty stamp is no stamp');
-});
-
-// ---- matchLore / keywordMatches ----------------------------------------------
-
-test('keywordMatches: matches a key as a whole word, not inside a longer word', () => {
-  const entries = [entry({ title: 'Cat', keys: ['cat'] })];
-  assert.equal(keywordMatches(entries, ['I saw a category today']).length, 0);
-  assert.equal(keywordMatches(entries, ['I saw a cat today']).length, 1);
-});
-
-test('keywordMatches: is case-insensitive', () => {
-  const entries = [entry({ title: 'Cat', keys: ['cat'] })];
-  assert.equal(keywordMatches(entries, ['I saw a CAT today']).length, 1);
-});
-
-test('keywordMatches: matches a Greek (non-Latin) key as a whole word', () => {
-  const entries = [entry({ title: 'Γάτα', keys: ['γάτα'] })];
-  assert.equal(keywordMatches(entries, ['χτες είδα μια γάτα στον δρόμο']).length, 1);
-  assert.equal(keywordMatches(entries, ['δεν υπάρχει τίποτα εδώ']).length, 0);
-});
-
-test('keywordMatches: a phrase key matches as a contiguous whole phrase', () => {
-  const entries = [entry({ title: 'The Day', keys: ['the day the market burned'] })];
-  assert.equal(keywordMatches(entries, ['everyone remembers the day the market burned down']).length, 1);
-  assert.equal(keywordMatches(entries, ['the day was fine, the market was closed and burned trash']).length, 0);
-});
-
-test('keywordMatches: scores by distinct keys matched, then most recent match position, then weight', () => {
-  const a = entry({ id: 'a', title: 'A', keys: ['alpha', 'beta'], weight: 1 });
-  const b = entry({ id: 'b', title: 'B', keys: ['gamma'], weight: 5 });
-  const texts = ['nothing here', 'alpha appears', 'gamma appears', 'beta appears'];
-  const result = keywordMatches([a, b], texts);
-  // 'a' matches 2 distinct keys (alpha, beta) vs 'b' matches 1 (gamma) -> 'a' first.
-  assert.deepEqual(
-    result.map((e: Stored) => e.id),
-    ['a', 'b']
-  );
-});
-
-test('keywordMatches: with equal distinct-key counts, the more recent match wins', () => {
-  const a = entry({ id: 'a', title: 'A', keys: ['alpha'], weight: 1 });
-  const b = entry({ id: 'b', title: 'B', keys: ['beta'], weight: 1 });
-  const texts = ['beta appears here', 'alpha appears here'];
-  const result = keywordMatches([a, b], texts);
-  assert.deepEqual(
-    result.map((e: Stored) => e.id),
-    ['a', 'b'],
-    'alpha matched the more recent (later index) text'
-  );
-});
-
-test('keywordMatches: with equal distinct-keys and recency, higher weight wins', () => {
-  const a = entry({ id: 'a', title: 'A', keys: ['same'], weight: 1 });
-  const b = entry({ id: 'b', title: 'B', keys: ['same'], weight: 5 });
-  const texts = ['same appears once here'];
-  const result = keywordMatches([a, b], texts);
-  assert.deepEqual(
-    result.map((e: Stored) => e.id),
-    ['b', 'a']
-  );
-});
-
-test('keywordMatches: an entry with no matched key is excluded entirely', () => {
-  const entries = [entry({ keys: ['unrelated-word'] })];
-  assert.deepEqual(keywordMatches(entries, ['completely different text']), []);
-});
-
-test('matchLore: always entries come first and do not count against maxMatches', () => {
-  const always = entry({ id: 'always1', title: 'Always', always: true, keys: ['unrelated-key'] });
-  const matched = entry({ id: 'matched1', title: 'Matched', keys: ['found'] });
-  const result = matchLore([always, matched], ['found it here'], { maxMatches: 1 });
-  assert.deepEqual(
-    result.map((e: Record<string, Untyped>) => e.id),
-    ['always1', 'matched1']
-  );
-});
-
-test('matchLore: caps the non-always matches at maxMatches, most relevant first', () => {
-  const a = entry({ id: 'a', title: 'A', keys: ['one'] });
-  const b = entry({ id: 'b', title: 'B', keys: ['two'] });
-  const c = entry({ id: 'c', title: 'C', keys: ['three'] });
-  const texts = ['one appears', 'two appears', 'three appears'];
-  const result = matchLore([a, b, c], texts, { maxMatches: 2 });
-  assert.equal(result.length, 2);
-  assert.deepEqual(
-    result.map((e: Record<string, Untyped>) => e.id),
-    ['c', 'b'],
-    'most recent matches kept first'
-  );
 });

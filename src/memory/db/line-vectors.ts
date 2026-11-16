@@ -207,35 +207,6 @@ export function writeLineVectors(db: Db, write: LineVectorsWrite, at: string): {
   return { written: rows.length, retired };
 }
 
-/**
- * The stored lines of a month's files (`{ manifest, meta, i8 }`, what an older index wrote): each complete jsonl line
- * the index would write the same way, with its `dims` bytes. Null when the text is not such lines, or the manifest names
- * no vector size or fewer bytes than the lines need.
- */
-export function monthLines(files: Row): Array<StoredLine> | null {
-  const manifest = isRecord(files.manifest) ? files.manifest : {};
-  const dims = manifest.dims;
-  if (typeof dims !== 'number' || !Number.isInteger(dims) || dims <= 0) return null;
-  const meta = Buffer.isBuffer(files.meta) ? files.meta.toString('utf8') : asText(files.meta ?? '');
-  const i8 = Buffer.from((files.i8 as ArrayLike<number> | undefined) ?? []);
-  if (meta === '') return [];
-  if (!meta.endsWith('\n')) return null;
-  const lines: Array<StoredLine> = [];
-  for (const text of meta.slice(0, -1).split('\n')) {
-    let value: unknown;
-    try {
-      value = JSON.parse(text);
-    } catch {
-      return null;
-    }
-    if (!isRecord(value) || JSON.stringify(value) !== text) return null;
-    const offset = lines.length * dims;
-    if (i8.length < offset + dims) return null;
-    lines.push({ line: value, bytes: new Uint8Array(i8.subarray(offset, offset + dims)) });
-  }
-  return lines;
-}
-
 /** The write kind `line-vectors` on the writer connection (session-write.ts). */
 export function applyLineVectorsWrite(handle: MemoryHandle, update: Row): { written: number; retired: number } {
   const write = lineVectorsWriteOf(update);

@@ -23,20 +23,12 @@ export { createAvatarQueue } from './avatar-queue.ts';
 export { startYoutubeCheck } from './youtube-check.ts';
 
 // Reads: profiles, the private layer, channels, lore, episodes, media and the journal's views.
-export { affinityBand, clampScore, emptyAffinity, roundScore, strongestMoves } from './affinity.ts';
+export { affinityBand, clampScore, emptyAffinity, roundScore } from './affinity.ts';
 export { isConfirmed, isOpen, isStale, normalizeTopic } from './interests.ts';
 export { rankAddressed } from './addressed.ts';
 export { episodeDate, sortEpisodesForDisplay, topEpisodes } from './episodes.ts';
-export { matchLore } from './lore.ts';
-export { channelActivity, renderChannel } from './channels.ts';
-export {
-  PARTICIPATION_DEFAULTS,
-  cutEpisode,
-  earlierEpisodes,
-  episodeHeadlines,
-  participationSettings,
-  selectEpisodes,
-} from './participation.ts';
+export { channelActivity } from './channels.ts';
+export { PARTICIPATION_DEFAULTS, participationSettings } from './participation.ts';
 export { normalizeAvatar } from './avatars.ts';
 export { rankEmojiUsage } from './emoji-usage.ts';
 export { findGif, gifHandleMap, gifHandleOf, gifOpts, normalizeGifs, rankGifs } from './gifs.ts';

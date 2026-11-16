@@ -12,7 +12,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { loadSkills } from '../src/skills/load.ts';
-import { createSkillsPort } from '../src/skills/port.ts';
 import type { SkillsPort } from '../src/skills/port.ts';
 import { snapshotDir } from '../src/skills/package.ts';
 // The owner's decision of 2026-11-10 removed the caller check, so runOp is the one runner.
@@ -24,7 +23,7 @@ import { joinLabels } from '../src/config/labels.ts';
 import type { LabelsFile } from '../src/config/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { LogEntry } from './fixtures/capture-logs.ts';
-import { skillText } from './fixtures/skills-rig.ts';
+import { createSkillsPort, skillText } from './fixtures/skills-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

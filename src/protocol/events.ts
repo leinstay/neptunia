@@ -183,8 +183,8 @@ export type Addressing = {
  * chat id; `parent`: the chat a thread sits in; `thread`: the thread's id when
  * the message is in one; `replyToAuthorId`: the author of the message it replies to;
  * `replyExpected`: true when it was meant for the persona, false when it was meant for someone
- * else, null when the adapter cannot tell. An adapter may send it with the event; the core reads
- * it through `originOf` (origin.ts), which derives what an event does not carry.
+ * else, null when the adapter cannot tell. An adapter may send it with the event; no module of
+ * the core reads it.
  */
 export type Origin = {
   chatType: 'dm' | 'group' | 'channel' | 'thread';
@@ -235,27 +235,6 @@ export type ReactionChanged = {
   added: boolean;
   authorId?: string | null;
   cleared?: 'emoji' | 'all';
-};
-
-/**
- * `command.requested`: the command's `name` (`group.sub` or `sub`), its `args`, who asked, and
- * `replyRef`, the opaque token a `command.result` action answers it by. A command that asked a question
- * (a `command.result` with status `ask`) is answered by a second `command.requested` with the same `name`, the
- * `dialogId` of the question and the `answer` text: the answer is a field of its own, never an entry of `args`,
- * so nothing that echoes the arguments can echo it.
- */
-export type CommandRequested = {
-  kind: 'command.requested';
-  iface: string;
-  at: number;
-  id: string;
-  chat: Chat;
-  name: string;
-  args: object;
-  requester: { id: string; name: string | null; roles: Array<string>; owner: boolean };
-  replyRef: string;
-  dialogId?: string;
-  answer?: string;
 };
 
 /**
@@ -361,19 +340,6 @@ export type RootChanged = {
 export type SchedulerTick = { kind: 'scheduler.tick'; at: number };
 
 /**
- * `errand.done`: an errand ended with `status` and its `result` (as src/errands defines them). The core derives `id` (`errandId` and
- * `status`) when it has none, so a second delivery of the same end is the same event.
- */
-export type ErrandDone = {
-  kind: 'errand.done';
-  at: number;
-  id?: string;
-  errandId: string;
-  status: string;
-  result?: unknown;
-};
-
-/**
  * `inner.wake`: the core's inner-life scheduler (src/behavior/inner.ts) found something due: an
  * intention, a deadline of an errand she waits for, or her daily review. `id` is always given
  * (the wake's own, so a second listing of the same due item is the same event); `wake` is the
@@ -385,18 +351,3 @@ export type InnerWake = {
   id: string;
   wake: { kind: string };
 };
-
-export type InboundEvent =
-  | MessageReceived
-  | ReactionChanged
-  | CommandRequested
-  | SchedulerTick
-  | ErrandDone
-  | MembershipChanged
-  | VoiceChanged
-  | InnerWake
-  | PresenceChanged
-  | PresenceSnapshot
-  | ChatChanged
-  | ConnectionChanged
-  | RootChanged;

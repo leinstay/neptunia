@@ -632,19 +632,6 @@ export function renderMemory(
     .join('\n');
 }
 
-/** The body of `<memory>` with every entry of `mind`, and the memory rows it carries. */
-export function memoryBlockOf(
-  mind: Mind,
-  frame: Frame,
-  labels: Labels,
-  nameOf: NameOf,
-  live: LiveOf | null = null,
-  keepEmoji = false
-): { text: string; reads: Array<MemoryRead> } {
-  const items = memoryItemsOf(mind, frame, labels, nameOf, live, undefined, undefined, null, keepEmoji);
-  return { text: renderMemory(items, mind.leftOut, labels), reads: items.flatMap((one) => [...one.reads]) };
-}
-
 /**
  * A `<memory>` of `people` alone, as a tool result carries it after the lines a read returned: each person at the
  * detail the reader chose under their handle (`handleOfKey` of the person id), none marked as the one she answers, with

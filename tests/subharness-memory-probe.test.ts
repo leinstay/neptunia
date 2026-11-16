@@ -5,8 +5,10 @@
 // fakes, the clock injected; nothing leaves the process.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MEMORY_DOWN, createMemoryWatch, memoryProbe, probeMinutes } from '../src/subharness/memory-probe.ts';
+import { MEMORY_DOWN, createMemoryWatch, probeMinutes, routeProbe } from '../src/subharness/memory-probe.ts';
+import { memoryPath } from '../src/subharness/memory-path.ts';
 import type { MemoryProbeDeps, ProbeResult } from '../src/subharness/memory-probe.ts';
+import { MEMORY_ROLE } from '../src/llm/roles.ts';
 import type { EffortLevel } from '../src/llm/roles.ts';
 import { BASE_URL, SECRET, fakeFetch, fakePause, healthy } from './fixtures/keys-rig.ts';
 import type { Call, Reply } from './fixtures/keys-rig.ts';
@@ -16,6 +18,10 @@ import { tempDir } from './fixtures/tmp.ts';
 import { createAdmin } from '../src/admin.ts';
 import { reasonedPause } from '../src/keys/commands.ts';
 import { makeStore } from './fixtures/admin-store.ts';
+
+/** One probe of the writer's path as config.json names it now, as the route watch runs it for the memory role. */
+const memoryProbe = (deps: MemoryProbeDeps, now: number) =>
+  routeProbe({ ...deps, role: MEMORY_ROLE, path: () => memoryPath(deps.privateDir) }, now);
 
 const T0 = Date.parse('2026-11-02T12:00:00Z');
 const MINUTE = 60_000;

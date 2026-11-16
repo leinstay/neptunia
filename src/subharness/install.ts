@@ -6,8 +6,8 @@
 //
 // Versions are pinned. A first install takes `PINNED_VERSIONS`, and `version.json` beside the binary records what is
 // installed with its integrity; a persona restored to another machine reinstalls the version it recorded, whatever
-// this engine ships. Only `updateSubharness` and `rollbackSubharness` change it, on the owner's explicit command, and
-// both leave the backend's `home/` (login and native sessions) alone. An install or an update holds the backend's lock
+// this engine ships. Only `updateSubharness` changes it, on the owner's explicit command, and it leaves the backend's
+// `home/` (login and native sessions) alone. An install or an update holds the backend's lock
 // (src/subharness/activity.ts), so npm never moves the binary while a login writes the home.
 
 import { createHash } from 'node:crypto';
@@ -16,7 +16,7 @@ import path from 'node:path';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { errorFields } from '../error-fields.ts';
 import { scalarText } from '../tools/types.ts';
-import { BackendLocked, backendLocked, withBackendLock } from './activity.ts';
+import { BackendLocked, withBackendLock } from './activity.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
 
 /** What a command gave back. */
@@ -234,25 +234,6 @@ async function locked(
  */
 export function updateSubharness(input: InstallInput & { version: string }, run: InstallRun): Promise<InstallOutcome> {
   return locked(input.privateDir, input.backend, () => updateLocked(input, run));
-}
-
-/** Puts the install kept by the last update back. Fails when no update left one. */
-export function rollbackSubharness(privateDir: string, backend: BackendName): InstallOutcome {
-  if (backendLocked(privateDir, backend)) return failed(`another change of ${backend} is running`);
-  const place = subharnessPlace(privateDir, backend);
-  const previousDir = path.join(place.dir, PREVIOUS_DIR);
-  const selection = readSelection(privateDir, backend);
-  if (!fs.existsSync(previousDir) || selection?.previous === undefined)
-    return failed(`${backend} has no previous install to go back to`);
-  for (const entry of INSTALLED_ENTRIES) fs.rmSync(path.join(place.dir, entry), { recursive: true, force: true });
-  moveInstalled(previousDir, place.dir);
-  fs.rmSync(previousDir, { recursive: true, force: true });
-  const pkg = PACKAGES[backend];
-  writeSelection(privateDir, backend, {
-    version: selection.previous,
-    integrity: pkg === undefined ? sha256Of(place.binary) : lockedIntegrity(place.dir, pkg),
-  });
-  return { state: 'done', detail: `${backend} is back on ${selection.previous}` };
 }
 
 /** The install itself, under the backend's lock. */

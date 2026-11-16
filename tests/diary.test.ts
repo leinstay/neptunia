@@ -29,7 +29,7 @@ import {
   createDiary,
 } from '../src/behavior/diary.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
-import { fill, localHour } from '../src/format.ts';
+import { fill } from '../src/format.ts';
 import { MINUTE_MS, HOUR_MS } from '../src/time.ts';
 import { labels } from './fixtures/labels.ts';
 import { seeded } from './fixtures/diary-prepare.ts';
@@ -78,7 +78,12 @@ test('planDay: a window crossing midnight stays inside it in Europe/Athens', () 
     assert.deepEqual(plan.done, []);
     assert.equal(plan.slots.length, 2);
     for (const slot of plan.slots) {
-      const hour = localHour(slot, 'Europe/Athens');
+      const hour =
+        Number(
+          new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Athens', hour: 'numeric', hourCycle: 'h23' }).format(
+            slot
+          )
+        ) % 24;
       assert.ok(hour >= 18 || hour < 1, `local hour ${hour}`);
       if (hour >= 18) assert.equal(localDayKey(slot, 'Europe/Athens'), '2026-03-10');
       else assert.equal(localDayKey(slot, 'Europe/Athens'), '2026-03-11');

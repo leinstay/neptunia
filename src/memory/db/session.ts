@@ -47,7 +47,6 @@ import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
 import { withoutThinks } from '../../llm/parse.ts';
 import { estimateMessages } from '../../llm/tokens.ts';
 import { rulesPromptOf } from '../../rules-list.ts';
-import { memoryPathText } from '../../subharness/memory-path.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { accountProfileValue } from './account-profile.ts';
 import { accountCollection } from './unit-keys.ts';
@@ -1255,15 +1254,6 @@ export type SessionContext = {
 // The media pass's runs count toward `mediaPassPerDay`, never toward the ordinary cap.
 const MEDIA_PASS_MARK = ':media-pass';
 
-/** How many sweeps have started on the UTC day of `now` (a sweep's media pass is the same sweep). */
-export function sweepsToday(db: Db, now: number): number {
-  return db
-    .prepare(
-      "SELECT COUNT(DISTINCT replace(sweep_id, ?, '')) AS n FROM session_runs WHERE substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL"
-    )
-    .get(MEDIA_PASS_MARK, dayOf(now))?.n as number;
-}
-
 /** How many ordinary sweeps (or with `isMediaPass`, media passes) reached the scope on the UTC day of `now`. */
 export function scopeSweepsToday(db: Db, scopeKey: unknown, now: number, mode: unknown, isMediaPass = false): number {
   return db
@@ -1271,106 +1261,6 @@ export function scopeSweepsToday(db: Db, scopeKey: unknown, now: number, mode: u
       `SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE scope_key = ? AND mode = ? AND substr(started_at, 1, 10) = ? AND sweep_id ${isMediaPass ? '' : 'NOT '}LIKE ?`
     )
     .get(scopeKey, mode, dayOf(now), `%${MEDIA_PASS_MARK}`)?.n as number;
-}
-
-/** The batches waiting for another try: `[{ scope, tries, from, to }]` (an `all_dropped` answer leaves its lines pending). */
-/** A batch waiting for another try. */
-export type PendingBatch = { scope: string; mode: string; tries: unknown; from: unknown; to: unknown };
-
-export function pendingBatches(db: Db): Array<PendingBatch> {
-  const out: Array<PendingBatch> = [];
-  for (const row of db
-    .prepare("SELECT key, value FROM meta WHERE key LIKE 'memory_session.pending.%' ORDER BY key")
-    .all()) {
-    const record = parseJson(row.value) as Row | null;
-    if (!record) continue;
-    const key = row.key as string;
-    out.push({
-      scope: key.split('.').slice(3).join('.'),
-      mode: key.split('.')[2],
-      tries: record.tries ?? 0,
-      from: record.from ?? null,
-      to: record.to ?? null,
-    });
-  }
-  return out;
-}
-
-/**
- * The state of the session for the status card: `{ mode, state, code, sweepsToday, last, pending }`
- * (`state`: `off`, `not_configured`, `refused`, `ready`). `last` is the newest run's outcome and time; `pending` the
- * batches waiting for another try, with their retry counts.
- */
-/** The session's state for the status card (see `sessionStatus`). */
-export type SessionStatus = {
-  mode: string;
-  state: string;
-  code: string | null;
-  sweepsToday: number | null;
-  sweepsPerDay: number;
-  sweepsPerScopePerDay: number;
-  retryLimit: number;
-  last: { outcome: unknown; at: unknown } | null;
-  pending: Array<PendingBatch>;
-  /** The writer's path in words (src/subharness/memory-path.ts#memoryPathText): `direct` or `via <backend> <model>`. */
-  path: string;
-};
-
-export function sessionStatus({
-  db,
-  config,
-  env,
-  prompts,
-  ring = null,
-  now = Date.now(),
-  path = { kind: 'direct' },
-}: {
-  db: Db;
-  config: Config;
-  env: Row | null | undefined;
-  prompts: Row | null | undefined;
-  /** The key ring the memory key comes from on the direct path (see `memoryKeyState`). */
-  ring?: KeyRing | null;
-  now?: number;
-  /** The writer's path; absent is the direct path. */
-  path?: MemoryPath;
-}): SessionStatus {
-  const { mode, sweepsPerScopePerDay, retryLimit } = sessionSettings(config);
-  const code = refusalOf(config, env, prompts, ring, path);
-  let state = 'ready';
-  if (code === CODES.OFF) state = 'off';
-  else if (code === CODES.NOT_CONFIGURED) state = 'not_configured';
-  else if (code) state = 'refused';
-  let today: number | null = null;
-  let last: { outcome: unknown; at: unknown } | null = null;
-  let pending: Array<PendingBatch> = [];
-  if (db) {
-    try {
-      today = sweepsToday(db, now);
-      const row = db
-        .prepare(
-          'SELECT outcome, finished_at, scope_key FROM session_runs ORDER BY finished_at DESC, rowid DESC LIMIT 1'
-        )
-        .get();
-      if (row) last = { outcome: row.outcome, at: row.finished_at };
-      pending = pendingBatches(db);
-    } catch {
-      /* an older database without the table */
-    }
-  }
-  // `sweepsPerDay` is the per-scope cap since stage W3 (the status line's `{cap}`).
-  return {
-    mode,
-    state,
-    code,
-    sweepsToday: today,
-    sweepsPerDay: sweepsPerScopePerDay,
-    sweepsPerScopePerDay,
-    retryLimit,
-    last,
-    pending,
-    path: memoryPathText(path),
-  };
 }
 
 /**
@@ -1970,30 +1860,4 @@ async function runScope(
     counts: counted,
     answer,
   });
-}
-
-/** The status card's line for the session, from `sessionStatus` and `labels.status.memorySession`; '' without the label. */
-export function memorySessionStatusLine(
-  status: SessionStatus | null | undefined,
-  labels: Row | null | undefined,
-  fill = (template: unknown, values: Row): string =>
-    String(template).replace(/\{(\w+)\}/g, (all, key: string) => (key in values ? String(values[key]) : all))
-): string {
-  const set = (labels?.status as { memorySession?: Row } | undefined)?.memorySession;
-  if (!set || !status) return '';
-  if (status.state === 'off') return asText(set.off ?? '');
-  if (status.state === 'not_configured') return asText(set.notConfigured ?? '');
-  if (status.state === 'refused') return fill(set.refused ?? '', { code: status.code });
-  const line = fill(set.line ?? '', {
-    mode: status.mode,
-    path: status.path,
-    sweeps: status.sweepsToday ?? 0,
-    cap: status.sweepsPerDay,
-    outcome: status.last?.outcome ?? '-',
-    at: status.last?.at ?? '-',
-  });
-  // Batches waiting for another try (an all-dropped answer leaves its lines pending), with the most tries any has had.
-  const waiting = status.pending ?? [];
-  if (waiting.length === 0 || !set.pending) return line;
-  return `${line}\n${fill(set.pending, { n: waiting.length, tries: Math.max(...waiting.map((batch) => Number(batch.tries))), limit: status.retryLimit ?? '-' })}`;
 }

@@ -1,8 +1,8 @@
 // Tests for src/memory/ranking.ts: rank (the weight/recency formula shared by
-// interests and details), sortByRank and topByRank. Pure, no I/O.
+// interests and details) and topByRank. Pure, no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rank, sortByRank, topByRank } from '../src/memory/ranking.ts';
+import { rank, topByRank } from '../src/memory/ranking.ts';
 
 const DAY = 24 * 3_600_000;
 const NOW = Date.UTC(2026, 8, 21, 12, 0, 0); // 2026-09-21T12:00:00Z
@@ -69,37 +69,7 @@ test('rank: one half-life of silence costs exactly 1 off the rank -- the same as
   assert.equal(rank(recent, halfLifeDays) - rank(oneHalfLifeAgo, halfLifeDays), 1);
 });
 
-// ---- sortByRank / topByRank -------------------------------------------------
-
-test('sortByRank: orders best (highest rank) first, no decay', () => {
-  const a = item(1, NOW);
-  const b = item(5, NOW);
-  const c = item(3, NOW);
-  assert.deepEqual(sortByRank([a, b, c], undefined), [b, c, a]);
-});
-
-test('sortByRank: with decay, a recent lower-weight item can outrank an ancient heavy one', () => {
-  const halfLifeDays = 180;
-  const ancientHeavy = item(10, NOW - 5 * 365 * DAY); // ~5 years of silence
-  const recentLight = item(2, NOW);
-  const [best] = sortByRank([ancientHeavy, recentLight], halfLifeDays);
-  assert.equal(best, recentLight, 'five years of silence outweighs a modest weight edge');
-});
-
-test('sortByRank: ties in rank are broken by the newer lastSeen', () => {
-  const older = item(2, NOW - 10 * DAY);
-  const newer = item(2, NOW);
-  assert.deepEqual(sortByRank([older, newer], undefined), [newer, older]);
-});
-
-test('sortByRank: never mutates the input array', () => {
-  const a = item(1, NOW);
-  const b = item(5, NOW);
-  const input = [a, b];
-  const copy = [...input];
-  sortByRank(input, 180);
-  assert.deepEqual(input, copy);
-});
+// ---- topByRank -------------------------------------------------------------
 
 test('topByRank: keeps only the top n, best first', () => {
   const a = item(1, NOW);

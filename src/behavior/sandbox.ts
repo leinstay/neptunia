@@ -238,18 +238,6 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   placePathOf: 'no memory reads in a replay: no stored place is named outside <surroundings>',
 });
 
-/** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
-const SKILL_SCENARIO_INPUTS = new Set(['skillsInventory', 'toolsGranted', 'toolsBlock', 'toolsTokens']);
-
-/**
- * What a skill scenario's turn (`answerSkillScenario`) leaves out: SANDBOX_OMITS but the skills
- * inventory and her granted skills, which it hands in (`scenarioInventory`, `skillsGranted`) so
- * the persona sees her `<skills>` and her tools' senses as live.
- */
-export const SKILL_SCENARIO_OMITS: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(Object.entries(SANDBOX_OMITS).filter(([key]) => !SKILL_SCENARIO_INPUTS.has(key)))
-);
-
 /** A non-empty string id. */
 function isId(value: Untyped) {
   return typeof value === 'string' && value !== '';
@@ -714,7 +702,7 @@ function framedTurn({
  * left out on purpose are `SANDBOX_OMITS`, passed as absent -- but the
  * skills inventory and her granted skills when a skill scenario hands them in
  * (`skillsInventory`, a non-empty list of catalogue rows; `skillsGranted`, a
- * non-empty list of skill names: SKILL_SCENARIO_OMITS). `tasks` is
+ * non-empty list of skill names). `tasks` is
  * absent but when a skill scenario's burst hands in the calls still waiting after this one
  * (`queued`, `{ id, text, author? }` each, burstTurns's): then the task labels name them as a
  * live turn names its queued calls (src/behavior/turn.ts#taskInput: the trigger author's own
@@ -1479,17 +1467,6 @@ function answerEndsLoop(calls: number, bare: boolean, seen: number): boolean {
 /** Whether a step leaves something to read: a result that needs reading, or text outside every tag, which is never sent. */
 function leftToRead(fresh: boolean, bare: boolean): boolean {
   return fresh || bare;
-}
-
-/** The tokens a provider usage reports, with the cache reads and writes when it gives them. */
-function usageNumbers(usage: Untyped) {
-  const details = usage?.prompt_tokens_details ?? {};
-  return {
-    prompt: Number(usage?.prompt_tokens) || 0,
-    completion: Number(usage?.completion_tokens) || 0,
-    cacheRead: Number(details.cached_tokens ?? usage?.cache_read_input_tokens) || 0,
-    cacheWrite: Number(details.cache_write_tokens ?? usage?.cache_creation_input_tokens) || 0,
-  };
 }
 
 /** The most characters of a result's data her next request carries (src/behavior/turn.ts#resultCharsFor). */

@@ -17,7 +17,6 @@ import { legacyStorageKey } from './fixtures/memory-db/legacy-paths.ts';
 import { applyDiaryUpdate } from '../src/memory/db/diary-media.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { createStore } from '../src/memory/store.ts';
-import { relationshipStaleOf, strongestMoves } from '../src/memory/affinity.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { CHANNEL, GUILD, MEMBER, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -291,26 +290,6 @@ test("F1: her session's attitude moves end the profile's history after a flush, 
         ],
         `${name}: the history ends with her two moves`
       );
-      // strongestMoves returns the history entries it picked, typed `object[]` in its JSDoc.
-      const shown = strongestMoves(history, {
-        max: 3,
-        currentReason: typeof profile.affinity?.reason === 'string' ? profile.affinity.reason : '',
-      }) as Array<Move>;
-      assert.ok(
-        shown.some((move) => move.reason === 'helped with the boat'),
-        `${name}: the earlier move can be shown`
-      );
-      const stale = relationshipStaleOf(
-        {
-          text: typeof profile.relationship === 'string' ? profile.relationship : '',
-          score: typeof profile.affinity?.score === 'number' ? profile.affinity.score : 0,
-          writtenScore: typeof profile.relationshipScore === 'number' ? profile.relationshipScore : 0,
-          writtenAt: typeof profile.relationshipWrittenAt === 'string' ? profile.relationshipWrittenAt : '',
-          history,
-        },
-        { rewriteOnBandChange: false, rewriteOnDrift: 0, rewriteAfterMoves: 2 }
-      );
-      assert.equal(stale?.cause, 'moves', `${name}: the two moves since the text count for a rewrite`);
     }
   } finally {
     await env.done();

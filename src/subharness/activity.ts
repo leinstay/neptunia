@@ -112,13 +112,3 @@ export async function withBackendLock<T>(
     fs.rmSync(file, { force: true });
   }
 }
-
-/** Whether a change of `backend` holds the lock now; a synchronous change refuses instead of waiting. */
-export function backendLocked(privateDir: string, backend: BackendName): boolean {
-  const file = lockFile(privateDir, backend);
-  try {
-    return alive(Number.parseInt(fs.readFileSync(file, 'utf8'), 10));
-  } catch {
-    return false;
-  }
-}

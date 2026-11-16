@@ -8,7 +8,7 @@ import { closedAdapter } from '../src/interface/link.ts';
 import { createReads } from '../src/interface/reads.ts';
 import { historyLines } from '../src/behavior/lines.ts';
 import { chatLines } from '../src/memory/db/chat-lines.ts';
-import { mediaItemsOf, sourceLine, tellFromCacheKey, writeLineMedia } from '../src/memory/db/media-store.ts';
+import { mediaItemsOf, sourceLine, writeLineMedia, writeMediaEntry } from '../src/memory/db/media-store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { keptReference } from '../src/media/kept-files.ts';
 import type { SourceLine } from '../src/chat/sessions.ts';
@@ -181,7 +181,13 @@ function storedPicture(t: { after: (fn: () => void) => void }, description: stri
   if (line === undefined) throw new Error('the line was not stored');
   writeLineMedia(db, line, mediaItemsOf(message), { at: '2026-11-08T10:00:00.000Z' });
   if (description !== null)
-    tellFromCacheKey(db, { iface: 'cli', key: 'st1', text: description, at: '2026-11-08T10:00:01.000Z' });
+    writeMediaEntry(db, {
+      placeId: PLACE,
+      iface: 'cli',
+      key: 'st1',
+      entry: { text: description },
+      at: Date.parse('2026-11-08T10:00:01.000Z'),
+    });
   return { db, kept };
 }
 

@@ -21,10 +21,9 @@
 //       unique: a second call with the same key returns the first row (`reused: true`) and writes nothing, so a crash
 //       between queueing and sending never sends twice.
 //       `pending` queues it with no content yet (an entry she is still writing): the `sent` write fills it once.
-//   markSent / markFailed / markUnknown / reconcile   the send's outcome. `unknown` is a send whose outcome a crash
-//       or a timeout hid; `reconcile(handle, id, found)` makes it `sent` with the receipts found, never sending again,
-//       or `failed` when the interface has no trace of it.
-//   grantPublication / revokeGrant   the owner's exceptions; a grant is immutable but for its revocation.
+//   markSent / markFailed / markUnknown   the send's outcome. `unknown` is a send whose outcome a crash or a timeout
+//       hid; a later `markSent` or `markFailed` settles it.
+//   grantFor   reads the owner's exceptions (`publication_grants`). No code of the engine writes or revokes a grant.
 // The diary's mirrors (`diary_mirrors`, written with her entries, diary-entries.ts) derive their publication rows here too
 // (`deriveMirrorPublication`), on the one path every mirror write takes (the sync, rows.ts#insertRows, the v10
 // migration), so a remap keeps the row and never makes a second one.
@@ -372,98 +371,6 @@ export const markUnknown = (handle: Connection, idGiven: unknown): Row | null =>
   const id = idGiven as string;
   return move(handle, id, 'unknown', ['queued']);
 };
-
-/**
- * An `unknown` publication looked up at the interface: `found` (its receipts, or null / an empty list when nothing was
- * found). Found: `sent` with those receipts, never sent again. Not found: `failed`. Any other state is left alone.
- */
-export function reconcile(
-  handle: Connection,
-  idGiven: unknown,
-  found: unknown,
-  { now = Date.now }: { now?: (() => number) | number } = {}
-): Row | null {
-  const id = idGiven as string;
-  const any = Array.isArray(found) ? found.length > 0 : found !== null && found !== undefined;
-  return any
-    ? move(handle, id, 'sent', ['unknown'], { receipts: receiptsText(found), sent_at: isoOf(now) })
-    : move(handle, id, 'failed', ['unknown']);
-}
-
-/** The publications not settled yet (`queued` or `unknown`), oldest first: what a restart reconciles before sending. */
-export function unsettled(handle: Connection): Array<Publication | null> {
-  return dbOf(handle)
-    .prepare(
-      "SELECT * FROM publications WHERE status IN ('queued', 'unknown') AND retired_at IS NULL ORDER BY created_at, id"
-    )
-    .all()
-    .map(rowOf);
-}
-
-/**
- * The owner's grant: this content hash of this row may be published to these destinations (place ids). Returns the
- * grant id. `approvedBy` is required (the owner's account or person).
- */
-export function grantPublication(
-  handle: Connection,
-  {
-    rowKind,
-    rowId,
-    hash,
-    destinations,
-    approvedBy,
-    reason = null,
-    now = Date.now,
-    id = null,
-  }: {
-    rowKind: unknown;
-    rowId: unknown;
-    hash: unknown;
-    destinations: unknown;
-    approvedBy: unknown;
-    reason?: string | null;
-    now?: (() => number) | number;
-    id?: string | null;
-  }
-): string {
-  const db = dbOf(handle);
-  const places = [...new Set((Array.isArray(destinations) ? destinations : []).filter(filled))].sort();
-  if (!filled(rowKind) || !filled(rowId) || !filled(hash) || places.length === 0 || !filled(approvedBy))
-    throw Object.assign(new Error('memory db: a grant needs a row, a hash, destinations and who approved it'), {
-      code: 'BAD_GRANT',
-    });
-  const at = isoOf(now);
-  const grantId = filled(id)
-    ? id
-    : `grant:${createHash('sha256')
-        .update(JSON.stringify([rowKind, rowId, hash, places, approvedBy, at]), 'utf8')
-        .digest('hex')
-        .slice(0, 32)}`;
-  transactionOf(handle)(() => {
-    db.prepare(
-      `INSERT INTO publication_grants (id, row_kind, row_id, content_hash, destinations, approved_by, approved_at, reason, revoked_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`
-    ).run(grantId, rowKind, rowId, hash, JSON.stringify(places), approvedBy, at, reason);
-  });
-  return grantId;
-}
-
-/** Revokes a grant (once; a revoked grant stays revoked). Returns true when it was revoked now. */
-export function revokeGrant(
-  handle: Connection,
-  id: string,
-  { now = Date.now }: { now?: (() => number) | number } = {}
-): boolean {
-  const db = dbOf(handle);
-  return transactionOf(handle)(
-    () =>
-      Number(
-        db
-          .prepare('UPDATE publication_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
-          .run(isoOf(now), String(id)).changes
-      ) > 0
-  );
-}
 
 /**
  * One write of the diary's mirrors on the writer connection (session-write.ts, kind `publication`): `prepare` queues

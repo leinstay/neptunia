@@ -6,7 +6,6 @@ import {
   backspace,
   browse,
   emptyInput,
-  filterLines,
   foldedText,
   insert,
   menuOf,
@@ -99,7 +98,6 @@ test('a long answer folds with a count and expands whole', () => {
   const text = Array.from({ length: 25 }, (_, i) => `l${i}`).join('\n');
   assert.equal(foldedText(text, false).hidden, 5);
   assert.equal(foldedText(text, true).text, text);
-  assert.deepEqual(filterLines(['a key', 'b'], 'KEY'), ['a key']);
 });
 
 test('the header gives one line per role with its state, its model once and its route', () => {

@@ -5,7 +5,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createConsole } from '../src/interface/commands/console.ts';
 import {
-  apiAccounting,
   readAllUsage,
   readBackendUsage,
   reconcileUsage,
@@ -97,41 +96,6 @@ test('no key value appears in any observation', async () => {
   // Catches: a credential on the screen through an error text.
   const { deps } = rig();
   assert.equal(JSON.stringify(await readAllUsage(deps)).includes('or-value-secret'), false);
-});
-
-// One API call counted once
-
-test('a request recorded by both OpenCode and the direct account counts once, under OpenCode', () => {
-  // Catches: an API-backed run doubling the reported spend.
-  const totals = apiAccounting([
-    { requestId: 'r1', runId: 'run-1', source: 'opencode', usd: 0.5, tokens: 100 },
-    { requestId: 'r1', runId: null, source: 'openrouter', usd: 0.5, tokens: 100 },
-    { requestId: 'r2', runId: null, source: 'openrouter', usd: 0.25, tokens: 40 },
-  ]);
-  assert.deepEqual(totals.opencode, { requests: 1, usd: 0.5, tokens: 100, unknownUsd: 0 });
-  assert.deepEqual(totals.openrouter, { requests: 1, usd: 0.25, tokens: 40, unknownUsd: 0 });
-});
-
-test('one request reported twice by a retry counts once', () => {
-  // Catches: a replayed record inflating the sum.
-  const one = { requestId: 'r1', runId: 'run-1', source: 'opencode', usd: 0.5, tokens: 100 } as const;
-  assert.equal(apiAccounting([one, one]).opencode.requests, 1);
-});
-
-test('a request with no reported price is counted as unknown, not as free', () => {
-  // Catches: a missing cost adding zero, the total quietly too low.
-  const totals = apiAccounting([
-    { requestId: 'r1', runId: null, source: 'openrouter', usd: null, tokens: 10 },
-    { requestId: 'r2', runId: null, source: 'openrouter', usd: 1, tokens: 10 },
-  ]);
-  assert.equal(totals.openrouter.usd, 1);
-  assert.equal(totals.openrouter.unknownUsd, 1);
-});
-
-test('no records add up to nothing, with no invented row', () => {
-  // Catches: a throw on an idle day.
-  const totals = apiAccounting([]);
-  assert.deepEqual(totals.opencode, { requests: 0, usd: 0, tokens: 0, unknownUsd: 0 });
 });
 
 // Old observations

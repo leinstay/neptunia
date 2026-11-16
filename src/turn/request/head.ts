@@ -204,7 +204,7 @@ export function requestHead(given: RequestInput): Base {
     : '';
   const nowText = nowBlock(now, timezone, labels, given.offPeriods, spatialText === '');
   const relationships = true;
-  // How many attitude moves follow the attitude in a `<people_now>` entry (profileStateFields).
+  // How many attitude moves a person's entry may show. No block builder reads it.
   const shownMoves = RELATIONSHIP_LIMITS.shownMoves;
   const episodesOn = true;
   const loreOn = true;

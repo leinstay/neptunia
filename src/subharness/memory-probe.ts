@@ -13,9 +13,7 @@ import type { BackendResult } from '../agent-runner/backend.ts';
 import { checkRole } from '../keys/check.ts';
 import type { PauseControl } from '../keys/commands.ts';
 import { log } from '../log.ts';
-import { MEMORY_ROLE } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
-import { memoryPath } from './memory-path.ts';
 import type { SubharnessMemoryPath } from './memory-path.ts';
 import { memoryGaps } from './memory-writer.ts';
 import { sourceState } from './sources.ts';
@@ -83,11 +81,6 @@ export async function routeProbe(deps: RouteProbeDeps, now: number): Promise<Pro
   } catch {
     return { ok: false, code: 'probe-error', at: now };
   }
-}
-
-/** One probe of the writer's path as config.json names it now. Never rejects. `at` is `now`. */
-export function memoryProbe(deps: MemoryProbeDeps, now: number): Promise<ProbeResult> {
-  return routeProbe({ ...deps, role: MEMORY_ROLE, path: () => memoryPath(deps.privateDir) }, now);
 }
 
 /** `memory.probeMinutes` of the live config: a positive finite number, else the default 30. */

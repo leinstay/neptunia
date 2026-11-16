@@ -21,7 +21,6 @@ import {
   recountDaily,
   runFocusDay,
   scoreOf,
-  setOverride,
 } from '../src/memory/db/focus.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { tableHashes } from '../scripts/memory-db.ts';
@@ -264,6 +263,19 @@ let big: Big | null = null;
  * (-50), 38-39 are bots below the bar (10). Day 40: person 5 excluded, person 25 pinned (below the bar). Day 50: people
  * 0-29 but 5 and 19 pinned (28 pins for 24 slots).
  */
+/** An owner's pin or exclusion (`kind`) as its row stores it, replacing the person's previous override. */
+function setOverride(
+  handle: Parameters<typeof sqlOf>[0],
+  { person, kind, approvedBy }: { person: string; kind: string; approvedBy: string }
+): void {
+  sqlOf(handle)
+    .prepare(
+      `INSERT INTO focus_overrides (person_id, kind, expires_at, approved_by, reason) VALUES (?, ?, NULL, ?, NULL)
+    ON CONFLICT(person_id) DO UPDATE SET kind = excluded.kind, expires_at = excluded.expires_at, approved_by = excluded.approved_by, reason = excluded.reason`
+    )
+    .run(person, kind, approvedBy);
+}
+
 function bigFixture(): Big {
   if (big) return big;
   const handle = peopleDb(40);
