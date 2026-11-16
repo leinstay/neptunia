@@ -3100,7 +3100,9 @@ async function systemMessageFor(appearance: string) {
     selfName,
   });
   await describer.describe('g1', pictureItem('a1'));
-  return { system: String(llm.calls[0].messages[0].content), placeIds };
+  const [call] = llm.calls;
+  const [system] = call.messages;
+  return { system: String(system.content), placeIds };
 }
 
 test('describe: a picture keeps every paragraph of the answer, joined into one line', async () => {
