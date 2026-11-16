@@ -272,9 +272,9 @@ test('a database at version 59 opens at version 60', () => {
   const versions = opened(file, (db) =>
     rows(db, 'SELECT version FROM schema_version ORDER BY version').map((row) => Number(row.version))
   );
-  assert.equal(Math.max(...versions), 60);
+  // Changed: later steps follow step 60, so the test reads step 60's own row and no highest version.
   assert.deepEqual(
-    versions.filter((version) => version > 59),
+    versions.filter((version) => version === 60),
     [60]
   );
 });

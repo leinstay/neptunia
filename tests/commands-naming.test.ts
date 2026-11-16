@@ -123,7 +123,7 @@ test('services takes the two mechanisms and the list, and no process unit', () =
   const services = COMMANDS.find((command) => command.name === 'services');
   assert.ok(services);
   const first = new Set(services.subcommands.map((one) => one.name.split('.')[0]));
-  assert.deepEqual([...first].sort(), ['heartbeat', 'list', 'diary']);
+  assert.deepEqual([...first].sort(), ['diary', 'heartbeat', 'list']);
 });
 
 for (const words of [

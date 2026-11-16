@@ -54,10 +54,10 @@ The engine's words, for anyone naming something in the code, the database, a doc
 | `turn frame` | The facts of one turn, fixed before any block of its request: its kind, why she is awake, whom she answers, where she is and which blocks it holds. |
 | `turn kind` | Which of the frame's lists of blocks a turn takes. |
 | `wake` | A row of the queue of turns the engine starts itself. |
-| `service` | One of the two scheduled mechanics: `heartbeat`, `selfreflection`. |
+| `service` | One of the two scheduled mechanics: `heartbeat`, `diary`. |
 | `heartbeat` | The service that wakes her every few hours with no chat and no place, so she can notice what goes on and decide whether to act or stay silent. `heartbeat.schedule` sets the interval, default `every 3h`, and `heartbeat.jitterMinutes` its spread, default 60. |
-| `selfreflection` | The service that turns selected experience into her dated entries, each with an optional illustration and a copy to a `mirror`, and those entries as a store. Prompts tell her she keeps a diary. |
-| `mirror` | A place a stored entry of `selfreflection` is copied to. |
+| `diary` | The service that turns selected experience into her dated entries, each with an optional illustration and a copy to a `mirror`, and those entries as a store. |
+| `mirror` | A place a stored entry of `diary` is copied to. |
 | `intention` | Something the persona decided to do later. It is no service. |
 | `tool` | Code with a schema that the model calls. |
 | `skill` | A prose procedure over tools. |

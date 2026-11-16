@@ -143,7 +143,7 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
     assert.throws(() => promptLayersHot(quietHot, root, ['missing'], { tmpDir }), /missing is not a directory/);
     // The checkout is untouched.
     // PR 7c: the tracked labels live in config/, beside prompts/.
-    assert.deepEqual(fs.readdirSync(path.join(root, 'prompts')).sort(), ['reply.md', 'diary-planner.md']);
+    assert.deepEqual(fs.readdirSync(path.join(root, 'prompts')).sort(), ['diary-planner.md', 'reply.md']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(tmpDir, { recursive: true, force: true });

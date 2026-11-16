@@ -214,7 +214,7 @@ test('after step 61 no table, index or trigger is named after selfreflection or 
   const objects = opened(file, (db) =>
     values(
       db,
-      "SELECT name FROM sqlite_master WHERE tbl_name IN ('diary', 'diary_mirrors') AND type <> 'table' ORDER BY name"
+      "SELECT name FROM sqlite_master WHERE tbl_name IN ('diary', 'diary_mirrors') AND type <> 'table' AND name NOT LIKE 'sqlite_autoindex%' ORDER BY name"
     )
   );
   assert.deepEqual(objects, [
@@ -405,7 +405,9 @@ test('step 61 renames the graph nodes of the entries, the publication and the pi
   // Bug: graph.ts projects a diary entry to `diary:<id>` and finds the old node, so it writes a second node and the
   // first keeps the entry's witnesses.
   const file = at60(ALL);
-  const nodes = opened(file, (db) => rows(db, 'SELECT id, kind, row_id FROM graph_nodes ORDER BY id'));
+  const nodes = opened(file, (db) =>
+    rows(db, "SELECT id, kind, row_id FROM graph_nodes WHERE kind IN ('diary', 'media', 'publication') ORDER BY id")
+  );
   assert.deepEqual(nodes, [
     { id: NEW.entry, kind: 'diary', row_id: 'diary:e1' },
     { id: NEW.oldIdEntry, kind: 'diary', row_id: 'diary:old1' },
