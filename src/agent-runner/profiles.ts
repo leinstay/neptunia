@@ -2,7 +2,7 @@
 // `agents/<id>/profile.json` per agent, beside its tracked prompt
 // (`agents/<id>/prompt.md`). Persona files under `data/agents/<id>/` override shared defaults. A profile describes its
 // kind (`worker`, run under this runner on a socket; `consultation`, a
-// model role tools call directly; `watcher`, a subharness report definition). The runner loads only workers. Model
+// model role tools call directly). The runner loads only workers. Model
 // roles (`scout`, `server`) remain stable. Definitions carry a prompt filename and migration override metadata.
 // Worker definitions also list tools, a shell class, default limits, daily caps, socket and out directory, and
 // environment variable names their run may fall back on (the core sends
@@ -111,17 +111,8 @@ export type WorkerDefinition = Readonly<
 /** A consultation's profile.json: the common keys only. */
 export type ConsultationDefinition = Readonly<CommonDefinition & { kind: 'consultation' }>;
 
-/** A report watcher uses subharness policy without a worker model role or permissions. */
-export type WatcherDefinition = Readonly<{
-  id: 'watcher';
-  kind: 'watcher';
-  prompt: string;
-  override: null;
-  description: string;
-}>;
-
 /** The validated profile.json of any agent. */
-export type AgentDefinition = WorkerDefinition | ConsultationDefinition | WatcherDefinition;
+export type AgentDefinition = WorkerDefinition | ConsultationDefinition;
 
 /** The engine and persona agent trees, resolved independently of private credentials. */
 export type AgentPaths = {
@@ -885,7 +876,6 @@ const WORKER_KEYS = Object.freeze([
 const KEYS_BY_KIND: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   worker: Object.freeze([...COMMON_KEYS, ...WORKER_KEYS]),
   consultation: COMMON_KEYS,
-  watcher: Object.freeze(['id', 'kind', 'prompt', 'override', 'description']),
 });
 
 /** An agent id, the name of its folder: lowercase letters, digits and dashes. */
@@ -1035,13 +1025,10 @@ function checkId(agent: string): void {
 
 /** Checks identity and prompt fields shared by every definition kind. */
 function checkDefinitionIdentity(agent: string, raw: Record<string, unknown>): void {
-  if (raw.id !== agent || (raw.kind === 'watcher' && agent !== 'watcher'))
-    throw new AgentProfileError(agent, 'id', 'must be the folder name and match the agent kind');
+  if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
   checkId(agent);
-  if (raw.kind !== 'watcher') {
-    if (!isOneOf(OPENCODE_ROLES, raw.role))
-      throw new AgentProfileError(agent, 'role', `must be one of ${OPENCODE_ROLES.join(', ')}`);
-  } else if (raw.override !== null) throw new AgentProfileError(agent, 'override', 'must be null');
+  if (!isOneOf(OPENCODE_ROLES, raw.role))
+    throw new AgentProfileError(agent, 'role', `must be one of ${OPENCODE_ROLES.join(', ')}`);
   checkFileName(agent, 'prompt', raw.prompt, raw.kind === 'consultation');
   checkFileName(agent, 'override', raw.override, raw.kind !== 'worker');
   if (typeof raw.description !== 'string' || !raw.description.trim())
@@ -1322,7 +1309,7 @@ function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): P
 
 /**
  * The worker profiles under `<rootDir>/agents/`, by id: every agent of kind `worker` (a
- * consultation or a watcher definition has no runner here and is skipped), each validated (listAgents) and built into the
+ * consultation has no runner here and is skipped), each validated (listAgents) and built into the
  * profile object the runner and the core use. Throws AgentProfileError on the first profile that
  * cannot be used, so a bad file stops the process at start.
  */

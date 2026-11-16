@@ -2,7 +2,7 @@
 // time, the rest wait in order under a capacity, and a queued one can be removed or cancelled before it starts. A
 // cancel of the running one aborts its signal and waits: only the run says how it ended, so a reply that went out despite the
 // cancel ends committed. Every event goes to `emit` with one rising `seq` and stays for `replay`. The control knows nothing of
-// a watcher, an errand or another chat, and calls no model. src/interface/chat-turns.ts holds the one of the owner's
+// an errand or another chat, and calls no model. src/interface/chat-turns.ts holds the one of the owner's
 // chat, whose `run` waits for the turn the pipeline runs over a line that already passed the event door.
 
 import type { TurnEvent } from '../protocol/turn-control.ts';

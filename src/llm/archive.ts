@@ -4,8 +4,7 @@
 // call goes on: her voice does not depend on the archive. A picture is kept as its marker and size, the media
 // tables hold what was preserved of it. Turn, attempt, step, service, run and backend come from `withRequestMeta`, which
 // the turn opens; a call outside a turn names its service by its role. An answer's own `model`, `backend` and `source`
-// correct the row at its end, since a subharness run is not what the client was asked for. A write that fails also goes
-// to `noteGap`, with no content, so the watcher can name a request the archive lost.
+// correct the row at its end, since a subharness run is not what the client was asked for.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
@@ -25,14 +24,11 @@ export type RequestMeta = {
   /** Records the outcome on the newest request of this meta; set by the archive when it keeps one. */
   noteOutcome?: (outcome: RequestOutcome) => Promise<void>;
 };
-/** A request whose row the archive could not write, with no content. */
-export type ArchiveWriteGap = { kind: 'archive-write-failed'; requestId: string; op: string; at: number };
 type ArchiveDeps = {
   write: (update: Row) => Promise<unknown>;
   now?: () => number;
   newId?: () => string;
   log: { warn(msg: string, meta?: unknown): void };
-  noteGap?: (gap: ArchiveWriteGap) => void;
   /** The backend a request goes through unless its answer says otherwise. */
   backend?: string;
 };
@@ -173,14 +169,13 @@ function failureCause(error: unknown): string {
 /** `llm` whose `complete` keeps each request and its outcome. Every other member passes through. */
 export function archivedLlm<TLlm extends { complete: (...args: Array<never>) => Promise<unknown> }>(
   llm: TLlm,
-  { write, now = () => Date.now(), newId = () => randomUUID(), log, noteGap, backend }: ArchiveDeps
+  { write, now = () => Date.now(), newId = () => randomUUID(), log, backend }: ArchiveDeps
 ): TLlm {
-  const keep = async (id: string, update: Row): Promise<void> => {
+  const keep = async (update: Row): Promise<void> => {
     try {
       await write({ kind: 'request-archive', ...update });
     } catch (error) {
       log.warn('llm: the request archive could not be written', { op: update.op, error });
-      noteGap?.({ kind: 'archive-write-failed', requestId: id, op: String(update.op), at: now() });
     }
   };
   const complete = async (messages: unknown, given: Row = {}, ...rest: Array<unknown>): Promise<unknown> => {
@@ -191,19 +186,19 @@ export function archivedLlm<TLlm extends { complete: (...args: Array<never>) => 
     const turn = currentRequestMeta();
     if (turn !== null) {
       turn.step = (turn.step ?? 0) + 1;
-      turn.noteOutcome = (outcome) => keep(id, { op: 'outcome', id, outcome });
+      turn.noteOutcome = (outcome) => keep({ op: 'outcome', id, outcome });
     }
-    await keep(id, { op: 'start', record: startRecord(id, now(), messages, options, turn, backend, blocks) });
+    await keep({ op: 'start', record: startRecord(id, now(), messages, options, turn, backend, blocks) });
     try {
       const answer = await (llm.complete as unknown as (...args: Array<unknown>) => Promise<Row>)(
         messages,
         options,
         ...rest
       );
-      await keep(id, { op: 'finish', id, at: now(), status: 'ok', ...answerFields(answer, options.purpose) });
+      await keep({ op: 'finish', id, at: now(), status: 'ok', ...answerFields(answer, options.purpose) });
       return answer;
     } catch (error) {
-      await keep(id, { op: 'finish', id, at: now(), status: 'failed', error_code: failureCause(error) });
+      await keep({ op: 'finish', id, at: now(), status: 'failed', error_code: failureCause(error) });
       throw error;
     }
   };

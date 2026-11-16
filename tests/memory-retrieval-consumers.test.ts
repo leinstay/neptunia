@@ -106,7 +106,6 @@ const INPUTS: ReadonlyArray<[string, RetrievalInput, MemoryQuery['purpose']]> = 
     'session',
   ],
   ['a task with no home root', { purpose: 'task', goal: 'finish lumen', refs: [] }, 'task'],
-  ['a watcher diagnostic', { purpose: 'watcher', goal: 'failed runs', runIds: ['run:1'] }, 'watcher'],
 ];
 
 for (const [name, input, purpose] of INPUTS) {

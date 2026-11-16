@@ -136,10 +136,6 @@ The engine proxy is described in [Proxy](proxy.md).
 
 <!-- settings: skills -->
 
-## watcher
-
-<!-- settings: watcher -->
-
 ## selfreflection
 
 <!-- settings: selfreflection -->

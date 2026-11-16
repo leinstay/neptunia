@@ -37,10 +37,11 @@ test('the table parses /agent mode with an agent, an optional mode, and refuses 
     name: 'agent.mode',
     args: { agent: 'scout', mode: 'sudo' },
   });
-  assert.deepEqual(parseCommandLine('/agent mode watcher'), {
+  // Changed: the watcher is gone (maintainer, 2026-11-16), so the agent with no mode given is the server.
+  assert.deepEqual(parseCommandLine('/agent mode server'), {
     ok: true,
     name: 'agent.mode',
-    args: { agent: 'watcher' },
+    args: { agent: 'server' },
   });
   for (const line of ['/agent mode', '/agent mode scout root', '/agent mode editor read'])
     assert.equal(parseCommandLine(line).ok, false, line);

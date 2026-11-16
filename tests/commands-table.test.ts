@@ -14,7 +14,7 @@ const TABLE = [
   'status',
   'doctor',
   'logs',
-  // Changed: `/report` is retired, the report reads as `/logs watcher`, so the one new command is `services`.
+  // Changed: `/report` is retired, so the one new command is `services`.
   'services',
   'usage',
   'errands',
@@ -93,23 +93,6 @@ test('every listed part of /doctor and window of /usage parses', () => {
     '/usage 30d',
   ])
     assert.equal(parseCommandLine(line).ok, true, line);
-});
-
-test('the watcher list leaves parse from a typed line, the text with its spaces and the number as a word', () => {
-  // Bug: the text of /doctor watcher accept is cut at its first space, or a leaf is read as the report number.
-  const listed = parseCommandLine('/doctor watcher accepted');
-  assert.ok(listed.ok);
-  assert.equal(listed.name, 'doctor.watcher.accepted');
-  const added = parseCommandLine('/doctor watcher accept the lamp in hall two flickers');
-  assert.ok(added.ok);
-  assert.equal(added.name, 'doctor.watcher.accept');
-  assert.deepEqual(Object.values(added.args), ['the lamp in hall two flickers']);
-  const removed = parseCommandLine('/doctor watcher unaccept 2');
-  assert.ok(removed.ok);
-  assert.equal(removed.name, 'doctor.watcher.unaccept');
-  assert.deepEqual(Object.values(removed.args), ['2']);
-  assert.equal(parseCommandLine('/doctor watcher accept').ok, false, 'accept needs a text');
-  assert.equal(parseCommandLine('/doctor watcher unaccept').ok, false, 'unaccept needs a number');
 });
 
 test('/skills with nothing after it lists, and list and pending take no argument', () => {
@@ -292,7 +275,7 @@ test('the console answers every leaf of the table that reaches it', async () => 
     chatLines: () => [],
     now: () => Date.parse('2026-11-08T12:00:00Z'),
     keys: { enabled: () => false, run: () => Promise.resolve({ text: 'keys', status: 'ok' }) },
-    // `/services watcher enable` is a line of the table: without this it moves the server's real timer.
+    // `/services heartbeat enable` is a line of the table: without this it moves the server's real timer.
     serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
   });
   const unanswered: Array<string> = [];

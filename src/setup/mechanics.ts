@@ -1,12 +1,10 @@
 // The mechanics step of `neptunia setup` (src/setup/run.ts, docs/setup.md): her two ticking mechanics, `heartbeat` and
 // `selfreflection`, each switched on or off at the terminal. Each question offers the value in force, so an empty answer
 // keeps it. The answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when
-// no answer changes a value. The watcher step (src/setup/watcher.ts) asks through `askSwitch` and `askSchedule` of this file.
+// no answer changes a value.
 
 import { readConfig } from '../config.ts';
 import { updateLocalSettings } from '../service/local-settings.ts';
-import { formatSchedule, parseSchedule } from '../service/schedule.ts';
-import type { ServiceSchedule } from '../service/schedule.ts';
 import { objOf } from '../tools/types.ts';
 import { setPath } from '../tools/operations/shared.ts';
 
@@ -33,20 +31,9 @@ async function askValid(ask: Ask, question: string, offered: string, isValid: (a
 }
 
 /** An on or off question: true for `on`, false for `off`, `current` after three answers that are neither. */
-export async function askSwitch(ask: Ask, question: string, current: boolean): Promise<boolean> {
+async function askSwitch(ask: Ask, question: string, current: boolean): Promise<boolean> {
   const answer = await askValid(ask, question, current ? 'on' : 'off', (one) => /^(on|off)$/i.test(one));
   return answer.toLowerCase() === 'on';
-}
-
-/** What an answer to a schedule question means: `at 06:00,18:00`, `every 6h`, or the daily times alone. */
-const scheduleOfAnswer = (answer: string): ServiceSchedule | null =>
-  parseSchedule(answer) ?? parseSchedule(`at ${answer}`);
-
-/** A schedule with the validation of `neptunia services <name> setup`; `current` after three answers that are none. */
-export async function askSchedule(ask: Ask, question: string, current: ServiceSchedule): Promise<ServiceSchedule> {
-  const offered = formatSchedule(current);
-  const answer = await askValid(ask, question, offered, (one) => scheduleOfAnswer(one) !== null);
-  return scheduleOfAnswer(answer) ?? current;
 }
 
 export async function mechanicsStep(

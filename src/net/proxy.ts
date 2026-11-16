@@ -6,9 +6,8 @@
 // proxy (`suspect`, with `isProxyConnectionFailure` deciding which errors count). It hands the URL in force to `apply`
 // whenever it changes (src/net/global-proxy.ts sets it for the whole process) and tells `onSwitch` of each fallback and
 // recovery, so the persona learns of it as of any failure. The core (src/core.ts) runs one; the interfaces never take
-// the proxy. A worker with no monitor of its own (the watcher) decides each agent run with
-// `proxyForRun`, one probe before the run. `proxyEnvOf` is the environment a child process gets for the URL in force,
-// and `probeProxy` the default probe. A URL may carry a login and a password: nothing here logs one.
+// the proxy. `proxyEnvOf` is the environment a child process gets for the URL in force, and `probeProxy` the default
+// probe. A URL may carry a login and a password: nothing here logs one.
 
 import https from 'node:https';
 
@@ -137,28 +136,6 @@ export function probeProxy(url: string, timeoutMs: number): Promise<boolean> {
     request.on('timeout', () => request.destroy(new Error('timeout')));
     request.on('error', () => resolve(false));
   }).finally(() => agent.destroy());
-}
-
-/**
- * The proxy one agent run of a worker without a monitor takes: the stored URL while the proxy is on and answers one
- * probe now, else null, the direct path.
- */
-export async function proxyForRun({
-  url,
-  config,
-  probe = probeProxy,
-}: {
-  url: string | null;
-  config: unknown;
-  probe?: ProxyProbe;
-}): Promise<string | null> {
-  const settings = proxySettings(config);
-  if (!settings.enabled || url === null) return null;
-  try {
-    return (await probe(url, settings.health.timeoutMs)) ? url : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

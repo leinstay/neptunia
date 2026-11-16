@@ -377,9 +377,6 @@
       "maxOutputBytes": 1000000
     }
   },
-  "watcher": {
-    "degradedAfterMinutes": 60
-  },
   "selfreflection": {
     "enabled": true,
     "schedule": null,

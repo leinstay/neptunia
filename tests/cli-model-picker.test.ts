@@ -147,21 +147,11 @@ test('nothing commits before the confirmation, and a double confirmation commits
   ]);
 });
 
-test('Errand offers scout and server, and watcher is a separate row', () => {
-  // Catches: watcher treated as one more errand agent.
-  // Changed: the watcher's utility row moved under Errand when the Development group went (maintainer, 2026-11-16).
+test('Errand offers scout and server', () => {
+  // Catches: an agent missing from Errand, or a role of another group listed there.
+  // Changed: the watcher and its utility row are gone (maintainer, 2026-11-16), so Errand holds the two agents alone.
   const rows = pickerRows(play(opened(), choose('errand')).state);
-  assert.deepEqual(
-    rows
-      .filter((one) => one.utility !== true)
-      .map((one) => one.id)
-      .sort(),
-    ['scout', 'server']
-  );
-  assert.deepEqual(
-    rows.filter((one) => one.utility === true).map((one) => one.id),
-    ['watcher']
-  );
+  assert.deepEqual(rows.map((one) => one.id).sort(), ['scout', 'server']);
 });
 
 test('the three kinds of evidence are told apart on the rows and in the review', () => {

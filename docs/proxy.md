@@ -35,8 +35,6 @@ A request of the core that cannot reach the proxy does not wait for the next pro
 
 Each switch reaches the persona as a `proxySwitched` fact at her next turn, worded by `wake.feedback.proxySwitched` and the code `proxy-down` or `proxy-back` (see [the prompt contract](prompt-contract.md)). `/proxy off` goes direct without a notice.
 
-The watcher runs in a process of its own, without a monitor. Before each agent run it probes the stored URL once with `proxyForRun` and gives the run the proxy only when it answered.
-
 ## curl in agent runs
 
 Every agent run has `CURL_HOME` set to its harness home, `data/subharness/<backend>/home`, so curl reads the `.curlrc` there. `/proxy useragent` writes `user-agent = "<value>"` into that file for each installed backend, mode `600`, with the quotes and backslashes of the value escaped.

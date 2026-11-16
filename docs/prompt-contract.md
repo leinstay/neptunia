@@ -135,7 +135,7 @@ A `message.create` call whose text holds a think tag is refused with the code `t
 
 `isOffScript` in `src/memory/text-standard.ts` tells whether more than half of a text's letters are outside the Latin script, with closed pairs of quotes left out. A think that is off script is counted and acted on all the same. A description, a GIF watch or a video summary that is off script is described again once. The second answer stands with `redescribed` on the entry, and `offScript` too when it fails the standard again. A first answer whose second request failed stands with `offScript`.
 
-A turn's journal record counts these in `format`: `thinkMissing`, `thinkLeaked`, `leakEnded`, `tagInOutgoing` and `thinkOffScript`. `standardFacts` in `src/watcher/requests.ts` sums them with the marks on the descriptions for [the watcher](watcher.md#service-runs).
+A turn's journal record counts these in `format`: `thinkMissing`, `thinkLeaked`, `leakEnded`, `tagInOutgoing` and `thinkOffScript`.
 
 A `<gif>` is a retired tag, like a call tag and a draw tag: `parseOutput` cuts it out and tells it as a `retiredTag` diagnostic, and an answer that holds nothing else is silence.
 
@@ -220,40 +220,6 @@ The writer refuses what only the database can judge, and each refusal is a `deci
 ### Description merge
 
 `/memory bind` asks the memory model to join two descriptions of one person when an account's own meta-person merges into the target and both hold a current description of one field in one audience (`bindAccount` in `src/memory/db/person-bind.ts`). The request goes out on the `memory` role with the purpose `description-merge` and the limit `memoryDb.session.descriptionMaxOutputTokens`. Its system message is the one her turns get with `prompts/description-merge.md` last, which takes `{{name}}`. The user message holds `<subject>` (the field and its display cap), `<kept>` (the target's current text) and `<merged>` (the text of the person who goes). The answer is `<description>` and `<reason>`, read by `parseDescriptionAnswer` in `src/memory/db/describe.ts`, which drops a stray `<think>` or `<thinking>` block. A missing or empty `<description>` fails the bind as `bad_answer`, and nothing is written.
-
-## Watcher answer
-
-`agents/watcher/prompt.md` asks for one report in the exact template `checkTemplate` of [src/watcher/report.ts](../src/watcher/report.ts) enforces, and a text outside it fails the run with the code below.
-
-The report opens with the title `# Watcher report <day>`, then the metadata rows, each `- <label>: <value>`, in this order: `Observation interval`, `Run id`, `Selected backend`, `Model`, `Effort`, `Effective account`, `Available sources`, `Risk`, `New findings`, `Open findings`. `Risk` is `none`, `critical`, `high`, `medium` or `low`, `New findings` reads `<n>, repeats: <n>`, and `Open findings` reads `critical <n>, high <n>, medium <n>, low <n>`. No other row may say `none`. The engine replaces the interval, run id, backend, model, effort, risk and counts with what it knows. It stamps `observation` and `backend` of the coverage block with the same facts.
-
-The sections of `REPORT_HEADINGS` follow at level two, in order, each once: `Her day`, `Service runs`, `Memory`, `Money`, `Errors`, `Misunderstandings`, `Project`, `Modules and structure`, `Trash`, `The server`, `Wishes`, `For the owner`. Each holds the subheadings of `REPORT_SUBHEADINGS` at level three, in order: `Observed defects`, `Suspicious evidence`, `Inspected without a finding`, `Unavailable checks`. `For the owner` alone takes `OWNER_SUBHEADINGS`, which opens with `Decisions needed`, and a line there is `- [critical|high|medium|low] <key>: <action>`. An empty subsection says exactly `none`. A line under `Observed defects` or `Suspicious evidence` is `- [critical|high|medium|low] <finding-key>: <text>`. Every line of `Misunderstandings`, but under `Unavailable checks`, cites a turn id, `t-` and its hex digits. `findingsOf` and `applyRiskRules` of [src/watcher/risk.ts](../src/watcher/risk.ts) read these lines, and a repeat is saved as `- [low] <finding-key>: <text> (repeat <n>, first <day>)`.
-
-The last thing in the report is one fenced `coverage` block, a JSON object that `checkCoverage` reads: `observation` with `from` and `to`, `backend`, `account`, `sources`, which is not empty, and the lists `defects`, `suspicious`, `inspected` and `unavailable`, which share no item. The optional `accepted` is a list of `{ line, count }`, the findings the watcher left out as covered by the line of the brief's `<accepted>` with that number. `checkCoverage(text, acceptedCount)` takes the length of that list and refuses a `line` below 1 or above it, or an entry that is no pair of whole numbers, with `coverage-invalid` and a detail that names `accepted`. A block with no `accepted` left nothing out.
-
-The owner is shown a view of a stored report, `reportView` of `src/watcher/report.ts`, by `/doctor watcher read`, `/doctor watcher <n>` and the persona's `watcher.read`. The view has no `coverage` block. A section whose four subsections (five for `For the owner`) each say exactly `none` is one line, `## <name>: none`. In any other section the subsections that say exactly `none` are dropped and the rest stay as stored, byte for byte. A subsection whose text holds the word inside a longer sentence says something and stays. A text that is no report in the template comes back unchanged. The stored file is never changed, and the checks and the risk rules above read it.
-
-| Code | What the text did |
-|---|---|
-| `secret` | Holds a string shaped like a key |
-| `preamble` | Has text before the title |
-| `bad-title` | Has no title with a real date |
-| `bad-metadata` | Has a row missing, out of order, blank or with a value its row does not take |
-| `stray-text` | Has text after the metadata or before a section's first subheading |
-| `extra-heading` | Has a heading outside the template, or one twice |
-| `missing-heading` | Lacks a section or a subheading |
-| `heading-order` | Has its headings out of order |
-| `heading-level` | Has a heading at the wrong level, or below level three |
-| `empty-subsection` | Has nothing under a subheading |
-| `empty-word` | Says nothing in a word other than `none`, or writes `none` beside a finding |
-| `coverage-missing` | Has no coverage block |
-| `coverage-misplaced` | Has the block inside a section, or a second block |
-| `coverage-invalid` | Has a block that does not parse, or lacks a field, or names one item in two lists, or holds an `accepted` that names a line the list does not have |
-| `trailing-content` | Has something after the block |
-| `bad-risk` | Has a finding or decision line with no level and key, or a level on a line that takes none |
-| `missing-turn-ref` | Has a line of `Misunderstandings` with no turn id |
-
-The brief carries `<day>`, `<observation from="..." to="..." day-from="..."/>`, `<install>` with the JSON of `installFacts` from [src/watcher/install.ts](../src/watcher/install.ts), `<money>` with the JSON of `moneyFacts` from [src/watcher/money.ts](../src/watcher/money.ts) when the worker could read it, `<memory>` with one line per stored fact about failures when `watcherMemory` finds any, `<accepted>` with one line per entry of the owner's [accepted list](watcher.md#accepted-findings), each as `<number>. <text>` from 1, read at the start of the run and left out when the list is empty, and `<report day="...">`, with `run="..."` on an earlier report of the same day. A second attempt holds the first brief whole, then `agents/watcher/retry.md`, then `<refusal code="...">` with the check's detail and `<previous-answer>` with the refused text, a string shaped like a key masked.
 
 ## Media text forms
 

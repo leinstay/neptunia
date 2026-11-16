@@ -54,7 +54,7 @@ export function readTurnEvent(value: unknown): TurnEventReading {
   return { ok: true, event: value as TurnEvent };
 }
 
-/** The action in `value`, or why it is none. A chat action reaches the turns alone, never an errand or the watcher. */
+/** The action in `value`, or why it is none. A chat action reaches the turns alone, never an errand. */
 export function readTurnAction(value: unknown): TurnActionReading {
   if (!isObject(value)) return { ok: false, reason: 'action:type' };
   const { kind, turnId, after } = value;

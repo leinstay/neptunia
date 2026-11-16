@@ -24,7 +24,6 @@ import './memory.ts';
 import './message.ts';
 import './errand.ts';
 import './skill.ts';
-import './watcher.ts';
 import './intention.ts';
 import './places.ts';
 import './skills.ts';

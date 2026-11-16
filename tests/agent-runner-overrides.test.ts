@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { readPromptFile } from '../src/agent-runner/opencode.ts';
-import { agents, fixture, profileError, watcher } from './fixtures/agent-overrides.ts';
+import { agents, fixture, profileError } from './fixtures/agent-overrides.ts';
 
 test('a missing personal root preserves the shared worker without creating persona files', (t) => {
   const f = fixture();
@@ -390,53 +390,39 @@ test('an empty selected personal prompt fails instead of falling through to shar
   assert.throws(() => readPromptFile(agents.promptFilesOf('scout', f.options)));
 });
 
-test('watcher and consultation definitions use the same overlay without entering worker selection', (t) => {
-  // Changed: the development kind is gone with the development agents (maintainer, 2026-11-16).
+test('a consultation definition uses the same overlay without entering worker selection', (t) => {
+  // Changed: the development kind is gone with the development agents, and the watcher kind with the watcher
+  // (maintainer, 2026-11-16), so the personal overlay is checked on the consultation.
   const f = fixture();
   t.after(f.close);
-  f.writeShared('watcher', watcher());
-  f.writeShared('consult', {
+  const consult = {
     id: 'consult',
     kind: 'consultation',
     role: 'scout',
     prompt: null,
     override: null,
     description: 'Synthetic consultation.',
-  });
-  const folder = path.join(f.dataDir, 'agents', 'watcher');
+  };
+  f.writeShared('consult', consult);
+  const folder = path.join(f.dataDir, 'agents', 'consult');
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(
     path.join(folder, 'profile.json'),
-    JSON.stringify({ description: 'Personal watcher.', prompt: 'custom.md' })
+    JSON.stringify({ description: 'Personal consultation.', prompt: 'custom.md' })
   );
   const all = agents.listAgents(f.options);
   assert.deepEqual(
     all.map((entry) => entry.id),
-    ['consult', 'scout', 'watcher']
+    ['consult', 'scout']
   );
   assert.deepEqual(
-    all.find((entry) => entry.id === 'watcher'),
-    { ...watcher(), description: 'Personal watcher.', prompt: 'custom.md' }
+    all.find((entry) => entry.id === 'consult'),
+    { ...consult, description: 'Personal consultation.', prompt: 'custom.md' }
   );
   assert.deepEqual(Object.keys(agents.loadProfiles(f.options)), ['scout']);
-  for (const name of ['watcher', 'consult']) assert.equal(agents.profileOf(name, f.options), null);
-  assert.equal(agents.agentSettings('watcher', {}, f.options), null);
+  assert.equal(agents.profileOf('consult', f.options), null);
   assert.equal(agents.agentSettings('consult', {}, f.options), null);
 });
-
-for (const [key, value] of [
-  ['role', 'dev'],
-  ['backend', 'codex'],
-  ['model', 'synthetic/model'],
-  ['override', 'legacy.md'],
-] as const) {
-  test(`watcher definitions reject unsupported ${key}`, (t) => {
-    const f = fixture();
-    t.after(f.close);
-    f.writeShared('watcher', { ...watcher(), [key]: value });
-    assert.throws(() => agents.listAgents(f.options), profileError('watcher', key));
-  });
-}
 
 test('shared compatibility snapshots ignore process persona links before explicit loader paths are supplied', (t) => {
   const f = fixture();

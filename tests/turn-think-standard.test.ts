@@ -217,7 +217,7 @@ test('two leaks after a post end the turn with the post standing and no third an
   assert.equal(turnRecord(lines).format.leakEnded, 1);
 });
 
-// Bug: the count is not kept apart per turn, so an inner turn's lost answer never reaches the watcher.
+// Bug: the count is not kept apart per turn, so an inner turn's lost answer is never counted.
 test('two leaks in an inner turn send nothing and post no lowered call', async () => {
   const run = await coreTurn({ ...INNER, answers: [UNOPENED, UNCLOSED, GOOD] });
   assert.equal(run.llm.calls.length, 2);

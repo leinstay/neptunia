@@ -26,7 +26,6 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const BIN = join(REPO, 'bin', 'neptunia.ts');
-// Changed: the watcher left the services for `/doctor watcher` (owner, 2026-11-09).
 const MECHANICS = ['heartbeat', 'selfreflection'] as const;
 const WAKES = ['heartbeat', 'selfreflection'] as const;
 const CORE = 'neptunia-core.service';
@@ -490,15 +489,6 @@ test('child: service restart in a user install goes to the user manager', async 
   const where = rig();
   assert.equal((await child(where, ['services', 'restart', 'neptunia-core.service'])).code, 0);
   assert.deepEqual(childCalls(where), ['systemctl --user restart neptunia-core.service']);
-});
-
-test('child: the worker the core starts for /doctor watcher run is a word the command knows', async () => {
-  // Catches: the core spawns a command that was retired or never added, so every run ends in a usage error.
-  const exec = 'worker watcher';
-  // No board and no backend here, so the worker ends by itself with its own failure, never with usage.
-  const worker = await child(rig(), exec.split(' '), {}, 20_000);
-  assert.notEqual(worker.code, 2, worker.out.slice(0, 300));
-  assert.equal(worker.stderr.startsWith('neptunia: usage:'), false, worker.stderr.slice(0, 300));
 });
 
 test('children: concurrent setups of the two keep every schedule', async () => {

@@ -94,7 +94,7 @@ test('mode sets one agent and leaves the others at what they were', async () => 
   assert.deepEqual((await subharnessView(dir)).modes, {
     scout: 'read',
     server: 'sudo',
-    watcher: 'read',
+    // Changed: the watcher is gone (maintainer, 2026-11-16), so the view holds the two errand agents.
   });
 });
 

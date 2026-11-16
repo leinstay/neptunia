@@ -1,6 +1,6 @@
 // The consumers of memory reach the one retrieval service in production code, not only through the seams
 // tests/memory-retrieval-consumers.test.ts exercises: a session's request, an attention's input, an
-// errand, a diary post and the watcher's brief. Each test goes through the module the consumer calls. Fake model, real
+// errand and a diary post. Each test goes through the module the consumer calls. Fake model, real
 // temporary databases, synthetic content.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,8 +16,6 @@ import { reviewDescription } from '../src/memory/db/describe.ts';
 import { memoryQueryFor } from '../src/memory/retrieval-input.ts';
 import type { RetrievalInput } from '../src/memory/retrieval-input.ts';
 import { createSelfreflection } from '../src/turn/selfreflection.ts';
-import { buildBrief } from '../src/watcher/brief.ts';
-import { watcherMemory } from '../src/watcher/install.ts';
 import { labels } from './fixtures/labels.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
@@ -260,26 +258,5 @@ test('a diary plan is told the stored facts of group chats and no private one', 
   const text = JSON.stringify(asked);
   assert.ok(text.includes(FACT_TEXT), 'the plan request carries no stored fact');
   assert.ok(!text.includes(SECRET));
-  world.handle.close();
-});
-
-test('the watcher brief holds group facts about failures and never a private one', async () => {
-  // Bug: the report can reach a public filing, and a DM fact reaches it through the brief.
-  const world = semanticWorld();
-  const open = addSource(world, 'public', 'the job failed');
-  const hidden = addSource(world, 'alex', 'between us');
-  const { entityId } = addEntity(world, 'project', 'Lumen', [open]);
-  commit(world, worksOn(ALEX, entityId, [open], { text: 'the failed job belongs to Alex' }));
-  commit(world, worksOn(KAI, entityId, [hidden], { text: `failed ${SECRET}` }), world.contexts.alex);
-  const lines = await watcherMemory({
-    dataDir: path.dirname(world.file),
-    config: { memoryDb: { retrieval: { ...BOUNDS } }, recall: { prefetch: { maxTokens: 900, deadlineMs: 700 } } },
-    now: () => START,
-  });
-  assert.ok(lines.some((line) => line.includes('the failed job belongs to Alex')));
-  assert.ok(!lines.join('\n').includes(SECRET));
-  const brief = buildBrief({ prompt: 'p', day: '2026-11-05', reportsDir: tempDir('nep-brief-'), memory: lines });
-  assert.match(brief, /<memory>\n/);
-  assert.doesNotMatch(buildBrief({ prompt: 'p', day: '2026-11-05', reportsDir: tempDir('nep-brief-') }), /<memory>/);
   world.handle.close();
 });

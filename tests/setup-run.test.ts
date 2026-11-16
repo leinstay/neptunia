@@ -11,8 +11,7 @@ import { SETUP_STEPS, SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '
 import type { RunResult, SetupDeps, SetupOptions } from '../src/setup/run.ts';
 import { UNIT_FILES } from '../src/setup/units.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
-import { keysPath, readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
-import { fakeVendor } from './fixtures/fake-vendor.ts';
+import { keysPath, readKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -164,8 +163,9 @@ test('a user setup reloads the user manager, enables linger, enables and starts 
     calls.some((call) => call[0] === 'systemctl' && call[1] !== '--user'),
     false
   );
+  // Changed: the watcher has no unit to guard against (maintainer, 2026-11-16).
   assert.equal(
-    lines.some((line) => /enable.*neptunia-(agent|interface|watcher)/.test(line)),
+    lines.some((line) => /enable.*neptunia-(agent|interface)/.test(line)),
     false,
     'only the core is started by setup'
   );
@@ -189,7 +189,8 @@ test('the report lists every step done and the commands that come next, in the o
   // Changed again for spec 2026-11-02 PR 5: the subharness, mechanics and watcher steps are skipped too (no terminal).
   // Changed: the interfaces step asks too.
   // Changed: the self-development step is gone with the development worker (maintainer, 2026-11-16).
-  const asking = ['interfaces', 'services', 'subharness', 'mechanics', 'watcher'];
+  // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
+  const asking = ['interfaces', 'services', 'subharness', 'mechanics'];
   assert.deepEqual(
     report.steps.map((step) => [step.step, step.state]),
     SETUP_STEPS.map((step) => [step, asking.includes(step) ? 'skipped' : 'done'])
@@ -250,7 +251,7 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
       ['subharness', 'skipped'],
       // Changed: the self-development step is gone with the development worker (maintainer, 2026-11-16).
       ['mechanics', 'skipped'],
-      ['watcher', 'skipped'],
+      // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
       ['units', 'already'],
       ['linger', 'already'],
       ['core', 'done'],
@@ -288,7 +289,7 @@ test('a single step runs alone and leaves the others skipped, with no command an
       ['subharness', 'skipped'],
       // Changed: the self-development step is gone with the development worker (maintainer, 2026-11-16).
       ['mechanics', 'skipped'],
-      ['watcher', 'skipped'],
+      // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
       ['units', 'skipped'],
       ['linger', 'skipped'],
       ['core', 'skipped'],
@@ -418,43 +419,28 @@ test('nodeOf falls back to execPath when argv0 is bare and not on PATH, or PATH 
 // Changed: the development unit and the self-development step are gone with the development worker (maintainer,
 // 2026-11-16).
 
-// The subharness, mechanics and watcher steps (spec 2026-11-02, PR 5 "Several subharnesses", "The three ticking
-// mechanics"): asked before the units are written, so the units bind the backends just connected.
+// The subharness and mechanics steps (spec 2026-11-02, PR 5 "Several subharnesses", "The three ticking mechanics"):
+// asked before the units are written, so the units bind the backends just connected.
 
-test('the questions of the subharness, the mechanics and the watcher come before the units, and the core comes last', () => {
+test('the questions of the subharness and the mechanics come before the units, and the core comes last', () => {
   // Catches: the backends are asked after the units were rendered, so the agent units carry the old values until a
   // second setup run.
+  // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
   const at = (step: string): number => SETUP_STEPS.findIndex((one) => one === step);
-  for (const step of ['subharness', 'mechanics', 'watcher']) {
+  for (const step of ['subharness', 'mechanics']) {
     assert.notEqual(at(step), -1, step);
     assert.ok(at(step) < at('units'), step);
   }
   assert.equal(SETUP_STEPS.at(-1), 'core');
 });
 
-test('without a terminal the subharness, mechanics and watcher steps are skipped and the install still opens the chat', async () => {
+test('without a terminal the subharness and mechanics steps are skipped and the install still opens the chat', async () => {
   // Catches: a setup run by a script with no terminal fails on a question nobody can answer and never starts the core.
+  // Changed: the watcher step is gone with the watcher (maintainer, 2026-11-16).
   const { options, deps, chat } = rig();
   const report = await runSetup(options, deps);
   const stateOf = (step: string): string | undefined => report.steps.find((one) => one.step === step)?.state;
-  assert.deepEqual(['subharness', 'mechanics', 'watcher'].map(stateOf), ['skipped', 'skipped', 'skipped']);
+  assert.deepEqual(['subharness', 'mechanics'].map(stateOf), ['skipped', 'skipped']);
   assert.equal(report.ok, true);
   assert.deepEqual(chat, ['/keys add']);
-});
-
-test('the watcher route given in a setup run is stored, and no watcher timer is written', async () => {
-  // Catches: the step still asks for a switch and an hour, so the answers land in the wrong questions, or a unit that
-  // nothing starts any more is installed beside the core.
-  // Changed: the watcher runs on /doctor watcher run (owner, 2026-11-09); the step asks only the backend and the model.
-  const { options, deps, unitDir } = rig();
-  writeKeysFile(options.privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
-  fakeVendor(options.privateDir, 'codex', { loggedIn: true });
-  // The first three answers decline the interface step, the YouTube key and quick search, which ask before the watcher.
-  // Changed: the mechanics step asks without gh, so its two switches take the next two answers, the values in force.
-  const answers = ['no', '', '', '', '', 'codex', 'model-w'];
-  const report = await runSetup(options, { ...deps, ask: () => Promise.resolve(answers.shift() ?? '') });
-  assert.equal(report.steps.find((step) => step.step === 'watcher')?.state, 'done');
-  assert.equal(readKeysFile(options.privateDir).subharness.models?.watcher, 'model-w');
-  assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-watcher.timer')), false);
-  assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-watcher.service')), false);
 });

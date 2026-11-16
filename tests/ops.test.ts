@@ -27,7 +27,6 @@ const AGREED = new Set([
   'skill.read',
   'skill.disable',
   'skill.run',
-  'watcher.read',
   'status.show',
   'config.set',
   'config.unset',

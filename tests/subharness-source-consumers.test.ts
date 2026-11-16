@@ -1,7 +1,7 @@
 // PR 1, sources without an enable step: what every consumer of the old connected-backends list does once availability
 // is installed and authenticated. The stored list `subharness.backends` migrates into the role assignments and stops
 // deciding anything: keys.json (src/keys/file.ts), `routeOfAgent`, the runner's path (src/subharness/run.ts), the memory
-// probe and writer, the unit binds, the watcher's setup, `/service` readiness and the features row. Backends are
+// probe and writer, the unit binds, `/service` readiness and the features row. Backends are
 // disposable executables, keys.json lives in a temp dir.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +12,6 @@ import { chatPanel } from '../bin/chat-panels.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { unitText } from '../src/setup/install.ts';
 import type { UnitTarget } from '../src/setup/install.ts';
-import { watcherStep } from '../src/setup/watcher.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 
 import { updateSubharness } from '../src/subharness/install.ts';
@@ -63,25 +62,13 @@ test('a unit binds no folder for a name the old list holds with no role and no i
   // Catches: the list goes on deciding the sandbox, so a backend gone from the machine stays writable by the agent.
   const dataDir = storeWith({
     backends: ['codex'],
-    // Changed: the agents `dev` and `thinker` are gone (maintainer, 2026-11-16).
-    uses: { scout: 'claude', server: 'claude', watcher: 'claude' },
+    // Changed: the agents `dev`, `thinker` and `watcher` are gone (maintainer, 2026-11-16).
+    uses: { scout: 'claude', server: 'claude' },
   });
   assert.equal(scoutUnit(dataDir).includes(subharnessPlace(dataDir, 'codex').dir), false);
 });
 
 // Setup validation and readiness lines
-
-function watcherRig(privateDir: string, answers: Array<string>) {
-  return { ask: () => Promise.resolve(answers.shift() ?? '') };
-}
-
-test('the watcher step refuses a source that is installed and not logged in', async () => {
-  // Catches: installed alone passes as available, so the watcher is switched on over a backend that cannot answer.
-  const privateDir = storeWith({ backends: ['claude'] });
-  fakeVendor(privateDir, 'claude');
-  const outcome = await watcherStep({ rootDir: ROOT, privateDir }, watcherRig(privateDir, ['claude', 'sonnet']));
-  assert.equal(outcome.state, 'refused');
-});
 
 test('the setup panel offers the login of each backend and never the retired enable', async () => {
   // Catches: the panel prefills a command that now exits 2.
@@ -139,7 +126,8 @@ test('/subharness status lists the source, model, effort and mode of every role 
   assert.ok(rowOf(answer.text, 'scout').includes('gpt-6-luna'));
   const memory = rowOf(answer.text, 'memory');
   for (const word of ['claude', 'claude-opus-4-6', 'high']) assert.ok(memory.includes(word), memory);
-  for (const agent of ['scout', 'server', 'watcher']) assert.notEqual(rowOf(answer.text, agent), '', agent);
+  // Changed: the watcher is gone (maintainer, 2026-11-16), so the agents are scout and server.
+  for (const agent of ['scout', 'server']) assert.notEqual(rowOf(answer.text, agent), '', agent);
   assert.deepEqual(runs, []);
 });
 

@@ -152,8 +152,6 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
   for (let i = 0; i < words.length; i += 1) {
     const word = words[i];
     if (word === 'errors' || word === 'follow') continue;
-    if (word === 'watcher')
-      return '/logs reads the journal; open a watcher report with /doctor watcher read, list or <number>';
     if (word !== 'since') return `/logs does not take "${word}"`;
     // The value is every word up to the next keyword, as bin/neptunia.ts hands it to journalctl.
     const start = i + 1;
@@ -161,14 +159,6 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
     if (i < start) return '/logs since needs a value, such as "1 hour ago"';
   }
   return null;
-}
-
-/** The number of `/doctor watcher <number>` and of `unaccept`: a report or a line of the list counts from 1. */
-function checkDoctor(name: string, args: Readonly<Record<string, string>>): string | null {
-  if (name === 'doctor.watcher.unaccept' && !/^[1-9]\d*$/.test(args.number ?? ''))
-    return `/doctor watcher unaccept takes the number of a line of the accepted list, not "${args.number ?? ''}"`;
-  if (name !== 'doctor.watcher' || /^[1-9]\d*$/.test(args.number ?? '')) return null;
-  return `/doctor watcher takes run, stop, read, list, accepted, accept, unaccept or the number of a report, not "${args.number ?? ''}"`;
 }
 
 /** The flags of `services <name> setup`: one mode, a real schedule, and the jitter only where it means something. */
@@ -179,7 +169,7 @@ function checkService(name: string, args: Readonly<Record<string, string>>): str
   return refused === null ? null : `/services ${mechanic ?? ''} setup: ${refused}`;
 }
 
-/** The leaves of `services`: the list, the four actions of each mechanic, and the watcher agent's two reads. */
+/** The leaves of `services`: the list and the four actions of each mechanic. */
 const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
   sub('list', 'Show the two mechanics, each as its status shows it'),
   ...SERVICE_NAMES.flatMap((name) => [
@@ -192,11 +182,6 @@ const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
     sub(`${name}.disable`, `Prevent new runs of ${name}; one already running finishes`),
     sub(`${name}.status`, `Show ${name}: enabled, running, ready, schedule, next time and last result`),
   ]),
-  sub('watcher.evidence', 'Read the recorded requests and transcripts of the observation window as JSON', [
-    flagArg('from', false),
-    flagArg('cursor', false),
-  ]),
-  sub('watcher.select', 'Read the memory database with one read-only statement, as JSON', [flagArg('sql', true)]),
 ];
 
 /** The flags of a page of an owner read. */
@@ -375,23 +360,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'doctor',
-    help: 'Check installation health and configuration, the running server, core and memory, and the watcher’s reports',
+    help: 'Check installation health and configuration, the running server, core and memory',
     args: [],
     subcommands: [
       sub('server', 'Check the server the core runs on, with no model request'),
       sub('core', 'Check the core’s recent turns and failures, with no model request'),
       sub('memory', 'Check the memory database, with no model request'),
       sub('live', 'Check installation health and send a test request for every model role'),
-      sub('watcher.run', 'Start one watcher report in the background, or show the one running'),
-      sub('watcher.stop', 'Stop the watcher report that is running'),
-      sub('watcher.read', 'Open the latest watcher report'),
-      sub('watcher.list', 'List every watcher report, newest first, with its number, dates and state'),
-      sub('watcher.accepted', 'List the findings the owner accepted, each with its number'),
-      sub('watcher.accept', 'Add a finding to the accepted list; the watcher leaves out what it covers', [arg('text')]),
-      sub('watcher.unaccept', 'Remove line <number> of the accepted list', [arg('number')]),
-      sub('watcher', 'Open watcher report <number> of the list', [arg('number')]),
     ],
-    check: checkDoctor,
   },
   {
     name: 'logs',

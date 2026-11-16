@@ -45,7 +45,7 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/subharness/routing.ts',
     'default': {},
     'text':
-      'The backend each agent runs through, by agent (`scout`, `server`, `watcher`): `claude`, `codex` or `opencode`. An agent with no entry has no route and its runs are refused `subharness-off`. `/model set <agent> <model> --via <route>` writes it',
+      'The backend each agent runs through, by agent (`scout`, `server`): `claude`, `codex` or `opencode`. An agent with no entry has no route and its runs are refused `subharness-off`. `/model set <agent> <model> --via <route>` writes it',
   },
   {
     'key': 'models.agents.model',

@@ -84,22 +84,20 @@ test('Main lists the eight roles and Voice persists as the speech role', () => {
   // Changed: a base role has no config key of its own, its model being its chain's (slice 4), so the path check is deleted.
 });
 
-test('Errand comes from the registry, and watcher is marked apart', () => {
-  // Catches: watcher turned silently into a `models.errands` key.
-  // Changed: the Development group is gone with the development agents (maintainer, 2026-11-16), and the watcher's
-  // utility row sits under Errand.
+test('Errand comes from the registry', () => {
+  // Catches: an errand agent missing from the registry, or a role listed under a group that does not exist.
+  // Changed: the Development group is gone with the development agents, and the watcher with its utility row
+  // (maintainer, 2026-11-16).
   const rows = modelRoleRegistry();
-  const roles = (group: string, utility: boolean): Array<string> =>
-    rows.filter((one) => one.group === group && one.utility === utility).map((one) => one.role);
-  assert.deepEqual(roles('errand', false), ['scout', 'server']);
-  assert.deepEqual(roles('errand', true), ['watcher']);
-  assert.deepEqual(roles('development', false), []);
+  const roles = (group: string): Array<string> => rows.filter((one) => one.group === group).map((one) => one.role);
+  assert.deepEqual(roles('errand'), ['scout', 'server']);
+  assert.deepEqual(roles('development'), []);
 });
 
 // Openrouter for an agent
 
-// Changed: the agents `dev` and `thinker` are gone (maintainer, 2026-11-16).
-for (const role of ['scout', 'server', 'watcher']) {
+// Changed: the agents `dev`, `thinker` and `watcher` are gone (maintainer, 2026-11-16).
+for (const role of ['scout', 'server']) {
   test(`no source offers ${role} a direct OpenRouter path, which an agent cannot run`, async () => {
     // Catches: `openrouter:x` chosen for an agent and saved as a backend that does not exist.
     const { deps, privateDir } = rig();

@@ -1,5 +1,5 @@
-// The `services` family: `services list` and `services <name> setup|enable|disable|status` for the two scheduled mechanics,
-// and `evidence` and `select`, the watcher agent's reads (src/service/watcher.ts). bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
+// The `services` family: `services list` and `services <name> setup|enable|disable|status` for the two scheduled mechanics.
+// bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
 // console (src/interface/commands/console.ts) for a chat that reaches the core, so one handler answers every form. It
 // writes `<name>.schedule` and `<name>.enabled` of the local settings, which every mechanic's own scheduler reads. The
 // persona's wakes run in the core and call no manager. A status asks no model and writes nothing. An answer is `key: value` lines; `invalid` is missing syntax.
@@ -9,7 +9,6 @@ import { innerSettings } from '../behavior/inner/settings.ts';
 import { setPath } from '../tools/operations/shared.ts';
 import { objOf } from '../tools/types.ts';
 import { updateLocalSettings } from './local-settings.ts';
-import { watcherEvidence, watcherSelect } from './watcher.ts';
 import type { Environment, RunManager } from './manager.ts';
 import {
   evaluateSchedule,
@@ -187,8 +186,6 @@ export function serviceFamily(
 ): Promise<ServiceAnswer> {
   const [, word, action] = parsedName.split('.');
   if (word === 'list') return Promise.resolve(list(deps));
-  if (action === 'evidence') return watcherEvidence(deps, args);
-  if (action === 'select') return Promise.resolve(watcherSelect(deps, args));
   // The table only hands over its own names, so `word` is one of the two.
   const name = word as ServiceName;
   switch (action) {

@@ -98,8 +98,7 @@ test('inside the core a mode change names neptunia setup for an agent with a uni
 
 test('inside the core an agent with no unit, or no agent, gets no unit line', () => {
   // Catches: an agent that runs in no unit of its own is told to re-render a unit that does not exist.
-  // Changed: the watcher runs inside the core's unit (owner, 2026-11-09), so its mode needs no unit rendered.
-  assert.equal(deferModeToUnit('watcher'), null);
+  // Changed: the watcher is gone (maintainer, 2026-11-16); `dev` below stands for a name with no unit.
   // Changed: the development unit and the agent `dev` are gone (maintainer, 2026-11-16).
   assert.equal(deferModeToUnit('dev'), null);
   assert.equal(deferModeToUnit('nobody'), null);

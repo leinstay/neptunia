@@ -94,8 +94,8 @@ test('doctor stays reachable while setup is incomplete and reports readiness wit
 
 // Service scope
 
-test('the user scope is found by the core unit, so setup, service and /logs agree before the watcher has a timer', () => {
-  // Catches: the scope read from the watcher's timer alone, so a user install with no timer manages system units.
+test('the user scope is found by the core unit, so setup, service and /logs agree', () => {
+  // Catches: the scope read from another unit's timer alone, so a user install with no timer manages system units.
   const config = tempDir('nep-scope-');
   const env = { XDG_CONFIG_HOME: config };
   assert.equal(unitScope(env), 'system');

@@ -1,8 +1,8 @@
-// `neptunia setup`: the install of one user, one flow of ten internal steps, like the sections of the setup of Hermes
+// `neptunia setup`: the install of one user, one flow of nine internal steps, like the sections of the setup of Hermes
 // (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). The steps are no public commands, and
 // `parseSetupArgs` refuses their names. Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
-// stops the run, the steps after it are `skipped`, and no chat opens. The five steps that ask come before `units`, so
+// stops the run, the steps after it are `skipped`, and no chat opens. The four steps that ask come before `units`, so
 // the units bind the backends just installed; each is `skipped` with
 // no terminal. After the last step the owner's chat opens on `keys add`, and the chat takes over.
 //
@@ -14,7 +14,6 @@
 //                    search, declined by default (src/setup/services.ts)
 //   subharness       the backends her agents may run through, installed and logged in (src/setup/subharness.ts)
 //   mechanics        heartbeat and selfreflection on or off (src/setup/mechanics.ts)
-//   watcher          the watcher's backend and its model (src/setup/watcher.ts)
 //   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ, and the
 //                    client of the owner's command line with its token (src/setup/clients.ts), which needs no core
 //                    socket
@@ -38,7 +37,6 @@ import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
 import { mechanicsStep } from './mechanics.ts';
 import { subharnessStep } from './subharness.ts';
-import { watcherStep } from './watcher.ts';
 import type { InstallRun } from '../subharness/install.ts';
 import { UNIT_FILES } from './units.ts';
 
@@ -52,7 +50,6 @@ export const SETUP_STEPS = [
   'services',
   'subharness',
   'mechanics',
-  'watcher',
   'units',
   'linger',
   'core',
@@ -256,8 +253,6 @@ async function stepOutcome(step: SetupStep, options: SetupOptions, deps: SetupDe
       return subharnessSetupStep(options, deps);
     case 'mechanics':
       return deps.ask === undefined ? NOT_AT_TERMINAL : mechanicsStep(options, { ask: deps.ask });
-    case 'watcher':
-      return deps.ask === undefined ? NOT_AT_TERMINAL : watcherStep(options, { ask: deps.ask });
     case 'units':
       return unitsStep(options, deps);
     case 'linger':

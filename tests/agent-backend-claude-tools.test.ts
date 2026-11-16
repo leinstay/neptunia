@@ -1,7 +1,7 @@
 // The tool flags of `claude -p` (src/agent-runner/backend.ts, the claude recipe), seen at the spawn boundary: a
 // disposable shell script stands where claude is installed and records the arguments it was started with. A run
 // reaches it through `runAgent` (src/subharness/run.ts) with a route, and through `createAgentEngine` for a profile.
-// Contract: `AgentRun.tools` is the profile's OpenCode tool names (absent for the watcher and the development agents);
+// Contract: `AgentRun.tools` is the profile's OpenCode tool names (absent for a run whose profile names none);
 // the mode (read, write, full, sudo) and those tools become `--tools` and `--allowedTools`; full and sudo become
 // `--dangerously-skip-permissions` instead.
 import { test } from 'node:test';
@@ -77,8 +77,9 @@ async function launch(agent: string, mode: TaskRoute['mode'], tools?: ReadonlyAr
 }
 
 test('a read run without profile tools names Read, Grep, Glob and Bash in --tools and --allowedTools, and no edit tool', async () => {
-  // Bug: the claude recipe passed no tool flags, so the watcher's `neptunia service watcher evidence` was denied.
-  const argv = await launch('watcher', 'read');
+  // Bug: the claude recipe passed no tool flags, so a read agent's shell command was denied.
+  // Changed: the watcher is gone (maintainer, 2026-11-16), so the server, read by default, runs without profile tools.
+  const argv = await launch('server', 'read');
   assert.deepEqual(namesOf(argv, '--tools'), ['Bash', 'Glob', 'Grep', 'Read']);
   assert.deepEqual(namesOf(argv, '--allowedTools'), ['Bash', 'Glob', 'Grep', 'Read']);
   assert.equal(argv.includes(SKIP), false);

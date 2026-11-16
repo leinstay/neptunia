@@ -16,8 +16,7 @@
 // The server agent's unit runs as the user of the core, so the mount namespace is all that keeps a child of its agent
 // from the clients' tokens and the interfaces' `credentials.json`. Given the names of the clients and the interfaces the
 // install has, the unit hides them with `InaccessiblePaths=-<path>` (the leading `-` lets the unit start before a file
-// exists). The modes `full` and `sudo` drop the entries with the rest of the mount sandbox. The core's unit holds the group `systemd-journal` in the system scope, so the
-// watcher it starts reads the journal of the units (src/watcher/routes.ts).
+// exists). The modes `full` and `sudo` drop the entries with the rest of the mount sandbox.
 
 import path from 'node:path';
 import { UNIT_SCOPE_ENV } from '../agent-runner/profiles.ts';
@@ -176,8 +175,6 @@ function linesOf(line: string, rules: LineRules): Array<string> {
   const key = keyOf(line);
   if (key === 'Group' || (key !== null && dropped.has(key))) return [];
   if (key === 'User') return scope === 'system' ? [`User=${vars.user}`, `Group=${vars.group}`] : [];
-  // A user manager refuses `SupplementaryGroups=` with status 216.
-  if (key === 'SupplementaryGroups' && scope === 'user') return [];
   if (scope === 'user' && line === 'WantedBy=multi-user.target') return ['WantedBy=default.target'];
   if (scope === 'user' && rules.isInterface && key === 'InaccessiblePaths') return [];
   const rendered = renderedLines(line, key, rules);

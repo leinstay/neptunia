@@ -172,7 +172,7 @@ A line goes through the event door when it arrives, like a message of any other 
 
 A line that waits is already said, so its text cannot be edited, and `/queue` offers no edit. Enter on a row of `/queue` cancels the turn over that line, and the line stays in memory, where she can read it. A cancel of a waiting line acknowledges at once, and when the pipeline reaches it the runner ends its turn before any request.
 
-Esc on an empty input asks the core to cancel the running turn, once. The chat keeps showing the turn as running until the core acknowledges, and Esc with text in the input clears only the input. Leaving the chat cancels nothing, and an errand, a task or the watcher is never reached by a chat cancel. The signal of a running turn stops the wait in progress, aborts the provider request and takes effect between tool steps. A turn with a message already out ends committed, whatever the cancel asked. Lines of other interfaces do not pass through the control, so a turn over one has no signal.
+Esc on an empty input asks the core to cancel the running turn, once. The chat keeps showing the turn as running until the core acknowledges, and Esc with text in the input clears only the input. Leaving the chat cancels nothing, and an errand or a task is never reached by a chat cancel. The signal of a running turn stops the wait in progress, aborts the provider request and takes effect between tool steps. A turn with a message already out ends committed, whatever the cancel asked. Lines of other interfaces do not pass through the control, so a turn over one has no signal.
 
 Quick lines are answered together, as in any private chat. A line sent while her turn waits for the owner to stop writing is read by that turn ([the settle wait](core.md#the-settle-wait), `pace.settleMs`). When that turn ends with a reply or a silence, the line ends `committed` with the same response id and never runs. A failed turn leaves those lines to their own turns. The pipeline can also answer a line inside another line's turn or drop one it saw answered, so a line can have no turn of its own. A line the answering turn had in view, which the pipeline then counts as answered (`spokeAfterSeeing` of the turn runner), ends `committed` with that turn's response id when that turn ends. For any other such line, when a later line's turn begins, or after 30 seconds with no turn running anywhere, the line's wait ends with `no-own-turn`, and `neptunia -p` hears the same. A line taken during a pause ends with `paused`, while the core still holds it for `/resume`.
 
@@ -239,8 +239,6 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Show the sources of the agents and log them in or out | `/subharness status`, `/subharness <backend> login`, `/subharness <backend> status`, `/subharness <backend> logout` |
 | Set what an agent may do | `/agent mode <agent> [<mode>]` |
 | Schedule, switch and inspect the scheduled mechanics | `/services` |
-| Run or read a watcher report | `/doctor watcher run`, `/doctor watcher list`, `/doctor watcher read` |
-| Keep or drop an accepted watcher finding | `/doctor watcher accepted`, `/doctor watcher accept <text>`, `/doctor watcher unaccept <number>` |
 | Cancel the turn over a waiting line, in the chat only | `/queue` |
 | Resume or branch a chat, in the chat only | `/sessions`, `/sessions resume <id>`, `/branch` |
 
@@ -352,13 +350,9 @@ On every other command `--secret-stdin` is ordinary text. `keys add` and `keys s
 
 `/doctor` and `neptunia doctor` run the checks of the installation with the core up or down: `node`, `binaries`, `config`, `local-layer`, `keys`, `tokens`, `routes`, `database` and `readiness`. `routes` sends one minimal request on every route of each model role's chain (`src/setup/route-health.ts`), fails when every route of the core, the memory writer or the analyzer fails, and warns while no harness is logged in, naming `neptunia subharness <backend> login`. The check `readiness` says whether a chat would open and names each repair, as in [setup](setup.md#chat-readiness), a core that is down included, so the doctor reports a stopped core once. The last check, `runtime`, is the core's own reading of the server, itself and the memory. It is left out while no core answers, and `skipped` when a core does not answer within 5 seconds. `/doctor server`, `/doctor core` and `/doctor memory` read one of the three from the core (`src/health/`), ask no model, write nothing and exit `1` with no core. `/doctor live` holds `providers` in place of `runtime`: the core sends one test request for each model role. `neptunia doctor --json` prints the checks as `{ checks: [{ name, status, detail }] }`, and any check that is `fail` exits `1`.
 
-`/doctor watcher run` asks the core to start one [watcher](watcher.md#run-and-read) report in the background and answers its number and start time at once, or the number and state of the run already going. It exits `1` with no core. `/doctor watcher stop` stops the running report. `/doctor watcher list` lists every report, the newest first, with its number, start, finish and state. `/doctor watcher read` opens the newest report and `/doctor watcher <number>` report `number` of the list, each under its number and dates. These four read the files with no core. A number past the list or of a run with no report exits `1`, and a word that is no number exits `2`.
-
-`/doctor watcher accepted` prints the [accepted list](watcher.md#accepted-findings) with a number per line, or says it is empty. `/doctor watcher accept <text>` adds the whole rest of the line as the last line and answers with its number. It exits `1` for an empty text and for a text already on the list, and names that line. `/doctor watcher unaccept <number>` removes that line and answers with the text it removed. It exits `1` for a number outside the list and says how many lines the list has, and a word that is no number exits `2`. The three read and write the file with the core up or down, and every answer is a label under `labels.watcher.accepted`.
-
 ## Logs
 
-`/logs` reads the journal of `neptunia-core.service` in the scope of the installation, and a journal it cannot read exits `1` with the scope and the reason. Its filters are `errors`, `follow` and `since <value>`, and `follow` works in the chat alone. `/logs watcher` exits `2` and names `/doctor watcher`.
+`/logs` reads the journal of `neptunia-core.service` in the scope of the installation, and a journal it cannot read exits `1` with the scope and the reason. Its filters are `errors`, `follow` and `since <value>`, and `follow` works in the chat alone. Any other word exits `2`.
 
 ## Scheduled services
 
@@ -380,15 +374,11 @@ On every other command `--secret-stdin` is ordinary text. `keys add` and `keys s
 | `next due` | The next time, `none` when disabled. For a selfreflection drawing from windows with no core it is the start of the next window that can post in `bot.timezone`, `none` when no window can |
 | `last result` | The core's last wake, `unknown` with no core |
 
-`neptunia services watcher evidence [--from <iso>] [--cursor <c>]` prints one page of the recorded requests and Claude transcripts of the observation window as JSON, with no core and no board. Its keys are `interval`, `runs`, `totalRuns`, `examinedRuns`, `unreviewedRuns`, `inFlightRuns`, `nextCursor` and `gaps`, and the first page, with no `--cursor`, adds `trash`, `routes`, `mirrors`, `selfreflection`, `standards`, `audit` and `analyzer`. A `--from` that is no date or a `--cursor` that is no `nextCursor` exits `2`. [The watcher](watcher.md#service-runs) describes the read.
-
-`neptunia services watcher select --sql <statement>` prints the rows of one read-only statement over the memory database as JSON, `rows` and `truncated`, with no core and no board. A missing `--sql` exits `2`, and a write, a second statement or a missing database fails. [The watcher](watcher.md#service-runs) describes the read.
-
 `neptunia setup` with any word but `--system` and `--node <path>` exits `2` and runs nothing.
 
 ## Other entry points
 
-`neptunia setup` performs installation, as one flow with no step of its own to name. `neptunia errand-runner --profile <scout|server>` is what `neptunia-agent-scout.service` and `neptunia-agent-server.service` start: the runner of one errand agent, which takes its socket and output folder from `agents.<name>.socket` and `agents.<name>.out` and ends its open errands on SIGTERM. `neptunia worker watcher` is what the core starts for `/doctor watcher run`, one inspection under the run the core claimed ([the watcher](watcher.md#run-and-read)), and the usage leaves it out. `neptunia interface run <name>` starts a platform package and stays singular, because a unit starts it. `neptunia services start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone and never name a mechanic.
+`neptunia setup` performs installation, as one flow with no step of its own to name. `neptunia errand-runner --profile <scout|server>` is what `neptunia-agent-scout.service` and `neptunia-agent-server.service` start: the runner of one errand agent, which takes its socket and output folder from `agents.<name>.socket` and `agents.<name>.out` and ends its open errands on SIGTERM. `neptunia interface run <name>` starts a platform package and stays singular, because a unit starts it. `neptunia services start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone and never name a mechanic.
 
 `/status` needs a core connection. For service logs, use the systemd scope selected during [setup](setup.md#services).
 

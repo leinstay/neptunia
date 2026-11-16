@@ -15,7 +15,7 @@ import type { InputState } from './state.ts';
 
 // The shapes of `/model sources`, as this package reads them: src/subharness/model-capabilities.ts writes them, and this
 // package imports nothing of the engine.
-type ModelRoleRow = { group: string; role: string; label: string; utility: boolean };
+type ModelRoleRow = { group: string; role: string; label: string };
 type SourceDescriptor = {
   id: string;
   providerType: string;
@@ -91,7 +91,6 @@ export type PickerRow = {
   disabled?: string;
   code?: string;
   evidence?: Evidence;
-  utility?: boolean;
   current?: string;
 };
 
@@ -222,7 +221,6 @@ function rowsOfStep(state: PickerState): Array<PickerRow> {
           id: one.role,
           label: one.label,
           detail: `Saved as ${one.role}.`,
-          ...(one.utility ? { utility: true } : {}),
         }));
     case 'providerType': {
       if (read === null) return [];
@@ -539,11 +537,7 @@ const NAME_PLACEHOLDER = '<name>';
 
 /** The picker's rows as a selector state, so one view draws every list of the chat. */
 function asSelector(state: PickerState, loadingRows: boolean): SelectorState {
-  const rows = pickerRows(state).map((row): SelectorRow => ({
-    ...row,
-    label: row.utility === true ? `${row.label}  (utility)` : row.label,
-    value: row.id,
-  }));
+  const rows = pickerRows(state).map((row): SelectorRow => ({ ...row, value: row.id }));
   return {
     ...closedSelector,
     status: loadingRows ? 'loading' : state.query === '' && rows.length === 0 ? 'empty' : 'ready',

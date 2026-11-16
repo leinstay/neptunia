@@ -1,9 +1,8 @@
 // The public names of the owner's commands after the naming policy (the command naming spec of 2026-11-04): `services`,
-// `routes` and `interfaces` are plural collections, `/doctor watcher` reads the watcher's reports, `/doctor` holds the
-// checks `/health` had, and `/health`, `/report`, `/wakes` and the singular spellings are refused with the new spelling
-// and run nothing. Only the table and its two parsers are used (src/interface/commands/table.ts, bin/neptunia-request.ts),
-// with no core and no child process, so the chat's line and the shell's argv are compared word for word. Parsed names
-// are asserted by their last words only: the internal `service.watcher.*` names may stay.
+// `routes` and `interfaces` are plural collections, `/doctor` holds the checks `/health` had, and `/health`, `/report`,
+// `/wakes` and the singular spellings are refused with the new spelling and run nothing. Only the table and its two
+// parsers are used (src/interface/commands/table.ts, bin/neptunia-request.ts), with no core and no child process, so
+// the chat's line and the shell's argv are compared word for word. Parsed names are asserted by their last words only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chatPanel } from '../bin/chat-panels.ts';
@@ -102,11 +101,7 @@ const SERVICE_LINES: ReadonlyArray<{ words: string; tail: string; args: Record<s
     args: { every: '3h', jitter: '30m' },
   },
   { words: 'heartbeat setup --at 00:00,12:00', tail: 'heartbeat.setup', args: { at: '00:00,12:00' } },
-  {
-    words: 'watcher evidence --from 2026-11-04T00:00:00Z --cursor c1',
-    tail: 'watcher.evidence',
-    args: { from: '2026-11-04T00:00:00Z', cursor: 'c1' },
-  },
+  // Changed: the watcher's evidence read is gone with the watcher (maintainer, 2026-11-16).
   { words: 'list', tail: 'list', args: {} },
 ];
 
@@ -122,13 +117,13 @@ for (const { words, tail, args } of SERVICE_LINES) {
   });
 }
 
-test("services takes the two mechanisms, the list and the watcher agent's reads, and no process unit", () => {
-  // Changed: the watcher's own commands moved to `/doctor watcher` (owner, 2026-11-09); its evidence reads stay.
+test('services takes the two mechanisms and the list, and no process unit', () => {
+  // Changed: the watcher and its evidence reads are gone (maintainer, 2026-11-16).
   // Catches: the system units (core, agent runners) slip into the scheduled mechanisms, or a fifth mechanism appears.
   const services = COMMANDS.find((command) => command.name === 'services');
   assert.ok(services);
   const first = new Set(services.subcommands.map((one) => one.name.split('.')[0]));
-  assert.deepEqual([...first].sort(), ['heartbeat', 'list', 'selfreflection', 'watcher']);
+  assert.deepEqual([...first].sort(), ['heartbeat', 'list', 'selfreflection']);
 });
 
 for (const words of [
@@ -137,7 +132,8 @@ for (const words of [
   'restart',
   'status',
   'restart neptunia-core.service',
-  'watcher start',
+  // Changed: `watcher start` is gone with the watcher (maintainer, 2026-11-16); `bogus status` stands for a word that
+  // names no mechanism.
   'bogus status',
   'list extra',
 ]) {
@@ -156,10 +152,10 @@ for (const [line, options] of [
   ['/logs errors since 2 hours ago follow', 'errors since 2 hours ago follow'],
 ] as const) {
   test(`${line} keeps its journal filters`, () => {
-    // Catches: the new watcher view swallows the journal's errors, follow or since.
+    // Catches: the journal's errors, follow or since lost on the way to journalctl.
+    // Changed: the watcher's report view is gone (maintainer, 2026-11-16), so no name can end with it.
     const parsed = assertAccepted(parseCommandLine(line));
     assert.equal(parsed.args.options, options);
-    assert.equal(endsWith(parsed.name, 'watcher'), false);
   });
 }
 
@@ -169,16 +165,10 @@ test('a since value written as one quoted argv word keeps its spaces', () => {
   assert.equal(parsed.args.options, 'since 1 hour ago');
 });
 
-for (const line of [
-  '/logs watcher errors',
-  '/logs watcher follow',
-  '/logs watcher since 1 hour ago',
-  '/logs errors watcher',
-  '/logs since',
-  '/logs frobnicate',
-]) {
+// Changed: the watcher's selector is gone (maintainer, 2026-11-16); a word `/logs` does not take is `frobnicate`.
+for (const line of ['/logs since', '/logs frobnicate']) {
   test(`${line} is refused before any source is read`, () => {
-    // Catches: a line that mixes the watcher's selector with the journal's words reads one of them and hides the other.
+    // Catches: a line with a word the journal does not take reads the journal anyway.
     assertRefused(parseCommandLine(line));
   });
 }
@@ -249,7 +239,7 @@ test('a key never goes on the command line of keys add, and stdin takes it', () 
 
 test('--secret-stdin on a leaf that asks for no secret stays plain text', () => {
   // Catches: the new families take the flag as a switch where it is an ordinary word.
-  // Changed: `/logs watcher` is gone (owner, 2026-11-09), so the plain leaf under test is `/memory recent`.
+  // Changed: the plain leaf under test is `/memory recent` (owner, 2026-11-09).
   const request = parseRequest(['memory', 'recent', '--secret-stdin']);
   assert.equal(request.secretStdin, false);
 });

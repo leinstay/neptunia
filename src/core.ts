@@ -42,8 +42,6 @@ import {
 import { DAY_MS, utcDay } from './time.ts';
 import { createCalibrator } from './llm/tokens.ts';
 import { archivedLlm } from './llm/archive.ts';
-import type { ArchiveWriteGap } from './llm/archive.ts';
-import { noteArchiveGap } from './watcher/requests.ts';
 import { createLlm } from './llm/openrouter.ts';
 import type { CompleteResult } from './llm/openrouter.ts';
 import { reportingFailures } from './llm/chain-client.ts';
@@ -115,8 +113,6 @@ import { chatLines, recentGroupLines } from './memory/db/chat-lines.ts';
 import { ownerConsoleName, ownerConsolePlace } from './memory/db/identity-links.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { createConsole } from './interface/commands/console.ts';
-import { coreWatcherStarter } from './watcher/doctor.ts';
-import { failRunOfLastCore, runStoreOf } from './watcher/lifecycle.ts';
 import { statusBrief } from './interface/commands/status-brief.ts';
 import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
@@ -143,7 +139,6 @@ import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
 import { wireSkills } from './skills/wiring.ts';
-import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.ts';
 import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
@@ -229,8 +224,8 @@ export async function startCore(options: {
   stop(signal?: string): Promise<void>;
   interfaces: { list(): Array<InterfaceState>; disable(name: string): Promise<Drained>; enable(name: string): void };
 }> {
-  // What the start opened, closed in reverse order when it fails: a failed start leaves no socket, link, watcher, timer or
-  // database lock behind, so a process that tried to start a core can end.
+  // What the start opened, closed in reverse order when it fails: a failed start leaves no socket, link, file watcher,
+  // timer or database lock behind, so a process that tried to start a core can end.
   const cleanups: Array<() => unknown> = [];
   try {
     return await buildCore(options, cleanups);
@@ -260,9 +255,6 @@ async function buildCore(
   const clock = options.now ?? Date.now;
   // The checkout and canonical persona data root are logged once. privateDir aliases dataDir.
   log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });
-  // A watcher run is a child of the core, so one still open at this start died with the core before it.
-  if (failRunOfLastCore(runStoreOf(path.dirname(reportsDirOf(paths.privateDir)))) !== null)
-    log.info('watcher: run ended by the restart', { code: 'core-restarted' });
   if (interfaces.length > 1) fail(`index: the core starts one interface at most, got ${interfaces.length}.`);
   // No interface in this process: they run as units, and the root comes from the settings.
   const asUnits = interfaces.length === 0;
@@ -481,7 +473,6 @@ async function buildCore(
     write: (update: Record<string, unknown>) => memoryDb.memoryWrite(update),
     log,
     backend: 'openrouter',
-    noteGap: (gap: ArchiveWriteGap) => noteArchiveGap(paths.privateDir, gap),
   };
   const directLlm = (options.llm ??
     createLlm({
@@ -1275,8 +1266,6 @@ async function buildCore(
     store,
     // Her skill tools (src/tools/operations/skill.ts): `skill.read` and `skill.disable`.
     skills: skillsWiring.access,
-    // Her tool `watcher.read` (src/tools/operations/watcher.ts): the reports folder follows `watcher.dir` at each read.
-    watcher: createReportReader(() => reportsDirOf(paths.dataDir, watcherDir(hot.config))),
     roleHealth,
     // The operations' `env.reads`: the chat they post in, a message's event.
     reads,
@@ -1461,7 +1450,6 @@ async function buildCore(
       privateDir: paths.privateDir,
       dataDir,
       memoryDb,
-      startWatcher: coreWatcherStarter(paths),
       joining: rootJoining,
       usage,
       metrics,

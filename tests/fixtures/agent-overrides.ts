@@ -18,17 +18,9 @@ export type AgentPaths = {
   env?: Record<string, string | undefined>;
 };
 
-export type WatcherDefinition = Readonly<{
-  id: 'watcher';
-  kind: 'watcher';
-  prompt: string;
-  override: null;
-  description: string;
-}>;
-
 // These references call the real exports. Optional arguments let the baseline run before its signatures expand.
 export const agents: {
-  listAgents: (options?: AgentPaths) => ReadonlyArray<AgentDefinition | WatcherDefinition>;
+  listAgents: (options?: AgentPaths) => ReadonlyArray<AgentDefinition>;
   loadProfiles: (options?: AgentPaths) => Readonly<Record<string, Profile>>;
   promptFilesOf: (name: string, options?: AgentPaths & { override?: string; prompt?: string }) => Array<string>;
   agentSettings: (name: unknown, config: unknown, options?: AgentPaths) => AgentSettings | null;
@@ -98,8 +90,4 @@ export function fixture(): {
 
 export function profileError(agent: string, key: string): (error: unknown) => boolean {
   return (error) => error instanceof AgentProfileError && error.agent === agent && error.key === key;
-}
-
-export function watcher(): WatcherDefinition {
-  return { id: 'watcher', kind: 'watcher', prompt: 'prompt.md', override: null, description: 'Synthetic report watcher.' };
 }

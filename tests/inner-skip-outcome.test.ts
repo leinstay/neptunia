@@ -212,7 +212,7 @@ const READ_THEN_SKIP = [toolAnswer('', [call('tools.describe', { name: 'lore.lis
 
 for (const kind of Object.keys(WAKES)) {
   test(`a ${kind} wake that only read and answered skip ends skip`, async () => {
-    // Bug: `wake_runs` says `spoke` for a wake that said nothing, so status and the watcher count a silent day as talk.
+    // Bug: `wake_runs` says `spoke` for a wake that said nothing, so status counts a silent day as talk.
     const run = await innerTurn({ answers: READ_THEN_SKIP, kind });
     assert.equal(run.result.outcome, 'skip');
     assert.equal(run.result.delivered ?? false, false);

@@ -378,15 +378,6 @@
       "name": "The skill's name, as its entry among your tools has it."
     }
   },
-  "watcher.read": {
-    "title": "Read the watcher's report",
-    "whenToUse": "Reads a report of the watcher, an agent that looks over you, the project and the server on its schedule: the latest, the newest of one day, or one run's. It runs only when the owner asks, or in a turn of your own.",
-    "whenNotToUse": "Not for your own memory or your own skills.",
-    "args": {
-      "day": "YYYY-MM-DD. Leave it out for the latest report.",
-      "run": "The run identity of one report, when a day has several."
-    }
-  },
   "skill.run": {
     "title": "Run a skill's script",
     "whenToUse": "Runs a script that one of your skills declares: an outside site, a file, a result it keeps. Read the skill first through its entry among your tools, then run the script it names. A result that returns files gives you handles to post with message.create.",

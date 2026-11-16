@@ -21,8 +21,6 @@ export type ModelRoleRow = {
   group: 'main' | 'errand';
   role: string;
   label: string;
-  /** a report's model, not one more agent of the group: it has no `models.errands` key */
-  utility: boolean;
 };
 
 export type SourceDescriptor = {
@@ -85,18 +83,8 @@ const isAgent = (role: string): boolean => SUBHARNESS_AGENTS.some((agent) => age
 
 /** Every role the chooser offers, Main first, each agent under the group the role table gives it. */
 export function modelRoleRegistry(): Array<ModelRoleRow> {
-  const row = (group: ModelRoleRow['group'], role: string, utility = false): ModelRoleRow => ({
-    group,
-    role,
-    label: labelOf(role),
-    utility,
-  });
-  const grouped: ReadonlyArray<string> = ERRAND_ROLES;
-  return [
-    ...MAIN_ROLES.map((role) => row('main', role)),
-    ...ERRAND_ROLES.map((role) => row('errand', role)),
-    ...SUBHARNESS_AGENTS.filter((agent) => !grouped.includes(agent)).map((agent) => row('errand', agent, true)),
-  ];
+  const row = (group: ModelRoleRow['group'], role: string): ModelRoleRow => ({ group, role, label: labelOf(role) });
+  return [...MAIN_ROLES.map((role) => row('main', role)), ...ERRAND_ROLES.map((role) => row('errand', role))];
 }
 
 /** The backends `role` can run through: an agent all of them, the memory writer those that carry a system prompt. */

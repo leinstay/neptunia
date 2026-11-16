@@ -1,7 +1,6 @@
 // The one setting `<name>.schedule` (`at 06:00,18:00` or `every 6h`) reaching each mechanic's own scheduler: the
 // heartbeat's timer in the inner life and the diary's day plan. Each mechanic keeps its missed-wake policy, so overdue wakes never stack. The inner life runs over a fake
 // turn runner with the clock injected.
-// Changed: the watcher has no schedule and no timer (owner, 2026-11-09), so its tests left this file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';

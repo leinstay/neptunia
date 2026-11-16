@@ -18,7 +18,6 @@ import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-// Changed: the watcher left the services for `/doctor watcher` (owner, 2026-11-09).
 const NAMES = ['heartbeat', 'selfreflection'] as const;
 const ACTIONS = ['setup', 'enable', 'disable', 'status'] as const;
 
@@ -91,20 +90,12 @@ for (const line of [
   // Only setup takes a schedule.
   '/services heartbeat enable --every 3h',
   '/services heartbeat status --at 00:00',
-  // No mechanic has the operations of one run, and the watcher's moved to the doctor.
+  // No mechanic has the operations of one run.
   '/services heartbeat trigger',
   '/services selfreflection cancel',
   // A name or an action outside the family, and the verbs of the system units, which belong to the shell.
+  // Changed: the watcher's lines are gone with the watcher (maintainer, 2026-11-16).
   '/services bogus status',
-  '/services watcher start',
-  '/services watcher bogus',
-  '/services watcher trigger',
-  '/services watcher cancel',
-  '/services watcher setup',
-  '/services watcher enable',
-  '/services watcher status',
-  '/logs watcher',
-  '/logs watcher 2026-11-03',
   '/services status',
   '/services restart',
   '/services',
@@ -114,17 +105,6 @@ for (const line of [
     const parsed = parseCommandLine(line);
     assert.equal(parsed.ok, false);
     assert.equal(!parsed.ok && parsed.reason.startsWith('unknown command'), false, 'the family itself is known');
-  });
-}
-
-for (const [line, name, args] of [
-  ['/services watcher evidence', 'services.watcher.evidence', {}],
-  ['/doctor watcher run', 'doctor.watcher.run', {}],
-  ['/doctor watcher 2', 'doctor.watcher', { number: '2' }],
-] as const) {
-  test(`${line} is in the table`, () => {
-    // Catches: the operations of one run stay outside the family, and a second public family grows around them.
-    assert.deepEqual(parseCommandLine(line), { ok: true, name, args });
   });
 }
 

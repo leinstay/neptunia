@@ -6,17 +6,16 @@ Each agent has its own folder here with a `profile.json` and a prompt when its k
 |---|---|---|
 | `scout/` | worker | Internet errands: web searches, reading pages, downloading files through a proxy. |
 | `server/` | worker | Read-only questions about this machine: reads files and runs read-only shell commands, with no network but the model API. |
-| `watcher/` | watcher | Reviews available deployment and project evidence and writes a daily report. |
 
 ## Kinds
 
-There are three kinds. A **worker** runs as its own systemd service and takes tasks on a Unix socket. A **consultation** has no process: tools call its model role directly (none ships today). A **watcher** describes a report agent under subharness policy, without a worker model role or permissions.
+There are two kinds. A **worker** runs as its own systemd service and takes tasks on a Unix socket. A **consultation** has no process: tools call its model role directly (none ships today).
 
-The agent runner (`src/agent-runner/profiles.ts`) loads only workers. It skips consultations and watchers.
+The agent runner (`src/agent-runner/profiles.ts`) loads only workers. It skips consultations.
 
 ## profile.json
 
-Worker and consultation profiles carry `id`, `kind`, `role`, `prompt`, `override` and `description`. A watcher omits `role`. A worker also carries `tools`, `shell`, `enabled`, `cost` (`{ input, output }`, USD per million tokens), `limits` (`{ steps, seconds }`), `daily` (`{ tasks }`), `searchProvider`, `socket`, `out` and `env`.
+Worker and consultation profiles carry `id`, `kind`, `role`, `prompt`, `override` and `description`. A worker also carries `tools`, `shell`, `enabled`, `cost` (`{ input, output }`, USD per million tokens), `limits` (`{ steps, seconds }`), `daily` (`{ tasks }`), `searchProvider`, `socket`, `out` and `env`.
 
 A worker may also carry `search` (`true` enables live web search) and `sandbox` (`read-only` or `workspace-write`, the default). Profiles reject `backend` and `model`. Backend, model and effort selections remain under the subharness contract in [docs/errands.md](../docs/errands.md#backends).
 
@@ -33,8 +32,6 @@ A profile with a missing key, an unknown key, a tool its shell class does not al
 Each public call reads current files. `agentSettings` applies live `config.agents.<name>` after the file overlay and retains user-unit socket and output defaults. `PROFILES`, `SCOUT` and `SERVER` are shared snapshots for compatibility. Errand consumers use the path-aware functions with the core or command entry roots. The runner refreshes its definition, prompt and default limits for each task.
 
 `promptFilesOf` returns `<dataDir>/agents/<name>/<prompt>` before `<rootDir>/agents/<name>/<prompt>`, with `prompt.md` as the default filename. A personal prompt needs no personal profile. The profile's `override` field remains validated migration metadata and contributes no runtime path. Explicit `dataDir` wins over `NEPTUNIA_DATA_DIR`; relative data paths resolve against `rootDir`. The private directory does not select the agent tree. Personal directories, profile files and selected prompts reject symbolic links.
-
-The loader also validates watcher definitions with exactly `id`, `kind`, `prompt`, `override` and `description`. Their id is `watcher`, their override is null, and they have no model role or worker permissions. Worker selection excludes watcher and consultation definitions. Watcher execution uses the subharness policy.
 
 ## Further reading
 

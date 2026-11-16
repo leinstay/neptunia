@@ -27,7 +27,6 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NOW = Date.parse('2026-11-04T12:00:00Z');
-// Changed: the watcher left the services for `/doctor watcher` (owner, 2026-11-09).
 const MECHANICS = ['heartbeat', 'selfreflection'] as const;
 
 type Answer = { text: string; status: string };
@@ -283,8 +282,7 @@ function refusalOf(words: ReadonlyArray<string>): string {
 
 test('the order of the unit verbs and a mechanism name is refused with a hint that parses', () => {
   // Catches: `services status heartbeat` is taken for a unit named heartbeat, or the hint names a spelling that is retired.
-  // Changed: the watcher left the family (owner, 2026-11-09); `services status watcher` is refused and names the doctor.
-  assert.match(refusalOf(['status', 'watcher']), /use neptunia doctor watcher list/);
+  // Changed: the watcher and its refusal are gone (maintainer, 2026-11-16).
   const hint = refusalOf(['status', 'heartbeat']);
   assert.equal(RETIRED_SPELLING.test(hint), false, hint);
   const named = /use neptunia (services heartbeat \w+)/.exec(hint)?.[1] ?? '';
@@ -292,7 +290,8 @@ test('the order of the unit verbs and a mechanism name is refused with a hint th
   assert.equal(parseRequest(named.split(' ')).parsed.ok, true, named);
 });
 
-for (const words of [['list'], ['watcher', 'evidence'], ['heartbeat', 'setup', '--every', '3h']]) {
+// Changed: the watcher's evidence read is gone with the watcher (maintainer, 2026-11-16).
+for (const words of [['list'], ['heartbeat', 'setup', '--every', '3h']]) {
   test(`neptunia services ${words.join(' ')} is the family and returns to its caller`, () => {
     // Catches: `list` is taken for a unit verb and refused, or a mechanism's word order stops reaching the family.
     assert.doesNotThrow(() =>
@@ -338,22 +337,4 @@ test('the commands setup says to type next begin with a command of the table', a
     assert.ok(COMMAND_NAMES.includes(entry.split(' ')[0] ?? ''), entry);
     if (entry.includes('discord')) assertParsed(`/${entry}`);
   }
-});
-
-test('every neptunia command a worker prompt tells an agent to run is one the table parses', () => {
-  // Catches: the watcher's agent is told to run a command spelling that was renamed, and its evidence read fails.
-  const outside = new Set(['worker', 'task', 'tasks', 'setup', 'errand-runner', '-p']);
-  let found = 0;
-  for (const agent of readdirSync(join(REPO, 'agents'), { withFileTypes: true })) {
-    if (!agent.isDirectory()) continue;
-    const prompt = readFileSync(join(REPO, 'agents', agent.name, 'prompt.md'), 'utf8');
-    for (const span of prompt.matchAll(/`neptunia ([^`]+)`/g)) {
-      const words = (span[1] ?? '').split(' ').filter((word) => word !== '');
-      if (outside.has(words[0] ?? '') || words.some((word) => /[<[]/.test(word))) continue;
-      found += 1;
-      const parsed = parseRequest(words).parsed;
-      assert.ok(parsed.ok, `${agent.name}: neptunia ${words.join(' ')}`);
-    }
-  }
-  assert.ok(found > 0, 'the watcher prompt names its evidence command');
 });

@@ -101,8 +101,9 @@ test('the core answers a status of one backend, and tells a login to go to a ter
 
 // /model set
 
-// Changed: the agents `dev` and `thinker` are gone with the development agents (maintainer, 2026-11-16).
-for (const role of ['scout', 'server', 'watcher']) {
+// Changed: the agents `dev` and `thinker` are gone with the development agents, and `watcher` with the watcher
+// (maintainer, 2026-11-16).
+for (const role of ['scout', 'server']) {
   test(`/model set ${role} --via stores the source, the model and the effort after one reply`, async () => {
     // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
     // Catches: --via open to memory alone, or an agent's source and model written in two steps that can part.

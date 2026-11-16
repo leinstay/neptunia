@@ -32,8 +32,7 @@ export type RetrievalInput =
       entities: Ids;
     }
   | { purpose: 'session'; batch: Ids; people: Ids; places: Ids; entities: Ids }
-  | { purpose: 'task'; goal: string; refs: ReadonlyArray<SemanticRef> }
-  | { purpose: 'watcher'; goal: string; runIds: Ids };
+  | { purpose: 'task'; goal: string; refs: ReadonlyArray<SemanticRef> };
 
 /** The longest query text, whatever the budget: a query spends its tokens on results. */
 const MAX_QUERY_CHARS = 2000;
@@ -101,8 +100,6 @@ function seedsOf(input: RetrievalInput): { lines: ReadonlyArray<string>; anchors
       };
     case 'task':
       return { lines: [input.goal], anchors: [...input.refs] };
-    case 'watcher':
-      return { lines: [input.goal, ...input.runIds], anchors: [] };
   }
 }
 

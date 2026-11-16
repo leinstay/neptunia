@@ -26,8 +26,7 @@ const SAMPLES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   // Changed: `report` is retired. A setup leaf takes one mode, so its sample names the flags it uses.
   'services.heartbeat.setup': { every: '6h', jitter: '30m' },
   'services.selfreflection.setup': { every: '6h' },
-  'doctor.watcher': { number: '3' },
-  'doctor.watcher.unaccept': { number: '2' },
+  // Changed: the `/doctor watcher` leaves are gone with the watcher (maintainer, 2026-11-16).
   // The owner's decision of 2026-11-10: `/tools grant` and `/tools revoke` take no target, so they need no sample.
 };
 

@@ -24,7 +24,6 @@ const WORDS: Record<string, string> = {
   speech: 'Voice messages',
   tools: 'Tools',
   skills: 'Skills',
-  watcher: 'Project watcher',
   selfreflection: 'Diary',
   gifs: 'GIF selection',
   dm: 'Direct messages',

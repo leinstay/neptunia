@@ -233,8 +233,9 @@ test('model set for an agent goes through its subharness with the effort, not to
 });
 
 test('the table parses model set for an agent with an effort', () => {
-  // Catches: the table refuses "watcher" as no model role, or drops --effort, so the dialog never sees it.
-  const parsed = parseCommandLine('/model set watcher gpt-6-astra --effort medium');
+  // Catches: the table refuses an agent as no model role, or drops --effort, so the dialog never sees it.
+  // Changed: the watcher is gone (maintainer, 2026-11-16), so the agent named is the server.
+  const parsed = parseCommandLine('/model set server gpt-6-astra --effort medium');
   assert.equal(parsed.ok, true);
-  if (parsed.ok) assert.deepEqual(parsed.args, { role: 'watcher', model: 'gpt-6-astra', effort: 'medium' });
+  if (parsed.ok) assert.deepEqual(parsed.args, { role: 'server', model: 'gpt-6-astra', effort: 'medium' });
 });

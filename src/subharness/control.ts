@@ -35,7 +35,6 @@ export const DIRECT_ONLY_ROLES = ['analyzer', 'embedding', 'vision', 'video', 's
 export const DEFAULT_MODES: Readonly<Record<SubharnessAgent, AgentMode>> = {
   scout: 'write',
   server: 'read',
-  watcher: 'read',
 };
 
 /** The mode of an agent the table does not list. */
