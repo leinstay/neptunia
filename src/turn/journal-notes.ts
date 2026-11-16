@@ -56,7 +56,6 @@ type ThinkPick = {
 /** The previous think a new turn carries: the newest, with the older ones before it, oldest first. */
 type EarlierThink = {
   text: string;
-  relation: 'earlier';
   ageMs: number;
   earlier: Array<{ text: string; ageMs: number }>;
 };
@@ -281,7 +280,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
 
   /**
    * The thinks a NEW turn's first request carries (an inner turn imports none), up to `context.previousThinks`, chosen
-   * once, logged `turn: previous think` with the source of the newest (turn id, relation, age) and the count carried,
+   * once, logged `turn: previous think` with the source of the newest (turn id, age) and the count carried,
    * or why there is none. Null when nothing is carried.
    */
   function earlierThinkFor({
@@ -314,12 +313,11 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     log.info('turn: previous think', {
       channel: channel.id,
       source: newest.turnId,
-      relation: 'earlier',
       ageSeconds: Math.round(newest.ageMs / 1000),
       count: picked.thinks.length,
     });
     const earlier = picked.thinks.slice(0, -1).map(({ think, ageMs }) => ({ text: think, ageMs }));
-    return { text: newest.think, relation: 'earlier', ageMs: newest.ageMs, earlier };
+    return { text: newest.think, ageMs: newest.ageMs, earlier };
   }
 
   /**

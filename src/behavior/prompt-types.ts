@@ -97,7 +97,6 @@ export type BuildRequestInput = {
   wakeKind?: string | null;
   previousThink?: {
     text: string;
-    relation: 'same' | 'earlier';
     ageMs?: number;
     earlier?: ReadonlyArray<{ text: string; ageMs: number }>;
   } | null;
