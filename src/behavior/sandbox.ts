@@ -203,7 +203,7 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   tasks:
     "no part of a split message, no queued or folded call: a replay knows none (a skill scenario's burst hands in its waiting calls: `queued`)",
   diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
-  diary: 'never a diary post: no <virtual_world>, <diary>, <plan> or <found> block',
+  diary: 'never a diary post: no <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
   skillsInventory: 'no catalogue: a replay runs no classifier (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   around:

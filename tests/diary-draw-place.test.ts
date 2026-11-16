@@ -78,7 +78,6 @@ const hot = {
     diary: 'DIARY_TASK for {{name}}',
     'diary-planner': 'PLAN_SYSTEM for {{name}}',
     'diary-seeds': '# place\na pier\n# light\nfog',
-    world: 'WORLD of {{name}}',
     draw: 'DRAW for {{name}}\n{{when}}\n{{request}}',
     labels,
   },

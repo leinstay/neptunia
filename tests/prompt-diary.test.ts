@@ -1,5 +1,4 @@
-// Tests for the diary side of src/behavior/prompt.ts: the `<world>` block only
-// in a diary request, whenever world.md has text, the `{{when}}` line of the drawing
+// Tests for the diary side of src/behavior/prompt.ts: the `{{when}}` line of the drawing
 // prompt, the diary channel in `<senses>`, the diary post's own blocks and
 // their budget, and the plan request. Fake prompts/config/labels only.
 import { test } from 'node:test';
@@ -10,18 +9,7 @@ import { labels } from './fixtures/labels.ts';
 import { buildRequest, type Built } from './fixtures/built-request.ts';
 import { framed } from './fixtures/prompt-rig.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
-import {
-  JOURNAL,
-  MARK,
-  PAGES,
-  PLAN,
-  TEXT,
-  blockOf,
-  frameTurn,
-  inOrderOf,
-  partOf,
-  rootTags,
-} from './fixtures/diary-frame.ts';
+import { JOURNAL, MARK, PAGES, PLAN, blockOf, frameTurn, inOrderOf, partOf, rootTags } from './fixtures/diary-frame.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
 const MIN = 60_000;
@@ -41,7 +29,6 @@ function fakePrompts(overrides: Record<string, unknown> = {}) {
     interject: 'INTERJECT_TASK',
     diary: 'DIARY_TASK for {{name}}',
     'diary-planner': 'PLAN_SYSTEM for {{name}}',
-    world: 'A world of {{name}}.',
     labels,
     ...overrides,
   };
@@ -172,8 +159,7 @@ test('buildRequest: no diary blocks outside diary mode, none without posts or a 
 });
 
 // The writer on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of 2026-11-07): the turn
-// runs with `chat: null`, its request holds the diary list of the frame, `<virtual_world>` is the
-// `world.md` text whenever the file is non-empty (`diary.world` is gone), and `<publication_places>` is a part of
+// runs with `chat: null`, its request holds the diary list of the frame, and `<publication_places>` is a part of
 // `<inner>` that lists the mirrors when there are two or more. tests/fixtures/diary-frame.ts holds the scene.
 
 /** The diary list without `persona`, which is the system message and no root tag of the user text. */
@@ -185,25 +171,10 @@ test('the writer request holds the frame list, with no <chat>, <surroundings>, <
   const text = run.writer[0] ?? '';
   const tags = rootTags(text);
   assert.ok(inOrderOf(tags, WRITER_TAGS), tags.join(' '));
-  for (const tag of ['self', 'meanwhile', 'virtual_world', 'spatial_awareness', 'task'])
-    assert.ok(tags.includes(tag), `holds <${tag}>`);
+  for (const tag of ['self', 'meanwhile', 'spatial_awareness', 'task']) assert.ok(tags.includes(tag), `holds <${tag}>`);
   for (const tag of ['chat', 'surroundings', 'about_chat', 'places'])
     assert.ok(!tags.includes(tag), `no root <${tag}>`);
   assert.ok(blockOf(text, 'task').includes(MARK.writer), 'its own task');
-});
-
-test('<virtual_world> holds world.md even where the old diary.world switch says false', async () => {
-  // Bug: the deleted switch is still read, so a non-empty world.md never reaches her (the 13:55 post had no world).
-  const run = await frameTurn({ diary: { world: false } });
-  assert.ok(blockOf(run.writer[0] ?? '', 'virtual_world').includes(TEXT.world));
-});
-
-test('<virtual_world> is absent when world.md is empty', async () => {
-  // Bug: an empty file still renders an empty block or the frame's own placeholder.
-  for (const world of ['', '  \n']) {
-    const run = await frameTurn({ world });
-    assert.ok(!rootTags(run.writer[0] ?? '').includes('virtual_world'), JSON.stringify(world));
-  }
 });
 
 test('the writer <plan> sits in <inner> as lines, with no JSON', async () => {

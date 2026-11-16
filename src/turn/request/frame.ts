@@ -17,7 +17,6 @@ export type BlockName =
   | 'surroundings'
   | 'memory'
   | 'meanwhile'
-  | 'virtual_world'
   | 'chat'
   | 'recall'
   | 'found'
@@ -163,7 +162,6 @@ const DIARY: ReadonlyArray<BlockName> = Object.freeze([
   'self',
   'memory',
   'meanwhile',
-  'virtual_world',
   'recall',
   'found',
   'inner',
