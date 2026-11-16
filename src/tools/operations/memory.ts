@@ -172,7 +172,7 @@ function archiveHolderOf(
  * Whether the archive list leaves an entry out: a member's item unless that member was asked for, and a private item
  * anywhere but in the DM it belongs to, so a group's read and a member's name never reach one.
  */
-function leftOutOfList(entry: Untyped, accountId: string | null, placeId: string): boolean {
+function leftOutOfList(entry: Untyped, accountId: string | null, placeId: string | null): boolean {
   if (entry?.scope?.private === true) return entry.scope.place !== placeId;
   return !accountId && typeof entry?.scope?.user === 'string';
 }
@@ -371,10 +371,10 @@ const handlers = perEnv((env) => {
    * without one, the server-level ones (no member scope). `kind` narrows to one item kind. The
    * private archives are never read here. One line each: the UTC day the item left, the event,
    * the kind, the item id and its text (tokens resolved, cut to 160 characters). Read only; the
-   * archive is streamed and only the newest `n` are kept in memory.
+   * archive is streamed and only the newest `n` are kept. With no place: the persona's and every community's.
    */
   async function cmdMemoryArchive(args: Obj, context: OpContext) {
-    const placeId = requirePlaceId(context);
+    const placeId = env.resolvedPlaceId(context);
     if (!archive) return 'the archive is not available';
     const given = args.kind ?? null;
     const kind = typeof given === 'string' ? given : null;
@@ -384,7 +384,7 @@ const handlers = perEnv((env) => {
     const n = typeof asked === 'number' && Number.isInteger(asked) ? Math.min(100, Math.max(1, asked)) : 20;
     const accountId = args.accountId ? accountOf(store, idText(args.accountId)) : null;
     const newest: Array<Untyped> = [];
-    for (const holder of [placeId, null])
+    for (const holder of placeId ? [placeId, null] : [...store.topPlaces(), null])
       for await (const entry of archive.iterate(holder, {
         scope: accountId ? { user: accountId } : null,
         kinds: kind ? [kind] : null,
@@ -447,7 +447,7 @@ const handlers = perEnv((env) => {
    * The turn that posted the message `reference` names (an id or a link), whole: the turn is searched in the day the
    * message was posted, which the interface says (`fetchMessages`).
    */
-  async function turnOfMessage(placeId: string, reference: unknown, context: OpContext): Promise<string> {
+  async function turnOfMessage(placeId: string | null, reference: unknown, context: OpContext): Promise<string> {
     const ref = await messageRefOf(reference, reads);
     const { messageId } = ref;
     const chatId = ref.placeId ?? env.chatOf(context);
@@ -470,12 +470,12 @@ const handlers = perEnv((env) => {
    * With `message` (`messageId`: an id or a message link; the persona's call gives `#N`, resolved
    * to the id by src/tools/executors.ts#resolveCall) the turn that posted that message instead,
    * whole (journal.findTurn over the message's snowflake time, shown by turnView), the other
-   * options ignored; a message no turn of the place journal posted is `not-found`.
-   * Read only, so it works while paused.
+   * options ignored; a message no turn of the place journal posted is `not-found`. With no place: the persona's
+   * journal, the turns she ran with none. Read only, so it works while paused.
    */
   async function cmdMemoryJournal(args: Obj, context: OpContext) {
     if (!journal) return 'the journal is not available';
-    const placeId = requirePlaceId(context);
+    const placeId = env.resolvedPlaceId(context);
     if (args.messageId !== undefined && args.messageId !== null && args.messageId !== '')
       return turnOfMessage(placeId, args.messageId, context);
     const day = args.day ?? utcDay(Date.now());
