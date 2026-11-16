@@ -129,8 +129,6 @@ const labelOf = (value: unknown): string => (typeof value === 'string' ? value :
 /** The diary's words: `labels.diary`. */
 const diaryWords = (labels: unknown): Obj => sectionOf(labels, 'diary');
 
-const BRIEF_CHARS = 300;
-const TOPIC_CHARS = 1000;
 const DEFAULT_QUIET_DAY_CHANCE = 0.3; // diary.quietDayChance
 const DEFAULT_FORCE_WAIT_MS = 120000; // diary.forceWaitMs
 // The diary's measures. Production values, config cut of 2026-10-31.
@@ -139,7 +137,6 @@ const DEFAULT_QUIET_CARRY = 0.25;
 const DEFAULT_HUNGER_BOOST = 0.5;
 const MIN_GAP_MINUTES = 90;
 export const DEFAULT_HISTORY_POSTS = 150;
-export const DEFAULT_GIST_CHARS = 200;
 /** The characters of a picture description shown as a past post's scene (`diary.sceneChars`' default). */
 export const DEFAULT_SCENE_CHARS = 400;
 /** The weight of each kind of post the planner picks among. */
@@ -560,7 +557,7 @@ export function validatePlan(
   }
   const picture = pictureAllowed === true && (drawable.includes(named) || answer.picture === true);
   const searchable = listOr(searchKinds, DEFAULT_SEARCH_KINDS);
-  const brief = typeof answer.brief === 'string' ? clampText(oneLine(answer.brief), BRIEF_CHARS, { tolerance: 1 }) : '';
+  const brief = typeof answer.brief === 'string' ? oneLine(answer.brief) : '';
   const search = typeof answer.search === 'string' && searchable.includes(named) ? oneLine(answer.search) : '';
   return { kind: named, brief, search, picture, fallback: false };
 }
@@ -838,13 +835,12 @@ export function renderSeedsBlock(sets: unknown, labels: unknown): string {
 }
 
 /**
- * The owner's topic for a forced post (`/nep diary post topic`): one line,
- * cut at a word boundary to at most 1000 characters. Null for a missing,
+ * The owner's topic for a forced post (`/nep diary post topic`): one line, whole. Null for a missing,
  * non-string or blank topic.
  */
 export function diaryTopic(text: unknown): string | null {
   if (typeof text !== 'string') return null;
-  return clampText(oneLine(text), TOPIC_CHARS, { tolerance: 1 }) || null;
+  return oneLine(text) || null;
 }
 
 /**
@@ -861,11 +857,10 @@ export function renderTopicBlock(topic: unknown, labels: unknown): string {
 export { stripUrls };
 
 /**
- * A post's one-line gist for the diary unit: whitespace collapsed, then cut at a
- * word boundary to at most `chars` characters (diary.gistChars).
+ * A post's one-line gist for the diary unit: whitespace collapsed, the text whole.
  */
-export function gistOf(text: unknown, chars?: number): string {
-  return clampText(oneLine(text), chars ?? DEFAULT_GIST_CHARS, { tolerance: 1 });
+export function gistOf(text: unknown): string {
+  return oneLine(text);
 }
 
 /**
