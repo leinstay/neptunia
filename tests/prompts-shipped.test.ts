@@ -199,7 +199,7 @@ const LOADS = {
   diary: [...SYSTEM, 'diary', 'world'],
   inner: [...SYSTEM, 'inner'],
   heartbeat: [...SYSTEM, 'heartbeat'],
-  describe: ['describe'],
+  describe: ['describe', 'describe-self'],
   avatar: ['avatar'],
   describeGif: ['describe-gif'],
   describeVideo: ['describe-video'],
