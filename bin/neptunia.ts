@@ -85,7 +85,7 @@ import { interfacePackageDir, interfacePackageNames } from '../src/config/files.
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
 import { createAgentEngine } from '../src/agent-runner/backend.ts';
-import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
+import { agentSettings, profileOf, refusedAgents } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { spawnRun } from '../src/setup/install.ts';
@@ -990,6 +990,22 @@ type Check = { name: string; status: CheckStatus; detail: string };
 /** The major version of Node the engine runs on (package.json `engines`). */
 const NODE_MAJOR = 26;
 
+function checkAgents(where: { rootDir: string; dataDir: string }): Check {
+  try {
+    const refused = refusedAgents({ rootDir: where.rootDir, dataDir: where.dataDir });
+    if (refused.length === 0)
+      return { name: 'agents', status: 'ok', detail: 'every agent folder names a shared agent' };
+    const named = refused.map((entry) => `${entry.name} (${entry.code})`).join(', ');
+    return {
+      name: 'agents',
+      status: 'warn',
+      detail: `data/agents holds a folder with no shared agent, refused: ${named}`,
+    };
+  } catch (err) {
+    return { name: 'agents', status: 'fail', detail: (err as Error).message };
+  }
+}
+
 function checkNode(): Check {
   const major = Number(process.versions.node.split('.')[0]);
   return {
@@ -1202,6 +1218,7 @@ async function doctorChecks(
     checkTokens(where),
     await checkRoutes(where),
     checkDatabase(where),
+    checkAgents(where),
   ];
   // `live` is the providers' own read; the plain doctor says whether a chat would open, a core that is down included,
   // and the core's reading of itself while one answers.

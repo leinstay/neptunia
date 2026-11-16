@@ -28,7 +28,7 @@
 // The flag is logged once per change (`errands: runner up` / `errands: runner down`).
 
 import { log as defaultLog } from '../log.ts';
-import { loadProfiles, agentSettings, profileOf } from '../agent-runner/profiles.ts';
+import { loadProfiles, agentSettings, profileOf, refusedAgents } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { serviceCredential } from '../keys/file.ts';
 import { opencodeKey } from '../subharness/routing.ts';
@@ -488,6 +488,9 @@ export function createErrandService({
    * agent's runner is pinged in the background (its health flag).
    */
   function start(): number {
+    // A stray folder is refused alone and named, so the shared agents below still start.
+    for (const { name, code } of refusedAgents(agentPaths))
+      log.error?.('errands: agent folder refused', { agent: name, code });
     // Each enabled agent's runner pinged in the background: its flag known before the first ask.
     for (const agent of Object.keys(loadProfiles(agentPaths))) check(agent).catch(() => {});
     const store = storeOf();

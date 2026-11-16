@@ -162,10 +162,12 @@ for (const [key, value] of invalidOverrides) {
 }
 
 test('a personal directory cannot introduce an agent without a shared definition', (t) => {
+  // Changed: the refusal no longer fails the whole load (a stray folder took down every agent at start). The folder
+  // is refused alone: it adds no agent, and `refusedAgents` reports it (tests/agent-refused-folders.test.ts).
   const f = fixture();
   t.after(f.close);
   fs.mkdirSync(path.join(f.dataDir, 'agents', 'ghost'), { recursive: true });
-  assert.throws(() => agents.listAgents(f.options), profileError('ghost', 'id'));
+  assert.deepEqual(agents.listAgents(f.options), [f.definition]);
 });
 
 test('merged definitions freeze nested objects and arrays before returning them', (t) => {
