@@ -30,8 +30,8 @@ test('buildRequest: system message is system-prompt + character-card + rules + f
   assert.equal(request.messages[0].content, 'SYSTEM_TEXT for Nept\n\nCARD_TEXT\n\n- RULES_TEXT\n\nFORMAT_TEXT');
 });
 
-test('buildRequest: a reply in <chat> quotes its parent cut at a word to 80 characters', () => {
-  // PR 7d: context.replyQuoteChars is the constant 80 (the production value).
+// The owner on 2026-11-16: a quoted parent is kept whole; the limit of 80 is gone.
+test('buildRequest: a reply in <chat> quotes its parent whole', () => {
   const parent = 'je préfère les penalties '.repeat(5).trim();
   const history = [
     makeMessage('1', NOW - 2 * MIN, { self: true, content: parent }),
@@ -39,7 +39,7 @@ test('buildRequest: a reply in <chat> quotes its parent cut at a word to 80 char
   ];
   const request = buildRequest(baseInput({ history }));
   const text = contentText(request.messages[1].content);
-  const quote = `${'je préfère les penalties '.repeat(3)}je…`;
+  const quote = parent;
   assert.ok(
     text.includes(`User2: ah bon ${fill(labels.transcript.replyTo, { index: 1, author: 'Nept (you)', quote })}`),
     text

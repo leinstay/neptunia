@@ -63,7 +63,7 @@ function hot() {
       llm: { maxRequestTokens: 50000 },
       models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
+      image: { reference: 'avatar', referenceMaxBytes: 4_000_000 },
       diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },

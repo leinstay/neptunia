@@ -1268,25 +1268,26 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   assert.equal(outcomeDetail({ status: 'ok', code: 'ok' }), null);
   assert.equal(outcomeDetail({ status: 'failed' }), null);
   assert.equal(outcomeDetail(null), null);
-  // The operation's own message rides along on one line, cut, only when asked for.
+  // The operation's own message rides along on one line, whole, only when asked for.
   const diary = {
     status: 'not_configured',
     code: 'not-configured',
     data: { text: 'diary post photos:\n  not-now (no-channel)' },
   };
-  assert.deepEqual(outcomeDetail(diary, { textChars: 200 }), {
+  assert.deepEqual(outcomeDetail(diary, { withText: true }), {
     kind: 'not-configured',
     code: 'not-configured',
     arg: null,
     text: 'diary post photos: not-now (no-channel)',
   });
   assert.equal('text' in asRecord(outcomeDetail(diary)), false);
-  assert.equal('text' in asRecord(outcomeDetail({ ...diary, data: { text: '  ' } }, { textChars: 200 })), false);
-  const long = outcomeDetail(
-    { status: 'failed', code: 'error', data: { text: 'λέξη '.repeat(40) } },
-    { textChars: 30 }
-  )?.text;
-  assert.ok(Array.from(long ?? '').length <= 30 && long?.endsWith('…') && !long?.includes('\n'), long ?? '');
+  assert.equal('text' in asRecord(outcomeDetail({ ...diary, data: { text: '  ' } }, { withText: true })), false);
+  // The owner on 2026-11-16: the operation's message is kept whole; the limit of 200 is gone.
+  const long = 'λέξη '.repeat(120).trim();
+  assert.equal(
+    outcomeDetail({ status: 'failed', code: 'error', data: { text: `${long}\n${long}` } }, { withText: true })?.text,
+    `${long} ${long}`
+  );
 });
 
 test("executeCall: an in-turn tool runs in place of the command, on the operation's arguments her call maps to; its result as it is", async () => {

@@ -135,7 +135,7 @@ test('with the drawing key revoked and a core that cannot draw, draw.create answ
     answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'],
     allowed: ['draw.create'],
     config: {
-      image: { maxPromptChars: 1000, reference: 'none' },
+      image: { reference: 'none' },
       models: {
         routes: chainsOnDefaults({ core: 'x/core', analyzer: 'x/text', drawing: 'openai/image-model' }),
         abilities: {},
@@ -244,7 +244,7 @@ test('a text-only core loses vision, video, drawing and speech, and she is told 
     allowed: ['draw.create', 'media.look', 'voice.say'],
     firstAttachments: PICTURE,
     config: {
-      image: { maxPromptChars: 1000, reference: 'none' },
+      image: { reference: 'none' },
       speech: { maxChars: 500, maxPerDay: 10 },
       models: {
         routes: chainsOf({

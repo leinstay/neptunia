@@ -2362,7 +2362,7 @@ function hotForDraw(rootDir: string, { model = 'openai/image-model', ...image }:
     ...hot.config.models,
     routes: { ...hot.config.models?.routes, ...chainsOf({ drawing: model }) },
   };
-  hot.config.image = { maxPromptChars: 800, reference: 'avatar', referenceMaxBytes: 4000000, ...image };
+  hot.config.image = { reference: 'avatar', referenceMaxBytes: 4000000, ...image };
   hot.config.context = { vision: { fetchTimeoutMs: 7000 } };
   hot.prompts = {
     ...hot.prompts,
@@ -2418,17 +2418,19 @@ test('run: draw builds the prompt as a turn does and answers with the picture as
   assert.match(result.text, /0\.042/);
 });
 
-test('run: draw clamps the request to image.maxPromptChars before building the prompt', async () => {
+// The owner on 2026-11-16: the drawing scene is kept whole; the limit of 1600 is gone.
+test('run: draw builds the prompt from the whole request', async () => {
   const rootDir = makeRoot();
-  const hot = hotForDraw(rootDir, { maxPromptChars: 5 });
+  const hot = hotForDraw(rootDir);
   const images = fakeImages();
   const { admin } = makeAdmin(rootDir, { hot, images, client: drawClient() });
+  const text = 'άλφαβήτα '.repeat(300).trim();
 
-  await admin.run('draw.create', { text: 'άλφαβήτα', self: false }, { placeId: 'g1' });
+  await admin.run('draw.create', { text, self: false }, { placeId: 'g1' });
 
   assert.equal(
     images.calls[0].prompt,
-    buildDrawPrompt({ prompts: hot.prompts, selfName: 'Persona', request: 'άλφαβ', self: false })
+    buildDrawPrompt({ prompts: hot.prompts, selfName: 'Persona', request: text, self: false })
   );
 });
 
