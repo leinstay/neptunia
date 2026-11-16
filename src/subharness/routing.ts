@@ -24,8 +24,8 @@ import { readLocalConfig } from '../tools/operations/shared.ts';
 import { CONFIG_DIR, CONFIG_FILE } from '../config/files.ts';
 import { readKeys } from '../keys/file.ts';
 
-/** The agents that take a subharness route: the two errand agents, the development agents, the watcher and the thinker. */
-export const SUBHARNESS_AGENTS = ['scout', 'server', 'dev', 'watcher', 'thinker'] as const;
+/** The agents that take a subharness route: the two errand agents and the watcher. */
+export const SUBHARNESS_AGENTS = ['scout', 'server', 'watcher'] as const;
 export type SubharnessAgent = (typeof SUBHARNESS_AGENTS)[number];
 
 /** The backends that can carry the memory writer: one run with no tools and the system prompt replaced. */

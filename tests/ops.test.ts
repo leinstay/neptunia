@@ -13,9 +13,6 @@ import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
-import { openMemoryDb } from '../src/memory/db/open.ts';
-import { openBoard } from '../src/board/board.ts';
-import type { BoardDb } from '../src/board/schema.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 /** The fields of a status card answer: `status.show` carries them in its data. */
@@ -419,101 +416,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   );
 });
 
-// This test read thinker and dev from the ledger mirror (src/errands/ledger.ts). PR 6e removes the mirror, and the
-// card reads the board in memory.db instead: the thinker's runs from board_agent_runs, and dev from the dev-lane
-// attempts whose role is an implementing one (dev or writer), whoever ran them, as the ledger counted them. The worker
-// runs every attempt under its own principal, so a card keyed by principal would show dev with no runs.
-const BOARD_SETTINGS = {
-  leaseTtlMinutes: 30,
-  autoTriage: { role: 'dev', budget: 4, steps: 80, estimate: 30 },
-  projects: {},
-};
-const COST_LABELS = {
-  partSeparator: ' | ',
-  agentLine: '{agent}: {parts}',
-  agentWindow: '{window} {runs}r {in}/{out} {usd}',
-  agentWindows: { today: 'D', last7: 'W', last30: 'M' },
-  agentNoRuns: '{agent}: none',
-  agentContext: '{agent} wave {wave}: {turns}t ctx {mean}/{peak} {usd}',
-  agentEstimate: 'est.',
-};
-
-// The `costs.development` field over a board in memory whose rows `seed` writes.
-// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
-async function developmentField(seed: (db: BoardDb) => void): Promise<Array<string>> {
-  const now = Date.parse('2026-10-31T10:00:00.000Z');
-  const privateDir = tempDir('nep-ops-board-');
-  fs.writeFileSync(
-    path.join(privateDir, 'clients.json'),
-    JSON.stringify({
-      thinker: { kind: 'agent', tokenFile: 'clients/thinker.token', permissions: [], boardRoles: ['reviewer'] },
-      dispatcher: { kind: 'agent', tokenFile: 'clients/dispatcher.token', permissions: [], boardRoles: ['worker'] },
-    })
-  );
-  const handle = openMemoryDb(':memory:');
-  try {
-    // The handle types its connection as `object`; it is node:sqlite's DatabaseSync, which has every method BoardDb names.
-    const db = handle.db as BoardDb;
-    seed(db);
-    const board = openBoard({ db, privateDir, now: () => now, settings: () => BOARD_SETTINGS });
-    const config = { bot: { ownerPerson: OWNER_PERSON }, llm: { maxRequestsPerDay: 10 } };
-    const hot = {
-      config,
-      prompts: { labels: { status: { costs: COST_LABELS } } },
-      promptSources: {},
-      rootDir: tempDir('nep-ops-'),
-    };
-    const store = { state: { data: {}, markDirty() {} }, flush() {} };
-    const env = createOpsEnv({
-      discord: DISCORD,
-      hot,
-      store,
-      client: {},
-      isServedRoot: (id: unknown) => id === 'g1',
-      board,
-      now: () => now,
-    });
-    const answer = await runOp(
-      'status.show',
-      { field: 'costs.development' },
-      { env, placeId: 'g1', accountId: '42', roleIds: [] }
-    );
-    const value = fieldsOf(answer)[0]?.value;
-    return String(value).split('\n');
-  } finally {
-    handle.close();
-  }
-}
-
-test("status costs.development: thinker from the board's agent runs, dev from the dev attempts of the worker by role", async () => {
-  const lines = await developmentField((db) => {
-    db.prepare(
-      `INSERT INTO board_tasks (id, lane, title, requester, role, status, created_at, updated_at)
-       VALUES ('T-aaaaaa', 'dev', 'a task', 'lead', 'dev', 'done', '2026-10-28T09:00:00.000Z', '2026-10-31T09:00:00.000Z')`
-    ).run();
-    const attempt = db.prepare(
-      `INSERT INTO board_attempts (id, task_id, n, principal, role, started_at, ended_at, tokens_in, tokens_out,
-       tokens_reasoning, cost_est_usd, outcome) VALUES (?, 'T-aaaaaa', ?, 'dispatcher', ?, ?, ?, ?, ?, ?, ?, 'done')`
-    );
-    attempt.run('A-aaaaa1', 1, 'dev', '2026-10-28T10:00:00.000Z', '2026-10-28T11:00:00.000Z', 50000, 3000, 1000, 0.4);
-    attempt.run('A-aaaaa2', 2, 'writer', '2026-10-31T08:00:00.000Z', '2026-10-31T08:30:00.000Z', 10000, 800, 200, 0.1);
-    db.prepare(
-      `INSERT INTO board_agent_runs (id, agent, wave, started_at, ended_at, steps, tokens_in, tokens_out, cost_est_usd,
-       context_mean, context_peak) VALUES ('W-aaaaaa', 'thinker', 3, '2026-10-31T09:00:00.000Z',
-       '2026-10-31T09:10:00.000Z', 4, 300000, 9000, 1.5, 120000, 210000)`
-    ).run();
-  });
-  assert.deepEqual(lines, [
-    'thinker: D 1r 300k/9.0k 1.50 | W 1r 300k/9.0k 1.50 | M 1r 300k/9.0k 1.50',
-    'thinker wave 3: 1t ctx 120k/210k 1.50',
-    'dev: D 1r 10k/1.0k 0.10 | W 2r 60k/5.0k 0.50 | M 2r 60k/5.0k 0.50',
-    'est.',
-  ]);
-});
-
-test('status costs.development: thinker and dev show no runs over an empty board', async () => {
-  assert.deepEqual(await developmentField(() => {}), ['thinker: none', 'dev: none', 'est.']);
-});
+// Changed: the `costs.development` field is gone with the development agents (maintainer, 2026-11-16).
 
 // The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
 ownedBy(['42']);

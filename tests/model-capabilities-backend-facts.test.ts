@@ -2,6 +2,8 @@
 // (src/subharness/place.ts#effortLevelsOfHelp) reach the chooser as observed (src/subharness/model-capabilities.ts) and the
 // setter takes exactly those (src/subharness/control.ts), and an opencode row saves under opencode's own model name. The
 // help text copies the installed Claude's wrapping; the vendor is a fake.
+// Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
+// so the agent checks use `server`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setAgentModel } from '../src/subharness/control.ts';
@@ -37,7 +39,7 @@ function rig(help: string) {
 
 const claudeOf = async (help: string) => {
   const { deps } = rig(help);
-  const read = await roleSources({ ...deps, baseUrl: 'https://openrouter.test', openRouterKey: null }, 'dev');
+  const read = await roleSources({ ...deps, baseUrl: 'https://openrouter.test', openRouterKey: null }, 'server');
   return read.sources.find((one) => one.via === 'claude');
 };
 
@@ -77,7 +79,7 @@ test('a help that cannot run stays unknown and leaves the source usable', async 
       openRouterKey: null,
       helpOf: () => Promise.reject(new Error('no help')),
     },
-    'dev'
+    'server'
   );
   const claude = read.sources.find((one) => one.via === 'claude');
   assert.equal(claude?.code, 'ok');
@@ -88,26 +90,26 @@ test('the setter stores a level the binary lists for an agent', async () => {
   // Catches: the chooser offering max and the setter refusing it after the confirmation.
   // Changed: the memory writer's effort is on the route scale of its chain (slice 4), so its half is deleted.
   const { deps, privateDir } = rig(LISTED);
-  const agent = await setAgentModel(deps, 'dev', 'opus', 'max', 'claude');
+  const agent = await setAgentModel(deps, 'server', 'opus', 'max', 'claude');
   assert.equal(agent.ok, true, agent.message);
-  assert.equal(readKeysFile(privateDir).subharness.efforts?.dev, 'max');
+  assert.equal(readKeysFile(privateDir).subharness.efforts?.server, 'max');
 });
 
 test('the setter refuses a level this binary does not list', async () => {
   // Catches: xhigh saved for a CLI that fails on it at the next real run.
   const { deps, privateDir } = rig(FLAG_ONLY);
-  const answer = await setAgentModel(deps, 'dev', 'opus', 'xhigh', 'claude');
+  const answer = await setAgentModel(deps, 'server', 'opus', 'xhigh', 'claude');
   assert.equal(answer.code, 'unknown-effort');
-  assert.equal(readKeysFile(privateDir).subharness.efforts?.dev, undefined);
+  assert.equal(readKeysFile(privateDir).subharness.efforts?.server, undefined);
 });
 
 test('the word default clears an agent effort after its reply check', async () => {
   // Catches: the chooser's "model default" leaving the old level in force, because omission keeps it.
   const { deps, privateDir } = rig(LISTED);
-  await setAgentModel(deps, 'dev', 'opus', 'high', 'claude');
-  const answer = await setAgentModel(deps, 'dev', 'opus', 'default');
+  await setAgentModel(deps, 'server', 'opus', 'high', 'claude');
+  const answer = await setAgentModel(deps, 'server', 'opus', 'default');
   assert.equal(answer.ok, true, answer.message);
-  assert.equal(readKeysFile(privateDir).subharness.efforts?.dev, undefined);
+  assert.equal(readKeysFile(privateDir).subharness.efforts?.server, undefined);
 });
 
 test('an opencode model from the listing is committed under the name opencode runs', () => {
@@ -126,9 +128,14 @@ test('an opencode model from the listing is committed under the name opencode ru
     manualModel: true,
   } as const;
   const steps: ReadonlyArray<(state: PickerState) => PickerEvent> = [
-    () => ({ kind: 'choose', id: 'development' }),
-    () => ({ kind: 'choose', id: 'dev' }),
-    (state) => ({ kind: 'sources', revision: state.revision, read: { role: 'dev', current: null, sources: [source] } }),
+    // Changed: the server sits under Errand, the Development group being gone (maintainer, 2026-11-16).
+    () => ({ kind: 'choose', id: 'errand' }),
+    () => ({ kind: 'choose', id: 'server' }),
+    (state) => ({
+      kind: 'sources',
+      revision: state.revision,
+      read: { role: 'server', current: null, sources: [source] },
+    }),
     () => ({ kind: 'choose', id: 'subharness' }),
     () => ({ kind: 'choose', id: source.id }),
     () => ({ kind: 'choose', id: 'vendor/text-1' }),
@@ -138,7 +145,7 @@ test('an opencode model from the listing is committed under the name opencode ru
   for (const next of steps) state = pickerReduce(state, next(state)).state;
   const saved = pickerReduce(state, { kind: 'confirm' }).effects[0];
   assert.deepEqual(saved?.kind === 'commit' ? saved.command.args : null, {
-    role: 'dev',
+    role: 'server',
     model: 'openrouter/vendor/text-1',
     // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
     via: 'opencode-harness',

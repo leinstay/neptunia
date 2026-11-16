@@ -6,7 +6,7 @@
 // proxy (`suspect`, with `isProxyConnectionFailure` deciding which errors count). It hands the URL in force to `apply`
 // whenever it changes (src/net/global-proxy.ts sets it for the whole process) and tells `onSwitch` of each fallback and
 // recovery, so the persona learns of it as of any failure. The core (src/core.ts) runs one; the interfaces never take
-// the proxy. A worker with no monitor of its own (the watcher, the development worker) decides each agent run with
+// the proxy. A worker with no monitor of its own (the watcher) decides each agent run with
 // `proxyForRun`, one probe before the run. `proxyEnvOf` is the environment a child process gets for the URL in force,
 // and `probeProxy` the default probe. A URL may carry a login and a password: nothing here logs one.
 

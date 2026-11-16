@@ -524,8 +524,7 @@ export const KEPT: ReadonlyArray<string> = [
   'models.abilities',
   'models.errands.scout',
   'models.errands.server',
-  'models.development.thinker',
-  'models.development.dev',
+  // Changed: `models.development` left with the development agents (maintainer, 2026-11-16).
   'llm.baseUrl',
   'llm.maxOutputTokens',
   'llm.maxRequestTokens',

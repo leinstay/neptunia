@@ -25,8 +25,6 @@ const WORDS: Record<string, string> = {
   tools: 'Tools',
   skills: 'Skills',
   watcher: 'Project watcher',
-  selfimprovement: 'Self-development',
-  development: 'Development worker',
   selfreflection: 'Diary',
   gifs: 'GIF selection',
   dm: 'Direct messages',
@@ -133,9 +131,6 @@ const EXPLANATIONS: Record<string, string> = {
   'recall.db.vectorEviction':
     'Remove older vectors from the search index daily. Stored messages remain in the archive.',
   'tools.transport': 'Use native for structured tool calls, or text for tool calls written inside the model response.',
-  'selfimprovement.checkout': 'Absolute path of the development checkout where self-development tasks run.',
-  'selfimprovement.repository':
-    'GitHub repository for self-development, written as owner/name. Configure access through setup.',
   'board.reapSeconds': 'How often to release expired task claims so the tasks can be picked up again, in seconds.',
   'board.briefWaitMs': 'Time to wait for review before offering a completed task again, in milliseconds.',
   'wakes.mode': 'Use shadow to record proposed actions without executing them, or live to allow permitted actions.',

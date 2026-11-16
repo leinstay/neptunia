@@ -29,9 +29,7 @@ Start with the task you want to do. These guides describe the engine and its pub
 | [Interfaces](interfaces.md) | Connect a chat platform |
 | [Skills](skills.md) | Add a procedure with optional scripts |
 | [Errands](errands.md) | Configure delegated work |
-| [Development agents](development-agents.md) | Customize the agents and their execution modes |
 | [Task board](board.md) | Follow work, results and approvals |
-| [Self-development](selfimprovement.md) | Run development through a separate checkout |
 | [Watcher](watcher.md) | Inspect the engine and read its reports |
 | [Prompt contract](prompt-contract.md) | Change prompts without breaking their readers |
 | [Configuration](configuration.md) | Look up setting types, defaults and readers |

@@ -6,6 +6,8 @@
 // life over a fake turn runner and reads its clock back through `services`, reads the memory and exports it. No model is
 // asked outside the one fake check, no request leaves the process, and the export reconciles with the database.
 // Synthetic content only.
+// Changed: the agent `thinker` is gone with the development agents (maintainer, 2026-11-16),
+// so the agent checks use `server`.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -186,7 +188,7 @@ const same = (one: Answer, two: Answer): void => {
 test('a model chosen on argv and another on the chat are each checked once, saved, and read the same on both paths', async () => {
   // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Bug: one spelling saves a choice the check never ran, or `model show` answers differently on the two paths.
-  const first = await journey.argv('model', 'set', 'thinker', 'sonnet', '--via', 'claude-harness');
+  const first = await journey.argv('model', 'set', 'server', 'sonnet', '--via', 'claude-harness');
   assert.equal(first.status, 'ok', first.text);
   const second = await journey.chat('/model set scout haiku --via claude-harness');
   assert.equal(second.status, 'ok', second.text);
@@ -195,10 +197,10 @@ test('a model chosen on argv and another on the chat are each checked once, save
     ['sonnet', 'haiku']
   );
   const stored = readKeysFile(journey.dir).subharness;
-  assert.deepEqual([stored.uses?.thinker, stored.models?.thinker], ['claude', 'sonnet']);
+  assert.deepEqual([stored.uses?.server, stored.models?.server], ['claude', 'sonnet']);
   assert.deepEqual([stored.uses?.scout, stored.models?.scout], ['claude', 'haiku']);
-  const sources = await journey.argv('model', 'sources', 'thinker');
-  same(sources, await journey.chat('/model sources thinker'));
+  const sources = await journey.argv('model', 'sources', 'server');
+  same(sources, await journey.chat('/model sources server'));
 });
 
 test('the same person is the same answer on argv and on the chat', async () => {

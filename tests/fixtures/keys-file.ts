@@ -68,7 +68,8 @@ function placed(tree: Tree, at: string, value: unknown): Tree {
 function usesOf(sub: KeysFile['subharness']): Record<string, Backend> {
   const first = sub.backends?.[0] ?? sub.backend ?? null;
   if (first === null) return { ...sub.uses };
-  const agents = ['scout', 'server', 'dev', 'watcher', 'thinker'];
+  // Changed: the agents `dev` and `thinker` are gone with the development agents (maintainer, 2026-11-16).
+  const agents = ['scout', 'server', 'watcher'];
   return { ...Object.fromEntries(agents.map((agent) => [agent, first])), ...sub.uses };
 }
 

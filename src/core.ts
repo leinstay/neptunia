@@ -111,14 +111,9 @@ import { createChatStore } from './chat/store.ts';
 import { withStoredHistory } from './chat/stored-history.ts';
 import { echoThrough, keepLineFiles, withKeptSends } from './chat/kept-media.ts';
 import { createKeptFetch } from './media/kept-files.ts';
-import type { ApprovalGate, ApprovalResult } from './board/approval-view.ts';
-import { createCheckpointDesk } from './development/checkpoint-desk.ts';
-import { WORKTREE_FOLDER } from './development/edges.ts';
-import { selfimprovementSettings } from './selfimprovement/settings.ts';
 import { chatLines, recentGroupLines } from './memory/db/chat-lines.ts';
 import { ownerConsoleName, ownerConsolePlace } from './memory/db/identity-links.ts';
 import { mediaText } from './memory/db/media-store.ts';
-import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
 import { coreWatcherStarter } from './watcher/doctor.ts';
 import { failRunOfLastCore, runStoreOf } from './watcher/lifecycle.ts';
@@ -399,7 +394,7 @@ async function buildCore(
 
   // The task board (src/board/, docs/core.md "The task board"): its tables in the memory database, every write of it
   // a write of the memory writer, over the core's clock, the live `board.*` settings and the private layer's
-  // clients.json, read at each call. The agents' `task.*` commands, the status card and the reaper's beat use it.
+  // clients.json, read at each call. The reaper's beat uses it.
   const board = createBoardPort({
     write: (write) => memoryDb.memoryWrite({ kind: 'board', write }),
     context: () => ({ at: clock(), settings: boardSettings(settings.config), privateDir: paths.privateDir }),
@@ -412,7 +407,6 @@ async function buildCore(
     // The live settings and prompts, read at each use.
     hot: settings,
     memoryDb,
-    board,
     selfId: () => identity.selfId,
     rootDir: paths.rootDir,
     privateDir: paths.privateDir,
@@ -1279,8 +1273,6 @@ async function buildCore(
   const admin = createAdmin({
     hot,
     store,
-    // The task board (src/board/writer.ts): the status card's agent costs.
-    board,
     // Her skill tools (src/tools/operations/skill.ts): `skill.read` and `skill.disable`.
     skills: skillsWiring.access,
     // Her tool `watcher.read` (src/tools/operations/watcher.ts): the reports folder follows `watcher.dir` at each read.
@@ -1431,29 +1423,10 @@ async function buildCore(
     now: clock,
     config: (): unknown => hot.config,
   });
-  // The chat's sessions and development checkpoints (docs/cli.md).
+  // The chat's sessions (docs/cli.md).
   chatState = createChatState({
     sessions: chatSessions,
     place: () => ownerConsolePlace(memoryDb.database()),
-    checkpoints: createCheckpointDesk({
-      tasks: async () => (await board.command(OWNER_CLIENT.name, 'task.list', { lane: 'dev' })).data,
-      worktreeRoot: () => {
-        const { checkout } = selfimprovementSettings(hot.config);
-        return checkout === null ? null : path.join(checkout, WORKTREE_FOLDER);
-      },
-      storeDir: path.join(paths.privateDir, 'development', 'checkpoints'),
-      now: clock,
-      newId: randomUUID,
-    }),
-    // The owner's gates, under the owner's own board name: the board's rights decide.
-    approvals: {
-      gates: async () =>
-        ((await board.command(OWNER_CLIENT.name, 'task.approvals', {})).data ?? []) as ReadonlyArray<ApprovalGate>,
-      answer: async (answer) => {
-        const reply = await board.command(OWNER_CLIENT.name, 'task.approval.answer', answer);
-        return (reply.data ?? { status: 'refused', code: reply.status, message: reply.text }) as ApprovalResult;
-      },
-    },
     // No read holds the last request's size, so that number stays unknown.
     context: () => ({
       usedTokens: null,
@@ -1462,7 +1435,7 @@ async function buildCore(
       model: stringOrNull(roleModel(objOf(hot.config), 'core')),
     }),
   });
-  // The owner's commands over the link: the `neptunia` chat and `-p`, and the board commands of the agents.
+  // The owner's commands over the link: the `neptunia` chat and `-p`.
   commandDesk = createCommandDesk({
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
@@ -1535,11 +1508,6 @@ async function buildCore(
       disable: (name) => interfaceLinks.disable(name),
       installed: () => interfacePackageNames(paths.rootDir, dataDir),
     },
-    // The agents' board commands (src/board/commands.ts), each run in the memory writer.
-    tasks: board,
-    // The agents' `skill.pending` (src/skills/agent-commands.ts), which binds a package on the board.
-    skills: skillsWiring.access,
-    board,
     facts: () =>
       coreStatusFacts({
         hot,
@@ -1728,16 +1696,6 @@ async function buildCore(
     run: async () => {
       const ids = await board.reap();
       if (ids.length > 0) log.info('board: leases expired', { count: ids.length, tasks: ids });
-    },
-  });
-  // Her done skill tasks activate the version each one bound (src/skills/task-activation.ts), on the reaper's clock. Only the
-  // core holds the skills access and the board together. A sweep looks at the board and not at a notification, so a crash
-  // between a task's end and its activation recovers on the first beat after the start.
-  scheduler.add({
-    name: 'skills.settle',
-    everyMs: () => boardTimings(settings.config).reapSeconds * 1000,
-    run: async () => {
-      for (const one of await skillsWiring.settle()) log.info('skills: task settled', { ...one });
     },
   });
   // The inner life's tick, every wakes.tickSeconds (read before each wait).

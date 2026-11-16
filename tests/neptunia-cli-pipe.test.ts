@@ -70,14 +70,14 @@ function readSlowly(stream: NodeJS.ReadableStream): Promise<Buffer> {
 const LARGE_ANSWERS: ReadonlyArray<[string, ReadonlyArray<string>]> = [
   ['a direct command', ['rules', 'list']],
   ['-p with a slash command', ['-p', '/rules list']],
-  ['a tasks command', ['tasks', 'list']],
+  // Changed: `neptunia tasks` is gone with the board's command line (maintainer, 2026-11-16).
 ];
 
 for (const [name, argv] of LARGE_ANSWERS) {
   test(`${name} delivers an answer past the pipe size whole to a slow reader`, async () => {
     // Catches: the process exits before the stdout pipe drains, so `| jq` gets the first 65536 bytes and exit 0.
     reply = { status: 'ok', text: BIG };
-    const { child, exited } = spawnPiped(argv, { NEPTUNIA_TASK_TOKEN: 'recording-core-token' });
+    const { child, exited } = spawnPiped(argv);
     let errText = '';
     child.stderr!.on('data', (chunk: Buffer) => (errText += chunk.toString()));
     const [received, exit] = await Promise.all([readSlowly(child.stdout!), exited]);

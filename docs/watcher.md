@@ -2,7 +2,7 @@
 
 The watcher is an agent that reads project and persona evidence and writes a report for the owner, who decides what to do about it. It files no task, implements no fix and deploys nothing. This guide is for an owner who runs it or changes how it runs.
 
-Its shared definition lives in `agents/watcher/`. Customize the prompt and supported profile fields under `data/agents/watcher/`, just like the [other agents](development-agents.md). Reports live under `data/agents/watcher/reports/`.
+Its shared definition lives in `agents/watcher/`. Customize the prompt and supported profile fields under `data/agents/watcher/`, just like the [other agents](../agents/README.md). Reports live under `data/agents/watcher/reports/`.
 
 ## Run and read
 

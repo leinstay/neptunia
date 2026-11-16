@@ -6,8 +6,7 @@
  * The config keys that govern authorization or the persona's own controls: who is an owner and
  * which tools she holds (`bot.ownerPerson`, `bot.access`), the language of the phrase codes (`bot.mnemonic`), her tools' settings, safe mode included (`tools.*`, and the name it
  * had before, `skills.*`), the wakes' mode, caps and limits (`wakes.*`, and the old name `innerLife.*`), and the
- * heartbeat's and the selfimprovement wake's own limits (`heartbeat.*`, `selfimprovement.*`), and the boundary and limits
- * of the development worker (`development.*`).
+ * heartbeat's own limits (`heartbeat.*`).
  * The one list behind the non-delegable rule: she never changes her effective authority, directly or indirectly
  * (src/tools/operations/config.ts, src/tools/operations/access.ts).
  */
@@ -19,8 +18,6 @@ export const PERSONA_GOVERNED_CONFIG: ReadonlyArray<string> = Object.freeze([
   'skills',
   'wakes',
   'heartbeat',
-  'selfimprovement',
-  'development',
 ]);
 
 /**

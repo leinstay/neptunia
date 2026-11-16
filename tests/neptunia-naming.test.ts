@@ -98,16 +98,7 @@ for (const argv of [
   });
 }
 
-test('neptunia task is refused and names tasks, while neptunia tasks reaches the board and reports no core', async () => {
-  // Catches: the board's shell family keeps the singular, or the plural is not wired and answers a usage.
-  fresh();
-  const singular = await run(offline, ['task', 'list']);
-  assert.equal(singular.code, 2, singular.stderr.slice(0, 300));
-  assert.ok(singular.stderr.includes('tasks'), singular.stderr.slice(0, 300));
-  const plural = await run(offline, ['tasks', 'list']);
-  assert.equal(plural.code, 1, plural.stderr.slice(0, 300));
-  assert.ok(plural.stderr.startsWith('unavailable:'), plural.stderr.slice(0, 300));
-});
+// Changed: `neptunia tasks` is gone with the board's command line (maintainer, 2026-11-16).
 
 test('neptunia services list answers with no core, lists the two mechanisms and changes nothing', async () => {
   // Catches: the list needs the core, lists a unit, or writes a setting or moves a timer while it reads.

@@ -297,8 +297,6 @@ const ENTRIES: Array<Definition> = [
         'costs.base',
         'models.errands',
         'costs.errands',
-        'models.development',
-        'costs.development',
         'inner',
         'limits',
         'memory',
@@ -374,19 +372,7 @@ const ENTRIES: Array<Definition> = [
     traits: ['ungrantable'],
     params: obj(
       {
-        role: oneOf([
-          'core',
-          'analyzer',
-          'vision',
-          'video',
-          'embedding',
-          'speech',
-          'drawing',
-          'scout',
-          'server',
-          'thinker',
-          'dev',
-        ]),
+        role: oneOf(['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing', 'scout', 'server']),
         id: str(),
       },
       ['role', 'id']

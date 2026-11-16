@@ -1,4 +1,4 @@
-// The one seam every agent run goes through: errands (scout and server), development and the watcher. It reads the
+// The one seam every agent run goes through: errands (scout and server) and the watcher. It reads the
 // agent's route from config.json (src/subharness/routing.ts) at the moment of the run, as Hermes' approval guard reads its mode on each check
 // (hermes_cli/approval_mode.py), so a logout and "agent mode" act on the next run without a restart.
 //

@@ -90,14 +90,13 @@ test('loadPrincipals lists each client with its kind, iface and token file, and 
   assert.equal(byName.get('owner')?.kind, 'cli');
 });
 
-// Stage 6c: the board's agents are clients of their own kind.
-test('an agent entry of clients.json stands for a principal of kind agent with no iface', () => {
+// Changed: the board's agents and their kind `agent` are gone (maintainer, 2026-11-16), so a leftover entry of that
+// kind, as an older install's `owner` and `development` clients, stands for no one.
+test('an agent entry of clients.json stands for no principal', () => {
+  // Catches: a leftover agent token still opens the socket after the kind left the engine.
   const AGENT: Entry = { kind: 'agent', tokenFile: 'clients/hand.token', permissions: [] };
   const privateDir = layer({ hand: AGENT }, { hand: 'h'.repeat(64) });
-  const hand = principalOfToken('h'.repeat(64), { privateDir, boot: null });
-  assert.equal(hand?.name, 'hand');
-  assert.equal(hand?.kind, 'agent');
-  assert.equal(hand?.iface, null);
+  assert.equal(principalOfToken('h'.repeat(64), { privateDir, boot: null }), null);
 });
 
 // The boot token of an in-process deployment (src/interface/principals.ts): random per boot and held by the core, so it
@@ -110,8 +109,9 @@ const BOOT_BOOT_PRINCIPAL: BootPrincipal = {
   principal: { name: 'discord', kind: 'interface', iface: null, permissions: [] },
 };
 
-/** A persona folder after `neptunia setup units`, which leaves the client `owner` in `clients.json`. */
-// Changed: setup makes no client `watcher` any more (owner, 2026-11-09), so the client under test is `owner`.
+/** A persona folder after `neptunia setup units`, which leaves the client `cli` in `clients.json`. */
+// Changed: setup makes no client `watcher` (owner, 2026-11-09) and no client `owner` (maintainer, 2026-11-16), so the
+// client under test is `cli`.
 async function afterSetupUnits(): Promise<string> {
   const base = tempDir('nep-boot-principal-');
   const dataDir = path.join(base, 'data');
@@ -149,10 +149,10 @@ test('a wrong token is no one, with or without clients.json', async () => {
 test("a client's token stands for that client and never for the boot principal", async () => {
   // Catches: a client on the socket gets the in-process interface's name and rights.
   const privateDir = await afterSetupUnits();
-  const token = fs.readFileSync(path.join(privateDir, 'clients', 'owner.token'), 'utf8').trim();
+  const token = fs.readFileSync(path.join(privateDir, 'clients', 'cli.token'), 'utf8').trim();
   const who = principalOfToken(token, { privateDir, boot: BOOT_BOOT_PRINCIPAL });
-  assert.equal(who?.name, 'owner');
-  assert.equal(who?.kind, 'agent');
+  assert.equal(who?.name, 'cli');
+  assert.equal(who?.kind, 'cli');
 });
 
 test('a boot principal with no token is no one, and an empty token never matches it', async () => {

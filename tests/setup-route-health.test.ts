@@ -5,6 +5,8 @@
 // 2026-11-08. keys.json and config.json in a temp dir, fetch and the vendors are fakes.
 // Changed: every role runs on its chain in `models.routes` (spec 2026-11-09-model-routes, slice 4), so the rig gives each
 // role of MODELS a chain of one route on `core-1`, or on the key `options.keys` names, and none for a role set to false.
+// Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
+// so the agent checks use `server`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -118,12 +120,12 @@ test('the memory writer on a harness that is logged out fails the check, and its
 });
 
 test('an agent on a harness that is logged out is reported as a warning', async () => {
-  // Catches: a dev agent whose claude login dropped left out of the doctor, or failing it although she runs on.
-  const { privateDir, run } = rig({ subharness: { key: null, modes: {}, uses: { dev: 'claude' } } });
+  // Catches: an agent whose claude login dropped left out of the doctor, or failing it although she runs on.
+  const { privateDir, run } = rig({ subharness: { key: null, modes: {}, uses: { server: 'claude' } } });
   fakeVendor(privateDir, 'claude', { loggedIn: false });
   const health = await run();
   assert.equal(health.status, 'warn');
-  assert.ok(/dev: claude-harness .*not logged in/.test(health.detail), health.detail);
+  assert.ok(/server: claude-harness .*not logged in/.test(health.detail), health.detail);
 });
 
 test('a key no route names is read for free and reported unused', async () => {

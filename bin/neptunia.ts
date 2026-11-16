@@ -14,17 +14,16 @@
 //   neptunia doctor watcher accepted|accept <text>|unaccept <n>   the list of accepted findings, from its file
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
-//   neptunia services list                       the three scheduled mechanics (src/service/commands.ts)
+//   neptunia services list                       the two scheduled mechanics (src/service/commands.ts)
 //   neptunia services <name> setup|enable|disable|status   one of them
 //   neptunia services watcher evidence [--from <iso>] [--cursor <c>]  what the services asked and answered, as JSON
 //   neptunia services watcher select --sql <statement>  one read-only statement over the memory database, as JSON
 //   neptunia services start|stop|restart|status [<unit> ...]   the units, through the scope's systemctl
 //   neptunia logs [errors] [follow] [since <when>]   the core's journal, in the scope of the units
 //   neptunia setup [--system] [--node <path>]    the install of one user, one flow: folders, keys file, her subharness
-//                                                backends, the repository of her self-development, her mechanics,
-//                                                the watcher, units, linger, the core. A name of a step is refused.
+//                                                backends, her mechanics, the watcher, units, linger, the core. A
+//                                                name of a step is refused.
 //   neptunia subharness <backend> login|status|logout   its account, with no core (src/subharness/account.ts)
-//   neptunia tasks <command> [options]           the task board's command line (bin/neptunia-task.ts)
 //
 // Every command reads `NEPTUNIA_DATA_DIR` (the data folder), as the core does (src/paths.ts). A usage error exits 2,
 // and so does an `/interfaces` line refused by the table or naming no interface, with every interface name on stderr.
@@ -58,10 +57,6 @@
 // `worker` names what a unit or the core starts, and the usage leaves it out: `worker watcher`, which the core starts for
 // `/doctor watcher run`, runs one inspection under the run identity the core claimed (bin/neptunia-watcher.ts,
 // docs/watcher.md).
-//
-// `worker development` (deploy/neptunia-development.service) is the long-lived development worker (bin/development.ts,
-// docs/selfimprovement.md) as the client `development`: a filed task starts a thinker, and a finished one a pull request.
-// `worker development held` lists the tasks older than its boundary. It exits 1 when the board is not reachable.
 //
 // `doctor` writes nothing but asks for real: its `routes` check sends one minimal request on every route of each chain
 // (src/setup/route-health.ts, the owner's word of 2026-11-08). It checks Node, the binaries the engine runs, config.json,
@@ -103,10 +98,8 @@ import { createAgentEngine } from '../src/agent-runner/backend.ts';
 import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
-import { spawnGh } from '../src/selfimprovement/repository.ts';
 import { spawnRun } from '../src/setup/install.ts';
 import type { RunResult } from '../src/setup/install.ts';
-import { installGhOfficially } from '../src/setup/development.ts';
 import { runSetupFlow, setupFlowSteps } from '../src/setup/flow.ts';
 import { decideLaunch, evaluateReadiness, gatherHealth, readinessText } from '../src/setup/readiness.ts';
 import { routeHealth } from '../src/setup/route-health.ts';
@@ -161,11 +154,9 @@ import type {
   Print,
   RunningCli,
 } from '../interfaces/cli/link.ts';
-import { runDevelopment } from './development.ts';
 import { readTurnEvent } from '../src/protocol/turn-control.ts';
 import type { TurnEvent } from '../src/protocol/turn-control.ts';
 import type { MessageEvent as ChatLine } from '../src/protocol/adapter.ts';
-import { runTask } from './neptunia-task.ts';
 import { runWatcherWorker } from './neptunia-watcher.ts';
 import {
   askSetup,
@@ -211,7 +202,6 @@ const USAGE = [
   '       neptunia setup [--system] [--node <path>]',
   '       neptunia subharness codex|claude login|status|logout',
   '       neptunia subharness opencode login --key <name>|status|logout',
-  '       neptunia tasks <command> [options]   (neptunia tasks help)',
   COMMANDS_LINE,
 ].join('\n');
 
@@ -752,8 +742,6 @@ async function runInkChat(
       { name: 'sessions', help: 'List stored chats and resume one' },
       { name: 'sessions resume', help: 'Resume a stored chat by its id' },
       { name: 'branch', help: 'Continue this chat from an earlier line' },
-      { name: 'checkpoints', help: "Preview and restore a development task's files" },
-      { name: 'approvals', help: 'Approve or reject what waits on the task board' },
       ...menuCommandsOf(COMMANDS, interfacePackageNames(ROOT_DIR, where.dataDir)),
     ],
     history: records.map((one) => one.text),
@@ -1474,10 +1462,8 @@ function setupDeps(): SetupDeps {
     ...(terminal
       ? {
           ask: askAtTerminal,
-          gh: spawnGh(process.env),
           install: installRun,
           hostEnv: process.env,
-          installGh: () => installGhOfficially(spawnRun, process.getuid?.() === 0),
         }
       : {}),
   };
@@ -1728,12 +1714,7 @@ switch (group) {
       await runDirect([group, ...rest]).catch(fault);
     }
     break;
-  case 'tasks':
-    await exitAfterFlush(await runTask(rest).catch(fault));
-    break;
   case 'worker':
-    if (rest[0] === 'development' && (rest.length === 1 || (rest.length === 2 && rest[1] === 'held')))
-      await exitAfterFlush(await runDevelopment(rest.slice(1)).catch(fault));
     if (rest.length !== 1 || rest[0] !== 'watcher') usage();
     await exitAfterFlush(await runWatcherWorker(paths()).catch(fault));
     break;

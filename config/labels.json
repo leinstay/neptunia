@@ -987,9 +987,7 @@
         "keySince": ", switched {when}",
         "roleNames": {
           "scout": "errands",
-          "server": "errands",
-          "thinker": "development",
-          "dev": "development"
+          "server": "errands"
         },
         "keyLimit": "{lead}: {spent} / {limit} USD ({notes})",
         "keyLimitPlain": "{lead}: {spent} / {limit} USD",
@@ -1064,16 +1062,6 @@
         "refused": "session: refused ({code})",
         "line": "session · {mode} · {path} · {sweeps} today · {cap} per scope · last run {outcome} at {at}",
         "pending": "session · {n} batches waiting for another try · {tries} of {limit} tries"
-      }
-    },
-    "selfimprovement": {
-      "check": {
-        "gh-missing": "Self-development needs the GitHub CLI, and there is no gh on her PATH. Install gh and run setup again.",
-        "gh-logged-out": "gh is not logged in on this system. Run gh auth login as the user the units run as, then run setup again.",
-        "no-push": "The system's gh login cannot push to {repository}. Fork it, name the fork in selfimprovement.repository and run setup again.",
-        "repository-unset": "selfimprovement.repository names no repository as owner/name, so her pull requests have nowhere to go. Run setup to name one.",
-        "failed": "gh gave no usable answer about {repository}. Check the name and that GitHub is reachable, then try again.",
-        "no-modules": "The development checkout has no node_modules, so the tests of a task cannot run. Run npm install in selfimprovement.checkout, then unblock the task."
       }
     },
     "link": {

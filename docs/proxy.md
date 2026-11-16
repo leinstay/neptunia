@@ -35,7 +35,7 @@ A request of the core that cannot reach the proxy does not wait for the next pro
 
 Each switch reaches the persona as a `proxySwitched` fact at her next turn, worded by `wake.feedback.proxySwitched` and the code `proxy-down` or `proxy-back` (see [the prompt contract](prompt-contract.md)). `/proxy off` goes direct without a notice.
 
-The watcher and the development worker run in processes of their own, without a monitor. Before each agent run they probe the stored URL once with `proxyForRun` and give the run the proxy only when it answered.
+The watcher runs in a process of its own, without a monitor. Before each agent run it probes the stored URL once with `proxyForRun` and gives the run the proxy only when it answered.
 
 ## curl in agent runs
 

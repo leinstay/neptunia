@@ -38,7 +38,7 @@ export type SkillsPort = {
   pending(): Array<VersionView & { skill: string }>;
   review(name: string): { active: VersionView | null; candidates: Array<VersionView> } | null;
   activate(name: string, by: string): ReturnType<typeof activateSkill>;
-  /** Activates exactly this version of `name`, as a task's settlement does (task-activation.ts). */
+  /** Activates exactly this version of `name`. */
   activateVersion(
     name: string,
     versionId: string,

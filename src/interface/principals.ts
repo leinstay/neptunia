@@ -1,8 +1,7 @@
 // The clients of the core and the principal each token stands for. The private layer's `clients.json` maps a client's
-// name to its principal: `kind` (`interface`, `cli` or `agent`), `iface` for an interface, `tokenFile` (a
-// path under the private directory, `clients/<name>.token`, mode 0600), `permissions`, and for a client of the task
-// board its `boardRoles` (src/board/board.ts reads those). scripts/client-token.ts writes both. An agent's principal has
-// no `iface`: it says hello under `agent` (src/interface/link.ts). The link resolves the token of every envelope
+// name to its principal: `kind` (`interface` or `cli`), `iface` for an interface, `tokenFile` (a path under the
+// private directory, `clients/<name>.token`, mode 0600) and `permissions`. scripts/client-token.ts writes both. An
+// entry of any other kind is skipped. The link resolves the token of every envelope
 // through `principalOfToken`, which reads the files at each call, so a rotated or revoked token stops at the next
 // envelope. The core's boot principal, made at start for the interface a test starts in the core's process, holds whatever `clients.json`
 // says: its token is random per boot and only the core has it, and `neptunia setup` writes that file under a running
@@ -12,8 +11,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** The client kinds: an interface package, the owner's command line, a development agent of the board. */
-export const PRINCIPAL_KINDS = ['interface', 'cli', 'agent'] as const;
+/** The client kinds: an interface package and the owner's command line. */
+export const PRINCIPAL_KINDS = ['interface', 'cli'] as const;
 export type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
 
 /**
@@ -49,8 +48,7 @@ const isKind = (value: unknown): value is PrincipalKind =>
 function entryOf(name: string, value: unknown): ClientEntry | null {
   if (!isObject(value) || !isKind(value.kind)) return null;
   if (typeof value.tokenFile !== 'string' || value.tokenFile === '') return null;
-  const named = typeof value.iface === 'string' && value.iface !== '' ? value.iface : null;
-  const iface = value.kind === 'agent' ? null : named;
+  const iface = typeof value.iface === 'string' && value.iface !== '' ? value.iface : null;
   if (value.kind === 'interface' && iface === null) return null;
   const permissions = Array.isArray(value.permissions)
     ? value.permissions.filter((item): item is string => typeof item === 'string')

@@ -1,94 +1,25 @@
-// The cutover's done-criteria (PR 6e of the stage 6 cut): one board in the core serves the development work and her
-// errands with no ledger service anywhere. The core runs in the test process as the units run it
-// (tests/fixtures/core-units.ts), over temporary folders and a scripted model; the development agents are
-// `neptunia tasks` children over the core's socket with their tokens; her errand goes to a fake scout runner on its own
-// socket, which answers the runner protocol (src/agent-runner/protocol.ts). A listening socket stands where the ledger
-// mirror's was, so any connection to it shows. No dollar cap is read: a spent `daily.usd` of an agent changes nothing.
-// The tests read ids, statuses, generations, codes, exit codes and row counts, never a label's wording.
+// The cutover's done-criteria (PR 6e of the stage 6 cut): one board in the core serves her errands with no ledger
+// service anywhere. The core runs in the test process as the units run it (tests/fixtures/core-units.ts), over temporary
+// folders and a scripted model; her errand goes to a fake scout runner on its own socket, which answers the runner
+// protocol (src/agent-runner/protocol.ts). The tests read ids, statuses, codes and row counts, never a label's wording.
+// Changed: the development tasks driven through `neptunia tasks` are gone with the development worker (maintainer,
+// 2026-11-16), so only the errand's path stays.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { endEvent, encodeLine, pongEvent } from '../src/agent-runner/protocol.ts';
 
-import type { Handoff, TaskRecord, TaskView } from '../src/board/board.ts';
-import {
-  ANSWER,
-  mention,
-  query,
-  settle,
-  spawnCli,
-  startUnitsCore,
-  startedUnit,
-  until,
-  withRig,
-} from './fixtures/core-units.ts';
-import type { Client, Dirs, Exit, Llm, Settings } from './fixtures/core-units.ts';
+import { ANSWER, mention, query, settle, startUnitsCore, startedUnit, until, withRig } from './fixtures/core-units.ts';
+import type { Dirs, Llm, Settings } from './fixtures/core-units.ts';
 
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-const T0 = Date.parse('2026-10-31T12:00:00Z');
-const MINUTE = 60000;
 const SELF_ID = 'self-id';
-const HANDOFF: Handoff = {
-  result: 'The parser reads the zeta tag.',
-  evidence: ['the parser tests pass 12 of 12'],
-  artifacts: ['src/parser.ts'],
-  tests: [{ command: 'node --test tests/parser.test.ts', passed: 12, failed: 0 }],
-  open_issues: [],
-};
-/** The development principals of a deployment, with the roles the owner's answers of 2026-10-31 give them. */
-const DEV_CLIENTS: ReadonlyArray<Client> = [
-  { name: 'lead', kind: 'agent', roles: ['owner'] },
-  { name: 'thinker', kind: 'agent', roles: ['reviewer'] },
-  { name: 'dispatcher', kind: 'agent', roles: ['worker'] },
-  { name: 'dispatcher2', kind: 'agent', roles: ['worker'] },
-];
-const BOARD = { leaseTtlMinutes: 30, reapSeconds: 1, briefWaitMs: 1800000 };
-
-type Run = Exit & { stdout: string; stderr: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const tokenOf = (dirs: Dirs, name: string): string =>
-  readFileSync(join(dirs.privateDir, 'clients', `${name}.token`), 'utf8').trim();
-
-/** Runs `neptunia tasks ...args` as the agent `name` to its end, with its input closed. */
-async function task(dirs: Dirs, name: string, args: ReadonlyArray<string>, ms = 15000): Promise<Run> {
-  const cli = spawnCli(dirs, ['tasks', ...args], { NEPTUNIA_TASK_TOKEN: tokenOf(dirs, name) });
-  cli.end();
-  const timer = setTimeout(() => void cli.kill(), ms);
-  const exit = await cli.exited;
-  clearTimeout(timer);
-  assert.equal(exit.signal, null, `neptunia tasks ${args.join(' ')} did not end:\n${cli.stderr().slice(-2000)}`);
-  return { ...exit, stdout: cli.stdout(), stderr: cli.stderr() };
-}
-
-/** `neptunia tasks ...args` that must succeed; its standard output. */
-async function ok(dirs: Dirs, name: string, args: ReadonlyArray<string>): Promise<string> {
-  const run = await task(dirs, name, args);
-  assert.equal(run.code, 0, `${name}: task ${args.join(' ')}: ${run.stderr}`);
-  return run.stdout;
-}
-
-/** `neptunia tasks show <id> --json` as the lead. */
-async function shown(dirs: Dirs, id: string): Promise<TaskView> {
-  const view: unknown = JSON.parse(await ok(dirs, 'lead', ['show', id, '--json']));
-  assert.ok(isRecord(view) && isRecord(view.task), 'show --json answers a view');
-  // The JSON of `task show --json` is the board's TaskView.
-  return view as TaskView;
-}
-
-/** `neptunia tasks next` as `name`: the task it holds, with its generation. */
-async function next(dirs: Dirs, name: string): Promise<TaskRecord> {
-  const held: unknown = JSON.parse(await ok(dirs, name, ['next', '--lane', 'dev', '--role', 'dev', '--json']));
-  assert.ok(isRecord(held) && typeof held.id === 'string', `${name} got a task`);
-  // The JSON of `task next --json` is the board's TaskRecord.
-  return held as TaskRecord;
-}
 
 type Runner = { runs: Array<Record<string, unknown>>; close: () => Promise<void> };
 
@@ -175,86 +106,6 @@ function errandConfig(runner: string, out: string, extra: Settings = {}): Settin
 /** Her errand-lane tasks on the board, oldest first. */
 const errandTasks = (dirs: Dirs): Array<Record<string, unknown>> =>
   query(dirs, "SELECT id, role, status FROM board_tasks WHERE lane = 'errand' ORDER BY created_at, rowid");
-
-test('a development task goes from filing to done through neptunia tasks alone, with no ledger anywhere', async () => {
-  await withRig({ config: { board: BOARD }, clients: DEV_CLIENTS }, async ({ dirs, llm, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const id = (
-      await ok(dirs, 'lead', [
-        'add',
-        '--lane',
-        'dev',
-        '--project',
-        'core',
-        '--title',
-        'Read the zeta tag',
-        '--risk',
-        'low',
-        '--auto',
-      ])
-    ).trim();
-    assert.equal((await shown(dirs, id)).task.status, 'triaged', 'filed by the lead, it waits for its brief');
-    await ok(dirs, 'thinker', ['update', id, '--description', 'Read the zeta tag in src/parser.ts.']);
-    await ok(dirs, 'lead', ['approve', id]);
-    assert.equal((await shown(dirs, id)).task.status, 'approved');
-    const held = await next(dirs, 'dispatcher');
-    assert.equal(held.id, id);
-    assert.ok(held.lease_generation >= 1, 'the claim carries a generation');
-    const generation = String(held.lease_generation);
-    await ok(dirs, 'dispatcher', ['heartbeat', id, '--generation', generation]);
-    const handoff = join(dirs.root, 'handoff.json');
-    writeFileSync(handoff, JSON.stringify(HANDOFF));
-    await ok(dirs, 'dispatcher', ['submit', id, '--generation', generation, '--handoff', handoff]);
-    assert.equal((await shown(dirs, id)).task.status, 'needs_validation');
-    // The reviewer merges once CI is green, which it records on the task (src/board/machine.ts).
-    await ok(dirs, 'thinker', ['update', id, '--meta', 'ci=green']);
-    await ok(dirs, 'thinker', ['review', id, '--accept']);
-    const done = await shown(dirs, id);
-    assert.equal(done.task.status, 'done');
-    assert.equal(done.task.lease_owner, null);
-    assert.equal(done.handoff?.result, HANDOFF.result);
-    assert.deepEqual(
-      done.approvals.map((row) => [row.principal, row.decision]).filter(([, decision]) => decision === 'accept'),
-      [['thinker', 'accept']]
-    );
-  });
-});
-
-test("a late worker's submit after a reclaim is refused stale-lease through neptunia tasks, and the new holder's task is unchanged", async () => {
-  await withRig({ config: { board: BOARD }, clients: DEV_CLIENTS }, async ({ dirs, llm, cores }) => {
-    let clock = T0;
-    cores.push(await startUnitsCore(dirs, llm, () => clock));
-    const id = (
-      await ok(dirs, 'lead', ['add', '--lane', 'dev', '--project', 'core', '--title', 'late', '--auto', '--no-brief'])
-    ).trim();
-    const old = await next(dirs, 'dispatcher');
-    clock += 31 * MINUTE;
-    await until(
-      () => query(dirs, 'SELECT status FROM board_tasks WHERE id = ?', id)[0]?.status === 'approved',
-      `the reclaim of ${id}`
-    );
-    const fresh = await next(dirs, 'dispatcher2');
-    assert.ok(fresh.lease_generation > old.lease_generation);
-    const before = await shown(dirs, id);
-    const handoff = join(dirs.root, 'handoff.json');
-    writeFileSync(handoff, JSON.stringify(HANDOFF));
-    const late = await task(dirs, 'dispatcher', [
-      'submit',
-      id,
-      '--generation',
-      String(old.lease_generation),
-      '--handoff',
-      handoff,
-    ]);
-    assert.equal(late.code, 1);
-    assert.ok(late.stderr.startsWith('stale-lease:'), late.stderr);
-    const after = await shown(dirs, id);
-    assert.equal(after.task.status, 'in_progress');
-    assert.equal(after.task.lease_owner, 'dispatcher2');
-    assert.equal(after.task.revision, before.task.revision);
-    assert.equal(after.handoff, null);
-  });
-});
 
 test('her errand goes from her errand.run to its scout and back to her once, through the core alone', async () => {
   const sockets = tempDir('nb-');

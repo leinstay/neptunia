@@ -257,7 +257,8 @@ function installed(help: string | null, subharness: Record<string, unknown> = {}
   const argvFile = path.join(privateDir, 'argv');
   writeFakeClaude(subharnessPlace(privateDir, 'claude').binary, argvFile, help);
   const deps = { privateDir, denyDir: tempDir('nep-session-deny-') };
-  const run = { agent: 'dev', brief: 'THE-BRIEF', cwd: privateDir, timeoutMs: 5_000 };
+  // Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16), so the run is the server's.
+  const run = { agent: 'server', brief: 'THE-BRIEF', cwd: privateDir, timeoutMs: 5_000 };
   const argv = (): Array<string> => fs.readFileSync(argvFile, 'utf8').split('\n');
   return { privateDir, deps, run, argv };
 }
@@ -274,7 +275,7 @@ test('a claude run gets a fresh --session-id when its help lists it, and the map
   assert.equal(done.sessionId, id);
   const [row] = readSessionMap(privateDir);
   assert.equal(row?.sessionId, id);
-  assert.equal(row?.agent, 'dev');
+  assert.equal(row?.agent, 'server');
   assert.equal(row?.backend, 'claude');
   assert.equal(row?.runId, 'task-7');
 });
@@ -288,7 +289,7 @@ test('two runs get two session ids, both on the map', async () => {
   const rows = readSessionMap(privateDir);
   assert.deepEqual(
     rows.map((row) => row.agent),
-    ['dev', 'scout']
+    ['server', 'scout']
   );
   assert.notEqual(rows[0]?.sessionId, rows[1]?.sessionId);
 });
@@ -302,7 +303,7 @@ test('a run on a task route gets its session id too, with keys.json closed', asy
   const done = await runAgent({ ...run, route }, deps);
   assert.equal(done.ok, true);
   assert.ok(argv().includes('--session-id'));
-  assert.equal(readSessionMap(privateDir)[0]?.agent, 'dev');
+  assert.equal(readSessionMap(privateDir)[0]?.agent, 'server');
 });
 
 for (const [name, help] of [

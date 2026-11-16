@@ -85,7 +85,7 @@ test('a read run without profile tools names Read, Grep, Glob and Bash in --tool
 });
 
 test('a write run adds Edit and Write to both lists', async () => {
-  // Bug: a dev or thinker run reached the model but its edits were denied.
+  // Bug: an agent run reached the model but its edits were denied.
   const argv = await launch('dev', 'write');
   const expected = ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'];
   assert.deepEqual(namesOf(argv, '--tools'), expected);

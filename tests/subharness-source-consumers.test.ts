@@ -63,7 +63,8 @@ test('a unit binds no folder for a name the old list holds with no role and no i
   // Catches: the list goes on deciding the sandbox, so a backend gone from the machine stays writable by the agent.
   const dataDir = storeWith({
     backends: ['codex'],
-    uses: { scout: 'claude', server: 'claude', dev: 'claude', watcher: 'claude', thinker: 'claude' },
+    // Changed: the agents `dev` and `thinker` are gone (maintainer, 2026-11-16).
+    uses: { scout: 'claude', server: 'claude', watcher: 'claude' },
   });
   assert.equal(scoutUnit(dataDir).includes(subharnessPlace(dataDir, 'codex').dir), false);
 });
@@ -120,10 +121,11 @@ const rowOf = (text: string, role: string): string =>
 test('/subharness status lists the source, model, effort and mode of every role with no model run', async () => {
   // Catches: the status hides a role behind the list, or spends a request on a read.
   const privateDir = storeWith({
-    uses: { dev: 'claude', thinker: 'codex' },
-    models: { dev: 'sonnet', thinker: 'gpt-6-luna' },
-    efforts: { dev: 'high' },
-    modes: { dev: 'full' },
+    // Changed: the agents `dev` and `thinker` are gone (maintainer, 2026-11-16), so `server` and `scout` take their rows.
+    uses: { server: 'claude', scout: 'codex' },
+    models: { server: 'sonnet', scout: 'gpt-6-luna' },
+    efforts: { server: 'high' },
+    modes: { server: 'full' },
     memory: { backend: 'claude', model: 'claude-opus-4-6', effort: 'high' },
   });
   fakeVendor(privateDir, 'claude', { loggedIn: true });
@@ -131,9 +133,10 @@ test('/subharness status lists the source, model, effort and mode of every role 
   const { deps, runs } = enableDeps(privateDir);
   const answer = await subharnessCommand(deps, 'subharness.status', {});
   assert.equal(answer.status, 'ok');
-  const dev = rowOf(answer.text, 'dev');
-  for (const word of ['claude', 'sonnet', 'high', 'full']) assert.ok(dev.includes(word), `dev: ${word} in "${dev}"`);
-  assert.ok(rowOf(answer.text, 'thinker').includes('gpt-6-luna'));
+  const server = rowOf(answer.text, 'server');
+  for (const word of ['claude', 'sonnet', 'high', 'full'])
+    assert.ok(server.includes(word), `server: ${word} in "${server}"`);
+  assert.ok(rowOf(answer.text, 'scout').includes('gpt-6-luna'));
   const memory = rowOf(answer.text, 'memory');
   for (const word of ['claude', 'claude-opus-4-6', 'high']) assert.ok(memory.includes(word), memory);
   for (const agent of ['scout', 'server', 'watcher']) assert.notEqual(rowOf(answer.text, agent), '', agent);
@@ -142,11 +145,12 @@ test('/subharness status lists the source, model, effort and mode of every role 
 
 test('after a logout the status shows the selected source unavailable and names no other source', async () => {
   // Catches: the row falls back to OpenRouter or to the first available source once its own login is gone.
-  const privateDir = storeWith({ uses: { dev: 'claude' }, models: { dev: 'sonnet' } });
+  // Changed: the agent `dev` is gone (maintainer, 2026-11-16), so the row is the server's.
+  const privateDir = storeWith({ uses: { server: 'claude' }, models: { server: 'sonnet' } });
   fakeVendor(privateDir, 'claude');
   fakeVendor(privateDir, 'codex', { loggedIn: true });
   const { deps } = enableDeps(privateDir);
-  const dev = rowOf((await subharnessCommand(deps, 'subharness.status', {})).text, 'dev');
+  const dev = rowOf((await subharnessCommand(deps, 'subharness.status', {})).text, 'server');
   assert.ok(dev.includes('claude'), dev);
   assert.ok(dev.includes('sonnet'), dev);
   assert.ok(dev.includes('unavailable'), dev);

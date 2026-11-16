@@ -1,8 +1,8 @@
 // The registry of her skills in the memory database (schema v11 tables, v22 for the stored text and `skill_uses`).
 // A skill is a `SKILL.md` on disk; the registry records which version of it is active and who made it so. `syncSkills`
 // turns every new file text into a `candidate` version and never touches an active one. Nobody approves a candidate:
-// her done task activates the exact version it bound with `activateNamedVersion`, the owner the newest one with
-// `activateSkill`, the first version included, and `rollbackSkill` walks the activations back. A skill's disabled flag is her own or the owner's switch and keeps its
+// the owner activates the newest one with `activateSkill`, the first version included, `activateNamedVersion` activates
+// one exact version, and `rollbackSkill` walks the activations back. A skill's disabled flag is her own or the owner's switch and keeps its
 // active version. A version stores the text it was synced from, so she reads what was activated after the file moved
 // on. `skill_uses` is the append-only record of how her turns used a skill.
 //
@@ -178,7 +178,7 @@ export function activateVersion(
 
 /**
  * `activateVersion` for exactly the version `versionId` of the skill `name`. A version of another skill is unknown here, so
- * a task that names one activates nothing.
+ * a call that names one activates nothing.
  */
 export function activateNamedVersion(
   handle: SkillsHandle,

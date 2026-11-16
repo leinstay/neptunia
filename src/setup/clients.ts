@@ -1,7 +1,7 @@
 // The clients of the core and their tokens on disk (src/interface/principals.ts reads them): one entry of `clients.json`
 // and one token file `clients/<name>.token` of mode 0600, in a folder of mode 0700. scripts/client-token.ts adds, rotates
 // and revokes a client by hand. The `units` step of `neptunia setup` (src/setup/run.ts) calls `provisionClients` for the
-// owner's command line and the clients its units connect as, with no core running. Nothing here prints or returns a token.
+// owner's command line, with no core running. Nothing here prints or returns a token.
 
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -14,7 +14,6 @@ export type ClientRecord = {
   iface?: string;
   tokenFile: string;
   permissions: Array<string>;
-  boardRoles?: Array<string>;
 };
 
 /** A client file that cannot be used as it is, or a client that exists already: the message says which. */
@@ -51,7 +50,7 @@ export function writeClients(privateDir: string, clients: Readonly<Record<string
 export function provisionInterfaceClient(privateDir: string, name: string): void {
   const entry = readClients(privateDir)[name];
   if (entry === undefined) {
-    addClient(privateDir, name, { kind: 'interface', iface: name, permissions: [], boardRoles: null });
+    addClient(privateDir, name, { kind: 'interface', iface: name, permissions: [] });
     return;
   }
   const file = path.join(privateDir, entry.tokenFile);
@@ -76,7 +75,6 @@ export function addClient(
     kind: string;
     iface: string | null;
     permissions: ReadonlyArray<string>;
-    boardRoles: ReadonlyArray<string> | null;
   }
 ): string {
   const clients = readClients(privateDir);
@@ -88,34 +86,30 @@ export function addClient(
     ...(client.iface ? { iface: client.iface } : {}),
     tokenFile,
     permissions: [...client.permissions],
-    ...(client.boardRoles === null ? {} : { boardRoles: [...client.boardRoles] }),
   };
   writeClients(privateDir, { ...clients, [name]: entry });
   return tokenFile;
 }
 
 /** The owner's command line, the client a chat and a direct command connect as (bin/neptunia.ts). */
-export const CLI_CLIENT = { name: 'cli', kind: 'cli', boardRoles: null };
-
-/** The owner on the task board from a shell: `neptunia tasks` with no client named connects as it (bin/neptunia-task.ts). */
-export const OWNER_CLIENT = { name: 'owner', kind: 'agent', boardRoles: ['owner'] };
+export const CLI_CLIENT = { name: 'cli', kind: 'cli' };
 
 /**
- * The clients `wanted` in place, agents unless they say another kind, every other client kept. A client with its entry and its token is left as it is,
- * because a new token would close the link of a running unit. A missing token is written, and a missing entry added.
+ * The clients `wanted` in place, every other client kept. A client with its entry and its token is left as it is,
+ * because a new token would close the link of a running chat. A missing token is written, and a missing entry added.
  * Answers the names it wrote a token for and the names that were there. A broken file throws before anything is written.
  */
 export function provisionClients(
   privateDir: string,
-  wanted: ReadonlyArray<{ name: string; kind?: string; boardRoles: ReadonlyArray<string> | null }>
+  wanted: ReadonlyArray<{ name: string; kind: string }>
 ): { made: Array<string>; there: Array<string> } {
   const clients = readClients(privateDir);
   const made: Array<string> = [];
   const there: Array<string> = [];
-  for (const { name, kind, boardRoles } of wanted) {
+  for (const { name, kind } of wanted) {
     const entry = clients[name];
     if (entry === undefined) {
-      addClient(privateDir, name, { kind: kind ?? 'agent', iface: null, permissions: [], boardRoles });
+      addClient(privateDir, name, { kind, iface: null, permissions: [] });
       made.push(name);
     } else if (fs.existsSync(path.join(privateDir, entry.tokenFile))) {
       there.push(name);

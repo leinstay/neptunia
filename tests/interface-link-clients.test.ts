@@ -47,13 +47,11 @@ const HELLO: Hello = { iface: 'fake', self: SELF, root: null, capabilities: CAPA
 
 const FAKE: Principal = { name: 'fake', kind: 'interface', iface: 'fake', permissions: [] };
 const OWNER: Principal = { name: 'owner', kind: 'cli', iface: 'cli', permissions: [] };
-const AGENT: Principal = { name: 'hand', kind: 'agent', iface: null, permissions: [] };
 /** An interface principal whose `clients.json` entry still carries the permission `commands` that `/nep` needed. */
 const UNIT: Principal = { name: 'unit', kind: 'interface', iface: 'fake', permissions: ['commands'] };
 const TOKENS: Record<string, Principal> = {
   'fake-token': FAKE,
   'owner-token': OWNER,
-  'agent-token': AGENT,
   'unit-token': UNIT,
 };
 const principalOf = (token: string): Principal | null => TOKENS[token] ?? null;
@@ -370,62 +368,7 @@ test('an abort after the action went out sends a cancel naming it, and the resul
   link.close();
 });
 
-// Stage 6c: an agent principal (a development agent of the board) says hello under `agent` and sends board
-// commands only: a `command.requested` whose name starts with `task.`.
-
-/** A command of the agent namespace named `name`. */
-const agentCommand = (id: string, name: string): Record<string, unknown> => ({
-  ...command(id, 'agent'),
-  name,
-  args: {},
-});
-
-test('an agent principal reaches a task command, and its status command is refused', async () => {
-  const rig = core();
-  rig.hello('agent-token', { iface: 'agent' });
-  await within(rig.link.hello);
-  rig.client.send(envelope('event', agentCommand('k1', 'task.list'), { id: 'k1' }));
-  assert.equal((await answered(rig, 'k1')).status, 'ok');
-  rig.client.send(envelope('event', agentCommand('k2', 'status'), { id: 'k2' }));
-  assert.equal((await answered(rig, 'k2')).status, 'invalid');
-  assert.deepEqual(rig.started, ['k1']);
-  rig.link.close();
-});
-
-test("an agent principal's message event is refused and never reaches the door", async () => {
-  const rig = core();
-  rig.hello('agent-token', { iface: 'agent' });
-  await within(rig.link.hello);
-  const message = {
-    kind: 'message.received',
-    iface: 'agent',
-    at: 1,
-    id: 'm1',
-    chat: { id: 'agent:hand', kind: 'dm' },
-    message: {
-      id: 'm1',
-      author: { id: 'hand', name: 'hand', self: false, bot: false },
-      content: 'hello',
-      sourceText: 'hello',
-      system: false,
-      at: 1,
-      replyToId: null,
-      replyPingAccountId: null,
-      forwardedFrom: null,
-      attachments: [],
-      links: [],
-      forwarded: [],
-      stickers: [],
-      emojis: [],
-      reactions: [],
-    },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
-  };
-  rig.client.send(envelope('event', message, { id: 'm1' }));
-  assert.equal((await answered(rig, 'm1')).status, 'invalid');
-  assert.deepEqual(rig.started, []);
-  rig.link.close();
-});
+// Changed: the agent principal and its `agent` namespace are gone with the development agents (maintainer, 2026-11-16).
 
 function ordinaryMessage(id: string, iface = 'cli'): Record<string, unknown> {
   return {

@@ -112,7 +112,6 @@ type PickerStepResult = { state: PickerState; effects: Array<PickerEffect> };
 const GROUPS: ReadonlyArray<PickerRow> = [
   { id: 'main', label: 'Main', detail: 'The persona’s own models' },
   { id: 'errand', label: 'Errand', detail: 'The agents she sends on errands' },
-  { id: 'development', label: 'Development', detail: 'The agents that work on the code' },
 ];
 
 const PROVIDER_LABELS: Readonly<Record<string, string>> = { api: 'API', subharness: 'CLI backend' };

@@ -29,7 +29,7 @@ import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
 import type { Dialog } from '../../keys/commands.ts';
 import type { Track } from '../../loop-watch.ts';
-import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
+import { ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownerPersonOf } from '../../tools/operations/grants.ts';
 import { ownValueAt, splitPath } from '../../tools/operations/shared.ts';
@@ -376,11 +376,10 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
 /** Dollars as the chat prints them: four decimals under a dollar, two above. */
 export const money = (value: number): string => `$${value.toFixed(value >= 1 ? 2 : 4)}`;
 
-/** The model group a role's spend counts under (plan 4.3: base, errands, development, memory). */
+/** The model group a role's spend counts under: base, errands or memory. */
 function groupOf(role: string): string {
   if (role === MEMORY_ROLE) return 'memory';
   if (ERRAND_ROLES.includes(role)) return 'errands';
-  if (DEVELOPMENT_ROLES.includes(role)) return 'development';
   return 'base';
 }
 

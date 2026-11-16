@@ -1,6 +1,7 @@
 // The skills wiring of the core (src/skills/wiring.ts): her active skills for the tools array and the use rows. A real
 // in-memory memory database behind the writer's `applySkillsWrite`, real temporary skill folders, her grants as the
-// config states them and a fake board.
+// config states them.
+// Changed: the wiring holds no board, because no skill task settles (maintainer, 2026-11-16).
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -18,8 +19,6 @@ const SELF = 'bot-1';
 const LABELS = { skills: { index: 'Skills you can read:', line: '- {name}: {description}' } };
 const LOOK = skillText('look-it-up', 'I check the web before I answer a fact', ['web.read', 'web.search']);
 
-type Call = { principal: string; op: string; args: Readonly<Record<string, unknown>> | undefined };
-
 function rig(
   t: { after: (fn: () => void) => void },
   options: { grants?: ReadonlyArray<string>; labels?: unknown } = {}
@@ -34,7 +33,6 @@ function rig(
     config: accessFor(options.grants ?? ['skill.read', 'web.read', 'web.search']),
     prompts: { labels: options.labels ?? LABELS } as unknown,
   };
-  const calls: Array<Call> = [];
   const warnings: Array<string> = [];
   const hot = {
     get config() {
@@ -53,12 +51,6 @@ function rig(
           : Promise.reject(new Error('memory database is not open')),
       database: () => (state.open ? handle.db : null),
     },
-    board: {
-      call: (principal: string, op: string, args?: Readonly<Record<string, unknown>>) => {
-        calls.push({ principal, op, args });
-        return Promise.resolve((op === 'task.list' || op === 'outbox.pull' ? [] : {}) as never);
-      },
-    },
     selfId: () => SELF,
     rootDir,
     privateDir,
@@ -69,7 +61,7 @@ function rig(
     fs.mkdirSync(path.join(privateDir, 'skills', name), { recursive: true });
     fs.writeFileSync(path.join(privateDir, 'skills', name, 'SKILL.md'), text);
   };
-  return { wiring: wireSkills(deps), state, calls, warnings, write, rootDir, handle };
+  return { wiring: wireSkills(deps), state, warnings, write, rootDir, handle };
 }
 
 function accessFor(names: ReadonlyArray<string>) {

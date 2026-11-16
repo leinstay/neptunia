@@ -19,7 +19,6 @@ import { idText, objOf } from '../types.ts';
 import type { Untyped } from '../types.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { RoleHealth } from '../../llm/role-health.ts';
-import type { BoardCaller } from '../../board/writer.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
 import type { ReportReader } from '../../watcher/read.ts';
 import type { CardKeys } from '../../keys/card-keys.ts';
@@ -46,8 +45,6 @@ export type OpsDeps = {
   dataDir?: string | null;
   /** Which model roles are down (src/llm/role-health.ts), shared with the turn runner. */
   roleHealth?: RoleHealth | null;
-  /** The task board (src/board/writer.ts#createBoardPort) the status card reads agent costs from; null when there is none. */
-  board?: BoardCaller | null;
   /** Her skills (src/skills/port.ts) that `skill.read` and `skill.disable` use; null when the core has none. */
   skills?: SkillsAccess | null;
   /** The watcher's reports (src/watcher/read.ts) that `watcher.read` answers; null when the core has none. */
@@ -99,7 +96,6 @@ function buildEnv({
   fetchImpl = null,
   intentions = null,
   inner = null,
-  board = null,
   skills = null,
   watcher = null,
   now = Date.now,
@@ -303,8 +299,6 @@ function buildEnv({
     // The persona's inner life (src/behavior/inner.ts): `inner.status`.
     inner,
     // The selfreflection's publisher (src/behavior/mirror.ts): what she writes to her selfreflection with message.create is held there.
-    // The task board (src/board/writer.ts): the status card's agent costs.
-    board,
     // Her skills (src/tools/operations/skill.ts): `skill.read` and `skill.disable`.
     skills,
     // The watcher's reports (src/tools/operations/watcher.ts): `watcher.read`.

@@ -117,16 +117,6 @@ const codeOf = (error: unknown): string | null =>
 const isCode = (value: unknown): value is BoardErrorCode =>
   typeof value === 'string' && (ERROR_CODES as ReadonlyArray<string>).includes(value);
 
-/** The board as a caller outside it uses it: the core's port (a promise per call) or a board in the same thread. */
-export type BoardCaller = {
-  call<TOp extends BoardOp>(
-    principal: string,
-    op: TOp,
-    args?: Readonly<Record<string, unknown>>,
-    idempotency?: string | null
-  ): BoardResults[TOp] | Promise<BoardResults[TOp]>;
-};
-
 /** The board as the core uses it: every method one write through `write`, the context filled by `context()`. */
 export type BoardPort = {
   command(principal: string, name: string, args: Record<string, unknown>): Promise<TaskAnswer>;

@@ -104,8 +104,6 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
-  // The executor's brief is executor-brief.md.
-  'executor-brief': 'filled by src/development/brief.ts#briefFrom, an agent run of the development worker reads it',
   // Split into families and drawn from line by line (src/behavior/selfreflection.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
   'selfreflection-seeds':
     'drawn from line by line into <seeds> (src/behavior/selfreflection.ts#pickSeeds), never sent whole',

@@ -77,7 +77,7 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['missedSettings', (config) => missedSettings(config)],
   ['paceSettings', (config) => paceSettings(config)],
   ['loopSettings', (config) => loopSettings(config)],
-  ...['scout', 'server', 'thinker', 'dev'].map((agent): [string, (config: Tree) => unknown] => [
+  ...['scout', 'server'].map((agent): [string, (config: Tree) => unknown] => [
     `agentSettings ${agent}`,
     (config) => agentSettings(agent, config, { rootDir: ROOT_DIR }),
   ]),

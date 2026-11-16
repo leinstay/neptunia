@@ -1,29 +1,20 @@
-// The mechanics step of `neptunia setup` (src/setup/run.ts, docs/setup.md): her three ticking mechanics, `heartbeat`,
-// `selfreflection` and `selfimprovement`, each switched on or off at the terminal, and the time of day of the daily
-// selfimprovement wake's schedule (`selfimprovement.schedule`). Each question offers the value in force, so an empty answer keeps it.
-// `selfimprovement` on needs a subharness source that is logged in, `selfimprovement.repository` and a push right to it
-// through the system's gh login (src/selfimprovement/repository.ts); without them it is stored off and the step is `refused`.
-// The answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when no
-// answer changes a value. The watcher step (src/setup/watcher.ts) asks through `askSwitch` and `askSchedule` of this file.
+// The mechanics step of `neptunia setup` (src/setup/run.ts, docs/setup.md): her two ticking mechanics, `heartbeat` and
+// `selfreflection`, each switched on or off at the terminal. Each question offers the value in force, so an empty answer
+// keeps it. The answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when
+// no answer changes a value. The watcher step (src/setup/watcher.ts) asks through `askSwitch` and `askSchedule` of this file.
 
 import { readConfig } from '../config.ts';
-import { readLabels } from '../hot.ts';
-import { checkRepository } from '../selfimprovement/repository.ts';
-import type { GhRunner } from '../selfimprovement/repository.ts';
-import { selfimprovementSettings } from '../selfimprovement/settings.ts';
-import { availableSources } from '../subharness/sources.ts';
 import { updateLocalSettings } from '../service/local-settings.ts';
 import { formatSchedule, parseSchedule } from '../service/schedule.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
-import { isClockTime } from '../time.ts';
 import { objOf } from '../tools/types.ts';
 import { setPath } from '../tools/operations/shared.ts';
 
 /** Asks the owner at the terminal; `offered` is shown as the default and an empty answer takes it. */
 export type Ask = (question: string, offered: string | null) => Promise<string>;
 
-export type MechanicsStepDeps = { ask: Ask; gh: GhRunner };
-export type MechanicsStepOutcome = { state: 'done' | 'already' | 'refused'; detail: string };
+export type MechanicsStepDeps = { ask: Ask };
+export type MechanicsStepOutcome = { state: 'done' | 'already'; detail: string };
 
 /** How many times one question is asked before the value in force is kept. */
 const TRIES = 3;
@@ -58,25 +49,6 @@ export async function askSchedule(ask: Ask, question: string, current: ServiceSc
   return scheduleOfAnswer(answer) ?? current;
 }
 
-/** The selfimprovement schedule in force: `selfimprovement.schedule`, the older `selfimprovement.at`, else daily at 03:00. */
-function improvementSchedule(config: unknown): ServiceSchedule {
-  const raw = objOf(objOf(config).selfimprovement);
-  return parseSchedule(raw.schedule) ?? { kind: 'at', at: [isClockTime(raw.at) ? raw.at : '03:00'] };
-}
-
-/** What is missing for selfimprovement, in one line, or null when its checks pass. */
-async function selfimprovementMissing(
-  options: { rootDir: string; privateDir: string },
-  config: unknown,
-  gh: GhRunner
-): Promise<string | null> {
-  if ((await availableSources(options.privateDir)).length === 0)
-    return 'selfimprovement stays off: no subharness source is logged in (neptunia subharness <backend> login)';
-  const { repository } = selfimprovementSettings(config);
-  const check = await checkRepository(repository, gh, readLabels(options.rootDir, options.privateDir));
-  return check.code === 'ok' ? null : `selfimprovement stays off: ${check.line}`;
-}
-
 export async function mechanicsStep(
   options: { rootDir: string; privateDir: string },
   deps: MechanicsStepDeps
@@ -85,8 +57,6 @@ export async function mechanicsStep(
   const inForce = {
     heartbeat: objOf(config.heartbeat).enabled !== false,
     selfreflection: objOf(config.selfreflection).enabled !== false,
-    selfimprovement: objOf(config.selfimprovement).enabled !== false,
-    schedule: improvementSchedule(config),
   };
   const heartbeat = await askSwitch(
     deps.ask,
@@ -98,36 +68,14 @@ export async function mechanicsStep(
     'selfreflection: her selfreflection (on or off):',
     inForce.selfreflection
   );
-  let selfimprovement = await askSwitch(
-    deps.ask,
-    'selfimprovement: her daily look at her own work and the fixes she files (on or off):',
-    inForce.selfimprovement
-  );
-  let schedule = inForce.schedule;
-  let refusal: string | null = null;
-  if (selfimprovement) {
-    refusal = await selfimprovementMissing(options, config, deps.gh);
-    if (refusal === null)
-      schedule = await askSchedule(
-        deps.ask,
-        'The schedule of her selfimprovement wake, UTC (at 03:00,15:00 or every 6h):',
-        schedule
-      );
-    else selfimprovement = false;
-  }
-  const answers = { heartbeat, selfreflection, selfimprovement };
-  const changed =
-    heartbeat !== inForce.heartbeat ||
-    selfreflection !== inForce.selfreflection ||
-    selfimprovement !== inForce.selfimprovement ||
-    formatSchedule(schedule) !== formatSchedule(inForce.schedule);
-  const summary = `heartbeat ${heartbeat ? 'on' : 'off'}, selfreflection ${selfreflection ? 'on' : 'off'}, selfimprovement ${selfimprovement ? `on, ${formatSchedule(schedule)} UTC` : 'off'}`;
+  const answers = { heartbeat, selfreflection };
+  const changed = heartbeat !== inForce.heartbeat || selfreflection !== inForce.selfreflection;
+  const summary = `heartbeat ${heartbeat ? 'on' : 'off'}, selfreflection ${selfreflection ? 'on' : 'off'}`;
   if (changed)
     updateLocalSettings(options.privateDir, (saved) => {
       let local = saved;
       for (const [name, value] of Object.entries(answers)) local = setPath(local, [name, 'enabled'], value);
-      return setPath(local, ['selfimprovement', 'schedule'], formatSchedule(schedule));
+      return local;
     });
-  if (refusal !== null) return { state: 'refused', detail: `${refusal}; ${summary}` };
   return changed ? { state: 'done', detail: summary } : { state: 'already', detail: summary };
 }

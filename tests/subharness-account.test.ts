@@ -2,6 +2,8 @@
 // (src/subharness/sources.ts), and its account commands change that and nothing else (src/subharness/account.ts). The
 // vendor CLIs and npm are disposable fakes (tests/fixtures/fake-vendor.ts); a test reads the argv and the home they saw at
 // the spawn boundary. A child process appears only where the claim is about two processes.
+// Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
+// so the stored agent is `server`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -33,9 +35,9 @@ function rig(backend: 'codex' | 'claude', options: FakeVendorOptions = {}, answe
   writeKeysFile(privateDir, {
     subharness: {
       key: null,
-      modes: { dev: 'full' },
-      models: { dev: 'sonnet' },
-      uses: { dev: 'claude', scout: 'codex' },
+      modes: { server: 'full' },
+      models: { server: 'sonnet' },
+      uses: { server: 'claude', scout: 'codex' },
       memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null },
     },
   });
@@ -199,7 +201,7 @@ test('opencode logs in by naming an extra key, which is checked for in the store
   fs.writeFileSync(binary, '#!/bin/sh\nexit 9\n', { mode: 0o755 });
   writeKeysFile(privateDir, {
     extra: { 'oc-1': 'value' },
-    subharness: { key: null, modes: {}, uses: { dev: 'claude' } },
+    subharness: { key: null, modes: {}, uses: { server: 'claude' } },
   });
   const deps: AccountDeps = {
     privateDir,
@@ -211,7 +213,7 @@ test('opencode logs in by naming an extra key, which is checked for in the store
   assert.equal((await accountCommand(deps, 'opencode', 'login', { key: 'oc-1' })).status, 'ok');
   const stored = readKeysFile(privateDir).subharness;
   assert.equal(stored.key, 'oc-1');
-  assert.deepEqual(stored.uses, { dev: 'claude' });
+  assert.deepEqual(stored.uses, { server: 'claude' });
 });
 
 // status and logout

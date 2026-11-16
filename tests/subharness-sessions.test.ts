@@ -17,12 +17,13 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 function installed() {
   const privateDir = tempDir('nep-session-map-');
   writeKeysFile(privateDir, { subharness: { backends: ['claude'], key: null, modes: {}, models: {}, uses: {} } });
+  // Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16), so the run is the server's.
   const argv = path.join(privateDir, 'argv');
   writeFakeClaude(subharnessPlace(privateDir, 'claude').binary, argv, '  --session-id <uuid>');
   return {
     privateDir,
     deps: { privateDir, denyDir: tempDir('nep-session-map-deny-') },
-    run: { agent: 'dev', brief: 'B', cwd: privateDir, timeoutMs: 5_000 },
+    run: { agent: 'server', brief: 'B', cwd: privateDir, timeoutMs: 5_000 },
   };
 }
 

@@ -107,7 +107,8 @@ test('the steps run in the agreed order, and opening asks nothing', () => {
   // Catches: a role list ahead of the categories, or a chooser that probes by being opened.
   const first = opened();
   assert.equal(first.step, 'group');
-  assert.deepEqual(rowIds(first), ['main', 'errand', 'development']);
+  // Changed: the Development group is gone with the development agents (maintainer, 2026-11-16).
+  assert.deepEqual(rowIds(first), ['main', 'errand']);
   const role = play(first, choose('main'));
   assert.equal(role.state.step, 'role');
   assert.deepEqual(role.effects, []);
@@ -146,15 +147,16 @@ test('nothing commits before the confirmation, and a double confirmation commits
   ]);
 });
 
-test('Development offers thinker and dev, and watcher is a separate row', () => {
-  // Catches: a stale list hiding thinker, or watcher treated as one more development agent.
-  const rows = pickerRows(play(opened(), choose('development')).state);
+test('Errand offers scout and server, and watcher is a separate row', () => {
+  // Catches: watcher treated as one more errand agent.
+  // Changed: the watcher's utility row moved under Errand when the Development group went (maintainer, 2026-11-16).
+  const rows = pickerRows(play(opened(), choose('errand')).state);
   assert.deepEqual(
     rows
       .filter((one) => one.utility !== true)
       .map((one) => one.id)
       .sort(),
-    ['dev', 'thinker']
+    ['scout', 'server']
   );
   assert.deepEqual(
     rows.filter((one) => one.utility === true).map((one) => one.id),

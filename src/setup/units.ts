@@ -13,12 +13,10 @@
 // backend a role names in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.
 //
-// The development worker's and the server agent's units run as the user of the core, so the mount namespace
-// is all that keeps a child of theirs from the other clients' tokens and the interfaces' `credentials.json`. Given the
-// names of the clients and the interfaces the install has, each of those units hides them with `InaccessiblePaths=-<path>`
-// (the leading `-` lets the unit start before a file exists) and leaves its own client's token readable. `keys.json`
-// stays readable: the development worker reads its agents' routes from it. The modes `full` and `sudo` drop the entries
-// with the rest of the mount sandbox. The core's unit holds the group `systemd-journal` in the system scope, so the
+// The server agent's unit runs as the user of the core, so the mount namespace is all that keeps a child of its agent
+// from the clients' tokens and the interfaces' `credentials.json`. Given the names of the clients and the interfaces the
+// install has, the unit hides them with `InaccessiblePaths=-<path>` (the leading `-` lets the unit start before a file
+// exists). The modes `full` and `sudo` drop the entries with the rest of the mount sandbox. The core's unit holds the group `systemd-journal` in the system scope, so the
 // watcher it starts reads the journal of the units (src/watcher/routes.ts).
 
 import path from 'node:path';
@@ -36,13 +34,6 @@ export const UNIT_FILES: ReadonlyArray<string> = [
 ];
 
 /**
- * The development worker's unit: its code is this install and its working repository the dev checkout
- * `selfimprovement.checkout` names, so it is a list of its own (src/setup/run.ts). Setup writes it and never enables it;
- * that is the owner's step.
- */
-export const DEVELOPMENT_UNIT_FILES: ReadonlyArray<string> = ['neptunia-development.service'];
-
-/**
  * Node's compile cache of every service: a folder systemd makes and keeps writable for the unit under its sandbox,
  * `/var/cache/neptunia-compile` for a system unit and `~/.cache/neptunia-compile` for a user unit (`%C`), so a start
  * reuses the compiled engine modules instead of stripping their types again.
@@ -50,27 +41,21 @@ export const DEVELOPMENT_UNIT_FILES: ReadonlyArray<string> = ['neptunia-developm
 const COMPILE_CACHE_LINES = ['CacheDirectory=neptunia-compile', 'Environment=NODE_COMPILE_CACHE=%C/neptunia-compile'];
 
 /**
- * The units that hide the secrets of the core's user from their agent, found by their `ExecStart=`, and the client each
- * connects as (null when it connects as none). The scout needs no entry: its persona folder is an empty tmpfs.
+ * The unit that hides the secrets of the core's user from its agent, found by its `ExecStart=`. The scout needs no
+ * entry: its persona folder is an empty tmpfs.
  */
-const SECRET_HIDERS: ReadonlyArray<{ start: RegExp; own: string | null }> = [
-  { start: /^ExecStart=\S+ bin\/neptunia\.ts worker development\b/m, own: 'development' },
-  { start: /^ExecStart=\S+ bin\/neptunia\.ts errand-runner --profile server\b/m, own: null },
-];
+const SECRET_HIDER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner --profile server\b/m;
 
 /** A client or interface name that is one plain path segment: nothing that climbs out of its folder. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 /** The `InaccessiblePaths=` line of a unit that hides secrets from its agent, null for any other unit. */
 function hiddenLine(text: string, vars: UnitVars): string | null {
-  const hider = SECRET_HIDERS.find(({ start }) => start.test(text));
-  if (hider === undefined) return null;
+  if (!SECRET_HIDER.test(text)) return null;
   const named = (names: ReadonlyArray<string> | undefined): Array<string> =>
     [...new Set(names ?? [])].filter((name) => SAFE_NAME.test(name)).sort();
   const hidden = [
-    ...named(vars.clients)
-      .filter((name) => name !== hider.own)
-      .map((name) => path.join(vars.dataDir, 'clients', `${name}.token`)),
+    ...named(vars.clients).map((name) => path.join(vars.dataDir, 'clients', `${name}.token`)),
     ...named(vars.interfaces).map((name) => path.join(vars.dataDir, 'interfaces', name, 'credentials.json')),
   ];
   return hidden.length === 0 ? null : `InaccessiblePaths=${hidden.map((one) => `-${one}`).join(' ')}`;
@@ -83,7 +68,6 @@ const AGENT_RUNNER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner\b/m;
 export const UNIT_AGENTS: Readonly<Record<string, SubharnessAgent>> = {
   'neptunia-agent-scout.service': 'scout',
   'neptunia-agent-server.service': 'server',
-  'neptunia-development.service': 'dev',
 };
 
 /** What a unit is rendered with. */
@@ -96,15 +80,13 @@ export type UnitVars = {
   dataDir: string;
   /** the absolute path of the node binary */
   node: string;
-  /** `selfimprovement.checkout`, which the development unit may write; `/opt/neptunia/checkout` of its template */
-  developmentCheckout?: string | null;
   /** the mode of the agent the unit runs; absent keeps the template's own sandbox */
   mode?: AgentMode;
   /** the backends a role names in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
   backends?: ReadonlyArray<BackendName>;
-  /** the names of the clients of `clients.json`; the units of the development worker and the server agent hide every token but their own */
+  /** the names of the clients of `clients.json`; the unit of the server agent hides every token */
   clients?: ReadonlyArray<string>;
-  /** the names of the interfaces, each with a `interfaces/<name>/credentials.json` those units hide */
+  /** the names of the interfaces, each with a `interfaces/<name>/credentials.json` that unit hides */
   interfaces?: ReadonlyArray<string>;
 };
 
@@ -125,7 +107,6 @@ const STOPS_SUDO = ['NoNewPrivileges', 'CapabilityBoundingSet'];
 function pathMap(vars: UnitVars): Array<readonly [string, string]> {
   const nodeDir = path.dirname(vars.node);
   return [
-    ...(vars.developmentCheckout ? ([['/opt/neptunia/checkout', vars.developmentCheckout]] as const) : []),
     ['/opt/neptunia/app', vars.rootDir],
     ['/opt/neptunia/etc', vars.dataDir],
     ['/opt/neptunia/data', vars.dataDir],

@@ -26,10 +26,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: models.errands -->
 
-## models.development
-
-<!-- settings: models.development -->
-
 ## models.agents
 
 Which backend, model, effort, provider and mode each agent runs on, and the named key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
@@ -143,14 +139,6 @@ The engine proxy is described in [Proxy](proxy.md).
 ## watcher
 
 <!-- settings: watcher -->
-
-## selfimprovement
-
-<!-- settings: selfimprovement -->
-
-## development
-
-<!-- settings: development -->
 
 ## selfreflection
 

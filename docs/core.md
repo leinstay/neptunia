@@ -134,15 +134,15 @@ A call of hers runs on her grants alone, whoever asked for it: one person, sever
 
 The owner's narrow reads of one subject, `memory.profile.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `lore.list` and `lore.show`, stay registered, grantable operations that run when called, and `REPLACED_BY_MEMORY_READ` in `src/tools/discovery.ts` leaves them out of the list she is offered. Her read of one subject is `memory.read`, which runs only inside a turn (`src/turn/in-turn-tools.ts`). Its operation in `src/tools/operations/search.ts` answers `unsupported` anywhere else. A stored grant or wake envelope under one of the six names opens `memory.read` through `grantNamesFor` in `src/tools/operations/grants.ts`.
 
-`effectsOf(name)` reads a tool's effect class from its row, and the turn's outcome in `src/turn/phases/outcome.ts` counts an executed `read` call as one that changed nothing. A change to a tool's traits changes who may run it, so `src/development/risk.ts` counts `src/tools/definitions.ts` among the `permissions` paths.
+`effectsOf(name)` reads a tool's effect class from its row, and the turn's outcome in `src/turn/phases/outcome.ts` counts an executed `read` call as one that changed nothing.
 
 ## Boundaries
 
 The core writes memory through one writer. Interfaces neither open the database nor decide what the persona remembers. A history line that enters a turn's `<chat>` or that an analyzer reads is stored when memory lacks it ([Lines in her context](memory.md#lines-in-her-context)). Stored recall and fetching live platform history are separate operations with separate access checks.
 
-A chat session of the owner's CLI (`src/chat/`) is a view over stored lines, kept in its own file, and memory never reads it. Selecting one changes what the next turn's history shows, and memory stays continuous. [CLI](cli.md#sessions-and-checkpoints) explains them.
+A chat session of the owner's CLI (`src/chat/`) is a view over stored lines, kept in its own file, and memory never reads it. Selecting one changes what the next turn's history shows, and memory stays continuous. [CLI](cli.md#sessions) explains them.
 
-An approval from the owner's CLI goes through the board's own `task.approve` (`src/board/approval-view.ts`), and an agent's mode is set before its run, so no tool call waits on a person. [CLI](cli.md#approvals-and-capability-menus) explains what that panel shows.
+An agent's mode is set before its run, so no tool call waits on a person. [CLI](cli.md#capability-menus) explains it.
 
 The execution context carries trusted access information outside message text. An account claiming to be the owner in a message does not acquire owner CLI access. [Memory](memory.md#who-can-recall-what) explains the audience rules.
 

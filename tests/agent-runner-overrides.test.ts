@@ -20,7 +20,8 @@ test('shared agents remain sorted while ordinary root files are ignored', (t) =>
   f.writeShared('assistant', {
     id: 'assistant',
     kind: 'consultation',
-    role: 'dev',
+    // Changed: `dev` is no model role (maintainer, 2026-11-16), so the consultation takes an errand role.
+    role: 'scout',
     prompt: null,
     override: null,
     description: 'Synthetic consultation.',
@@ -92,7 +93,8 @@ test('identical identity fields remain valid in a personal profile', (t) => {
 
 for (const [key, value] of [
   ['id', 'other'],
-  ['kind', 'development'],
+  // Changed: `development` is no kind any more, so the shared kind is tried as a consultation.
+  ['kind', 'consultation'],
   ['role', 'server'],
 ] as const) {
   test(`a personal profile cannot change shared ${key}`, (t) => {
@@ -388,27 +390,15 @@ test('an empty selected personal prompt fails instead of falling through to shar
   assert.throws(() => readPromptFile(agents.promptFilesOf('scout', f.options)));
 });
 
-test('watcher and development definitions use the same overlay without entering worker selection', (t) => {
+test('watcher and consultation definitions use the same overlay without entering worker selection', (t) => {
+  // Changed: the development kind is gone with the development agents (maintainer, 2026-11-16).
   const f = fixture();
   t.after(f.close);
   f.writeShared('watcher', watcher());
-  f.writeShared('dev', {
-    id: 'dev',
-    kind: 'development',
-    role: 'dev',
-    prompt: 'prompt.md',
-    override: null,
-    tools: ['read'],
-    permission: { read: 'allow' },
-    effort: 'medium',
-    limits: { steps: 50, minutes: 30 },
-    cost: { input: 2, output: 10 },
-    description: 'Synthetic development agent.',
-  });
   f.writeShared('consult', {
     id: 'consult',
     kind: 'consultation',
-    role: 'dev',
+    role: 'scout',
     prompt: null,
     override: null,
     description: 'Synthetic consultation.',
@@ -422,14 +412,14 @@ test('watcher and development definitions use the same overlay without entering 
   const all = agents.listAgents(f.options);
   assert.deepEqual(
     all.map((entry) => entry.id),
-    ['consult', 'dev', 'scout', 'watcher']
+    ['consult', 'scout', 'watcher']
   );
   assert.deepEqual(
     all.find((entry) => entry.id === 'watcher'),
     { ...watcher(), description: 'Personal watcher.', prompt: 'custom.md' }
   );
   assert.deepEqual(Object.keys(agents.loadProfiles(f.options)), ['scout']);
-  for (const name of ['watcher', 'dev', 'consult']) assert.equal(agents.profileOf(name, f.options), null);
+  for (const name of ['watcher', 'consult']) assert.equal(agents.profileOf(name, f.options), null);
   assert.equal(agents.agentSettings('watcher', {}, f.options), null);
   assert.equal(agents.agentSettings('consult', {}, f.options), null);
 });

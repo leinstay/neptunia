@@ -21,10 +21,6 @@
       "scout": "openrouter/openai/gpt-6.1-sol",
       "server": "openrouter/openai/gpt-6.1-sol"
     },
-    "development": {
-      "thinker": "openrouter/anthropic/claude-opus-5.5",
-      "dev": "openrouter/anthropic/claude-sonnet-5.5"
-    },
     "agents": {
       "via": {},
       "model": {},
@@ -383,19 +379,6 @@
   },
   "watcher": {
     "degradedAfterMinutes": 60
-  },
-  "selfimprovement": {
-    "enabled": true,
-    "mode": "approve",
-    "base": "main",
-    "checkout": null,
-    "repository": null,
-    "schedule": "at 03:00"
-  },
-  "development": {
-    "thinkerTurns": 12,
-    "lookEveryMs": 120000,
-    "startedAt": null
   },
   "selfreflection": {
     "enabled": true,
