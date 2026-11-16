@@ -33,7 +33,7 @@
       "repeated": 0
     },
     "tests/agent-runner-protocol.test.ts": {
-      "deep": 3,
+      "deep": 1,
       "repeated": 2
     },
     "tests/agent-runner-server-route.test.ts": {
@@ -405,7 +405,7 @@
       "repeated": 0
     },
     "tests/interests.test.ts": {
-      "deep": 4,
+      "deep": 2,
       "repeated": 0
     },
     "tests/interface-chat-turns.test.ts": {
@@ -473,11 +473,11 @@
       "repeated": 0
     },
     "tests/lore.test.ts": {
-      "deep": 28,
+      "deep": 26,
       "repeated": 0
     },
     "tests/media-draw.test.ts": {
-      "deep": 13,
+      "deep": 12,
       "repeated": 0
     },
     "tests/media-memory-format.test.ts": {
