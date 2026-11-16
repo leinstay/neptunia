@@ -390,12 +390,7 @@
     "base": "main",
     "checkout": null,
     "repository": null,
-    "schedule": "at 03:00",
-    "failuresPerShape": 3,
-    "tools": "*",
-    "maxActs": null,
-    "maxTasks": null,
-    "inputTokens": null
+    "schedule": "at 03:00"
   },
   "development": {
     "thinkerTurns": 12,

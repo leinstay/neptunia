@@ -23,7 +23,6 @@ import './lore.ts';
 import './memory.ts';
 import './message.ts';
 import './errand.ts';
-import './board.ts';
 import './skill.ts';
 import './watcher.ts';
 import './intention.ts';

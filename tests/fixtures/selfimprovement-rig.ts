@@ -13,7 +13,7 @@ import type { RepositoryCheck } from '../../src/selfimprovement/repository.ts';
 // The owner's decision of 2026-11-10 removed the caller check, so runOp is the one runner.
 import { runOp } from '../../src/tools/operations/index.ts';
 import { createOpsEnv } from '../../src/tools/operations/env.ts';
-import type { BoardCaller } from '../../src/tools/operations/board.ts';
+import type { BoardCaller } from '../../src/board/writer.ts';
 import { createDiscordInterface } from '../../interfaces/discord/index.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import { tempDir } from './tmp.ts';

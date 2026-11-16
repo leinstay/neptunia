@@ -399,15 +399,15 @@ async function buildCore(
 
   // The task board (src/board/, docs/core.md "The task board"): its tables in the memory database, every write of it
   // a write of the memory writer, over the core's clock, the live `board.*` settings and the private layer's
-  // clients.json, read at each call. The agents' `task.*` commands, her board tools and the reaper's beat use it.
+  // clients.json, read at each call. The agents' `task.*` commands, the status card and the reaper's beat use it.
   const board = createBoardPort({
     write: (write) => memoryDb.memoryWrite({ kind: 'board', write }),
     context: () => ({ at: clock(), settings: boardSettings(settings.config), privateDir: paths.privateDir }),
     briefWaitMs: () => boardTimings(settings.config).briefWaitMs,
   });
   // Her skills (src/skills/wiring.ts): the SKILL.md files of `skills/` and `skills.local/` read at each call, their
-  // registry in the memory database written through the memory writer, the index of the active ones for a request and
-  // the skill facts of the selfimprovement wake. An activation grants no tool.
+  // registry in the memory database written through the memory writer, and the index of the active ones for a
+  // request. An activation grants no tool.
   const skillsWiring = wireSkills({
     // The live settings and prompts, read at each use.
     hot: settings,
@@ -1131,9 +1131,6 @@ async function buildCore(
     // A live wake turn's posts go out through the guarded port once the wake completed (src/behavior/inner/deliveries.ts).
     port: iface,
     now: clock,
-    // The selfimprovement wake's facts beyond the journal (src/behavior/selfimprovement-view.ts): her grants, her
-    // skills with their use counts, and her proposals and her outbox rows on the board.
-    selfimprovement: skillsWiring.selfimprovement,
     log,
   });
   // The drops, holds and failures kept for her next request in a chat live in the inner life's state.
@@ -1282,7 +1279,7 @@ async function buildCore(
   const admin = createAdmin({
     hot,
     store,
-    // Her board tools (src/tools/operations/board.ts): she files and reads as the builtin principal `persona`.
+    // The task board (src/board/writer.ts): the status card's agent costs.
     board,
     // Her skill tools (src/tools/operations/skill.ts): `skill.read` and `skill.disable`.
     skills: skillsWiring.access,

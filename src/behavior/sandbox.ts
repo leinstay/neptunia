@@ -218,7 +218,6 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   intentions: 'no intention store: a replay knows no intentions of hers, so no <intentions> block',
   wake: 'an inner turn only (scripts/replay.ts --inner runs the live turn runner instead of this sandbox)',
   awake: 'an inner turn only: no wake, so no reason to be awake in <spatial_awareness>',
-  serviceInner: 'a selfimprovement wake only: no <work> or <board>',
   wakeKind: 'an inner turn only: no wake, so no heartbeat task text',
   previousThink:
     'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.ts)',
@@ -838,7 +837,6 @@ export function sandboxRequestInput({
     intentions: null,
     wake: null,
     awake: null,
-    serviceInner: null,
     wakeKind: null,
     previousThink: null,
     // No journal (SANDBOX_OMITS): no <my_day> block.

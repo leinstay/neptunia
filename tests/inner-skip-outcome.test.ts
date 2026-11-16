@@ -1,6 +1,5 @@
-// How an inner turn ends when its calls changed nothing (src/turn/phases/outcome.ts, src/turn/outcome.ts): a selfimprovement
-// wake that only read `task.status` and answered `<skip/>` was recorded in `wake_runs` as `spoke` with nothing said. Calls
-// with no outward effect and a last answer of skip end `skip`, on every inner kind; a call with an outward or durable
+// How an inner turn ends when its calls changed nothing (src/turn/phases/outcome.ts, src/turn/outcome.ts): a wake that
+// only read and answered `<skip/>` was recorded in `wake_runs` as `spoke` with nothing said. Calls with no outward effect and a last answer of skip end `skip`, on every inner kind; a call with an outward or durable
 // effect stays as it is. Over a real admin and the fake interface, with a fake model answering from a script.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -40,7 +39,6 @@ after(async () => {
 const itemOf = (kind: string) => ({ kind, reason: kind, intentionIds: [], errandId: null });
 const WAKES: Readonly<Record<string, Record<string, Untyped>>> = {
   heartbeat: { kind: 'heartbeat', items: [itemOf('heartbeat')] },
-  selfimprovement: { kind: 'selfimprovement', items: [itemOf('selfimprovement')] },
   review: { kind: 'review', items: [itemOf('review')] },
   intention_due: {
     kind: 'intention_due',
@@ -59,8 +57,8 @@ type Result = {
 /** One inner turn on `kind` answered with `answers`, the persona granted `allowed`. */
 async function innerTurn({
   answers,
-  kind = 'selfimprovement',
-  allowed = ['lore.list', 'task.status'],
+  kind = 'heartbeat',
+  allowed = ['lore.list', 'tools.describe'],
   shadow = false,
   withIntentions = false,
   errands = false,
@@ -209,9 +207,8 @@ async function innerTurn({
   return { result: wrongly<Result>(result), sends, lines };
 }
 
-// Changed: lore.list is no selfimprovement read since memory.read took the narrow reads (lookup loop slice 12), so the read
-// is task.status, granted and accepted by the wake.
-const READ_THEN_SKIP = [toolAnswer('', [call('task.status')]), '<skip/>'];
+// Changed: the read is tools.describe, granted and accepted by every wake, since her tools hold no task.status.
+const READ_THEN_SKIP = [toolAnswer('', [call('tools.describe', { name: 'lore.list' })]), '<skip/>'];
 
 for (const kind of Object.keys(WAKES)) {
   test(`a ${kind} wake that only read and answered skip ends skip`, async () => {
@@ -223,16 +220,24 @@ for (const kind of Object.keys(WAKES)) {
   });
 }
 
-test('the read that production saw, task.status, ends skip whether or not it could answer', async () => {
+// Changed: the read that cannot answer is intention.list with no intention store, since her tools hold no task.status.
+test('a read that could not answer ends skip too', async () => {
   // Bug: a read that came back failed counts as an effect, because its status is not `executed`.
-  const run = await innerTurn({ answers: [toolAnswer('', [call('task.status')]), '<skip/>'] });
+  const run = await innerTurn({
+    answers: [toolAnswer('', [call('intention.list')]), '<skip/>'],
+    allowed: ['lore.list', 'intention.list'],
+  });
   assert.equal(run.result.outcome, 'skip');
 });
 
 test('several reads over several steps end skip too', async () => {
   // Bug: only the first step is looked at, and a longer look around still reads as speech.
   const run = await innerTurn({
-    answers: [toolAnswer('', [call('lore.list')]), toolAnswer('', [call('lore.list'), call('task.status')]), '<skip/>'],
+    answers: [
+      toolAnswer('', [call('lore.list')]),
+      toolAnswer('', [call('lore.list'), call('tools.describe', { name: 'lore.list' })]),
+      '<skip/>',
+    ],
   });
   assert.equal(run.result.outcome, 'skip');
 });
@@ -245,7 +250,7 @@ test('a skip after reads gives the same reason as a skip at once, and keeps her 
   assert.equal(after.result.reason, atOnce.result.reason);
   assert.deepEqual(
     after.result.inner.actions.map((one) => `${one.skill}:${one.status}`),
-    ['task.status:executed']
+    ['tools.describe:executed']
   );
 });
 
@@ -273,7 +278,7 @@ test('reads end skip, and every effect stays as it was: a message, an intention,
   // Bug: the fix goes by the last answer alone, so a wake that posted and then skipped is recorded as silent.
   assert.equal((await innerTurn({ answers: READ_THEN_SKIP })).result.outcome, 'skip');
 
-  // An intention that came due may speak; a selfimprovement wake's post is refused, which the test above covers.
+  // An intention that came due may speak; a heartbeat's post is refused, which the test above covers.
   const message = await innerTurn({
     answers: [toolAnswer('', [call('message.create', { text: 'καλημέρα' })]), '<skip/>'],
     kind: 'intention_due',

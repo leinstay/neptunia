@@ -1,21 +1,15 @@
 // The service turns on the template of the turn frame (plan 2026-11-06-turn-frame, slice 5, "The services as one
-// template" and "The service trees"): a heartbeat and a selfimprovement wake run with `chat: null`, their
+// template" and "The service trees"): a heartbeat runs with `chat: null`, its
 // request holds the service list (no `<chat>`, no `<surroundings>`), `<meanwhile>` holds her last
 // `context.memory.serviceMessages` lines over the rooms of every group of every interface and no direct chat, and
 // `<memory>` reads as herself. tests/inner-turn.test.ts is near the file length limit, so these live here.
 // The shapes the specifier chose:
 //   runTurn({ chat: null, mode: 'inner', triggerKind: 'inner', inner: { wake, currentChannel, shadow, mayAct } })
-//     is a service turn nowhere; the wake carries a selfimprovement wake's facts under `wake.selfimprovement`
-//     (SelfimprovementFacts of src/behavior/selfimprovement-view.ts), as the drain hands them today.
-//   `<work>` and `<board>` are subtags of `<inner>`; `<work>` states its window with the first day as `formatDate`
-//     writes it in the shipped labels' locale, and every line of a shape, a repeat or a failure names a turn id.
+//     is a service turn nowhere.
 //   The persona's journal is read at `journal.read(PERSONA_ID, { day, kind: 'turn' })`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DESTINATION_REQUIRED } from '../src/behavior/inner-output.ts';
-import type { SelfimprovementFacts } from '../src/behavior/selfimprovement-view.ts';
-
-import { formatDate } from '../src/format.ts';
 import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
@@ -53,18 +47,6 @@ test('a heartbeat request holds the service list in its order, with no <chat> an
   assert.ok(inOrderOf(tags, SERVICE_TAGS), tags.join(' '));
   for (const tag of ALWAYS) assert.ok(tags.includes(tag), `holds <${tag}>`);
   assert.ok(text.includes(MARK.heartbeat), 'its own task');
-});
-
-test('a selfimprovement request holds the service list too', async () => {
-  // Bug: only the heartbeat moves to the template, and selfimprovement keeps `<wake>` and the anchor's chat.
-  const run = await serviceTurn({
-    wake: serviceWake('selfimprovement', { selfimprovement: facts() }),
-    answers: ['<skip/>'],
-    chat: null,
-  });
-  const tags = rootTags(run.requests[0] ?? '');
-  assert.ok(inOrderOf(tags, SERVICE_TAGS), tags.join(' '));
-  for (const tag of ALWAYS) assert.ok(tags.includes(tag), `holds <${tag}>`);
 });
 
 test('<meanwhile> of a heartbeat holds her lines from the groups of two interfaces and none from a direct chat', async () => {
@@ -157,68 +139,6 @@ test('a second deciding call in one step of a heartbeat with no chat is still re
   });
   assert.deepEqual(run.actions, ['intention.set:executed:ok', 'intention.set:refused:heartbeat-only']);
   assert.equal(run.intentions.list({ all: true }).length, 1);
-});
-
-/** The facts of a selfimprovement wake: two shapes, one repeat and one failure, each with its turn ids. */
-function facts(): SelfimprovementFacts {
-  const from = TURN_NOW - 9 * DAY;
-  return {
-    memory: null,
-    from,
-    days: 9,
-    shapes: [
-      {
-        key: 'memory.search(query)',
-        steps: [{ tool: 'memory.search', args: ['query'] }],
-        count: 3,
-        failures: 1,
-        retries: 0,
-        costUsd: 0,
-        example: { turnId: 'turn:alpha', at: from + DAY },
-        turnIds: ['turn:alpha', 'turn:beta', 'turn:gamma'],
-      },
-      {
-        key: 'lore.list()',
-        steps: [{ tool: 'lore.list', args: [] }],
-        count: 1,
-        failures: 0,
-        retries: 0,
-        costUsd: 0,
-        example: { turnId: 'turn:delta', at: from + 2 * DAY },
-        turnIds: ['turn:delta'],
-      },
-    ],
-    moreShapes: 0,
-    repeated: [{ key: 'memory.search(query)', count: 3, turnIds: ['turn:alpha', 'turn:beta', 'turn:gamma'] }],
-    failures: [{ tool: 'memory.search', code: 'timeout', count: 1, turnIds: ['turn:beta'] }],
-    unusedTools: [],
-    skills: [],
-    proposals: [],
-    news: { questions: [], reviews: [], outbox: [], landed: [] },
-    outboxSeqs: [],
-  };
-}
-
-test('<work> of a selfimprovement wake sits in <inner>, states its window and names a turn id on every line', async () => {
-  // Bug: the work report loses the turn ids the agents need as evidence, or never says which days it covers.
-  const given = facts();
-  const run = await serviceTurn({
-    wake: serviceWake('selfimprovement', { selfimprovement: given }),
-    answers: ['<skip/>'],
-    chat: null,
-  });
-  const inner = blockOf(run.requests[0] ?? '', 'inner');
-  const work = /<work>\n([\s\S]*?)\n<\/work>/.exec(inner)?.[1] ?? '';
-  assert.ok(work !== '', inner);
-  assert.ok(work.includes(formatDate(given.from, 'UTC', shippedLabels.locale)), work);
-  const ids = ['turn:alpha', 'turn:beta', 'turn:gamma', 'turn:delta'];
-  const lines = work.split('\n').filter((line) => line.includes('memory.search') || line.includes('lore.list'));
-  assert.ok(lines.length >= 3, work);
-  for (const line of lines)
-    assert.ok(
-      ids.some((id) => line.includes(id)),
-      line
-    );
 });
 
 test("a heartbeat orders its blocks with what repeats first and the turn's own last: <meanwhile> before <inner>", async () => {

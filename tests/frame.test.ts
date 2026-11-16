@@ -62,7 +62,6 @@ const SELFREFLECTION_LIST: ReadonlyArray<BlockName> = [
 const KINDS: ReadonlyArray<TurnKind> = [
   'reply',
   'heartbeat',
-  'selfimprovement',
   'intention',
   'feedback',
   'errand_result',
@@ -90,13 +89,6 @@ test('a heartbeat reads the service list', () => {
   // Bug: the heartbeat keeps `<chat>` or `<surroundings>` of the place its wake rode in on.
   const frame = frameOf(wakeInput('heartbeat'));
   assert.equal(frame.kind, 'heartbeat');
-  assert.deepEqual(frame.blocks, SERVICE_LIST);
-});
-
-test('a selfimprovement wake reads the service list', () => {
-  // Bug: only the heartbeat is treated as her own time, and selfimprovement gets a chat.
-  const frame = frameOf(wakeInput('selfimprovement'));
-  assert.equal(frame.kind, 'selfimprovement');
   assert.deepEqual(frame.blocks, SERVICE_LIST);
 });
 
@@ -247,7 +239,6 @@ test("every inner turn's request is the frame's own, with a place and without", 
   // Bug: a service or an intention keeps the old emission with `<wake>`, so its request has no `<meanwhile>` or `<memory>`.
   const inputs = [
     wakeInput('heartbeat'),
-    wakeInput('selfimprovement'),
     wakeInput('intention_due'),
     wakeInput('intention_due', { chain: ROOM_CHAIN }),
     wakeInput('feedback'),
@@ -275,7 +266,6 @@ const KIND_CASES: ReadonlyArray<[Mode, TriggerKind, WakeKind, TurnKind]> = [
   ['reply', 'errand', null, 'errand_result'],
   ['interject', 'errand', null, 'errand_result'],
   ['inner', 'inner', 'heartbeat', 'heartbeat'],
-  ['inner', 'inner', 'selfimprovement', 'selfimprovement'],
   ['inner', 'inner', 'intention_due', 'intention'],
   ['inner', 'inner', 'attend', 'intention'],
   ['inner', 'inner', 'errand_deadline', 'intention'],

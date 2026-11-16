@@ -45,44 +45,8 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'selfimprovement.schedule',
     'types': ['string'],
-    'reader': 'src/behavior/inner/settings.ts',
+    'reader': 'src/setup/mechanics.ts',
     'default': 'at 03:00',
-    'text':
-      'When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`. `neptunia services selfimprovement setup` writes it, and a value that means nothing reads as the default',
-  },
-  {
-    'key': 'selfimprovement.failuresPerShape',
-    'types': ['number'],
-    'reader': 'src/behavior/inner/settings.ts',
-    'default': 3,
-    'text': 'How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause',
-  },
-  {
-    'key': 'selfimprovement.tools',
-    'types': ['string', 'array'],
-    'reader': 'src/tools/access.ts',
-    'default': '*',
-    'text': 'The tools a selfimprovement wake may call: `"*"` for every granted tool or a list of tool names',
-  },
-  {
-    'key': 'selfimprovement.maxActs',
-    'types': ['number', 'null'],
-    'reader': 'src/tools/access.ts',
-    'default': null,
-    'text': 'The most actions a selfimprovement wake may take; null: no cap',
-  },
-  {
-    'key': 'selfimprovement.maxTasks',
-    'types': ['number', 'null'],
-    'reader': 'src/tools/access.ts',
-    'default': null,
-    'text': 'The most errands a selfimprovement wake may start; null: no cap',
-  },
-  {
-    'key': 'selfimprovement.inputTokens',
-    'types': ['number', 'null'],
-    'reader': 'src/tools/access.ts',
-    'default': null,
-    'text': 'The input token budget of a selfimprovement wake; null: the loop budget',
+    'text': 'The schedule the mechanics step of `neptunia setup` offers for selfimprovement and stores back',
   },
 ];

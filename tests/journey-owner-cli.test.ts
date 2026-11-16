@@ -74,7 +74,6 @@ before(async () => {
     mention: { oneAtATime: true },
     wakes: { mode: 'shadow', tickSeconds: 60, review: { enabled: false, historyDays: 14 }, caps: { perChain: 3 } },
     heartbeat: { enabled: true, schedule: 'every 4h', jitterMinutes: 0 },
-    selfimprovement: { enabled: false },
     memoryDb: { inspection: BOUNDS },
   };
   const hot = { config, prompts: {} };
@@ -103,12 +102,6 @@ before(async () => {
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
-    selfimprovement: {
-      granted: () => [],
-      skills: () => [],
-      proposals: () => Promise.resolve({ entries: [], outbox: [] }),
-      ackOutbox: () => Promise.resolve(),
-    },
     rng: () => 0.5,
     now: () => clock.t,
     log: SILENT,

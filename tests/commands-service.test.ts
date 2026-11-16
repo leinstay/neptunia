@@ -1,5 +1,5 @@
 // The `/services` family in the command table (src/interface/commands/table.ts), in the panels (bin/chat-panels.ts) and in
-// the core's console (src/interface/commands/console.ts): the one public control of the three scheduled mechanics, what
+// the core's console (src/interface/commands/console.ts): the one public control of the two scheduled mechanics, what
 // the parse refuses before anything runs, the controls it replaces, and that a /config read sees what `setup` saved.
 // The tests assert on parsed names, arguments, files and the commands a refusal names, never on wording.
 import { test } from 'node:test';
@@ -19,7 +19,7 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 // Changed: the watcher left the services for `/doctor watcher` (owner, 2026-11-09).
-const NAMES = ['heartbeat', 'selfreflection', 'selfimprovement'] as const;
+const NAMES = ['heartbeat', 'selfreflection'] as const;
 const ACTIONS = ['setup', 'enable', 'disable', 'status'] as const;
 
 for (const name of NAMES) {
@@ -85,7 +85,6 @@ for (const line of [
   // Only the heartbeat has a jitter, only on an interval, and it is a duration of zero or more.
 
   '/services selfreflection setup --every 6h --jitter 5m',
-  '/services selfimprovement setup --every 6h --jitter 5m',
   '/services heartbeat setup --at 06:00 --jitter 5m',
   '/services heartbeat setup --every 3h --jitter -5m',
   '/services heartbeat setup --every 3h --jitter soon',
@@ -95,7 +94,6 @@ for (const line of [
   // No mechanic has the operations of one run, and the watcher's moved to the doctor.
   '/services heartbeat trigger',
   '/services selfreflection cancel',
-  '/services selfimprovement report',
   // A name or an action outside the family, and the verbs of the system units, which belong to the shell.
   '/services bogus status',
   '/services watcher start',
@@ -175,11 +173,12 @@ test('what setup saves in the chat is what a /config read answers', async () => 
   assert.equal(JSON.parse(read.text), 'every 2h');
 });
 
+// Changed: the mechanic is selfreflection, since selfimprovement is no service.
 test('a schedule in the settings file, where /config set writes it, is what the family shows', async () => {
   // Catches: the family reads a copy of its own, so a change through the settings panel does not reach it.
   const { dir, run } = consoleOver();
-  writeFileSync(localConfigPath(dir), JSON.stringify({ selfimprovement: { schedule: 'at 05:00' } }));
-  const status = await run('/services selfimprovement status');
+  writeFileSync(localConfigPath(dir), JSON.stringify({ selfreflection: { schedule: 'at 05:00' } }));
+  const status = await run('/services selfreflection status');
   assert.equal(status.status, 'ok', status.text);
   assert.match(status.text, /^schedule: at 05:00$/m);
 });
@@ -238,12 +237,11 @@ test('a failed setup in the chat writes nothing', async () => {
   assert.equal(existsSync(localConfigPath(dir)), false);
 });
 
-test('the settings schema knows the schedule of each of the three', () => {
+test('the settings schema knows the schedule of each of the two', () => {
   // Catches: `/config check` and the doctor warn about the key the family itself writes.
   const settings = {
     heartbeat: { schedule: 'every 3h' },
     selfreflection: { schedule: 'at 09:00' },
-    selfimprovement: { schedule: 'at 03:00' },
   };
   assert.deepEqual(checkConfig(settings, CONFIG_SCHEMA), []);
 });

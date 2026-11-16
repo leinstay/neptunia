@@ -78,7 +78,6 @@ function lifeWith(sections: Record<string, unknown>, start: number) {
       mention: { oneAtATime: true },
       wakes: { mode: 'shadow', tickSeconds: 60, review: { enabled: false, historyDays: 14 }, caps: { perChain: 3 } },
       heartbeat: { enabled: false },
-      selfimprovement: { enabled: false },
       ...sections,
     },
   };
@@ -111,12 +110,6 @@ function lifeWith(sections: Record<string, unknown>, start: number) {
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
-    selfimprovement: {
-      granted: () => [],
-      skills: () => [],
-      proposals: () => Promise.resolve({ entries: [], outbox: [] }),
-      ackOutbox: () => Promise.resolve(),
-    },
     rng: () => 0.5,
     now: () => clock.t,
     log: SILENT,
@@ -173,40 +166,6 @@ test('a heartbeat that has drawn its moment shows that moment as next due, none 
   assert.equal(fields.get('next due'), iso(start + 4 * HOUR));
   assert.equal(fields.get('last result'), 'none');
   assert.equal(fields.get('running'), 'false');
-});
-
-test('a selfimprovement turn in flight shows as running for its own name alone, and its end moves the last result', async () => {
-  // Catches: `inflight` is matched by another key than the turn's kind, so a running wake always reads as idle, or any
-  // running turn reads as every mechanic's.
-  const start = at('2026-11-04T14:00:00Z');
-  const run = lifeWith(
-    { selfimprovement: { enabled: true, schedule: 'at 15:00', failuresPerShape: 3 }, heartbeat: { enabled: false } },
-    start
-  );
-  await run.life.tick();
-  const due = at('2026-11-04T15:00:00Z');
-  run.clock.t = due;
-  run.gate.held = true;
-  const ticking = run.life.tick();
-  for (let i = 0; i < 200 && run.gate.entered === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
-  assert.equal(run.gate.entered, 1, 'the turn started');
-  const read = (name: ServiceName) =>
-    wakeClockOf(name, {
-      now: due,
-      inner: run.life,
-      selfreflection: { status: () => ({ slots: [], done: [] }) },
-    });
-  assert.equal(read('selfimprovement')?.running, true);
-  assert.equal(read('heartbeat')?.running, false);
-  run.gate.release();
-  await ticking;
-  await run.life.tick();
-  const finished = read('selfimprovement');
-  assert.equal(finished?.running, false);
-  assert.ok((finished?.lastAt ?? 0) >= start, 'the committed wake moved the clock');
-  const fields = await statusOf('selfimprovement', run.hot.config, due, read);
-  assert.equal(fields.get('running'), 'false');
-  assert.equal(fields.get('last result'), iso(finished?.lastAt ?? 0));
 });
 
 test('with no root known yet a wake reads unknown, apart from its saved flag', async () => {

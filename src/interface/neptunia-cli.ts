@@ -51,7 +51,7 @@ import type { TaskAnswer } from '../board/commands.ts';
 import type { AdapterLink, From, LinkDoor } from './link.ts';
 import type { Principal } from './principals.ts';
 import { SKILL_COMMAND_PREFIX, skillCommandOf } from '../skills/agent-commands.ts';
-import type { BoardCaller } from '../tools/operations/board.ts';
+import type { BoardCaller } from '../board/writer.ts';
 import type { SkillsAccess } from '../skills/port.ts';
 
 /** One command's answer: the text the owner reads and its outcome. */

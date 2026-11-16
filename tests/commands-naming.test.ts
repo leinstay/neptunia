@@ -96,7 +96,6 @@ test('the help panel lists the plural collections and none of the retired comman
 const SERVICE_LINES: ReadonlyArray<{ words: string; tail: string; args: Record<string, string> }> = [
   { words: 'heartbeat status', tail: 'heartbeat.status', args: {} },
   { words: 'selfreflection enable', tail: 'selfreflection.enable', args: {} },
-  { words: 'selfimprovement disable', tail: 'selfimprovement.disable', args: {} },
   {
     words: 'heartbeat setup --every 3h --jitter 30m',
     tail: 'heartbeat.setup',
@@ -123,13 +122,13 @@ for (const { words, tail, args } of SERVICE_LINES) {
   });
 }
 
-test("services takes the three mechanisms, the list and the watcher agent's reads, and no process unit", () => {
+test("services takes the two mechanisms, the list and the watcher agent's reads, and no process unit", () => {
   // Changed: the watcher's own commands moved to `/doctor watcher` (owner, 2026-11-09); its evidence reads stay.
   // Catches: the system units (core, agent runners) slip into the scheduled mechanisms, or a fifth mechanism appears.
   const services = COMMANDS.find((command) => command.name === 'services');
   assert.ok(services);
   const first = new Set(services.subcommands.map((one) => one.name.split('.')[0]));
-  assert.deepEqual([...first].sort(), ['heartbeat', 'list', 'selfimprovement', 'selfreflection', 'watcher']);
+  assert.deepEqual([...first].sort(), ['heartbeat', 'list', 'selfreflection', 'watcher']);
 });
 
 for (const words of [

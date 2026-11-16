@@ -198,7 +198,6 @@ export function hotWith({
     bot: { timezone: string };
     wakes: Record<string, unknown>;
     heartbeat: Record<string, unknown>;
-    selfimprovement: { enabled: boolean };
   };
 } {
   return {
@@ -211,9 +210,6 @@ export function hotWith({
         ...wakes,
       },
       heartbeat,
-      // Proposed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the selfimprovement wake falls due every day at
-      // 03:00 whatever the heartbeat does, so a rig that counts wakes over days sets it off as it sets the heartbeat off.
-      selfimprovement: { enabled: false },
     },
   };
 }

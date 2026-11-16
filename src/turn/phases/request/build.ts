@@ -12,7 +12,6 @@ import { NO_PLACES, selfreflectionChatIds, publicationPlaces, readMirrors } from
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
 import { awakeLines, feedbackText } from '../../../behavior/wake.ts';
 import type { WakeBlockInput } from '../../../behavior/wake.ts';
-import { boardLines, landedLines, selfimprovementReason, workLines } from '../../../behavior/selfimprovement-text.ts';
 import { budgetDrops } from '../../../llm/budget.ts';
 import { toolsBlockText } from '../../../llm/tool-text.ts';
 import { estimateTokens, estimateTools } from '../../../llm/tokens.ts';
@@ -41,7 +40,7 @@ import type { FrameReads, Lesson } from '../../../memory/db/frame-reads.ts';
 import { attitudesShownOf } from '../../request/attitudes.ts';
 import { lessonsBudgetOf, lessonsCut, teachersOf } from '../../request/lessons.ts';
 import type { Context } from '../../../memory/db/scope.ts';
-import { fill, formatClock, formatDate } from '../../../format.ts';
+import { fill } from '../../../format.ts';
 import type { Lookup } from '../../calls.ts';
 import { meanwhileSettingsOf, meanwhileWindows } from '../../request/meanwhile.ts';
 import type { MeanwhileLine, MeanwhileReads, MeanwhileWindow, OwnMessage } from '../../request/meanwhile.ts';
@@ -77,14 +76,14 @@ function procedureSentence(labels: unknown): string {
 }
 
 /** The wakes that run with no chat of their own (src/behavior/inner/queue.ts#channelless). */
-const OWN_SERVER_WAKES = new Set(['heartbeat', 'selfimprovement']);
+const OWN_SERVER_WAKES = new Set(['heartbeat']);
 
 /** How a frame's path names a one-to-one chat. It is a path segment for the code, no text she reads. */
 const DM_WORD = 'private';
 
 /**
  * The stored chain of the turn's place, the place first; a place the tree does not hold yet is a chain of itself. A wake
- * with no chat place (a heartbeat, a selfimprovement wake, or a turn that is nowhere) has none.
+ * with no chat place (a heartbeat, or a turn that is nowhere) has none.
  */
 function chainOfTurn(
   store: PhaseContext['store'],
@@ -819,29 +818,6 @@ function dueIds(wake: { items?: ReadonlyArray<unknown> } | null | undefined): Ar
   });
 }
 
-/** A selfimprovement wake's `<work>` and `<board>` bodies in the labels' words, null on any other turn. */
-function serviceInnerOf(
-  wake: { items?: ReadonlyArray<unknown>; timezone?: string; selfimprovement?: unknown } | null | undefined,
-  labels: unknown
-): { work: string; board: string } | null {
-  const facts = wake?.selfimprovement as Parameters<typeof workLines>[0];
-  if (!facts) return null;
-  const words: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'wake') : null;
-  const own = (key: string): unknown => (words && typeof words === 'object' ? Reflect.get(words, key) : null);
-  const locale: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'locale') : undefined;
-  const timezone = wake?.timezone || 'UTC';
-  const at = typeof locale === 'string' ? locale : undefined;
-  const when = (ts: unknown): string =>
-    typeof ts === 'number' && Number.isFinite(ts)
-      ? `${formatDate(ts, timezone, at)} ${formatClock(ts, timezone, at)}`
-      : '';
-  const work = workLines(facts, own('selfimprovement'), when, selfimprovementReason(wake?.items)).join('\n');
-  const board = [...boardLines(facts, own('selfimprovement')), ...landedLines([facts.news.landed], own('landed'))].join(
-    '\n'
-  );
-  return work || board ? { work, board } : null;
-}
-
 /**
  * Her newest selfreflection entries the turn's context may read, as many as `entriesShownOf` says, oldest first, read
  * from memory alone (src/memory/db/selfreflection-past.ts#readSelfreflection). None without a reader or a context.
@@ -933,7 +909,6 @@ export function plannerRequest(
       intentions: '',
       wake: null,
       awake: null,
-      serviceInner: null,
       wakeKind: null,
       previousThink: null,
       callMarks: null,
@@ -1145,9 +1120,8 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     wake: draft.inner
       ? feedbackText(wakeWords, prompts?.labels, { locale: prompts?.labels?.locale }) || null
       : factsText || null,
-    // Why an inner turn is awake, for `<spatial_awareness>`, and a selfimprovement wake's `<work>` and `<board>`.
+    // Why an inner turn is awake, for `<spatial_awareness>`.
     awake: draft.inner ? awakeTextOf(wakeWords, frame, ctx.frameReads, prompts?.labels) : null,
-    serviceInner: serviceInnerOf(wakeWords, prompts?.labels),
     // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
     wakeKind,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).

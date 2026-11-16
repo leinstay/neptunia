@@ -46,7 +46,6 @@ const utcDay = (at: number): string => new Date(at).toISOString().slice(0, 10);
 /** Marker texts of the prompt files, so a test reads which file framed the request without reading any wording. */
 export const MARK = {
   heartbeat: 'MARK-HEARTBEAT-TASK',
-  selfimprovement: 'MARK-SELFIMPROVEMENT-TASK',
   inner: 'MARK-INTENTION-TASK',
 } as const;
 
@@ -83,8 +82,6 @@ const GRANTED = [
   'intention.set',
   'intention.update',
   'intention.cancel',
-  'task.propose',
-  'task.status',
 ];
 
 /** The memory database of the world above. */
@@ -256,7 +253,6 @@ function rigOf(spec: RigSpec) {
       'errand-result': 'An errand ended.',
       inner: MARK.inner,
       heartbeat: MARK.heartbeat,
-      selfimprovement: MARK.selfimprovement,
       labels: spec.labels ?? shippedLabels,
     },
   };
@@ -608,7 +604,7 @@ export async function replyTurns(spec: {
 export function serviceWake(kind: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     kind,
-    items: [{ kind, reason: kind === 'selfimprovement' ? 'daily' : kind, intentionIds: [], errandId: null }],
+    items: [{ kind, reason: kind, intentionIds: [], errandId: null }],
     intentions: [],
     now: TURN_NOW,
     timezone: 'UTC',

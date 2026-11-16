@@ -1,13 +1,11 @@
 // Every consumer's way into the one retrieval service, stage S8. `memoryQueryFor` turns what a consumer already holds into
 // a query with no model in between; `retrievalBounds` gives the budget, the prefetch sharing its existing deadline and
-// tokens. The selfimprovement view takes a `retrieve` function and adds its page to its facts, and
-// recall's prefetch and search read the same service. The deciding turn's outcome, the publisher and the executor stay
+// tokens. Recall's prefetch and search read the same service. The deciding turn's outcome, the publisher and the executor stay
 // outside: these tests check that retrieval moves nothing there and never yields a destination. Fake model, real temporary
 // databases, synthetic content.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRecall } from '../src/behavior/recall-run.ts';
-import { buildSelfimprovementFacts } from '../src/behavior/selfimprovement-view.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { retrieveMemory } from '../src/memory/db/retrieve.ts';
 import type { MemoryPage, MemoryQuery, RetrievalBounds } from '../src/memory/db/semantic-types.ts';
@@ -362,60 +360,6 @@ const page = (versionId: string): MemoryPage => ({
   partialReason: null,
   ambiguous: [],
   signals: [],
-});
-const improvementInput = (extra: object = {}) => ({
-  now: START,
-  since: null,
-  journal: { read: (): Array<Record<string, unknown>> => [] },
-  granted: [],
-  skills: [],
-  proposals: [],
-  outbox: [{ seq: 7, kind: 'result' }],
-  ...extra,
-});
-const withoutMemory = (facts: object): object =>
-  Object.fromEntries(Object.entries(facts).filter(([key]) => key !== 'memory'));
-
-test('the selfimprovement view adds the page and leaves the outbox it shows alone', async () => {
-  // Bug: a retrieval read counts as delivering a development result, and the wake never hears of it.
-  const retrieve = () => Promise.resolve(page('cv:2'));
-  const plain = await buildSelfimprovementFacts(wrongly(improvementInput()));
-  const facts = await buildSelfimprovementFacts(wrongly(improvementInput({ retrieve, bounds: BOUNDS })));
-  assert.deepEqual(wrongly<{ memory: MemoryPage }>(facts).memory, page('cv:2'));
-  assert.deepEqual(withoutMemory(facts), withoutMemory(plain));
-});
-
-test('the selfimprovement view makes its query from the failures it already holds', async () => {
-  // Bug: a wake seeded only by a failure passes an empty query.
-  const asked: Array<MemoryQuery> = [];
-  const failed = (at: number, opId: string, phase: string) => ({
-    kind: 'action',
-    name: 'skill',
-    turnId: 't1',
-    opId,
-    scope: { channel: 'c1' },
-    phase,
-    occurredAt: new Date(at).toISOString(),
-    input: { skill: 'web.search', args: ['query'] },
-    ...(phase === 'failed' ? { result: { code: 'TIMEOUT' } } : {}),
-  });
-  const records = [failed(START - 5000, 'op', 'started'), failed(START - 4000, 'op', 'failed')];
-  const journal = {
-    read: (query: { kind: string }) => records.filter((one) => one.kind === query.kind),
-  };
-  await buildSelfimprovementFacts(
-    wrongly(
-      improvementInput({
-        journal,
-        bounds: BOUNDS,
-        retrieve: (query: MemoryQuery) => {
-          asked.push(query);
-          return Promise.resolve(page('cv:3'));
-        },
-      })
-    )
-  );
-  assert.match(asked[0]?.text ?? '', /web\.search/);
 });
 
 // ---- no destination --------------------------------------------------------------------------------------------------

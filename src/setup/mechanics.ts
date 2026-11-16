@@ -8,7 +8,6 @@
 
 import { readConfig } from '../config.ts';
 import { readLabels } from '../hot.ts';
-import { innerSettings } from '../behavior/inner/settings.ts';
 import { checkRepository } from '../selfimprovement/repository.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
@@ -16,6 +15,7 @@ import { availableSources } from '../subharness/sources.ts';
 import { updateLocalSettings } from '../service/local-settings.ts';
 import { formatSchedule, parseSchedule } from '../service/schedule.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
+import { isClockTime } from '../time.ts';
 import { objOf } from '../tools/types.ts';
 import { setPath } from '../tools/operations/shared.ts';
 
@@ -58,6 +58,12 @@ export async function askSchedule(ask: Ask, question: string, current: ServiceSc
   return scheduleOfAnswer(answer) ?? current;
 }
 
+/** The selfimprovement schedule in force: `selfimprovement.schedule`, the older `selfimprovement.at`, else daily at 03:00. */
+function improvementSchedule(config: unknown): ServiceSchedule {
+  const raw = objOf(objOf(config).selfimprovement);
+  return parseSchedule(raw.schedule) ?? { kind: 'at', at: [isClockTime(raw.at) ? raw.at : '03:00'] };
+}
+
 /** What is missing for selfimprovement, in one line, or null when its checks pass. */
 async function selfimprovementMissing(
   options: { rootDir: string; privateDir: string },
@@ -80,7 +86,7 @@ export async function mechanicsStep(
     heartbeat: objOf(config.heartbeat).enabled !== false,
     selfreflection: objOf(config.selfreflection).enabled !== false,
     selfimprovement: objOf(config.selfimprovement).enabled !== false,
-    schedule: innerSettings(config).wakes.selfimprovement.schedule,
+    schedule: improvementSchedule(config),
   };
   const heartbeat = await askSwitch(
     deps.ask,

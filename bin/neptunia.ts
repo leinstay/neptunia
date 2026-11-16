@@ -204,7 +204,7 @@ const USAGE = [
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia services list',
-  '       neptunia services <name> setup|enable|disable|status   (heartbeat, selfreflection, selfimprovement)',
+  '       neptunia services <name> setup|enable|disable|status   (heartbeat, selfreflection)',
   '       neptunia services watcher evidence [--from <iso>] [--cursor <c>]',
   '       neptunia services watcher select --sql <statement>',
   '       neptunia services start|stop|restart|status [<unit> ...]',

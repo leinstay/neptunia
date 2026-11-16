@@ -2,8 +2,8 @@
 // parts stay the same from place to place, what a turn of her own time says, and the owner's notes read from
 // `config.spatial.notes` at the moment of use. The labels are the fixture's markers. Synthetic names only.
 //
-// The request input gains `whereabouts?: Whereabouts | null` (src/turn/request/spatial.ts). A heartbeat and a
-// selfimprovement wake are her own time: their block says she is at the command line of her own server, and a
+// The request input gains `whereabouts?: Whereabouts | null` (src/turn/request/spatial.ts). A heartbeat is her
+// own time: its block says she is at the command line of her own server, and a
 // selfreflection post that she is in her own world, whatever place the input names (stage AC, the owner's word of
 // 2026-11-06). With the block the clock leaves `<now>`, which keeps her recent time away (the lead's ruling for stage AC).
 import { test } from 'node:test';
@@ -93,14 +93,14 @@ test('the command line says the command line, then that it is private', () => {
   assert.equal(body, [`SPATIAL-CLI AT ${WHEN}`, 'SPATIAL-PRIVATE'].join('\n'));
 });
 
-for (const wakeKind of ['heartbeat', 'selfimprovement']) {
+for (const wakeKind of ['heartbeat']) {
   test(`a ${wakeKind} wake is on her own server, even when the turn rode in on a channel`, () => {
     // Bug: the transport anchor of her own time is named as the place she is in.
     const request = buildRequest(
       baseInput({
         mode: 'inner',
         wakeKind,
-        prompts: fakePrompts({ inner: 'INNER_TASK', heartbeat: 'HEARTBEAT_TASK', selfimprovement: 'SELF_TASK' }),
+        prompts: fakePrompts({ inner: 'INNER_TASK', heartbeat: 'HEARTBEAT_TASK' }),
         whereabouts: placeIn('general'),
       })
     );

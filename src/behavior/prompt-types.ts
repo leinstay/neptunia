@@ -94,7 +94,6 @@ export type BuildRequestInput = {
   intentions?: string | null;
   wake?: string | null;
   awake?: string | null;
-  serviceInner?: { work: string; board: string } | null;
   wakeKind?: string | null;
   previousThink?: { text: string; relation: 'same' | 'earlier'; ageMs?: number } | null;
   myDay?: ReadonlyArray<string> | null;

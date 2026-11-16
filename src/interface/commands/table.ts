@@ -181,7 +181,7 @@ function checkService(name: string, args: Readonly<Record<string, string>>): str
 
 /** The leaves of `services`: the list, the four actions of each mechanic, and the watcher agent's two reads. */
 const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
-  sub('list', 'Show the three mechanics, each as its status shows it'),
+  sub('list', 'Show the two mechanics, each as its status shows it'),
   ...SERVICE_NAMES.flatMap((name) => [
     sub(`${name}.setup`, `Set when ${name} runs, leaving it on or off as it is`, [
       flagArg('at', false),
@@ -402,7 +402,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'services',
-    help: 'Schedule, switch and inspect heartbeat, selfreflection and selfimprovement',
+    help: 'Schedule, switch and inspect heartbeat and selfreflection',
     args: [],
     needsSubcommand: true,
     check: checkService,

@@ -368,7 +368,7 @@ On every other command `--secret-stdin` is ordinary text. `keys add` and `keys s
 
 ## Scheduled services
 
-`neptunia services list` prints the status of `heartbeat`, `selfreflection` and `selfimprovement`, with no process unit among them. `neptunia services <name> setup|enable|disable|status` controls one of the three. `/services <name> <action>` and `neptunia -p "/services ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the selfreflection wake and selfimprovement is the persona's development wake, which stays apart from the development worker. The handler works with no core, so a mechanic can be switched and read while the core is down. `/pause` and `/resume` hold and release every turn, and `/services <name> disable` stops one mechanic.
+`neptunia services list` prints the status of `heartbeat` and `selfreflection`, with no process unit among them. `neptunia services <name> setup|enable|disable|status` controls one of the two. `/services <name> <action>` and `neptunia -p "/services ..."` reach the same handler, `src/service/commands.ts`. The handler works with no core, so a mechanic can be switched and read while the core is down. `/pause` and `/resume` hold and release every turn, and `/services <name> disable` stops one mechanic.
 
 `setup --at 00:00,12:00` saves daily UTC times and `setup --every 6h` an interval in hours or minutes (`90m`). The two exclude each other. Both write the one setting `<name>.schedule` that `/config` reads, leave the flag as it is, and answer `timezone: UTC` and `next:` with the next times. `heartbeat setup --jitter 30m` sets `heartbeat.jitterMinutes`, which moves an interval either way and leaves daily times exact. `setup` with no flag asks at a terminal and exits `2` without one.
 

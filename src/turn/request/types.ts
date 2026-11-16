@@ -394,8 +394,6 @@ export type RequestInput = {
   readonly wake?: unknown;
   /** Why she is awake with nobody's message in front of her, for `<spatial_awareness>` (src/behavior/wake.ts#awakeLines). */
   readonly awake?: string | null;
-  /** A selfimprovement wake's `<work>` and `<board>` bodies (src/behavior/selfimprovement-text.ts). */
-  readonly serviceInner?: { readonly work: string; readonly board: string } | null;
   readonly wakeKind?: string | null;
   readonly previousThink?: PreviousThink | null;
   /** What she did today, one line each (src/turn/request/my-day.ts#myDayOf): the body of `<my_day>`. */

@@ -1,18 +1,13 @@
 // The core's skills, wired once (src/core.ts calls it): the access over the memory writer (client.ts), her active skills
-// for the tools array of a request, the sweep that settles her done skill tasks
-// (task-activation.ts), and the sources of the selfimprovement wake's facts that concern skills and the board. The packages
+// for the tools array of a request and the sweep that settles her done skill tasks (task-activation.ts). The packages
 // are `<data>/skills/<name>/`, read at each call, and the grants, the labels and `skills.reviewDays` are read from `hot` at
 // the moment of use, never kept.
 
 import path from 'node:path';
-import { proposalsOf, ackOutbox } from '../behavior/selfimprovement-view.ts';
-import { landedFor } from '../selfimprovement/landed.ts';
-import type { SelfimprovementSources } from '../behavior/inner/types.ts';
-import { SKILL_USE_KINDS, listSkills, useCountsBySkill } from '../memory/db/skills.ts';
-import type { SkillUse, SkillsUpdate, UseCounts } from '../memory/db/skills.ts';
+import type { SkillUse, SkillsUpdate } from '../memory/db/skills.ts';
 import { apiNameOf } from '../tools/definitions.ts';
 import { grantedSkillNames } from '../tools/discovery.ts';
-import type { BoardCaller } from '../tools/operations/board.ts';
+import type { BoardCaller } from '../board/writer.ts';
 import { skillRegistry } from '../tools/registry.ts';
 import { createSkillsClient } from './client.ts';
 import type { ActiveSkill } from './index-block.ts';
@@ -30,7 +25,6 @@ export type SkillsWiring = {
   record: (uses: ReadonlyArray<SkillUse>) => Promise<number>;
   /** One sweep over her done skill tasks, as the board's `development` principal. */
   settle: () => Promise<Array<SettledTask>>;
-  selfimprovement: Pick<SelfimprovementSources, 'granted' | 'skills' | 'proposals' | 'ackOutbox' | 'landed'>;
 };
 
 /** Every name a tool answers to, dotted and as the tools array names it: a skill may take none of them. */
@@ -97,23 +91,6 @@ export function wireSkills(deps: SkillsWiringDeps): SkillsWiring {
         deps.log.warn('skills: active not read', { error });
         return [];
       }
-    },
-    selfimprovement: {
-      granted,
-      skills(since) {
-        const db = memoryDb.database();
-        if (db === null) return [];
-        const counts = useCountsBySkill({ db }, { since });
-        const none = Object.fromEntries(SKILL_USE_KINDS.map((kind) => [kind, 0])) as UseCounts;
-        return listSkills({ db }).map((row) => ({
-          name: row.name,
-          active: row.active !== null && !row.disabled,
-          counts: counts[row.name] ?? none,
-        }));
-      },
-      proposals: () => proposalsOf(deps.board),
-      ackOutbox: (seqs) => ackOutbox(deps.board, seqs),
-      landed: async () => (await landedFor(deps.board)).landed,
     },
   };
 }

@@ -53,7 +53,7 @@ A heartbeat or completed errand can also cause a turn. It uses the same persona 
 
 | Field | What it holds |
 |---|---|
-| `kind` | The `TurnKind`: `reply`, `heartbeat`, `selfimprovement`, `intention`, `feedback`, `errand_result`, `selfreflection_plan` or `selfreflection`. |
+| `kind` | The `TurnKind`: `reply`, `heartbeat`, `intention`, `feedback`, `errand_result`, `selfreflection_plan` or `selfreflection`. |
 | `place` | A `FramePlace` with `id`, `name`, `kind` and `path`, or null when she is nowhere. |
 | `root` | The top of the place's tree as a `FramePlace`, null in a one-to-one chat, with no place and for a place with no stored parent. |
 | `chain` | The stored chain of the place, the place first, which `<spatial_awareness>` renders link by link. |
@@ -66,7 +66,7 @@ A heartbeat or completed errand can also cause a turn. It uses the same persona 
 | `wakeKind` | The wake beside `awake`, null on any other turn. |
 | `blocks` | The tags of the kind from `blocksOf`, listed in [the prompt contract](prompt-contract.md#blocks-per-kind). |
 
-`reply` and `interject` make a `reply`, and a trigger of kind `errand` makes an `errand_result`. An inner turn takes its wake's kind, with `intention_due`, `attend` and `errand_deadline` making an `intention` and a `feedback` wake a `feedback`. A `heartbeat`, a `selfimprovement` and both `selfreflection` kinds are nowhere, and so is a turn the drain runs with `chat: null`. The path of a place runs from the interface down by names, and a one-to-one chat's path is the interface, the interface's word for the chat and the partner's native id, with no name. `frameOf` throws `FrameError` with the code `PLACE_REQUIRED` for a `reply` with no place.
+`reply` and `interject` make a `reply`, and a trigger of kind `errand` makes an `errand_result`. An inner turn takes its wake's kind, with `intention_due`, `attend` and `errand_deadline` making an `intention` and a `feedback` wake a `feedback`. A `heartbeat` and both `selfreflection` kinds are nowhere, and so is a turn the drain runs with `chat: null`. The path of a place runs from the interface down by names, and a one-to-one chat's path is the interface, the interface's word for the chat and the partner's native id, with no name. `frameOf` throws `FrameError` with the code `PLACE_REQUIRED` for a `reply` with no place.
 
 ## The request on the frame
 

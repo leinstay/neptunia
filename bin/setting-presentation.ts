@@ -101,7 +101,6 @@ const WORDS: Record<string, string> = {
   sweepsPerScopePerDay: 'Daily processing limit per chat',
   minLines: 'Small session threshold (lines)',
   batchLines: 'Batch size (lines)',
-  failuresPerShape: 'Repeated failures before review',
   quietDayChance: 'Chance of a quiet day',
   world: 'Include world background',
   windows: 'Posting windows',

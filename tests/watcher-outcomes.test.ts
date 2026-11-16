@@ -181,7 +181,6 @@ for (const [mode, kind, service] of [
   ['reply', undefined, 'core'],
   ['selfreflection', undefined, 'selfreflection'],
   ['inner', 'heartbeat', 'heartbeat'],
-  ['inner', 'selfimprovement', 'selfimprovement'],
   ['inner', 'attend', 'core'],
 ] as const) {
   test(`a ${mode} turn with the wake ${String(kind)} belongs to ${service}`, () => {

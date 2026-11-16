@@ -5,7 +5,6 @@
 // holds the fields only the phases share and the ones it types more narrowly than a module does.
 
 import type { turnBoundary } from '../tools/publication.ts';
-import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { ChatInfo } from '../protocol/adapter.ts';
 import type { Act } from './act.ts';
 import type { DrawGif } from './draw-gif.ts';
@@ -29,7 +28,6 @@ export type InnerTurn = {
   wake?: {
     kind?: string | null;
     chainId?: string | null;
-    selfimprovement?: { memory?: MemoryPage | null } | null;
     intentions?: ReadonlyArray<{ purpose?: unknown } | null>;
     items?: unknown;
     [key: string]: unknown;

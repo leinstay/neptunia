@@ -63,8 +63,6 @@ export const CATALOGUE = Object.freeze({
   'heartbeat-only': skill('denied'),
   'heartbeat-cap': skill('denied'),
   'heartbeat-recurring-cap': skill('denied'),
-  'selfimprovement-only': skill('denied'),
-  'duplicate-task': skill('denied'),
   paused: skill('denied'),
   'selfreflection-draw-only': skill('denied'),
 
@@ -151,7 +149,6 @@ export const CATALOGUE = Object.freeze({
   redirects: skill('failed'),
   'turn-cap': skill('failed'),
   'runner-down': skill('failed'),
-  'board-unavailable': skill('failed'),
   // A /memory command answered while the memory database is closed (src/interface/commands/memory.ts).
   'memory-closed': skill('failed'),
   'write-failed': skill('failed'),

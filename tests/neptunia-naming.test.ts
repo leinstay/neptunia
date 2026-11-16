@@ -109,13 +109,13 @@ test('neptunia task is refused and names tasks, while neptunia tasks reaches the
   assert.ok(plural.stderr.startsWith('unavailable:'), plural.stderr.slice(0, 300));
 });
 
-test('neptunia services list answers with no core, lists the three mechanisms and changes nothing', async () => {
+test('neptunia services list answers with no core, lists the two mechanisms and changes nothing', async () => {
   // Catches: the list needs the core, lists a unit, or writes a setting or moves a timer while it reads.
   fresh();
   const before = digest(offline.dataDir);
   const done = await run(offline, ['services', 'list']);
   assert.equal(done.code, 0, done.stderr.slice(0, 300));
-  for (const name of ['heartbeat', 'selfreflection', 'selfimprovement']) assert.ok(done.stdout.includes(name), name);
+  for (const name of ['heartbeat', 'selfreflection']) assert.ok(done.stdout.includes(name), name);
   assert.equal(digest(offline.dataDir), before);
   const calls = existsSync(unitLog) ? readFileSync(unitLog, 'utf8').split('\n').filter(Boolean) : [];
   assert.deepEqual(
@@ -124,16 +124,17 @@ test('neptunia services list answers with no core, lists the three mechanisms an
   );
 });
 
-test('/services selfimprovement status gives the same answer from the chat line and from argv, with no core', async () => {
+test('/services selfreflection status gives the same answer from the chat line and from argv, with no core', async () => {
   // Catches: the two spellings of one command reach different handlers.
-  // Changed: the watcher left the services (owner, 2026-11-09); selfimprovement, whose next time has no jitter, stands in.
+  // Changed: the watcher left the services (owner, 2026-11-09), and selfimprovement is no service; selfreflection,
+  // whose next time has no jitter, stands in.
   fresh();
-  const direct = await run(offline, ['services', 'selfimprovement', 'status']);
-  const line = await run(offline, ['-p', '/services selfimprovement status']);
+  const direct = await run(offline, ['services', 'selfreflection', 'status']);
+  const line = await run(offline, ['-p', '/services selfreflection status']);
   assert.equal(direct.code, 0, direct.stderr.slice(0, 300));
   assert.equal(line.code, 0, line.stderr.slice(0, 300));
   assert.equal(line.stdout, direct.stdout);
-  assert.ok(direct.stdout.includes('selfimprovement'));
+  assert.ok(direct.stdout.includes('selfreflection'));
 });
 
 // ---- /doctor watcher -------------------------------------------------------------------------------------------------

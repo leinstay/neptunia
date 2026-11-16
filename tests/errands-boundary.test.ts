@@ -30,7 +30,7 @@ test('the same call under the new name is a call of hers on both transports', ()
 });
 
 test('a journal that wrote the old names is read under the new ones, and any other name comes back as it is', () => {
-  // `task.status` and `task.cancel` left this list: the board tools hold those names, and a live name reads as itself.
+  // `task.status` and `task.cancel` stay out of this list: a stored row of either name may come from an older board tool.
   assert.deepEqual(['task.run', 'task.read', 'task.resolve', 'task.list'].map(currentToolName), [
     'errand.run',
     'errand.read',

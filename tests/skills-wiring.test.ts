@@ -1,6 +1,6 @@
-// The skills wiring of the core (src/skills/wiring.ts): her active skills for the tools array, the use rows and
-// the sources of the selfimprovement wake. A real in-memory memory database behind the writer's `applySkillsWrite`,
-// real temporary skill folders, her grants as the config states them and a fake board.
+// The skills wiring of the core (src/skills/wiring.ts): her active skills for the tools array and the use rows. A real
+// in-memory memory database behind the writer's `applySkillsWrite`, real temporary skill folders, her grants as the
+// config states them and a fake board.
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -142,59 +142,4 @@ test('record writes the rows of a turn and gives 0 once the database is closed',
   assert.equal(await r.wiring.record(uses), 1);
   r.state.open = false;
   assert.equal(await r.wiring.record(uses), 0);
-});
-
-test('the wake sources give her granted tools sorted and the uses of the window per skill', async (t) => {
-  const r = rig(t);
-  r.write('look-it-up', LOOK);
-  r.write('idle', skillText('idle', 'I am never used', ['web.read']));
-  await r.wiring.access.activate('look-it-up', 'agent:hand');
-  const versionId = (await r.wiring.access.active())[0]?.versionId ?? '';
-  const day = 86_400_000;
-  await r.wiring.record([
-    { skill: 'look-it-up', versionId, turnId: 'old', kind: 'read', at: SKILLS_T0 - 10 * day },
-    { skill: 'look-it-up', versionId, turnId: 'new', kind: 'read', at: SKILLS_T0 },
-    { skill: 'look-it-up', versionId, turnId: 'new', kind: 'tried', at: SKILLS_T0 },
-  ]);
-  const { granted, skills } = r.wiring.selfimprovement;
-  assert.deepEqual(granted?.(), ['skill.read', 'web.read', 'web.search']);
-  const rows = skills?.(SKILLS_T0 - day) ?? [];
-  const look = rows.find((row) => row.name === 'look-it-up');
-  assert.equal(look?.active, true);
-  assert.equal(look?.counts.read, 1, 'the use before the window is not counted');
-  assert.equal(look?.counts.tried, 1);
-  const idle = rows.find((row) => row.name === 'idle');
-  assert.equal(idle?.active, false, 'a skill nobody activated is listed as not active');
-  assert.deepEqual(Object.values(idle?.counts ?? {}), [0, 0, 0, 0, 0, 0]);
-});
-
-test('a disabled skill is listed not active in the wake sources', async (t) => {
-  const r = rig(t);
-  r.write('look-it-up', LOOK);
-  await r.wiring.access.activate('look-it-up', 'agent:hand');
-  await r.wiring.access.disable('look-it-up', 'persona');
-  const rows = r.wiring.selfimprovement.skills?.(0) ?? [];
-  assert.equal(rows.find((row) => row.name === 'look-it-up')?.active, false);
-});
-
-test('with the database closed the wake sources list no skills', (t) => {
-  const r = rig(t);
-  r.state.open = false;
-  assert.deepEqual(r.wiring.selfimprovement.skills?.(0), []);
-});
-
-// The mark names the rows shown: a cursor at the newest also marked a row between them she never saw.
-test('the board sources call as persona: proposals list her own tasks and ackOutbox marks exactly the rows shown', async (t) => {
-  const r = rig(t);
-  const found = await r.wiring.selfimprovement.proposals?.();
-  assert.deepEqual(found, { entries: [], outbox: [] });
-  assert.deepEqual(r.calls[0], { principal: 'persona', op: 'task.list', args: { requester: 'persona:self' } });
-  await r.wiring.selfimprovement.ackOutbox?.([3, 7, 5]);
-  const ack = r.calls.at(-1);
-  assert.equal(ack?.principal, 'persona');
-  assert.equal(ack?.op, 'outbox.pull');
-  assert.deepEqual(ack?.args?.ack_seqs, [3, 7, 5]);
-  const before = r.calls.length;
-  await r.wiring.selfimprovement.ackOutbox?.([]);
-  assert.equal(r.calls.length, before, 'no rows shown, no call');
 });

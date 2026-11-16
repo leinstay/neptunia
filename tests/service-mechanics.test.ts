@@ -1,5 +1,5 @@
 // The one setting `<name>.schedule` (`at 06:00,18:00` or `every 6h`) reaching each mechanic's own scheduler: the
-// heartbeat's timer and the selfimprovement wake in the inner life, and the diary's day plan. Each mechanic keeps its missed-wake policy, so overdue wakes never stack. The inner life runs over a fake
+// heartbeat's timer in the inner life and the diary's day plan. Each mechanic keeps its missed-wake policy, so overdue wakes never stack. The inner life runs over a fake
 // turn runner with the clock injected.
 // Changed: the watcher has no schedule and no timer (owner, 2026-11-09), so its tests left this file.
 import { test } from 'node:test';
@@ -42,7 +42,6 @@ function lifeWith(sections: Record<string, unknown>, start: number, rng: () => n
       mention: { oneAtATime: true },
       wakes: { mode: 'shadow', tickSeconds: 60, review: { enabled: false, historyDays: 14 }, caps: { perChain: 3 } },
       heartbeat: { enabled: false },
-      selfimprovement: { enabled: false },
       ...sections,
     },
   };
@@ -78,12 +77,6 @@ function lifeWith(sections: Record<string, unknown>, start: number, rng: () => n
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
-    selfimprovement: {
-      granted: () => [],
-      skills: () => [],
-      proposals: () => Promise.resolve({ entries: [], outbox: [] }),
-      ackOutbox: () => Promise.resolve(),
-    },
     rng,
     now: () => clock.t,
     log: SILENT,
@@ -145,67 +138,6 @@ test('the heartbeat settings read the schedule and keep the jitter, and a schedu
     innerSettings({ heartbeat: { schedule: 'sometimes' } }).heartbeat.schedule,
     innerSettings({}).heartbeat.schedule
   );
-});
-
-// ---- the selfimprovement wake ------------------------------------------------------------------------------------------
-
-test('selfimprovement at two daily times wakes at each, once', async () => {
-  // Catches: the wake reads one time of the day, so the second slot of `--at` never comes.
-  const start = at('2026-11-04T02:00:00Z');
-  const run = lifeWith({ selfimprovement: { enabled: true, schedule: 'at 03:00,15:00', failuresPerShape: 3 } }, start);
-  await run.life.tick();
-  for (const iso of ['2026-11-04T03:00:00Z', '2026-11-04T03:30:00Z', '2026-11-04T15:00:00Z', '2026-11-04T16:00:00Z']) {
-    run.clock.t = at(iso);
-    await run.life.tick();
-  }
-  assert.deepEqual(
-    wakesOf(run.calls, 'selfimprovement').map((call) => call.inner.wake.chainId),
-    [`selfimprovement:${at('2026-11-04T03:00:00Z')}`, `selfimprovement:${at('2026-11-04T15:00:00Z')}`]
-  );
-});
-
-test('selfimprovement every 6h wakes one interval after the last wake', async () => {
-  // Catches: only daily times are understood, so an interval schedule silently falls back to the default hour.
-  const start = at('2026-11-04T01:30:00Z');
-  const run = lifeWith({ selfimprovement: { enabled: true, schedule: 'every 6h', failuresPerShape: 3 } }, start);
-  await run.life.tick();
-  run.clock.t = start + 5 * HOUR;
-  await run.life.tick();
-  assert.equal(wakesOf(run.calls, 'selfimprovement').length, 0);
-  run.clock.t = start + 6 * HOUR;
-  await run.life.tick();
-  run.clock.t = start + 7 * HOUR;
-  await run.life.tick();
-  assert.equal(wakesOf(run.calls, 'selfimprovement').length, 1);
-});
-
-test('selfimprovement overdue by days gives one wake, for the newest slot', async () => {
-  // Catches: each missed slot raises a wake of its own id, so she files a row of development decisions on return.
-  const start = at('2026-11-04T02:00:00Z');
-  const run = lifeWith({ selfimprovement: { enabled: true, schedule: 'at 03:00,15:00', failuresPerShape: 3 } }, start);
-  await run.life.tick();
-  run.clock.t = at('2026-11-07T16:00:00Z');
-  await run.life.tick();
-  run.clock.t += MINUTE;
-  await run.life.tick();
-  assert.deepEqual(
-    wakesOf(run.calls, 'selfimprovement').map((call) => call.inner.wake.chainId),
-    [`selfimprovement:${at('2026-11-07T15:00:00Z')}`]
-  );
-});
-
-test('selfimprovement fires no slot twice when the clock steps back', async () => {
-  // Catches: the slot is compared with the clock alone, so a step back runs the 15:00 wake again.
-  const start = at('2026-11-04T14:00:00Z');
-  const run = lifeWith({ selfimprovement: { enabled: true, schedule: 'at 15:00', failuresPerShape: 3 } }, start);
-  await run.life.tick();
-  run.clock.t = at('2026-11-04T15:00:00Z');
-  await run.life.tick();
-  run.clock.t = at('2026-11-04T14:00:00Z');
-  await run.life.tick();
-  run.clock.t = at('2026-11-04T15:10:00Z');
-  await run.life.tick();
-  assert.equal(wakesOf(run.calls, 'selfimprovement').length, 1);
 });
 
 // ---- the diary ---------------------------------------------------------------------------------------------------------
