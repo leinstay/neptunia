@@ -14,6 +14,8 @@ import { createStore } from '../src/memory/store.ts';
 import { MEMORY_LIMITS } from '../src/memory/text-limits.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { archiveEntry, createArchive } from '../src/memory/archive.ts';
+import { createJournal } from '../src/memory/journal.ts';
+import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { buildDrawPrompt } from '../src/behavior/prompt.ts';
 import { familyOf, ImageGenError } from '../src/llm/images.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
@@ -3015,4 +3017,125 @@ test('admin: journal lists the last n records of a day as short lines', async ()
   await assert.rejects(admin.run('memory.journal.read', { day: '12.10.2026' }, { placeId: 'g1' }), /YYYY-MM-DD/);
   await assert.rejects(admin.run('memory.journal.read', { day, n: 51 }, { placeId: 'g1' }), /1\.\.50/);
   await assert.rejects(admin.run('memory.journal.read', { day, kind: 'lore' }, { placeId: 'g1' }), /kind/);
+});
+
+// ---------------------------------------------------------------------------
+// the journal and the archive read in a turn with no place (a heartbeat)
+// ---------------------------------------------------------------------------
+
+const NO_PLACE_DAY = '2026-11-14';
+const NO_PLACE_AT = Date.parse(`${NO_PLACE_DAY}T09:00:00.000Z`);
+
+/**
+ * An admin over a real memory database, journal and archive, with one community the store knows as a top place
+ * (noted the way an interface's hello notes its roots). `place` is that community's id.
+ */
+async function memoryWithCommunity() {
+  const mem = await openTestMemory();
+  const log = { info() {}, warn() {}, error() {} };
+  const appendStore = createAppendStore({ fsyncMs: 0, log });
+  const archive = createArchive({ appendStore, dataDir: mem.dataDir, log, memoryDb: mem.memoryDb });
+  const journal = createJournal({ dataDir: mem.dataDir, memoryDb: mem.memoryDb, now: () => NO_PLACE_AT });
+  const store = createStore({ dataDir: mem.dataDir, archive, memoryDb: mem.memoryDb });
+  store.noteRoots('discord', [{ id: '900000000000000001', name: 'Λιμάνι' }]);
+  await new Promise((resolve) => setImmediate(resolve));
+  const place = placeOfRoot(store, '900000000000000001', 'discord');
+  const { admin } = makeAdmin(makeRoot(), { store, archive, journal });
+  const close = async () => {
+    await appendStore.close();
+    await mem.close();
+    fs.rmSync(mem.dataDir, { recursive: true, force: true });
+  };
+  return { admin, store, archive, journal, place, close };
+}
+
+/** One archived detail whose text carries `marker`, filed with `scope`. */
+const archivedFact = (marker: string, scope: Record<string, unknown>) =>
+  archiveEntry(
+    { itemId: `detail-${marker}`, text: `${marker} το είπε στο λιμάνι`, weight: 1 },
+    { itemKind: 'detail', event: 'evicted', scope, now: () => NO_PLACE_AT }
+  );
+
+test('memory.journal.read in a turn with no place reads the persona journal and no place of hers', async () => {
+  // Catches: the read refused with no place resolved yet, or a no-place read that falls into some community's journal.
+  const { admin, journal, place, close } = await memoryWithCommunity();
+  try {
+    await journal.inner(PERSONA_ID, { event: 'wake', reason: 'marker-persona-ilios' });
+    await journal.action(place, { name: 'marker-place-thalassa', phase: 'succeeded' });
+
+    const text = await admin.run('memory.journal.read', { day: NO_PLACE_DAY }, { placeId: null });
+
+    assert.deepEqual(
+      [text.includes('marker-persona-ilios'), text.includes('marker-place-thalassa')],
+      [true, false],
+      text
+    );
+  } finally {
+    await close();
+  }
+});
+
+test('memory.archive.read in a turn with no place lists the persona and community archives, never a private entry', async () => {
+  // Catches: the read refused with no place, a community archive left unread, or a private entry of a direct chat shown.
+  const { admin, archive, place, close } = await memoryWithCommunity();
+  const dm = 'discord:dm:900000000000000077';
+  try {
+    await archive.append(null, [archivedFact('marker-persona-asteri', {})]);
+    await archive.append(place, [archivedFact('marker-community-kyma', {})]);
+    await archive.append(dm, [archivedFact('marker-private-mystiko', { place: dm, private: true })]);
+
+    const text = await admin.run('memory.archive.read', {}, { placeId: null });
+
+    assert.deepEqual(
+      ['marker-persona-asteri', 'marker-community-kyma', 'marker-private-mystiko'].map((marker) =>
+        text.includes(marker)
+      ),
+      [true, true, false],
+      text
+    );
+  } finally {
+    await close();
+  }
+});
+
+test('memory.archive.read in a turn with no place lists the community entry about the person user names', async () => {
+  // Catches: a no-place read that drops the person filter, or skips the community archive when a person is asked for.
+  const { admin, archive, store, place, close } = await memoryWithCommunity();
+  try {
+    const asked = accountOf(store, '900000000000000011');
+    const other = accountOf(store, '900000000000000012');
+    await archive.append(place, [
+      archivedFact('marker-asked-pyrgos', { user: asked }),
+      archivedFact('marker-other-vrachos', { user: other }),
+    ]);
+
+    const text = await admin.run('memory.archive.read', { accountId: '900000000000000011' }, { placeId: null });
+
+    assert.deepEqual(
+      [text.includes('marker-asked-pyrgos'), text.includes('marker-other-vrachos')],
+      [true, false],
+      text
+    );
+  } finally {
+    await close();
+  }
+});
+
+test('memory.journal.read in a turn of a place reads that place journal and none of the persona journal', async () => {
+  // Catches: a fix that reads the persona journal, alone or beside the place, in a turn that has a place.
+  const { admin, journal, place, close } = await memoryWithCommunity();
+  try {
+    await journal.inner(PERSONA_ID, { event: 'wake', reason: 'marker-persona-ilios' });
+    await journal.action(place, { name: 'marker-place-thalassa', phase: 'succeeded' });
+
+    const text = await admin.run('memory.journal.read', { day: NO_PLACE_DAY }, { placeId: place });
+
+    assert.deepEqual(
+      [text.includes('marker-persona-ilios'), text.includes('marker-place-thalassa')],
+      [false, true],
+      text
+    );
+  } finally {
+    await close();
+  }
 });
