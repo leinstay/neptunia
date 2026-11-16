@@ -21,7 +21,6 @@ import {
 } from '../behavior/tool-step.ts';
 import { innerSettings } from '../behavior/inner.ts';
 import { diagnosticText } from '../behavior/wake.ts';
-import { WAKE_PURPOSE_CHARS } from '../behavior/wake.ts';
 import { callReason, fill, formatTranscript } from '../format.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { KeepLines } from '../pipeline/keep-lines.ts';
@@ -30,7 +29,7 @@ import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { hasThinkTag } from '../llm/parse.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { log } from '../log.ts';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { linksOfCalls, outcomeDetail } from '../tools/executors.ts';
@@ -372,7 +371,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     const items = ids
       // A Set answers false for an id of another type.
       .filter((id) => id && !named.has(id as string) && byId.has(id))
-      .map((id) => `${String(id)}: ${clampWithEllipsis(oneLine(byId.get(id)?.purpose ?? ''), WAKE_PURPOSE_CHARS)}`);
+      .map((id) => `${String(id)}: ${oneLine(byId.get(id)?.purpose ?? '')}`);
     return items.length > 0 ? fill(template, { list: items.join('; ') }) : '';
   }
 

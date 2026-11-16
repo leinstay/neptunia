@@ -18,7 +18,7 @@
 
 import { isOwnerCaller } from './grants.ts';
 import { TASK_AGENTS } from './catalog.ts';
-import { clampWithEllipsis, oneLine } from '../../memory/clamp.ts';
+import { oneLine } from '../../memory/clamp.ts';
 import { MINUTE_MS } from '../../time.ts';
 import { ERRAND_STATES, fileHandle, isOpenState } from '../../errands/store.ts';
 import { DEFAULT_RESULT_MAX_CHARS } from '../../errands/blocks.ts';
@@ -31,8 +31,6 @@ import type { ErrandRecord, ErrandService } from '../../errands/types.ts';
 
 /** How many errands a listing of `errand.list` shows when it names no limit. */
 export const ERRAND_LIST_COUNT = 10;
-/** The goal's length in an answer line (characters). */
-const GOAL_LINE_CHARS = 80;
 /** The most errands a listing shows. */
 const ERRAND_LIST_MAX = 100;
 
@@ -91,7 +89,7 @@ const handlers = perEnv((env) => {
       ...(errand.filesExpired === true ? ['files-expired'] : []),
     ];
     const state = codes.length > 0 ? `${errand.state} (${codes.join(', ')})` : errand.state;
-    return `${errand.id} ${errand.agent} ${state} ${minutes}m: ${clampWithEllipsis(oneLine(errand.goal), GOAL_LINE_CHARS)}`;
+    return `${errand.id} ${errand.agent} ${state} ${minutes}m: ${oneLine(errand.goal)}`;
   }
 
   /** A refusal of the store or the service as the operation's result. */

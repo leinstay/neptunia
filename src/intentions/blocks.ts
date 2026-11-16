@@ -14,7 +14,7 @@
 
 import { fill, formatClock, formatDate } from '../format.ts';
 import { estimateTokens } from '../llm/tokens.ts';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { DAY_MS } from '../time.ts';
 import { DEFAULTS } from './model.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
@@ -34,14 +34,10 @@ type LineOptions = {
   unnamed: string;
   now: number | null;
   noticeMs: number;
-  /** Whether the line keeps the whole purpose: the intention that woke her. */
-  whole?: boolean;
 };
 
 /** `context.caps.intentions` when it is missing (config.json carries the same). */
 export const DEFAULT_INTENTIONS_CAP = 600;
-/** A purpose's length on a line (characters). */
-export const PURPOSE_LINE_CHARS = 200;
 
 /** A moment in words: the date and the clock in `timezone`. */
 function when(ts: number | null, timezone: string, locale: string): string {
@@ -53,10 +49,6 @@ function part(l: Untyped, key: string, values: Record<string, unknown>): string 
   return typeof l?.[key] === 'string' && l[key] ? fill(l[key], values) : '';
 }
 
-/** An intention's purpose on one line: whole, or cut to PURPOSE_LINE_CHARS. */
-const purposeText = (record: Intention, whole: boolean): string =>
-  whole ? oneLine(record.purpose) : clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS);
-
 /**
  * One active intention's line: its own, then its due time and recurrence (or, with neither a
  * due time, a wait nor an attention, the no-date part with its expiry), its attention, its wait,
@@ -65,13 +57,13 @@ const purposeText = (record: Intention, whole: boolean): string =>
 function activeLine(
   record: Intention,
   l: Untyped,
-  { timezone, locale, channelNameOf, nameOf, handleOf, unknown, unnamed, now, noticeMs, whole = false }: LineOptions
+  { timezone, locale, channelNameOf, nameOf, handleOf, unknown, unnamed, now, noticeMs }: LineOptions
 ): string {
   // A person by their handle, a place as the caller's namer gives it (the request's own naming of a place); the id only under labels with no word for one nobody names.
   const person = (id: string): string => (handleOf ? handleOf(id) : nameOf(id)) || unknown || id;
   const place = (id: string): string => channelNameOf(id) || unnamed || id;
   const state = typeof l.states?.[record.status] === 'string' ? l.states[record.status] : record.status;
-  const pieces = [fill(l.line, { id: record.id, state, purpose: purposeText(record, whole) })];
+  const pieces = [fill(l.line, { id: record.id, state, purpose: oneLine(record.purpose) })];
   const dateless = !isFiniteNumber(record.dueAt) && record.status !== 'waiting' && !record.attend?.place;
   let noDue = '';
   if (isFiniteNumber(record.dueAt)) pieces.push(part(l, 'due', { when: when(record.dueAt, timezone, locale) }));
@@ -118,8 +110,7 @@ function activeLine(
  * when it gives none; without it `nameOf(id)` names them. A place no reader names reads `spatial.unnamed`. An id stands
  * only under labels that hold neither word. `now` (epoch ms) and
  * `expiryNoticeDays` (`intentions.expiryNoticeDays`, read by the caller now) decide which lines
- * end with their expiry; without `now` none does. The intentions of `due` (the ones that woke her) come first, each
- * with its whole purpose, and are kept whatever the budget.
+ * end with their expiry; without `now` none does. The intentions of `due` (the ones that woke her) come first and are kept whatever the budget.
  */
 export function intentionsBlockText(
   records: unknown,
@@ -164,8 +155,7 @@ export function intentionsBlockText(
   const unknown = words(labels?.authors?.unknown);
   const unnamed = words(labels?.spatial?.unnamed);
   const options = { timezone, locale, channelNameOf, nameOf, handleOf, unknown, unnamed, now, noticeMs };
-  for (const record of list.filter((one) => due.includes(one.id)))
-    take(activeLine(record, l, { ...options, whole: true }));
+  for (const record of list.filter((one) => due.includes(one.id))) take(activeLine(record, l, options));
   for (const record of list.filter((one) => !due.includes(one.id))) {
     const text = activeLine(record, l, options);
     if (!fits(text)) break;
