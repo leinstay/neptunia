@@ -64,8 +64,9 @@ test('errand start logs one error naming the stray folder and the code, and noth
   errands.start();
   const errors = calls.filter((call) => call.level === 'error');
   assert.equal(errors.length, 1);
-  assert.equal(errors[0]?.fields.agent, 'ghost');
-  assert.equal(errors[0]?.fields.code, 'no-shared-definition');
+  const fields = errors[0]?.fields;
+  assert.equal(fields?.agent, 'ghost');
+  assert.equal(fields?.code, 'no-shared-definition');
 });
 
 test('errand start logs no error when no folder is refused', (t) => {
