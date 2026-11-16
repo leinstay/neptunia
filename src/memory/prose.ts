@@ -6,18 +6,7 @@
 // a silent loss (a rewrite that keeps none of the old sentences is a paraphrase).
 // Pure: no I/O, no clock.
 
-import { clampText } from './clamp.ts';
-import { isFiniteNumber } from './types.ts';
-
 const SENTENCE_SPLIT = /(?<=[.!?…])\s+/u;
-
-function length(text: string): number {
-  return [...text].length;
-}
-
-function isBlank(value: unknown): boolean {
-  return typeof value !== 'string' || value.trim() === '';
-}
 
 function sentencesOf(text: unknown): Set<string> {
   const set = new Set<string>();
@@ -27,30 +16,6 @@ function sentencesOf(text: unknown): Set<string> {
     if (sentence) set.add(sentence);
   }
   return set;
-}
-
-/**
- * Decide what to store when a model returns `next` for a prose field holding
- * `previous`. A rewrite is never clamped: within `limit` it is taken as is,
- * over it the previous text stays. Only a first write is clamped.
- * Outcomes: `empty` (nothing said), `same`, `first`, `replaced`, `over`.
- * A `limit` that is not a finite number > 0 means no limit.
- * @param [opts] widens only a first write
- */
-export function acceptProse(
-  previous: string | undefined,
-  next: unknown,
-  limit: number,
-  { tolerance }: { tolerance?: number } = {}
-): { text: string; outcome: 'same' | 'first' | 'replaced' | 'over' | 'empty' } {
-  const prev = typeof previous === 'string' ? previous : '';
-  if (typeof next !== 'string' || isBlank(next)) return { text: prev, outcome: 'empty' };
-  const trimmed = next.trim();
-  if (trimmed === prev.trim()) return { text: prev, outcome: 'same' };
-  if (isBlank(prev)) return { text: clampText(next, limit, { tolerance }), outcome: 'first' };
-  const max = Number(limit);
-  if (isFiniteNumber(max) && max > 0 && length(trimmed) > max) return { text: prev, outcome: 'over' };
-  return { text: trimmed, outcome: 'replaced' };
 }
 
 /**

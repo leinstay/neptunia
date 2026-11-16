@@ -37,7 +37,6 @@
 //       `reason` `rows` when more paths than `maxRows` were found (then `next` is the `after` of the next page), `depth`
 //       when a node at `maxDepth` has further edges. `graph.maxDepth` (6) and `graph.maxRows` (2000) from the config are
 //       the defaults.
-//   saidBy, inPlace, repliesTo, continuationsOf: the four questions the spec names (see each).
 // Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
@@ -1125,108 +1124,4 @@ export function walk(
     reason,
     next,
   };
-}
-
-/** The later of two ISO times, null meaning unbounded (open start). */
-const laterOf = (a: string | null, b: string | null): string | null =>
-  a == null ? (b ?? null) : b == null ? a : a > b ? a : b;
-/** The earlier of two ISO times, null meaning unbounded (open end). */
-const earlierOf = (a: string | null, b: string | null): string | null =>
-  a == null ? (b ?? null) : b == null ? a : a < b ? a : b;
-
-/**
- * Everything a person said anywhere: the sources authored by an account verified for the person at the source's time
- * (the account_of window holds `occurred_at`), by a participant linked to the person or to such an account, or by the
- * person directly (her own lines). In event time, then node id. `{ rows: [{ node, rowId, occurredAt, via }], truncated, reason, next }`.
- */
-export function saidBy(
-  db: Db,
-  ctx: Context,
-  personId: unknown,
-  { maxRows, after = 0, config = null }: { maxRows?: number; after?: number; config?: unknown } = {}
-): {
-  rows: Array<{ node: unknown; rowId: unknown; occurredAt: unknown; via: unknown }>;
-  truncated: boolean;
-  reason: 'depth' | 'rows' | null;
-  next: number | null;
-} {
-  const settings = graphSettings(config);
-  const cap = isWholeNumber(maxRows) && maxRows > 0 ? maxRows : settings.maxRows;
-  const skip = Number.isInteger(after) && after > 0 ? after : 0;
-  const person = graphNodeId('person', personId);
-  const identities = walk(db, ctx, {
-    from: person,
-    predicates: ['account_of', 'participant_of'],
-    direction: 'in',
-    maxDepth: 2,
-    maxRows: settings.maxRows,
-    config,
-  });
-  if (identities.rows.length === 0) return { rows: [], truncated: false, reason: null, next: null };
-  const windowOf = prepared(db, 'SELECT valid_from_at, valid_to_at FROM graph_edges WHERE id = ?');
-  const byNode = new Map(identities.rows.map((row): [unknown, WalkRow] => [row.node, row]));
-  const ids = identities.rows.map((row) => {
-    let from: string | null = null;
-    let to: string | null = null;
-    for (let at: WalkRow | undefined = row; at?.via; at = byNode.get(at.parent)) {
-      const w = windowOf.get(at.via);
-      from = laterOf(from, (w?.valid_from_at as string | null | undefined) ?? null);
-      to = earlierOf(to, (w?.valid_to_at as string | null | undefined) ?? null);
-    }
-    return { n: row.node, f: from, t: to };
-  });
-  const filter = filterOf(ctx);
-  const rows = db
-    .prepare(
-      `WITH ids AS (SELECT json_extract(value, '$.n') AS node, json_extract(value, '$.f') AS f, json_extract(value, '$.t') AS t FROM json_each(?))
-    SELECT DISTINCT e.src AS node, n.row_id AS row_id, s.occurred_at AS occurred_at, ids.node AS via
-      FROM ids JOIN graph_edges e ON e.dst = ids.node AND e.predicate = 'authored_by'
-      JOIN graph_nodes n ON n.id = e.src JOIN sources s ON s.id = n.row_id
-     WHERE e.retired_at IS NULL AND ${filter.edge('e')} AND ${filter.node('e.src')}
-       AND (ids.f IS NULL OR s.occurred_at >= ids.f) AND (ids.t IS NULL OR s.occurred_at < ids.t)
-     ORDER BY s.occurred_at, e.src LIMIT ? OFFSET ?`
-    )
-    .all(JSON.stringify(ids), ...filter.edgeParams, ...filter.nodeParams, cap + 1, skip);
-  const truncated = rows.length > cap || identities.truncated;
-  return {
-    rows: rows
-      .slice(0, cap)
-      .map((row) => ({ node: row.node, rowId: row.row_id, occurredAt: row.occurred_at, via: row.via })),
-    truncated,
-    reason: rows.length > cap ? 'rows' : identities.reason,
-    next: rows.length > cap ? skip + cap : null,
-  };
-}
-
-const sourcesOnly = (result: WalkResult): WalkResult => ({
-  ...result,
-  rows: result.rows.filter((row) => row.kind === 'source'),
-});
-
-/** What happened in a place: the sources located in it and in every place it contains (down to the depth cap). */
-export function inPlace(db: Db, ctx: Context, placeIdGiven: unknown, opts: WalkOptions = {}): WalkResult {
-  const placeId = placeIdGiven as string;
-  return sourcesOnly(
-    walk(db, ctx, {
-      ...opts,
-      from: graphNodeId('place', placeId),
-      predicates: ['contained_in', 'located_in'],
-      direction: 'in',
-    })
-  );
-}
-
-/** Who replied to a line: the sources that reply to it, and the replies to those (down to the depth cap). */
-export function repliesTo(db: Db, ctx: Context, sourceIdGiven: unknown, opts: WalkOptions = {}): WalkResult {
-  const sourceId = sourceIdGiven as string;
-  const start = graphNodeId('source', sourceId);
-  const result = walk(db, ctx, { ...opts, from: start, predicates: ['replies_to'], direction: 'in' });
-  return { ...result, rows: result.rows.filter((row) => row.node !== start) };
-}
-
-/** The places that continue a place (a group that grew out of a DM, a DM that went on from a group), transitively. */
-export function continuationsOf(db: Db, ctx: Context, placeId: string, opts: WalkOptions = {}): WalkResult {
-  const start = graphNodeId('place', placeId);
-  const result = walk(db, ctx, { ...opts, from: start, predicates: ['continues'], direction: 'in' });
-  return { ...result, rows: result.rows.filter((row) => row.node !== start) };
 }

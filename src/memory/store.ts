@@ -714,8 +714,7 @@ function relationshipScoreOf(opts: Untyped, affinity: Untyped) {
  * else `opts.fieldChars`; a rewrite is stored as given, never cut (`firstWriteText`). Stamped next to
  * it: `relationshipScore` (see `relationshipScoreOf`) and `relationshipWrittenAt`, the ISO time of
  * `opts.now` (else the wall clock) -- the clock the batch's attitude moves are stamped with
- * (src/memory/affinity.ts#applyDelta), so src/memory/affinity.ts#relationshipStaleOf counts the
- * moves since the text like with like. A profile written before the stamp existed keeps none
+ * (src/memory/affinity.ts#applyDelta). A profile written before the stamp existed keeps none
  * until its next text. A written text removes the forced-rewrite flag (`relationshipRewrite`,
  * see `markRelationshipRewrite`): the rewrite it asked for has happened.
  * @param target  A normalised profile or private layer.
@@ -746,8 +745,7 @@ function writeRelationship(
 
 /**
  * The text a prose writer stores: a first write (`previous` empty, nothing to lose yet) is
- * clamped to `limit` as before; a rewrite is only trimmed, never cut. A rewrite over its limit is
- * the caller's to refuse (src/memory/prose.ts#acceptProse) -- the store never shortens one.
+ * clamped to `limit` as before; a rewrite is only trimmed, never cut, whatever its length.
  * @param previous  The stored text.
  * @param text       A non-blank string.
  */
@@ -922,7 +920,7 @@ function normalizeWriters(value: StoredRecord): Record<string, { count: number; 
  * The tally a `topWriters` list (`{ id, count }[]`, best first) stands for, every writer dated
  * `last` -- the channel's `lastMessageAt` for an entry stored before the tally existed. Items without an id
  * or a count of at least 1 are skipped. The first listed is inserted last, so writers of an equal
- * count keep their listed order at the next ranking (see `sortByRank`'s tie rule).
+ * count keep their listed order at the next ranking (see `sortRanked`'s tie rule).
  */
 function writersFromTop(topWriters: unknown, last: unknown): Record<string, { count: number; last: number }> {
   const out: Record<string, { count: number; last: number }> = {};
@@ -936,7 +934,7 @@ function writersFromTop(topWriters: unknown, last: unknown): Record<string, { co
 }
 
 /**
- * `writers` as `[{ id, count, last }]`, best first (src/memory/ranking.ts#sortByRank: `count` is
+ * `writers` as `[{ id, count, last }]`, best first (src/memory/ranking.ts#sortRanked: `count` is
  * the weight, `last` the date; ties go to the later message, then to the writer counted last).
  * @param writers  A normalised tally.
  */
@@ -971,7 +969,7 @@ function countWriter(
   const id = String(authorId);
   const next = { ...writers };
   const before = next[id];
-  // Re-inserted so the writer just counted sits last: an exact rank tie keeps them (see sortByRank).
+  // Re-inserted so the writer just counted sits last: an exact rank tie keeps them (see sortRanked).
   delete next[id];
   next[id] = { count: (before?.count ?? 0) + 1, last: Math.max(before?.last ?? 0, writerTs(ts)) };
   const ranked = rankWriters(next, halfLifeDays);
@@ -1934,7 +1932,7 @@ function buildStore({
      *   `relationshipScore`: stamped as `profile.relationshipScore` whenever a `relationship` text
      *   is written (falls back to the stored score), and `profile.relationshipWrittenAt` = the ISO
      *   time of `opts.now` (else the wall clock) next to it -- the score and the moment the text
-     *   was written, see src/memory/affinity.ts#relationshipStaleOf (`relationshipStale`).
+     *   was written.
      *   `relationshipChars`: the relationship text's limit (`relationships.textChars`); omitted ->
      *   `fieldChars`.
      *   `maxInterestsStored`/`maxDetailsStored`/`interestHalfLifeDays`/`detailHalfLifeDays` drive the
@@ -2078,10 +2076,9 @@ function buildStore({
     },
 
     /**
-     * Flag (or unflag) a member's relationship text for a forced rewrite: the next analyzer batch
-     * that sends their whole profile marks it `relationshipStale` with cause `rewrite`
-     * (src/memory/affinity.ts#relationshipStaleOf), and the flag stays until a relationship text is
-     * written (`writeRelationship`). Only an existing profile with a non-empty text can carry it;
+     * Flag (or unflag) a member's relationship text for a forced rewrite (`relationshipRewrite`). The
+     * flag stays until a relationship text is written (`writeRelationship`), and no analyzer request
+     * reads it. Only an existing profile with a non-empty text can carry it;
      * nothing else on the profile changes. Set by the owner from a one-off script.
      * @param [on=true]  false removes the flag.
      * @returns false when there is no profile or it has no relationship text.

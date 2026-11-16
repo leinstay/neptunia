@@ -23,7 +23,7 @@ const CALL_STATUSES: ReadonlySet<string> = new Set([
 /**
  * What did not go through in one inner turn, from its result (src/behavior/turn.ts's
  * `{ outcome, inner: { actions, intentIds, loop } }`), as a list of facts, each
- * `{ kind, ... }` (FEEDBACK_KINDS), in this order: one `callFailed` per call whose status was not `ok`
+ * `{ kind, ... }`, in this order: one `callFailed` per call whose status was not `ok`
  * and not `presented` in a later step of the turn (`failed`, `partial`, `invalid`, `denied`, `not_configured`, `refused`, `unknown`, `timeout`; `skill`, `status`, `code`, and the
  * operation's own `text` when it said one; a tag of hers refused by the gate is the `message.create` it was lowered into); one `doneWithoutDelivery` per intention an executed `intention.update`
  * closed as done (`state` `done` on the action, its `intentionId`, else the one id in `named`)

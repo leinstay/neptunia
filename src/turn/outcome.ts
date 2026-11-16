@@ -180,7 +180,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {string} [params.placeId]  The root of a private chat; a server channel uses its own; a private chat with neither has none.
    * @param {'reply'|'interject'|'diary'|'inner'} params.mode  'inner' is an inner turn
    *   (with `params.inner`).
-   * @param {{ wake: import('./inner/types.ts').TurnWake, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
+   * @param {{ wake: import('../behavior/inner/types.ts').WakeInfo, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
    *   request is the turn frame's (src/turn/request/frame.ts), its task `prompts.inner` or the service's own, its
    *   history the last `wakes.chatMessages` lines of `channel` when it has one, its prefetch searches the

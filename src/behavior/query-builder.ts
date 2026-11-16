@@ -82,13 +82,3 @@ export function parseQueryPlan(
   const { server, ...rest } = parseLookupLines(lines.join('\n'), options);
   return { ...rest, history: server };
 }
-
-/** What one plan is asked about. */
-export type QueryInput = {
-  selfName: string;
-  question: { authorName?: string; content?: string };
-  /** The lines around the question, oldest first; a caller with no chat around it, as a heartbeat, gives none. */
-  lines?: Array<object>;
-  skills?: string;
-  skillNames?: Array<string>;
-};

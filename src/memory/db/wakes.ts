@@ -19,7 +19,6 @@
 // transaction. Every time is an ISO string; `now` may be given in milliseconds. Imports nothing heavy (the sync
 // worker loads it). Codes only, never a text.
 
-import { WAKE_RUN_STATUSES } from './schema.ts';
 import { ensureInterface } from './rows.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
@@ -194,23 +193,6 @@ export function interruptStale(handle: MemoryHandle, { now, limitMs }: { now: nu
   );
 }
 
-/** The stored run and its actions (in order), or null. */
-/** One action of a stored run. */
-export type StoredAction = Row & { n: number; kind: string; status: string };
-
-export function wakeRunOf(db: Db, idGiven: unknown): (Row & { actions: Array<StoredAction> }) | null {
-  const id = idGiven as string;
-  const run = runOf(db, id);
-  if (!run) return null;
-  return {
-    ...run,
-    actions: db
-      .prepare('SELECT * FROM wake_actions WHERE run_id = ? ORDER BY n')
-      .all(id)
-      .map((row) => ({ ...row }) as StoredAction),
-  };
-}
-
 /**
  * One wake write on the writer connection (service.ts#memoryWrite): `{ kind: 'wake', op: 'start' | 'action' |
  * 'finish' | 'interrupt', ... }` with the fields of the matching function above (`run`, `action`, `finish`, or
@@ -236,5 +218,3 @@ export function applyWakeWrite(handle: MemoryHandle, update: Row): unknown {
       throw coded('BAD_UPDATE');
   }
 }
-
-export { WAKE_RUN_STATUSES };

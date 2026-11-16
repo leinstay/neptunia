@@ -8,9 +8,8 @@
 
 import { createHash } from 'node:crypto';
 import { clampText, stripUrls } from './clamp.ts';
-import { occursAsWholeWord } from './mentions.ts';
 import { isFiniteNumber } from './types.ts';
-import type { StoredRecord, Untyped } from './types.ts';
+import type { Untyped } from './types.ts';
 
 const MAX_TITLE = 80;
 const DEFAULT_MAX_TEXT = 600; // config.json's lore.textChars, used only when a caller passes none
@@ -152,7 +151,7 @@ function evictOverflow(entries: Array<LoreEntry>, maxEntries: number): Array<Lor
  *   `title` is a hard identity clamp at MAX_TITLE; `text` is free prose: a first write (a new
  *   entry, or one with no text) is clamped tolerantly (see src/memory/clamp.ts) to `textChars`
  *   (DEFAULT_MAX_TEXT when the caller passes none); a rewrite is stored as given, never
- *   cut (the caller refuses one over the limit, src/memory/prose.ts#acceptProse).
+ *   cut, whatever its length.
  *   `upserted`: entries inserted or actually changed. `changes`: one pair per existing entry whose
  *   text this call replaced with a different one (the stored text before, the text after), for the
  *   store's version history; an inserted entry or a change of keys alone adds none.
@@ -197,8 +196,8 @@ export function upsertLore(
 
     const normalized = normalizeTitle(title);
     const existingIndex = byTitle.get(normalized);
-    // Only a first write is clamped (no entry, or one with no text): a rewrite over the limit is the
-    // caller's to refuse (src/memory/prose.ts#acceptProse), never cut here.
+    // Only a first write is clamped (no entry, or one with no text): a rewrite over the limit is
+    // stored whole.
     const previousText = existingIndex === undefined ? '' : stored[existingIndex].text;
     const firstWrite = typeof previousText !== 'string' || previousText.trim() === '';
     const text = firstWrite ? clampText(rawText, effectiveTextChars, { tolerance: clampTolerance }) : rawText.trim();
@@ -239,65 +238,4 @@ export function upsertLore(
   }
 
   return { entries: evictOverflow(stored, maxEntries), upserted, changes };
-}
-
-/**
- * Entries (any `always` status) whose keys literally occur, whole word/phrase
- * and case-insensitive, in `recentTexts` -- used for the analyzer's
- * `<existing_lore>` input, which cares about textual mentions, not about
- * `always`. Sorted most-matched first (distinct keys matched, then most
- * recent match position, then weight), for determinism only.
- */
-export function keywordMatches<TEntry extends StoredRecord>(
-  entries: Array<TEntry>,
-  recentTexts: Array<string>
-): Array<TEntry> {
-  const list = Array.isArray(entries) ? entries : [];
-  const texts = (Array.isArray(recentTexts) ? recentTexts : []).map((t) => String(t ?? '').toLowerCase());
-
-  const scored = [];
-  for (const entry of list) {
-    const keys = Array.isArray(entry.keys) ? entry.keys : [];
-    let matchedKeys = 0;
-    let lastIndex = -1;
-    for (const key of keys) {
-      const lowered = String(key).toLowerCase();
-      let found = false;
-      for (let i = 0; i < texts.length; i += 1) {
-        if (occursAsWholeWord(texts[i], lowered)) {
-          found = true;
-          if (i > lastIndex) lastIndex = i;
-        }
-      }
-      if (found) matchedKeys += 1;
-    }
-    if (matchedKeys > 0) scored.push({ entry, matchedKeys, lastIndex, weight: entry.weight ?? 0 });
-  }
-
-  scored.sort((a, b) => b.matchedKeys - a.matchedKeys || b.lastIndex - a.lastIndex || b.weight - a.weight);
-  return scored.map((s) => s.entry);
-}
-
-/**
- * Entries to show in one turn's `<lore>` block: every entry marked `always`
- * (first, never counted against `maxMatches`), plus up to `maxMatches` of the
- * remaining entries whose keys occur in `recentTexts`, most relevant first.
- * See docs/prompt-contract.md, "<lore>".
- * @param recentTexts  Recent plain message texts, oldest first.
- */
-export function matchLore(
-  entries: Array<object>,
-  recentTexts: Array<string>,
-  options?: { maxMatches?: number }
-): Array<object>;
-export function matchLore<TEntry extends StoredRecord>(
-  entries: Array<TEntry>,
-  recentTexts: Array<string>,
-  { maxMatches = Infinity }: { maxMatches?: number } = {}
-): Array<TEntry> {
-  const list = Array.isArray(entries) ? entries : [];
-  const always = list.filter((entry) => entry.always);
-  const rest = list.filter((entry) => !entry.always);
-  const matched = keywordMatches(rest, recentTexts).slice(0, maxMatches);
-  return [...always, ...matched];
 }

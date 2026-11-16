@@ -38,46 +38,6 @@ import type {
 } from '../protocol/adapter.ts';
 import type { Content } from '../protocol/actions.ts';
 import type { Port, PortResult } from './port.ts';
-/**
- * Replays a recorded fixture of inbound events through an event door (src/interface/door.ts), in
- * order, the way an interface would deliver them. A fixture is `{ iface?, events: [event, ...] }`:
- * each event is a protocol event (src/protocol/events.ts); `iface` is filled from the
- * fixture's when an event has none, and a `message.received` of a new message is put into
- * `port` (the fake adapter) first, so history reads find what the persona was shown. An event
- * with `redeliver: n` is delivered n more times after the first (at-least-once delivery: the door
- * answers `duplicate` to each). Returns one answer per delivery: `{ id, status }` in order.
- */
-/** One recorded event of a fixture: a protocol event, with `redeliver` for the extra deliveries. */
-type FixtureEvent = {
-  redeliver?: number;
-  iface?: string;
-  kind?: string;
-  edit?: boolean;
-  deleted?: boolean;
-  chat?: { id: string };
-  message?: { id: string; content: string; author?: { id: string } };
-};
-
-export async function replayFixture(
-  fixture: { iface?: string; events: Array<FixtureEvent> },
-  door: { submit(event: object): Promise<{ status: string; id: string | null }> },
-  { port = null }: { port?: ReturnType<typeof createFakeAdapter> | null } = {}
-): Promise<Array<{ id: string | null; status: string }>> {
-  const answers: Array<{ id: string | null; status: string }> = [];
-  for (const recorded of fixture.events) {
-    const { redeliver = 0, ...fields } = recorded;
-    const event = { ...(fixture.iface && fields.iface === undefined ? { iface: fixture.iface } : {}), ...fields };
-    const message = event.message;
-    if (port && event.kind === 'message.received' && !event.edit && !event.deleted && message?.author && event.chat) {
-      port.seed(event.chat.id, { authorId: message.author.id, text: message.content, messageId: message.id });
-    }
-    for (let delivery = 0; delivery <= redeliver; delivery += 1) {
-      const { status, id } = await door.submit(structuredClone(event));
-      answers.push({ id, status });
-    }
-  }
-  return answers;
-}
 
 export type { StoredMessage };
 

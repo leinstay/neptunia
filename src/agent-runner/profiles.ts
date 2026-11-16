@@ -196,19 +196,6 @@ function promptCandidates(
   ];
 }
 
-/** The persona prompt followed by the shared prompt. The override option is migration metadata only. */
-export function promptFilesOf(
-  name: string,
-  options: AgentPaths & { override?: string; prompt?: string } = {}
-): Array<string> {
-  checkId(name);
-  const prompt = options.prompt === undefined ? 'prompt.md' : options.prompt;
-  checkFileName(name, 'prompt', prompt, false);
-  const paths = agentPaths(options);
-  checkPersonalPaths(paths.dataDir, name, prompt);
-  return promptCandidates(name, paths, prompt);
-}
-
 /** The first option words `tar` may start with on the server: the list mode (`-t`) with only
  * verbose, archive-file and decompression letters, so no cluster carries a write mode or `-I`.
  * The options after it are checked by TAR_DENIES. */
@@ -1432,12 +1419,6 @@ function userPathOf(key: 'socket' | 'out', name: string, env: Record<string, str
 
 /** Shared worker snapshots for compatibility. Fresh path-aware consumers use loadProfiles or profileOf. */
 export const PROFILES = profilesFrom(listSharedAgents(), agentPaths({ rootDir: ROOT_DIR }));
-
-/** The `scout` profile: internet errands through OpenCode's web tools and a curl/ffmpeg download shell. */
-export const SCOUT = PROFILES.scout ?? null;
-
-/** The `server` profile: read-only shell and file reads on the server, no network. */
-export const SERVER = PROFILES.server ?? null;
 
 /** The profile of `name`, or null. */
 export function profileOf(name: unknown, options: AgentPaths = {}): Profile | null {

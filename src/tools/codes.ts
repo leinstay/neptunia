@@ -213,10 +213,6 @@ export const CATALOGUE = Object.freeze({
   moved: internal('ok'),
 });
 
-/** The names of the codes that have wording, by group. */
-export const codesOf = (group: CodeGroup): Array<string> =>
-  Object.keys(CATALOGUE).filter((code) => entryOf(code)?.group === group);
-
 /** The entry of a code the catalogue holds, else undefined. */
 const entryOf = (code: string): CodeEntry | undefined =>
   Object.hasOwn(CATALOGUE, code) ? CATALOGUE_BY_NAME[code] : undefined;

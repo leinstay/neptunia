@@ -1,11 +1,9 @@
-// The registry of semantic entity kinds and predicates: the definitions a fresh database holds, how a definition is read
-// and registered, and how the arguments of an assertion are checked against its predicate. A model's string is no contract
-// until a validated registry change makes it one. A stored version is immutable; a change registers the next version.
-// `INITIAL_*` are what schema v31 seeded: a new definition reaches a shipped database through `registerPredicate`, so these
-// two lists never change. Imports nothing but types, so the migration and the writer worker can load it.
+// The registry of semantic entity kinds and predicates: the definitions a fresh database holds, how a definition is read,
+// and how the arguments of an assertion are checked against its predicate. A model's string is no contract until the
+// registry holds it. A stored version is immutable. `INITIAL_*` are what schema v31 seeded, and these two lists never
+// change. Imports nothing but types, so the migration and the writer worker can load it.
 
-import { dbOf } from './types.ts';
-import type { Db, MemoryHandle } from './types.ts';
+import type { Db } from './types.ts';
 import type { SemanticArgument, SemanticLiteral, SemanticRefKind } from './semantic-types.ts';
 
 export type LiteralKind = 'null' | 'boolean' | 'number' | 'string' | 'date' | 'interval';
@@ -129,31 +127,6 @@ export function readEntityKind(db: Db, id: string, version: number): EntityKindD
   if (!row) return null;
   // The registry wrote this JSON from a checked definition.
   return { id, version, ...(JSON.parse(String(row.definition_json)) as { fields: Array<string> }) };
-}
-
-const usableVersion = (version: unknown): boolean => Number.isInteger(version) && (version as number) >= 1;
-
-function usableDefinition(definition: PredicateDefinition): boolean {
-  if (typeof definition.id !== 'string' || definition.id === '' || !usableVersion(definition.version)) return false;
-  if (!Array.isArray(definition.roles) || definition.roles.length === 0) return false;
-  const names = new Set(definition.roles.map((definedRole) => definedRole.role));
-  if (names.size !== definition.roles.length) return false;
-  return definition.roles.every(
-    (role) => role.min >= 0 && role.min <= role.max && role.max >= 1 && role.refs.length + role.literals.length > 0
-  );
-}
-
-/** Adds a predicate version: an unusable definition and a version that exists are refused and nothing changes. */
-export function registerPredicate(handle: MemoryHandle, definition: PredicateDefinition, now: number): RegistryResult {
-  if (!usableDefinition(definition)) return { ok: false, code: 'bad_definition' };
-  const db = dbOf(handle);
-  if (readPredicate(db, definition.id, definition.version)) return { ok: false, code: 'version_exists' };
-  handle.transaction(() =>
-    db
-      .prepare('INSERT INTO semantic_predicate_versions (id, version, definition_json, created_at) VALUES (?, ?, ?, ?)')
-      .run(definition.id, definition.version, predicateJson(definition), new Date(now).toISOString())
-  );
-  return { ok: true };
 }
 
 /** A date with its timezone, or a calendar day: anything else cannot be compared with another. */

@@ -5,30 +5,19 @@
 // secret-looking strings from what leaves the runner. A request without a
 // valid scope is treated as `group`, the narrowest.
 //
-// The agents run on OpenCode, so most of the cut is the agent config's: the
-// server agent's `bash` is allow-listed to read-only commands, and in `dm`
-// and `group` the config also denies `read`/`grep`/... of the withheld paths.
-// This module is the engine-side backstop OpenCode's command parsing cannot
-// give on its own:
-// - `withheldInToolUse(event, scope)`: whether a tool-call event OpenCode
-//   reports names a withheld path (`WITHHELD_ROOTS`, `WITHHELD_NAMES`). When
-//   it does in `dm`/`group`, the runner records that step as refused and lists
-//   the path in the result's `withheld` (the task goes on), which she reads as
-//   "visible, not readable here". Listing
-//   names is allowed; opening content is not, so a `bash` command is examined
-//   only when it reads (`cat`, `grep`, ...), not when it lists (`ls`, `find`
-//   without `-exec`).
-// - `redactSecrets(text)`: key-, token- and password-looking strings,
-//   private-key blocks, SSH key material and URL credentials become
-//   `[redacted]`.
-// Both pure. The withheld roots include the deployment's data directory,
+// The agents run on OpenCode, so the cut is the agent config's: the server
+// agent's `bash` is allow-listed to read-only commands, and in `dm` and
+// `group` the config (src/agent-runner/profiles.ts) also denies `read`/`grep`/...
+// of the withheld paths this module lists (`WITHHELD_ROOTS`, `WITHHELD_NAMES`,
+// `WITHHELD_GLOBS`). `redactSecrets(text)` turns key-, token- and
+// password-looking strings, private-key blocks, SSH key material and URL
+// credentials into `[redacted]`. Pure. The withheld roots include the deployment's data directory,
 // resolved once at load from NEPTUNIA_DATA_DIR (src/paths.ts), so the policy
 // follows the layout the unit sets.
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePaths } from '../paths.ts';
-import { scalarText } from '../tools/types.ts';
 
 /** The engine root (two levels up from this file). */
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -92,8 +81,7 @@ export const WITHHELD_NAMES = Object.freeze([
   'config.local',
   'scratch',
 ]);
-/** A `.env` file (`.env`, `.env.local`, ...) is withheld wherever it is. */
-const ENV_FILE = /^\.env(?:\..+)?$/;
+
 /** The glob patterns of the fixed roots and the names, before the deployment's directories. */
 const FIXED_GLOBS = Object.freeze([
   '/var/www',
@@ -140,95 +128,6 @@ export function withheldGlobsOf({
 /** The glob patterns a config denies for a path tool in a filtered scope, for this process. */
 export const WITHHELD_GLOBS = withheldGlobsOf();
 
-/** Bash command words that open file contents (so their path arguments are checked). */
-const READERS = new Set([
-  'cat',
-  'tac',
-  'less',
-  'more',
-  'head',
-  'tail',
-  'nl',
-  'od',
-  'xxd',
-  'hexdump',
-  'strings',
-  'base64',
-  'cut',
-  'column',
-  'grep',
-  'egrep',
-  'fgrep',
-  'rg',
-  'ag',
-  'ack',
-  'zgrep',
-  'zcat',
-  'bzcat',
-  'xzcat',
-  'awk',
-  'gawk',
-  'sed',
-  'perl',
-  'python',
-  'python3',
-  'ruby',
-  'node',
-  'php',
-  'sort',
-  'uniq',
-  'diff',
-  'comm',
-  'paste',
-  'join',
-  'tr',
-  'fold',
-  'fmt',
-  'expand',
-  'wc',
-  'cp',
-  'install',
-  'tar',
-  'zip',
-  'gzip',
-  'openssl',
-  'gpg',
-  'jq',
-  'yq',
-  'md5sum',
-  'sha1sum',
-  'sha256sum',
-  'readlink',
-  'realpath',
-  'file',
-  'git',
-  'vi',
-  'vim',
-  'nano',
-  'emacs',
-  'source',
-]);
-/** Wrappers whose first non-flag argument is the real command. */
-const WRAPPERS = new Set([
-  'sudo',
-  'env',
-  'nohup',
-  'nice',
-  'ionice',
-  'time',
-  'command',
-  'stdbuf',
-  'xargs',
-  'exec',
-  'timeout',
-  'watch',
-  'bash',
-  'sh',
-  'zsh',
-  'ksh',
-  'dash',
-]);
-
 /**
  * The scope of a request context: its `scope` when it is one of SCOPES,
  * else DEFAULT_SCOPE.
@@ -241,122 +140,6 @@ export function scopeOf(context?: { scope?: unknown }): 'core' | 'dm' | 'group' 
 /** Whether `scope` withholds content and redacts secrets. */
 export function isFiltered(scope: unknown): boolean {
   return FILTERED_SCOPES.some((filtered) => filtered === scope);
-}
-
-/**
- * Whether `p` (a path, absolute or not) is withheld: under a WITHHELD_ROOTS
- * entry, or with a WITHHELD_NAMES component, or a `.env` file.
- */
-export function isWithheldPath(p: string): boolean {
-  const text =
-    String(p ?? '')
-      .trim()
-      .replace(/\/+$/, '') || '/';
-  if (WITHHELD_ROOTS.some((root) => text === root || text.startsWith(`${root}/`))) return true;
-  return text
-    .split('/')
-    .filter(Boolean)
-    .some((part) => WITHHELD_NAMES.includes(part) || ENV_FILE.test(part));
-}
-
-/** Whether a withheld root lies at or under `p` (a listing of a parent is allowed, a read of it is not). */
-function pathReachesWithheld(p: unknown): boolean {
-  const text = scalarText(p ?? '')
-    .trim()
-    .replace(/\/+$/, '');
-  if (!text) return false;
-  const prefix = `${text}/`;
-  return (
-    WITHHELD_ROOTS.some(
-      (root) => root === text || root.startsWith(prefix) || text.startsWith(`${root}/`) || text === root
-    ) || isWithheldPath(text)
-  );
-}
-
-/** The path-looking tokens of a bash command (quotes stripped, flags and operators dropped). */
-function pathTokensOf(command: unknown): Array<string> {
-  const text = scalarText(command ?? '')
-    .replace(/'[^']*'/g, (m) => m.slice(1, -1))
-    .replace(/"((?:[^"\\]|\\.)*)"/g, '$1');
-  return text
-    .split(/[\s;|&><()]+/)
-    .filter((tok) => tok && !/^-/.test(tok) && !/^[A-Za-z_]\w*=/.test(tok))
-    .map((tok) => {
-      const eq = tok.indexOf('=');
-      return eq > 0 && /^--?[a-z]/i.test(tok) ? tok.slice(eq + 1) : tok;
-    })
-    .filter(Boolean);
-}
-
-/** The leading command words of each pipeline segment, wrappers unwrapped. */
-function commandWordsOf(command: unknown): Array<string> {
-  const segments = scalarText(command ?? '').split(/[;\n]|\|\||&&|[|&]/);
-  const words: Array<string> = [];
-  for (const segment of segments) {
-    const toks = segment.trim().split(/\s+/).filter(Boolean);
-    let i = 0;
-    while (i < toks.length && (/^[A-Za-z_]\w*=/.test(toks[i]) || WRAPPERS.has(toks[i].replace(/^.*\//, '')))) {
-      // a shell wrapper with -c is a nested command: treat the whole thing as a reader (conservative)
-      if (/^(?:ba|z|k|da)?sh$/.test(toks[i].replace(/^.*\//, '')) && toks.slice(i + 1).some((t) => /^-\w*c/.test(t))) {
-        words.push('sh-c');
-        break;
-      }
-      i += 1;
-    }
-    if (i < toks.length) words.push(toks[i].replace(/^.*\//, ''));
-  }
-  return words;
-}
-
-/** Whether a bash command only lists names / metadata (never opens content). */
-function isListingOnly(command: unknown): boolean {
-  const words = commandWordsOf(command);
-  if (!words.length) return false;
-  const text = scalarText(command ?? '');
-  return words.every((w) => {
-    if (w === 'sh-c') return false;
-    if (READERS.has(w)) return false;
-    if (w === 'find') return !/\s-(?:exec|execdir|ok|okdir|fprint\w*|fls)\b/.test(text);
-    return true;
-  });
-}
-
-/** The withheld path a read of `command` would open, or null. Listing-only commands return null. */
-function withheldInBash(command: unknown): string | null {
-  if (isListingOnly(command)) return null;
-  for (const token of pathTokensOf(command)) {
-    if (pathReachesWithheld(token)) return token;
-  }
-  // A reader with no path token (reads stdin / a pipe) cannot be checked by path: let it run.
-  return null;
-}
-
-/**
- * The withheld path a tool-call event would open, or null. In `core` nothing
- * is withheld. OpenCode's tool-call events carry `{ tool, input }` (or a
- * nested `state.input`); the path tools (`read`, `grep`, `glob`, `list`)
- * carry `path`/`pattern`/`filePath`, `bash`/`shell` carry `command`.
- */
-export function withheldInToolUse(
-  event: { tool?: string; name?: string; input?: Record<string, unknown>; state?: { input?: Record<string, unknown> } },
-  scope: string
-): string | null {
-  if (!isFiltered(scope)) return null;
-  const tool = String(event?.tool ?? event?.name ?? '').toLowerCase();
-  const input = event?.input ?? event?.state?.input ?? {};
-  if (tool === 'bash' || tool === 'shell') return withheldInBash(input.command ?? input.cmd ?? '');
-  if (tool === 'read' || tool === 'view') {
-    const p = input.filePath ?? input.path ?? input.file ?? '';
-    return pathReachesWithheld(p) ? scalarText(p) : null;
-  }
-  if (tool === 'grep' || tool === 'glob' || tool === 'list' || tool === 'ls') {
-    const p = input.path ?? input.pattern ?? input.filePath ?? '';
-    // listing a directory is allowed; a content search (grep) of one is not
-    if ((tool === 'list' || tool === 'ls') && !isWithheldPath(scalarText(p))) return null;
-    return pathReachesWithheld(p) ? scalarText(p) : null;
-  }
-  if (tool === 'webfetch' || tool === 'fetch') return null;
-  return null;
 }
 
 // ---- redaction ----------------------------------------------------------------

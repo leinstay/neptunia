@@ -5,25 +5,20 @@
 
 import { fill } from '../../format.ts';
 import {
-  affinityBand,
   isConfirmed,
   isOpen,
   isStale,
   normalizeAvatar,
   rankAddressed,
-  roundScore,
   sortEpisodesForDisplay,
-  strongestMoves,
   topEpisodes,
 } from '../../memory/index.ts';
 import { topByRank } from '../../memory/ranking.ts';
 import { foldText } from '../../memory/recent.ts';
-import { DAY_MS, zonedDay } from '../../time.ts';
-import { fieldLine } from '../../behavior/around.ts';
+import { DAY_MS } from '../../time.ts';
 import { noteItems } from './reads.ts';
 import { resolveChatText } from './text.ts';
 import type {
-  Affinity,
   Alias,
   Claim,
   Cost,
@@ -33,7 +28,6 @@ import type {
   Labels,
   LabelGroup,
   MemoryRead,
-  Move,
   NameOf,
   Profile,
 } from './types.ts';
@@ -443,38 +437,11 @@ function avatarLine(stored: unknown, p: LabelGroup): string {
 }
 
 /**
- * The moves behind an attitude, one `labels.peopleNow.move` phrase each
- * (`{delta}` the move's `delta` as a signed integer, `{date}` its `YYYY-MM-DD`
- * in `timezone`, `{reason}` with `<@id>` tokens resolved): up to `max` of
- * `affinity.history`, chosen by src/memory/affinity.ts#strongestMoves (the
- * strongest, both signs when there are both, never the reason the attitude
- * part already shows), oldest first. `[]` when the label is missing.
- */
-function moveParts(
-  affinity: Affinity,
-  labels: Labels,
-  { max, timezone, nameOf }: { max: number; timezone: string | undefined; nameOf: NameOf | undefined }
-): Array<string> {
-  const label = labels.peopleNow?.move;
-  if (!label) return [];
-  // strongestMoves keeps moves of `affinity.history`, which it returns as plain objects.
-  const moves = strongestMoves(affinity.history, { max, currentReason: affinity.reason }) as Array<Move>;
-  return moves.map((move) => {
-    const delta = Math.round(move.delta !== undefined && Number.isFinite(move.delta) ? move.delta : move.appliedDelta);
-    return fill(label, {
-      delta: delta > 0 ? `+${delta}` : String(delta),
-      date: zonedDay(Date.parse(move.ts), timezone),
-      reason: resolveChatText(move.reason.trim(), nameOf),
-    });
-  });
-}
-
-/**
  * One person's DURABLE memory as prompt text (the `<people>` form, see docs/prompt-contract.md,
  * "<people>"): '' when nothing has been learned yet. What changes from turn to turn -- the
  * attitude with its moves, the message count, whether this person is the one talking to the
- * persona, the live snapshot -- is never here: it is the person's `<people_now>` entry
- * (`profileStateFields`). So the text depends on stored values only, and
+ * persona, the live snapshot -- is never here, and the live snapshot is the person's
+ * `<people_now>` entry (src/behavior/around.ts). So the text depends on stored values only, and
  * on the clock only by the day: the stale and replaced-claim marks and the order of the names
  * people use read `opts.now` cut to the start of its UTC day (`profileDay`), the ranks of
  * interests, details and aliases use absolute dates (src/memory/ranking.ts#rank), and no age is
@@ -528,19 +495,6 @@ function moveParts(
  */
 export function renderProfile(profile: Profile | null | undefined, labels: Labels, opts?: ShowOptions): string {
   return renderProfileShown(profile, labels, opts).text;
-}
-
-/**
- * A member's message count as their `<people_now>` entry shows it: rounded down to a multiple of
- * 10 from 10 up to 100 and of 100 from 100 up -- a rough figure, not a running tally; a count
- * below 10 as it is. 0 for anything that is not a positive number. Pure.
- * `count` is `profile.messageCount`.
- */
-function roundedMessageCount(count: unknown): number {
-  if (typeof count !== 'number' || !Number.isFinite(count) || count <= 0) return 0;
-  if (count < 10) return Math.floor(count);
-  const step = count < 100 ? 10 : 100;
-  return Math.floor(count / step) * step;
 }
 
 /**
@@ -661,61 +615,4 @@ function profileDay(now: number | undefined): number {
 function hasAttitude(profile: Profile | null | undefined, relationships: boolean): boolean {
   const affinity = profile?.affinity;
   return Boolean(relationships && affinity && (affinity.score !== 0 || Boolean(affinity.reason)));
-}
-
-/**
- * What is current about one person in memory, as the field lines of their `<people_now>` entry
- * (src/behavior/around.js#fieldLine), for a profiled person only. With `relationships` on:
- * `attitude`, the attitude through `labels.peopleNow.attitude` (`{score}` rounded, `{band}` from
- * `labels.affinity.bands`, `{reason}` with `<@id>` tokens resolved) when it is non-neutral
- * (`hasAttitude`), else `values.none`; then, with an attitude and `shownMoves` a positive integer
- * (at most 1 for a `compact` profile), `moves`: the moves behind it (`moveParts`) joined by `; `,
- * or `values.none`. Then, for anyone not `compact`, `messages`: the rounded message count
- * (`roundedMessageCount`), or `values.none`. A missing label leaves its line out. `[]` without a
- * profile or labels. Pure.
- */
-export function profileStateFields(
-  profile: Profile | null | undefined,
-  labels: Labels,
-  {
-    relationships = false,
-    shownMoves,
-    compact = false,
-    timezone,
-    nameOf,
-  }: {
-    relationships?: boolean;
-    shownMoves?: number;
-    compact?: boolean;
-    timezone?: string;
-    nameOf?: NameOf;
-  } = {}
-): Array<string> {
-  const n = labels?.peopleNow;
-  if (!profile || !n) return [];
-  const none = n.values?.none ?? '';
-  const lines: Array<string> = [];
-  if (relationships) {
-    const affinity = profile.affinity;
-    const affinityBands = labels.affinity?.bands;
-    const shown = hasAttitude(profile, relationships);
-    const attitude =
-      shown && affinity && n.attitude
-        ? fill(n.attitude, {
-            score: roundScore(affinity.score),
-            band: affinityBands?.[affinityBand(affinity.score)],
-            reason: resolveChatText(affinity.reason, nameOf),
-          })
-        : none;
-    lines.push(fieldLine(labels, 'attitude', attitude));
-    const max = compact ? Math.min(shownMoves ?? 0, 1) : shownMoves;
-    if (shown && affinity && max !== undefined && Number.isInteger(max) && max > 0) {
-      lines.push(fieldLine(labels, 'moves', moveParts(affinity, labels, { max, timezone, nameOf }).join('; ') || none));
-    }
-  }
-  if (!compact) {
-    const count = roundedMessageCount(profile.messageCount);
-    lines.push(fieldLine(labels, 'messages', count ? String(count) : none));
-  }
-  return lines.filter(Boolean);
 }

@@ -353,11 +353,6 @@ function claimIn(db: Db, { id, holder, now, leaseMs, turnId = null, turn = null 
   return { ok: true, token, turnId: keptTurn, attempt };
 }
 
-/** Wake `id` moved from `queued` to `running` under a new grant of its lease `wake:<id>`, in one transaction. */
-export function claimWake(handle: Handle, input: ClaimInput): Claim {
-  return inWrite(handle, (db) => claimIn(db, input));
-}
-
 /** Whether `token` is the one the running wake `id` and its lease hold. */
 function holds(db: Db, id: string, token: number): boolean {
   const row = db.prepare("SELECT lease_token FROM wakes WHERE id = ? AND state = 'running'").get(id);
@@ -482,18 +477,6 @@ function isVoice(value: unknown): value is { durationSecs: number; waveform: str
   return typeof voice.durationSecs === 'number' && typeof voice.waveform === 'string';
 }
 
-/**
- * Running wake `id` handled with `outcome`, its deliveries recorded `queued` by their keys, in one transaction that
- * first checks `token`: a stale token is refused and writes nothing.
- */
-export function completeWake(handle: Handle, input: CompleteInput): Fenced {
-  return inWrite(handle, (db): Fenced => {
-    if (!holds(db, input.id, input.token)) return { ok: false, code: 'stale-lease' };
-    completeIn(db, input);
-    return { ok: true };
-  });
-}
-
 /** Running wake `id` back to `queued` by the holder of `token`, with its fields as the turn left them: its next turn is a new one. */
 function releaseIn(
   db: Db,
@@ -504,14 +487,6 @@ function releaseIn(
      attempt = 0, payload = ?, due_at = ? WHERE id = ?`
   ).run(JSON.stringify(payload), numberOrNull(payload.dueAt), id);
   releaseLease(db, `wake:${id}`, token, now);
-}
-
-/** The deliveries still to send, in the order they were recorded. */
-export function queuedDeliveries(handle: Handle): Array<Delivery> {
-  return dbOf(handle)
-    .prepare("SELECT * FROM deliveries WHERE state = 'queued' ORDER BY queued_at, rowid")
-    .all()
-    .map(deliveryOfRow);
 }
 
 function deliveryOfRow(row: Row): Delivery {
@@ -539,11 +514,6 @@ export function deliveriesIn(handle: Handle, state: DeliveryState): Array<Delive
 export function deliveryOf(handle: Handle, key: string): Delivery | null {
   const row = dbOf(handle).prepare('SELECT * FROM deliveries WHERE key = ?').get(key);
   return row ? deliveryOfRow(row) : null;
-}
-
-/** Delivery `key` marked `sent` at `now`; whether it was still queued or sending. */
-export function markDelivered(handle: Handle, { key, now }: { key: string; now: number }): boolean {
-  return moveDelivery(handle, { key, from: ['queued', 'sending'], to: 'sent', now, receipt: null });
 }
 
 /** One step of a delivery's send: from one of `from` to `to` at `now`, with what the send answered. */

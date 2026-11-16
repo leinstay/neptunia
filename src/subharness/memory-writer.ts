@@ -7,8 +7,8 @@
 // (`chainRoute`). A run that
 // fails rejects with an Error whose `code` says why, `not-logged-in` when claude asks for a login, which the sweep records
 // as it records a failed request. The child gets the backend's home and the plain variables of `childEnvOf`, never a key
-// of the core. Claude's native thinking follows the route's effort (`thinkingTokensOf`). Log lines carry the backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
-// one. Claude 2.1.317 enforces `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (measured 2026-11-05: with 20 a run ended `is_error` at 80
+// of the core. Claude's native thinking follows the route's effort (`thinkingTokensOf`). Log lines carry the backend, the exit code and the tokens, never the text. `memoryGaps` names the controls a path lacks against the
+// direct one. Claude 2.1.317 enforces `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (measured 2026-11-05: with 20 a run ended `is_error` at 80
 // output tokens, with none 436 at `end_turn`), so the cap goes there. Codex 0.164.0 has no such control, so its gap is
 // reported, and nothing trims the answer instead.
 
@@ -70,10 +70,6 @@ const CAPABILITIES: Readonly<Record<MemoryBackend, MemoryCapabilities>> = {
   // codex keeps its own instructions and a shell in its sandbox; the system text arrives first on its stdin.
   codex: { systemPrompt: 'prefixed', tools: 'read-only-sandbox', usage: 'total-only', maxOutputTokens: 'gap' },
 };
-
-export function memoryCapabilities(backend: MemoryBackend): MemoryCapabilities {
-  return CAPABILITIES[backend];
-}
 
 /** The controls of the direct path that `backend` lacks, by name. */
 export function memoryGaps(backend: MemoryBackend): Array<string> {

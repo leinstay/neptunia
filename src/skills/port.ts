@@ -8,21 +8,18 @@
 import { missingTools } from './index-block.ts';
 import type { ActiveSkill, MissingTool } from './index-block.ts';
 import { parseSkillFile } from './format.ts';
-import type { LoadedSkill, SkillProblem } from './load.ts';
-import {
+import type { SkillProblem } from './load.ts';
+import { listSkills, pendingVersions, reviewOf, reviewsDue } from '../memory/db/skills.ts';
+import type {
+  SkillRow,
+  SkillUse,
+  VersionView,
   activateNamedVersion,
   activateSkill,
-  appendUses,
-  listSkills,
-  pendingVersions,
   rejectPending,
-  reviewOf,
-  reviewsDue,
   rollbackSkill,
   setDisabled,
-  syncSkills,
 } from '../memory/db/skills.ts';
-import type { SkillRow, SkillUse, SkillsHandle, VersionView } from '../memory/db/skills.ts';
 
 export type SkillListRow = SkillRow & { missing: Array<MissingTool>; reviewDue: boolean };
 
@@ -114,74 +111,5 @@ export function skillsReads(handle: { db: object }, deps: SkillsReadDeps): Skill
     },
     pending: () => pendingVersions(handle),
     review: (name) => reviewOf(handle, name),
-  };
-}
-
-export function createSkillsPort(deps: {
-  handle: SkillsHandle;
-  now: () => number;
-  load: () => { skills: Array<LoadedSkill>; problems: Array<SkillProblem> };
-  granted: () => ReadonlySet<string>;
-  registered: () => ReadonlySet<string>;
-  reviewDays: () => number;
-}): SkillsPort {
-  const { handle } = deps;
-  const reads = skillsReads(handle, deps);
-
-  function sync(): { skills: number; versions: number; stale: number } {
-    return syncSkills(handle, deps.load().skills, { at: deps.now() });
-  }
-
-  return {
-    sync,
-    active() {
-      sync();
-      return reads.active();
-    },
-    list() {
-      sync();
-      return reads.list();
-    },
-    problems: () => deps.load().problems,
-    diskHash: (name) => deps.load().skills.find((one) => one.name === name)?.contentHash ?? null,
-    show(name) {
-      sync();
-      return reads.show(name);
-    },
-    pending() {
-      sync();
-      return reads.pending();
-    },
-    review(name) {
-      sync();
-      return reads.review(name);
-    },
-    activate(name, by) {
-      sync();
-      return activateSkill(handle, name, { at: deps.now(), by });
-    },
-    activateVersion(name, versionId, by) {
-      sync();
-      return activateNamedVersion(handle, name, versionId, { at: deps.now(), by });
-    },
-    rollback(name, by) {
-      sync();
-      return rollbackSkill(handle, name, { at: deps.now(), by });
-    },
-    reject(name, by) {
-      sync();
-      return rejectPending(handle, name, { at: deps.now(), by });
-    },
-    disable(name, by) {
-      sync();
-      return setDisabled(handle, name, true, { at: deps.now(), by });
-    },
-    enable(name, by) {
-      sync();
-      return setDisabled(handle, name, false, { at: deps.now(), by });
-    },
-    record(uses) {
-      return appendUses(handle, uses);
-    },
   };
 }

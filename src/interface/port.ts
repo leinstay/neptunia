@@ -25,10 +25,7 @@ import type {
 export type { ChatRef, MessageRef, Attachment, Mentions, Content, PortError, PortResult, Capabilities, Port, Action };
 
 export {
-  STATUSES,
   CAPABILITIES,
-  INCOMING_HOOKS,
-  NO_MENTIONS,
   ok,
   notOk,
   mentionsOf,

@@ -687,28 +687,6 @@ export function runFocusDay(
 export const lastFocusDay = (db: Connection): unknown =>
   dbOf(db).prepare("SELECT value FROM meta WHERE key = 'focus_last_day'").get()?.value ?? null;
 
-/** An owner's pin or exclusion (`kind`), replacing the person's previous override. */
-export function setOverride(
-  handle: Connection,
-  {
-    person,
-    kind,
-    approvedBy,
-    expiresAt = null,
-    reason = null,
-  }: { person: string; kind: string; approvedBy: unknown; expiresAt?: unknown; reason?: string | null }
-): void {
-  const db = dbOf(handle);
-  transactionOf(handle)(() =>
-    db
-      .prepare(
-        `INSERT INTO focus_overrides (person_id, kind, expires_at, approved_by, reason) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(person_id) DO UPDATE SET kind = excluded.kind, expires_at = excluded.expires_at, approved_by = excluded.approved_by, reason = excluded.reason`
-      )
-      .run(person, kind, expiresAt, approvedBy, reason)
-  );
-}
-
 /**
  * Her focus close set as person ids, the best scored first (an internal reader: the description reviews of her memory
 

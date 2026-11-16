@@ -1,8 +1,8 @@
 // The memory limits in one home: the measures of what the store keeps and shows and the fixed lengths of the texts
 // it writes, so one text is never cut at two limits. This module imports nothing, so every memory module can take its
 // limits from here without an import cycle. The episode, attitude and teacher rules have their own homes:
-// src/memory/episodes.ts (EPISODE_CHARS, episodeDate, isSameEpisode), src/memory/affinity.ts (REASON_CHARS,
-// deltaCapOf) and src/memory/mentions.ts (teacherToken).
+// src/memory/episodes.ts (episodeDate), src/memory/affinity.ts (REASON_CHARS, deltaCapOf) and src/memory/mentions.ts
+// (TEACHER_TOKEN_RE).
 
 /**
  * The measures of the member memory, by the names the store and the request builders read. Production values,

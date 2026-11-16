@@ -9,7 +9,7 @@
 import { log } from '../log.ts';
 import { MINUTE_MS } from '../time.ts';
 import { SUBSCRIPTION_CODES, isBudgetError } from './openrouter.ts';
-import { ROUTE_ROLES, isRefusal, readRoute, routeText } from './route-text.ts';
+import { isRefusal, readRoute, routeText } from './route-text.ts';
 import type { Route, RouteRole } from './route-text.ts';
 
 type Tree = Record<string, unknown>;
@@ -21,16 +21,6 @@ export function routesOf(config: unknown, role: RouteRole): Array<Route> {
   const own = treeOf(treeOf(treeOf(config).models).routes)[role];
   if (!Array.isArray(own)) return [];
   return own.map((value) => readRoute(role, value)).filter((route): route is Route => !isRefusal(route));
-}
-
-/** The key each role's chain names first, by role: the key a role spends on while its first route is in force. */
-export function chainKeyNames(config: unknown): Record<string, string> {
-  const names: Record<string, string> = {};
-  for (const role of ROUTE_ROLES) {
-    const first = routesOf(config, role).find((route) => route.via === 'api');
-    if (first?.via === 'api') names[role] = first.key;
-  }
-  return names;
 }
 
 /** The codes of a harness run that say the harness cannot run now: a missing install, a logout, a run that broke. */

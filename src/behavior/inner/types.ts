@@ -10,7 +10,6 @@ import type { Reads } from '../../interface/reads.ts';
 import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
 import type { SendHold } from '../../tools/send-hold.ts';
 import type { Handle, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
-import type { WakeBlockInput } from '../wake.ts';
 import type { WAKE_KINDS } from './settings.ts';
 
 /** A wake kind. */
@@ -289,12 +288,6 @@ export type WakeInfo = {
   /** The code of the place a due intention named and could not be reached in: the turn runs nowhere. */
   placeFailure?: string;
 };
-
-/**
- * The wake as the turn runner reads it (src/behavior/turn.ts, `params.inner.wake`): every field it reads has a fallback,
- * so every field is optional; the drain's WakeInfo is one of these.
- */
-export type TurnWake = WakeBlockInput & { kind?: string; chainId?: string };
 
 /** One wake of an inner turn as its request shows it. */
 export type WakeItem = {

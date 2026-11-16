@@ -166,10 +166,6 @@ export function put(rows: Rows, table: string, row: Row): Row {
   return row;
 }
 
-/** `[{ col, key, type }]` where the column and the key have one name. */
-export const same = (type: Spec['type'], ...names: Array<string>): Array<Spec> =>
-  names.map((name) => ({ col: name, key: name, type }));
-
 /** Deep equality of two JSON values, key order ignored; absent and undefined are the same. */
 export function jsonEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;

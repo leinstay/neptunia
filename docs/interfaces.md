@@ -16,7 +16,7 @@ Keep platform SDK imports in the interface package. The interface imports only t
 
 Every account and chat belongs to an interface namespace. Preserve native IDs as identifiers, not display names. Supply root, chat, author, timestamps and visibility information in the event shape. A direct chat is private even when its participant also belongs to a server.
 
-[Neutral addresses](../src/protocol/identity.ts) name a place and an account by the interface, the authority inside it and the native id, with a generation for an account. `chatKey` and `accountKey` serialize them as a tuple, so no character inside a native id can forge another address. A chat may declare `authorityId` when one interface serves several tenants, and an event without it is addressed under `nativeAuthorityOf(iface)`.
+[Neutral addresses](../src/protocol/identity.ts) name a place and an account by the interface, the authority inside it and the native id, with a generation for an account. The unique index `accounts_native` keys an account on its authority, native key and generation, and `accountNodeOf` in `src/memory/db/person-links.ts` finds an account by all four, so equal native ids under two authorities stay two accounts. A chat may declare `authorityId` when one interface serves several tenants, and an event without it is addressed under `nativeAuthorityOf(iface)`.
 
 An interface reports `addressing.mentioned` and `addressing.replyToSelf` as facts. Whether a line was said to the persona is the core's address classifier ([The door](core.md#the-door)), and a platform-specific rail against spam, if one is ever needed, lives in that interface and is off by default. A chat with `rootId` null is a DM unless its `chatType` is `group_dm`, which is a group that is its own root.
 

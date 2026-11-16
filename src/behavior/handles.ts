@@ -159,16 +159,6 @@ export function widenHandles(
 }
 
 /**
- * Every channel's handle for one request: assignHandles over `ids` with CHANNEL_HANDLE_PREFIX,
- * so the oldest of two channels sharing a handle keeps the short form and the other takes one
- * more digit. A channel handle never equals a member handle (another prefix). Pure.
- * @returns channel id -> handle (without the `#`).
- */
-export function assignChannelHandles(ids: Iterable<string>): Map<string, string> {
-  return assignHandles({ profiled: ids ?? [] }, { prefix: CHANNEL_HANDLE_PREFIX });
-}
-
-/**
  * The handles of one request (docs/prompt-contract.md, "Mention handles") by key (a person id, an account key or a chat id), without
  * their sigil: the chat's fixed first, then the people of `<memory>` and the authors in view under the collision rule,
  * and a key met later (a mention in a stored text) at the shortest form no other key holds.

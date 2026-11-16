@@ -7,7 +7,6 @@ export * from './events.ts';
 export * from './actions.ts';
 export { validateEvent, validateAction } from './validate.ts';
 export * from './envelope.ts';
-export { originOf } from './origin.ts';
 export * from './identity.ts';
 export { deliveryOf } from './adapter.ts';
 export { splitText } from './split-text.ts';

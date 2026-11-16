@@ -420,18 +420,6 @@ export function appendUses(handle: SkillsHandle, uses: ReadonlyArray<SkillUse>):
   });
 }
 
-/** The uses with `at >= since`, counted per skill; a skill with no use in the window is absent. */
-export function useCountsBySkill(handle: { db: object }, options: { since: number }): Record<string, UseCounts> {
-  const out: Record<string, UseCounts> = {};
-  for (const row of dbOf(handle)
-    .prepare('SELECT skill, kind, COUNT(*) AS n FROM skill_uses WHERE at >= ? GROUP BY skill, kind')
-    .all(iso(options.since))) {
-    const counts = (out[String(row.skill)] ??= emptyCounts());
-    counts[row.kind as UseKind] = Number(row.n);
-  }
-  return out;
-}
-
 /**
  * The skills with an active version that are not disabled, were activated `days` days ago or more and were not read
  * in the last `days` days. A reminder for `/skills`; nothing is deleted.

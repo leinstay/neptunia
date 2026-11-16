@@ -141,11 +141,6 @@ export function formatNow(ts: number, timezone: string, locale: string = 'en-US'
   return `${date}, ${formatClock(ts, timezone, locale)} (${timezone})`;
 }
 
-/** Local hour 0-23 in the given timezone. Locale-independent by design. */
-export function localHour(ts: Untyped, timezone: Untyped): number {
-  return Number(formatter(timezone, 'en-US', { hour: 'numeric', hourCycle: 'h23' }).format(ts)) % 24;
-}
-
 /**
  * Coarse, human-scale duration, e.g. "5 min", "3 h 12 min", "2 d 4 h". Rounds
  * to the nearest minute/hour and rolls the result over into the next unit
@@ -1027,8 +1022,7 @@ function contentWithHandles(
  *   in `memberNames` who has a handle and is not among the line's mentions ends with that label
  *   (`{names}`: the `@name`s as written, joined by ", "; untaggedNames), for as long as it is shown.
  * @param [options.channels]  Channel id -> its handle
- *   (without `#`) and name (src/behavior/handles.ts#assignChannelHandles over the channel
- *   directory). In `mode: 'chat'` with a non-empty `transcript.channel` label, a channel a line's
+ *   (without `#`, src/behavior/handles.ts with CHANNEL_HANDLE_PREFIX) and name. In `mode: 'chat'` with a non-empty `transcript.channel` label, a channel a line's
  *   text mentions (its `mentionedChannelIds`, read as `#name`, or a raw `<#id>`) renders as that
  *   label with `{name}` and `{handle}` (both with their `#`; withChannelHandles). Omitted, or
  *   without the label: the text as it came.

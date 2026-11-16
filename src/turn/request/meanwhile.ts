@@ -284,17 +284,6 @@ export function windowText(
   return [head, ...rows].join('\n');
 }
 
-/** The body of `<meanwhile>`, headed as background; '' with no line of hers elsewhere. */
-export function meanwhileOf(
-  reads: MeanwhileReads,
-  frame: Frame,
-  settings: MeanwhileSettings,
-  labels: Labels,
-  nameOf: NameOf
-): string {
-  return meanwhileText(meanwhileWindows(reads, frame, settings), frame, labels, nameOf);
-}
-
 /** The body of `<meanwhile>` over `windows`, headed as background; '' with no window. */
 export function meanwhileText(
   windows: ReadonlyArray<MeanwhileWindow>,

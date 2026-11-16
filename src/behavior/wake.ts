@@ -77,20 +77,6 @@ export function diagnosticText(diagnostic: unknown, labels: unknown): string {
     .trim();
 }
 
-/**
- * The lines of a step's diagnostics for its task: `labels.task.diagnostics` as the lead, then one
- * diagnosticText line each (those without a label left out). [] without the lead or a line.
- * `labels` is the whole labels object.
- */
-export function diagnosticLines(diagnostics: unknown, labels: unknown): Array<string> {
-  const lead = objOf(objOf(labels).task).diagnostics;
-  if (typeof lead !== 'string' || !lead.trim()) return [];
-  const lines = listOf(diagnostics)
-    .map((diagnostic) => diagnosticText(diagnostic, labels))
-    .filter(Boolean);
-  return lines.length > 0 ? [lead, ...lines.map((line) => `- ${line}`)] : [];
-}
-
 /** How the `<wake>` words a moment. */
 type When = (ts: unknown) => string;
 

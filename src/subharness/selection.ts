@@ -12,9 +12,6 @@ import { checkModel } from './models.ts';
 import { effortLevelsOfHelp } from './place.ts';
 import { sourceProblem, sourceState } from './sources.ts';
 
-/** The claim of her memory writer's path, beside the agents' names. */
-export const MEMORY_CLAIM = 'memory';
-
 /** The selection each role is checking now, by private layer and role; a running check holds it while it is its own. */
 const claims = new Map<string, symbol>();
 
@@ -46,7 +43,7 @@ export async function listsEffort(deps: EnableDeps, backend: BackendName, effort
 }
 
 export type Selection = {
-  /** the agent's name, or MEMORY_CLAIM */
+  /** the agent's name, or `route-<backend>` for a route check */
   claim: string;
   backend: BackendName;
   /** the key the check of opencode goes out on; empty for the others */

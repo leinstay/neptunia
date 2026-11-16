@@ -181,24 +181,6 @@ function bindingOf(db: Db, account: AccountRow, update: Row, at: string): { ok: 
   return { ok: true as const, person };
 }
 
-/** Every account that shares the person of `iface`/`native`, itself included, in a stable order. */
-export function accountLinks(
-  db: Db,
-  iface: string,
-  native: string
-): { person: string | null; accounts: Array<{ iface: string; native: string }> } {
-  const account = accountByNative(db, iface, native);
-  if (account === undefined || !account.person_id) return { person: null, accounts: [{ iface, native }] };
-  const rows = db
-    .prepare(
-      `SELECT iface, COALESCE(native_key, native_id) AS native FROM accounts
-       WHERE person_id = ? AND link = 'verified' ORDER BY iface, native`
-    )
-    .all(account.person_id) as Array<{ iface: string; native: string }>;
-  const accounts = rows.map((row) => ({ iface: row.iface, native: row.native }));
-  return { person: account.person_id, accounts: accounts.length > 0 ? accounts : [{ iface, native }] };
-}
-
 /**
  * The profile unit of the person an account is linked to, when another account's unit holds it: the unit that owns the
  * person's `people` row. Null for an account with no person, a person whose row no unit owns, and a row its own account

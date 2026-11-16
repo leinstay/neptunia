@@ -172,7 +172,7 @@ export function replaceDraftText(draft: Draft, text: string): Draft {
   return withParts(draft, parts, text.length, draft.serial + 1);
 }
 
-/** Takes one part out, by its identity. It keeps its place for `restorePart`. */
+/** Takes one part out, by its identity, and records it in `removed` with the part it followed. */
 export function removePart(draft: Draft, partId: string): Draft {
   const span = spansOf(draft).find((one) => one.part.id === partId);
   if (span === undefined) return draft;
@@ -187,21 +187,6 @@ export function removePart(draft: Draft, partId: string): Draft {
       cursor
     ),
     removed: [...draft.removed, { part: span.part, after }],
-  };
-}
-
-/** Puts a removed part back where it stood; the end of the draft when the part it followed is gone. */
-export function restorePart(draft: Draft, partId: string): Draft {
-  const held = draft.removed.find((one) => one.part.id === partId);
-  if (held === undefined) return draft;
-  const found = draft.parts.findIndex((part) => part.id === held.after);
-  const index = held.after === null ? 0 : found === -1 ? draft.parts.length : found + 1;
-  const parts = [...draft.parts.slice(0, index), held.part, ...draft.parts.slice(index)];
-  const start = displayDraft({ parts: parts.slice(0, index) }).length;
-  const size = labelOf(held.part).length;
-  return {
-    ...withParts(draft, parts, draft.cursor >= start ? draft.cursor + size : draft.cursor),
-    removed: draft.removed.filter((one) => one !== held),
   };
 }
 

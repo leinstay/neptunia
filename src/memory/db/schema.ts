@@ -429,5 +429,3 @@ export const SCOPED_TABLES = [
 export const PARTICIPANT_TOKEN_KINDS = ['thread_token', 'site_token', 'post_number', 'display_name', 'none'];
 /** The predicates of `source_relations`. */
 export const RELATION_PREDICATES = ['replies_to', 'quotes', 'reposts', 'mentions', 'edits', 'references'];
-/** The states of a wake run. */
-export const WAKE_RUN_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'interrupted'];

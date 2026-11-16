@@ -3,24 +3,15 @@
 // view in src/admin.js) and the top-N choice for a member asked about
 // (`topEpisodes`), both used by src/behavior/prompt.js.
 //
-// It is also the one home of the episode rules: the text limits
-// (`EPISODE_CHARS`), the date rule (`episodeDate`, to store a date or, with
-// no clock, to test one) and the duplicate rule (`isSameEpisode`). This
-// module stays a leaf toward src/behavior/prompt.js: importing it would close
+// It is also the home of the episode date rule (`episodeDate`, to store a
+// date or, with no clock, to test one). This module stays a leaf toward src/behavior/prompt.js: importing it would close
 // an import cycle (prompt.js imports this module).
 
-import { normalizeTopic } from './interests.ts';
 import { utcDay } from '../time.ts';
 import { isIntegerNumber } from './types.ts';
 import type { StoredRecord } from './types.ts';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/**
- * The character limits of an episode's texts: `what` and `feeling` before
- * `memory.clampTolerance`, `quote` always a hard cut (the person's own words).
- */
-export const EPISODE_CHARS = Object.freeze({ what: 200, quote: 120, feeling: 120 });
 
 /**
  * The one rule of an episode's date: a stored date is a `YYYY-MM-DD` string and nothing else.
@@ -41,18 +32,6 @@ export const EPISODE_CHARS = Object.freeze({ what: 200, quote: 120, feeling: 120
 export function episodeDate(raw: unknown, nowMs?: number): string {
   if (typeof raw === 'string' && DATE_RE.test(raw)) return raw;
   return nowMs === undefined ? '' : utcDay(nowMs);
-}
-
-/**
- * Whether two episodes are the same moment: the same `date` and the same
- * `what` by src/memory/interests.ts#normalizeTopic (trimmed, whitespace
- * collapsed, lower-cased), or the same non-empty `quote`, compared verbatim.
- * Symmetric. Anything that is not an object is no episode and matches nothing.
- */
-export function isSameEpisode(a: StoredRecord, b: StoredRecord): boolean {
-  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
-  if (a.date === b.date && normalizeTopic(a.what) === normalizeTopic(b.what)) return true;
-  return Boolean(a.quote && b.quote && a.quote === b.quote);
 }
 
 /**

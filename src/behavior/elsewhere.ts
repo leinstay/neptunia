@@ -33,11 +33,6 @@ export const ELSEWHERE_DEFAULTS = Object.freeze({
   pingMaxAgeDays: 7,
 });
 
-/** A finite number from `value`, else null. */
-function finiteOrNull(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
 /**
  * The `elsewhere` measures in milliseconds: ELSEWHERE_DEFAULTS; the live config holds none. `pingMaxAgeDays` 0 would
  * mean no age limit (the ring then bounded by its size only).
@@ -58,39 +53,7 @@ export const elsewhereSettings: (config?: Config) => {
 
 // ---- the ring of calls ----------------------------------------------------------------
 
-/**
- * One call to the persona received in a channel it cannot write in, as kept
- * in `state.json` `elsewherePings`: ids and a time only (no author, no text).
- * `ts` is when the call was written (epoch ms), `answeredAt` when a turn that showed it spoke (a reaction counts),
- * `skippedAt` when the persona chose to let it pass.
- */
-export type RingPing = {
-  messageId: string;
-  placeId: string;
-  ts: number;
-  answeredAt: number | null;
-  skippedAt: number | null;
-};
-
 // ---- seen marks -----------------------------------------------------------------------
-
-/**
- * Move the seen mark of a source channel (`state.json` `elsewhereSeen`: the
- * time of the newest message of that channel a turn has shown the persona)
- * to `ts`, never backwards. A missing map starts empty, a garbage mark is
- * replaced, a non-finite `ts` changes nothing. The mark is not a limit: it
- * only keeps the persona from commenting twice on the same content.
- * The stored map is not mutated.
- */
-export function markSeen(seen: unknown, placeId: string, ts: number): Record<string, number> {
-  const next: Record<string, number> =
-    seen && typeof seen === 'object' && !Array.isArray(seen) ? { ...(seen as Record<string, number>) } : {};
-  const channel = idOf(placeId);
-  if (!channel || !Number.isFinite(ts)) return next;
-  const current = finiteOrNull(next[channel]);
-  if (current === null || ts > current) next[channel] = ts;
-  return next;
-}
 
 // ---- the audience rail ------------------------------------------------------------------
 

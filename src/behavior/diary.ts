@@ -30,11 +30,7 @@ import type { Obj } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { createStore } from '../memory/store.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
-import { historyLines } from './lines.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
-
-/** A day counter of the store's state (src/time.ts#countToday): the key of its day and the key of its count. */
-export type Daily = { dayKey: string; countKey: string };
 
 /** The diary's plan of one local day, as state.json keeps it (`diary[placeId]`). */
 export type DayPlan = {
@@ -95,17 +91,7 @@ function plansOf(store: DiaryStore, create: boolean): Record<string, DayPlan | u
   return objOf(data.diary) as Record<string, DayPlan | undefined>;
 }
 
-/** One post the backfill writes to the diary unit. */
-export type BackfillPost = {
-  at: number;
-  kind: null;
-  gist: string;
-  picture: unknown;
-  messageIds: Array<string>;
-  search: null;
-};
-
-/** What the backfill is given (backfillDiary). */
+/** What the backfill is given. */
 export type BackfillArgs = {
   store: DiaryStore;
   reads: Reads;
@@ -952,7 +938,7 @@ export type DiaryDeps = {
  * turn still runs. Hot values are read at every call.
  * `delay` resolves after `ms` (a timer that never holds the process open); injected by tests.
  * `reads` are the core's reads of the interface (the backfill's history), null when none is connected.
- * `backfill` has backfillDiary's shape (the count written); null skips the backfill. `mirrors` is the diary's
+ * `backfill` returns the count it wrote; null skips the backfill, and src/core.ts passes none. `mirrors` is the diary's
  * publisher (`{ publishEntry }`), null publishes nothing.
  */
 export function createDiary({
@@ -1198,38 +1184,6 @@ export function createDiary({
   }
 
   return { tick, force, status, stop };
-}
-
-/**
- * The diary's memory start: when the persona's diary unit has no posts, read up to `diary.historyPosts`
- * of the persona's own messages from the diary channel (REST, oldest first) and store them with
- * `kind: null`, a one-line gist, and `labels.diary.pictureUnknown` as the scene of a message that
- * carried a picture. A history that already has posts is left alone (the posts are never rewritten by
- * code). This and the factory are the module's interface-aware edge; everything above stays pure.
- * `config` is the live merged config (`diary` read now); `labels` the live labels; `reads` the core's reads of the
- * interface. Answers the number of posts written (0 when the history was not empty).
- */
-export async function backfillDiary({ store, reads, chat, labels }: BackfillArgs): Promise<number> {
-  if (listOf(store.getDiary()?.posts).length > 0) return 0;
-  const max = DEFAULT_HISTORY_POSTS;
-  const gistChars = DEFAULT_GIST_CHARS;
-  const history = await historyLines(reads, chat, { limit: Number(max) });
-  const posts: Array<BackfillPost> = history
-    .filter((message) => message.self === true)
-    .map((message) => ({
-      at: message.ts,
-      kind: null,
-      gist: gistOf(message.content, Number(gistChars)),
-      picture: listOf(message.attachments).some((a) => objOf(a).kind === 'image')
-        ? (diaryWords(labels).pictureUnknown ?? '')
-        : null,
-      messageIds: [message.id],
-      search: null,
-    }));
-  if (posts.length === 0) return 0;
-  store.setDiaryPosts(posts, { max: Number(max) });
-  log.info('diary: backfill', { count: posts.length });
-  return posts.length;
 }
 
 /** Waits for the store's writes to land (`flushSettled`), when it has them. */

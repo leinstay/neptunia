@@ -388,11 +388,6 @@ export function readRowAt(
   return withExactBytes(db, shape, rowOf(shape, row, options.snapshot ?? '', position));
 }
 
-/** The one row of `locator`, each value whole. */
-export function readRow(db: Db, request: { table: string; locator: RowLocator }): InspectionRow {
-  return readRowAt(db, request);
-}
-
 /** Every row of `table` where `column` equals `id`, whole. For the domain readers, which name their own tables. */
 export function rowsWithValue(db: Db, table: string, column: string, id: string, limit: number): Array<InspectionRow> {
   return readRowPage(db, { table, filters: [{ column, value: { kind: 'text', value: id } }], limit, cursor: null })

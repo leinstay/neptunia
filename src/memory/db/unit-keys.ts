@@ -105,7 +105,3 @@ export const placeOrPersona = (kind: UnitKind, placeId: string | null, options: 
   placeId === null || placeId === PERSONA_ID
     ? { ...personaKey(kind), ...options }
     : placeCollection(kind, placeId, options);
-
-/** A journal day of one place. */
-export const journalKey = (placeId: string, day: string): UnitKey =>
-  placeCollection('journal', placeId, { partition: day });
