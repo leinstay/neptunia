@@ -935,7 +935,7 @@ function replayOf(
       sourceId
     );
   }
-  if (hasMediaItems(e)) fillLineMedia(db, sourceId, envelopeItems(e.media), at);
+  if (hasMediaItems(e)) fillLineMedia(db, sourceId, envelopeItems(e.media), { at, edit: e.edited === true });
   let relations = fillOwnAuthor(db, e, sourceId, at);
   for (const relation of e.relations ?? []) {
     const target =
@@ -1086,7 +1086,7 @@ function writeObservation(
   }
   const resolved = resolveRelationsTo(db, row, { at });
   projectRow(db, 'sources', { id: sourceId }, { at });
-  if (hasMediaItems(e)) fillLineMedia(db, sourceId, envelopeItems(e.media), at);
+  if (hasMediaItems(e)) fillLineMedia(db, sourceId, envelopeItems(e.media), { at });
   markStemsPending(db);
   return {
     ok: true,

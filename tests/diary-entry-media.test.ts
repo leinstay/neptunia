@@ -233,3 +233,28 @@ test('an older picture row the read cannot name is still read exactly once acros
   await s.job().run();
   assert.equal(s.fetches(), 1, 'the interface is asked for the older entry once');
 });
+
+test("an entry's picture relinked to its posted attachment leaves no row of the same file behind", () => {
+  // Bug: the relink drops the old row only when it holds no path, so every picture the mirror echoed keeps a second,
+  // unlinked row of the same file.
+  const handle = openMemoryDb(path.join(tempDir('nep-entry-twin-'), 'memory.db'));
+  OPEN.push(handle);
+  const db = handle.db as Db;
+  db.prepare(
+    "INSERT INTO diary (id, at_ms, kind, status, scope_kind, scope_iface) VALUES ('d-9', 1000, 'status', 'done', 'group', 'fake')"
+  ).run();
+  db.prepare(
+    "INSERT INTO media (id, kind, native_ref, scope_kind, scope_iface) VALUES ('media:fake:att-9', 'image', 'att-9', 'group', 'fake')"
+  ).run();
+  const file = { id: 'media:diary:d-9-1', path: 'media/diary/d-9-1.png', sha1: 'aa09', bytes: 64, mime: 'image/png' };
+  applyDiaryUpdate(handle, { id: 'd-9', media: [{ ...file, nativeRef: null }] });
+  applyDiaryUpdate(handle, {
+    id: 'd-9',
+    media: [{ ...file, nativeRef: JSON.stringify({ messageId: 'm9', attachmentId: 'att-9' }) }],
+  });
+  const rows = db.prepare("SELECT id FROM media WHERE path = 'media/diary/d-9-1.png' ORDER BY id").all();
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ['media:fake:att-9']
+  );
+});

@@ -440,3 +440,32 @@ test('leaves a think whose name two emoji hold with no choice and counts it as a
   apply(handle, plan);
   assert.equal(thinkOf(db, 'a1'), 'send :aga: now');
 });
+
+/** A media row of a kept file, its path and `sha1` given. */
+function fileRow(db: Db, id: string, filePath: string, sha1: string): void {
+  const insert = db.prepare(
+    "INSERT INTO media (id, kind, path, sha1, extra, scope_iface) VALUES (?, 'image', ?, ?, '{}', 'fake')"
+  );
+  insert.run(id, filePath, sha1);
+}
+
+test('removes an unlinked media row whose path and sha1 a linked row holds and counts it', () => {
+  // Bug: a diary picture relinked to its posted attachment left its old row behind, a second row of one file. A row of
+  // the same path with another sha1 is another file and stays.
+  const { handle, db } = openTemp();
+  const kept = 'media/diary/d-1-1.png';
+  fileRow(db, 'media:fake:att-1', kept, 'aa01');
+  fileRow(db, 'media:diary:d-1-1', kept, 'aa01');
+  fileRow(db, 'media:diary:d-2-1', kept, 'bb02');
+  line(db, 'l1', 'a picture');
+  link(db, 'l1', 0, 'media:fake:att-1');
+  const plan = planStableNamesRewrite(db);
+  const { tables } = plan.counts;
+  assert.equal(tables.media, 1);
+  apply(handle, plan);
+  const ids = db.prepare('SELECT id FROM media ORDER BY id').all();
+  assert.deepEqual(
+    ids.map((row) => row.id),
+    ['media:diary:d-2-1', 'media:fake:att-1']
+  );
+});
