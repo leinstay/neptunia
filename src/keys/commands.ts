@@ -201,6 +201,8 @@ async function probeRole(
 function checkLine(result: CheckResult): string {
   const byok = result.isByok === null ? 'is_byok not reported' : `is_byok ${String(result.isByok)}`;
   const head = `${result.role} on ${result.model} with key ${result.keyName}`;
+  // A passed check of `drawing` read the provider's listing and sent no request: it has no cost and no `is_byok`.
+  if (result.ok && result.role === 'drawing') return `${head}: the provider lists it with image output`;
   return result.ok
     ? `${head}: answered, ${byok}, ${money(result.cost)}`
     : `${head}: failed${result.status === null ? '' : ` (HTTP ${result.status})`}: ${result.error ?? 'no reason given'}`;
