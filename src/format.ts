@@ -376,7 +376,8 @@ function reactionsTag(
     labels.transcript.reactionNames !== '';
   const list = reactions
     .map((reaction: Untyped) => {
-      const { emoji, count, mine } = reaction;
+      const { count, mine } = reaction;
+      const emoji = reactionEmoji(reaction);
       const item = named ? reactionNamesItem(reaction, labels, names) : '';
       if (item) return item;
       return fill(
@@ -411,7 +412,12 @@ function reactionNamesItem(reaction: Untyped, labels: Untyped, names: Untyped) {
   if (reaction.mine) shown.push(names.nameOf({ self: true }));
   const more = rest > 0 ? fill(labels.transcript.reactionMore, { n: rest }) : '';
   const list = [shown.join(', '), more].filter(Boolean).join(' ');
-  return fill(labels.transcript.reactionNames, { emoji: reaction.emoji, names: list, count: reaction.count });
+  return fill(labels.transcript.reactionNames, { emoji: reactionEmoji(reaction), names: list, count: reaction.count });
+}
+
+/** A reaction's emoji as she reads it: a custom one by its stable name between colons, a unicode one as itself. */
+function reactionEmoji(reaction: { emoji?: unknown; name?: unknown }): unknown {
+  return typeof reaction.name === 'string' ? `:${reaction.name}:` : reaction.emoji;
 }
 
 /**

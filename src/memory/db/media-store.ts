@@ -184,7 +184,10 @@ export function mediaItemsOf(message: Row): Array<MediaItem> {
       kind: 'emoji',
       availability: 'unknown',
       nativeRef: orNull(emoji.id),
-      extra: defined({ name: orNull(emoji.name) }),
+      extra: defined({
+        name: orNull(emoji.name),
+        ...(emoji.animated === true ? { animated: true, animationUrl: orNull(emoji.animationUrl) } : {}),
+      }),
     });
   }
   return items;
@@ -350,7 +353,14 @@ export function mediaMessageParts(
         parts.stickers.push({ id, name: name ?? '', url: row.availability === 'unreadable' ? null : id, ...held });
         break;
       case 'emoji':
-        parts.emojis.push({ id, name: name ?? '', stored: true, ...held });
+        // An animated emoji keeps its animation address, so the describer watches it as a GIF again.
+        parts.emojis.push({
+          id,
+          name: name ?? '',
+          stored: true,
+          ...(row.extra.animated === true ? { animated: true, animationUrl: orNull(row.extra.animationUrl) } : {}),
+          ...held,
+        });
         break;
       case 'text':
         parts.attachments.push({

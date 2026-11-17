@@ -8,8 +8,10 @@
 // came to nothing: it keeps the status, the code and whether the failure is worth another try.
 
 import { PERSONA_ID } from '../memory/db/ids.ts';
-import type { Adapter } from '../protocol/adapter.ts';
+import type { Adapter, MessageEvent } from '../protocol/adapter.ts';
 import type { Logger } from '../protocol/serve.ts';
+import { nameEventMedia } from '../behavior/stable-names.ts';
+import type { MediaNamer } from '../behavior/stable-names.ts';
 
 /** The adapter methods that are reads, with the wire action each one runs. */
 const WIRE = {
@@ -51,9 +53,33 @@ export type Reads = { [K in ReadName]: Wrapped<K> } & {
 
 type Answer = { status: string; error?: { code?: string; retryable?: boolean } };
 
+/**
+ * The messages of a `history` or `fetchMessages` answer under the engine's stable names
+ * (src/behavior/stable-names.ts); every other answer as it came.
+ */
+type MessageBody = Answer & { events?: Array<MessageEvent>; messages?: Array<{ event?: MessageEvent }> };
+function namedAnswer(name: ReadName, answer: Answer, names: MediaNamer): MessageBody {
+  const body: MessageBody = answer;
+  if (name === 'history' && Array.isArray(body.events))
+    return { ...body, events: body.events.map((event) => nameEventMedia(event, names)) };
+  if (name === 'fetchMessages' && Array.isArray(body.messages))
+    return {
+      ...body,
+      messages: body.messages.map((found) =>
+        found.event ? { ...found, event: nameEventMedia(found.event, names) } : found
+      ),
+    };
+  return answer;
+}
+
 const NO_PLACE: ReadRefusal = { status: 'unsupported', code: 'no-place' };
 
-export function createReads(adapter: Adapter, log: Logger, nativeRootOf?: (placeId: string) => string | null): Reads {
+export function createReads(
+  adapter: Adapter,
+  log: Logger,
+  nativeRootOf?: (placeId: string) => string | null,
+  names?: MediaNamer
+): Reads {
   const told = new Set<string>();
 
   const offers = (wire: string): boolean => {
@@ -94,7 +120,7 @@ export function createReads(adapter: Adapter, log: Logger, nativeRootOf?: (place
       untold(name, code);
       return { status: 'failed', code };
     }
-    if (answer.status === 'ok') return answer;
+    if (answer.status === 'ok') return names ? namedAnswer(name, answer, names) : answer;
     const code = answer.error?.code ?? answer.status;
     untold(name, code);
     const { retryable } = answer.error ?? {};
