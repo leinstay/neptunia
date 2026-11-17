@@ -7,7 +7,8 @@
 // nothing. An answer names keys by name and last four characters and never holds a value; a refusal names the store's
 // code, never the word that was refused.
 
-import { CORE_ROLE, SEARCH_ROLE, directSelectionOf, isModelRole } from '../llm/roles.ts';
+import { assertByok, NotByokError, providerBodyOf, resolveProvider } from '../llm/openrouter.ts';
+import { CORE_ROLE, directSelectionOf } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
 import type { CheckResult } from './check.ts';
@@ -92,6 +93,8 @@ export type KeysDeps = {
   baseUrl(): string;
   /** The tracked model of each mandatory role, offered by the first add. */
   defaults: Readonly<Record<string, string>>;
+  /** The live `llm` section, read at every check for the provider routing a live request of the role sends. */
+  llmConfig?: () => { providerByModel?: unknown; provider?: unknown };
   /** The live model of a role; '' while the role is off. */
   currentModel(role: string): string;
   /** The live `speech.voice`, which `checkRole` probes the speech role with. */
@@ -161,6 +164,38 @@ const pasted = (answer: string): string => answer.trim();
 const valueProblem = (value: string): string | null =>
   value === '' || /\s/.test(value) ? 'the value is blank or holds a space' : null;
 
+/**
+ * One `checkRole` of `role` on `model` as a live request of that role goes out: the body's `provider` is what the live
+ * client resolves from `llm.providerByModel` and `llm.provider`, and an answer the live client's BYOK guard would refuse
+ * is a failed check.
+ */
+async function probeRole(
+  deps: KeysDeps,
+  input: Omit<Parameters<typeof checkRole>[0], 'fetch' | 'baseUrl' | 'provider'>
+): Promise<CheckResult> {
+  const llm = deps.llmConfig?.() ?? {};
+  const route = resolveProvider(input.model, {
+    byModel: llm.providerByModel,
+    fallback: llm.provider,
+    role: input.role,
+  });
+  const provider = providerBodyOf(route);
+  const result = await checkRole({
+    ...input,
+    fetch: deps.fetch,
+    baseUrl: deps.baseUrl(),
+    ...(provider === undefined ? {} : { provider }),
+  });
+  try {
+    assertByok(route, { is_byok: result.isByok }, { model: input.model });
+  } catch (err) {
+    // The route is marked `byok: true` and the answer was billed on OpenRouter's capacity.
+    if (!(err instanceof NotByokError)) throw err;
+    return { ...result, ok: false, error: `${err.message}, while its route in llm.providerByModel is marked byok` };
+  }
+  return result;
+}
+
 /** How the chat names a check's outcome: the model, the key, whether the provider billed the key as BYOK, the cost. */
 function checkLine(result: CheckResult): string {
   const byok = result.isByok === null ? 'is_byok not reported' : `is_byok ${String(result.isByok)}`;
@@ -205,9 +240,7 @@ async function checkRoute(deps: KeysDeps, name: string, role: RouteRole, route: 
   }
   const voice = voiceOf(deps, role);
   if (role === 'speech' && (deps.speechVoice?.() ?? '') === '') return null;
-  const result = await checkRole({
-    fetch: deps.fetch,
-    baseUrl: deps.baseUrl(),
+  const result = await probeRole(deps, {
     role,
     model: route.model,
     keyName: route.key,
@@ -318,9 +351,7 @@ export function createKeysCommands(deps: KeysDeps): {
       models.set(role, model);
     }
     const results = await Promise.all(
-      [...models].map(([role, model]) =>
-        checkRole({ fetch: deps.fetch, baseUrl: deps.baseUrl(), role, model, keyName: key, value })
-      )
+      [...models].map(([role, model]) => probeRole(deps, { role, model, keyName: key, value }))
     );
     const bad = results.filter((result) => !result.ok);
     if (bad.length > 0)
@@ -399,7 +430,7 @@ export function createKeysCommands(deps: KeysDeps): {
 
   /** `keys check <name|role>`: a role's route in force with one request, or a key with the free read of its record. */
   async function checkTarget(name: string, target: string): Promise<Answer> {
-    if (isModelRole(target) || target === SEARCH_ROLE) return checkOne(name, target);
+    if (isRouteRole(target)) return checkOne(name, target);
     const value = store.valueOf(target);
     if (value === null) return invalid(name, `${target} is no model role and no key of keys.json`, 'unknown-target');
     const info = await checkKey({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value });
@@ -430,9 +461,7 @@ export function createKeysCommands(deps: KeysDeps): {
           `the ${role} role has no key: its chain names no key keys.json holds; /model set ${role} <key>/<model>`
         )
       );
-    const result = await checkRole({
-      fetch: deps.fetch,
-      baseUrl: deps.baseUrl(),
+    const result = await probeRole(deps, {
       role,
       model,
       keyName: route.name,
