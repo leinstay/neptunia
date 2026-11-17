@@ -79,7 +79,7 @@ export async function humanizeSpeech<TCall extends LoweredCall>({
   loweredCalls,
   ...rest
 }: {
-  parsed: { messages: ReadonlyArray<{ text: string; replyTo?: number | null }>; think?: unknown };
+  parsed: { messages: ReadonlyArray<{ text: string; replyTo?: number | null }> };
   loweredCalls: Array<TCall>;
   llm: Llm;
   hot: { readonly config: unknown; readonly prompts: unknown };
@@ -87,14 +87,13 @@ export async function humanizeSpeech<TCall extends LoweredCall>({
   place: string;
 }): Promise<{ messages: Array<HumanizerMessage>; loweredCalls: Array<TCall> }> {
   const spoken = parsed.messages.map((one) => ({ text: one.text, replyTo: one.replyTo ?? null }));
-  const think = typeof parsed.think === 'string' ? parsed.think : '';
   const created = loweredCalls.filter((call) => call.skill === 'message.create');
-  if (created.length === 0) return { messages: await humanize({ ...rest, messages: spoken, think }), loweredCalls };
+  if (created.length === 0) return { messages: await humanize({ ...rest, messages: spoken }), loweredCalls };
   const draft = created.map((call) => ({
     text: typeof call.args.text === 'string' ? call.args.text : '',
     replyTo: replyOf(call.args.reply),
   }));
-  const texts = (await humanize({ ...rest, messages: draft, think })).map((one) => one.text);
+  const texts = (await humanize({ ...rest, messages: draft })).map((one) => one.text);
   return {
     messages: spoken,
     loweredCalls: loweredCalls.map((call) =>
@@ -109,14 +108,12 @@ export async function humanizeSpeech<TCall extends LoweredCall>({
  */
 async function humanize({
   messages,
-  think,
   llm,
   hot,
   name,
   place,
 }: {
   messages: Array<HumanizerMessage>;
-  think: string;
   llm: Llm;
   hot: { readonly config: unknown; readonly prompts: unknown };
   name: string;
@@ -177,13 +174,9 @@ async function humanize({
         { role: 'system', content: fillPromptTemplate(prompts['humanizer-writer'], { name }) },
         {
           role: 'user',
-          content: [
-            block('thoughts', think),
-            block('draft', draft),
-            block('findings', findings.map(findingLine).join('\n')),
-          ]
-            .filter(Boolean)
-            .join('\n\n'),
+          // Her think stays out of the request: a provider's filter stops the answer to a request that carries a model's
+          // reasoning (measured 2026-11-17, docs/humanizer.md).
+          content: [block('draft', draft), block('findings', findings.map(findingLine).join('\n'))].join('\n\n'),
         },
       ],
       {

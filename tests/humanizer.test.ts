@@ -49,15 +49,13 @@ const DRAFT: Array<HumanizerMessage> = [
   { text: LONG_A, replyTo: 3 },
   { text: LONG_B, replyTo: 5 },
 ];
-const THINK = 'θέλω να πω για την αγορά και το τραπέζι';
 const LINT_YES = JSON.stringify({
   rewrite: true,
   findings: [{ kind: 'shape', quote: '', problem: 'δύο μπλοκ ίδια', fix: 'σπάσε τη συμμετρία' }],
 });
 
 const run = async (llm: ReturnType<typeof fakeLlm>, hot = hotOf(), messages = DRAFT) =>
-  (await humanizeSpeech({ parsed: { messages, think: THINK }, loweredCalls: [], llm, hot, name: 'Ελένη', place: 'c1' }))
-    .messages;
+  (await humanizeSpeech({ parsed: { messages }, loweredCalls: [], llm, hot, name: 'Ελένη', place: 'c1' })).messages;
 
 test('posts the draft unchanged and asks no model when the humanizer is off', async () => {
   // Catches: the switch is not read, and every long answer costs two requests on a deployment that never turned it on.
@@ -116,14 +114,13 @@ test('the linter gets the draft as msg tags with reply targets and a strict sche
   assert.equal(format.name, 'humanizer');
 });
 
-test('the writer request holds her think, the draft and the findings', async () => {
-  // Catches: the writer rewrites blind, without what she meant or what the linter found.
+test('the writer request holds the draft and the findings', async () => {
+  // Catches: the writer rewrites blind, without what the linter found.
   const llm = fakeLlm({ lint: LINT_YES, write: '<msg>κάτι</msg>' });
   await run(llm);
   const [, writer] = llm.calls;
   const [system, user] = writer.messages;
   assert.equal(system.content, 'Write the text of Ελένη again.');
-  assert.ok(user.content.includes(THINK));
   assert.ok(user.content.includes(`<msg reply="#3">${LONG_A}</msg>`));
   assert.ok(user.content.includes('σπάσε τη συμμετρία'));
   assert.ok(user.content.includes('δύο μπλοκ ίδια'));

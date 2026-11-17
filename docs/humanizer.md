@@ -12,7 +12,7 @@ A text under 40 words goes out as she wrote it, with no model request. The 40 wo
 
 The linter gets the text as her messages in `<msg>` tags, each with the line it answers, and the system text of `prompts/humanizer-linter.md`. It answers in strict JSON whether the text is written again and with which findings, at most five, each with a kind, the passage, the problem and the fix. When it answers no, her messages go out unchanged after this one request.
 
-The writer gets `prompts/humanizer-writer.md` as its system text and one user text with her think of that answer, the same messages and the findings. It sees no chat. It answers in `<msg>` tags, and its own `<think>` is dropped. Its messages are posted in place of hers only when the answer holds as many messages as hers, no message is empty and each message answers the line her message at the same position answers. Only the texts change: the count, the order and the reply targets stay hers.
+The writer gets `prompts/humanizer-writer.md` as its system text and one user text with the same messages and the findings. It sees no chat and not her think: a provider's filter stops the answer to a request that carries a model's reasoning. It answers in `<msg>` tags, and its own `<think>` is dropped. Its messages are posted in place of hers only when the answer holds as many messages as hers, no message is empty and each message answers the line her message at the same position answers. Only the texts change: the count, the order and the reply targets stay hers.
 
 The tracked prompts are character-neutral. A deployment overrides them with its own files of the same names in `prompts/` of its data folder.
 

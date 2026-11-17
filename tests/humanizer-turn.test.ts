@@ -120,6 +120,16 @@ test('an addressed turn posts the writer messages, each on the line it answers',
   );
 });
 
+test('her think stays out of both humanizer requests', async () => {
+  // Catches: her reasoning sent on with the draft, which a provider's filter answers by stopping the writer's answer.
+  const { requests } = await turnOf({
+    answers: [`<think>κρυφή σκέψη</think><msg reply="#1">${LONG_A}</msg><msg reply="#2">${LONG_B}</msg>`],
+    write: '<msg reply="#1">ένα</msg><msg reply="#2">δύο</msg>',
+  });
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every((request) => !userOf(request).includes('κρυφή σκέψη')));
+});
+
 test('an inner turn posts the writer messages in place of her lowered message.create calls', async () => {
   // Catches: an inner turn's speech skips the humanizer, as it is lowered into calls before postSpeech.
   const { run, requests } = await turnOf({ inner: WAKE, write: '<msg reply="#1">ένα</msg><msg reply="#2">δύο</msg>' });
