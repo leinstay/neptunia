@@ -535,6 +535,36 @@ test('renderDiaryBlock: newest first, at most max lines, picture suffix when pre
   assert.equal(renderDiaryBlock([], labels, { timezone: 'UTC', max: 3 }), '');
 });
 
+test('renderDiaryBlock: a picture she drew carries the made mark and the people it shows after its scene', () => {
+  // Bug: her diary lists her own drawing with its scene alone, and she cannot tell who is in it.
+  const marked = {
+    ...labels,
+    transcript: {
+      ...labels.transcript,
+      mediaMade: '[MADE]',
+      mediaDepicts: '[SHOWS {names}]',
+      mediaDepictsSelf: 'HERSELF',
+    },
+  };
+  const posts = [
+    {
+      at: Date.parse('2026-03-03T10:00:00Z'),
+      kind: 'selfPicture',
+      gist: 'on the pier',
+      picture: 'a pier at dusk',
+      made: 'self',
+      depicted: [
+        { self: true, name: 'Self' },
+        { self: false, name: 'Alice' },
+      ],
+    },
+  ];
+  const [, line] = renderDiaryBlock(posts, marked, { timezone: 'UTC', max: 3 }).split('\n');
+  assert.ok(line?.includes('[picture: a pier at dusk]'), line);
+  assert.ok(line?.includes('[MADE]'), line);
+  assert.ok(line?.includes('[SHOWS HERSELF, Alice]'), line);
+});
+
 test('renderDiaryBlock: a cut to max keeps the newest posts, not the first ones given', () => {
   // Bug: the list is reversed and then cut with the old `slice(-max)`, so the oldest posts stay.
   const posts = ['one', 'two', 'three', 'four'].map((gist, index) => ({

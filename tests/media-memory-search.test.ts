@@ -602,3 +602,25 @@ test('keeps the audience rule with mine: her line in a chat the context may not 
     const text = await recallRig(env).ask({ terms: 'kite', mine: true });
     assert.deepEqual(shownIn(text, ['a kite in the open', 'a kite in private']), ['a kite in the open'], text);
   }));
+
+test('a memory search that finds a picture she made shows the made mark and the people it shows', () =>
+  withLine(IMAGE, 'full', async (env) => {
+    // Bug: a search hit on her own drawing reads as anyone's picture, with nobody in it.
+    const alice = String(env.db.prepare('SELECT person_id FROM accounts WHERE native_id = ?').get(ALICE)?.person_id);
+    env.db
+      .prepare("UPDATE media SET extra = json_set(extra, '$.made', 'self', '$.depicts', json(?)) WHERE native_ref = ?")
+      .run(JSON.stringify(['person:self', alice]), itemsOf(IMAGE, 'pic')[0].id);
+    const labels = {
+      ...LABELS,
+      transcript: {
+        ...LABELS.transcript,
+        mediaMade: '[MADE]',
+        mediaDepicts: '[SHOWS {names}]',
+        mediaDepictsSelf: 'HERSELF',
+      },
+    };
+    const text = await recallRig(env, { labels }).ask({ terms: IMAGE.first.word });
+    assert.ok(text.includes(IMAGE.first.word), text);
+    assert.ok(text.includes('[MADE]'), text);
+    assert.ok(text.includes('[SHOWS HERSELF, Alice]'), text);
+  }));

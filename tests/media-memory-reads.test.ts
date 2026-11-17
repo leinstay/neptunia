@@ -14,6 +14,7 @@ import { fillStems } from '../src/memory/db/stems.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { baseConfig, prompts as sessionPrompts, textOf } from './fixtures/memory-db/session-rig.ts';
 import {
+  ALICE,
   AT,
   BOB_DM,
   BOB_PERSON,
@@ -56,7 +57,7 @@ function assertForms(text: string, kind: Kind, presence: Presence) {
 }
 
 /** The `<batch>` of a memory session request over the fixture's group or DM lines. */
-function sessionBatch(env: Env, scopeKind = 'group'): string {
+function sessionBatch(env: Env, scopeKind = 'group', labels: object = LABELS): string {
   fillEnvAudiences(env);
   const scope = scopesOf(env.db).find((one) => one.scope.scope_kind === scopeKind);
   assert.ok(scope, `a ${scopeKind} scope`);
@@ -66,7 +67,7 @@ function sessionBatch(env: Env, scopeKind = 'group'): string {
     scope,
     batch,
     config: baseConfig(),
-    prompts: { ...sessionPrompts, labels: LABELS },
+    prompts: { ...sessionPrompts, labels },
     selfName: 'Self',
     now: NOW,
   });
@@ -378,3 +379,23 @@ test('owner browser: a media row opens with a link to each line that shows it', 
     env.done();
   }
 });
+
+test('session batch: a picture she made is followed by the made mark and the people it shows by current name', () =>
+  withLine(KINDS[0], 'full', (env) => {
+    const alice = String(env.db.prepare('SELECT person_id FROM accounts WHERE native_id = ?').get(ALICE)?.person_id);
+    env.db
+      .prepare("UPDATE media SET extra = json_set(extra, '$.made', 'self', '$.depicts', json(?)) WHERE native_ref = ?")
+      .run(JSON.stringify(['person:self', alice]), itemsOf(KINDS[0], 'pic')[0].id);
+    const labels = {
+      ...LABELS,
+      transcript: {
+        ...LABELS.transcript,
+        mediaMade: '[MADE]',
+        mediaDepicts: '[SHOWS {names}]',
+        mediaDepictsSelf: 'HERSELF',
+      },
+    };
+    const batch = sessionBatch(env, 'group', labels);
+    assert.ok(batch.includes('[MADE]'), batch);
+    assert.ok(batch.includes('[SHOWS HERSELF, Alice]'), batch);
+  }));
