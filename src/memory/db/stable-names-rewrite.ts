@@ -13,8 +13,8 @@
 import { replaceNameTokens } from '../../behavior/emoji.ts';
 import { mediaNameRows, mediaNamesWriteOf, writeMediaNames } from './media-names.ts';
 import type { MediaNameRow } from './media-names.ts';
-import { TEXT_COLUMNS, markupNames, textCells } from './stable-names-texts.ts';
-import type { Cell, Resolver } from './stable-names-texts.ts';
+import { LOG_COLUMNS, TEXT_COLUMNS, markupNames, textCells } from './stable-names-texts.ts';
+import type { Cell, LogResolver, Resolver } from './stable-names-texts.ts';
 import { markStemsPending } from './stems.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
@@ -367,7 +367,7 @@ function resolverOf(markup: Resolver['markup'], match: Match, left: Left): Resol
 }
 
 /** The rows of each table a plan touches, a table it leaves alone left out. */
-function tablesOf(plan: Omit<StableNamesPlan, 'counts'>): Record<string, number> {
+export function tablesOf(plan: Omit<StableNamesPlan, 'counts'>): Record<string, number> {
   const ids = new Map<string, Set<string>>();
   const add = (table: string, id: string): void => {
     ids.set(table, (ids.get(table) ?? new Set<string>()).add(id));
@@ -432,6 +432,34 @@ export function planStableNamesRewrite(
   return { ...plan, counts };
 }
 
+/** The sticker of a platform name, by the names `media_names` holds; one held by none or two counts as left. */
+function stickerOf(namer: Namer, left: Left): LogResolver['sticker'] {
+  return (platformName) => {
+    const held = [...namer.held.values()].filter((row) => row.kind === 'sticker' && row.platformName === platformName);
+    if (new Set(held.map((row) => keyOf(row.iface, row.kind, row.nativeId))).size === 1) return held[0].name;
+    left.unlinkedSticker += 1;
+    return null;
+  };
+}
+
+/**
+ * How the logs find stable names, read from `db` as it is: the resolver of the other stored texts with stickers by
+ * platform name, the names its markup issues and what it leaves. stable-names-logs.ts makes one per batch.
+ */
+export function logResolverOf(
+  db: Db,
+  { choose = {}, markupIface = null }: { choose?: Choice; markupIface?: string | null }
+): { resolver: LogResolver; issue: Array<MediaNameRow>; issued: Record<string, number>; left: Left } {
+  const namer = namerOf(db);
+  const left: Left = { sharedName: 0, unlinkedSticker: 0, markupIface: 0 };
+  const match = matchOf(knownOf(db, namer, new Map()), choose);
+  const resolver = {
+    ...resolverOf(markupOf(db, namer, markupIface, left), match, left),
+    sticker: stickerOf(namer, left),
+  };
+  return { resolver, issue: namer.issue, issued: namer.issued, left };
+}
+
 const stale = (): Error => Object.assign(new Error('STABLE_NAMES_STALE'), { code: 'STABLE_NAMES_STALE' });
 const malformed = (): Error => Object.assign(new Error('STABLE_NAMES_PLAN'), { code: 'STABLE_NAMES_PLAN' });
 
@@ -460,7 +488,10 @@ function changesOf(list: unknown, key: 'sourceId' | 'mediaId'): Array<{ id: stri
 /** Where each column a cell may change finds its row: `sources.think` and every column of stable-names-texts.ts. */
 const CELL_WHERE = new Map<string, string>([
   ['sources.think', 'id = ?'],
-  ...TEXT_COLUMNS.map(({ table, column, where }): [string, string] => [`${table}.${column}`, where]),
+  ...[...TEXT_COLUMNS, ...LOG_COLUMNS].map(({ table, column, where }): [string, string] => [
+    `${table}.${column}`,
+    where,
+  ]),
 ]);
 
 type CheckedCell = Cell & { where: string };
