@@ -72,7 +72,8 @@ test('withTextPreviews: a summary still over maxChars is the preview whole', asy
   // Catches: the summary cut at the bound.
   const { summarize } = fakeSummarize('a summary longer than ten');
   const [message] = await withTextPreviews(NOTES, 10, fakeFetch('line one\nline two\nline three'), { summarize });
-  assert.equal(message?.attachments[0]?.previewText, 'a summary longer than ten');
+  const [attachment] = message?.attachments ?? [];
+  assert.equal(attachment?.previewText, 'a summary longer than ten');
 });
 
 test('fetchTextPreview never fetches fully a declared content-length over the 256 KB guard', async () => {

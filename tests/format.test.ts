@@ -1160,7 +1160,8 @@ test('formatTranscript: a read excerpt longer than the excerpt bound renders who
     labels,
     reads: new Map([['a#e0', excerpt]]),
   });
-  assert.ok(items[0].text.includes(`[page read: ${excerpt}]`), items[0].text);
+  const [{ text }] = items;
+  assert.ok(text.includes(`[page read: ${excerpt}]`), text);
 });
 
 // --- formatTranscript: reactions ---------------------------------------
