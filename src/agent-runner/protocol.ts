@@ -85,8 +85,7 @@ export type TaskResult = {
   text: string;
   sources: Array<string>;
   files: Array<{ path: string; name: string; contentType: string; bytes: number }>;
-  withheld?: Array<string>;
-  filesDropped?: Array<{ name: string; reason: 'withheld' | 'secret' }>;
+  filesDropped?: Array<{ name: string; reason: 'secret' }>;
   /** the web searches of the run that failed (OpenCode's `websearch`), a positive whole number when any */
   searchFailures?: number;
 };
@@ -125,8 +124,8 @@ export const MAX_RECENT_ENTRIES = 20;
 /** The most ids one `ping` may ask about. */
 export const MAX_PING_IDS = 100;
 const MAX_NOTE_CHARS = 200;
-/** The most withheld paths a result lists (each cut to MAX_NOTE_CHARS). */
-const MAX_WITHHELD = 50;
+/** The most dropped files a result lists (each name cut to MAX_NOTE_CHARS). */
+const MAX_DROPPED = 50;
 /** The secrets a `run` may carry, each when set: a run with a claude or codex route carries no `openrouterKey`. */
 export const SECRET_KEYS = Object.freeze(['openrouterKey', 'proxy', 'searchKey']);
 /** The longest secret value (characters). */
@@ -375,9 +374,8 @@ export function progressEvent({
 }
 
 /** A result in its protocol shape: `{ text, sources: [url], files: [{ path, name, contentType, bytes }] }`,
- * plus `withheld: [path]` (the withheld paths the agent reached for in a filtered scope, at most
- * MAX_WITHHELD) when any, and `filesDropped: [{ name, reason }]` (`withheld` | `secret`: the files
- * the runner did not deliver, src/agent-runner/opencode.ts; at most MAX_WITHHELD) when any, and `searchFailures` (the
+ * plus `filesDropped: [{ name, reason }]` (reason `secret`: the files the runner did not deliver,
+ * src/agent-runner/opencode.ts; at most MAX_DROPPED) when any, and `searchFailures` (the
  * count of the run's failed web searches) when it is a positive whole number. */
 export function normalizeResult(result: unknown): TaskResult {
   const r = objOf(result);
@@ -396,26 +394,13 @@ export function normalizeResult(result: unknown): TaskResult {
         }))
     : [];
   const out: TaskResult = { text: typeof r.text === 'string' ? r.text : '', sources, files };
-  const withheld: Array<string> = Array.isArray(r.withheld)
-    ? [
-        ...new Set(
-          (r.withheld as Array<unknown>)
-            .filter((p): p is string => typeof p === 'string' && p !== '')
-            .map((p) => p.slice(0, MAX_NOTE_CHARS))
-        ),
-      ].slice(0, MAX_WITHHELD)
-    : [];
-  if (withheld.length > 0) out.withheld = withheld;
-  const dropped: Array<{ name: string; reason: 'withheld' | 'secret' }> = Array.isArray(r.filesDropped)
+  const dropped: Array<{ name: string; reason: 'secret' }> = Array.isArray(r.filesDropped)
     ? (r.filesDropped as Array<unknown>)
         .map((entry) => objOf(entry))
-        .flatMap((d): Array<{ name: string; reason: 'withheld' | 'secret' }> => {
-          const reason = d.reason;
-          return reason === 'withheld' || reason === 'secret'
-            ? [{ name: scalarText(d.name ?? '').slice(0, MAX_NOTE_CHARS), reason }]
-            : [];
-        })
-        .slice(0, MAX_WITHHELD)
+        .flatMap((d): Array<{ name: string; reason: 'secret' }> =>
+          d.reason === 'secret' ? [{ name: scalarText(d.name ?? '').slice(0, MAX_NOTE_CHARS), reason: 'secret' }] : []
+        )
+        .slice(0, MAX_DROPPED)
     : [];
   if (dropped.length > 0) out.filesDropped = dropped;
   if (Number.isSafeInteger(r.searchFailures) && Number(r.searchFailures) > 0)

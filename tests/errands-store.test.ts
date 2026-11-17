@@ -188,11 +188,12 @@ test('task store: the files the runner held back are kept as names only', async 
         text: 'here',
         filesDropped: [
           { name: 'x.env', reason: 'secret' },
-          { name: 'a.txt', reason: 'withheld' },
+          { name: 'a.txt', reason: 'secret' },
           { name: 'b', reason: 'other' },
         ],
       },
     });
+    // `a.txt` carries `secret`: the runner drops files for that one reason, and the protocol passes no other.
     assert.deepEqual(loose(done).result.filesDropped, ['x.env', 'a.txt']);
   });
 });
