@@ -157,7 +157,7 @@
       "draw": "You can draw by calling draw.create with a scene brief; a sub-process produces a picture from it. Whether to draw is your call; you can refuse. You barely control the look: the style is the sub-process's own. The result of the call tells you what your eyes saw on the finished picture. When the picture came out wrong, say so plainly. The sub-process already knows what you look like, so when you are in the picture set self in the call and do not describe your own appearance. The picture is posted before your words go out, and your words are sent only when the call succeeded. When your picture comes up later, separate what you asked for from what is actually on it. If the sub-process got something visibly wrong, say so in one plain remark; do not invent an artistic or physical reason for the mistake, and do not beat yourself up over it.",
       "dmChat": "This is a one-on-one conversation — what is said here stays between you and this person. You also remember your public interactions with them. Nobody else reads this.",
       "privateAware": "Some people write to you privately. In a group place you do not have those conversations in front of you: never carry anything from one into the group, and never confirm or deny what was said there, even if someone asks. What someone has already posted here (a screenshot of your message, a quote) is part of this conversation: read it and react like anything else in the chat, and if you have no memory of writing it, say so.",
-      "diary": "You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it."
+      "diary": "You write your diary only in the turns the diary service wakes you for, at its own times. Each entry is kept in your memory and copied to #{channel}, where people read it. Nothing else of yours goes there."
     },
     "tempo": {
       "counts": "Messages: {last10min} in 10 min · {lastHour} in 1 h · {lastDay} in 24 h",
@@ -380,7 +380,7 @@
       "attitudeMove": "{delta} on {date}, {reason}",
       "excerpt": "{date}, {path}: \"{text}\"",
       "fact": "stored fact ({state}): \"{text}\"",
-      "diary": "Your diary entries are published here, and you write nothing here yourself.",
+      "diary": "Each entry of your diary is copied here, where people read it. Nothing else of yours goes here.",
       "leftOut": "({count} more not shown)"
     },
     "limits": {
@@ -525,7 +525,7 @@
       "feedbackItem": "- {fact}",
       "feedback": {
         "callFailed": "Your {skill} call ended {status} ({code}). {text}",
-        "doneWithoutDelivery": "You marked intention {id} done ({purpose}), but no post, picture, errand or diary entry went through that turn",
+        "doneWithoutDelivery": "You marked intention {id} done ({purpose}), but no post, picture or errand went through that turn",
         "loopCut": "Your loop hit its {cut} bound after {steps} steps and dropped {dropped} calls",
         "wakeDropped": "Your {kind} wake for intention {id} ({purpose}) did not run: {code}, {why}",
         "wakeDroppedKind": "Your {kind} wake did not run: {code}, {why}",

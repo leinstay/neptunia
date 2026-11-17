@@ -147,7 +147,7 @@ export const labels = {
     channels: 'you see only the channels shown here',
     participation: 'a <participation> block holds slices of your own exchanges on other channels',
     elsewhere: 'read-only channels: read and react only; a call there is answered in #{destination}',
-    diary: 'You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it.',
+    diary: 'You write your diary only in the turns the diary service wakes you for, at its own times. Each entry is kept in your memory and copied to #{channel}, where people read it. Nothing else of yours goes there.',
   },
   tempo: {
     counts: 'messages in the last 10 min: {last10min}, last hour: {lastHour}, last day: {lastDay}',
