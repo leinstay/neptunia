@@ -17,7 +17,12 @@
 // from the clients' tokens and the interfaces' `credentials.json`. Given the names of the clients and the interfaces the
 // install has, the unit hides them with `InaccessiblePaths=-<path>` (the leading `-` lets the unit start before a file
 // exists). The modes `full` and `sudo` drop the entries with the rest of the mount sandbox.
+//
+// The server unit denies every address it does not list (`IPAddressDeny=any`), and its runs reach the stored proxy
+// while the engine proxy is in force. When the proxy's host is an address literal, the unit lists that address after
+// its own `IPAddressAllow=` lines, in every mode. A host name is not resolved at setup and is not listed.
 
+import net from 'node:net';
 import path from 'node:path';
 import { UNIT_SCOPE_ENV } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
@@ -65,6 +70,23 @@ function hiddenLine(text: string, vars: UnitVars): string | null {
   return hidden.length === 0 ? null : `InaccessiblePaths=${hidden.map((one) => `-${one}`).join(' ')}`;
 }
 
+/** A unit whose network filter denies every address it does not list. */
+const DENIES_ALL = /^IPAddressDeny=any$/m;
+
+/** The `IPAddressAllow=` line of the stored proxy for a unit that denies all, null when its host is no address literal. */
+function proxyLine(text: string, proxy: string | undefined): string | null {
+  if (proxy === undefined || !DENIES_ALL.test(text)) return null;
+  let host: string;
+  try {
+    host = new URL(proxy).hostname.replace(/^\[(.*)\]$/, '$1');
+  } catch {
+    // A stored value that is no URL: `/proxy set` refuses one, a hand-edited keys.json may hold one.
+    return null;
+  }
+  const family = net.isIP(host);
+  return family === 0 ? null : `IPAddressAllow=${host}/${family === 4 ? 32 : 128}`;
+}
+
 /** The `ExecStart=` of an agent unit: the errand runner. */
 const AGENT_RUNNER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner\b/m;
 
@@ -89,6 +111,8 @@ export type UnitVars = {
   clients?: ReadonlyArray<string>;
   /** the names of the interfaces, each with a `interfaces/<name>/credentials.json` that unit hides */
   interfaces?: ReadonlyArray<string>;
+  /** the stored proxy URL; a unit that denies all lists its host when that is an address literal */
+  proxy?: string;
 };
 
 /** The directives of the mount sandbox: gone in the modes `full` and `sudo`. */
@@ -152,10 +176,13 @@ type LineRules = {
   backendDirs: ReadonlyArray<string>;
   /** the `InaccessiblePaths=` line added under `[Service]`, null for a unit that hides nothing or in the modes `full` and `sudo` */
   hidden: string | null;
+  /** the last `IPAddressAllow=` line of the template and the proxy's line added after it, null when none is added */
+  proxy: { after: string; line: string } | null;
 };
 
 /** The lines the backends' binds make of `line`, or null when they leave it alone. */
 function renderedLines(line: string, key: string | null, rules: LineRules): Array<string> | null {
+  if (rules.proxy !== null && line === rules.proxy.after) return [line, rules.proxy.line];
   if (rules.backendDirs.length > 0 && key === 'ProtectHome')
     return [line, ...rules.backendDirs.map((dir) => `BindPaths=-${dir}`)];
   // The runner reads agents/ at its start, so a persona folder emptied for the unit shows that folder.
@@ -205,6 +232,8 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
   const backendDirs = AGENT_RUNNER.test(text)
     ? (vars.backends ?? []).map((backend) => subharnessPlace(vars.dataDir, backend).dir)
     : [];
+  const allowed = proxyLine(text, vars.proxy);
+  const after = text.split('\n').findLast((line) => keyOf(line) === 'IPAddressAllow');
   const rules: LineRules = {
     scope,
     vars,
@@ -213,6 +242,7 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
     isInterface: /^ExecStart=.*\binterface run\b/m.test(text),
     backendDirs,
     hidden: dropped.has('ProtectSystem') ? null : hiddenLine(text, vars),
+    proxy: allowed === null || after === undefined ? null : { after, line: allowed },
   };
   return text
     .split('\n')

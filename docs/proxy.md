@@ -8,6 +8,8 @@ The proxy URL is the `proxy` service of `keys.json`: an `http://`, `https://` or
 
 yt-dlp gets the stored URL as it is, through `--proxy`, for every video site. Every agent run gets `HTTPS_PROXY`, `HTTP_PROXY`, `https_proxy` and `http_proxy` in the http form, with `NO_PROXY` and `no_proxy` for the local hosts and `openrouter.ai`. An errand carries the proxy to its runner in `secrets.proxy` (see [Errands](errands.md#the-proxy-of-an-errand)). A run on the direct path gets none of these variables, and a proxy variable of the host environment or of the caller is dropped.
 
+The unit of the `server` agent denies every address it does not list. `neptunia setup` lists the stored proxy's address in that unit when the URL's host is an IPv4 or IPv6 address. Setup does not resolve a host name, so a proxy named by host is not admitted, and a server run through it gets no answer. After `/proxy set` or `/keys service set proxy`, run `neptunia setup` again so the unit admits the new address (see [deploy/README.md](../deploy/README.md#the-sandbox-of-an-agent-unit)).
+
 The interfaces are not proxied. An interface runs as a unit, a process of its own, and connects directly.
 
 ## Commands

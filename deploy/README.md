@@ -28,6 +28,8 @@ An agent unit follows the mode of its unit (`agent mode <unit> <mode>`, see [Err
 
 The scout and code units replace the persona folder with an empty `TemporaryFileSystem=` that shows only `agents/` read-only and the backend's folder, so they read neither her memory nor `keys.json`. The modes `full` and `sudo` drop it with the rest of the mount sandbox.
 
+The server unit denies every address except the local resolver, Cloudflare's ranges and Anthropic's ranges. A run that uses the stored proxy connects to the proxy's address, so the rendered unit admits that address with one more `IPAddressAllow=` line, `/32` for IPv4 and `/128` for IPv6, in every mode. Setup reads the address from the `proxy` service of `keys.json` and does not resolve a host name, so a proxy named by host is not admitted and its runs hang until their time limit. Run `neptunia setup` again after the proxy changes. The scout and code units deny only local ranges and get no such line.
+
 A unit with `ProtectHome=tmpfs` still sees the checkout and the node binary when they lie under the home, because the renderer binds them read-only.
 
 The socket and out folder of a unit derive from its name and need no setting: `/run/neptunia-agent-<unit>/sock` and `/var/lib/neptunia-agent-<unit>/out` for a system unit. `neptunia setup` adds `NEPTUNIA_UNIT_SCOPE=user` to every user unit, which then keeps the socket in its `RuntimeDirectory` (`$XDG_RUNTIME_DIR/neptunia-agent-<unit>/sock`) and the out folder in its `StateDirectory` (`$XDG_STATE_HOME/neptunia-agent-<unit>/out`, by default under `~/.local/state`). The core runs from a user unit too, so it reads the same paths.
