@@ -94,7 +94,6 @@ function imagesWith(quota: Record<string, unknown>) {
 function check({
   skill = 'lore.list',
   args = {},
-  requester = { id: OWNER },
   cfg = config(),
   granted = [],
   registry = skillRegistry(),
@@ -106,7 +105,6 @@ function check({
     skill,
     args,
     principal: persona,
-    requester,
     audience,
     context: { config: granting(granted, cfg), selfId: SELF, images, registry, lastRunAt, now },
   });
@@ -569,7 +567,6 @@ test('skills gateway: an unknown skill or a non-persona principal is refused; ar
     skill: 'lore.list',
     args: {},
     principal: { kind: 'member' },
-    requester: null,
     audience,
     context: { config: config() },
   });
@@ -736,7 +733,6 @@ function innerCheck({
     skill,
     args,
     principal: persona,
-    requester: null,
     audience,
     context: { config: cfg, selfId: SELF, registry: skillRegistry(), ownInitiative: true, wakeKind, wakeActions },
   });
@@ -785,7 +781,6 @@ test('wake envelope: a tool outside the allowlist is refused at the call, carrie
       skill: 'message.create',
       args: { text: 'γεια' },
       principal: persona,
-      requester: { id: OWNER },
       audience,
       context: { config: cfg, selfId: SELF, wakeKind: 'heartbeat' },
     }),

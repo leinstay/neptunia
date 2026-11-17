@@ -148,7 +148,6 @@ export function checkSkill({
   skill: string;
   args: unknown;
   principal: { kind?: string } | null | undefined;
-  requester?: Requester | null;
   audience?: Audience | null;
   context?: GateContext;
 }): { ok: true } | Refusal {
