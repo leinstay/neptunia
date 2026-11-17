@@ -3137,7 +3137,11 @@ test('describe: a blank appearance leaves nothing of describe-self in the system
 
 // The owner on 2026-11-17: the vision model reads her name, and the describer stores `@self` in its place, because one
 // description is kept per file while her name differs per root and can change.
-async function storedCaption(answer: string, item: ReturnType<typeof pictureItem>, name: string | null = 'Mira') {
+async function storedCaption(
+  answer: string,
+  item: ReturnType<typeof pictureItem>,
+  name: string | null = 'Mira'
+): Promise<{ returned: string; stored: string }> {
   const store = createStore(memoryAt(tmpDataDir()));
   const describer = createDescriber({
     hot: selfHot('tall, silver hair'),
@@ -3148,7 +3152,8 @@ async function storedCaption(answer: string, item: ReturnType<typeof pictureItem
   });
   const result = await describer.describe('g1', item);
   const itemId = String(item.itemId);
-  return { returned: loose(result).text, stored: loose(cacheView(store, 'g1'))[itemId].text };
+  const entry = loose(cacheView(store, 'g1'))[itemId] as { text: string };
+  return { returned: String(loose(result).text), stored: entry.text };
 }
 
 test('describe: her name in a caption is returned and stored as @self', async () => {
