@@ -663,7 +663,7 @@ export type WindowLine = { id: string; replyTo: string | null };
 /** The ring of her lookups per place. */
 export type LookupRing = {
   /** Keeps `lookup`, replacing an earlier one of the same tool and arguments in its place, under `settings`. */
-  note(lookup: Lookup, settings: LookupSettings): void;
+  note(lookup: Lookup, settings: Pick<LookupSettings, 'maxItems'>): void;
   /**
    * The lookups of `placeId` still anchored in `window`: a line that replies to an anchor becomes an anchor itself, and a
    * lookup none of whose anchors is in the window leaves the ring.
