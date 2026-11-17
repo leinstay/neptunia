@@ -821,7 +821,7 @@
       "repeated": 1
     },
     "tests/replay-loop.test.ts": {
-      "deep": 50,
+      "deep": 40,
       "repeated": 5
     },
     "tests/replay-skills.test.ts": {
@@ -1183,9 +1183,6 @@
       },
       "parseSteps><anonymous>": {
         "complexity": 27
-      },
-      "preTurnLookup": {
-        "complexity": 42
       },
       "runDiary": {
         "complexity": 51
