@@ -70,7 +70,7 @@
 //   - `writeDiary(write)` (diary-entries.ts): her whole diary, or one appended post.
 //   - `writeMediaEntry(write)` (media-store.ts): one entry of the describer's cache put on its row, or one key dropped.
 //   - `writeGifLibrary(write)` (gif-library.ts): the entries of the GIF library a change put and dropped, and its rest;
-//     `writeGifVector(write)` (gif-vectors.ts): the caption vector of one entry.
+//     `writeGifVector(write)` (gif-vectors.ts): the description vector of one entry.
 //   - `writeMediaNames(write)` (media-names.ts): the stable names of custom emoji and stickers a store issued or saw renamed.
 //   - `writeErrand(write)` (errand-write.ts): an errand on the task board, with the closing journal line of its end.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
@@ -575,7 +575,7 @@ export type MemoryDbService = {
   writeMediaEntry(write: MediaEntryWrite): Promise<unknown>;
   /** The entries of the GIF library a change put and dropped, and its rest (gif-library.ts): resolves the rows it wrote and retired. */
   writeGifLibrary(write: GifLibraryWrite): Promise<unknown>;
-  /** The caption vector of one GIF library entry (gif-vectors.ts). */
+  /** The description vector of one GIF library entry (gif-vectors.ts). */
   writeGifVector(write: GifVectorWrite): Promise<unknown>;
   /** The stable names of custom emoji and stickers a store issued or saw renamed (media-names.ts). */
   writeMediaNames(write: MediaNamesWrite): Promise<unknown>;

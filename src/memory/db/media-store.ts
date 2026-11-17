@@ -575,7 +575,7 @@ const linkStatement = (db: Db) =>
      ON CONFLICT(owner_kind, owner_id, position) DO UPDATE SET media_id = excluded.media_id`
   );
 
-/** The media row of one item of `line`: the held one, or a new one. */
+/** The media row of one item of `line`: the held one, its retired row, or a new one. */
 function itemRowFor(db: Db, line: LineRow, item: MediaItem, position: number): Row {
   const iface = line.scope_iface ?? null;
   const held = item.nativeRef === null ? undefined : itemByRef(db, iface, item.nativeRef);
@@ -584,6 +584,13 @@ function itemRowFor(db: Db, line: LineRow, item: MediaItem, position: number): R
     return db.prepare('SELECT * FROM media WHERE id = ?').get(held.id) as Row;
   }
   const id = item.nativeRef === null ? BARE_ID(line.id, position) : NEW_ID(iface, item.nativeRef);
+  // A row an edit or the trim retired comes back with its description, because the line links it now.
+  const retired = db.prepare('SELECT * FROM media WHERE id = ? AND retired_at IS NOT NULL').get(id);
+  if (retired) {
+    db.prepare('UPDATE media SET retired_at = NULL WHERE id = ?').run(id);
+    mergeItem(db, retired, item);
+    return db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
+  }
   insertItem(db, line, item, id);
   return db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
 }
@@ -1016,7 +1023,7 @@ function cacheRowFor(db: Db, iface: unknown, key: string): { row: Row; isNew: bo
   const retired = rowsUnder(db, iface, refsOf(key), { retired: true }).find(
     (row) => row.retired_at !== null && entryOfRow(row, key) !== undefined
   );
-  if (retired) return { row: retired, isNew: true };
+  if (retired) return { row: retired, isNew: false };
   const { ref, kinds } = cacheKeyParts(key);
   const id = NEW_ID(iface, key);
   const scope = audienceOf(groupScope(iface === null ? null : asText(iface)));
@@ -1033,9 +1040,11 @@ export type MediaEntryWrite =
   { op: 'put'; placeId: string; key: string; entry: Row } | { op: 'drop'; placeId: string; key: string };
 
 /**
- * Puts `entry` under `key` on the row of its item, in the caller's transaction: the row is revived when the trim had
- * retired it, the entry's text becomes the row's text form when nothing better is held, and the row gets its graph node.
- * A row that came back or is new may push the place's oldest row past the cap.
+ * Puts `entry` under `key` on the row of its item, in the caller's transaction: the entry's text becomes the row's text
+ * form when nothing better is held, and the row gets its graph node. A retired row stays retired, since only a row
+ * nothing links retires and a write never makes a live row with no link of one: a late description of an item an edit
+ * replaced, or of one the trim took out, waits there for `savedMediaDescription`. A new row may push the place's
+ * oldest row past the cap.
  */
 export function writeMediaEntry(
   db: Db,
@@ -1046,7 +1055,7 @@ export function writeMediaEntry(
   const extra = parsedObject(row.extra);
   const cache = { ...cacheOf(extra), [key]: entry };
   db.prepare(
-    `UPDATE media SET extra = ?, retired_at = NULL, used_at = ?,
+    `UPDATE media SET extra = ?, used_at = ?,
        writer = CASE WHEN writer = 'gifs' THEN writer ELSE 'media' END,
        holder_id = CASE WHEN writer = 'gifs' THEN holder_id ELSE ? END
      WHERE id = ?`

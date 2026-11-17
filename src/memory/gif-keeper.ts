@@ -22,9 +22,9 @@ type KeeperStore = {
   getGifs: () => unknown;
   getGifVectors: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
   mediaEntry: (placeId: string, key: string) => unknown;
-  setGifCaption: (
+  setGifDescribed: (
     key: string,
-    described: { caption: string; vector: ArrayLike<number> | null; model?: string | null }
+    described: { description: string; vector: ArrayLike<number> | null; model?: string | null }
   ) => void;
   setGifFile: (key: string, file: { hash: string; file: string }) => void;
 };
@@ -34,7 +34,7 @@ export type GifKeeper = {
   keep: (placeId: string, message: StoredRecord) => Promise<void>;
   /** The pictures a history read found: fire and forget, never rejects. */
   keepPictures: (placeId: string, pictures: ReadonlyArray<MediaItem>) => Promise<void>;
-  /** What the entries can get without their messages: the captions the cache holds, their vectors, a file by the stored URL. */
+  /** What the entries can get without their messages: the descriptions the cache holds, their vectors, a file by the stored URL. */
   settle: (placeId: string) => Promise<void>;
 };
 
@@ -50,7 +50,7 @@ export function createGifKeeper({
   store: KeeperStore;
   dataDir: string;
   fetchBytes: (url: string) => Promise<GifBytes>;
-  /** The embedder of a caption; null, or a failure: the search reads the caption's words alone. */
+  /** The embedder of a description; null, or a failure: the search reads its words alone. */
   embed?: ((text: string) => Promise<ArrayLike<number> | null>) | null;
   /** The model `embed` answers with now, which a stored vector must match. */
   embedModel?: () => string | null;
@@ -75,10 +75,10 @@ export function createGifKeeper({
     return Object.values(entries).find((entry) => entry.nativeIds.includes(itemId)) ?? null;
   }
 
-  async function vectorOf(caption: string): Promise<ArrayLike<number> | null> {
+  async function vectorOf(text: string): Promise<ArrayLike<number> | null> {
     if (!embed) return null;
     try {
-      return await embed(caption);
+      return await embed(text);
     } catch (err) {
       log.info('gif-keeper: no vector', { error: err });
       return null;
@@ -89,10 +89,10 @@ export function createGifKeeper({
   async function describeEntry(placeId: string, itemId: string): Promise<void> {
     const entry = entryOf(itemId);
     if (!entry) return;
-    const caption = captionOfCached(store.mediaEntry(placeId, itemId));
+    const description = captionOfCached(store.mediaEntry(placeId, itemId));
     const hasVector = store.getGifVectors(embedModel()).has(entry.itemId);
-    if (!caption || (entry.description === caption && (hasVector || !embed))) return;
-    store.setGifCaption(itemId, { caption, vector: await vectorOf(caption), model: embedModel() });
+    if (!description || (entry.description === description && (hasVector || !embed))) return;
+    store.setGifDescribed(itemId, { description, vector: await vectorOf(description), model: embedModel() });
   }
 
   async function fileEntry(itemId: string, urls: ReadonlyArray<string | undefined>): Promise<void> {

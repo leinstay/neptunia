@@ -97,7 +97,7 @@
 // first `media.gif.maxSeconds`) and summarised by the video model under the
 // video request rails. Every attachment with a message, a GIF included, is
 // downloaded from the address the `freshAddress` dependency reads from its
-// message again, else from its stored address. The caption is cached under the GIF's own item id like a
+// message again, else from its stored address. The description is cached under the GIF's own item id like a
 // picture's (so the transcript, the analyzer and the GIF library read it
 // unchanged), marked `watched: true`. The answer is prose, kept as one text on
 // one line and shown whole. A failed fetch, conversion or request, or an
@@ -852,8 +852,8 @@ function buildDescriber({
   }
 
   /**
-   * A GIF's caption from its watch (watchGifShared). A failed watch caches a miss with its reason, or keeps `previous`
-   * (a stale caption described again) stamped. With GIFs not watched now, no animation or a spent daily rail nothing
+   * A GIF's description from its watch (watchGifShared). A failed watch caches a miss with its reason, or keeps `previous`
+   * (a stale description described again) stamped. With GIFs not watched now, no animation or a spent daily rail nothing
    * is cached: `previous` is served, else nothing.
    */
   async function describeGif(placeId: string, item: MediaItem, previous: Untyped) {

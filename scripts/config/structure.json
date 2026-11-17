@@ -1060,7 +1060,7 @@
     },
     {
       "path": "src/turn/request/emoji-gifs.ts",
-      "purpose": "The custom emoji in a request and the caption fields of a library GIF. Tested through the prompt emoji, prompt gifs and prompt freeze tests.",
+      "purpose": "The custom emoji in a request and the description fields of a library GIF. Tested through the prompt emoji, prompt gifs and prompt freeze tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

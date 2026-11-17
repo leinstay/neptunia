@@ -7,7 +7,7 @@
 // 0 (entries and handles kept, so a GIF keeps its handle across a recount),
 // then stamps `{ at, channels, messages }` for this place so it never
 // counts the same history twice. The top `BACKFILL_DESCRIBE` GIFs without
-// a cached caption are then sent to the media describer (real requests,
+// a cached description are then sent to the media describer (real requests,
 // counted against the daily cap), so the list the persona picks from says
 // what each GIF shows. Runs once at startup (`startIfNeeded`).
 
@@ -27,7 +27,7 @@ const CHUNK = 500;
 // Production values, config cut of 2026-10-31.
 /** The messages read per channel. */
 const BACKFILL_MESSAGES = 500;
-/** The GIFs without a caption sent to the describer after a count. */
+/** The GIFs without a description sent to the describer after a count. */
 const BACKFILL_DESCRIBE = 20;
 
 function buildGifBackfill({
@@ -60,11 +60,11 @@ function buildGifBackfill({
 
   /**
    * Describe the top `limit` library entries (rank order) that have no
-   * cached caption: one describer item per entry -- the GIF's picture item
+   * cached description: one describer item per entry -- the GIF's picture item
    * read this run (src/media/classify.ts#collectPictures: an attachment's
    * file, an embed's thumbnail and its animation, so the describer can watch
    * it), under the entry's `itemId`; an entry without one is skipped.
-   * Returns how many got a caption.
+   * Returns how many got a description.
    */
   async function describeTop(placeId: string, pictures: Map<string, MediaItem>, limit: number) {
     if (!describer || typeof describer.describeMany !== 'function' || limit <= 0) return 0;
@@ -150,7 +150,7 @@ function buildGifBackfill({
       }
       const described = isPaused() ? 0 : await describeTop(placeId, pictures, BACKFILL_DESCRIBE);
       if (described > 0) store.flush();
-      // Their captions and files go on the entries in the background: the owner's run does not wait for the downloads.
+      // Their descriptions and files go on the entries in the background: the owner's run does not wait for the downloads.
       void keeper?.keepPictures(placeId, [...pictures.values()]);
 
       const counts = { channels, messages: members.length, gifs, described };

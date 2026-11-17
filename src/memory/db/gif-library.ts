@@ -6,7 +6,7 @@
 // An entry's `file` is the row's `path` when it is a file under `media/`, its `itemId` the `native_ref`, and its
 // `description` the row's text form, the GIF's one text, which the describer's cache writes and a library write never
 // does; every other field sits in `extra`. An entry that is not an object is kept whole as `{ $raw: value }`. The scope is the group scope
-// of the interface the write came from, as for the entry's caption vector (gif-vectors.ts).
+// of the interface the write came from, as for the entry's description vector (gif-vectors.ts).
 //
 // The writer (session-write.ts, write kind `gif-library`) takes the entries a change put and the keys it dropped, never
 // the whole library: a put row is revived and projected, and takes over a row an observation made for the same item

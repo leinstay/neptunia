@@ -1080,7 +1080,7 @@ export async function buildTurnRequest(
     mediaPickText: portMediaPick(placePort)?.text ?? null,
     // The transcript's GIF handles: the shared library.
     gifs: typeof store.getGifs === 'function' ? (store.getGifs() ?? null) : null,
-    // The cached captions of a custom emoji and of a library GIF in the transcript.
+    // The cached caption of a custom emoji and description of a library GIF in the transcript.
     mediaCache:
       emoji || typeof store.getGifs === 'function' ? (key: string) => store.mediaEntry(libraryPlace, key) : null,
     // The stable names of the custom emoji and stickers in the lines, for the legend `<media>`.

@@ -226,7 +226,7 @@ export function normalizeGifs(value: unknown): GifLibrary {
   return { nextId, entries, backfill: normalizeBackfillStamp(src.backfill), backfills };
 }
 
-/** The item ids of a library's entries: the keys of their captions in the describer's cache. */
+/** The item ids of a library's entries: the keys of their descriptions in the describer's cache. */
 export function gifItemIds(gifs: unknown): Array<string> {
   return Object.values(normalizeGifs(gifs).entries).map((entry) => entry.itemId);
 }
@@ -641,12 +641,12 @@ export function withGifFile(gifs: unknown, key: string, { hash, file }: { hash: 
  * and that text's vector (null: none, the search then reads the words alone). An unknown key leaves the library as it is. Never
  * mutates `gifs`.
  */
-export function withGifCaption(
+export function withGifDescribed(
   gifs: unknown,
   key: string,
-  { caption, vector }: { caption: string; vector: ArrayLike<number> | null }
+  { description, vector }: { description: string; vector: ArrayLike<number> | null }
 ): GifLibrary {
-  const next = withGifDescription(gifs, key, caption) ?? normalizeGifs(gifs);
+  const next = withGifDescription(gifs, key, description) ?? normalizeGifs(gifs);
   const held = keyOfEntry(next.entries, key);
   if (held === null) return next;
   const entry = { ...next.entries[held] };
@@ -669,20 +669,20 @@ export function withGifDescription(gifs: unknown, key: string, description: stri
   return next;
 }
 
-/** The caption a describer's cache entry gives a GIF: its text; '' for a miss or nothing. */
+/** The description a describer's cache entry gives a GIF: its text; '' for a miss or nothing. */
 export function captionOfCached(cached: unknown): string {
   if (!isRecord(cached) || cached.miss) return '';
   return typeof cached.text === 'string' ? cached.text.trim() : '';
 }
 
-/** Lowercase with accents off, so a query matches a caption in any case. */
+/** Lowercase with accents off, so a query matches a description in any case. */
 function folded(text: string): string {
   return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
 const wordsOf = (text: string): Set<string> => new Set(folded(text).match(/[\p{L}\p{N}]+/gu) ?? []);
 
-/** How close a caption's vector must be to the query's to make it a candidate on meaning alone. */
+/** How close a description's vector must be to the query's to make it a candidate on meaning alone. */
 const MIN_SIMILARITY = 0.3;
 
 /** The cosine of two vectors of one dimension, null when there is no comparing them. */
@@ -722,7 +722,7 @@ export function searchGifs(
     words: string;
     vector: ArrayLike<number> | null;
     cap: number;
-    /** The captions' vectors by item id, kept outside the library's JSON (src/memory/db/gif-vectors.ts). */
+    /** The descriptions' vectors by item id, kept outside the library's JSON (src/memory/db/gif-vectors.ts). */
     vectors?: ReadonlyMap<string, ArrayLike<number>> | null;
     accept?: (entry: GifEntry & { key: string }) => boolean;
   }
