@@ -37,24 +37,29 @@ function stored(env: Env): void {
     text: 'keeps a small garden',
   });
   env.claim({ id: 'cl-ada', subjectId: personOf(ADA), text: 'likes café mornings' });
-  env.db
-    .prepare(
-      "INSERT INTO episodes (id, kind, subject_id, date, what, feeling, status, scope_kind, scope_iface) VALUES ('ep-1', 'profile', ?, '2026-10-10', 'Ada helped with the move', 'warm', 'open', 'group', 'discord')"
-    )
-    .run(personOf(ADA));
+  const { db } = env;
+  db.prepare(
+    "INSERT INTO episodes (id, kind, subject_id, date, what, feeling, status, scope_kind, scope_iface) VALUES ('ep-1', 'profile', ?, '2026-10-10', 'Ada helped with the move', 'warm', 'open', 'group', 'discord')"
+  ).run(personOf(ADA));
 }
 
 function requestWith(env: Env, hash?: (id: string) => string) {
   const scope = scopesOf(env.db)[0];
-  const batch = batchOf(env.db, scope.scope, {
+  const { scope: swept } = scope;
+  const batch = batchOf(env.db, swept, {
     cursor: 0,
     since: null,
     maxMessages: 200,
     settleBefore: NOW - 10 * MINUTE,
   });
   const given = { db: env.db, scope, batch, config: baseConfig(), prompts, selfName: 'Nep', now: NOW };
-  return buildSessionRequest(hash ? { ...given, hash } : given);
+  const built = buildSessionRequest(hash ? { ...given, hash } : given);
+  const { claims, episodes } = built.maps;
+  const [, user] = built.messages;
+  return { ...built, claims, episodes, text: textOf(user.content) };
 }
+
+const answerOf = ({ maps, people }: ReturnType<typeof requestWith>) => ({ maps, people });
 
 const idOf = (map: Map<string, string>, rowId: string): string | undefined =>
   [...map.entries()].find(([, id]) => id === rowId)?.[0];
@@ -65,8 +70,8 @@ test('her own claim is printed and mapped under its hash id', () => {
   try {
     stored(env);
     const built = requestWith(env, fakeHash(HASHES));
-    assert.equal(built.maps.claims.get('kq7m2'), 'cl-self');
-    assert.match(textOf(built.messages[1].content), /<self>\n\[kq7m2\] self_fact: keeps a small garden/);
+    assert.equal(built.claims.get('kq7m2'), 'cl-self');
+    assert.match(built.text, /<self>\n\[kq7m2\] self_fact: keeps a small garden/);
   } finally {
     env.done();
   }
@@ -78,8 +83,8 @@ test("a person's claim is printed and mapped under its hash id", () => {
   try {
     stored(env);
     const built = requestWith(env, fakeHash(HASHES));
-    assert.equal(built.maps.claims.get('kw8n4'), 'cl-ada');
-    assert.match(textOf(built.messages[1].content), /\[kw8n4\] interest: likes café mornings/);
+    assert.equal(built.claims.get('kw8n4'), 'cl-ada');
+    assert.match(built.text, /\[kw8n4\] interest: likes café mornings/);
   } finally {
     env.done();
   }
@@ -91,8 +96,8 @@ test('an open episode is printed and mapped under its hash id', () => {
   try {
     stored(env);
     const built = requestWith(env, fakeHash(HASHES));
-    assert.deepEqual([...built.maps.episodes.entries()], [['kr5t6', 'ep-1']]);
-    assert.match(textOf(built.messages[1].content), /\[kr5t6\] 2026-10-10 Ada: Ada helped with the move/);
+    assert.deepEqual([...built.episodes.entries()], [['kr5t6', 'ep-1']]);
+    assert.match(built.text, /\[kr5t6\] 2026-10-10 Ada: Ada helped with the move/);
   } finally {
     env.done();
   }
@@ -103,10 +108,11 @@ test('a row keeps its id in a later request that shows one more claim before it'
   const env = fixture();
   try {
     stored(env);
-    const first = idOf(requestWith(env).maps.claims, 'cl-ada');
+    const first = idOf(requestWith(env).claims, 'cl-ada');
     env.claim({ id: 'cl-ada-2', subjectId: personOf(ADA), text: 'reads poetry aloud' });
-    env.db.prepare("UPDATE claims SET last_seen_at = '2026-10-21' WHERE id = 'cl-ada-2'").run();
-    const second = idOf(requestWith(env).maps.claims, 'cl-ada');
+    const { db } = env;
+    db.prepare("UPDATE claims SET last_seen_at = '2026-10-21' WHERE id = 'cl-ada-2'").run();
+    const second = idOf(requestWith(env).claims, 'cl-ada');
     assert.match(first ?? '', /^k[0-9a-z]{4}$/);
     assert.equal(second, first);
   } finally {
@@ -120,7 +126,7 @@ test('no id has the shape of a letter followed only by digits when the hash is a
   try {
     stored(env);
     const built = requestWith(env, () => '12345678');
-    const ids = [...built.maps.claims.keys(), ...built.maps.episodes.keys()];
+    const ids = [...built.claims.keys(), ...built.episodes.keys()];
     assert.deepEqual(
       ids.filter((id) => /^[a-z]\d+$/.test(id)),
       []
@@ -137,7 +143,7 @@ test('two rows whose hashes collide in one request get ids one character longer 
     stored(env);
     const built = requestWith(env, fakeHash({ 'cl-self': 'abcd1xyz', 'cl-ada': 'abcd2xyz', 'ep-1': 'mnop3xyz' }));
     assert.deepEqual(
-      [built.maps.claims.get('kabcd1'), built.maps.claims.get('kabcd2'), built.maps.episodes.get('kmnop3')],
+      [built.claims.get('kabcd1'), built.claims.get('kabcd2'), built.episodes.get('kmnop3')],
       ['cl-self', 'cl-ada', 'ep-1']
     );
   } finally {
@@ -153,7 +159,7 @@ test('an answer naming an id one character off an issued one is refused as unkno
     const built = requestWith(env, fakeHash(HASHES));
     const { plan, counts } = validateAnswer(
       { claims: [{ op: 'confirm', id: 'kw8n5', sources: ['#1'] }] },
-      { maps: built.maps, people: built.people }
+      answerOf(built)
     );
     assert.deepEqual([plan.claims, counts.dropped], [[], { unknown_id: 1 }]);
   } finally {
@@ -174,7 +180,7 @@ test('an answer naming an old numbered id is refused as unknown', () => {
           { op: 'confirm', id: 'c1', sources: ['#1'] },
         ],
       },
-      { maps: built.maps, people: built.people }
+      answerOf(built)
     );
     assert.deepEqual([plan.claims, counts.dropped], [[], { unknown_id: 2 }]);
   } finally {
@@ -188,10 +194,7 @@ test('an answer naming an issued hash id resolves to its row', () => {
   try {
     stored(env);
     const built = requestWith(env, fakeHash(HASHES));
-    const { plan } = validateAnswer(
-      { claims: [{ op: 'confirm', id: 'kq7m2', sources: ['#1'] }] },
-      { maps: built.maps, people: built.people }
-    );
+    const { plan } = validateAnswer({ claims: [{ op: 'confirm', id: 'kq7m2', sources: ['#1'] }] }, answerOf(built));
     assert.deepEqual(
       plan.claims.map((entry) => entry.id),
       ['cl-self']
