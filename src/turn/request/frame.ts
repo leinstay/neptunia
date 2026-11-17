@@ -238,6 +238,25 @@ export function frameOf(input: FrameInput): Frame {
   };
 }
 
+/**
+ * Whether a call that starts an errand in a turn of `kind` waits for its end and answers with its result: a service
+ * turn, the heartbeat or a diary entry, which posts in no chat and holds no chat waiting. The diary's planner calls no
+ * tool. Every other turn answers `queued` at once and gets the result in a turn of its own.
+ */
+export function waitsForErrand(kind: TurnKind): boolean {
+  switch (kind) {
+    case 'heartbeat':
+    case 'diary':
+      return true;
+    case 'diary_plan':
+    case 'reply':
+    case 'intention':
+    case 'feedback':
+    case 'errand_result':
+      return false;
+  }
+}
+
 /** The kinds whose request is the frame's: its tags in its order, filtered by `blocks`. Every kind is. */
 const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
   'reply',

@@ -60,6 +60,7 @@ import { answerOf } from '../../src/behavior/turn.ts';
 import { weekReads } from './platform-objects.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { parseFixture, addDays, parseDuration, occurrences, attention, dayKey } from './inner-week-fixture.ts';
+import { ERRAND_AGENT } from '../../src/tools/operations/catalog.ts';
 import type { Fixture, WeekRun } from './inner-week-fixture.ts';
 
 export {
@@ -618,12 +619,12 @@ export async function runWeek({
       const cancelled = intentions.cancel(String(args.id ?? ''), { by: 'persona' });
       return cancelled.ok ? { ok: true } : { ok: false, code: cancelled.code };
     }
-    if (call.skill === 'errand.run') {
+    if (call.skill === 'errand.add') {
       world.taskSeq += 1;
       const id = `task-${world.taskSeq}`;
       world.tasks.set(id, {
         id,
-        agent: String(args.agent ?? 'scout'),
+        agent: ERRAND_AGENT,
         state: 'running',
         origin: { turnId },
         ...(key ? { idempotencyKey: key } : {}),

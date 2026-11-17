@@ -204,9 +204,10 @@ test("resolveCall: only a registry skill; its arguments are its command's option
   assert.deepEqual(resolve('draw.create', { self: 'ναι', text: 'a lighthouse' }).args.self, 'ναι');
 });
 
-test('resolveCall: each skill declares the argument its main text fills; an errand needs its agent', () => {
+// Changed: her errand names no agent (the owner's decision of 2026-11-17), so an `agent` she writes is an unknown argument.
+test('resolveCall: each skill declares the argument its main text fills; an errand takes its goal and no agent', () => {
   const bodyOf = (name: string) => skillRegistry().get(name)?.dispatch?.body;
-  assert.deepEqual(['errand.run', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), [
+  assert.deepEqual(['errand.add', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), [
     'goal',
     'text',
     'text',
@@ -215,9 +216,9 @@ test('resolveCall: each skill declares the argument its main text fills; an erra
   for (const name of ['errand.list', 'errand.cancel', 'message.delete', 'memory.journal.read', 'rule.remove'])
     assert.equal(bodyOf(name), null, name);
   const goal = 'read the git history of the server and say what changed this week';
-  const errand = resolve('errand.run', { agent: 'server', goal });
-  assert.deepEqual([errand.ok, errand.args], [true, { agent: 'server', goal }]);
-  const cfg = config({ access: { 'errand.run': { everyone: false, roles: [], users: [SELF] } } });
+  const errand = resolve('errand.add', { goal });
+  assert.deepEqual([errand.ok, errand.args], [true, { goal }]);
+  const cfg = config({ access: { 'errand.add': { everyone: false, roles: [], users: [SELF] } } });
   const verdict = checkSkill({
     skill: errand.skill,
     args: errand.args,
@@ -227,16 +228,8 @@ test('resolveCall: each skill declares the argument its main text fills; an erra
     context: { config: cfg, selfId: SELF, tasks: { budget: () => ({ spent: false }) } },
   });
   assert.deepEqual(verdict, { ok: true });
-  // Without its agent: refused naming the agents she may pick, never a bare missing argument.
-  const agentless = resolve('errand.run', { goal });
-  assert.deepEqual([agentless.ok, agentless.code, agentless.reason], [false, 'agent-required', 'scout,server']);
-  assert.equal(refusalStatus(agentless.code), 'invalid');
-  assert.deepEqual(outcomeDetail({ status: 'invalid', code: agentless.code, reason: agentless.reason }), {
-    kind: 'agent-required',
-    code: 'agent-required',
-    arg: 'agent',
-    values: ['scout', 'server'],
-  });
+  const named = resolve('errand.add', { agent: 'server', goal });
+  assert.deepEqual([named.ok, named.code, named.reason], [false, 'invalid-args', 'args.agent:unknown']);
   assert.deepEqual(resolve('rule.add', { text: 'όχι emoji' }).args, { text: 'όχι emoji' });
 });
 

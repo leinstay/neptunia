@@ -210,10 +210,10 @@ test('the quirks of the mapping are kept', () => {
   assert.equal(BY_NAME.get('intention.update')?.params, INTENT_PARAMS.update);
 });
 
-// Changed: `errand.run` is the one background tool, since `media.recache` left her tools.
+// Changed: `errand.add` is the one background tool, since `media.recache` left her tools.
 test('the result of a skill: job for the background one, data for a read, effect for the rest', () => {
   for (const definition of SKILL_DEFINITIONS) {
-    const expected = ['errand.run'].includes(definition.name)
+    const expected = ['errand.add'].includes(definition.name)
       ? 'job'
       : definition.effects === 'read'
         ? 'data'
@@ -317,7 +317,7 @@ const PLATFORM_WORD = /\b(?:channel|server|root|discord)s?\b/i;
 
 /** A non-platform word spelled the same, where a tool means it: the errand agent named `server` and the machine she runs on. */
 // Changed: `watcher_read` is gone with the watcher (maintainer, 2026-11-16).
-const MACHINE_SERVER: ReadonlySet<string> = new Set(['errand_run']);
+const MACHINE_SERVER: ReadonlySet<string> = new Set(['errand_add']);
 const NOT_A_MACHINE = /\b(?:channel|root|discord)s?\b/i;
 
 /** `text` without the names of the tools it refers to (`memory.server.read`, `memory_server_read`) and its `{{fill}}`s. */

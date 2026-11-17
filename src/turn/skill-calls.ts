@@ -154,6 +154,10 @@ function withPlaceNamed(args: Record<string, unknown>, refs: RequestRefs | null)
 
 /** The skills whose `text` is stored as a record of hers: an intention made or changed. */
 const STORED_TEXT_SKILLS: ReadonlyArray<string> = ['intention.set', 'intention.update'];
+/** The skill whose errand a heartbeat or a diary turn waits for. */
+const WAITING_SKILL = 'errand.add';
+/** How much sooner the errand's own wait ends than the call's timeout, so its answer, not the timeout's, comes back. */
+const ERRAND_WAIT_MARGIN_MS = 1000;
 
 /** Whether a message argument is `last`, her own most recent message (any case, as src/tools/operations/message.ts reads it). */
 const isLast = (value: unknown): boolean => typeof value === 'string' && value.trim().toLowerCase() === 'last';
@@ -312,6 +316,8 @@ export type CallContext = {
   memberNames?: Map<string, Array<string>> | null;
   channelHandles?: unknown;
   timeoutMs?: number | null;
+  /** The time left in a turn whose errands are waited for (src/turn/request/frame.ts#waitsForErrand); null in any other. */
+  waitMs?: number | null;
   inTurn?: ExecuteDeps['inTurn'] | null;
 };
 
@@ -792,6 +798,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       memberNames = null,
       channelHandles = null,
       timeoutMs = null,
+      waitMs = null,
       inTurn = null,
     }: CallContext
   ): Promise<CallOutcome> {
@@ -857,6 +864,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             ? { ...resolvedCall, args: { ...resolvedCall.args, text: draft.handles.canonical(text) } }
             : resolvedCall;
         const kept = procedureKept(draft, skill, executed.args);
+        // The errand of a turn that waits for it holds the call for the time left, not for the timeout of a call.
+        const waits = skill === WAITING_SKILL && typeof waitMs === 'number' && waitMs > 0;
         result =
           kept ??
           (await executeCall(executed, {
@@ -877,11 +886,13 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
               ...(dmChat ? { dmChat: true } : {}),
               // A live wake turn's posts wait in its hold (src/tools/send-hold.ts).
               ...(inner?.hold ? { hold: inner.hold } : {}),
+              ...(waits ? { waitMs: Math.max(1, waitMs - ERRAND_WAIT_MARGIN_MS) } : {}),
             },
             // The live config, for the wake envelope's check at the capabilities a skill reaches (src/tools/access.ts).
             config: hot.config,
-            timeoutMs:
-              typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+            timeoutMs: waits
+              ? waitMs
+              : typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
                 ? timeoutMs
                 : (hot.config.tools?.callTimeoutMs ?? 120000),
             // Her in-turn tools: run here, in the turn, over its context.

@@ -196,7 +196,7 @@ export type ScenarioInventoryInput = {
  * `chatId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
  * no earlier destructive run, `now`, the image quota of `images`, the
  * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.ts#budget's answer, as a
- * live turn hands in src/errands/service.ts#budget; without it an `errand.run` is refused
+ * live turn hands in src/errands/service.ts#budget; without it an `errand.add` is refused
  * `no-budget`), then
  * mapped by its dispatch (`dispatch.toOp` must reach this very operation). The operation never
  * runs, whatever it is -- a write, a paid effect (`draw.create` included): a call that passed is

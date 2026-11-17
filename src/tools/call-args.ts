@@ -22,7 +22,7 @@ const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'lore.show': ['id'],
   'draw.create': ['text'],
   'voice.say': ['text'],
-  'errand.run': ['agent', 'goal'],
+  'errand.add': ['agent', 'goal'],
   'errand.read': ['id', 'from'],
   'errand.list': ['id', 'from', 'state', 'since', 'until', 'limit'],
   'errand.cancel': ['id'],

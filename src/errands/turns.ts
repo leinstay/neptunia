@@ -23,7 +23,10 @@
 // errand whose result she has read already (`readAt` set, in the event's errand or in the store), as a second delivery
 // of the same end after a restart brings it, opens no second result turn. One end has one attempt at a time and one
 // retry armed at a time: the service reopening an unseen end, the door replaying it and a retry timer all pass through
-// `deliver`, which asks the store again, so a timer that fires after she read the result opens nothing.
+// `deliver`, which asks the store again, so a timer that fires after she read the result opens nothing. An errand
+// asked with no place (a heartbeat's wait that outlasted its turn, an errand of a restart during such a wait, the
+// owner's console) opens its result turn with no chat: nowhere, on the chat lane of her attention like every result
+// turn, since she may post from it.
 
 import { log as defaultLog } from '../log.ts';
 import { lineOf } from '../behavior/line-of.ts';
@@ -81,6 +84,8 @@ export function errandDoneEvent(errand: ErrandRecord, now: () => number = Date.n
 const HELD = new Set(['busy', 'paused']);
 /** The outcomes that mean her turn ran and she saw the result. */
 const DONE = new Set(['spoke', 'skip']);
+/** The key of the cooldown of the result turns that run with no chat. */
+const NOWHERE = 'nowhere';
 
 /**
  * `reads` are the core's reads of the interface: the chat a result answers in and the message it was asked
@@ -186,13 +191,23 @@ export function createErrandTurns({
     }
   }
 
+  /** The chat a result turn runs in: the place it was asked in, or null for an errand asked with no place. */
+  async function chatOf(errand: ErrandRecord): Promise<{ chat: ChatRef | null } | null> {
+    const chatId = errand.origin?.placeId;
+    if (!chatId) return { chat: null };
+    // A restricted errand names its exact origin, which may be on another interface than the home one.
+    const boundary = errand.origin?.publicationBoundary;
+    // The command line's chat belongs to the command line, never to the served interface.
+    const chat = {
+      iface: boundary?.origin.iface ?? ifaceOfChat(String(chatId), iface()),
+      chatId: String(chatId),
+    };
+    return (await reads.chatInfo(chat)) === null ? null : { chat };
+  }
+
   /** The result turn of `errand`, or the retry when the chat's cooldown or the attention holds it back. */
   async function attemptTurn(errand: ErrandRecord, attempt: number): Promise<TurnResult> {
-    const chatId = errand.origin?.placeId;
-    if (!chatId) {
-      log.info('errands: result without a chat', { id: errand.id });
-      return null;
-    }
+    const chatId = errand.origin?.placeId || NOWHERE;
     const cooldownMs = DEFAULT_COOLDOWN_SECONDS * 1000;
     const last = lastAt.get(chatId);
     if (typeof last === 'number' && Number.isFinite(last) && now() - last < cooldownMs) {
@@ -204,21 +219,15 @@ export function createErrandTurns({
       later(errand, attempt, retryMs);
       return null;
     }
-    // A restricted errand names its exact origin, which may be on another interface than the home one.
-    const boundary = errand.origin?.publicationBoundary;
-    // The command line's chat belongs to the command line, never to the served interface.
-    const chat = {
-      iface: boundary?.origin.iface ?? ifaceOfChat(String(chatId), iface()),
-      chatId: String(chatId),
-    };
-    const known = await reads.chatInfo(chat);
-    if (known === null) {
+    const found = await chatOf(errand);
+    if (found === null) {
       // The chat may come back (an interface that reconnects): the result is tried again, never dropped.
       log.warn('errands: result chat unavailable', { id: errand.id, placeId: chatId });
       later(errand, attempt, retryMs);
       return null;
     }
-    const trigger = await originMessage(chat, errand);
+    const { chat } = found;
+    const trigger = chat === null ? null : await originMessage(chat, errand);
     const requester = errand.requester?.accountId ? { id: errand.requester.accountId } : null;
     lastAt.set(chatId, now());
     let result: TurnResult;

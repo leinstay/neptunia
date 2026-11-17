@@ -1373,7 +1373,7 @@
    }
   },
   {
-   "tool": "errand.run",
+   "tool": "errand.add",
    "effect": "paid",
    "costClass": "paid",
    "feature": null,
@@ -1383,8 +1383,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:errand.run",
-    "off": "unknown-skill:errand.run"
+    "on": "unknown-skill:errand.add",
+    "off": "unknown-skill:errand.add"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1400,8 +1400,8 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:errand.run",
-    "shipped-owner-here": "not-allowed:errand.run",
+    "ungranted-owner-here": "not-allowed:errand.add",
+    "shipped-owner-here": "not-allowed:errand.add",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",

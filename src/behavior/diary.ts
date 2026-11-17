@@ -30,7 +30,6 @@ import type { Obj } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { createStore } from '../memory/store.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
-import type { Lane } from '../turn/triggers.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
 
 /** The diary's plan of one local day, as state.json keeps it (`diary[placeId]`). */
@@ -118,7 +117,6 @@ export type DiaryStatus = {
 /** The diary's scheduler (createDiary). */
 export type Diary = {
   tick: () => Promise<void>;
-  force: (opts?: { kind?: string | null; topic?: string | null }) => Promise<unknown>;
   status: () => DiaryStatus;
   stop: () => void;
 };
@@ -131,7 +129,6 @@ const labelOf = (value: unknown): string => (typeof value === 'string' ? value :
 const diaryWords = (labels: unknown): Obj => sectionOf(labels, 'diary');
 
 const DEFAULT_QUIET_DAY_CHANCE = 0.3; // diary.quietDayChance
-const DEFAULT_FORCE_WAIT_MS = 120000; // diary.forceWaitMs
 // The diary's measures. Production values, config cut of 2026-10-31.
 const DEFAULT_GRACE_MINUTES = 30;
 const DEFAULT_QUIET_CARRY = 0.25;
@@ -892,17 +889,12 @@ export type DiaryDeps = {
   hot: { readonly config: unknown; readonly prompts?: unknown };
   store: DiaryStore;
   reads: Reads | null;
-  turns: {
-    runTurn(params: DiaryTurnParams): Promise<unknown>;
-    isAnyBusy?(lane?: Lane): boolean;
-    waitIdle?(lane?: Lane): Promise<unknown>;
-  };
+  turns: { runTurn(params: DiaryTurnParams): Promise<unknown> };
 
   backfill?: ((args: BackfillArgs) => Promise<number>) | null;
   mirrors?: { publishEntry(entry: unknown): Promise<unknown>; beginEntry?(): () => void } | null;
   rng?: () => number;
   now?: () => number;
-  delay?: (ms: number) => Promise<void>;
 };
 
 /**
@@ -918,21 +910,14 @@ export type DiaryDeps = {
  * are marked done unfired (`diary: skip`, `grace`). Then, with an empty history,
  * `backfill` once per place and process from the place her diary is posted to
  * (`diary: backfill` with `count`), and the diary wake
- * `turns.runTurn({ mode: 'diary', diary: { kind, forced }, placeId })`, which
+ * `turns.runTurn({ mode: 'diary', diary: { kind: null, forced: false } })`, which
  * needs no chat (`diary: due`, then `diary: post` with the outcome,
  * its `reason` when it has one, and the pictures); the entry the turn recorded
  * goes to `mirrors.publishEntry` (src/behavior/mirror.ts; a failure is logged
  * `diary: publication failed`). A `busy` outcome
  * un-marks the slot, so the next tick retries it within the grace; a `spoke`
  * one appends it to the plan's `posted` (what feeds a window). One post
- * at a time. `force({ kind, topic })` runs one post now, outside the plan and
- * the quiet day, under the same rails; a topic (diaryTopic: one line, 1000
- * characters at most; blank is none) reaches the turn as `diary.topic`, and
- * no topic leaves the field out; while another service turn holds the service lane
- * (`turns.isAnyBusy('service')`, or a `busy` outcome) it waits for `turns.waitIdle('service')`
- * at most `diary.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
- * turn still runs. Hot values are read at every call.
- * `delay` resolves after `ms` (a timer that never holds the process open); injected by tests.
+ * at a time. Hot values are read at every call.
  * `reads` are the core's reads of the interface (the backfill's history), null when none is connected.
  * `backfill` returns the count it wrote; null skips the backfill, and src/core.ts passes none. `mirrors` is the diary's
  * publisher (`{ publishEntry }`), null publishes nothing.
@@ -946,7 +931,6 @@ export function createDiary({
   mirrors = null,
   rng = Math.random,
   now = Date.now,
-  delay = unrefDelay,
 }: DiaryDeps): Diary {
   let stopped = false;
   let inFlight = false;
@@ -1030,42 +1014,28 @@ export function createDiary({
   }
 
   /** One post through the turn runner (the diary wake), logged with its outcome; its entry published. */
-  async function post({
-    kind,
-    topic = null,
-    forced,
-  }: {
-    kind: string | null;
-    topic?: string | null;
-    forced: boolean;
-  }): Promise<unknown> {
-    const diary = { kind: kind ?? null, ...(topic ? { topic } : {}), forced };
+  async function post(): Promise<unknown> {
     // While the turn writes its entry and until its publish, a drain leaves that entry to this path: its media is not kept yet.
     const release = mirrors?.beginEntry?.();
     try {
-      return await postEntry(diary, kind, forced);
+      return await postEntry();
     } finally {
       release?.();
     }
   }
 
-  async function postEntry(
-    diary: { kind: string | null; topic?: string; forced: boolean },
-    kind: string | null,
-    forced: boolean
-  ): Promise<unknown> {
-    const result = await turns.runTurn({ mode: 'diary', diary });
+  async function postEntry(): Promise<unknown> {
+    const result = await turns.runTurn({ mode: 'diary', diary: { kind: null, forced: false } });
     const answer = objOf(result);
     const made = objOf(answer.diary);
     log.info('diary: post', {
-      kind: made.kind ?? kind ?? null,
+      kind: made.kind ?? null,
       messages: made.messages ?? 0,
       picture: made.picture ?? false,
       pictures: made.pictures ?? 0,
       search: made.search ?? false,
       outcome: answer.outcome ?? null,
       ...(answer.reason ? { reason: answer.reason } : {}),
-      forced,
     });
     const entry = made.entry;
     if (entry && mirrors) {
@@ -1109,13 +1079,13 @@ export function createDiary({
       plan.done = [...(plan.done ?? []), slot];
       store.state.markDirty();
       log.info('diary: due', { slot });
-      const outcome = objOf(await post({ kind: null, forced: false })).outcome;
+      const outcome = objOf(await post()).outcome;
       if (outcome === 'busy') {
         plan.done = plan.done.filter((done) => done !== slot);
         store.state.markDirty();
         log.info('diary: skip', { reason: 'busy', slot });
       } else if (outcome === 'spoke') {
-        // Feeds the slot's window (nextHunger); force() never records here.
+        // Feeds the slot's window (nextHunger).
         plan.posted = [...(Array.isArray(plan.posted) ? plan.posted : []), slot];
         plan.lastPosted = slot;
         store.state.markDirty();
@@ -1123,40 +1093,6 @@ export function createDiary({
     } finally {
       inFlight = false;
     }
-  }
-
-  async function force({
-    kind = null,
-    topic = null,
-  }: { kind?: string | null; topic?: string | null } = {}): Promise<unknown> {
-    const config = hot.config;
-    const blocked = gate();
-    if (blocked === 'paused') return { outcome: 'paused' };
-    if (blocked) return { outcome: 'not-now', reason: blocked };
-    await backfillOnce(config);
-    const params = {
-      kind: typeof kind === 'string' && kind ? kind : null,
-      topic: diaryTopic(topic),
-      forced: true,
-    };
-    // One service turn at a time: a running heartbeat or diary turn is waited for (diary.forceWaitMs at most), once.
-    let waited = false;
-    if (turns.isAnyBusy?.('service') === true) {
-      waited = true;
-      if (!(await waitIdle(config))) return { outcome: 'busy' };
-    }
-    const result = await post(params);
-    if (objOf(result).outcome !== 'busy' || waited) return result;
-    if (!(await waitIdle(config))) return { outcome: 'busy' };
-    return post(params);
-  }
-
-  /** Whether the service lane went idle within `diary.forceWaitMs` (read from `config`, the live one). */
-  async function waitIdle(config: unknown) {
-    if (typeof turns.waitIdle !== 'function') return false;
-    const cap = Number(sectionOf(config, 'diary').forceWaitMs ?? DEFAULT_FORCE_WAIT_MS);
-    const idle = await Promise.race([turns.waitIdle('service').then(() => true), delay(cap).then(() => false)]);
-    return idle && turns.isAnyBusy?.('service') !== true;
   }
 
   function status(): DiaryStatus {
@@ -1179,18 +1115,10 @@ export function createDiary({
     stopped = true;
   }
 
-  return { tick, force, status, stop };
+  return { tick, status, stop };
 }
 
 /** Waits for the store's writes to land (`flushSettled`), when it has them. */
 function settled(store: DiaryStore): Promise<unknown> {
   return typeof store.flushSettled === 'function' ? store.flushSettled({}) : Promise.resolve();
-}
-
-/** A delay whose timer never keeps the process alive (createDiary's default `delay`). */
-function unrefDelay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
 }

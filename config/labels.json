@@ -148,7 +148,7 @@
       "linksWatch": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. A linked video may come watched (first-hand) or not watched with the reason, same rules as any video: a limit means this one, not all. You still cannot open the page itself.",
       "linksWatchTool": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. A linked video may come watched (first-hand) or not watched with the reason, same rules as any video: a limit means this one, not all. A link may also show the opening of the page as a preview. You can read the whole page with web.read.",
       "linksRead": "A link's preview is the opening of the page's own text, first-hand. It is not the whole page.",
-      "deepSearchTool": "Nothing is searched for you, and you have no quick search. To look something up online, give it to the scout with errand.run in this turn; its result comes back to you later.",
+      "deepSearchTool": "Nothing is searched for you, and you have no quick search. To look something up online, hand it off with errand.add in this turn; its result comes back to you later, or in the call's answer in a heartbeat or a diary entry.",
       "searchTool": "Nothing is searched for you before your reply. To look something up online, call web.search in this turn. What it returns is in a <result> block: raw search results, each with a title, link, snippet and site. The pages were not opened. Without a call, nothing was searched. Never claim you searched when you made no call, and never invent results.",
       "readTool": "To read a page yourself, call web.read in this turn with its link, or with a message #N that holds one. The page's own text comes back in a <result> block, cut at a length. It is not a summary.",
       "lookTool": "To look more closely at a picture, GIF or video someone posted, call media.look in this turn with its message #N (item= picks one when the message holds several) and your question. The closer look comes back in a <result> block.",
@@ -498,13 +498,13 @@
         "draw.create": "pictures",
         "media.find": "GIF searches",
         "voice.say": "voice lines",
-        "errand.run": "errands"
+        "errand.add": "errands"
       },
       "kindsOne": {
         "draw.create": "picture",
         "media.find": "GIF search",
         "voice.say": "voice line",
-        "errand.run": "errand"
+        "errand.add": "errand"
       },
       "madeDay": "Made today in all because someone asked: {forOthers}. Made of your own accord: {own}."
     },
@@ -620,13 +620,14 @@
           "cooldown": "your own call of this tool from this chat succeeded less than {window} min ago, and the tool runs again in {minutes} min",
           "self-grant": "the persona cannot change her own rights",
           "timeout": "{what} timed out",
+          "errand-wait-ended": "the time of this turn ran out while the errand still runs; its result comes to you later in a turn of its own",
           "link-closed": "the connection to the chat was lost",
           "chat-closed": "the owner's chat is not open, and a file cannot wait for it, so nothing was sent",
           "link-busy": "too much is waiting to be sent, try again shortly",
           "adapter-threw": "the chat interface failed on this request",
           "cap-open": "too many of your errands are open already",
           "cap-tasks": "today's errands for that agent are used up",
-          "heartbeat-only": "heartbeat accepts memory and conversation reads, then one intention change or a skip; other activities need an intention",
+          "heartbeat-only": "heartbeat accepts memory and conversation reads and an errand, then one intention change or a skip; other activities need an intention",
           "heartbeat-cap": "too many of your heartbeat intentions are open already; update or cancel one",
           "heartbeat-recurring-cap": "your recurring heartbeat intention is already open; update or cancel it",
           "not-requester": "only the person who asked for it or an owner can do that",
@@ -662,7 +663,6 @@
           "unknown-agent": "there is no such agent",
           "unknown-conversation": "that conversation is not known",
           "file-elsewhere": "that file belongs to another chat",
-          "agent-required": "no agent was named",
           "not-found": "nothing by that name was found",
           "bad-goal": "the goal is empty",
           "bad-sort": "that sort order does not exist",
@@ -720,7 +720,7 @@
           "loop-cap": "the turn's step limit has been reached",
           "malformed-call": "the call could not be read",
           "truncated-call": "the call was cut off before it was complete",
-          "diary-draw-only": "only draw.create runs in a diary turn",
+          "diary-draw-only": "a diary turn runs only draw.create, voice.say, errand.add and errand.read",
           "other": "something went wrong"
         },
         "params": {
@@ -865,7 +865,6 @@
         "bareTextEnded": "Two answers in a row held text outside <msg> and nothing else, so nothing was posted and your turn ended there"
       },
       "refusals": {
-        "agentRequired": "{arg} was not given; name one of: {agents}",
         "unknownArg": "the skill has no {arg} argument, only: {args}"
       }
     },

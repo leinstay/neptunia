@@ -664,6 +664,22 @@ test('a turn that ends on calls kills its process once the hold has passed', STE
   await assert.rejects(bridge.list('tok-1'), { code: 'turn-unknown' });
 });
 
+test('a request that asks for a longer hold keeps its session that long', STEP_TIMEOUT, async () => {
+  // Catches: a heartbeat whose call waits for an errand loses its session after llm.subscription.holdMs, so the next
+  // step fails as lost.
+  const { client, runs, timers } = rig();
+  const first = client.complete(FIRST, { ...REPLY, holdMs: 1_000_000 });
+  await until(() => runs.length === 1, 'the run started');
+  pushAll(
+    runs[0],
+    claudeCall({ tools: [{ id: 'toolu_1', name: 'mcp__nep__intention_update', input: CALL_ARGS }], stop: 'tool_use' })
+  );
+  await first;
+  const holds = timers.filter((timer) => !timer.cleared).map((timer) => timer.ms);
+  assert.ok(holds.includes(1_000_000), `a hold of 1000000 ms: ${JSON.stringify(holds)}`);
+  assert.ok(!holds.includes(HOLD_MS), 'not the shorter hold of the setting');
+});
+
 // ---- which requests take the route ---------------------------------------------------------------------------------
 
 test('a request of another role goes to the direct client', STEP_TIMEOUT, async () => {

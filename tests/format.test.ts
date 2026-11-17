@@ -1580,29 +1580,6 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
   );
 });
 
-test('formatTranscript: an errand without its agent says so through tools.refusals.agentRequired, naming the agents', () => {
-  const ended = (detail: Record<string, Untyped>, over = labels) =>
-    formatTranscript(
-      withMarks(callScene(), [call({ skill: 'errand.run', status: 'invalid', detail, target: NO_TARGET })]),
-      { ...offsetOptions, labels: over }
-    )[2].text;
-  const status = labels.transcript.callStatus.invalid;
-  const withReason = (reason: string) => fill(labels.transcript.callStatusReason, { status, reason });
-  const detail = { kind: 'agent-required', code: 'agent-required', arg: 'agent', values: ['web', 'server'] };
-  const said = ended(detail);
-  assert.ok(
-    said.endsWith(
-      `: ${withReason(fill(labels.tools.refusals.agentRequired, { arg: 'agent', agents: 'web, server' }))}]`
-    ),
-    said
-  );
-  assert.ok(said.includes('web, server'), said);
-  // Without the agents to name, or without the label, the generic reason as for any other code.
-  assert.ok(ended({ ...detail, values: undefined }).endsWith(`: ${withReason(labels.tools.result.reasons.other)}]`));
-  const unlabelled: Untyped = { ...labels, tools: { ...labels.tools, refusals: {} } };
-  assert.ok(ended(detail, unlabelled).endsWith(`: ${withReason(labels.tools.result.reasons.other)}]`));
-});
-
 test('formatTranscript: blanked call labels, memory mode and no marks render the lines as before', () => {
   const marked = withMarks(callScene(), [call(), call({ at: CALL_T0 + 3 * MIN })]);
   const bare = formatTranscript(callScene(), offsetOptions);

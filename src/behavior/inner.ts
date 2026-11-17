@@ -84,7 +84,7 @@
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.ts';
 import { errorCode } from '../tools/types.ts';
-import { createCostMeter, drain, onTaskFinished } from './inner/drain.ts';
+import { createCostMeter, drain, drainLanes, onTaskFinished } from './inner/drain.ts';
 import type { DrainAnswer } from './inner/drain.ts';
 import { markFactsTold, pendingFactsOf } from './inner/facts.ts';
 import { heartbeatDue } from './inner/heartbeat.ts';
@@ -109,6 +109,7 @@ import {
   idleWakes,
   knownWake,
   releaseAlive,
+  renewLeases,
   withdrawWakes,
 } from './inner/wake-queue.ts';
 import type { WakeAnswer } from './inner/wake-queue.ts';
@@ -279,6 +280,7 @@ export function createInnerLife({
     states: new Map(),
     placeIndexes: new Map(),
     ticking: false,
+    showing: new Set(),
     factSeq: 0,
     writes: Promise.resolve(),
     wakes: createWakeQueueState(`core:${randomUUID()}`),
@@ -287,12 +289,27 @@ export function createInnerLife({
   /**
    * One tick: with the switch on and nothing paused or stopped, what is due is listed and handed
    * to the door (intentions due, waits past their deadline, the heartbeat), the waits are
-   * reconciled, then the queue is drained by one inner turn when the attention is free. Never
-   * throws; answers what it did.
+   * reconciled, then the queue is drained by up to one inner turn per lane of her attention. A heartbeat's turn runs on
+   * after the tick has let the next one in, so a wake that falls due meanwhile runs at the next tick, and the tick
+   * answers once it ended. Never throws; answers what it did.
    */
   async function tick(): Promise<TickAnswer> {
+    const started: { service: Promise<DrainAnswer> | null } = { service: null };
+    const answer = await tickOnce(started);
+    if (started.service === null) return answer;
+    // What the heartbeat did is the tick's answer when its drain ran no chat-lane turn.
+    const beat = await started.service;
+    return answer.drained ? answer : { ...answer, drained: beat };
+  }
+
+  /** The tick up to the end of its chat-lane turn; a heartbeat's turn it started is handed back in `started`. */
+  async function tickOnce(started: { service: Promise<DrainAnswer> | null }): Promise<TickAnswer> {
     const config = hot.config;
-    if (life.ticking) return { ran: false, reason: 'ticking' };
+    // A tick that finds the last one still running its turn keeps that turn's leases on before it steps aside.
+    if (life.ticking) {
+      renewLeases(life);
+      return { ran: false, reason: 'ticking' };
+    }
     if (await beforeTick(life)) return { ran: false, reason: 'paused' };
     if (stateOf(life).stopped) return { ran: false, reason: 'stopped' };
     life.ticking = true;
@@ -337,7 +354,8 @@ export function createInnerLife({
         }
         submitted += await admitListed(life, wake);
       }
-      const drained = await drain(life);
+      const { answer: drained, service } = await drainLanes(life);
+      started.service = service;
       return { ran: true, listed: listed.length, submitted, drained };
     } catch (err) {
       log.warn('inner: tick failed', { error: err });

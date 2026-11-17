@@ -30,7 +30,7 @@ import {
 } from '../src/behavior/diary.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { fill } from '../src/format.ts';
-import { MINUTE_MS, HOUR_MS } from '../src/time.ts';
+import { MINUTE_MS, HOUR_MS, DAY_MS } from '../src/time.ts';
 import { labels } from './fixtures/labels.ts';
 import { seeded } from './fixtures/diary-prepare.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -980,8 +980,6 @@ function diaryHarness({
   channel = diaryChannelFake(),
   outcomes = [],
   backfill = null,
-  turnsExtra = {},
-  delay,
 }: {
   mirror?: boolean;
   diary?: Rec;
@@ -990,8 +988,6 @@ function diaryHarness({
   channel?: ReturnType<typeof diaryChannelFake> | null;
   outcomes?: Array<Rec>;
   backfill?: ((args: Rec) => Promise<number>) | null;
-  turnsExtra?: Rec;
-  delay?: (ms: number) => Promise<void>;
 } = {}) {
   let clock = D_NOW;
   /** The turns the scheduler asked for: the arguments, and the plan's done slots when it asked. */
@@ -1034,7 +1030,6 @@ function diaryHarness({
         }
       );
     },
-    ...turnsExtra,
   };
   const diaryFactory = createDiary({
     hot,
@@ -1047,7 +1042,6 @@ function diaryHarness({
     backfill,
     rng: () => 0.5,
     now: () => clock,
-    ...(delay ? { delay } : {}),
   });
   return { hot, store, turnCalls, diary: diaryFactory, setNow: (t: Untyped) => (clock = t) };
 }
@@ -1183,14 +1177,6 @@ test('tick: a scheduled post that spoke is recorded as posted, a busy one is not
   assert.deepEqual(planOf(h).posted, [SLOT]);
 });
 
-test('force: a manual post never feeds the hunger', async () => {
-  const h = diaryHarness();
-  await h.diary.tick();
-  const result = await h.diary.force({ kind: 'meme' });
-  assert.equal(loose(result).outcome, 'spoke');
-  assert.deepEqual(planOf(h).posted, []);
-});
-
 test('tick: a new day takes its hunger from the last plan and logs it', async () => {
   const fired = Date.UTC(2026, 9, 5, 20, 0, 0);
   const h = diaryHarness({
@@ -1256,7 +1242,10 @@ test('tick: backfills an empty history before the first post', async () => {
   assert.equal(calls[0].args.chat.chatId, 'd1');
   assert.equal(calls[0].args.labels, labels);
   assert.ok(logs.some((l) => l.msg === 'diary: backfill' && l.count === 4));
-  await h.diary.force({});
+  // Changed: the next day's post stands for the forced post, which is gone with diary.force.
+  h.setNow(SLOT + DAY_MS + MINUTE_MS);
+  await h.diary.tick();
+  assert.equal(h.turnCalls.length, 2, 'the next day posted');
   assert.equal(calls.length, 1, 'once per channel and process');
 
   const kept = [];
@@ -1291,38 +1280,6 @@ test('tick: posts with zero mirrors and no channel', async () => {
   assert.ok(!logs.some((l) => l.msg === 'diary: skip' && l.reason === 'no-channel'));
 });
 
-test('force: runs now with the kind, ignores the plan and the quiet day', async () => {
-  const h = diaryHarness({ diary: { quietDayChance: 1 } });
-  const result = await h.diary.force({ kind: 'meme' });
-  assert.equal(loose(result).outcome, 'spoke');
-  assert.equal(h.turnCalls.length, 1);
-  assert.deepEqual(h.turnCalls[0].params.diary, { kind: 'meme', forced: true });
-  assert.equal(loose(h.store.state.data).diary, undefined, 'no plan touched');
-
-  const paused = diaryHarness({ data: { paused: true } });
-  assert.deepEqual(await paused.diary.force({}), { outcome: 'paused' });
-  // Stage 3 design, section 3 item 1: a forced post needs no channel; with zero mirrors it still runs.
-  const unset = diaryHarness({ channel: null, mirror: false });
-  assert.equal(loose(await unset.diary.force({})).outcome, 'spoke');
-});
-
-test('force: passes kind and topic to the turn', async () => {
-  const h = diaryHarness();
-  await h.diary.force({ kind: 'meme', topic: '  une  promenade\n au port  ' });
-  assert.deepEqual(h.turnCalls[0].params.diary, {
-    kind: 'meme',
-    topic: 'une promenade au port',
-    forced: true,
-  });
-  const long = diaryHarness();
-  // The owner on 2026-11-16: the owner's topic is kept whole; the limit of 1000 is gone.
-  await long.diary.force({ topic: 'é'.repeat(3000) });
-  assert.equal(loose(long.turnCalls[0].params.diary).topic, 'é'.repeat(3000), 'the topic is kept whole');
-  const blank = diaryHarness();
-  await blank.diary.force({ topic: '   ' });
-  assert.deepEqual(blank.turnCalls[0].params.diary, { kind: null, forced: true }, 'a blank topic is none');
-});
-
 test('stop: no tick after stop', async () => {
   const h = diaryHarness();
   h.setNow(SLOT + MINUTE_MS);
@@ -1349,98 +1306,4 @@ test('status: the channel, the day plan and the history size', async () => {
     // The status also names the newest slot that spoke, for `service diary status`.
     lastPosted: null,
   });
-});
-
-/** A turn runner that is busy until `release()`: `waitIdle` resolves then, `isAnyBusy` follows it. */
-function busyTurns() {
-  let busy = true;
-  let resolveIdle: () => void = () => {};
-  const idle = new Promise<void>((resolve) => {
-    resolveIdle = resolve;
-  });
-  const waits: Array<Untyped> = [];
-  return {
-    waits,
-    turnsExtra: {
-      isAnyBusy: () => busy,
-      waitIdle: () => {
-        waits.push(true);
-        return idle;
-      },
-    },
-    release() {
-      busy = false;
-      resolveIdle();
-    },
-  };
-}
-
-/** A controllable delay: each call records its ms and resolves on `fire()`. */
-function manualDelay() {
-  const calls: Array<number> = [];
-  const fires: Array<() => void> = [];
-  return {
-    calls,
-    delay: (ms: number) =>
-      new Promise<void>((resolve) => {
-        calls.push(ms);
-        fires.push(resolve);
-      }),
-    fire() {
-      for (const resolve of fires.splice(0)) resolve();
-    },
-  };
-}
-
-const flush = () => new Promise((resolve) => setImmediate(resolve));
-
-test('force: waits for the running turn and then posts', async () => {
-  const running = busyTurns();
-  const timer = manualDelay();
-  const h = diaryHarness({
-    diary: { forceWaitMs: 5000 },
-    turnsExtra: running.turnsExtra,
-    delay: timer.delay,
-  });
-  const pending = h.diary.force({ kind: 'meme' });
-  await flush();
-  assert.equal(running.waits.length, 1, 'waits for the one attention');
-  assert.deepEqual(timer.calls, [5000], 'the wait is capped by diary.forceWaitMs');
-  assert.equal(h.turnCalls.length, 0, 'no post while the other turn runs');
-
-  running.release();
-  const result = await pending;
-  assert.equal(loose(result).outcome, 'spoke');
-  assert.equal(h.turnCalls.length, 1);
-  assert.deepEqual(h.turnCalls[0].params.diary, { kind: 'meme', forced: true });
-});
-
-test('force: gives up as busy after forceWaitMs', async () => {
-  const running = busyTurns();
-  const timer = manualDelay();
-  const h = diaryHarness({
-    diary: { forceWaitMs: 5000 },
-    turnsExtra: running.turnsExtra,
-    delay: timer.delay,
-  });
-  const pending = h.diary.force({});
-  await flush();
-  timer.fire();
-  const result = await pending;
-  assert.deepEqual(result, { outcome: 'busy' });
-  assert.equal(h.turnCalls.length, 0, 'never posted');
-});
-
-test('force: a busy outcome from the turn waits once and posts again', async () => {
-  const timer = manualDelay();
-  let idle = 0;
-  const h = diaryHarness({
-    outcomes: [{ outcome: 'busy' }],
-    turnsExtra: { isAnyBusy: () => false, waitIdle: async () => void idle++ },
-    delay: timer.delay,
-  });
-  const result = await h.diary.force({});
-  assert.equal(loose(result).outcome, 'spoke');
-  assert.equal(idle, 1);
-  assert.equal(h.turnCalls.length, 2);
 });

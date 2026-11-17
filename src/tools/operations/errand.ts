@@ -1,10 +1,10 @@
-// Operations `errand.run`, `errand.list`, `errand.cancel`, `errand.read` and `errand.resolve`, reached by
-// `errand.run|status|cancel|result|resolve`: the persona's errands handed to her agents
+// Operations `errand.add`, `errand.list`, `errand.cancel`, `errand.read` and `errand.resolve`, reached by
+// `errand.add|status|cancel|result|resolve`: the persona's errands handed to her agents
 // (src/errands/, src/agent-runner/). Their rules are here, for every caller alike: the owner's command
 // and the persona's own call (her skills: the requester of her turn is the caller).
-// `errand.run` with `agent: server` reads this machine, so only an owner may ask for it
-// (`owner-only`); `agent: scout` is any member's. An errand asked in a private chat is `dm`-scoped,
-// else `group`, and the runner withholds more in a filtered scope. `errand.run` answers at once
+// `errand.add` goes to `ERRAND_AGENT` unless an owner names another agent (`/errands add <agent> <goal>`), so naming an
+// agent is the owner's alone (`owner-only`). An errand asked in a private chat is `dm`-scoped,
+// else `group`, and the runner withholds more in a filtered scope. `errand.add` answers at once
 // with the id and `queued`: the errand runs in the background (src/errands/service.ts) and its
 // end opens her own turn where it was asked. `errand.cancel` is for the requester of the errand or an
 // owner; `errand.list` shows a private chat's errands only to their requester or an
@@ -14,20 +14,23 @@
 // pages of `errands.resultMaxChars` (the error, the sources and the files with their handles and
 // whether they expired come with the first page) and marks the errand read when its last page is
 // returned; `errand.resolve id` closes a finished errand (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line. A
-// `errand.run` of her turn links the intentions of that turn waiting for its errand (src/intentions/).
+// `errand.add` of her turn links the intentions of that turn waiting for its errand (src/intentions/). In a heartbeat or
+// a diary turn her call carries `waitMs` and waits for the errand's end: its answer is the result as a result turn
+// shows it (src/errands/blocks.ts), `failed` with the errand's own code or `cancelled`, or, past `waitMs`,
+// `errand-wait-ended` with the errand still running and unread.
 
 import { isOwnerCaller } from './grants.ts';
-import { TASK_AGENTS } from './catalog.ts';
+import { ERRAND_AGENT } from './catalog.ts';
 import { oneLine } from '../../memory/clamp.ts';
 import { MINUTE_MS } from '../../time.ts';
 import { ERRAND_STATES, fileHandle, isOpenState } from '../../errands/store.ts';
-import { DEFAULT_RESULT_MAX_CHARS } from '../../errands/blocks.ts';
+import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../../errands/blocks.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { CODE } from '../codes.ts';
-import { idText, textOf } from '../types.ts';
+import { idText, objOf, textOf } from '../types.ts';
 import { windowBound } from './shared.ts';
 import type { Obj, OpContext } from '../types.ts';
-import type { ErrandRecord, ErrandService } from '../../errands/types.ts';
+import type { ErrandRecord, ErrandService, WaitResult } from '../../errands/types.ts';
 
 /** How many errands a listing of `errand.list` shows when it names no limit. */
 export const ERRAND_LIST_COUNT = 10;
@@ -98,17 +101,44 @@ const handlers = perEnv((env) => {
     return { status, code, summary: `errand not started: ${code}`, data: errand ? { task: errand } : null };
   }
 
-  /** `errand.run agent goal`: a new errand, answered at once with its id and `queued`. */
-  function cmdRun(args: Obj, context: OpContext) {
+  /** `errands.resultMaxChars`, read now. */
+  function resultMaxChars(): number {
+    const configured = objOf(objOf(objOf(hot).config).errands).resultMaxChars;
+    return typeof configured === 'number' && Number.isInteger(configured) && configured > 0
+      ? configured
+      : DEFAULT_RESULT_MAX_CHARS;
+  }
+
+  /** The answer of a call that waited for its errand: the result, the errand's own failure, or the wait's end. */
+  function waitedAnswer({ ended, errand }: WaitResult, queued: ErrandRecord): Obj {
+    const current = errand ?? queued;
+    const task = { id: current.id, agent: current.agent, state: current.state };
+    if (!ended) {
+      const line = `errand ${current.id}: still ${current.state} (${current.agent})`;
+      return {
+        status: 'failed',
+        code: CODE.ERRAND_WAIT_ENDED,
+        summary: line,
+        data: { text: line, task, unknown: true },
+      };
+    }
+    const text = errandResultText(current, objOf(objOf(hot).prompts).labels, { maxChars: resultMaxChars() });
+    if (current.state === 'done')
+      return { status: 'ok', code: CODE.OK, summary: text, data: { text, task, waited: true } };
+    const code = current.state === 'cancelled' ? CODE.CANCELLED : (current.error ?? CODE.ERROR);
+    return { status: 'failed', code, summary: text, data: { text, task } };
+  }
+
+  /** `errand.add goal [agent]`: a new errand, answered at once with its id and `queued`, or after its end with `waitMs`. */
+  async function cmdAdd(args: Obj, context: OpContext) {
     assertNotPaused();
-    const agent = textOf(args.agent).trim();
-    if (!TASK_AGENTS.includes(agent)) throw invalid(`agent must be one of: ${TASK_AGENTS.join(', ')}`);
+    const named = textOf(args.agent).trim();
     const goal = textOf(args.goal).trim();
     if (!goal) throw invalid('a goal is required');
     const requester = requesterOf(context);
-    // Only an owner may have this machine read, through the persona or not.
-    if (agent === 'server' && requester.kind !== 'owner')
-      throw denied('only an owner may ask for the server agent', CODE.OWNER_ONLY);
+    // Her call names no agent; only an owner picks one, and the server agent reads this machine.
+    if (named && requester.kind !== 'owner') throw denied('only an owner may name the agent', CODE.OWNER_ONLY);
+    const agent = named || ERRAND_AGENT;
     const scope = inPrivate(context) ? 'dm' : 'group';
     // Her own call carries its turn and its idempotency key (src/tools/executors.ts); a command neither.
     const persona = context?.actor === 'persona';
@@ -132,6 +162,9 @@ const handlers = perEnv((env) => {
     // An intention of the same turn waiting for the errand it hands off is linked to it now
     // (src/intentions/service.ts#linkTurnErrand); a refused errand above links nothing.
     if (origin.turnId) env.intentions?.linkTurnErrand?.({ turnId: origin.turnId, errandId: errand.id });
+    const waitMs = context?.waitMs;
+    if (typeof waitMs === 'number' && waitMs > 0)
+      return waitedAnswer(await errands().wait({ id: errand.id, ms: waitMs }), errand);
     return {
       status: 'ok',
       code: CODE.OK,
@@ -215,8 +248,7 @@ const handlers = perEnv((env) => {
   /** `errand.read id [from]`: a finished errand's result in a page of `errands.resultMaxChars` characters. */
   function cmdRead(args: Obj, context: OpContext) {
     const { store, errand } = finishedErrand(args, context);
-    const configured = hot.config?.errands?.resultMaxChars;
-    const page = Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_RESULT_MAX_CHARS;
+    const page = resultMaxChars();
     const text = typeof errand.result?.text === 'string' ? errand.result.text : '';
     const from = args.from === undefined || args.from === null || args.from === '' ? 0 : Number(args.from);
     if (!Number.isInteger(from) || from < 0 || (from > 0 && from >= text.length))
@@ -283,13 +315,13 @@ const handlers = perEnv((env) => {
     return `errand ${id}: cancelled`;
   }
 
-  return { cmdRun, cmdStatus, cmdCancel, cmdRead, cmdResolve };
+  return { cmdAdd, cmdStatus, cmdCancel, cmdRead, cmdResolve };
 });
 
 defineOp({
-  name: 'errand.run',
+  name: 'errand.add',
   rights: { kind: 'write' },
-  run: (args, ctx) => handlers(ctx.env).cmdRun(args, ctx),
+  run: (args, ctx) => handlers(ctx.env).cmdAdd(args, ctx),
 });
 defineOp({
   name: 'errand.list',

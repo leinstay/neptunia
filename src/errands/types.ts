@@ -249,9 +249,14 @@ export type CancelResult =
   { ok: true; errand: ErrandRecord | null; code?: undefined } | { ok: false; code: string; errand?: ErrandRecord };
 export type IdsInput = { ids?: ReadonlyArray<string> };
 
+/** What a wait for an errand came to: `ended` when it reached an end in time, with the errand as it stands. */
+export type WaitResult = { ended: boolean; errand: ErrandRecord | null };
+
 /** The errands in the background (src/errands/service.ts#createErrandService). */
 export type ErrandService = {
   submit: (input: SubmitInput) => AddResult;
+  /** Resolves when errand `id` ends, marked seen and read, or after `ms` with the errand still open and unread. */
+  wait: (input: { id: string; ms: number }) => Promise<WaitResult>;
   cancel: (input: { id: string; by?: string }) => CancelResult;
   budget: (input?: { agent?: string }) => Budget | null;
   view: (input?: { dmChatId?: string | null }) => Array<ErrandRecord>;
@@ -300,4 +305,6 @@ export type ErrandServiceOptions = {
   now?: () => number;
   /** The engine proxy in force now (src/net/proxy.ts#ProxyMonitor.current), null on the direct path. */
   proxy?: () => string | null;
+  /** The timer of a wait (setTimeout by default). */
+  setTimer?: (fn: () => void, ms: number) => TimerHandle;
 };

@@ -1145,7 +1145,7 @@ function lostTurn(turnId = 't-1') {
 test('feedbackFacts: a call that did not go ok, an intention closed with nothing delivered, the loop cut; nothing when all went through', () => {
   assert.ok(WAKE_KINDS.includes('feedback'));
   // Changed: compared sorted, since the list derives from the posting tools' traits and their order is the table's.
-  assert.deepEqual([...DELIVERY_SKILLS].sort(), ['draw.create', 'errand.run', 'message.create', 'voice.say']);
+  assert.deepEqual([...DELIVERY_SKILLS].sort(), ['draw.create', 'errand.add', 'message.create', 'voice.say']);
   const facts = feedbackFacts(lostTurn(), {
     named: ['i1'],
     intentions: [intention('i1', { purpose: 'send a cat meme' })],
@@ -1906,7 +1906,9 @@ test('heartbeat: at its moment one turn runs nowhere, with no current channel an
   assert.notEqual(run.turns.calls[1].inner.wake.chainId, call.inner.wake.chainId);
 });
 
-test('heartbeat: never coalesced with another wake and never held behind one: it goes alone first, the intention at the next tick', async () => {
+// Changed: the heartbeat runs on the service lane beside the chat lane (the owner's rule of 2026-11-17), so the intention
+// due with it runs in the same tick, in a turn of its own.
+test('heartbeat: never coalesced with another wake and never held behind one: it goes alone first, the intention beside it', async () => {
   const run = setup({
     records: [intention('i1', { placeId: 'c1', dueAt: NOW + 181 * MINUTE_MS })],
     record: sayings(),
@@ -1916,10 +1918,6 @@ test('heartbeat: never coalesced with another wake and never held behind one: it
   await run.inner.tick();
   clock.t = NOW + 182 * MINUTE_MS;
   await run.inner.tick();
-  assert.deepEqual(
-    run.turns.calls.map((call) => call.inner.wake.items.map((item) => item.kind)),
-    [['heartbeat']]
-  );
   await run.inner.tick();
   assert.deepEqual(
     run.turns.calls.map((call) => call.inner.wake.items.map((item) => item.kind)),
@@ -2090,4 +2088,136 @@ test('inner: an unfinished mark with the journal off is interrupted without repl
     run.inner.state().facts.filter((fact) => fact.kind === 'interrupted'),
     []
   );
+});
+
+// ---- A long turn of the tick: the wake's lease and the service lane -------------------------------------------------
+
+/** Fake turns whose turn of `heldKind` waits until `release()`; `isAnyBusy(lane)` answers for the held turn's lane. */
+function heldTurns(heldKind: string) {
+  const turns = fakeTurns();
+  let release: () => void = () => {};
+  let held = false;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  turns.runTurn = (params: InnerTurnParams) => {
+    turns.calls.push(params);
+    const { wake } = params.inner;
+    if (wake.kind !== heldKind)
+      return Promise.resolve({ outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: 't-plain' } });
+    held = true;
+    return gate.then(() => {
+      held = false;
+      return { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: `t-held` } };
+    });
+  };
+  turns.isAnyBusy = (lane: string = 'chat') => held && lane === (heldKind === 'heartbeat' ? 'service' : 'chat');
+  return { turns, release: () => release() };
+}
+
+/** Waits, an event-loop turn at a time, until `check` holds (or gives up after a bounded wait). */
+async function until(check: () => boolean): Promise<void> {
+  for (let i = 0; i < 2000 && !check(); i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+test('inner: the lease of a running wake is renewed by the ticks that come while its turn runs', async () => {
+  // Bug caught: a turn longer than context.turnLeaseMs loses its wakes' lease, and its end is refused as fenced out.
+  clock.t = NOW;
+  const dataDir = tempDir('nep-inner-renew-');
+  const db = wakeMemory(dataDir, () => clock.t);
+  const { turns, release } = heldTurns('intention_due');
+  const run = setup({ records: [intention('i1')], turns, dataDir, memoryDb: db.memoryDb });
+  const first = run.inner.tick();
+  await until(() => turns.calls.length === 1);
+  const before = present(db.wakes('running')[0]).leaseExpiresAt ?? 0;
+  clock.t = NOW + 4 * MINUTE_MS;
+  assert.deepEqual(await run.inner.tick(), { ran: false, reason: 'ticking' });
+  await until(() => (present(db.wakes('running')[0]).leaseExpiresAt ?? 0) > before);
+  assert.ok((present(db.wakes('running')[0]).leaseExpiresAt ?? 0) > before, 'the lease was renewed');
+  release();
+  await first;
+});
+
+test('inner: an intention wake due while a heartbeat turn runs starts without waiting for the heartbeat', async () => {
+  // Bug caught: the tick awaits the heartbeat's turn, so a promise made to a person waits up to a heartbeat's budget.
+  clock.t = NOW;
+  const { turns, release } = heldTurns('heartbeat');
+  const records = [intention('i1', { dueAt: NOW + 190 * MINUTE_MS })];
+  const run = setup({ records, turns, hot: hotWith({ heartbeat: BEAT }), rng: () => 0.5 });
+  await run.inner.tick();
+  clock.t = NOW + 181 * MINUTE_MS;
+  const beat = run.inner.tick();
+  await until(() => turns.calls.length === 1);
+  clock.t = NOW + 191 * MINUTE_MS;
+  await run.inner.tick();
+  assert.deepEqual(
+    turns.calls.map(({ inner }: InnerTurnParams) => inner.wake.kind),
+    ['heartbeat', 'intention_due']
+  );
+  release();
+  await beat;
+});
+
+/** Fake turns that hold both a heartbeat's turn and an intention's turn until each is released. */
+function twoHeldTurns() {
+  const turns = fakeTurns();
+  const gates = new Map<string, () => void>();
+  const running = new Set<string>();
+  turns.runTurn = (params: InnerTurnParams) => {
+    const { wake } = params.inner;
+    const kind = String(wake.kind);
+    turns.calls.push(params);
+    running.add(kind);
+    return new Promise<void>((resolve) => gates.set(kind, resolve)).then(() => {
+      running.delete(kind);
+      return { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: `t-${kind}` } };
+    });
+  };
+  turns.isAnyBusy = (lane: string = 'chat') => (lane === 'service' ? running.has('heartbeat') : running.size > 0);
+  return { turns, release: (kind: string) => gates.get(kind)?.() };
+}
+
+test('inner: a fact waiting to be told is carried by one of the two turns that run side by side, not by both', async () => {
+  // Bug caught: the heartbeat and an intention's turn both carry the same untold fact, so she is told it twice.
+  clock.t = NOW;
+  const { turns, release } = twoHeldTurns();
+  const records = [intention('i1', { dueAt: NOW + 181 * MINUTE_MS })];
+  const run = setup({ records, turns, hot: hotWith({ heartbeat: BEAT }), rng: () => 0.5 });
+  await run.inner.tick();
+  run.inner.facts.add({
+    kind: 'callFailed',
+    skill: 'web.read',
+    status: 'failed',
+    code: 'error',
+    placeId: null,
+    at: NOW,
+  });
+  clock.t = NOW + 182 * MINUTE_MS;
+  const both = run.inner.tick();
+  await until(() => turns.calls.length === 2);
+  const carriers = turns.calls.filter(({ inner }: InnerTurnParams) =>
+    JSON.stringify(inner.wake.facts ?? []).includes('web.read')
+  );
+  assert.equal(carriers.length, 1);
+  release('heartbeat');
+  release('intention_due');
+  await both;
+});
+
+test("inner: the end of a heartbeat's turn leaves the in-flight mark of the intention turn that still runs", async () => {
+  // Bug caught: the heartbeat's end wipes the mark of the turn beside it, so a restart cannot tell what that turn did.
+  clock.t = NOW;
+  const { turns, release } = twoHeldTurns();
+  const records = [intention('i1', { dueAt: NOW + 181 * MINUTE_MS })];
+  const run = setup({ records, turns, hot: hotWith({ heartbeat: BEAT }), rng: () => 0.5 });
+  await run.inner.tick();
+  clock.t = NOW + 182 * MINUTE_MS;
+  const both = run.inner.tick();
+  await until(() => turns.calls.length === 2);
+  release('heartbeat');
+  await until(() => !turns.isAnyBusy('service'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(run.inner.state().inflight?.kind, 'intention_due');
+  release('intention_due');
+  await both;
 });

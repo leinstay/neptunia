@@ -1,8 +1,10 @@
 # Errands
 
-An errand is work the persona delegates through `errand.run`, such as researching a question with the scout. The persona receives the result and decides what to say or do next.
+An errand is work the persona delegates through `errand.add`, such as researching a question. The persona receives the result and decides what to say or do next.
 
-The core chooses the requested agent profile and submits the work to an errand runner. The result is associated with the original work and can wake the persona. Starting an errand is different from executing a quick in-turn tool.
+In a conversation her `errand.add` answers at once, and the result comes in a turn of its own. In a heartbeat or a diary turn the call waits for the errand's end and answers with the result as a result turn shows it, a failure with the errand's own code, or `errand-wait-ended` when the turn's time ran out first. A waited end is marked seen and read before the core hears of it, so it opens no result turn. With `core` on a harness route, a turn that waits keeps its session held for its whole time budget in place of `llm.subscription.holdMs`.
+
+Her `errand.add` names only the goal, and the core hands every one to the scout (`ERRAND_AGENT` in `src/tools/operations/catalog.ts`). The owner reaches any agent with `/errands add <agent> <goal>`, and an operation that names an agent for anyone else is refused `owner-only`. A journal row written under `errand.run` or `task.run` reads as `errand.add`. The core submits the work to an errand runner. The result is associated with the original work and can wake the persona. Starting an errand is different from executing a quick in-turn tool.
 
 ## The board
 
@@ -62,7 +64,9 @@ One finished errand opens one result turn. [src/errands/turns.ts](../src/errands
 
 An attempt asks the interface of the errand's place for the chat. The owner's command line chat `cli:dm:owner` is asked of the command line, which describes it while no chat is open, so the result turn runs and her answer is kept for the chat ([delivery while no chat is open](cli.md#delivery-while-no-chat-is-open)). A chat the interface cannot describe now is tried again every `errands.resultRetrySeconds` (default `30`), like a turn the attention held back, and after 20 attempts the result is left to her `<errands>` block with the turn marked as never run.
 
-The result turn is the ordinary turn in the place the errand was asked in, built on the turn frame with the kind `errand_result`. It answers the asking message when that message still exists, and with the message gone it answers nobody and takes `prompts/errand-result.md` as its task. `<inner>` opens with `<errand_result>`, the result, its sources and its files, and `<intentions>` shows an intention that waited for the errand with its outcome.
+The result turn is the ordinary turn in the place the errand was asked in, built on the turn frame with the kind `errand_result`. It answers the asking message when that message still exists, and with the message gone it answers nobody and takes `prompts/errand-result.md` as its task. `<inner>` opens with `<errand_result>`, the result, its sources and its files, and `<intentions>` shows an intention that waited for the errand with its outcome. An errand asked with no place, such as one a heartbeat waited for past its budget, one a restart failed during that wait or one the owner started from his console, opens its result turn with no chat: the turn runs nowhere, takes `prompts/errand-result.md`, and holds the chat lane of her attention like every result turn, since she may post from it. At start the core opens again the result turn of every end she has not seen, with a place or without.
+
+The wake of an intention that waited for an errand carries the errand's result as well: when the errand ended and she has not read it, the intention's turn opens `<inner>` with the same `<errand_result>`, and once she answers a request that showed the result whole, the errand is read.
 
 A personal `profile.json` or `prompt.md` under `data/agents/<id>/` is opened without following a link in the same call that reads it, so a link placed after the check fails the run with `no-prompt` or the profile's error.
 

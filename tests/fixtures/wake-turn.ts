@@ -43,7 +43,7 @@ const GRANTED = [
   'intention.set',
   'intention.update',
   'intention.cancel',
-  'errand.run',
+  'errand.add',
   'web.search',
   'skill.read',
   'skill.run',
@@ -90,17 +90,22 @@ export function requestText(messages: ReadonlyArray<Record<string, Untyped>>): s
 
 /**
  * The turn of `wake` answered by `answers`. `service` and `turnId` let a test run the same wake twice over the same stores, as a restarted turn does.
+ * `errands` is the errand service her errand calls reach, `wakes` the `wakes` settings over `{ mode: 'live' }`.
  */
 export async function wakeTurn({
   wake,
   answers,
   lore = [],
   service = null,
+  errands = null,
+  wakes = {},
 }: {
   wake: Record<string, unknown>;
   answers: ReadonlyArray<unknown>;
   lore?: ReadonlyArray<Record<string, unknown>>;
   service?: ReturnType<typeof createIntentionService> | null;
+  errands?: unknown;
+  wakes?: Record<string, unknown>;
 }): Promise<WakeTurn> {
   const hot: Record<string, Untyped> = {
     config: {
@@ -125,7 +130,7 @@ export async function wakeTurn({
         callTimeoutMs: 120000,
         loop: { maxSteps: 4, timeBudgetMs: 20000, maxCallsPerStep: 4 },
       },
-      wakes: { mode: 'live' },
+      wakes: { mode: 'live', ...wakes },
       intentions: { expiresDays: 14, maxOpen: 20 },
     },
     prompts: {
@@ -190,6 +195,7 @@ export async function wakeTurn({
     reads,
     intentions,
     now: () => WAKE_NOW,
+    ...(errands ? { errands } : {}),
   });
   const requests: WakeTurn['requests'] = [];
   const options: Array<Record<string, Untyped>> = [];
@@ -213,6 +219,7 @@ export async function wakeTurn({
     runOwnOp: admin.runOwnSkillOp,
     runInitiativeOp: admin.runInitiativeSkillOp,
     intentions,
+    ...(errands ? { errands } : {}),
   });
   const inner = { wake, shadow: false, mayAct: () => true, currentChannel: null };
   const { result, logs } = await withCapturedLogs(() =>

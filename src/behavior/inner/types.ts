@@ -423,6 +423,8 @@ export type InnerContext = {
   /** Per place: the place index (the record's lines per place over the lookback window). */
   placeIndexes: Map<string, PlaceIndex>;
   ticking: boolean;
+  /** The ids of the facts a running turn carries, which a turn on the other lane leaves to it. */
+  showing: Set<string>;
   factSeq: number;
   /** The chain the persona state's and the queue's writes go through, in order. */
   writes: Promise<unknown>;

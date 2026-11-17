@@ -532,12 +532,34 @@ function isEligible(wake: Wake, now: { held: ReadonlyArray<Wake>; at: number }):
   return !now.held.includes(wake) && !(Number(wake.notBefore) > now.at);
 }
 
+/** What a drain started: the answer of its chat-lane turn, and the heartbeat's turn when it started one beside it. */
+export type Drained = { answer: DrainAnswer; service: Promise<DrainAnswer> | null };
+
 /**
- * One inner turn for the queue's first coalesced group whose lane of the attention is free and that no cap
- * refuses; a turn held back (`busy`, `paused`) leaves the group queued with its due times.
+ * One drain of the queue, the heartbeat's turn left running (src/behavior/inner.ts, the tick, awaits it only once it has
+ * let the next tick in). See `drainOnce`.
  */
+export async function drainLanes(life: InnerContext): Promise<Drained> {
+  const started: { service: Promise<DrainAnswer> | null } = { service: null };
+  const answer = await drainOnce(life, started);
+  return { answer, service: started.service };
+}
+
+/** One drain whose answer comes once every turn it started has ended: the chat lane's, else the heartbeat's. */
 export async function drain(life: InnerContext): Promise<DrainAnswer> {
-  const { hot, turns, intentions, costs, now, log } = life;
+  const { answer, service } = await drainLanes(life);
+  const beat = service === null ? null : await service;
+  return answer ?? beat;
+}
+
+/**
+ * Up to one inner turn on each lane of her attention: the heartbeat's on the service lane, started into
+ * `started.service` and not awaited, and the queue's first coalesced group of the chat lane, awaited, each while its
+ * lane is free and no cap refuses it. A turn held back (`busy`, `paused`) leaves its group queued with its due times.
+ */
+// health: allow complexity until 2027-04-01 -- the drain's holds and caps, moved whole out of drain
+async function drainOnce(life: InnerContext, started: { service: Promise<DrainAnswer> | null }): Promise<DrainAnswer> {
+  const { hot, now, log } = life;
   const state = stateOf(life);
   await startUp(life);
   if (state.queue.length === 0) return null;
@@ -621,7 +643,41 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
 
   const free = eligible.filter((wake) => laneHeld(life, laneOfWake(wake)) === null);
   if (free.length === 0) return { deferred: laneHeld(life, laneOfWake(eligible[0])) };
-  const group = coalesceGroup(free, (wake) => held.includes(wake));
+  const step = { settings, at, timezone, openOf };
+  // A heartbeat on the service lane runs beside the chat lane and is not awaited here, so an intention, an attend or a
+  // feedback wake that falls due while it runs starts at once (the owner's rule of 2026-11-17). Its wake stays claimed
+  // meanwhile, so a later drain cannot claim it again, and the next heartbeat is drawn only once it is handled.
+  const service = free.filter((wake) => laneOfWake(wake) === 'service');
+  const chat = free.filter((wake) => laneOfWake(wake) === 'chat');
+  if (service.length > 0) {
+    started.service = runGroup(
+      life,
+      coalesceGroup(service, (wake) => held.includes(wake)),
+      step
+    );
+    if (chat.length === 0) return null;
+  }
+  return runGroup(
+    life,
+    coalesceGroup(chat, (wake) => held.includes(wake)),
+    step
+  );
+}
+
+/** What the drain shares with the turn it runs. */
+type DrainStep = {
+  settings: InnerSettings;
+  at: number;
+  timezone: string;
+  openOf: (id: string) => Intention | null;
+};
+
+/** One inner turn for the coalesced `group`: its chat, its claim, the turn and what became of each wake. */
+// health: allow complexity until 2027-04-01 -- the body of the drain's one turn, moved whole out of drain
+async function runGroup(life: InnerContext, group: Array<Wake>, step: DrainStep): Promise<DrainAnswer> {
+  const { turns, intentions, costs, now, log } = life;
+  const { settings, at, timezone, openOf } = step;
+  const state = stateOf(life);
   const anchor = group.find((wake) => !channelless(wake)) ?? group[0];
   const chainId = anchor.chainId;
 
@@ -650,7 +706,8 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const shadow = settings.mode !== 'live';
   const hold = holdFor(life, shadow);
   const current = currentChannelOf(group, records);
-  // The facts a feedback wake carries, and the other facts this chat may be shown (not told yet).
+  // The facts a feedback wake carries, and the other facts this chat may be shown (not told yet). A fact the turn on the
+  // other lane carries now is left to it, so the heartbeat and an intention's turn never tell one fact twice.
   const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => listOf(wake.factIds)));
   const shownFacts = pendingFactsOf(state, {
     ...contextOf(life, where),
@@ -658,8 +715,12 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     dmChat,
     anywhere: true,
   })
-    .filter((fact) => !ownFactIds.has(fact.id))
+    .filter((fact) => !ownFactIds.has(fact.id) && !life.showing.has(fact.id))
     .slice(0, FACTS_SHOWN_MAX);
+  for (const fact of shownFacts) life.showing.add(fact.id);
+  const shown = () => {
+    for (const fact of shownFacts) life.showing.delete(fact.id);
+  };
   const info = wakeInfoOf(life, group, {
     anchor,
     at,
@@ -671,7 +732,10 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   });
   // The turn's wakes are claimed before it runs: a process that dies in it leaves them running (wake-queue.ts).
   const claimed = await beginTurn(life, group, { at, channel, kind: anchor.kind });
-  if (!claimed) return { deferred: 'claim' };
+  if (!claimed) {
+    shown();
+    return { deferred: 'claim' };
+  }
   const { turnId: turnKey, attempt } = claimed;
   const shownIds = [...shownFacts.map((fact) => fact.id), ...[...ownFactIds].map(asText)];
   startWakeRun(life, { turnKey, anchor, group, at, records }, shownIds, {
@@ -702,6 +766,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     measured = { result: { outcome: 'error', reason: code }, usd: 0, requests: 0, voice: 0 };
   } finally {
     endRun(life, group);
+    shown();
   }
   const result = objOf(measured.result ?? { outcome: 'error' });
   const inner = objOf(result.inner);

@@ -39,13 +39,6 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'text': 'Chance of no posts for the whole day',
   },
   {
-    'key': 'diary.forceWaitMs',
-    'types': ['number'],
-    'reader': 'src/behavior/diary.ts',
-    'default': 120000,
-    'text': 'Milliseconds a forced post waits for a running turn',
-  },
-  {
     'key': 'diary.entries',
     'types': ['number'],
     'reader': 'src/turn/request/diary.ts',
@@ -85,14 +78,14 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'key': 'diary.loop.maxSteps',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
-    'default': 2,
+    'default': 50,
     'text': 'Further requests one diary post makes',
   },
   {
     'key': 'diary.loop.timeBudgetMs',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
-    'default': 600000,
+    'default': 1000000,
     'text': 'How long calls and follow-ups may run',
   },
   {

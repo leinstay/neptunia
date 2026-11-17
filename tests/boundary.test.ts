@@ -13,7 +13,6 @@ import { createEventDoor } from '../src/interface/door.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
 import { createLoopback, envelope } from '../src/protocol/index.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
-import { createDiary } from '../src/behavior/diary.ts';
 import { heartbeatWake } from '../src/behavior/inner.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/turn-harness.ts';
@@ -137,17 +136,8 @@ describe('inner turns with no interface', () => {
         }),
     };
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START });
-    const diary = createDiary({
-      hot,
-      store,
-      reads: null,
-      // @ts-expect-error: createDiary takes no `iface` dependency, so the key is ignored
-      iface: () => 'fake',
-      turns: runnerOver({ port, hot, llm, store }),
-      isServedRoot: (id: unknown) => id === GUILD,
-      now: () => START,
-    });
-    await diary.force({ kind: 'status' });
+    // Changed: the diary turn runs as the diary's post runs it, since diary.force is gone.
+    await runnerOver({ port, hot, llm, store }).runTurn({ mode: 'diary', diary: { kind: 'status', forced: false } });
     await store.flushSettled({});
     assert.deepEqual(
       rowsOf(memory.memoryDb, 'SELECT kind, text FROM diary'),

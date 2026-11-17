@@ -15,7 +15,7 @@ const TOOL_ALIASES: Readonly<Record<string, string>> = {
   'features.skills': 'features.tools',
   'skills.safeMode': 'tools.safeMode',
   'skills.destructiveCooldownMinutes': 'tools.destructiveCooldownMinutes',
-  'task.run': 'errand.run',
+  'task.run': 'errand.add',
   'task.status': 'errand.list',
   'task.read': 'errand.read',
   'task.resolve': 'errand.resolve',

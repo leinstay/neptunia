@@ -659,7 +659,7 @@ export const KEPT: ReadonlyArray<string> = [
   // `diary.placeId` went later with the open that seeded the first mirror from it, its one reader.
   'diary.windows',
   'diary.quietDayChance',
-  'diary.forceWaitMs',
+  // `diary.forceWaitMs` went later with `diary.force`, its one reader.
   'diary.loop.maxSteps',
   'diary.loop.timeBudgetMs',
   'diary.planMaxOutputTokens',

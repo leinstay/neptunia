@@ -1,6 +1,6 @@
 An errand you started has finished. Its result, sources and files are in `<errand_result>`.
 
-You are in the conversation the errand was asked in. Text goes out as in any turn. To post a file the errand saved, give its handle as the file of message.create.
+When the errand was asked in a conversation, you are in it, and text goes out as in any turn. An errand started with no place, such as one a heartbeat waited for past its time, brings you here with no conversation: to tell someone, name the place in message.create. To post a file the errand saved, give its handle as the file of message.create.
 
 When the errand failed or came back empty, say what happened.
 

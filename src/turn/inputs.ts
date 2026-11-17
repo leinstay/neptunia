@@ -10,6 +10,8 @@ import { placesBlockText } from '../behavior/wake.ts';
 import { innerSettings } from '../behavior/inner.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText, errandsBlockText } from '../errands/blocks.ts';
 import type { ErrandRecord } from '../errands/types.ts';
+import { isOpenState } from '../errands/store.ts';
+import { listOf, objOf } from '../tools/types.ts';
 import { portIface } from '../interface/capabilities.ts';
 import { personOfMember, placeOfChat } from '../memory/addresses.ts';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
@@ -46,9 +48,12 @@ type InputsPort = { iface: string };
 type MemorySpec =
   { kind: 'dm'; person: string; place?: string } | { kind: 'group'; destination: string | null } | { kind: 'internal' };
 
-/** The errands service (src/errands/service.ts), as far as `<errands>` lists from it. */
+/** The errands service (src/errands/service.ts), as far as `<errands>` lists from it and an intention's wake reads it. */
 type InputsErrands = {
   view?: (args: { dmChatId: string | null }) => unknown;
+  store?: () => { get: (id: unknown) => ErrandRecord | null } | null;
+  markSeen?: (input: { ids: ReadonlyArray<string> }) => unknown;
+  markRead?: (input: { ids: ReadonlyArray<string> }) => unknown;
 } | null;
 
 /** One errand as `<errands>` tells it from the one a result turn brings. */
@@ -107,8 +112,9 @@ export type Inputs = {
   messageOf: (channel: { id: string }, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: { id: string } }) => EffectVerdict;
   errandsInputFor: (
-    args: InputArgs & { taskResult: ErrandRecord | null | undefined }
-  ) => { list: string; result: string } | null;
+    args: InputArgs & { taskResult: ErrandRecord | null | undefined; wake?: unknown }
+  ) => { list: string; result: string; whole: string | null } | null;
+  markErrandShown: (id: string) => void;
   intentionsInputFor: (args: InputArgs & { due?: ReadonlyArray<string> }) => string;
   intentionRefsFor: () => { texts: Array<string>; places: Array<string> };
   placesInputFor: (args: { placeId: string; config: InputsConfig; labels: InputsLabels }) => string;
@@ -204,50 +210,73 @@ export function createInputs(ctx: InputsContext): Inputs {
   }
 
   /**
-   * The errands `<errands>` lists: her open errands and unread results (`errands.view`), the one `taskResult` brings left out.
+   * The errands `<errands>` lists: her open errands and unread results (`errands.view`), the one the turn shows left out.
    */
   function listedTasks({
     channel,
     isDm,
-    taskResult,
+    shown,
   }: {
-    placeId: string;
     channel: { id: string };
     isDm: boolean;
-    taskResult: ErrandRecord | null | undefined;
+    shown: ErrandRecord | null;
   }): Array<ListedTask> {
-    let shown: unknown = [];
+    let listed: unknown = [];
     try {
-      shown = typeof errands?.view === 'function' ? errands.view({ dmChatId: isDm ? String(channel.id) : null }) : [];
+      listed = typeof errands?.view === 'function' ? errands.view({ dmChatId: isDm ? String(channel.id) : null }) : [];
     } catch (err) {
       log.warn('turn: tasks view failed', { channel: channel.id, error: err });
     }
-    return (isTaskList(shown) ? shown : []).filter((task) => task?.id !== taskResult?.id);
+    return (isTaskList(listed) ? listed : []).filter((task) => task?.id !== shown?.id);
+  }
+
+  /**
+   * The errand a due intention of `wake` waited for, ended and not read yet: the intention's wake shows its result as a
+   * result turn does. Null on any other turn.
+   */
+  function waitedErrandOf(wake: unknown): ErrandRecord | null {
+    const { items, intentions: records } = objOf(wake);
+    const due = new Set(listOf(items).flatMap((item) => listOf(objOf(item).intentionIds)));
+    for (const record of listOf(records).map(objOf)) {
+      const id = objOf(record.outcome).errandId;
+      if (!due.has(record.id) || typeof id !== 'string') continue;
+      const errand = errands?.store?.()?.get(id) ?? null;
+      if (errand && !isOpenState(errand.state) && !errand.readAt) return errand;
+    }
+    return null;
   }
 
   /**
    * The request's `errands` input (buildRequest): the `<errands>` body -- her open errands and the
    * finished ones she has not read (`errands.view`: a private chat's only in that chat; at most
-   * `errands.unreadShown` of them), the one `taskResult` brings left out -- and, on the turn an
-   * errand's end opened (`taskResult`, trigger kind `errand`), the `<errand_result>` body cut to
-   * `errands.resultMaxChars` (read now). Showing a task marks nothing: it is read by the result
-   * turn that completed (src/errands/turns.ts) or by `errand.read`. Null when there is nothing to show.
+   * `errands.unreadShown` of them), the one the turn shows left out -- and the `<errand_result>` body cut to
+   * `errands.resultMaxChars` (read now): on the turn an errand's end opened (`taskResult`, trigger kind `errand`),
+   * and on the wake of an intention that waited for an errand (`wake`). `whole` names the waited errand when its
+   * result went in uncut, which the turn marks read once she answered (`markErrandShown`); a result turn is read by
+   * src/errands/turns.ts, and showing marks nothing else. Null when there is nothing to show.
    */
   function errandsInputFor({
-    placeId,
     channel,
     isDm,
     taskResult,
+    wake = null,
     config,
     labels,
     now,
-  }: Parameters<Inputs['errandsInputFor']>[0]): { list: string; result: string } | null {
-    const listed = listedTasks({ placeId, channel, isDm, taskResult });
-    const list = errandsBlockText(listed, labels, { now });
-    const result = taskResult
-      ? errandResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
-      : '';
-    return list || result ? { list, result } : null;
+  }: Parameters<Inputs['errandsInputFor']>[0]): { list: string; result: string; whole: string | null } | null {
+    const waited = taskResult ? null : waitedErrandOf(wake);
+    const shown = taskResult ?? waited;
+    const list = errandsBlockText(listedTasks({ channel, isDm, shown }), labels, { now });
+    const maxChars = config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS;
+    const result = shown ? errandResultText(shown, labels, { maxChars }) : '';
+    const whole = waited && (waited.result?.text ?? '').trim().length <= maxChars ? waited.id : null;
+    return list || result ? { list, result, whole } : null;
+  }
+
+  /** The errand an intention's wake showed whole, marked seen and read once her turn answered. */
+  function markErrandShown(id: string): void {
+    errands?.markSeen?.({ ids: [id] });
+    errands?.markRead?.({ ids: [id] });
   }
 
   /**
@@ -343,6 +372,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     messageOf,
     checkEffect,
     errandsInputFor,
+    markErrandShown,
     intentionsInputFor,
     intentionRefsFor,
     placesInputFor,

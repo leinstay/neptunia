@@ -1,4 +1,4 @@
-// The persona's errands in the background: an errand the `errand.run` operation accepted (queued in
+// The persona's errands in the background: an errand the `errand.add` operation accepted (queued in
 // the place's errand store, src/errands/store.ts) is handed to its agent runner through the client
 // (src/errands/client.ts) right after the operation answered -- nobody waits for it. The errand is
 // `running` from the moment it is sent, with the limits of the profile (`limits`, overridable under `agents.<profile>`; the
@@ -26,6 +26,10 @@
 // known before the first ask), and a refusal pings the runner again, at most once per
 // RUNNER_RECHECK_MS, so the flag flips back even when the client's reconnect loop has stopped.
 // The flag is logged once per change (`errands: runner up` / `errands: runner down`).
+// A heartbeat or a diary turn waits for the errand it starts (`wait`): the wait resolves at the errand's end, which is
+// marked seen and read before `onFinished` runs, so her waiting call carries the result and no result turn opens for
+// it. A cancel resolves the wait with the cancelled errand. A wait whose time runs out first resolves with the errand
+// still open and unread, and its end reaches her as any other end does.
 
 import { log as defaultLog } from '../log.ts';
 import { loadProfiles, agentSettings, profileOf, refusedAgents } from '../agent-runner/profiles.ts';
@@ -52,6 +56,7 @@ import type {
   ErrandServiceOptions,
   ErrandStore,
   ExpiredFileRef,
+  TimerHandle,
   FinishOutcome,
   IdsInput,
   Limits,
@@ -62,6 +67,7 @@ import type {
   RunRequest,
   RunSecrets,
   SubmitInput,
+  WaitResult,
 } from './types.ts';
 
 /** The limit keys an errand may carry to its runner (src/agent-runner/protocol.ts#LIMIT_KEYS). */
@@ -236,6 +242,52 @@ function runRequestOf(
 }
 
 /**
+ * The waits of the turns for their errands, over the timer `setTimer`: `wait` resolves at the errand's end, which `end`
+ * reports, or when its time runs out first.
+ */
+function createWaits(setTimer: (fn: () => void, ms: number) => TimerHandle): {
+  wait: (store: ErrandStore | null, id: string, ms: number) => Promise<WaitResult>;
+  end: (store: ErrandStore, errand: ErrandRecord) => void;
+} {
+  // errand id -> what resolves the turn's wait for it, while one waits.
+  const waiters = new Map<string, (errand: ErrandRecord | null) => void>();
+
+  /** The wait for `errand` resolved, if one waits: the errand is marked seen and read first, since her call shows it. */
+  function end(store: ErrandStore, errand: ErrandRecord): void {
+    const resolve = waiters.get(errand.id);
+    if (resolve === undefined) return;
+    waiters.delete(errand.id);
+    store.markSeen(errand.id);
+    resolve(store.markRead(errand.id) ?? errand);
+  }
+
+  /**
+   * Waits up to `ms` for errand `id`: `{ ended: true, errand }` at its end (an errand that ended already answers at
+   * once), `{ ended: false, errand }` when the time runs out first, with the errand left open and unread.
+   */
+  function wait(store: ErrandStore | null, id: string, ms: number): Promise<WaitResult> {
+    const errand = store?.get(id) ?? null;
+    if (!store || !errand) return Promise.resolve({ ended: false, errand: null });
+    if (!isOpenState(errand.state)) {
+      store.markSeen(id);
+      return Promise.resolve({ ended: true, errand: store.markRead(id) ?? errand });
+    }
+    return new Promise((resolve) => {
+      const timer = setTimer(() => {
+        waiters.delete(id);
+        resolve({ ended: false, errand: store.get(id) });
+      }, ms);
+      waiters.set(id, (ended) => {
+        clearTimeout(timer);
+        resolve({ ended: true, errand: ended });
+      });
+    });
+  }
+
+  return { wait, end };
+}
+
+/**
  * `hot` holds the live config. `proxy`
  * is the engine proxy in force, read as each errand is sent. `memory` gives the channel's newest lines, oldest first (src/index.ts reads them from the memory
  * database): an errand's `context.recent`. `defer` is how
@@ -254,6 +306,7 @@ export function createErrandService({
   defer = (fn) => setImmediate(fn),
   now = Date.now,
   proxy = () => null,
+  setTimer = (fn, ms) => setTimeout(fn, ms),
 }: ErrandServiceOptions): ErrandService {
   // errand id -> the promise of its run, while it runs (tests and the shutdown wait on them).
   const running = new Map<string, Promise<ErrandRecord | null>>();
@@ -262,6 +315,7 @@ export function createErrandService({
   const recentById = new Map<string, RunContext['recent']>();
   // agent -> { up: boolean, checkedAt: ms of the last recheck ping } once anything is known.
   const health = new Map<string, { up: boolean; checkedAt: number | null }>();
+  const waits = createWaits(setTimer);
 
   /** The health flag of `agent` set to `up` (`code` why it is down); logged when it changes. */
   function setHealth(agent: string | undefined, up: boolean, code: string | null = null): void {
@@ -353,6 +407,7 @@ export function createErrandService({
     }
     const finished = store.finish(errand.id, outcome ?? { status: 'failed', error: 'client-error' });
     if (!finished) return null;
+    waits.end(store, finished);
     if (typeof onFinished === 'function') {
       try {
         await onFinished(finished);
@@ -404,6 +459,7 @@ export function createErrandService({
     if (!isOpenState(errand.state)) return { ok: false, code: CODE.NOT_OPEN, errand };
     const wasRunning = errand.state === 'running';
     const closed = store.cancel(id);
+    if (closed) waits.end(store, closed);
     if (wasRunning) client.cancel?.({ agent: errand.agent, id: errand.id });
     return { ok: true, errand: closed };
   }
@@ -497,10 +553,10 @@ export function createErrandService({
     if (!store) return 0;
     const failed = store.failOpen('restarted');
     if (failed > 0) log.info('errands: open tasks failed at start', { count: failed });
-    // Finished errands whose result turn never ran (a restart cut it short, or it kept failing):
-    // their turn is opened again, one after another through the turn runner's own cooldown.
+    // Finished errands whose result turn never ran (a restart cut it short, or it kept failing), an errand asked with no
+    // place included: their turn is opened again, one after another through the turn runner's own cooldown.
     if (typeof onFinished === 'function') {
-      const waiting = store.unseen().filter((errand) => errand.origin?.placeId);
+      const waiting = store.unseen();
       if (waiting.length > 0) log.info('errands: result turns reopened at start', { count: waiting.length });
       for (const errand of waiting)
         defer(() =>
@@ -519,6 +575,7 @@ export function createErrandService({
 
   return {
     submit,
+    wait: ({ id, ms }) => waits.wait(storeOf(), id, ms),
     cancel,
     budget,
     view,

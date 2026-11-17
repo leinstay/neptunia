@@ -15,7 +15,7 @@
       "purpose": "look up the release date of the expansion",
       "channel": "c-general",
       "due": "1 10:00",
-      "stub": { "intention_due": [[{ "skill": "errand.run", "args": { "id": "$intention", "agent": "scout", "goal": "find the release date", "wait": "2h" } }]] }
+      "stub": { "intention_due": [[{ "skill": "errand.add", "args": { "id": "$intention", "goal": "find the release date", "wait": "2h" } }]] }
     }
   ],
   "events": [{ "kind": "errand_end", "at": "1 11:00", "task": "task-1", "state": "done", "usd": 0.2 }],

@@ -21,24 +21,79 @@ test('heartbeat: the request carries no diary task', async () => {
   assert.ok(!requestText(run.requests[0] ?? []).includes(PROMPT_MARK.diary));
 });
 
-// Changed: the filing is an errand, since her tools hold no `task.propose`.
-test('guard: heartbeat: a filing or a skill run is refused, and an intention ends the turn', async () => {
+// Changed: a heartbeat hands off an errand and waits for it (the owner's decision of 2026-11-17), so only the skill run
+// is refused, and the errand does not end the wake.
+test('heartbeat: a skill run is refused, an errand is accepted and does not end the wake, an intention ends it', async () => {
   const run = await wakeTurn({
     wake: BEAT,
     answers: [
-      toolAnswer(THINK, [
-        call('errand.run', { agent: 'scout', goal: 'g' }),
-        call('skill.run', { name: 'x', script: 'y' }),
-      ]),
+      toolAnswer(THINK, [call('errand.add', { goal: 'g' }), call('skill.run', { name: 'x', script: 'y' })]),
       SET,
     ],
+    errands: waitedErrands().service,
   });
   assert.deepEqual(run.actions, [
-    'errand.run:refused:heartbeat-only',
+    'errand.add:executed:ok',
     'skill.run:refused:heartbeat-only',
     'intention.set:executed:ok',
   ]);
   assert.equal(run.requests.length, 2);
+});
+
+/** An errand service whose waits end at once with a done errand, after `delayMs`; `waits` records each wait's time. */
+function waitedErrands(delayMs = 0) {
+  const waits: Array<number> = [];
+  const errand = {
+    id: 'e1',
+    agent: 'scout',
+    goal: 'g',
+    state: 'done',
+    result: { text: 'ΤΟ ΑΠΟΤΕΛΕΣΜΑ ΤΗΣ ΑΝΑΖΗΤΗΣΗΣ', sources: [], files: [] },
+    requester: { accountId: null, kind: 'persona' },
+    origin: { placeId: null, messageId: null },
+  };
+  return {
+    waits,
+    service: {
+      submit: () => ({ ok: true, errand: { ...errand, state: 'queued', result: null } }),
+      wait: async ({ ms }: { ms: number }) => {
+        waits.push(ms);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        return { ended: true, errand };
+      },
+      budget: () => ({ spent: false, key: null, code: null }),
+      view: () => [],
+      markSeen: () => 0,
+      markRead: () => 0,
+      store: () => null,
+    },
+  };
+}
+
+test('heartbeat: a waited errand that returns is read in a follow-up request of the same turn', async () => {
+  // Bug caught: an accepted errand ends a quiet inner turn, so the result she waited for is never read.
+  const { service } = waitedErrands();
+  const run = await wakeTurn({
+    wake: BEAT,
+    answers: [toolAnswer(THINK, [call('errand.add', { goal: 'g' })]), SET],
+    errands: service,
+  });
+  assert.equal(run.requests.length, 2);
+  assert.ok(requestText(run.requests[1] ?? []).includes('ΤΟ ΑΠΟΤΕΛΕΣΜΑ ΤΗΣ ΑΝΑΖΗΤΗΣΗΣ'));
+  assert.deepEqual(run.actions, ['errand.add:executed:ok', 'intention.set:executed:ok']);
+});
+
+test("heartbeat: the waiting call gets the budget's remaining time when wakes.loop.callTimeoutMs is smaller", async () => {
+  // Bug caught: the call that waits for a 600-second errand is cut at the timeout of an ordinary call.
+  const { service, waits } = waitedErrands(1500);
+  const run = await wakeTurn({
+    wake: BEAT,
+    answers: [toolAnswer(THINK, [call('errand.add', { goal: 'g' })]), SET],
+    errands: service,
+    wakes: { loop: { maxSteps: 4, timeBudgetMs: 500_000, maxCallsPerStep: 4, callTimeoutMs: 1000 } },
+  });
+  assert.equal(run.actions[0], 'errand.add:executed:ok', 'not cut at the timeout of an ordinary call');
+  assert.ok((waits[0] ?? 0) > 400_000, `the wait got ${waits[0]} ms`);
 });
 
 test('guard: heartbeat: a recall first, then a skip, is a completed wake with no intention', async () => {

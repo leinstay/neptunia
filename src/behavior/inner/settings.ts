@@ -37,7 +37,7 @@ export const INNER_DEFAULTS = Object.freeze({
   }),
   caps: Object.freeze({ perChain: 3 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
-  loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
+  loop: Object.freeze({ maxSteps: 50, timeBudgetMs: 1000000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
   retry: Object.freeze({ delaysMinutes: Object.freeze([1, 5, 15, 60]), maxHours: 6 }),
   factsKeepDays: 7,
 });
@@ -45,7 +45,7 @@ export const INNER_DEFAULTS = Object.freeze({
 /** The skills that post where people read: the trait `posts` of their definitions. */
 export const POSTING_SKILLS = toolsWith('posts');
 /** The calls that deliver something out of an inner turn: the posting skills and an errand. */
-export const DELIVERY_SKILLS = Object.freeze([...POSTING_SKILLS, 'errand.run']);
+export const DELIVERY_SKILLS = Object.freeze([...POSTING_SKILLS, 'errand.add']);
 
 /** The most facts one turn is shown; the rest stay for the next one. */
 export const FACTS_SHOWN_MAX = 12;

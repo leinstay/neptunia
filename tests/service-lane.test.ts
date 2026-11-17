@@ -1,7 +1,7 @@
 // The service lane of her attention (src/turn/triggers.ts#takeAttention, src/behavior/attention.ts): a heartbeat turn
 // and a diary turn hold a lane of their own, so a chat turn never waits for one and a service never waits for a chat
 // turn, while one turn at a time still runs on each lane. The real turn runner over the test world with a model that
-// answers on demand; the inner drain and the diary's forced post with fake turn runners; the lease over a real
+// answers on demand; the inner drain with fake turn runners; the lease over a real
 // in-memory memory database.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,6 @@ import { world, useIface } from './fixtures/turn-world.ts';
 import { createTurnRunner } from './fixtures/turn-runner.ts';
 import { NOW, clock, fakeTurns, hotWith, intention, setup } from './fixtures/inner-rig.ts';
 import type { InnerTurnParams } from '../src/behavior/inner/types.ts';
-import { createDiary } from '../src/behavior/diary.ts';
 import { createLeasedAttention } from '../src/behavior/attention.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyWakeQueueWrite, leaseOf } from '../src/memory/db/wake-queue.ts';
@@ -346,79 +345,6 @@ test('inner drain: a heartbeat is not held behind people waiting for the chat la
   clock.t = NOW + 181 * MINUTE_MS;
   await run.inner.tick();
   assert.equal(turns.calls.length, 1);
-});
-
-// --- The diary's forced post ---------------------------------------------------------------------
-
-/** The store the diary's forced post reads: an empty state and no entries. */
-function diaryStore() {
-  return {
-    state: { data: {}, markDirty() {} },
-    getDiary: () => ({ posts: [], updatedAt: 0 }),
-    setDiaryPosts: () => ({ dropped: [] }),
-    flushSettled: () => Promise.resolve({ written: 0, failed: 0, held: 0 }),
-  };
-}
-
-test('a forced diary post does not wait for a chat turn', async () => {
-  const posted: Array<unknown> = [];
-  const waits: Array<string | undefined> = [];
-  const diary = createDiary({
-    hot: { config: { bot: { timezone: 'UTC' }, diary: { forceWaitMs: 5000 } }, prompts: { labels } },
-    store: diaryStore(),
-    reads: null,
-    turns: {
-      runTurn: (params) => {
-        posted.push(params);
-        return Promise.resolve({ outcome: 'spoke' });
-      },
-      isAnyBusy: (lane = 'chat') => lane === 'chat',
-      waitIdle: (lane) => {
-        waits.push(lane);
-        return new Promise(() => {});
-      },
-    },
-    delay: () => Promise.resolve(),
-  });
-  const result = await diary.force({});
-  assert.equal((result as { outcome: string }).outcome, 'spoke');
-  assert.equal(posted.length, 1);
-  assert.deepEqual(waits, []);
-});
-
-test('a forced diary post waits for the service turn that runs', async () => {
-  let running = true;
-  let release: () => void = () => {};
-  const idle = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const waits: Array<string | undefined> = [];
-  const posted: Array<unknown> = [];
-  const diary = createDiary({
-    hot: { config: { bot: { timezone: 'UTC' }, diary: { forceWaitMs: 5000 } }, prompts: { labels } },
-    store: diaryStore(),
-    reads: null,
-    turns: {
-      runTurn: (params) => {
-        posted.push(params);
-        return Promise.resolve({ outcome: 'spoke' });
-      },
-      isAnyBusy: (lane = 'chat') => lane === 'service' && running,
-      waitIdle: (lane) => {
-        waits.push(lane);
-        return idle;
-      },
-    },
-    delay: () => new Promise(() => {}),
-  });
-  const pending = diary.force({});
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(waits, ['service']);
-  assert.equal(posted.length, 0);
-  running = false;
-  release();
-  assert.equal(((await pending) as { outcome: string }).outcome, 'spoke');
-  assert.equal(posted.length, 1);
 });
 
 // --- The leases ----------------------------------------------------------------------------------

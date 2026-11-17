@@ -195,17 +195,15 @@ test('dependent diary announcement: a failed picture and a post to the diary cha
   assert.ok(noteText(run.llm, 1).includes(labels.task.step.held));
 });
 
-test('an accepted background job covers the speech: errand.run ok, the speech goes out after it, the job is shown to her in one step and queued once', async () => {
+test('an accepted background job covers the speech: errand.add ok, the speech goes out after it, the job is shown to her in one step and queued once', async () => {
   const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
   const { service, runs } = errandService(hot);
   const run = await coreTurn({
     answers: [
-      toolAnswer('<think>x</think><msg>το στέλνω να ψάξει</msg>', [
-        call('errand.run', { agent: 'scout', goal: 'βρες κάτι' }),
-      ]),
+      toolAnswer('<think>x</think><msg>το στέλνω να ψάξει</msg>', [call('errand.add', { goal: 'βρες κάτι' })]),
       '<skip/>',
     ],
-    allowed: ['errand.run'],
+    allowed: ['errand.add'],
     config: { ...WEB_CONFIG, ...AGENTS },
     runner: { errands: service },
     adminExtra: { errands: service },
@@ -214,6 +212,8 @@ test('an accepted background job covers the speech: errand.run ok, the speech go
   assert.equal(run.llm.calls.length, 2, 'the accepted job came back to her, where she stayed silent');
   assert.deepEqual(texts(run), ['το στέλνω να ψάξει']);
   assert.equal(runs.length, 1);
+  // A reply turn waits for no errand: the call answers queued at once, while the errand still runs.
+  assert.deepEqual(called(run), ['errand.add:ok']);
   assert.equal(asRecord(run.result).delivered, true);
 });
 

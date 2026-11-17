@@ -371,14 +371,13 @@ The settings of the `diary` service. A deployment keeps its own values under the
 | `diary.schedule` | string, null | `null` | Exact UTC slots of the diary, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/diary.ts` |
 | `diary.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
 | `diary.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
-| `diary.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/diary.ts` |
 | `diary.entries` | number | `150` | How many of her newest stored entries `<diary>` shows the planner, newest first | `src/turn/request/diary.ts` |
 | `diary.writerEntries` | number | `30` | How many of her newest stored entries `<diary>` shows the writer, newest first | `src/turn/request/diary.ts` |
 | `diary.openingsShown` | number | `5` | How many of her newest entries of the post's kind `<plan>` tells the writer how they opened. 0 shows none | `src/turn/request/diary.ts` |
 | `diary.openingWords` | number | `4` | How many words of each of those entries `<plan>` shows. 0 shows none | `src/turn/request/diary.ts` |
 | `diary.sceneChars` | number | `400` | Characters of a past picture post's picture description that `<diary>` shows as its scene when the post has no stored plan, cut at a word boundary | `src/turn/request/diary.ts` |
-| `diary.loop.maxSteps` | number | `2` | Further requests one diary post makes | `src/turn/settings.ts` |
-| `diary.loop.timeBudgetMs` | number | `600000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
+| `diary.loop.maxSteps` | number | `50` | Further requests one diary post makes | `src/turn/settings.ts` |
+| `diary.loop.timeBudgetMs` | number | `1000000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
 | `diary.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/diary.ts` |
 | `diary.planTimeoutMs` | number | `60000` | Timeout for the plan request (ms) | `src/turn/diary.ts` |
 
@@ -436,8 +435,8 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | `wakes.mode` | string | `"shadow"` | `shadow`: reads run, other calls are recorded but never executed. `live`: calls run on her grants | `src/behavior/inner.ts` |
 | `wakes.tickSeconds` | number | `60` | How often the scheduler looks at what is due | `src/core.ts` |
 | `wakes.caps.perChain` | number | `3` | Inner turns of one chain per local day | `src/behavior/inner.ts` |
-| `wakes.loop.maxSteps` | number | `4` | Tool loop bounds of an inner turn | `src/turn/settings.ts` |
-| `wakes.loop.timeBudgetMs` | number | `180000` | Time budget of an inner turn's calls | `src/memory/db/service.ts` |
+| `wakes.loop.maxSteps` | number | `50` | Tool loop bounds of an inner turn | `src/turn/settings.ts` |
+| `wakes.loop.timeBudgetMs` | number | `1000000` | Time budget of an inner turn's calls | `src/memory/db/service.ts` |
 | `wakes.loop.maxCallsPerStep` | number | `4` | Calls per answer of an inner turn | `src/turn/settings.ts` |
 | `wakes.loop.callTimeoutMs` | number | `60000` | Max time per call of an inner turn | `src/turn/tool-round.ts` |
 | `wakes.retry.delaysMinutes` | array | `[1, 5, 15, 60]` | Retry delays after a provider failure (minutes) | `src/behavior/inner/settings.ts` |

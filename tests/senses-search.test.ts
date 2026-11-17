@@ -15,9 +15,9 @@ test('she is told the way she has: quick alone, deep alone, both, or neither, an
   const { searchTool, deepSearchTool, readTool } = labels.senses;
   const quick = linesOf(true, true, ['web.search']);
   assert.ok(quick.includes(searchTool) && !quick.includes(deepSearchTool));
-  const deep = linesOf(false, true, ['web.search', 'errand.run']);
+  const deep = linesOf(false, true, ['web.search', 'errand.add']);
   assert.ok(deep.includes(deepSearchTool) && !deep.includes(searchTool));
-  const both = linesOf(true, true, ['web.search', 'errand.run']);
+  const both = linesOf(true, true, ['web.search', 'errand.add']);
   assert.ok(both.includes(searchTool) && !both.includes(deepSearchTool));
   const neither = linesOf(false, false, ['web.read']);
   assert.ok(!neither.includes(searchTool) && !neither.includes(deepSearchTool));

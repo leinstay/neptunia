@@ -114,7 +114,8 @@ const argText = (value: unknown): string =>
 /**
  * What an operation's result carries for her turn beside its text: the values its code's label names, the route
  * of a model role's call that went to the core model or did not happen (src/tools/gateway.ts#callOnRoute), read off
- * the result or, for an `ok` reply, its data, and `deferred` for a post kept for a chat that is not open.
+ * the result or, for an `ok` reply, its data, `deferred` for a post kept for a chat that is not open, and `waited` for
+ * the result of an errand her turn waited for.
  */
 function carriedOf(result: Obj): Obj {
   const route = result.route ?? objOf(result.data).route;
@@ -125,6 +126,8 @@ function carriedOf(result: Obj): Obj {
     ...(route === 'core' || route === 'unavailable' ? { route } : {}),
     // A post the interface kept for a chat that is not open (src/interface/cli-chat.ts).
     ...(objOf(result.data).deferred === true ? { deferred: true } : {}),
+    // An errand her turn waited for brings its result: something to read (src/behavior/tool-step.ts#stepVerdict).
+    ...(objOf(result.data).waited === true ? { waited: true } : {}),
   };
 }
 /** The options whose value may be a transcript number `#N`: a message she can see. */
@@ -223,8 +226,6 @@ function strangerLine(
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
 const FILE_OPTIONS: ReadonlyArray<string> = Object.freeze(['file']);
 
-/** The skill whose `agent` she must name: refused `agent-required` (with the agents) when left out. */
-const AGENT_SKILL = 'errand.run';
 /** The skills whose `people` option is a list of members (ids, names, `@handle`s, comma or space separated), resolved one by one. */
 const PEOPLE_LIST_SKILLS: ReadonlyArray<string> = Object.freeze(['intention.set', 'intention.update']);
 
@@ -515,7 +516,7 @@ function transcriptReference({
  * arguments by name) as the arguments of the command behind the skill (`view.skills`: the
  * registry), keyed by the command's option names, or the refusal:
  * `unknown-skill` (no such skill), `invalid-args` (an attribute the command does not take, a
- * channel or role nobody has), `agent-required` (an errand without its agent),
+ * channel or role nobody has),
  * `target-ambiguous` (a channel name several share), `unknown-member` (no stored profile by that
  * name, or several), `unknown-message` (a `#N` not in this turn's transcript, a message the record holds as deleted -- reason `message-deleted` -- or in another
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
@@ -526,9 +527,7 @@ function transcriptReference({
  * the command has a `channel` option the call left out, its channel; a reply records the replied
  * author. A message link there (`view.links`, which the interface read, bare or in angle brackets) becomes its
  * message id and names its channel the same way (`unknown-message` when the call named another);
- * any other value -- a raw message id -- is passed on as written. An errand
- * (`errand.run`) without its `agent` is refused `agent-required`, the reason the agents she may
- * name, comma-separated (the schema's choices). Pure.
+ * any other value -- a raw message id -- is passed on as written. Pure.
  * `call` is `{ skill, args }`, `args` the strings she wrote. A channel option resolves a `#handle` of `view.channelHandles` (the request's, handle -> channel
  * id) exactly before any name; a member option a `@handle` of `view.memberHandles` (handle -> member
  * id) the same way. The `people` option of PEOPLE_LIST_SKILLS is a list of members (comma or space
@@ -547,13 +546,6 @@ export function resolveCall(
   const byName = new Map(dispatch.options.map((option) => [option.name, option]));
   const given: Obj = { ...objOf(call?.args) };
   for (const key of Object.keys(given)) if (!byName.has(key)) return refused(CODE.INVALID_ARGS, `args.${key}:unknown`);
-  // An errand without its agent: refused naming the agents she may pick (the schema's choices), so
-  // the refusal she reads says which, never a bare missing argument.
-  if (name === AGENT_SKILL && !Object.hasOwn(given, 'agent') && byName.has('agent')) {
-    const { properties } = skill.argsSchema;
-    const agents = properties?.agent?.enum;
-    return refused(CODE.AGENT_REQUIRED, Array.isArray(agents) ? agents.join(',') : '');
-  }
 
   const args: Obj = {};
   const references: Pick<Resolved, 'memoryAnchor' | 'messageRef'> = {};
@@ -894,7 +886,7 @@ const placeArg = (args: Obj): string | null => (typeof args.place === 'string' ?
  * it is `unknown` (`timeout`), never retried. Its answer is the call's `data.text`
  * whatever the status -- the reply text, a card's fields, or the error or refusal the owner would
  * read -- with its code when it is not `ok`, `ref` when a message went out, and `taskId` when it
- * queued an errand (`errand.run`). Files it answers
+ * queued an errand (`errand.add`). Files it answers
  * with (`/nep draw` without a channel) are posted to the current chat through
  * `deps.port` (`deps.here`), as the owner's command shows them to the owner: the call is then
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
@@ -1039,9 +1031,7 @@ const ARG_RULE_KINDS: Readonly<Record<string, string>> = Object.freeze({
  * or is `message-elsewhere` when that message lives in another channel than the one named, or
  * `message-deleted` when the record holds it as deleted (a `#N` of a placeholder line, or an id or
  * link of one: `view.deletedIds`);
- * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`;
- * `agent-required` names `agent` and carries the agents its reason lists (`values`; the mark words
- * it through `labels.tools.refusals.agentRequired`).
+ * `not-own-message` names `message`; `unknown-member` with several matches is `member-ambiguous`.
  * An `unknown-arg` refusal carries the arguments the skill does take (`values`, from `argNames`
  * when given and not empty), so its mark can name them (`labels.tools.refusals.unknownArg`).
  * Any other code is its own kind without an argument. With `withText` and
@@ -1088,13 +1078,6 @@ export function outcomeDetail(
   }
   if (code === CODE.NOT_OWN_MESSAGE) return of(code, 'message');
   if (code === CODE.UNKNOWN_MEMBER && reason === 'ambiguous') return of('member-ambiguous');
-  if (code === CODE.AGENT_REQUIRED) {
-    const agents = reason
-      .split(',')
-      .map((agent) => agent.trim())
-      .filter(Boolean);
-    return { ...of(code, 'agent'), ...(agents.length > 0 ? { values: agents } : {}) };
-  }
   return of(code);
 }
 
