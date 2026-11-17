@@ -3062,22 +3062,11 @@ function selfHot(appearance: string) {
 async function systemMessageFor(appearance: string) {
   const store = createStore(memoryAt(tmpDataDir()));
   const llm = fakeLlm({ text: 'A woman with silver hair.' });
-  const placeIds: Array<string> = [];
-  const selfName = (placeId: string) => {
-    placeIds.push(placeId);
-    return 'Mira';
-  };
-  const describer = createDescriber({
-    hot: selfHot(appearance),
-    store,
-    llm,
-    imageFetcher: fakeImageFetcher(),
-    selfName,
-  });
+  const describer = createDescriber({ hot: selfHot(appearance), store, llm, imageFetcher: fakeImageFetcher() });
   await describer.describe('g1', pictureItem('a1'));
   const [call] = llm.calls;
   const [system] = call.messages;
-  return { system: String(system.content), placeIds };
+  return String(system.content);
 }
 
 test('describe: a picture keeps every paragraph of the answer, joined into one line', async () => {
@@ -3119,20 +3108,34 @@ test('relookImage: the answer goes to summarize with 1500 and kind text, and its
   assert.equal(loose(result).text, 'no charger');
 });
 
-test('describe: the system message of a picture holds her name and her appearance, with no placeholder left', async () => {
-  const { system, placeIds } = await systemMessageFor('tall, silver hair, a green scarf');
-  assert.ok(system.includes('Mira'), system);
-  assert.ok(system.includes('tall, silver hair, a green scarf'), system);
+// Changed with the owner's approval on 2026-11-17: one description is stored per file while her name differs per root
+// and can change, so the vision model names the figure by the marker `@self` and the describer is given no name.
+test('describe: the system message of a picture names the matching figure @self and holds her appearance, no name', async () => {
+  const system = await systemMessageFor('tall, silver hair, {{name}} wears a green scarf');
+  assert.ok(system.includes('The picture may show you, @self.'), system);
+  assert.ok(system.includes('tall, silver hair, @self wears a green scarf'), system);
   assert.ok(!system.includes('{{'), system);
-  assert.deepEqual(placeIds, ['g1']);
 });
 
 test('describe: a blank appearance leaves nothing of describe-self in the system message', async () => {
-  const { system } = await systemMessageFor('   ');
+  const system = await systemMessageFor('   ');
   assert.ok(system.includes('Caption the picture.'), system);
-  assert.ok(!system.includes('Mira'), system);
+  assert.ok(!system.includes('@self'), system);
   assert.ok(!system.includes('look like'), system);
   assert.ok(!system.includes('{{'), system);
+});
+
+test('describe: a caption that names her by @self is stored as the model wrote it', async () => {
+  // Bug: the describer puts a name into the stored caption, and a rename or a second root shows the wrong name.
+  const store = createStore(memoryAt(tmpDataDir()));
+  const describer = createDescriber({
+    hot: selfHot('tall, silver hair'),
+    store,
+    llm: fakeLlm({ text: '@self waves at the camera.' }),
+    imageFetcher: fakeImageFetcher(),
+  });
+  await describer.describe('g1', pictureItem('a1'));
+  assert.equal(loose(cacheView(store, 'g1')).a1.text, '@self waves at the camera.');
 });
 
 // --- Animated custom emoji and stickers ------------------------------------------

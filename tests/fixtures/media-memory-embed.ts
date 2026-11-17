@@ -20,7 +20,8 @@ export const embedWords = (text: string): Float32Array => {
 
 /** One run of the embedding queue over the fake embedder: what it did and the texts it asked for. */
 export async function embedLines(
-  env: Env
+  env: Env,
+  selfName = 'Self'
 ): Promise<{ embedded: number; written: number; skipped: number; asked: Array<string> }> {
   const asked: Array<string> = [];
   const done = await embedMedia({
@@ -35,6 +36,7 @@ export async function embedLines(
     quantize,
     model: MODEL,
     limit: 50,
+    selfName,
   });
   return { ...done, asked };
 }
