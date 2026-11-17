@@ -204,7 +204,7 @@ Her turns read the same stored lines. `withStoredHistory` in `src/chat/stored-hi
 
 ## Capability menus
 
-No panel asks the owner about a tool call. An agent's mode (`read`, `write`, `full` or `sudo`, `/agent mode`) is set in advance and becomes the sandbox of its run (`src/subharness/control.ts`), and a headless backend cannot stop to ask. Her own tools are decided by grants before the turn (`/tools grant`).
+No panel asks the owner about a tool call. A unit's mode (`read`, `write`, `full` or `sudo`, `/agent mode`) is set in advance and becomes the sandbox of its run (`src/subharness/control.ts`), and a headless backend cannot stop to ask. Her own tools are decided by grants before the turn (`/tools grant`).
 
 `/tools`, `/skills`, `/interfaces` and `/agent` open a menu: the family's list operation as text, where it has one, and a row per subcommand of the command table that prefills the typed command. The `/interfaces` menu has a row per interface its list prints instead, which prefills `/interfaces <name> `. Opening a menu runs only that read, and every change goes through its typed command. `/tools list` names every tool and whether she holds it, and `/tools grants` runs `access.list`, every tool granted to her with the family or `*` it came from. `/tools grant <tool>` and `/tools revoke <tool>` grant a tool to her or take it back, and a family or `*` grants its read tools. Both write her user id under the tool's name in `bot.access`, and both are refused while no interface has said who she is. `/status full` ends with the request limit (`llm.maxRequestTokens`), the core's route and its model through `interfaces/cli/context-line.ts`. The size of the last request is held by no read, so it shows as unknown. The chat offers no context compression, because the core has no such operation.
 
@@ -237,7 +237,9 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Choose where the diary is published | `/mirror` |
 | Review and activate a skill | `/skills` |
 | Show the sources of the agents and log them in or out | `/subharness status`, `/subharness <backend> login`, `/subharness <backend> status`, `/subharness <backend> logout` |
-| Set what an agent may do | `/agent mode <agent> [<mode>]` |
+| List the agents | `/agents` |
+| Switch an agent on or off | `/agent enable <name>`, `/agent disable <name>` |
+| Set what the agents of a unit may do | `/agent mode <unit> [<mode>]` |
 | Schedule, switch and inspect the scheduled mechanics | `/services` |
 | Cancel the turn over a waiting line, in the chat only | `/queue` |
 | Resume or branch a chat, in the chat only | `/sessions`, `/sessions resume <id>`, `/branch` |
@@ -348,7 +350,7 @@ On every other command `--secret-stdin` is ordinary text. `keys add` and `keys s
 
 ## Diagnostics
 
-`/doctor` and `neptunia doctor` run the checks of the installation with the core up or down: `node`, `binaries`, `config`, `local-layer`, `keys`, `tokens`, `routes`, `database`, `agents` and `readiness`. `routes` sends one minimal request on every route of each model role's chain (`src/setup/route-health.ts`), fails when every route of the core, the memory writer or the analyzer fails, and warns while no harness is logged in, naming `neptunia subharness <backend> login`. The check `readiness` says whether a chat would open and names each repair, as in [setup](setup.md#chat-readiness), a core that is down included, so the doctor reports a stopped core once. `agents` warns for each folder under `data/agents/` that names no shared agent, with the folder and the code `no-shared-definition`. The last check, `runtime`, is the core's own reading of the server, itself and the memory. It is left out while no core answers, and `skipped` when a core does not answer within 5 seconds. `/doctor server`, `/doctor core` and `/doctor memory` read one of the three from the core (`src/health/`), ask no model, write nothing and exit `1` with no core. `/doctor live` holds `providers` in place of `runtime`: the core sends one test request for each model role. `neptunia doctor --json` prints the checks as `{ checks: [{ name, status, detail }] }`, and any check that is `fail` exits `1`.
+`/doctor` and `neptunia doctor` run the checks of the installation with the core up or down: `node`, `binaries`, `config`, `local-layer`, `keys`, `tokens`, `routes`, `database`, `agents` and `readiness`. `routes` sends one minimal request on every route of each model role's chain (`src/setup/route-health.ts`), fails when every route of the core, the memory writer or the analyzer fails, and warns while no harness is logged in, naming `neptunia subharness <backend> login`. The check `readiness` says whether a chat would open and names each repair, as in [setup](setup.md#chat-readiness), a core that is down included, so the doctor reports a stopped core once. `agents` loads every agent on disk and fails, naming the agent and the key, on a profile that cannot be used. The last check, `runtime`, is the core's own reading of the server, itself and the memory. It is left out while no core answers, and `skipped` when a core does not answer within 5 seconds. `/doctor server`, `/doctor core` and `/doctor memory` read one of the three from the core (`src/health/`), ask no model, write nothing and exit `1` with no core. `/doctor live` holds `providers` in place of `runtime`: the core sends one test request for each model role. `neptunia doctor --json` prints the checks as `{ checks: [{ name, status, detail }] }`, and any check that is `fail` exits `1`.
 
 ## Logs
 
@@ -378,7 +380,7 @@ On every other command `--secret-stdin` is ordinary text. `keys add` and `keys s
 
 ## Other entry points
 
-`neptunia setup` performs installation, as one flow with no step of its own to name. `neptunia errand-runner --profile <scout|server>` is what `neptunia-agent-scout.service` and `neptunia-agent-server.service` start: the runner of one errand agent, which takes its socket and output folder from `agents.<name>.socket` and `agents.<name>.out` and ends its open errands on SIGTERM. `neptunia interface run <name>` starts a platform package and stays singular, because a unit starts it. `neptunia services start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone and never name a mechanic.
+`neptunia setup` performs installation, as one flow with no step of its own to name. `neptunia errand-runner --unit <web|host>` is what `neptunia-agent-web.service` and `neptunia-agent-host.service` start: the runner of every agent whose profile names that unit, which takes its socket and output folder from the unit's name and ends its open errands on SIGTERM. `neptunia interface run <name>` starts a platform package and stays singular, because a unit starts it. `neptunia services start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone and never name a mechanic.
 
 `/status` needs a core connection. For service logs, use the systemd scope selected during [setup](setup.md#services).
 
