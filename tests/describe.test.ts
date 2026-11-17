@@ -3062,11 +3062,22 @@ function selfHot(appearance: string) {
 async function systemMessageFor(appearance: string) {
   const store = createStore(memoryAt(tmpDataDir()));
   const llm = fakeLlm({ text: 'A woman with silver hair.' });
-  const describer = createDescriber({ hot: selfHot(appearance), store, llm, imageFetcher: fakeImageFetcher() });
+  const placeIds: Array<string> = [];
+  const selfName = (placeId: string) => {
+    placeIds.push(placeId);
+    return 'Mira';
+  };
+  const describer = createDescriber({
+    hot: selfHot(appearance),
+    store,
+    llm,
+    imageFetcher: fakeImageFetcher(),
+    selfName,
+  });
   await describer.describe('g1', pictureItem('a1'));
   const [call] = llm.calls;
   const [system] = call.messages;
-  return String(system.content);
+  return { system: String(system.content), placeIds };
 }
 
 test('describe: a picture keeps every paragraph of the answer, joined into one line', async () => {
@@ -3108,21 +3119,84 @@ test('relookImage: the answer goes to summarize with 1500 and kind text, and its
   assert.equal(loose(result).text, 'no charger');
 });
 
-// Changed with the owner's approval on 2026-11-17: one description is stored per file while her name differs per root
-// and can change, so the vision model names the figure by the marker `@self` and the describer is given no name.
-test('describe: the system message of a picture names the matching figure @self and holds her appearance, no name', async () => {
-  const system = await systemMessageFor('tall, silver hair, {{name}} wears a green scarf');
-  assert.ok(system.includes('The picture may show you, @self.'), system);
-  assert.ok(system.includes('tall, silver hair, @self wears a green scarf'), system);
+test('describe: the system message of a picture holds her name and her appearance, with no placeholder left', async () => {
+  const { system, placeIds } = await systemMessageFor('tall, silver hair, a green scarf');
+  assert.ok(system.includes('Mira'), system);
+  assert.ok(system.includes('tall, silver hair, a green scarf'), system);
   assert.ok(!system.includes('{{'), system);
+  assert.deepEqual(placeIds, ['g1']);
 });
 
 test('describe: a blank appearance leaves nothing of describe-self in the system message', async () => {
-  const system = await systemMessageFor('   ');
+  const { system } = await systemMessageFor('   ');
   assert.ok(system.includes('Caption the picture.'), system);
-  assert.ok(!system.includes('@self'), system);
+  assert.ok(!system.includes('Mira'), system);
   assert.ok(!system.includes('look like'), system);
   assert.ok(!system.includes('{{'), system);
+});
+
+// The owner on 2026-11-17: the vision model reads her name, and the describer stores `@self` in its place, because one
+// description is kept per file while her name differs per root and can change.
+async function storedCaption(answer: string, item: Record<string, Untyped>, name: string | null = 'Mira') {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const describer = createDescriber({
+    hot: selfHot('tall, silver hair'),
+    store,
+    llm: fakeLlm({ text: answer }),
+    imageFetcher: fakeImageFetcher(),
+    selfName: () => name ?? '',
+  });
+  const result = await describer.describe('g1', item);
+  const itemId = String(item.itemId);
+  return { returned: loose(result).text, stored: loose(cacheView(store, 'g1'))[itemId].text };
+}
+
+test('describe: her name in a caption is returned and stored as @self', async () => {
+  // Bug: the cache keeps the name of one root, and another root or a rename reads the wrong name.
+  const { returned, stored } = await storedCaption(
+    'Mira waves at the camera, and behind Mira a cat sleeps.',
+    pictureItem('a1')
+  );
+  assert.equal(stored, '@self waves at the camera, and behind @self a cat sleeps.');
+  assert.equal(returned, stored);
+});
+
+test('describe: a longer word that contains her name stays in the stored caption', async () => {
+  // Bug: a substring replace turns `Miranda` into `@selfnda`.
+  const { stored } = await storedCaption('Miranda holds a sign that reads Mira.', pictureItem('a1'));
+  assert.equal(stored, 'Miranda holds a sign that reads @self.');
+});
+
+test('describe: a caption in a place where no name is known is stored unchanged', async () => {
+  // Bug: an empty name matches everywhere and scatters the marker through the caption.
+  const { stored } = await storedCaption('A woman with silver hair waves.', pictureItem('a1'), null);
+  assert.equal(stored, 'A woman with silver hair waves.');
+});
+
+test('describe: a caption without her name is stored unchanged', async () => {
+  const { stored } = await storedCaption('A street at night, a man in a red coat.', pictureItem('a1'));
+  assert.equal(stored, 'A street at night, a man in a red coat.');
+});
+
+test('describe: her name in a still sticker caption is stored as @self', async () => {
+  // Bug: the replacement runs on attachments only, and a sticker of her keeps the name.
+  const { stored } = await storedCaption(
+    'Mira gives a thumbs up.',
+    pictureItem('sticker:s1', { kind: 'sticker', url: 'https://media.discordapp.net/stickers/s1.png?size=160' })
+  );
+  assert.equal(stored, '@self gives a thumbs up.');
+});
+
+test('describe: her name in a still custom emoji caption is stored as @self', async () => {
+  const { stored } = await storedCaption(
+    'Mira laughing.',
+    pictureItem('emoji:e1', {
+      source: 'emoji',
+      kind: 'emoji',
+      url: 'https://cdn.discordapp.com/emojis/e1.webp?size=96',
+    })
+  );
+  assert.equal(stored, '@self laughing.');
 });
 
 // --- Animated custom emoji and stickers ------------------------------------------
