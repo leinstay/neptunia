@@ -8,6 +8,8 @@
 // reader, and no text she reads holds a token or a platform name.
 
 import { nameEmojiTokens } from './emoji.ts';
+import { log } from '../log.ts';
+import { emojiTokensListed } from '../protocol/index.ts';
 import type { Adapter, FetchedMessage } from '../protocol/adapter.ts';
 import type { MediaName, MediaNameItem } from '../memory/store-media-names.ts';
 
@@ -27,8 +29,8 @@ const itemOf = (value: object): MediaNameItem => {
   return { nativeId: String(id), platformName: String(name), animated: animated === true };
 };
 
-/** The stable name of the token `<emoji:ID>`. The protocol lists every token's id in `emojis`, so a miss is a broken
- * interface. */
+/** The stable name of the token `<emoji:ID>`. The door and a read pass only a message whose every token names an entry
+ * of `emojis` (emojiTokensListed), so a miss is a broken interface. */
 function stableNameOf(byId: ReadonlyMap<string, string>, id: string): string {
   const name = byId.get(id);
   if (name === undefined) throw new Error(`emoji token ${id} has no entry in emojis`);
@@ -115,9 +117,12 @@ function nameFetched(found: FetchedMessage, names: MediaNamer): FetchedMessage {
 export function withStableNames<TPort extends Adapter>(adapter: TPort, names: MediaNamer): TPort {
   const history: Adapter['history'] = async (chat, query) => {
     const answer = await adapter.history(chat, query);
-    return answer.status === 'ok'
-      ? { ...answer, events: answer.events.map((event) => nameEventMedia(event, names)) }
-      : answer;
+    if (answer.status !== 'ok') return answer;
+    // The door refuses a live message whose token names no entry; a read leaves such an event out by the same rule.
+    const listed = answer.events.filter((event) => emojiTokensListed(event.message));
+    const dropped = answer.events.length - listed.length;
+    if (dropped > 0) log.warn('history: events left out for an unlisted emoji token', { iface: chat.iface, dropped });
+    return { ...answer, events: listed.map((event) => nameEventMedia(event, names)) };
   };
   const fetchMessages: Adapter['fetchMessages'] = async (chat, messageIds, options) => {
     const answer = await adapter.fetchMessages(chat, messageIds, options);
