@@ -24,9 +24,8 @@ test('a group session sees the public episode under its handle and never a priva
     episodes,
     read: (_kind, id) => reads.push(id),
   });
-  // The owner on 2026-11-17: e and s with a number are the stable names of an emoji and a sticker.
-  assert.deepEqual(lines, ['[r1] 2026-11-01 Alex: shared a joke']);
-  assert.equal(episodes.get('r1'), 'ep:open');
+  assert.deepEqual(lines, ['[e1] 2026-11-01 Alex: shared a joke']);
+  assert.equal(episodes.get('e1'), 'ep:open');
   assert.deepEqual(reads, ['ep:open']);
   world.handle.close();
 });

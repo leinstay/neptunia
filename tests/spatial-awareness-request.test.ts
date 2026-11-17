@@ -119,7 +119,8 @@ test('a diary post never tells her she is in a virtual world of her own', () => 
       whereabouts: placeIn('general'),
     })
   );
-  assert.ok(!spatialOf(request).includes('MARK-OWN-WORLD'), spatialOf(request));
+  const spatial = spatialOf(request) ?? '';
+  assert.ok(!spatial.includes('MARK-OWN-WORLD'), spatial);
 });
 
 test('the clock leaves <now> when the block carries it, so the time appears once', () => {

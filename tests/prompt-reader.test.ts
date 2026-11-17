@@ -25,6 +25,8 @@ import { shippedLabels } from './fixtures/shipped-labels.ts';
 import { handleOf } from '../src/behavior/handles.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createSends } from '../src/turn/sends.ts';
+import { stretchText } from '../src/behavior/recall.ts';
+import { mediaNamesOf } from './fixtures/media-namer.ts';
 
 const TIMEZONE = 'Europe/Moscow';
 const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart', relation: 'ΣΧΕΣΗ-ΕΛΕΝΗΣ' });
@@ -721,4 +723,40 @@ test('<place> and the entry in <places> give a direct chat one reference, and a 
   });
   const dmHandle = [...(elsewhere.channelHandles ?? [])].find(([, chat]) => chat === 'd-zoe')?.[0] ?? '';
   assertShortHead(headLine(elsewhere), dmHandle, [`@${handleOf(PARTNER.personId)}`, 'Agora Net']);
+});
+
+// The rule of 2026-11-17: one `<media>` block per request, one line per thing. A stretch she looked up stands in
+// `<recall>` with bare stable names, and their lines join the root `<media>`; a tool result read on its own keeps its
+// legend. The emoji and its names are the test's.
+const LANTERN = {
+  name: 'e5',
+  kind: 'emoji' as const,
+  iface: 'fake',
+  nativeId: '505',
+  platformName: 'φαναράκι',
+  animated: false,
+};
+const LANTERN_NAMES = mediaNamesOf([LANTERN]);
+
+/** A tool result's stretch as memory.search gives it: its own legend, then the line that names `:e5:`. */
+const LANTERN_STRETCH = stretchText(
+  [{ id: 'm50', text: '[10:00] Ελένη: ΦΑΝΟΣ :e5:' }],
+  [{ id: 'm50', content: 'ΦΑΝΟΣ :e5:', emojis: [{ id: '505', name: 'e5' }] }],
+  shippedLabels,
+  LANTERN_NAMES
+);
+
+test('a looked-up stretch that names an emoji puts its line in the root <media> and prints no <media> in <recall>', () => {
+  // Bug: `<recall>` keeps the tool result's own legend, so the request holds two `<media>` blocks and the thing twice.
+  const built = request({ lookups: [{ ...LOOKUP, extract: LANTERN_STRETCH }], mediaNameOf: LANTERN_NAMES });
+  const user = userOf(built);
+  assert.match(block(built, 'recall'), /ΦΑΝΟΣ :e5:/);
+  assert.doesNotMatch(block(built, 'recall'), /media>/, 'no legend in <recall>, escaped or not');
+  assert.equal(user.match(/^<media>$/gm)?.length, 1, 'one <media> block');
+  assert.match(block(built, 'media'), /:e5: φαναράκι/);
+});
+
+test('a stretch read by a tool outside her request keeps its own <media> legend before its line', () => {
+  // Bug: the fix of `<recall>` strips the legend from the tool result too, and the result names a bare code.
+  assert.match(LANTERN_STRETCH, /^<media>\n[\s\S]*:e5: φαναράκι[\s\S]*<\/media>\n\[10:00\] Ελένη: ΦΑΝΟΣ :e5:$/);
 });
