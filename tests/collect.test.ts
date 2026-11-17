@@ -421,6 +421,34 @@ test('normalizeMessage: seven distinct custom emoji give seven tokens and seven 
   );
 });
 
+// Seen on production on 2026-11-17: a token whose id the message's emojis do not hold stopped a read of history.
+test('normalizeMessage: emoji markup in a mentioned member display name stays text and gives no token', () => {
+  const raw = rawMessage({ content: 'hi <@u2> <:pog:111>', cleanContent: 'hi @Bob<:fake:999> :pog:' });
+  const m = normalizeMessage(raw, 'self');
+  assert.equal(m.content, 'hi @Bob<:fake:999> <emoji:111>');
+  assert.deepEqual(
+    m.emojis.map((e) => e.id),
+    ['111']
+  );
+});
+
+// Seen on production on 2026-11-17: a token whose id the message's emojis do not hold stopped a read of history.
+test('normalizeMessage: emoji markup in a channel name of a forwarded part stays text and gives no token', () => {
+  const snapshot = {
+    id: 'snap1',
+    content: 'see <#c9>',
+    cleanContent: 'see #room<a:spin:888>',
+    attachments: new Map(),
+    embeds: [],
+    stickers: new Map(),
+    flags: flagsWith([]),
+  };
+  const raw = rawMessage({ cleanContent: '', messageSnapshots: new Map([['snap1', snapshot]]) });
+  const [part] = normalizeMessage(raw, 'self').forwarded;
+  assert.equal(part.content, 'see #room<a:spin:888>');
+  assert.deepEqual(part.emojis, []);
+});
+
 test("normalizeMessage: reactions are read with count and the bot's own mark", () => {
   const raw = rawMessage({
     reactions: {
