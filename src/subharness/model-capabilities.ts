@@ -12,7 +12,7 @@ import type { BackendName } from '../agent-runner/profiles.ts';
 import { opencodeKey, readRouting } from './routing.ts';
 import { harnessPathOf } from './memory-path.ts';
 import { roleModelListing } from '../keys/models.ts';
-import { BASE_ROLES, MEMORY_ROLE } from '../llm/roles.ts';
+import { BASE_ROLES, DISPATCHER_ROLE, MEMORY_ROLE } from '../llm/roles.ts';
 import { FIXED_MODELS } from './models.ts';
 import { effortLevelsOfHelp } from './place.ts';
 import { sourceState } from './sources.ts';
@@ -65,7 +65,17 @@ export type CapabilityDeps = {
 };
 
 /** Main's display order and names. `Voice` is the display name of the role `speech`, whose chain is `models.routes.speech`. */
-const MAIN_ROLES = ['core', 'drawing', 'speech', 'memory', 'analyzer', 'vision', 'video', 'embedding'] as const;
+const MAIN_ROLES = [
+  'core',
+  'drawing',
+  'speech',
+  'memory',
+  'analyzer',
+  'vision',
+  'video',
+  'embedding',
+  DISPATCHER_ROLE,
+] as const;
 const LABELS: Readonly<Record<string, string>> = { speech: 'Voice' };
 
 const labelOf = (role: string): string => LABELS[role] ?? `${role.charAt(0).toUpperCase()}${role.slice(1)}`;
@@ -217,7 +227,8 @@ function currentOf(privateDir: string, role: string): RoleSources['current'] {
   };
 }
 
-const isApiRole = (role: string): boolean => role === MEMORY_ROLE || BASE_ROLES.includes(role);
+const isApiRole = (role: string): boolean =>
+  role === MEMORY_ROLE || role === DISPATCHER_ROLE || BASE_ROLES.includes(role);
 
 /** The sources of `role` as they stand now: the direct path first where the role has one, then every backend. */
 export async function roleSources(deps: CapabilityDeps, role: string): Promise<RoleSources> {
