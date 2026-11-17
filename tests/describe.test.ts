@@ -2348,8 +2348,6 @@ test('describe: pictures and videos are untouched by the GIF watch', async () =>
   assert.equal(run.videoFetcher.calls[0].fn, 'fetchAttachment');
 });
 
-// --- watchGif: the recache's re-description ---------------------------------
-
 // --- The GIF watch's own prompt ----------------------------------------------
 
 test('describe: a GIF watch uses describe-gif when present, with {{maxChars}} and {{seconds}}', async () => {

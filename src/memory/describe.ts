@@ -707,7 +707,7 @@ function buildDescriber({
   /**
    * The uncached part of describe(): the GIF watch, else the download and
    * the request; the cache is written here. `previous` is the cached entry
-   * being described again (a stale or recached caption), else null: on a
+   * being described again (a stale caption), else null: on a
    * failure it is kept (its text returned as a cached result marked `kept`,
    * the entry stamped `refreshFailedAt` unless the daily cap refused the
    * request) instead of a miss being cached.

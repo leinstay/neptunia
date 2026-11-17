@@ -91,7 +91,7 @@ export {
  * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: the `inner` field of the owner's status
  *   card. Absent -> that field says the inner life is not running.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
- * `dataDir` — the data directory `memory.snapshot` writes its copy of the memory database under: src/index.ts passes the one it
+ * `dataDir` — the data directory a skill's run and an errand's file are read under: src/index.ts passes the one it
  *   resolved (src/paths.ts, `NEPTUNIA_DATA_DIR`); default `<hot.rootDir>/data`.
  *
  * `run(op, args, context)` throws a plain `Error` (operator-facing message) on bad input; the
