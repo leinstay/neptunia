@@ -135,6 +135,7 @@ import { createOwnerAccounts } from './memory/db/person-links.ts';
 import { createReads } from './interface/reads.ts';
 import { freshAttachmentUrl } from './media/gif-post.ts';
 import type { AttachedGif } from './memory/describe.ts';
+import { describeDrawn } from './memory/describe.ts';
 import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
@@ -992,6 +993,10 @@ async function buildCore(
   const personLinks = createPersonLinks({ hot, memoryDb, port: iface, now: clock });
   const turns = createTurnRunner({
     personLinks,
+    // Her eyes on a picture she drew: a posted one through its attachment, cached under the place her chat window
+    // reads (the top of the chat's tree), a staged one from its bytes alone.
+    describePicture: (picture) =>
+      describeDrawn(describer, { ...picture, placeId: store.rootPlaceOf(picture.placeId) ?? picture.placeId }),
     // The lines of a turn's chat, stored when memory lacks them, by the message handler built below.
     keepLines: (events) => onMessage.keepLines(events),
     track: loopWatch.track,

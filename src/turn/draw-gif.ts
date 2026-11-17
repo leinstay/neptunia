@@ -82,8 +82,27 @@ type DrawResult = {
   ref?: unknown;
   at?: number;
   error?: unknown;
-  data: { text: string };
+  data: { text: string; description?: string; descriptionFailed?: true };
 };
+
+/** A picture her eyes are asked to look at, in the place of its chat: the posted attachment (`messageId`, `itemId`, `url`) or a staged picture's bytes. */
+export type PictureToDescribe = {
+  placeId: string;
+  messageId?: string;
+  itemId?: string;
+  url?: string;
+  buffer?: Buffer;
+  mediaType?: string;
+};
+
+/** Her eyes on a picture she drew: the description, null when they saw nothing. */
+export type DescribePicture = (picture: PictureToDescribe) => Promise<string | null>;
+
+/** The message and attachment id of the one file a send posted, when the interface said. */
+function postedFile(result: PortResult): { messageId?: string; itemId?: string } {
+  const file = result?.attachments?.[0];
+  return file ? { messageId: file.messageId, itemId: file.attachmentId } : {};
+}
 
 /** A diary post's staged picture. */
 type Staged = { picture: Picture; self: boolean; text: string };
@@ -115,6 +134,7 @@ export type DrawGifContext = {
   checkEffect: (skill: string, args: unknown, at: { channel: PostChannel; trigger?: unknown }) => EffectVerdict;
   lastPostAt: Map<string, number>;
   diaryPictureGate: (config: DrawGifConfig, channel: ChatInfo, now: number) => PictureGate;
+  describePicture?: DescribePicture;
 };
 
 /** The trigger of a turn, as a picture or a GIF reads it. */
@@ -172,7 +192,24 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     checkEffect,
     lastPostAt,
     diaryPictureGate,
+    describePicture,
   } = ctx;
+
+  /**
+   * What her eyes saw of `picture`, as the data of a draw.create result: `description`, or `descriptionFailed` when
+   * they answered nothing or threw. Without eyes the data holds neither.
+   */
+  async function seenData(picture: PictureToDescribe): Promise<DrawResult['data']> {
+    if (!describePicture) return { text: '' };
+    try {
+      const description = await describePicture(picture);
+      return description ? { text: '', description } : { text: '', descriptionFailed: true };
+    } catch (err) {
+      // A vision request that failed: the picture stands, she learns it was not looked at.
+      log.warn('turn: draw look failed', { channel: picture.placeId, error: err });
+      return { text: '', descriptionFailed: true };
+    }
+  }
 
   /**
    * One picture (src/media/draw.ts#drawPicture): her scene verbatim into the drawing prompt, the avatar reference for a
@@ -329,7 +366,12 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
       if (staging) {
         (draft ? (draft.staged ??= []) : []).push({ picture, self, text: scene });
-        return { status: 'ok', code: CODE.STAGED, data: none };
+        const data = await seenData({
+          placeId: placeOfChat(store, channel),
+          ...(picture.buffer ? { buffer: picture.buffer } : {}),
+          mediaType: picture.mediaType,
+        });
+        return { status: 'ok', code: CODE.STAGED, data };
       }
       const name = imageFileName(picture.mediaType);
       // Checked again right before the publication: generated or not, a refused picture is not posted.
@@ -360,7 +402,12 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         status: 'ok',
         ref: result.ref ?? null,
         ...(Number.isFinite(result.at) ? { at: result.at as number } : {}),
-        data: none,
+        data: await seenData({
+          placeId: placeOfChat(store, { iface: channel.iface, ...target }),
+          ...postedFile(result),
+          ...(picture.buffer ? { buffer: picture.buffer } : {}),
+          mediaType: picture.mediaType,
+        }),
       };
     } catch (err) {
       // A thrown value is anything; an operation's refusal (src/tools/operations/shared.ts, OpError) carries its result.

@@ -56,6 +56,8 @@ export type PortResult =
       error?: { code?: string; cause?: unknown } | null;
       ref?: { messageId?: string | null } | null;
       at?: unknown;
+      // The files the send posted (src/protocol/adapter.ts, Delivery); absent when the interface does not say.
+      attachments?: ReadonlyArray<{ messageId: string; attachmentId: string }>;
     }
   | null
   | undefined;

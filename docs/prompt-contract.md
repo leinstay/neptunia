@@ -252,6 +252,8 @@ Her link tool `person.link` (definition in `src/tools/definitions.ts`, text in `
 
 The following table is generated from the code catalogue. Regenerate it with `node scripts/labels-catalogue.ts --write` and check it with `npm run check:codes`.
 
+A `draw.create` result carries what her eyes saw on the finished picture. `toolResultText` writes its `data.description` after the data through `tools.result.seen`, with `{description}`, and a look that failed through `tools.result.unseen`, which has no placeholder.
+
 When a result's `values.reason` has wording in `tools.result.params.reason`, `reasonText` adds it after the code's wording and a colon. Quick search's `not-configured` and `provider` use this to say which cause holds.
 
 
