@@ -87,7 +87,8 @@ test('store: /nep resume checks only the operational JSON files', async () => {
       ['state.json', false],
       ['usage.json', false],
       ['vault/x/places/1/users/2.json', true],
-      ['snapshots/a/b.json', true],
+      // Changed: no folder of snapshots is written, so its files are no operational ones.
+      ['snapshots/a/b.json', false],
       [`places/${GUILD}/gifs.json`, false],
       [`places/${GUILD}/media.json`, false],
       [`places/${GUILD}/participation.json`, false],

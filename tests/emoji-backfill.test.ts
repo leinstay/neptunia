@@ -122,7 +122,7 @@ test("emoji backfill run: counts members' emoji over every readable channel, bot
   });
 });
 
-test('emoji backfill run: a second run without force is a no-op and never double-counts', async () => {
+test('emoji backfill run: a second run is a no-op and never double-counts', async () => {
   await withStore(async (store: Untyped) => {
     const log = fakeLog();
     const world = worldOf(standardRooms());
@@ -136,28 +136,6 @@ test('emoji backfill run: a second run without force is a no-op and never double
     assert.deepEqual(second, { ok: false, reason: 'done' });
     assert.equal(store.getPlace('g1').emojiUsage['111'].count, 2);
     assert.equal(world.asked('history').length, fetchesAfterFirst, 'no history read on the no-op');
-  });
-});
-
-test('emoji backfill run: force clears emojiUsage and recounts from history', async () => {
-  await withStore(async (store: Untyped) => {
-    const backfill = createEmojiBackfill({
-      ...depsOf(worldOf(standardRooms())),
-      // @ts-expect-error: createEmojiBackfill takes no `hot` dependency, so the key is ignored
-      hot: fakeHot(),
-      store,
-      log: fakeLog(),
-    });
-
-    await backfill.run(placeOfRoot(backfill, 'g1'));
-    // An entry the history no longer shows (e.g. counted before) disappears on a forced rescan.
-    store.recordEmojiUsage('g1', [{ id: 'x', ts: T0, emojis: [{ id: '999', name: 'stale' }] }]);
-    const result = await backfill.run(placeOfRoot(backfill, 'g1'), { force: true });
-
-    assert.deepEqual(result, { ok: true, channels: 2, messages: 5, emoji: 5 });
-    const usage = store.getPlace('g1').emojiUsage;
-    assert.deepEqual(Object.keys(usage).sort(), ['111', '222']);
-    assert.equal(usage['111'].count, 2, 'recounted, not added to the first run');
   });
 });
 
@@ -220,7 +198,7 @@ test('emoji backfill run: refused while paused and while another run is in fligh
 
     const first = backfill.run(placeOfRoot(backfill, 'g1'));
     assert.equal(backfill.isRunning(), true);
-    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1'), { force: true }), {
+    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1')), {
       ok: false,
       reason: 'running',
     });

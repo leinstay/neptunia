@@ -83,7 +83,8 @@ test('the table names registered operations, in the operations registry order, a
   // Changed: 59 since eight tools left her list and stayed operations of the owner's console (2026-11-17).
   // Changed: 55 since `alias.add`, `alias.remove`, `learning.add` and `learning.remove` left with their commands.
   // Changed: 53 since `pings.get` and `pings.set` left with the members' ping states.
-  assert.equal(SKILL_DEFINITIONS.length, 53);
+  // Changed: 49 since `media.status`, `media.rescan`, `media.recache` and `memory.snapshot` left with their operations.
+  assert.equal(SKILL_DEFINITIONS.length, 49);
   const names = SKILL_DEFINITIONS.map((definition) => definition.name);
   const ops = listOps().map((op) => op.name);
   // Changed: an operation of the console alone has no entry, so the table is the registry less those, in its order.
@@ -199,7 +200,6 @@ test('the quirks of the mapping are kept', () => {
     placeId: '5',
   });
   assert.deepStrictEqual(BY_NAME.get('errand.read')?.toArgs({ id: 'i' }), { id: 'i', action: 'read', from: undefined });
-  assert.deepStrictEqual(BY_NAME.get('media.status')?.toArgs({ kind: 'gifs' }), { kind: 'gifs', action: 'status' });
   assert.deepStrictEqual(intentArgs('add')({ text: 't', settle: 0, place: 7 }), {
     action: 'add',
     text: 't',
@@ -210,9 +210,10 @@ test('the quirks of the mapping are kept', () => {
   assert.equal(BY_NAME.get('intention.update')?.params, INTENT_PARAMS.update);
 });
 
-test('the result of a skill: job for the two background ones, data for a read, effect for the rest', () => {
+// Changed: `errand.run` is the one background tool, since `media.recache` left her tools.
+test('the result of a skill: job for the background one, data for a read, effect for the rest', () => {
   for (const definition of SKILL_DEFINITIONS) {
-    const expected = ['errand.run', 'media.recache'].includes(definition.name)
+    const expected = ['errand.run'].includes(definition.name)
       ? 'job'
       : definition.effects === 'read'
         ? 'data'
@@ -221,7 +222,7 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 53, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 49, well-formed, unique, a round trip, no longer than 64', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
   // Changed: task.unblock is the 77th tool.
@@ -232,8 +233,9 @@ test('the API names: 53, well-formed, unique, a round trip, no longer than 64', 
   // Changed: 59 since eight tools left her list for the owner's console (2026-11-17).
   // Changed: 55 since the alias and lesson writes left with their commands.
   // Changed: 53 since the ping states left.
-  assert.equal(apis.length, 53);
-  assert.equal(new Set(apis).size, 53);
+  // Changed: 49 since the media tools and memory.snapshot left.
+  assert.equal(apis.length, 49);
+  assert.equal(new Set(apis).size, 49);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);

@@ -355,7 +355,6 @@ const handlers = perEnv((env) => {
     errands,
     emojiBackfill,
     gifBackfill,
-    gifRecache,
     freshenIfPaused,
     imageModelLabel,
     llm,
@@ -380,14 +379,13 @@ const handlers = perEnv((env) => {
     return typeof pending === 'number' && Number.isFinite(pending) ? pending : 0;
   }
 
-  /** The long-tasks field: the history backfills and the GIF recache running, and what the archive
-   * drain still holds; `none` when nothing runs. */
+  /** The long-tasks field: the history backfills running, and what the archive drain still holds; `none` when
+   * nothing runs. */
   function longTasksValue(): string {
     const parts: Array<string> = [];
     for (const [job, name] of [
       [emojiBackfill, 'emoji backfill'],
       [gifBackfill, 'GIF backfill'],
-      [gifRecache, 'GIF recache'],
     ]) {
       if (job?.isRunning?.() === true) parts.push(`${name} running`);
     }

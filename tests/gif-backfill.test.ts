@@ -13,7 +13,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 import { createGifBackfill } from '../src/memory/gif-backfill.ts';
-import { gifOpts } from '../src/memory/gifs.ts';
 import { createStore } from '../src/memory/store.ts';
 import { normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -209,7 +208,7 @@ test("gif backfill run: counts everyone's gifs over every readable channel, a bo
   });
 });
 
-test('gif backfill run: a second run without force is a no-op and never double-counts', async () => {
+test('gif backfill run: a second run is a no-op and never double-counts', async () => {
   await withStore(async (store: GifStore) => {
     const log = fakeLog();
     const world = fakeClient(standardChannels());
@@ -249,60 +248,6 @@ test('gif backfill run: the first run resets what was recorded on arrival, never
     assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 'https://tenor.com/view/gone-9': 0 });
     assert.equal(store.getGifs().entries['1001#e0'].id, 'g1', 'the arrival handle is kept');
     assert.equal(store.getGifs().entries['old#e0'].id, 'g2');
-  });
-});
-
-test('gif backfill run: keep handles across a rescan', async () => {
-  await withStore(async (store: GifStore) => {
-    const hot = fakeHot();
-    const backfill = createGifBackfill(
-      wrongly({ ...depsOf(fakeClient(standardChannels())), hot, store, log: fakeLog() })
-    );
-
-    await backfill.run(placeOfRoot(backfill, 'g1'));
-    const firstHandles = Object.fromEntries(
-      Object.entries(store.getGifs().entries).map(([key, entry]: [string, Untyped]) => [key, entry.id])
-    );
-    store.recordGifs(placeOfRoot(store, 'g1'), [
-      {
-        id: 'x',
-        ts: T0,
-        placeId: 'c1',
-        attachments: [{ id: '999', kind: 'gif', url: 'https://cdn.discordapp.com/x.gif' }],
-      },
-    ]);
-    const staleHandle = store.getGifs().entries['999'].id;
-    const nextId = store.getGifs().nextId;
-
-    const result = await backfill.run(placeOfRoot(backfill, 'g1'), { force: true });
-    assert.equal(result.ok, true);
-    assert.equal(result.gifs, 7);
-    assert.deepEqual(
-      countsByUrl(store),
-      { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 999: 0 },
-      'fresh counts, never added on top'
-    );
-    const entries = store.getGifs().entries;
-    for (const [key, id] of Object.entries(firstHandles)) assert.equal(entries[key].id, id, `${key} keeps ${id}`);
-    assert.equal(entries['999'].id, staleHandle, 'an entry gone from history keeps its handle with count 0');
-    assert.equal(store.getGifs().nextId, nextId, 'no handle was spent');
-
-    // PR 7d: `gifs.storeMax` is the constant 300, so 297 more GIFs, recorded as the live observer records them, fill the
-    // library past it.
-    store.recordGifs(
-      placeOfRoot(store, 'g1'),
-      Array.from({ length: 297 }, (_, n) => ({
-        id: `y${n}`,
-        ts: T0 + n,
-        placeId: 'c1',
-        attachments: [{ id: `y${n}`, kind: 'gif', url: `https://cdn.discordapp.com/y${n}.gif` }],
-      })),
-      gifOpts()
-    );
-    const kept = countsByUrl(store);
-    assert.equal(Object.keys(kept).length, 300);
-    assert.equal('999' in kept, false, 'the zero-count entry is the first evicted at storeMax');
-    for (const [key, id] of Object.entries(firstHandles)) assert.equal(store.getGifs().entries[key].id, id);
   });
 });
 
@@ -382,7 +327,7 @@ test('gif backfill run: no describer describes nothing', async () => {
         log: fakeLog(),
       })
     );
-    assert.equal(wrongly<{ described: number }>(await none.run(placeOfRoot(none, 'g1'), { force: true })).described, 0);
+    assert.equal(wrongly<{ described: number }>(await none.run(placeOfRoot(none, 'g1'))).described, 0);
   });
 });
 
@@ -422,7 +367,7 @@ test('gif backfill run: refused while paused and while another run is in flight'
 
     const first = backfill.run(placeOfRoot(backfill, 'g1'));
     assert.equal(backfill.isRunning(), true);
-    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1'), { force: true }), {
+    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1')), {
       ok: false,
       reason: 'running',
     });

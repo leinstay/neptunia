@@ -40,31 +40,6 @@
       "reply": "#N or link of the message to reply to."
     }
   },
-  "media.status": {
-    "title": "Emoji and GIF state",
-    "whenToUse": "Reads the custom emoji ranking or the GIF library: how many entries it holds, the top ten with their use counts, when history was last counted and, for GIFs, how their descriptions stand. Choose it when the owner asks about them.",
-    "whenNotToUse": "To find a GIF to post, media.find.",
-    "args": {
-      "kind": "emoji or gifs."
-    }
-  },
-  "media.rescan": {
-    "title": "Rescan emoji or GIFs",
-    "whenToUse": "Resets the use counts of the custom emoji or the GIF library and counts them again from chat history, keeping every entry and handle. The call waits until the count is done.",
-    "whenNotToUse": "For the counts as they stand, media.status.",
-    "args": {
-      "kind": "emoji or gifs."
-    }
-  },
-  "media.recache": {
-    "title": "Recache GIFs or pictures",
-    "whenToUse": "Describes again in the background: gifs re-watches the GIFs of your library, pictures re-describes the picture descriptions an older model wrote that were used in the last days. It answers at once, and one recache runs at a time.",
-    "whenNotToUse": "For how far a GIF recache is, media.status with kind gifs.",
-    "args": {
-      "kind": "gifs or pictures.",
-      "days": "With pictures: days back, 1 to 60, default 7."
-    }
-  },
   "model.set": {
     "title": "Set a model",
     "whenToUse": "Changes the model of one role. It takes effect on the next request.",
@@ -172,10 +147,6 @@
     "title": "Restore from archive",
     "whenToUse": "Puts an archived item back into active memory, replacing what is stored at its position.",
     "whenNotToUse": "Destructive, not grantable to you."
-  },
-  "memory.snapshot": {
-    "title": "Snapshot memory",
-    "whenToUse": "Writes one copy of the memory database for the owner's tools and answers with its path and size. It runs only when the owner asks, or in a turn of your own."
   },
   "memory.private.read": {
     "title": "Read private memory",

@@ -2350,82 +2350,6 @@ test('describe: pictures and videos are untouched by the GIF watch', async () =>
 
 // --- watchGif: the recache's re-description ---------------------------------
 
-test('watchGif: replaces a one-frame caption with a watched one under the same key', async () => {
-  const run = gifDescriber();
-  loose(cacheView(run.store, 'g1'))['m1#e0'] = { text: 'a still', ts: 1, gif: true };
-  const result = await run.describer.watchGif('g1', gifEmbedItem());
-  assert.deepEqual(result, { state: 'watched', text: 'a man pulls a child back as a train rushes past' });
-  const entry = loose(cacheView(run.store, 'g1'))['m1#e0'];
-  assert.equal(entry.watched, true);
-  assert.equal(entry.text, 'a man pulls a child back as a train rushes past');
-});
-
-test('watchGif: an entry already watched is served from the cache, no fetch, no request', async () => {
-  const run = gifDescriber();
-  loose(cacheView(run.store, 'g1'))['m1#e0'] = {
-    text: 'watched before',
-    reaction: '',
-    action: 'watched before',
-    screen: '',
-    ts: 1,
-    watched: true,
-    gif: true,
-  };
-  assert.deepEqual(await run.describer.watchGif('g1', gifEmbedItem()), {
-    state: 'watched',
-    text: 'watched before',
-    cached: true,
-  });
-  assert.equal(run.videoFetcher.calls.length, 0);
-});
-
-test('watchGif: a failed watch keeps the old caption and marks it watchFailed; never one frame', async () => {
-  const run = gifDescriber({ videoFetcher: gifFetcher({ ok: false, reason: 'tool' }) });
-  loose(cacheView(run.store, 'g1'))['m1#e0'] = { text: 'a still', ts: 1, gif: true };
-  assert.deepEqual(await run.describer.watchGif('g1', gifEmbedItem()), { state: 'failed', reason: 'tool' });
-  const entry = loose(cacheView(run.store, 'g1'))['m1#e0'];
-  assert.equal(entry.text, 'a still');
-  assert.equal(typeof entry.watchFailed, 'number');
-  assert.equal(run.imageFetcher.calls.length, 0);
-  assert.equal(run.llm.calls.length, 0);
-});
-
-test('watchGif: an item without an animation fails as source; an uncaptioned GIF gets a marked miss', async () => {
-  const run = gifDescriber();
-  const item: Untyped = gifEmbedItem('m2#e0');
-  delete item.animationUrl;
-  assert.deepEqual(await run.describer.watchGif('g1', item), { state: 'failed', reason: 'source' });
-  const entry = loose(cacheView(run.store, 'g1'))['m2#e0'];
-  assert.equal(entry.miss, true);
-  assert.equal(typeof entry.watchFailed, 'number');
-});
-
-test('watchGif: a request failure is reported with a kebab-case code', async () => {
-  for (const [error, expected] of [
-    [new TokenLimitError('cap'), { state: 'failed', reason: 'token-limit' }],
-    [new Error('boom'), { state: 'failed', reason: 'llm-error' }],
-    [new DailyCapError('day'), { state: 'unavailable', reason: 'daily-cap' }],
-  ]) {
-    const run = gifDescriber({ llm: fakeLlm(error) });
-    assert.deepEqual(await run.describer.watchGif('g1', gifEmbedItem()), expected);
-  }
-});
-
-test('watchGif: with the daily request cap spent nothing is fetched, nothing is marked', async () => {
-  const run = gifDescriber({ llm: cappedLlm(0) });
-  assert.deepEqual(await run.describer.watchGif('g1', gifEmbedItem()), { state: 'unavailable', reason: 'daily-cap' });
-  assert.equal(run.videoFetcher.calls.length, 0);
-  assert.equal(loose(cacheView(run.store, 'g1'))['m1#e0'], undefined);
-});
-
-test('watchGif: unavailable without a watch prompt, nothing marked', async () => {
-  const off = gifDescriber({ hot: gifHot({ prompts: { 'describe-video': undefined } }) });
-  assert.deepEqual(await off.describer.watchGif('g1', gifEmbedItem()), { state: 'unavailable', reason: 'no-prompt' });
-  assert.equal(off.describer.gifWatchBlocker(), 'no-prompt');
-  assert.equal(loose(cacheView(off.store, 'g1'))['m1#e0'], undefined);
-  assert.equal(gifDescriber().describer.gifWatchBlocker(), null);
-});
-
 // --- The GIF watch's own prompt ----------------------------------------------
 
 test('describe: a GIF watch uses describe-gif when present, with {{maxChars}} and {{seconds}}', async () => {
@@ -2557,25 +2481,6 @@ test('describe: gifs.reactionChars and gifs.actionChars never cut the cached fie
   assert.deepEqual(
     [entry.reaction, entry.action, entry.text],
     ['quiet firm agreement', 'a small cat lifts its chin slowly', 'a small cat lifts its chin slowly']
-  );
-});
-
-test('watchGif: an old-format watched entry (no reaction field) is watched again and gains the fields', async () => {
-  const run = gifDescriber({ llm: fakeLlm({ text: 'reaction: waiting\naction: a caracal stares ahead\ntext: none' }) });
-  loose(cacheView(run.store, 'g1'))['m1#e0'] = {
-    text: 'watched before',
-    ts: 1,
-    watched: true,
-    gif: true,
-  };
-  assert.deepEqual(await run.describer.watchGif('g1', gifEmbedItem()), {
-    state: 'watched',
-    text: 'a caracal stares ahead',
-  });
-  const entry = loose(cacheView(run.store, 'g1'))['m1#e0'];
-  assert.deepEqual(
-    [entry.reaction, entry.action, entry.screen, entry.watched],
-    ['waiting', 'a caracal stares ahead', '', true]
   );
 });
 
@@ -2927,33 +2832,6 @@ test('describeVideo: a stale summary whose watch fails keeps its text and waits 
 
   clock.at += 31 * 60 * 1000;
   assert.equal(loose(await describer.describeVideo('g1', videoAttachment())).text, 'enfin');
-});
-
-test('redescribe: describes a picture again whatever its cache holds; a failure keeps the old text; a spent cap or no prompt is unavailable', async () => {
-  const store = createStore(memoryAt(tmpDataDir()));
-  const cache = cacheView(store, 'g1');
-  loose(cache).a1 = { text: 'par un vieux modèle', ts: 1, describedAt: 1, model: 'x/old' };
-  loose(cache).a2 = { text: 'garde-moi', ts: 1 };
-  const llm = fakeLlm([{ text: 'par le nouveau' }, new Error('boom')]);
-  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher(), now: () => 7_000 });
-
-  assert.deepEqual(await describer.redescribe('g1', pictureItem('a1')), { state: 'done' });
-  assert.equal(loose(cache).a1.text, 'par le nouveau');
-  assert.equal(loose(cache).a1.model, 'x/haiku');
-  assert.deepEqual(await describer.redescribe('g1', pictureItem('a2')), { state: 'failed' });
-  assert.equal(loose(cache).a2.text, 'garde-moi');
-
-  const spent = createDescriber({ hot: fakeHot(), store, llm: cappedLlm(0), imageFetcher: fakeImageFetcher() });
-  assert.deepEqual(await spent.redescribe('g1', pictureItem('a1')), { state: 'unavailable', reason: 'daily-cap' });
-  const off = createDescriber({
-    hot: fakeHot({ prompts: { describe: '' } }),
-    store,
-    llm,
-    imageFetcher: fakeImageFetcher(),
-  });
-  assert.deepEqual(await off.redescribe('g1', pictureItem('a1')), { state: 'unavailable', reason: 'no-prompt' });
-  assert.equal(off.pictureBlocker(), 'no-prompt');
-  assert.equal(describer.pictureBlocker(), null);
 });
 
 // --- the measured audio note and the watched length ---------------------------

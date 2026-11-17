@@ -291,8 +291,8 @@ test('skills registry: config/tools.json has the title and when-to-use of every 
 test('skills schemas: her own table gives each skill its arguments', () => {
   const props = (name: string) => Object.keys(skillRegistry().get(name)?.argsSchema.properties ?? {});
   assert.deepEqual(props('memory.profile.read').slice(0, 1), ['user']);
-  assert.deepEqual(props('media.status'), ['kind']);
-  assert.deepEqual(props('media.recache'), ['kind', 'days']);
+  // Changed: `media.status` and `media.recache` left her tools; `memory.read` stands for a tool with arguments.
+  assert.deepEqual(props('memory.read'), ['subject', 'section', 'limit']);
   const create = skillRegistry().get('message.create');
   // Slice 7: the tool argument `channel` is named `place`.
   assert.deepEqual(Object.keys(create?.argsSchema.properties ?? {}), [

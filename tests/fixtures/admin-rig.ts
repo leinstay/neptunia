@@ -84,7 +84,6 @@ const PASSED = [
   'imageFetcher',
   'emojiBackfill',
   'gifBackfill',
-  'gifRecache',
   'archive',
   'journal',
   'llm',

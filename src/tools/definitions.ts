@@ -219,9 +219,8 @@ export function intentArgs(action: string): ToArgs {
 }
 
 const NO_REFS: Readonly<Record<string, RefKind>> = Object.freeze({});
-const JOBS: ReadonlyArray<string> = Object.freeze(['errand.run', 'media.recache']);
+const JOBS: ReadonlyArray<string> = Object.freeze(['errand.run']);
 const ROUTE_ROLES = ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'];
-const MEDIA_PARAMS = (kinds: ReadonlyArray<string>): Schema => obj({ kind: oneOf(kinds) }, ['kind']);
 const ACCESS_PARAMS = () => obj({ command: str() }, ['command']);
 const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), place: ref() }, ['message', 'emoji']);
 const USER_ONLY = () => obj({ user: ref() }, ['user']);
@@ -254,13 +253,6 @@ function def(name: string, { params, refs = NO_REFS, body = null, effects, trait
   };
 }
 
-const mediaArgs =
-  (action: string): ToArgs =>
-  (a) => ({
-    kind: val(a, 'kind'),
-    action,
-    ...(val(a, 'days') == null ? {} : { days: val(a, 'days') }),
-  });
 const accessArgs: ToArgs = (a) => ({ command: val(a, 'command') });
 const reactArgs =
   (action: string): ToArgs =>
@@ -329,13 +321,6 @@ const ENTRIES: Array<Definition> = [
         ...(replyTo === undefined ? {} : { replyTo }),
       };
     },
-  }),
-  def('media.status', { params: MEDIA_PARAMS(['emoji', 'gifs']), effects: 'read', toArgs: mediaArgs('status') }),
-  def('media.rescan', { params: MEDIA_PARAMS(['emoji', 'gifs']), effects: 'write', toArgs: mediaArgs('rescan') }),
-  def('media.recache', {
-    params: obj({ kind: oneOf(['gifs', 'pictures']), days: int(1, 60) }, ['kind']),
-    effects: 'write',
-    toArgs: mediaArgs('recache'),
   }),
   def('model.set', {
     traits: ['ungrantable'],
@@ -477,7 +462,6 @@ const ENTRIES: Array<Definition> = [
     effects: 'destructive',
     toArgs: (a) => ({ itemId: val(a, 'id') }),
   }),
-  def('memory.snapshot', { params: EMPTY(), effects: 'write', toArgs: none }),
   def('memory.private.read', {
     params: USER_ONLY(),
     refs: { user: 'user' },

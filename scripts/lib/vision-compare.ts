@@ -192,7 +192,7 @@ function lastUseOf(entry: Untyped) {
   return times.length > 0 ? Math.max(...times) : -Infinity;
 }
 
-// A gif embed's per-message item id and an attachment's snowflake (src/memory/gif-recache.ts).
+// A gif embed's per-message item id and an attachment's snowflake (src/memory/record-finder.ts).
 const EMBED_ID_RE = /#e\d+$/;
 const ATTACHMENT_ID_RE = /^\d+$/;
 

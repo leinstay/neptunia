@@ -7,8 +7,6 @@ import type { MemoryDbService } from '../../memory/db/service.ts';
 import { accountOf, personOfMember, placeOfChat } from '../../memory/addresses.ts';
 import { readAffinityChanges, AFFINITY_CHANGES_DEFAULT } from '../../memory/affinity-changes.ts';
 import type { AffinityChange } from '../../memory/affinity-changes.ts';
-import fs from 'node:fs';
-import path from 'node:path';
 import {
   emptyAffinity,
   affinityBand,
@@ -19,7 +17,6 @@ import {
   archiveEntry,
   journalLine,
   turnView,
-  SNAPSHOTS_DIR,
 } from '../../memory/index.ts';
 import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.ts';
 import { effectiveAffinity } from '../../behavior/private.ts';
@@ -185,7 +182,6 @@ const handlers = perEnv((env) => {
     port,
     archive,
     journal,
-    dataDir,
     assertNotPaused,
     freshenIfPaused,
     requirePlaceId,
@@ -496,24 +492,6 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `memory.snapshot`: one consistent copy of the memory database for the tools (scripts/replay.ts), written by SQLite's
-   * `VACUUM INTO` to `data/snapshots/<UTC time>/memory.db` at mode 0600, the folder `scripts/replay.ts --snapshot` reads.
-   * It copies the database alone: keys, client tokens and every other file of `data/` stay where they are.
-   */
-  async function cmdMemorySnapshot() {
-    const db = (env.memoryDb as MemoryDbService | null | undefined)?.database() ?? null;
-    if (!dataDir || db === null) return 'the memory snapshot is not available';
-    const folder = path.join(dataDir, SNAPSHOTS_DIR, new Date().toISOString().replace(/[:.]/g, '-'));
-    await fs.promises.mkdir(folder, { recursive: true, mode: 0o700 });
-    const dest = path.join(folder, 'memory.db');
-    db.prepare('VACUUM INTO ?').run(dest);
-    await fs.promises.chmod(dest, 0o600);
-    const { size } = await fs.promises.stat(dest);
-    log.info('admin: memory snapshot', { bytes: size });
-    return `Snapshot written: ${dest} (${size} bytes).`;
-  }
-
-  /**
    * `memory.private.read`: one member's private layer, with the same line
    * formats as `memory show`'s sections, under the public profile's current
    * name (the user id when there is none). Adds the private and the effective
@@ -597,7 +575,6 @@ const handlers = perEnv((env) => {
     cmdMemoryArchive,
     cmdMemoryRestore,
     cmdMemoryJournal,
-    cmdMemorySnapshot,
     cmdPrivateShow,
   };
 });
@@ -637,11 +614,6 @@ defineOp({
   name: 'memory.restore',
   rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdMemoryRestore(args, ctx),
-});
-defineOp({
-  name: 'memory.snapshot',
-  rights: { kind: 'write' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemorySnapshot(),
 });
 defineOp({
   name: 'memory.private.read',

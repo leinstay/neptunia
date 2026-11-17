@@ -48,15 +48,9 @@ export {
  *   Absent -> `draw.create` reports it is not available and `status.show` has no image lines.
  * `imageFetcher` — from createImageFetcher() (src/media/fetch-image.ts), optional: downloads the
  *   bot's avatar as the reference of a `draw.create` picture of herself. Absent -> no reference is sent.
- * `emojiBackfill` — from createEmojiBackfill() (src/memory/emoji-backfill.js), optional: `run` (with
- *   `force`, awaited by `media.rescan` for emoji) and `isRunning` (a note in `media.status`).
- *   Absent -> that rescan reports it is not available; `media.status` still works.
- * `gifBackfill` — from createGifBackfill() (src/memory/gif-backfill.js), optional: `run` (with
- *   `force`, awaited by `media.rescan` for GIFs) and `isRunning` (a note in `media.status`).
- *   Absent -> that rescan reports it is not available; `media.status` still works.
- * `gifRecache` — from createGifRecache() (src/memory/gif-recache.js), optional: `start` (started by
- *   `media.recache` for GIFs, never awaited to the end), `startMedia` (the same for pictures),
- *   `isRunning` (a note in `media.status`) and `waitIdle` (`bot.pause` waits for a run in flight). Absent -> either recache reports it is not available.
+ * `emojiBackfill` — from createEmojiBackfill() (src/memory/emoji-backfill.ts), optional: `isRunning` (a line of the
+ *   status card's long tasks).
+ * `gifBackfill` — from createGifBackfill() (src/memory/gif-backfill.ts), optional: the same.
  * `archive` — from createArchive() (src/memory/archive.js), optional: `iterate`
  *   (`memory.archive.read`), `find` and `append` (`memory.restore`, with the store's `restoreArchived`).
  *   Absent -> both report the archive is not available.

@@ -208,11 +208,6 @@ export function reloadNote(ok: unknown): string {
   return `(reload ${ok ? 'ok' : 'FAILED'})`;
 }
 
-/** The history-backfill stamp of `media.status` for emoji and for GIFs, or `never`. */
-export function backfillText(stamp: Untyped): string {
-  return stamp?.at ? `${stamp.at}, ${stamp.channels} channels, ${stamp.messages} messages` : 'never';
-}
-
 // ---------------------------------------------------------------------------
 // `memory.profile.read` — sectioned view
 // ---------------------------------------------------------------------------
@@ -553,33 +548,6 @@ export function routeRoleArg(args: unknown): string | null {
   if (!ROUTE_ROLES.includes(name)) throw invalid(`unknown role: ${name} (${ROUTE_ROLES.join(', ')})`);
   return name;
 }
-
-// ---------------------------------------------------------------------------
-// Access and the media commands: pure functions
-// ---------------------------------------------------------------------------
-
-/** Why `media.rescan` did not run, by src/memory/emoji-backfill.ts's skip reason (the
- * reasons every background job shares -- paused, no place -- are worded by `skipText`). */
-export const EMOJI_RESCAN_SKIPS: Record<string, string> = {
-  running: 'An emoji backfill is already running.',
-};
-
-/** Why `media.rescan` did not run, by src/memory/gif-backfill.ts's skip reason. */
-export const GIFS_RESCAN_SKIPS: Record<string, string> = {
-  running: 'A GIF backfill is already running.',
-};
-
-/** Why `media.recache` did not start, by src/memory/gif-recache.ts's skip reason. */
-export const GIFS_RECACHE_SKIPS: Record<string, string> = {
-  unavailable: 'the GIF recache is not available',
-  'no-prompt': 'GIFs are not watched: the describe-video prompt is missing.',
-};
-
-/** Why `media.recache kind:pictures` did not start, by src/memory/gif-recache.ts#startMedia's skip reason. */
-export const PICTURES_RECACHE_SKIPS: Record<string, string> = {
-  unavailable: 'the media recache is not available',
-  'no-prompt': 'Pictures are not described: the describe prompt is missing.',
-};
 
 // ---------------------------------------------------------------------------
 // Pure line formatters shared by several operations

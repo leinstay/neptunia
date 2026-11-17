@@ -17,9 +17,8 @@ const handlers = perEnv((env) => {
 
   /**
    * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
-   * mid-pause comes back paused), then waits out a turn already running and a
-   * GIF recache in flight. Only once
-   * all are idle does it flush everything and drop every cache except state.json itself. The pending pings wait for
+   * mid-pause comes back paused), then waits out a turn already running. Only once
+   * it is idle does it flush everything and drop every cache except state.json itself. The pending pings wait for
    * the resume, which hands them back. A second call reports the state, and a pause the core set with a reason
    * (`no-core-route`, `core-down`, `analyzer-down`, `memory-down`) becomes the owner's, so only his resume lifts it. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
    * of the pause from the journal, src/memory/journal.ts#offPeriods).
@@ -47,12 +46,6 @@ const handlers = perEnv((env) => {
 
     if (env.turns && typeof env.turns.waitIdle === 'function') {
       await env.turns.waitIdle();
-    }
-
-    // A GIF recache in flight writes the media cache: it stops before its
-    // next GIF once `paused` is seen; wait for the one in flight.
-    if (env.gifRecache && typeof env.gifRecache.waitIdle === 'function') {
-      await env.gifRecache.waitIdle();
     }
 
     // A file held for the archive (an item rewritten in place) waits up to archive.holdMaxMs, then is written.

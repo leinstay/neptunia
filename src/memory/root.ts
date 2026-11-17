@@ -8,16 +8,12 @@
 
 import path from 'node:path';
 
-/** The directory under `data/` that `memory.snapshot` writes its database copies to (src/tools/operations/memory.ts). */
-export const SNAPSHOTS_DIR = 'snapshots';
-
 /** The paths of one memory root, built by `memoryRootOf`. */
 export type MemoryRoot = {
   dataDir: string;
   /** The operational folder of a place; the persona's own with null. */
   placeDir: (placeId: string | null) => string;
   stateFile: string;
-  snapshotsRoot: string;
   resolve: (rel: string) => string;
   relative: (abs: string) => string;
 };
@@ -34,8 +30,6 @@ export function memoryRootOf(dataDir: string): MemoryRoot {
         : path.join(dataDir, 'places', encodeURIComponent(String(placeId))),
     /** `<dataDir>/state.json`. */
     stateFile: path.join(dataDir, 'state.json'),
-    /** `<dataDir>/snapshots`. */
-    snapshotsRoot: path.join(dataDir, SNAPSHOTS_DIR),
     /** `rel` resolved against `dataDir` (a path stored relative to it, such as a forget marker's vault). */
     resolve: (rel: string) => path.resolve(dataDir, rel),
     /** `abs` relative to `dataDir`, forward-slash separated (stable across platforms). */

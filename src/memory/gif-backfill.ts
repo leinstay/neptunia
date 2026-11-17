@@ -9,8 +9,7 @@
 // counts the same history twice. The top `BACKFILL_DESCRIBE` GIFs without
 // a cached caption are then sent to the media describer (real requests,
 // counted against the daily cap), so the list the persona picks from says
-// what each GIF shows. Runs once at startup (`startIfNeeded`) and again only
-// on the owner's `/nep gifs rescan` (`run` with `force`).
+// what each GIF shows. Runs once at startup (`startIfNeeded`).
 
 import { collectPictures } from '../media/classify.ts';
 import { readMemberHistory } from './emoji-backfill.ts';
@@ -94,28 +93,26 @@ function buildGifBackfill({
    * ahead RESETS every entry's count to 0 and recounts from the history
    * window alone: the window already holds the GIFs recorded on arrival
    * since the feature went live, so adding on top would count them twice.
-   * Without `force` that happens only on the first run -- it is a no-op once
-   * `backfill.at` is set (the startup run). With `force` it ignores the
-   * stamp: the owner's explicit `/nep gifs rescan`. Entries survive the
+   * That happens only on the first run -- it is a no-op once
+   * `backfill.at` is set (the startup run). Entries survive the
    * reset, so a GIF seen again keeps its handle; one no longer in the window
    * stays at count 0, ranked below every counted one, until `storeMax`
    * evicts it (src/memory/gifs.ts#rankGifs). Handles are never reused.
    * Channels are read one after another (readMemberHistory). The persona's own messages
    * are skipped. Resetting, counting and stamping happen together
    * after every channel is read; the describing comes after, and only while
-   * not paused. Skips (never throws) when paused, when already stamped (no `force`), while another run is in flight, or
+   * not paused. Skips (never throws) when paused, when already stamped, while another run is in flight, or
    * when the interface lists no readable chat of the root; an unexpected error is thrown.
    */
   async function run(
-    placeId: string,
-    { force = false }: { force?: boolean } = {}
+    placeId: string
   ): Promise<
     { ok: true; channels: number; messages: number; gifs: number; described: number } | { ok: false; reason: string }
   > {
     if (running) return skipped('running');
     if (isPaused()) return skipped('paused');
     const stamp: StoredRecord | null = store.getGifs().backfills[placeId] ?? null;
-    if (!force && stamp?.at) return skipped('done');
+    if (stamp?.at) return skipped('done');
 
     running = true;
     try {

@@ -1,7 +1,7 @@
 {
   "chains": {
     "tests/admin.test.ts": {
-      "deep": 35,
+      "deep": 34,
       "repeated": 0
     },
     "tests/agent-backend-engine-route.test.ts": {
@@ -165,7 +165,7 @@
       "repeated": 0
     },
     "tests/describe.test.ts": {
-      "deep": 117,
+      "deep": 113,
       "repeated": 0
     },
     "tests/diary-audience-refusal.test.ts": {
@@ -338,10 +338,6 @@
     },
     "tests/gif-library.test.ts": {
       "deep": 12,
-      "repeated": 0
-    },
-    "tests/gif-recache.test.ts": {
-      "deep": 4,
       "repeated": 0
     },
     "tests/gifs.test.ts": {
@@ -1510,11 +1506,6 @@
         "function-length": 479
       }
     },
-    "src/memory/gif-recache.ts": {
-      "buildGifRecache>workMedia>run": {
-        "complexity": 22
-      }
-    },
     "src/memory/interests.ts": {
       "applyRankedOps>sight": {
         "complexity": 21
@@ -1589,7 +1580,7 @@
     },
     "src/tools/operations/memory.ts": {
       "<anonymous>": {
-        "function-length": 424
+        "function-length": 404
       },
       "<anonymous>>cmdMemoryShow": {
         "complexity": 22

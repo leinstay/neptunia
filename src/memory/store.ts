@@ -87,7 +87,7 @@ import { emptyRecent, mergeRecent, normalizeRecent } from './recent.ts';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizeParticipation } from './participation.ts';
 import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.ts';
 import { normalizeAvatar } from './avatars.ts';
-import { SNAPSHOTS_DIR, memoryRootOf } from './root.ts';
+import { memoryRootOf } from './root.ts';
 import { createAddressing } from './store-addresses.ts';
 
 import { createStoreWrites } from './store-writes.ts';
@@ -334,7 +334,7 @@ function findInvalidJsonFiles(
 
 /**
  * The JSON files written as files (src/memory/db/paths.ts#OPERATIONAL_PATTERNS lists every operational path): the
- * process's operational state, the request dumps and tool lists, the backfill folder, the vault and the snapshots.
+ * process's operational state, the request dumps and tool lists, the backfill folder and the vault.
  * Paths relative to the data directory. `/nep resume` checks only these (`validate`).
  */
 export function operationalJsonPath(rel: string): boolean {
@@ -343,7 +343,7 @@ export function operationalJsonPath(rel: string): boolean {
   // live in database rows.
   if (/^(?:state|usage|metrics)\.json$/.test(name)) return false;
   if (/^(?:guilds|places)\/[^/]+\/(?:inner|missed|participation|gifs|media)\.json$/.test(name)) return false;
-  if (/^(?:vault|snapshots)\//.test(name)) return true;
+  if (/^vault\//.test(name)) return true;
   const inPlace = /^places\/[^/]+\/(?:private\/[^/]+\/)?(.+)$/.exec(name)?.[1];
   if (!inPlace) return false;
   return (
@@ -380,9 +380,6 @@ function writeTextAtomic(file: string, text: string) {
 
 /** The fallback cap of the recall trace (config.json `recall.traceMaxLines`). */
 const RECALL_TRACE_MAX_LINES = 500;
-
-/** The snapshots directory: src/memory/root.ts, re-exported here. */
-export { SNAPSHOTS_DIR };
 
 /**
  * A member profile nobody has written to yet: what every write starts from (`touchUser`,
@@ -2196,8 +2193,7 @@ function buildStore({
 
     /**
      * Empty the place's `emojiUsage` -- only for the emoji history backfill
-     * (src/memory/emoji-backfill.ts: its one first run, or the owner's
-     * `/nep emoji rescan`), which recounts it from history right after.
+     * (src/memory/emoji-backfill.ts, its one first run), which recounts it from history right after.
      * Nothing else is touched; never stamps `updatedAt`.
      */
     clearEmojiUsage(placeId: string) {
@@ -2393,8 +2389,7 @@ function buildStore({
 
     /**
      * Set this place's counter of every GIF to 0 (src/memory/gifs.ts#resetGifCounts) -- only for the GIF history backfill
-     * (src/memory/gif-backfill.ts: its one first run, or the owner's `/nep gifs rescan`), which recounts from history
-     * right after. Entries, handles, `nextId`, the stamps and the other places' counters are kept.
+     * (src/memory/gif-backfill.ts, its one first run), which recounts from history right after. Entries, handles, `nextId`, the stamps and the other places' counters are kept.
      */
     resetGifCounts(placeId: string) {
       gifs.set(resetGifCounts(gifs.library(), placeId));

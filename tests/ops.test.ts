@@ -4,7 +4,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 
 import { listOps, runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
@@ -34,9 +33,6 @@ const AGREED = new Set([
   'bot.resume',
   'draw.create',
   'voice.say',
-  'media.status',
-  'media.rescan',
-  'media.recache',
   'model.show',
   'model.set',
   'route.list',
@@ -59,7 +55,6 @@ const AGREED = new Set([
   'memory.journal.read',
   'memory.archive.read',
   'memory.restore',
-  'memory.snapshot',
   'memory.private.read',
   'message.create',
   'message.edit',
@@ -90,14 +85,10 @@ const AGREED = new Set([
 
 function makeEnv({
   access = {},
-  emojiBackfill,
-  memoryDb,
-  dataDir,
+  journal,
 }: {
   access?: object;
-  emojiBackfill?: { run: () => Promise<unknown> };
-  memoryDb?: { database: () => DatabaseSync };
-  dataDir?: string;
+  journal?: { read: () => Promise<unknown> };
 } = {}) {
   const rootDir = tempDir('nep-ops-');
   fs.mkdirSync(path.join(rootDir, 'prompts'));
@@ -126,9 +117,7 @@ function makeEnv({
     spontaneous: {},
     calibrator: { ratio: 1 },
     isServedRoot: (id: unknown) => id === 'g1',
-    emojiBackfill,
-    ...(memoryDb === undefined ? {} : { memoryDb }),
-    ...(dataDir === undefined ? {} : { dataDir }),
+    ...(journal === undefined ? {} : { journal }),
   });
 }
 
@@ -180,24 +169,25 @@ test('ops: runOp returns invalid with a human summary for missing args', async (
   assert.equal(unknown.code, 'unknown-op');
 });
 
+// Changed: the operation that throws is `memory.journal.read` over a journal that fails, since `media.rescan` left.
 test('ops: an exception becomes failed with its code', async () => {
-  const emojiBackfill = {
-    run: async () => {
+  const journal = {
+    read: async () => {
       throw Object.assign(new Error('disk unreadable'), { code: 'EIO' });
     },
   };
-  const env = makeEnv({ emojiBackfill });
-  const result = await runOp('media.rescan', { kind: 'emoji' }, { env, placeId: 'g1', accountId: '42' });
+  const env = makeEnv({ journal });
+  const result = await runOp('memory.journal.read', {}, { env, placeId: 'g1', accountId: '42' });
   assert.deepEqual(result, { status: 'failed', code: 'EIO', summary: 'disk unreadable', data: null });
 
   const plain = makeEnv({
-    emojiBackfill: {
-      run: async () => {
+    journal: {
+      read: async () => {
         throw new Error('boom');
       },
     },
   });
-  const other = await runOp('media.rescan', { kind: 'emoji' }, { env: plain, placeId: 'g1', accountId: '42' });
+  const other = await runOp('memory.journal.read', {}, { env: plain, placeId: 'g1', accountId: '42' });
   assert.equal(other.status, 'failed');
   assert.equal(other.code, 'error');
 });
@@ -417,39 +407,4 @@ ownedBy(['42']);
 test("no grant opens rule.add to her, since the rules are the owner's", () => {
   // Bug: `rule.add` could be granted to her while `rule.remove` could not, so she could write the owner's rules.
   assert.ok(NOT_GRANTABLE_TO_PERSONA.includes('rule.add'));
-});
-
-test('memory.snapshot copies the memory database alone, as a database that opens, and leaves keys and tokens out', async () => {
-  // Bug: the snapshot copied the whole data folder file by file, the live WAL database half-written beside keys.json
-  // and the client tokens.
-  const dataDir = tempDir('nep-ops-snapshot-');
-  fs.writeFileSync(path.join(dataDir, 'keys.json'), '{"secret":"k"}');
-  fs.mkdirSync(path.join(dataDir, 'clients'));
-  fs.writeFileSync(path.join(dataDir, 'clients', 'cli.token'), 't');
-  const db = new DatabaseSync(path.join(dataDir, 'memory.db'));
-  db.exec("PRAGMA journal_mode = WAL; CREATE TABLE notes (text TEXT); INSERT INTO notes VALUES ('kept')");
-  try {
-    const env = makeEnv({ memoryDb: { database: () => db }, dataDir });
-    const result = await runOp('memory.snapshot', {}, { env, placeId: 'g1', accountId: '42' });
-    assert.equal(result.status, 'ok', result.summary);
-    const root = path.join(dataDir, 'snapshots');
-    const copies = fs
-      .readdirSync(root, { recursive: true })
-      .map((name) => path.join(root, String(name)))
-      .filter((file) => fs.statSync(file).isFile());
-    assert.deepEqual(
-      copies.map((file) => path.basename(file)),
-      ['memory.db']
-    );
-    const copy = copies[0];
-    assert.equal(fs.statSync(copy).mode & 0o777, 0o600);
-    const opened = new DatabaseSync(copy, { readOnly: true });
-    try {
-      assert.deepEqual({ ...opened.prepare('SELECT text FROM notes').get() }, { text: 'kept' });
-    } finally {
-      opened.close();
-    }
-  } finally {
-    db.close();
-  }
 });
