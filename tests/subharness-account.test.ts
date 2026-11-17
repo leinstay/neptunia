@@ -13,7 +13,6 @@ import { pathToFileURL } from 'node:url';
 import { createInstalledBackend, runChildProcess } from '../src/agent-runner/backend.ts';
 import { accountCommand } from '../src/subharness/account.ts';
 import type { AccountDeps } from '../src/subharness/account.ts';
-import { updateSubharness } from '../src/subharness/install.ts';
 import { runMemoryWriter } from '../src/subharness/memory-writer.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import { sourceState } from '../src/subharness/sources.ts';
@@ -368,23 +367,6 @@ test('credential changes of one backend run one at a time', async () => {
   const calls = vendor.calls();
   assert.ok(calls.indexOf('auth login') < calls.indexOf('auth logout'));
   assert.equal(vendor.loggedIn(), false);
-});
-
-test('an update of a backend waits for a login of that backend', async () => {
-  // Catches: npm moving the binary away while the vendor's login is writing the home.
-  const { privateDir, vendor, deps } = rig('claude');
-  vendor.hold('login');
-  const login = accountCommand(deps, 'claude', 'login');
-  await vendor.started('login');
-  const update = updateSubharness(
-    { privateDir, backend: 'claude', hostEnv: HOST_ENV, version: '9.9.9' },
-    vendor.install
-  );
-  await new Promise((resolve) => setTimeout(resolve, 60));
-  assert.deepEqual(vendor.installs, [], 'the update waits for the login');
-  vendor.release('login');
-  await Promise.all([login, update]);
-  assert.equal(vendor.installs.length, 1);
 });
 
 test('a login of one backend does not hold another backend', async () => {

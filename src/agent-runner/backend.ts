@@ -881,10 +881,7 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
       subharness
     );
     const usage = usageOf(outcome, Math.round(((deps.now ?? Date.now)() - startedAt) / 100) / 10);
-    const { files, dropped } = await deliverableFiles(await collectFiles(outDir, task.id), {
-      scope,
-      withheldCount: 0,
-    });
+    const { files, dropped } = await deliverableFiles(await collectFiles(outDir, task.id));
     const result: TaskResult = {
       text: redact(outcome.text),
       sources: [],

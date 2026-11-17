@@ -495,7 +495,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
 
   /**
    * The gateway's verdict on a resolved `<call>` (src/tools/gateway.ts#checkSkill, the live
-   * config read now): the persona as principal, the envelope's requester (callEnvelope), the
+   * config read now): the persona as principal, the
    * turn's channel as the audience, the last run of a destructive skill from the origin channel
    * (`destructiveRuns`), the image client's caps as the drawing budget. A refusal logs
    * `skill: refused`.
@@ -509,7 +509,6 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       skill: resolved.skill,
       args: resolved.args,
       principal: PERSONA,
-      requester: envelope.requester,
       audience: { chatId: String(channel.id) },
       context: {
         config: hot.config,

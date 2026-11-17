@@ -16,7 +16,6 @@ const profile = (id: string) => ({
   prompt: 'prompt.md',
   limits: { steps: 5, seconds: 60 },
   daily: { tasks: 3 },
-  cost: { input: 2, output: 6 },
 });
 
 /**

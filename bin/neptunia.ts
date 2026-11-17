@@ -1310,7 +1310,6 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
           toolResultChars: errands.toolResultChars,
           ...task.limits,
         },
-        cost: task.cost ?? settings?.cost,
       });
     },
   };

@@ -2,8 +2,7 @@
 // the memory writer's transaction (src/memory/db/errand-write.ts, write kind `errand`) as the actor `core`: the task
 // filed when the errand is new, then brought to the errand as it stands, each change of status written with its
 // `status` event and a move to an end with its outbox row to `persona`, and the closing journal line written by the
-// caller in the same transaction. `errandsOf` and `pendingEnds` read the errands and their undelivered ends, and
-// `errandTask` one task with its events. The rows and the record map through src/board/archive.ts. Nothing here logs.
+// caller in the same transaction. `errandsOf` and `pendingEnds` read the errands and their undelivered ends. The rows and the record map through src/board/archive.ts. Nothing here logs.
 
 import {
   CLOSED,
@@ -42,18 +41,6 @@ export type ErrandTaskRow = {
   updated_at: string;
   metadata: string | null;
 };
-/** A `board_events` row of a task, without the task's id. */
-export type ErrandEventRow = {
-  seq: number;
-  actor: string | null;
-  type: string;
-  old: string | null;
-  new: string | null;
-  created_at: string;
-};
-/** One task with its events, oldest first. */
-export type ErrandTaskView = { task: ErrandTaskRow; events: Array<ErrandEventRow> };
-
 const textOf = (value: unknown): string =>
   typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' ? value : null);
@@ -76,25 +63,6 @@ const TASK_COLUMNS = 'id, title, role, status, close_reason, created_at, updated
 function readTask(db: BoardDb, id: string): ErrandTaskRow | null {
   const row = db.prepare(`SELECT ${TASK_COLUMNS} FROM board_tasks WHERE id = ?`).get(id);
   return row === undefined ? null : taskRowOf(row);
-}
-
-/** Task `id` with its events in the order they were written; null when the board holds no such task. */
-export function errandTask(db: unknown, id: string): ErrandTaskView | null {
-  const board = boardDbOf(db);
-  const task = readTask(board, id);
-  if (task === null) return null;
-  const events = board
-    .prepare('SELECT seq, actor, type, old, new, created_at FROM board_events WHERE task_id = ? ORDER BY seq')
-    .all(id)
-    .map((row) => ({
-      seq: Number(row.seq),
-      actor: textOrNull(row.actor),
-      type: textOf(row.type),
-      old: textOrNull(row.old),
-      new: textOrNull(row.new),
-      created_at: textOf(row.created_at),
-    }));
-  return { task, events };
 }
 
 /** Every errand the board holds, in the order they were filed (`db` a read connection). */

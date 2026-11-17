@@ -37,7 +37,7 @@ test('a text file that carries a secret is dropped, in the core scope too', asyn
     'OPENROUTER_API_KEY=sk-or-v1-0123456789abcdef0123456789abcdef0123456789abcdef'
   );
   fs.writeFileSync(path.join(dir, 't1', 'ok.txt'), 'plain words');
-  const { files, dropped } = await deliverableFiles(await collectFiles(dir, 't1'), { scope: 'core', withheldCount: 0 });
+  const { files, dropped } = await deliverableFiles(await collectFiles(dir, 't1'));
   assert.deepEqual(
     files.map((file) => file.name),
     ['ok.txt']
