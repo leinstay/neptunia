@@ -22,10 +22,12 @@ test('a group session sees the public episode under its handle and never a priva
     max: 10,
     cutoffIso: '2030-01-01T00:00:00.000Z',
     episodes,
+    idOf: (rowId) => (rowId === 'ep:open' ? 'kd4f7' : 'kzzzz'),
     read: (_kind, id) => reads.push(id),
   });
-  assert.deepEqual(lines, ['[e1] 2026-11-01 Alex: shared a joke']);
-  assert.equal(episodes.get('e1'), 'ep:open');
+  // The owner on 2026-11-17: a stored item of the session's request goes by a hash id.
+  assert.deepEqual(lines, ['[kd4f7] 2026-11-01 Alex: shared a joke']);
+  assert.equal(episodes.get('kd4f7'), 'ep:open');
   assert.deepEqual(reads, ['ep:open']);
   world.handle.close();
 });
@@ -39,6 +41,7 @@ test('nobody on the page reads no episode, and no open intention reads no line',
       max: 10,
       cutoffIso: '2030-01-01T00:00:00.000Z',
       episodes: new Map(),
+      idOf: () => 'kzzzz',
       read,
     }),
     []

@@ -148,20 +148,28 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     assert.equal(built.maps.sources.get('#1'), chat_ids(env).a);
     assert.equal(built.maps.sources.size, 5);
     const claimIds = [...built.maps.claims.entries()];
+    // The owner on 2026-11-17: a stored item of the session's request goes by a hash id.
+    const hashId = /^k[0-9a-z]{4,}$/;
     assert.ok(
-      claimIds.some(([label, id]) => label.startsWith('s') && id === 'cl-self'),
-      'her own claim is s1'
+      claimIds.some(([label, id]) => hashId.test(label) && id === 'cl-self'),
+      'her own claim goes by a hash id'
     );
-    assert.ok(claimIds.some(([label, id]) => label.startsWith('c') && id === 'cl-ada'));
-    assert.ok(claimIds.some(([label, id]) => label.startsWith('c') && id === 'cl-place'));
+    assert.ok(claimIds.some(([label, id]) => hashId.test(label) && id === 'cl-ada'));
+    assert.ok(claimIds.some(([label, id]) => hashId.test(label) && id === 'cl-place'));
     assert.ok(!claimIds.some(([, id]) => id === 'cl-gone'), 'a claim that is not shown has no id in the request');
-    assert.deepEqual([...built.maps.episodes.entries()], [['e1', 'ep-1']]);
+    // The owner on 2026-11-17: a stored item of the session's request goes by a hash id.
+    const episodeIds = [...built.maps.episodes.entries()];
+    assert.deepEqual(
+      episodeIds.map(([label, id]) => [hashId.test(label), id]),
+      [[true, 'ep-1']]
+    );
     const people = userText.slice(userText.indexOf('<people>'), userText.indexOf('</people>'));
     assert.match(people, /## Ada/);
     assert.match(people, /id: <@u-ada>/);
     assert.match(people, /affinity: 5/);
-    assert.match(people, /\[c\d+\] interest: likes café mornings/);
-    assert.match(userText, /\[e1\] 2026-10-10 Ada: Ada helped with the move \(warm\)/);
+    // The owner on 2026-11-17: a stored item of the session's request goes by a hash id.
+    assert.match(people, /\[k[0-9a-z]{4,}\] interest: likes café mornings/);
+    assert.match(userText, /\[k[0-9a-z]{4,}\] 2026-10-10 Ada: Ada helped with the move \(warm\)/);
     assert.match(userText, /open|pending: ask Ada about the move|pending: ask Ada/);
     // The intended request difference of this slice: the top of the tree is named `server:` in `prompts/memory-session.md`.
     assert.match(userText, /<place>\nscope: group\n\[p1\] channel: general - chat\n\[p2\] server: Server/);
