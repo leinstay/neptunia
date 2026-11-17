@@ -14,7 +14,7 @@ import { rulesPromptOf } from '../../rules-list.ts';
 import { cacheTtlMs } from '../../llm/openrouter.ts';
 import { gifHandleMap, normalizeGifs } from '../../memory/index.ts';
 import { accountIdOf } from '../../memory/recent.ts';
-import { freezePerBucket, gifFieldChars, gifFieldsLookup, mediaLookupOf } from './emoji-gifs.ts';
+import { freezePerBucket, mediaLookupOf } from './emoji-gifs.ts';
 import type { Held, MediaLookup } from './emoji-gifs.ts';
 import { orderedHistory } from '../history.ts';
 import { spatialAwarenessText } from './spatial.ts';
@@ -243,11 +243,6 @@ export function requestHead(given: RequestInput): Base {
     lineNumbers: true,
     // A GIF the library knows carries its handle in the transcript.
     gifHandles: gifsOn ? gifHandleMap(gifLibrary) : undefined,
-    // ...and its three caption fields, cut for display (transcript.gifKnownFields).
-    gifFields:
-      gifsOn && labels.transcript?.gifKnownFields && given.mediaCache
-        ? gifFieldsLookup(given.mediaCache, gifFieldChars())
-        : undefined,
   };
 
   const nameFill = (text: unknown) => fillPromptTemplate(text, { name: selfName });

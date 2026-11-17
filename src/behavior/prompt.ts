@@ -18,14 +18,7 @@ import { wakeTexts } from '../turn/request/wake.ts';
 export { block, fillPromptTemplate, hasRequiredLabels } from '../turn/request/text.ts';
 export { previousThinkBody } from '../turn/request/wake.ts';
 export { renderProfile } from '../turn/request/profiles.ts';
-export {
-  freezePerBucket,
-  gifCaption,
-  gifFieldChars,
-  gifFields,
-  gifFieldsLookup,
-  gifLine,
-} from '../turn/request/emoji-gifs.ts';
+export { freezePerBucket, gifLine } from '../turn/request/emoji-gifs.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
   ClassifierTranscriptArg2,

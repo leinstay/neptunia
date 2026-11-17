@@ -78,7 +78,6 @@
       "gif": "[GIF: {name}]",
       "gifDescribed": "[GIF: {text}]",
       "gifKnown": "[GIF {id}: {text}]",
-      "gifKnownFields": "[GIF {id}: {reaction}; {action}; \"{screen}\"]",
       "gifKnownNoText": "[GIF {id}: {name}]",
       "video": "[video: {name}, {duration}]",
       "videoDescribed": "[video: {name}, {duration} — still frame: {text}]",
@@ -205,7 +204,6 @@
     },
     "gifs": {
       "entry": "{id}: {text}",
-      "entryFields": "{id}: {reaction}; {action}; \"{text}\"",
       "entryNoText": "{id}",
       "ownMark": "(you, {ago})",
       "ownMarkRecent": "(you, recent)"

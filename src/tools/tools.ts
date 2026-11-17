@@ -37,7 +37,7 @@ import { collectPictures, collectVideos } from '../media/classify.ts';
 import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.ts';
 import { foldText } from '../memory/recent.ts';
 import { GIF_HALF_LIFE_DAYS, gifItemIds, rankGifs } from '../memory/gifs.ts';
-import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.ts';
+import { gifLine } from '../behavior/prompt.ts';
 import { IN_TURN_TOOLS } from './discovery.ts';
 import { CODE, FEATURE, WHAT, isCode } from './codes.ts';
 import { isObj, listOf, objOf } from './types.ts';
@@ -1180,21 +1180,13 @@ function gifMatches(
     const entry = ranked;
     const cached = objOf(mediaCache?.[entry.itemId]);
     if (Object.keys(cached).length === 0 || cached.miss) continue;
-    const fields = gifFields(entry, mediaCache, { reactionChars: 0, actionChars: 0 });
-    const parts: Array<[unknown, number]> = fields
-      ? [
-          [fields.reaction, 2],
-          [fields.action, 1],
-          [fields.text, 1],
-        ]
-      : [[typeof cached.text === 'string' ? cached.text : '', 1]];
-    const docs = parts.map(([value, weight]) => ({ words: wordsOf(value), weight }));
-    if (docs.every((doc) => doc.words.length === 0)) continue;
+    const words = wordsOf(typeof cached.text === 'string' ? cached.text : '');
+    if (words.length === 0) continue;
     let score = 0;
     let fitted = 0;
     for (const q of wanted) {
       let best = 0;
-      for (const doc of docs) for (const d of doc.words) best = Math.max(best, wordScore(q, d) * doc.weight);
+      for (const d of words) best = Math.max(best, wordScore(q, d));
       score += best;
       if (best > 0) fitted += 1;
     }
@@ -1214,10 +1206,9 @@ function gifMatches(
 }
 
 /**
- * The library's GIFs that match `query`, best first: each entry's stored description (its reaction,
- * its action and its on-screen text, from the describer cache) scored word by word against the
- * query's words (folded: case and accents ignored, so descriptions in either language match; the
- * best match of each query word counts, the reaction field double); entries scoring nothing are left
+ * The library's GIFs that match `query`, best first: each entry's stored description (from the
+ * describer cache) scored word by word against the query's words (folded: case and accents ignored,
+ * so descriptions in either language match; the best match of each query word counts); entries scoring nothing are left
  * out, ties keep the library's own rank (most used and most recent first). At most `n` (1..FIND_MAX,
  * FIND_DEFAULT when not a number). With `meaning`, the captions' vectors rank a second list (gifMatches). Pure.
  * `gifs` is the stored library (store.getGifs) and `mediaCache` the describer cache's entries of its GIFs (store.mediaEntries), read only.
@@ -1235,7 +1226,7 @@ export function findGifs(
 /**
  * The text of a media.find result: `labels.tools.tools.find.source` (`{query}`, `{count}`), then one
  * line per GIF (its handle and stored description, gifLine:
- * `labels.gifs.entryFields` / `.entry`); `labels.tools.tools.find.none` when there is none. A missing
+ * `labels.gifs.entry`); `labels.tools.tools.find.none` when there is none. A missing
  * label adds nothing. Pure.
  * `found` is findGifs' entries.
  */
@@ -1255,9 +1246,7 @@ export function mediaFindText(
     return lines.join('\n');
   }
   if (l.source) lines.push(fill(l.source, { query: oneLine(query), count: String(found.length) }));
-  const chars = gifFieldChars();
-  for (const entry of found)
-    lines.push(gifLine(entry, mediaCache, objOf(labels), { ...chars, ownMarkHours: 0, now: 0 }));
+  for (const entry of found) lines.push(gifLine(entry, mediaCache, objOf(labels), { ownMarkHours: 0, now: 0 }));
   return lines.join('\n');
 }
 

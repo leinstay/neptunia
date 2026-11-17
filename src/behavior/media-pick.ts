@@ -12,7 +12,6 @@ import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { strictJsonObject } from '../llm/parse.ts';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
-import { clampWithEllipsis } from '../memory/clamp.ts';
 import { gifPostForm } from '../media/gif-post.ts';
 import type { GifForm } from '../media/gif-post.ts';
 import { EMOJI_HALF_LIFE_DAYS, rankEmojiUsage } from '../memory/emoji-usage.ts';
@@ -40,8 +39,6 @@ export const MEDIA_PICK_DEFAULTS = Object.freeze({
 
 /** How long, in hours, a GIF she posted counts as recent for the pick. */
 const OWN_MARK_HOURS = 24;
-/** The longest caption a candidate line carries. */
-const CAPTION_CHARS = 180;
 
 /** The pick's settings, read from the whole live config at the moment of use. */
 export type MediaPickSettings = {
@@ -252,7 +249,7 @@ type PickLabels = {
 /** A candidate's line of `<gifs>`: its handle and its caption. */
 function gifCandidateLine(entry: GifEntry, labels: PickLabels): string {
   const template = labels.gifs?.entry ?? '{id}: {text}';
-  return fill(template, { id: entry.id, text: clampWithEllipsis(entry.caption ?? '', CAPTION_CHARS) });
+  return fill(template, { id: entry.id, text: entry.caption ?? '' });
 }
 
 /** A candidate's line of `<emoji>`: its name, and what it shows when the describer's cache knows. */

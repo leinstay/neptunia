@@ -655,13 +655,9 @@ export function withGifCaption(
   return next;
 }
 
-/** The caption a describer's cache entry gives a GIF: its three fields joined, else its text; '' for a miss or nothing. */
+/** The caption a describer's cache entry gives a GIF: its text; '' for a miss or nothing. */
 export function captionOfCached(cached: unknown): string {
   if (!isRecord(cached) || cached.miss) return '';
-  const fields = [cached.reaction, cached.action, cached.screen].filter(
-    (field): field is string => typeof field === 'string' && field.trim() !== ''
-  );
-  if (fields.length > 0) return fields.join('; ');
   return typeof cached.text === 'string' ? cached.text.trim() : '';
 }
 

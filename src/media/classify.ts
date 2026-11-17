@@ -438,15 +438,6 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  * those keys blanked in prompts.local/labels.json, src/format.ts
  * falls back to them). Every other kind ignores it.
  *
- * `context.gifFields` is that GIF's three caption fields (`{ reaction,
- * action, screen }`, already cut for display, see
- * src/turn/request/emoji-gifs.ts#gifFieldsLookup): a `gif` item with a handle and a
- * caption whose `reaction` or `screen` is non-empty renders `gifKnownFields`
- * (`{ id, text, reaction, action, screen }`, `text` being the caption
- * gifKnown would show) in place of `gifKnown`; with that key blanked
- * src/format.ts falls back to `gifKnown`. A GIF without a handle
- * ignores it (`gifDescribed` keeps the caption alone).
- *
  * `context.answer` is a picture's second look on a question (`{ question,
  * text }`, src/memory/describe.ts#relookImage): an `image` item appends
  * `imageAnswered` after its own tag. A `gif` item takes a GIF's
@@ -463,7 +454,6 @@ export function mediaLabelFor(
     video = null,
     read = null,
     gifHandle = null,
-    gifFields = null,
     answer = null,
   }: {
     description?: string | null;
@@ -471,7 +461,6 @@ export function mediaLabelFor(
     video?: VideoState | null;
     read?: string | null;
     gifHandle?: string | null;
-    gifFields?: { reaction?: string; action?: string; screen?: string } | null;
     answer?: Answer | null;
   } = {}
 ): Label {
@@ -486,18 +475,9 @@ export function mediaLabelFor(
       const name = item.name || item.title || item.site || '';
       const answered = extraOf(gifAnsweredExtra(answer));
       if (gifHandle) {
-        const field = (value: unknown): string => (typeof value === 'string' ? value : '');
-        const reaction = field(gifFields?.reaction);
-        const screen = field(gifFields?.screen);
-        const known: LabelTag =
-          description && (reaction || screen)
-            ? {
-                key: 'gifKnownFields',
-                values: { id: gifHandle, text: description, reaction, action: field(gifFields?.action), screen },
-              }
-            : description
-              ? { key: 'gifKnown', values: { id: gifHandle, text: description } }
-              : { key: 'gifKnownNoText', values: { id: gifHandle, name } };
+        const known: LabelTag = description
+          ? { key: 'gifKnown', values: { id: gifHandle, text: description } }
+          : { key: 'gifKnownNoText', values: { id: gifHandle, name } };
         return withExtra(known, answered);
       }
       return withExtra(

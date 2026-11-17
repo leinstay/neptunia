@@ -205,12 +205,10 @@ export type RequestConfig = {
 /** `context.customEmoji`: how many custom emoji `<emoji>` lists and how fast their use fades. */
 export type EmojiConfig = { readonly max?: number; readonly halfLifeDays?: number };
 
-/** `config.gifs`: the `<gifs>` list's length, its fading and the cut of each caption field. */
+/** `config.gifs`: the `<gifs>` list's length, its fading and the hours a GIF she posted is marked. */
 export type GifsConfig = {
   readonly max?: number;
   readonly halfLifeDays?: number;
-  readonly reactionChars?: number;
-  readonly actionChars?: number;
   readonly ownMarkHours?: number;
 };
 

@@ -1,20 +1,13 @@
-// The GIF library as a request shows it: the caption fields a GIF of the library carries in the transcript and in
-// media.find's result, and the per-bucket hold of what memory changes in the stable part. buildRequest
-// (src/behavior/prompt.js) and her GIF tools (src/tools/tools.ts) read them.
+// The GIF library as a request shows it: the line of a GIF of the library in media.find's result, and the per-bucket
+// hold of what memory changes in the stable part. buildRequest (src/behavior/prompt.js) and her GIF tools
+// (src/tools/tools.ts) read them.
 
-import { fill, fillGifFields, formatDuration } from '../../format.ts';
-import { clampWithEllipsis } from '../../memory/clamp.ts';
+import { fill, formatDuration } from '../../format.ts';
 import { HOUR_MS } from '../../time.ts';
 import type { Labels } from './types.ts';
 
-/** One entry of the describer's cache, read only: a caption, or a three-field GIF description. */
-export type MediaCacheEntry = {
-  readonly miss?: unknown;
-  readonly text?: unknown;
-  readonly reaction?: unknown;
-  readonly action?: unknown;
-  readonly screen?: unknown;
-};
+/** One entry of the describer's cache, read only: a caption or a miss. */
+export type MediaCacheEntry = { readonly miss?: unknown; readonly text?: unknown };
 
 /** Entries of the describer cache a caller holds (store.mediaEntries), read only, per item id. */
 export type MediaCache = { readonly [itemId: string]: MediaCacheEntry | undefined };
@@ -74,119 +67,32 @@ export function freezePerBucket<T>(
 }
 
 /**
- * The cut of a GIF caption's reaction and action fields, for the transcript and media.find. Production
- * values, config cut of 2026-10-31.
+ * The caption of a GIF library entry: the text cached under its `itemId` (the describer's cache; a `miss` entry has
+ * none), whole; '' when there is none.
  */
-export function gifFieldChars(): { reactionChars: number; actionChars: number } {
-  return { reactionChars: 40, actionChars: 70 };
-}
-
-/**
- * The one-line caption of a GIF library entry: the `vision` caption cached
- * under its `itemId` (the describer's cache; a `miss` entry has none), cut to
- * `actionChars` (0 = whole) at a word boundary, a cut marked with an ellipsis
- * (src/memory/clamp.ts#clampWithEllipsis, a hard limit); '' when there is
- * none. Render time only, so a caption stored whole or stored cut renders the
- * same way. Pure.
- * `mediaCache` is the describer cache (a read by key, or the entries a caller holds), read only.
- */
-export function gifCaption(
-  entry: { readonly itemId: string },
-  mediaCache: MediaLookup | object | null | undefined,
-  actionChars: number
-): string {
+function gifCaption(entry: { readonly itemId: string }, mediaCache: MediaLookup | object | null | undefined): string {
   const cached = cachedOf(mediaCache, entry?.itemId);
-  return cached && !cached.miss && typeof cached.text === 'string' ? clampWithEllipsis(cached.text, actionChars) : '';
+  return cached && !cached.miss && typeof cached.text === 'string' ? cached.text : '';
 }
 
 /**
- * The three caption fields of a GIF library entry described in that format
- * (src/memory/describe.ts#parseGifDescription: the cache entry holds a
- * `reaction` or a `screen` string), each cut at render time like gifCaption
- * -- `reaction` and `screen` to `reactionChars`, `action` to `actionChars`
- * (0 = whole) --, `text` being the on-screen text; null for an entry in the
- * older one-line format, a miss or no entry, or when every field is empty. Pure.
- */
-export function gifFields(
-  entry: { readonly itemId: string },
-  mediaCache: MediaLookup | object | null | undefined,
-  { reactionChars, actionChars }: { reactionChars: number; actionChars: number }
-): { reaction: string; action: string; text: string } | null {
-  const cached = cachedOf(mediaCache, entry?.itemId);
-  if (!cached || cached.miss || (typeof cached.reaction !== 'string' && typeof cached.screen !== 'string')) return null;
-  const field = (value: unknown, chars: number) => (typeof value === 'string' ? clampWithEllipsis(value, chars) : '');
-  const fields = {
-    reaction: field(cached.reaction, reactionChars),
-    action: field(cached.action, actionChars),
-    text: field(cached.screen, reactionChars),
-  };
-  return fields.reaction || fields.action || fields.text ? fields : null;
-}
-
-/** The three caption fields of one item as the transcript takes them. */
-export type GifFieldsOfItem = { reaction: string; action: string; screen: string };
-
-/**
- * The transcript's view of the three-field GIF captions: the fields of an item id described in that format (gifFields,
- * cut per field by `chars`) as `{ reaction, action, screen }`, read from the describer cache the first time the item
- * is asked for and held after, ready for formatTranscript's `gifFields` option (src/format.ts renders
- * `transcript.gifKnownFields` with them for a GIF of the library). Pure but for the cache's read.
- * `mediaCache` is the describer cache (a read by key, or the entries a caller holds), read only, and `chars` come
- * from gifFieldChars.
- */
-export function gifFieldsLookup(
-  mediaCache: MediaLookup | object | null | undefined,
-  chars: { reactionChars: number; actionChars: number }
-): { get: (itemId: string) => GifFieldsOfItem | undefined } {
-  const held = new Map<string, GifFieldsOfItem | undefined>();
-  return {
-    get(itemId) {
-      if (!held.has(itemId)) {
-        const fields = gifFields({ itemId }, mediaCache, chars);
-        held.set(
-          itemId,
-          fields ? { reaction: fields.reaction, action: fields.action, screen: fields.text } : undefined
-        );
-      }
-      return held.get(itemId);
-    },
-  };
-}
-
-/**
- * One line of a GIF library entry, as media.find lists it: an
- * entry described in three fields (gifFields) through `labels.gifs.entryFields`
- * (`{id}`, `{reaction}`, `{action}`, `{text}` = the on-screen text; empty
- * fields left out, see src/format.js#fillGifFields); an older one-line caption (gifCaption,
- * cut to `actionChars`) -- or a three-field one when the labels have no
- * `entryFields` -- through `labels.gifs.entry` (`{id}`/`{text}`); else
- * `labels.gifs.entryNoText` (`{id}`). A GIF the persona itself posted
- * (`ownLast`) no longer than `ownMarkHours` (0 = never) before `now` gets
- * ` ` + `labels.gifs.ownMark` appended, `{ago}` = that time through
- * formatDuration (`labels.units`); no mark without that label. The caller
- * checks that `labels.gifs` carries `entryNoText`. Pure.
+ * One line of a GIF library entry, as media.find lists it: its whole caption (gifCaption) through
+ * `labels.gifs.entry` (`{id}`, `{text}`), else `labels.gifs.entryNoText` (`{id}`). A GIF the persona itself posted
+ * (`ownLast`) no longer than `ownMarkHours` (0 = never) before `now` gets ` ` + `labels.gifs.ownMark` appended,
+ * `{ago}` = that time through formatDuration (`labels.units`); no mark without that label. The caller checks that
+ * `labels.gifs` carries `entryNoText`. Pure.
  */
 export function gifLine(
   entry: GifEntry,
   mediaCache: MediaLookup | object | null | undefined,
   labelsGiven: object,
-  {
-    reactionChars,
-    actionChars,
-    ownMarkHours,
-    now,
-  }: { reactionChars: number; actionChars: number; ownMarkHours: number; now: number }
+  { ownMarkHours, now }: { ownMarkHours: number; now: number }
 ): string {
   const labels = labelsGiven as Labels;
   // The caller checks that `labels.gifs` carries `entryNoText`.
   const g = labels.gifs!;
-  const fields = g.entryFields ? gifFields(entry, mediaCache, { reactionChars, actionChars }) : null;
-  const text = fields ? '' : gifCaption(entry, mediaCache, actionChars);
-  const line = fields
-    ? fillGifFields(g.entryFields, entry.id, fields)
-    : text && g.entry
-      ? fill(g.entry, { id: entry.id, text })
-      : fill(g.entryNoText, { id: entry.id });
+  const text = gifCaption(entry, mediaCache);
+  const line = text && g.entry ? fill(g.entry, { id: entry.id, text }) : fill(g.entryNoText, { id: entry.id });
   const age = g.ownMark && labels.units ? ownPostAge(entry, { ownMarkHours, now }) : null;
   if (age === null) return line;
   return `${line} ${fill(g.ownMark, { ago: formatDuration(age, labels.units) })}`;
