@@ -32,8 +32,7 @@ export const SELF_ACCOUNT = 'discord:u-self';
 export const prompts = {
   'system-prompt': 'SYSTEM {{name}}',
   'character-card': 'CARD {{name}}',
-  // The rules text holds a list item: a rules file with an empty list reaches no system text (src/rules-list.ts).
-  rules: '- RULES',
+  rules: 'RULES',
   format: 'FORMAT',
   'memory-session': 'SESSION {{name}}',
   labels,

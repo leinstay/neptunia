@@ -20,7 +20,7 @@ const DISCORD = createDiscordInterface().capabilities;
 export function makeRoot(): string {
   const rootDir = tempDir('nep-admin-');
   fs.mkdirSync(path.join(rootDir, 'prompts'));
-  fs.writeFileSync(path.join(rootDir, 'prompts', 'rules.md'), '## Rules\n\n- be kind\n');
+  fs.writeFileSync(path.join(rootDir, 'prompts', 'rules.md'), 'A preamble.\n\n## Rules\n');
   return rootDir;
 }
 

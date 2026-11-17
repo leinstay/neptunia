@@ -47,6 +47,8 @@ import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
 import { withoutThinks } from '../../llm/parse.ts';
 import { estimateMessages } from '../../llm/tokens.ts';
 import { rulesPromptOf } from '../../rules-list.ts';
+import { liveRules } from './rules.ts';
+import type { Rule } from './rules.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { accountProfileValue } from './account-profile.ts';
 import { accountCollection } from './unit-keys.ts';
@@ -253,13 +255,21 @@ export function refusalOf(
   return null;
 }
 
-/** The system text her turns get (system prompt, card, rules, format), then `extra` (a prompt of the memory family). */
-export function systemTextOf(prompts: Row | null | undefined, selfName: unknown, extra: unknown): string {
+/**
+ * The system text her turns get (system prompt, card, the rules prompt with `rules` under it, format), then `extra` (a
+ * prompt of the memory family).
+ */
+export function systemTextOf(
+  prompts: Row | null | undefined,
+  selfName: unknown,
+  extra: unknown,
+  rules: ReadonlyArray<Rule>
+): string {
   const fill = (text: string) => fillPromptTemplate(text, { name: selfName });
   return [
     prompts?.['system-prompt'],
     prompts?.['character-card'],
-    rulesPromptOf(prompts?.rules),
+    rulesPromptOf(prompts?.rules, rules, prompts?.labels),
     prompts?.format,
     extra,
   ]
@@ -855,7 +865,7 @@ export function buildSessionRequest({
   });
   const intentionLines = intentionLinesOf(db, ctx, shown, placeIds, read);
 
-  const system = systemTextOf(prompts, selfName, prompts?.['memory-session']);
+  const system = systemTextOf(prompts, selfName, prompts?.['memory-session'], liveRules(db));
   // The stable blocks first (the cache marker covers them and the system text), the lines last: the stable part holds
   // no clock and no line of the batch, so it repeats byte for byte while the stored memory does.
   const stable = [

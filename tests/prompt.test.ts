@@ -25,9 +25,13 @@ import { labels } from './fixtures/labels.ts';
 import { MIN, NOW, baseInput, exactly, fakeConfig, fakePrompts, makeMessage } from './fixtures/prompt-rig.ts';
 
 test('buildRequest: system message is system-prompt + character-card + rules + format, joined', () => {
-  const request = buildRequest(baseInput());
+  // Changed: the rules are rows of the memory table `rules`, so the input hands in one; the prompt heads its line.
+  const request = buildRequest({ ...baseInput(), rules: [{ text: 'a rule' }] });
   assert.equal(request.messages[0].role, 'system');
-  assert.equal(request.messages[0].content, 'SYSTEM_TEXT for Nept\n\nCARD_TEXT\n\n- RULES_TEXT\n\nFORMAT_TEXT');
+  assert.equal(
+    request.messages[0].content,
+    'SYSTEM_TEXT for Nept\n\nCARD_TEXT\n\nRULES_TEXT\n\n- a rule\n\nFORMAT_TEXT'
+  );
 });
 
 // The owner on 2026-11-16: a quoted parent is kept whole; the limit of 80 is gone.

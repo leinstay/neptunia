@@ -106,6 +106,7 @@ export type BuildRequestInput = {
   } | null;
   myDay?: ReadonlyArray<string> | null;
   callMarks?: ReadonlyArray<CallMark> | null;
+  rules?: RequestInput['rules'];
   stableFreeze?: Map<string, Untyped> | null;
   whereabouts?: Whereabouts | null;
   /** The facts of the turn (src/turn/request/frame.ts): every request is built on it. */

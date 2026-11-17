@@ -89,6 +89,8 @@ export type PhaseStore = Parameters<typeof recordEntry>[0]['store'] & {
   mediaEntry: (placeId: string, key: string) => object | undefined;
   /** The stable name of a custom emoji or sticker (src/memory/store-media-names.ts), for the legend. */
   mediaNameOf: (name: string) => MediaName | null;
+  /** The owner's live rules (src/memory/store-rules.ts), for the rules block. */
+  liveRules: () => ReadonlyArray<{ text: string }>;
   getParticipation: (placeId: string) => unknown;
 };
 

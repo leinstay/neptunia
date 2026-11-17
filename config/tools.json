@@ -57,7 +57,7 @@
   },
   "rule.add": {
     "title": "Add a rule",
-    "whenToUse": "Appends one of the owner's corrections to the rules file.\nUSE FOR: the owner's console only.",
+    "whenToUse": "Adds one of the owner's corrections to the end of his rules in memory.\nUSE FOR: the owner's console only.",
     "whenNotToUse": "DO NOT USE FOR: anything yourself. It is administrative and cannot be granted to you."
   },
   "rule.remove": {

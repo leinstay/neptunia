@@ -828,10 +828,6 @@
       "deep": 33,
       "repeated": 0
     },
-    "tests/rules-list.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "tests/sandbox.test.ts": {
       "deep": 75,
       "repeated": 0

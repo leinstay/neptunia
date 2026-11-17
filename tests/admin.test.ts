@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { localPath, madeLocalPath } from './fixtures/config-local.ts';
 import path from 'node:path';
 
-import { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from '../src/admin.ts';
+import { setPath, unsetPath, buildProfileSummary } from '../src/admin.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { MEMORY_LIMITS } from '../src/memory/text-limits.ts';
@@ -35,81 +35,6 @@ import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 type Field = { name: string; value: string };
 
 // The Discord interface's capabilities object, as src/index.js injects it.
-
-// ---------------------------------------------------------------------------
-// listRules / appendRule / removeRule
-// ---------------------------------------------------------------------------
-
-test('listRules: reads the bullets under a non-Latin ## heading', () => {
-  // A bullet above the heading: were the Greek heading not recognised, the no-heading
-  // fallback would return it too.
-  const text = '# Rules file\n\n- not a rule\n\n## Κανόνες\n\n- Rule one\n- Rule two\n';
-  assert.deepEqual(listRules(text), ['Rule one', 'Rule two']);
-});
-
-test('listRules: stops at the next heading (any level) so unrelated bullets are excluded', () => {
-  const text = '## Rules\n\n- Rule one\n\n### Other section\n\n- not a rule\n';
-  assert.deepEqual(listRules(text), ['Rule one']);
-});
-
-test('listRules: with two ## headings, only the bullets under the last one count', () => {
-  const text = '## Old section\n\n- not a rule\n\n## Rules\n\n- Rule one\n- Rule two\n';
-  assert.deepEqual(listRules(text), ['Rule one', 'Rule two']);
-});
-
-test('listRules: falls back to every top-level bullet when there is no ## heading', () => {
-  const text = 'Intro\n- first\n- second\n';
-  assert.deepEqual(listRules(text), ['first', 'second']);
-});
-
-test('appendRule: appends the bullet as the last line, under the last of two ## headings, non-Latin text intact', () => {
-  const cases: Array<[string, string, string, string, Array<string>]> = [
-    [
-      'one heading',
-      '## Rules\n\n- existing\n',
-      'new one',
-      '## Rules\n\n- existing\n- new one\n',
-      ['existing', 'new one'],
-    ],
-    [
-      'non-Latin heading and rule text',
-      '## Κανόνες\n\n- παλιός κανόνας\n',
-      'ποτέ μην μιλάς αγγλικά',
-      '## Κανόνες\n\n- παλιός κανόνας\n- ποτέ μην μιλάς αγγλικά\n',
-      ['παλιός κανόνας', 'ποτέ μην μιλάς αγγλικά'],
-    ],
-    [
-      'two ## headings',
-      '## Old\n\n- stale\n\n## Rules\n\n- existing\n',
-      'new one',
-      '## Old\n\n- stale\n\n## Rules\n\n- existing\n- new one\n',
-      ['existing', 'new one'],
-    ],
-  ];
-  for (const [label, text, rule, expected, rules] of cases) {
-    const result = appendRule(text, rule);
-    assert.equal(result, expected, label);
-    assert.deepEqual(listRules(result), rules, label);
-  }
-});
-
-test('appendRule: collapses newlines inside the rule into single spaces', () => {
-  const result = appendRule('## Rules\n', 'first line\nsecond line');
-  assert.equal(listRules(result).at(-1), 'first line second line');
-});
-
-test('appendRule: creates a ## heading when the file has none at all', () => {
-  const result = appendRule('Some preamble.', 'be nice');
-  assert.match(result, /^## /m);
-  assert.deepEqual(listRules(result), ['be nice']);
-});
-
-test('removeRule: removes the nth bullet in listRules order and reports it', () => {
-  const text = '## Rules\n\n- one\n- two\n- three\n';
-  const result = removeRule(text, 2);
-  assert.equal(result?.removed, 'two');
-  assert.deepEqual(listRules(result?.text ?? ''), ['one', 'three']);
-});
 
 // ---------------------------------------------------------------------------
 // setPath / unsetPath
@@ -218,62 +143,46 @@ test('buildProfileSummary: resolves <@id> tokens in free-text fields via nameOf'
 // rule.add / rule.list / rule.remove
 // ---------------------------------------------------------------------------
 
-test('run: rule.add seeds prompts.local/rules.md from the base file, leaving prompts/rules.md untouched', async () => {
-  const rootDir = makeRoot();
-  const { admin, hot } = makeAdmin(rootDir);
+/** An admin over a real store on a fresh test memory, closed after `body`. */
+async function withRulesAdmin(
+  body: (admin: ReturnType<typeof makeAdmin>['admin'], rootDir: string) => Promise<void>
+): Promise<void> {
+  const mem = await openTestMemory();
+  try {
+    const rootDir = makeRoot();
+    const store = createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb });
+    await body(makeAdmin(rootDir, { store }).admin, rootDir);
+  } finally {
+    await mem.close();
+    fs.rmSync(mem.dataDir, { recursive: true, force: true });
+  }
+}
 
-  const baseBefore = fs.readFileSync(path.join(rootDir, 'prompts', 'rules.md'));
-  const result = await admin.run('rule.add', { text: 'Never spoil the ending' }, { placeId: 'g1' });
+// Changed: the rules are rows of the memory table `rules` (the owner on 2026-11-17), so `rule.add` and `rule.remove`
+// write no file and reload no prompt; these replace the tests of the bullets they wrote to `prompts.local/rules.md`.
+test('run: rule.add then rule.remove leave the later rule listed as 1 and write no prompt file', () =>
+  withRulesAdmin(async (admin, rootDir) => {
+    const baseBefore = fs.readFileSync(path.join(rootDir, 'prompts', 'rules.md'));
+    await admin.run('rule.add', { text: 'be kind' }, {});
+    await admin.run('rule.add', { text: 'second\nrule' }, {});
+    assert.equal(await admin.run('rule.list', {}, {}), '1. be kind\n2. second rule');
+    assert.equal(await admin.run('rule.remove', { number: 1 }, {}), 'Removed rule #1: be kind');
+    assert.equal(await admin.run('rule.list', {}, {}), '1. second rule');
+    assert.equal(fs.existsSync(path.join(rootDir, 'prompts.local')), false);
+    assert.deepEqual(fs.readFileSync(path.join(rootDir, 'prompts', 'rules.md')), baseBefore);
+  }));
 
-  const localFile = path.join(rootDir, 'prompts.local', 'rules.md');
-  assert.ok(fs.existsSync(localFile));
-  const rulesText = fs.readFileSync(localFile, 'utf8');
-  assert.deepEqual(listRules(rulesText), ['be kind', 'Never spoil the ending']);
-  // the tracked base file is byte-identical to before
-  assert.deepEqual(fs.readFileSync(path.join(rootDir, 'prompts', 'rules.md')), baseBefore);
-  assert.equal(hot.reloadPromptsCalls, 1);
-  assert.ok(result.includes('Rule added'));
-});
+test('run: rule.add rejects empty text', () =>
+  withRulesAdmin(async (admin) => {
+    await assert.rejects(() => admin.run('rule.add', { text: '   ' }, {}));
+  }));
 
-test('run: rule.add rejects empty text', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-  await assert.rejects(() => admin.run('rule.add', { text: '   ' }, {}));
-});
-
-test('run: rule.list lists the numbered rules; rule.remove removes one from the local layer, leaving the base file untouched', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-
-  const baseBefore = fs.readFileSync(path.join(rootDir, 'prompts', 'rules.md'));
-  await admin.run('rule.add', { text: 'second rule' }, {});
-  const listed = await admin.run('rule.list', {}, {});
-  assert.ok(listed.includes('1. be kind'));
-  assert.ok(listed.includes('2. second rule'));
-
-  await admin.run('rule.remove', { number: 1 }, {});
-  const rulesText = fs.readFileSync(path.join(rootDir, 'prompts.local', 'rules.md'), 'utf8');
-  assert.deepEqual(listRules(rulesText), ['second rule']);
-  assert.deepEqual(fs.readFileSync(path.join(rootDir, 'prompts', 'rules.md')), baseBefore);
-});
-
-test('run: rule.remove rejects an out-of-range number', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-  await assert.rejects(() => admin.run('rule.remove', { number: 5 }, {}), /no rule #5/);
-});
-
-test('run: rule.add seeds from an empty text when the base rules.md is missing', async () => {
-  const rootDir = tempDir('nep-admin-');
-  fs.mkdirSync(path.join(rootDir, 'prompts'));
-  const { admin } = makeAdmin(rootDir);
-
-  const result = await admin.run('rule.add', { text: 'only rule' }, {});
-
-  const rulesText = fs.readFileSync(path.join(rootDir, 'prompts.local', 'rules.md'), 'utf8');
-  assert.deepEqual(listRules(rulesText), ['only rule']);
-  assert.ok(result.includes('Rule added'));
-});
+test('run: rule.remove rejects a number past the live rules', () =>
+  withRulesAdmin(async (admin) => {
+    await admin.run('rule.add', { text: 'only rule' }, {});
+    await assert.rejects(() => admin.run('rule.remove', { number: 2 }, {}), /no rule #2/);
+    await assert.rejects(() => admin.run('rule.remove', { number: 0 }, {}), /no rule #0/);
+  }));
 
 // ---------------------------------------------------------------------------
 // set / unset

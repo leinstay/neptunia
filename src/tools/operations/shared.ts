@@ -1,5 +1,5 @@
 // Pure functions and constants of the owner operations (src/tools/operations/*.ts), moved from src/admin.js:
-// the rules-file and config-path functions, the profile views, the ping/route formatters, the
+// the config-path functions, the profile views, the ping/route formatters, the
 // media wording tables and the line formatters several operations share. No I/O but
 // `postingChat` (a channel looked up through the client it is handed).
 
@@ -9,7 +9,6 @@ import { cliChatRef } from '../../interface/cli-chat.ts';
 import { dmChatsOff } from '../../behavior/core-pause.ts';
 import fs from 'node:fs';
 import path from 'node:path';
-import { listRules, locateBullets } from '../../rules-list.ts';
 import { publicationRefusal } from '../publication.ts';
 import type { PublicationBoundary } from '../publication.ts';
 import { emptyAffinity, affinityBand, roundScore } from '../../memory/index.ts';
@@ -39,54 +38,12 @@ export const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototyp
 /** The error of every place-bound command before the served place resolves. */
 export const PLACE_REQUIRED = 'no place resolved yet';
 
-export { listRules, locateBullets };
-
 /** The reply for an empty list, the same for every list command. */
 export const NONE = '(none)';
 
 // ---------------------------------------------------------------------------
 // Pure functions
 // ---------------------------------------------------------------------------
-
-/**
- * Append `- <rule>` as the last line of `rulesText`. Newlines inside `rule`
- * collapse to single spaces (the file's rule list stays one bullet per
- * line). When the file has no `## ` heading at all, a plain `## Rules`
- * heading is created first — this technical fallback marker, not persona
- * text. Trailing whitespace of the result is normalized to exactly one
- * final `\n`.
- */
-export function appendRule(rulesText: string | null | undefined, rule: string): string {
-  let text = rulesText ?? '';
-  const singleLine = rule
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join(' ');
-
-  if (!/^## /m.test(text)) {
-    text = `${text.replace(/\s*$/, '')}\n\n## Rules\n\n`;
-  }
-
-  text = `${text.replace(/\s*$/, '')}\n- ${singleLine}`;
-  return `${text}\n`;
-}
-
-/**
- * Remove the 1-based n-th bullet (in `listRules` order). Returns
- * `{ text, removed }`, or null when `n` is out of range.
- */
-export function removeRule(rulesText: string | null | undefined, n: unknown): { text: string; removed: string } | null {
-  const text = rulesText ?? '';
-  const { lines, indices } = locateBullets(text);
-  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > indices.length) return null;
-
-  const lineIdx = indices[n - 1] ?? 0;
-  const removed = (lines[lineIdx] ?? '').slice(2).trimEnd();
-  const remaining = [...lines.slice(0, lineIdx), ...lines.slice(lineIdx + 1)].join('\n');
-  const trimmed = remaining.replace(/\s*$/, '');
-  return { text: trimmed ? `${trimmed}\n` : '', removed };
-}
 
 /**
  * The keys of a dotted config path. With `reference` (the live config) a key that itself holds a

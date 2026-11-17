@@ -400,6 +400,8 @@ export type RequestInput = {
   readonly previousThink?: PreviousThink | null;
   /** What she did today, one line each (src/turn/request/my-day.ts#myDayOf): the body of `<my_day>`. */
   readonly myDay?: ReadonlyArray<string> | null;
+  /** The owner's live rules (src/memory/store-rules.ts), listed under the rules prompt in the system message. */
+  readonly rules?: ReadonlyArray<{ text: string }>;
   /** Her call marks (src/turn/journal-notes.ts#callMarksOf), put among the lines of `<chat>` by time. */
   readonly callMarks?: ReadonlyArray<CallMark> | null;
   readonly stableFreeze?: unknown;

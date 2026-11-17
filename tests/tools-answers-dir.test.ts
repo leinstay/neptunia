@@ -239,6 +239,7 @@ test('an answer whose tool-calls.json holds a data call drives two steps of a re
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     state: { data: {} },
   };
   const view = liveView({ hot, store, placeId: 'g1' });
