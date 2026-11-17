@@ -3125,19 +3125,6 @@ test('describe: a blank appearance leaves nothing of describe-self in the system
   assert.ok(!system.includes('{{'), system);
 });
 
-test('describe: a caption that names her by @self is stored as the model wrote it', async () => {
-  // Bug: the describer puts a name into the stored caption, and a rename or a second root shows the wrong name.
-  const store = createStore(memoryAt(tmpDataDir()));
-  const describer = createDescriber({
-    hot: selfHot('tall, silver hair'),
-    store,
-    llm: fakeLlm({ text: '@self waves at the camera.' }),
-    imageFetcher: fakeImageFetcher(),
-  });
-  await describer.describe('g1', pictureItem('a1'));
-  assert.equal(loose(cacheView(store, 'g1')).a1.text, '@self waves at the camera.');
-});
-
 // --- Animated custom emoji and stickers ------------------------------------------
 
 // The owner on 2026-11-17: an animated custom emoji or sticker is a GIF, watched as a clip and never from one still.

@@ -91,3 +91,10 @@ test('legendText writes a sticker with no picture in unreadable, whatever text i
   const text = legendText([sticker('s13', 'dance_loop', 'a stale caption', false)], LABELS);
   assert.deepEqual(kindLines(text, 'discord', 'stickers'), ['UNSEEN s13 dance_loop']);
 });
+
+// The owner on 2026-11-17: a sticker or emoji caption comes from the picture prompt and may name her `@self`.
+test('legendText shows the name of the place where a caption names her by the marker', () => {
+  // Bug: the legend prints the raw marker, and she does not know the sticker shows her.
+  const text = legendText([sticker('s12', 'wave', '@self raising one paw')], LABELS, 'Mira');
+  assert.deepEqual(kindLines(text, 'discord', 'stickers'), ['s12 wave: Mira raising one paw']);
+});
