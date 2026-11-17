@@ -12,6 +12,7 @@ test('reads the rules in the order they were added, whatever their ids sort to',
   const opened = await openTestMemory({ now: () => T0 });
   try {
     const db = opened.memoryDb.database();
+    assert.ok(db);
     writeRules(db, { added: [{ id: 'z', text: 'first' }], removed: [] }, T0);
     writeRules(db, { added: [{ id: 'a', text: 'second' }], removed: [] }, T0 + 1000);
     assert.deepEqual(liveRules(db), [
@@ -28,6 +29,7 @@ test('a removed rule is deleted, and a write resent after a failure adds no seco
   const opened = await openTestMemory({ now: () => T0 });
   try {
     const db = opened.memoryDb.database();
+    assert.ok(db);
     const write = {
       added: [
         { id: 'one', text: 'kept' },
@@ -40,7 +42,7 @@ test('a removed rule is deleted, and a write resent after a failure adds no seco
     const counted = writeRules(db, { added: [], removed: ['two', 'never-there'] }, T0 + 2000);
     assert.equal(counted.removed, 1);
     assert.deepEqual(liveRules(db), [{ id: 'one', text: 'kept' }]);
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM rules').get().n, 1);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM rules').get()?.n, 1);
   } finally {
     await opened.close();
   }
