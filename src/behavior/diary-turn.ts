@@ -114,18 +114,22 @@ export type DiaryStore = {
   state: { data: Record<string, unknown>; markDirty(): void };
 };
 
-/** The plan of a diary post as recordEntry reads it: its kind, search and brief, and the seeding its planner answered. */
+/**
+ * The plan of a diary post as recordEntry reads it: its kind, search and brief, the seeding its planner answered and
+ * what the judge did with its brief.
+ */
 export type EntryPlan = {
   kind: string | null;
   search?: string | null;
   brief?: string;
   seeding?: { seeds: Array<Array<string>>; seed: number };
+  judge?: { briefs: number; passed: boolean };
 };
 
 /**
  * The post of the place's diary an entry is (recordEntry): its gist and its first picture's scene on one line, her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`),
  * with a voice message the text as voiced and its length, and with a planner's answer its `plan` (`brief`, the `seeds`
- * offered, the `seed` taken), which the memory database keeps in the entry's `extra`.
+ * offered, the `seed` taken, and `judge` when the judge read its brief), which the memory database keeps in the entry's `extra`.
  */
 function diaryPostOf({
   config,
@@ -166,7 +170,16 @@ function diaryPostOf({
     text: held.texts.join('\n'),
     itemId: id,
     ...(voice ? { voice: { text: voice.text, durationSec: voice.durationSecs } } : {}),
-    ...(plan.seeding ? { plan: { brief: plan.brief ?? '', seeds: plan.seeding.seeds, seed: plan.seeding.seed } } : {}),
+    ...(plan.seeding
+      ? {
+          plan: {
+            brief: plan.brief ?? '',
+            seeds: plan.seeding.seeds,
+            seed: plan.seeding.seed,
+            ...(plan.judge ? { judge: plan.judge } : {}),
+          },
+        }
+      : {}),
     // How the entry goes out, kept so a publication sent after a restart sends it whole (src/behavior/mirror.ts).
     send: { ...rendered, maxMessageBytes },
   };

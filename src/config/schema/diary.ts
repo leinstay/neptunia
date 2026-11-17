@@ -53,20 +53,6 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'text': 'How many of her newest stored entries `<diary>` shows the writer, newest first',
   },
   {
-    'key': 'diary.openingsShown',
-    'types': ['number'],
-    'reader': 'src/turn/request/diary.ts',
-    'default': 5,
-    'text': "How many of her newest entries of the post's kind `<plan>` tells the writer how they opened. 0 shows none",
-  },
-  {
-    'key': 'diary.openingWords',
-    'types': ['number'],
-    'reader': 'src/turn/request/diary.ts',
-    'default': 4,
-    'text': 'How many words of each of those entries `<plan>` shows. 0 shows none',
-  },
-  {
     'key': 'diary.loop.maxSteps',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',

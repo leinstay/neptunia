@@ -378,8 +378,6 @@ The settings of the `diary` service. A deployment keeps its own values under the
 | `diary.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
 | `diary.entries` | number | `150` | How many of her newest stored entries `<diary>` shows the planner, newest first | `src/turn/request/diary.ts` |
 | `diary.writerEntries` | number | `30` | How many of her newest stored entries `<diary>` shows the writer, newest first | `src/turn/request/diary.ts` |
-| `diary.openingsShown` | number | `5` | How many of her newest entries of the post's kind `<plan>` tells the writer how they opened. 0 shows none | `src/turn/request/diary.ts` |
-| `diary.openingWords` | number | `4` | How many words of each of those entries `<plan>` shows. 0 shows none | `src/turn/request/diary.ts` |
 | `diary.loop.maxSteps` | number | `50` | Further requests one diary post makes | `src/turn/settings.ts` |
 | `diary.loop.timeBudgetMs` | number | `1000000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
 | `diary.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/diary.ts` |

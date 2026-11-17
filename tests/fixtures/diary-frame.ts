@@ -70,12 +70,8 @@ export type FrameTurnSpec = {
   mirrors?: ReadonlyArray<MirrorSpec>;
   /** How many entries are stored before the turn, the oldest first, one a day up to the day before FRAME_NOW. */
   entries?: number;
-  /** The kind of entry `i`, `status` past the end of the list. */
-  entryKinds?: ReadonlyArray<string>;
   /** The gist and text of entry `i`, `gistOf(i)` when absent. */
   entryGist?: (index: number) => string;
-  /** Wording laid over the shipped `diary` labels, so a test names the markers it looks for. */
-  labels?: Record<string, string>;
   /** How many turns run one after the other over the same memory, 1 when absent. */
   turns?: number;
   /** Laid over the `diary` settings, which set `entries` and the planner's limits. */
@@ -133,16 +129,12 @@ function seedWorld(memoryDb: MemoryService): void {
   });
 }
 
-/** `count` group entries of hers, the oldest first, entry `i` with the gist `gistOf(i)`. */
-function seedEntries(
-  memoryDb: MemoryService,
-  count: number,
-  { kinds = [], gist = gistOf }: { kinds?: ReadonlyArray<string>; gist?: (index: number) => string } = {}
-): void {
+/** `count` group entries of hers, the oldest first, entry `i` with the gist `gist(i)`, `gistOf(i)` by default. */
+function seedEntries(memoryDb: MemoryService, count: number, gist: (index: number) => string = gistOf): void {
   const rows = Array.from({ length: count }, (_, i) => ({
     id: `diary:test:${String(i).padStart(3, '0')}`,
     at_ms: FRAME_NOW - (count - i) * DAY,
-    kind: kinds[i] ?? 'status',
+    kind: 'status',
     gist: gist(i),
     text: gist(i),
     scope_kind: 'group',
@@ -181,9 +173,7 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
       'diary-planner': MARK.planner,
       'diary-seeds': '# place\na pier\n# light\nfog',
       draw: 'DRAW for {{name}}\n{{when}}\n{{request}}',
-      labels: spec.labels
-        ? { ...shippedLabels, diary: { ...shippedLabels.diary, ...spec.labels } }
-        : shippedLabels,
+      labels: shippedLabels,
       ...spec.prompts,
     },
   };
@@ -210,7 +200,7 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
     text: TEXT.mirrorOnly,
     at: iso(FRAME_NOW - 3 * DAY),
   });
-  seedEntries(memoryDb, spec.entries ?? 3, { kinds: spec.entryKinds, gist: spec.entryGist });
+  seedEntries(memoryDb, spec.entries ?? 3, spec.entryGist);
   const store = createStore({ dataDir, memoryDb });
   if (spec.emoji) store.nameMedia('fake', 'emoji', [{ nativeId: '7301', platformName: EMOJI_NAME, animated: false }]);
   if (spec.emoji === 'line')
