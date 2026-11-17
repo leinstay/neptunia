@@ -263,6 +263,24 @@ test('recordLinks: a long title and description are kept whole', () => {
   );
 });
 
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('recordLinks: a link whose URL runs past 500 characters keeps its URL whole', () => {
+  const url = `https://archive.example/${'σελίδα/'.repeat(90)}`;
+  assert.deepEqual(
+    recordLinks([{ kind: 'link', url, title: 'Αρχείο' }]).map((link) => link.url),
+    [url]
+  );
+});
+
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('recordLinks: a link whose site name runs past 100 characters keeps it whole', () => {
+  const site = 'Ένας πολύ μακρύς ιστότοπος '.repeat(6).trim();
+  assert.deepEqual(
+    recordLinks([{ kind: 'link', url: 'https://site.example/', title: 'Αρχείο', site }]).map((link) => link.site),
+    [site]
+  );
+});
+
 test('record: append writes to the day of occurredAt under the month directory and refuses a duplicate messageId+revision', async () => {
   const { dataDir, record, memoryDb, done } = await scene();
   const first = await record.append(G1, [

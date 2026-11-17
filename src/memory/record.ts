@@ -46,10 +46,8 @@ const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The most links one record line keeps. */
 export const RECORD_LINKS_MAX = 3;
-/** The longest URL and cache id of a recorded link, in code points. */
-const LINK_URL_CHARS = 500;
-/** The longest site name of a recorded link, in code points. */
-const LINK_SITE_CHARS = 100;
+/** The longest cache id of a recorded link, in code points. */
+const LINK_ID_CHARS = 500;
 
 /** Distinct non-empty strings of `values` (arrays), in order. */
 function idList(...values: Array<unknown>): Array<string> {
@@ -95,8 +93,8 @@ function mediaOf(slim: Untyped) {
 /**
  * The compact links of a record line, from a normalized message's links (src/protocol/events.ts#Message:
  * `{ id, kind, url, title, text, site }`) or from links already in this shape (`description`
- * instead of `text`): each `{ id?, url, title, description, site }` on one line, the title and the
- * description kept whole. Only a link (`kind`
+ * instead of `text`): each `{ id?, url, title, description, site }` on one line, the URL, the title,
+ * the description and the site kept whole. Only a link (`kind`
  * `link`, or no kind: never a GIF, whose URL leaves the text) with a title or a description is
  * kept, at most RECORD_LINKS_MAX, in order. `id` is the link's media-cache key, when it has one.
  * Pure.
@@ -112,13 +110,13 @@ export function recordLinks(
     const title = str(item.title);
     const description = str(item.description ?? item.text);
     if (!title && !description) continue;
-    const id = clampChars(str(item.id), LINK_URL_CHARS);
+    const id = clampChars(str(item.id), LINK_ID_CHARS);
     out.push({
       ...(id ? { id } : {}),
-      url: clampChars(str(item.url), LINK_URL_CHARS),
+      url: str(item.url),
       title,
       description,
-      site: clampChars(str(item.site), LINK_SITE_CHARS),
+      site: str(item.site),
     });
   }
   return out;

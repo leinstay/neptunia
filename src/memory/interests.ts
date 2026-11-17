@@ -22,7 +22,7 @@
 // history fed out of order still ends up with correct dates.
 
 import { topRanked } from './ranking.ts';
-import { clampText, stripUrls } from './clamp.ts';
+import { stripUrls } from './clamp.ts';
 import { HOUR_MS } from '../time.ts';
 import { isFiniteNumber, isIntegerNumber } from './types.ts';
 import type { StoredRecord, Untyped } from './types.ts';
@@ -294,9 +294,8 @@ export function isStale(item: { lastSeen?: string | null }, nowMs: number, stale
  *   nothing at all, not even the note or the dates.
  * - `remove` deletes the item matching that identity, if any.
  * - The identity and the note lose their links (src/memory/clamp.ts#stripUrls);
- *   the note is kept whole and the identity is clamped to `identityChars` when
- *   the caller gives one (an interest's topic is kept whole); an item whose
- *   identity is empty after that is rejected outright.
+ *   both are kept whole; an item whose identity is empty after that is
+ *   rejected outright.
  * - Once over `opts.cap`, the lowest-RANKED items are evicted first (see
  *   src/memory/ranking.ts#rank, driven by `halfLifeDays`) -- this runs on
  *   every call, even one with no ops, so a profile left over-stuffed by a
@@ -312,8 +311,6 @@ export function isStale(item: { lastSeen?: string | null }, nowMs: number, stale
  *   `recordedAt`, the ISO time of `now` (else `seenAt`).
  *
  * @param ops  Untrusted, model-extracted.
- *   The identity (`topic`/`name`) is a HARD clamp when `identityChars` is given (no tolerance, still
- *   boundary-safe -- see src/memory/clamp.ts); the note, when there is one, is kept whole.
  */
 export function applyRankedOps(
   existing: Array<RankedItem> | undefined,
@@ -321,7 +318,6 @@ export function applyRankedOps(
   {
     identityField,
     noteField,
-    identityChars,
     confirmGapHours,
     seenAt = Date.now(),
     halfLifeDays,
@@ -331,7 +327,6 @@ export function applyRankedOps(
   }: {
     identityField: string;
     noteField?: string;
-    identityChars?: number;
     confirmGapHours?: number;
     seenAt?: number;
     halfLifeDays?: number;
@@ -360,15 +355,12 @@ export function applyRankedOps(
     let sure = true;
     if (noteField) {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
-      identity =
-        typeof raw[identityField] === 'string'
-          ? clampText(stripUrls(raw[identityField]), identityChars, { tolerance: 1 })
-          : '';
+      identity = typeof raw[identityField] === 'string' ? stripUrls(raw[identityField]).trim() : '';
       note = typeof raw[noteField] === 'string' ? stripUrls(raw[noteField]).trim() : '';
       sure = raw.sure !== false;
     } else {
       const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw[identityField] : raw;
-      identity = typeof value === 'string' ? clampText(stripUrls(value), identityChars, { tolerance: 1 }) : '';
+      identity = typeof value === 'string' ? stripUrls(value).trim() : '';
     }
     if (!identity) return;
     const index = findIndex(identity);

@@ -572,6 +572,7 @@ export function createTurnRunner({
   };
   const { callView, planToolCall, runCalls } = createSkillCalls({
     hot,
+    summarize,
     store,
     stemmer,
     // A place she names by a stored name or alias, of any interface, read under the turn's memory context.
