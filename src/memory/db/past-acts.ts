@@ -15,16 +15,21 @@ export type PastLine = {
   at: number;
   placeId: string;
   text: string | null;
-  /**
-   * People's lines in the line's place within `AFTER_MS` after it, bots aside, how many people wrote them and how many
-   * of them answer her line (`reply_to`).
-   */
-  after: { lines: number; people: number; answers: number };
+  after: Follow;
 };
+/**
+ * What followed lines of hers in their place: people's lines after the last of them, bots aside, within `AFTER_MS` in a
+ * group chat and up to now in a direct chat (`direct`), how many people wrote them, and how many lines of any time answer
+ * one of hers by `reply_to`.
+ */
+export type Follow = { lines: number; people: number; answers: number; direct: boolean };
 /** A near line as the vector read finds it, with the message id its answers name. */
 type FoundLine = Omit<PastLine, 'after'> & { nativeId: string };
-/** One wake run that carried an intention: when it started, how it ended and the lines of hers it sent, by place. */
-export type PastRun = { at: number; status: string; sent: number; placeIds: Array<string> };
+/**
+ * One wake run that carried an intention: when it started, how it ended, the lines of hers it sent by place, and what
+ * followed them in the place of the last one, null for a run that sent none.
+ */
+export type PastRun = { at: number; status: string; sent: number; placeIds: Array<string>; after: Follow | null };
 /** An intention of hers near the purpose, with every run that carried it, oldest first. */
 export type PastIntention = {
   kind: 'intention';
@@ -39,7 +44,7 @@ export type PastAct = PastLine | PastIntention;
 /** An intention of hers as the window compares it. */
 export type OwnIntention = { id: string; purpose: string; createdAt: number; status: string };
 
-/** How long after a line of hers what people wrote in its place counts as what followed it. */
+/** How long after a line of hers in a group chat what people wrote there counts as what followed it. */
 const AFTER_MS = 86_400_000;
 
 const momentOf = (value: unknown): number | null => {
@@ -131,18 +136,37 @@ function nearLines(
   return [...best.values()];
 }
 
-/** People's lines in the place of `line` within AFTER_MS after it, over the range of `sources_place_time`. */
-function afterOf(db: Db, line: FoundLine): PastLine['after'] {
-  const row = db
+/**
+ * What followed lines of hers (`nativeIds`) in `placeId`, the last of them at `at` (see Follow). Whether the place is a
+ * direct chat is read from its row by the primary key, and both counts walk the range of `sources_place_time`.
+ */
+function followOf(
+  db: Db,
+  { placeId, at, nativeIds, now }: { placeId: string; at: number; nativeIds: ReadonlyArray<string>; now: number }
+): Follow {
+  const direct = db.prepare('SELECT chat FROM places WHERE id = ?').get(placeId)?.chat === 'dm';
+  const from = new Date(at).toISOString();
+  const window = db
     .prepare(
-      `SELECT COUNT(DISTINCT s.native_id) AS n, COUNT(DISTINCT COALESCE(s.author_person, s.author_account)) AS people,
-         COUNT(DISTINCT CASE WHEN s.reply_to = ? THEN s.native_id END) AS answers
+      `SELECT COUNT(DISTINCT s.native_id) AS n, COUNT(DISTINCT COALESCE(s.author_person, s.author_account)) AS people
        FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
        WHERE s.place_id = ? AND s.occurred_at > ? AND s.occurred_at <= ? AND s.kind = 'seen' AND s.retired_at IS NULL
          AND COALESCE(a.kind, 'user') <> 'bot'`
     )
-    .get(line.nativeId, line.placeId, new Date(line.at).toISOString(), new Date(line.at + AFTER_MS).toISOString());
-  return { lines: Number(row?.n ?? 0), people: Number(row?.people ?? 0), answers: Number(row?.answers ?? 0) };
+    .get(placeId, from, new Date(direct ? now : at + AFTER_MS).toISOString());
+  const answers = db
+    .prepare(
+      `SELECT COUNT(DISTINCT s.native_id) AS n FROM sources s
+       WHERE s.place_id = ? AND s.occurred_at > ? AND s.kind = 'seen' AND s.retired_at IS NULL
+         AND s.reply_to IN (${nativeIds.map(() => '?').join(', ')})`
+    )
+    .get(placeId, from, ...nativeIds);
+  return {
+    lines: Number(window?.n ?? 0),
+    people: Number(window?.people ?? 0),
+    answers: Number(answers?.n ?? 0),
+    direct,
+  };
 }
 
 /** The intention of `id` as the store holds it, over the primary key; null for one it holds no live row of. */
@@ -155,9 +179,11 @@ function storedIntention(db: Db, id: string): OwnIntention | null {
  * The ended wake runs since `since` by the intentions their view carried (`inputs.intentions`), each with the lines of
  * hers its turn wrote. The runs are read over `wake_runs_status` (`status`, `started_at`), the lines over `sources_turn`.
  */
-function runsSince(db: Db, since: number): Map<string, Array<PastRun>> {
+function runsSince(db: Db, since: number, now: number): Map<string, Array<PastRun>> {
   const out = new Map<string, Array<PastRun>>();
-  const sent = db.prepare("SELECT place_id FROM sources WHERE turn_id = ? AND kind = 'said' AND retired_at IS NULL");
+  const sent = db.prepare(
+    "SELECT place_id, native_id, occurred_at FROM sources WHERE turn_id = ? AND kind = 'said' AND retired_at IS NULL"
+  );
   for (const row of db
     .prepare(
       `SELECT id, status, started_at, inputs FROM wake_runs
@@ -176,12 +202,28 @@ function runsSince(db: Db, since: number): Map<string, Array<PastRun>> {
     }
     const ids = carried.map((one) => (one as { id?: unknown } | null)?.id).filter((id) => typeof id === 'string');
     if (ids.length === 0) continue;
-    const places = sent.all(String(row.id)).map((line) => String(line.place_id));
+    const lines = sent
+      .all(String(row.id))
+      .map((line) => ({
+        placeId: String(line.place_id),
+        nativeId: String(line.native_id),
+        at: momentOf(line.occurred_at) ?? since,
+      }))
+      .sort((a, b) => a.at - b.at);
+    const last = lines.at(-1);
     const pastRun: PastRun = {
       at: momentOf(row.started_at) ?? since,
       status: String(row.status),
-      sent: places.length,
-      placeIds: [...new Set(places)],
+      sent: lines.length,
+      placeIds: [...new Set(lines.map((line) => line.placeId))],
+      after: last
+        ? followOf(db, {
+            placeId: last.placeId,
+            at: last.at,
+            nativeIds: lines.filter((line) => line.placeId === last.placeId).map((line) => line.nativeId),
+            now,
+          })
+        : null,
     };
     for (const id of ids) out.set(id, [...(out.get(id) ?? []), pastRun]);
   }
@@ -190,8 +232,9 @@ function runsSince(db: Db, since: number): Map<string, Array<PastRun>> {
 
 /**
  * Her lines and intentions near a purpose, best first, at most `limit`: a line whose stored vector of `model` lies at
- * `minScore` or nearer to `vector`, and an intention whose score in `intentionScores` does. A line comes with what
- * people wrote after it, an intention with the runs that carried it.
+ * `nearLine` or nearer to `vector`, and an intention whose score in `intentionScores` lies at `nearIntention` or nearer.
+ * A line comes with what followed it, an intention with the runs that carried it, each with what followed what it sent,
+ * read up to `now`.
  */
 export function pastActsOf(
   db: Db,
@@ -199,28 +242,42 @@ export function pastActsOf(
     vector: ReadonlyArray<number>;
     model: string;
     intentionScores: ReadonlyMap<string, number>;
-    minScore: number;
+    nearIntention: number;
+    nearLine: number;
     limit: number;
+    now: number;
   }
 ): Array<PastAct> {
   const intentions = [...input.intentionScores]
-    .filter(([, score]) => score >= input.minScore)
+    .filter(([, score]) => score >= input.nearIntention)
     .flatMap(([id, score]) => {
       const stored = storedIntention(db, id);
       return stored === null ? [] : [{ stored, score }];
     });
   const near = [
-    ...nearLines(db, input).map((line) => ({ score: line.score, line, intention: null })),
+    ...nearLines(db, { ...input, minScore: input.nearLine }).map((line) => ({
+      score: line.score,
+      line,
+      intention: null,
+    })),
     ...intentions.map((one) => ({ score: one.score, line: null, intention: one })),
   ]
     .sort((a, b) => b.score - a.score)
     .slice(0, input.limit);
   const oldest = Math.min(...near.flatMap(({ intention }) => (intention ? [intention.stored.createdAt] : [])));
-  const runs = Number.isFinite(oldest) ? runsSince(db, oldest) : new Map<string, Array<PastRun>>();
+  const runs = Number.isFinite(oldest) ? runsSince(db, oldest, input.now) : new Map<string, Array<PastRun>>();
   return near.map((one): PastAct => {
     if (one.line) {
       const { id, score, at, placeId, text } = one.line;
-      return { kind: 'line', id, score, at, placeId, text, after: afterOf(db, one.line) };
+      return {
+        kind: 'line',
+        id,
+        score,
+        at,
+        placeId,
+        text,
+        after: followOf(db, { ...one.line, nativeIds: [one.line.nativeId], now: input.now }),
+      };
     }
     const { stored, score } = one.intention;
     return {

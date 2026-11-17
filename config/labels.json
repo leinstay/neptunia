@@ -348,8 +348,10 @@
         "lead": "{id} lists related past activity, nearest first:",
         "line": "{date}, in {place}, you wrote: {text}",
         "linePrivate": "{date}, you wrote in {place}",
-        "followed": "lines by people there within a day after it: {lines}, from {people} people, of which {answers} answer it",
+        "followed": "lines by people there within a day after it: {lines}, from {people} people; lines that answer it: {answers}",
         "noReply": "nobody wrote there within a day after it",
+        "followedDirect": "lines by people there since then: {lines}, from {people} people; lines that answer it: {answers}",
+        "noReplyDirect": "nobody wrote there since then",
         "intention": "{date}, you set an intention, now {state}: {purpose}",
         "states": {
           "pending": "open",

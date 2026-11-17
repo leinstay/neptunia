@@ -6,16 +6,21 @@
 // notices on its draft. Every vector a turn embedded is kept in its memo, so a changed purpose embeds itself alone.
 
 import { fill, formatDay } from '../format.ts';
-import type { OwnIntention, PastAct } from '../memory/db/past-acts.ts';
+import type { Follow, OwnIntention, PastAct } from '../memory/db/past-acts.ts';
 import { objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 
 /**
- * The cosine at or above which a past act counts as near the purpose. A start value, to be calibrated in the simulator
- * (`scripts/replay.ts --inner heartbeat`) on the live data: it sits where an act of another subject or person stays
- * under it, so the notice is the exception.
+ * The cosine at or above which an intention of hers counts as near the purpose, a start value to calibrate in the
+ * simulator. On one deployment's sample of 24 intentions that replayed heartbeats proposed, every repeat had an intention
+ * of hers from 0.656 up, and no new intention had one that near.
  */
-export const NEAR_SCORE = 0.6;
+export const NEAR_INTENTION = 0.65;
+/**
+ * The cosine at or above which a line of hers counts as near, a start value to calibrate as well. In the same sample her
+ * lines reached 0.68 for new work in the same place, since a line's vector holds the lines around it.
+ */
+export const NEAR_LINE = 0.7;
 /** How many of her newest intentions a purpose is compared with: one embedding request carries them with the purpose. */
 const OWN_INTENTIONS = 100;
 /** The most acts one notice lists. */
@@ -30,8 +35,10 @@ export type NoticeReads = {
     vector: ReadonlyArray<number>;
     model: string;
     intentionScores: ReadonlyMap<string, number>;
-    minScore: number;
+    nearIntention: number;
+    nearLine: number;
     limit: number;
+    now: number;
   }) => Array<PastAct>;
 };
 /** One embedding request: a vector per text, in order. */
@@ -99,12 +106,15 @@ export async function checkPurpose({
   reads,
   model,
   state,
+  now,
 }: {
   purpose: string;
   embed: EmbedTexts;
   reads: NoticeReads;
   model: string | null;
   state: NoticeState;
+  /** The turn's clock: what followed a line in a direct chat counts up to it. */
+  now: number;
 }): Promise<Check> {
   if (model === null) return { kind: 'failed', stage: 'model', reason: 'no-embedding-model' };
   let own: Array<OwnIntention>;
@@ -139,8 +149,10 @@ export async function checkPurpose({
       vector: Array.from(query),
       model,
       intentionScores,
-      minScore: NEAR_SCORE,
+      nearIntention: NEAR_INTENTION,
+      nearLine: NEAR_LINE,
       limit: NOTICE_ITEMS + state.shown.size,
+      now,
     });
   } catch (error) {
     return { kind: 'failed', stage: 'read', reason: reasonOf(error) };
@@ -157,6 +169,16 @@ export function noteShown(state: NoticeState, acts: ReadonlyArray<PastAct>): voi
 /** A label of `labels.heartbeat.notice`, '' when it is missing. */
 const word = (words: Obj, key: string): string => (typeof words[key] === 'string' ? words[key] : '');
 
+/**
+ * What followed lines of hers: `followed` or `followedDirect` with the counts while anything followed, else `noReply`
+ * or `noReplyDirect`.
+ */
+function followText(after: Follow, words: Obj): string {
+  if (after.lines === 0 && after.answers === 0) return word(words, after.direct ? 'noReplyDirect' : 'noReply');
+  const values = { lines: after.lines, people: after.people, answers: after.answers };
+  return fill(word(words, after.direct ? 'followedDirect' : 'followed'), values);
+}
+
 /** One act as its line of the notice. */
 function actLine(
   act: PastAct,
@@ -170,26 +192,18 @@ function actLine(
       act.text === null
         ? fill(word(words, 'linePrivate'), { date, place })
         : fill(word(words, 'line'), { date, place, text: act.text });
-    const after =
-      act.after.lines > 0
-        ? fill(word(words, 'followed'), {
-            lines: act.after.lines,
-            people: act.after.people,
-            answers: act.after.answers,
-          })
-        : word(words, 'noReply');
-    return `${said}; ${after}`;
+    return `${said}; ${followText(act.after, words)}`;
   }
   const states = objOf(words.states);
   const state = typeof states[act.status] === 'string' ? states[act.status] : act.status;
   const runs = act.runs.map((run) =>
-    run.sent > 0
-      ? fill(word(words, 'run'), {
+    run.after === null
+      ? fill(word(words, 'runSilent'), { date: formatDay(run.at, timezone) })
+      : `${fill(word(words, 'run'), {
           date: formatDay(run.at, timezone),
           sent: run.sent,
           places: run.placeIds.map(placeName).join(', '),
-        })
-      : fill(word(words, 'runSilent'), { date: formatDay(run.at, timezone) })
+        })}; ${followText(run.after, words)}`
   );
   const intention = fill(word(words, 'intention'), { date, state, purpose: act.purpose });
   return [intention, ...(runs.length > 0 ? runs : [word(words, 'notRun')])].join('; ');
@@ -197,7 +211,7 @@ function actLine(
 
 /**
  * The notice of `acts`: the lead with its id, one line per act and the ways on, from `labels.heartbeat.notice`
- * (`lead`, `line`, `linePrivate`, `followed`, `noReply`, `intention`, `states`, `run`, `runSilent`, `notRun`, `ways`).
+ * (`lead`, `line`, `linePrivate`, `followed`, `noReply`, `followedDirect`, `noReplyDirect`, `intention`, `states`, `run`, `runSilent`, `notRun`, `ways`).
  */
 export function noticeText(
   acts: ReadonlyArray<PastAct>,

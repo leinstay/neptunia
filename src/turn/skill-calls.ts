@@ -429,6 +429,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       reads: notice.reads,
       model: notice.model(),
       state,
+      now: startedAt,
     });
     if (check.kind === 'failed') {
       log.warn('intention notice: check failed, saved without it', { stage: check.stage, reason: check.reason });

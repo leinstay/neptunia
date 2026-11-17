@@ -20,6 +20,9 @@ const ROOM = 'fake:channel:c1';
 const HARBOUR = 'tele:channel:k1';
 const NEAR: ReadonlyArray<number> = [1, 0, 0, 0];
 const FAR: ReadonlyArray<number> = [0, 1, 0, 0];
+/** A vector at a cosine of about 0.67 to NEAR: past the limit of an intention and short of the limit of a line. */
+const BETWEEN: ReadonlyArray<number> = [0.67, Math.sqrt(1 - 0.67 * 0.67), 0, 0];
+const ZOE_DM = 'fake:dm:5678';
 const iso = (at: number): string => new Date(at).toISOString();
 
 /**
@@ -113,6 +116,9 @@ function pastWorld(): World {
     {
       op: 'archive',
       records: [
+        intention('i5', 'done', 9 * DAY),
+        intention('i6', 'done', 8 * DAY),
+        intention('i7', 'done', 7 * DAY),
         intention('i1', 'done', 6 * DAY),
         intention('i2', 'cancelled', 4 * DAY),
         intention('i4', 'done', 5 * DAY),
@@ -123,7 +129,39 @@ function pastWorld(): World {
   run(world, 'turn:r1', 'i1', 5 * DAY);
   ownLine(world, 'r1-line', ROOM, 5 * DAY, 'turn:r1');
   run(world, 'turn:r2', 'i2', 3 * DAY);
+  ownLine(world, 'p6', HARBOUR, 12 * DAY, 'turn:d', BETWEEN);
+  // A run that wrote in Ζωή's direct chat, answered a day and a half later, and one that wrote in the garden, the same.
+  run(world, 'turn:r5', 'i5', 8 * DAY);
+  addLine(world.db, {
+    id: 'r5-line',
+    iface: 'fake',
+    place: ZOE_DM,
+    author: 'self',
+    text: 'ΓΡΑΜΜΗ-r5',
+    at: iso(TURN_NOW - 8 * DAY),
+    turn: 'turn:r5',
+    audience: { dm: ZOE_DM, iface: 'fake', person: 'person:fake:5678' },
+  });
+  answer(world, 'r5-answer', ZOE_DM, 'r5-line', TURN_NOW - 8 * DAY + 36 * HOUR);
+  run(world, 'turn:r6', 'i6', 7 * DAY);
+  ownLine(world, 'r6-line', GARDEN, 7 * DAY, 'turn:r6');
+  answer(world, 'r6-answer', GARDEN, 'r6-line', TURN_NOW - 7 * DAY + 36 * HOUR);
   return world;
+}
+
+/** A line of Ζωή's in `place` at `at` that answers the line `to`. */
+function answer(world: World, id: string, place: string, to: string, at: number): void {
+  const dm = place === ZOE_DM;
+  addLine(world.db, {
+    id,
+    iface: 'fake',
+    place,
+    author: 'fake:5678',
+    text: `ΑΠΑΝΤΗΣΗ-${id}`,
+    at: iso(at),
+    ...(dm ? { audience: { dm: ZOE_DM, iface: 'fake', person: 'person:fake:5678' } } : {}),
+  });
+  world.db.prepare('UPDATE sources SET reply_to = ? WHERE id = ?').run(to, id);
 }
 
 /** The acts near `vector` with the given scores of her intentions. */
@@ -132,8 +170,10 @@ function actsOf(world: World, scores: Record<string, number>): Array<PastAct> {
     vector: NEAR,
     model: MODEL,
     intentionScores: new Map(Object.entries(scores)),
-    minScore: 0.5,
+    nearIntention: 0.65,
+    nearLine: 0.7,
     limit: 10,
+    now: TURN_NOW,
   });
 }
 
@@ -145,9 +185,9 @@ test('her near line comes with how many lines people wrote in its place within a
     const answered = acts.find((one) => one.kind === 'line' && one.id === 'p1');
     const quiet = acts.find((one) => one.kind === 'line' && one.id === 'p4');
     assert.ok(answered?.kind === 'line' && quiet?.kind === 'line', JSON.stringify(acts));
-    assert.deepEqual(answered.after, { lines: 2, people: 2, answers: 1 });
+    assert.deepEqual(answered.after, { lines: 2, people: 2, answers: 1, direct: false });
     assert.equal(answered.placeId, GARDEN);
-    assert.deepEqual(quiet.after, { lines: 0, people: 0, answers: 0 });
+    assert.deepEqual(quiet.after, { lines: 0, people: 0, answers: 0, direct: false });
   } finally {
     world.close();
   }
@@ -220,6 +260,54 @@ test('her intentions are read newest first, open and archived together, up to th
       ownIntentionsOf(world.db, 3).map((one) => one.id),
       ['i3', 'i2', 'i4']
     );
+  } finally {
+    world.close();
+  }
+});
+
+test('an intention at a score between the two limits is an act, and a line at that score is none', () => {
+  // Bug: one limit serves both kinds, so a repeat found by an intention is missed or new work near a line is noticed.
+  const world = pastWorld();
+  try {
+    const ids = actsOf(world, { i7: 0.67 }).map((one) => one.id);
+    assert.ok(ids.includes('i7'), ids.join(' '));
+    assert.ok(!ids.includes('p6'), ids.join(' '));
+  } finally {
+    world.close();
+  }
+});
+
+/** What followed each run of intention `id` among the acts. */
+function followOf(world: World, id: string) {
+  const found = actsOf(world, { [id]: 0.9 }).find((one) => one.kind === 'intention' && one.id === id);
+  return found?.kind === 'intention' ? found.runs.map((one) => one.after) : null;
+}
+
+test('a run that wrote in a direct chat reports a line that answered it a day and a half later', () => {
+  // Bug: a direct chat is counted within a day, so a person who answered two days later reads as silent.
+  const world = pastWorld();
+  try {
+    assert.deepEqual(followOf(world, 'i5'), [{ lines: 1, people: 1, answers: 1, direct: true }]);
+  } finally {
+    world.close();
+  }
+});
+
+test('a run that wrote in a group chat reports no line within the day and the one answer that came later', () => {
+  // Bug: an answer after the day is lost in a group chat, or every later line of a busy room is counted.
+  const world = pastWorld();
+  try {
+    assert.deepEqual(followOf(world, 'i6'), [{ lines: 0, people: 0, answers: 1, direct: false }]);
+  } finally {
+    world.close();
+  }
+});
+
+test('a run that sent no line reports nothing after it', () => {
+  // Bug: a run that sent nothing is given what people wrote somewhere, as if it had been answered.
+  const world = pastWorld();
+  try {
+    assert.deepEqual(followOf(world, 'i2'), [null]);
   } finally {
     world.close();
   }
