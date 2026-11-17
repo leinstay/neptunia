@@ -1,10 +1,8 @@
-// The server's custom emoji in the persona's own output. The model writes
-// `:name:` (the way it reads them in the transcript); the interface only shows a
-// custom emoji as `<:name:id>` / `<a:name:id>`. The pure functions below turn
-// one into the other through a `lookup(name)`; src/behavior/emoji-index.ts#createEmojiIndex
-// is the core's index over the interface's list of the root's emoji that backs that lookup.
-
-import type { Untyped } from '../tools/types.ts';
+// The custom emoji in text. An incoming line carries the protocol token `<emoji:ID>` per custom emoji, and
+// `nameEmojiTokens` turns each into the engine's stable name `:e23:`. The persona writes `:e23:` (the way she reads
+// them), and the interface shows a custom emoji as `<:name:id>` or `<a:name:id>`. The pure functions below turn her
+// form into the markup through a `lookup(stableName)`; src/behavior/emoji-index.ts#createEmojiIndex is the core's
+// index over the interface's list of the root's emoji that backs that lookup.
 
 /**
  * The custom emoji markup `<:name:id>` / `<a:name:id>` as a regex
@@ -27,46 +25,38 @@ const SKIPPED = [
 const SCAN_RE = new RegExp(`(${SKIPPED})|${/:([A-Za-z0-9_]{2,32}):(?!\/\/)/.source}`, 'g');
 const NAME_TOKEN_RE = /^:([A-Za-z0-9_]{2,32}):$/;
 const MARKUP_RE = new RegExp(`^${CUSTOM_EMOJI_MARKUP}$`);
+/** The protocol token an interface writes for a custom emoji in a line's content, its group 1 the platform id. */
+const EMOJI_TOKEN_RE = /<emoji:([^<>\s]+)>/g;
 
-/** `<:name:id>` or `<a:name:id>` for one emoji. */
-function markup(emoji: Untyped) {
-  return `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`;
+/** An emoji as the lookup answers it: the stable name, the current platform name and the platform id. */
+export type NamedEmoji = { id: string; name: string; platformName: string; animated: boolean };
+type EmojiLookup = (name: string) => NamedEmoji | null;
+
+/** `<:name:id>` or `<a:name:id>` for one emoji, with its platform name. */
+function markup(emoji: { id: string; platformName: string; animated: boolean }): string {
+  return `<${emoji.animated ? 'a' : ''}:${emoji.platformName}:${emoji.id}>`;
 }
 
 /**
- * The emoji called `name` among `emojis`: an exact case-sensitive match first,
- * then a case-insensitive match when it is the only one. Emoji the platform marks
- * unavailable (`available === false`, e.g. a lost boost level) never match.
+ * `text` with every `<emoji:ID>` token as `:stableName:` through `nameOf`. A token with no stable name reads as the
+ * platform name `emojis` gives its id, between colons.
  */
-export function matchEmojiName(
-  emojis: Iterable<{ id: string; name: string; animated?: boolean; available?: boolean }>,
-  name: string
-): { id: string; name: string; animated: boolean } | null {
-  if (!name) return null;
-  const lower = name.toLowerCase();
-  let exact = null;
-  const loose = [];
-  for (const emoji of emojis ?? []) {
-    if (!emoji?.id || !emoji.name || emoji.available === false) continue;
-    if (emoji.name === name) {
-      exact = emoji;
-      break;
-    }
-    if (emoji.name.toLowerCase() === lower) loose.push(emoji);
-  }
-  const found = exact ?? (loose.length === 1 ? loose[0] : null);
-  return found ? { id: found.id, name: found.name, animated: Boolean(found.animated) } : null;
+export function nameEmojiTokens(
+  text: string,
+  nameOf: (nativeId: string) => string | null,
+  emojis: ReadonlyArray<{ id: string; name: string }>
+): string {
+  return text.replace(EMOJI_TOKEN_RE, (_token, id: string) => {
+    const name = nameOf(id) ?? emojis.find((emoji) => emoji.id === id)?.name ?? id;
+    return `:${name}:`;
+  });
 }
 
 /**
- * Replace every `:name:` the index knows with its custom emoji markup. Unknown or
- * ambiguous names, code (inline and blocks), markup already well formed,
+ * Replace every `:stableName:` the lookup knows with its custom emoji markup. Unknown names, code (inline and blocks), markup already well formed,
  * timestamps and URLs are left as they are, so the result is idempotent.
  */
-export function renderCustomEmoji(
-  text: string,
-  lookup: ((name: string) => { id: string; name: string; animated: boolean } | null) | null
-): string {
+export function renderCustomEmoji(text: string, lookup: EmojiLookup | null): string {
   const source = String(text ?? '');
   if (typeof lookup !== 'function' || !source.includes(':')) return source;
   const re = new RegExp(SCAN_RE.source, 'g');
@@ -96,22 +86,18 @@ export function renderCustomEmoji(
 
 /**
  * The body of a `<react>` as something `message.react()` accepts. A unicode
- * emoji passes through; `:name:` resolves through `lookup`; `<:name:id>` /
- * `<a:name:id>` resolves through `lookup` by name and otherwise keeps its own
- * id. Without a lookup (the switch off, no index) or for an unknown `:name:`
- * the result is null: the reaction is dropped.
+ * emoji passes through; `:stableName:` resolves through `lookup`; `<:name:id>` /
+ * `<a:name:id>` keeps its own name and id. Without a lookup (the switch off, no index)
+ * or for an unknown `:stableName:` the result is null: the reaction is dropped.
  */
-export function resolveReactionEmoji(
-  raw: string,
-  lookup: ((name: string) => { id: string; name: string; animated: boolean } | null) | null
-): string | null {
+export function resolveReactionEmoji(raw: string, lookup: EmojiLookup | null): string | null {
   const body = String(raw ?? '').trim();
   if (!body) return null;
   const token = NAME_TOKEN_RE.exec(body);
   const given = token ? null : MARKUP_RE.exec(body);
   if (!token && !given) return body;
   if (typeof lookup !== 'function') return null;
-  const found = lookup(token ? token[1] : (given?.[2] ?? ''));
-  if (found) return markup(found);
-  return given ? markup({ animated: given[1] === 'a', name: given[2], id: given[3] }) : null;
+  if (given) return markup({ animated: given[1] === 'a', platformName: given[2], id: given[3] });
+  const found = token ? lookup(token[1]) : null;
+  return found ? markup(found) : null;
 }

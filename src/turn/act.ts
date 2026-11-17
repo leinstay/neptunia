@@ -532,7 +532,9 @@ export function createAct(ctx: ActContext): Act {
         ? withLink(applyEmojiPick(rendered.text, withEmoji.picked, withEmoji.render), link, hot.prompts?.labels)
         : rendered.text;
       // What she said, for her own record: the emoji by its name, as she would have written it.
-      const said = withEmoji ? applyEmojiPick(message.text, withEmoji.picked, { still: ':{name}:' }) : message.text;
+      const said = withEmoji
+        ? applyEmojiPick(message.text, withEmoji.picked, { still: ':{stableName}:' })
+        : message.text;
       const args = sendArgs({ text, replyId });
       // A first message refused before its typing above ends the posting (already logged).
       if (typedAbove(index) && firstRefused) {

@@ -1988,7 +1988,7 @@ export function diaryTurnRunner(
   });
   // The Discord interface over `client`: its adapter reads for the turn and writes unless a port is given.
   const discord = mods.createDiscordInterface({ client, config: () => hot.config });
-  const found = mods.createReads(discord.port, { info() {}, warn() {}, error() {} });
+  const found = mods.createReads(discord.port, { info() {}, warn() {}, error() {} }, undefined, store);
   const reads = wrapReads ? wrapReads(found) : found;
   return mods.createTurnRunner({
     hot,
@@ -2000,7 +2000,7 @@ export function diaryTurnRunner(
     lookup,
     images,
     recall: mods.createRecall({ hot, store, llm, reads, describer }),
-    emoji: mods.createEmojiIndex({ reads, now: Date.now }),
+    emoji: mods.createEmojiIndex({ reads, now: Date.now, iface: discord.port.iface, names: store }),
     getSelfName: /** @returns {unknown} */ (): unknown => self.name,
     selfId: () => self.id,
     reads,
@@ -6961,7 +6961,11 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers, routes }:
         : null;
     const gifs =
       typeof store.getGifs === 'function' ? (store.getGifs(placeOfRoot(store, String(placeId))) ?? null) : null;
-    const customEmoji = await customEmojiOf(discordReads(client, () => hot.config).reads, String(placeId));
+    const customEmoji = await customEmojiOf(
+      discordReads(client, () => hot.config),
+      String(placeId),
+      store
+    );
     // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
     const loopDeps = loopWanted
       ? await loopDepsOf({

@@ -343,7 +343,8 @@ export function buildTurnRunner(input: WiringInput): Wired {
   const vectors = createVectors({ dataDir, log: quietLog, writerGate: () => Promise.resolve(), memoryDb });
   const base = createJournal({ dataDir, memoryDb, now, log: quietLog });
   const { journal, kept } = keptJournal(base, turnId, now);
-  const { store, state } = unflushedStore(createStore({ dataDir, archive, memoryDb }));
+  const namesStore = createStore({ dataDir, archive, memoryDb });
+  const { store, state } = unflushedStore(namesStore);
   const calibrator = createCalibrator(input.calibration ?? ((state.data as Rec).calibration as number | undefined));
   const llm = input.llm;
   const keptFetch = createKeptFetch({ dataDir, next: fetch });
@@ -374,7 +375,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     keys: serviceKeys({ dataDir }),
     now,
   } as unknown as Parameters<typeof createLookup>[0]);
-  const reads = createReads(port, quietLog, () => identity.rootNative);
+  const reads = createReads(port, quietLog, () => identity.rootNative, namesStore);
   const members = seededMembers(memoryDb.database() as Db, input.rootPlace, identity.rootNative);
   const recall = createRecall({
     hot,
@@ -484,7 +485,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     recall,
     images,
     speech,
-    emoji: createEmojiIndex({ reads, now }),
+    emoji: createEmojiIndex({ reads, now, iface: identity.iface, names: namesStore }),
     // The live glance at voice channels and statuses (src/core.ts): kept in process only, so a replay starts it empty,
     // as a snapshot that found nobody. The core reads presences off the link's hello, which a chat platform declares.
     around: emptyAround(identity.iface !== 'cli'),

@@ -175,8 +175,8 @@ export function pickContext<Line extends { id?: unknown }>(
   return { messages: [answered, ...last], answeredIndex: 1 };
 }
 
-/** A custom emoji as the interface knows it (src/behavior/emoji-index.ts). */
-export type EmojiRef = { id: string; name: string; animated?: boolean };
+/** A custom emoji as the index lists it (src/behavior/emoji-index.ts): its stable name and its current platform name. */
+export type EmojiRef = { id: string; name: string; platformName?: string; animated?: boolean };
 
 /**
  * The emoji of `inventory` to offer, at most `cap`: the most used of this place first (`usage`, the place's
@@ -224,7 +224,7 @@ export function afterReply(state: unknown, emoji: string | null, now: number): E
   return { ...(repliesSince === undefined ? {} : { repliesSince: repliesSince + 1 }), lastUsed };
 }
 
-/** The template an interface renders a custom emoji with (`{name}`, `{id}`). */
+/** The template an interface renders a custom emoji with (`{name}` the platform name, `{id}`, `{stableName}`). */
 export type EmojiRender = { still: string; animated?: string };
 
 /** `text` with the emoji the pick chose, as the interface renders it: after the text, or alone in its place. Pure. */
@@ -234,7 +234,7 @@ export function applyEmojiPick(
   render: EmojiRender
 ): string {
   const template = emoji.animated === true ? (render.animated ?? render.still) : render.still;
-  const rendered = fill(template, { name: emoji.name, id: emoji.id });
+  const rendered = fill(template, { name: emoji.platformName, id: emoji.id, stableName: emoji.name });
   return action === 'append' ? `${text} ${rendered}` : rendered;
 }
 
