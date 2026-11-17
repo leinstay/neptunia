@@ -23,6 +23,7 @@ import type {
   PlaceEntry,
 } from '../../memory/db/mind-read.ts';
 import type { PersonAccount } from '../../memory/db/meta-person.ts';
+import type { ListedPerson, ListedPlace } from '../../memory/db/heartbeat-lists.ts';
 import type { Frame } from './frame.ts';
 import { block, escapeStored, placeRefText, shownName } from './text.ts';
 import type { PlaceWords } from './text.ts';
@@ -571,6 +572,83 @@ export function memoryItemsOf(
     ...mind.recent.map((episode) => plain('recent', episodeText(w, episode), readsOf(episode))),
     ...mind.found.map((excerpt) => plain('found', excerptText(w, excerpt), readsOf(excerpt))),
   ];
+}
+
+/** The first sentence of a stored text: up to its first full stop, question or exclamation mark, else all of it. */
+const firstSentence = (value: string): string =>
+  (/^[\s\S]*?[.!?\u2026](?=\s|$)/u.exec(value.trim())?.[0] ?? value).trim();
+
+/**
+ * A heartbeat's entries of `<people>` and `<places>`, one line each in the order given, every entry kept whatever the
+ * budget. A person's line is the name, then as far as memory holds them `memory.relation` with the first sentence of
+ * the relationship, `heartbeat.attitude` with the band, `heartbeat.lastSeen` or `heartbeat.lastSeenIn` with the day
+ * and the place's handle, and `heartbeat.dm` or `heartbeat.dmLast` with the day of the direct chat's newest line. A
+ * place's line is its reference, then `surroundings.field` with the first sentence of its purpose,
+ * `heartbeat.activity` with the counts of `days` and `heartbeat.ownLast` with the day of her newest line there.
+ * `placeHandle` gives a place's channel handle with `#`, null for a place with none.
+ */
+export function heartbeatItemsOf(
+  given: { readonly people: ReadonlyArray<ListedPerson>; readonly places: ReadonlyArray<ListedPlace> },
+  frame: FrameView,
+  labels: Labels,
+  nameOf: NameOf,
+  refs: EntryRefs,
+  placeHandle: (placeId: string) => string | null,
+  days: number,
+  keepEmoji = false
+): Array<MemoryItem> {
+  const w = wordsOf(labels, frame, nameOf, refs, keepEmoji);
+  const h = labels.heartbeat ?? {};
+  const day = (at: number | null): string => (at === null ? '' : formatDay(at, frame.timezone));
+  const line = (parts: ReadonlyArray<string>): string => parts.filter(Boolean).join('; ');
+  const people = given.people.map((person): MemoryItem => {
+    const place = person.lastPlaceId === null ? null : placeHandle(person.lastPlaceId);
+    const seen =
+      person.lastSeenAt === null
+        ? ''
+        : place === null
+          ? fill(h.lastSeen ?? '', { date: day(person.lastSeenAt) })
+          : fill(h.lastSeenIn ?? '', { date: day(person.lastSeenAt), place });
+    const band = person.score === null ? '' : (w.affinity[affinityBand(person.score)] ?? '');
+    const dm =
+      person.dm === null
+        ? ''
+        : person.dm.lastAt === null
+          ? (h.dm ?? '')
+          : fill(h.dmLast ?? '', { date: day(person.dm.lastAt) });
+    return {
+      subtag: 'people',
+      text: line([
+        storedText(w, shownName(person.name ?? w.unknown, keepEmoji)),
+        person.relation === null ? '' : valueLine(w, w.l.relation, firstSentence(person.relation)),
+        band === '' ? '' : fill(h.attitude ?? '', { band }),
+        seen,
+        dm,
+      ]),
+      counterpart: false,
+      name: person.name,
+      handleIds: person.accounts.filter((one) => one.iface === frame.interface).map((one) => one.native),
+      handleKey: person.personId,
+      accounts: person.accounts,
+      keep: true,
+      reads: [{ kind: 'people', id: person.personId, block: 'memory' }],
+    };
+  });
+  const places = given.places.map((place): MemoryItem => ({
+    subtag: 'places',
+    text: line([
+      refs.place(place.placeId),
+      place.purpose === null ? '' : fieldLine(w, 'purpose', storedText(w, firstSentence(place.purpose))),
+      fill(h.activity ?? '', { days, lines: place.lines, people: place.people }),
+      place.ownLastAt === null ? '' : fill(h.ownLast ?? '', { date: day(place.ownLastAt) }),
+    ]),
+    counterpart: false,
+    name: null,
+    handleIds: [],
+    keep: true,
+    reads: [{ kind: 'places', id: place.placeId, block: 'memory' }],
+  }));
+  return [...people, ...places];
 }
 
 /** Two print keys compared id by id, a shorter key first when one is the start of the other. */

@@ -284,6 +284,16 @@ export const labels = {
   draw: {
     when: 'Local time: {when}',
   },
+  heartbeat: {
+    fragments: 'fragments:',
+    attitude: 'attitude: {band}',
+    lastSeen: 'seen {date}',
+    lastSeenIn: 'seen {date} in {place}',
+    dm: 'dm',
+    dmLast: 'dm, last {date}',
+    activity: '{days}d: {lines} lines, {people} people',
+    ownLast: 'you {date}',
+  },
   memory: {
     privateChannel: 'direct chat',
     redaction: 'someone',

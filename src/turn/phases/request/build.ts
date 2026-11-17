@@ -34,6 +34,10 @@ import type { PlaceLink } from '../../request/spatial.ts';
 import type { PhaseContext, PhaseParams } from '../context.ts';
 import type { Prepared } from '../request.ts';
 import type { Handles } from '../../handles.ts';
+import { shuffled } from '../../../behavior/random.ts';
+import { drawFragments } from '../../../behavior/seeds.ts';
+import type { HeartbeatLists } from '../../../memory/db/heartbeat-lists.ts';
+import type { HeartbeatInput } from '../../request/types.ts';
 import { messageSourceId, PERSONA_ID } from '../../../memory/db/ids.ts';
 import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
 import type { FrameReads, Lesson } from '../../../memory/db/frame-reads.ts';
@@ -240,6 +244,8 @@ type FramedInputs = {
   refLineOf: LineOf | null;
   isSourceRetired: SourceRetired | null;
   chatIdOf: ((placeId: string) => string | null) | null;
+  /** A heartbeat's lists and fragments; null on any other kind. */
+  heartbeat: HeartbeatInput | null;
 };
 
 const NO_FRAMED: FramedInputs = {
@@ -252,6 +258,7 @@ const NO_FRAMED: FramedInputs = {
   refLineOf: null,
   isSourceRetired: null,
   chatIdOf: null,
+  heartbeat: null,
 };
 
 /**
@@ -534,7 +541,7 @@ function statsFieldsOf(
 function framedInputsOf(
   ctx: Pick<
     PhaseContext,
-    'frameReads' | 'lookupRing' | 'seedRing' | 'turnContextOf' | 'hot' | 'intentionRefsFor' | 'calibrator'
+    'frameReads' | 'lookupRing' | 'seedRing' | 'turnContextOf' | 'hot' | 'intentionRefsFor' | 'calibrator' | 'rng'
   >,
   frame: Frame,
   draft: Draft,
@@ -554,6 +561,7 @@ function framedInputsOf(
   const due = dueIntentionsOf(turn.wake ?? null);
   const place = frame.place;
   if (!framedRequest(frame)) return NO_FRAMED;
+  if (frame.kind === 'heartbeat') return heartbeatInputsOf(ctx, frame, draft, channel, now);
   if (place === null) return serviceInputsOf(ctx, frame, draft, channel, now, due);
   // The place by the names of its chain from the interface down, kept with a lookup of hers (the journal's form).
   const names = frame.chain.flatMap((link) => (link.name === null ? [] : [link.name])).reverse();
@@ -619,6 +627,7 @@ function framedInputsOf(
     refLineOf,
     isSourceRetired,
     chatIdOf: chatIdReader(reads),
+    heartbeat: null,
   };
 }
 
@@ -739,6 +748,62 @@ function serviceInputsOf(
     refLineOf,
     isSourceRetired: null,
     chatIdOf: chatIdReader(reads),
+    heartbeat: null,
+  };
+}
+
+/** How many people and how many places a heartbeat lists at most. */
+const HEARTBEAT_PEOPLE = 50;
+const HEARTBEAT_PLACES = 100;
+
+/** `items` in an order drawn with `rng`, cut to `cap`, and how many the cut left out. */
+function drawnOf<T>(items: ReadonlyArray<T>, cap: number, rng: () => number): { kept: Array<T>; leftOut: number } {
+  const kept = shuffled(items, rng).slice(0, cap);
+  return { kept, leftOut: items.length - kept.length };
+}
+
+/**
+ * The inputs of a heartbeat: the people and the places memory holds as `<memory>` (heartbeat-lists.ts), each list in an
+ * order drawn with the turn's `rng` and cut to its cap, and its fragments drawn from `prompts['heartbeat-seeds']`, read
+ * as herself. No `<meanwhile>`, no mind of the graph reader and no lookups. A failed read of the lists is logged and
+ * leaves them empty.
+ */
+function heartbeatInputsOf(
+  ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf' | 'hot' | 'rng' | 'calibrator'>,
+  frame: Frame,
+  draft: Draft,
+  channel: Prepared['channel'],
+  now: number
+): FramedInputs {
+  const reads = ctx.frameReads;
+  const { prompts } = ctx.hot;
+  const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
+  if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups: [] };
+  let lists: HeartbeatLists = { people: [], places: [] };
+  try {
+    lists = reads.heartbeatLists?.(memoryContext, now) ?? lists;
+  } catch (error) {
+    log.warn('turn: heartbeat lists not read', { error });
+  }
+  const people = drawnOf(lists.people, HEARTBEAT_PEOPLE, ctx.rng);
+  const places = drawnOf(lists.places, HEARTBEAT_PLACES, ctx.rng);
+  const refLineOf: LineOf = (key) => {
+    const line = reads.line(memoryContext, key);
+    return line ? { ...line, messageId: line.id } : null;
+  };
+  return {
+    ...NO_FRAMED,
+    lookups: [],
+    lessons: lessonsOfTurn(ctx, reads, frame, memoryContext).lessons,
+    attitudes: attitudesOfTurn(ctx, reads, frame, memoryContext),
+    refLineOf,
+    chatIdOf: chatIdReader(reads),
+    heartbeat: {
+      people: people.kept,
+      places: places.kept,
+      leftOut: { people: people.leftOut, places: places.leftOut },
+      fragments: drawFragments(prompts?.['heartbeat-seeds'], ctx.rng),
+    },
   };
 }
 

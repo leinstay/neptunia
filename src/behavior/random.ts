@@ -23,3 +23,13 @@ export function typingMs(
   const ms = text.length * between(cfg.msPerChar, rng);
   return Math.round(Math.min(cfg.maxMs, Math.max(cfg.minMs, ms)));
 }
+
+/** A copy of `items` in a random order (Fisher-Yates over `rng`). */
+export function shuffled<T>(items: ReadonlyArray<T>, rng: () => number): Array<T> {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.min(i, Math.floor(rng() * (i + 1)));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}

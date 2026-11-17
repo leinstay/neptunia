@@ -183,6 +183,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     memberKeyOf: input.memberKeyOf,
     accountKeyOf: input.accountKeyOf,
     placePathOf: input.placePathOf,
+    heartbeat: input.heartbeat,
   };
   // Each builder reads the input and what the builders before it gave, under the names they give it.
   const frame = input.frame;

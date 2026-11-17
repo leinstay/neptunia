@@ -22,6 +22,18 @@ import type { MediaCache, MediaLookup } from './emoji-gifs.ts';
 import type { DiaryInput } from './diary.ts';
 import type { Whereabouts } from './spatial.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
+import type { ListedPerson, ListedPlace } from '../../memory/db/heartbeat-lists.ts';
+
+/**
+ * What a heartbeat lists and draws: the people and the places in their drawn order, each cut to its cap, how many of
+ * each the cut left out, and its fragments in their drawn order.
+ */
+export type HeartbeatInput = {
+  readonly people: ReadonlyArray<ListedPerson>;
+  readonly places: ReadonlyArray<ListedPlace>;
+  readonly leftOut: { readonly people: number; readonly places: number };
+  readonly fragments: ReadonlyArray<string>;
+};
 import type { InterfaceNames } from '../../protocol/serve.ts';
 
 /** A stored place as a request names it: its interface, its chain innermost first, the interface's names, and a direct chat's partner key. */
@@ -107,6 +119,8 @@ export type Labels = {
   readonly draw?: LabelGroup;
   readonly spatial?: SpatialLabels;
   readonly memory?: MemoryLabels;
+  /** A heartbeat's lists and the words above its fragments (src/turn/request/memory-block.ts#heartbeatItemsOf). */
+  readonly heartbeat?: LabelGroup;
   readonly surroundings?: SurroundingsLabels;
   readonly recall?: LabelGroup;
   readonly meanwhile?: LabelGroup;
@@ -413,6 +427,8 @@ export type RequestInput = {
   readonly lookups?: ReadonlyArray<RingLookup> | null;
   /** The reads of `<meanwhile>`: her lines elsewhere and the lines around them (src/turn/request/meanwhile.ts). */
   readonly meanwhileReads?: MeanwhileReads | null;
+  /** A heartbeat's lists of people and places and its fragments (src/turn/phases/request/build.ts); null on any other kind. */
+  readonly heartbeat?: HeartbeatInput | null;
   /** The interface's text and the stored fields of the place and its root: `<surroundings>`. */
   readonly surroundings?: SurroundingsInput | null;
   /** Her lessons the turn's context may read, best first (frame-reads.ts#lessonsOf): `<lessons>` of `<self>`. */
