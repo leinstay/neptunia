@@ -593,10 +593,9 @@ function fillAddress(db: Db, existing: Row, address: unknown, at: string): void 
  * with the chat as its address. Answers how many places took it and, for a partner, the place's id.
  */
 export function applyPlaceAddress(connection: Connection, update: Row): { stored: number; placeId?: string } {
-  const { placeId, address, partner, iface } = update;
-  if (filled(partner) && filled(iface) && filled(address)) {
+  const { placeId, address, partner, iface, at } = update;
+  if (filled(partner) && filled(iface) && filled(address) && filled(at)) {
     const db = dbOf(connection);
-    const at = typeof update.at === 'string' ? update.at : new Date().toISOString();
     const authority = nativeAuthorityOf(iface);
     ensureAuthority(db, authority, iface, authority.slice(iface.length + 1));
     const place = { authority, key: `dm:${partner}`, kind: 'dm', chat: 'dm', address, partner: { key: partner } };

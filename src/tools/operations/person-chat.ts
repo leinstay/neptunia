@@ -69,7 +69,7 @@ export async function personPlace(env: Env, reference: string): Promise<string> 
         iface: one.iface,
         partner: one.platformId,
         address: opened.chatId,
-        at: new Date().toISOString(),
+        at: new Date((env.now ?? Date.now)()).toISOString(),
       })
     );
     if (typeof written.placeId === 'string') return written.placeId;
