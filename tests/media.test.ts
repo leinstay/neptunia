@@ -264,6 +264,14 @@ test('mediaLabelFor: gif blind uses the name, described uses only the text', () 
   });
 });
 
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('mediaLabelFor: a GIF whose watch failed renders gifNotWatched with its name and reason', () => {
+  assert.deepEqual(mediaLabelFor({ kind: 'gif', name: 'cat.gif' }, { video: { state: 'error', reason: 'download' } }), {
+    key: 'gifNotWatched',
+    values: { name: 'cat.gif', reason: 'download' },
+  });
+});
+
 test('mediaLabelFor: video blind/described carry name + duration, described adds text', () => {
   assert.deepEqual(mediaLabelFor({ kind: 'video', name: 'clip.mp4', durationSec: 65 }), {
     key: 'video',
