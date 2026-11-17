@@ -20,7 +20,6 @@ import { gifsOfPlace, searchGifs } from '../memory/gifs.ts';
 import { HOUR_MS, MINUTE_MS } from '../time.ts';
 import { block, classifierTranscript, fillPromptTemplate } from './prompt.ts';
 import type { GifEntry } from '../memory/gifs.ts';
-import { fillSelfMark } from '../memory/self-mark.ts';
 import type { Untyped } from '../tools/types.ts';
 
 /**
@@ -254,19 +253,10 @@ function gifCandidateLine(entry: GifEntry, labels: PickLabels): string {
   return fill(template, { id: entry.id, text: entry.description ?? '' });
 }
 
-/**
- * A candidate's line of `<emoji>`: its name, and what it shows when the describer's cache knows, with `selfName`
- * where the caption holds `SELF_MARK`.
- */
-function emojiCandidateLine(
-  emoji: EmojiRef,
-  cache: Record<string, unknown> | null,
-  labels: PickLabels,
-  selfName: string
-): string {
+/** A candidate's line of `<emoji>`: its name, and what it shows when the describer's cache knows. */
+function emojiCandidateLine(emoji: EmojiRef, cache: Record<string, unknown> | null, labels: PickLabels): string {
   const cached = cache?.[`emoji:${emoji.id}`] as { miss?: unknown; text?: unknown } | undefined;
-  const text =
-    cached && !cached.miss && typeof cached.text === 'string' ? fillSelfMark(cached.text.trim(), selfName) : '';
+  const text = cached && !cached.miss && typeof cached.text === 'string' ? cached.text.trim() : '';
   const { entry = ':{name}: {text}', entryNoText = ':{name}:' } = labels.emoji ?? {};
   return text ? fill(entry, { name: emoji.name, text }) : fill(entryNoText, { name: emoji.name });
 }
@@ -512,7 +502,7 @@ export function createMediaPick({
     const user = [
       block('gifs', candidates.map((entry) => gifCandidateLine(entry, labels)).join('\n')),
       block('gifs_recent', recentGifLines(library, placeId, handles, labels, at).join('\n')),
-      block('emoji', emoji.map((one) => emojiCandidateLine(one, args.emojiCache ?? null, labels, selfName)).join('\n')),
+      block('emoji', emoji.map((one) => emojiCandidateLine(one, args.emojiCache ?? null, labels)).join('\n')),
       block('context', body),
       block('reply', mark ? `${mark} ${first.text}` : first.text),
     ]

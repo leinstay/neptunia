@@ -1,15 +1,9 @@
-Describe this video in plain prose. The reader cannot watch it and will talk about it with people who can. Write up to {{maxChars}} characters. Use no labels, no lists, no headings and no timestamps. Give the video the length it holds. A few seconds of one thing take two or three sentences. A long video with many parts takes several short paragraphs. Fit the whole video into the limit: when it is long, tell each part more briefly and keep the ending.
+Give a full, ordered account of this video clip, up to {{maxChars}} characters.
 
 Today is {{today}}.
 
-Start with what the video is and what it is about. In the same paragraph, say what you hear and what feeling the video carries. Decide what you hear from the audio alone: speech, music, sound effects or silence. The picture is not evidence of sound. Name a track or a melody only when it is unmistakable, or when speech or on-screen text names it. Otherwise describe the sound. For the feeling, give the emotion of the people and the mood of the whole. Choose the one reading that the video supports best. Do not give alternatives joined by "or".
+Cover everything in the order it happens: who appears, what is said (key phrases quoted in the language spoken), text and captions on screen, what happens visually, how it ends. Name recognisable characters, celebrities, public figures and the source film, show or game; when unsure, describe instead of guessing. Before writing, decide from the audio alone whether anything is audible at all. Your first sentence states what you hear, or that the clip is silent. What the picture suggests about sound is not evidence; only the audio is. Report speech, music and sound effects only where they are present in the audio, never inferred from the picture, captions, the genre or what clips of this kind usually sound like. When only part of the clip has sound, or only one brief moment, say that. Name a track or melody only when it is unmistakable or explicitly named in speech or on screen; otherwise describe the sound without identifying it. If there is a joke or punchline, land it; if the point is implied, state what the clip is really showing or mocking. If the clip cuts off mid-action, say so. Crude, sexual or toilet content: plain words for what happens, no evasions.
 
-When the video is a joke, a meme or a reference, explain the joke. Say what it shows, what it resembles or implies, and what it mocks or refers to. Land the punchline. Use plain words for crude, sexual or toilet content. Do not write "suggestive" or a similar word.
+Write in English. Quote speech, captions and on-screen text in their original language.
 
-Then tell what happens, in the order it happens. Say who appears, what they look like and wear, what they do, what they say and how the video ends. Quote key phrases of speech exactly, in the language spoken. Quote every legible caption and on-screen text exactly, in its original script. If the video stops in the middle of an action, say so.
-
-Then say plainly what cannot work as shown, if anything. Examples are a wrong count of fingers or limbs, one thing that passes through another, a screen or handle on the wrong side, and motion that breaks. Report what is on screen as it is. Do not correct it toward the usual. When nothing is wrong, leave this part out.
-
-Name a character, a public figure or a source only when distinctive features or the video itself support the name. Do not invent an event, a hidden meaning or an identity to make the video coherent. Add no commentary and no moral judgment.
-
-Write in English. Use no markdown. If nothing is recognisable, say so briefly.
+Plain lines, no headings. No commentary, no moralising. Do not start with "this video shows" or similar. No markdown. No timestamps. If nothing is recognisable, say so in three words.

@@ -1,21 +1,15 @@
-Describe this picture in plain prose. The reader cannot see it and will talk about it with people who can. Write up to {{maxChars}} characters. Use no labels, no lists and no headings. Give the picture the length it holds. A small emoji, a sticker or a plain photo of one thing takes two or three sentences. A busy scene takes several short paragraphs.
+Describe this picture in one plain line, up to {{maxChars}} characters.
 
 Today is {{today}}.
 
-Start with what the picture is and what happens in it. When it is a joke, a meme or a reference, explain the joke. Say what it shows, what it resembles or implies, and what it mocks or refers to. Use plain words for crude, sexual or toilet content: say what is shown and what it looks like. Do not write "suggestive" or a similar word. Quote every legible word exactly, in its original script, and say where it is written.
+Describe what is visibly there. Explain an action or joke only when the picture gives clear evidence for it. Do not invent an event, a hidden meaning or an identity to make the picture coherent. An ordinary picture is what it is. Always convey the picture’s mood through the description, grounded in its visible appearance rather than an invented story.
 
-Then describe each person, animal or character in turn. Say where they are in the frame, what the pose is and what each hand does. Say where they look and what they feel, as the face and the body show it. Name everything they wear from head to feet, and name what is bare.
+Name a character, public figure or source only when distinctive visual features support the identification. Otherwise describe the visible features without guessing an identity or object type. Quote legible text or captions briefly, keeping their original script. Screenshots: the app or game and what is happening. Stickers or tiny custom emoji: what it depicts and the emotion.
 
-Then describe the things that matter to what happens. Some things have a front or a working side: a screen, a sign, a door, a tool, a goal. For each of them, say which way that side points. Say if the one who uses it can see or reach it. Say where each action aims and if it meets its target: a throw and where the thrown thing is, a gaze and what it rests on.
+A region that is blurry, tiny, cropped, malformed or indistinct is called that, even when the rest of the picture is clear. Describe the scene as drawn rather than repairing it into a familiar action or arrangement, preserving clear inconsistencies without treating mere unusualness, occlusion or stylisation as defects. Check whether the visible positions and connections support the action or arrangement you describe, and state any clear mismatch instead of explaining it away. When someone uses a thing, say which way its working side faces relative to them, as drawn. For a recognisable object, check whether its visible construction conflicts with how that kind of object is put together, and state any clear mismatch. When a pose suggests an intended result, describe any clearly conflicting placement without inventing motion or assuming that the result occurred. Where depicted parts meet in a clearly malformed way, describe the visible join rather than inventing a plausible design. Do not turn ambiguous shapes into a person, object or meme. Call something an AI artefact only when there is visible evidence for that cause. Arrows, boxes and circles mark where to look, not what is there or whether it is a joke.
 
-Then say plainly what cannot work as drawn, if anything. Examples on a body or on clothes are a wrong count of fingers or limbs, a garment that changes along its length or covers one side only, and a sock or glove that ends in bare skin. Examples on things are a strap or support that leads nowhere, one thing that passes through another, a screen or handle on the wrong side, and a reflection or shadow that does not match. Report the geometry as it is drawn, even when the scene makes more sense another way. Do not correct the picture toward the usual. When nothing is wrong, leave this part out.
+Crude, sexual or toilet humor: plain words for what is happening, never "suggestive" or similar evasions. No commentary, no moralising.
 
-Close with the place, the light and the camera position, in one or two sentences.
+Write in English.
 
-Say what feeling the picture carries: the emotion of each face and the mood of the whole. Choose the one reading that the picture supports best, and name it plainly. Do not give alternatives joined by "or". A picture with no living thing in it has a mood too.
-
-{{self}}
-
-Explain an action or a joke only when the picture gives evidence for it. Do not invent an event, a hidden meaning or an identity to make the picture coherent. Name a character, a public figure or a source only when distinctive visual features support the name. When a region is blurry, tiny, cropped or indistinct, say so. Arrows, boxes and circles mark where to look. They do not say what is there. Add no commentary and no moral judgment.
-
-Write in English. Use no markdown. If nothing is recognisable, say so briefly.
+Do not start with "this image shows" or similar. No markdown. If nothing is recognisable, say so briefly.

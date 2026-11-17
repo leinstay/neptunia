@@ -15,17 +15,15 @@
 // videos of the last hours are still described after 00:00 UTC. Descriptions
 // are data: never logged. A picture's caption is the whole answer of the
 // vision model, every line joined into one with single spaces. Its length is
-// `DESCRIPTION_CHARS` (1,500, the prompt learns it through `{{maxChars}}`),
-// shared by a sticker, an emoji and a GIF. A video's summary takes
-// `VIDEO_DESCRIPTION_CHARS` (6,000) and a sound's `AUDIO_DESCRIPTION_CHARS`
-// (3,000). A second look takes the length of its media. Nothing is cut: an
-// answer over its length goes once through the `summarize` dependency
-// (src/behavior/summarize.ts), and what it returns is stored whole on one
-// line, as the answer is, even when it is still longer. The picture prompt's `{{self}}`
-// is the `describe-self` paragraph, her name and her appearance, filled when
-// the appearance prompt is not blank and `selfName` knows her name there. A
-// picture's caption is kept with her name of the place replaced by `SELF_MARK`
-// (src/memory/self-mark.ts#markSelf), and each reader fills it again.
+// `PICTURE_DESCRIPTION_CHARS` (750, the prompt learns it through `{{maxChars}}`),
+// shared by a sticker and an emoji. A GIF takes `GIF_DESCRIPTION_CHARS`
+// (1,500), a video's summary `VIDEO_DESCRIPTION_CHARS` (5,000) and a sound's
+// `AUDIO_DESCRIPTION_CHARS` (3,000). A second look takes the length of its
+// media. Nothing is cut: an answer over its length goes once through the
+// `summarize` dependency (src/behavior/summarize.ts), and what it returns is
+// stored whole on one line, as the answer is, even when it is still longer.
+// The final text of a picture, GIF or video description and of a second look
+// is made plain (src/memory/plain-description.ts) before it is cached or returned.
 //
 // The picture is downloaded first (src/media/fetch-image.ts) and sent to
 // the model as a data: URL, never as a bare platform URL -- a platform's media host may refuse
@@ -143,6 +141,8 @@ import {
   VIDEO_TOKENS_PER_SECOND as STATIC_TOKENS_PER_SECOND_FALLBACK,
 } from '../llm/openrouter.ts';
 import { oneLine } from './clamp.ts';
+import { plainDescription } from './plain-description.ts';
+import { fill } from '../format.ts';
 import { roleModel, roleOn } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { createYoutubeCheck } from './youtube-check.ts';
@@ -156,19 +156,25 @@ import type { StoredRecord, Untyped } from './types.ts';
 import type { StoreView } from './store.ts';
 import type { Track } from '../loop-watch.ts';
 import { untracked } from '../loop-watch.ts';
-import { markSelf } from './self-mark.ts';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
 /** What a store with no database links. */
 // Only when media.video.errorRetryMinutes is missing or invalid (config.json always has it).
 const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
 // The describer's measures. Production values, config cut of 2026-10-31.
-/** The length of a picture's, a sticker's, an emoji's and a GIF's description, and of a second look at one of them. */
-export const DESCRIPTION_CHARS = 1500;
+/** The length of a picture's, a sticker's and an emoji's description, and of a second look at a picture. */
+const PICTURE_DESCRIPTION_CHARS = 750;
+/** The length of a GIF's description and of a second look at a GIF. */
+const GIF_DESCRIPTION_CHARS = 1500;
 /** The length of a video's summary and of a second look at a video. */
-export const VIDEO_DESCRIPTION_CHARS = 6000;
+const VIDEO_DESCRIPTION_CHARS = 5000;
 /** The length of a voice message's or an audio file's summary. */
-export const AUDIO_DESCRIPTION_CHARS = 3000;
+const AUDIO_DESCRIPTION_CHARS = 3000;
+
+/** `seconds` rounded to one decimal, so a whole second reads with no decimal. */
+function oneDecimal(seconds: number): number {
+  return Math.round(seconds * 10) / 10;
+}
 
 /** What a description is shortened as (src/behavior/summarize.ts). */
 type SummaryKind = 'picture' | 'GIF' | 'video' | 'text';
@@ -462,8 +468,6 @@ type DescriberDeps = {
   proxy?: () => string | null;
   /** The event loop watch's `track` (src/loop-watch.ts); a description is a named operation. */
   track?: Track;
-  /** The persona's display name in a place, for the `{{self}}` of the picture prompt; none leaves `{{self}}` empty. */
-  selfName?: (placeId: string) => string;
   /** Reads a text file's words: `{ ok, text }` or `{ ok: false, reason }`. */
   fetchText?: (url: string) => Promise<{ ok: boolean; text?: string; reason?: string }>;
   /** Shortens an answer over `maxChars` (src/behavior/summarize.ts); none keeps every answer whole. */
@@ -563,7 +567,6 @@ function buildDescriber({
   proxy: proxyNow = () => null,
   track = untracked,
   fetchText = readTextForm,
-  selfName,
   summarize,
   freshAddress,
 }: DescriberDeps) {
@@ -584,21 +587,6 @@ function buildDescriber({
    */
   function capSpent() {
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
-  }
-
-  /**
-   * The `{{self}}` of the picture prompt: `describe-self` with her name and her appearance (its own `{{name}}`
-   * filled first) when the appearance is not blank and a name is known, else an empty string.
-   */
-  function selfParagraph(name: string): string {
-    const prompts = hot.prompts as Record<string, unknown> | null | undefined;
-    const template = prompts?.['describe-self'];
-    if (!name || typeof template !== 'string') return '';
-    const appearance = fillPromptTemplate(typeof prompts?.appearance === 'string' ? prompts.appearance : '', {
-      name,
-    }).trim();
-    if (!appearance) return '';
-    return fillPromptTemplate(template, { name, appearance }).trim();
   }
 
   /** Whether pictures are described under the live prompts (the describe prompt is there). */
@@ -759,8 +747,8 @@ function buildDescriber({
   }
 
   /**
-   * One picture's caption from the vision model: the describe prompt (`{{self}}` her paragraph for `placeId`) over the
-   * picture at `dataUrl`, brought to the English standard and summarized past DESCRIPTION_CHARS. Caches nothing; a
+   * One picture's caption from the vision model: the describe prompt over the picture at `dataUrl`, brought to the
+   * English standard, summarized past PICTURE_DESCRIPTION_CHARS and made plain. Caches nothing; a
    * failure is `{ failed }` with its reason (`daily-cap` for a refusal by `llm.maxRequestsPerDay`).
    */
   async function captionPicture(
@@ -773,10 +761,8 @@ function buildDescriber({
     | { failed: string }
   > {
     const mediaCfg = hot.config.media ?? {};
-    const descriptionChars = DESCRIPTION_CHARS;
+    const descriptionChars = PICTURE_DESCRIPTION_CHARS;
     const model = roleModel(hot.config, 'vision', 'describe');
-    // Her name in the place, read once: the prompt names her by it and the kept caption marks it.
-    const name = selfName?.(placeId) ?? '';
     const ask = (): Promise<Answered> =>
       llm.complete(
         [
@@ -785,10 +771,7 @@ function buildDescriber({
             content: fillPromptTemplate(promptText, {
               maxChars: descriptionChars,
               today: todayDate(),
-              self: selfParagraph(name),
-            })
-              .replace(/(?:\r?\n){3,}/g, '\n\n')
-              .trim(),
+            }),
           },
           { role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }] },
         ],
@@ -838,9 +821,7 @@ function buildDescriber({
         return caption ? { text: caption, usage: again.usage } : null;
       }
     );
-    // The summarizer reads the caption as the model wrote it; her name becomes the marker only in what is kept.
-    const shortened = await shorten(standard.answer.text, descriptionChars, 'picture');
-    const text = markSelf(shortened, name);
+    const text = plainDescription(await shorten(standard.answer.text, descriptionChars, 'picture'));
 
     return { text, usage: standard.answer.usage ?? null, estimated, model, marks: standard.marks };
   }
@@ -920,10 +901,11 @@ function buildDescriber({
    * converted to a short mp4 (src/media/fetch-video.ts#fetchGif, the first
    * `media.gif.maxSeconds`, the video size and tool settings), then
    * summarised by the video model through the `describe-gif` prompt
-   * (`{{maxChars}}` = `DESCRIPTION_CHARS` and `{{seconds}}` = `media.gif.maxSeconds`),
+   * (`{{maxChars}}` = `GIF_DESCRIPTION_CHARS` and `{{seconds}}` the clip's length to one decimal, with
+   * `labels.gifCut` after a blank line when the GIF runs longer than the clip),
    * else the `describe-video` prompt with `{{maxChars}}` alone;
    * under the video token cap and output budget. The answer on one line, through the summarizer at
-   * `DESCRIPTION_CHARS`, is cached under the GIF's own item id as `{ text, ts, watched: true, gif: true }`;
+   * `GIF_DESCRIPTION_CHARS` and made plain, is cached under the GIF's own item id as `{ text, ts, watched: true, gif: true }`;
    * nothing is cached otherwise. An attached GIF's clip comes from the address `freshAddress` reads, else from
    * `source`.
    * Resolves `{ state: 'watched', text, usage, estimated }`, `{ state:
@@ -936,7 +918,7 @@ function buildDescriber({
   async function watchGifNow(placeId: string, item: MediaItem, source: Untyped) {
     const videoCfg = videoSettingsOf(hot.config);
     const maxSeconds = GIF_MAX_SECONDS;
-    const descriptionChars = DESCRIPTION_CHARS;
+    const descriptionChars = GIF_DESCRIPTION_CHARS;
     const report = <const TOutcome extends { state: string; reason?: string }>(
       outcome: TOutcome,
       extra: Record<string, Untyped> = {}
@@ -967,7 +949,7 @@ function buildDescriber({
     const ask = (): Promise<Answered> =>
       llm.complete(
         [
-          { role: 'system', content: gifSystemPrompt(descriptionChars, maxSeconds) },
+          { role: 'system', content: gifSystemPrompt(descriptionChars, clip.seconds, fetched.totalSeconds) },
           { role: 'user', content: [videoPart(videoCfg, clip)] },
         ],
         options
@@ -994,7 +976,7 @@ function buildDescriber({
         return answer ? { text: answer, usage: again.usage } : null;
       }
     );
-    const text = await shorten(standard.answer.text, descriptionChars, 'GIF');
+    const text = plainDescription(await shorten(standard.answer.text, descriptionChars, 'GIF'));
     const ts = now();
     putVideoEntry(placeId, item.itemId, {
       text,
@@ -1014,14 +996,20 @@ function buildDescriber({
    * (src/media/fetch-video.ts#fetchGif: the first `maxSeconds`, the video
    * size and tool settings read now) -- the one fetch of a GIF watch and of
    * its second look. `{ ok: true, clip: { url, seconds, pinned: false },
-   * bytes }` (`seconds` never above `maxSeconds`) or `{ ok: false, reason }`.
+   * bytes, totalSeconds }` (`seconds` the clip's length, never above `maxSeconds`, `totalSeconds` the whole GIF's,
+   * null when unknown) or `{ ok: false, reason }`.
    */
   async function fetchGifClip(
     source: Untyped,
     maxSeconds: number
   ): Promise<
     | { ok: false; reason: string }
-    | { ok: true; clip: { url: string; seconds: number; pinned: boolean }; bytes: number | null }
+    | {
+        ok: true;
+        clip: { url: string; seconds: number; pinned: boolean };
+        bytes: number | null;
+        totalSeconds: number | null;
+      }
   > {
     const videoCfg = videoSettingsOf(hot.config);
     const media = await videoFetcher.fetchGif(source, {
@@ -1033,19 +1021,26 @@ function buildDescriber({
     });
     if (!media.ok) return { ok: false, reason: media.reason ?? 'download' };
     const clip = { url: media.dataUrl, seconds: Math.min(media.seconds ?? maxSeconds, maxSeconds), pinned: false };
-    return { ok: true, clip, bytes: media.bytes ?? null };
+    const totalSeconds = isFiniteNumber(media.totalSeconds) ? media.totalSeconds : null;
+    return { ok: true, clip, bytes: media.bytes ?? null, totalSeconds };
   }
 
   /**
    * The system message of a GIF watch: `describe-gif` with `{{maxChars}}`,
-   * `{{seconds}}` and `{{today}}`, else `describe-video` exactly as a GIF got
-   * it before (`{{maxChars}}`, `{{today}}`). Read at the moment of use.
+   * `{{seconds}}` (the clip's length to one decimal) and `{{today}}`, else `describe-video` with `{{maxChars}}` and
+   * `{{today}}`. A GIF longer than the clip adds `labels.gifCut` after a blank line. Read at the moment of use.
    */
-  function gifSystemPrompt(maxChars: Untyped, seconds: Untyped) {
+  function gifSystemPrompt(maxChars: number, seconds: number, totalSeconds: number | null) {
     const prompt = gifWatchPrompt(hot.prompts);
     const values: Record<string, Untyped> = { maxChars, today: todayDate() };
-    if (prompt?.name === 'describe-gif') values.seconds = seconds;
-    return fillPromptTemplate(prompt?.text, values);
+    const clipSeconds = oneDecimal(seconds);
+    if (prompt?.name === 'describe-gif') values.seconds = clipSeconds;
+    const filled = fillPromptTemplate(prompt?.text, values);
+    const labels = hot.prompts?.labels;
+    const cut = labels?.gifCut;
+    // A GIF the fetcher could not probe, or one no longer than the clip, is watched whole.
+    if (totalSeconds === null || oneDecimal(totalSeconds) <= clipSeconds || typeof cut !== 'string') return filled;
+    return `${filled}\n\n${fill(cut, { seconds: clipSeconds, total: oneDecimal(totalSeconds) })}`;
   }
 
   /**
@@ -1453,7 +1448,7 @@ function buildDescriber({
         return summary ? { text: summary, usage: again.usage } : null;
       }
     );
-    const text = await shorten(standard.answer.text, summaryChars, 'video');
+    const text = plainDescription(await shorten(standard.answer.text, summaryChars, 'video'));
     const ts = now();
     const entry: Record<string, Untyped> = {
       text,
@@ -1666,7 +1661,7 @@ function buildDescriber({
       report('error', { reason: 'empty', seconds: media.seconds ?? null });
       return null;
     }
-    const text = await shorten(answer, answerChars, 'text');
+    const text = plainDescription(await shorten(answer, answerChars, 'text'));
     putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
     report('answered', { seconds: media.seconds ?? null });
     return { question: asked, text };
@@ -1679,7 +1674,7 @@ function buildDescriber({
    * media model (`vision`, a request on a model role other than `core`, `purpose: 'relook'`,
    * output capped at `media.video.rewatch.maxOutputTokens`) `question`: the
    * `rewatch-answer` prompt is the system message (`{{maxChars}}` =
-   * `DESCRIPTION_CHARS`; a `{{question}}` still in it is filled
+   * `PICTURE_DESCRIPTION_CHARS`; a `{{question}}` still in it is filled
    * too, never left literal) and the question goes as a text part of the user
    * message next to the picture. Only an `image` item with a URL and a
    * non-empty question. The answer is NOT the picture's caption: it is
@@ -1695,7 +1690,7 @@ function buildDescriber({
 
     const mediaCfg = hot.config.media ?? {};
     const rewatchCfg = mediaCfg.video?.rewatch ?? {};
-    const answerChars = DESCRIPTION_CHARS;
+    const answerChars = PICTURE_DESCRIPTION_CHARS;
     const report = (outcome: string, extra: Record<string, Untyped> = {}) => {
       log.info('describe: relook', {
         source: item.source ?? null,
@@ -1767,7 +1762,7 @@ function buildDescriber({
       report('error', { reason: 'empty' });
       return null;
     }
-    const text = await shorten(answer, answerChars, 'text');
+    const text = plainDescription(await shorten(answer, answerChars, 'text'));
     putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
     report('answered');
     return { question: asked, text };
@@ -1815,7 +1810,7 @@ function buildDescriber({
    * the way the GIF watch fetches it (fetchGifClip, the first
    * `media.gif.maxSeconds` -- the same cap as the first watch) and the video
    * model asked `question` through the `rewatch-answer` prompt
-   * (`{{question}}`, `{{maxChars}}` = `DESCRIPTION_CHARS`,
+   * (`{{question}}`, `{{maxChars}}` = `GIF_DESCRIPTION_CHARS`,
    * output capped at `media.video.rewatch.maxOutputTokens`), under the video
    * request rails. Needs GIFs watched now (gifWatchBlocker),
    * the prompt, a `gif` item with an
@@ -1835,7 +1830,7 @@ function buildDescriber({
 
     const videoCfg = videoSettingsOf(hot.config);
     const rewatchCfg = videoCfg.rewatch ?? {};
-    const answerChars = DESCRIPTION_CHARS;
+    const answerChars = GIF_DESCRIPTION_CHARS;
     const maxSeconds = GIF_MAX_SECONDS;
     const report = (outcome: string, extra: Record<string, Untyped> = {}) => {
       log.info('describe: rewatch', {
@@ -1898,7 +1893,7 @@ function buildDescriber({
       report('error', { reason: 'empty', seconds: clip.seconds });
       return null;
     }
-    const text = await shorten(answer, answerChars, 'text');
+    const text = plainDescription(await shorten(answer, answerChars, 'text'));
     putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
     report('answered', { seconds: clip.seconds });
     return { question: asked, text };

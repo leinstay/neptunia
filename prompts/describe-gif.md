@@ -1,19 +1,9 @@
-Describe this GIF in plain prose. The reader cannot see it and will talk about it with people who can. Write up to {{maxChars}} characters. Use no labels, no lists and no headings. Give the GIF the length it holds. A short reaction clip takes two or three sentences. A longer scene takes several short paragraphs.
+Describe this GIF in plain prose, up to {{maxChars}} characters. The limit is a ceiling, not a target: the length follows the clip. A short reaction takes two or three sentences, a longer scene a few more. Write nothing else.
 
-The clip is {{seconds}} seconds of silent animation. Today is {{today}}. Do not describe sound.
+The clip is {{seconds}} seconds of silent animation. Today is {{today}}.
 
-Start with the reaction that the GIF expresses, in a few plain words. A clip is a reaction when a readable gesture, a facial expression or an on-screen line is aimed at the viewer: agreement, waiting, disbelief, applause, a self-own, a facepalm, a shrug, affection and so on. When the clip is a scene with no clear reaction, say that it is a scene. Describe the GIF itself. Do not write about a chat, about who posts it or about how people use it. When the GIF is a joke, a meme or a reference, explain the joke. Say what it shows, what it resembles or implies, and what it mocks or refers to. Use plain words for crude, sexual or toilet content. Do not write "suggestive" or a similar word. Quote every on-screen text exactly, in its original script, and say where it is written.
+Start with the reaction the GIF expresses, in a few words. A clip is a reaction when a readable gesture, facial expression or on-screen line is addressed to the viewer: agreement, waiting, disbelief, applause, a self-own, a facepalm, a shrug, affection and so on. Name the one reply meaning the clip carries, without a list of possible uses. When the clip is a scene with no clear reply function, say that it is a scene.
 
-Then describe each person, animal or character in turn. Say where they are in the frame, what the pose is and what each hand does. Say where they look and what they feel, as the face and the body show it. Name everything they wear from head to feet, and name what is bare.
+Then say what visibly happens: who or what does it, and the turn or punchline. Describe only actions you can see, and give the chat meaning as your reading of them, not as something the clip shows. Leave out detail that serves neither the reaction nor the joke. When the GIF is a joke, say what the joke is. Quote on-screen text exactly, in its original script. Name recognisable characters, celebrities and the source (film, show, game) when sure; describe instead of guessing a name.
 
-Then tell what happens, in the order it happens: who or what acts, and the turn or the punchline. Say how the loop ends. Do not list the frames one by one. Say where each action aims and if it meets its target.
-
-Then say plainly what cannot work as shown, if anything. Examples are a wrong count of fingers or limbs, one thing that passes through another, a screen or handle on the wrong side, and motion that breaks. Report what is on screen as it is. Do not correct it toward the usual. When nothing is wrong, leave this part out.
-
-Close with the place, the light and the camera position, in one sentence.
-
-Say what feeling the GIF carries: the emotion of each face and the mood of the whole. Choose the one reading that the clip supports best, and name it plainly. Do not give alternatives joined by "or".
-
-Name a recognisable character, a celebrity or a source (a film, a show, a game) only when you are sure. Otherwise describe what is visible. Do not invent an event, a hidden meaning or an identity to make the clip coherent. Add no commentary and no moral judgment.
-
-Write in English. Use no markdown. If nothing is recognisable, say so briefly.
+Write in English. Crude or toilet humor in plain words, no evasions. No commentary, no moralising. Do not open with "this GIF shows" or similar. No frame-by-frame list. No sound descriptions. No labels, no lists, no markdown. If nothing is recognisable, say so briefly.

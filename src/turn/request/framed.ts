@@ -292,7 +292,6 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     chatStickers: chatStickersOf(given.history),
     mediaNameOf: given.mediaNameOf,
     describe: describerOf(given),
-    selfName: given.selfName,
     tempoText,
     inner: {
       myDay: own.myDayText ? [own.myDayText] : [],

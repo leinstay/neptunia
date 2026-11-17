@@ -217,7 +217,7 @@ function firstName(names: string | null): string {
 
 /**
  * The newest `count` lines of a group's place as an errand agent is given them, oldest first: her lines under
- * `selfName`, a member's under the first name the account wrote under, and `selfName` where a text form holds `SELF_MARK`. A line's media follow its text as the memory
+ * `selfName`, a member's under the first name the account wrote under. A line's media follow its text as the memory
  * session renders them, a kind's marker with its text form; a custom emoji or a sticker stands under its stable name,
  * and the legend `<media>` of those names heads the oldest line's text.
  */
@@ -234,7 +234,7 @@ export function errandRecentLines(
   }));
   const lines = messages.map(({ row, message }) => ({
     author: row.kind === 'said' ? selfName : firstName(row.names),
-    text: [row.text ?? '', ...((row.media ?? []).length > 0 ? storedMediaTags(message, labels, selfName) : [])]
+    text: [row.text ?? '', ...((row.media ?? []).length > 0 ? storedMediaTags(message, labels) : [])]
       .filter(Boolean)
       .join(' '),
   }));
@@ -242,8 +242,7 @@ export function errandRecentLines(
   const legend = legendBlock(
     messages.map(({ message }) => message),
     (name) => names.get(name) ?? null,
-    labels,
-    selfName
+    labels
   );
   const [first] = lines;
   if (legend && first) first.text = `${legend}\n${first.text}`;

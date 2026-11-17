@@ -368,9 +368,6 @@ export function buildTurnRunner(input: WiringInput): Wired {
     state,
     youtubeApiKey: serviceKey('youtube', { dataDir }),
     proxy: () => (proxySettings(hot.config).enabled ? serviceKey('proxy', { dataDir }) : null),
-    // Her name as every request uses it; `members` is built below and read when a picture is described.
-    selfName: () =>
-      (identity.rootNative !== null ? members.nameOf(identity.rootNative, identity.selfId) : null) ?? identity.selfName,
     summarize,
   } as unknown as Parameters<typeof createDescriber>[0]);
   const lookup = createLookup({

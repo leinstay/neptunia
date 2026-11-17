@@ -199,12 +199,9 @@ export function meanwhileWindows(
   return [...byPlace.values()].flatMap(merged).sort((a, b) => firstAt(a) - firstAt(b));
 }
 
-/**
- * A line's text and the tags of its media as the chat renders them (`labels.transcript`), a picture alone included,
- * with `selfName` where a text form holds `SELF_MARK`.
- */
-function lineText(line: MeanwhileLine, labels: Labels, selfName: string): string {
-  const tags = line.media?.length ? storedMediaTags(lineItemParts(line.media, line.id), labels, selfName) : [];
+/** A line's text and the tags of its media as the chat renders them (`labels.transcript`), a picture alone included. */
+function lineText(line: MeanwhileLine, labels: Labels): string {
+  const tags = line.media?.length ? storedMediaTags(lineItemParts(line.media, line.id), labels) : [];
   return [line.text, ...tags].filter(Boolean).join(' ');
 }
 
@@ -276,14 +273,12 @@ const dayOf = (at: number, frame: Frame, labels: Labels): string => formatDate(a
 /**
  * One window in the labels' words: `meanwhile.place` with `{path}` (the place in words with its handle), `{handle}`, `{name}` (the place's own link) and `{date}`, then each line with its time and
  * author. A date line (`transcript.date`, as `<chat>` writes it) stands before a line of another day than the line above.
- * `selfName` is her name in the turn's place.
  */
 export function windowText(
   window: MeanwhileWindow,
   frame: Frame,
   labels: Labels,
   nameOf: NameOf,
-  selfName: string,
   handle: string | null = null,
   refs: MeanwhileRefs | null = null,
   keepEmoji = false
@@ -311,9 +306,7 @@ export function windowText(
         time: formatClock(line.at, frame.timezone, labels.locale),
         author: line.self ? escapeStored(l.you ?? '') : authorOf(line, labels, nameOf, refs, shared),
         text: escapeStored(
-          refs === null
-            ? lineText(line, labels, selfName)
-            : String(mentionsNamed(lineText(line, labels, selfName), refs.mention))
+          refs === null ? lineText(line, labels) : String(mentionsNamed(lineText(line, labels), refs.mention))
         ),
       })
     );
@@ -321,20 +314,17 @@ export function windowText(
   return [head, ...rows].join('\n');
 }
 
-/** The body of `<meanwhile>` over `windows`, headed as background; '' with no window. `selfName` as `windowText` reads it. */
+/** The body of `<meanwhile>` over `windows`, headed as background; '' with no window. */
 export function meanwhileText(
   windows: ReadonlyArray<MeanwhileWindow>,
   frame: Frame,
   labels: Labels,
   nameOf: NameOf,
-  selfName: string,
   handleOf: (window: MeanwhileWindow) => string | null = () => null,
   refs: MeanwhileRefs | null = null,
   keepEmoji = false
 ): string {
   if (windows.length === 0) return '';
-  const texts = windows.map((window) =>
-    windowText(window, frame, labels, nameOf, selfName, handleOf(window), refs, keepEmoji)
-  );
+  const texts = windows.map((window) => windowText(window, frame, labels, nameOf, handleOf(window), refs, keepEmoji));
   return [labels.meanwhile?.header ?? '', ...texts].filter(Boolean).join('\n\n');
 }

@@ -1202,12 +1202,11 @@ export function renderRecallWindows(
 /**
  * The text of a stretch read outside the request's own window: the legend `<media>` of the custom emoji and stickers
  * of its kept `lines` (src/turn/request/legend.ts), then the lines. `messages` are the window's, found by the lines' ids.
- * `render` is the stretch's options of renderRecallWindows: its labels, and its `selfName` as the lines read it.
  */
 export function stretchText(
   lines: ReadonlyArray<{ id: unknown; text: string }>,
   messages: unknown,
-  { labels, selfName = '' }: Pick<RenderRecallWindowsArg2, 'labels' | 'selfName'>,
+  labels: unknown,
   nameOf: (name: string) => MediaName | null
 ): string {
   const kept = new Set(lines.map((line) => line.id));
@@ -1216,7 +1215,7 @@ export function stretchText(
       typeof message === 'object' && message !== null ? message : {};
     return kept.has(one.id) || kept.has(one.stored?.sourceId);
   });
-  const legend = legendBlock(shown, nameOf, labels, selfName);
+  const legend = legendBlock(shown, nameOf, labels);
   const text = lines.map((line) => line.text).join('\n');
   return legend ? `${legend}\n${text}` : text;
 }
@@ -1764,7 +1763,7 @@ export function buildRecallRequest({
     block('people', (Array.isArray(people) ? people : []).map((p) => personLine(p, timezone)).join('\n')),
     block('memory', memoryLines.join('\n')),
     // One legend for the found lines and the context, before both.
-    legendBlock(messagesOfAll(sources, chat), mediaNameOf, labels, selfName, new Map([...(contextDescriptions ?? [])])),
+    legendBlock(messagesOfAll(sources, chat), mediaNameOf, labels, new Map([...(contextDescriptions ?? [])])),
     block('found', sections.join('\n\n')),
     block('context', contextText),
     block('time_cue', timeCueText(timeCue, labels, timezone)),
