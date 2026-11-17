@@ -76,9 +76,7 @@ export const labels = {
     forwarded: '[forwarded: {text}]',
     forwardedFrom: '[forwarded from #{channel}: {text}]',
     file: '[file: {name}]',
-    sticker: '[sticker: {name}]',
-    stickerDescribed: '[sticker: {name}: {text}]',
-    emojiDescribed: '[:{name}: {text}]',
+    stickerRef: '[sticker {name}]',
     thumbnailDescribed: '[thumbnail: {text}]',
     unknownDuration: 'unknown length',
     videoWatched: '[video: {name}, {duration}, watched: {text}]',
@@ -112,6 +110,11 @@ export const labels = {
       llm: 'the viewer failed',
       empty: 'the viewer said nothing',
     },
+  },
+  legend: {
+    line: '{name} {platformName}: {text}',
+    lineNoText: '{name} {platformName} (no description yet)',
+    unreadable: '{name} {platformName} (cannot be seen)',
   },
   channelDirectory: {
     lead: 'channels by handle:',

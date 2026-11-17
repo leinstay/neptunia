@@ -260,12 +260,24 @@ export function lineMedia(
   return found;
 }
 
-/** A line's media item as a request reads it: its kind and its text form, null while it has none. */
-export type LineMediaItem = { kind: string; text: string | null };
+/**
+ * A line's media item as a request reads it: its kind and its text form, null while it has none. A sticker adds its
+ * stable name and whether it has no picture, for the legend (src/turn/request/legend.ts).
+ */
+export type LineMediaItem = { kind: string; text: string | null; name?: string | null; unreadable?: boolean };
 
 /** A line's media rows as a request reads them, in position order. Pure. */
 export const lineMediaItems = (rows: ReadonlyArray<MediaRow>): Array<LineMediaItem> =>
-  rows.map((row) => ({ kind: row.kind, text: row.description }));
+  rows.map((row) =>
+    row.kind === 'sticker'
+      ? {
+          kind: row.kind,
+          text: row.description,
+          name: orNull(row.extra.name),
+          unreadable: row.availability === 'unreadable',
+        }
+      : { kind: row.kind, text: row.description }
+  );
 
 /** A request's media items of a line in the fields of a normalized message, through mediaMessageParts. Pure. */
 export function lineItemParts(
@@ -278,8 +290,8 @@ export function lineItemParts(
       position,
       nativeRef: null,
       description: item.text,
-      availability: item.text === null ? 'unknown' : 'present',
-      extra: {},
+      availability: item.unreadable ? 'unreadable' : item.text === null ? 'unknown' : 'present',
+      extra: item.name ? { name: item.name } : {},
     })),
     lineId
   );
@@ -357,7 +369,6 @@ export function mediaMessageParts(
         parts.emojis.push({
           id,
           name: name ?? '',
-          stored: true,
           ...(row.extra.animated === true ? { animated: true, animationUrl: orNull(row.extra.animationUrl) } : {}),
           ...held,
         });

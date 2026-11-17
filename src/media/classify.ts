@@ -563,21 +563,11 @@ export function mediaLabelFor(
 }
 
 /**
- * Choose which `labels.transcript.*` key (and fill values) renders one
- * sticker item, mirroring `mediaLabelFor`'s priority for the picture-format
- * ones (PNG/APNG/GIF -- the adapter sets `sticker.url`): described >
- * blind (plain `sticker`, name only). A Lottie sticker (`sticker.url` is
- * null) is never a picture: always the `stickerUnreadable` form, regardless of
- * `description` -- see `senses.lottie`.
+ * The `labels.transcript.*` key that renders one sticker item: `stickerRef` with its stable name. Its description
+ * stands in the legend (src/turn/request/legend.ts).
  */
-export function stickerLabelFor(
-  sticker: { name: string; url: string | null },
-  { description = null }: { description?: string | null } = {}
-): LabelTag {
-  if (!sticker.url) return { key: 'stickerUnreadable', values: { name: sticker.name } };
-  return description
-    ? { key: 'stickerDescribed', values: { name: sticker.name, text: description } }
-    : { key: 'sticker', values: { name: sticker.name } };
+export function stickerLabelFor(sticker: { name: string; url: string | null }): LabelTag {
+  return { key: 'stickerRef', values: { name: sticker.name } };
 }
 
 /**

@@ -25,6 +25,7 @@ import type { World } from './fixtures/memory-db/mind-world.ts';
 import { channel, message as eventOf, rig } from './fixtures/reads-rig.ts';
 import type { HistoryQuery } from '../src/protocol/adapter.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { MediaName } from '../src/memory/store-media-names.ts';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1129,4 +1130,28 @@ test('the source line of a read of a stored place names the place', async () => 
   } finally {
     world.close();
   }
+});
+
+test('a read keeps the legend of its kept lines when the room cuts its first lines', async () => {
+  const blob: MediaName = {
+    name: 'e5',
+    kind: 'emoji',
+    iface: 'discord',
+    nativeId: 'emo-5',
+    platformName: 'blob',
+    animated: false,
+  };
+  const emojis = [{ id: 'emo-5', name: 'e5', animated: false, told: { text: 'a round blob' } }];
+  const chat = CHAT.map((one) => (one.id === 'm29' ? { ...one, content: 'end :e5:', emojis } : one));
+  const legendL = { ...L, legend: { line: '{name} {platformName}: {text}', lineNoText: '', unreadable: '' } };
+  const { run } = runner({
+    labels: legendL,
+    maxChars: 700,
+    readRecord: (request: Untyped) => Promise.resolve(chat.filter((one) => one.ts >= request.from)),
+    render: () => ({ ...render(), labels: legendL, mediaNameOf: (name: string) => (name === 'e5' ? blob : null) }),
+  });
+  const text = textOf(await run({ last: 20 }));
+  assert.ok(text.includes('lines cut)'), text);
+  assert.ok(text.includes('<interface>\n<discord><emojis>\n:e5: blob: a round blob\n'), text);
+  assert.ok(text.indexOf('</interface>') < text.indexOf('end :e5:'), text);
 });

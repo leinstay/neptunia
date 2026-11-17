@@ -1,5 +1,6 @@
 // The types of the signatures in ./recall-run.ts: the inputs and results that are too long to read inline.
 
+import type { MediaName } from '../memory/store-media-names.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
 import type { ResolvedRecallAnchor } from '../memory/db/recall.ts';
@@ -46,6 +47,8 @@ export type CreateRecallInput = {
   hot: { config: Untyped; prompts: Untyped };
   /** `state` (`data`, `markDirty`) and `listUserProfiles` (src/memory/store.js); read only, when present: `getLore`, `getPlace` (its `learned`), `getRecent`. Never `getPrivate`. */
   store: Untyped;
+  /** The store's read of a stable name (src/memory/store-media-names.ts), for the legend of a stretch. */
+  mediaNameOf?: (name: string) => MediaName | null;
   /** From createLlm(): `complete`, `capLeft`. */
   llm: Untyped;
   /** The core's reads of the interface: the message and member searches and the history windows around a hit. */

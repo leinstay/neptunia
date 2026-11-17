@@ -41,6 +41,7 @@ import { planOf, queryAnswer } from './fixtures/query-answer.ts';
 import fs from 'node:fs';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { MediaName } from '../src/memory/store-media-names.ts';
 import { asRecord } from './fixtures/records.ts';
 import {
   ANA,
@@ -2363,4 +2364,51 @@ test("memorySearchPlan: her terms and people first, then the question's long wor
     from: Date.UTC(2026, 9, 1),
     to: Date.UTC(2026, 9, 2) - 1,
   });
+});
+
+test('buildRecallRequest: one legend before <found> holds the custom emoji of the found lines and of the context', () => {
+  const t = Date.UTC(2026, 9, 1, 18, 40);
+  const nameRow = (name: string, nativeId: string, platformName: string): MediaName => ({
+    name,
+    kind: 'emoji',
+    iface: 'discord',
+    nativeId,
+    platformName,
+    animated: false,
+  });
+  const rows = new Map([
+    ['e1', nameRow('e1', 'emo-1', 'blob')],
+    ['e2', nameRow('e2', 'emo-2', 'cat')],
+  ]);
+  const emoji = (name: string, id: string, text: string) => ({ id, name, animated: false, told: { text } });
+  const windows = [
+    {
+      placeId: 'c1',
+      channelName: 'general',
+      messages: [msg('m1', t, { content: 'old :e1:', emojis: [emoji('e1', 'emo-1', 'a blob')] })],
+      hitIds: ['m1'],
+    },
+  ];
+  const context = [
+    msg('k1', NOW - MINUTE, {
+      content: 'now :e1: :e2:',
+      emojis: [emoji('e1', 'emo-1', 'a blob'), emoji('e2', 'emo-2', 'a cat')],
+    }),
+  ];
+  const user = buildRecallRequest({
+    prompt: 'p',
+    selfName: 'Zoë',
+    question: { authorName: 'Nikos', content: 'q' },
+    windows,
+    context,
+    labels: { ...labels, legend: { line: '{name} {platformName}: {text}', lineNoText: '', unreadable: '' } },
+    timezone: 'UTC',
+    answerChars: 100,
+    now: NOW,
+    mediaNameOf: (name) => rows.get(name) ?? null,
+  })?.[1].content;
+  assert.ok(user, 'a request');
+  assert.equal(user.split('<interface>').length - 1, 1, user);
+  assert.ok(user.indexOf('</interface>') < user.indexOf('<found>'), user);
+  assert.ok(user.includes('<emojis>\n:e1: blob: a blob\n:e2: cat: a cat\n</emojis>'), user);
 });

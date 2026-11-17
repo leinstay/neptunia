@@ -97,6 +97,8 @@ export type ChannelSpec = {
 export type World = {
   port: Fake;
   reads: Reads;
+  /** The stable names the world's reads issued, read by name as the store's `mediaNameOf`. */
+  names: StableNames;
   selfId: string;
   channel(spec?: ChannelSpec, options?: { keep?: boolean }): Channel;
   /** Puts message stubs into a channel's history, and the ones later added to the array too. */
@@ -206,8 +208,11 @@ function infoOf(id: string, spec: ChannelSpec): { placeId: string | null; name: 
   return { placeId, name, info };
 }
 
+/** The store's issuer of stable names and its read by name, as the legend reads a name's platform name. */
+export type StableNames = MediaNamer & { mediaNameOf(name: string): MediaName | null };
+
 /** A namer as the store issues names: `e1`, `e2`... and `s1`, `s2`... by native id, the same id keeping its name. */
-function fakeNamer(): MediaNamer {
+function fakeNamer(): StableNames {
   const held = new Map<string, MediaName>();
   const count = { emoji: 0, sticker: 0 };
   return {
@@ -222,6 +227,23 @@ function fakeNamer(): MediaNamer {
         return row;
       });
     },
+    mediaNameOf(name) {
+      return [...held.values()].find((row) => row.name === name) ?? null;
+    },
+  };
+}
+
+type Delivery = { chatId: string; content: unknown; parts: ReadonlyArray<MessageRef> };
+
+/** Records every send of `port` as it was delivered: the content asked for and the messages it became (a long text is several). */
+function recordDeliveries(port: Fake, deliveries: Array<Delivery>): void {
+  const adapter = port as unknown as Record<string, (...args: Array<unknown>) => Promise<unknown>>;
+  const send = adapter.send;
+  if (send === undefined) throw new Error('no send');
+  adapter.send = async (...args: Array<unknown>) => {
+    const delivery = (await send.apply(port, args)) as { parts: ReadonlyArray<MessageRef> };
+    deliveries.push({ chatId: (args[0] as { chatId: string }).chatId, content: args[1], parts: delivery.parts });
+    return delivery;
   };
 }
 
@@ -258,9 +280,8 @@ function create(): World {
   const names = new Map<string, string | null>();
   const failing = new Map<string, Set<string>>();
   const closers = new Map<string, () => void>();
-  const deliveries: Array<{ chatId: string; content: unknown; parts: ReadonlyArray<MessageRef> }> = [];
+  const deliveries: Array<Delivery> = [];
   type Methods = Record<string, (...args: Array<unknown>) => Promise<unknown>>;
-  const adapter = port as unknown as Methods;
 
   type Spy = (args: Array<unknown>) => void | Promise<void>;
   type Interceptor = (args: Array<unknown>, original: () => Promise<unknown>) => unknown;
@@ -313,18 +334,7 @@ function create(): World {
     wrap(op);
   }
 
-  // Every send as it was delivered: the content asked for and the messages it became (a long text is several).
-  const send = adapter.send;
-  if (send === undefined) throw new Error('no send');
-  adapter.send = async (...args: Array<unknown>) => {
-    const delivery = (await send.apply(port, args)) as { parts: ReadonlyArray<MessageRef> };
-    deliveries.push({
-      chatId: (args[0] as { chatId: string }).chatId,
-      content: args[1],
-      parts: delivery.parts,
-    });
-    return delivery;
-  };
+  recordDeliveries(port, deliveries);
 
   /** What the persona posted in a chat, one entry for each message, as the first tests of the turn read them. */
   function sentOf(chatId: string, from: number, to: number): Array<Posted> {
@@ -456,6 +466,7 @@ function create(): World {
   return {
     port,
     reads,
+    names: namer,
     selfId: SELF,
     channel,
     seed: (placeId, messages) => seed(String(placeId), messages as ReadonlyArray<Raw>),

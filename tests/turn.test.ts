@@ -671,15 +671,17 @@ test('createTurnRunner: features.mediaDescriptions on describes a picture-format
   assert.equal(describer.calls.length, 1);
   assert.equal(describer.calls[0].items[0].itemId, 'sticker:s1');
   const userMessage = textOf(llm.calls[0][1].content);
-  // The owner on 2026-11-17: a sticker stands in a line under the engine's stable name.
+  // The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+  const legend = legendBlockOf(userMessage);
+  assert.ok(userMessage.includes(fill(labels.transcript.stickerRef, { name: 's1' })), userMessage);
   assert.ok(
-    userMessage.includes(
-      labels.transcript.stickerDescribed.replace('{name}', 's1').replace('{text}', 'a frog gives a thumbs up')
-    )
+    legend.includes(fill(labels.legend.line, { name: 's1', platformName: 'pepe', text: 'a frog gives a thumbs up' })),
+    legend
   );
+  assert.equal(userMessage.split('a frog gives a thumbs up').length - 1, 1, 'the description stands once');
 });
 
-test('createTurnRunner: features.mediaDescriptions on describes a custom emoji in the text, appended as an extra tag', async () => {
+test('createTurnRunner: features.mediaDescriptions on describes a custom emoji in the text, its description in the legend', async () => {
   const raw = rawMessage({ id: 'm1', content: 'nice <:pog:111> job' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<msg>ok</msg>');
@@ -704,12 +706,21 @@ test('createTurnRunner: features.mediaDescriptions on describes a custom emoji i
   const userMessage = textOf(llm.calls[0][1].content);
   // The owner on 2026-11-17: a custom emoji stands in a line under the engine's stable name.
   assert.ok(userMessage.includes('nice :e1: job'));
+  // The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+  const legend = legendBlockOf(userMessage);
   assert.ok(
-    userMessage.includes(
-      labels.transcript.emojiDescribed.replace('{name}', 'e1').replace('{text}', 'a surprised cat face')
-    )
+    legend.includes(fill(labels.legend.line, { name: ':e1:', platformName: 'pog', text: 'a surprised cat face' })),
+    legend
   );
+  assert.equal(userMessage.split('a surprised cat face').length - 1, 1, 'the description stands once');
 });
+
+/** The root block `<interface>` of a user message, the legend, which stands before `<chat>`; '' when absent. */
+function legendBlockOf(userMessage: string): string {
+  const before = userMessage.slice(0, Math.max(0, userMessage.indexOf('<chat>')));
+  const from = before.lastIndexOf('<interface>');
+  return from < 0 || from < before.lastIndexOf('</surroundings>') ? '' : before.slice(from);
+}
 
 // Pictures in a neighbour channel's lines: the captions the describer's cache already holds, never a request.
 

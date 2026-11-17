@@ -152,6 +152,8 @@ export function fakeStore({
     listUserProfiles: () => Object.values(userProfiles),
     getLore: () => loreEntries,
     ...objectMediaCache(mediaCache),
+    // The store's read of a stable name: the names the current world's reads issued.
+    mediaNameOf: (name: string) => world().names.mediaNameOf(name),
     state: { data: {}, markDirty() {} },
   };
 }

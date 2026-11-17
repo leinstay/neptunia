@@ -27,7 +27,9 @@ import type { Task } from './task.ts';
 import { handleOf } from '../../behavior/handles.ts';
 import { fill, mentionsNamed } from '../../format.ts';
 import { affinityBand } from '../../memory/affinity.ts';
-import type { RequestInput } from './types.ts';
+import type { Message, RequestInput } from './types.ts';
+import type { SeenSticker } from './legend.ts';
+import { mediaLookupOf } from './emoji-gifs.ts';
 import type { WakeTexts } from './wake.ts';
 
 /** The empty mind: a request built with no reader. */
@@ -230,6 +232,29 @@ function reactorsOf(history: RequestInput['history']): Array<{ id: string; name:
   return out;
 }
 
+/** The stickers of each line of `history`, its forwarded ones included, by message id. */
+function chatStickersOf(history: ReadonlyArray<Message>): Map<string, Array<SeenSticker>> {
+  return new Map(
+    history.map((message) => [
+      message.id,
+      [...(message.stickers ?? []), ...(message.forwarded ?? []).flatMap((part) => part.stickers ?? [])]
+        .filter((sticker) => typeof sticker.name === 'string')
+        .map((sticker) => ({ name: String(sticker.name), text: null, readable: Boolean(sticker.url) })),
+    ])
+  );
+}
+
+/** A description by its media key: the turn's own, else the describer's cache. */
+function describerOf(given: RequestInput): (key: string) => string | null {
+  const cached = mediaLookupOf(given.mediaCache);
+  return (key) => {
+    const known = given.descriptions?.get(key);
+    if (known) return known;
+    const entry = cached?.(key);
+    return entry && !entry.miss && typeof entry.text === 'string' && entry.text.trim() ? entry.text.trim() : null;
+  };
+}
+
 /** The request of a turn on the frame. */
 export function framedBuild(given: RequestInput, steps: FramedSteps): BuildRequestResult {
   const { frame, base, task, senses, own, room, tempo, tempoText } = steps;
@@ -264,6 +289,9 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     lookups: given.lookups ?? [],
     meanwhileReads: given.meanwhileReads ?? null,
     chatItems: base.chatItems,
+    chatStickers: chatStickersOf(given.history),
+    mediaNameOf: given.mediaNameOf ?? null,
+    describe: describerOf(given),
     tempoText,
     inner: {
       myDay: own.myDayText ? [own.myDayText] : [],

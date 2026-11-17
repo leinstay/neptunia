@@ -5,6 +5,7 @@
 import { accountOf, sharedPlaceOf } from '../memory/addresses.ts';
 import { historyLines } from '../behavior/lines.ts';
 import { fill, formatTranscript, renderTranscript } from '../format.ts';
+import type { MediaName } from '../memory/store-media-names.ts';
 import type { Reads } from '../interface/reads.ts';
 import { topByRank } from '../memory/ranking.ts';
 import { fillPromptTemplate } from '../turn/request/text.ts';
@@ -37,7 +38,13 @@ export type ClassifierParams = {
 /** What createClassifierRequest reads: the dependencies of createMessageHandler and two of its parts' functions. */
 export type ClassifierRequestContext = {
   reads: Reads;
-  store: { getUser: (accountId: string) => { aliases?: unknown } | null | undefined } | null | undefined;
+  store:
+    | {
+        getUser: (accountId: string) => { aliases?: unknown } | null | undefined;
+        mediaNameOf?: (name: string) => MediaName | null;
+      }
+    | null
+    | undefined;
   refOf: (channel: Conv) => ChatRef;
   cachedFollowUpMedia: MediaPrefill['cachedFollowUpMedia'];
   /** Her aliases, the names the owner gave her own person record, read at the moment of use. */
@@ -95,6 +102,7 @@ export function createClassifierRequest({
       seeReactions: true,
       descriptions,
       videos,
+      ...(store?.mediaNameOf ? { mediaNameOf: store.mediaNameOf } : {}),
     });
     const candidateItem = items[items.length - 1];
     const transcript = renderTranscript(items.slice(0, -1), config.bot.timezone, labels);

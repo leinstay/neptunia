@@ -321,7 +321,7 @@
       "repeated": 0
     },
     "tests/format.test.ts": {
-      "deep": 88,
+      "deep": 86,
       "repeated": 0
     },
     "tests/gif-backfill.test.ts": {
@@ -482,10 +482,6 @@
     },
     "tests/media-memory-search.test.ts": {
       "deep": 11,
-      "repeated": 0
-    },
-    "tests/media-pick-emoji-contract.test.ts": {
-      "deep": 2,
       "repeated": 0
     },
     "tests/media-pick-emoji-turn.test.ts": {
@@ -1081,7 +1077,7 @@
       "repeated": 0
     },
     "tests/turn.test.ts": {
-      "deep": 214,
+      "deep": 212,
       "repeated": 8
     },
     "tests/usage.test.ts": {

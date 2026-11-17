@@ -62,6 +62,8 @@ import { parseSkillsLines, takeSkillsLines } from '../tools/discovery.ts';
 import type { SkillsLines } from '../tools/discovery.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
+import { legendBlock } from '../turn/request/legend.ts';
+import type { MediaName } from '../memory/store-media-names.ts';
 import type {
   LocatorKeepArg2,
   MeaningQueryInput,
@@ -1188,6 +1190,27 @@ export function renderRecallWindows(
   return out;
 }
 
+/**
+ * The text of a stretch read outside the request's own window: the legend `<interface>` of the custom emoji and stickers
+ * of its kept `lines` (src/turn/request/legend.ts), then the lines. `messages` are the window's, found by the lines' ids.
+ */
+export function stretchText(
+  lines: ReadonlyArray<{ id: unknown; text: string }>,
+  messages: unknown,
+  labels: unknown,
+  nameOf: (name: string) => MediaName | null
+): string {
+  const kept = new Set(lines.map((line) => line.id));
+  const shown = (Array.isArray(messages) ? messages : []).filter((message: unknown) => {
+    const one: { id?: unknown; stored?: { sourceId?: unknown } } =
+      typeof message === 'object' && message !== null ? message : {};
+    return kept.has(one.id) || kept.has(one.stored?.sourceId);
+  });
+  const legend = legendBlock(shown, nameOf, labels);
+  const text = lines.map((line) => line.text).join('\n');
+  return legend ? `${legend}\n${text}` : text;
+}
+
 /** The weight a stored item other than an episode ranks with: an episode's default weight. */
 const NEUTRAL_WEIGHT = 3;
 /** The mark of an absent field in a `<memory>` line. */
@@ -1621,6 +1644,25 @@ function timeCueText(cue: Untyped, labels: Untyped, timezone: Untyped) {
   return fill(template.trim(), { range });
 }
 
+/** The messages of every window of `windows` and of `chat`, in that order, for one legend over both. */
+function messagesOfAll(windows: unknown, chat: unknown): Array<unknown> {
+  const out: Array<unknown> = [];
+  const pushAll = (list: unknown): void => {
+    if (Array.isArray(list))
+      for (const one of list) {
+        const item: unknown = one;
+        out.push(item);
+      }
+  };
+  if (Array.isArray(windows))
+    for (const window of windows) {
+      const one: unknown = window;
+      if (typeof one === 'object' && one !== null && 'messages' in one) pushAll(one.messages);
+    }
+  pushAll(chat);
+  return out;
+}
+
 export function buildRecallRequest({
   prompt,
   selfName,
@@ -1641,6 +1683,8 @@ export function buildRecallRequest({
   reactionsPerMessage,
   memoryTokens,
   timeCue = null,
+  // A summary built with no store of stable names, as from src/behavior/summary-builder.ts, shows no legend.
+  mediaNameOf = () => null,
 }: BuildRecallRequestInput): Array<{ role: string; content: string }> | null {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   const rendered = renderRecallWindows(windows, {
@@ -1708,6 +1752,8 @@ export function buildRecallRequest({
   const user = [
     block('people', (Array.isArray(people) ? people : []).map((p) => personLine(p, timezone)).join('\n')),
     block('memory', memoryLines.join('\n')),
+    // One legend for the found lines and the context, before both.
+    legendBlock(messagesOfAll(sources, chat), mediaNameOf, labels, new Map([...(contextDescriptions ?? [])])),
     block('found', sections.join('\n\n')),
     block('context', contextText),
     block('time_cue', timeCueText(timeCue, labels, timezone)),

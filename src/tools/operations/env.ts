@@ -5,6 +5,7 @@
 // file (under `hot.privateDir`, the deployment's private directory). Built once per admin; an operation reads it as `ctx.env`. Hot
 // values are read at the moment of use, through `hot`, never copied.
 
+import type { MediaName } from '../../memory/store-media-names.ts';
 import { accountOf, chatOfPlace, topPlaceOf } from '../../memory/addresses.ts';
 import path from 'node:path';
 import { localConfigPath } from '../../config/files.ts';
@@ -35,6 +36,8 @@ export type OpsDeps = {
   getSelfName?: (placeId: string | null) => string;
   /** A member's name in the member directory. */
   memberNameOf?: (placeId: string, accountId: string) => string | null;
+  /** The store's read of a stable name (src/memory/store-media-names.ts), for the legend of a read's lines. */
+  mediaNameOf?: (name: string) => MediaName | null;
   /** The chats the interface reported. */
   directory?: {
     isDm: (chatId: string) => boolean;
@@ -65,6 +68,8 @@ function buildEnv({
   selfId = () => null,
   getSelfName = () => '',
   memberNameOf = () => null,
+  // An environment with no store of stable names, as in a replay, reads lines with no legend.
+  mediaNameOf = () => null,
   directory = { isDm: () => false },
   connection = { lastReconnectAt: null },
   calibrator,
@@ -252,6 +257,7 @@ function buildEnv({
     selfId,
     getSelfName,
     memberNameOf,
+    mediaNameOf,
     // The chats the interface reported (`directory.isDm`).
     directory,
     // The core's reads of the interface (src/interface/reads.ts): the chat an operation posts in, a message's event.

@@ -55,6 +55,7 @@ import {
   world,
 } from './fixtures/turn-world.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { MediaName } from '../src/memory/store-media-names.ts';
 import { table, wrongly, present } from './fixtures/loose-types.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
 import { topPlaceSpelled } from '../src/memory/db/ids.ts';
@@ -2378,15 +2379,43 @@ function stickerOnlyMessage({ guild, channel, id = 'm-sticker' }: Record<string,
     channel,
     placeId: channel.id,
     cleanContent: '',
-    stickers: new Map([['s1', { id: 's1', name: 'pingo', format: 1 }]]),
+    stickers: new Map([['s1', { id: 's1', name: 's7', format: 1 }]]),
   });
 }
+
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+// The candidate's sticker `s7` (platform name `pingo`) is named by the store, and its caption stands in the legend.
+const PINGO: MediaName = {
+  name: 's7',
+  kind: 'sticker',
+  iface: 'discord',
+  nativeId: 's1',
+  platformName: 'pingo',
+  animated: false,
+};
+const namingStore = () => ({
+  ...fakeStore(),
+  mediaNameOf: (name: string): MediaName | null => (name === 's7' ? PINGO : null),
+});
+const legendPrompts = (): Record<string, Untyped> => ({
+  ...fakeAddressPrompts(),
+  labels: {
+    ...labels,
+    legend: {
+      line: '{name} [{platformName}] {text}',
+      lineNoText: '{name} [{platformName}] undescribed',
+      unreadable: '{name} unseen',
+    },
+  },
+});
+// The candidate's transcript opens with its legend, then its one line.
+const CANDIDATE_LINE = /<candidate>\n<interface>\n[\s\S]*<\/interface>\n[^\n]*\[sticker s7\]\n<\/candidate>/;
 
 test('follow-up: a sticker-only candidate with a cached caption reaches the classifier with the caption', async () => {
   const llm = fakeFollowUpLlm();
   const describer = fakeCachingDescriber(new Map([['sticker:s1', 'a penguin waving hello']]));
   const config = baseConfig({ features: { mediaDescriptions: true } });
-  const handler = makeHandler({ config, llm, describer, prompts: fakeAddressPrompts() });
+  const handler = makeHandler({ config, llm, describer, prompts: legendPrompts(), store: namingStore() });
   const guild = fakeGuild();
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
@@ -2395,10 +2424,9 @@ test('follow-up: a sticker-only candidate with a cached caption reaches the clas
   await tick();
 
   assert.equal(llm.calls.length, 1, 'only the classifier call; the cache read makes none');
-  assert.match(
-    String(llm.calls[0].messages[1].content),
-    /<candidate>\n[^\n]*\[sticker: pingo: a penguin waving hello\]\n<\/candidate>/
-  );
+  const user = String(llm.calls[0].messages[1].content);
+  assert.match(user, CANDIDATE_LINE);
+  assert.ok(user.includes('s7 [pingo] a penguin waving hello'), user);
   assert.equal(describer.cachedCalls.length, 1);
   assert.equal(describer.cachedCalls[0].placeId, 'g1');
   assert.ok(describer.cachedCalls[0].items.some((item: Record<string, Untyped>) => item.itemId === 'sticker:s1'));
@@ -2407,11 +2435,11 @@ test('follow-up: a sticker-only candidate with a cached caption reaches the clas
   await p;
 });
 
-test('follow-up: a sticker-only candidate with no cached caption renders as a bare sticker, as before', async () => {
+test('follow-up: a sticker-only candidate with no cached caption has the legend line of no description', async () => {
   const llm = fakeFollowUpLlm();
   const describer = fakeCachingDescriber();
   const config = baseConfig({ features: { mediaDescriptions: true } });
-  const handler = makeHandler({ config, llm, describer, prompts: fakeAddressPrompts() });
+  const handler = makeHandler({ config, llm, describer, prompts: legendPrompts(), store: namingStore() });
   const guild = fakeGuild();
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
@@ -2420,7 +2448,9 @@ test('follow-up: a sticker-only candidate with no cached caption renders as a ba
   await tick();
 
   assert.equal(llm.calls.length, 1);
-  assert.match(String(llm.calls[0].messages[1].content), /<candidate>\n[^\n]*\[sticker: pingo\]\n<\/candidate>/);
+  const user = String(llm.calls[0].messages[1].content);
+  assert.match(user, CANDIDATE_LINE);
+  assert.ok(user.includes('s7 [pingo] undescribed'), user);
 
   llm.respond('no');
   await p;
@@ -2435,7 +2465,7 @@ test("follow-up: the classifier waits for the candidate's own picture prefill, w
   const cached = new Map();
   const describer = fakeCachingDescriber(cached, { gate });
   const config = baseConfig({ features: { mediaDescriptions: true } });
-  const handler = makeHandler({ config, llm, describer, prompts: fakeAddressPrompts() });
+  const handler = makeHandler({ config, llm, describer, prompts: legendPrompts(), store: namingStore() });
   const guild = fakeGuild();
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
@@ -2451,7 +2481,7 @@ test("follow-up: the classifier waits for the candidate's own picture prefill, w
 
   assert.equal(describer.calls.length, 1, 'the prefill is awaited, never repeated');
   assert.equal(llm.calls.length, 1);
-  assert.match(String(llm.calls[0].messages[1].content), /\[sticker: pingo: a penguin waving hello\]/);
+  assert.ok(String(llm.calls[0].messages[1].content).includes('s7 [pingo] a penguin waving hello'));
 
   llm.respond('no');
   await p;
@@ -2582,8 +2612,9 @@ test('follow-up author: reading the profile writes nothing', async () => {
   assert.ok(user.includes('<author>'));
   assert.deepEqual(profile, before, 'the stored profile is unchanged');
   assert.deepEqual(
-    // Naming the place and the account of a native id only reads.
-    touched.filter((key) => !['state', 'then', 'sharedPlaceOf', 'accountOf'].includes(key)),
+    // Naming the place and the account of a native id only reads. The owner on 2026-11-17: an emoji's and a sticker's
+    // description stands in the legend, the line holds the stable name; `mediaNameOf` reads a stable name and writes nothing.
+    touched.filter((key) => !['state', 'then', 'sharedPlaceOf', 'accountOf', 'mediaNameOf'].includes(key)),
     [],
     'no store method other than getUser'
   );

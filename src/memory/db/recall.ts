@@ -49,6 +49,7 @@
 // as arguments. Rows are read here; wording and rendering are the caller's (`quotesOf` turns windows into the
 // stretches `recall.run` returns when it renders them with src/behavior/recall.js#renderRecallWindows).
 
+import type { MediaName } from '../store-media-names.ts';
 import { lineMedia, mediaHits, mediaMessageParts } from './media-store.ts';
 import type { MediaHit, MediaRow } from './media-store.ts';
 import { CURRENT_SOURCE, LINE_KIND, LINE_MOMENT, LINE_ROWID, writtenRowOf } from './source-current.ts';
@@ -65,6 +66,7 @@ import {
   mergeWindows,
   recallSettings,
   renderRecallWindows,
+  stretchText,
 } from '../../behavior/recall.ts';
 import { log } from '../../log.ts';
 import { foldText } from '../recent.ts';
@@ -1671,7 +1673,14 @@ export function quotesOf(
     render,
     stretchChars,
     handleOf = null,
-  }: { render: Row; stretchChars: number; handleOf?: ((message: RecallMessage) => string | null) | null }
+    // A caller with no store of stable names shows no legend.
+    mediaNameOf = () => null,
+  }: {
+    render: Row;
+    stretchChars: number;
+    handleOf?: ((message: RecallMessage) => string | null) | null;
+    mediaNameOf?: (name: string) => MediaName | null;
+  }
 ): Array<RecallQuote> {
   const out: Array<RecallQuote> = [];
   for (const one of (Array.isArray(windows) ? windows : []) as Array<RecallWindow | null>) {
@@ -1707,7 +1716,7 @@ export function quotesOf(
       placeId: one.placeId,
       channelName: one.channelName,
       startTs: lines[0].ts,
-      lines: lines.map((line) => line.text).join('\n'),
+      lines: stretchText(lines, one.messages, render.labels, mediaNameOf),
       entries,
     });
   }
