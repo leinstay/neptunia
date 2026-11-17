@@ -2,10 +2,13 @@
 // `<emoji:ID>` in the content with an entry of `emojis`, a sticker as an entry of `stickers`, and a reaction with a
 // custom emoji as `<emoji:ID>` with its platform name. `nameMessageMedia` names each through the store
 // (src/memory/store-media-names.ts) and gives the message back with `:e23:` in its text and the stable name as the
-// `name` of each emoji, sticker and custom reaction. The live events (src/core.ts) and the reads that answer messages
-// (src/interface/reads.ts) both pass through it, so no text she reads holds a token or a platform name.
+// `name` of each emoji, sticker and custom reaction. A message enters the core two ways: as a live event through the
+// door (src/behavior/core-message-producers.ts) and in the answer of an adapter's read. `withStableNames` wraps the one
+// adapter the core reads through (src/core.ts), so its `history` and `fetchMessages` answer named messages to every
+// reader, and no text she reads holds a token or a platform name.
 
 import { nameEmojiTokens } from './emoji.ts';
+import type { Adapter, FetchedMessage } from '../protocol/adapter.ts';
 import type { MediaName, MediaNameItem } from '../memory/store-media-names.ts';
 
 /** The store's issuer of stable names. */
@@ -88,4 +91,40 @@ export function nameEventMedia<TEvent extends { iface: string; message: Named; p
     message: nameMessageMedia(event.message, event.iface, names),
     ...(event.previous ? { previous: nameMessageMedia(event.previous, event.iface, names) } : {}),
   };
+}
+
+/** One message of a `fetchMessages` answer under stable names: its event, and its text by the event's emoji. */
+function nameFetched(found: FetchedMessage, names: MediaNamer): FetchedMessage {
+  const event = found.event;
+  if (event === undefined) return found;
+  const text =
+    typeof found.text === 'string'
+      ? namePart({ content: found.text, emojis: event.message.emojis }, event.iface, names).content
+      : found.text;
+  return { ...found, text, event: nameEventMedia(event, names) };
+}
+
+/** `adapter` with the messages its `history` and `fetchMessages` answer under stable names; every other method as it is. */
+export function withStableNames<TPort extends Adapter>(adapter: TPort, names: MediaNamer): TPort {
+  const history: Adapter['history'] = async (chat, query) => {
+    const answer = await adapter.history(chat, query);
+    return answer.status === 'ok'
+      ? { ...answer, events: answer.events.map((event) => nameEventMedia(event, names)) }
+      : answer;
+  };
+  const fetchMessages: Adapter['fetchMessages'] = async (chat, messageIds, options) => {
+    const answer = await adapter.fetchMessages(chat, messageIds, options);
+    return answer.status === 'ok'
+      ? { ...answer, messages: answer.messages.map((found) => nameFetched(found, names)) }
+      : answer;
+  };
+  return new Proxy(adapter, {
+    get(target, key) {
+      if (key === 'history') return history;
+      if (key === 'fetchMessages') return fetchMessages;
+      const value: unknown = Reflect.get(target, key, target);
+      // A port's methods are its own: bound to it, as a call on the port itself would be.
+      return typeof value === 'function' ? (value as (...args: Array<unknown>) => unknown).bind(target) : value;
+    },
+  });
 }

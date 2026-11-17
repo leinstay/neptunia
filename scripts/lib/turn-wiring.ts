@@ -44,6 +44,7 @@ import { createBraveSearch } from '../../src/web/brave.ts';
 import { createExaSearch } from '../../src/web/exa.ts';
 import { createLookup } from '../../src/web/lookup.ts';
 import { createReads } from '../../src/interface/reads.ts';
+import { withStableNames } from '../../src/behavior/stable-names.ts';
 import { loadPrincipals } from '../../src/interface/principals.ts';
 import { useOwnerAccounts } from '../../src/tools/operations/grants.ts';
 import { createOwnerAccounts } from '../../src/memory/db/person-links.ts';
@@ -375,7 +376,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     keys: serviceKeys({ dataDir }),
     now,
   } as unknown as Parameters<typeof createLookup>[0]);
-  const reads = createReads(port, quietLog, () => identity.rootNative, namesStore);
+  const reads = createReads(withStableNames(port, namesStore), quietLog, () => identity.rootNative);
   const members = seededMembers(memoryDb.database() as Db, input.rootPlace, identity.rootNative);
   const recall = createRecall({
     hot,

@@ -501,12 +501,9 @@ export function createDiscordReads(deps: {
             typeof obj(found.attachments).values === 'function'
               ? [...(found.attachments as Map<string, Obj>).values()]
               : [];
-          out.push({
-            messageId: String(id),
-            text: typeof found.content === 'string' ? found.content : '',
-            attachments: files.map(fetchedFile),
-            event: eventOf(found),
-          });
+          // The text is the event's content, with a custom emoji as its protocol token, as the core names it.
+          const event = eventOf(found);
+          out.push({ messageId: String(id), text: event.message.content, attachments: files.map(fetchedFile), event });
         } catch (err) {
           const gone = obj(err);
           if (gone.status === 404 || gone.code === 10008) {

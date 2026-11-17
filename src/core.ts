@@ -133,6 +133,7 @@ import { accountOf, chatOfPlace, dmPartnerOf, placeOfChat } from './memory/addre
 import { personaJournal, personaRecord } from './behavior/inner/persona-sources.ts';
 import { createOwnerAccounts } from './memory/db/person-links.ts';
 import { createReads } from './interface/reads.ts';
+import { withStableNames } from './behavior/stable-names.ts';
 import { freshAttachmentUrl } from './media/gif-post.ts';
 import type { AttachedGif } from './memory/describe.ts';
 import { createIntentionStores } from './intentions/store.ts';
@@ -846,7 +847,9 @@ async function buildCore(
       return name === null ? null : (linksByName.get(name)?.adapter ?? null);
     }
   );
-  const iface = guardMirrorPort(routed, { memoryDb });
+  // The messages its reads answer carry the engine's stable names of their custom emoji and stickers
+  // (src/behavior/stable-names.ts), whoever reads them.
+  const iface = withStableNames(guardMirrorPort(routed, { memoryDb }), store);
   // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror, through
   // the link of the mirror's own interface, or none while that link is closed.
   const mirrorPort = (name: string) => {
@@ -856,12 +859,8 @@ async function buildCore(
   const mirrors = createMirrors({ memoryDb, port: mirrorPort, now: Date.now, dataDir, config: () => hot.config });
 
   // The core's reads of the interface: each answers its body or null, and a block that needs one is left out when it is null.
-  // The messages a read answers carry the engine's stable names of their custom emoji and stickers.
-  const reads = createReads(
-    iface,
-    log,
-    (id) => (id === PERSONA_ID ? null : store.nativeRootOf(store.rootPlaceOf(id) ?? id)),
-    store
+  const reads = createReads(iface, log, (id) =>
+    id === PERSONA_ID ? null : store.nativeRootOf(store.rootPlaceOf(id) ?? id)
   );
   // The custom emoji of the turn's place, read from the interface and kept 60 seconds: the turn lists them to her
   // by their stable names and turns her `:e23:` into the platform's markup through it.

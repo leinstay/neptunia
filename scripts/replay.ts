@@ -1820,6 +1820,8 @@ export async function loadDiaryMods(load: Untyped): Promise<Rec> {
     ...(await load('../interfaces/discord/index.ts')),
     ...(await load('interface/fake.ts')),
     ...(await load('interface/reads.ts')),
+    // The stable names of custom emoji and stickers (absent from an older engine, whose reads answer platform names).
+    ...(await load('behavior/stable-names.ts').catch(() => ({ withStableNames: (port: unknown) => port }))),
     ...(await load('behavior/emoji-index.ts')),
     ...(await load('memory/describe.ts')),
     ...(await load('media/fetch-image.ts')),
@@ -1988,7 +1990,7 @@ export function diaryTurnRunner(
   });
   // The Discord interface over `client`: its adapter reads for the turn and writes unless a port is given.
   const discord = mods.createDiscordInterface({ client, config: () => hot.config });
-  const found = mods.createReads(discord.port, { info() {}, warn() {}, error() {} }, undefined, store);
+  const found = mods.createReads(mods.withStableNames(discord.port, store), { info() {}, warn() {}, error() {} });
   const reads = wrapReads ? wrapReads(found) : found;
   return mods.createTurnRunner({
     hot,
