@@ -98,8 +98,14 @@ type MediaLink = {
   previewUrl?: string;
 };
 
-type MediaSticker = { id: string; name: string; url: string | null };
-type MediaEmoji = { id: string; name: string; url: string };
+type MediaSticker = { id: string; name: string; url: string | null; animated?: boolean; animationUrl?: string };
+type MediaEmoji = { id: string; name: string; url: string; animated?: boolean; animationUrl?: string };
+
+/** The animation fields of an emoji or a sticker for its item: `animated`, and `animationUrl` on an animated one. */
+function animationFields(media: { animated?: boolean; animationUrl?: string }) {
+  const animated = media.animated === true;
+  return { animated, ...(animated && media.animationUrl ? { animationUrl: media.animationUrl } : {}) };
+}
 
 /** The parts of a message (or of one forwarded snapshot of it) that carry media. */
 export type MediaPart = {
@@ -607,6 +613,7 @@ export type PictureItem = {
   width?: number | null;
   height?: number | null;
   previewUrl?: string;
+  animated?: boolean;
   animationUrl?: string;
 };
 
@@ -618,6 +625,8 @@ export type EmojiItem = {
   kind: 'emoji';
   url: string;
   name: string;
+  animated: boolean;
+  animationUrl?: string;
 };
 
 /** One video candidate of a message, as `collectVideos` lists it. */
@@ -677,6 +686,8 @@ function partPictures(part: MediaPart, messageId: string): Array<PictureItem> {
       kind: 'sticker',
       url: sticker.url,
       name: sticker.name,
+      // An animated sticker is watched as a GIF from its animationUrl (src/memory/describe.ts).
+      ...animationFields(sticker),
     });
   }
   return items;
@@ -725,6 +736,8 @@ export function collectEmojiItems(message: object): Array<EmojiItem> {
       kind: 'emoji',
       url: emoji.url,
       name: emoji.name,
+      // An animated emoji is watched as a GIF from its animationUrl (src/memory/describe.ts).
+      ...animationFields(emoji),
     }))
   );
 }
