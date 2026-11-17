@@ -59,6 +59,11 @@ import { proxySettings } from '../../src/net/proxy.ts';
 import type { Hot } from '../../src/hot.ts';
 import type { Adapter } from '../../src/protocol/adapter.ts';
 import { readOnlyMemory } from './memory-read.ts';
+import { answeredErrands } from './errand-answers.ts';
+import type { ErrandAnswer } from './errand-answers.ts';
+import { skillRegistry } from '../../src/tools/registry.ts';
+import { JOBS } from '../../src/tools/definitions.ts';
+import type { SkillMap } from '../../src/tools/types.ts';
 import { unflushedStore } from '../replay.ts';
 import { serviceKey, serviceKeys } from './cli.ts';
 import { gatedOps, gatedPersonLinks } from './turn-tools.ts';
@@ -301,7 +306,23 @@ export type WiringInput = {
   rng?: () => number;
   /** Laid over the interface's reads (scripts/replay.ts `--hide-channel`, `--hide-message`); absent: the reads as built. */
   wrapReads?: (reads: Reads) => Reads;
+  /**
+   * The results that answer her errand calls (scripts/replay.ts `--inner --errand-answers`); absent: an inner turn in
+   * shadow only proposes them.
+   */
+  errandAnswers?: ReadonlyArray<ErrandAnswer> | null;
 };
+
+/**
+ * The skills with the errand tools declared `read`, so the gate of an inner turn in shadow runs them
+ * (src/turn/skill-calls.ts#innerVerdict) and the errand service answers them from the file. That effect class is read
+ * only by that gate and by the cooldown of a destructive skill, which an errand tool is not.
+ */
+function answeredErrandSkills(): SkillMap {
+  return new Map(
+    [...skillRegistry()].map(([name, skill]) => [name, JOBS.includes(name) ? { ...skill, effects: 'read' } : skill])
+  );
+}
 
 export type Wired = {
   runner: TurnRunner;
@@ -422,7 +443,9 @@ export function buildTurnRunner(input: WiringInput): Wired {
     log: quietLog,
     agentPaths: { rootDir: root, dataDir, env: {} },
   }).get();
+  const answered = input.errandAnswers ? answeredErrands(input.errandAnswers, now) : null;
   const errands = {
+    ...(answered ?? {}),
     view: ({ dmChatId = null }: { dmChatId?: string | null } = {}) =>
       [...(taskStore?.open() ?? []), ...(taskStore?.unread() ?? [])].filter(
         (errand) => errand.scope !== 'dm' || (dmChatId !== null && errand.origin?.placeId === String(dmChatId))
@@ -467,6 +490,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     runOwnOp: (op, args, context) => admin.runOwnSkillOp(op, args, context),
     runInitiativeOp: (op, args, context) => admin.runInitiativeSkillOp(op, args, context),
     now,
+    runs: answered ? JOBS : [],
   });
   const nameOfMember = (accountId: string) =>
     identity.rootNative === null ? null : members.infoOf(identity.rootNative, accountId);
@@ -526,6 +550,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     errands,
     intentions,
     places: null,
+    ...(answered ? { skills: answeredErrandSkills() } : {}),
     now,
     rng: input.rng ?? Math.random,
   };

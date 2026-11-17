@@ -12,6 +12,9 @@ const request = (promptTokens: number | null, blocks: Array<{ name: string; char
   usage: promptTokens === null ? null : { prompt_tokens: promptTokens },
   blocks: blocks.map((block) => ({ ...block, segment: 'tail', source: 'x', reason: 'kept' })),
 });
+// How the turn runner said the turn ended: its outcome, its reason and the loop's cut.
+const SPOKE = { outcome: 'spoke', reason: null, cut: null };
+const SKIPPED = { outcome: 'skip', reason: 'nothing-to-do', cut: null };
 const answer = (think: string, calls: Array<{ skill: string; args: Record<string, unknown> }> = [], skip = false) => ({
   think,
   calls,
@@ -41,6 +44,7 @@ test('sampleFacts: a proposed intention.set ends the sample with its place, due,
         { skill: 'memory.search', status: 'executed', result: 'ok', target: {} },
         { skill: 'intention.set', status: 'proposed', result: 'ok', target: { channel: 'c1' } },
       ],
+      turn: SPOKE,
     },
     at
   );
@@ -75,6 +79,7 @@ test('sampleFacts: a skip after a refused call is a skip, and the refusal keeps 
       requests: [request(8000)],
       answers: [answer('nothing', [{ skill: 'message.create', args: { text: 'hi' } }], true)],
       actions: [{ skill: 'message.create', status: 'refused', result: 'error', code: 'heartbeat-only', target: {} }],
+      turn: SKIPPED,
     },
     at
   );
@@ -88,6 +93,7 @@ test('sampleFacts: an intention in a direct chat with no due and no recurrence',
       requests: [request(null)],
       answers: [answer('', [{ skill: 'intention.set', args: { text: 'write to her', place: 'd1', every: 'none' } }])],
       actions: [{ skill: 'intention.set', status: 'proposed', result: 'ok', target: { channel: 'd1' } }],
+      turn: SPOKE,
     },
     at
   );
@@ -103,16 +109,77 @@ test('sampleFacts: an intention in a direct chat with no due and no recurrence',
   });
 });
 
-test('sampleFacts: a refused intention change is no ending; neither a skip nor a change is `other`', () => {
+test('sampleFacts: a refused intention change is no ending; neither a skip nor a change is unresolved', () => {
   const facts = sampleFacts(
     {
       requests: [request(100)],
       answers: [answer('', [{ skill: 'intention.cancel', args: { id: 'i1' } }])],
       actions: [{ skill: 'intention.cancel', status: 'refused', result: 'error', code: 'not-found', target: {} }],
+      turn: SPOKE,
     },
     at
   );
-  assert.deepEqual(facts.end, { kind: 'other' });
+  // The ending `other` is gone: a turn that neither decided nor skipped is unresolved with the code that says so.
+  assert.deepEqual(facts.end, { kind: 'unresolved', code: 'no-decision' });
+});
+
+test('sampleFacts: an errand only proposed in shadow ends unresolved, not a skip, though her last answer skipped', () => {
+  const facts = sampleFacts(
+    {
+      requests: [request(100)],
+      answers: [answer('', [{ skill: 'errand.scout', args: { goal: 'look' } }], true)],
+      actions: [{ skill: 'errand.scout', status: 'proposed', result: 'ok', code: 'shadow', target: {} }],
+      turn: SPOKE,
+    },
+    at
+  );
+  assert.deepEqual(facts.end, { kind: 'unresolved', code: 'errand-proposed' });
+  assert.deepEqual(facts.errands, [{ agent: 'scout', answered: false }]);
+});
+
+test('sampleFacts: an errand whose wait found no answer ends unresolved even when she set an intention after it', () => {
+  const facts = sampleFacts(
+    {
+      requests: [request(100), request(200)],
+      answers: [
+        answer('', [{ skill: 'errand.code', args: { goal: 'build' } }]),
+        answer('', [{ skill: 'intention.set', args: { text: 'later' } }]),
+      ],
+      actions: [
+        { skill: 'errand.code', status: 'executed', result: 'failed', code: 'errand-wait-ended', target: {} },
+        { skill: 'intention.set', status: 'proposed', result: 'ok', target: {} },
+      ],
+      turn: SPOKE,
+    },
+    at
+  );
+  assert.deepEqual(facts.end, { kind: 'unresolved', code: 'errand-unanswered' });
+  assert.deepEqual(facts.errands, [{ agent: 'code', answered: false }]);
+});
+
+test('sampleFacts: an answered errand and then her own skip ends skip', () => {
+  const facts = sampleFacts(
+    {
+      requests: [request(100), request(200)],
+      answers: [answer('', [{ skill: 'errand.server', args: { goal: 'check' } }]), answer('', [], true)],
+      actions: [{ skill: 'errand.server', status: 'executed', result: 'ok', code: 'ok', target: {} }],
+      turn: SPOKE,
+    },
+    at
+  );
+  assert.deepEqual(facts.end, { kind: 'skip' });
+  assert.deepEqual(facts.errands, [{ agent: 'server', answered: true }]);
+});
+
+test('sampleFacts: a turn the step cap cut or an error ended is unresolved with its code', () => {
+  const of = (turn: { outcome: string | null; reason: string | null; cut: string | null }) =>
+    sampleFacts({ requests: [request(100)], answers: [answer('', [], true)], actions: [], turn }, at).end;
+  assert.deepEqual(of({ outcome: 'skip', reason: 'nothing-to-do', cut: 'steps' }), {
+    kind: 'unresolved',
+    code: 'step-cap',
+  });
+  assert.deepEqual(of({ outcome: 'spoke', reason: null, cut: 'time' }), { kind: 'unresolved', code: 'time-budget' });
+  assert.deepEqual(of({ outcome: 'error', reason: 'cut-off', cut: null }), { kind: 'unresolved', code: 'error' });
 });
 
 const sample = (end: SampleFacts['end'], extra: Partial<SampleFacts> = {}): SampleFacts => ({
@@ -121,6 +188,7 @@ const sample = (end: SampleFacts['end'], extra: Partial<SampleFacts> = {}): Samp
   requests: [],
   thinkChars: 100,
   calls: [],
+  errands: [],
   end,
   ...extra,
 });
@@ -172,8 +240,32 @@ test('innerSummary: counts and shares of skips, places, direct chats, far dues, 
 });
 
 test('innerSummary: with no intention the shares over intentions are none', () => {
-  const summary = innerSummary([sample({ kind: 'skip' }), sample({ kind: 'other' })]);
-  assert.deepEqual(summary.skips, { count: 1, share: 0.5 });
+  const summary = innerSummary([sample({ kind: 'skip' }), sample({ kind: 'unresolved', code: 'error' })]);
+  // `other` is gone, and the share of skips is taken over the resolved samples alone.
+  assert.deepEqual(summary.skips, { count: 1, share: 1 });
   assert.deepEqual(summary.withPlace, { count: 0, share: null });
   assert.deepEqual(summary.places, []);
+});
+
+test('innerSummary: counts the three endings, unresolved of the samples, skips and intentions of the resolved', () => {
+  const summary = innerSummary([
+    sample({ kind: 'skip' }),
+    sample(intention('#general', false, 30)),
+    sample(intention('d1', true, null)),
+    sample(intention(null, null, null)),
+    sample({ kind: 'unresolved', code: 'errand-proposed' }),
+    sample({ kind: 'unresolved', code: 'errand-proposed' }),
+    sample({ kind: 'unresolved', code: 'step-cap' }),
+    sample({ kind: 'unresolved', code: 'error' }),
+  ]);
+  assert.equal(summary.samples, 8);
+  assert.deepEqual(summary.unresolved, { count: 4, share: 0.5 });
+  assert.deepEqual(summary.skips, { count: 1, share: 0.25 });
+  assert.deepEqual(summary.intentions, { count: 3, share: 0.75 });
+  assert.deepEqual(summary.unresolvedCodes, [
+    { code: 'errand-proposed', count: 2 },
+    { code: 'step-cap', count: 1 },
+    { code: 'error', count: 1 },
+  ]);
+  assert.deepEqual(summary.withPlace, { count: 2, share: 0.667 });
 });
