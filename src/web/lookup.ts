@@ -11,7 +11,8 @@
 //   sent as its Accept-Language). The excerpt is the page's own extracted text on one line,
 //   whole up to `LINK_EXCERPT_CHARS` and the summarizer's one retelling past it (src/behavior/summarize.ts, whole with
 //   no summarizer), cached as `preview:<link id>`.
-// - search: one web search whose numbered results are condensed through prompts/search-summary.md, sources kept.
+// - search: one web search whose numbered results are condensed through prompts/search-summary.md, sources kept; a
+//   note over `SEARCH_SUMMARY_CHARS` is retold once by the summarizer, and a retelling still over it is kept whole.
 //   `web.quickSearch.engine` picks the engine, and it has no default: `brave` (src/web/brave.ts) and `exa` (src/web/exa.ts) each
 //   need their service key, and `openrouter` (OpenRouter's web plugin, its engine `auto`: the summary request itself
 //   searches, one request billed to credits, its sources the answer's `url_citation` annotations) needs a chain for `search`
@@ -49,7 +50,7 @@ import { SEARCH_ROLE, searchModel } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { createSummaryBuilder, parseSummaryNote, renderResults } from '../behavior/summary-builder.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
-import { clampText, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { log } from '../log.ts';
 import { MINUTE_MS, utcDay } from '../time.ts';
 import { hashedKey } from './cache.ts';
@@ -183,7 +184,7 @@ const LINK_MAX_BYTES = 1500000;
 const LINK_EXCERPT_CHARS = 1000;
 /** The length of a page read whole (`web.read`); a longer page text is retold. */
 const PAGE_READ_CHARS = 4000;
-/** The length of a search's condensed answer. */
+/** The length of a search's condensed answer; a longer note is retold once. */
 const SEARCH_SUMMARY_CHARS = 900;
 /** The results one search asks for. */
 const SEARCH_RESULTS = 5;
@@ -284,11 +285,6 @@ function pageKey(url: string): string {
 /** A positive number from the config, else `fallback`. */
 function positiveOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && value > 0 ? value : fallback;
-}
-
-/** Collapse whitespace, then cap at `maxChars` on a clean boundary. */
-function cleanText(raw: unknown, maxChars: number): string {
-  return clampText(oneLine(raw), maxChars, { tolerance: 1 });
 }
 
 /** `text` whole when it fits `maxChars` or no summarizer is wired, else the summarizer's one retelling of it. */
@@ -639,7 +635,7 @@ export function createLookup(deps: LookupDeps): Lookup {
       if (!String(completion.text ?? '').trim()) return { failure: { reason: 'empty' } };
       const note = parseSummaryNote(completion.text);
       if (!note.text) return { result: { query: asked, text: '', sources: [] } };
-      const text = cleanText(note.text, summaryChars);
+      const text = await retold(oneLine(note.text), summaryChars, summarize);
       const sources = citationsOf(completion.annotations).map((c) => ({ ...c, site: siteOf(c.url) }));
       return { result: { query: asked, text, sources } };
     }
@@ -664,7 +660,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     if (note.reason === 'empty') return { failure: { reason: 'empty' } };
     if (!note.text) return { result: { query: asked, text: '', sources: [] } };
     const sources = found.results.map((r) => ({ title: r.title ?? '', url: r.url, site: siteOf(r.url) }));
-    return { result: { query: asked, text: note.text, sources } };
+    return { result: { query: asked, text: await retold(note.text, summaryChars, summarize), sources } };
   }
 
   /**

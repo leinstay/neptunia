@@ -890,6 +890,7 @@ async function buildCore(
     selfId: () => identity.selfId,
     reads,
     paused: () => processState.data.paused === true,
+    summarize,
   };
   const avatars = createAvatarQueue({
     ...avatarOptions,

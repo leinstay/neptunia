@@ -5,7 +5,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { labels } from './fixtures/labels.ts';
 import { call, toolAnswer, textAnswer } from './fixtures/tool-answers.ts';
-import { appended, contentText, coreTurn, NOW, rawMessage, toolResults } from './fixtures/turn-harness.ts';
+import {
+  appended,
+  contentText,
+  coreTurn,
+  journalOverMemory,
+  NOW,
+  rawMessage,
+  toolResults,
+} from './fixtures/turn-harness.ts';
 import type { FakeLlm } from './fixtures/turn-harness.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { LogEntry } from './fixtures/capture-logs.ts';
@@ -230,4 +238,46 @@ test('two deletions in one step, the first failed: the second runs', async () =>
   assert.equal(firstResultIs(llm, 1, 'failed'), true, 'the first call failed');
   assert.deepEqual(refusals, [[]]);
   assert.equal(ran(), 2);
+});
+
+const LONG_EXTRACT = 'Η παράδοση του κήπου λέει πως οι λεμονιές φυτεύτηκαν πριν από έναν αιώνα. '.repeat(30).trim();
+
+/** A reply turn whose one `lore.list` call reads `LONG_EXTRACT`, with `summarize` wired; the extract its closing line keeps. */
+async function keptExtract(summarize: (text: string, options: { maxChars: number; kind: 'text' }) => Promise<string>) {
+  const { journal, lines } = journalOverMemory();
+  await coreTurn({
+    answers: [toolAnswer('<think>x</think>', [call('lore.list')]), '<skip/>'],
+    journal,
+    runner: { summarize },
+    wrapCommand: () => () => Promise.resolve({ status: 'ok', code: 'ok', summary: LONG_EXTRACT }),
+  });
+  return lines.map(({ record }) => extractOf(record)).find((extract) => extract !== undefined);
+}
+
+/** The extract of the lookup a closing line keeps, or undefined for any other line. */
+function extractOf(record: unknown): string | undefined {
+  if (!record || typeof record !== 'object' || !('result' in record)) return undefined;
+  const { result } = record;
+  if (!result || typeof result !== 'object' || !('lookup' in result)) return undefined;
+  const { lookup } = result;
+  if (!lookup || typeof lookup !== 'object' || !('extract' in lookup)) return undefined;
+  return typeof lookup.extract === 'string' ? lookup.extract : undefined;
+}
+
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('a lookup whose extract runs past extractChars goes to summarize once and keeps its answer', async () => {
+  const calls: Array<{ maxChars: number; kind: 'text' }> = [];
+  const extract = await keptExtract((_text, options) => {
+    calls.push(options);
+    return Promise.resolve('Οι λεμονιές του κήπου είναι εκατό χρονών.');
+  });
+  assert.deepEqual(calls, [{ maxChars: 1200, kind: 'text' }]);
+  assert.equal(extract, 'Οι λεμονιές του κήπου είναι εκατό χρονών.');
+});
+
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('a lookup whose extract is summarized still over extractChars keeps that summary whole', async () => {
+  const still = `${LONG_EXTRACT} Και κάτι ακόμη.`;
+  const extract = await keptExtract(() => Promise.resolve(still));
+  assert.equal(extract, still);
 });
