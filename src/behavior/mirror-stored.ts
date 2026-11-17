@@ -68,8 +68,7 @@ function storedMedia(
 export function storedEntry(db: Db, publication: Publication, dataDir: string | null): StoredEntry {
   const row = db.prepare('SELECT extra FROM diary WHERE id = ?').get(publication.row_id);
   const metadata = diaryMetadataOf(row?.extra);
-  const send = metadata.send as
-    { messages?: unknown; mentions?: unknown; notify?: unknown; maxMessageBytes?: unknown } | undefined;
+  const send = metadata.send as { messages?: unknown; mentions?: unknown; maxMessageBytes?: unknown } | undefined;
   const delivered = deliveryOf(publication);
   const given = Array.isArray(send?.messages) ? (send.messages as Array<string>) : null;
   const messages = delivered.messages ?? given ?? [publication.rendered ?? ''];
@@ -84,7 +83,6 @@ export function storedEntry(db: Db, publication: Publication, dataDir: string | 
         : {}),
       messages,
       ...(mentions ? { mentions } : {}),
-      ...(Array.isArray(send?.notify) ? { notify: send.notify.map((one) => one === true) } : {}),
       ...(typeof send?.maxMessageBytes === 'number' ? { maxMessageBytes: send.maxMessageBytes } : {}),
       ...(pictures.length > 0 ? { pictures } : {}),
       ...(voice ? { voice } : {}),

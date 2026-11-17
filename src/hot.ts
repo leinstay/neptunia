@@ -57,6 +57,7 @@ const valueAtKey = (config: Untyped, key: string): unknown =>
  * `development.*` and `models.development.*` name a development worker the engine does not have, and `board.*` the
  * board's own operations and reaper, so nothing reads them. The diary's settings are `diary.*`, and a
  * `selfreflection` key is not read (an ignored `selfreflection.enabled` leaves the diary on by its default).
+ * `discord.silent` switched the members' ping states, and the Discord port notifies nobody whatever it says.
  */
 const RETIRED_CONFIG_KEYS = Object.freeze(
   [
@@ -84,6 +85,7 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'models.development', use: null },
     { key: 'board', use: null },
     { key: 'selfreflection', use: 'diary' },
+    { key: 'discord.silent', use: null },
     ...['scout', 'server', 'thinker', 'dev'].flatMap((agent) => [
       { key: `agents.${agent}.daily.usd`, use: null },
       { key: `agents.${agent}.limits.usd`, use: null },

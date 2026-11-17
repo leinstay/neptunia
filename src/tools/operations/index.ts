@@ -11,7 +11,6 @@ import './config.ts';
 import './pause.ts';
 import './draw.ts';
 import './voice.ts';
-import './pings.ts';
 import './media.ts';
 import './model.ts';
 import './route.ts';

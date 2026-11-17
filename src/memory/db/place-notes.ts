@@ -6,7 +6,7 @@
 //   descriptions  purpose, tone, topics, patterns, starters (subject: the place), one legacy version each
 //   claims        injokes (kind injoke, subject the place), self (kind self_fact, subject her),
 //                 learned (kind lesson, how taught, `from_person` the teacher)
-//   operational   kind place: everything else (`learnedNextId`, emoji usage, notes stamps, the pings, ...)
+//   operational   kind place: everything else (`learnedNextId`, emoji usage, notes stamps, ...)
 //
 // A direct chat's descriptions, in-jokes, self facts and lessons are scoped to that chat; every other place's to the
 // groups. A write replaces the notes: the rows the value no longer holds are retired or handed to another place that

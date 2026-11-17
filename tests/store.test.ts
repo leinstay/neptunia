@@ -165,29 +165,6 @@ test('getPlace: learned that is not an array or a garbage learnedNextId never th
   assert.equal(asRecord(guild).patterns, 'x');
 });
 
-// The members' ping states (getPings, setPings, after the owner's word of 2026-11-06) are tested in
-// tests/store-pings-state.test.ts. This one reads a hand-broken field.
-test('pings: a hand-broken field reads as {}, junk entries dropped, a junk pingsOff list adds only its string ids', async () => {
-  for (const [stored, expected] of [
-    [{ pings: 'u1' }, {}],
-    [{ pings: ['u1'] }, {}],
-    [{ pings: { u1: 'on', u2: 'maybe', u3: true, u4: 'off' } }, { u1: 'on', u4: 'off' }],
-    [{ pingsOff: ['u1', 7, null, '', 'u1', { id: 'u2' }, 'u3'] }, { u1: 'off', u3: 'off' }],
-    [
-      { pings: { u1: 'on' }, pingsOff: ['u1', 'u2'] },
-      { u1: 'on', u2: 'off' },
-    ],
-  ]) {
-    const { dir, memoryDb } = memDataDir();
-    const file = path.join(dir, 'guilds', 'g1', 'guild.json');
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeRaw(file, { patterns: '', ...stored });
-    const guild = asRecord(createStore({ dataDir: dir, memoryDb }).getPlace('discord:server:g1'));
-    assert.deepEqual(guild.pings, expected, JSON.stringify(stored));
-    assert.equal('pingsOff' in guild, false, JSON.stringify(stored));
-  }
-});
-
 test('updatePlace: can never overwrite learned or learnedNextId wholesale', () => {
   const store = createStore(memoryAt(tmpDataDir()));
   // Changed: the place starts with no lesson, since the store's writer of lessons left with `/memory lessons add`.

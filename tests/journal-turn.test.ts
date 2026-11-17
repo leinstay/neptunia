@@ -176,7 +176,6 @@ function makeAdmin(journal: Record<string, Untyped>) {
     state: { data: {}, markDirty() {} },
     getUser: () => null,
     getPlace: () => ({}),
-    isPingsOff: () => false,
   };
   // The interface says when a message was written (`fetchMessages`); the ids of these tests carry their time.
   const reads = {

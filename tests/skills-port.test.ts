@@ -48,27 +48,28 @@ test('the active text stays the activated one when the file on disk is edited af
   assert.equal(rig.port.pending().length, 1, 'the edit waits as a candidate');
 });
 
+// Changed: the tool a skill names is `voice.say`, since `pings.set` is no tool of hers.
 test('a skill naming a tool she was not granted is active, listed unavailable with the tool and the reason, and her grants stay as they were', (t) => {
   const rig = skillsRig(t);
-  rig.writeLocal('ping-someone', skillText('ping-someone', 'I ping on request', ['pings.set']));
+  rig.writeLocal('ping-someone', skillText('ping-someone', 'I ping on request', ['voice.say']));
   const before = [...rig.granted].sort();
   rig.port.activate('ping-someone', 'agent:hand');
   const row = rig.port.list().find((one) => one.name === 'ping-someone');
-  assert.deepEqual(row?.missing, [{ tool: 'pings.set', reason: 'not-granted' }]);
+  assert.deepEqual(row?.missing, [{ tool: 'voice.say', reason: 'not-granted' }]);
   assert.deepEqual([...rig.granted].sort(), before);
-  assert.equal(rig.granted.has('pings.set'), false);
-  assert.deepEqual(rig.port.active()[0]?.missing, [{ tool: 'pings.set', reason: 'not-granted' }]);
+  assert.equal(rig.granted.has('voice.say'), false);
+  assert.deepEqual(rig.port.active()[0]?.missing, [{ tool: 'voice.say', reason: 'not-granted' }]);
 });
 
 test('availability follows the grants at each call: granting the tool later makes the skill usable', (t) => {
   const rig = skillsRig(t);
-  rig.writeLocal('ping-someone', skillText('ping-someone', 'I ping on request', ['pings.set']));
+  rig.writeLocal('ping-someone', skillText('ping-someone', 'I ping on request', ['voice.say']));
   rig.port.activate('ping-someone', 'agent:hand');
-  rig.granted.add('pings.set');
+  rig.granted.add('voice.say');
   assert.deepEqual(rig.port.list().find((one) => one.name === 'ping-someone')?.missing, []);
-  rig.registered.delete('pings.set');
+  rig.registered.delete('voice.say');
   assert.deepEqual(rig.port.list().find((one) => one.name === 'ping-someone')?.missing, [
-    { tool: 'pings.set', reason: 'not-registered' },
+    { tool: 'voice.say', reason: 'not-registered' },
   ]);
 });
 
@@ -85,10 +86,10 @@ test('disabling takes the skill out of active() and enabling brings it back', (t
 
 test('a skill that is only a candidate lists the missing tools of the version that would run', (t) => {
   const rig = skillsRig(t);
-  rig.writeLocal('ping-someone', skillText('ping-someone', 'I ping on request', ['pings.set']));
+  rig.writeLocal('ping-someone', skillText('ping-someone', 'I ping on request', ['voice.say']));
   const row = rig.port.list().find((one) => one.name === 'ping-someone');
   assert.equal(row?.active, null);
-  assert.deepEqual(row?.missing, [{ tool: 'pings.set', reason: 'not-granted' }]);
+  assert.deepEqual(row?.missing, [{ tool: 'voice.say', reason: 'not-granted' }]);
 });
 
 test('rejecting retires every pending version of the name and refuses a name with none', (t) => {

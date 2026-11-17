@@ -406,8 +406,24 @@ function diaryNames(db: Db): void {
   }
 }
 
+/**
+ * Version 62: the members' ping states leave with `pings.get` and `pings.set` (the owner's decision of 2026-11-17).
+ * The keys `pings` and `pingsOff` leave the value of every operational row of kind `place`, the key `notify` leaves
+ * the send of every diary entry, and the column `memberships.pings_off`, which nothing writes, is dropped. A row that
+ * holds none of the keys stays as it is, and so does a table without the column.
+ */
+function noPings(db: Db): void {
+  db.exec(`UPDATE operational SET value = json_remove(value, '$.pings', '$.pingsOff')
+     WHERE kind = 'place' AND json_valid(value)
+       AND (json_type(value, '$.pings') IS NOT NULL OR json_type(value, '$.pingsOff') IS NOT NULL);
+    UPDATE diary SET extra = json_remove(extra, '$.send.notify')
+     WHERE json_valid(extra) AND json_type(extra, '$.send.notify') IS NOT NULL;`);
+  const held = db.prepare("SELECT 1 AS ok FROM pragma_table_info('memberships') WHERE name = 'pings_off'").get();
+  if (held) db.exec('ALTER TABLE memberships DROP COLUMN pings_off');
+}
+
 /** The steps above the baseline, version 57 first. */
-export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources, nameScripts, errandBoard, diaryNames];
+export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources, nameScripts, errandBoard, diaryNames, noPings];
 
 /** The tables that carry a scope and its `audience_id`. */
 export const SCOPED_TABLES = [

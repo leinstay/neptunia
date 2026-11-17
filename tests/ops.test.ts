@@ -34,8 +34,6 @@ const AGREED = new Set([
   'bot.resume',
   'draw.create',
   'voice.say',
-  'pings.get',
-  'pings.set',
   'media.status',
   'media.rescan',
   'media.recache',

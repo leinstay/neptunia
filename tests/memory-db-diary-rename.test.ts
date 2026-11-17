@@ -184,7 +184,12 @@ const everything = (db: Db): unknown => ({ shape: schemaShape(db), rows: filledR
 test('a database at version 60 opens at version 61', () => {
   // Bug: a step that runs but records no version, so the next open runs it again over the renamed tables.
   const file = at60(ALL);
-  assert.equal(opened(file, versionOf), 61);
+  // Changed: step 62 follows step 61, so the test reads step 61's own row and no highest version.
+  const versions = opened(file, (db) => values(db, 'SELECT version FROM schema_version'));
+  assert.deepEqual(
+    versions.filter((version) => version === 61),
+    [61]
+  );
 });
 
 test('step 61 renames the two tables and the column and keeps every entry and mirror row', () => {
@@ -622,7 +627,8 @@ test('step 61 run a second time on a migrated database changes no table, index o
   const handle = openMemoryDb(file);
   try {
     const db = dbOf(handle);
-    assert.equal(versionOf(db), 61);
+    // Changed: step 62 follows step 61, so the database holds step 61's row and is no longer at version 61.
+    assert.ok(values(db, 'SELECT version FROM schema_version').includes(61));
     const first = everything(db);
     if (step61 === undefined) assert.fail('MIGRATIONS holds no step 61');
     inTransaction(db, () => (typeof step61 === 'function' ? step61(db) : db.exec(step61)));

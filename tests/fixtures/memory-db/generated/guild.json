@@ -56,9 +56,6 @@
   "notesFlaggedAt": "notesFlaggedAt",
   "notesSampleReviewedAt": "notesSampleReviewedAt",
   "notesAttemptAt": null,
-  "pingsOff": [
-   "pingsOff[]"
-  ],
   "accessMigrated": 1
  },
  {
@@ -118,9 +115,6 @@
   "notesFlaggedAt": "notesFlaggedAt",
   "notesSampleReviewedAt": "notesSampleReviewedAt",
   "notesAttemptAt": null,
-  "pingsOff": [
-   "pingsOff[]"
-  ],
   "accessMigrated": 2
  },
  {
@@ -180,9 +174,6 @@
   "notesFlaggedAt": "notesFlaggedAt",
   "notesSampleReviewedAt": "notesSampleReviewedAt",
   "notesAttemptAt": null,
-  "pingsOff": [
-   "pingsOff[]"
-  ],
   "accessMigrated": 3
  }
 ]

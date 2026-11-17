@@ -5,11 +5,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { missingTools } from '../src/skills/index-block.ts';
 
+// Changed: the tool a skill names is `voice.say`, since `pings.set` is no tool of hers.
 test('names every tool that is not registered or not granted, with the reason, in the order of the skill', () => {
-  const state = { granted: new Set(['web.search']), registered: new Set(['web.search', 'web.read', 'pings.set']) };
-  assert.deepEqual(missingTools(['web.read', 'web.search', 'pings.set', 'ghost.tool'], state), [
+  const state = { granted: new Set(['web.search']), registered: new Set(['web.search', 'web.read', 'voice.say']) };
+  assert.deepEqual(missingTools(['web.read', 'web.search', 'voice.say', 'ghost.tool'], state), [
     { tool: 'web.read', reason: 'not-granted' },
-    { tool: 'pings.set', reason: 'not-granted' },
+    { tool: 'voice.say', reason: 'not-granted' },
     { tool: 'ghost.tool', reason: 'not-registered' },
   ]);
 });

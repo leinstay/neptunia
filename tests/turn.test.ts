@@ -905,23 +905,12 @@ test('createTurnRunner: a video in the trigger renders by its tag, nothing is do
   assert.ok(textOf(parts).includes('[video: clip.mp4, 0:34]'), 'the video renders by its tag');
 });
 
-/** fakeStore whose guild hands out the state `off` (store.getPings) for the members who turned the persona's notifications off. */
-function storeWithPingsOff(pingsOff: Untyped) {
-  const store = fakeStore();
-  store.pingsCalls = [];
-  store.getPings = (placeId: string, accountId: string) => {
-    store.pingsCalls.push([placeId, accountId]);
-    return pingsOff.includes(accountId) ? 'off' : null;
-  };
-  return store;
-}
-
-// The mention handles of the two authors of runPingsTurn's chat (src/behavior/handles.ts).
+// The mention handles of the two authors of runMentionsTurn's chat (src/behavior/handles.ts).
 const ALICE = `@${handleOf('u1')}`;
 const BOB = `@${handleOf('u2')}`;
 
 /** One reply turn in c1: Bob's older line, then Alice's trigger; the persona replies to the reply="#2" line. */
-async function runPingsTurn(store: unknown, answer: string, features = {}) {
+async function runMentionsTurn(store: unknown, answer: string, features = {}) {
   const bob = rawMessage({ id: 'm0', authorId: 'u2', authorName: 'Bob', ts: NOW - 5000, content: 'ola' });
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice' });
   const channel = fakeTurnChannel({ id: 'c1', historyMessages: [bob, raw] });
@@ -944,26 +933,8 @@ async function runPingsTurn(store: unknown, answer: string, features = {}) {
   return channel;
 }
 
-test('runTurn: a reply to a member with pings off does not ping them; their mention stays in the text but notifies nobody', async () => {
-  const store = storeWithPingsOff(['u1']);
-  const channel = await runPingsTurn(store, `<msg reply="#2">${ALICE} ${BOB} ναι</msg>`);
-
-  assert.equal(channel.sent.length, 1);
-  assert.equal(channel.sent[0].content, '<@u1> <@u2> ναι', 'the text is never changed');
-  assert.deepEqual(channel.sent[0].reply, { messageReference: 'm1', failIfNotExists: false });
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u2'], repliedUser: false });
-  assert.ok(store.pingsCalls.every(([placeId]: Array<unknown>) => placeId === 'g1'));
-});
-
-test('runTurn: a mentioned member with pings off is left out of users while the replied author with pings on is still pinged', async () => {
-  const channel = await runPingsTurn(storeWithPingsOff(['u2']), `<msg reply="#2">${BOB} ναι</msg>`);
-
-  assert.equal(channel.sent[0].content, '<@u2> ναι');
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: [], repliedUser: true });
-});
-
-test('runTurn: with nobody in pingsOff the reply and the mentions notify as before', async () => {
-  const channel = await runPingsTurn(storeWithPingsOff([]), `<msg reply="#2">${ALICE} ${BOB} ναι</msg>`);
+test('runTurn: a reply names its author and the members its text mentions', async () => {
+  const channel = await runMentionsTurn(fakeStore(), `<msg reply="#2">${ALICE} ${BOB} ναι</msg>`);
 
   assert.deepEqual(channel.sent[0].reply, { messageReference: 'm1', failIfNotExists: false });
   assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u1', 'u2'], repliedUser: true });
@@ -972,7 +943,7 @@ test('runTurn: with nobody in pingsOff the reply and the mentions notify as befo
 test('runTurn: only an exact @handle mentions; a name and a handle nobody has stay text, the unknown one logged', async () => {
   const unknown = ['@u0000', '@uzzzz'].find((token) => token !== ALICE && token !== BOB);
   const { result: channel, logs } = await withCapturedLogs(() =>
-    runPingsTurn(storeWithPingsOff([]), `<msg>${BOB} @Alice @Bob ${unknown} ναι</msg>`)
+    runMentionsTurn(fakeStore(), `<msg>${BOB} @Alice @Bob ${unknown} ναι</msg>`)
   );
 
   assert.equal(channel.sent[0].content, `<@u2> @Alice @Bob ${unknown} ναι`, 'no name is matched, whoever carries it');
@@ -5042,9 +5013,8 @@ test('skills gateway: a normal reply is carried over and posted through the port
     {
       text: 'γεια σου <@u1>',
       replyTo: { iface: 'fake', chatId: 'c1', messageId: 'm1' },
-      // The lead: the mentions carry `asked` since silent mode pings only the members who chose `on` (owner, 2026-11-06).
-      // Nobody chose a state here.
-      mentions: { users: ['u1'], repliedUser: true, asked: { users: [], repliedUser: false } },
+      // Changed: the mentions name the members alone, since the ping states left (2026-11-17).
+      mentions: { users: ['u1'], repliedUser: true },
     },
   ]);
   assert.equal(other.channel.sent.length, 0, 'nothing went around the port');
@@ -5325,7 +5295,7 @@ test('skill call: message.create to another channel where the bot may send runs 
   );
 });
 
-test('skill call: her message.create and message.edit text goes out like a <msg> -- a handle pings, a name, an unknown handle and @everyone stay text and ping nobody; custom emoji, #N and channel links', async () => {
+test('skill call: her message.create and message.edit text goes out like a <msg> -- a handle is named, a name, an unknown handle and @everyone stay text and name nobody; custom emoji, #N and channel links', async () => {
   const alice = `@${handleOf('u1')}`;
   const unknown = alice === '@uzzzz' ? '@u0000' : '@uzzzz';
   const written = `${alice} @Alice ${unknown} @everyone :dance: #2 #αλλού`;
@@ -5343,9 +5313,9 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   );
   assert.deepEqual(
     created.sends[0].mentions,
-    // The lead: `asked` names who chose `on`, nobody in this test (owner, 2026-11-06).
-    { users: ['u1'], repliedUser: false, asked: { users: [], repliedUser: false } },
-    'only the resolved member is notified'
+    // Changed: the mentions name the members alone, since the ping states left (2026-11-17).
+    { users: ['u1'], repliedUser: false },
+    'only the resolved member is named'
   );
   // A reply keeps working, its author notified as before.
   const replied = await callTurn({
@@ -5354,24 +5324,7 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   });
   assert.deepEqual(
     replied.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions]),
-    [
-      [
-        'c1',
-        '<@u1> <a:dance:222222222222222222>',
-        'm1',
-        { users: ['u1'], repliedUser: true, asked: { users: [], repliedUser: false } },
-      ],
-    ]
-  );
-  // Pings off: the mention stays in the text and notifies nobody.
-  const quiet = await callTurn({
-    answers: [toolAnswer(``, [call('message.create', { place: `#νέα`, text: `${alice}` })]), '<skip/>'],
-    allowed: ['message.create'],
-    store: storeWithPingsOff(['u1']),
-  });
-  assert.deepEqual(
-    quiet.sends.map((send) => [send.text, send.mentions]),
-    [['<@u1>', { users: [], repliedUser: false, asked: { users: [], repliedUser: false } }]]
+    [['c1', '<@u1> <a:dance:222222222222222222>', 'm1', { users: ['u1'], repliedUser: true }]]
   );
   // The edit path: the same rendering, the same mentions.
   const edited = await callTurn({

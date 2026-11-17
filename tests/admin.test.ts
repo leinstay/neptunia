@@ -608,67 +608,6 @@ test('runSkillOp: a typed command runs an operation that was owner-only, with no
   }
 });
 
-/** makeStore with the ping states of one guild, the way src/memory/store.ts hands them out (getPings, setPings). */
-function storeWithPings() {
-  const store = makeStore();
-  const pings = new Map<string, string>();
-  store.pings = pings;
-  store.getPings = (placeId: string, accountId: string) => pings.get(`${placeId}:${accountId}`) ?? null;
-  store.setPings = (placeId: string, accountId: string, state: string | null) => {
-    if (state === null) pings.delete(`${placeId}:${accountId}`);
-    else pings.set(`${placeId}:${accountId}`, state);
-    return state;
-  };
-  return store;
-}
-
-// The owner's word of 2026-11-06: a member has the states `on` and `off`, or none, where the interface's silent switch
-// decides. So a member who never chose reads `Pings: default` (it read `Pings: on`), and `on` is kept as a state of its
-// own instead of clearing `off`.
-test('run: pings with no mode shows the state of the caller; off and on change only the caller, in the guild of the interaction', async () => {
-  const rootDir = makeRoot();
-  const store = storeWithPings();
-  const { admin } = makeAdmin(rootDir, { store });
-  const context = { placeId: 'g1', accountId: '999' };
-
-  assert.equal(await admin.run('pings.get', {}, context), 'Pings: default');
-  assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
-  assert.equal(await admin.run('pings.get', { mode: undefined }, context), 'Pings: off');
-  assert.deepEqual([...store.pings], [['g1:999', 'off']]);
-  assert.equal(
-    await admin.run('pings.get', {}, { ...context, accountId: '777' }),
-    'Pings: default',
-    'another member is untouched'
-  );
-  assert.equal(await admin.run('pings.set', { mode: 'on' }, context), 'Pings: on');
-  assert.deepEqual([...store.pings], [['g1:999', 'on']]);
-});
-
-test('run: pings refuses an unknown mode, writing nothing', async () => {
-  const rootDir = makeRoot();
-  const store = storeWithPings();
-  const { admin } = makeAdmin(rootDir, { store });
-
-  await assert.rejects(
-    () => admin.run('pings.set', { mode: 'maybe' }, { placeId: 'g1', accountId: '999' }),
-    /mode must be one of: on, off/
-  );
-  assert.deepEqual([...store.pings], []);
-});
-
-test('run: pings works while paused, a change included, reading fresh off disk first', async () => {
-  const rootDir = makeRoot();
-  const store = storeWithPings();
-  const { admin } = makeAdmin(rootDir, { store });
-  const context = { placeId: 'g1', accountId: '999' };
-  store.state.data.paused = true;
-
-  assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
-  assert.equal(await admin.run('pings.get', {}, context), 'Pings: off');
-  assert.deepEqual([...store.pings], [['g1:999', 'off']]);
-  assert.equal(store.dropCachesCalls, 2, 'each call reads past the caches while paused');
-});
-
 // ---------------------------------------------------------------------------
 // access.grant / access.revoke / access.list
 // ---------------------------------------------------------------------------

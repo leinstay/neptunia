@@ -64,7 +64,7 @@ export type HeldVoice = Partial<EntryVoice> & { text: string; durationSecs: numb
 /** What a diary turn holds instead of sending: her messages as written and as they would be sent. */
 export type HeldSpeech = {
   texts: Array<string>;
-  rendered: Array<{ text: string; accountIds: Array<string>; notify?: boolean }>;
+  rendered: Array<{ text: string; accountIds: Array<string> }>;
 };
 
 /**
@@ -147,7 +147,7 @@ function diaryPostOf({
   id: string;
 }): {
   post: Record<string, unknown>;
-  rendered: { messages: Array<string>; mentions: Array<Array<string>>; notify?: Array<boolean> };
+  rendered: { messages: Array<string>; mentions: Array<Array<string>> };
   maxMessageBytes: number;
 } {
   const diaryCfg = sectionOf(config, 'diary');
@@ -156,10 +156,6 @@ function diaryPostOf({
   const rendered = {
     messages: held.rendered.map((part) => part.text),
     mentions: held.rendered.map((part) => part.accountIds),
-    // Kept only when a message notifies everyone it names (src/turn/mentions.ts#mentionsUnderPings).
-    ...(held.rendered.some((part) => part.notify === true)
-      ? { notify: held.rendered.map((part) => part.notify === true) }
-      : {}),
   };
   const post = {
     at,

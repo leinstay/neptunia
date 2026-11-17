@@ -40,19 +40,6 @@
       "reply": "#N or link of the message to reply to."
     }
   },
-  "pings.get": {
-    "title": "Notification setting",
-    "whenToUse": "Reads the notification setting of the person who asked, here: on, off or the default. Choose it when someone asks whether your messages notify them.",
-    "whenNotToUse": "To change the setting, pings.set."
-  },
-  "pings.set": {
-    "title": "Change notification setting",
-    "whenToUse": "Changes the notification setting of the person who asked, here, and returns the setting after the change. Call it when someone asks you to stop pinging them or to ping them again, because agreeing in words changes nothing.",
-    "whenNotToUse": "It changes only the setting of the person who asked. To read it, pings.get.",
-    "args": {
-      "mode": "on: your replies and mentions notify them, even where your messages otherwise go out silently. off: nothing you send notifies them. clear: back to the default, where the place's own setting decides."
-    }
-  },
   "media.status": {
     "title": "Emoji and GIF state",
     "whenToUse": "Reads the custom emoji ranking or the GIF library: how many entries it holds, the top ten with their use counts, when history was last counted and, for GIFs, how their descriptions stand. Choose it when the owner asks about them.",

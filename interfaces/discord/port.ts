@@ -1,8 +1,8 @@
 // The Discord adapter of the interface port (src/interface/port.ts): the persona's effects in
 // Discord's terms. A chat is a channel id, a message a message id, a member a user id,
 // all namespaced `discord`. Channels and messages are looked up by id through the client (a
-// channel the caller already holds first, when it passes `lookupChannel`); mentions become
-// `allowedMentions` (nobody is notified unless named; with `discord.silent` only the members who asked); edit and delete touch only messages the
+// channel the caller already holds first, when it passes `lookupChannel`); a message notifies nobody: its
+// `allowedMentions` parse nothing and name nobody, so a mention she writes shows as one and pings no one; edit and delete touch only messages the
 // bot wrote (else `forbidden`). Discord's answers are normalised: a 429 is `failed` and
 // retryable, a 403 `forbidden`, any other 4xx `failed` with its `http-<status>` code; a 5xx, a
 // timeout or a network error once the request may have left is `unknown` -- it may have taken
@@ -24,15 +24,7 @@
 
 import { createHash } from 'node:crypto';
 import { AttachmentBuilder, MessageFlags } from 'discord.js';
-import {
-  CAPABILITIES,
-  contentRefusal,
-  declaredHooks,
-  mentionsOf,
-  notOk,
-  ok,
-  refRefusal,
-} from '../../src/interface/port.ts';
+import { CAPABILITIES, contentRefusal, declaredHooks, notOk, ok, refRefusal } from '../../src/interface/port.ts';
 import { READ_ACTIONS, deliveryOf, splitText } from '../../src/protocol/index.ts';
 import { createDiscordReads } from './reads.ts';
 import { CODE, httpCode } from '../../src/tools/codes.ts';
@@ -245,19 +237,6 @@ function lookupFailed(result: PortResult): ReadFailure {
 }
 
 /**
- * `payload` in silent mode (`discord.silent`): the message notifies the channel like any other and pings
- * only the members who asked for it, so no suppress flag is added (a voice message keeps its voice flag).
- * Content that carries `asked` pings exactly those members and the replied author when `asked` says so.
- * Content with `notify` and no `asked` keeps its `users` and `repliedUser`. Any other content pings nobody.
- * The reply reference and the text stay as written.
- */
-function silenced(payload: Record<string, unknown>, content: Content): Record<string, unknown> {
-  const { users, repliedUser, notify, asked } = mentionsOf(content);
-  const pinged = asked ?? (notify === true ? { users, repliedUser } : { users: [], repliedUser: false });
-  return { ...payload, allowedMentions: { ...objOf(payload.allowedMentions), parse: [], ...pinged } };
-}
-
-/**
  * The Discord adapter over a discord.js client.
  * @param options `config`: the live config, read at each read (`normalizeOptions(config())`); `lookupChannel`: a channel the
  *   caller already holds, tried before the client's cache and
@@ -361,15 +340,10 @@ export function createDiscordAdapter({
     payload.reply = content.replyTo
       ? { messageReference: content.replyTo.messageId, failIfNotExists: false }
       : undefined;
-    // Absent mentions notify nobody: no parsing of the text, and Discord's own default leaves the
-    // replied author unnotified. Given mentions notify exactly the members named.
-    if (content.mentions && typeof content.mentions === 'object') {
-      const { users, repliedUser } = mentionsOf(content);
-      payload.allowedMentions = { parse: [], users, repliedUser };
-    } else {
-      payload.allowedMentions = { parse: [] };
-    }
-    return objOf(objOf(config()).discord).silent === true ? silenced(payload, content) : payload;
+    // Nobody is notified: no parsing of the text, no member named, no ping for the replied author. The message still
+    // notifies the channel like any other, so no suppress flag is added (a voice message keeps its voice flag).
+    payload.allowedMentions = { parse: [], users: [], repliedUser: false };
+    return payload;
   }
 
   /** The reference of a message Discord answered with (`posted`), in `chatId`. */

@@ -154,10 +154,11 @@ test('coerceArgs: top level only, unknown keys and strings for string arguments 
 });
 
 test('schema refusals the engine relies on: an unknown key and an enum violation', () => {
-  const pings = registry.get('pings.set')?.argsSchema;
-  assert.equal(schemaError({ mode: 'on', other: 1 }, pings), 'args.other:unknown');
-  assert.equal(schemaError({ mode: 'sometimes' }, pings), 'args.mode:enum');
-  assert.equal(schemaError({ mode: 'on' }, pings), null);
+  // Changed: the schema is `errand.list`'s, since `pings.set` is no tool of hers.
+  const errands = registry.get('errand.list')?.argsSchema;
+  assert.equal(schemaError({ state: 'done', other: 1 }, errands), 'args.other:unknown');
+  assert.equal(schemaError({ state: 'sometimes' }, errands), 'args.state:enum');
+  assert.equal(schemaError({ state: 'done' }, errands), null);
 });
 
 test('toolResultText: the status words, the reason from the code, the data cut to maxChars', () => {

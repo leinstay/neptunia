@@ -330,12 +330,6 @@ const ENTRIES: Array<Definition> = [
       };
     },
   }),
-  def('pings.get', { params: EMPTY(), effects: 'read', toArgs: () => ({ mode: undefined }) }),
-  def('pings.set', {
-    params: obj({ mode: oneOf(['on', 'off', 'clear']) }, ['mode']),
-    effects: 'write',
-    toArgs: (a) => ({ mode: opt(a, 'mode') }),
-  }),
   def('media.status', { params: MEDIA_PARAMS(['emoji', 'gifs']), effects: 'read', toArgs: mediaArgs('status') }),
   def('media.rescan', { params: MEDIA_PARAMS(['emoji', 'gifs']), effects: 'write', toArgs: mediaArgs('rescan') }),
   def('media.recache', {
