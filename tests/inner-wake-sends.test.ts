@@ -163,7 +163,7 @@ function scriptedModel(answers: ReadonlyArray<unknown>, port: Fake, died: () => 
 function hotOf(mode: 'live' | 'shadow', heartbeat: boolean) {
   const hot = hotWith({
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
-    access: personaGrants(['lore.list', 'message.create', 'message.edit', 'message.react.add']),
+    access: personaGrants(['lore.list', 'message.create', 'message.edit', 'message.react.add', 'intention.set']),
     config: {
       wakes: {
         mode,
@@ -175,6 +175,7 @@ function hotOf(mode: 'live' | 'shadow', heartbeat: boolean) {
     },
   });
   Object.assign(hot.config.context, { turnLeaseMs: LEASE_MS });
+  Object.assign(hot.config, { intentions: { expiresDays: 14, maxOpen: 20 } });
   Object.assign(hot.prompts, { inner: INNER_TASK });
   return hot;
 }
@@ -231,6 +232,8 @@ async function core(
       isServedRoot: (id: unknown) => id === ROOT,
       port,
       reads: world().reads,
+      intentions: service,
+      now: () => clock.t,
     });
     const runner = worldTurnRunner({
       hot,
@@ -244,6 +247,7 @@ async function core(
       runOp: admin.runSkillOp,
       runOwnOp: admin.runOwnSkillOp,
       runInitiativeOp: admin.runInitiativeSkillOp,
+      intentions: service,
     });
     return { llm, runner };
   };
@@ -625,6 +629,77 @@ test('a heartbeat in shadow mode holds nothing and sends nothing: her post is re
     assert.deepEqual(actionsOf(run.results[0]), ['message.create:heartbeat-only']);
     assert.deepEqual(sendsOf(run.port), []);
     assert.deepEqual(deliveriesIn(readHandleOf(run.memory), 'queued'), [], 'nothing was recorded to send');
+  } finally {
+    await run.close();
+  }
+});
+
+/** Her facts a turn's wake showed her, each as `<kind>:<code>`. */
+const factCodesOf = (params: InnerTurnParams | undefined): Array<string> =>
+  factsOf(params).map(
+    (fact) => `${String(Reflect.get(Object(fact), 'kind'))}:${String(Reflect.get(Object(fact), 'code'))}`
+  );
+
+/** The wake kinds of the turns `run` ran, in order. */
+const kindsOf = (run: Core): Array<string> => run.calls.map(({ inner }) => inner.wake.kind);
+
+/** Ticks `run` a minute at a time from `from` until `count` turns ran or two hours passed. */
+async function tickUntil(run: Core, from: number, count: number): Promise<void> {
+  for (let at = from; at <= from + 2 * HOUR && run.calls.length < count; at += MINUTE) {
+    run.clock.t = at;
+    await run.life.tick();
+  }
+}
+
+test('a post a heartbeat wrote as a <msg> in its last answer is refused heartbeat-only, wakes no feedback turn and is told by the next heartbeat', async () => {
+  const run = await core({ answers: ['<msg>καλημέρα</msg><skip/>', '<skip/>'] }, { heartbeat: true });
+  try {
+    await run.life.tick();
+    run.clock.t = T + HOUR + MINUTE;
+    await run.life.tick();
+    assert.deepEqual(actionsOf(run.results[0]), ['message.create:heartbeat-only']);
+    await tickUntil(run, T + HOUR + 2 * MINUTE, 2);
+    assert.deepEqual(kindsOf(run), ['heartbeat', 'heartbeat'], 'no feedback turn ran between the two heartbeats');
+    assert.deepEqual(sendsOf(run.port), [], 'nothing was posted');
+    assert.ok(factCodesOf(run.calls[1]).includes('callFailed:heartbeat-only'), factCodesOf(run.calls[1]).join(', '));
+  } finally {
+    await run.close();
+  }
+});
+
+test("a heartbeat's refusal beside another miss is left out of the feedback turn and told by the next heartbeat", async () => {
+  // A stray closing tag is a miss of another kind, which wakes a feedback turn.
+  const run = await core({ answers: ['<msg>καλημέρα</msg></msg><skip/>', '<skip/>'] }, { heartbeat: true });
+  try {
+    await run.life.tick();
+    await tickUntil(run, T + HOUR + MINUTE, 3);
+    assert.deepEqual(kindsOf(run), ['heartbeat', 'feedback', 'heartbeat']);
+    assert.ok(!factCodesOf(run.calls[1]).includes('callFailed:heartbeat-only'), factCodesOf(run.calls[1]).join(', '));
+    assert.ok(factCodesOf(run.calls[2]).includes('callFailed:heartbeat-only'), factCodesOf(run.calls[2]).join(', '));
+    assert.deepEqual(sendsOf(run.port), [], 'nothing was posted');
+  } finally {
+    await run.close();
+  }
+});
+
+test('a post a heartbeat refused beside the change that ended it wakes no feedback turn and is told by the next heartbeat', async () => {
+  const post = toolAnswer('', [
+    call('message.create', { place: '#chan-c1', text: 'καλημέρα' }),
+    call('message.create', { place: '#chan-c1', text: 'τι κάνετε;' }),
+    call('intention.set', { due: '6h', text: 'ask how the trip went' }),
+  ]);
+  const run = await core({ answers: [post] }, { heartbeat: true });
+  try {
+    await run.life.tick();
+    run.clock.t = T + HOUR + MINUTE;
+    await run.life.tick();
+    const { requests } = run.llm;
+    assert.equal(requests.length, 1, 'the change ended the heartbeat');
+    // She did not read the refusals in that turn, so the next heartbeat tells her of them.
+    await tickUntil(run, T + HOUR + 2 * MINUTE, 2);
+    assert.deepEqual(kindsOf(run), ['heartbeat', 'heartbeat'], 'no feedback turn ran between the two heartbeats');
+    assert.deepEqual(sendsOf(run.port), [], 'nothing was posted');
+    assert.deepEqual(factCodesOf(run.calls[1]), ['callFailed:heartbeat-only', 'callFailed:heartbeat-only']);
   } finally {
     await run.close();
   }

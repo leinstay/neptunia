@@ -592,6 +592,16 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       });
       return { call, op, envelope, resolved: null, refusal: { ...call.preRefuse } };
     }
+    // A wake's own set: a call outside it is refused before resolution, and before a tag's own refusal, so a <msg>
+    // a heartbeat wrote is refused by the heartbeat's limit like any other post.
+    const wakeKind = wakeOf(draft)?.kind ?? null;
+    const wakeRefusal = wakeRefusalCode(wakeKind, call.skill);
+    if (wakeRefusal !== null) {
+      const reason = `${String(wakeKind)}:only`;
+      log.info('skill: refused', { skill: call.skill, code: wakeRefusal, reason, channel: channel.id });
+      log.info(`${String(wakeKind)}: call refused`, { skill: call.skill, code: wakeRefusal });
+      return { call, op, envelope, resolved: null, refusal: { code: wakeRefusal, reason } };
+    }
     // An inner turn's tag that cannot act (src/behavior/inner-output.ts): refused before anything is resolved or done.
     if (call.refuse) {
       log.info('skill: refused', {
@@ -601,15 +611,6 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         channel: channel.id,
       });
       return { call, op, envelope, resolved: null, refusal: { code: call.refuse.code, reason: call.refuse.reason } };
-    }
-    // A wake's own set: a call outside it is refused before resolution.
-    const wakeKind = wakeOf(draft)?.kind ?? null;
-    const wakeRefusal = wakeRefusalCode(wakeKind, call.skill);
-    if (wakeRefusal !== null) {
-      const reason = `${String(wakeKind)}:only`;
-      log.info('skill: refused', { skill: call.skill, code: wakeRefusal, reason, channel: channel.id });
-      log.info(`${String(wakeKind)}: call refused`, { skill: call.skill, code: wakeRefusal });
-      return { call, op, envelope, resolved: null, refusal: { code: wakeRefusal, reason } };
     }
     // A skill her tools array offered is read as `skill.read` of its name: the journal records the read, and her grant
     // of `skill.read` is checked as for any call. A procedure widens no permission.
