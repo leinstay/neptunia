@@ -1050,7 +1050,6 @@ async function buildCore(
     llm,
     calibrator,
     describer,
-    imageFetcher,
     lookup,
     recall,
     images,
@@ -1319,8 +1318,6 @@ async function buildCore(
     images,
     // The voice messages' quota and pipeline, for the skill `voice.say`.
     speech,
-    // /nep draw self: the avatar reference, fetched the same way a turn fetches it.
-    imageFetcher,
     // The history backfills, which the status card names while they run.
     emojiBackfill,
     gifBackfill,

@@ -279,7 +279,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   }: InTurnArgs): Record<string, (args: Obj, call?: InTurnCall) => unknown> {
     // The second looks this turn took (media.look): every step of the loop shares the count.
     let looks = 0;
-    const where = { channel, placeId, trigger, triggerKind, selfName, draft, mode, plain };
+    const where = { channel, trigger, triggerKind, selfName, draft, mode, plain };
     const messageOf = (messageId: string, call?: InTurnCall): HistoryMessage | null =>
       cachedMessage(call?.messageRef, messageId, draft?.searchRefs, history ?? [], chatOf(channel));
     return {

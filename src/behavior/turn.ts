@@ -15,7 +15,6 @@
 // attempt of a turn to runAttempt (src/turn/phases/attempt.ts), which runs its phases.
 
 import { fallbackLookupPlan } from './recall.ts';
-import { createImageFetcher } from '../media/fetch-image.ts';
 import { createOffPeriodsReader } from '../memory/index.ts';
 import { createThinkStore } from './previous-think.ts';
 import { turnRoutes } from './turn-ability-route.ts';
@@ -278,7 +277,6 @@ export function createTurnRunner({
   describePicture = undefined,
   fetchImpl = fetch,
   summarize = undefined,
-  imageFetcher = createImageFetcher(),
   lookup = undefined,
   recall = null,
   images = undefined,
@@ -288,7 +286,7 @@ export function createTurnRunner({
   embedQuery = null,
   // The embedder of the finder and media.find (graph-find.ts#createFindMeaning); null: they read words only.
   embedFind = null,
-  // The data folder a library GIF's cached file is read from; null: no file to post.
+  // The data folder a library GIF's cached file and `appearance.png` are read from; null: neither.
   dataDir = null,
   getSelfName = () => 'bot',
   selfId: selfIdOf = () => '',
@@ -511,11 +509,9 @@ export function createTurnRunner({
     store,
     dataDir,
     images,
-    imageFetcher,
     ifaceReads,
     iface,
     routes,
-    selfIdOf,
     clock,
     schedule,
     ...inputs,

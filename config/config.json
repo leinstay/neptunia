@@ -333,7 +333,6 @@
     }
   },
   "image": {
-    "reference": "avatar",
     "timeoutMs": 120000,
     "retries": 1,
     "provider": null,

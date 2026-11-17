@@ -19,7 +19,7 @@ import type { Held } from './emoji-gifs.ts';
 import { orderedHistory } from '../history.ts';
 import { spatialAwarenessText } from './spatial.ts';
 import { nowBlock } from './tail.ts';
-import { TAG_OVERHEAD, fillPromptTemplate, keepsEmoji, requireLabels } from './text.ts';
+import { TAG_OVERHEAD, block, fillPromptTemplate, keepsEmoji, requireLabels } from './text.ts';
 import type {
   Caps,
   Cost,
@@ -222,6 +222,8 @@ export function requestHead(given: RequestInput): Base {
   const system = [
     nameFill(prompts['system-prompt']),
     nameFill(prompts['character-card']),
+    // Her appearance stands beside the card in the cached system message; a blank file gives no block.
+    block('appearance', nameFill(prompts.appearance).trim()),
     nameFill(rulesPromptOf(prompts.rules)),
     formatFill(prompts.format),
   ]

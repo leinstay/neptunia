@@ -78,7 +78,6 @@ function buildEnv({
   images,
   speech = null,
   roleHealth = null,
-  imageFetcher,
   emojiBackfill,
   gifBackfill,
   archive = null,
@@ -269,7 +268,6 @@ function buildEnv({
     speech,
     // Which model roles are down (src/llm/role-health.ts): `voice.say` routes on it.
     roleHealth,
-    imageFetcher,
     emojiBackfill,
     gifBackfill,
     archive,

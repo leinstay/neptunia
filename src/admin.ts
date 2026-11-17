@@ -46,8 +46,6 @@ export {
  * `images` — from createImageGen() (src/llm/images.ts), optional: `generate()` for `draw.create`,
  *   `quota()` and `familyOf()` for the image lines of `status.show` and `model.show`.
  *   Absent -> `draw.create` reports it is not available and `status.show` has no image lines.
- * `imageFetcher` — from createImageFetcher() (src/media/fetch-image.ts), optional: downloads the
- *   bot's avatar as the reference of a `draw.create` picture of herself. Absent -> no reference is sent.
  * `emojiBackfill` — from createEmojiBackfill() (src/memory/emoji-backfill.ts), optional: `isRunning` (a line of the
  *   status card's long tasks).
  * `gifBackfill` — from createGifBackfill() (src/memory/gif-backfill.ts), optional: the same.
@@ -91,7 +89,7 @@ export {
  * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: the `inner` field of the owner's status
  *   card. Absent -> that field says the inner life is not running.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
- * `dataDir` — the data directory a skill's run and an errand's file are read under: src/index.ts passes the one it
+ * `dataDir` — the data directory a skill's run, an errand's file and `appearance.png` of `draw.create` are read under: src/index.ts passes the one it
  *   resolved (src/paths.ts, `NEPTUNIA_DATA_DIR`); default `<hot.rootDir>/data`.
  *
  * `run(op, args, context)` throws a plain `Error` (operator-facing message) on bad input; the
