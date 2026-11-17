@@ -35,7 +35,7 @@ const FINISHED_MEMORY = 500;
 
 /**
  * @param options.unit The unit's name (for `pong` and logs).
- * @param options.runner The task engine; `run({ id, goal, context, limits, cost, searchProvider, secrets, preamble, route, signal, onProgress })`.
+ * @param options.runner The task engine; `run({ id, goal, context, limits, searchProvider, secrets, preamble, route, signal, onProgress })`.
  * @param options.socketMode The socket file mode (default 0o660).
  */
 export function createRunnerServer({
@@ -105,7 +105,6 @@ export function createRunnerServer({
         goal: task.goal,
         context: task.context,
         limits: task.limits,
-        cost: task.cost,
         searchProvider: task.searchProvider,
         secrets: task.secrets,
         preamble: task.preamble,

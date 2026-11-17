@@ -11,8 +11,8 @@ import { runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
-import { errandTask } from '../src/board/errands.ts';
-import type { ErrandTaskRow } from '../src/board/errands.ts';
+import { boardTaskOf } from './fixtures/board-task.ts';
+import type { BoardTask } from './fixtures/board-task.ts';
 import type { Obj } from '../src/tools/types.ts';
 import type { ErrandClient, ErrandService, ErrandStores, RunOutcome } from '../src/errands/types.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
@@ -112,11 +112,11 @@ function idOf(answer: Answer): string {
 }
 
 /** Errand `id`'s task on the board as the read connection of `memoryDb` shows it. */
-function taskOf(memoryDb: MemoryDb, id: string): ErrandTaskRow {
+function taskOf(memoryDb: MemoryDb, id: string): BoardTask['task'] {
   // service.js types its read handle loosely; it is open.js's handle, `{ db }`, or null while the database is closed.
   const handle = memoryDb.readHandle() as { db: object } | null;
   if (!handle) throw new Error('the memory database is not open');
-  const view = errandTask(handle.db, id);
+  const view = boardTaskOf(handle.db, id);
   if (view === null) throw new Error(`the board holds no task ${id}`);
   return view.task;
 }

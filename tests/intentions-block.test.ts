@@ -179,7 +179,6 @@ test('skills: the intent skills are hers once granted', () => {
       skill: 'intention.set',
       args: { text: 'κάτι' },
       principal: { kind: 'persona' },
-      requester: { id: OWNER },
       audience,
       context: { config: cfg, selfId: SELF, registry },
     });
@@ -200,7 +199,6 @@ test('skills: the intent skills are hers once granted', () => {
     skill: 'intention.set',
     args: { text: 'κάτι' },
     principal: { kind: 'persona' },
-    requester: null,
     audience,
     context: { config: config(), selfId: SELF, registry },
   });

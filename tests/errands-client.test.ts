@@ -6,8 +6,7 @@
 // outcome of the connect loop reaches the `onLink` listeners. The deployment's preamble goes out
 // on a run's line only when non-empty, read at each run: the files of data/prompts/preambles/ are
 // picked by agent and by the model of the run's route; data/prompts/agents.md
-// (`hot.prompts.agents`) is never read as one. A run carries the live
-// `agents.<profile>.cost` (when usable), since the runners cannot read the private config.
+// (`hot.prompts.agents`) is never read as one.
 import { consumers, consumerRig } from './fixtures/agent-consumers.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -262,9 +261,7 @@ test("errands client: the preamble is composed by agent and the route's model, l
       const onSonnet = await runOnce('task-sonnet', routeOn('openrouter/anthropic/claude-sonnet-4.6'));
       assert.equal(loose(onSonnet).preamble, 'ALL-TEXT\n\nSCOUT-TEXT\n\nSONNET-TEXT', "the route's model file");
       assert.equal(Object.hasOwn(onSonnet, 'model'), false, 'the route carries the model, the line no second one');
-      assert.equal(Object.hasOwn(onSonnet, 'cost'), false, 'no cost is sent when the live config has none');
 
-      loose(hot.config.agents.scout).cost = { input: 2, output: 6 };
       loose(hot).prompts = { ...loose(hot).prompts, preambles: { ...loose(hot).prompts.preambles, all: '' } };
       const live = await runOnce('task-live', routeOn('openrouter/openai/gpt-6-sol'));
       assert.equal(
@@ -272,11 +269,6 @@ test("errands client: the preamble is composed by agent and the route's model, l
         'SCOUT-TEXT\n\nSCOUT-SOL-TEXT',
         'model and files read at each run; an emptied all.md sends nothing'
       );
-      assert.deepEqual(loose(live).cost, { input: 2, output: 6 }, 'the live price is sent');
-
-      loose(hot.config.agents.scout).cost = { input: 2, output: Number.NaN };
-      const unusable = await runOnce('task-bad-cost', routeOn('openrouter/openai/gpt-6-sol'));
-      assert.equal(Object.hasOwn(unusable, 'cost'), false, 'a price without finite input and output is not sent');
 
       const noModel = await runOnce('task-no-model', routeOn(null));
       assert.equal(loose(noModel).preamble, 'SCOUT-TEXT', 'a route with no model reads no model file');
@@ -288,7 +280,7 @@ test("errands client: the preamble is composed by agent and the route's model, l
       sent.map((entry) => entry.preambleFiles),
       [
         ['preambles/all.md', 'preambles/scout.md', 'preambles/@claude-sonnet-4.6.md'],
-        ['preambles/scout.md', 'preambles/scout@gpt-6-sol.md'],
+        // The run that checked an unusable price went with the price; the other runs keep their files.
         ['preambles/scout.md', 'preambles/scout@gpt-6-sol.md'],
         ['preambles/scout.md'],
         ['preambles/scout.md'],
@@ -298,7 +290,7 @@ test("errands client: the preamble is composed by agent and the route's model, l
       sent.map((entry) => entry.model),
       [
         'openrouter/anthropic/claude-sonnet-4.6',
-        'openrouter/openai/gpt-6-sol',
+        // One run fewer: the run that checked an unusable price went with the price.
         'openrouter/openai/gpt-6-sol',
         null,
         null,

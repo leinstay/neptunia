@@ -6,9 +6,8 @@
 //
 // Versions are pinned. A first install takes `PINNED_VERSIONS`, and `version.json` beside the binary records what is
 // installed with its integrity; a persona restored to another machine reinstalls the version it recorded, whatever
-// this engine ships. Only `updateSubharness` changes it, on the owner's explicit command, and it leaves the backend's
-// `home/` (login and native sessions) alone. An install or an update holds the backend's lock
-// (src/subharness/activity.ts), so npm never moves the binary while a login writes the home.
+// this engine ships. An install leaves the backend's `home/` (login and native sessions) alone and holds the backend's
+// lock (src/subharness/activity.ts), so npm never moves the binary while a login writes the home.
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -54,14 +53,7 @@ const PINNED_VERSIONS: Readonly<Partial<Record<BackendName, string>>> = {
 
 /** The file beside the binary that records the installed version. */
 const SELECTION_FILE = 'version.json';
-/** The previous install, kept for a rollback. */
-const PREVIOUS_DIR = 'previous';
-/** The install in force while an update runs; it becomes `previous/` only once the update succeeded. */
-const OUTGOING_DIR = '.outgoing';
-/** What npm or the copy of opencode put in a backend's folder; `home/` is never one of these. */
-const INSTALLED_ENTRIES = ['node_modules', 'bin', 'package.json', 'package-lock.json'] as const;
-
-type Selection = { version: string; integrity: string | null; previous?: string };
+type Selection = { version: string; integrity: string | null };
 
 /** The host variables npm inherits. */
 const PASSED_ENV = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE'] as const;
@@ -165,55 +157,7 @@ async function npmInstall(input: InstallInput, pkg: string, version: string, run
   return null;
 }
 
-/** Moves every installed entry of `from` to `to`; `home/` and the selection stay where they are. */
-function moveInstalled(from: string, to: string): void {
-  fs.mkdirSync(to, { recursive: true, mode: 0o700 });
-  for (const entry of INSTALLED_ENTRIES) {
-    if (fs.existsSync(path.join(from, entry))) fs.renameSync(path.join(from, entry), path.join(to, entry));
-  }
-}
-
-/** A crash in the middle of an update left the old install in `outgoing`: it goes back when nothing replaced it. */
-function recoverOutgoing(privateDir: string, backend: BackendName, outgoing: string): void {
-  if (!fs.existsSync(outgoing)) return;
-  if (!isInstalled(privateDir, backend)) moveInstalled(outgoing, subharnessPlace(privateDir, backend).dir);
-  fs.rmSync(outgoing, { recursive: true, force: true });
-}
-
-/** The update itself, under the backend's lock. */
-async function updateLocked(input: InstallInput & { version: string }, run: InstallRun): Promise<InstallOutcome> {
-  const { privateDir, backend, version } = input;
-  const place = subharnessPlace(privateDir, backend);
-  const before = readSelection(privateDir, backend);
-  const previousDir = path.join(place.dir, PREVIOUS_DIR);
-  const outgoing = path.join(place.dir, OUTGOING_DIR);
-  recoverOutgoing(privateDir, backend, outgoing);
-  moveInstalled(place.dir, outgoing);
-  const pkg = PACKAGES[backend];
-  const problem =
-    pkg === undefined
-      ? copyOpencode(input).state === 'failed'
-        ? 'the opencode executable could not be copied'
-        : null
-      : await npmInstall(input, pkg, version, run);
-  if (problem !== null) {
-    for (const entry of INSTALLED_ENTRIES) fs.rmSync(path.join(place.dir, entry), { recursive: true, force: true });
-    moveInstalled(outgoing, place.dir);
-    fs.rmSync(outgoing, { recursive: true, force: true });
-    return failed(problem);
-  }
-  fs.rmSync(previousDir, { recursive: true, force: true });
-  fs.renameSync(outgoing, previousDir);
-  const integrity = pkg === undefined ? sha256Of(place.binary) : lockedIntegrity(place.dir, pkg);
-  writeSelection(privateDir, backend, {
-    version,
-    integrity,
-    ...(before === null ? {} : { previous: before.version }),
-  });
-  return { state: 'done', detail: `${backend} is now ${version}, the previous install is kept for a rollback` };
-}
-
-/** What `work` came to under the backend's lock; a lock that stays taken is a failed change. */
+/** What `work` came to under the backend's lock; a lock that stays taken is a failed install. */
 async function locked(
   privateDir: string,
   backend: BackendName,
@@ -225,15 +169,6 @@ async function locked(
     if (error instanceof BackendLocked) return failed(error.message);
     throw error;
   }
-}
-
-/**
- * The owner's explicit update: the install in force moves aside, `input.version` is installed, and a failure moves the
- * old one back and leaves the rollback of the last update as it was. A success makes the old one the rollback. opencode
- * takes a new executable through `input.opencodeSource`.
- */
-export function updateSubharness(input: InstallInput & { version: string }, run: InstallRun): Promise<InstallOutcome> {
-  return locked(input.privateDir, input.backend, () => updateLocked(input, run));
 }
 
 /** The install itself, under the backend's lock. */

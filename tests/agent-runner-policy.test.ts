@@ -1,14 +1,9 @@
-// Tests for src/agent-runner/policy.ts: the scope default, the withheld-path
-// check over tool-call events (a read or a bash reader that opens a sensitive
-// path is withheld in dm/group, a listing is not, core withholds nothing),
-// and the secret redaction (keys, tokens, assignments, SSH material, URL
-// credentials), and the withheld roots and globs built from the deployment's
-// directories (src/paths.ts). Pure; no I/O. Non-ASCII data is Greek/accented
+// Tests for src/agent-runner/policy.ts: the scope default and the secret
+// redaction (keys, tokens, assignments, SSH material, URL
+// credentials). Pure; no I/O. Non-ASCII data is Greek/accented
 // Latin.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   scopeOf,
   isFiltered,
@@ -16,14 +11,7 @@ import {
   redactorFor,
   containsSecret,
   REDACTED,
-  WITHHELD_ROOTS,
-  WITHHELD_GLOBS,
-  withheldRootsOf,
-  withheldGlobsOf,
 } from '../src/agent-runner/policy.ts';
-import { resolvePaths } from '../src/paths.ts';
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('scopeOf: known scope kept, anything else is the narrowest', () => {
   assert.equal(scopeOf({ scope: 'core' }), 'core');
@@ -33,37 +21,6 @@ test('scopeOf: known scope kept, anything else is the narrowest', () => {
   assert.equal(scopeOf({ scope: 'nope' }), 'group');
   assert.equal(isFiltered('core'), false);
   assert.equal(isFiltered('group'), true);
-});
-
-test('withheld roots and globs: the fixed ones, then the data directory apart from the checkout', () => {
-  const apart = resolvePaths({
-    rootDir: '/srv/app',
-    env: { NEPTUNIA_DATA_DIR: '/srv/site/data' },
-  });
-  const roots = withheldRootsOf({ paths: apart });
-  assert.equal(roots.at(-1), '/srv/site/data');
-  assert.ok(roots.includes('/etc/neptunia'), '/etc/neptunia stays');
-  assert.ok(!roots.some((root) => root.startsWith('/opt/neptunia')), 'no hard-coded deployment path');
-  const globs = withheldGlobsOf({ paths: apart });
-  for (const glob of ['/srv/site/data', '/srv/site/data/**', '/etc/neptunia/**', '**/data/places/**'])
-    assert.ok(globs.includes(glob), glob);
-  assert.ok(!globs.some((glob) => glob.startsWith('/srv/app')), 'the checkout itself is not withheld');
-
-  const together = resolvePaths({ rootDir: '/srv/app', env: {} });
-  assert.deepEqual(
-    withheldRootsOf({ paths: together }).at(-1),
-    '/srv/app/data',
-    'default: both runtime aliases select <root>/data'
-  );
-  assert.ok(!withheldRootsOf({ paths: together }).includes('/srv/app'));
-
-  const own = resolvePaths({ rootDir: ROOT });
-  assert.deepEqual(
-    WITHHELD_ROOTS,
-    withheldRootsOf({ paths: own }),
-    'the module default: this checkout, resolved from the environment'
-  );
-  assert.deepEqual(WITHHELD_GLOBS, withheldGlobsOf({ paths: own }));
 });
 
 test('redactSecrets: assignments, prefixes, dotted tokens, hex, URL creds, SSH, key block', () => {

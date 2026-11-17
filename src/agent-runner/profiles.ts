@@ -3,7 +3,7 @@
 // in the unit of its name. A local folder that shares a tracked agent's name overlays the tracked profile key by key; a
 // local folder with any other name is no agent.
 //
-// A profile holds exactly `id`, `description`, `prompt`, `limits`, `daily` and `cost`. A profile that misses a key, names
+// A profile holds exactly `id`, `description`, `prompt`, `limits` and `daily`. A profile that misses a key, names
 // an unknown one or holds a value of the wrong form fails `listAgents` and `loadProfiles` with one error naming the agent
 // and the key, and a symbolic link anywhere in the local layer is refused. A profile authorizes nothing: the agent's
 // prompt is its only limit, and its unit sets the sandbox of the process (deploy/). The socket and the out folder of a
@@ -38,7 +38,6 @@ export type AgentDefinition = Readonly<{
   prompt: string;
   limits: Readonly<Record<string, number>>;
   daily: Readonly<Record<string, number>>;
-  cost: Readonly<{ input: number; output: number }>;
 }>;
 
 /** Where an agent's profile comes from: the checkout alone (`tracked`) or overlaid by a local twin (`local`). */
@@ -74,7 +73,7 @@ const AGENTS_DIRNAME = 'agents';
 const PROFILE_FILE = 'profile.json';
 
 /** The keys of a profile, all required. */
-const PROFILE_KEYS: ReadonlyArray<string> = Object.freeze(['id', 'description', 'prompt', 'limits', 'daily', 'cost']);
+const PROFILE_KEYS: ReadonlyArray<string> = Object.freeze(['id', 'description', 'prompt', 'limits', 'daily']);
 
 /** Resolves explicit and environment data paths against the engine root. */
 function agentPaths(options: AgentPaths): ResolvedAgentPaths {
@@ -148,20 +147,6 @@ function checkNumbers(agent: string, key: string, value: unknown, spec: Record<s
   }
 }
 
-/** Checks `cost`: exactly `input` and `output`, the USD per million tokens, each finite and not negative (zero is a price). */
-function checkCost(agent: string, value: unknown) {
-  if (!isObject(value)) throw new AgentProfileError(agent, 'cost', 'must be an object');
-  for (const name of Object.keys(value)) {
-    if (name !== 'input' && name !== 'output') throw new AgentProfileError(agent, `cost.${name}`, 'unknown key');
-  }
-  for (const name of ['input', 'output']) {
-    if (!Object.hasOwn(value, name)) throw new AgentProfileError(agent, `cost.${name}`, 'missing');
-    const price = value[name];
-    if (typeof price !== 'number' || !Number.isFinite(price) || price < 0)
-      throw new AgentProfileError(agent, `cost.${name}`, 'must be a number that is not negative');
-  }
-}
-
 /** Checks a word key: one of `allowed`. */
 function checkWord(agent: string, key: string, value: unknown, allowed: ReadonlyArray<string>): void {
   if (typeof value !== 'string' || !allowed.includes(value))
@@ -196,7 +181,6 @@ function validateProfile(agent: string, raw: unknown) {
     throw new AgentProfileError(agent, 'prompt', 'must be a .md file name with no directory part');
   checkNumbers(agent, 'limits', raw.limits, { steps: true, seconds: false });
   checkNumbers(agent, 'daily', raw.daily, { tasks: true });
-  checkCost(agent, raw.cost);
 }
 
 /** A deep-frozen copy of a parsed JSON value. */
@@ -388,8 +372,6 @@ export function profileOf(name: unknown, options: AgentPaths = {}): Profile | nu
 export type AgentSettings = {
   /** whether the agent is on: `agents.<name>.enabled` alone, false when absent */
   enabled: boolean;
-  /** USD per million tokens */
-  cost: { input: number; output: number };
   /** `{ steps, seconds }` */
   limits: Record<string, number>;
   /** the daily caps, `{ tasks }` */
@@ -397,7 +379,7 @@ export type AgentSettings = {
 };
 
 /** The keys of `agents.<name>` that lay over the profile. */
-const SETTING_KEYS = Object.freeze(['cost', 'limits', 'daily']);
+const SETTING_KEYS = Object.freeze(['limits', 'daily']);
 
 /**
  * The settings of agent `name`: its profile with `config.agents.<name>` laid over it, nested objects merged key by key,
