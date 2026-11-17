@@ -67,7 +67,7 @@ type StagesNeeds = Pick<
 >;
 
 export function startStages(ctx: PhaseContext, params: PhaseParams, turn: StagesNeeds): Staged {
-  const { hot, clock, schedule, describer, fetchImpl, maybeSplit } = ctx;
+  const { hot, clock, schedule, describer, fetchImpl, summarize, maybeSplit } = ctx;
   const { trigger = null, triggerKind = null, maySplit = false } = params;
   const { channel, libraryPlace: placeId, prepStep, life } = turn;
   const { config, startedAt, waitsForAll, pace, prefetching, rawHistory, selfName } = turn;
@@ -102,7 +102,7 @@ export function startStages(ctx: PhaseContext, params: PhaseParams, turn: Stages
   // Lazy, request-time only (see fetchTextPreview's header comment):
   // never fetched during plain normalization or while just buffered. Read by the
   // transcripts alone: the request's and the two classifiers'.
-  const previews = track('previews', () => withTextPreviews(rawHistory, FILE_PREVIEW_CHARS, fetchImpl));
+  const previews = track('previews', () => withTextPreviews(rawHistory, FILE_PREVIEW_CHARS, fetchImpl, { summarize }));
   const previewed = () => (previews.done && Array.isArray(previews.value) ? previews.value : rawHistory);
 
   // The pictures of the window get a `vision` caption, newest first, capped at

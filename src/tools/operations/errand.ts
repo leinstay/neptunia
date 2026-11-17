@@ -110,7 +110,7 @@ const handlers = perEnv((env) => {
   }
 
   /** The answer of a call that waited for its errand: the result, the errand's own failure, or the wait's end. */
-  function waitedAnswer({ ended, errand }: WaitResult, queued: ErrandRecord): Obj {
+  async function waitedAnswer({ ended, errand }: WaitResult, queued: ErrandRecord): Promise<Obj> {
     const current = errand ?? queued;
     const task = { id: current.id, agent: current.agent, state: current.state };
     if (!ended) {
@@ -122,7 +122,10 @@ const handlers = perEnv((env) => {
         data: { text: line, task, unknown: true },
       };
     }
-    const text = errandResultText(current, objOf(objOf(hot).prompts).labels, { maxChars: resultMaxChars() });
+    const text = await errandResultText(current, objOf(objOf(hot).prompts).labels, {
+      maxChars: resultMaxChars(),
+      summarize: env.summarize,
+    });
     if (current.state === 'done')
       return { status: 'ok', code: CODE.OK, summary: text, data: { text, task, waited: true } };
     const code = current.state === 'cancelled' ? CODE.CANCELLED : (current.error ?? CODE.ERROR);
@@ -164,7 +167,7 @@ const handlers = perEnv((env) => {
     if (origin.turnId) env.intentions?.linkTurnErrand?.({ turnId: origin.turnId, errandId: errand.id });
     const waitMs = context?.waitMs;
     if (typeof waitMs === 'number' && waitMs > 0)
-      return waitedAnswer(await errands().wait({ id: errand.id, ms: waitMs }), errand);
+      return await waitedAnswer(await errands().wait({ id: errand.id, ms: waitMs }), errand);
     return {
       status: 'ok',
       code: CODE.OK,

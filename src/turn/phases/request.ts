@@ -63,6 +63,6 @@ export async function requestPhase(
   const ready = { ...looked, ...waited };
   const gathered = { ...ready, ...(await track('turn.gather', () => gatherRequest(ctx, draft, ready))) };
   const told = { ...gathered, ...(await track('turn.facts', () => tellFacts(ctx, params, draft, gathered))) };
-  const request = track('turn.build', () => buildTurnRequest(ctx, params, draft, told));
+  const request = await track('turn.build', () => buildTurnRequest(ctx, params, draft, told));
   return { ...told, ended: null, request };
 }

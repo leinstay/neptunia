@@ -228,6 +228,7 @@ export type StepLabels =
           rescue?: string;
           cut?: string;
           dropped?: string;
+          squeezed?: string;
           long?: string;
         };
         diagnostics?: string;
@@ -361,11 +362,18 @@ export function roomLeft({
   return { run: !timeSpent, capReason: timeSpent ? 'time' : null, next: finalNext ? 'final' : 'normal', tokensOver };
 }
 
+/** The line that closes a result squeezed to fit (`labels.task.step.squeezed`), '' without it. */
+export function squeezedLabel(labels: StepLabels): string {
+  const step = labels?.task?.step;
+  return step?.squeezed ?? '';
+}
+
 /**
  * `texts` cut so that together they lose about `excess` characters, the longest first, none below
- * `floor` characters (an ellipsis closes a cut one). A fresh array; what cannot be cut stays.
+ * `floor` characters (an ellipsis and then `label`, `labels.task.step.squeezed`, close a cut one). A fresh array; what
+ * cannot be cut stays.
  */
-export function cutToFit(texts: Array<string>, excess: number, floor: number = 400): Array<string> {
+export function cutToFit(texts: Array<string>, excess: number, floor: number = 400, label: string = ''): Array<string> {
   const lengths = texts.map((text) => Array.from(text).length);
   const need = Math.max(0, Math.ceil(excess));
   if (need === 0) return [...texts];
@@ -378,7 +386,11 @@ export function cutToFit(texts: Array<string>, excess: number, floor: number = 4
     if (lost(middle) >= need) low = middle;
     else high = middle - 1;
   }
-  return texts.map((text, i) => (lengths[i] > low ? clampWithEllipsis(text, low) : text));
+  const squeeze = (text: string): string => {
+    const cut = clampWithEllipsis(text, low);
+    return label ? `${cut} ${label}` : cut;
+  };
+  return texts.map((text, i) => (lengths[i] > low ? squeeze(text) : text));
 }
 
 /** Whether her answer did not begin with her thinking: the trimmed text opens with neither `<think>` nor `<thinking>`. */

@@ -9,6 +9,9 @@ import { fillPromptTemplate } from './prompt.ts';
 
 export type SummaryKind = 'picture' | 'GIF' | 'video' | 'text';
 
+/** The summarizer as a caller of plain text holds it: what it returns is shown whole, a summary or the text itself. */
+export type Summarize = (text: string, options: { maxChars: number; kind: 'text' }) => Promise<string>;
+
 // Bounds the longest summary the engine asks for, a video's 6,000 characters.
 const MAX_OUTPUT_TOKENS = 3000;
 
