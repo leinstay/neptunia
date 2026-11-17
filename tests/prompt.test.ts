@@ -946,7 +946,6 @@ test('buildRequest: the senses carry the described forms of pictures, GIFs and v
   // PR 7d: the descriptions are code, so there are no blind forms and the video line is videoWatch.
   const senses = sensesOf(buildRequest(baseInput()));
   assert.ok(senses!.includes(labels.senses.imageDescribed));
-  assert.ok(senses!.includes(labels.senses.gifDescribed));
   assert.ok(senses!.includes(labels.senses.videoWatch));
   assert.ok(!senses!.includes(labels.senses.videoDescribed));
 });
@@ -963,7 +962,8 @@ function gifSenses({
   return sensesOf(buildRequest(baseInput({ config, prompts: promptSet })))!.split('\n');
 }
 
-test('buildRequest: GIFs watched (video vision on, a watch prompt) -> senses.gifWatched, never gifDescribed', () => {
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('buildRequest: GIFs watched (video vision on, a watch prompt) -> senses.gifWatched', () => {
   for (const prompts of [
     { 'describe-video': 'V' },
     { 'describe-gif': 'G' },
@@ -971,16 +971,16 @@ test('buildRequest: GIFs watched (video vision on, a watch prompt) -> senses.gif
   ]) {
     const lines = gifSenses({ prompts });
     assert.ok(lines.includes(labels.senses.gifWatched), JSON.stringify(Object.keys(prompts)));
-    assert.ok(!lines.includes(labels.senses.gifDescribed));
   }
 });
 
-test('buildRequest: GIFs not watched -> senses.gifDescribed', () => {
-  const states = [{ prompts: {} }, { prompts: { 'describe-video': '' } }];
-  for (const state of states) {
-    const lines = gifSenses(state);
-    assert.ok(lines.includes(labels.senses.gifDescribed), JSON.stringify(state));
-    assert.ok(!lines.includes(labels.senses.gifWatched));
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('buildRequest: no <senses> line tells of a single GIF frame, GIFs watched or not', () => {
+  const frameLine = 'STAND-IN: a GIF is one frame';
+  const labelsOverride = { ...labels, senses: { ...labels.senses, gifDescribed: frameLine } };
+  for (const prompts of [{ 'describe-video': 'V' }, {}, { 'describe-video': '' }]) {
+    const lines = gifSenses({ prompts, labelsOverride });
+    assert.ok(!lines.includes(frameLine), JSON.stringify(prompts));
   }
 });
 

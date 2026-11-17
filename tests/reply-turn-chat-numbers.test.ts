@@ -393,6 +393,7 @@ test('with context.chatHeadStep 0 the head moves with every line', async () => {
   assert.match(rows[0] ?? '', /ΑΛΦΑ-ΚΕΦΑΛΗ/);
 });
 
+// The owner on 2026-11-17: <senses> lost the line about a single GIF frame, so the measured budget moved.
 test('a request over its budget is still cut to the next step of context.chatSteps', async () => {
   // Bug: the head step keeps the oldest lines of a grown window, so a request over its budget keeps lines the cut to a
   // lower step of `context.chatSteps` would leave out, or keeps the oldest rather than the newest.
@@ -407,8 +408,8 @@ test('a request over its budget is still cut to the next step of context.chatSte
   try {
     const run = await replyRun({
       world,
-      // 6 000 tokens hold two of these lines and not three (measured on this rig).
-      llm: { maxRequestTokens: 6000 },
+      // 5 500 tokens hold two of these lines and not three. Measured on this rig: 5 200 to 5 800 keep two, 5 000 keeps one, 6 000 keeps three.
+      llm: { maxRequestTokens: 5500 },
       context: { channelMessages: 3, chatHeadStep: 4, chatSteps: [6, 2] },
       steps: [storedStep(world, C1_CHAT, { lines, trigger, answers: [SKIP] })],
     });

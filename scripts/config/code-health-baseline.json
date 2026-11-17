@@ -165,7 +165,7 @@
       "repeated": 0
     },
     "tests/describe.test.ts": {
-      "deep": 111,
+      "deep": 109,
       "repeated": 0
     },
     "tests/diary-audience-refusal.test.ts": {
@@ -1157,7 +1157,7 @@
     },
     "scripts/lib/vision-compare.ts": {
       "describeOne": {
-        "complexity": 29
+        "complexity": 27
       },
       "parseArgs": {
         "complexity": 22

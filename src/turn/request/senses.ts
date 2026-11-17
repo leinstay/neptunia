@@ -135,7 +135,7 @@ function abilitiesOffLine(config: RequestConfig, labels: SensesLabels): string |
  * `senses.readTool` follows the links lines, and `senses.lookTool` shows when `media.look` is granted.
  * `interfaceText` (what the interface declares for its custom emoji, src/behavior/turn.ts) comes as its own line.
  * `gifWatching` (GIFs are watched now, src/memory/gif-watch.ts#gifWatchBlocker)
- * swaps `senses.gifDescribed` for `senses.gifWatched` when the labels have it.
+ * adds `senses.gifWatched`; with GIFs not watched no GIF line shows.
  * Right after the files line, `senses.abilitiesOff` while an optional model role is off (abilitiesOffLine), then `senses.time` (how to read clock times, line
  * ages and gap markers), private chats included, when the label is a non-empty string.
  * With a `diaryChannel`
@@ -168,9 +168,7 @@ export function renderSenses(
   // Pictures never go into the persona's own request: she sees them through the describer's
   // captions (and her second look), so the lines say described, never seen first-hand.
   lines.push(senses.imageDescribed);
-  // A watched GIF (its animation, not one frame); an older labels.json
-  // without the line keeps the one-frame one.
-  lines.push(gifWatching ? (senses.gifWatched ?? senses.gifDescribed) : senses.gifDescribed);
+  if (gifWatching) lines.push(senses.gifWatched);
   // An older labels.json without the video-watching line falls back to the still-frame one.
   lines.push(senses.videoWatch ?? senses.videoDescribed);
   // The second look on a question: she looks again herself with media.look, granted to her by name, at a
@@ -346,7 +344,7 @@ export function sensesOf(given: RequestInput & Base): SensesOf {
     dmChat,
     // The interface's text speaks of its custom emoji, so it comes with a non-empty index.
     interfaceText: customEmoji.length > 0 ? (given.mediaPickText ?? null) : null,
-    // Whether a GIF in the transcript was watched rather than seen in one frame, under the live config and prompts.
+    // Whether GIFs are watched under the live config and prompts.
     gifWatching: gifWatchBlocker(prompts) === null,
     diaryChannel: typeof given.diaryChannel === 'string' ? given.diaryChannel : null,
   };

@@ -133,6 +133,8 @@ import { accountOf, chatOfPlace, dmPartnerOf, placeOfChat } from './memory/addre
 import { personaJournal, personaRecord } from './behavior/inner/persona-sources.ts';
 import { createOwnerAccounts } from './memory/db/person-links.ts';
 import { createReads } from './interface/reads.ts';
+import { freshAttachmentUrl } from './media/gif-post.ts';
+import type { AttachedGif } from './memory/describe.ts';
 import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
@@ -570,6 +572,15 @@ async function buildCore(
     selfName: (placeId: string) => getSelfName(placeId),
     // An answer over its length is shortened on the analyzer, through the client the analyzer callers use.
     summarize: createSummarizer({ hot, llm }).summarize,
+    // An attached GIF's address may lapse: its message is read again for a fresh one before the clip is fetched.
+    // `reads` is defined below and read at each call.
+    freshAddress: (item: AttachedGif) =>
+      freshAttachmentUrl({
+        reads,
+        channel: { iface: currentIface() ?? identity.iface, chatId: chatOfPlace(store, item.placeId) ?? item.placeId },
+        entry: { messageId: item.messageId, itemId: item.itemId },
+        onError: (err: unknown) => log.warn('describe: gif refetch failed', { gif: item.itemId, error: err }),
+      }),
   };
   const describer = createDescriber(describerDeps);
   // The web lookup (features.webLookup, off by default): link reader + search on a question.

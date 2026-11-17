@@ -90,20 +90,21 @@
 // hour under `gif:<itemId>:q:<hash>`. `watchedGifs()` tells, from the cache
 // alone, which GIFs were watched (the re-watch classifier's candidates).
 //
-// A GIF is watched, not described from one still frame (`media.gif.watch`,
-// a missing key counts as on, plus video vision on and the describe-gif or
-// describe-video prompt, see src/memory/gif-watch.ts): its animation -- the
-// mp4 of a tenor/giphy embed, an attached .gif, a .gif link -- is converted
-// to a short mp4 (the first `media.gif.maxSeconds`) and summarised by the
-// video model under the video request rails. The caption is cached under the
-// GIF's own item id like a picture's (so the transcript, the analyzer and
-// the GIF library read it unchanged), marked `watched: true`. The answer is
-// prose, kept as one text on one line and shown whole. A GIF that
-// cannot be watched -- the switches, no animation, a spent daily rail, a
-// failed fetch, conversion or request -- gets the one-frame description as
-// before (marked `gif: true`, plus `watchFailed` when a watch failed). A
-// cached one-frame caption is served as it is until `media.recacheBefore`,
-// below, makes it stale.
+// A GIF is always watched as a clip (`media.gif.watch`, a missing key counts
+// as on, plus video vision on and the describe-gif or describe-video prompt,
+// see src/memory/gif-watch.ts): its animation -- the mp4 of a tenor/giphy
+// embed, an attached .gif, a .gif link -- is converted to a short mp4 (the
+// first `media.gif.maxSeconds`) and summarised by the video model under the
+// video request rails. An attached GIF is fetched from the address the
+// `freshAddress` dependency reads from its message again, else from its
+// stored address. The caption is cached under the GIF's own item id like a
+// picture's (so the transcript, the analyzer and the GIF library read it
+// unchanged), marked `watched: true`. The answer is prose, kept as one text on
+// one line and shown whole. A failed fetch, conversion or request, or an
+// empty answer, is cached as a miss with its reason (`llm`, `empty` or the
+// fetcher's own), tried again after `media.video.errorRetryMinutes`, and the
+// transcript shows it as a GIF not watched. With GIFs not watched now, no
+// animation or a spent daily rail nothing is requested and nothing cached.
 //
 // Provenance and the recache rule. Every description the describer writes
 // (a picture's caption -- an emoji and a sticker included --, a GIF watch, a
@@ -117,7 +118,7 @@
 // description than none), stamps the entry `refreshFailedAt` and is not
 // tried again for the miss TTL (an hour; `media.video.errorRetryMinutes` for
 // a video); a refusal by the daily cap only serves the
-// old text. A stale watched GIF is never replaced by a one-frame caption.
+// old text.
 //
 // The English standard (docs/prompt-contract.md). A caption, a GIF watch or a video summary whose letters are mostly of
 // another script outside quotes (src/memory/text-standard.ts) is described again once. The second answer stands and the
@@ -214,8 +215,8 @@ export type MediaItem = {
 /**
  * The file a GIF watch downloads: a gif embed's `animationUrl` (the mp4 of
  * a tenor/giphy embed, or a `.gif` link, see src/media/classify.ts#classifyEmbed),
- * else an attached gif's own file. Null for anything else -- a gif embed
- * with neither keeps the one-frame description.
+ * else an attached gif's own file. Null for anything else: a gif embed
+ * with neither is not watched.
  */
 function gifAnimationSource(item: MediaItem) {
   if (item?.kind !== 'gif') return null;
@@ -260,7 +261,7 @@ function questionKey(itemId: string, question: Untyped, prefix = 'video') {
 
 /**
  * The URL a picture is downloaded from for the vision model: the item's `previewUrl`, the address the interface sized
- * for its platform (a picture at most `media.imageSize` long, a GIF as one still frame, a video as a poster frame),
+ * for its platform (a picture at most `media.imageSize` long, a video as a poster frame),
  * else the item's own `url` exactly as it came (a sticker or emoji address is already sized by its own builder).
  */
 function pictureImageUrl(item: MediaItem) {
@@ -370,7 +371,7 @@ function urlProcessingMode(videoCfg: Untyped) {
  * own rules, read-only: `{ state: 'watched', text, watchedSeconds?, totalSeconds? }` (the length of the
  * downloaded clip the summary was made from and a link's probed total, when the entry has them),
  * `{ state: 'limit', reason }` for a
- * permanent miss (`length`, `size`), or null -- no entry, an error miss (retried after
+ * permanent miss (`length`, `size`), `{ state: 'error', reason }` for a GIF whose watch failed, or null -- no entry, an error miss (retried after
  * `media.video.errorRetryMinutes`, see describeVideo), or a `length` miss whose duration is
  * unknown or fits the length cap that applies to `item` now (a raised cap retries it). `item`
  * (a collectVideos candidate) only decides the cap: a pinnable direct-URL link has its own; without
@@ -385,10 +386,12 @@ export function videoStateFromCache(
 ):
   | { state: 'watched'; text: string; watchedSeconds?: number; totalSeconds?: number }
   | { state: 'limit'; reason: string }
+  | { state: 'error'; reason: string }
   | null {
   if (!entry) return null;
   // An entry from before watchedSeconds / totalSeconds were stored renders as watched whole.
   if (entry.watched) return { state: 'watched', text: entry.text, ...watchedLengths(entry) };
+  if (entry.miss && item.kind === 'gif') return { state: 'error', reason: String(entry.reason ?? '') };
   if (!entry.miss || !PERMANENT_VIDEO_MISSES.has(entry.reason)) return null;
   if (entry.reason === 'length') {
     // An unknown duration (older entries included) costs one probe to learn.
@@ -449,7 +452,15 @@ type DescriberDeps = {
   fetchText?: (url: string) => Promise<{ ok: boolean; text?: string; reason?: string }>;
   /** Shortens an answer over `maxChars` (src/behavior/summarize.ts); none keeps every answer whole. */
   summarize?: (text: string, options: { maxChars: number; kind: SummaryKind }) => Promise<string>;
+  /**
+   * A fresh address of an attached GIF, read from its message again (`item.placeId` the place it is described in);
+   * null, or no dependency, fetches the stored address.
+   */
+  freshAddress?: (item: AttachedGif) => Promise<string | null>;
 };
+
+/** An attached GIF whose address is read again: the place it is described in and the message it came with. */
+export type AttachedGif = MediaItem & { placeId: string; messageId?: string };
 
 /** A text file's opening, over plain HTTP. */
 async function readTextForm(url: string): Promise<{ ok: boolean; text?: string; reason?: string }> {
@@ -538,6 +549,7 @@ function buildDescriber({
   fetchText = readTextForm,
   selfName,
   summarize,
+  freshAddress,
 }: DescriberDeps) {
   /** `text` through the summarizer at `maxChars`, kept whole as it returns it; `text` itself without one. */
   function shorten(text: string, maxChars: number, kind: SummaryKind): Promise<string> {
@@ -588,12 +600,15 @@ function buildDescriber({
    * see dueForRecache), FRESH_MISS while a failure younger than an hour is
    * remembered, or null when it must be described.
    */
-  function cachedPicture(placeId: string, itemId: string, retryMisses = false) {
+  function cachedPicture(placeId: string, item: MediaItem, retryMisses = false) {
+    const { itemId } = item;
     const cached = readEntry(placeId, itemId);
     if (!cached) return null;
     if (cached.miss) {
       if (isRefused(cached)) return FRESH_MISS;
-      return !retryMisses && now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
+      // A failed GIF watch waits as long as a failed video watch.
+      const ttl = item.kind === 'gif' ? videoErrorTtlMs() : MISS_TTL_MS;
+      return !retryMisses && now() - cached.ts < ttl ? FRESH_MISS : null;
     }
     touchHit(placeId, itemId, cached);
     const result = { text: cached.text, usage: null, estimated: 0, cached: true };
@@ -611,7 +626,7 @@ function buildDescriber({
    */
   async function describeShared(placeId: string, item: MediaItem, retryMisses = false) {
     if (!picturesOn()) return { result: null, joined: false };
-    const hit = cachedPicture(placeId, item.itemId, retryMisses);
+    const hit = cachedPicture(placeId, item, retryMisses);
     if (hit === FRESH_MISS) return { result: null, joined: false };
     if (hit && !hit.stale) return { result: hit.result, joined: false };
     // A stale caption (media.recacheBefore) is described again; its old text is the fallback.
@@ -652,32 +667,13 @@ function buildDescriber({
   async function describeNow(placeId: string, item: MediaItem, previous: Untyped = null) {
     if (isAudioItem(item)) return hearAudio(audioDeps(placeId), item);
     if (item.kind === 'text') return readTextFile(audioDeps(placeId), item);
+    if (item.kind === 'gif') return describeGif(placeId, item, previous);
     const promptText = hot.prompts?.describe;
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};
     const descriptionChars = DESCRIPTION_CHARS;
 
-    // The old caption kept on a failure, its entry stamped when `mark` is set.
-    const keepPrevious = (mark: Untyped) => {
-      if (mark) {
-        store.putMediaEntry(placeId, item.itemId, { ...previous, refreshFailedAt: now() });
-      }
-      return { text: previous.text, usage: null, estimated: 0, cached: true, kept: true };
-    };
-
-    // A GIF is watched like a short video first (see watchGifShared); one
-    // that cannot be watched, or whose watch fails, keeps the one-frame
-    // description below -- never nothing. A watched caption described again
-    // is never replaced by one frame: it is kept instead.
-    let watchFailed = false;
-    if (item.kind === 'gif') {
-      const watched = await watchGifShared(placeId, item);
-      if (watched?.state === 'watched') {
-        return { text: watched.text, usage: watched.usage ?? null, estimated: watched.estimated ?? 0 };
-      }
-      if (previous?.watched === true) return keepPrevious(watched?.reason !== 'daily-cap');
-      watchFailed = watched?.state === 'failed';
-    }
+    const keepPrevious = (mark: boolean) => keptCaption(placeId, item, previous, mark);
 
     // The interface's preview address when it gave one, else the item's own URL (pictureImageUrl).
     const imageUrl = pictureImageUrl(item);
@@ -766,13 +762,31 @@ function buildDescriber({
     );
     const text = await shorten(standard.answer.text, descriptionChars, 'picture');
 
-    // A GIF's one-frame caption is marked (`gif`), and `watchFailed` when a watch was tried.
     const ts = now();
-    const entry: Record<string, Untyped> = { text, ts, describedAt: ts, model, ...standard.marks };
-    if (item.kind === 'gif') entry.gif = true;
-    if (watchFailed) entry.watchFailed = entry.ts;
-    store.putMediaEntry(placeId, item.itemId, entry);
+    store.putMediaEntry(placeId, item.itemId, { text, ts, describedAt: ts, model, ...standard.marks });
     return { text, usage: standard.answer.usage ?? null, estimated };
+  }
+
+  /** The old caption of `item` kept on a failure, its entry stamped `refreshFailedAt` when `mark` is set. */
+  function keptCaption(placeId: string, item: MediaItem, previous: Untyped, mark: boolean) {
+    if (mark) store.putMediaEntry(placeId, item.itemId, { ...previous, refreshFailedAt: now() });
+    return { text: previous.text, usage: null, estimated: 0, cached: true, kept: true };
+  }
+
+  /**
+   * A GIF's caption from its watch (watchGifShared). A failed watch caches a miss with its reason, or keeps `previous`
+   * (a stale caption described again) stamped. With GIFs not watched now, no animation or a spent daily rail nothing
+   * is cached: `previous` is served, else nothing.
+   */
+  async function describeGif(placeId: string, item: MediaItem, previous: Untyped) {
+    const watched = await watchGifShared(placeId, item);
+    if (watched?.state === 'watched') {
+      return { text: watched.text, usage: watched.usage ?? null, estimated: watched.estimated ?? 0 };
+    }
+    const failed = watched?.state === 'failed';
+    if (previous) return keptCaption(placeId, item, previous, failed);
+    if (failed) store.putMediaEntry(placeId, item.itemId, { miss: true, ts: now(), reason: watched.reason });
+    return null;
   }
 
   /** What src/memory/describe-audio.ts works with, placed: a text form goes to this place's cache as a picture's does. */
@@ -817,9 +831,10 @@ function buildDescriber({
    * else the `describe-video` prompt with `{{maxChars}}` alone;
    * under the video token cap and output budget. The answer on one line, through the summarizer at
    * `DESCRIPTION_CHARS`, is cached under the GIF's own item id as `{ text, ts, watched: true, gif: true }`;
-   * nothing is cached otherwise.
+   * nothing is cached otherwise. An attached GIF's clip comes from the address `freshAddress` reads, else from
+   * `source`.
    * Resolves `{ state: 'watched', text, usage, estimated }`, `{ state:
-   * 'failed', reason }` (the fetch, the conversion, the request or an empty
+   * 'failed', reason }` (the fetch's own reason, `llm` for a failed request, `empty` for an empty
    * answer) or `{ state: 'unavailable', reason: 'daily'|'daily-cap' }` (a
    * daily rail is spent: no failure of this GIF; with `llm.maxRequestsPerDay`
    * spent before the watch, nothing is fetched). One
@@ -847,7 +862,8 @@ function buildDescriber({
     // The request would be refused: no fetch, no GIF slot.
     if (capSpent()) return report({ state: 'unavailable', reason: 'daily-cap' });
 
-    const fetched = await fetchGifClip(source, maxSeconds);
+    const fresh = item.source === 'attachment' && freshAddress ? await freshAddress({ ...item, placeId }) : null;
+    const fetched = await fetchGifClip(fresh ?? source, maxSeconds);
     if (!fetched.ok) return report({ state: 'failed', reason: fetched.reason });
 
     const { clip } = fetched;
@@ -865,7 +881,7 @@ function buildDescriber({
     try {
       completion = await ask();
     } catch (err) {
-      const reason = requestFailureReason(err);
+      const reason = railReason(err, 'llm');
       if (reason === 'daily-cap') return report({ state: 'unavailable', reason }, sizes);
       return report({ state: 'failed', reason }, { ...sizes, status: propOf(err, 'statusCode') });
     }
@@ -987,7 +1003,7 @@ function buildDescriber({
       if (!item?.itemId || seen.has(item.itemId) || item.kind === 'file') continue;
       if (item.kind !== 'text' && !roleOn(hot.config, mediaRoleOf(item))) continue;
       seen.add(item.itemId);
-      const hit = cachedPicture(placeId, item.itemId, retryMisses);
+      const hit = cachedPicture(placeId, item, retryMisses);
       if (hit === FRESH_MISS) continue;
       // A stale caption (media.recacheBefore) is picked like a new picture;
       // past `maxNew` (or with the cap spent) its old text is served.
@@ -1655,6 +1671,21 @@ function buildDescriber({
   }
 
   /**
+   * The GIFs of `items` whose watch failed, from the cache alone (videoStateFromCache): `itemId` -> `{ state: 'error',
+   * reason }`, for formatTranscript's `videos` option. Never a download or a request.
+   * @param items  collectPictures items; only `gif` ones count.
+   */
+  function failedGifs(placeId: string, items: Array<MediaItem>): Map<string, { state: 'error'; reason: string }> {
+    const failed = new Map<string, { state: 'error'; reason: string }>();
+    for (const item of items ?? []) {
+      if (item?.kind !== 'gif' || !item.itemId) continue;
+      const cached = videoStateFromCache(readEntry(placeId, item.itemId), hot.config, item);
+      if (cached?.state === 'error') failed.set(item.itemId, cached);
+    }
+    return failed;
+  }
+
+  /**
    * The GIFs of `items` the media cache holds as watched (`watched: true`
    * under the GIF's own item id, see watchGifNow), with an animation that
    * can be fetched again (gifAnimationSource): `itemId` -> the watched
@@ -1783,6 +1814,7 @@ function buildDescriber({
     relookImage,
     rewatchGif,
     watchedGifs,
+    failedGifs,
     gifWatchBlocker,
     checkYoutube,
   };

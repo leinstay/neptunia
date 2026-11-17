@@ -1297,6 +1297,22 @@ test('formatTranscript: a GIF without a handle keeps gifDescribed with its whole
   assert.ok(line.endsWith(fill(labels.transcript.gifDescribed, { text: GIF_TEXT })), line);
 });
 
+// The owner on 2026-11-17: a GIF is never described from one frame.
+// The owner on 2026-11-17: a GIF that could not be watched shows its reason in words.
+test('formatTranscript: a GIF whose watch failed renders transcript.gifNotWatched with its name and reason', () => {
+  const standIn = { ...labels, transcript: { ...labels.transcript, gifNotWatched: '<gif {name} missed: {reason}>' } };
+  const message = msg('m1', GIF_T, { content: '', attachments: [{ id: 'a9', kind: 'gif', name: 'anim.gif' }] });
+  const [{ text }] = formatTranscript([message], {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 800,
+    selfName: 'Nept',
+    labels: standIn,
+    videos: new Map([['a9', { state: 'error', reason: 'download' }]]),
+  });
+  assert.ok(text.endsWith('<gif anim.gif missed: could not download>'), text);
+});
+
 // --- the turn trigger of the persona's own lines -------------------------
 
 test('formatTranscript: a plain line of the persona names the message that started its turn', () => {

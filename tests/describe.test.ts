@@ -215,6 +215,7 @@ test('describe: a cache hit is free -- no download, no LLM request, marked cache
 
 // --- download-first, download failure, LLM failure --------------------
 
+// The owner on 2026-11-17: a GIF is never described from one frame.
 test('describe: a failed download is cached as a miss, costs no LLM request, and logs reason "download"', async () => {
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
@@ -223,7 +224,7 @@ test('describe: a failed download is cached as a miss, costs no LLM request, and
   const imageFetcher = fakeImageFetcher(null); // every download fails
   const describer = createDescriber({ hot, store, llm, imageFetcher });
 
-  const { result, logs } = await withCapturedLogs(() => describer.describe('g1', pictureItem('a1', { kind: 'gif' })));
+  const { result, logs } = await withCapturedLogs(() => describer.describe('g1', pictureItem('a1', { kind: 'image' })));
 
   assert.equal(result, null);
   assert.equal(llm.calls.length, 0, 'a failed download must cost nothing');
@@ -231,7 +232,7 @@ test('describe: a failed download is cached as a miss, costs no LLM request, and
 
   const line = logs.find((l) => l.msg === 'describe: failed');
   assert.ok(line, 'expected a "describe: failed" log line');
-  assert.equal(line.kind, 'gif');
+  assert.equal(line.kind, 'image');
   assert.equal(line.reason, 'download');
 });
 
@@ -450,10 +451,10 @@ test('describe: a helper request -- llm.analyzerTimeoutMs, never llm.timeoutMs, 
   assert.equal(unset.timeoutMs, roleRequestOptions({}).timeoutMs, 'the helper fallback, not the reply timeout');
 });
 
-test('describe: a picture request of every kind (image, gif frame, video poster, link, sticker, emoji) skips the text calibration', async () => {
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: a picture request of every kind (image, video poster, link, sticker, emoji) skips the text calibration', async () => {
   const items = [
     pictureItem('a1'),
-    pictureItem('a2', { kind: 'gif', url: 'https://cdn.discordapp.com/x/anim.gif' }),
     pictureItem('a3', { kind: 'video', url: 'https://cdn.discordapp.com/x/poster.png' }),
     pictureItem('link:abcd1234', { kind: 'link', url: 'https://cdn.discordapp.com/x/thumb.jpg' }),
     pictureItem('sticker:s1', { kind: 'sticker', url: 'https://media.discordapp.net/stickers/s1.png?size=160' }),
@@ -2155,6 +2156,7 @@ function gifDescriber({
   state = fakeState(),
   now,
   summarize,
+  freshAddress,
 }: Opts = {}): Rig {
   const store = createStore(memoryAt(tmpDataDir()));
   const describer = createDescriber({
@@ -2166,6 +2168,7 @@ function gifDescriber({
     state,
     ...(now ? { now } : {}),
     ...(summarize ? { summarize } : {}),
+    ...(freshAddress ? { freshAddress } : {}),
   });
   return { describer, store, llm, videoFetcher, imageFetcher, state, hot };
 }
@@ -2295,35 +2298,47 @@ test('describe: a watched GIF answer goes to summarize on one line with 1500 and
   assert.equal(cache['m1#e0'].text, 'A short account of the loop.');
 });
 
-/** Asserts the one-frame path ran: the still frame from the preview address, the picture model, a `gif` entry. */
-function assertOneFrame({ imageFetcher, llm, store }: Opts, itemId: Untyped, { watchFailed = false } = {}) {
-  assert.equal(imageFetcher.calls.length, 1, 'the still frame is fetched');
-  assert.equal(imageFetcher.calls[0].url, GIF_STILL_PREVIEW);
-  const last = llm.calls[llm.calls.length - 1];
-  assert.equal(last.options.role, 'vision');
-  assert.equal(last.messages[1].content[0].type, 'image_url');
+/** Asserts a GIF ended as a stored miss with `reason`: no picture fetched or requested, no description. */
+function assertGifMiss({ imageFetcher, llm, store }: Opts, itemId: string, reason: string) {
+  assert.equal(imageFetcher.calls.length, 0, 'no still frame is fetched');
+  const roles = llm.calls.map((call: Untyped) => call.options.role);
+  assert.ok(!roles.includes('vision'), 'no picture request');
   const entry = cacheView(store, 'g1')[itemId];
-  assert.equal(typeof entry.text, 'string');
-  assert.equal(entry.watched, undefined);
-  assert.equal(entry.gif, true);
-  assert.equal(typeof entry.watchFailed === 'number', watchFailed);
+  assert.equal(entry.miss, true);
+  assert.equal(entry.reason, reason);
+  assert.equal(typeof entry.ts, 'number');
+  assert.equal(entry.gif, undefined);
+  assert.equal(entry.text, undefined);
 }
 
-test('describe: no describe-video prompt -> the one-frame description, no watch', async () => {
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: with no describe-gif and no describe-video prompt a GIF sends no request and stores nothing', async () => {
   const hot = gifHot({ prompts: { 'describe-video': undefined } });
   const run = gifDescriber({ hot, llm: fakeLlm({ text: 'a sign by a railway crossing' }) });
+  const {
+    videoFetcher: { calls: videoCalls },
+    imageFetcher: { calls: imageCalls },
+    llm: { calls: llmCalls },
+  } = run;
   const result = await run.describer.describe('g1', gifEmbedItem());
-  assert.equal(loose(result).text, 'a sign by a railway crossing');
-  assert.equal(run.videoFetcher.calls.length, 0);
-  assertOneFrame(run, 'm1#e0');
+  assert.equal(result, null);
+  assert.equal(videoCalls.length, 0);
+  assert.equal(imageCalls.length, 0);
+  assert.equal(llmCalls.length, 0);
+  assert.deepEqual(Object.keys(cacheView(run.store, 'g1')), []);
 });
 
-test('describe: a GIF that cannot be fetched or converted falls back to one frame, marked watchFailed, logging codes only', async () => {
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: a GIF whose clip cannot be fetched or converted is stored as a miss with its reason, logging codes only', async () => {
   for (const reason of ['download', 'tool', 'size', 'timeout']) {
     const run = gifDescriber({ videoFetcher: gifFetcher({ ok: false, reason }), llm: fakeLlm({ text: 'a still' }) });
+    const {
+      llm: { calls: llmCalls },
+    } = run;
     const { result, logs } = await withCapturedLogs(() => run.describer.describe('g1', gifAttachmentItem()));
-    assert.equal(loose(result).text, 'a still');
-    assertOneFrame(run, 'a9', { watchFailed: true });
+    assert.equal(result, null, reason);
+    assertGifMiss(run, 'a9', reason);
+    assert.equal(llmCalls.length, 0);
     const line = logs.find((l) => l.msg === 'describe: gif');
     assert.equal(loose(line).state, 'failed');
     assert.equal(loose(line).reason, reason);
@@ -2332,25 +2347,127 @@ test('describe: a GIF that cannot be fetched or converted falls back to one fram
   }
 });
 
-test('describe: a failed or empty watch request falls back to one frame, marked watchFailed', async () => {
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: a GIF whose watch request fails is stored as a miss, with no picture request', async () => {
   const failing = gifDescriber({
     llm: fakeLlm([Object.assign(new Error('boom'), { statusCode: 502 }), { text: 'a still' }]),
   });
-  assert.equal(loose(await failing.describer.describe('g1', gifEmbedItem())).text, 'a still');
-  assertOneFrame(failing, 'm1#e0', { watchFailed: true });
+  const {
+    llm: { calls: llmCalls },
+  } = failing;
+  assert.equal(await failing.describer.describe('g1', gifEmbedItem()), null);
+  assert.equal(llmCalls.length, 1);
+  assertGifMiss(failing, 'm1#e0', 'llm');
+});
 
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: a GIF whose watch answer is empty is stored as a miss, with no picture request', async () => {
   const empty = gifDescriber({ llm: fakeLlm([{ text: '   ' }, { text: 'a still' }]) });
-  assert.equal(loose(await empty.describer.describe('g1', gifEmbedItem())).text, 'a still');
-  assertOneFrame(empty, 'm1#e0', { watchFailed: true });
+  const {
+    llm: { calls: llmCalls },
+  } = empty;
+  assert.equal(await empty.describer.describe('g1', gifEmbedItem()), null);
+  assert.equal(llmCalls.length, 1);
+  assertGifMiss(empty, 'm1#e0', 'empty');
 });
 
-test('describe: a spent request cap falls back to one frame, not marked as a failed watch', async () => {
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: a failed GIF is not watched again within media.video.errorRetryMinutes, and is after it', async () => {
+  let t = 1_000_000;
+  const run = gifDescriber({ videoFetcher: gifFetcher({ ok: false, reason: 'download' }), now: () => t });
+  const {
+    videoFetcher: { calls: videoCalls },
+    imageFetcher: { calls: imageCalls },
+    llm: { calls: llmCalls },
+  } = run;
+  assert.equal(await run.describer.describe('g1', gifAttachmentItem()), null);
+  t += 59 * 60_000;
+  assert.equal(await run.describer.describe('g1', gifAttachmentItem()), null);
+  assert.equal(videoCalls.length, 1, 'inside the hour the miss is served from the cache');
+  assert.equal(llmCalls.length, 0);
+  t += 2 * 60_000;
+  await run.describer.describe('g1', gifAttachmentItem());
+  assert.equal(videoCalls.length, 2, 'after the hour the GIF is watched again');
+  assert.equal(imageCalls.length, 0);
+});
+
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: a spent request cap on a GIF watch stores nothing and sends no picture request', async () => {
   const capped = gifDescriber({ llm: fakeLlm([new DailyCapError('cap'), { text: 'a still' }]) });
-  await capped.describer.describe('g1', gifEmbedItem());
-  assertOneFrame(capped, 'm1#e0');
+  const {
+    imageFetcher: { calls: imageCalls },
+    llm: { calls: llmCalls },
+  } = capped;
+  assert.equal(await capped.describer.describe('g1', gifEmbedItem()), null);
+  assert.equal(llmCalls.length, 1);
+  assert.equal(imageCalls.length, 0);
+  assert.deepEqual(Object.keys(cacheView(capped.store, 'g1')), []);
 });
 
-test('describe: a cached one-frame GIF caption is served as it is, never re-watched automatically', async () => {
+// --- A fresh address for an attached GIF ------------------------------------------
+
+const FRESH_GIF_URL = 'https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=fresh';
+
+/** A freshAddress fake that records its items and answers `answer`. */
+function fakeFreshAddress(answer: string | null) {
+  const calls: Array<Untyped> = [];
+  const freshAddress = (item: Untyped) => {
+    calls.push(item);
+    return Promise.resolve(answer);
+  };
+  return { calls, freshAddress };
+}
+
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: an attached GIF asks freshAddress once and fetches the clip from the address it returns', async () => {
+  const fresh = fakeFreshAddress(FRESH_GIF_URL);
+  const run = gifDescriber({ freshAddress: fresh.freshAddress });
+  const {
+    videoFetcher: { calls: videoCalls },
+  } = run;
+  const item = gifAttachmentItem();
+  await run.describer.describe('g1', item);
+  assert.equal(fresh.calls.length, 1);
+  assert.equal(fresh.calls[0].itemId, 'a9');
+  assert.deepEqual(
+    videoCalls.map((c) => [c.fn, c.url]),
+    [['fetchGif', FRESH_GIF_URL]]
+  );
+  assert.equal(cacheView(run.store, 'g1').a9.watched, true);
+});
+
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: an attached GIF whose freshAddress returns null fetches the stored address', async () => {
+  const fresh = fakeFreshAddress(null);
+  const run = gifDescriber({ freshAddress: fresh.freshAddress });
+  const {
+    videoFetcher: { calls: videoCalls },
+  } = run;
+  await run.describer.describe('g1', gifAttachmentItem());
+  assert.equal(fresh.calls.length, 1);
+  assert.deepEqual(
+    videoCalls.map((c) => c.url),
+    ['https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=secret']
+  );
+});
+
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: a GIF embed is fetched by its stored mp4 address with no call of freshAddress', async () => {
+  const fresh = fakeFreshAddress(FRESH_GIF_URL);
+  const run = gifDescriber({ freshAddress: fresh.freshAddress });
+  const {
+    videoFetcher: { calls: videoCalls },
+  } = run;
+  await run.describer.describe('g1', gifEmbedItem());
+  assert.equal(fresh.calls.length, 0);
+  assert.deepEqual(
+    videoCalls.map((c) => c.url),
+    [TENOR_MP4]
+  );
+});
+
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: a cached GIF text is served as it is, never re-watched automatically', async () => {
   const run = gifDescriber();
   loose(cacheView(run.store, 'g1'))['m1#e0'] = {
     text: 'a sign in a foreign script',
@@ -2483,15 +2600,14 @@ const WATCHED_GIF_ENTRY = {
   gif: true,
 };
 
+// The owner on 2026-11-17: a GIF is never described from one frame.
 test('watchedGifs: only watched GIF entries with an animation, from the cache alone', async () => {
   const run = gifDescriber({ hot: gifRewatchHot() });
   const cache = cacheView(run.store, 'g1');
   loose(cache)['m1#e0'] = { ...WATCHED_GIF_ENTRY };
-  loose(cache)['m2#e0'] = { text: 'one frame', ts: 1, gif: true };
   loose(cache)['m3#e0'] = { ...WATCHED_GIF_ENTRY };
   const items = [
     gifEmbedItem('m1#e0'),
-    gifEmbedItem('m2#e0', { messageId: 'm2' }),
     gifEmbedItem('m3#e0', { messageId: 'm3', animationUrl: undefined }),
     pictureItem('p1'),
   ];

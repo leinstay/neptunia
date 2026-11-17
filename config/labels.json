@@ -84,6 +84,7 @@
       "videoWatched": "[video: {name}, {duration} — watched: {text}]",
       "videoWatchedPart": "[video: {name}, {duration} — watched first {watched} ({reason}): {text}]",
       "videoNotWatched": "[video: {name}, {duration} — not watched: {reason}]",
+      "gifNotWatched": "[GIF: {name}, not watched: {reason}]",
       "videoNotWatchedFrame": "[video: {name}, {duration} — not watched: {reason} — still frame: {text}]",
       "videoAnswered": "[looked more closely at the video for {question}: {text}]",
       "imageAnswered": "[looked more closely at the picture for {question}: {text}]",
@@ -94,7 +95,12 @@
         "length": "over length limit",
         "size": "file too large",
         "error": "could not load",
-        "pending": "still loading"
+        "pending": "still loading",
+        "download": "could not download",
+        "timeout": "took too long to load",
+        "tool": "could not convert",
+        "llm": "the viewer failed",
+        "empty": "the viewer said nothing"
       },
       "voice": "[voice message, {duration}]",
       "voiceDescribed": "[voice message, {duration}: {text}]",
@@ -133,7 +139,6 @@
     "senses": {
       "imageSee": "Pictures marked as attached you see yourself; they may carry a helper's note, which is a fallible reading whose confident wording is not evidence. Check identities and claims against what you see, and when a region is too small or unclear to make out, do not adopt a name or story from the note or the chat as fact. The helper may have seen more detail, so a vague view is inconclusive.",
       "imageDescribed": "Other pictures come with a description from a helper; you did not see them yourself.",
-      "gifDescribed": "GIFs come with a one-line description of a single frame from a helper. They have no sound. Without a description, do not infer what the GIF shows.",
       "gifWatched": "GIFs come with a description of their visible content from a helper. They have no sound. Without a description, do not infer what the GIF shows.",
       "videoDescribed": "Videos show a name, a duration and a description of a single still frame — you have never watched or heard any video.",
       "videoWatch": "You watch videos — you see the picture and hear the sound. Watched means first-hand: the summary is your own memory. Not watched means this one did not make it through — too long or too large. You still watch videos; say which limit concretely, never claim you cannot see or hear video at all. 'Could not load' means this one would not open. A still frame is second-hand: one described frame, not the whole clip.",
