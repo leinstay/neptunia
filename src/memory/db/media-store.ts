@@ -575,7 +575,7 @@ const linkStatement = (db: Db) =>
      ON CONFLICT(owner_kind, owner_id, position) DO UPDATE SET media_id = excluded.media_id`
   );
 
-/** The media row of one item of `line`: the held one, or a new one. */
+/** The media row of one item of `line`: the held one, its retired row, or a new one. */
 function itemRowFor(db: Db, line: LineRow, item: MediaItem, position: number): Row {
   const iface = line.scope_iface ?? null;
   const held = item.nativeRef === null ? undefined : itemByRef(db, iface, item.nativeRef);
@@ -584,6 +584,13 @@ function itemRowFor(db: Db, line: LineRow, item: MediaItem, position: number): R
     return db.prepare('SELECT * FROM media WHERE id = ?').get(held.id) as Row;
   }
   const id = item.nativeRef === null ? BARE_ID(line.id, position) : NEW_ID(iface, item.nativeRef);
+  // A row an edit or the trim retired comes back with its description, because the line links it now.
+  const retired = db.prepare('SELECT * FROM media WHERE id = ? AND retired_at IS NOT NULL').get(id);
+  if (retired) {
+    db.prepare('UPDATE media SET retired_at = NULL WHERE id = ?').run(id);
+    mergeItem(db, retired, item);
+    return db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
+  }
   insertItem(db, line, item, id);
   return db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
 }
@@ -665,7 +672,7 @@ export function writeLineMedia(
     }
     told += tellItem(db, db.prepare('SELECT * FROM media WHERE id = ?').get(row.id) as Row, item, at);
   });
-  if (edit) dropUnheld(db, ownerKind, line.id, distinct);
+  if (edit) dropUnheld(db, ownerKind, line.id, distinct, at);
   return { told };
 }
 
@@ -684,8 +691,17 @@ function dropTwin(db: Db, mediaId: unknown, id: string): void {
   if (Number(gone.changes) > 0) db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(mediaId));
 }
 
-/** The links of an edited line its items no longer name: a referenced item they lack, a bare one past their count. */
-function dropUnheld(db: Db, ownerKind: MediaOwnerKind, ownerId: unknown, items: ReadonlyArray<MediaItem>): void {
+/**
+ * The links of an edited line its items no longer name: a referenced item they lack, a bare one past their count. A row
+ * left with no link goes: a bare one leaves the table, an item's row retires, unless the GIF library holds it.
+ */
+function dropUnheld(
+  db: Db,
+  ownerKind: MediaOwnerKind,
+  ownerId: unknown,
+  items: ReadonlyArray<MediaItem>,
+  at: unknown
+): void {
   const refs = new Set(items.map((item) => item.nativeRef));
   const links = db
     .prepare(
@@ -699,7 +715,23 @@ function dropUnheld(db: Db, ownerKind: MediaOwnerKind, ownerId: unknown, items: 
     if (!gone) continue;
     unlink.run(ownerKind, ownerId, one.position);
     dropIfBare(db, one.media_id);
+    retireUnlinked(db, one.media_id, at);
   }
+}
+
+/**
+ * An item's row nothing links any more retires, unless the GIF library holds it. It leaves the cache too, so a late
+ * write of the describer never brings it back (writeMediaEntry).
+ */
+function retireUnlinked(db: Db, mediaId: unknown, at: unknown): void {
+  const retired = db
+    .prepare(
+      `UPDATE media SET retired_at = ?, writer = NULL, holder_id = NULL WHERE id = ? AND retired_at IS NULL
+         AND writer IS NOT 'gifs'
+         AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = media.id)`
+    )
+    .run(iso(at), mediaId);
+  if (Number(retired.changes) > 0) projectRow(db, 'media', { id: mediaId }, { at });
 }
 
 /** A placeholder nothing links any more leaves the table. */
@@ -825,6 +857,7 @@ export function isMediaDescriptionEntry(value: unknown): value is MediaDescripti
   const entry = value as Row;
   return (
     !entry.miss &&
+    entry.pending !== true &&
     isFiniteNumber(entry.ts) &&
     ((typeof entry.text === 'string' && entry.text.length > 0) ||
       (typeof entry.answer === 'string' && entry.answer.length > 0 && typeof entry.question === 'string'))
@@ -994,7 +1027,7 @@ function cacheRowFor(db: Db, iface: unknown, key: string): { row: Row; isNew: bo
   const retired = rowsUnder(db, iface, refsOf(key), { retired: true }).find(
     (row) => row.retired_at !== null && entryOfRow(row, key) !== undefined
   );
-  if (retired) return { row: retired, isNew: true };
+  if (retired) return { row: retired, isNew: retired.writer === 'media' };
   const { ref, kinds } = cacheKeyParts(key);
   const id = NEW_ID(iface, key);
   const scope = audienceOf(groupScope(iface === null ? null : asText(iface)));
@@ -1011,9 +1044,10 @@ export type MediaEntryWrite =
   { op: 'put'; placeId: string; key: string; entry: Row } | { op: 'drop'; placeId: string; key: string };
 
 /**
- * Puts `entry` under `key` on the row of its item, in the caller's transaction: the row is revived when the trim had
- * retired it, the entry's text becomes the row's text form when nothing better is held, and the row gets its graph node.
- * A row that came back or is new may push the place's oldest row past the cap.
+ * Puts `entry` under `key` on the row of its item, in the caller's transaction: the entry's text becomes the row's text
+ * form when nothing better is held, and the row gets its graph node. A row the cache's trim retired comes back, and may
+ * push the place's oldest row past the cap. A row a line released (retireUnlinked) belongs to no cache and stays
+ * retired, so a late description of an item an edit replaced shows nowhere.
  */
 export function writeMediaEntry(
   db: Db,
@@ -1024,9 +1058,10 @@ export function writeMediaEntry(
   const extra = parsedObject(row.extra);
   const cache = { ...cacheOf(extra), [key]: entry };
   db.prepare(
-    `UPDATE media SET extra = ?, retired_at = NULL, used_at = ?,
-       writer = CASE WHEN writer = 'gifs' THEN writer ELSE 'media' END,
-       holder_id = CASE WHEN writer = 'gifs' THEN holder_id ELSE ? END
+    `UPDATE media SET extra = ?, used_at = ?,
+       retired_at = CASE WHEN writer = 'media' THEN NULL ELSE retired_at END,
+       writer = CASE WHEN writer = 'gifs' OR (retired_at IS NOT NULL AND writer IS NOT 'media') THEN writer ELSE 'media' END,
+       holder_id = CASE WHEN writer = 'gifs' OR (retired_at IS NOT NULL AND writer IS NOT 'media') THEN holder_id ELSE ? END
      WHERE id = ?`
   ).run(JSON.stringify({ ...extra, cache }), at, placeId, row.id);
   if (filled(entry.text)) {
@@ -1059,6 +1094,33 @@ export function dropMediaEntry(
   if (empty) db.prepare('UPDATE media SET retired_at = ? WHERE id = ?').run(iso(at), row.id);
   projectRow(db, 'media', { id: row.id }, { at });
   return { written: 1, retired: empty ? 1 : 0 };
+}
+
+/**
+ * At the engine's start, every cache entry still `pending` from a describer's request the stop cut becomes a miss with
+ * the reason `interrupted`, in the caller's transaction: the line then shows that the item could not be looked at, and
+ * the describer's handling of a miss applies. Returns how many entries changed.
+ */
+export function interruptPendingMediaEntries(db: Db, at: number): number {
+  let changed = 0;
+  const rows = db
+    .prepare(
+      `SELECT id, extra FROM media WHERE json_type(extra, '$.cache') = 'object'
+         AND EXISTS (SELECT 1 FROM json_each(extra, '$.cache') e WHERE json_extract(e.value, '$.pending') = 1)`
+    )
+    .all();
+  for (const row of rows) {
+    const extra = parsedObject(row.extra);
+    const cache = cacheOf(extra);
+    for (const [key, entry] of Object.entries(cache)) {
+      if (entry === null || typeof entry !== 'object' || (entry as Row).pending !== true) continue;
+      cache[key] = { miss: true, ts: at, reason: 'interrupted' };
+      changed += 1;
+    }
+    db.prepare('UPDATE media SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, cache }), row.id);
+    projectRow(db, 'media', { id: row.id }, { at });
+  }
+  return changed;
 }
 
 /** A write of the kind as the writer receives it, checked. */

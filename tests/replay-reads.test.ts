@@ -15,7 +15,7 @@ type Reads = {
   accountOf(id: string): string;
   personOfAccount(id: string): string;
   topPlaces(): Array<string>;
-  setGifCaption(...args: Array<unknown>): unknown;
+  setGifDescribed(...args: Array<unknown>): unknown;
 };
 
 function stores() {
@@ -35,7 +35,7 @@ test('the read-only store answers the address reads as the real store does, inst
 
 test('the read-only store still refuses a write', () => {
   const { wrapped } = stores();
-  assert.throws(() => wrapped.setGifCaption('gif-1', 'a cat'), /read-only here/);
+  assert.throws(() => wrapped.setGifDescribed('gif-1', 'a cat'), /read-only here/);
 });
 
 function channelOf(id: string, guildId: string) {

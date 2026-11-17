@@ -80,7 +80,9 @@ test('the read rebuilds the entries in the order their rows were made, with the 
     assert.equal(read.found, true);
     const value = (read as { value: Row }).value;
     assert.deepEqual(Object.keys(value.entries as Row), ['k2', 'k1']);
-    assert.deepEqual((value.entries as Row).k1, k1);
+    // The owner on 2026-11-17: a GIF is stored as one text. A caption an entry brings is not kept on its row.
+    const kept = Object.fromEntries(Object.entries(k1).filter(([field]) => field !== 'caption'));
+    assert.deepEqual((value.entries as Row).k1, kept);
     assert.deepEqual((value.entries as Row).k2, k2);
     assert.equal(value.nextId, 3);
     assert.deepEqual(value.backfill, rest.backfill);
@@ -214,6 +216,24 @@ test('an entry that is not an object is kept whole and read back as it was', () 
     writeGifLibrary(db, { put: { odd: 'not an entry' } }, { iface: 'discord', at: AT });
     const entries = entriesOf(db);
     assert.equal(entries.odd, 'not an entry');
+  } finally {
+    handle.close();
+  }
+});
+
+// Bug (audit row 8, production 2026-11-17): a GIF row keeps two texts, its `description` and `extra.caption`, and they
+// differ in 304 rows; the media pick read the caption. The one text is the row's description, which the read gives the
+// entry, and a caption an older write left in `extra` reaches no reader.
+test("the read gives a GIF entry its row's description as its one text and no caption", () => {
+  const handle = freshMemoryDb();
+  try {
+    const db = dbOf(handle);
+    writeGifLibrary(db, { put: { k1: entry('g1', 'ref-1') } }, { iface: 'discord', at: AT });
+    db.prepare(
+      "UPDATE media SET description = 'a cat waves', extra = json_set(extra, '$.caption', 'a dog runs') WHERE id = 'media:gif:k1'"
+    ).run();
+    const k1 = entriesOf(db).k1 as Row;
+    assert.deepEqual([k1.description, k1.caption], ['a cat waves', undefined]);
   } finally {
     handle.close();
   }

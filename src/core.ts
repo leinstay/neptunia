@@ -987,7 +987,7 @@ async function buildCore(
     (purpose: string) =>
     async (text: string): Promise<ArrayLike<number> | null> =>
       (await embedder.embed([text], { config: hot.config, purpose }))[0] ?? null;
-  // The GIF library's captions, vectors and cached files (src/memory/gif-keeper.ts).
+  // The GIF library's descriptions, vectors and cached files (src/memory/gif-keeper.ts).
   const gifKeeper = createGifKeeper({
     store,
     dataDir,
@@ -1199,7 +1199,7 @@ async function buildCore(
   });
   // The custom emoji ranking read from history (the interface's reads only, no model call): once at startup.
   const emojiBackfill = createEmojiBackfill({ store, reads, iface: () => identity.iface, log });
-  // The GIF library read from history (the interface's reads; the describer captions the top ones): once at startup.
+  // The GIF library read from history (the interface's reads; the describer describes the top ones): once at startup.
   const gifBackfill = createGifBackfill({
     store,
     reads,

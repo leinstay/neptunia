@@ -67,7 +67,10 @@ function eventOf(eventId: string, message: Message, previous?: Message): Message
 }
 
 /** The edit handlers over the real observation path, and what the record was asked to append. */
-function editsOver(memory: TestMemory) {
+function editsOver(
+  memory: TestMemory,
+  warmMediaCache: (placeId: string, message: object) => Promise<void> | null = () => null
+) {
   const appended: Array<Array<object>> = [];
   const observed = createObserve({
     hot: memory.hot,
@@ -88,7 +91,7 @@ function editsOver(memory: TestMemory) {
       },
     },
     now: () => NOW,
-    warmMediaCache: () => null,
+    warmMediaCache,
     observeLine: observed.observeLine,
     deleteLine: observed.deleteLine,
   });
@@ -401,6 +404,166 @@ test("a read around a line gives someone else's edited line its new text when th
     await observed.observeLine(eventOf('create-9202', first), false, { placeId: ROOT });
     await edits.onMessageUpdate(eventOf('update-9202', second, first));
     assert.deepEqual(readFrom(memory, '9202', first.at, linesAroundOf), [['9202', false, 'δεύτερη μορφή', first.at]]);
+  } finally {
+    await memory.close();
+  }
+});
+
+/** A picture attachment of a message. */
+function attachment(id: string, name: string) {
+  return { id, kind: 'image', name, url: `https://media.example.invalid/${id}.png`, contentType: 'image/png' };
+}
+
+/**
+ * A media prefill that describes every attachment and link of the message it is given, as the describer does: one
+ * cache entry per item written through the one writer. `settled` waits for the writes it started.
+ */
+function describingPrefill(memory: TestMemory) {
+  const started: Array<Promise<unknown>> = [];
+  const warm = (placeId: string, message: object): Promise<void> => {
+    const parts = message as { attachments?: Array<{ id: string }>; links?: Array<{ id: string }> };
+    for (const item of [...(parts.attachments ?? []), ...(parts.links ?? [])]) {
+      started.push(
+        memory.memoryDb.writeMediaEntry({
+          op: 'put',
+          placeId,
+          key: item.id,
+          entry: { text: 'a described picture', ts: NOW },
+        })
+      );
+    }
+    return Promise.resolve();
+  };
+  return { warm, settled: () => Promise.all(started) };
+}
+
+/** The live media rows that hold a description and that no owner links. */
+function describedWithNoLink(memory: TestMemory): Array<unknown> {
+  const db = memory.memoryDb.database();
+  if (!db) throw new Error('database unavailable');
+  return db
+    .prepare(
+      `SELECT native_ref FROM media m WHERE m.retired_at IS NULL AND m.description IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = m.id)`
+    )
+    .all()
+    .map((row) => row.native_ref);
+}
+
+/** The live media rows of the references `refs` that no owner links. */
+function liveWithNoLink(memory: TestMemory, refs: Array<string>): Array<unknown> {
+  const db = memory.memoryDb.database();
+  if (!db) throw new Error('database unavailable');
+  const query = db.prepare(
+    `SELECT native_ref FROM media m WHERE m.native_ref = ? AND m.retired_at IS NULL
+     AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = m.id)`
+  );
+  return refs.flatMap((ref) => query.all(ref).map((row) => row.native_ref));
+}
+
+// Guard (green before the fix): an attachment a later update adds to a message whose words stay is linked to the line,
+// and its description lands on that linked row. The fix of a replaced attachment must keep it so.
+test('an update that adds an attachment and keeps the text links the described attachment to the line', async () => {
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
+  try {
+    const prefill = describingPrefill(memory);
+    const { observed, edits } = editsOver(memory, prefill.warm);
+    const first: Message = { ...created('9302'), content: 'ένας σύνδεσμος' };
+    const second: Message = { ...first, attachments: [attachment('a-9302', 'preview.png')] };
+    await observed.observeLine(eventOf('create-9302', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-9302', second, first));
+    await prefill.settled();
+    assert.deepEqual(stored(memory, '9302'), [{ revision: 1, refs: ['a-9302'] }]);
+    assert.deepEqual(describedWithNoLink(memory), []);
+  } finally {
+    await memory.close();
+  }
+});
+
+// Bug (audit row 5): an update that keeps the text and replaces the attachment makes no new revision, so the line's one
+// revision shows the new attachment alone. The row of the removed one keeps no row of its own once nothing links it:
+// the specifier's choice, from the engine's rule that a revision keeps what it held and a row no line shows goes.
+test('an update that replaces an attachment and keeps the text links the new one and leaves no unlinked row of the old', async () => {
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
+  try {
+    const prefill = describingPrefill(memory);
+    const { observed, edits } = editsOver(memory, prefill.warm);
+    const first: Message = {
+      ...created('9303'),
+      content: 'η φωτογραφία',
+      attachments: [attachment('a-old', 'one.png')],
+    };
+    const second: Message = { ...first, attachments: [attachment('a-new', 'two.png')] };
+    await observed.observeLine(eventOf('create-9303', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-9303', second, first));
+    await prefill.settled();
+    assert.deepEqual(stored(memory, '9303'), [{ revision: 1, refs: ['a-new'] }]);
+    assert.deepEqual(liveWithNoLink(memory, ['a-old', 'a-new']), []);
+  } finally {
+    await memory.close();
+  }
+});
+
+// Guard (green before the fix): an edit that changes the words and replaces the attachment gives the newest revision
+// the new attachment, and the older revision keeps the one it held, as every older revision keeps its own media.
+test('an edit that changes the text and replaces an attachment links the new one to the newest revision only', async () => {
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
+  try {
+    const prefill = describingPrefill(memory);
+    const { observed, edits } = editsOver(memory, prefill.warm);
+    const first: Message = { ...created('9304'), content: 'πρώτη', attachments: [attachment('b-old', 'one.png')] };
+    const second: Message = {
+      ...first,
+      content: 'δεύτερη',
+      editedAt: NOW,
+      attachments: [attachment('b-new', 'two.png')],
+    };
+    await observed.observeLine(eventOf('create-9304', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-9304', second, first));
+    await prefill.settled();
+    assert.deepEqual(stored(memory, '9304'), [
+      { revision: 1, refs: ['b-old'] },
+      { revision: 2, refs: ['b-new'] },
+    ]);
+    assert.deepEqual(describedWithNoLink(memory), []);
+  } finally {
+    await memory.close();
+  }
+});
+
+/** The live rows of `ref` that hold a description a reader could show. */
+function liveDescribed(memory: TestMemory, ref: string): Array<unknown> {
+  const db = memory.memoryDb.database();
+  if (!db) throw new Error('database unavailable');
+  return db
+    .prepare('SELECT id FROM media WHERE native_ref = ? AND retired_at IS NULL AND description IS NOT NULL')
+    .all(ref)
+    .map((row) => row.id);
+}
+
+/** The describer's late answer for `ref`, written through the one writer as writeMediaEntry does. */
+function lateDescription(memory: TestMemory, ref: string): Promise<unknown> {
+  return memory.memoryDb.writeMediaEntry({
+    op: 'put',
+    placeId: ROOT,
+    key: ref,
+    entry: { text: 'a late described picture', ts: NOW },
+  });
+}
+
+// Bug (audit row 5, the cause found on production): an edit that keeps the text replaces attachment A by B while A's
+// description is still out; the description then lands on A's retired row and the write revives it, live with no link.
+test('a description that lands after an update replaced its attachment leaves no live row of it and nothing to show', async () => {
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
+  try {
+    const { observed, edits } = editsOver(memory);
+    const first: Message = { ...created('9305'), content: 'η φωτογραφία', attachments: [attachment('c-old', 'a.png')] };
+    const second: Message = { ...first, attachments: [attachment('c-new', 'b.png')] };
+    await observed.observeLine(eventOf('create-9305', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-9305', second, first));
+    await lateDescription(memory, 'c-old');
+    assert.deepEqual(liveWithNoLink(memory, ['c-old']), []);
+    assert.deepEqual(liveDescribed(memory, 'c-old'), []);
   } finally {
     await memory.close();
   }

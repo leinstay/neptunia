@@ -1,5 +1,5 @@
-// The keeper of the shared GIF library's search and files: for a GIF the library holds it has the describer caption it,
-// writes the caption and its vector on the entry (the candidate search of src/behavior/media-pick.ts reads them), and
+// The keeper of the shared GIF library's search and files: for a GIF the library holds it has the describer describe it,
+// gives the entry the description its row holds and the description's vector (the candidate search of src/behavior/media-pick.ts reads them), and
 // caches the file (src/media/gif-files.ts), because an attachment's link expires and the file is the record. The memory
 // updater and the edit handler call `keep` for a message that added a GIF, the history backfill for what it read, and the
 // core's start calls `settle` once per served place, which fills what an entry can get without its message. One GIF at
@@ -22,9 +22,9 @@ type KeeperStore = {
   getGifs: () => unknown;
   getGifVectors: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
   mediaEntry: (placeId: string, key: string) => unknown;
-  setGifCaption: (
+  setGifDescribed: (
     key: string,
-    described: { caption: string; vector: ArrayLike<number> | null; model?: string | null }
+    described: { description: string; vector: ArrayLike<number> | null; model?: string | null }
   ) => void;
   setGifFile: (key: string, file: { hash: string; file: string }) => void;
 };
@@ -34,7 +34,7 @@ export type GifKeeper = {
   keep: (placeId: string, message: StoredRecord) => Promise<void>;
   /** The pictures a history read found: fire and forget, never rejects. */
   keepPictures: (placeId: string, pictures: ReadonlyArray<MediaItem>) => Promise<void>;
-  /** What the entries can get without their messages: the captions the cache holds, their vectors, a file by the stored URL. */
+  /** What the entries can get without their messages: the descriptions the cache holds, their vectors, a file by the stored URL. */
   settle: (placeId: string) => Promise<void>;
 };
 
@@ -50,7 +50,7 @@ export function createGifKeeper({
   store: KeeperStore;
   dataDir: string;
   fetchBytes: (url: string) => Promise<GifBytes>;
-  /** The embedder of a caption; null, or a failure: the search reads the caption's words alone. */
+  /** The embedder of a description; null, or a failure: the search reads its words alone. */
   embed?: ((text: string) => Promise<ArrayLike<number> | null>) | null;
   /** The model `embed` answers with now, which a stored vector must match. */
   embedModel?: () => string | null;
@@ -75,24 +75,24 @@ export function createGifKeeper({
     return Object.values(entries).find((entry) => entry.nativeIds.includes(itemId)) ?? null;
   }
 
-  async function vectorOf(caption: string): Promise<ArrayLike<number> | null> {
+  async function vectorOf(text: string): Promise<ArrayLike<number> | null> {
     if (!embed) return null;
     try {
-      return await embed(caption);
+      return await embed(text);
     } catch (err) {
       log.info('gif-keeper: no vector', { error: err });
       return null;
     }
   }
 
-  /** The caption the cache holds written on the entry with its vector, when the entry lacks either. */
+  /** The description the cache holds given to the entry with its vector, when the entry lacks either. */
   async function describeEntry(placeId: string, itemId: string): Promise<void> {
     const entry = entryOf(itemId);
     if (!entry) return;
-    const caption = captionOfCached(store.mediaEntry(placeId, itemId));
+    const description = captionOfCached(store.mediaEntry(placeId, itemId));
     const hasVector = store.getGifVectors(embedModel()).has(entry.itemId);
-    if (!caption || (entry.caption === caption && (hasVector || !embed))) return;
-    store.setGifCaption(itemId, { caption, vector: await vectorOf(caption), model: embedModel() });
+    if (!description || (entry.description === description && (hasVector || !embed))) return;
+    store.setGifDescribed(itemId, { description, vector: await vectorOf(description), model: embedModel() });
   }
 
   async function fileEntry(itemId: string, urls: ReadonlyArray<string | undefined>): Promise<void> {
@@ -133,7 +133,7 @@ export function createGifKeeper({
         let worked = 0;
         for (const entry of rankGifs(store.getGifs())) {
           if (paused() || worked >= SETTLE_PER_RUN) break;
-          if (entry.caption && store.getGifVectors(embedModel()).has(entry.itemId) && entry.file) continue;
+          if (entry.description && store.getGifVectors(embedModel()).has(entry.itemId) && entry.file) continue;
           worked += 1;
           await describeEntry(placeId, entry.itemId);
           await fileEntry(entry.itemId, [entry.url]);

@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MEDIA_CACHE_ENTRIES } from '../src/memory/db/media-store.ts';
+import { recoverRequestArchive } from '../src/memory/db/request-archive.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
@@ -117,6 +118,23 @@ test('past the cap the least recently used row nothing links is retired, a linke
       .prepare("SELECT count(*) AS n FROM media WHERE writer = 'media' AND holder_id = ? AND retired_at IS NULL")
       .get(ROOT);
     assert.equal(live?.n, MEDIA_CACHE_ENTRIES);
+  } finally {
+    handle.close();
+  }
+});
+
+// Bug (audit row 7, production 2026-11-17): a GIF watch cut by a restart left its item with no text, no miss and no
+// mark, and nothing watched it again. The specifier's choice: the describer marks the entry `pending` before its
+// request goes out, and the start that marks the cut requests `unknown` turns such an entry into a miss with the reason
+// `interrupted`, so the line shows that it could not be watched and the describer's handling of a miss applies.
+test('at the start an entry still pending from before a restart becomes a miss with the reason interrupted', () => {
+  const handle = copyOf(seededPlaces());
+  try {
+    put(handle, 'gif-cut', { pending: true, ts: NOW - 500 });
+    recoverRequestArchive(handle, { now: NOW });
+    const [row] = rowsHolding(dbOf(handle), 'gif-cut');
+    const cache = (JSON.parse(String(row?.extra)) as { cache: Record<string, Row> }).cache;
+    assert.deepEqual(cache['gif-cut'], { miss: true, ts: NOW, reason: 'interrupted' });
   } finally {
     handle.close();
   }

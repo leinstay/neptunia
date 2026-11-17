@@ -1,4 +1,4 @@
-// The caption vectors of the GIF library, in the `vectors` table under `gif:<itemId>`: the library's JSON holds none, so a
+// The description vectors of the GIF library, in the `vectors` table under `gif:<itemId>`: the library's JSON holds none, so a
 // flush of it writes no vector bytes. The item id survives an entry's move to its content hash. A row has no owning unit
 // and no source, so recall and the index policy's eviction pass it by, and its scope is the library's group scope. The
 // writer takes one through the write kind `gif-vector` (session-write.ts).

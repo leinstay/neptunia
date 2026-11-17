@@ -49,7 +49,8 @@ function sharedLibrary() {
         count: 3,
         last: NOW - 3_600_000,
         firstSeen: NOW - 7_200_000,
-        caption: 'ναι φυσικά γνέφει',
+        // The owner on 2026-11-17: a GIF is stored as one text.
+        description: 'ναι φυσικά γνέφει',
         nativeIds: ['item-1'],
         links: [URL_G1],
         places: { c1: { count: 3, last: NOW - 3_600_000 } },

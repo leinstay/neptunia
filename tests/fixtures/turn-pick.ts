@@ -18,7 +18,8 @@ export function gifStore(): ReturnType<typeof fakeStore> & { getGifs: () => obje
         itemId: 'k1',
         count: 1,
         last: NOW,
-        caption: 'χα κοίτα ναι',
+        // The owner on 2026-11-17: a GIF is stored as one text.
+        description: 'χα κοίτα ναι',
       },
     },
   };
@@ -54,7 +55,8 @@ export function twoCaptionedGifs(place: string, seenIn: string, now: number, hou
         placeId: seenIn,
         count: 3,
         last: now - hour,
-        caption: 'oui un chat qui danse',
+        // The owner on 2026-11-17: a GIF is stored as one text.
+        description: 'oui un chat qui danse',
       },
       k2: {
         id: 'g2',
@@ -66,7 +68,8 @@ export function twoCaptionedGifs(place: string, seenIn: string, now: number, hou
         count: 1,
         last: now - day,
         ownLast: now - hour,
-        caption: "oui un haussement d'épaules",
+        // The owner on 2026-11-17: a GIF is stored as one text.
+        description: "oui un haussement d'épaules",
         places: { [place]: { count: 1, last: now - day, ownLast: now - hour, ownUses: 1 } },
       },
     },

@@ -212,8 +212,9 @@ export function createEdits({
   /**
    * An edited message (its text changed between `oldMessage` and `newMessage`) as a `seen`
    * line of the record with the next revision of the day (`revisions`). An update that keeps the
-   * text and brings media (an embed the platform unfurled late) is no edit: its observation lands on
-   * the line's current revision, which links the items it lacks, and the record gets no line. Never
+   * text and brings media (an embed the platform unfurled late, an attachment replaced) is no edit: its observation
+   * lands on the line's current revision, which then links the media the update shows and no other, and the record
+   * gets no line. Never
    * throws: a refused append is logged as `events: record failed` (counts only).
    */
   async function recordEdit(event: MessageEvent, options?: MessageReadOptions): Promise<void> {
@@ -222,7 +223,9 @@ export function createEdits({
       // recordable holds only for the served root and the command line's chat.
       const placeId = sharedPlaceOf(store, event.chat, event.iface);
       if (event.previous && sourceTextOf(event.previous) === sourceTextOf(event.message)) {
-        if (bringsMedia(event, event.previous)) await observeLine(event, false, { placeId }, options?.acceptedEvent);
+        // The update shows the message's media as they are now: the line's revision keeps those alone.
+        if (bringsMedia(event, event.previous))
+          await observeLine({ ...event, edit: true }, false, { placeId }, options?.acceptedEvent);
         return;
       }
       // lineOf gives the normalized line of a message event.

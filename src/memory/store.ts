@@ -76,7 +76,9 @@ import {
   markOwnGif,
   mergeGifs,
   stampGifBackfill,
-  withGifCaption,
+  withGifDescribed,
+  withGifDescription,
+  captionOfCached,
   withGifFile,
   normalizeBackfillStamp,
   resetGifCounts,
@@ -2327,6 +2329,9 @@ function buildStore({
     /** The cache's entry under `key` written to its row: a new one, a touched one (`usedAt`) or a changed one. */
     putMediaEntry(placeId: string, key: string, value: unknown): void {
       media.put(placeId, key, value);
+      // The library's entry of the same GIF reads the description its row now holds, as the next load would.
+      const described = withGifDescription(gifs.library(), key, captionOfCached(value));
+      if (described) gifs.set(described);
     },
 
     /** The cache's entry under `key` dropped. */
@@ -2420,14 +2425,18 @@ function buildStore({
     },
 
     /**
-     * The describer's caption of the entry under `key` (a library key or a native id). Its vector, when it has one, goes
+     * The describer's description of the entry under `key` (a library key or a native id). Its vector, when it has one, goes
      * to the `vectors` table by the entry's item id (src/memory/db/gif-vectors.ts), never into the library's JSON.
      */
-    setGifCaption(
+    setGifDescribed(
       key: string,
-      { caption, vector, model = null }: { caption: string; vector: ArrayLike<number> | null; model?: string | null }
+      {
+        description,
+        vector,
+        model = null,
+      }: { description: string; vector: ArrayLike<number> | null; model?: string | null }
     ) {
-      const library = withGifCaption(gifs.library(), key, { caption, vector: null });
+      const library = withGifDescribed(gifs.library(), key, { description, vector: null });
       gifs.set(library);
       const entries: GifLibrary['entries'] = library.entries;
       const entry = Object.entries(entries).find(([held, one]) => held === key || one.nativeIds.includes(key));
@@ -2474,7 +2483,7 @@ function buildStore({
       ).catch((error: unknown) => log.warn('store: place address write failed', { error }));
     },
 
-    /** The caption vectors of the library's entries by item id, those of `model` alone when it is named. */
+    /** The description vectors of the library's entries by item id, those of `model` alone when it is named. */
     getGifVectors(model?: string | null): Map<string, Float32Array> {
       const found = new Map<string, Float32Array>();
       for (const [itemId, held] of heldGifVectors()) {
