@@ -7,7 +7,9 @@
 // builder (src/turn/request/reader.ts) calls it. Pure apart from the reads.
 
 import { fill, formatClock, formatDate, mentionsNamed, storedMediaTags } from '../../format.ts';
+import type { FrameReads } from '../../memory/db/frame-reads.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
+import type { Context } from '../../memory/db/scope.ts';
 import type { InterfaceNames } from '../../protocol/serve.ts';
 import { lineItemParts } from '../../memory/db/media-store.ts';
 import type { LineMediaItem } from '../../memory/db/media-store.ts';
@@ -56,6 +58,34 @@ export type MeanwhileReads = {
   ownMessages(limit: number): ReadonlyArray<OwnMessage>;
   around(placeId: string, at: number, count: number): ReadonlyArray<MeanwhileLine>;
 };
+
+/**
+ * The reads of `<meanwhile>` under `ctx`, her lines outside `exceptPlace`. The first window asked of a place reads the
+ * windows around every line of hers there in one read (frame-reads.ts#linesAroundEachOf), so a turn with a hundred of
+ * her lines runs a few statements per place.
+ */
+export function meanwhileReadsOf(reads: FrameReads, ctx: Context, exceptPlace: string | null): MeanwhileReads {
+  let own: ReadonlyArray<OwnMessage> = [];
+  const windows = new Map<string, Map<number, ReadonlyArray<MeanwhileLine>>>();
+  return {
+    ownMessages(limit) {
+      own = reads.ownLines(ctx, exceptPlace, limit);
+      return own;
+    },
+    around(placeId, at, count) {
+      const key = `${placeId}\u0000${count}`;
+      let held = windows.get(key);
+      if (held === undefined) {
+        const ats = [...new Set([at, ...own.filter((line) => line.placeId === placeId).map((line) => line.at)])];
+        const lines = reads.aroundEach(ctx, placeId, ats, count);
+        held = new Map(ats.map((moment, index) => [moment, lines[index] ?? []]));
+        windows.set(key, held);
+      }
+      // A moment of no line of hers read with the first window, as the graph reader's seeds may ask.
+      return held.get(at) ?? reads.around(ctx, placeId, at, count);
+    },
+  };
+}
 
 /** `context.meanwhile`: how many of her lines, and how many lines before and after each. */
 export type MeanwhileSettings = { messages: number; around: number };

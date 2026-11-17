@@ -207,35 +207,124 @@ export function ownLinesOf(
   return out;
 }
 
+/** A window of a place's lines: `before` lines at or before the ISO moment `at`, `after` lines past it (at it too when `inclusive`). */
+type WindowAsk = { at: string; before: number; after: number; inclusive: boolean };
+
+/** A moment later than every stored ISO moment: the upper bound of a range that reaches the end of a place. */
+const END_OF_PLACE = '9999';
+
+/**
+ * The rows of `placeId` the context reads whose own moment lies from the `reach`-th stored row at or before `first` to
+ * the `reach`-th after `last`, and the other revisions of their messages, in one statement that `sources_place_time`
+ * bounds. `lo` and `hi` are the bounds it used, '' and END_OF_PLACE where the range reached an end of the place.
+ */
+function rowsNear(
+  db: Db,
+  ctx: Context,
+  placeId: string,
+  first: string,
+  last: string,
+  reach: number
+): { rows: Array<Row>; lo: string; hi: string } {
+  const where = whereFor(ctx, 's');
+  const read = db
+    .prepare(
+      `WITH bounds AS (SELECT
+         COALESCE((SELECT b.occurred_at FROM sources b WHERE b.place_id = ? AND b.occurred_at <= ?
+           ORDER BY b.occurred_at DESC LIMIT 1 OFFSET ?), '') AS lo,
+         COALESCE((SELECT b.occurred_at FROM sources b WHERE b.place_id = ? AND b.occurred_at > ?
+           ORDER BY b.occurred_at LIMIT 1 OFFSET ?), '${END_OF_PLACE}') AS hi),
+       hits AS (
+         SELECT ${LINE_COLUMNS}, s.rowid AS row_order FROM bounds CROSS JOIN ${LINE_FROM}
+         WHERE s.place_id = ? AND s.occurred_at >= bounds.lo AND s.occurred_at <= bounds.hi AND ${LIVE_LINE} AND ${where.sql}
+         UNION ALL
+         -- The unary plus keeps \`sources_place_time\` out of this half: a range open to an end of the place walks it.
+         SELECT ${LINE_COLUMNS}, s.rowid AS row_order FROM bounds CROSS JOIN ${LINE_FROM}
+         WHERE s.native_id IN (SELECT w.native_id FROM sources w
+             WHERE w.place_id = ? AND w.occurred_at >= bounds.lo AND w.occurred_at <= bounds.hi)
+           AND +s.place_id = ? AND (+s.occurred_at < bounds.lo OR +s.occurred_at > bounds.hi) AND ${LIVE_LINE} AND ${where.sql})
+       SELECT bounds.lo AS lo, bounds.hi AS hi, hits.* FROM bounds LEFT JOIN hits ON 1`
+    )
+    .all(placeId, first, reach, placeId, last, reach, placeId, ...where.params, placeId, placeId, ...where.params);
+  // The bounds row stands alone when no line lies between them; its `id` is then null.
+  return {
+    rows: read.filter((row) => row.id !== null),
+    lo: text(read[0]?.lo) ?? '',
+    hi: text(read[0]?.hi) ?? END_OF_PLACE,
+  };
+}
+
+/** The order of two ISO moments as SQLite compares text: -1, 0 or 1. */
+const compareText = (a: unknown, b: unknown): number => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0);
+
+/** Rows by their line's moment, `sign` 1 oldest first, -1 newest first; a message's newest revision first; then stored order. */
+const byMoment =
+  (sign: 1 | -1) =>
+  (a: Row, b: Row): number =>
+    sign * compareText(a.occurred_at, b.occurred_at) ||
+    Number(b.revision ?? 1) - Number(a.revision ?? 1) ||
+    Number(a.row_order) - Number(b.row_order);
+
+/**
+ * The rows of each window of `placeId`, as one read takes them: the window's lines ordered by their first revision's
+ * moment and cut at its count, each revision a row (newestOf keeps a message once). One statement as a rule: a read
+ * whose range held too few lines for a window is read again over a range four times as wide.
+ */
+function windowRows(db: Db, ctx: Context, placeId: string, asks: ReadonlyArray<WindowAsk>): Array<Array<Row>> {
+  if (asks.length === 0) return [];
+  const moments = asks.map((ask) => ask.at).sort();
+  const first = moments[0] ?? '';
+  const last = moments.at(-1) ?? '';
+  let reach = 4 * Math.max(1, ...asks.map((ask) => Math.max(ask.before, ask.after)));
+  for (;;) {
+    const { rows, lo, hi } = rowsNear(db, ctx, placeId, first, last, reach);
+    // A row of a message written before `lo` or after `hi` is a later edit read in the range; its window lies elsewhere.
+    const inside = rows.filter((row) => String(row.occurred_at) >= lo && String(row.occurred_at) <= hi);
+    const windows = asks.map((ask) => {
+      const before = inside
+        .filter((row) => String(row.occurred_at) <= ask.at)
+        .sort(byMoment(-1))
+        .slice(0, ask.before);
+      const after = inside
+        .filter((row) => (ask.inclusive ? String(row.occurred_at) >= ask.at : String(row.occurred_at) > ask.at))
+        .sort(byMoment(1))
+        .slice(0, ask.after);
+      const enough = (before.length === ask.before || lo === '') && (after.length === ask.after || hi === END_OF_PLACE);
+      return { rows: [...before.reverse(), ...after], enough };
+    });
+    if (windows.every((window) => window.enough)) return windows.map((window) => window.rows);
+    reach *= 4;
+  }
+}
+
+/**
+ * For each epoch ms of `ats`, the lines of `placeId` the context reads from `count` before it to `count` after it,
+ * oldest first: one read of the rows and one of their media.
+ */
+export function linesAroundEachOf(
+  db: Db,
+  ctx: Context,
+  placeId: string,
+  ats: ReadonlyArray<number>,
+  count: number
+): Array<Array<FrameLine>> {
+  const asks = ats.map((at) => ({ at: new Date(at).toISOString(), before: count + 1, after: count, inclusive: false }));
+  const windows = windowRows(db, ctx, placeId, asks).map((rows) => newestOf(rows, messageIdOf));
+  const lines = new Map(linesOf(db, ctx, windows.flat()).map((line) => [line.sourceId, line]));
+  return windows.map((rows) => rows.flatMap((row) => lines.get(String(row.id)) ?? []));
+}
+
 /** The lines of `placeId` the context reads from `count` before epoch ms `at` to `count` after it, oldest first. */
 export function linesAroundOf(db: Db, ctx: Context, placeId: string, at: number, count: number): Array<FrameLine> {
-  const where = whereFor(ctx, 's');
-  const iso = new Date(at).toISOString();
-  const read = (order: 'DESC' | 'ASC', compare: string, n: number): Array<Row> =>
-    db
-      .prepare(
-        `SELECT ${LINE_COLUMNS} FROM ${LINE_FROM}
-         WHERE s.place_id = ? AND ${LINE_MOMENT} ${compare} ? AND ${LIVE_LINE} AND ${where.sql}
-         ORDER BY ${LINE_MOMENT} ${order}, s.revision DESC LIMIT ?`
-      )
-      .all(placeId, iso, ...where.params, n);
-  const before = read('DESC', '<=', count + 1).reverse();
-  const after = read('ASC', '>', count);
-  return linesOf(db, ctx, newestOf([...before, ...after], messageIdOf));
+  return linesAroundEachOf(db, ctx, placeId, [at], count)[0] ?? [];
 }
 
 /** The first `count` lines of `placeId` the context reads at or after epoch ms `from`, oldest first. */
 export function linesSinceOf(db: Db, ctx: Context, placeId: string, from: number, count: number): Array<FrameLine> {
-  const where = whereFor(ctx, 's');
   const limit = Math.max(0, Math.floor(count));
   // Twice the count: an edited message holds a row per revision, and only its newest one stays.
-  const rows = db
-    .prepare(
-      `SELECT ${LINE_COLUMNS} FROM ${LINE_FROM}
-       WHERE s.place_id = ? AND ${LINE_MOMENT} >= ? AND ${LIVE_LINE} AND ${where.sql}
-       ORDER BY ${LINE_MOMENT} ASC, s.revision DESC LIMIT ?`
-    )
-    .all(placeId, new Date(from).toISOString(), ...where.params, limit * 2);
+  const ask = { at: new Date(from).toISOString(), before: 0, after: limit * 2, inclusive: true };
+  const rows = windowRows(db, ctx, placeId, [ask])[0] ?? [];
   return linesOf(db, ctx, newestOf(rows, messageIdOf).slice(0, limit));
 }
 
@@ -651,6 +740,8 @@ export type FrameReads = {
   mind(ctx: Context, seeds: Seeds, now: number): Mind;
   ownLines(ctx: Context, exceptPlace: string | null, limit: number): Array<FrameLine & PlacePath>;
   around(ctx: Context, placeId: string, at: number, count: number): Array<FrameLine>;
+  /** The lines around each of several moments of one place, in one read (linesAroundEachOf). */
+  aroundEach(ctx: Context, placeId: string, ats: ReadonlyArray<number>, count: number): Array<Array<FrameLine>>;
   /** The first `count` lines of a place at or after a moment, oldest first (linesSinceOf). */
   since?(ctx: Context, placeId: string, from: number, count: number): Array<FrameLine>;
   /** The stored name of an account by its platform id, its interface first, then any (accountNameOf). */
@@ -733,6 +824,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     mind: (ctx, seeds, now) => over(NO_MIND, (db) => mindOf(db, ctx, seeds, mindSettingsOf(configOf()), now)),
     ownLines: (ctx, exceptPlace, limit) => over([], (db) => ownLinesOf(db, ctx, exceptPlace, limit)),
     around: (ctx, placeId, at, count) => over([], (db) => linesAroundOf(db, ctx, placeId, at, count)),
+    aroundEach: (ctx, placeId, ats, count) => over([], (db) => linesAroundEachOf(db, ctx, placeId, ats, count)),
     since: (ctx, placeId, from, count) => over([], (db) => linesSinceOf(db, ctx, placeId, from, count)),
     accountName: (iface, native) => over(null, (db) => accountNameOf(db, iface, native)),
     line: (ctx, key) => over(null, (db) => lineOfIdentity(db, ctx, key)),
