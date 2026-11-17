@@ -21,6 +21,7 @@ Start with the task you want to do. These guides describe the engine and its pub
 | [Inner life](inner-life.md) | Heartbeat, attention and recurring intentions |
 | [Diary](diary.md) | Entries, images and publication |
 | [Media](media.md) | Descriptions, drawing, voice and search |
+| [Humanizer](humanizer.md) | The optional check and rewrite of her longer texts before they are posted |
 
 ## Extend and maintain
 

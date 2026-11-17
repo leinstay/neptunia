@@ -226,7 +226,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 |---|---|
 | Inspect health or pause responses | `/status`, `/doctor`, `/pause`, `/resume` |
 | Inspect and change settings | `/config get`, `/config set`, `/config unset` |
-| Choose credentials and models | `/keys`, `/model`, `/search` |
+| Choose credentials and models | `/keys`, `/model`, `/search`, `/humanizer` |
 | Send outbound connections through one proxy | `/proxy`. See [Proxy](proxy.md) |
 | Configure a chat platform, add her to a new root and list the roots she is in. See [The interfaces family](#the-interfaces-family) | `/interfaces`, `/interfaces <name> setup`, `/interfaces <name> invite`, `/interfaces <name> list` |
 | Choose which providers serve a model | `/routes` |
