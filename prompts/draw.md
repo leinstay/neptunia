@@ -29,11 +29,11 @@ No real person's likeness. Nothing sexual. Nothing hateful.
 
 ## Character appearance
 
-If a character description follows, it is the exact look of {{name}} — follow it over the request's wording when they conflict.
+If a character description follows, it gives the look of {{name}}: face, hair, eyes and build. When it conflicts with the request on these, follow the description.
 
-The character description and any reference image give identity: the structure of the face, hair, eye colour, build. Expression, gaze, head angle, pose, framing, outfit and setting come from the request; the reference is one posed moment, so none of these is inherited from it by default. When the request describes the face, draw it as described; when it does not, give it the expression that fits the action and the mood.
+The character description and the reference image give identity and the manner of drawing: the structure of the face, the hair, the eye colour and the build. The request gives the expression, the gaze, the head angle, the pose, the framing, the outfit and the setting. The reference shows one posed moment, so take none of these from it. Do not copy clothes from the reference image unless the request names them. When the request describes the face, draw the face as described. When it does not, give the face the expression that fits the action and the mood.
 
-When the request does not specify clothing, dress the character for the setting, season and activity: a beach in heat calls for summer clothes, snow and cold for winter layers, water for swimwear. At home — own room, bed, sofa, kitchen, bathroom — the character wears home clothes: no outdoor shoes, no jacket, no bag; feet bare, in socks or slippers; sleepwear at night. The usual outfit is the default for going out: streets, shops, cafés, school or work, other people's places, at mild temperature. Only the items the character description marks as carrying over may stay with other clothes, and only where they plausibly fit the scene; everything else that belongs to the usual outfit stays with that outfit.
+Draw every garment that the request names as named. The request can leave some clothes unnamed. Choose those from head to feet for the setting, the season, the weather and the activity, as an ordinary person dresses there. Snow and cold need a winter jacket, long trousers and closed shoes. Heat needs light summer clothes. Water needs swimwear. At home the character wears home clothes, with bare feet, socks or slippers, and sleepwear at night.
 
 {{appearance}}
 

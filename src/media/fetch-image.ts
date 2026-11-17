@@ -2,8 +2,7 @@
 // `data:` URL, because a platform's media host may refuse the provider's own
 // image fetcher while our server fetches the very same URL fine (the hosts
 // that do are named in the interface package). Used by src/behavior/turn.js
-// (a live vision request, and the bot's avatar as a drawing's reference),
-// src/admin.js (the avatar reference of `/nep draw`) and
+// (a live vision request) and
 // src/memory/describe.ts (the media describer), so none of them ever hands
 // the provider a platform URL to fetch itself.
 //
@@ -21,7 +20,6 @@
 
 import { errorFields } from '../error-fields.ts';
 import { log } from '../log.ts';
-import { objOf } from '../tools/types.ts';
 import { bareContentType, safeLocation } from './video-sites.ts';
 
 /** A downloaded picture inlined as a `data:` URL. */
@@ -160,39 +158,4 @@ export function createImageFetcher({
   }
 
   return { fetchAsDataUrl };
-}
-
-/**
- * The persona's avatar as a `data:` URL, the reference for a picture she is in: the large static address the
- * interface gave (`url`, `memberInfo(self).avatar.largeUrl`), downloaded through `imageFetcher` under
- * `REFERENCE_MAX_BYTES` and `context.vision.fetchTimeoutMs` (`config` is the caller's `hot.config`, read at the
- * moment of use). Null when there is no fetcher, no avatar address, or the download fails; never throws. The one
- * copy for a turn's drawing (src/behavior/turn.js) and `/nep draw`.
- */
-export async function avatarReference({
-  url,
-  imageFetcher,
-  config,
-}: {
-  url: string | null | undefined;
-  imageFetcher:
-    | {
-        fetchAsDataUrl: (url: string, options: { maxBytes: number; timeoutMs: number }) => Promise<FetchedImage | null>;
-      }
-    | null
-    | undefined;
-  config: unknown;
-}): Promise<string | null> {
-  if (!imageFetcher || !url) return null;
-  const fetchTimeoutMs = objOf(objOf(objOf(config).context).vision).fetchTimeoutMs;
-  try {
-    const downloaded = await imageFetcher.fetchAsDataUrl(url, {
-      maxBytes: REFERENCE_MAX_BYTES,
-      // A timeout that is not a number makes `AbortSignal.timeout` throw, which the catch below answers with null.
-      timeoutMs: typeof fetchTimeoutMs === 'number' ? fetchTimeoutMs : Number.NaN,
-    });
-    return downloaded?.dataUrl || null;
-  } catch {
-    return null;
-  }
 }

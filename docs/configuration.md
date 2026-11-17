@@ -320,7 +320,6 @@ The engine proxy is described in [Proxy](proxy.md).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `image.reference` | string | `"avatar"` | Visual reference when the persona is in the picture. `"avatar"` downloads the bot's avatar; anything else sends nothing | `src/media/draw.ts` |
 | `image.timeoutMs` | number | `120000` | Request timeout (ms) | `src/media/draw.ts` |
 | `image.retries` | number | `1` | Retries on transient failures | `src/llm/images.ts` |
 | `image.provider` | map, null | `null` | Provider routing for image requests. `null` sends nothing | `src/llm/images.ts` |

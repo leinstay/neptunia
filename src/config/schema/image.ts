@@ -4,14 +4,6 @@ import type { SchemaEntry } from '../schema.ts';
 
 export const IMAGE: ReadonlyArray<SchemaEntry> = [
   {
-    'key': 'image.reference',
-    'types': ['string'],
-    'reader': 'src/media/draw.ts',
-    'default': 'avatar',
-    'text':
-      'Visual reference when the persona is in the picture. `"avatar"` downloads the bot\'s avatar; anything else sends nothing',
-  },
-  {
     'key': 'image.timeoutMs',
     'types': ['number'],
     'reader': 'src/media/draw.ts',

@@ -2,10 +2,13 @@
 // accountId }` each call site hands to the image client (src/llm/images.ts#createImageGen's
 // `generate`) -- a reply turn's draw.create call, a diary post's single picture, a diary set's pictures,
 // and `/nep draw` with `self`. Asserted at the image-client boundary only, with literal
-// expectations: wherever the prompt building, the avatar fetch or the caps move, these calls must
-// stay byte for byte the same. Fake clock, fake prompts and labels, a fake avatar reference, a
+// expectations: wherever the prompt building, the reference or the caps move, these calls must
+// stay byte for byte the same. Fake clock, fake prompts and labels, a fake appearance.png in a temp data folder, a
 // fake discord.js-shaped channel; no network.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { createAdmin } from '../src/admin.ts';
@@ -32,6 +35,14 @@ const NOW = Date.UTC(2026, 9, 6, 19, 30, 0);
 const TZ = 'Europe/Athens';
 const WHEN = 'At Tuesday, October 6, 2026, 22:30 (Europe/Athens).';
 const AVATAR = 'data:image/png;base64,QVZBVEFS';
+
+// The owner on 2026-11-17: a picture of herself is drawn with `appearance.png` of the data folder as its reference, not
+// the avatar, and `image.reference` is removed. The bytes are the test's own.
+const LOOK_BYTES = Buffer.from('LOOK-PNG-BYTES');
+const LOOK = `data:image/png;base64,${LOOK_BYTES.toString('base64')}`;
+const DATA_DIR = mkdtempSync(path.join(tmpdir(), 'appearance-'));
+writeFileSync(path.join(DATA_DIR, 'appearance.png'), LOOK_BYTES);
+after(() => rmSync(DATA_DIR, { recursive: true, force: true }));
 
 const LABELS = { ...baseLabels, draw: { ...baseLabels.draw, when: 'At {when}.' } };
 
@@ -63,7 +74,7 @@ function hot() {
       llm: { maxRequestTokens: 50000 },
       models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      image: { reference: 'avatar', referenceMaxBytes: 4_000_000 },
+      image: { referenceMaxBytes: 4_000_000 },
       diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },
@@ -184,6 +195,7 @@ function runner({
   client();
   return createTurnRunner({
     hot: hot(),
+    dataDir: DATA_DIR,
     store: store(),
     llm: llm(answer, plan),
     calibrator: { ratio: 1, apply: (n: Untyped) => n, observe: () => {} },
@@ -261,7 +273,7 @@ test("draw parity: a diary post's single self picture", async () => {
   assert.deepEqual(images.calls, [
     {
       prompt: `A drawing by Bot.\n\nBot has silver hair and a green scarf.\n\n${WHEN}\n\nScene: me on a pier at dawn, fog`,
-      reference: AVATAR,
+      reference: LOOK,
       accountId: null,
     },
   ]);
@@ -289,7 +301,7 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
   assert.deepEqual(images.calls, [
     {
       prompt: `A drawing by Bot.\n\nBot has silver hair and a green scarf.\n\n${WHEN}\n\nScene: me at the harbour gate`,
-      reference: AVATAR,
+      reference: LOOK,
       accountId: null,
     },
     { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: boats in the harbour`, reference: null, accountId: null },
@@ -314,6 +326,7 @@ test('draw parity: /nep draw with self', async () => {
     isServedRoot: (id: unknown) => id === 'g1',
     images,
     imageFetcher: imageFetcher(),
+    dataDir: DATA_DIR,
     now: () => NOW,
   });
   const { result } = await withCapturedLogs(() =>
@@ -324,7 +337,7 @@ test('draw parity: /nep draw with self', async () => {
   assert.deepEqual(images.calls, [
     {
       prompt: 'A drawing by Bot.\n\nBot has silver hair and a green scarf.\n\nScene: me reading by the window',
-      reference: AVATAR,
+      reference: LOOK,
       accountId: null,
     },
   ]);

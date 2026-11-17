@@ -2119,7 +2119,7 @@ function hotForDraw(rootDir: string, { model = 'openai/image-model', ...image }:
     ...hot.config.models,
     routes: { ...hot.config.models?.routes, ...chainsOf({ drawing: model }) },
   };
-  hot.config.image = { reference: 'avatar', referenceMaxBytes: 4000000, ...image };
+  hot.config.image = { referenceMaxBytes: 4000000, ...image };
   hot.config.context = { vision: { fetchTimeoutMs: 7000 } };
   hot.prompts = {
     ...hot.prompts,
@@ -2191,8 +2191,13 @@ test('run: draw builds the prompt from the whole request', async () => {
   );
 });
 
-test('run: draw with self adds the appearance and sends the avatar as the reference', async () => {
+// The owner on 2026-11-17: a picture of herself is drawn with `appearance.png` of the data folder as its reference; the
+// avatar is no longer fetched for drawing. The bytes are the test's own.
+test('run: draw with self adds the appearance and sends appearance.png of the data folder as the reference', async () => {
   const rootDir = makeRoot();
+  const dataDir = path.join(rootDir, 'data');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'appearance.png'), Buffer.from('LOOK-PNG-BYTES'));
   const hot = hotForDraw(rootDir);
   const images = fakeImages();
   const imageFetcher = fakeImageFetcher();
@@ -2201,10 +2206,9 @@ test('run: draw with self adds the appearance and sends the avatar as the refere
 
   await admin.run('draw.create', { text: 'at the beach', self: true }, { placeId: 'g1' });
 
-  assert.deepEqual(imageFetcher.calls, [
-    { url: 'https://cdn.example/avatar.png', opts: { maxBytes: 4000000, timeoutMs: 7000 } },
-  ]);
-  assert.equal(images.calls[0].reference, 'data:image/png;base64,QUFB');
+  assert.equal(imageFetcher.calls.length, 0, 'no avatar fetched for drawing');
+  const [sent] = images.calls;
+  assert.equal(sent.reference, `data:image/png;base64,${Buffer.from('LOOK-PNG-BYTES').toString('base64')}`);
   assert.equal(images.calls[0].accountId, null);
   assert.equal(
     images.calls[0].prompt,
@@ -2213,32 +2217,21 @@ test('run: draw with self adds the appearance and sends the avatar as the refere
   assert.ok(images.calls[0].prompt.includes('Persona has silver hair.'));
 });
 
-test('run: draw with self but image.reference none sends no reference', async () => {
+// The owner on 2026-11-17: `image.reference` is removed, so its test of `none` is deleted; the avatar is no longer
+// fetched for drawing, so a picture of herself with no `appearance.png` goes without a reference and no avatar note.
+test('run: draw with self and no appearance.png generates with no reference', async () => {
   const rootDir = makeRoot();
-  const hot = hotForDraw(rootDir, { reference: 'none' });
+  const hot = hotForDraw(rootDir);
   const images = fakeImages();
   const imageFetcher = fakeImageFetcher();
   const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client: drawClient() });
 
   await admin.run('draw.create', { text: 'at the beach', self: true }, { placeId: 'g1' });
 
-  assert.equal(imageFetcher.calls.length, 0);
-  assert.equal(images.calls[0].reference, null);
-  assert.ok(images.calls[0].prompt.includes('Persona has silver hair.'), 'the appearance is still described');
-});
-
-test('run: draw still generates when the avatar cannot be fetched, and says so', async () => {
-  const rootDir = makeRoot();
-  const hot = hotForDraw(rootDir);
-  const images = fakeImages();
-  const imageFetcher = fakeImageFetcher(null);
-  const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client: drawClient() });
-
-  const result = await admin.run('draw.create', { text: 'at the beach', self: true }, { placeId: 'g1' });
-
   assert.equal(images.calls.length, 1);
-  assert.equal(images.calls[0].reference, null);
-  assert.match(result.text, /no avatar reference/);
+  const [sent] = images.calls;
+  assert.equal(sent.reference, null);
+  assert.equal(imageFetcher.calls.length, 0, 'no avatar fetched for drawing');
 });
 
 test('run: draw with an unsupported image model is a not-configured refusal with the reason, and never generates', async () => {
