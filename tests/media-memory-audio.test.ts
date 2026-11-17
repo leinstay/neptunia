@@ -129,6 +129,14 @@ for (const kind of ['voice', 'audio']) {
     assert.equal(fetchedUrls.length, 2);
   });
 
+  // The owner on 2026-11-17: an answer the provider cut is no description.
+  test(`a ${kind} whose answer the content filter cut stays undescribed with the cause "cut"`, async () => {
+    const { describer, store } = audioRig({ answer: { text: 'she says "грибы', finishReason: 'content_filter' } });
+    const { descriptions } = await describer.describeMany('g1', [voiceItem(kind)]);
+    assert.equal(descriptions.size, 0);
+    assert.equal(store.mediaEntry('g1', `${kind}-1`)?.reason, 'cut');
+  });
+
   test(`${kind} is a kind the describer can tell`, () => {
     assert.equal(isDescribable({ kind }), true);
   });

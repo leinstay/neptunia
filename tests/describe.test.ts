@@ -162,20 +162,20 @@ async function describeWith(text: string, prompt?: string, summarize?: Summarize
   return { result, llm, store };
 }
 
-// The owner on 2026-11-17: a picture's answer over 1,500 characters is shortened by the summarizer, never cut.
-test('describe: a picture answer over 1500 characters goes to summarize once and its result is stored', async () => {
-  const answer = `${proseLine(300)} The left hand is drawn with six fingers.`;
+// The owner on 2026-11-17: a picture's description takes at most 2,000 characters.
+test('describe: a picture answer over 2000 characters goes to summarize once and its result is stored', async () => {
+  const answer = `${proseLine(400)} The left hand is drawn with six fingers.`;
   const summary = fakeSummarize(() => 'A street scene. The left hand is drawn with six fingers.');
   const { result, store } = await describeWith(answer, undefined, summary.summarize);
-  assert.deepEqual(summary.calls, [{ text: answer, options: { maxChars: 1500, kind: 'picture' } }]);
+  assert.deepEqual(summary.calls, [{ text: answer, options: { maxChars: 2000, kind: 'picture' } }]);
   assert.equal(loose(result).text, 'A street scene. The left hand is drawn with six fingers.');
   const cache = loose(cacheView(store, 'g1'));
   assert.equal(cache.a1.text, 'A street scene. The left hand is drawn with six fingers.');
 });
 
 // The owner on 2026-11-17: what the summarizer returns is kept whole, even over the length.
-test('describe: a summary still over 1500 characters is stored whole', async () => {
-  const long = `${proseLine(320)} END`;
+test('describe: a summary still over 2000 characters is stored whole', async () => {
+  const long = `${proseLine(400)} END`;
   const summary = fakeSummarize(() => long);
   const { store } = await describeWith(proseLine(400), undefined, summary.summarize);
   const cache = loose(cacheView(store, 'g1'));
@@ -190,11 +190,11 @@ test('describe: without summarize a 4000-character answer is stored whole', asyn
   assert.equal(cache.a1.text, answer);
 });
 
-// The owner on 2026-11-17: a picture is described under 1,500 characters.
+// The owner on 2026-11-17: a picture's description takes at most 2,000 characters.
 test('describe: {{maxChars}} in the describe prompt is filled with the description length', async () => {
   const { llm } = await describeWith('Une chatte grise.', 'Say it in at most {{maxChars}} characters. Keep {{other}}.');
   const [{ messages }] = llm.calls;
-  assert.equal(messages[0].content, 'Say it in at most 1500 characters. Keep {{other}}.');
+  assert.equal(messages[0].content, 'Say it in at most 2000 characters. Keep {{other}}.');
 });
 
 test('describe: a cache hit is free -- no download, no LLM request, marked cached', async () => {
@@ -1953,7 +1953,7 @@ function relookDescriber({
   return { describer, store, llm, imageFetcher, state };
 }
 
-// The owner on 2026-11-17: the second look at a picture takes the picture length, 1,500.
+// The owner on 2026-11-17: a picture's description takes at most 2,000 characters.
 test('relookImage: one download and one vision request with the question; the answer is not the picture caption', async () => {
   const { describer, store, llm, imageFetcher } = relookDescriber({ now: clock() });
   const item = pictureItem('a1', { previewUrl: 'https://previews.example/a1.webp' });
@@ -1966,7 +1966,7 @@ test('relookImage: one download and one vision request with the question; the an
   assert.equal(imageFetcher.calls[0].url, 'https://previews.example/a1.webp', 'the preview address as given');
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
-  assert.equal(system.content, 'Question: Y a-t-il un chargeur dans la pupille ?. At most 1500 characters.');
+  assert.equal(system.content, 'Question: Y a-t-il un chargeur dans la pupille ?. At most 2000 characters.');
   assert.deepEqual(user.content, [
     { type: 'text', text: 'Y a-t-il un chargeur dans la pupille ?' },
     { type: 'image_url', image_url: { url: SUCCESSFUL_DOWNLOAD.dataUrl } },
@@ -1984,7 +1984,7 @@ test('relookImage: one download and one vision request with the question; the an
   assert.equal(loose(cache)[keys[0]].answer, 'pas de chargeur, juste un reflet');
 });
 
-// The owner on 2026-11-17: the second look at a picture takes the picture length, 1,500.
+// The owner on 2026-11-17: a picture's description takes at most 2,000 characters.
 test('relookImage: with no {{question}} in the prompt the question goes only as the user text part, next to the image', async () => {
   const hot = relookHot({ prompts: { 'rewatch-answer': 'Answer in at most {{maxChars}} characters.' } });
   const { describer, llm, imageFetcher } = relookDescriber({ hot, now: clock() });
@@ -1992,7 +1992,7 @@ test('relookImage: with no {{question}} in the prompt the question goes only as 
   await describer.relookImage('g1', item, 'Quelle couleur ?');
 
   const [system, user] = llm.calls[0].messages;
-  assert.equal(system.content, 'Answer in at most 1500 characters.');
+  assert.equal(system.content, 'Answer in at most 2000 characters.');
   assert.ok(!system.content.includes('{{question}}'));
   assert.ok(!system.content.includes('Quelle couleur'));
   assert.deepEqual(user.content, [
@@ -2067,9 +2067,9 @@ test('describe: {{today}} in the describe prompt is filled with the date of the 
   const llm = fakeLlm({ text: 'Une affiche datée.' });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => TODAY_NOW });
   await describer.describe('g1', pictureItem('a1'));
-  // The owner on 2026-11-17: a picture is described under 1,500 characters.
+  // The owner on 2026-11-17: a picture's description takes at most 2,000 characters.
   const [{ messages }] = llm.calls;
-  assert.equal(messages[0].content, 'Today is 2026-09-30; at most 1500 characters.');
+  assert.equal(messages[0].content, 'Today is 2026-09-30; at most 2000 characters.');
 });
 
 // cachedDescriptions / cachedVideos: the cache-only accessors the address
@@ -3516,4 +3516,97 @@ test('describe: a watched GIF goes out with a purpose of the video role', async 
   await describer.describe('g1', gifEmbedItem());
   const [call] = llm.calls;
   assert.equal(roleOfPurpose(call.options.purpose), 'video');
+});
+
+// --- an answer the provider cut is no description ----------------------------------
+
+// The owner on 2026-11-17: a picture's description takes at most 2,000 characters.
+test('describe: a still sticker is described under the picture length of 2000', async () => {
+  const summary = fakeSummarize(() => 'Un renard qui salue.');
+  const describer = createDescriber({
+    hot: fakeHot(),
+    store: createStore(memoryAt(tmpDataDir())),
+    llm: fakeLlm({ text: proseLine(400) }),
+    imageFetcher: fakeImageFetcher(),
+    summarize: summary.summarize,
+  });
+  await describer.describe('g1', pictureItem('sticker:s1', { kind: 'sticker' }));
+  assert.deepEqual(
+    summary.calls.map((call) => call.options),
+    [{ maxChars: 2000, kind: 'picture' }]
+  );
+});
+
+// The owner on 2026-11-17: an answer the provider cut is no description.
+test('describe: a picture answer cut by the content filter is a miss with reason "cut", never summarized', async () => {
+  const summary = fakeSummarize(() => 'should never be stored');
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm({ text: 'Une femme tient un panneau où on lit', finishReason: 'content_filter' });
+  const describer = createDescriber({
+    hot: fakeHot(),
+    store,
+    llm,
+    imageFetcher: fakeImageFetcher(),
+    summarize: summary.summarize,
+  });
+  const result = await describer.describe('g1', pictureItem('a1'));
+  assert.equal(result, null);
+  const entry = loose(cacheView(store, 'g1')).a1;
+  assert.deepEqual([entry.miss, entry.reason, entry.text], [true, 'cut', undefined]);
+  assert.equal(summary.calls.length, 0);
+});
+
+// The owner on 2026-11-17: an answer the token cap cut is no description.
+test('describe: a picture answer cut by the token cap is a miss with reason "cut"', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm({ text: 'Trois chats sur un toit, le deuxième', finishReason: 'length' });
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
+  assert.equal(await describer.describe('g1', pictureItem('a1')), null);
+  const entry = loose(cacheView(store, 'g1')).a1;
+  assert.deepEqual([entry.miss, entry.reason, entry.text], [true, 'cut', undefined]);
+});
+
+// The owner on 2026-11-17: a cut answer leaves the description made before.
+test('describe: a stale picture whose new answer is cut keeps its old text', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const cache = cacheView(store, 'g1');
+  loose(cache).a1 = { text: 'une vieille photo', ts: 1 };
+  const llm = fakeLlm({ text: 'Une nouvelle phrase coupée', finishReason: 'content_filter' });
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO } } });
+  const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => CUTOFF + HOUR });
+  const result = await describer.describe('g1', pictureItem('a1'));
+  assert.equal(loose(result).text, 'une vieille photo');
+  assert.equal(loose(cache).a1.text, 'une vieille photo');
+});
+
+// The owner on 2026-11-17: an answer the provider cut is no description.
+test('describe: a GIF watch answer cut by the content filter is a miss with reason "cut", never summarized', async () => {
+  const summary = fakeSummarize(() => 'should never be stored');
+  const run = gifDescriber({
+    llm: fakeLlm({ text: 'Un homme court vers', finishReason: 'content_filter' }),
+    summarize: summary.summarize,
+  });
+  assert.equal(await run.describer.describe('g1', gifEmbedItem()), null);
+  assertGifMiss(run, 'm1#e0', 'cut');
+  assert.equal(summary.calls.length, 0);
+});
+
+// The owner on 2026-11-17: an answer the provider cut is no description.
+test('describeVideo: a summary cut by the content filter is an error with reason "cut", never summarized', async () => {
+  const summary = fakeSummarize(() => 'should never be stored');
+  const { describer } = videoDescriber({
+    llm: fakeLlm({ text: 'Deux personnes dansent puis', finishReason: 'content_filter' }),
+    summarize: summary.summarize,
+  });
+  assert.deepEqual(await describer.describeVideo('g1', videoAttachment()), { state: 'error', reason: 'cut' });
+  assert.equal(summary.calls.length, 0);
+});
+
+// The owner on 2026-11-17: a second look that is cut tells her so instead of handing her half an answer.
+test('relookImage: an answer cut by the content filter comes back as failed "cut" with no text, and is not cached', async () => {
+  const llm = fakeLlm({ text: 'Le panneau dit', finishReason: 'content_filter' });
+  const { describer, store } = relookDescriber({ llm, now: clock() });
+  const result = await describer.relookImage('g1', pictureItem('a1'), 'Que dit le panneau ?');
+  assert.deepEqual(result, { question: 'Que dit le panneau ?', failed: 'cut' });
+  assert.deepEqual(Object.keys(cacheView(store, 'g1')), []);
 });

@@ -560,6 +560,22 @@ test('mediaLookText: the image or the video model named as the source with what 
   );
 });
 
+// The owner on 2026-11-17: a second look the provider cut tells her so instead of handing her half an answer.
+test('runMediaLook: a second look that came back cut fails with the code "cut"', async () => {
+  const describer = {
+    relookImage: (placeId: string, item: Untyped, question: string) => Promise.resolve({ question, failed: 'cut' }),
+  };
+  const result = await runMediaLook({
+    describer,
+    config: LOOK_ON,
+    labels,
+    placeId: 'g1',
+    args: { message: 'm7', question: 'τι γράφει;' },
+    mediaOf: (id: string) => (id === 'm7' ? mediaMessage() : null),
+  } as unknown as Parameters<typeof runMediaLook>[0]);
+  assert.deepEqual([result.status, result.code], ['failed', 'cut']);
+});
+
 test('runMediaLook: her question goes to the second look of the item she names, the answer comes back labelled; the first item by default', async () => {
   const describer = fakeDescriber();
   const asked: Array<Untyped> = [];
