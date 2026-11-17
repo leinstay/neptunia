@@ -14,11 +14,14 @@
 // and no miss is cached, so the pictures and
 // videos of the last hours are still described after 00:00 UTC. Descriptions
 // are data: never logged. A picture's caption is the whole answer of the
-// vision model, every line joined into one with single spaces, cut on a word
-// boundary at `DESCRIPTION_CHARS` (3,000; the describe prompt learns the cap
-// through `{{maxChars}}`). Every other description reads the same limit: each
-// field of a GIF's, a video's and a sound's summary and the answer of a
-// second look. The picture prompt's `{{self}}`
+// vision model, every line joined into one with single spaces. Its length is
+// `DESCRIPTION_CHARS` (1,500, the prompt learns it through `{{maxChars}}`),
+// shared by a sticker, an emoji and a GIF. A video's summary takes
+// `VIDEO_DESCRIPTION_CHARS` (6,000) and a sound's `AUDIO_DESCRIPTION_CHARS`
+// (3,000). A second look takes the length of its media. Nothing is cut: an
+// answer over its length goes once through the `summarize` dependency
+// (src/behavior/summarize.ts), and what it returns is stored whole, even
+// when it is still longer. The picture prompt's `{{self}}`
 // is the `describe-self` paragraph, her name and her appearance, filled when
 // the appearance prompt is not blank and `selfName` knows her name there.
 //
@@ -70,8 +73,8 @@
 // the clip's length as `watchedSeconds`, so the transcript can tell a video
 // watched only in part (src/media/classify.ts, `videoWatchedPart`).
 //
-// A summary is capped at `DESCRIPTION_CHARS` (the describe-video
-// prompt learns the cap through `{{maxChars}}`). `rewatchVideo()` is the
+// A summary's length is `VIDEO_DESCRIPTION_CHARS` (the describe-video
+// prompt learns it through `{{maxChars}}`). `rewatchVideo()` is the
 // second look on a question (features.videoRewatch, a missing key counts as
 // on): the same media fetch as a watch, asked one question through the
 // `rewatch-answer` prompt. Its answer is cached for an hour under
@@ -94,11 +97,8 @@
 // to a short mp4 (the first `media.gif.maxSeconds`) and summarised by the
 // video model under the video request rails. The caption is cached under the
 // GIF's own item id like a picture's (so the transcript, the analyzer and
-// the GIF library read it unchanged), marked `watched: true`, with the
-// answer's three fields beside it (`reaction`, `action`, `screen`: what reply
-// the clip expresses, what visibly happens, its on-screen text; see
-// parseGifDescription; stored whole, cut per field only where they are
-// shown) for the `<gifs>` list and the transcript. A GIF that
+// the GIF library read it unchanged), marked `watched: true`. The answer is
+// prose, kept as one text on one line and shown whole. A GIF that
 // cannot be watched -- the switches, no animation, a spent daily rail, a
 // failed fetch, conversion or request -- gets the one-frame description as
 // before (marked `gif: true`, plus `watchFailed` when a watch failed). A
@@ -139,7 +139,7 @@ import {
   railReason,
   VIDEO_TOKENS_PER_SECOND as STATIC_TOKENS_PER_SECOND_FALLBACK,
 } from '../llm/openrouter.ts';
-import { clampText, oneLine } from './clamp.ts';
+import { oneLine } from './clamp.ts';
 import { roleModel, roleOn } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { createYoutubeCheck } from './youtube-check.ts';
@@ -159,11 +159,15 @@ const MISS_TTL_MS = 60 * MINUTE_MS;
 // Only when media.video.errorRetryMinutes is missing or invalid (config.json always has it).
 const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
 // The describer's measures. Production values, config cut of 2026-10-31.
-/**
- * The one length of every description: a picture's caption (the whole answer of the vision model, on one line),
- * each field of a GIF's, a video's or a sound's summary and the answer of a second look.
- */
-export const DESCRIPTION_CHARS = 3000;
+/** The length of a picture's, a sticker's, an emoji's and a GIF's description, and of a second look at one of them. */
+export const DESCRIPTION_CHARS = 1500;
+/** The length of a video's summary and of a second look at a video. */
+export const VIDEO_DESCRIPTION_CHARS = 6000;
+/** The length of a voice message's or an audio file's summary. */
+export const AUDIO_DESCRIPTION_CHARS = 3000;
+
+/** What a description is shortened as (src/behavior/summarize.ts). */
+type SummaryKind = 'picture' | 'GIF' | 'video' | 'text';
 /** The seconds of a GIF that are watched. */
 const GIF_MAX_SECONDS = 15;
 /**
@@ -242,82 +246,6 @@ function isVideoCandidate(item: MediaItem) {
     Boolean(item.itemId) &&
     Boolean(item.url)
   );
-}
-
-/** Collapse every run of whitespace to one space, then cap at `maxChars` on a word boundary. */
-function cleanVideoText(raw: Untyped, maxChars: Untyped) {
-  return clampText(oneLine(raw), maxChars, { tolerance: 1 });
-}
-
-// One labelled line of a GIF watch's answer (prompts/describe-gif.md): `reaction:`, `action:`
-// or `text:`, in any case, a list mark or bold markers around the label tolerated.
-const GIF_FIELD_LINE = /^[\s*_•-]*(reaction|action|text)[\s*_]*:[\s*_]*(.*)$/i;
-// The answer's word for an empty field, with an optional full stop.
-const GIF_NONE = /^none\.?$/i;
-// One pair of quotes around a whole value (the on-screen text is often quoted).
-const QUOTE_PAIRS = [
-  ['"', '"'],
-  ['«', '»'],
-  ['“', '”'],
-  ['„', '“'],
-  ["'", "'"],
-  ['‘', '’'],
-];
-
-/** A field's value on one line, without one pair of surrounding quotes; '' for "none". */
-function gifFieldValue(raw: Untyped) {
-  let value = oneLine(raw);
-  for (const [open, close] of QUOTE_PAIRS) {
-    if (value.length >= 2 && value.startsWith(open) && value.endsWith(close)) {
-      value = value.slice(open.length, -close.length).trim();
-      break;
-    }
-  }
-  return GIF_NONE.test(value) ? '' : value;
-}
-
-/**
- * A GIF watch's answer read as its three fields (prompts/describe-gif.md):
- * `reaction:`, `action:` and `text:` lines, labels in any case and any order,
- * a missing line read as empty, `none` read as empty, an unlabelled line after
- * a labelled one continuing that field. An answer with no label at all is the
- * action alone (an older prompt's one-line account, or describe-video's).
- * `reaction`, `action` and `screen` (the on-screen text) are kept whole, each
- * bounded only by `descriptionChars` (clampText, a hard limit): the readers
- * cut them per field at render time (`gifs.reactionChars` /
- * `gifs.actionChars`, src/behavior/prompt.js#gifFieldChars), so nothing is
- * lost in the cache. `text`, the line the transcript and every other
- * reader of the cache show, is the whole action -- the reaction, else the
- * on-screen text, when the answer gives no action -- on one line under
- * `descriptionChars` (clampText, a hard limit). Null when every field is
- * empty. Pure.
- * @param raw  The model's answer.
- */
-export function parseGifDescription(
-  raw: unknown,
-  { descriptionChars }: { descriptionChars: number }
-): { text: string; reaction: string; action: string; screen: string } | null {
-  const source = typeof raw === 'string' ? raw : '';
-  const fields: Record<string, Array<string>> = { reaction: [], action: [], text: [] };
-  let current: string | null = null;
-  let labelled = false;
-  for (const line of source.split(/\r?\n/)) {
-    const match = GIF_FIELD_LINE.exec(line);
-    if (match) {
-      current = match[1].toLowerCase();
-      labelled = true;
-      fields[current].push(match[2]);
-    } else if (current && line.trim() !== '') {
-      fields[current].push(line);
-    }
-  }
-  const reactionWhole = labelled ? gifFieldValue(fields.reaction.join(' ')) : '';
-  const actionWhole = labelled ? gifFieldValue(fields.action.join(' ')) : oneLine(source);
-  const screenWhole = labelled ? gifFieldValue(fields.text.join(' ')) : '';
-  const bound = (value: Untyped) => clampText(value, descriptionChars, { tolerance: 1 });
-  const text = bound(actionWhole || reactionWhole || screenWhole);
-  if (!text) return null;
-  return { text, reaction: bound(reactionWhole), action: bound(actionWhole), screen: bound(screenWhole) };
 }
 
 /**
@@ -519,6 +447,8 @@ type DescriberDeps = {
   selfName?: (placeId: string) => string;
   /** Reads a text file's words: `{ ok, text }` or `{ ok: false, reason }`. */
   fetchText?: (url: string) => Promise<{ ok: boolean; text?: string; reason?: string }>;
+  /** Shortens an answer over `maxChars` (src/behavior/summarize.ts); none keeps every answer whole. */
+  summarize?: (text: string, options: { maxChars: number; kind: SummaryKind }) => Promise<string>;
 };
 
 /** A text file's opening, over plain HTTP. */
@@ -607,7 +537,13 @@ function buildDescriber({
   track = untracked,
   fetchText = readTextForm,
   selfName,
+  summarize,
 }: DescriberDeps) {
+  /** `text` through the summarizer at `maxChars`, kept whole as it returns it; `text` itself without one. */
+  function shorten(text: string, maxChars: number, kind: SummaryKind): Promise<string> {
+    return summarize ? summarize(text, { maxChars, kind }) : Promise.resolve(text);
+  }
+
   /** Today's UTC date as `YYYY-MM-DD` from the injected clock: the daily counters and the prompts' `{{today}}`. */
   function todayDate() {
     return utcDay(now());
@@ -808,9 +744,8 @@ function buildDescriber({
       return fail(reason !== 'daily-cap');
     }
 
-    // The whole answer on one line, hard-capped on a word boundary (never mid-token).
-    const captionOf = (answered: Answered): string =>
-      clampText(oneLine(typeof answered.text === 'string' ? answered.text : ''), descriptionChars, { tolerance: 1 });
+    // The whole answer on one line.
+    const captionOf = (answered: Answered): string => oneLine(typeof answered.text === 'string' ? answered.text : '');
     const firstCaption = captionOf(completion);
 
     if (!firstCaption) {
@@ -829,7 +764,7 @@ function buildDescriber({
         return caption ? { text: caption, usage: again.usage } : null;
       }
     );
-    const { text } = standard.answer;
+    const text = await shorten(standard.answer.text, descriptionChars, 'picture');
 
     // A GIF's one-frame caption is marked (`gif`), and `watchFailed` when a watch was tried.
     const ts = now();
@@ -844,11 +779,12 @@ function buildDescriber({
   const audioDeps = (placeId: string): AudioDeps => ({
     prompt: () => (hot.prompts as Record<string, unknown> | null | undefined)?.['describe-audio'],
     settings: () =>
-      ({ ...videoSettingsOf(hot.config), summaryChars: DESCRIPTION_CHARS }) as ReturnType<AudioDeps['settings']>,
+      ({ ...videoSettingsOf(hot.config), summaryChars: AUDIO_DESCRIPTION_CHARS }) as ReturnType<AudioDeps['settings']>,
     model: () => roleModel(hot.config, 'video'),
     fill: (template, values) => fillPromptTemplate(template, { ...values, today: todayDate() }),
     fetchAudio: (url, options) => (videoFetcher as Pick<AudioDeps, 'fetchAudio'>).fetchAudio(url, options),
     fetchText,
+    summarize: (text, maxChars) => shorten(text, maxChars, 'text'),
     complete: (messages, options) => (llm as Pick<AudioDeps, 'complete'>).complete(messages, options),
     requestOptions: (settings, seconds, model) =>
       videoRequestOptions(settings, { seconds }, { maxOutputTokens: settings.maxOutputTokens, model: asModel(model) }),
@@ -878,11 +814,10 @@ function buildDescriber({
    * `media.gif.maxSeconds`, the video size and tool settings), then
    * summarised by the video model through the `describe-gif` prompt
    * (`{{maxChars}}` = `DESCRIPTION_CHARS` and `{{seconds}}` = `media.gif.maxSeconds`),
-   * else the `describe-video` prompt with `{{maxChars}}` alone as before;
-   * under the video token cap and output budget. The answer is read as three fields (parseGifDescription,
-   * each kept whole under `DESCRIPTION_CHARS`) and cached under the
-   * GIF's own item id as `{ text, reaction, action, screen, ts, watched: true,
-   * gif: true }`; nothing is cached otherwise.
+   * else the `describe-video` prompt with `{{maxChars}}` alone;
+   * under the video token cap and output budget. The answer on one line, through the summarizer at
+   * `DESCRIPTION_CHARS`, is cached under the GIF's own item id as `{ text, ts, watched: true, gif: true }`;
+   * nothing is cached otherwise.
    * Resolves `{ state: 'watched', text, usage, estimated }`, `{ state:
    * 'failed', reason }` (the fetch, the conversion, the request or an empty
    * answer) or `{ state: 'unavailable', reason: 'daily'|'daily-cap' }` (a
@@ -935,27 +870,23 @@ function buildDescriber({
       return report({ state: 'failed', reason }, { ...sizes, status: propOf(err, 'statusCode') });
     }
 
-    const firstFields = parseGifDescription(completion.text, { descriptionChars });
-    if (!firstFields) return report({ state: 'failed', reason: 'empty' }, sizes);
+    const firstText = oneLine(completion.text);
+    if (!firstText) return report({ state: 'failed', reason: 'empty' }, sizes);
     let estimated = completion.estimated ?? 0;
-    // The on-screen text stays out of the check: it is quoted in its own script.
     const standard = await toStandard(
-      { fields: firstFields, usage: completion.usage },
-      (answer) => `${answer.fields.reaction} ${answer.fields.action}`,
+      { text: firstText, usage: completion.usage },
+      (answer) => answer.text,
       async () => {
         const again = await ask();
         estimated += again.estimated ?? 0;
-        const parsed = parseGifDescription(again.text, { descriptionChars });
-        return parsed ? { fields: parsed, usage: again.usage } : null;
+        const answer = oneLine(again.text);
+        return answer ? { text: answer, usage: again.usage } : null;
       }
     );
-    const { text, reaction, action, screen } = standard.answer.fields;
+    const text = await shorten(standard.answer.text, descriptionChars, 'GIF');
     const ts = now();
     putVideoEntry(placeId, item.itemId, {
       text,
-      reaction,
-      action,
-      screen,
       ts,
       watched: true,
       gif: true,
@@ -1302,7 +1233,7 @@ function buildDescriber({
     previous: Untyped = null
   ) {
     const videoCfg = videoSettingsOf(hot.config);
-    const summaryChars = DESCRIPTION_CHARS;
+    const summaryChars = VIDEO_DESCRIPTION_CHARS;
     const report = (result: Untyped, extra: Record<string, Untyped> = {}) => {
       log.info('describe: video', {
         source: item.source,
@@ -1389,7 +1320,7 @@ function buildDescriber({
       };
     }
 
-    const firstSummary = cleanVideoText(completion.text, summaryChars);
+    const firstSummary = oneLine(completion.text);
     if (!firstSummary) return { result: errorMiss('empty', sizes), sent: true, attempted: true };
 
     let estimated = completion.estimated ?? 0;
@@ -1399,11 +1330,11 @@ function buildDescriber({
       async () => {
         const again = await ask();
         estimated += again.estimated ?? 0;
-        const summary = cleanVideoText(again.text, summaryChars);
+        const summary = oneLine(again.text);
         return summary ? { text: summary, usage: again.usage } : null;
       }
     );
-    const { text } = standard.answer;
+    const text = await shorten(standard.answer.text, summaryChars, 'video');
     const ts = now();
     const entry: Record<string, Untyped> = {
       text,
@@ -1540,7 +1471,7 @@ function buildDescriber({
    * (fetchVideoMedia -- same probe chain, direct-URL rules, caps and pinned
    * provider) and ask the video model `question`: the `rewatch-answer`
    * prompt is the system message (`{{maxChars}}` =
-   * `DESCRIPTION_CHARS`; a `{{question}}` still in it is filled
+   * `VIDEO_DESCRIPTION_CHARS`; a `{{question}}` still in it is filled
    * too, never left literal) and the question goes as a text part of the user
    * message next to the video. Needs video vision on,
    * `features.videoRewatch` not false, the prompt, a video candidate and a
@@ -1556,7 +1487,7 @@ function buildDescriber({
 
     const videoCfg = videoSettingsOf(hot.config);
     const rewatchCfg = videoCfg.rewatch ?? {};
-    const answerChars = DESCRIPTION_CHARS;
+    const answerChars = VIDEO_DESCRIPTION_CHARS;
     const report = (outcome: string, extra: Record<string, Untyped> = {}) => {
       log.info('describe: rewatch', {
         source: item.source,
@@ -1611,11 +1542,12 @@ function buildDescriber({
       return null;
     }
 
-    const text = cleanVideoText(completion.text, answerChars);
-    if (!text) {
+    const answer = oneLine(completion.text);
+    if (!answer) {
       report('error', { reason: 'empty', seconds: media.seconds ?? null });
       return null;
     }
+    const text = await shorten(answer, answerChars, 'text');
     putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
     report('answered', { seconds: media.seconds ?? null });
     return { question: asked, text };
@@ -1711,11 +1643,12 @@ function buildDescriber({
       return null;
     }
 
-    const text = cleanVideoText(completion.text, answerChars);
-    if (!text) {
+    const answer = oneLine(completion.text);
+    if (!answer) {
       report('error', { reason: 'empty' });
       return null;
     }
+    const text = await shorten(answer, answerChars, 'text');
     putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
     report('answered');
     return { question: asked, text };
@@ -1823,11 +1756,12 @@ function buildDescriber({
       return null;
     }
 
-    const text = cleanVideoText(completion.text, answerChars);
-    if (!text) {
+    const answer = oneLine(completion.text);
+    if (!answer) {
       report('error', { reason: 'empty', seconds: clip.seconds });
       return null;
     }
+    const text = await shorten(answer, answerChars, 'text');
     putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
     report('answered', { seconds: clip.seconds });
     return { question: asked, text };

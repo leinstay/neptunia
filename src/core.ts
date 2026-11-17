@@ -59,6 +59,7 @@ import { createSpeech } from './speech/index.ts';
 import { ffmpegAvailable } from './speech/convert.ts';
 import { gifVectorModel } from './behavior/media-pick.ts';
 import { createTurnRunner } from './behavior/turn.ts';
+import { createSummarizer } from './behavior/summarize.ts';
 import { createActivity } from './behavior/activity.ts';
 import { ownerNamesOf } from './memory/db/people-read.ts';
 import { loadStemmer } from './memory/db/stems.ts';
@@ -567,6 +568,8 @@ async function buildCore(
     track: loopWatch.track,
     // Her name in the place, for the picture prompt; getSelfName is defined below and read at each description.
     selfName: (placeId: string) => getSelfName(placeId),
+    // An answer over its length is shortened on the analyzer, through the client the analyzer callers use.
+    summarize: createSummarizer({ hot, llm }).summarize,
   };
   const describer = createDescriber(describerDeps);
   // The web lookup (features.webLookup, off by default): link reader + search on a question.

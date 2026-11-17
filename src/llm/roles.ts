@@ -114,6 +114,7 @@ export const PURPOSE_ROLES = Object.freeze({
   merge: 'analyzer',
   split: 'analyzer',
   'media-pick': 'analyzer',
+  summarize: 'analyzer',
   missed: 'analyzer',
   'query-builder': 'analyzer',
   'recall-summary': 'analyzer',

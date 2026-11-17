@@ -25,6 +25,7 @@ import { createArchive } from '../../src/memory/archive.ts';
 import { createAppendStore } from '../../src/memory/append-store.ts';
 import { createVectors } from '../../src/memory/vectors.ts';
 import { createDescriber } from '../../src/memory/describe.ts';
+import { createSummarizer } from '../../src/behavior/summarize.ts';
 import { issueContext } from '../../src/memory/db/scope.ts';
 import type { Context } from '../../src/memory/db/scope.ts';
 import { linkedDmScopes } from '../../src/memory/db/person-links.ts';
@@ -361,6 +362,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     // Her name as every request uses it; `members` is built below and read when a picture is described.
     selfName: () =>
       (identity.rootNative !== null ? members.nameOf(identity.rootNative, identity.selfId) : null) ?? identity.selfName,
+    summarize: createSummarizer({ hot, llm } as unknown as Parameters<typeof createSummarizer>[0]).summarize,
   } as unknown as Parameters<typeof createDescriber>[0]);
   const lookup = createLookup({
     hot,
