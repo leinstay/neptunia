@@ -22,8 +22,9 @@
 // answer over its length goes once through the `summarize` dependency
 // (src/behavior/summarize.ts), and what it returns is stored whole on one
 // line, as the answer is, even when it is still longer. The picture prompt's `{{self}}`
-// is the `describe-self` paragraph, her name and her appearance, filled when
-// the appearance prompt is not blank and `selfName` knows her name there.
+// is the `describe-self` paragraph with her appearance, filled when the
+// appearance prompt is not blank. It names her by `SELF_MARK` (src/memory/self-mark.ts)
+// and never by a name, so one stored caption serves every place.
 //
 // The picture is downloaded first (src/media/fetch-image.ts) and sent to
 // the model as a data: URL, never as a bare platform URL -- a platform's media host may refuse
@@ -154,6 +155,7 @@ import type { StoredRecord, Untyped } from './types.ts';
 import type { StoreView } from './store.ts';
 import type { Track } from '../loop-watch.ts';
 import { untracked } from '../loop-watch.ts';
+import { SELF_MARK } from './self-mark.ts';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
 /** What a store with no database links. */
@@ -459,8 +461,6 @@ type DescriberDeps = {
   proxy?: () => string | null;
   /** The event loop watch's `track` (src/loop-watch.ts); a description is a named operation. */
   track?: Track;
-  /** The persona's display name in a place, for the `{{self}}` of the picture prompt; none leaves `{{self}}` empty. */
-  selfName?: (placeId: string) => string;
   /** Reads a text file's words: `{ ok, text }` or `{ ok: false, reason }`. */
   fetchText?: (url: string) => Promise<{ ok: boolean; text?: string; reason?: string }>;
   /** Shortens an answer over `maxChars` (src/behavior/summarize.ts); none keeps every answer whole. */
@@ -560,7 +560,6 @@ function buildDescriber({
   proxy: proxyNow = () => null,
   track = untracked,
   fetchText = readTextForm,
-  selfName,
   summarize,
   freshAddress,
 }: DescriberDeps) {
@@ -584,19 +583,18 @@ function buildDescriber({
   }
 
   /**
-   * The `{{self}}` of the picture prompt: `describe-self` with her name and her appearance (its own `{{name}}`
-   * filled first) when the appearance is not blank and a name is known, else an empty string.
+   * The `{{self}}` of the picture prompt: `describe-self` with her appearance, each `{{name}}` filled with
+   * `SELF_MARK`, when the appearance is not blank, else an empty string.
    */
-  function selfParagraph(placeId: string): string {
+  function selfParagraph(): string {
     const prompts = hot.prompts as Record<string, unknown> | null | undefined;
-    const name = selfName?.(placeId);
     const template = prompts?.['describe-self'];
-    if (!name || typeof template !== 'string') return '';
+    if (typeof template !== 'string') return '';
     const appearance = fillPromptTemplate(typeof prompts?.appearance === 'string' ? prompts.appearance : '', {
-      name,
+      name: SELF_MARK,
     }).trim();
     if (!appearance) return '';
-    return fillPromptTemplate(template, { name, appearance }).trim();
+    return fillPromptTemplate(template, { name: SELF_MARK, appearance }).trim();
   }
 
   /** Whether pictures are described under the live prompts (the describe prompt is there). */
@@ -781,7 +779,7 @@ function buildDescriber({
             content: fillPromptTemplate(promptText, {
               maxChars: descriptionChars,
               today: todayDate(),
-              self: selfParagraph(placeId),
+              self: selfParagraph(),
             })
               .replace(/(?:\r?\n){3,}/g, '\n\n')
               .trim(),

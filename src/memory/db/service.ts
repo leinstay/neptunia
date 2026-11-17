@@ -1158,6 +1158,7 @@ export function createMemoryDb({
         config,
         now: at,
         quantize,
+        selfName: selfName() ?? '',
         model: roleModel(config, 'embedding') ?? null,
       });
     })()

@@ -46,7 +46,7 @@ function kindLines(text: string, iface: string, kind: string): Array<string> {
 
 test('legendText is empty when no item is given', () => {
   // Bug: the block's frame is printed with nothing in it.
-  assert.equal(legendText([], LABELS), '');
+  assert.equal(legendText([], LABELS, 'Mira'), '');
 });
 
 test('legendText groups by interface, then emojis before stickers, holding only the interfaces and kinds that occur', () => {
@@ -57,7 +57,8 @@ test('legendText groups by interface, then emojis before stickers, holding only 
       sticker('s12', 'wave', 'a cat raising one paw'),
       emoji('e23', 'kekw', 'a frog laughing'),
     ],
-    LABELS
+    LABELS,
+    'Mira'
   );
   assert.deepEqual(tagsOf(text), ['discord', 'emojis', 'stickers', 'matrix', 'emojis']);
   assert.deepEqual(kindLines(text, 'discord', 'emojis'), [':e23: kekw: a frog laughing']);
@@ -67,7 +68,7 @@ test('legendText groups by interface, then emojis before stickers, holding only 
 
 test('legendText lists the things of a kind in the order of their numbers', () => {
   // Bug: the names sort as text, so `e12` stands before `e3` and the order moves as names are issued.
-  const text = legendText([emoji('e12', 'twelve', 'twelve'), emoji('e3', 'three', 'three')], LABELS);
+  const text = legendText([emoji('e12', 'twelve', 'twelve'), emoji('e3', 'three', 'three')], LABELS, 'Mira');
   assert.deepEqual(kindLines(text, 'discord', 'emojis'), [':e3: three: three', ':e12: twelve: twelve']);
 });
 
@@ -75,20 +76,20 @@ test('legendText keeps a description of 1,400 characters whole', () => {
   // Bug: the legend shortens a description, and she loses the end of what the helper saw.
   const long = `${'x'.repeat(1396)} END`;
   assert.equal(long.length, 1400);
-  const text = legendText([emoji('e23', 'kekw', long)], LABELS);
+  const text = legendText([emoji('e23', 'kekw', long)], LABELS, 'Mira');
   assert.deepEqual(kindLines(text, 'discord', 'emojis'), [`:e23: kekw: ${long}`]);
 });
 
 test('legendText writes a thing with no description yet in lineNoText', () => {
   // Bug: a thing not yet described is dropped, and she meets a name the legend does not explain.
-  const text = legendText([emoji('e24', 'wavey', null), sticker('s14', 'nod', null)], LABELS);
+  const text = legendText([emoji('e24', 'wavey', null), sticker('s14', 'nod', null)], LABELS, 'Mira');
   assert.deepEqual(kindLines(text, 'discord', 'emojis'), ['NOTEXT :e24: wavey']);
   assert.deepEqual(kindLines(text, 'discord', 'stickers'), ['NOTEXT s14 nod']);
 });
 
 test('legendText writes a sticker with no picture in unreadable, whatever text it carries', () => {
   // Bug: a Lottie sticker reads as seen, from a caption nobody could have made of it.
-  const text = legendText([sticker('s13', 'dance_loop', 'a stale caption', false)], LABELS);
+  const text = legendText([sticker('s13', 'dance_loop', 'a stale caption', false)], LABELS, 'Mira');
   assert.deepEqual(kindLines(text, 'discord', 'stickers'), ['UNSEEN s13 dance_loop']);
 });
 

@@ -3,6 +3,7 @@
 // description. A line of chat holds the stable name alone. The reader (src/turn/request/reader.ts) gathers the items
 // after the cuts and prints the block between `<meanwhile>` and `<chat>`.
 import { fill } from '../../format.ts';
+import { fillSelfMark } from '../../memory/self-mark.ts';
 import type { MediaName } from '../../memory/store-media-names.ts';
 import type { Labels } from './types.ts';
 
@@ -35,16 +36,22 @@ const KIND_TAGS: ReadonlyArray<[Kind, string]> = [
 /** The number of a stable name, so `e3` stands before `e12`. */
 const numberOf = (name: string): number => Number(name.slice(1));
 
-/** One line of the legend: `legend.unreadable` for a sticker with no picture, `legend.lineNoText` with no description. */
-function lineOf(item: LegendItem, labels: LegendLabels): string {
+/**
+ * One line of the legend: `legend.unreadable` for a sticker with no picture, `legend.lineNoText` with no description.
+ * A description's `SELF_MARK` reads `selfName`.
+ */
+function lineOf(item: LegendItem, labels: LegendLabels, selfName: string): string {
   const name = item.kind === 'emoji' ? `:${item.name}:` : item.name;
-  const values = { name, platformName: item.platformName, text: item.text ?? '' };
+  const values = { name, platformName: item.platformName, text: fillSelfMark(item.text ?? '', selfName) };
   if (!item.readable) return fill(labels.legend?.unreadable ?? '', values);
   return fill((item.text ? labels.legend?.line : labels.legend?.lineNoText) ?? '', values);
 }
 
-/** The legend's body: interfaces by id, emojis before stickers, things in the order of their numbers; '' for none. */
-export function legendText(items: ReadonlyArray<LegendItem>, labels: LegendLabels): string {
+/**
+ * The legend's body: interfaces by id, emojis before stickers, things in the order of their numbers; '' for none.
+ * `selfName` is her name in the place the legend is read in.
+ */
+export function legendText(items: ReadonlyArray<LegendItem>, labels: LegendLabels, selfName: string): string {
   const ifaces = [...new Set(items.map((item) => item.iface))].sort();
   return ifaces
     .map((iface) => {
@@ -52,7 +59,7 @@ export function legendText(items: ReadonlyArray<LegendItem>, labels: LegendLabel
         const lines = items
           .filter((item) => item.iface === iface && item.kind === kind)
           .sort((a, b) => numberOf(a.name) - numberOf(b.name))
-          .map((item) => lineOf(item, labels));
+          .map((item) => lineOf(item, labels, selfName));
         return lines.length ? `<${tag}>\n${lines.join('\n')}\n</${tag}>` : '';
       });
       return `<${iface}>${kinds.join('')}</${iface}>`;
@@ -115,6 +122,7 @@ export function messagesLegend(
   messages: ReadonlyArray<unknown>,
   nameOf: (name: string) => MediaName | null,
   labels: LegendLabels,
+  selfName: string,
   descriptions: ReadonlyMap<string, string> | null = null
 ): string {
   const parts = messages.flatMap((message) => {
@@ -137,18 +145,23 @@ export function messagesLegend(
   );
   return legendText(
     legendItems(texts, stickers, nameOf, (key) => told.get(key) ?? null),
-    labels
+    labels,
+    selfName
   );
 }
 
-/** The legend of `messages` as the root block `<media>` that stands before their lines, or '' for none. */
+/**
+ * The legend of `messages` as the root block `<media>` that stands before their lines, or '' for none. `selfName` is
+ * her name in the place the lines are read in.
+ */
 export function legendBlock(
   messages: ReadonlyArray<unknown>,
   nameOf: (name: string) => MediaName | null,
   labels: unknown,
+  selfName: string,
   descriptions: ReadonlyMap<string, string> | null = null
 ): string {
-  const legend = messagesLegend(messages, nameOf, legendLabelsOf(labels), descriptions);
+  const legend = messagesLegend(messages, nameOf, legendLabelsOf(labels), selfName, descriptions);
   return legend ? `<media>\n${legend}\n</media>` : '';
 }
 

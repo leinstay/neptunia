@@ -38,7 +38,7 @@ const meanwhileOf = (
   settings: Parameters<typeof meanwhileWindows>[2],
   labels: Parameters<typeof meanwhileText>[2],
   nameOf: Parameters<typeof meanwhileText>[3]
-): string => meanwhileText(meanwhileWindows(reads, frame, settings), frame, labels, nameOf);
+): string => meanwhileText(meanwhileWindows(reads, frame, settings), frame, labels, nameOf, 'Mira');
 
 const NOW = Date.parse('2026-11-07T12:00:00.000Z');
 const MIN = 60_000;
@@ -259,7 +259,7 @@ const REFS = { handleOf: (key: string) => `u${key.length}x`, mention: () => 'som
 /** The text of `<meanwhile>` over one place of the fake with handle `handle`, as the reader renders its windows. */
 function textOf(place: FakePlace, frame: Frame = GROUP_FRAME, handle: string | null = 'cab12'): string {
   const windows = meanwhileWindows(meanwhileReads([place]), frame, SETTINGS);
-  return meanwhileText(windows, frame, shippedLabels, nameOf, () => handle, REFS);
+  return meanwhileText(windows, frame, shippedLabels, nameOf, 'Mira', () => handle, REFS);
 }
 
 test('the shipped head of a channel window is its place handle and a colon, with no name of the place, its root or the interface', () => {
@@ -343,7 +343,7 @@ function headWith(label: string, place: FakePlace, frame: Frame, handle: string 
   const labels = { ...shippedLabels, meanwhile: { ...shippedLabels.meanwhile, place: label } };
   const windows = meanwhileWindows(meanwhileReads([place]), frame, SETTINGS);
   return (
-    meanwhileText(windows, frame, labels, nameOf, () => handle, REFS)
+    meanwhileText(windows, frame, labels, nameOf, 'Mira', () => handle, REFS)
       .split('\n\n')[1]
       ?.split('\n')[0] ?? ''
   );
