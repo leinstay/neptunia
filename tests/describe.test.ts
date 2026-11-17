@@ -137,9 +137,9 @@ type SummaryCall = { text: string; options: { maxChars: number; kind: SummaryKin
 /** A fake summarizer: records each call and answers with `reply(text)`. */
 function fakeSummarize(reply: (text: string) => string) {
   const calls: Array<SummaryCall> = [];
-  const summarize = async (text: string, options: { maxChars: number; kind: SummaryKind }) => {
+  const summarize = (text: string, options: { maxChars: number; kind: SummaryKind }) => {
     calls.push({ text, options });
-    return reply(text);
+    return Promise.resolve(reply(text));
   };
   return { calls, summarize };
 }
@@ -192,7 +192,8 @@ test('describe: without summarize a 4000-character answer is stored whole', asyn
 // The owner on 2026-11-17: a picture is described under 1,500 characters.
 test('describe: {{maxChars}} in the describe prompt is filled with the description length', async () => {
   const { llm } = await describeWith('Une chatte grise.', 'Say it in at most {{maxChars}} characters. Keep {{other}}.');
-  assert.equal(llm.calls[0].messages[0].content, 'Say it in at most 1500 characters. Keep {{other}}.');
+  const [{ messages }] = llm.calls;
+  assert.equal(messages[0].content, 'Say it in at most 1500 characters. Keep {{other}}.');
 });
 
 test('describe: a cache hit is free -- no download, no LLM request, marked cached', async () => {
@@ -1798,7 +1799,8 @@ test('describeVideo: {{maxChars}} of describe-video is filled with the video len
   const hot = videoHot({ prompts: { 'describe-video': 'Summarise in at most {{maxChars}} characters.' } });
   const { describer, llm } = videoDescriber({ hot, llm: fakeLlm({ text: 'Première scène.' }) });
   await describer.describeVideo('g1', videoAttachment());
-  assert.equal(llm.calls[0].messages[0].content, 'Summarise in at most 6000 characters.');
+  const [{ messages }] = llm.calls;
+  assert.equal(messages[0].content, 'Summarise in at most 6000 characters.');
 });
 
 // --- rewatchVideo: the second look on a question ---------------------------------
@@ -2064,7 +2066,8 @@ test('describe: {{today}} in the describe prompt is filled with the date of the 
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => TODAY_NOW });
   await describer.describe('g1', pictureItem('a1'));
   // The owner on 2026-11-17: a picture is described under 1,500 characters.
-  assert.equal(llm.calls[0].messages[0].content, 'Today is 2026-09-30; at most 1500 characters.');
+  const [{ messages }] = llm.calls;
+  assert.equal(messages[0].content, 'Today is 2026-09-30; at most 1500 characters.');
 });
 
 // cachedDescriptions / cachedVideos: the cache-only accessors the address
@@ -2423,7 +2426,8 @@ test('describe: describe-gif alone (no describe-video) is enough to watch GIFs',
   assert.equal(run.describer.gifWatchBlocker(), null);
   await run.describer.describe('g1', gifEmbedItem());
   assert.equal(run.videoFetcher.calls[0].fn, 'fetchGif');
-  assert.equal(run.llm.calls[0].messages[0].content, 'Loop, 1500.');
+  const [{ messages }] = run.llm.calls;
+  assert.equal(messages[0].content, 'Loop, 1500.');
 });
 
 // --- A GIF is one text ---------------------------------------------------------

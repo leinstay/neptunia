@@ -228,8 +228,8 @@ test('the classifier sees the candidates, never the whole library', async () => 
 test('a candidate line holds a 300-character caption whole', async () => {
   const caption = `ναι φυσικά ${'γνέφει αργά '.repeat(24)}τέλος`;
   assert.equal(caption.length, 304);
-  const { pick, calls } = rig({ library: libraryOf(gifEntry('g1', caption)) });
-  await pick.pick(args());
+  const { pick: picker, calls } = rig({ library: libraryOf(gifEntry('g1', caption)) });
+  await picker.pick(args());
   const listed = blockOf(requestText(calls[0]), 'gifs');
   assert.equal(listed, `g1 -- ${caption}`);
 });
