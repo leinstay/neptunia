@@ -592,15 +592,12 @@ function itemRowFor(db: Db, line: LineRow, item: MediaItem, position: number): R
 function tellItem(db: Db, row: Row, item: MediaItem, at: unknown): number {
   if (item.description !== null && item.origin !== null)
     return writeText(db, row, { text: item.description, origin: item.origin, at }) ? 1 : 0;
-  // A cache row knew no kind: what it held of a video was a frame, of a voice its transcript, of a text its preview.
+  // A text the row holds keeps its origin. A cache row's text without one is named by its kind: what it held of a video
+  // was a frame, of a voice its transcript, of a text its preview.
   const extra = parsedObject(row.extra);
-  if (!filled(row.description)) return 0;
-  const held = extra.textOrigin;
-  if (held === 'voiced' || held === 'embed' || held === 'page') return 0;
-  const origin = originOf(row.kind, extra.watched === true);
-  if (held !== origin) {
-    db.prepare('UPDATE media SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, textOrigin: origin }), row.id);
-  }
+  if (!filled(row.description) || extra.textOrigin !== undefined) return 0;
+  const origin = originOf(row.kind, false);
+  db.prepare('UPDATE media SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, textOrigin: origin }), row.id);
   return 0;
 }
 
@@ -869,9 +866,7 @@ function entryOfRow(row: Row, key: string): Row | undefined {
   const entry = cache[key];
   if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return undefined;
   if (Object.hasOwn(entry, '$raw')) return (entry as Row).$raw as Row;
-  const prefixed = cacheKeyParts(key).kinds !== null && key !== row.native_ref;
-  const isFrame = row.kind === 'video' && !prefixed && extra.watched === true;
-  const text = isFrame ? extra.frame : row.description;
+  const text = row.description;
   return { ...(filled(text) ? { text } : {}), ...(entry as Row) };
 }
 
@@ -1101,7 +1096,7 @@ export function applyMediaEntryWrite(connection: Connection, update: Row): { wri
 }
 
 /** Fields of a row's `extra` a library entry does not hold, which its write must not lose: the row is an item too. */
-const ITEM_EXTRA = ['textOrigin', 'frame', 'watched', 'cache'];
+const ITEM_EXTRA = ['textOrigin', 'cache'];
 
 /** What an item's row keeps across a write of its GIF library entry, added to the row the entry makes. */
 export function keepItemFields(db: Db, rows: ReadonlyArray<Row>): void {

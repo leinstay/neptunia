@@ -3428,3 +3428,21 @@ test('rewatchGif: the second look at an attached GIF whose stored address is gon
   assert.deepEqual(reads, [FRESH_URL]);
   assert.equal(fresh.calls.length, 1);
 });
+
+// A fresh answer holds the attachment's `url` alone, so a stored preview address on the old host is as stale as its url.
+const STALE_PREVIEW = 'https://media.discordapp.net/attachments/7/8/file.bin?ex=lapsed&width=640';
+
+test('describe: downloads a picture from its fresh address when its stored preview address has lapsed', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer, reads } = lapsedRig(fresh.freshAddress);
+  await describer.describe('g1', lapsedAttachment('image', { previewUrl: STALE_PREVIEW }));
+  assert.deepEqual(reads, [FRESH_URL]);
+});
+
+test('relookImage: looks again at a picture from its fresh address when its stored preview address has lapsed', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const hot = videoHot({ prompts: { 'rewatch-answer': REWATCH_PROMPT } });
+  const { describer, reads } = lapsedRig(fresh.freshAddress, hot);
+  await describer.relookImage('g1', lapsedAttachment('image', { previewUrl: STALE_PREVIEW }), 'What colour?');
+  assert.deepEqual(reads, [FRESH_URL]);
+});
