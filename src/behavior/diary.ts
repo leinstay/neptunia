@@ -161,7 +161,6 @@ const DEFAULT_SET_PICTURES: [number, number] = [4, 6];
 const DEFAULT_SET_MIN_POSTED = 2;
 const DEFAULT_SET_SEED_SETS = 6;
 const DEFAULT_SET_MAX_MESSAGE_BYTES = 8000000;
-const DEFAULT_FAMILY = 'seed';
 
 /**
  * The local date key (`YYYY-MM-DD`) of `nowMs` in `timezone` (UTC when missing).
@@ -729,72 +728,6 @@ export function renderKindsBlock(
 }
 
 /**
- * The seed families of `prompts['diary-seeds']`: a `# name` line starts a
- * family, every other non-blank line (trimmed) is one seed of the current
- * family; lines before the first header belong to the family `seed`. Families
- * keep their header order; a header with no lines is an empty family.
- */
-export function parseSeedFamilies(text: unknown): Record<string, Array<string>> {
-  const families: Record<string, Array<string>> = {};
-  if (typeof text !== 'string') return families;
-  let current: string | null = null;
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    const header = /^#+\s*(.+)$/.exec(line);
-    if (header) {
-      current = header[1].trim();
-      families[current] ??= [];
-      continue;
-    }
-    if (current === null) {
-      current = DEFAULT_FAMILY;
-      families[current] ??= [];
-    }
-    families[current].push(line);
-  }
-  return families;
-}
-
-/**
- * `sets` (diary.seedSets) seed combinations from `families` (parseSeedFamilies): each one random line of every
- * non-empty family, in the families' order. A line in `used` (usedSeedLines) is left out while its family has another
- * line; a family whose every line is used is drawn from whole. The combinations of one draw share no line of a family
- * while the family has a line left for each of them; a family with fewer lines than combinations repeats once its lines
- * are taken. [] when no family has a line or `sets` is not a positive count.
- */
-export function pickSeeds(
-  families: unknown,
-  sets: unknown,
-  rng: () => number,
-  used: ReadonlySet<string> = new Set()
-): Array<Array<unknown>> {
-  const source: object = families && typeof families === 'object' ? families : {};
-  const values: Array<unknown> = Object.values(source);
-  const lists = values
-    .filter((lines): lines is Array<unknown> => Array.isArray(lines) && lines.length > 0)
-    .map((lines) => {
-      const fresh = lines.filter((line) => typeof line !== 'string' || !used.has(line));
-      return fresh.length > 0 ? fresh : lines;
-    });
-  const count = countOf(sets);
-  if (lists.length === 0 || count === 0) return [];
-  // One draw takes a line out of its family for each combination, so the combinations differ while a line is left.
-  const left = lists.map((lines) => [...lines]);
-  const result: Array<Array<unknown>> = [];
-  for (let i = 0; i < count; i += 1) {
-    result.push(
-      lists.map((lines, family) => {
-        const rest = left[family].length > 0 ? left[family] : (left[family] = [...lines]);
-        const [line] = rest.splice(Math.min(rest.length - 1, Math.floor(rng() * rest.length)), 1);
-        return line;
-      })
-    );
-  }
-  return result;
-}
-
-/**
  * The seed lines the newest `max` (diary.historyPosts, 150) of `posts` (oldest first) took: the lines of the
  * combination each post's plan built on (`plan.seeds[plan.seed - 1]`). A post with no plan, `seed` 0 or a `seed` past
  * its combinations takes none.
@@ -816,7 +749,7 @@ export function usedSeedLines(posts: unknown, max?: unknown): Set<string> {
 
 /**
  * The body of the `<seeds>` block: `labels.diary.seeds`, then one `- a; b; c`
- * line per combination of `sets` (pickSeeds). '' when there is none.
+ * line per combination of `sets` (seeds.ts#pickSeeds). '' when there is none.
  */
 export function renderSeedsBlock(sets: unknown, labels: unknown): string {
   const lines = listOf(sets)

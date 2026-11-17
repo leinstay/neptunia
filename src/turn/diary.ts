@@ -25,9 +25,7 @@ import {
   diaryTopic,
   isSetKind,
   parsePlanAnswer,
-  parseSeedFamilies,
   pickKind,
-  pickSeeds,
   planSeed,
   renderKindsBlock,
   renderSeedsBlock,
@@ -38,6 +36,7 @@ import {
   validatePlan,
   withoutPictureKinds,
 } from '../behavior/diary.ts';
+import { parseSeedFamilies, pickSeeds } from '../behavior/seeds.ts';
 import { pictureGate } from '../behavior/diary-turn.ts';
 import type { PictureGate } from '../behavior/diary-turn.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';

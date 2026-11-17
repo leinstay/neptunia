@@ -106,6 +106,8 @@ export type PhaseContext = {
   llm: PhaseLlm;
   calibrator: { ratio: number };
   clock: () => number;
+  /** The turn's random source: a heartbeat draws its lists and fragments with it. */
+  rng: () => number;
   schedule: (fn: () => void, ms: number) => () => void;
   describer: PhaseDescriber | null | undefined;
   fetchImpl: typeof fetch;
