@@ -46,7 +46,7 @@ import type { InterfaceNames } from '../../protocol/serve.ts';
 import type { HandleBook } from '../../behavior/handles.ts';
 import type { EntryRefs } from './memory-block.ts';
 import type { MeanwhileRefs } from './meanwhile.ts';
-import { legendItems, legendText } from './legend.ts';
+import { legendItems, legendText, withoutLegends } from './legend.ts';
 import type { SeenSticker } from './legend.ts';
 import type { MediaName } from '../../memory/store-media-names.ts';
 import type { LineMediaItem } from '../../memory/db/media-store.ts';
@@ -636,7 +636,11 @@ function offeredOf(given: ReaderInput): Offered {
   const gone = retiredOf(given.lookups, given.isSourceRetired);
   const retired = { retired: gone };
   const numbered = recallNumbered(given, gone);
-  const lookups = numbered.lookups.map((lookup) => ({ ...lookup, extract: resolveRef(lookup.extract) }));
+  // A stored stretch carries its own legend; in her request its names join the root `<media>`.
+  const lookups = numbered.lookups.map((lookup) => ({
+    ...lookup,
+    extract: resolveRef(withoutLegends(lookup.extract)),
+  }));
   const names = namesOf(
     given,
     given.meanwhileReads ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettingsOf(given.config, frame)) : []

@@ -151,3 +151,12 @@ export function legendBlock(
   const legend = messagesLegend(messages, nameOf, legendLabelsOf(labels), descriptions);
   return legend ? `<media>\n${legend}\n</media>` : '';
 }
+
+// A legend `<media>` that `legendBlock` put at the head of a stretch, with the line break after it.
+const LEGEND_BLOCK_RE = /^<media>\n[\s\S]*?\n<\/media>(?:\n|$)/gm;
+
+/**
+ * `text` with every legend `<media>` that `legendBlock` wrote into it removed: a stored tool result in `<recall>` keeps
+ * its bare stable names, and their lines stand in the request's one root `<media>`.
+ */
+export const withoutLegends = (text: string): string => text.replace(LEGEND_BLOCK_RE, '');
