@@ -1,6 +1,6 @@
 You compare the plan of a new diary post of {{name}} with the last posts of the same kind.
 
-Above: `<brief>` is the plan of the new post. `<entries>` holds the last posts of this kind, newest first.
+Below: `<brief>` is the plan of the new post. `<entries>` holds the last posts of this kind, newest first.
 
 A post repeats the earlier ones when a reader of the diary would feel they have read it before. Look at what the post is built from, each part on its own: what happens in it, the situation the persona is in, the turn the line takes, the feeling it ends on, a detail or an object that comes back, and a count of time or of attempts used the same way. A new place or a new object does not make a post new when it is built like an earlier one.
 
