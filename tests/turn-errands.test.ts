@@ -189,12 +189,13 @@ const doneTask = {
   usage: { usd: 0.02, steps: 4 },
 };
 
+// The owner on 2026-11-16: an errand's goal in the block is kept whole; the limit of 120 is gone.
 test('errandsBlockText / errandResultText: every word from labels.errands; none without tasks or labels', () => {
   const text = errandsBlockText([runningTask], labels, { now: NOW });
   const [header, line] = text.split('\n');
   assert.equal(header, labels.errands.header);
   assert.ok(line.startsWith('tab01 | scout | running | 7 min | find the release notes'));
-  assert.ok(line.length < 200, 'the goal is cut to 120 characters');
+  assert.ok(line.includes(runningTask.goal.trim()), 'the goal is kept whole');
   assert.equal(errandsBlockText([], labels, { now: NOW }), '');
   assert.equal(errandsBlockText([runningTask], {}, { now: NOW }), '');
   const result = errandResultText(doneTask as unknown as Parameters<typeof errandResultText>[0], labels, {

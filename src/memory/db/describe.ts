@@ -61,9 +61,8 @@ const present = (value: unknown): boolean => typeof value === 'string' && value.
 export type ReviewSubject = { kind: string; id: string; name?: string };
 
 /**
- * The display cap of a field, in characters: the limits the store applies to the same kind of text
- * (`relationships.textChars` for a relationship, twice `memory.fieldChars` for the server notes, `memory.fieldChars`
- * for a portrait; config.json's values when missing).
+ * The length a review asks of a field, in characters: `RELATIONSHIP_LIMITS.textChars` for a relationship, twice
+ * `MEMORY_LIMITS.fieldChars` for the server notes, `MEMORY_LIMITS.fieldChars` for a portrait. The store cuts no text at it.
  */
 export function fieldCap(config: Config, field: unknown): number {
   const fieldChars = MEMORY_LIMITS.fieldChars;

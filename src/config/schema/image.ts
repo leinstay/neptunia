@@ -4,13 +4,6 @@ import type { SchemaEntry } from '../schema.ts';
 
 export const IMAGE: ReadonlyArray<SchemaEntry> = [
   {
-    'key': 'image.maxPromptChars',
-    'types': ['number'],
-    'reader': 'src/behavior/prompt.ts',
-    'default': 1600,
-    'text': 'Scene text clamped to this length',
-  },
-  {
     'key': 'image.reference',
     'types': ['string'],
     'reader': 'src/media/draw.ts',

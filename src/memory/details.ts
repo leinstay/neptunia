@@ -23,7 +23,7 @@ import {
   minIso,
   normalizeTopic,
 } from './interests.ts';
-import { clampText, stripUrls } from './clamp.ts';
+import { stripUrls } from './clamp.ts';
 import { HOUR_MS } from '../time.ts';
 import { isFiniteNumber, isIntegerNumber } from './types.ts';
 import type { RankedItem } from './interests.ts';
@@ -54,7 +54,7 @@ function teacherOf(from: Untyped) {
  *   for the weight-bump/gap rule, identical here. `sure: false` on an
  *   EXISTING item changes nothing at all.
  * - `remove` (by id or by exact stored text) deletes the matching item.
- * - `text` is clamped to `fieldChars`; an item whose text is empty after
+ * - `text` is stored whole; an item whose text is empty after
  *   trimming is rejected outright.
  * - An add item's optional `from` (`{ text, from, sure }`, who taught it --
  *   place `learned` items) is stored on a NEW item when it is a non-empty
@@ -77,8 +77,7 @@ function teacherOf(from: Untyped) {
  * @param existing  Stored details.
  * @param ops  Untrusted, model-extracted.
  *   `validity: false` (the place's lessons) stamps no `recordedAt` and ignores the validity fields.
- *   `text` is free prose: its links go (src/memory/clamp.ts#stripUrls), then it is clamped
- *   tolerantly (see src/memory/clamp.ts) with `clampTolerance`; a text left empty adds nothing.
+ *   `text` is free prose: its links go (src/memory/clamp.ts#stripUrls) and it is trimmed; a text left empty adds nothing.
  */
 export function applyDetailOps(
   existing: Array<RankedItem> | undefined,
@@ -86,24 +85,20 @@ export function applyDetailOps(
   {
     maxDetails,
     maxDetailsStored,
-    fieldChars,
     confirmGapHours,
     seenAt = Date.now(),
     nextId,
     halfLifeDays,
-    clampTolerance,
     mintId,
     now,
     validity: withValidity = true,
   }: {
     maxDetails?: number;
     maxDetailsStored?: number;
-    fieldChars?: number;
     confirmGapHours?: number;
     seenAt?: number;
     nextId?: number;
     halfLifeDays?: number;
-    clampTolerance?: number;
     mintId?: () => string;
     now?: number;
     validity?: boolean;
@@ -142,9 +137,7 @@ export function applyDetailOps(
     const isObj = raw && typeof raw === 'object' && !Array.isArray(raw);
     if (!isObj && typeof raw !== 'string') return;
     const value = isObj ? raw.text : raw;
-    const text = clampText(typeof value === 'string' ? stripUrls(value) : value, fieldChars, {
-      tolerance: clampTolerance,
-    });
+    const text = typeof value === 'string' ? stripUrls(value).trim() : '';
     if (!text) return;
     const sure = isObj ? raw.sure !== false : true;
     const from = isObj ? teacherOf(raw.from) : undefined;

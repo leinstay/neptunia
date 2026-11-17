@@ -80,8 +80,6 @@ const RECONCILE_SKEW_MS = 60_000;
 const CLOSING_PHASES = new Set(['succeeded', 'failed', 'unknown']);
 /** The fields a closing line repeats from its operation (never the input or the intent). */
 const OP_FIELDS = ['turnId', 'name', 'by', 'placeId', 'scope', 'participants', 'sourceMessageIds', 'dryRun'];
-/** The characters of `think` a `/nep journal` line shows. */
-export const LINE_THINK_CHARS = 80;
 
 /** The records of a parsed journal read: the entries that are objects (anything else says nothing). */
 function recordsOf(records: Array<unknown>): Array<StoredRecord> {
@@ -92,7 +90,7 @@ function recordsOf(records: Array<unknown>): Array<StoredRecord> {
 
 /**
  * One record as a short owner-facing line: `HH:MM:SS kind <short>` (the UTC clock of
- * `occurredAt`). A turn: `mode outcome <n> msgs, think: <first 80 characters>`; a turn start:
+ * `occurredAt`). A turn: `mode outcome <n> msgs, think: <the think on one line>`; a turn start:
  * `mode trigger`; an action: `name phase`; a memory record: `batch <n> lines, users <k>, episodes
  * <e>`; a system event: `event by note`; an answer record: `event reason verdict outcome`
  * (what is present).
@@ -105,10 +103,7 @@ export function journalLine(record: StoredRecord): string {
   const count = (value: Untyped) => (Array.isArray(value) ? value.length : 0);
   let short;
   if (kind === 'turn') {
-    const think =
-      typeof record.think === 'string' && record.think.trim()
-        ? Array.from(oneLine(record.think)).slice(0, LINE_THINK_CHARS).join('')
-        : '-';
+    const think = typeof record.think === 'string' && record.think.trim() ? oneLine(record.think) : '-';
     short = `${words(record.mode ?? '-', record.outcome ?? '-')} ${count(record.seen?.messageIds)} msgs, think: ${think}`;
   } else if (kind === 'turn.start') {
     short = words(record.mode ?? '-', record.trigger?.kind);

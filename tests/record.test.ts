@@ -226,7 +226,6 @@ test('record: a message with link embeds keeps a compact links field (url, title
   const [first] = line.links ?? [];
   assert.equal(first.url, 'https://video.example/watch?v=1');
   assert.equal(first.site, 'VideoSite');
-  assert.ok([...first.description].length <= 200, 'the description is clamped');
   assert.ok(first.description.startsWith('Δύο παίκτες'));
   assert.deepEqual(Object.keys(first).sort(), ['description', 'id', 'site', 'title', 'url']);
   assert.equal(line.text, 'κοίτα https://video.example/watch?v=1', 'the text stays as posted');
@@ -237,6 +236,18 @@ test('record: a message with link embeds keeps a compact links field (url, title
     recordLinks([{ kind: 'link', title: 42, text: null, url: 'https://x.example' }]),
     [],
     'nothing readable, nothing kept'
+  );
+});
+
+// The owner on 2026-11-16: a link preview's title and description are kept whole; the limit of 200 is gone.
+test('recordLinks: a long title and description are kept whole', () => {
+  const title = 'Course de montagne épique '.repeat(20).trim();
+  const description = 'Δύο παίκτες τρέχουν. '.repeat(30).trim();
+  assert.deepEqual(
+    recordLinks([{ kind: 'link', url: 'https://video.example/watch?v=1', title, description, site: 'VideoSite' }]).map(
+      (link) => [link.title, link.description]
+    ),
+    [[title, description]]
   );
 });
 

@@ -195,17 +195,11 @@ test('recent: an add without a source channel, without text or already past the 
   );
 });
 
-test('recent: a long text is cut at a clean boundary to chars, never inside a token', () => {
-  const text = `<@${ELENI}> ${'λέξη '.repeat(60)}`;
-  const { value } = mergeRecent(emptyRecent(), [{ text, at: NOW, placeId: AGORA }], {
-    now: NOW,
-    chars: 40,
-    clampTolerance: 1,
-  });
-  const kept = value.lines[0].text;
-  assert.ok([...kept].length <= 40, kept);
-  assert.ok(kept.startsWith(`<@${ELENI}> λέξη`));
-  assert.ok(kept.endsWith('λέξη'));
+// The owner on 2026-11-16: a recent line is kept whole on one line; the limit of 160 is gone.
+test('recent: a long text is kept whole on one line', () => {
+  const text = `<@${ELENI}> ${'λέξη\n'.repeat(120)}`;
+  const { value } = mergeRecent(emptyRecent(), [{ text, at: NOW, placeId: AGORA }], { now: NOW });
+  assert.equal(value.lines[0].text, `<@${ELENI}> ${'λέξη '.repeat(119)}λέξη`);
   assert.deepEqual(value.lines[0].who, [ELENI]);
 });
 

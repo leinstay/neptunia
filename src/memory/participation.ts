@@ -20,7 +20,7 @@
 
 import { isRecord, isFiniteNumber, isIntegerNumber } from './types.ts';
 import { HOUR_MS, MINUTE_MS } from '../time.ts';
-import { clampText, oneLine } from './clamp.ts';
+import { oneLine } from './clamp.ts';
 import type { Untyped } from './types.ts';
 
 /** The participation settings: how many hours and lines a stored episode spans, and how many are shown. */
@@ -33,7 +33,6 @@ export type ParticipationSettings = {
   contextMinutes: number;
   maxMessages: number;
   maxStored: number;
-  maxTextChars: number;
   shown: number;
   perChannel: number;
   episodeChars: number;
@@ -79,7 +78,6 @@ export const PARTICIPATION_DEFAULTS: Readonly<ParticipationSettings> = Object.fr
   contextMinutes: 30,
   maxMessages: 32,
   maxStored: 120,
-  maxTextChars: 400,
   shown: 4,
   perChannel: 2,
   episodeChars: 1800,
@@ -128,19 +126,14 @@ function episodeNumber(id: string) {
 
 /**
  * One message (untrusted) in the stored shape, or null when it lacks an id or a
- * finite `ts`. `text` kept on one line and, when `maxTextChars` is given, cut to
- * it at a word boundary; `caption` one line or null; `self` true only when it is
+ * finite `ts`. `text` kept on one line, whole; `caption` one line or null; `self` true only when it is
  * exactly true (or forced by `self`).
  */
-function messageOf(
-  raw: unknown,
-  { maxTextChars, self }: { maxTextChars?: number; self?: boolean } = {}
-): ParticipationMessage | null {
+function messageOf(raw: unknown, { self }: { self?: boolean } = {}): ParticipationMessage | null {
   if (!isRecord(raw)) return null;
   const id = idOf(raw.id);
   if (id === null || !isFiniteNumber(raw.ts)) return null;
-  const flat = typeof raw.text === 'string' ? oneLine(raw.text) : '';
-  const text = maxTextChars === undefined ? flat : clampText(flat, maxTextChars, { tolerance: 1 });
+  const text = typeof raw.text === 'string' ? oneLine(raw.text) : '';
   const caption = typeof raw.caption === 'string' && oneLine(raw.caption) ? oneLine(raw.caption) : null;
   return {
     id,
@@ -248,8 +241,7 @@ function chainIds(episodes: Array<Episode>, episode: Episode) {
  * the target (or an episode it continues) already holds is not added again;
  * messages stay sorted by `ts`. When the target would exceed `maxMessages`, the
  * new messages that do not fit (the newest ones) start a new episode whose
- * `continues` names the full one. Texts are kept on one line and cut to
- * `maxTextChars` at a word boundary. The state comes back unchanged (the same
+ * `continues` names the full one. Texts are kept on one line and whole. The state comes back unchanged (the same
  * reference) when the line has no `placeId`, `own` is not a message (an id and
  * a finite `ts`), her line is already past `hours` before `now`, or nothing new
  * would be added. Pure: no input is mutated.
@@ -270,7 +262,7 @@ export function recordOwnLine(
   // The caller's own stored state, handed back as it came when nothing changes.
   const unchanged = state as ParticipationState;
   const channel = idOf(placeId);
-  const ownLine = messageOf(own, { maxTextChars: s.maxTextChars, self: true });
+  const ownLine = messageOf(own, { self: true });
   if (channel === null || !ownLine) return unchanged;
   if (ownLine.ts < nowOf(now) - s.hours * HOUR_MS) return unchanged;
 
@@ -284,7 +276,7 @@ export function recordOwnLine(
   const incoming = [];
   const incomingIds = new Set();
   for (const raw of [parent, ...context, own]) {
-    const message = raw === own ? ownLine : messageOf(raw, { maxTextChars: s.maxTextChars });
+    const message = raw === own ? ownLine : messageOf(raw);
     if (!message || incomingIds.has(message.id)) continue;
     incomingIds.add(message.id);
     incoming.push(message);
@@ -343,7 +335,7 @@ export function recordFollowing(
   // The caller's own stored state, handed back as it came when nothing changes.
   const unchanged = state as ParticipationState;
   const channel = idOf(placeId);
-  const line = messageOf(message, { maxTextChars: s.maxTextChars });
+  const line = messageOf(message);
   if (channel === null || !line || line.self) return unchanged;
   if (line.ts < nowOf(now) - s.hours * HOUR_MS) return unchanged;
   const base = normalizeParticipation(state);

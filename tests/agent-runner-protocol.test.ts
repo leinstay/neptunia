@@ -237,7 +237,8 @@ test('encodeLine: one JSON object and a newline', () => {
   assert.equal(encodeLine({ a: 1 }), '{"a":1}\n');
 });
 
-test('validateRequest: context.recent passes as { author, text } lines, the latest 20 kept, each cut; a malformed line refuses bad-recent', () => {
+// The owner on 2026-11-16: a recent line is kept whole; the limit of 200 is gone.
+test('validateRequest: context.recent passes as { author, text } lines, the latest 20 kept, each whole; a malformed line refuses bad-recent', () => {
   const line = (i: Untyped) => ({ author: `Ελένη ${i}`, text: `γραμμή ${i}`, extra: 'dropped' });
   const many = Array.from({ length: 25 }, (_, i) => line(i));
   const ok = validateRequest({
@@ -258,11 +259,11 @@ test('validateRequest: context.recent passes as { author, text } lines, the late
     op: 'run',
     id: 't1',
     goal: 'g',
-    context: { recent: [{ author: 'a'.repeat(300), text: 'b'.repeat(300) }] },
+    context: { recent: [{ author: 'a'.repeat(300), text: 'b'.repeat(3000) }] },
   });
   assert.deepEqual(
     [loose(long).message.context.recent[0].author.length, loose(long).message.context.recent[0].text.length],
-    [200, 200]
+    [300, 3000]
   );
   assert.deepEqual(
     loose(validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: [] } })).message.context.recent,

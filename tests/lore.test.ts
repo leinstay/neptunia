@@ -13,8 +13,6 @@ const upsert = (...args: Parameters<typeof upsertLore>) =>
   wrongly<Omit<ReturnType<typeof upsertLore>, 'entries'> & { entries: Array<Stored> }>(upsertLore(...args));
 
 const NOW = Date.UTC(2026, 8, 21, 12, 0, 0);
-// The text limit and tolerance a clamping test relies on, set here instead of leaning on the code's fallbacks.
-const CLAMP = { textChars: 600, clampTolerance: 1.25 };
 
 function entry(overrides: Record<string, Untyped> = {}): Stored {
   return {
@@ -130,28 +128,25 @@ test('upsertLore: an analyzer re-send identical after normalisation is not stamp
   assert.deepEqual(result.entries, existing, 'the stored entry, updatedAt included, is left as it was');
 });
 
-test('upsertLore: only a first write is clamped; a re-send of the clamped text counts 0 and a rewrite is never cut', () => {
-  const clamped = upsert([], [{ title: 'X', keys: ['valid'], text: 'x'.repeat(1000) }], {
-    ...CLAMP,
+// The owner on 2026-11-16: a lore text is kept whole; the limit of 600 is gone.
+test('upsertLore: a long text is kept whole on the first write, a re-send counts 0 and a rewrite is kept whole too', () => {
+  const first = upsert([], [{ title: 'X', keys: ['valid'], text: 'x'.repeat(1000) }], {
     source: 'analyzer',
     now: NOW,
   }).entries;
-  assert.equal(clamped[0].text.length, 750, 'the first write is clamped');
-  const same = upsert(clamped, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(750) }], {
-    ...CLAMP,
+  assert.equal(first[0].text, 'x'.repeat(1000));
+  const same = upsert(first, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(1000) }], {
     source: 'analyzer',
     now: NOW + 60_000,
   });
   assert.equal(same.upserted, 0);
   assert.equal(same.entries[0].updatedAt, new Date(NOW).toISOString());
-  // A rewrite over the limit is stored as given.
-  const rewritten = upsert(clamped, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(2000) }], {
-    ...CLAMP,
+  const rewritten = upsert(first, [{ title: 'X', keys: ['valid'], text: 'x'.repeat(2000) }], {
     source: 'analyzer',
     now: NOW + 60_000,
   });
   assert.equal(rewritten.upserted, 1);
-  assert.equal(rewritten.entries[0].text.length, 2000);
+  assert.equal(rewritten.entries[0].text, 'x'.repeat(2000));
 });
 
 test('upsertLore: an analyzer re-send that changes only the keys is stamped and counted', () => {
@@ -228,24 +223,14 @@ test('upsertLore: rejects an entry with no valid key', () => {
   assert.equal(result.entries.length, 0);
 });
 
-test('upsertLore: title is a hard identity clamp at 80 chars; text is tolerant (textChars * clampTolerance when it has to cut)', () => {
+// The owner on 2026-11-16: a lore title and text are kept whole; the limits of 80 and 600 are gone.
+test('upsertLore: a long title and a long text are kept whole', () => {
   const result = upsert([], [{ title: 'T'.repeat(200), keys: ['valid'], text: 'x'.repeat(1000) }], {
-    ...CLAMP,
     source: 'analyzer',
     now: NOW,
   });
-  assert.equal(result.entries[0].title.length, 80);
-  assert.equal(result.entries[0].text.length, 750, 'no boundary in a single long word -- hard-cut at 600*1.25');
-});
-
-test('upsertLore: textChars is configurable and read at the moment of use', () => {
-  const result = upsert([], [{ title: 'X', keys: ['valid'], text: 'x'.repeat(1000) }], {
-    source: 'analyzer',
-    now: NOW,
-    textChars: 300,
-    clampTolerance: 1.25,
-  });
-  assert.equal(result.entries[0].text.length, 375, '300 * the tolerance 1.25');
+  assert.equal(result.entries[0].title, 'T'.repeat(200));
+  assert.equal(result.entries[0].text, 'x'.repeat(1000));
 });
 
 test('upsertLore: garbage incoming entries are skipped, never throw', () => {

@@ -93,7 +93,6 @@ import { utcDay } from '../time.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
 import { hasTrait } from '../tools/definitions.ts';
-import { MARK_TEXT_CHARS } from '../turn/calls.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
 import type { BuildRequestInput, RequestPart } from './prompt-types.ts';
 import type { Line } from './lines.ts';
@@ -869,7 +868,6 @@ export function sandboxToolset({
   const tools = buildTools(names, {
     registry,
     texts: view.prompts?.tools,
-    fill: { drawChars: config.image?.maxPromptChars ?? 1600 },
   });
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
   const block = transport === 'text' && tools.length > 0 ? toolsBlockText(tools, view.prompts?.labels) : null;
@@ -1206,7 +1204,7 @@ const CONTINUATION_STEP_MS = 1000;
  * The mark one call of hers leaves on the transcript, in the shape src/format.ts#callMarksFor reads
  * and as a live turn notes it (src/behavior/turn.ts, `noteCall`): `outcome` (simulateCall's) made
  * in the turn of `placeId`, its result back at `at`; its status and, when it did not work, why
- * (outcomeDetail, cut at MARK_TEXT_CHARS); its target from the resolved
+ * (outcomeDetail, its own words whole); its target from the resolved
  * arguments; `postedId` the message the call itself posted, `posted` every message the turn
  * posted. Pure.
  */
@@ -1219,7 +1217,7 @@ function callMarkOf({ outcome, placeId, at, postedId, posted }: CallMarkOfInput)
     at,
     skill: result.skill,
     status: result.status,
-    detail: outcomeDetail(result, { textChars: MARK_TEXT_CHARS }),
+    detail: outcomeDetail(result, { withText: true }),
     target: { messageId: idOf(args.message) ?? idOf(args.reply), placeId: idOf(args.place) },
     postedId: postedId ?? null,
     posted,

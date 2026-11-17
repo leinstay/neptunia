@@ -15,7 +15,7 @@
 // agent that searches with exa on an opencode route (`searchKey`). A run with none of them carries no secrets. Settings are read at the moment of
 // use; logs carry ids and codes, never a goal, a result or a secret. The context also carries
 // `recent`: the last `DEFAULT_RECENT_LINES` lines of the origin channel as `[{ author, text }]`
-// (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
+// (display names and text on one line), read from the memory's buffer
 // (the memory database's newest lines of the channel) at the moment the errand is queued and kept in memory only until it is sent;
 // a `dm`-scoped errand sends `recent: []` (nothing of a private chat reaches a runner this way).
 // Each agent has a health flag: the latest outcome of the client's connect loop (`onLink`) or of
@@ -33,10 +33,10 @@ import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { serviceCredential } from '../keys/file.ts';
 import { opencodeKey } from '../subharness/routing.ts';
 import { routeOfAgent } from '../subharness/control.ts';
-import { MAX_RECENT_ENTRIES, RECENT_CHARS } from '../agent-runner/protocol.ts';
+import { MAX_RECENT_ENTRIES } from '../agent-runner/protocol.ts';
 import { httpProxyForm } from '../net/proxy.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
-import { clampChars, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { isOpenState } from './store.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, idText, isPositive } from '../tools/types.ts';
@@ -156,7 +156,7 @@ function dispatchOf(privateDir: string | undefined, agent: string, log: Logger):
 /**
  * The last `errands.recentLines` lines (read now; at most MAX_RECENT_ENTRIES) of channel
  * `placeId` in the memory's buffer of `placeId`, oldest first, as `{ author, text }` (the
- * display name and the text on one line, each cut to RECENT_CHARS; a line without text left
+ * display name and the text on one line; a line without text left
  * out). [] for a `dm` scope, without a channel or a buffer.
  */
 function recentLinesOf(
@@ -175,8 +175,8 @@ function recentLinesOf(
   }
   return (Array.isArray(lines) ? lines : [])
     .map((line) => ({
-      author: clampChars(oneLine(line.author ?? ''), RECENT_CHARS),
-      text: clampChars(oneLine(line.text ?? ''), RECENT_CHARS),
+      author: oneLine(line.author ?? ''),
+      text: oneLine(line.text ?? ''),
     }))
     .filter((line) => line.text)
     .slice(-count);

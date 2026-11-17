@@ -61,7 +61,7 @@ function hot() {
       llm: { maxRequestTokens: 50000 },
       models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
+      image: { reference: 'avatar', referenceMaxBytes: 4_000_000 },
       diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },
@@ -366,7 +366,7 @@ function plainHot(extra = {}) {
   return {
     config: {
       bot: { timezone: TZ },
-      image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
+      image: { reference: 'avatar', referenceMaxBytes: 4_000_000 },
       ...extra,
     },
     prompts: {
@@ -416,18 +416,19 @@ test('drawPicture: her scene goes into the draw prompt verbatim, with the appear
   assert.equal(referenceMissing, false);
 });
 
-test("drawPicture: no time for the owner's command, no appearance and no reference for a picture she is not in, a long scene cut at a boundary", async () => {
+// The owner on 2026-11-16: the drawing scene is kept whole; the limit of 1600 is gone.
+test("drawPicture: no time for the owner's command, no appearance and no reference for a picture she is not in, a long scene kept whole", async () => {
   const images = fakeImages();
   const hotValue = plainHot();
-  hotValue.config.image.maxPromptChars = 20;
+  const longScene = `boats in the harbour, ${'a very long scene, '.repeat(120)}`.trim();
   await drawPicture({
     ...deps(images, hotValue),
-    input: { scene: 'boats in the harbour, a very long scene', selfName: 'Bot', self: false, withTime: false },
+    input: { scene: longScene, selfName: 'Bot', self: false, withTime: false },
   });
   assert.equal(images.calls[0].reference, null);
   assert.ok(!images.calls[0].prompt.includes('green scarf'));
   assert.ok(!images.calls[0].prompt.includes('At '));
-  assert.ok(images.calls[0].prompt.endsWith('Scene: boats in the'), images.calls[0].prompt);
+  assert.ok(images.calls[0].prompt.endsWith(`Scene: ${longScene}`), images.calls[0].prompt.slice(-80));
   assert.equal(
     drawPromptOf({ hot: hotValue, selfName: 'Bot', scene: 'x', self: false, withTime: false }),
     'DRAW by Bot.\n\nScene: x'

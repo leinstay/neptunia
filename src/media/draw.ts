@@ -1,6 +1,5 @@
 // Drawing, a built-in ability of the core: the persona's scene goes into the drawing prompt exactly
-// as she wrote it (prompts `draw` + `appearance` + the local time around it, the request only cut
-// to `image.maxPromptChars`), the bot's avatar rides along as the reference for a picture she is in
+// as she wrote it (prompts `draw` + `appearance` + the local time around it), the bot's avatar rides along as the reference for a picture she is in
 // (`image.reference: 'avatar'`), and the Images client (src/llm/images.ts, injected as `images`:
 // the boundary every picture crosses, its rails and `image.timeoutMs` included) makes the picture.
 // Nothing else touches her scene: no model rewrites, summarizes or "improves" it.
@@ -15,7 +14,6 @@
 import { buildDrawPrompt } from '../behavior/prompt.ts';
 import { formatNow } from '../format.ts';
 import { avatarReference } from './fetch-image.ts';
-import { clampAtBoundary } from '../memory/clamp.ts';
 import { objOf } from '../tools/types.ts';
 import type { GeneratedPicture } from '../llm/images.ts';
 
@@ -24,7 +22,7 @@ type DrawHot = { config: unknown; prompts: object };
 
 /**
  * The drawing prompt of `scene`: prompts `draw` and `appearance` (read now) around the request,
- * cut to `image.maxPromptChars` at a boundary, with `{{when}}` the local date and time now
+ * with `{{when}}` the local date and time now
  * (`bot.timezone`) when `withTime` and a timezone is set (the owner's command carries none), and
  * the appearance only when `self`. The one builder of the prompt.
  */
@@ -44,13 +42,11 @@ export function drawPromptOf({
   now?: () => number;
 }): string {
   const timezone = objOf(objOf(hot.config).bot).timezone;
-  const maxChars = objOf(objOf(hot.config).image).maxPromptChars;
   const locale = objOf(objOf(hot.prompts).labels).locale;
   return buildDrawPrompt({
     prompts: hot.prompts,
     selfName,
-    // A limit that is not a number leaves the scene whole (clampAtBoundary).
-    request: clampAtBoundary(scene, typeof maxChars === 'number' ? maxChars : Number.NaN),
+    request: scene,
     self: self === true,
     ...(withTime
       ? {

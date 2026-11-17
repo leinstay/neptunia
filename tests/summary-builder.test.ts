@@ -130,12 +130,15 @@ for (const evidence of [HISTORY, WEB]) {
     assert.deepEqual([note.status, note.text, note.stretch], ['none', null, null]);
   });
 
-  test(`a ${evidence.kind} note stays inside its bound`, async () => {
-    // Bug: one path clamps and the other trusts the model, so a long note overruns the block.
-    const { build } = builder({ answer: 'Μια πρόταση. '.repeat(100) });
+  // The owner on 2026-11-16: a note is kept whole; the limit of `maxChars` is gone.
+  test(`a long ${evidence.kind} note is kept whole`, async () => {
+    // Bug: the limit creeps back and cuts the finding the persona reads.
+    const answer = 'Μια πρόταση. '.repeat(100).trim();
+    const { build } = builder({ answer });
     const note = await build(evidence, LIMITS);
     assert.equal(note.status, 'note');
-    assert.ok([...(note.text ?? '')].length <= LIMITS.maxChars, String(note.text?.length));
+    assert.equal(note.text, answer);
+    assert.ok(answer.length > LIMITS.maxChars);
   });
 
   test(`an empty ${evidence.kind} answer is no note`, async () => {
@@ -185,19 +188,19 @@ test('a web note names no stretch', async () => {
 test('parseSummaryNote takes none whatever its case and punctuation', () => {
   // Bug: a model's `None.` is published as the finding.
   for (const raw of ['none', 'None', 'NONE.', '"none"']) {
-    assert.deepEqual(parseSummaryNote(raw, { maxChars: 50, count: 1 }), { text: null, stretch: null }, raw);
+    assert.deepEqual(parseSummaryNote(raw, { count: 1 }), { text: null, stretch: null }, raw);
   }
 });
 
 test('parseSummaryNote keeps a note that only starts with none', () => {
   // Bug: a real answer is thrown away for its first word.
   const raw = 'None of them said it, Ana only asked.';
-  assert.equal(parseSummaryNote(raw, { maxChars: 50, count: 1 }).text, raw);
+  assert.equal(parseSummaryNote(raw, { count: 1 }).text, raw);
 });
 
 test('parseSummaryNote takes a stretch out of range as no stretch and keeps the note', () => {
   // Bug: a wrong number costs the whole note or points past the windows.
-  assert.deepEqual(parseSummaryNote('stretch: 4\nAna.', { maxChars: 50, count: 1 }), { text: 'Ana.', stretch: null });
+  assert.deepEqual(parseSummaryNote('stretch: 4\nAna.', { count: 1 }), { text: 'Ana.', stretch: null });
 });
 
 test('a web search whose summary answers none gives her no text', async () => {

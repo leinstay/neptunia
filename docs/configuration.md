@@ -327,7 +327,6 @@ The engine proxy is described in [Proxy](proxy.md).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `image.maxPromptChars` | number | `1600` | Scene text clamped to this length | `src/behavior/prompt.ts` |
 | `image.reference` | string | `"avatar"` | Visual reference when the persona is in the picture. `"avatar"` downloads the bot's avatar; anything else sends nothing | `src/media/draw.ts` |
 | `image.timeoutMs` | number | `120000` | Request timeout (ms) | `src/media/draw.ts` |
 | `image.retries` | number | `1` | Retries on transient failures | `src/llm/images.ts` |

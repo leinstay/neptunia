@@ -17,7 +17,7 @@
 import type { PublicationBoundary } from './publication.ts';
 import type { NativeMessageLocator, ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import type { FindMeaning } from '../memory/db/graph-find.ts';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { cliChatRef } from '../interface/cli-chat.ts';
 import type { PlaceRef } from '../memory/db/frame-reads.ts';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
@@ -1044,9 +1044,9 @@ const ARG_RULE_KINDS: Readonly<Record<string, string>> = Object.freeze({
  * it through `labels.tools.refusals.agentRequired`).
  * An `unknown-arg` refusal carries the arguments the skill does take (`values`, from `argNames`
  * when given and not empty), so its mark can name them (`labels.tools.refusals.unknownArg`).
- * Any other code is its own kind without an argument. With `textChars` (a positive number) and
+ * Any other code is its own kind without an argument. With `withText` and
  * the operation's own message in `outcome.data.text`, that message rides along as `text`: one
- * line, cut to `textChars` with an ellipsis (src/memory/clamp.ts) -- what the mark says when no
+ * line, whole -- what the mark says when no
  * specific label words the kind, ahead of the generic phrase of the code. Null for an `ok`
  * outcome or one without a code. Pure.
  */
@@ -1055,11 +1055,11 @@ export function outcomeDetail(
     | { status?: string; code?: string | null; reason?: string | null; values?: unknown; data?: unknown }
     | null
     | undefined,
-  { textChars = 0, argNames = null }: { textChars?: number; argNames?: ReadonlyArray<unknown> | null } = {}
+  { withText = false, argNames = null }: { withText?: boolean; argNames?: ReadonlyArray<unknown> | null } = {}
 ): OutcomeDetail | null {
   const { code, status, reason, values, data } = outcomePartsOf(outcome);
   if (!code || status === 'ok') return null;
-  const said = Number.isFinite(textChars) && textChars > 0 ? clampWithEllipsis(oneLine(data.text), textChars) : '';
+  const said = withText ? oneLine(data.text) : '';
   const fields = isObj(values) ? { ...values } : null;
   const of = (kind: string, arg: string | null = null): OutcomeDetail => ({
     kind,

@@ -1630,7 +1630,6 @@ export function buildRecallRequest({
   memory = [],
   context = [],
   contextDescriptions,
-  replyQuoteChars,
   nameOf,
   labels,
   timezone = 'UTC',
@@ -1700,7 +1699,6 @@ export function buildRecallRequest({
       labels,
       seeReactions,
       reactionsPerMessage,
-      replyQuoteChars,
       descriptions: contextDescriptions,
       indexOffset: sources.reduce((sum, window) => sum + window.messages.filter(Boolean).length, 0),
     });

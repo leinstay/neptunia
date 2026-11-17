@@ -118,8 +118,6 @@ test('updateUser: cannot set interests or details via raw LLM fields', () => {
     { interests: { add: [{ topic: 'chess', note: '' }] }, details: { add: ['likes tea'] } },
     {
       maxInterests: 12,
-      topicChars: 40,
-      noteChars: 120,
       maxDetails: 15,
       now: 1000,
     }
@@ -144,7 +142,6 @@ test('updateUser: cannot set interests or details via raw LLM fields', () => {
 const LEARNED_CFG = {
   maxLearned: 20,
   maxLearnedStored: 60,
-  learnedChars: 160,
   learnedHalfLifeDays: 720,
   confirmGapHours: 12,
 };
@@ -267,17 +264,21 @@ test('applyLearnedOps: ids are never reused after a remove; seen bumps past the 
   );
 });
 
-test('applyLearnedOps: text is clamped to learnedChars, storage capped at max(maxLearnedStored, maxLearned)', () => {
+// The owner on 2026-11-16: a lesson is kept whole; the limit of 160 is gone.
+test('applyLearnedOps: a long text is kept whole, storage capped at max(maxLearnedStored, maxLearned)', () => {
   const store = createStore(memoryAt(tmpDataDir()));
   const long = 'ω'.repeat(400);
-  const cfg = { ...LEARNED_CFG, learnedChars: 10, clampTolerance: 1, maxLearned: 2, maxLearnedStored: 3 };
+  const cfg = { ...LEARNED_CFG, maxLearned: 2, maxLearnedStored: 3 };
   const learned = store.applyLearnedOps(
     placeOfRoot(store, 'g1'),
-    { add: [long, 'f1', 'f2', 'f3', 'f4'] },
+    { add: ['f1', 'f2', 'f3', 'f4', long] },
     { ...cfg, seenAt: TEACH_AT }
   );
   assert.equal(learned.length, 3);
-  assert.ok(learned.every((i) => Array.from(asRecord(i).text).length <= 10));
+  assert.ok(
+    learned.some((i) => asRecord(i).text === long),
+    'the long lesson is stored whole'
+  );
 });
 
 test('applyLearnedOps: garbage ops never throw and change nothing', () => {
@@ -977,8 +978,6 @@ test('applyProfileOps: opts.seenAt (not opts.now) dates interests/details, and d
     { interests: { add: [{ topic: 'Chess', note: '' }] } },
     {
       maxInterests: 12,
-      topicChars: 40,
-      noteChars: 120,
       confirmGapHours: 12,
       now: 999_999_999_999, // a very different wall-clock "now"
       seenAt: seenAt1,
@@ -993,8 +992,6 @@ test('applyProfileOps: opts.seenAt (not opts.now) dates interests/details, and d
     { interests: { seen: ['Chess'] } },
     {
       maxInterests: 12,
-      topicChars: 40,
-      noteChars: 120,
       confirmGapHours: 12,
       now: 1,
       seenAt: seenAt2,
@@ -1008,40 +1005,29 @@ test('applyProfileOps: sets character/style/relationship only when given as non-
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { character: 'chatty', style: 'blunt' },
-    { fieldChars: 400, now: 1000 }
-  );
+  store.applyProfileOps(accountOf(store, 'u1'), { character: 'chatty', style: 'blunt' }, { now: 1000 });
 
   const profile = store.applyProfileOps(
     accountOf(store, 'u1'),
     { style: '', relationship: 'trusts you' },
-    { fieldChars: 400, now: 2000 }
+    { now: 2000 }
   );
   assert.equal(asRecord(profile).character, 'chatty', 'untouched: absent from this call');
   assert.equal(asRecord(profile).style, 'blunt', 'untouched: empty string never blanks it');
   assert.equal(asRecord(profile).relationship, 'trusts you');
 });
 
-test('applyProfileOps: a first write of a prose field is clamped tolerantly to opts.fieldChars; a rewrite is never cut', () => {
+// The owner on 2026-11-16: a profile field is kept whole on a first write too; the limit of 1000 is gone.
+test('applyProfileOps: a long first write of a prose field is kept whole, and so is a rewrite', () => {
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  const profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { character: '0123456789' },
-    { fieldChars: 5, now: 1000 }
-  );
-  assert.equal(asRecord(profile).character, '012345', '5 * the default tolerance 1.25, floored');
-  // A rewrite over the limit is the caller's to refuse (src/memory/prose.ts#acceptProse): the store
-  // stores what it is given and never cuts it.
-  const rewritten = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { character: '0123456789abcdef' },
-    { fieldChars: 5, now: 2000 }
-  );
-  assert.equal(asRecord(rewritten).character, '0123456789abcdef');
+  const first = `  ${'0123456789'.repeat(300)}  `;
+  const profile = store.applyProfileOps(accountOf(store, 'u1'), { character: first }, { now: 1000 });
+  assert.equal(asRecord(profile).character, first.trim());
+  const second = '0123456789abcdef'.repeat(300);
+  const rewritten = store.applyProfileOps(accountOf(store, 'u1'), { character: second }, { now: 2000 });
+  assert.equal(asRecord(rewritten).character, second);
 });
 
 test('applyProfileOps: normalizes a hand-edited interests array before applying ops', async () => {
@@ -1060,8 +1046,6 @@ test('applyProfileOps: normalizes a hand-edited interests array before applying 
     { interests: { add: [{ topic: 'Cooking', note: '' }] } },
     {
       maxInterests: 12,
-      topicChars: 40,
-      noteChars: 120,
       now: 1000,
     }
   );
@@ -1121,8 +1105,6 @@ test('applyProfileOps: threads interestHalfLifeDays into applyInterestOps -- dec
     {
       maxInterests: 5,
       maxInterestsStored: 5,
-      topicChars: 40,
-      noteChars: 120,
       seenAt: ancientMs,
       now: ancientMs,
     }
@@ -1133,8 +1115,6 @@ test('applyProfileOps: threads interestHalfLifeDays into applyInterestOps -- dec
     {
       maxInterests: 5,
       maxInterestsStored: 5,
-      topicChars: 40,
-      noteChars: 120,
       seenAt: ancientMs + 13 * 3_600_000,
       now: ancientMs,
     }
@@ -1147,8 +1127,6 @@ test('applyProfileOps: threads interestHalfLifeDays into applyInterestOps -- dec
     {
       maxInterests: 1,
       maxInterestsStored: 1, // force an eviction down to a single stored interest
-      topicChars: 40,
-      noteChars: 120,
       interestHalfLifeDays: 30,
       seenAt: recentMs,
       now: recentMs,
@@ -1230,8 +1208,6 @@ test('applyProfileOps: persists across store instances', async () => {
     { interests: { add: [{ topic: 'Anime', note: '' }] }, details: { add: ['owns a cat'] } },
     {
       maxInterests: 12,
-      topicChars: 40,
-      noteChars: 120,
       maxDetails: 15,
       now: 1000,
     }
@@ -1554,7 +1530,7 @@ test('applyPrivateOps: relationship, interests and details land in the private f
       interests: { add: [{ topic: 'Chess', note: 'plays weekly' }] },
       details: { add: ['Owns a cat', 'Plays guitar'] },
     } as unknown as Parameters<typeof store.applyPrivateOps>[1],
-    { fieldChars: 300, maxInterests: 12, topicChars: 40, noteChars: 120, maxDetails: 15, now: 1000 }
+    { maxInterests: 12, maxDetails: 15, now: 1000 }
   );
 
   assert.equal(asRecord(priv).relationship, 'Confides in the persona');
@@ -1583,8 +1559,8 @@ test('applyPrivateOps: relationship, interests and details land in the private f
 test('applyPrivateOps: an empty relationship never blanks the stored one; garbage ops never throw', () => {
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
-  store.applyPrivateOps(accountOf(store, 'u1'), { relationship: 'Old friend' }, { fieldChars: 300 });
-  store.applyPrivateOps(accountOf(store, 'u1'), { relationship: '   ' }, { fieldChars: 300 });
+  store.applyPrivateOps(accountOf(store, 'u1'), { relationship: 'Old friend' }, {});
+  store.applyPrivateOps(accountOf(store, 'u1'), { relationship: '   ' }, {});
   assert.doesNotThrow(() =>
     store.applyPrivateOps(accountOf(store, 'u1'), null as unknown as Parameters<typeof store.applyPrivateOps>[1], {})
   );
@@ -1781,28 +1757,20 @@ test('applyProfileOps: stamps relationshipScore when the relationship text is wr
   store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
   store.adjustAffinity(accountOf(store, 'u1'), 30, 'x', { maxDelta: 30, historySize: 10, now: 1000 });
 
-  store.applyProfileOps(accountOf(store, 'u1'), { character: 'calm', relationship: '  ' }, { fieldChars: 400 });
+  store.applyProfileOps(accountOf(store, 'u1'), { character: 'calm', relationship: '  ' }, {});
   assert.equal(
     asRecord(store.getUser(accountOf(store, 'u1'))).relationshipScore,
     undefined,
     'a blank relationship writes nothing'
   );
 
-  store.applyProfileOps(accountOf(store, 'u1'), { relationship: 'Close friends' }, { fieldChars: 400 });
+  store.applyProfileOps(accountOf(store, 'u1'), { relationship: 'Close friends' }, {});
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipScore, 30, 'falls back to the stored score');
 
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { relationship: 'Closer still' },
-    { fieldChars: 400, relationshipScore: 44.5 }
-  );
+  store.applyProfileOps(accountOf(store, 'u1'), { relationship: 'Closer still' }, { relationshipScore: 44.5 });
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipScore, 44.5, 'opts.relationshipScore wins');
 
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { add: ['owns a cat'] } },
-    { fieldChars: 400, relationshipScore: 99 }
-  );
+  store.applyProfileOps(accountOf(store, 'u1'), { details: { add: ['owns a cat'] } }, { relationshipScore: 99 });
   assert.equal(
     asRecord(store.getUser(accountOf(store, 'u1'))).relationshipScore,
     44.5,
@@ -1815,43 +1783,32 @@ test('applyPrivateOps: stamps relationshipScore when the private relationship te
   const store = createStore(memoryAt(dir));
   store.adjustPrivateAffinity(accountOf(store, 'u1'), 12, 'x', { maxDelta: 15, historySize: 10, now: 1000 });
 
-  store.applyPrivateOps(
-    accountOf(store, 'u1'),
-    { details: { add: ['a secret'] } },
-    { fieldChars: 400, relationshipScore: 50 }
-  );
+  store.applyPrivateOps(accountOf(store, 'u1'), { details: { add: ['a secret'] } }, { relationshipScore: 50 });
   assert.equal(asRecord(store.getPrivate(accountOf(store, 'u1'))).relationshipScore, undefined);
 
-  store.applyPrivateOps(accountOf(store, 'u1'), { relationship: 'Trusts the persona' }, { fieldChars: 400 });
+  store.applyPrivateOps(accountOf(store, 'u1'), { relationship: 'Trusts the persona' }, {});
   assert.equal(
     asRecord(store.getPrivate(accountOf(store, 'u1'))).relationshipScore,
     12,
     'falls back to the private score'
   );
 
-  store.applyPrivateOps(
-    accountOf(store, 'u1'),
-    { relationship: 'Trusts the persona more' },
-    { fieldChars: 400, relationshipScore: 61 }
-  );
+  store.applyPrivateOps(accountOf(store, 'u1'), { relationship: 'Trusts the persona more' }, { relationshipScore: 61 });
   assert.equal(asRecord(store.getPrivate(accountOf(store, 'u1'))).relationshipScore, 61);
 });
 
 const WRITTEN_NOW = Date.UTC(2026, 9, 5, 9, 30, 0);
-// Three sentences of about 40 characters each: a limit of 50 (x 1.25 = 62) keeps the first sentence only.
+// Three sentences of about 40 characters each, longer in all than any old limit of the relationship text.
 const LONG_RELATIONSHIP =
   'Μιλάμε συχνά για βιβλία και για ταξίδια. Μου λέει πάντα την αλήθεια χωρίς φόβο. Γελάμε με τα ίδια αστεία κάθε βράδυ μαζί.';
 
-test('applyProfileOps: a written relationship is stamped relationshipWrittenAt and clamped to relationshipChars', () => {
+// The owner on 2026-11-16: a relationship text is kept whole; the limit of 600 is gone.
+test('applyProfileOps: a written relationship is stamped relationshipWrittenAt and kept whole', () => {
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
 
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { add: ['owns a cat'] } },
-    { fieldChars: 400, relationshipChars: 50, now: WRITTEN_NOW - 1000 }
-  );
+  store.applyProfileOps(accountOf(store, 'u1'), { details: { add: ['owns a cat'] } }, { now: WRITTEN_NOW - 1000 });
   assert.equal(
     asRecord(store.getUser(accountOf(store, 'u1'))).relationshipWrittenAt,
     undefined,
@@ -1862,66 +1819,53 @@ test('applyProfileOps: a written relationship is stamped relationshipWrittenAt a
     accountOf(store, 'u1'),
     { character: LONG_RELATIONSHIP, relationship: LONG_RELATIONSHIP },
     {
-      fieldChars: 400,
-      relationshipChars: 50,
       relationshipScore: 12.5,
       now: WRITTEN_NOW,
     }
   );
-  assert.equal(
-    asRecord(profile).relationship,
-    'Μιλάμε συχνά για βιβλία και για ταξίδια.',
-    'cut at the sentence boundary inside 50 x 1.25'
-  );
-  assert.equal(asRecord(profile).character, LONG_RELATIONSHIP, 'the portrait keeps fieldChars');
+  assert.equal(asRecord(profile).relationship, LONG_RELATIONSHIP);
+  assert.equal(asRecord(profile).character, LONG_RELATIONSHIP);
   assert.equal(asRecord(profile).relationshipWrittenAt, new Date(WRITTEN_NOW).toISOString());
   assert.equal(asRecord(profile).relationshipScore, 12.5);
 
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { relationship: '   ' },
-    { fieldChars: 400, relationshipChars: 50, now: WRITTEN_NOW + 5000 }
-  );
+  store.applyProfileOps(accountOf(store, 'u1'), { relationship: '   ' }, { now: WRITTEN_NOW + 5000 });
   assert.equal(
     asRecord(store.getUser(accountOf(store, 'u1'))).relationshipWrittenAt,
     new Date(WRITTEN_NOW).toISOString(),
     'a blank text stamps nothing'
   );
 
-  // Only the first write is clamped: a rewrite over the limit is the caller's to refuse, the store never cuts it.
+  // A rewrite is stored whole as well.
   const rewritten = store.applyProfileOps(
     accountOf(store, 'u1'),
     { relationship: LONG_RELATIONSHIP },
-    { fieldChars: 400, relationshipChars: 50, now: WRITTEN_NOW + 6000 }
+    { now: WRITTEN_NOW + 6000 }
   );
   assert.equal(asRecord(rewritten).relationship, LONG_RELATIONSHIP);
 });
 
-test('applyPrivateOps: a written private relationship is stamped relationshipWrittenAt and clamped to relationshipChars', () => {
+// The owner on 2026-11-16: a relationship text is kept whole; the limit of 600 is gone.
+test('applyPrivateOps: a written private relationship is stamped relationshipWrittenAt and kept whole', () => {
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
-  store.applyPrivateOps(
-    accountOf(store, 'u1'),
-    { details: { add: ['a secret'] } },
-    { fieldChars: 400, relationshipChars: 50, now: WRITTEN_NOW - 1000 }
-  );
+  store.applyPrivateOps(accountOf(store, 'u1'), { details: { add: ['a secret'] } }, { now: WRITTEN_NOW - 1000 });
   assert.equal(asRecord(store.getPrivate(accountOf(store, 'u1'))).relationshipWrittenAt, undefined);
 
   const priv = store.applyPrivateOps(
     accountOf(store, 'u1'),
     { relationship: LONG_RELATIONSHIP },
-    { fieldChars: 400, relationshipChars: 50, relationshipScore: -9, now: WRITTEN_NOW }
+    { relationshipScore: -9, now: WRITTEN_NOW }
   );
-  assert.equal(asRecord(priv).relationship, 'Μιλάμε συχνά για βιβλία και για ταξίδια.');
+  assert.equal(asRecord(priv).relationship, LONG_RELATIONSHIP);
   assert.equal(asRecord(priv).relationshipWrittenAt, new Date(WRITTEN_NOW).toISOString());
   assert.equal(asRecord(priv).relationshipScore, -9);
   assert.equal(store.getUser(accountOf(store, 'u1')), null, 'the public profile is not created');
 
-  // Only the first write is clamped: a rewrite over the limit is the caller's to refuse, the store never cuts it.
+  // A rewrite is stored whole as well.
   const rewritten = store.applyPrivateOps(
     accountOf(store, 'u1'),
     { relationship: LONG_RELATIONSHIP },
-    { fieldChars: 400, relationshipChars: 50, now: WRITTEN_NOW + 1000 }
+    { now: WRITTEN_NOW + 1000 }
   );
   assert.equal(asRecord(rewritten).relationship, LONG_RELATIONSHIP);
 });
@@ -1933,12 +1877,12 @@ test('store: relationshipWrittenAt and relationshipScore survive a restart, publ
   store.applyProfileOps(
     accountOf(store, 'u1'),
     { relationship: 'Παλιοί φίλοι.' },
-    { fieldChars: 400, relationshipScore: 31, now: WRITTEN_NOW }
+    { relationshipScore: 31, now: WRITTEN_NOW }
   );
   store.applyPrivateOps(
     accountOf(store, 'u1'),
     { relationship: 'Μου εμπιστεύεται μυστικά.' },
-    { fieldChars: 400, relationshipScore: 44, now: WRITTEN_NOW + 60_000 }
+    { relationshipScore: 44, now: WRITTEN_NOW + 60_000 }
   );
   store.flush();
   await store.flushSettled({});
@@ -2146,13 +2090,13 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
     store.applyProfileOps(
       accountOf(store, 'u1'),
       { character: 'Calme. Précis.', relationship: 'Amical.' },
-      { fieldChars: 1000, by: 'analyzer' }
+      { by: 'analyzer' }
     );
     assert.deepEqual(store.listVersions(placeOfRoot(store, 'g1'), 'users', accountOf(store, 'u1')), {}, 'first write');
     store.applyProfileOps(
       accountOf(store, 'u1'),
       { character: 'Calme. Bavard.', relationship: 'Très amical.' },
-      { fieldChars: 1000, by: 'voice' }
+      { by: 'voice' }
     );
     const user = store.listVersions(placeOfRoot(store, 'g1'), 'users', accountOf(store, 'u1'));
     assert.deepEqual(Object.keys(user).sort(), ['character', 'relationship']);
@@ -2186,11 +2130,11 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
     );
 
     const off = { enabled: false, kept: 20 };
-    store.applyProfileOps(accountOf(store, 'u1'), { style: 'Bref.' }, { fieldChars: 1000 });
+    store.applyProfileOps(accountOf(store, 'u1'), { style: 'Bref.' }, {});
     store.applyProfileOps(
       accountOf(store, 'u1'),
       { character: 'Autre.', style: 'Long.', relationship: 'Froid.' },
-      { fieldChars: 1000, versions: off }
+      { versions: off }
     );
     store.setLore(placeOfRoot(store, 'g1'), lore('Τρίτο.'), { source: 'owner', now: 3000, versions: off });
     store.updateChannel(placeOfChat(store, { id: 'c1' }), { tone: 'a' });
@@ -2224,7 +2168,7 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
 test('store: version files are not mistaken for channel or user ids', () =>
   withStore(async (store: Untyped, dir: Untyped, memoryDb: Untyped) => {
     for (const text of ['Un.', 'Deux.']) {
-      store.applyProfileOps(accountOf(store, 'u1'), { character: text }, { fieldChars: 1000 });
+      store.applyProfileOps(accountOf(store, 'u1'), { character: text }, {});
       store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: text });
       store.updatePlace(placeOfRoot(store, 'g1'), { patterns: text });
       store.setLore(placeOfRoot(store, 'g1'), [{ title: 'T', keys: ['tt'], text }], { source: 'owner' });
@@ -2366,11 +2310,7 @@ test('markRelationshipRewrite: sets and clears the flag on a profile with a text
   assert.equal(store.markRelationshipRewrite(accountOf(store, 'u1')), false, 'a profile without a relationship text');
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipRewrite, undefined);
 
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { relationship: 'Παλιοί φίλοι.' },
-    { fieldChars: 400, now: WRITTEN_NOW }
-  );
+  store.applyProfileOps(accountOf(store, 'u1'), { relationship: 'Παλιοί φίλοι.' }, { now: WRITTEN_NOW });
   assert.equal(store.markRelationshipRewrite(accountOf(store, 'u1')), true);
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipRewrite, true);
   store.flush();
@@ -2389,17 +2329,13 @@ test('applyProfileOps: writing a relationship text clears the rewrite flag, any 
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { relationship: 'Παλιοί φίλοι.' },
-    { fieldChars: 400, now: WRITTEN_NOW }
-  );
+  store.applyProfileOps(accountOf(store, 'u1'), { relationship: 'Παλιοί φίλοι.' }, { now: WRITTEN_NOW });
   store.markRelationshipRewrite(accountOf(store, 'u1'));
 
   store.applyProfileOps(
     accountOf(store, 'u1'),
     { details: { add: ['owns a cat'] }, relationship: '  ' },
-    { fieldChars: 400, now: WRITTEN_NOW + 1000 }
+    { now: WRITTEN_NOW + 1000 }
   );
   assert.equal(
     asRecord(store.getUser(accountOf(store, 'u1'))).relationshipRewrite,
@@ -2410,7 +2346,7 @@ test('applyProfileOps: writing a relationship text clears the rewrite flag, any 
   store.applyProfileOps(
     accountOf(store, 'u1'),
     { relationship: 'Φίλοι που μιλούν κάθε μέρα.' },
-    { fieldChars: 400, now: WRITTEN_NOW + 2000 }
+    { now: WRITTEN_NOW + 2000 }
   );
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipRewrite, undefined);
 });

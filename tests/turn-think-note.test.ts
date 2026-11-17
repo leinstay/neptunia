@@ -8,10 +8,10 @@ test('folds the line breaks of a think into single spaces', () => {
   assert.equal(thinkNote('Πρώτα διαβάζω.\n\n  Μετά απαντώ.\r\nΤέλος.'), 'Πρώτα διαβάζω. Μετά απαντώ. Τέλος.');
 });
 
-test('cuts a long think at 400 code points and never inside a pair', () => {
-  const note = thinkNote('😀'.repeat(500));
-  assert.equal(Array.from(note ?? '').length, 400);
-  assert.equal(note, '😀'.repeat(400));
+// The owner on 2026-11-16: a think in the status row is kept whole; the limit of 400 is gone.
+test('keeps a long think whole', () => {
+  const note = thinkNote(`${'😀'.repeat(500)}\n${'x'.repeat(500)}`);
+  assert.equal(note, `${'😀'.repeat(500)} ${'x'.repeat(500)}`);
 });
 
 test('gives nothing for a think of blanks alone', () => {

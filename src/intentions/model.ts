@@ -5,7 +5,7 @@
 // Statuses: `pending` -> `waiting` | `done` | `cancelled` | `expired`; `waiting` -> `pending` (the awaited
 // errand ended, or its wait deadline passed, or the errand is gone) | `done` | `cancelled` |
 // `expired`; any open one (`pending`, `waiting`) -> `dropped`, a desire she considered
-// and let go, with a required `reason` (REASON_CHARS) and its moment `droppedAt`; a record may also
+// and let go, with a required `reason` and its moment `droppedAt`; a record may also
 // be born `dropped` (createIntention with `dropped: true`: no due time, no recurrence, no
 // attention). `done`, `cancelled`, `expired` and `dropped` are terminal: nothing moves out of them
 // (a dropped one is not open, never due, and kept like any closed one). The
@@ -114,14 +114,6 @@ export const OCCURRENCE_CODES: ReadonlyArray<string> = Object.freeze([
   'missed',
   'done-occurrence',
 ] as const);
-/** A purpose's length (characters). */
-export const PURPOSE_CHARS = 300;
-/** A dropped intention's reason length (characters). */
-export const REASON_CHARS = 300;
-/** A quoted span's length (characters). */
-export const SPAN_CHARS = 300;
-/** A completion condition's length (characters). */
-export const CONDITION_CHARS = 300;
 /** A chain id's length (characters). */
 export const CHAIN_CHARS = 64;
 /** The history entries a record keeps (the oldest dropped). */
@@ -571,9 +563,10 @@ export function bumpAttend(record: Intention, day: string): Moved {
   };
 }
 
-/** One line of text cut to `max` characters; '' for nothing. */
-function line(text: unknown, max: number): string {
-  return clampChars(oneLine(typeof text === 'string' ? text : ''), max);
+/** One line of text, whole; '' for nothing. An identifier passes its `max` and is cut there. */
+function line(text: unknown, max?: number): string {
+  const one = oneLine(typeof text === 'string' ? text : '');
+  return max === undefined ? one : clampChars(one, max);
 }
 
 /** A string id or null. */
@@ -667,7 +660,7 @@ export function createIntention({
   id = newIntentionId(),
   by = 'persona',
 }: CreateInput): Created {
-  const text = line(purpose, PURPOSE_CHARS);
+  const text = line(purpose);
   if (!text) return { ok: false, code: CODE.NO_PURPOSE };
   if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: CODE.BAD_PROVENANCE };
   if (dropped) return createDropped({ text, provenance, reason, now, id, by });
@@ -684,7 +677,7 @@ export function createIntention({
   const expires = expiryOf(standing, expiresAt, defaultExpiry);
   if (!Number.isFinite(expires) || expires <= now) return { ok: false, code: CODE.BAD_EXPIRY };
   if (dueAt !== null && dueAt > expires) return { ok: false, code: CODE.DUE_AFTER_EXPIRY };
-  const span = line(provenance.span, SPAN_CHARS);
+  const span = line(provenance.span);
   const participants = participantIds(provenance.participants);
   const messageId = idOrNull(provenance.messageId);
   const placeId = idOrNull(provenance.placeId);
@@ -714,7 +707,7 @@ export function createIntention({
     awaitingErrandId: null,
     waitDeadline: null,
     destination: idOrNull(destination),
-    completionCondition: line(completionCondition, CONDITION_CHARS) || null,
+    completionCondition: line(completionCondition) || null,
     chainId: line(chainId, CHAIN_CHARS) || null,
     attend: attention,
     // Where the engine made it, when that matters (`heartbeat`): stamped by the engine, kept through every update, never read for priority.
@@ -745,9 +738,9 @@ function createDropped({
   by: string;
 }): Created {
   if (provenance.kind !== 'self') return { ok: false, code: CODE.BAD_PROVENANCE };
-  const why = line(reason, REASON_CHARS);
+  const why = line(reason);
   if (!why) return { ok: false, code: CODE.REASON_REQUIRED };
-  const span = line(provenance.span, SPAN_CHARS);
+  const span = line(provenance.span);
   const participants = participantIds(provenance.participants);
   const messageId = idOrNull(provenance.messageId);
   const placeId = idOrNull(provenance.placeId);
@@ -784,7 +777,7 @@ function createDropped({
 }
 
 /**
- * Open `record` dropped with `reason` (cut to REASON_CHARS): the `dropped` move with the reason and
+ * Open `record` dropped with `reason`: the `dropped` move with the reason and
  * `droppedAt` set. `{ ok: false, code }`: `reason-required` without a reason, else transition's
  * (`terminal`, `bad-move`).
  */
@@ -792,7 +785,7 @@ export function dropIntention(
   record: Intention,
   { reason, now, by = 'persona' }: { reason?: string | null; now: number; by?: string }
 ): Moved {
-  const why = line(reason, REASON_CHARS);
+  const why = line(reason);
   if (!why) return { ok: false, code: CODE.REASON_REQUIRED };
   return transition(record, 'dropped', { now, by, code: CODE.DROPPED, patch: { reason: why, droppedAt: now } });
 }

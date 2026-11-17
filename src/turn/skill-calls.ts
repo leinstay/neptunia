@@ -33,7 +33,6 @@ import {
   lineIdentities,
   lookupOfCall,
   lookupSettingsOf,
-  MARK_TEXT_CHARS,
   PERSONA,
   valuesOf,
   WRITTEN_SKILLS,
@@ -1012,10 +1011,10 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       status: result.status,
       // Why it did not work, when it did not (the mark words it through labels.transcript.callReasons;
       // without a specific phrase, the operation's own message before the generic one: one line,
-      // MARK_TEXT_CHARS). In process only: the journal keeps the code and reason,
+      // whole). In process only: the journal keeps the code and reason,
       // never that message.
       detail: outcomeDetail(result, {
-        textChars: MARK_TEXT_CHARS,
+        withText: true,
         argNames: (skills ?? defaultSkills()).get(skill)?.dispatch?.options?.map((option) => option.name) ?? null,
       }),
       target: { messageId: idText(args.message) ?? idText(args.reply), placeId: where ?? idText(args.place) },

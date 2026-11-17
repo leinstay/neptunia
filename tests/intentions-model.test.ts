@@ -664,9 +664,11 @@ test('dropped: any open record can be dropped with a reason; it is final, never 
     [present(fromWait).status, present(fromWait).awaitingErrandId, present(fromWait).waitDeadline],
     ['dropped', null, null]
   );
+  // The owner on 2026-11-16: a dropped intention's reason is kept whole; the limit of 300 is gone.
+  const longReason = 'x'.repeat(1000);
   assert.equal(
-    present(present(dropIntention(mine({ id: 'i4' }), { reason: 'x'.repeat(400), now: T0 }).intention).reason).length,
-    300
+    present(present(dropIntention(mine({ id: 'i4' }), { reason: longReason, now: T0 }).intention).reason),
+    longReason
   );
 });
 

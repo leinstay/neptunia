@@ -1,8 +1,8 @@
 // The main arguments of one skill call, as the call mark of her transcript line shows them
 // (src/format.ts#callMarksFor: `[you called web.search (query: "...") : done]`). Rendered from the
 // recorded call (the resolved arguments), never from her wording: only the arguments listed here for
-// the skill (the others for a skill with no row), one line, each value cut with a marker, the whole
-// bounded, and never a field whose name suggests a secret. Pure.
+// the skill (the others for a skill with no row), one line, each value whole, and never a field whose name
+// suggests a secret. Pure.
 
 /** The arguments worth showing per skill, in order. The target (message, place) is shown by the mark itself where it can. */
 const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
@@ -43,10 +43,6 @@ const DEFAULT_SHOWN: ReadonlyArray<string> = Object.freeze(['query', 'name', 'id
 /** An argument whose name suggests a secret is never shown. */
 const SECRET_NAME = /key|token|secret|password|passwd|credential|auth|value|confirm/i;
 
-const VALUE_MAX = 60;
-const ALL_MAX = 160;
-const CUT = '…';
-
 /** One value as a short single-line string; '' when it has nothing to show. */
 function valueText(value: unknown): string {
   let text: string;
@@ -61,9 +57,7 @@ function valueText(value: unknown): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (!text) return '';
-  const chars = Array.from(text);
-  const cut = chars.length > VALUE_MAX ? `${chars.slice(0, VALUE_MAX).join('').trimEnd()}${CUT}` : text;
-  return typeof value === 'string' ? `"${cut}"` : cut;
+  return typeof value === 'string' ? `"${text}"` : text;
 }
 
 /**
@@ -79,7 +73,5 @@ export function callArgsText(skill: string, args: Record<string, unknown> | null
     const text = valueText(args[name]);
     if (text) parts.push(`${name}: ${text}`);
   }
-  const joined = parts.join(', ');
-  const chars = Array.from(joined);
-  return chars.length > ALL_MAX ? `${chars.slice(0, ALL_MAX).join('').trimEnd()}${CUT}` : joined;
+  return parts.join(', ');
 }

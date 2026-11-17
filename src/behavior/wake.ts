@@ -9,7 +9,7 @@
 // (prompts/labels.json). Ids, counts and times are data, not wording.
 
 import { fill, formatClock, formatDate } from '../format.ts';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 
@@ -39,9 +39,6 @@ export function storedWakes(queue: unknown, kinds: ReadonlyArray<string>): Array
       return typeof rest.errandId === 'string' || typeof taskId !== 'string' ? rest : { ...rest, errandId: taskId };
     });
 }
-
-/** A purpose's length on a wake line (characters). */
-export const WAKE_PURPOSE_CHARS = 200;
 
 /**
  * One diagnostic of the parser (src/llm/parse.ts: what it dropped, cut or joined in her output) as a
@@ -118,7 +115,7 @@ export function feedbackFactText(
   const template = feedback[feedbackKeyOf(given, feedback)];
   if (typeof template !== 'string' || !template) return '';
   const n = (value: unknown) => String(isFiniteNumber(value) ? value : 0);
-  const purpose = clampWithEllipsis(oneLine(asText(given.purpose ?? '')), WAKE_PURPOSE_CHARS);
+  const purpose = oneLine(asText(given.purpose ?? ''));
   const codes = objOf(feedback.codes);
   const why =
     typeof given.why === 'string' && given.why
@@ -297,7 +294,7 @@ function itemLines(item: Obj, wake: WakeBlockInput, { kinds, notes, l, when, byI
     if (id && !record) continue;
     const line = fill(template, {
       id: id ?? '',
-      purpose: record ? clampWithEllipsis(oneLine(record.purpose ?? ''), WAKE_PURPOSE_CHARS) : '',
+      purpose: record ? oneLine(record.purpose ?? '') : '',
       errand: item.errandId ?? '',
       due: when(record?.dueAt),
       ...attendValues(item.attend, when),

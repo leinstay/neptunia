@@ -259,18 +259,26 @@ test('formatTranscript: a reply to the persona names its self label and quotes i
     msg('a', t0, { self: true, authorName: 'Nept', content: 'πάμε για καφέ' }),
     msg('b', t0 + MIN, { content: 'ναι!', replyToId: 'a' }),
   ];
-  const items = formatTranscript(messages, { ...offsetOptions, replyQuoteChars: 40 });
+  const items = formatTranscript(messages, { ...offsetOptions });
   assert.equal(items[1].text, '#2 [13:01] Nick: ναι! (replying to #1, Nept (you): "πάμε για καφέ")');
 });
 
-test('formatTranscript: a long parent is quoted on one line, cut at a word boundary with an ellipsis', () => {
+// The owner on 2026-11-16: a quoted parent is kept whole; the limit of 80 is gone.
+test('formatTranscript: a long parent is quoted whole on one line', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [
-    msg('a', t0, { authorName: 'Éloïse', content: 'je préfère\nles penalties à la dernière minute, toujours' }),
+    msg('a', t0, {
+      authorName: 'Éloïse',
+      content:
+        'je préfère\nles penalties à la dernière minute, toujours, même quand le match est déjà joué depuis longtemps',
+    }),
     msg('b', t0 + MIN, { content: 'ok', replyToId: 'a' }),
   ];
-  const items = formatTranscript(messages, { ...offsetOptions, replyQuoteChars: 24 });
-  assert.equal(items[1].text, '#2 [13:01] Nick: ok (replying to #1, Éloïse: "je préfère les…")');
+  const items = formatTranscript(messages, { ...offsetOptions });
+  assert.equal(
+    items[1].text,
+    '#2 [13:01] Nick: ok (replying to #1, Éloïse: "je préfère les penalties à la dernière minute, toujours, même quand le match est déjà joué depuis longtemps")'
+  );
 });
 
 test('formatTranscript: a media-only parent quotes its media label; one with nothing quotes an empty string', () => {
@@ -281,7 +289,7 @@ test('formatTranscript: a media-only parent quotes its media label; one with not
     msg('c', t0 + 2 * MIN, { content: 'ωραίο', replyToId: 'a' }),
     msg('d', t0 + 3 * MIN, { content: 'τι;', replyToId: 'b' }),
   ];
-  const items = formatTranscript(messages, { ...offsetOptions, replyQuoteChars: 40 });
+  const items = formatTranscript(messages, { ...offsetOptions });
   assert.equal(items[2].text, '#3 [13:02] Nick: ωραίο (replying to #1, Nick: "[image]")');
   assert.equal(items[3].text, '#4 [13:03] Nick: τι; (replying to #2, Nick: "")');
 });
@@ -396,13 +404,15 @@ test('formatTranscript: mode "memory" drops the #index and adds the user id, a r
   assert.ok(!items[0].text.includes('#1'));
 });
 
-test('formatTranscript: mode "memory" marks a reply to a member\'s line with replyToMemory, no #index', () => {
+// The owner on 2026-11-16: a quoted parent is kept whole; the limit of 80 is gone.
+test('formatTranscript: mode "memory" marks a reply to a member\'s line with replyToMemory, no #index, the line whole', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [
     msg('a', t0, {
       authorName: 'Éloïse',
       authorId: '7',
-      content: 'je préfère\nles penalties à la dernière minute, toujours',
+      content:
+        'je préfère\nles penalties à la dernière minute, toujours, même quand le match est déjà joué depuis longtemps',
     }),
     msg('b', t0 + MIN, {
       authorName: 'Nick',
@@ -412,8 +422,11 @@ test('formatTranscript: mode "memory" marks a reply to a member\'s line with rep
       attachments: [{ id: 'p1', kind: 'image' }],
     }),
   ];
-  const items = formatTranscript(messages, { ...offsetOptions, mode: 'memory', replyQuoteChars: 24 });
-  assert.equal(items[1].text, '[13:01] Nick (id:42): ok (reply to Éloïse: je préfère les…) [image]');
+  const items = formatTranscript(messages, { ...offsetOptions, mode: 'memory' });
+  assert.equal(
+    items[1].text,
+    '[13:01] Nick (id:42): ok (reply to Éloïse: je préfère les penalties à la dernière minute, toujours, même quand le match est déjà joué depuis longtemps) [image]'
+  );
 });
 
 test('formatTranscript: mode "memory" names the persona\'s self label in a reply to its own line', () => {
@@ -422,7 +435,7 @@ test('formatTranscript: mode "memory" names the persona\'s self label in a reply
     msg('a', t0, { self: true, authorName: 'Nept', content: 'πάμε για καφέ' }),
     msg('b', t0 + MIN, { authorName: 'Nick', authorId: '42', content: 'ναι!', replyToId: 'a' }),
   ];
-  const items = formatTranscript(messages, { ...offsetOptions, mode: 'memory', replyQuoteChars: 40 });
+  const items = formatTranscript(messages, { ...offsetOptions, mode: 'memory' });
   assert.equal(items[1].text, '[13:01] Nick (id:42): ναι! (reply to Nept (you): πάμε για καφέ)');
 });
 
@@ -433,7 +446,7 @@ test('formatTranscript: the memory reply marker leaves chat mode output unchange
     msg('b', t0 + MIN, { content: 'ναι!', replyToId: 'a', attachments: [{ id: 'p1', kind: 'image' }] }),
     msg('c', t0 + 2 * MIN, { content: 'τι;', replyToId: 'ghost' }),
   ];
-  const items = formatTranscript(messages, { ...offsetOptions, replyQuoteChars: 40 });
+  const items = formatTranscript(messages, { ...offsetOptions });
   assert.equal(items[1].text, '#2 [13:01] Nick: ναι! (replying to #1, Éloïse: "πάμε") [image]');
   assert.equal(items[2].text, '#3 [13:02] Nick: τι; (replying to an older message)');
 });

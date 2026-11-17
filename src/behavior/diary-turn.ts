@@ -7,14 +7,7 @@
 import { UNRESTRICTED, refusedAudience } from '../tools/publication.ts';
 import type { AudienceChoice, PublicationBoundary } from '../tools/publication.ts';
 import { randomUUID } from 'node:crypto';
-import {
-  DEFAULT_GIST_CHARS,
-  DEFAULT_HISTORY_POSTS,
-  DEFAULT_PICTURE_KINDS,
-  gistOf,
-  isPictureKind,
-  setSettings,
-} from './diary.ts';
+import { DEFAULT_HISTORY_POSTS, DEFAULT_PICTURE_KINDS, gistOf, isPictureKind, setSettings } from './diary.ts';
 import type { DiaryEntry, EntryPicture, EntryVoice } from './mirror.ts';
 import { CODE } from '../tools/codes.ts';
 
@@ -130,8 +123,7 @@ export type EntryPlan = {
 };
 
 /**
- * The post of the place's diary an entry is (recordEntry): its gist and its first picture's scene cut to
- * `diary.gistChars` (200), her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`),
+ * The post of the place's diary an entry is (recordEntry): its gist and its first picture's scene on one line, her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`),
  * with a voice message the text as voiced and its length, and with a planner's answer its `plan` (`brief`, the `seeds`
  * offered, the `seed` taken), which the memory database keeps in the entry's `extra`.
  */
@@ -159,7 +151,6 @@ function diaryPostOf({
   maxMessageBytes: number;
 } {
   const diaryCfg = sectionOf(config, 'diary');
-  const gistChars = DEFAULT_GIST_CHARS;
   const first = staged[0];
   const maxMessageBytes = setSettings(diaryCfg).maxMessageBytes;
   const rendered = {
@@ -173,8 +164,8 @@ function diaryPostOf({
   const post = {
     at,
     kind: plan.kind,
-    gist: gistOf(held.texts.join(' '), gistChars),
-    picture: first ? gistOf(first.text, gistChars) : null,
+    gist: gistOf(held.texts.join(' ')),
+    picture: first ? gistOf(first.text) : null,
     ...(set ? { pictures: staged.length } : {}),
     search: plan.search || null,
     text: held.texts.join('\n'),
@@ -193,7 +184,7 @@ const publicationAudienceOf = (choice: AudienceChoice) =>
 
 /**
  * A diary post recorded before anything is sent: one post in the place's diary (`store.appendDiaryPost`, the newest
- * `diary.historyPosts` (150) kept) with its gist and its first picture's scene cut to `diary.gistChars` (200), her
+ * `diary.historyPosts` (150) kept) with its gist and its first picture's scene on one line, her
  * full text, the entry's id as its `itemId`, its search query, how it is sent (`send`: her messages as sent, their
  * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
  * counted. Every picture was counted when it was generated. `audience` is what her `<audience>` tags came to: the post

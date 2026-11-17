@@ -25,10 +25,10 @@
 // the body is its purpose, the place's address when she gives none. An update may change
 // `people`, `settle`, `perday` and `expires`; `due=` and `every=` on an attention are
 // refused (`attend-with-due`, `attend-with-every`).
-// Answers are operator lines (ids, states, times, the recurrence, the place), the purpose cut to one short line.
+// Answers are operator lines (ids, states, times, the recurrence, the place), the purpose on one line.
 
 import { formatClock, formatDate } from '../../format.ts';
-import { clampWithEllipsis, oneLine } from '../../memory/clamp.ts';
+import { oneLine } from '../../memory/clamp.ts';
 import { HEARTBEAT_ORIGIN, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.ts';
 import { isMirrorPlace } from '../../memory/db/mirrors.ts';
 import { isOwnerCaller } from './grants.ts';
@@ -38,9 +38,6 @@ import { CODE } from '../codes.ts';
 import { idText, objOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
 import type { Intention } from '../../intentions/types.ts';
-
-/** The purpose's length in an answer line (characters). */
-const PURPOSE_LINE_CHARS = 80;
 
 /** The service's refusal codes that mean bad arguments rather than a failure. */
 const INVALID = new Set([
@@ -175,7 +172,7 @@ const handlers = perEnv((env) => {
     const parts = [`${record.id} ${record.status}`];
     // A dropped one is over: its reason and its purpose only, no due or expiry to act on.
     if (record.status === 'dropped')
-      return `${parts[0]}, reason ${clampWithEllipsis(oneLine(record.reason ?? ''), PURPOSE_LINE_CHARS)}: ${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}`;
+      return `${parts[0]}, reason ${oneLine(record.reason ?? '')}: ${oneLine(record.purpose)}`;
     if (Number.isFinite(record.dueAt)) parts.push(`due ${stamp(record.dueAt)}`);
     // A pending intention nothing wakes her for: said at once, so a due left in the purpose text is caught in the turn.
     else if (record.status === 'pending' && !record.every?.period && !record.attend?.place) parts.push('no due');
@@ -192,7 +189,7 @@ const handlers = perEnv((env) => {
     else if (record.note) parts.push(record.note);
     if (record.waitRequested) parts.push('wait asked');
     parts.push(`expires ${stamp(record.expiresAt)}`);
-    return `${parts.join(', ')}: ${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}`;
+    return `${parts.join(', ')}: ${oneLine(record.purpose)}`;
   }
 
   /** A service answer as the operation's result. */
@@ -213,7 +210,7 @@ const handlers = perEnv((env) => {
     // A heartbeat's cap names the open ones from heartbeats, so she can update or cancel one instead.
     const open =
       Array.isArray(result.open) && result.open.length > 0
-        ? `; open from heartbeats: ${(result.open as Array<Untyped>).map((record: Untyped) => `${record.id} (${clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS)}${record.every?.period ? `, every ${record.every.period}` : ''})`).join('; ')}`
+        ? `; open from heartbeats: ${(result.open as Array<Untyped>).map((record: Untyped) => `${record.id} (${oneLine(record.purpose)}${record.every?.period ? `, every ${record.every.period}` : ''})`).join('; ')}`
         : '';
     return { status, code: result.code, summary: `intention not ${verb}: ${result.code}${open}`, data: null };
   }

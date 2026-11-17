@@ -18,7 +18,7 @@ import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classi
 import { gifHandleOf } from './memory/index.ts';
 import type { CallMark } from './behavior/lines.ts';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.ts';
-import { clampText, clampWithEllipsis, oneLine } from './memory/clamp.ts';
+import { clampText, oneLine } from './memory/clamp.ts';
 import { isWordChar, outsideUrls } from './memory/mentions.ts';
 import { untaggedNames, withUserHandles } from './handles-text.ts';
 import { LINK_EXCERPT_CHARS } from './web/cache.ts';
@@ -27,8 +27,6 @@ import { LINK_EXCERPT_CHARS } from './web/cache.ts';
 type Untyped = ReturnType<typeof JSON.parse>;
 
 // The transcript's measures. Production values, config cut of 2026-10-31.
-/** How much of a reply's parent its line quotes. */
-const DEFAULT_REPLY_QUOTE_CHARS = 80;
 /** A silence longer than this many minutes gets a gap marker. */
 export const GAP_MARKER_MINUTES = 20;
 /** Characters of one message's text in a transcript. */
@@ -482,21 +480,18 @@ export function reactorIdsOf(messages: Array<Record<string, Untyped>>): Array<st
 }
 
 /**
- * What a reply line quotes of its parent: the parent's text on one line, else
- * its media tags (mediaTags) joined, cut to `maxChars` code points at a word
- * boundary with an ellipsis (src/memory/clamp.js#clampWithEllipsis; 0 =
- * whole); '' when the parent has neither.
+ * What a reply line quotes of its parent: the parent's text on one line, whole, else
+ * its media tags (mediaTags) joined; '' when the parent has neither.
  */
-function replyQuote(parent: Untyped, labels: Untyped, context: Untyped, maxChars: Untyped) {
-  const text = oneLine(parent.content) || oneLine(mediaTags(parent, labels, context).join(' '));
-  return clampWithEllipsis(text, maxChars);
+function replyQuote(parent: Untyped, labels: Untyped, context: Untyped) {
+  return oneLine(parent.content) || oneLine(mediaTags(parent, labels, context).join(' '));
 }
 
 /**
  * The marker of a line that replies to `parent`, shown in the list as `#index`:
  * `labels.transcript.replyTo` with `{index}`, `{author}` (the parent's name,
  * `labels.self` filled with `selfName` for the persona's own line) and
- * `{quote}` (replyQuote under `replyQuoteChars`, 80 when omitted; 0 = whole;
+ * `{quote}` (replyQuote, the parent's text whole;
  * `context` as mediaTags reads it, every map optional). With `mode: 'memory'`
  * (the analyzer's transcript, which shows no `#index`) it renders
  * `labels.transcript.replyToMemory` instead, same `{author}` and `{quote}`,
@@ -510,19 +505,17 @@ export function replyMarker(
   {
     labels,
     selfName,
-    replyQuoteChars,
     context = {},
     mode = 'chat',
   }: {
     labels: Record<string, Untyped>;
     selfName: string;
-    replyQuoteChars?: number;
     context?: MediaContext;
     mode?: 'chat' | 'memory';
   }
 ): string {
   const author = parent.self ? fill(labels.self, { name: selfName }) : parent.authorName;
-  const quote = replyQuote(parent, labels, context, replyQuoteChars ?? DEFAULT_REPLY_QUOTE_CHARS);
+  const quote = replyQuote(parent, labels, context);
   const template = mode === 'memory' ? labels.transcript.replyToMemory : labels.transcript.replyTo;
   return fill(template, { index, author, quote });
 }
@@ -836,7 +829,6 @@ export type TranscriptOptions = {
   reactionsPerMessage?: number;
   reactionNames?: boolean;
   reactionNamesMax?: number;
-  replyQuoteChars?: number;
   emojiInline?: boolean;
   indexOffset?: number;
   now?: number;
@@ -942,7 +934,9 @@ function contentWithHandles(
 /**
  * Format messages (oldest first) into transcript items, one per message.
  * `item.text` already carries the gap/date marker that precedes the message,
- * so dropping items from the start keeps the rest self-explanatory.
+ * so dropping items from the start keeps the rest self-explanatory. A reply to a message of the list renders
+ * `transcript.replyTo` with `{index}`, `{author}` and `{quote}` (the parent's text whole), in memory mode
+ * `transcript.replyToMemory`; a reply to a message outside the list renders `transcript.replyToOld` in both modes.
  *
  * @param messages  Normalized messages, oldest first.
  * @param [options.gapMinutes]   Silence longer than this gets a marker (GAP_MARKER_MINUTES when omitted).
@@ -981,11 +975,6 @@ function contentWithHandles(
  *   at most `reactionNamesMax` (5 when omitted) of them, the rest as `transcript.reactionMore`.
  *   Off, without the label or on anyone else's line: the counts as before.
  * @param [options.reactionNamesMax]  5 when omitted.
- * @param [options.replyQuoteChars]  `context.replyQuoteChars` (80 when omitted; 0 = whole):
- *   a reply to a message of the list renders `transcript.replyTo` with `{index}`, `{author}` (the
- *   parent's name, the persona's self label for its own line) and `{quote}` (replyQuote); in
- *   memory mode `transcript.replyToMemory`. A reply to a message outside the list renders
- *   `transcript.replyToOld` in both modes.
  * @param [options.emojiInline]  Default true; false leaves out the `emojiDescribed` tag of a
  *   custom emoji (the caller lists the emoji with their descriptions elsewhere).
  * @param [options.indexOffset]  Default 0 (when undefined or null): the first message
@@ -1068,7 +1057,6 @@ export function formatTranscript(
   const skip = typeof options.skip === 'function' ? options.skip : null;
   const seeReactions = options.seeReactions ?? true;
   const reactionsPerMessage = options.reactionsPerMessage ?? 6;
-  const replyQuoteChars = options.replyQuoteChars ?? DEFAULT_REPLY_QUOTE_CHARS;
   const mediaContext = {
     descriptions,
     videos,
@@ -1215,7 +1203,6 @@ export function formatTranscript(
           replyMarker(byId.get(message.replyToId), target, {
             labels,
             selfName,
-            replyQuoteChars,
             context: mediaContext,
             mode,
           })

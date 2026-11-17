@@ -40,7 +40,7 @@
 
 import { isRecord, isFiniteNumber, isIntegerNumber } from './types.ts';
 import { HOUR_MS } from '../time.ts';
-import { clampText, oneLine, stripUrls } from './clamp.ts';
+import { oneLine, stripUrls } from './clamp.ts';
 import { tokenIds } from './mentions.ts';
 import { MEMORY_LIMITS } from './text-limits.ts';
 import type { Untyped } from './types.ts';
@@ -48,11 +48,11 @@ import type { Untyped } from './types.ts';
 /**
  * config.json's own values for the recent layer's settings, the code fallbacks
  * when a deployment's config lacks a key: `memory.recentHours` (`hours`),
- * `memory.maxRecentStored` (`maxStored`), `memory.maxNewRecent` (`maxNew`),
- * `memory.recentChars` (`chars`) and `memory.recentShown` (`shown`, the live
+ * `memory.maxRecentStored` (`maxStored`), `memory.maxNewRecent` (`maxNew`)
+ * and `memory.recentShown` (`shown`, the live
  * lines the analyzer is shown).
  */
-export const RECENT_DEFAULTS = Object.freeze({ hours: 72, maxStored: 150, maxNew: 3, chars: 160, shown: 12 });
+export const RECENT_DEFAULTS = Object.freeze({ hours: 72, maxStored: 150, maxNew: 3, shown: 12 });
 
 /** The lightest and heaviest weight a line can carry, and the weight it gets when none (or no integer) is given. */
 const MIN_WEIGHT = 1;
@@ -67,16 +67,12 @@ export const recentSettings: (config?: unknown) => {
   hours: number;
   maxStored: number;
   maxNew: number;
-  chars: number;
   shown: number;
-  clampTolerance: number;
 } = () => ({
   hours: MEMORY_LIMITS.recentHours,
   maxStored: MEMORY_LIMITS.maxRecentStored,
   maxNew: MEMORY_LIMITS.maxNewRecent,
-  chars: MEMORY_LIMITS.recentChars,
   shown: MEMORY_LIMITS.recentShown,
-  clampTolerance: MEMORY_LIMITS.clampTolerance,
 });
 
 /** One line of the recent store: a message-sized note of the last days, with the members its text names. */
@@ -207,8 +203,7 @@ function evictionOrder(a: { id: number; at: number; weight: number }, b: { id: n
  *   2. the stored lines whose ids `removeIds` lists are dropped (`removed`; an id
  *      not stored, or given to a line by this same call, removes nothing);
  *   3. each incoming item `{ text, at, placeId, weight }` is sanitized:
- *      `text` without its links (src/memory/clamp.ts#stripUrls), kept on one line and cut to `chars` at a clean boundary
- *      (src/memory/clamp.ts#clampText with `clampTolerance`), `weight` an integer
+ *      `text` without its links (src/memory/clamp.ts#stripUrls), kept on one line and whole, `weight` an integer
  *      clamped to 1..3 (else 2), `at` a finite number (else `now`). An item that
  *      is not an object or whose text comes out empty is dropped (`invalid`),
  *      then one that names no channel (`noChannel`), then one whose moment is
@@ -244,8 +239,6 @@ export function mergeRecent(
     hours?: number;
     maxStored?: number;
     maxNew?: number;
-    chars?: number;
-    clampTolerance?: number;
     removeIds?: Array<unknown>;
   } = {}
 ): {
@@ -267,7 +260,6 @@ export function mergeRecent(
   const cutoff = windowStart(now, options.hours);
   const maxStored = countOr(options.maxStored, RECENT_DEFAULTS.maxStored);
   const maxNew = countOr(options.maxNew, RECENT_DEFAULTS.maxNew);
-  const chars = options.chars ?? RECENT_DEFAULTS.chars;
 
   const base = normalizeRecent(stored);
   const live = base.lines.filter((line) => line.at >= cutoff);
@@ -286,10 +278,7 @@ export function mergeRecent(
   const fresh: Array<{ at: number; placeId: string; text: string; weight: number }> = [];
   const why = { invalid: 0, noChannel: 0, stale: 0, duplicate: 0, overCap: 0 };
   for (const raw of items) {
-    const text =
-      isRecord(raw) && typeof raw.text === 'string'
-        ? clampText(oneLine(stripUrls(raw.text)), chars, { tolerance: options.clampTolerance })
-        : '';
+    const text = isRecord(raw) && typeof raw.text === 'string' ? oneLine(stripUrls(raw.text)) : '';
     const placeId = isRecord(raw) ? channelIdOf(raw.placeId) : null;
     const at = isRecord(raw) && isFiniteNumber(raw.at) ? raw.at : now;
     const key = foldText(text);

@@ -506,15 +506,15 @@ test('validatePlan: picture forced false when not allowed', () => {
   assert.equal(validatePlan({ kind: 'thought', picture: 'yes' }, kinds, opts, () => 0.5).picture, false);
 });
 
-test('validatePlan: a long brief is cut to one line', () => {
+// The owner on 2026-11-16: a planner's brief is kept whole; the limit of 300 is gone.
+test('validatePlan: a long brief is kept whole on one line', () => {
   const plan = validatePlan(
     { kind: 'thought', brief: `line one\nline two ${'word '.repeat(100)}` },
     kinds,
     opts,
     () => 0.5
   );
-  assert.ok(!plan.brief.includes('\n'));
-  assert.ok([...plan.brief].length <= 300);
+  assert.equal(plan.brief, `line one line two ${'word '.repeat(99)}word`);
 });
 
 test('renderDiaryBlock: newest first, at most max lines, picture suffix when present', () => {
@@ -863,10 +863,11 @@ test('renderSeedsBlock: one line per set', () => {
   assert.equal(renderSeedsBlock([], labels), '');
 });
 
-test('gistOf: one line cut at a word boundary', () => {
-  assert.equal(gistOf('short\n\npost', 200), 'short post');
-  const gist = gistOf('alpha beta gamma delta', 13);
-  assert.equal(gist, 'alpha beta');
+// The owner on 2026-11-16: a diary gist is kept whole; the limit of 200 is gone.
+test('gistOf: one line, kept whole', () => {
+  assert.equal(gistOf('short\n\npost'), 'short post');
+  const long = 'alpha beta gamma delta '.repeat(40).trim();
+  assert.equal(gistOf(long), long);
 });
 
 // ---- store: the diary file (data/guilds/<id>/diary.json) ----
@@ -1314,8 +1315,9 @@ test('force: passes kind and topic to the turn', async () => {
     forced: true,
   });
   const long = diaryHarness();
-  await long.diary.force({ topic: 'é'.repeat(1200) });
-  assert.ok([...loose(long.turnCalls[0].params.diary).topic].length <= 1000, 'the topic is clamped to 1000 characters');
+  // The owner on 2026-11-16: the owner's topic is kept whole; the limit of 1000 is gone.
+  await long.diary.force({ topic: 'é'.repeat(3000) });
+  assert.equal(loose(long.turnCalls[0].params.diary).topic, 'é'.repeat(3000), 'the topic is kept whole');
   const blank = diaryHarness();
   await blank.diary.force({ topic: '   ' });
   assert.deepEqual(blank.turnCalls[0].params.diary, { kind: null, forced: true }, 'a blank topic is none');

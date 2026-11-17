@@ -1045,7 +1045,7 @@ test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine
 // Drawing: the persona's <draw> goes to the image client after its messages;
 // a failed generation gets its own follow-up turn.
 
-const DRAW_IMAGE_CFG = { maxPromptChars: 800, reference: 'avatar', referenceMaxBytes: 4_000_000 };
+const DRAW_IMAGE_CFG = { reference: 'avatar', referenceMaxBytes: 4_000_000 };
 
 /** A fake createImageGen()-shaped dependency (see src/llm/images.ts). */
 function fakeImages({ error = null, mediaType = 'image/png' }: { error?: Error | null; mediaType?: string } = {}) {
@@ -1180,12 +1180,14 @@ test('runTurn: the file name follows the media type (image/jpeg -> .jpg)', async
   assert.equal(channel.sent[0].files?.[0].name, 'image.jpg');
 });
 
-test('runTurn: the draw request is clamped to image.maxPromptChars', async () => {
+// The owner on 2026-11-16: the drawing scene is kept whole; the limit of 1600 is gone.
+test('runTurn: the draw request reaches the image model whole', async () => {
+  const text = 'abcdefghij '.repeat(300).trim();
   const { images } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { text: 'abcdefghij' })])],
-    hot: drawHot({}, { maxPromptChars: 4 }),
+    answers: [toolAnswer('', [call('draw.create', { text })])],
+    hot: drawHot({}),
   });
-  assert.ok(images.generateCalls[0].prompt.endsWith('\n\nabcd'));
+  assert.ok(images.generateCalls[0].prompt.endsWith(`\n\n${text}`));
 });
 
 test('runTurn: a self <draw> passes the avatar as reference', async () => {

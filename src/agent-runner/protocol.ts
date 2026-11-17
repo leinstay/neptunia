@@ -113,14 +113,15 @@ export const LIMIT_KEYS = Object.freeze(['steps', 'seconds', 'toolResultChars', 
 export const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** The longest goal a `run` may carry (characters). */
 export const MAX_GOAL_CHARS = 4000;
-/** The longest `context` a `run` may carry, as JSON (characters). */
-export const MAX_CONTEXT_CHARS = 20_000;
+/**
+ * The longest `context` a `run` may carry, as JSON (characters). It holds the most the core itself puts there: six
+ * recent lines whole, each a platform message of at most 2,000 characters, and 8,000 characters of memory lines.
+ */
+export const MAX_CONTEXT_CHARS = 24_000;
 /** The longest line either side reads (characters). */
 export const MAX_LINE_CHARS = 1_000_000;
 /** The most lines a `run`'s `context.recent` keeps (the latest; the earlier ones are dropped). */
 export const MAX_RECENT_ENTRIES = 20;
-/** The longest author or text of one `context.recent` line (characters). */
-export const RECENT_CHARS = 200;
 /** The most ids one `ping` may ask about. */
 export const MAX_PING_IDS = 100;
 const MAX_NOTE_CHARS = 200;
@@ -225,8 +226,8 @@ function validateRun(msg: Rec, id: string): Checked {
       out.context = {
         ...context,
         recent: recent.slice(-MAX_RECENT_ENTRIES).map((line: { author: string; text: string }) => ({
-          author: line.author.slice(0, RECENT_CHARS),
-          text: line.text.slice(0, RECENT_CHARS),
+          author: line.author,
+          text: line.text,
         })),
       };
     }
@@ -290,7 +291,7 @@ function validateRun(msg: Rec, id: string): Checked {
  * goal (at most MAX_GOAL_CHARS), and may carry `context` (a plain object,
  * at most MAX_CONTEXT_CHARS as JSON, whose `scope` is one of SCOPES when
  * present and whose `recent`, when present, is a list of `{ author, text }`
- * strings: the latest MAX_RECENT_ENTRIES kept, each cut to RECENT_CHARS, any
+ * strings: the latest MAX_RECENT_ENTRIES kept whole, any
  * other key of a line dropped; a malformed one refuses `bad-recent`), `limits` (only LIMIT_KEYS, each a positive number), `tools` (a
  * non-empty list of names), `model` (an OpenCode model id), `cost`
  * (`{ input, output }` in USD per million tokens), `searchProvider` (an

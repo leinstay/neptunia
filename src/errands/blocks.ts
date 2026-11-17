@@ -12,8 +12,6 @@ import { listOf, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ErrandRecord } from './types.ts';
 
-/** The goal's length on a `<errands>` line (characters). */
-export const ERRAND_GOAL_CHARS = 120;
 /** The unread errands `<errands>` shows. Production value, config cut of 2026-10-31. */
 export const DEFAULT_UNREAD_SHOWN = 5;
 /** `errands.resultMaxChars` when it is missing (config.json carries the same). */
@@ -38,7 +36,7 @@ function errandStateWord(errand: ErrandRecord | null | undefined, labels: Untype
 
 /**
  * The `<errands>` block's body: `labels.errands.header`, then one `labels.errands.line` per errand
- * (`{id}`, `{agent}`, `{goal}` on one line cut to ERRAND_GOAL_CHARS, `{state}` through
+ * (`{id}`, `{agent}`, `{goal}` on one line, whole, `{state}` through
  * `labels.errands.states`, `states.expired` for an errand whose files have expired, `{error}` the
  * code of an errand that did not end `done` ('' otherwise), `{age}` whole minutes since it was
  * asked). The open ones come first; a finished one is an unread result and its line ends with
@@ -49,11 +47,7 @@ function errandStateWord(errand: ErrandRecord | null | undefined, labels: Untype
 export function errandsBlockText(
   errands: unknown,
   labels: Untyped,
-  {
-    now,
-    goalChars = ERRAND_GOAL_CHARS,
-    unreadShown = DEFAULT_UNREAD_SHOWN,
-  }: { now: number; goalChars?: number; unreadShown?: number }
+  { now, unreadShown = DEFAULT_UNREAD_SHOWN }: { now: number; unreadShown?: number }
 ): string {
   const l = labels?.errands;
   const list = listOf(errands).filter((errand): errand is ErrandRecord => typeof objOf(errand).id === 'string');
@@ -66,7 +60,7 @@ export function errandsBlockText(
     const line = fill(l.line, {
       id: errand.id,
       agent: errand.agent,
-      goal: clampWithEllipsis(oneLine(errand.goal), goalChars),
+      goal: oneLine(errand.goal),
       state: errandStateWord(errand, labels),
       error: errand.state !== 'done' && errand.error ? errand.error : '',
       age: Math.max(0, Math.floor((now - (Number(errand.createdAt) || now)) / MINUTE_MS)),

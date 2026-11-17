@@ -405,7 +405,7 @@
       "repeated": 0
     },
     "tests/interests.test.ts": {
-      "deep": 4,
+      "deep": 2,
       "repeated": 0
     },
     "tests/interface-chat-turns.test.ts": {
@@ -473,11 +473,11 @@
       "repeated": 0
     },
     "tests/lore.test.ts": {
-      "deep": 28,
+      "deep": 26,
       "repeated": 0
     },
     "tests/media-draw.test.ts": {
-      "deep": 13,
+      "deep": 12,
       "repeated": 0
     },
     "tests/media-memory-format.test.ts": {
@@ -1372,7 +1372,7 @@
     },
     "src/format.ts": {
       "formatTranscript": {
-        "complexity": 65
+        "complexity": 64
       }
     },
     "src/intentions/blocks.ts": {
@@ -1390,7 +1390,7 @@
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 531
+        "function-length": 530
       },
       "createIntentionService>set": {
         "complexity": 24
@@ -1543,7 +1543,7 @@
     },
     "src/memory/lore.ts": {
       "upsertLore": {
-        "complexity": 28
+        "complexity": 23
       }
     },
     "src/memory/vectors.ts": {
@@ -1570,7 +1570,7 @@
         "complexity": 57
       },
       "outcomeDetail": {
-        "complexity": 22
+        "complexity": 21
       },
       "resolveCall": {
         "complexity": 66

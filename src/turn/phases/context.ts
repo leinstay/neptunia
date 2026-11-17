@@ -49,7 +49,6 @@ export type PhaseConfig = LookupConfig &
       maxPerTurn?: number;
       video?: { sites?: Array<string>; maxPerTurn?: number } | null;
     } | null;
-    image?: { maxPromptChars?: number } | null;
     mention?: { oneAtATime?: unknown } | null;
     format?: { stripDashes?: unknown } | null;
     bot?: { timezone?: string } | null;
