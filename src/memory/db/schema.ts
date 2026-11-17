@@ -453,6 +453,16 @@ const UNIQUE_MEDIA_LINKS = `DELETE FROM media_links WHERE EXISTS (SELECT 1 FROM 
   DROP TABLE media_links_order;
   CREATE UNIQUE INDEX IF NOT EXISTS media_links_owner_media ON media_links(owner_kind, owner_id, media_id);`;
 
+/**
+ * Version 65: `rules`, the owner's rules (rules.ts). Removing a rule deletes its row, on the owner's word. The rules
+ * apply everywhere, so the table carries no scope.
+ */
+const RULES = `CREATE TABLE IF NOT EXISTS rules (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    added_at TEXT NOT NULL
+  );`;
+
 /** The steps above the baseline, version 57 first. */
 export const MIGRATIONS: Array<Migration> = [
   rowLinks,
@@ -463,6 +473,7 @@ export const MIGRATIONS: Array<Migration> = [
   noPings,
   MEDIA_NAMES,
   UNIQUE_MEDIA_LINKS,
+  RULES,
 ];
 
 /** The tables that carry a scope and its `audience_id`. */

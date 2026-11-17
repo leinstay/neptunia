@@ -145,6 +145,7 @@ import { applyPlaceLoreWrite } from './place-lore.ts';
 import { applyMediaEntryWrite } from './media-store.ts';
 import { applyGifLibraryWrite } from './gif-library.ts';
 import { applyMediaNamesWrite } from './media-names.ts';
+import { applyRulesWrite } from './rules.ts';
 import { applyStableNamesRewrite } from './stable-names-rewrite.ts';
 import { applyGifVectorWrite } from './gif-vectors.ts';
 import { applyErrandWrite } from './errand-write.ts';
@@ -988,6 +989,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['gif-vector', applyGifVectorWrite],
   // The stable names of custom emoji and stickers (media-names.ts).
   ['media-names', applyMediaNamesWrite],
+  // The owner's rules, added and removed (rules.ts).
+  ['rules', applyRulesWrite],
   // The one-off rewrite of stored lines to those names (stable-names-rewrite.ts).
   ['stable-names-rewrite', applyStableNamesRewrite],
   // An errand on the task board, with the closing journal line of its end (errand-write.ts).

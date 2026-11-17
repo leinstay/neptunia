@@ -71,6 +71,7 @@ const TABLES_BY_CLASS: Readonly<Record<Exclude<StorageClass, 'unclassified'>, Re
     'publication_grants',
     'publications',
     'relationship_daily',
+    'rules',
     'session_runs',
     'skill_evaluations',
     'skill_uses',
