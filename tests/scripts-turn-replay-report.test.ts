@@ -85,15 +85,10 @@ test('keeps the first request of the purpose it stops at and sends it nowhere', 
 });
 
 test('reports the planner answer and the messages of a diary post', () => {
-  // Bug: a brief the judge turned down is reported as the plan of the post, which was written from the last brief.
   const report = turnReport({
     turnId: 't-2',
     sample: 1,
     requests: [
-      request({
-        purpose: 'diary-planner',
-        text: '{"kind":"status","brief":"Στο σπίτι","search":"","picture":false,"seed":1}',
-      }),
       request({
         purpose: 'diary-planner',
         text: '{"kind":"status","brief":"Μια βόλτα","search":"","picture":false,"seed":2}',

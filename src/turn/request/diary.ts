@@ -1,6 +1,6 @@
 // A diary request's own parts: her past entries (`<diary>`), the
 // post's `<plan>`, the planner's `<kinds>` and `<topic>`, the `<seeds>`, the mirrors to choose among
-// (`<publication_places>`), the brief the judge turned down (`<rejected>`) and the audiences she has not heard were refused. buildRequest (src/behavior/prompt.ts) calls
+// (`<publication_places>`) and the audiences she has not heard were refused. buildRequest (src/behavior/prompt.ts) calls
 // `diaryFramedOf` for the planner and the writer on the frame, and `diaryOf` for a request with no frame.
 // None of it reaches a request of another kind.
 
@@ -26,7 +26,6 @@ export type DiaryInput = {
   readonly kinds?: string;
   readonly topic?: string;
   readonly facts?: string;
-  readonly rejected?: string;
 };
 
 export type DiaryPlan = {
@@ -147,8 +146,8 @@ const textPart = (tag: string, text: unknown): Array<{ tag: string; text: string
 
 /**
  * The parts of the planner's or the writer's request on the frame, null on any other kind. Both carry her past entries, newest first: the planner the newest `diary.entries`, the writer the newest
- * `diary.writerEntries`. The planner adds `<kinds>`, `<seeds>`, `<topic>` and `<stored_facts>`, what it chooses from, and `<rejected>`, the brief
- * the judge turned down. The writer adds `<plan>` with what the search found, a set post's `<seeds>`, `<publication_places>` and the refused audiences.
+ * `diary.writerEntries`. The planner adds `<kinds>`, `<seeds>`, `<topic>` and `<stored_facts>`, what it chooses from. The writer
+ * adds `<plan>` with what the search found, a set post's `<seeds>`, `<publication_places>` and the refused audiences.
  */
 export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFramed | null {
   const { config, labels } = given;
@@ -174,7 +173,6 @@ export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFr
           ...textPart('seeds', input.seeds),
           ...textPart('topic', input.topic),
           ...textPart('stored_facts', input.facts),
-          ...textPart('rejected', input.rejected),
         ]
       : [
           ...textPart('plan', [planBody(input.plan, labels), found].filter(Boolean).join('\n')),

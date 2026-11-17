@@ -59,10 +59,6 @@ export type PrepareOptions = {
   posts?: Array<PastPost>;
   /** The planner's answer; ignored when `failing`. */
   answer?: Record<string, unknown>;
-  /** The planner's answers in order when it is asked again; the last one answers every later request. */
-  answers?: Array<Record<string, unknown>>;
-  /** The judge's answers in order, `fail` for a request that throws; the last one answers every later request. */
-  verdicts?: Array<Record<string, unknown> | 'fail'>;
   /** Whether the plan request throws, as a provider error does. */
   failing?: boolean;
   /** Whether the post may carry a picture: an image client and Attach Files. */
@@ -78,18 +74,7 @@ export type PrepareRun = {
   offered: Array<string>;
   /** The `diary: planned` journal line. */
   planned: LogEntry | undefined;
-  /** Every model request of the step in order: its purpose and its texts joined. */
-  requests: Array<{ purpose: string; text: string }>;
-  /** The log lines of the step. */
-  logs: Array<LogEntry>;
 };
-
-/** The texts of a request's messages, joined. */
-const textOf = (messages: ReadonlyArray<{ content: unknown }>): string =>
-  messages.map((message) => (typeof message.content === 'string' ? message.content : '')).join('\n');
-
-/** The `n`th of `list` counting from 0, or its last one past its end. */
-const nthOr = <T>(list: ReadonlyArray<T>, n: number): T | undefined => list[Math.min(n, list.length - 1)];
 
 /** The kind keys of the `<kinds>` block in a request's texts: each line that starts with a key and ` weight `. */
 function kindsOffered(messages: ReadonlyArray<{ content: unknown }>): Array<string> {
@@ -113,17 +98,13 @@ export async function prepare({
   answer = { kind: 'news', brief: 'a planned scene', search: '', picture: false, seed: 1 },
   failing = false,
   pictures = false,
-  answers = [answer],
-  verdicts = [{ repeats: false, what: '' }],
   forcedKind = null,
 }: PrepareOptions): Promise<PrepareRun> {
   const requests: Array<ReadonlyArray<{ content: unknown }>> = [];
-  const asked: Array<{ purpose: string; text: string }> = [];
   const diary = createDiary({
     hot: {
       prompts: {
         'diary-planner': 'PLAN for {{name}}',
-        'diary-judge': 'JUDGE for {{name}}',
         'diary-seeds': '# place\na pier\na roof\n# light\nfog\nrain',
         labels,
       },
@@ -139,17 +120,9 @@ export async function prepare({
     llm: {
       // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
       complete: (messages, options) => {
-        const purpose = (options as { purpose?: string }).purpose ?? '';
-        const index = asked.filter((one) => one.purpose === purpose).length;
-        asked.push({ purpose, text: textOf(messages) });
-        if (purpose === 'diary-judge') {
-          const verdict = nthOr(verdicts, index);
-          if (verdict === 'fail') return Promise.reject(new Error('the provider answered 502'));
-          return Promise.resolve({ text: JSON.stringify(verdict), usage: {}, estimated: 5 });
-        }
         requests.push(structuredClone(messages));
         if (failing) return Promise.reject(new Error('the provider answered 502'));
-        return Promise.resolve({ text: planAnswerText(nthOr(answers, index), options), usage: {}, estimated: 5 });
+        return Promise.resolve({ text: planAnswerText(answer, options), usage: {}, estimated: 5 });
       },
     },
     rng,
@@ -164,7 +137,6 @@ export async function prepare({
       now: NOW,
       params: forcedKind === null ? { forced: false } : { kind: forcedKind, forced: true },
       memoryOn: false,
-      name: 'Nia',
       // Slice 6: the plan request is built on the turn frame by the request step and handed in. This stand-in carries
       // what the step rendered, each part under its own tag, so `<kinds>` holds exactly what the step offered.
       planMessages: (parts) => [
@@ -176,7 +148,6 @@ export async function prepare({
             `<seeds>\n${parts.seeds}\n</seeds>`,
             parts.topic ? `<topic>\n${parts.topic}\n</topic>` : '',
             parts.facts ? `<stored_facts>\n${parts.facts}\n</stored_facts>` : '',
-            parts.rejected ? `<rejected>\n${parts.rejected}\n</rejected>` : '',
           ]
             .filter(Boolean)
             .join('\n'),
@@ -189,7 +160,5 @@ export async function prepare({
     plan: result.plan,
     offered: first === undefined ? [] : kindsOffered(first),
     planned: logs.find((entry) => entry.msg === 'diary: planned'),
-    requests: asked,
-    logs,
   };
 }
