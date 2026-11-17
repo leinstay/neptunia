@@ -1111,55 +1111,19 @@ test('lateVideoStates: no known states and no candidates', () => {
   assert.deepEqual([...lateVideoStates([{ itemId: 'v1' }], null, 0)], []);
 });
 
-test('mediaLabelFor: a library GIF with a reaction or on-screen text -> gifKnownFields beside the caption', () => {
+// The owner on 2026-11-17: a GIF is one text; gifKnownFields and the three fields go.
+test('mediaLabelFor: a library GIF -> gifKnown with its caption, gifDescribed without a handle, gifKnownNoText without a caption', () => {
   const gif = { kind: 'gif', name: 'a.gif' };
-  const all = { reaction: 'accord ferme', action: 'un chat lève le menton', screen: 'ναι' };
-  assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g3', description: 'un chat lève le menton', gifFields: all }), {
-    key: 'gifKnownFields',
-    values: {
-      id: 'g3',
-      text: 'un chat lève le menton',
-      reaction: 'accord ferme',
-      action: 'un chat lève le menton',
-      screen: 'ναι',
-    },
+  assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g3', description: 'un chat lève le menton' }), {
+    key: 'gifKnown',
+    values: { id: 'g3', text: 'un chat lève le menton' },
   });
-  assert.deepEqual(mediaLabelFor(gif, { gifHandle: 'g3', description: 'ναι', gifFields: { screen: 'ναι' } }).values, {
-    id: 'g3',
-    text: 'ναι',
-    reaction: '',
-    action: '',
-    screen: 'ναι',
+  assert.deepEqual(mediaLabelFor(gif, { description: 'un chat' }), {
+    key: 'gifDescribed',
+    values: { text: 'un chat' },
   });
-  const reactionOnly = mediaLabelFor(gif, {
-    gifHandle: 'g3',
-    description: 'x',
-    gifFields: { reaction: 'accord', action: '', screen: '' },
-  });
-  assert.equal(reactionOnly.key, 'gifKnownFields');
-});
-
-test('mediaLabelFor: gifKnownFields needs a handle, a caption and a reaction or on-screen text', () => {
-  const gif = { kind: 'gif', name: 'a.gif' };
-  const all = { reaction: 'accord ferme', action: 'un chat lève le menton', screen: 'ναι' };
-  assert.deepEqual(
-    mediaLabelFor(gif, { description: 'un chat', gifFields: all }),
-    { key: 'gifDescribed', values: { text: 'un chat' } },
-    'no handle: the caption alone'
-  );
-  assert.deepEqual(
-    mediaLabelFor(gif, {
-      gifHandle: 'g3',
-      description: 'un chat',
-      gifFields: { reaction: '', action: 'un chat', screen: '' },
-    }),
-    {
-      key: 'gifKnown',
-      values: { id: 'g3', text: 'un chat' },
-    }
-  );
-  assert.equal(mediaLabelFor(gif, { gifHandle: 'g3', gifFields: all }).key, 'gifKnownNoText', 'no caption');
-  assert.deepEqual(mediaLabelFor({ kind: 'image' }, { gifHandle: 'g3', gifFields: all }), { key: 'image', values: {} });
+  assert.equal(mediaLabelFor(gif, { gifHandle: 'g3' }).key, 'gifKnownNoText');
+  assert.deepEqual(mediaLabelFor({ kind: 'image' }, { gifHandle: 'g3' }), { key: 'image', values: {} });
 });
 
 // `collectAudio` (src/media/classify.ts): the audio of one normalized message for the describer, kept apart from the pictures

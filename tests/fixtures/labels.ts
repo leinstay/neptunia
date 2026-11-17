@@ -63,7 +63,6 @@ export const labels = {
     gif: '[gif: {name}]',
     gifDescribed: '[gif: {text}]',
     gifKnown: '[gif {id}: {text}]',
-    gifKnownFields: '[gif {id} -- {reaction}; {action}; "{screen}"]',
     gifKnownNoText: '[gif {id}: {name}]',
     video: '[video: {name}, {duration}]',
     videoDescribed: '[video: {name}, {duration}: {text}]',
@@ -191,7 +190,6 @@ export const labels = {
   gifs: {
     header: 'gifs of this server, most used first:',
     entry: '{id} -- {text}',
-    entryFields: '{id} -- {reaction}; {action}; "{text}"',
     entryNoText: '{id}',
     ownMark: '(you, {ago})',
     ownMarkRecent: '(you, lately)',
