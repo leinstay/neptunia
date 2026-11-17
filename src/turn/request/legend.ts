@@ -1,5 +1,5 @@
-// The body of the root block `<media>`, the legend: each custom emoji and sticker the lines of `<chat>` and
-// `<meanwhile>` use stands once, under its interface and its kind, with its stable name, its platform name and its whole
+// The body of the root block `<media>`, the legend: each custom emoji a block of the request names and each sticker the
+// lines of `<chat>` and `<meanwhile>` show stands once, under its interface and its kind, with its stable name, its platform name and its whole
 // description. A line of chat holds the stable name alone. The reader (src/turn/request/reader.ts) gathers the items
 // after the cuts and prints the block between `<meanwhile>` and `<chat>`.
 import { fill } from '../../format.ts';

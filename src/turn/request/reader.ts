@@ -744,7 +744,15 @@ const selfTextOf = (given: ReaderInput, fit: Fit): string =>
     .filter(Boolean)
     .join('\n');
 
-type Bodies = { memory: string; found: string; inner: string; meanwhile: string; legend: string; chat: string };
+type Bodies = {
+  memory: string;
+  found: string;
+  inner: string;
+  meanwhile: string;
+  chat: string;
+  /** The stickers the kept lines of `<chat>` and `<meanwhile>` show, for the legend. */
+  stickers: ReadonlyArray<SeenSticker>;
+};
 
 /** The blocks that belong to the turn itself: the first of them in the frame's order ends the `memory` segment. */
 const TURN_OWN: ReadonlySet<string> = new Set([
@@ -781,7 +789,6 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     },
     tail('memory', 'mind', bodies.memory, 'people'),
     tail('meanwhile', 'meanwhile', bodies.meanwhile, 'meanwhile'),
-    tail('media', 'legend', bodies.legend),
     tail('chat', 'kept.chat', bodies.chat, 'chat'),
     tail('recall', 'lookups', kept.recall?.[0] ?? '', 'recall'),
     tail('found', 'mind', bodies.found, 'found'),
@@ -790,6 +797,16 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     tail('task', 'task', given.task),
   ];
   const order: ReadonlyArray<string> = given.frame.blocks;
+  const legend = legendOf(
+    given,
+    listed.filter((one) => order.includes(one.name)).map((one) => one.text),
+    bodies.stickers
+  );
+  listed.splice(
+    listed.findIndex((one) => one.name === 'chat'),
+    0,
+    tail('media', 'legend', legend)
+  );
   const sorted = listed
     .filter((one) => order.includes(one.name))
     .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
@@ -803,24 +820,24 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
   return [...inList, ...offList];
 }
 
-/** The body of the legend `<media>`: the custom emoji and stickers of the kept chat and `<meanwhile>` windows. */
-function legendOf(
-  given: ReaderInput,
-  keptChat: ReadonlyArray<TranscriptItem>,
-  keptWindows: ReadonlyArray<MeanwhileWindow>,
-  offered: Offered
-): string {
+/**
+ * The body of the legend `<media>`: each custom emoji whose stable name stands in a block the frame lists, and the
+ * stickers of the kept lines of `<chat>` and `<meanwhile>`.
+ */
+function legendOf(given: ReaderInput, texts: ReadonlyArray<string>, stickers: ReadonlyArray<SeenSticker>): string {
   if (!given.mediaNameOf) return '';
-  const texts = [
-    ...keptChat.map((item) => item.text),
-    ...keptWindows.map((window) => offered.windowTexts[offered.windows.indexOf(window)]),
-  ];
-  const stickers = [
-    ...keptChat.flatMap((item) => given.chatStickers.get(item.id) ?? []),
-    ...keptWindows.flatMap((window) => window.lines.flatMap((line) => windowStickers(line.media ?? []))),
-  ];
   return legendText(legendItems(texts, stickers, given.mediaNameOf, given.describe), given.labels);
 }
+
+/** The stickers the kept lines of `<chat>` and the kept `<meanwhile>` windows show. */
+const keptStickers = (
+  given: ReaderInput,
+  keptChat: ReadonlyArray<TranscriptItem>,
+  keptWindows: ReadonlyArray<MeanwhileWindow>
+): Array<SeenSticker> => [
+  ...keptChat.flatMap((item) => given.chatStickers.get(item.id) ?? []),
+  ...keptWindows.flatMap((window) => window.lines.flatMap((line) => windowStickers(line.media ?? []))),
+];
 
 /** The stickers of a stored line's media: the ones that carry their stable name. */
 const windowStickers = (media: ReadonlyArray<LineMediaItem>): Array<SeenSticker> =>
@@ -870,7 +887,7 @@ export function readerRequest(given: ReaderInput): ReaderResult {
       named ? names.meanwhileRefs : null,
       keepsEmoji(given.config)
     ),
-    legend: legendOf(given, keptChat, keptWindows, offered),
+    stickers: keptStickers(given, keptChat, keptWindows),
     chat: renderTranscript(keptChat, timezone, labels, given.tempoText),
   });
   const memberNames = new Map<string, Array<string>>();
