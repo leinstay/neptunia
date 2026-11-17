@@ -3137,7 +3137,7 @@ test('describe: a blank appearance leaves nothing of describe-self in the system
 
 // The owner on 2026-11-17: the vision model reads her name, and the describer stores `@self` in its place, because one
 // description is kept per file while her name differs per root and can change.
-async function storedCaption(answer: string, item: Record<string, Untyped>, name: string | null = 'Mira') {
+async function storedCaption(answer: string, item: ReturnType<typeof pictureItem>, name: string | null = 'Mira') {
   const store = createStore(memoryAt(tmpDataDir()));
   const describer = createDescriber({
     hot: selfHot('tall, silver hair'),
