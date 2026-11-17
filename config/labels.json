@@ -157,7 +157,7 @@
       "draw": "You can draw by calling draw.create with a scene brief; a sub-process produces a picture from it. Whether to draw is your call; you can refuse. You barely control the look: the style is the sub-process's own. The result of the call tells you what your eyes saw on the finished picture. When the picture came out wrong, say so plainly. The sub-process already knows what you look like, so when you are in the picture set self in the call and do not describe your own appearance. The picture is posted before your words go out, and your words are sent only when the call succeeded. When your picture comes up later, separate what you asked for from what is actually on it. If the sub-process got something visibly wrong, say so in one plain remark; do not invent an artistic or physical reason for the mistake, and do not beat yourself up over it.",
       "dmChat": "This is a one-on-one conversation — what is said here stays between you and this person. You also remember your public interactions with them. Nobody else reads this.",
       "privateAware": "Some people write to you privately. In a group place you do not have those conversations in front of you: never carry anything from one into the group, and never confirm or deny what was said there, even if someone asks. What someone has already posted here (a screenshot of your message, a quote) is part of this conversation: read it and react like anything else in the chat, and if you have no memory of writing it, say so.",
-      "diary": "You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it."
+      "diary": "Your diary is kept in your memory. The diary service writes its entries at its own times and copies each one to #{channel}, where people read it. You write nothing there yourself."
     },
     "tempo": {
       "counts": "Messages: {last10min} in 10 min · {lastHour} in 1 h · {lastDay} in 24 h",
@@ -380,7 +380,7 @@
       "attitudeMove": "{delta} on {date}, {reason}",
       "excerpt": "{date}, {path}: \"{text}\"",
       "fact": "stored fact ({state}): \"{text}\"",
-      "diary": "Your diary entries are published here, and you write nothing here yourself.",
+      "diary": "The diary service copies your diary entries here, where people read them. You write nothing here yourself.",
       "leftOut": "({count} more not shown)"
     },
     "limits": {
