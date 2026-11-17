@@ -719,11 +719,15 @@ function dropUnheld(
   }
 }
 
-/** An item's row nothing links any more retires, unless the GIF library holds it. */
+/**
+ * An item's row nothing links any more retires, unless the GIF library holds it. It leaves the cache too, so a late
+ * write of the describer never brings it back (writeMediaEntry).
+ */
 function retireUnlinked(db: Db, mediaId: unknown, at: unknown): void {
   const retired = db
     .prepare(
-      `UPDATE media SET retired_at = ? WHERE id = ? AND retired_at IS NULL AND writer IS NOT 'gifs'
+      `UPDATE media SET retired_at = ?, writer = NULL, holder_id = NULL WHERE id = ? AND retired_at IS NULL
+         AND writer IS NOT 'gifs'
          AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = media.id)`
     )
     .run(iso(at), mediaId);
@@ -1023,7 +1027,7 @@ function cacheRowFor(db: Db, iface: unknown, key: string): { row: Row; isNew: bo
   const retired = rowsUnder(db, iface, refsOf(key), { retired: true }).find(
     (row) => row.retired_at !== null && entryOfRow(row, key) !== undefined
   );
-  if (retired) return { row: retired, isNew: false };
+  if (retired) return { row: retired, isNew: retired.writer === 'media' };
   const { ref, kinds } = cacheKeyParts(key);
   const id = NEW_ID(iface, key);
   const scope = audienceOf(groupScope(iface === null ? null : asText(iface)));
@@ -1041,10 +1045,9 @@ export type MediaEntryWrite =
 
 /**
  * Puts `entry` under `key` on the row of its item, in the caller's transaction: the entry's text becomes the row's text
- * form when nothing better is held, and the row gets its graph node. A retired row stays retired, since only a row
- * nothing links retires and a write never makes a live row with no link of one: a late description of an item an edit
- * replaced, or of one the trim took out, waits there for `savedMediaDescription`. A new row may push the place's
- * oldest row past the cap.
+ * form when nothing better is held, and the row gets its graph node. A row the cache's trim retired comes back, and may
+ * push the place's oldest row past the cap. A row a line released (retireUnlinked) belongs to no cache and stays
+ * retired, so a late description of an item an edit replaced shows nowhere.
  */
 export function writeMediaEntry(
   db: Db,
@@ -1056,8 +1059,9 @@ export function writeMediaEntry(
   const cache = { ...cacheOf(extra), [key]: entry };
   db.prepare(
     `UPDATE media SET extra = ?, used_at = ?,
-       writer = CASE WHEN writer = 'gifs' THEN writer ELSE 'media' END,
-       holder_id = CASE WHEN writer = 'gifs' THEN holder_id ELSE ? END
+       retired_at = CASE WHEN writer = 'media' THEN NULL ELSE retired_at END,
+       writer = CASE WHEN writer = 'gifs' OR (retired_at IS NOT NULL AND writer IS NOT 'media') THEN writer ELSE 'media' END,
+       holder_id = CASE WHEN writer = 'gifs' OR (retired_at IS NOT NULL AND writer IS NOT 'media') THEN holder_id ELSE ? END
      WHERE id = ?`
   ).run(JSON.stringify({ ...extra, cache }), at, placeId, row.id);
   if (filled(entry.text)) {
