@@ -102,7 +102,13 @@ Never start the engine (`src/index.ts`) from a checkout that points at a running
 - No model-facing text in `src/`. Everything the model reads lives in `prompts/` and `config/labels.json`, under the contract in `docs/prompt-contract.md`. A change on one side of the contract changes the other in the same pull request.
 - The model's output is data. Only the tags of the output contract are acted on, and nothing rewrites the persona's words after generation.
 - Memory has one writer. Every change to the memory database goes through it; interfaces never open the database.
-- Settings are read at the moment of use (`hot.config`, `hot.prompts`), never cached in a long-lived variable. A new behaviour gets its setting in `config/config.json` and a row in `docs/configuration.md`.
+- Settings are read at the moment of use (`hot.config`, `hot.prompts`), never cached in a long-lived variable.
+- Add a setting only when two deployments need different values. Use a constant for a value that is the same everywhere. Fix a wrong behaviour in the code, and do not add a setting that turns it off.
+- Change the code that already does the job. Add a second path only when the two jobs differ, and say in the pull request how they differ.
+- A change removes everything it leaves unused, in the same pull request: functions, exports, files, settings, labels, tests and sentences of a document.
+- Add nothing without a caller in the same change. This covers an export, an option, a parameter and a branch.
+- Fix a fault where it starts. Do not add a guard at each place the fault showed.
+- Write no branch for an input that cannot occur. A fallback or a `catch` names, in one line, the real case it handles.
 - Logs carry counts and names, never message contents.
 - The rails stay on: the per-request token cap and the per-day request cap in `llm.*`.
 - Interfaces at the edge: decisions are pure functions with injected `rng` and `now`; the platform SDK and `fetch` stay in the interfaces and the few edge modules.
@@ -130,7 +136,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Headings are plain phrases that name their content ("Configuration", "How a turn runs"), never questions, promises or jokes. A title may connect two things ("Memory and the diary").
 - Weave names into sentences: "`runTurn` opens a turn when an event passes the door", not "runTurn: opens a turn". No "Label: explanation" rows outside a table.
 - Say what the engine does, not what the reader "can" or "gets": "the door drops a duplicate event", not "you can rely on deduplication".
-- A document that describes behaviour names the module that implements it and the setting that changes it, with its default.
+- A document that describes behaviour names the setting that changes it, with its default. It names a file at most, and no function.
 - Tables for references (settings, commands, labels, codes), prose for behaviour. A table generated from the code says so in its first line.
 - Every path, key, command and value in backticks. Links are relative and point at files that exist; an external link only to published documentation.
 - Lists use "and" or "or", never a slash. No emoji.
@@ -142,6 +148,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Stage with explicit paths (`git add <paths>`), never `-A` or `.`.
 - Commit subject in English, imperative, under 72 characters; the body says why when the subject is not enough. End the message with a `Co-Authored-By:` trailer naming the model that did the work.
 - A pull request says what changed and why, how it was tested, and whether it adds a setting, a prompt file or a contract change. CI must be green before a merge; read the conclusion, do not assume it.
+- A pull request states how many lines it adds and removes in `src` and in `tests`.
 - Never commit the local layer, `.env`, `.agents/`, `.claude/`, `.opencode/` or anything with a key in it. The pre-commit hook and CI refuse them; do not work around either.
 - A branch is deleted with its merge (`gh pr merge --delete-branch`). Any branch, and its worktree, untouched for 24 hours is deleted, whoever made it, unless an open pull request names it.
 - Never force-push `main`, never rewrite published history.
@@ -153,15 +160,14 @@ Tests are written by agents, so the quality lives in the method, not in a review
 - One test file per module, `tests/<module>.test.ts`, using `node:test` and `node:assert/strict`. A test name says what happens and when: `refuses an expired token when the lease has lapsed`.
 - Write the test before the code, run it, and see it fail for the right reason. A test that is green before the code exists checks nothing.
 - Test behaviour through the module's public exports. No import of a private function, no reaching into internals.
-- One scenario per test, fixed inputs, an assertion on the concrete result. Every module gets its boundary case, its empty input and its error path.
+- One scenario per test, fixed inputs, an assertion on the concrete result.
 - Assert the fact that matters. `deepEqual` on a whole object is for a value whose whole shape is the point; an assertion on a type, on "not undefined", or on a mock returning what it was told to return proves nothing.
 - No mock for code that can be called directly. I/O goes through fakes; `rng` and `now` are injected; a test sets every setting it depends on and never reads a real `prompts.local/`, `data/` or the network.
-- For every bug you find, a regression test that reproduces it, in the same change as the fix.
+- A fix extends the test that covers the behaviour. Write a new test only when no test covers it.
+- Prove each test before you keep it. Break the code the way the bug would, and check that this test fails. Delete a test that no such break fails.
 - Never change an existing test's expectation to make a run pass. When an expectation is wrong, the change says why in a comment on the test. Never weaken, skip or delete a test to get to green; report real counts.
 - A change that can alter what the persona sends to a model is checked with the identity replay: `scripts/replay.ts` with `--answers-dir` builds her requests from one copy of a data folder on the base commit and on the head, answering every model call from files, and the two sets of requests are compared byte for byte. They are identical, or the pull request names each request that differs and why.
 - No snapshots, no test of a label's wording or a document's text, no test for what nothing sane could break. A test whose failure would catch no real bug is deleted, not kept for coverage.
-- For a change that adds behaviour, the tests and the code are written by different agents: one writes the tests from the brief and the signatures without seeing the code, the other makes them green without touching them, and the reviewer answers one question per test: which real bug it catches.
-- The specifier types its tests against the signatures in the brief, with no cast to `never` or `any` for a module that does not exist yet; the implementer's exports make those types true.
 - Run only the tests of the module you changed, with the `dot` reporter. The whole suite runs in CI. On a failure, rerun that one file with `--test-reporter=spec` and read the first failing trace. Pipe long output through `tail`; never paste a test log into a commit, an issue or a document.
 
 ## Deployment workspace
