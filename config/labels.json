@@ -115,6 +115,7 @@
       "linkRead": "[read: {text}]",
       "thumbnailDescribed": "[preview: {text}]",
       "filePreview": "[file: {name} | {text}]",
+      "filePreviewRetold": "[file: {name} | retold, not its exact text: {text}]",
       "forwarded": "[forwarded: {text}]",
       "forwardedFrom": "[forwarded from #{channel}: {text}]",
       "unknownDuration": "?:??",
@@ -430,6 +431,7 @@
         "rescue": "Your lookups could not go on, and their results are not here. Reply now from what you already have in front of you, or end with <skip/>. A call here will not run.",
         "cut": "This result is longer than what you see here. A narrower call reads the rest.",
         "dropped": "The result of this {tool} call was taken out to make room. Make the call again if you still need it.",
+        "squeezed": "Shortened to fit this request.",
         "long": "You have made calls in {n} answers in a row this turn. If what you are looking for has not turned up, stop looking and reply from what you have, saying what you looked at."
       }
     },
@@ -457,7 +459,8 @@
         "file": "{handle} ({contentType}, {bytes} bytes)",
         "withheld": "The engine withheld {paths} from the agent by policy; the result covers everything else.",
         "held": "The engine held back {names} because they contained what looks like a key, token or password, or came from a closed path. You have no handle for them, so tell the person those files were not delivered.",
-        "searchFailed": "{count} of the agent's web searches failed, so what it brought back may lack what it went to find."
+        "searchFailed": "{count} of the agent's web searches failed, so what it brought back may lack what it went to find.",
+        "retold": "The result was longer. This is a shorter retelling of it."
       }
     },
     "intentions": {
@@ -779,9 +782,9 @@
           "more": "{count} more results left out for room."
         },
         "read": {
-          "source": "Source: web.read, {url}. The page's own text as extracted, not a summary; at most {maxChars} characters.",
+          "source": "Source: web.read, {url}. The page's own text as extracted when it fits {maxChars} characters.",
           "title": "Title: {title}",
-          "cut": "Cut at {maxChars} characters; the rest of the page is not shown.",
+          "retold": "The page was longer. This is a shorter retelling of it.",
           "none": "The page had no readable text."
         },
         "memory": {

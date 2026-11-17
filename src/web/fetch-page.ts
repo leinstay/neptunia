@@ -23,7 +23,7 @@ import zlib from 'node:zlib';
 import { log } from '../log.ts';
 import { bareContentType, safeLocation } from '../media/video-sites.ts';
 import { objOf } from '../tools/types.ts';
-import { htmlToText, pageTitle, truncateText } from './readable.ts';
+import { htmlToText, pageTitle } from './readable.ts';
 
 /** What a response body offers to release it unread: a node stream's `destroy` or a fetch body's `cancel`. */
 type Releasable = { destroy?: () => void; cancel?: () => Promise<unknown> | undefined };
@@ -45,7 +45,7 @@ type PageRequest = (
 export type PageFetcher = {
   fetchText: (
     url: string,
-    options?: { maxBytes?: number; timeoutMs?: number; maxChars?: number; acceptLanguage?: string }
+    options?: { maxBytes?: number; timeoutMs?: number; acceptLanguage?: string }
   ) => Promise<PageText | PageFailure>;
 };
 
@@ -336,8 +336,8 @@ export function createPageFetcher({
 
   /**
    * Fetch `url` as readable text behind the SSRF guard (see the header
-   * comment). HTML goes through `htmlToText` (cut to `maxChars`) with its
-   * title; text/plain comes back as written (cut to `maxChars` when given).
+   * comment). HTML goes through `htmlToText` with its title; text/plain comes
+   * back as written, whole: each reader retells it for its own bound.
    * At most 3 redirects are followed. `acceptLanguage` (the caller reads
    * `web.acceptLanguage` at the moment of use) is sent as the Accept-Language
    * header when it is a non-empty printable ASCII string; otherwise the header
@@ -345,12 +345,7 @@ export function createPageFetcher({
    */
   async function fetchText(
     url: string,
-    {
-      maxBytes,
-      timeoutMs,
-      maxChars,
-      acceptLanguage,
-    }: { maxBytes?: number; timeoutMs?: number; maxChars?: number; acceptLanguage?: string } = {}
+    { maxBytes, timeoutMs, acceptLanguage }: { maxBytes?: number; timeoutMs?: number; acceptLanguage?: string } = {}
   ): Promise<PageText | PageFailure> {
     const byteCap = positiveOr(maxBytes, DEFAULT_MAX_BYTES);
     const waitMs = positiveOr(timeoutMs, DEFAULT_TIMEOUT_MS);
@@ -438,7 +433,7 @@ export function createPageFetcher({
         const source = decode(raw, pickCharset(rawType, raw, isHtml));
         return {
           ok: true,
-          text: isHtml ? htmlToText(source, { maxChars }) : truncateText(source, maxChars),
+          text: isHtml ? htmlToText(source) : source,
           title: isHtml ? pageTitle(source) : null,
           contentType,
           bytes,

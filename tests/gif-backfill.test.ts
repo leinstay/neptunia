@@ -100,7 +100,7 @@ function fakeChannel(
     const event = toEvent(
       { ...raw, channel: stub, channelId: id, guild: stub.guild },
       'selfUser',
-      normalizeOptions({ media: { embedTextChars: 200 } })
+      normalizeOptions({})
     );
     removeField(event, 'raw');
     return event;

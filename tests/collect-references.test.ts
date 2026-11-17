@@ -280,19 +280,11 @@ test('normalizeMessage: classifies attachments through media.js, keeping url/siz
   assert.equal(m.attachments[1].kind, 'video');
 });
 
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
 test('normalizeOptions: the normaliser settings from the config, absent ones left to its defaults', () => {
   const config = { media: { embedTextChars: 50, video: { sites: ['a'] } }, context: { maxUrlChars: 30 } };
   // PR 7d: `media.imageSize` is the package's constant, the 512 of production, whatever the config says.
-  assert.deepEqual(normalizeOptions(config), {
-    embedTextChars: 50,
-    videoSites: ['a'],
-    maxUrlChars: 30,
-    imageSize: 512,
-  });
-  assert.deepEqual(normalizeOptions({}), {
-    embedTextChars: undefined,
-    videoSites: undefined,
-    maxUrlChars: undefined,
-    imageSize: 512,
-  });
+  // A config that still names the removed bounds of a URL and a preview's texts passes neither on.
+  assert.deepEqual(normalizeOptions(config), { videoSites: ['a'], imageSize: 512 });
+  assert.deepEqual(normalizeOptions({}), { videoSites: undefined, imageSize: 512 });
 });

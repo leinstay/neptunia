@@ -224,7 +224,8 @@ test('parseExaText: the live label set -- Title/URL/Published/Author/Highlights 
   assert.deepEqual(parseExaText(json, 5), [{ title: 'J', url: 'https://e.example/j', snippet: 's' }]);
 });
 
-test('parseExaText: at most count items; a long snippet is cut', () => {
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('parseExaText: at most count items; a long snippet is kept whole', () => {
   const many = JSON.stringify({
     results: Array.from({ length: 12 }, (_, i) => ({
       title: `t${i}`,
@@ -237,8 +238,7 @@ test('parseExaText: at most count items; a long snippet is cut', () => {
     items.map((r) => r.title),
     ['t0', 't1', 't2']
   );
-  assert.ok(items[0].snippet.length <= 600);
-  assert.ok(items[0].snippet.length > 0);
+  assert.equal(items[0].snippet, 'word '.repeat(400).trim());
 });
 
 test('search: a 429 fails with rate-limited and the status', async () => {

@@ -559,6 +559,9 @@ async function buildCore(
   // state: the daily video counter lives next to the LLM client's daily counter.
   // Its vision and video requests tell the role health how they went.
   const describerLlm = reportingLlm(llm, { health: roleHealth, hot, roles: ['vision', 'video'] });
+  // The one summarizer: a text over its bound is retold once on the analyzer, through the client the analyzer callers
+  // use. The describer, the web lookup, the page fetcher, the Exa client, the turns and the operations share it.
+  const summarize = createSummarizer({ hot, llm }).summarize;
   const describerDeps = {
     hot,
     store,
@@ -571,8 +574,8 @@ async function buildCore(
     track: loopWatch.track,
     // Her name in the place, for the picture prompt; getSelfName is defined below and read at each description.
     selfName: (placeId: string) => getSelfName(placeId),
-    // An answer over its length is shortened on the analyzer, through the client the analyzer callers use.
-    summarize: createSummarizer({ hot, llm }).summarize,
+    // An answer over its length is shortened on the analyzer.
+    summarize,
     // An attached GIF's address may lapse: its message is read again for a fresh one before the clip is fetched.
     // `reads` is defined below and read at each call.
     freshAddress: (item: AttachedGif) =>
@@ -597,6 +600,7 @@ async function buildCore(
     // web.quickSearch.engine picks one of these, and nothing answers in its place.
     searches: { brave: createBraveSearch(), exa: createExaSearch() },
     keys: { brave: braveApiKey, exa: exaApiKey },
+    summarize,
   };
   const lookup = createLookup(lookupOptions);
   // The persona's display name in a root: the one name every request uses. Her nickname there when the member
@@ -1002,6 +1006,7 @@ async function buildCore(
     track: loopWatch.track,
     dataDir,
     fetchImpl: keptFetch,
+    summarize,
     embedQuery: embedOne('media-pick'),
     embedFind: embedOne('recall-query'),
     // A cancel and the steps of a turn over a line of the owner's chat (src/interface/chat-turns.ts).
@@ -1317,6 +1322,8 @@ async function buildCore(
     metrics,
     // /nep status: the web search engine on the limits field.
     lookup,
+    // web.search and a waited errand.add retell a long snippet or result.
+    summarize,
     recall,
     // /nep task look: the describer's second look at a picture or a video.
     describer,

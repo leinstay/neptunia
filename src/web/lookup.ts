@@ -8,9 +8,9 @@
 //   never a `SKIP_SITES` host, never a URL whose path ends
 //   with a picture/video/audio/archive/pdf extension) is fetched through the
 //   SSRF-guarded page fetcher (src/web/fetch-page.ts; `web.acceptLanguage`
-//   sent as its Accept-Language). The excerpt is the opening of the page's own extracted
-//   text, cut at `LINK_EXCERPT_CHARS` -- what a link preview shows -- cached as
-//   `preview:<link id>`, no model request.
+//   sent as its Accept-Language). The excerpt is the page's own extracted text on one line,
+//   whole up to `LINK_EXCERPT_CHARS` and the summarizer's one retelling past it (src/behavior/summarize.ts, whole with
+//   no summarizer), cached as `preview:<link id>`.
 // - search: one web search whose numbered results are condensed through prompts/search-summary.md, sources kept.
 //   `web.quickSearch.engine` picks the engine, and it has no default: `brave` (src/web/brave.ts) and `exa` (src/web/exa.ts) each
 //   need their service key, and `openrouter` (OpenRouter's web plugin, its engine `auto`: the summary request itself
@@ -26,11 +26,10 @@
 //   `web.quickSearch.cacheHours`. A failure says why: `not-configured` with `no-engine`, `no-model`, `no-key` or `disabled`, and
 //   `provider` with the engine and `timeout`, `rate-limited`, `credentials` or the client's own reason.
 // - readPage: the persona's own web.read: one page by url through the same fetcher, its
-//   extracted main text (src/web/readable.ts) cut at `PAGE_READ_CHARS`, with its title
-//   and final url; no model request. Cached (`page:<sha1 prefix of the url>`) for
+//   extracted main text (src/web/readable.ts), whole up to `PAGE_READ_CHARS` and retold once by the summarizer past it
+//   (`retold: true`), with its title and final url. Cached (`page:<sha1 prefix of the url>`) for
 //   `web.links.readCacheHours`; a failure is not cached. Past those hours the entry stays until a later read replaces it,
 //   because it is the link's text form: every link to that address holds this text instead of its preview, with no fetch.
-//   A transcript shows it cut at `LINK_EXCERPT_CHARS` (src/format.ts), so a request grows no more than by a preview.
 //
 // Both share the describer's cache (one row of `media` per entry, capped by last use at
 // `MEDIA_CACHE_ENTRIES` of src/memory/db/media-store.ts): `preview:<link id>` holds an excerpt `{ text, ts }` or a
@@ -53,8 +52,8 @@ import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { clampText, oneLine } from '../memory/clamp.ts';
 import { log } from '../log.ts';
 import { MINUTE_MS, utcDay } from '../time.ts';
-import { LINK_EXCERPT_CHARS, hashedKey } from './cache.ts';
-import { truncateText } from './readable.ts';
+import { hashedKey } from './cache.ts';
+import type { Summarize } from '../behavior/summarize.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorFields } from '../error-fields.ts';
 import { objOf, scalarText } from '../tools/types.ts';
@@ -95,7 +94,7 @@ type CacheEntry = {
   results?: Array<RawResult>;
   url?: string;
   title?: string;
-  cut?: boolean;
+  retold?: boolean;
 };
 /** A link as the reader takes it: its id and address. */
 type LinkItem = { id: string; url: string; site?: string; title?: string; kind?: string };
@@ -119,6 +118,8 @@ export type LookupDeps = {
   searches?: { brave?: SearchClient; exa?: SearchClient };
   keys?: { brave?: string | null; exa?: string | null };
   now?: () => number;
+  /** Retells a page text or an excerpt over its bound once (src/behavior/summarize.ts); none keeps every text whole. */
+  summarize?: Summarize | undefined;
 };
 
 /** A condensed search's answer: null when the lookup did not search. */
@@ -131,7 +132,7 @@ type RawAnswer =
 
 /** A page read's answer. */
 type PageAnswer =
-  | { ok: true; url: string; title: string; text: string; cut: boolean; cached?: true }
+  | { ok: true; url: string; title: string; text: string; retold: boolean; cached?: true }
   | { ok: false; reason: string; status?: number; url?: string };
 
 /** What `readLinkCharged` takes beside the link. */
@@ -178,9 +179,9 @@ const PAGE_CACHE_HOURS_FALLBACK = 6;
 // The reader's and the search's measures. Production values, config cut of 2026-10-31.
 /** The largest page fetched, in bytes. */
 const LINK_MAX_BYTES = 1500000;
-/** The characters of a page's text kept from the fetch. */
-const LINK_TEXT_CHARS = 6000;
-/** The length of a page read whole (`web.read`). */
+/** The length of a link's excerpt, a preview's; a longer page text is retold. */
+const LINK_EXCERPT_CHARS = 1000;
+/** The length of a page read whole (`web.read`); a longer page text is retold. */
 const PAGE_READ_CHARS = 4000;
 /** The length of a search's condensed answer. */
 const SEARCH_SUMMARY_CHARS = 900;
@@ -290,6 +291,12 @@ function cleanText(raw: unknown, maxChars: number): string {
   return clampText(oneLine(raw), maxChars, { tolerance: 1 });
 }
 
+/** `text` whole when it fits `maxChars` or no summarizer is wired, else the summarizer's one retelling of it. */
+function retold(text: string, maxChars: number, summarize: Summarize | undefined): Promise<string> {
+  if (!summarize || Array.from(text).length <= maxChars) return Promise.resolve(text);
+  return summarize(text, { maxChars, kind: 'text' });
+}
+
 /** Whether `url`'s path (query and fragment aside) ends with a file extension the reader skips. */
 function isBinaryPath(url: string): boolean {
   try {
@@ -371,7 +378,7 @@ export { renderResults };
  * @param deps.keys The service keys of the `brave` and `exa` engines; never logged.
  */
 export function createLookup(deps: LookupDeps): Lookup {
-  const { hot, store, llm, pageFetcher, searches = {}, keys = {}, now = Date.now } = deps;
+  const { hot, store, llm, pageFetcher, searches = {}, keys = {}, now = Date.now, summarize } = deps;
   const buildSummary = createSummaryBuilder({ hot, llm, now });
   // One in-flight read per place + link: a message prefill and a turn that
   // reach the same new link at once share one request.
@@ -433,7 +440,6 @@ export function createLookup(deps: LookupDeps): Lookup {
     const page = await pageFetcher.fetchText(link.url, {
       maxBytes: LINK_MAX_BYTES,
       timeoutMs: linksCfg.fetchTimeoutMs,
-      maxChars: LINK_TEXT_CHARS,
       acceptLanguage: config.web?.acceptLanguage,
     });
     if (!page?.ok) return miss(page?.reason ?? 'network', page?.status !== undefined ? { status: page.status } : {});
@@ -441,12 +447,12 @@ export function createLookup(deps: LookupDeps): Lookup {
     const body = String(page.text ?? '').trim();
     if (!body) return miss('empty');
 
-    // The opening of the page's own text, no model request.
-    const opening = cleanText(body, LINK_EXCERPT_CHARS);
-    if (!opening) return miss('empty');
-    putEntry(placeId, key, { text: opening, ts: now() });
-    report('read', null, { chars: opening.length, preview: true });
-    return { result: { text: opening }, attempted: true };
+    const whole = oneLine(body); // the page's own text on one line, retold past the excerpt's length
+    if (!whole) return miss('empty');
+    const excerpt = await retold(whole, LINK_EXCERPT_CHARS, summarize);
+    putEntry(placeId, key, { text: excerpt, ts: now() });
+    report('read', null, { chars: excerpt.length, preview: true });
+    return { result: { text: excerpt }, attempted: true };
   }
 
   /** One link read through the cache, with readLinks' accounting: `attempted` = a fetch was tried (or awaited in flight). */
@@ -791,8 +797,8 @@ export function createLookup(deps: LookupDeps): Lookup {
 
   /**
    * The persona's own web.read: the page at `url` through the SSRF-guarded fetcher, its
-   * extracted main text cut at `PAGE_READ_CHARS` (`cut: true` when it was longer), its
-   * title and the url it ended at after redirects; no model request. Needs the feature;
+   * extracted main text, retold once by the summarizer when it runs over `PAGE_READ_CHARS` (`retold: true`), its
+   * title and the url it ended at after redirects. Needs the feature;
    * takes one daily web slot per fetch (a cache hit is free). `{ ok: false, reason }`:
    * `not-configured` (the feature off), `daily-cap` (the day's slots spent), `empty` (no
    * text on the page; `url` says where it ended up), or the fetcher's reason (`scheme`, `private`, `redirects`, `type`,
@@ -818,7 +824,7 @@ export function createLookup(deps: LookupDeps): Lookup {
           url: hit.url ?? '',
           title: hit.title ?? '',
           text: hit.text,
-          cut: hit.cut === true,
+          retold: hit.retold === true,
           cached: true,
         };
       }
@@ -839,15 +845,15 @@ export function createLookup(deps: LookupDeps): Lookup {
       report('miss', 'empty');
       return { ok: false, reason: 'empty', url: finalUrl };
     }
-    const text = truncateText(whole, maxChars);
+    const text = await retold(whole, maxChars, summarize);
     const read = {
       url: finalUrl,
       title: oneLine(String(page.title ?? '')),
       text,
-      cut: text !== whole,
+      retold: text !== whole,
     };
     putEntry(placeId, key, { ...read, ts: now() });
-    report('read', null, { cached: false, chars: text.length, cut: read.cut });
+    report('read', null, { cached: false, chars: text.length, retold: read.retold });
     return { ok: true, ...read };
   }
 

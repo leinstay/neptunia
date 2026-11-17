@@ -241,7 +241,7 @@
       "repeated": 3
     },
     "tests/exa.test.ts": {
-      "deep": 9,
+      "deep": 7,
       "repeated": 0
     },
     "tests/fake-interface.test.ts": {
@@ -1005,8 +1005,8 @@
       "repeated": 0
     },
     "tests/tools-tools.test.ts": {
-      "deep": 27,
-      "repeated": 15
+      "deep": 26,
+      "repeated": 14
     },
     "tests/tools-vision-compare.test.ts": {
       "deep": 4,
@@ -1330,17 +1330,12 @@
         "complexity": 41
       },
       "sandboxRequestInput": {
-        "complexity": 34
+        "complexity": 33
       }
     },
     "src/behavior/wake.ts": {
       "feedbackFactText": {
         "complexity": 31
-      }
-    },
-    "src/errands/blocks.ts": {
-      "errandResultText": {
-        "complexity": 25
       }
     },
     "src/errands/client.ts": {
@@ -1643,7 +1638,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 493
+        "function-length": 492
       }
     },
     "src/web/readable.ts": {

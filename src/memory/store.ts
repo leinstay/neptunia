@@ -43,7 +43,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { accountCollection, personaKey, placeCollection } from './db/unit-keys.ts';
 import type { UnitKind, UnitSelector } from './db/unit-keys.ts';
-import { entryPictureDescriptions } from './db/media-store.ts';
 import type { MediaDescriptionEntry } from './db/media-store.ts';
 import { createStoreMedia } from './store-media.ts';
 import { createStoreGifs } from './store-gifs.ts';
@@ -1006,8 +1005,6 @@ type DiaryPostOptions = {
   itemId?: string;
   /** What the planner planned: its brief, the seed combinations offered and the 1-based one taken (0 for none). */
   plan?: { brief: string; seeds: Array<Array<string>>; seed: number };
-  /** The description of the entry's first linked picture, read from the media on each read and never stored. */
-  pictureDescription?: string;
 };
 
 /** A copy of the persona's diary unit as `getDiary` returns it. */
@@ -2541,20 +2538,11 @@ function buildStore({
 
     /**
      * A copy of the place's diary (the persona's diary unit): `{ posts, updatedAt }`, posts newest last; the empty
-     * diary (`{ posts: [], updatedAt: 0 }`) when there is no file, never null. Reading never creates the file. A post
-     * whose entry links a described picture carries its description as `pictureDescription`.
+     * diary (`{ posts: [], updatedAt: 0 }`) when there is no file, never null. Reading never creates the file.
      */
     getDiary(): DiaryCopy {
       // diaryEntry() replaces a value that is not `{ posts: [...] }` with the empty diary.
-      const copy = structuredClone(diaryEntry().value) as DiaryCopy;
-      const ids = copy.posts.flatMap((post) => (post.itemId ? [post.itemId] : []));
-      const described = ids.length > 0 ? seam.run(() => entryPictureDescriptions(seam.db(), ids)) : null;
-      for (const post of copy.posts) {
-        const description = post.itemId ? described?.get(post.itemId) : undefined;
-        if (description) post.pictureDescription = description;
-        else delete post.pictureDescription;
-      }
-      return copy;
+      return structuredClone(diaryEntry().value) as DiaryCopy;
     },
 
     /**

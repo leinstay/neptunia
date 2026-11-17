@@ -306,6 +306,15 @@ test('mediaLabelFor: a text attachment uses filePreview once fetched, else the p
   });
 });
 
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('mediaLabelFor: a retold text attachment uses filePreviewRetold, so she reads it as a retelling and not the file', () => {
+  // Catches: a summary of a file shown in the form of its exact text.
+  assert.deepEqual(mediaLabelFor({ kind: 'text', name: 'notes.txt', previewText: 'a list', previewRetold: true }), {
+    key: 'filePreviewRetold',
+    values: { name: 'notes.txt', text: 'a list' },
+  });
+});
+
 test('mediaLabelFor: a link with description text uses linkText, else link', () => {
   assert.deepEqual(mediaLabelFor({ kind: 'link', site: 's', title: 't' }), {
     key: 'link',

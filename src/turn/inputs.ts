@@ -9,6 +9,7 @@ import { accountOf } from '../memory/addresses.ts';
 import { placesBlockText } from '../behavior/wake.ts';
 import { innerSettings } from '../behavior/inner.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText, errandsBlockText } from '../errands/blocks.ts';
+import type { Summarize } from '../behavior/summarize.ts';
 import type { ErrandRecord } from '../errands/types.ts';
 import { isOpenState } from '../errands/store.ts';
 import { listOf, objOf } from '../tools/types.ts';
@@ -80,6 +81,8 @@ export type InputsContext = {
   places: PlacesView;
   /** Every stored chat with its native id (src/memory/db/frame-reads.ts#chatPlacesOf), as the memory holds them now. */
   chatPlaces?: (() => Array<{ id: string; nativeId: string | null }>) | null;
+  /** Retells an errand result over `errands.resultMaxChars` (src/behavior/summarize.ts); none keeps it whole. */
+  summarize?: Summarize | undefined;
 };
 
 /** What an attempt's draft holds that the inputs read and write. */
@@ -113,7 +116,7 @@ export type Inputs = {
   checkEffect: (skill: string, args: unknown, at: { channel: { id: string } }) => EffectVerdict;
   errandsInputFor: (
     args: InputArgs & { taskResult: ErrandRecord | null | undefined; wake?: unknown }
-  ) => { list: string; result: string; whole: string | null } | null;
+  ) => Promise<{ list: string; result: string; whole: string | null } | null>;
   markErrandShown: (id: string) => void;
   intentionsInputFor: (args: InputArgs & { due?: ReadonlyArray<string> }) => string;
   intentionRefsFor: () => { texts: Array<string>; places: Array<string> };
@@ -121,7 +124,7 @@ export type Inputs = {
 };
 
 export function createInputs(ctx: InputsContext): Inputs {
-  const { store, iface: port, memoryContext, errands, intentions, places, chatPlaces = null } = ctx;
+  const { store, iface: port, memoryContext, errands, intentions, places, chatPlaces = null, summarize } = ctx;
 
   /**
    * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
@@ -249,13 +252,13 @@ export function createInputs(ctx: InputsContext): Inputs {
   /**
    * The request's `errands` input (buildRequest): the `<errands>` body -- her open errands and the
    * finished ones she has not read (`errands.view`: a private chat's only in that chat; at most
-   * `errands.unreadShown` of them), the one the turn shows left out -- and the `<errand_result>` body cut to
-   * `errands.resultMaxChars` (read now): on the turn an errand's end opened (`taskResult`, trigger kind `errand`),
+   * `errands.unreadShown` of them), the one the turn shows left out -- and the `<errand_result>` body, its result
+   * retold by `summarize` when it is over `errands.resultMaxChars` (read now): on the turn an errand's end opened (`taskResult`, trigger kind `errand`),
    * and on the wake of an intention that waited for an errand (`wake`). `whole` names the waited errand when its
-   * result went in uncut, which the turn marks read once she answered (`markErrandShown`); a result turn is read by
+   * result went in whole, which the turn marks read once she answered (`markErrandShown`); a result turn is read by
    * src/errands/turns.ts, and showing marks nothing else. Null when there is nothing to show.
    */
-  function errandsInputFor({
+  async function errandsInputFor({
     channel,
     isDm,
     taskResult,
@@ -263,12 +266,12 @@ export function createInputs(ctx: InputsContext): Inputs {
     config,
     labels,
     now,
-  }: Parameters<Inputs['errandsInputFor']>[0]): { list: string; result: string; whole: string | null } | null {
+  }: Parameters<Inputs['errandsInputFor']>[0]): Promise<{ list: string; result: string; whole: string | null } | null> {
     const waited = taskResult ? null : waitedErrandOf(wake);
     const shown = taskResult ?? waited;
     const list = errandsBlockText(listedTasks({ channel, isDm, shown }), labels, { now });
     const maxChars = config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS;
-    const result = shown ? errandResultText(shown, labels, { maxChars }) : '';
+    const result = shown ? await errandResultText(shown, labels, { maxChars, summarize }) : '';
     const whole = waited && (waited.result?.text ?? '').trim().length <= maxChars ? waited.id : null;
     return list || result ? { list, result, whole } : null;
   }

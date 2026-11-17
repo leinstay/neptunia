@@ -196,7 +196,6 @@ export type RequestConfig = {
     readonly writerEntries?: number;
     readonly openingsShown?: number;
     readonly openingWords?: number;
-    readonly sceneChars?: number;
   };
   readonly media?: { readonly video?: { readonly sites?: ReadonlyArray<string> } };
   readonly models?: { readonly routes?: Record<string, unknown> };

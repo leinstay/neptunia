@@ -5,12 +5,13 @@
 // agent names, states' codes, URLs, file handles, content types and sizes are data, not wording.
 
 import { fill } from '../format.ts';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { MINUTE_MS } from '../time.ts';
 import { fileHandle, isOpenState } from './store.ts';
 import { listOf, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ErrandRecord } from './types.ts';
+import type { Summarize } from '../behavior/summarize.ts';
 
 /** The unread errands `<errands>` shows. Production value, config cut of 2026-10-31. */
 export const DEFAULT_UNREAD_SHOWN = 5;
@@ -78,10 +79,40 @@ export function errandsBlockText(
   return [l.header, ...lines].join('\n');
 }
 
+/** The line that counts the run's failed web searches (`result.searchFailed`), none when there were none. */
+function searchNoticeOf(result: ErrandRecord['result'], labels: Record<string, unknown>): Array<string> {
+  const count = Number(result?.searchFailures);
+  const notice = labels.searchFailed;
+  return Number.isSafeInteger(count) && count > 0 && typeof notice === 'string' ? [fill(notice, { count })] : [];
+}
+
 /**
- * The `<errand_result>` block's body for a finished `errand`: `labels.errands.result.header` (`{id}`,
- * `{agent}`, `{goal}` on one line, `{state}` in words), then the result's text under
- * `result.text` cut to `maxChars` (`result.empty` when there is none), `result.error` (`{error}`:
+ * The `<errand_result>` block's body (errandResultBody) with the result's text whole when it fits `maxChars`, else
+ * `summarize`'s one retelling of it, which the body then names as one. With no `summarize` the text stays whole.
+ */
+export async function errandResultText(
+  errand: ErrandRecord | null | undefined,
+  labels: Untyped,
+  { maxChars = DEFAULT_RESULT_MAX_CHARS, summarize }: { maxChars?: number; summarize?: Summarize | undefined } = {}
+): Promise<string> {
+  const text = resultTextOf(errand);
+  const over = Array.from(text).length > maxChars;
+  const shown = over && summarize ? await summarize(text, { maxChars, kind: 'text' }) : text;
+  return errandResultBody(errand, labels, shown);
+}
+
+/** The trimmed text of `errand`'s result, '' when it has none. */
+function resultTextOf(errand: ErrandRecord | null | undefined): string {
+  const resultText = errand?.result?.text;
+  return typeof resultText === 'string' ? resultText.trim() : '';
+}
+
+/**
+ * The `<errand_result>` block's body for a finished `errand` whose result text is shown as `shown` (the result's own
+ * text unless given): `labels.errands.result.header` (`{id}`,
+ * `{agent}`, `{goal}` on one line, `{state}` in words), then `shown` under
+ * `result.text`, followed by `result.retold` when it differs from the result's own text (`result.empty` when the result
+ * has no text), `result.error` (`{error}`:
  * the code) when it did not end `done`, `result.searchFailed` (`{count}`: the web searches of the run that failed,
  * `result.searchFailures`) when there were any, the sources as a numbered list under `result.sources`,
  * and each file as `result.file` (`{handle}`: `file:<errand id>/<name>`, `{contentType}`,
@@ -92,17 +123,10 @@ export function errandsBlockText(
  * `result.filesDropped`, joined by `, `; no handle for them) when there are any. A part without its
  * label is left out; '' without the header.
  */
-/** The line that counts the run's failed web searches (`result.searchFailed`), none when there were none. */
-function searchNoticeOf(result: ErrandRecord['result'], labels: Record<string, unknown>): Array<string> {
-  const count = Number(result?.searchFailures);
-  const notice = labels.searchFailed;
-  return Number.isSafeInteger(count) && count > 0 && typeof notice === 'string' ? [fill(notice, { count })] : [];
-}
-
-export function errandResultText(
+export function errandResultBody(
   errand: ErrandRecord | null | undefined,
   labels: Untyped,
-  { maxChars = DEFAULT_RESULT_MAX_CHARS }: { maxChars?: number } = {}
+  shown: string = resultTextOf(errand)
 ): string {
   const r = labels?.errands?.result;
   if (!errand || typeof r?.header !== 'string') return '';
@@ -114,10 +138,11 @@ export function errandResultText(
       state: errandStateWord(errand, labels),
     }),
   ];
-  const resultText = errand.result?.text;
-  const text = typeof resultText === 'string' ? resultText.trim() : '';
-  if (text && typeof r.text === 'string') parts.push(r.text, clampWithEllipsis(text, maxChars));
-  else if (!text && typeof r.empty === 'string') parts.push(r.empty);
+  const text = resultTextOf(errand);
+  if (text && typeof r.text === 'string') {
+    parts.push(r.text, shown);
+    if (shown !== text && typeof r.retold === 'string') parts.push(r.retold);
+  } else if (!text && typeof r.empty === 'string') parts.push(r.empty);
   if (errand.state !== 'done' && errand.error && typeof r.error === 'string')
     parts.push(fill(r.error, { error: errand.error }));
   const result = errand.result;
@@ -125,33 +150,47 @@ export function errandResultText(
   const sources = Array.isArray(result?.sources) ? result.sources.filter((url) => typeof url === 'string' && url) : [];
   if (sources.length > 0 && typeof r.sources === 'string')
     parts.push(r.sources, ...sources.map((url, i) => `${i + 1}. ${url}`));
-  // Expired files name nothing any more: no handle for them.
+  parts.push(
+    ...fileLinesOf(errand, r as Record<string, unknown>),
+    ...heldLinesOf(result, r as Record<string, unknown>)
+  );
+  return parts.join('\n');
+}
+
+/** The `result.files` lines of `errand`: its files by handle, none when they expired (no handle for them) or are none. */
+function fileLinesOf(errand: ErrandRecord, labels: Record<string, unknown>): Array<string> {
+  const { files: head, file: line } = labels;
+  const result = errand.result;
   const files =
     errand.filesExpired !== true && Array.isArray(result?.files)
       ? result.files.filter((file) => file && typeof file.name === 'string' && file.name)
       : [];
-  if (files.length > 0 && typeof r.files === 'string' && typeof r.file === 'string') {
-    parts.push(
-      r.files,
-      ...files.map((file) =>
-        fill(r.file, {
-          handle: fileHandle(errand.id, file.name),
-          contentType: file.contentType || '-',
-          bytes: Number(file.bytes) || 0,
-        })
-      )
-    );
-  }
+  if (files.length === 0 || typeof head !== 'string' || typeof line !== 'string') return [];
+  return [
+    head,
+    ...files.map((file) =>
+      fill(line, {
+        handle: fileHandle(errand.id, file.name),
+        contentType: file.contentType || '-',
+        bytes: Number(file.bytes) || 0,
+      })
+    ),
+  ];
+}
+
+/** The `result.withheld` line of the withheld paths and the `result.held` line of the files held back, each when any. */
+function heldLinesOf(result: ErrandRecord['result'], labels: Record<string, unknown>): Array<string> {
+  const lines: Array<string> = [];
   const withheld = Array.isArray(result?.withheld)
     ? result.withheld.filter((entry) => typeof entry === 'string' && entry)
     : [];
-  if (withheld.length > 0 && typeof r.withheld === 'string')
-    parts.push(fill(r.withheld, { paths: withheld.join(', ') }));
+  if (withheld.length > 0 && typeof labels.withheld === 'string')
+    lines.push(fill(labels.withheld, { paths: withheld.join(', ') }));
   const held = Array.isArray(result?.filesDropped)
     ? result.filesDropped
         .map((entry) => (typeof entry === 'string' ? entry : entry?.name))
         .filter((name) => typeof name === 'string' && name)
     : [];
-  if (held.length > 0 && typeof r.held === 'string') parts.push(fill(r.held, { names: held.join(', ') }));
-  return parts.join('\n');
+  if (held.length > 0 && typeof labels.held === 'string') lines.push(fill(labels.held, { names: held.join(', ') }));
+  return lines;
 }

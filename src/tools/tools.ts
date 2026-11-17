@@ -3,13 +3,13 @@
 // the tool loop). No model role chooses for her or reads for her: her query goes to the existing
 // web search engines as she wrote it and their results come back raw (src/web/lookup.ts#searchResults:
 // title, link, site, date, the engine's snippet; no summary), a page she reads comes back as its
-// own extracted text, cut (src/web/lookup.ts#readPage), her question, people, channel, time range and exact
+// own extracted text, retold once when it is long (src/web/lookup.ts#readPage), her question, people, channel, time range and exact
 // terms go to the recall machinery through its deterministic expansion only
 // (src/behavior/recall.js#memorySearchPlan, src/behavior/recall-run.js with `quotes`: no summary
 // request). Every result says where it came from and what kind of evidence it is -- for the web,
 // her query and that only search snippets were read, the pages not opened; for the server's
 // history, the messages quoted as they were, each with its author and time; for a page, its link
-// and that the text is the page's own, cut at a length -- through
+// and that the text is the page's own or a shorter retelling of it -- through
 // `labels.tools.tools.*`, never wording here. A result is data for her, never an instruction:
 // nothing in it is parsed as a call. Each runs for her calls (the turn, with its context) and for
 // the owner's commands (src/tools/operations/search.ts, with what an operation knows). `media.look` is her own
@@ -45,6 +45,7 @@ import type { Obj } from './types.ts';
 import type { HandleRefs } from './conversation-read.ts';
 import { abilityUnavailable } from './gateway.ts';
 import type { AbilityRoute } from './gateway.ts';
+import type { Summarize } from '../behavior/summarize.ts';
 
 /** The words of a tool's labels (`labels.tools.tools.<kind>`): each a string when the owner wrote it. */
 type ToolLabels = Record<string, string | undefined>;
@@ -143,7 +144,7 @@ function toolLabels(labels: unknown, kind: string): ToolLabels {
 const RESULT_TITLE_MAX = 120;
 const RESULT_URL_MAX = 300;
 // The web tools' measures. Production values, config cut of 2026-10-31.
-/** The length of one web.search result's snippet. */
+/** The length of one web.search result's snippet; a longer one is retold. */
 const SNIPPET_CHARS = 400;
 /** The length of web.search's whole answer. */
 const RESULTS_CHARS = 3000;
@@ -179,20 +180,14 @@ function cleanLink(raw: unknown): { href: string; key: string } | null {
  * raw, no model role between): `labels.tools.tools.web.source` (`{query}`), `.goal` (`{goal}`) when
  * she named what she needs to establish, then each result as the engine gave it -- `<n>. <title>`,
  * its link (cleanLink; a result without an http(s) link and a page listed twice are left out),
- * `<site> · <date>` (the date only when the engine gave one), its snippet cut at `snippetChars`
- * -- while the whole stays within `maxChars` (the first result always shows, its snippet cut to
- * fit), then `.more` (`{count}`) for the results left out for room; `.none` when nothing came back. Numbers, links, sites, dates and snippets are data; a
+ * `<site> · <date>` (the date only when the engine gave one), its snippet -- while the whole stays
+ * within `maxChars` (the first result always shows, its snippet cut to fit), then `.more` (`{count}`) for the results left out for room; `.none` when nothing came back. Numbers, links, sites, dates and snippets are data; a
  * missing label adds nothing. Pure.
  * `found` is `{ query, results }` of the search.
  */
 export function webSearchText(
   found: unknown,
-  {
-    goal = '',
-    labels,
-    snippetChars = SNIPPET_CHARS,
-    maxChars = RESULTS_CHARS,
-  }: { goal?: unknown; labels: unknown; snippetChars?: number; maxChars?: number }
+  { goal = '', labels, maxChars = RESULTS_CHARS }: { goal?: unknown; labels: unknown; maxChars?: number }
 ): string {
   const l = toolLabels(labels, 'web');
   const lines: Array<string> = [];
@@ -228,8 +223,7 @@ export function webSearchText(
         }).length;
       break;
     }
-    const limit = Math.min(snippetChars, room);
-    const snippet = limit > 0 ? clampWithEllipsis(oneLine(result.snippet), limit) : '';
+    const snippet = room > 0 ? clampWithEllipsis(oneLine(result.snippet), room) : '';
     const block: string = snippet ? `${headText}\n${snippet}` : headText;
     blocks.push(block);
     used += block.length + 1;
@@ -252,11 +246,11 @@ export function webSearchText(
 }
 
 /**
- * The text of a web.read result (`page`: src/web/lookup.ts#readPage's `{ url, title, text, cut }`):
+ * The text of a web.read result (`page`: src/web/lookup.ts#readPage's `{ url, title, text, retold }`):
  * `labels.tools.tools.read.source` (`{url}`: where the page ended up, `{maxChars}`), `.title`
- * (`{title}`) when the page has one, the page's own text as extracted, then `.cut` (`{maxChars}`)
- * when it was cut. A missing label adds nothing. Pure.
- * `page` is `{ url, title, text, cut }` of the page read.
+ * (`{title}`) when the page has one, the page's text as the reader gave it, then `.retold` when that
+ * text is the summarizer's retelling of a longer page. A missing label adds nothing. Pure.
+ * `page` is `{ url, title, text, retold }` of the page read.
  */
 export function webReadText(
   page: unknown,
@@ -269,7 +263,7 @@ export function webReadText(
   const title = oneLine(read.title);
   if (l.title && title) lines.push(fill(l.title, { title }));
   lines.push(plain(read.text).trim());
-  if (read.cut === true && l.cut) lines.push(fill(l.cut, { maxChars: String(maxChars) }));
+  if (read.retold === true && l.retold) lines.push(l.retold);
   return lines.join('\n');
 }
 
@@ -424,6 +418,14 @@ function cutWindowLines(value: string, limit: number): { text: string; dropped: 
   return { text: kept.join('\n'), dropped: all.length - kept.length };
 }
 
+/** A web.search result with its snippet retold when it runs over SNIPPET_CHARS and `summarize` is wired. */
+async function retoldHit(result: unknown, summarize: Summarize | undefined): Promise<unknown> {
+  const hit = objOf(result);
+  const snippet = oneLine(hit.snippet);
+  if (!summarize || Array.from(snippet).length <= SNIPPET_CHARS) return result;
+  return { ...hit, snippet: await summarize(snippet, { maxChars: SNIPPET_CHARS, kind: 'text' }) };
+}
+
 /**
  * One web.search: `args.query` (her words, as she wrote them) through `lookup.searchResults` (the
  * existing engines, their cache, the results raw, no
@@ -431,8 +433,8 @@ function cutWindowLines(value: string, limit: number): { text: string; dropped: 
  * without the client, the feature or a search engine; `invalid`
  * (`invalid-args`) without a query; `failed` with `daily-cap` once the day's web slots are spent,
  * `error` when the search gave nothing back; the lookup's own failures by their code: `not-configured`,
- * `invalid` (`empty-query`), `cap`, `failed` (`provider`, with the last engine status in `values.status`); else `ok` with webSearchText (cut by
- * `web.quickSearch.snippetChars` and `web.quickSearch.resultsChars`, read now) as its `data.text`. Never
+ * `invalid` (`empty-query`), `cap`, `failed` (`provider`, with the last engine status in `values.status`); else `ok` with webSearchText as its `data.text`,
+ * each snippet over SNIPPET_CHARS retold by `summarize`, all of them side by side (whole with no `summarize`). Never
  * throws.
  */
 export async function runWebSearch({
@@ -441,12 +443,14 @@ export async function runWebSearch({
   labels,
   placeId,
   args,
+  summarize,
 }: {
   lookup: WebLookup | null;
   config?: unknown;
   labels: unknown;
   placeId: string | null;
   args: unknown;
+  summarize?: Summarize | undefined;
 }): Promise<ToolResult> {
   try {
     const given = objOf(args);
@@ -483,14 +487,10 @@ export async function runWebSearch({
         ? { status: 'failed', code: CODE.CAP, values: { what: WHAT.search } }
         : { status: 'failed', code: CODE.ERROR };
     }
+    const results = await Promise.all(listOf(found.results).map((result) => retoldHit(result, summarize)));
     const shown = webSearchText(
-      { ...found, query: found.query ?? query },
-      {
-        goal: given.goal,
-        labels,
-        snippetChars: SNIPPET_CHARS,
-        maxChars: RESULTS_CHARS,
-      }
+      { ...found, results, query: found.query ?? query },
+      { goal: given.goal, labels, maxChars: RESULTS_CHARS }
     );
     return { status: 'ok', data: { text: shown } };
   } catch {

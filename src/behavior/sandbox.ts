@@ -46,7 +46,7 @@
 // turn run for it. A task-result scenario hands in a finished errand of hers
 // (`taskResult`, a task as src/errands/store.ts keeps one): the turn its end
 // opens is built as src/errands/turns.ts opens it -- trigger kind `errand`, the
-// `<errand_result>` block (src/errands/blocks.ts#errandResultText) -- and the
+// `<errand_result>` block (src/errands/blocks.ts#errandResultBody) -- and the
 // caller resolves her calls with its files' handles (`file:<task id>/<name>`)
 // as a live turn does; the gateway reads an errand's budget through `tasks`
 // (simulateCall).
@@ -59,7 +59,17 @@ import { RECALL_DEFAULTS, recallSettings } from './recall.ts';
 import { resolveHandles } from './handles.ts';
 import { linkChannels } from '../memory/mentions.ts';
 import { answerOf, continuationHistory, loopSettings, pickOtherProfiles, taskInput } from './turn.ts';
-import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkMissing } from './tool-step.ts';
+import {
+  appendStep,
+  cutToFit,
+  roomLeft,
+  segments,
+  squeezedLabel,
+  stepNote,
+  stepVerdict,
+  thinkMissing,
+} from './tool-step.ts';
+import type { StepLabels } from './tool-step.ts';
 import { diagnosticText } from './wake.ts';
 import { callMarksFor, callReason, MAX_MESSAGE_CHARS } from '../format.ts';
 import { replayFrame } from './sandbox-frame.ts';
@@ -90,7 +100,7 @@ import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { isPlainObject } from '../config.ts';
 import { diaryChatIds, viewDiaryIds } from './mirror.ts';
 import { utcDay } from '../time.ts';
-import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
+import { errandResultBody } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
 import { hasTrait } from '../tools/definitions.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
@@ -708,8 +718,8 @@ function framedTurn({
  * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). `taskResult`
  * (a finished task, as src/errands/store.ts keeps one) makes it the turn that errand's end
  * opens, as src/errands/turns.ts runs it: trigger kind `errand` whatever the mode, and `errands`
- * carrying its `<errand_result>` body (src/errands/blocks.ts#errandResultText, cut to
- * `errands.resultMaxChars` read now) with no `<errands>` list -- a replay knows no other errand of
+ * carrying its `<errand_result>` body (src/errands/blocks.ts#errandResultBody, its result text
+ * whole: a replay asks no model for a retelling) with no `<errands>` list -- a replay knows no other errand of
  * hers. `coreTools` (`{ recallAvailable, prefetch? }`, a skill scenario run with her tool loop)
  * hands in whether the server search could run (`recallAvailable`) and the automatic memory prefetch of
  * the trigger (`prefetch`, `<retrieved>`), which every other sandbox turn leaves out (SANDBOX_OMITS). The view is
@@ -746,11 +756,7 @@ export function sandboxRequestInput({
   const config = view.config;
   const memory = view.memory;
   // The turn an errand's end opens: its `<errand_result>` body, as src/behavior/turn.ts#errandsInputFor renders it.
-  const resultText = taskResult
-    ? errandResultText(taskResult, view.prompts?.labels, {
-        maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS,
-      })
-    : '';
+  const resultText = taskResult ? errandResultBody(taskResult, view.prompts?.labels) : '';
   // A burst's calls still waiting, named as a live turn names its queued calls; absent otherwise.
   const waiting = Array.isArray(queued) && queued.length > 0 ? queued : null;
   const tasks = waiting
@@ -1719,7 +1725,7 @@ async function runSkillLoop({
       const excessChars = Math.ceil(((costOf(sent) - tokenLimit) * 3.5) / Math.max(0.1, calibrator.ratio));
       last = true;
       reason = 'tokens';
-      sent = build(true, cutToFit(texts, excessChars));
+      sent = build(true, cutToFit(texts, excessChars, undefined, squeezedLabel(labels as StepLabels)));
       if (costOf(sent) > tokenLimit) {
         current.capped = 'tokens';
         break;

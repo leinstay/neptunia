@@ -162,14 +162,14 @@ export async function searchMembers(
 }
 
 /** What a page fetch is given beside the channel. */
-type PageOptions = { selfId: string; embedTextChars?: number; videoSites?: Array<string>; maxUrlChars?: number };
+type PageOptions = { selfId: string; videoSites?: Array<string> };
 
 /** One page of `channel`'s messages for `query` (`around` or `after`), normalized, oldest first; null and `failed` logged on a failure. */
 async function fetchPage(
   channel: TextBasedChannel,
   query: { around: string } | { after: string } | { before: string },
   limit: number,
-  { selfId, embedTextChars, videoSites, maxUrlChars }: PageOptions,
+  { selfId, videoSites }: PageOptions,
   failed: string
 ): Promise<Array<object> | null> {
   try {
@@ -177,7 +177,7 @@ async function fetchPage(
     const page = await channel.messages.fetch({ ...query, limit: size });
     return [...page.values()]
       .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-      .map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
+      .map((message) => normalizeMessage(message, selfId, { videoSites }));
   } catch (err) {
     log.warn(failed, { channel: channel?.id ?? null, ...failureOf(err) });
     return null;

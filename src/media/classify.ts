@@ -135,6 +135,8 @@ export type MediaItem = {
   text?: string;
   durationSec?: number | null;
   previewText?: string;
+  /** Whether `previewText` is the summarizer's retelling of a file over its bound, not the file's own text. */
+  previewRetold?: boolean;
 };
 
 /** A second look on a question: `{ question, text }`. */
@@ -537,7 +539,10 @@ export function mediaLabelFor(
     }
     case 'text':
       return item.previewText
-        ? { key: 'filePreview', values: { name: item.name ?? '', text: item.previewText } }
+        ? {
+            key: item.previewRetold === true ? 'filePreviewRetold' : 'filePreview',
+            values: { name: item.name ?? '', text: item.previewText },
+          }
         : { key: 'file', values: { name: item.name ?? '' } };
     case 'link': {
       const base: LabelTag = item.text

@@ -506,7 +506,7 @@ test('fetchText: text/plain comes back as is, without a title', async () => {
   });
 });
 
-test('fetchText: HTML becomes readable text with its title, cut at maxChars', async () => {
+test('fetchText: HTML becomes readable text with its title', async () => {
   const page =
     '<html><head><title>Caf&eacute; news</title></head><body><nav>Menu</nav>' +
     '<article><h1>Headline</h1><p>First paragraph of the story.</p></article></body></html>';
@@ -518,9 +518,6 @@ test('fetchText: HTML becomes readable text with its title, cut at maxChars', as
   assert.equal(result.title, 'Caf\u00e9 news');
   assert.equal(result.contentType, 'text/html');
   assert.equal(result.bytes, Buffer.byteLength(page));
-
-  const cut = (await run(fetcher, 'https://w.example/story', wrongly({ ...OPTS, maxChars: 20 }))).result;
-  assert.equal(cut.text, 'Headline\n\nFirst\u2026');
 });
 
 test('fetchText: multi-chunk bodies decode across chunk boundaries and honour the declared charset', async () => {

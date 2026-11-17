@@ -128,6 +128,18 @@ test('cutToFit: the longest texts are cut first, none below the floor', () => {
   assert.deepEqual(cutToFit(['x'.repeat(900)], 0), ['x'.repeat(900)]);
 });
 
+const SQUEEZED = 'STAND-IN: this result was shortened to fit the request.';
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('cutToFit: a squeezed result ends with the label that says it was shortened to fit; an unsqueezed one has none', () => {
+  // Catches: a result squeezed under the token cap with nothing but an ellipsis to tell her.
+  const [squeezed, kept] = cutToFit(['a'.repeat(1000), 'b'.repeat(300)], 300, 400, SQUEEZED);
+  assert.ok(squeezed.endsWith(SQUEEZED), squeezed.slice(-80));
+  assert.ok(squeezed.startsWith('a'.repeat(400)));
+  assert.equal(kept, 'b'.repeat(300));
+  assert.deepEqual(cutToFit(['x'.repeat(900)], 0, 400, SQUEEZED), ['x'.repeat(900)], 'nothing to shed, no label');
+});
+
 test('deltaLines: new lines are numbered past the floor, the search handles and an earlier delta, her own lines skipped', () => {
   const lines = [{ id: 'm1' }, { id: 'mine' }, { id: 'm2' }, { id: 'mine2' }, { id: 'm3' }];
   const out = deltaLines({ lines, floor: 40, taken: 0, ownIds: ['mine', 'mine2'] });

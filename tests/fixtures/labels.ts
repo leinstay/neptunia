@@ -72,6 +72,7 @@ export const labels = {
     link: '[link: {site} — {title}]',
     linkText: '[link: {site} — {title}: {text}]',
     filePreview: '[file: {name}: {text}]',
+    filePreviewRetold: '[file: {name}: retold: {text}]',
     forwarded: '[forwarded: {text}]',
     forwardedFrom: '[forwarded from #{channel}: {text}]',
     file: '[file: {name}]',
@@ -372,7 +373,7 @@ export const labels = {
     added: 'they asked about this again meanwhile:\n{added}',
     missed: 'unanswered earlier, answer now or let pass: {missed}',
     diagnostics: 'what became of your last answer:',
-    step: { held: 'your last answer was not sent', delta: 'meanwhile in the chat:', late: 'these lines finished loading:', last: 'last step', lastInner: 'last step, one call still runs: a post or an intention change', rescue: 'your lookups could not go on; reply from what you have', delivery: '{n} of {total} sent ({code})', cut: 'there is more', dropped: '{tool} result dropped', long: '{n} answers with calls in a row' },
+    step: { held: 'your last answer was not sent', delta: 'meanwhile in the chat:', late: 'these lines finished loading:', last: 'last step', lastInner: 'last step, one call still runs: a post or an intention change', rescue: 'your lookups could not go on; reply from what you have', delivery: '{n} of {total} sent ({code})', cut: 'there is more', squeezed: 'shortened to fit', dropped: '{tool} result dropped', long: '{n} answers with calls in a row' },
     continueInnerOpen: 'intentions you woke for with no change yet: {list}',
   },
   errands: {
@@ -386,6 +387,7 @@ export const labels = {
       header: 'errand {id} ({agent}) ended {state}: {goal}',
       text: 'result:',
       empty: 'no result text',
+      retold: 'a shorter retelling of the result',
       error: 'error: {error}',
       sources: 'sources:',
       files: 'files:',
@@ -534,7 +536,7 @@ export const labels = {
     },
     tools: {
       web: { source: 'from web.search, query {query}; raw results, pages not opened', goal: 'to establish: {goal}', none: 'nothing found', more: '{count} results not shown' },
-      read: { source: 'from web.read, {url}; page text, cut at {maxChars}', title: 'title: {title}', cut: 'cut at {maxChars}', none: 'no readable text' },
+      read: { source: 'from web.read, {url}; page text, cut at {maxChars}', title: 'title: {title}', retold: 'a shorter retelling of the page', none: 'no readable text' },
       memory: { source: 'from memory.search; quoted messages with time and author', sampled: 'a sample across the time and place named', window: '{date} in #{channel}:', handles: 'quoted lines carry message numbers', windowCut: '({dropped} lines cut)', windowsLeft: '{count} stretches not shown: {where}', degraded: 'words only', partial: '{failed} of {total} searches incomplete', none: 'no messages found', far: 'nothing close; the nearest lines, maybe unrelated' },
       conversation: { newest: 'newest line of this chat at {time}', found: 'matching lines outside the window', findNone: 'no line of this chat matches' },
       describe: { closest: 'no such skill; closest: {names}' },
