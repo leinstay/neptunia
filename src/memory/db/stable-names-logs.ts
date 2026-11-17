@@ -27,11 +27,12 @@ function batchPlan(db: Db, rows: ReadonlyArray<Row>, table: string, options: Opt
   const { resolver, issue, issued, left } = logResolverOf(db, options);
   const cells: Array<Cell> = [];
   for (const row of rows)
-    for (const column of LOG_COLUMNS.filter((one) => one.table === table)) {
-      const from = row[column.column];
+    for (const target of LOG_COLUMNS.filter((one) => one.table === table)) {
+      const { column } = target;
+      const from = row[column];
       if (typeof from !== 'string') continue;
-      const to = logCell(column, from, resolver);
-      if (to !== from) cells.push({ table, column: column.column, id: String(row.key), from, to });
+      const to = logCell(target, from, resolver);
+      if (to !== from) cells.push({ table, column, id: String(row.key), from, to });
     }
   const plan = { issue, lines: [], media: [], cells, ties: [] };
   const counts = { lines: 0, tokens: 0, media: 0, untied: 0, issue: issued, left, tables: tablesOf(plan) };
