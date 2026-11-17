@@ -1191,7 +1191,7 @@ export function renderRecallWindows(
 }
 
 /**
- * The text of a stretch read outside the request's own window: the legend `<interface>` of the custom emoji and stickers
+ * The text of a stretch read outside the request's own window: the legend `<media>` of the custom emoji and stickers
  * of its kept `lines` (src/turn/request/legend.ts), then the lines. `messages` are the window's, found by the lines' ids.
  */
 export function stretchText(

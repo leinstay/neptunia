@@ -776,7 +776,7 @@ export type TranscriptOptions = {
   skip?: (message: Untyped) => boolean;
   /**
    * The store's read of a stable name (src/memory/store-media-names.ts): a transcript read outside the request's own
-   * window opens with the legend `<interface>` of its custom emoji and stickers (src/turn/request/legend.ts).
+   * window opens with the legend `<media>` of its custom emoji and stickers (src/turn/request/legend.ts).
    */
   mediaNameOf?: (name: string) => MediaName | null;
 };
@@ -959,7 +959,7 @@ function contentWithHandles(
  *   shows such lines in another block (src/behavior/prompt.ts, the anchored window). Omitted:
  *   every message renders.
  * @param [options.mediaNameOf]  The store's read of a stable name. With it, the first item opens with the legend
- *   `<interface>` of the custom emoji and stickers of the items' messages, before any marker. The request's own `<chat>`
+ *   `<media>` of the custom emoji and stickers of the items' messages, before any marker. The request's own `<chat>`
  *   passes none: its legend is the root block of the request.
  * @throws {RangeError} when `indexOffset` is given but is not an integer of at least 0.
  *
@@ -1171,7 +1171,7 @@ export function formatTranscript(
   return withLegend(items, messages, options);
 }
 
-/** `items` with the legend `<interface>` of their messages' custom emoji and stickers before the first one. */
+/** `items` with the legend `<media>` of their messages' custom emoji and stickers before the first one. */
 function withLegend(
   items: Array<{ id: string; index: number; ts: number; text: string }>,
   messages: Array<Record<string, Untyped>>,

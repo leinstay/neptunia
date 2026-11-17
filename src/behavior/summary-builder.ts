@@ -1,6 +1,7 @@
 // The summary builder: the step after a search. One contract, evidence in and a note out, over two prompt files,
 // because chat stretches with people and notes read differently from web results with a title, a URL and an age. Chat
-// evidence reads prompts/recall-summary.md on the analyzer, web evidence prompts/search-summary.md on the `search` role.
+// evidence is its caller's request from prompts/recall-summary.md, sent on the analyzer, and web evidence reads
+// prompts/search-summary.md on the `search` role.
 // The single word `none` is no note. Every caller goes through it: src/behavior/recall-run.ts and src/web/lookup.ts.
 
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
@@ -11,7 +12,7 @@ import { utcDay } from '../time.ts';
 import { objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import { fillPromptTemplate } from './prompt.ts';
-import { buildRecallRequest, stretchLineOf } from './recall.ts';
+import { stretchLineOf } from './recall.ts';
 
 /** Quotes and punctuation that may surround a whole answer. */
 const AROUND = /^["'`«“‘*\s]+|["'`»”’*.!…\s]+$/gu;
@@ -46,17 +47,9 @@ export function renderResults(results: ReadonlyArray<WebResult>): string {
     .join('\n\n');
 }
 
-/** What a note is written from. A caller that built its request already hands it in as `messages`. */
+/** What a note is written from. Chat evidence is its caller's built request and the stretches it numbers. */
 export type SummaryEvidence =
-  | {
-      kind: 'history';
-      selfName: string;
-      question: { authorName?: string; content?: string };
-      windows: Array<object>;
-      people?: Array<object>;
-      memory?: Array<object>;
-      messages?: Array<{ role: string; content: unknown }>;
-    }
+  | { kind: 'history'; windows: Array<object>; messages: Array<{ role: string; content: unknown }> }
   | { kind: 'web'; query: string; results: Array<WebResult> };
 
 /** The length a note's prompt asks for (`maxChars`, never enforced in code) and the bound of its request. */
@@ -96,24 +89,7 @@ export function createSummaryBuilder({
     evidence: SummaryEvidence,
     limits: SummaryLimits
   ): Array<{ role: string; content: unknown }> | null {
-    const config = hot.config;
-    if (evidence.kind === 'history') {
-      if (evidence.messages) return evidence.messages;
-      const prompt = hot.prompts?.['recall-summary'];
-      if (typeof prompt !== 'string' || !prompt.trim()) return null;
-      return buildRecallRequest({
-        prompt,
-        selfName: evidence.selfName,
-        question: evidence.question,
-        people: evidence.people ?? [],
-        windows: evidence.windows,
-        memory: evidence.memory ?? [],
-        answerChars: limits.maxChars,
-        labels: hot.prompts?.labels,
-        timezone: objOf(config.bot).timezone,
-        now: now(),
-      } as Parameters<typeof buildRecallRequest>[0]);
-    }
+    if (evidence.kind === 'history') return evidence.messages;
     const prompt = hot.prompts?.['search-summary'];
     if (typeof prompt !== 'string' || !prompt.trim()) return null;
     const filled = fillPromptTemplate(prompt, {
