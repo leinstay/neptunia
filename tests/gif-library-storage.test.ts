@@ -76,7 +76,7 @@ test('a flush of the library writes no vector bytes', async () => {
     sent.push(JSON.stringify(update));
     return write(update);
   };
-  store.setGifCaption(key, { caption: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
+  store.setGifDescribed(key, { description: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
   store.flush();
   await store.flushSettled({});
   const values = sent;
@@ -90,7 +90,7 @@ test('a flush of the library writes no vector bytes', async () => {
 
 test('a vector reads back from the vectors table after a restart, with the audience of its library row', async () => {
   const { dir, memoryDb, store, key } = rig();
-  store.setGifCaption(key, { caption: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
+  store.setGifDescribed(key, { description: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
   store.flush();
   await store.flushSettled({});
   const db = dbOf(present(memoryDb.readHandle()));
@@ -108,7 +108,7 @@ test('a vector reads back from the vectors table after a restart, with the audie
 test('a vector of another model is none, and the key an entry moves to keeps it', () => {
   const { store, key } = rig();
   const { itemId } = store.getGifs().entries[key];
-  store.setGifCaption(key, { caption: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
+  store.setGifDescribed(key, { description: 'μια γάτα', vector: [0.6, 0.8], model: 'm/one' });
   assert.equal(store.getGifVectors('m/two').size, 0);
   store.setGifFile(key, { hash: 'h1', file: 'media/gifs/h1.gif' });
   assert.equal(store.getGifs().entries.h1.itemId, itemId);

@@ -69,7 +69,7 @@ test('a counted GIF gets its caption, its vector and its file, and the search th
   const [entry] = Object.values(store.getGifs().entries);
   // The owner on 2026-11-17: a GIF is stored as one text.
   assert.equal(entry.description, 'μια γάτα χορεύει');
-  assert.equal(entry.caption, undefined);
+  assert.ok(!Object.hasOwn(entry, 'caption'));
   const vector = store.getGifVectors().get(entry.itemId);
   assert.ok(vector && Math.abs(vector[0] - 0.6) < 0.01);
   assert.ok(fs.existsSync(path.join(dir, String(entry.file))));

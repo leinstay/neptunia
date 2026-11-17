@@ -530,3 +530,41 @@ test('an edit that changes the text and replaces an attachment links the new one
     await memory.close();
   }
 });
+
+/** The live rows of `ref` that hold a description a reader could show. */
+function liveDescribed(memory: TestMemory, ref: string): Array<unknown> {
+  const db = memory.memoryDb.database();
+  if (!db) throw new Error('database unavailable');
+  return db
+    .prepare('SELECT id FROM media WHERE native_ref = ? AND retired_at IS NULL AND description IS NOT NULL')
+    .all(ref)
+    .map((row) => row.id);
+}
+
+/** The describer's late answer for `ref`, written through the one writer as writeMediaEntry does. */
+function lateDescription(memory: TestMemory, ref: string): Promise<unknown> {
+  return memory.memoryDb.writeMediaEntry({
+    op: 'put',
+    placeId: ROOT,
+    key: ref,
+    entry: { text: 'a late described picture', ts: NOW },
+  });
+}
+
+// Bug (audit row 5, the cause found on production): an edit that keeps the text replaces attachment A by B while A's
+// description is still out; the description then lands on A's retired row and the write revives it, live with no link.
+test('a description that lands after an update replaced its attachment leaves no live row of it and nothing to show', async () => {
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
+  try {
+    const { observed, edits } = editsOver(memory);
+    const first: Message = { ...created('9305'), content: 'η φωτογραφία', attachments: [attachment('c-old', 'a.png')] };
+    const second: Message = { ...first, attachments: [attachment('c-new', 'b.png')] };
+    await observed.observeLine(eventOf('create-9305', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-9305', second, first));
+    await lateDescription(memory, 'c-old');
+    assert.deepEqual(liveWithNoLink(memory, ['c-old']), []);
+    assert.deepEqual(liveDescribed(memory, 'c-old'), []);
+  } finally {
+    await memory.close();
+  }
+});

@@ -27,7 +27,8 @@ const ONE_GIF = {
     count: 1,
     last: NOW,
     firstSeen: NOW,
-    caption: 'ναι φυσικά',
+    // The owner on 2026-11-17: a GIF is stored as one text.
+    description: 'ναι φυσικά',
     places: { [PLACE]: { count: 1, last: NOW } },
   },
 };
