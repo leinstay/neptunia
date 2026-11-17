@@ -868,6 +868,10 @@ export function hasTrait(name: string, trait: Trait): boolean {
  * out: a stored row of either name may come from an older tool of the board, not from an errand.
  */
 export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({
+  // Her errands went to the scout alone while one tool filed them, so each old name of that tool reads as the scout's.
+  'task.run': 'errand.scout',
+  'errand.run': 'errand.scout',
+  'errand.add': 'errand.scout',
   'task.read': 'errand.read',
   'task.resolve': 'errand.resolve',
   'task.list': 'errand.list',

@@ -31,13 +31,15 @@ test('the same call under the new name is a call of hers on both transports', ()
 
 test('a journal that wrote the old names is read under the new ones, and any other name comes back as it is', () => {
   // `task.status` and `task.cancel` stay out of this list: a stored row of either name may come from an older board tool.
-  // Changed: `task.run` named the errand tool that three tools replace, so it maps to none and comes back as it is.
+  // Changed: three tools replace the one errand tool. Her errands went to the scout alone while that tool filed them,
+  // so its old names read as `errand.scout`.
   assert.deepEqual(['task.run', 'task.read', 'task.resolve', 'task.list'].map(currentToolName), [
-    'task.run',
+    'errand.scout',
     'errand.read',
     'errand.resolve',
     'errand.list',
   ]);
+  assert.deepEqual(['errand.run', 'errand.add'].map(currentToolName), ['errand.scout', 'errand.scout']);
   assert.deepEqual(['intent.set', 'intent.update', 'intent.cancel', 'intent.list'].map(currentToolName), [
     'intention.set',
     'intention.update',
