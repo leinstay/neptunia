@@ -1,5 +1,5 @@
 // The mechanics step of `neptunia setup` (src/setup/run.ts, docs/setup.md): her two ticking mechanics, `heartbeat` and
-// `diary`, each switched on or off at the terminal. Each question offers the value in force, so an empty answer
+// `diary`, and the humanizer, each switched on or off at the terminal. Each question offers the value in force, so an empty answer
 // keeps it. The answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when
 // no answer changes a value.
 
@@ -44,6 +44,7 @@ export async function mechanicsStep(
   const inForce = {
     heartbeat: objOf(config.heartbeat).enabled !== false,
     diary: objOf(config.diary).enabled !== false,
+    humanizer: objOf(config.humanizer).enabled === true,
   };
   const heartbeat = await askSwitch(
     deps.ask,
@@ -51,9 +52,14 @@ export async function mechanicsStep(
     inForce.heartbeat
   );
   const diary = await askSwitch(deps.ask, 'diary: her diary (on or off):', inForce.diary);
-  const answers = { heartbeat, diary };
-  const changed = heartbeat !== inForce.heartbeat || diary !== inForce.diary;
-  const summary = `heartbeat ${heartbeat ? 'on' : 'off'}, diary ${diary ? 'on' : 'off'}`;
+  const humanizer = await askSwitch(
+    deps.ask,
+    'humanizer: check her longer texts and write them again before they are posted (on or off):',
+    inForce.humanizer
+  );
+  const answers = { heartbeat, diary, humanizer };
+  const changed = heartbeat !== inForce.heartbeat || diary !== inForce.diary || humanizer !== inForce.humanizer;
+  const summary = `heartbeat ${heartbeat ? 'on' : 'off'}, diary ${diary ? 'on' : 'off'}, humanizer ${humanizer ? 'on' : 'off'}`;
   if (changed)
     updateLocalSettings(options.privateDir, (saved) => {
       let local = saved;
