@@ -62,6 +62,8 @@ import { parseSkillsLines, takeSkillsLines } from '../tools/discovery.ts';
 import type { SkillsLines } from '../tools/discovery.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
+import { legendLabelsOf, messagesLegend } from '../turn/request/legend.ts';
+import type { MediaName } from '../memory/store-media-names.ts';
 import type {
   LocatorKeepArg2,
   MeaningQueryInput,
@@ -1186,6 +1188,27 @@ export function renderRecallWindows(
     out.push({ placeId: window.placeId, channelName: window.channelName ?? null, startTs: messages[0].ts, lines });
   }
   return out;
+}
+
+/**
+ * The text of a stretch read outside the request's own window: the legend `<interface>` of the custom emoji and stickers
+ * of its kept `lines` (src/turn/request/legend.ts), then the lines. `messages` are the window's, found by the lines' ids.
+ */
+export function stretchText(
+  lines: ReadonlyArray<{ id: unknown; text: string }>,
+  messages: unknown,
+  labels: unknown,
+  nameOf: (name: string) => MediaName | null
+): string {
+  const kept = new Set(lines.map((line) => line.id));
+  const shown = (Array.isArray(messages) ? messages : []).filter((message: unknown) => {
+    const one: { id?: unknown; stored?: { sourceId?: unknown } } =
+      typeof message === 'object' && message !== null ? message : {};
+    return kept.has(one.id) || kept.has(one.stored?.sourceId);
+  });
+  const legend = messagesLegend(shown, nameOf, legendLabelsOf(labels));
+  const text = lines.map((line) => line.text).join('\n');
+  return legend ? `<interface>\n${legend}\n</interface>\n${text}` : text;
 }
 
 /** The weight a stored item other than an episode ranks with: an episode's default weight. */

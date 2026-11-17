@@ -52,6 +52,9 @@ import { accountProfileValue } from './account-profile.ts';
 import { accountCollection } from './unit-keys.ts';
 import { SELF_PERSON, shortHash } from './ids.ts';
 import { storedMediaTags } from '../../format.ts';
+import { legendLabelsOf, messagesLegend } from '../../turn/request/legend.ts';
+import { mediaNameRows } from './media-names.ts';
+import type { MediaNameRow } from './media-names.ts';
 import { LINE_HOLDS_TOLD_MEDIA, lineMedia, mediaMessageParts } from './media-store.ts';
 import { contextRow, internalContext, issueContext, scopeWhere } from './scope.ts';
 import { runColumns, scopesOf } from './session-scopes.ts';
@@ -639,9 +642,13 @@ export function buildSessionRequest({
     batch.map((line) => asText(line.id)),
     internalContext()
   );
+  // Each shown line as a normalized message, for the legend of its custom emoji and stickers.
+  const shownMessages: Array<Row> = [];
   for (const line of batch) {
     const media = mediaOf.get(asText(line.id)) ?? [];
     if ((typeof line.text !== 'string' || line.text.trim() === '') && media.length === 0) continue;
+    const parts = mediaMessageParts(media, line.native_id);
+    shownMessages.push({ content: line.text, ...parts });
     n += 1;
     maps.sources.set(`#${n}`, line.id as string);
     read('source_id', line.id, 'batch');
@@ -654,11 +661,14 @@ export function buildSessionRequest({
         timezone,
         handle: handleOf.get(line.place_id) ?? null,
         authorHandle: authorHandleOf.get((line.author_participant ?? line.author_account) as string) ?? null,
-        tags: media.length > 0 ? storedMediaTags(mediaMessageParts(media, line.native_id), labels) : [],
+        tags: media.length > 0 ? storedMediaTags(parts, labels) : [],
       })
     );
   }
-  const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...rendered].join('\n');
+  const names = new Map(mediaNameRows(db).map((row): [string, MediaNameRow] => [row.name, row]));
+  const legend = messagesLegend(shownMessages, (name) => names.get(name) ?? null, legendLabelsOf(labels));
+  const legendBlock = legend ? [`<interface>\n${legend}\n</interface>`] : [];
+  const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...legendBlock, ...rendered].join('\n');
 
   // <retrieved>
   let shownRetrieved: Array<string> = [];

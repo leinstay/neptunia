@@ -904,6 +904,7 @@ async function buildCore(
   const recall = createRecall({
     hot,
     store,
+    mediaNameOf: store.mediaNameOf,
     llm,
     reads,
     memberName: (placeId, accountId) => members.nameOf(nativeOfPlace(placeId), accountId),

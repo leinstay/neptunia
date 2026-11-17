@@ -101,6 +101,7 @@ import {
   recallContext,
   recallSettings,
   renderRecallWindows,
+  stretchText,
   sampleOffsets,
   scanArchive,
   searchPlan,
@@ -488,6 +489,8 @@ export function createRecall({
   now = Date.now,
   timers = DEFAULT_TIMERS,
   track = untracked,
+  // A recall built with no store of stable names, as in a replay, shows no legend.
+  mediaNameOf = () => null,
 }: CreateRecallInput): CreateRecallResult {
   const buildSummary = createSummaryBuilder({ hot, llm, now });
 
@@ -1054,7 +1057,7 @@ export function createRecall({
       const native = String(message.authorId);
       return handleOf(memberKeyOf(db as Db, iface, native) ?? `${iface}:${native}`);
     };
-    return quotesOf(shown, { render, stretchChars: settings.stretchChars, handleOf: handleOfAuthor });
+    return quotesOf(shown, { render, stretchChars: settings.stretchChars, handleOf: handleOfAuthor, mediaNameOf });
   }
 
   /**
@@ -1683,7 +1686,7 @@ export function createRecall({
         placeId: window.placeId,
         channelName: window.channelName,
         startTs: lines[0].ts,
-        lines: lines.map((line) => line.text).join('\n'),
+        lines: stretchText(lines, window.messages, render.labels, mediaNameOf),
         entries,
       };
     };
@@ -2030,7 +2033,7 @@ export function createRecall({
       const [shown] = renderRecallWindows([window], render);
       const lines = cutStretch(shown?.lines ?? [], excerptChars);
       if (lines.length === 0) continue;
-      const text = lines.map((line) => line.text).join('\n');
+      const text = stretchText(lines, window.messages, render?.labels, mediaNameOf);
       const ids = lines.map((line) => line.id);
       rendered.push({
         source: 'history',

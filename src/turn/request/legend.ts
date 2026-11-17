@@ -83,3 +83,57 @@ export function legendItems(
   for (const sticker of stickers) add(sticker.name, 'sticker', sticker);
   return [...items.values()];
 }
+
+type Loose = { [key: string]: unknown };
+
+const looseOf = (value: unknown): Loose | null =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) ? { ...value } : null;
+const listOf = (value: unknown): Array<Loose> =>
+  Array.isArray(value)
+    ? value.flatMap((one: unknown): Array<Loose> => {
+        const item = looseOf(one);
+        return item ? [item] : [];
+      })
+    : [];
+const textOf = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+const toldOf = (item: Loose): string | null => textOf(looseOf(item.told)?.text);
+
+/** The legend labels of a labels file read as data: each of `legend.*` that is a string. */
+export function legendLabelsOf(labels: unknown): LegendLabels {
+  const legend = looseOf(looseOf(labels)?.legend);
+  const pick = (key: string): string => textOf(legend?.[key]) ?? '';
+  return { legend: { line: pick('line'), lineNoText: pick('lineNoText'), unreadable: pick('unreadable') } };
+}
+
+/**
+ * The legend of a text of normalized messages read outside the request's own window (a recall stretch, a window read,
+ * a prefetch excerpt, the memory session's batch): each custom emoji and sticker of `messages` and their forwarded
+ * parts once, with the text form the stored line carries. '' for none.
+ */
+export function messagesLegend(
+  messages: ReadonlyArray<unknown>,
+  nameOf: (name: string) => MediaName | null,
+  labels: LegendLabels
+): string {
+  const parts = messages.flatMap((message) => {
+    const one = looseOf(message);
+    return one ? [one, ...listOf(one.forwarded)] : [];
+  });
+  const told = new Map<string, string>();
+  for (const part of parts)
+    for (const emoji of listOf(part.emojis)) {
+      const text = toldOf(emoji);
+      if (text) told.set(`emoji:${String(emoji.id)}`, text);
+    }
+  const texts = parts.map((part) => textOf(part.content) ?? textOf(part.text) ?? '');
+  const stickers = parts.flatMap((part) =>
+    listOf(part.stickers).flatMap((sticker): Array<SeenSticker> => {
+      const name = textOf(sticker.name);
+      return name ? [{ name, text: toldOf(sticker), readable: Boolean(sticker.url) }] : [];
+    })
+  );
+  return legendText(
+    legendItems(texts, stickers, nameOf, (key) => told.get(key) ?? null),
+    labels
+  );
+}
