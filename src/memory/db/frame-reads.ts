@@ -12,6 +12,7 @@ import type { DirectChats } from './direct-chats.ts';
 import { findSettingsOf, peopleFound, placesFound } from './graph-find.ts';
 import type { FindMeaning, FoundPerson, FoundPlace } from './graph-find.ts';
 import { mindOf, mindSettingsOf } from './mind-read.ts';
+import { mirrorPlaces } from './mirrors.ts';
 import type { Mind, Seeds } from './mind-read.ts';
 import { lineMedia, lineMediaItems } from './media-store.ts';
 import { interfaceTakes, routeMessageSql } from './message-locator.ts';
@@ -182,8 +183,9 @@ const LIVE_LINE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND (leng
   OR EXISTS (SELECT 1 FROM media_links ml WHERE ml.owner_kind = 'source' AND ml.owner_id = s.id))`;
 
 /**
- * Her newest lines the context reads outside `exceptPlace`, newest first, at most `limit`, one per message (its newest
- * revision), each with its place's path and whether that place is a one-to-one chat.
+ * Her newest lines the context reads outside `exceptPlace` and the mirrors of her diary, newest first, at most
+ * `limit`, one per message (its newest revision), each with its place's path and whether that place is a one-to-one
+ * chat.
  */
 export function ownLinesOf(
   db: Db,
@@ -192,13 +194,16 @@ export function ownLinesOf(
   limit: number
 ): Array<FrameLine & PlacePath> {
   const where = whereFor(ctx, 's');
+  // A mirror's copy of a diary entry is stored as her line in the mirror's place. It is her diary, not a line she wrote.
+  const mirrors = JSON.stringify(mirrorPlaces(db).map((one) => one.placeId));
   const rows = db
     .prepare(
       `SELECT ${LINE_COLUMNS} FROM ${LINE_FROM}
-       WHERE ${LINE_AUTHOR_KIND} = 'self' AND ${LIVE_LINE} AND s.place_id IS NOT ? AND ${where.sql}
+       WHERE ${LINE_AUTHOR_KIND} = 'self' AND ${LIVE_LINE} AND s.place_id IS NOT ?
+         AND s.place_id NOT IN (SELECT value FROM json_each(?)) AND ${where.sql}
        ORDER BY ${LINE_MOMENT} DESC, s.revision DESC LIMIT ?`
     )
-    .all(exceptPlace, ...where.params, Math.max(0, limit) * 2);
+    .all(exceptPlace, mirrors, ...where.params, Math.max(0, limit) * 2);
   const paths = new Map<string, PlacePath>();
   const out: Array<FrameLine & PlacePath> = [];
   const kept = newestOf(rows, (row) => `${text(row.place_id) ?? ''}\u0000${messageIdOf(row)}`);
