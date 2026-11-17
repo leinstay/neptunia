@@ -605,14 +605,15 @@ function tellItem(db: Db, row: Row, item: MediaItem, at: unknown): number {
 }
 
 /**
- * Writes a line's items position by position: the item a reference already names, or a new row, and its link. A bare row the
- * line held at that position gives way to the item, and a line that now holds fewer items loses the rest.
+ * Writes a line's items, one link per media: an item the line already links by its reference is told again, a bare row the
+ * line held at the item's position gives way to it, and any other item takes the next position. A line read again only
+ * gains what it lacks, so a link the platform no longer shows stays. An `edit` of the line keeps only what `items` hold.
  */
 export function writeLineMedia(
   db: Db,
   line: LineRow,
   items: ReadonlyArray<MediaItem>,
-  { at, ownerKind = 'source' }: { at: unknown; ownerKind?: MediaOwnerKind }
+  { at, ownerKind = 'source', edit = false }: { at: unknown; ownerKind?: MediaOwnerKind; edit?: boolean }
 ): { told: number } {
   let told = 0;
   const link = linkStatement(db);
@@ -620,19 +621,32 @@ export function writeLineMedia(
     `SELECT l.media_id AS media_id, m.native_ref AS native_ref, m.kind AS kind FROM media_links l JOIN media m ON m.id = l.media_id
      WHERE l.owner_kind = ? AND l.owner_id = ? AND l.position = ?`
   );
-  items.forEach((item, position) => {
-    const held = heldLink.get(ownerKind, line.id, position);
-    if (held && item.nativeRef !== null && held.native_ref === item.nativeRef) {
-      const row = db.prepare('SELECT * FROM media WHERE id = ?').get(held.media_id) as Row;
+  const heldByRef = db.prepare(
+    `SELECT l.media_id AS media_id FROM media_links l JOIN media m ON m.id = l.media_id
+     WHERE l.owner_kind = ? AND l.owner_id = ? AND m.native_ref = ?`
+  );
+  const nextPosition = db.prepare(
+    'SELECT COALESCE(MAX(position) + 1, 0) AS n FROM media_links WHERE owner_kind = ? AND owner_id = ?'
+  );
+  // A message that shows one custom emoji five times names its media once.
+  const distinct = items.filter(
+    (item, first) => item.nativeRef === null || items.findIndex((one) => one.nativeRef === item.nativeRef) === first
+  );
+  distinct.forEach((item, index) => {
+    const linked = item.nativeRef === null ? undefined : heldByRef.get(ownerKind, line.id, item.nativeRef);
+    if (linked) {
+      const row = db.prepare('SELECT * FROM media WHERE id = ?').get(linked.media_id) as Row;
       mergeItem(db, row, item);
-      told += tellItem(db, db.prepare('SELECT * FROM media WHERE id = ?').get(held.media_id) as Row, item, at);
+      told += tellItem(db, db.prepare('SELECT * FROM media WHERE id = ?').get(linked.media_id) as Row, item, at);
       return;
     }
+    const held = heldLink.get(ownerKind, line.id, index);
     const iface = line.scope_iface ?? null;
     const named = item.nativeRef === null ? undefined : itemByRef(db, iface, item.nativeRef);
     // A placeholder at this position becomes the item, unless the reference already names one: then it gives way to it.
     const placeholder =
       held?.native_ref === null ? (db.prepare('SELECT * FROM media WHERE id = ?').get(held.media_id) as Row) : null;
+    const position = placeholder ? index : Number(nextPosition.get(ownerKind, line.id)?.n ?? 0);
     let row: Row;
     if (placeholder && !named) {
       mergeItem(db, placeholder, item);
@@ -645,7 +659,7 @@ export function writeLineMedia(
     }
     link.run(ownerKind, line.id, position, row.id);
     if (held && placeholder && held.media_id !== row.id && named) {
-      if (placeholder && filled(placeholder.description)) {
+      if (filled(placeholder.description)) {
         const origin = (parsedObject(placeholder.extra).textOrigin as MediaOrigin | undefined) ?? 'retelling';
         writeText(db, row, { text: placeholder.description, origin, at });
         db.prepare('UPDATE media SET description = NULL WHERE id = ?').run(placeholder.id);
@@ -654,18 +668,41 @@ export function writeLineMedia(
     }
     told += tellItem(db, db.prepare('SELECT * FROM media WHERE id = ?').get(row.id) as Row, item, at);
   });
-  const rest = db
-    .prepare('SELECT position, media_id FROM media_links WHERE owner_kind = ? AND owner_id = ? AND position >= ?')
-    .all(ownerKind, line.id, items.length);
-  for (const one of rest) {
-    db.prepare('DELETE FROM media_links WHERE owner_kind = ? AND owner_id = ? AND position = ?').run(
-      ownerKind,
-      line.id,
-      one.position
-    );
+  if (edit) dropUnheld(db, ownerKind, line.id, distinct);
+  return { told };
+}
+
+/**
+ * A row nothing links any more that holds the same file as `id`, by path and `sha1`, leaves the table with its vector: the
+ * picture of a diary entry relinked to the attachment her post made of it. The file stays, since `id` holds it.
+ */
+function dropTwin(db: Db, mediaId: unknown, id: string): void {
+  const gone = db
+    .prepare(
+      `DELETE FROM media WHERE id = ? AND path IS NOT NULL
+         AND EXISTS (SELECT 1 FROM media o WHERE o.id = ? AND o.path = media.path AND o.sha1 IS media.sha1)
+         AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = media.id)`
+    )
+    .run(mediaId, id);
+  if (Number(gone.changes) > 0) db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(mediaId));
+}
+
+/** The links of an edited line its items no longer name: a referenced item they lack, a bare one past their count. */
+function dropUnheld(db: Db, ownerKind: MediaOwnerKind, ownerId: unknown, items: ReadonlyArray<MediaItem>): void {
+  const refs = new Set(items.map((item) => item.nativeRef));
+  const links = db
+    .prepare(
+      `SELECT l.position AS position, l.media_id AS media_id, m.native_ref AS native_ref
+       FROM media_links l JOIN media m ON m.id = l.media_id WHERE l.owner_kind = ? AND l.owner_id = ?`
+    )
+    .all(ownerKind, ownerId);
+  const unlink = db.prepare('DELETE FROM media_links WHERE owner_kind = ? AND owner_id = ? AND position = ?');
+  for (const one of links) {
+    const gone = one.native_ref === null ? Number(one.position) >= items.length : !refs.has(asText(one.native_ref));
+    if (!gone) continue;
+    unlink.run(ownerKind, ownerId, one.position);
     dropIfBare(db, one.media_id);
   }
-  return { told };
 }
 
 /** A placeholder nothing links any more leaves the table. */
@@ -725,11 +762,17 @@ export function writeRecordMedia(db: Db, sourceId: string, line: Row, at: unknow
 
 /**
  * An echo of a line a record line stored first fills what the record could not know: the references of its bare items. The
- * text form told on a bare row moves to the item with it.
+ * text form told on a bare row moves to the item with it. A line read again gains the items it lacks, and an `edit` that
+ * keeps its revision keeps only the items the edit shows.
  */
-export function fillLineMedia(db: Db, sourceId: string, items: ReadonlyArray<MediaItem>, at: unknown): void {
+export function fillLineMedia(
+  db: Db,
+  sourceId: string,
+  items: ReadonlyArray<MediaItem>,
+  { at, edit = false }: { at: unknown; edit?: boolean }
+): void {
   const line = sourceLine(db, sourceId);
-  if (line) writeLineMedia(db, line, items, { at });
+  if (line) writeLineMedia(db, line, items, { at, edit });
 }
 
 /**
@@ -1083,6 +1126,8 @@ export function adoptSameItem(db: Db, id: string, at: unknown): void {
     .prepare('SELECT * FROM media WHERE native_ref = ? AND scope_iface IS ? AND id <> ?')
     .all(row.native_ref, row.scope_iface, row.id)) {
     db.prepare('UPDATE OR IGNORE media_links SET media_id = ? WHERE media_id = ?').run(row.id, other.id);
+    // An owner that linked both rows keeps its link to the library's row.
+    db.prepare('DELETE FROM media_links WHERE media_id = ?').run(other.id);
     if (filled(other.description)) {
       const held = db.prepare('SELECT * FROM media WHERE id = ?').get(row.id) as Row;
       writeText(db, held, {
@@ -1173,7 +1218,10 @@ export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFi
       );
     }
     link.run('diary', entry.id, position, id);
-    if (previous && previous.media_id !== id) dropIfBare(db, previous.media_id);
+    if (previous && previous.media_id !== id) {
+      dropIfBare(db, previous.media_id);
+      dropTwin(db, previous.media_id, id);
+    }
     const row = db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
     if (voiced !== null) writeText(db, row, { text: voiced, origin: 'voiced', at });
     else if (filled(file.description)) writeText(db, row, { text: file.description, origin: 'retelling', at });
