@@ -30,7 +30,7 @@ import { noMediaNames } from './fixtures/media-namer.ts';
 type RecallInput = Parameters<typeof createRecall>[0];
 const asReads = (reads: object) => reads as RecallInput['reads'];
 const asRecall = (input: (Omit<RecallInput, 'reads'> & { reads: RecallInput['reads'] }) | object) =>
-  createRecall({ iface: 'discord', ...input } as RecallInput) as unknown as {
+  createRecall({ iface: 'discord', mediaNameOf: noMediaNames, ...input } as RecallInput) as unknown as {
     run(args: Record<string, unknown>): Promise<Found>;
     window(args: Record<string, unknown>): Promise<Found>;
     prefetch(args: Record<string, unknown>): Promise<{ status?: string } | null>;

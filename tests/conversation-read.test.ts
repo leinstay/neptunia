@@ -812,6 +812,7 @@ function findScene(world: World) {
   };
   const recall = createRecall({
     iface: 'discord',
+    mediaNameOf: noMediaNames,
     reads: {
       searchMessages: () => Promise.resolve({ total: 0, hits: [] }),
       searchMembers: () => Promise.resolve({ members: [] }),

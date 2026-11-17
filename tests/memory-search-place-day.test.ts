@@ -2,6 +2,7 @@
 // src/memory/db/recall.ts#search (`sampleTime: true`, what the persona's own search passes), the `sampled` answer through
 // src/behavior/recall-run.ts and src/tools/tools.ts, and the picture-only lines with their descriptions. Synthetic content
 // on real temp databases; no model, no network.
+import { noMediaNames } from './fixtures/media-namer.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -191,6 +192,7 @@ function toolRig(env: Env, { secret: secretId = SECRET }: { secret?: string } = 
   };
   const recall = createRecall({
     iface: 'discord',
+    mediaNameOf: noMediaNames,
     reads,
     hot: { config, prompts: { 'recall-summary': 'x', labels: toolLabels } },
     store,

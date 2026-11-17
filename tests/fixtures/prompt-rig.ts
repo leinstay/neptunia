@@ -1,6 +1,7 @@
 // The fixtures of the prompt builder tests (tests/prompt.test.ts): the clock, the fake prompts and config, a loose input of
 // `buildRequest` and the readers of a request's `<people_now>` block. tests/fixtures/labels.ts is the English fixture
 // that covers every key of the prompt contract.
+import { noMediaNames } from './media-namer.ts';
 import { userText as contentText } from '../../src/behavior/prompt.ts';
 import { handleOf } from '../../src/behavior/handles.ts';
 import { fill } from '../../src/format.ts';
@@ -134,6 +135,7 @@ export function baseInput(overrides: Record<string, unknown> = {}): RequestInput
     placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
+    mediaNameOf: noMediaNames,
     ...overrides,
   };
   if (!Object.hasOwn(overrides, 'frame')) input.frame = frameOfInput(input);

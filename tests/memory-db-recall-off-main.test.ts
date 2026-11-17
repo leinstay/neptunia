@@ -3,6 +3,7 @@
 // the event loop stays free meanwhile, a deadline abandons a slow search, a dead reader is a concrete error the turn
 // survives, and shutdown closes the reader before the writer. Slowness comes from a stand-in worker that blocks in front
 // of the real reader, so no test depends on how fast this machine scans vectors. Synthetic data only.
+import { noMediaNames } from './fixtures/media-namer.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -228,6 +229,7 @@ type RecallInput = Parameters<typeof createRecall>[0];
 const recallOver = (hot: object, memoryDb: object) =>
   createRecall({
     iface: 'discord',
+    mediaNameOf: noMediaNames,
     reads: rig().reads,
     hot,
     store: {},
