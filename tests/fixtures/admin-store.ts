@@ -30,6 +30,8 @@ function buildStore() {
       const prefix = `${placeId}:`;
       return [...channels.entries()].filter(([key]) => key.startsWith(prefix)).map(([, value]) => value);
     },
+    // The owner's rules: none stored.
+    liveRules: () => [],
     topPlaces() {
       return ['g1'];
     },

@@ -1,5 +1,5 @@
-// The owner's operations as one object the core builds once (src/core.ts): live rules
-// (data/prompts/rules.md, seeded from prompts/rules.md), config overrides (data/config/config.json,
+// The owner's operations as one object the core builds once (src/core.ts): the owner's rules
+// (the memory table `rules`), config overrides (data/config/config.json,
 // hot-reloaded), status, a turn of the persona asked for now (`message.create`) and profile
 // inspection. No operation deletes stored memory. The tracked prompts/ layer is never written at
 // runtime: live corrections always land in the data folder's prompts/.
@@ -10,7 +10,7 @@
 // checked, whoever asked. `run(op, args, context)` is the tests' entry, with the result
 // rendered as the reply text, as `{ text, files }` with a picture or as `{ text, fields }` with the
 // status card, or a thrown `Error` with an operator-facing message on bad input. The pure functions
-// (listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary) live in
+// (setPath, unsetPath, buildProfileSummary) live in
 // src/tools/operations/shared.ts and are re-exported from here.
 
 import { createOpsEnv } from './tools/operations/env.ts';
@@ -21,14 +21,7 @@ import { CODE } from './tools/codes.ts';
 import type { Untyped } from './tools/types.ts';
 import type { OpsDeps } from './tools/operations/env.ts';
 
-export {
-  listRules,
-  appendRule,
-  removeRule,
-  setPath,
-  unsetPath,
-  buildProfileSummary,
-} from './tools/operations/shared.ts';
+export { setPath, unsetPath, buildProfileSummary } from './tools/operations/shared.ts';
 
 /**
  * `hot`, `store` — see src/hot.ts, src/memory/store.js.
