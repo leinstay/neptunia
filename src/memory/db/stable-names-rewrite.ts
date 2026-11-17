@@ -15,6 +15,7 @@ import { mediaNameRows, mediaNamesWriteOf, writeMediaNames } from './media-names
 import type { MediaNameRow } from './media-names.ts';
 import { LOG_COLUMNS, TEXT_COLUMNS, markupNames, textCells } from './stable-names-texts.ts';
 import type { Cell, LogResolver, Resolver } from './stable-names-texts.ts';
+import { touch } from './index-policy.ts';
 import { markStemsPending } from './stems.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
@@ -43,8 +44,10 @@ export type StableNamesPlan = {
   media: Array<Change<'mediaId'>>;
   cells: Array<Cell>;
   ties: Array<Tie>;
+  rewritten: Array<string>;
   counts: {
     lines: number;
+    rewritten: number;
     tokens: number;
     media: number;
     untied: number;
@@ -396,12 +399,17 @@ const twinsOf = (db: Db): Array<string> =>
     .map((row) => text(row.id));
 
 /**
- * What a rewrite of `db` would do, read from its rows alone. `choose` ties a platform name two emoji hold, and
- * `markupIface` names the interface of raw markup whose id no row holds.
+ * What a rewrite of `db` would do, read from its rows alone. `choose` ties a platform name two emoji hold,
+ * `markupIface` names the interface of raw markup whose id no row holds, and `rewritten` lists lines a rewrite before
+ * the vector eviction left with the vector of their old text.
  */
 export function planStableNamesRewrite(
   db: Db,
-  { choose = {}, markupIface = null }: { choose?: Choice; markupIface?: string | null } = {}
+  {
+    choose = {},
+    markupIface = null,
+    rewritten = [],
+  }: { choose?: Choice; markupIface?: string | null; rewritten?: ReadonlyArray<string> } = {}
 ): StableNamesPlan {
   const namer = namerOf(db);
   const renames = new Map<string, Change<'mediaId'>>();
@@ -419,9 +427,11 @@ export function planStableNamesRewrite(
     media: [...renames.values()],
     cells,
     ties: planned.ties,
+    rewritten: [...rewritten],
   };
   const counts = {
     lines: planned.lines.length,
+    rewritten: rewritten.length,
     tokens: planned.tokens,
     media: renames.size,
     untied: planned.untied,
@@ -537,6 +547,17 @@ function writeTie(db: Db, tie: Tie): void {
 }
 
 /** Writes the plan's cells. */
+/** Evicts the live vectors of `ids` by the index policy's mark and touches the lines that had one. */
+function evictVectors(db: Db, ids: ReadonlyArray<string>, at: number): void {
+  const evict = db.prepare(
+    `UPDATE vectors SET bytes = NULL, evicted_at = COALESCE(evicted_at, ?)
+     WHERE source_rowid = (SELECT rowid FROM sources WHERE id = ?) AND bytes IS NOT NULL AND retired_at IS NULL`
+  );
+  const atIso = new Date(at).toISOString();
+  const evicted = ids.filter((id) => Number(evict.run(atIso, id).changes) > 0);
+  touch(db, evicted, { now: at });
+}
+
 function writeCells(db: Db, cells: ReadonlyArray<CheckedCell>): void {
   for (const cell of cells)
     db.prepare(`UPDATE ${cell.table} SET ${cell.column} = ? WHERE ${cell.where}`).run(cell.to, cell.id);
@@ -564,8 +585,9 @@ function checkFresh(db: Db, { lines, media, cells }: Checked): void {
  * The write kind `stable-names-rewrite` on the writer connection: issues the plan's names, rewrites its lines and other
  * texts, renames its media rows, makes the links its lines miss and deletes the unlinked rows of a file a linked row
  * holds, in one transaction. A rewritten line loses its stems,
- * as an upsert of a changed text does, and the stems job stems it again. A row that no longer holds what the plan read
- * refuses the whole write.
+ * as an upsert of a changed text does, and the stems job stems it again. A rewritten line, and a line of `rewritten`,
+ * has its vector evicted and is touched, so the re-embed job embeds its present text. A row that no longer holds what
+ * the plan read refuses the whole write.
  */
 export function applyStableNamesRewrite(
   handle: MemoryHandle,
@@ -582,6 +604,10 @@ export function applyStableNamesRewrite(
     return id;
   });
   const names = mediaNamesWriteOf({ rows: update.issue });
+  const rewritten = listOf(update.rewritten).map((id) => {
+    if (typeof id !== 'string') throw malformed();
+    return id;
+  });
   const at = isFiniteNumber(update.now) ? update.now : Date.now();
   return handle.transaction(() => {
     const db = dbOf(handle);
@@ -600,6 +626,7 @@ export function applyStableNamesRewrite(
     writeCells(db, checked.cells);
     for (const tie of ties) writeTie(db, tie);
     if (checked.lines.length > 0) markStemsPending(db);
+    evictVectors(db, [...checked.lines.map((line) => line.id), ...rewritten], at);
     const { lines, media, cells } = checked;
     return { issued: written, lines: lines.length, media: media.length, cells: cells.length, ties: ties.length };
   });

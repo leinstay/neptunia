@@ -212,7 +212,7 @@ export function classify(
  * Marks `sourceIds` touched (tier `a`, reason `touch`) until `recall.db.touchDays` from `now`; a pin is kept.
  */
 export function touch(
-  handle: MemoryHandle,
+  handle: Connection,
   sourceIds: unknown,
   { now, config = null }: { now: number; config?: Config | null }
 ): number {
@@ -226,7 +226,7 @@ export function touch(
       )
     ),
   ];
-  return handle.transaction(() => {
+  return transactionOf(handle)(() => {
     const db = dbOf(handle);
     const upsert =
       db.prepare(`INSERT INTO index_policy (node_id, tier, reason, pinned, evaluated_at, expires_at) VALUES (?, 'a', 'touch', 0, ?, ?)
