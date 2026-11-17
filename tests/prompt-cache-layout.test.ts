@@ -139,3 +139,99 @@ test('the entries of <people>, <places> and <lore> print the same whatever <foun
       assert.equal(subtagOf(built, tag), subtagOf(empty, tag), `<${tag}> with ${count} excerpts in <found>`);
   }
 });
+
+// ---- the legend ----------------------------------------------------------------------------------------------------
+
+// The owner on 2026-11-17: the legend `<interface>` stands in the tail, after `<meanwhile>` and before `<chat>`, and
+// reads the custom emoji of the lines of `<chat>` and of `<meanwhile>`. The labels are the test's own.
+const LEGEND_LABELS = {
+  ...shippedLabels,
+  transcript: { ...shippedLabels.transcript, stickerRef: '[sticker {name}]' },
+  legend: {
+    line: '{name} {platformName}: {text}',
+    lineNoText: 'NOTEXT {name} {platformName}',
+    unreadable: 'UNSEEN {name} {platformName}',
+  },
+};
+
+type NameRow = {
+  name: string;
+  kind: 'emoji' | 'sticker';
+  iface: string;
+  nativeId: string;
+  platformName: string;
+  animated: boolean;
+};
+
+const NAME_ROWS: ReadonlyArray<NameRow> = [
+  { name: 'e23', kind: 'emoji', iface: 'discord', nativeId: '901', platformName: 'pogcat', animated: false },
+  { name: 'e24', kind: 'emoji', iface: 'discord', nativeId: '902', platformName: 'wavey', animated: false },
+];
+
+const rowOf = (name: string): NameRow | null => NAME_ROWS.find((row) => row.name === name) ?? null;
+
+/** A reply whose trigger line reads `content` with `emojis`, and whose `<meanwhile>` holds her line `elsewhere`. */
+function legendRequest(content: string, emojis: Array<{ id: string; name: string }>, elsewhere: string): Built {
+  const trigger = makeMessage('m1', NOW - MIN, { authorId: '111', authorName: 'Ελένη', content, emojis });
+  return buildRequest(
+    baseInput({
+      config: fakeConfig({ context: { meanwhile: { messages: 8, around: 2 } } }),
+      prompts: fakePrompts({ labels: LEGEND_LABELS }),
+      frame: FRAME,
+      whereabouts: { kind: 'place', iface: 'fake', private: false, chain: ROOM_CHAIN },
+      history: [trigger],
+      trigger,
+      triggerKind: 'mention',
+      nameOf,
+      mind: mindOfEntries({ people: [ELENI] }),
+      descriptions: new Map([
+        ['emoji:901', 'a surprised cat face'],
+        ['emoji:902', 'a cat waving a paw'],
+      ]),
+      mediaNameOf: rowOf,
+      meanwhileReads: meanwhileReads([
+        {
+          id: 'place:room1',
+          path: ['fake', 'Αγορά', 'αίθουσα1'],
+          dm: false,
+          lines: [line('place:room1', 'c1', NOW - 40 * MIN, null, elsewhere)],
+        },
+      ]),
+    })
+  );
+}
+
+/** The user message as one text. */
+const userOf = (built: Built): string => {
+  const [, message] = built.messages;
+  return message.content.map((part) => String(part.text ?? '')).join('');
+};
+
+test('<interface> stands as a root block after </meanwhile> and before <chat>, in the uncached tail', () => {
+  // Bug: the legend lands in the cached memory segment, so a new emoji in the chat rewrites the cache; or it stands
+  // after <chat>, below the lines that refer to it.
+  const built = legendRequest('δες :e23:', [{ id: '901', name: 'e23' }], 'εκεί');
+  const user = userOf(built);
+  const legendAt = user.indexOf('\n<interface>', user.indexOf('</meanwhile>'));
+  assert.ok(user.indexOf('</meanwhile>') > 0, 'the request has <meanwhile>');
+  assert.ok(legendAt > 0, user);
+  assert.ok(legendAt < user.indexOf('<chat>'), '<interface> before <chat>');
+  const sent = withCacheMarker(built.messages, '1h');
+  const parts = (sent[1].content as Array<{ text?: string; cache_control?: unknown }>).filter(
+    (part) => typeof part.text === 'string'
+  );
+  const lastMarked = parts.findLastIndex((part) => Object.hasOwn(part, 'cache_control'));
+  const next = String(parts[lastMarked + 1]?.text);
+  assert.match(String(parts[lastMarked]?.text), /<\/meanwhile>\n\n$/, 'the cached part still ends with <meanwhile>');
+  assert.match(next, /^<interface>/, 'the tail opens with <interface>');
+});
+
+test('an emoji used only in a <meanwhile> window still stands in <interface>', () => {
+  // Bug: the legend reads the chat alone, and her own line elsewhere names an emoji she cannot look up.
+  const built = legendRequest('γεια σου', [], 'τέλεια :e24:');
+  const user = userOf(built);
+  const legend = user.slice(user.indexOf('</meanwhile>'), user.indexOf('<chat>'));
+  assert.ok(legend.includes('<interface>'), user);
+  assert.ok(legend.includes(':e24: wavey: a cat waving a paw'), legend);
+  assert.ok(!legend.includes(':e23:'), 'only what occurs');
+});

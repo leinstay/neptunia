@@ -318,6 +318,7 @@ test('formatTranscript: indexOffset in memory mode moves only item.index, the te
   );
 });
 
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
 test('formatTranscript: attachments and stickers get tagged', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [
@@ -330,9 +331,10 @@ test('formatTranscript: attachments and stickers get tagged', () => {
   const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
   assert.ok(items[0].text.includes('[image]'));
   assert.ok(items[0].text.includes('[file: report.pdf]'));
-  assert.ok(items[0].text.includes('[sticker: pepe]'));
+  assert.ok(items[0].text.includes('[sticker pepe]'));
 });
 
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
 test('formatTranscript: a media tag rendering empty (missing label key) never leaves a double space', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const noImageLabel = { ...labels, transcript: { ...labels.transcript, image: undefined } };
@@ -351,7 +353,7 @@ test('formatTranscript: a media tag rendering empty (missing label key) never le
     labels: noImageLabel,
   });
   assert.ok(!items[0].text.includes('  '), `expected no double space, got: ${JSON.stringify(items[0].text)}`);
-  assert.ok(items[0].text.includes('text before [sticker: pepe]'));
+  assert.ok(items[0].text.includes('text before [sticker pepe]'));
 });
 
 test('formatTranscript: a forward with an empty-rendering media tag never leaves a double space', () => {
@@ -758,34 +760,48 @@ function stickerItem(id: string, name: Untyped, url: Untyped) {
   return { id, name, url };
 }
 
-test('formatTranscript: a described sticker renders stickerDescribed', () => {
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+test('formatTranscript: a described sticker reads its stable name in stickerRef and no description', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const messages = [msg('a', t0, { content: '', stickers: [stickerItem('s1', 'pepe', 'https://x/s1.png')] })];
+  const messages = [msg('a', t0, { content: '', stickers: [stickerItem('951', 's12', 'https://x/951.png')] })];
   const items = formatTranscript(messages, {
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
     selfName: 'Nept',
     labels,
-    descriptions: new Map([['sticker:s1', 'a frog giving a thumbs up']]),
+    descriptions: new Map([['sticker:951', 'a frog giving a thumbs up']]),
   });
-  assert.ok(items[0].text.includes('[sticker: pepe: a frog giving a thumbs up]'));
+  const [item] = items;
+  assert.ok(item.text.endsWith('Nick: [sticker s12]'), item.text);
+  assert.ok(!item.text.includes('a frog giving a thumbs up'), item.text);
+});
+
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+test('formatTranscript: a sticker with no picture (Lottie) reads stickerRef like any other', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const messages = [msg('a', t0, { content: '', stickers: [stickerItem('952', 's13', null)] })];
+  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const [item] = items;
+  assert.ok(item.text.endsWith('Nick: [sticker s13]'), item.text);
 });
 
 // --- formatTranscript: custom emoji -----------------------------------
 
-test('formatTranscript: a described custom emoji appends ONE emojiDescribed tag, text keeps reading :name:', () => {
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+test('formatTranscript: a described custom emoji reads its bare stable name with no bracketed description', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const messages = [msg('a', t0, { content: 'nice :pog:', emojis: [{ id: 'e1', name: 'pog' }] })];
+  const messages = [msg('a', t0, { content: 'nice :e23:', emojis: [{ id: '901', name: 'e23' }] })];
   const items = formatTranscript(messages, {
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
     selfName: 'Nept',
     labels,
-    descriptions: new Map([['emoji:e1', 'a surprised cat face']]),
+    descriptions: new Map([['emoji:901', 'a surprised cat face']]),
   });
-  assert.ok(items[0].text.includes('nice :pog: [:pog: a surprised cat face]'));
+  const [item] = items;
+  assert.equal(item.text, '#1 [13:00] Nick: nice :e23:');
 });
 
 test('formatTranscript: an undescribed custom emoji renders no extra tag at all', () => {
@@ -796,19 +812,24 @@ test('formatTranscript: an undescribed custom emoji renders no extra tag at all'
   assert.ok(!items[0].text.includes('[:pog:'));
 });
 
-test('formatTranscript: emojiInline false keeps the bare :name: with no description tag', () => {
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+test('formatTranscript: a described custom emoji of a forwarded snapshot carries no description either', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const messages = [msg('a', t0, { content: 'nice :pog:', emojis: [{ id: 'e1', name: 'pog' }] })];
+  const forwarded = [
+    { content: 'look :e24:', attachments: [], links: [], stickers: [], emojis: [{ id: '902', name: 'e24' }] },
+  ];
+  const messages = [msg('a', t0, { content: '', forwarded })];
   const items = formatTranscript(messages, {
     timezone: TZ,
     gapMinutes: 20,
-    maxChars: 100,
+    maxChars: 200,
     selfName: 'Nept',
     labels,
-    descriptions: new Map([['emoji:e1', 'a surprised cat face']]),
-    emojiInline: false,
+    descriptions: new Map([['emoji:902', 'a cat waving a paw']]),
   });
-  assert.equal(items[0].text, '#1 [13:00] Nick: nice :pog:');
+  const [item] = items;
+  assert.ok(item.text.includes('look :e24:'), item.text);
+  assert.ok(!item.text.includes('a cat waving a paw'), item.text);
 });
 
 test('formatTranscript: a forwarded message-snapshot wraps its content and media in labels.transcript.forwarded', () => {

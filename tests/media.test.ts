@@ -695,23 +695,21 @@ function sticker(name: Untyped, url: Untyped) {
   return { name, url };
 }
 
-test('stickerLabelFor: a Lottie sticker (url null) is always the plain name form, ignoring a description', () => {
-  // Stage M: a sticker with no picture says so plainly, under its own key.
-  assert.deepEqual(stickerLabelFor(sticker('dancing-cat', null)), {
-    key: 'stickerUnreadable',
-    values: { name: 'dancing-cat' },
-  });
-  assert.deepEqual(stickerLabelFor(sticker('dancing-cat', null), { description: 'a cat dances' }), {
-    key: 'stickerUnreadable',
-    values: { name: 'dancing-cat' },
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+test('stickerLabelFor: a Lottie sticker (url null) is the stickerRef form of its stable name, ignoring a description', () => {
+  assert.deepEqual(stickerLabelFor(sticker('s13', null)), { key: 'stickerRef', values: { name: 's13' } });
+  assert.deepEqual(stickerLabelFor(sticker('s13', null), { description: 'a cat dances' }), {
+    key: 'stickerRef',
+    values: { name: 's13' },
   });
 });
 
-test('stickerLabelFor: a picture-format sticker blind vs described', () => {
-  assert.deepEqual(stickerLabelFor(sticker('pepe', 'https://x')), { key: 'sticker', values: { name: 'pepe' } });
-  assert.deepEqual(stickerLabelFor(sticker('pepe', 'https://x'), { description: 'a frog gives a thumbs up' }), {
-    key: 'stickerDescribed',
-    values: { name: 'pepe', text: 'a frog gives a thumbs up' },
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+test('stickerLabelFor: a picture-format sticker is the stickerRef form, blind or described', () => {
+  assert.deepEqual(stickerLabelFor(sticker('s12', 'https://x')), { key: 'stickerRef', values: { name: 's12' } });
+  assert.deepEqual(stickerLabelFor(sticker('s12', 'https://x'), { description: 'a frog gives a thumbs up' }), {
+    key: 'stickerRef',
+    values: { name: 's12' },
   });
 });
 

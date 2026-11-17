@@ -97,6 +97,8 @@ export type ChannelSpec = {
 export type World = {
   port: Fake;
   reads: Reads;
+  /** The stable names the world's reads issued, read by name as the store's `mediaNameOf`. */
+  names: StableNames;
   selfId: string;
   channel(spec?: ChannelSpec, options?: { keep?: boolean }): Channel;
   /** Puts message stubs into a channel's history, and the ones later added to the array too. */
@@ -206,8 +208,11 @@ function infoOf(id: string, spec: ChannelSpec): { placeId: string | null; name: 
   return { placeId, name, info };
 }
 
+/** The store's issuer of stable names and its read by name, as the legend reads a name's platform name. */
+export type StableNames = MediaNamer & { mediaNameOf(name: string): MediaName | null };
+
 /** A namer as the store issues names: `e1`, `e2`... and `s1`, `s2`... by native id, the same id keeping its name. */
-function fakeNamer(): MediaNamer {
+function fakeNamer(): StableNames {
   const held = new Map<string, MediaName>();
   const count = { emoji: 0, sticker: 0 };
   return {
@@ -221,6 +226,9 @@ function fakeNamer(): MediaNamer {
         held.set(key, row);
         return row;
       });
+    },
+    mediaNameOf(name) {
+      return [...held.values()].find((row) => row.name === name) ?? null;
     },
   };
 }
@@ -456,6 +464,7 @@ function create(): World {
   return {
     port,
     reads,
+    names: namer,
     selfId: SELF,
     channel,
     seed: (placeId, messages) => seed(String(placeId), messages as ReadonlyArray<Raw>),

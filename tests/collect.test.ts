@@ -407,15 +407,16 @@ test('normalizeMessage: the same custom emoji repeated in one message is de-dupl
   assert.equal(m.emojis.length, 1);
 });
 
-test('normalizeMessage: distinct custom emoji are capped at 5 per message, first-appearance order', () => {
-  const ids = Array.from({ length: 8 }, (_, i) => i + 1);
-  const content = ids.map((id) => `<:e${id}:${id}>`).join(' ');
-  const raw = rawMessage({ content, cleanContent: ids.map((id) => `:e${id}:`).join(' ') });
+// The owner on 2026-11-17: every custom emoji of a message is named, there is no cap.
+test('normalizeMessage: seven distinct custom emoji give seven tokens and seven emojis entries, first-appearance order', () => {
+  const ids = ['701', '702', '703', '704', '705', '706', '707'];
+  const content = ids.map((id) => `<:smile${id}:${id}>`).join(' ');
+  const raw = rawMessage({ content, cleanContent: ids.map((id) => `:smile${id}:`).join(' ') });
   const m = normalizeMessage(raw, 'self');
-  assert.equal(m.emojis.length, 5);
+  assert.equal(m.content, ids.map((id) => `<emoji:${id}>`).join(' '));
   assert.deepEqual(
     m.emojis.map((e) => e.id),
-    ['1', '2', '3', '4', '5']
+    ids
   );
 });
 

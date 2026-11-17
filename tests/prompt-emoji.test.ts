@@ -153,17 +153,154 @@ function chatBlock(request: Built) {
   return match ? match[1] : '';
 }
 
-// B8: the line carries the description, because no block lists the emoji any more.
-test('buildRequest: a chat line keeps the inline emojiDescribed tag, with an index and without', () => {
-  const history = [chatLine('1', 'ωραίο :pog:', [{ id: '9', name: 'pog' }])];
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+test('buildRequest: a chat line holds the bare stable name, with an index and without, and no bracketed description', () => {
+  const history = [chatLine('1', 'ωραίο :e23:', [{ id: '9', name: 'e23' }])];
   const descriptions = new Map([['emoji:9', 'a surprised cat face']]);
-  const inline = 'Zoé: ωραίο :pog: [:pog: a surprised cat face]';
   for (const customEmoji of [[], INDEX]) {
-    const lines = chatBlock(buildRequest(baseInput({ customEmoji, history, descriptions }))).split('\n');
+    const built = buildRequest(baseInput({ customEmoji, history, descriptions, mediaNameOf: rowOf }));
+    const lines = chatBlock(built).split('\n');
     // Slice 2 (g): the tempo lines close `<chat>`, so the chat line is found among its lines, not at its end.
     assert.ok(
-      lines.some((line) => line.endsWith(inline)),
+      lines.some((line) => line.endsWith('Zoé: ωραίο :e23:')),
       lines.join('\n')
     );
+    assert.ok(!chatBlock(built).includes('a surprised cat face'), 'the description stays out of the chat');
   }
+});
+
+// ---- the legend: each custom emoji and sticker of the window described once, in <interface> ----
+
+// The owner on 2026-11-17: the legend is the root block `<interface>`, grouped by interface and kind, present only when
+// the window holds a custom emoji or a sticker. Labels are the test's own, values are read off the request.
+const LEGEND_LABELS = {
+  ...labels,
+  transcript: { ...labels.transcript, stickerRef: '[sticker {name}]' },
+  legend: {
+    line: '{name} {platformName}: {text}',
+    lineNoText: 'NOTEXT {name} {platformName}',
+    unreadable: 'UNSEEN {name} {platformName}',
+  },
+};
+
+type Row = {
+  name: string;
+  kind: 'emoji' | 'sticker';
+  iface: string;
+  nativeId: string;
+  platformName: string;
+  animated: boolean;
+};
+
+const ROWS: ReadonlyArray<Row> = [
+  { name: 'e23', kind: 'emoji', iface: 'discord', nativeId: '9', platformName: 'pogcat', animated: false },
+  { name: 'e24', kind: 'emoji', iface: 'discord', nativeId: '10', platformName: 'wavey', animated: false },
+  { name: 's12', kind: 'sticker', iface: 'discord', nativeId: '51', platformName: 'hello_cat', animated: false },
+  { name: 's13', kind: 'sticker', iface: 'discord', nativeId: '52', platformName: 'dance_loop', animated: false },
+];
+
+/** The store's read of a stable name over ROWS. */
+function rowOf(name: string): Row | null {
+  return ROWS.find((row) => row.name === name) ?? null;
+}
+
+function legendInput(history: Array<unknown>, descriptions: Map<string, string>) {
+  return baseInput({
+    prompts: {
+      'system-prompt': 'SYSTEM',
+      'character-card': 'CARD',
+      rules: 'RULES',
+      format: 'FORMAT',
+      reply: 'REPLY_TASK',
+      labels: LEGEND_LABELS,
+    },
+    history,
+    descriptions,
+    mediaNameOf: rowOf,
+  });
+}
+
+/** The body of the root block `<interface>`, which stands between `</surroundings>` and `<chat>`; null when absent. */
+function legendOf(request: Built): string | null {
+  const text = userText(request);
+  const from = Math.max(0, text.lastIndexOf('</surroundings>'));
+  const to = text.indexOf('<chat>');
+  const between = text.slice(from, to < 0 ? text.length : to);
+  const match = /<interface>([\s\S]*?)<\/interface>/.exec(between);
+  return match ? match[1] : null;
+}
+
+/** The lines of one kind's subtag under one interface's subtag of the legend, [] when it is absent. */
+function kindLines(legend: string, iface: string, kind: string): Array<string> {
+  const scope = new RegExp(`<${iface}>([\\s\\S]*?)</${iface}>`).exec(legend)?.[1] ?? '';
+  const body = new RegExp(`<${kind}>([\\s\\S]*?)</${kind}>`).exec(scope)?.[1] ?? '';
+  return body
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function stickerOf(id: string, name: string, url: string | null) {
+  return { id, name, url };
+}
+
+test('buildRequest: no <interface> block when the window holds no custom emoji and no sticker', () => {
+  // Bug: the legend is printed empty on every turn and the tail grows by a block that says nothing.
+  const built = buildRequest(legendInput([chatLine('1', 'γεια', [])], new Map()));
+  assert.equal(legendOf(built), null);
+});
+
+test('buildRequest: an emoji of the chat stands once in <interface><discord><emojis> with its platform name and description', () => {
+  // Bug: the description is lost with the bracket, or the legend misses the platform name she knows it by.
+  const history = [chatLine('1', 'ωραίο :e23:', [{ id: '9', name: 'e23' }])];
+  const built = buildRequest(legendInput(history, new Map([['emoji:9', 'a surprised cat face']])));
+  const legend = legendOf(built);
+  assert.deepEqual(kindLines(legend ?? '', 'discord', 'emojis'), [':e23: pogcat: a surprised cat face']);
+  assert.ok(!(legend ?? '').includes('<stickers>'), 'no stickers subtag when no sticker occurs');
+});
+
+test('buildRequest: an emoji used in three lines has one legend line', () => {
+  // Bug: the legend repeats a thing once per line that uses it.
+  const emojis = [{ id: '9', name: 'e23' }];
+  const history = [
+    chatLine('1', ':e23:', emojis, NOW - 180_000),
+    chatLine('2', 'ναι :e23:', emojis, NOW - 120_000),
+    chatLine('3', ':e23: :e23:', emojis, NOW - 60_000),
+  ];
+  const built = buildRequest(legendInput(history, new Map([['emoji:9', 'a surprised cat face']])));
+  assert.deepEqual(kindLines(legendOf(built) ?? '', 'discord', 'emojis'), [':e23: pogcat: a surprised cat face']);
+});
+
+test('buildRequest: a sticker alone gives <stickers> and no <emojis>, and its chat line holds the stickerRef', () => {
+  // Bug: an empty emoji subtag is printed, or the sticker keeps its description in the line.
+  const history = [{ ...chatLine('1', '', []), stickers: [stickerOf('51', 's12', 'https://x/51.png')] }];
+  const built = buildRequest(legendInput(history, new Map([['sticker:51', 'a cat raising one paw']])));
+  const legend = legendOf(built) ?? '';
+  assert.deepEqual(kindLines(legend, 'discord', 'stickers'), ['s12 hello_cat: a cat raising one paw']);
+  assert.ok(!legend.includes('<emojis>'), legend);
+  assert.ok(chatBlock(built).includes('[sticker s12]'), chatBlock(built));
+  assert.ok(!chatBlock(built).includes('a cat raising one paw'), 'the description stays out of the chat');
+});
+
+test('buildRequest: an emoji with no description yet reads lineNoText and a sticker with no picture reads unreadable', () => {
+  // Bug: a thing with nothing to say is dropped from the legend, or a Lottie sticker is offered as if it were seen.
+  const history = [
+    {
+      ...chatLine('1', 'hm :e24:', [{ id: '10', name: 'e24' }]),
+      stickers: [stickerOf('52', 's13', null)],
+    },
+  ];
+  const built = buildRequest(legendInput(history, new Map([['sticker:52', 'a stale caption']])));
+  const legend = legendOf(built) ?? '';
+  assert.deepEqual(kindLines(legend, 'discord', 'emojis'), ['NOTEXT :e24: wavey']);
+  assert.deepEqual(kindLines(legend, 'discord', 'stickers'), ['UNSEEN s13 dance_loop']);
+});
+
+test('buildRequest: a description of 1,400 characters stands whole in its legend line', () => {
+  // Bug: the legend shortens a description as the old bracket did, and she loses the end of it.
+  const long = `${'a long careful description of a cat. '.repeat(38)}END`.slice(-1400);
+  assert.equal(long.length, 1400);
+  const history = [chatLine('1', ':e23:', [{ id: '9', name: 'e23' }])];
+  const built = buildRequest(legendInput(history, new Map([['emoji:9', long]])));
+  assert.deepEqual(kindLines(legendOf(built) ?? '', 'discord', 'emojis'), [`:e23: pogcat: ${long}`]);
 });
