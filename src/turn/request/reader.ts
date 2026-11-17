@@ -26,6 +26,7 @@ import type { MeanwhileReads, MeanwhileWindow } from './meanwhile.ts';
 import {
   MEMORY_SUBTAGS,
   factItemsOf,
+  heartbeatItemsOf,
   memoryItemsOf,
   printOrder,
   renderMemory,
@@ -60,9 +61,11 @@ import {
   shownName,
   withPlaces,
 } from './text.ts';
+import { ACTIVITY_DAYS } from '../../memory/db/heartbeat-lists.ts';
 import type {
   Fit,
   HandleTarget,
+  HeartbeatInput,
   Labels,
   MemoryRead,
   NameOf,
@@ -117,6 +120,8 @@ export type ReaderInput = {
   facts?: ReadonlyArray<StoredFact>;
   lookups: ReadonlyArray<Lookup>;
   meanwhileReads: MeanwhileReads | null;
+  /** A heartbeat's lists and fragments: its `<memory>` and `<fragments>`; null on any other kind. */
+  heartbeat?: HeartbeatInput | null;
   chatItems: Array<TranscriptItem>;
   /** The stickers of each line of the chat, by message id, for the legend `<media>`. */
   chatStickers: ReadonlyMap<string, ReadonlyArray<SeenSticker>>;
@@ -206,6 +211,8 @@ type Offered = {
   windows: Array<MeanwhileWindow>;
   windowTexts: Array<string>;
   inner: Array<{ key: keyof InnerParts; text: string }>;
+  /** The body of a heartbeat's `<fragments>`: the words above them and one line each, '' with none. */
+  fragments: string;
   /** `<inner>`'s parts with the places of `<my_day>` and `<intentions>` named as the rest of the request names them. */
   innerParts: InnerParts;
   resolveRef: (text: string) => string;
@@ -308,6 +315,7 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     offered.surroundings,
     given.tempoText,
     given.errandResult,
+    offered.fragments,
     ...diaryFixed(given.diary ?? null),
   ].filter(Boolean);
   const counterpart = offered.memory.filter((one) => one.counterpart).map((one) => one.text);
@@ -441,7 +449,11 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
         ? given.keyOfMember(them.nativeId)
         : (them.personId ?? them.accountId);
   const people = handleBook(given.chatHandles ?? new Map(), {
-    profiled: [...(counterpartKey === null ? [] : [counterpartKey]), ...mind.people.map((person) => person.personId)],
+    profiled: [
+      ...(counterpartKey === null ? [] : [counterpartKey]),
+      ...mind.people.map((person) => person.personId),
+      ...(given.heartbeat?.people ?? []).map((person) => person.personId),
+    ],
     inView: windows.flatMap((window) => window.lines.flatMap((line) => (line.authorKey ? [line.authorKey] : []))),
   });
   const places = handleBook(
@@ -453,6 +465,7 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
         ...windows.map((window) => chatIdOf(window.placeId)),
         ...lookupPlaces(given.lookups).map((id) => chatIdOf(id)),
         ...placeIdsIn(innerTexts(given.inner)).map((id) => chatIdOf(id)),
+        ...(given.heartbeat?.places ?? []).map((place) => chatIdOf(place.placeId)),
       ].filter((id): id is string => typeof id === 'string' && id !== ''),
     },
     CHANNEL_HANDLE_PREFIX
@@ -649,17 +662,32 @@ function offeredOf(given: ReaderInput): Offered {
   );
   const { windows } = names;
   const innerParts = innerNamed(given.inner, names.placeNamed);
-  const items = memoryItemsOf(
-    mind,
-    frame,
-    labels,
-    given.nameOf,
-    given.live,
-    given.diaryIds,
-    chatIdOfInput(given),
-    handled(given) ? names.entryRefs : null,
-    keepsEmoji(given.config)
-  );
+  const { heartbeat = null } = given;
+  const items = heartbeat
+    ? heartbeatItemsOf(
+        heartbeat,
+        frame,
+        labels,
+        given.nameOf,
+        names.entryRefs,
+        (placeId) => {
+          const chatId = chatIdOfInput(given)(placeId);
+          return chatId === null ? null : `#${names.places.handleOf(chatId)}`;
+        },
+        ACTIVITY_DAYS,
+        keepsEmoji(given.config)
+      )
+    : memoryItemsOf(
+        mind,
+        frame,
+        labels,
+        given.nameOf,
+        given.live,
+        given.diaryIds,
+        chatIdOfInput(given),
+        handled(given) ? names.entryRefs : null,
+        keepsEmoji(given.config)
+      );
   const memory = memoryCut(given, [
     ...items,
     ...(handled(given) ? strangerItemsOf(strangersOf(given, items), frame, labels, keepsEmoji(given.config)) : []),
@@ -672,7 +700,7 @@ function offeredOf(given: ReaderInput): Offered {
       directPartnerOf(given, names)
     ),
     memory: memory.items,
-    memoryLeftOut: memory.leftOut,
+    memoryLeftOut: heartbeat ? { ...memory.leftOut, ...heartbeat.leftOut } : memory.leftOut,
     recall: recallBlockOf(
       lookups,
       retired,
@@ -697,11 +725,18 @@ function offeredOf(given: ReaderInput): Offered {
       )
     ),
     inner: innerItems(innerParts),
+    fragments: fragmentsText(heartbeat, labels),
     innerParts,
     resolveRef,
     names,
   };
 }
+
+/** The body of `<fragments>`: `heartbeat.fragments`, then each fragment as a line; '' with none. */
+const fragmentsText = (heartbeat: HeartbeatInput | null, labels: Labels): string =>
+  heartbeat === null || heartbeat.fragments.length === 0
+    ? ''
+    : [labels.heartbeat?.fragments ?? '', ...heartbeat.fragments.map((line) => `- ${line}`)].filter(Boolean).join('\n');
 
 /** The body of `<inner>` from the parts the budget kept, the errand's result first. */
 function innerTextOf(given: ReaderInput, offered: Offered, fit: Fit): string {
@@ -768,6 +803,7 @@ const TURN_OWN: ReadonlySet<string> = new Set([
   'recall',
   'found',
   'inner',
+  'fragments',
   'spatial_awareness',
   'task',
 ]);
@@ -800,6 +836,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     tail('recall', 'lookups', kept.recall?.[0] ?? '', 'recall'),
     tail('found', 'mind', bodies.found, 'found'),
     tail('inner', 'inner', bodies.inner, 'inner'),
+    tail('fragments', 'heartbeat', offered.fragments),
     tail('spatial_awareness', 'spatial', offered.spatial),
     tail('task', 'task', given.task),
   ];

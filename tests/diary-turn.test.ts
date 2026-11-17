@@ -1500,3 +1500,12 @@ test('an entry written by a diary wake keeps the id of its turn as extra.turnId'
   await scene.store.flushSettled({});
   assert.equal(extraOf(dbOf(memoryDb.readHandle() as { db: unknown }), entryId).turnId, result.turnId);
 });
+
+test('the diary requests are the same bytes with a heartbeat seeds file beside them', async () => {
+  // Bug: the heartbeat's fragments or its lists leak into a diary request, which shares the heartbeat's path nowhere.
+  const plain = await frameTurn();
+  const seeded = await frameTurn({ prompts: { 'heartbeat-seeds': '# one\nΘΡΑΥΣΜΑ-ΕΝΑ\n# two\nΘΡΑΥΣΜΑ-ΔΥΟ' } });
+  assert.equal(seeded.planner[0], plain.planner[0]);
+  assert.equal(seeded.writer[0], plain.writer[0]);
+  assert.ok(!(seeded.writer[0] ?? '').includes('ΘΡΑΥΣΜΑ'));
+});

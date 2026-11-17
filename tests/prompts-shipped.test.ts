@@ -108,8 +108,10 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
-  // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
-  'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
+  // Split into families and drawn from line by line (src/behavior/seeds.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
+  'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/seeds.ts#pickSeeds), never sent whole',
+  // A heartbeat draws four lines of two families into <fragments> (src/behavior/seeds.ts#drawFragments), never the file whole.
+  'heartbeat-seeds': 'drawn from line by line into <fragments> (src/behavior/seeds.ts#drawFragments), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
   // tests/memory-db-session.test.ts and tests/memory-db-describe.test.ts check what they load.
   // The summarizer builds its request from a text and a limit, with no turn around it: tests/summarize.test.ts checks which

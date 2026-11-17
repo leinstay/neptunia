@@ -23,7 +23,17 @@ import { skillRegistry } from '../../src/tools/registry.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import { wrongly } from './loose-types.ts';
-import { addClaim, addDm, addLine, addPerson, addRoom, noteInterface, openWorld, rootId } from './memory-db/mind-world.ts';
+import {
+  addAttitude,
+  addClaim,
+  addDm,
+  addLine,
+  addPerson,
+  addRoom,
+  noteInterface,
+  openWorld,
+  rootId,
+} from './memory-db/mind-world.ts';
 import type { World } from './memory-db/mind-world.ts';
 import { openTestMemorySync } from './memory-db/service.ts';
 import { shippedLabels } from './shipped-labels.ts';
@@ -133,6 +143,103 @@ export function serviceWorld(w: World = openWorld()): World {
   return w;
 }
 
+/** Five families of the fixture's heartbeat fragments, each name a marker no request may hold, each line unique. */
+export const SEED_FAMILIES = ['ΟΙΚΟΓΕΝΕΙΑ-Α', 'ΟΙΚΟΓΕΝΕΙΑ-Β', 'ΟΙΚΟΓΕΝΕΙΑ-Γ', 'ΟΙΚΟΓΕΝΕΙΑ-Δ', 'ΟΙΚΟΓΕΝΕΙΑ-Ε'] as const;
+
+/** The lines of family `f`, five each. */
+export const seedLines = (family: number): Array<string> =>
+  Array.from({ length: 5 }, (_, line) => `θραύσμα-${family}-${line}`);
+
+/** The fixture's `prompts/heartbeat-seeds.md`: a heading line per family, one fragment per line. */
+export const HEARTBEAT_SEEDS = SEED_FAMILIES.map((name, family) => [`# ${name}`, ...seedLines(family)].join('\n')).join(
+  '\n\n'
+);
+
+export const NIKOS = 'person:fake:222';
+
+/** The texts of the heartbeat world, each unique so a test finds it in one block. */
+export const HEARTBEAT_TEXT = {
+  nikosRelation: 'ΣΧΕΣΗ-ΜΕ-ΤΟΝ-ΝΙΚΟ.',
+  nikosRelationRest: 'ΔΕΥΤΕΡΗ-ΠΡΟΤΑΣΗ',
+  yardPurpose: 'ΣΚΟΠΟΣ-ΤΗΣ-ΑΥΛΗΣ.',
+  yardLine: 'ΓΡΑΜΜΗ-ΤΗΣ-ΑΥΛΗΣ',
+  mirrorLine: 'ΓΡΑΜΜΗ-ΤΟΥ-ΚΑΘΡΕΦΤΗ',
+} as const;
+
+/** The places of the heartbeat world that the service world does not hold. */
+export const YARD = 'fake:channel:c4';
+export const MIRROR = 'fake:channel:c5';
+
+/** A current description of `subject` holding `text`, readable by the groups of `fake`. */
+function describe(world: World, id: string, subjectKind: 'person' | 'place', subject: string, field: string, text: string) {
+  const version = `${id}:v1`;
+  world.db
+    .prepare(
+      `INSERT INTO descriptions (id, subject_kind, subject_id, field, audience_id, scope_kind, scope_iface, current_version)
+       VALUES (?, ?, ?, ?, 'aud:group:fake', 'group', 'fake', ?)`
+    )
+    .run(id, subjectKind, subject, field, version);
+  world.db
+    .prepare(
+      `INSERT INTO description_versions (id, description_id, text, author, written_at, chars, origin)
+       VALUES (?, ?, ?, 'synthetic', ?, ?, 'synthetic')`
+    )
+    .run(version, id, text, iso(TURN_NOW - 20 * DAY), text.length);
+}
+
+/**
+ * The service world with what a heartbeat lists: Νίκος (`fake:222`), with a relationship and an attitude and no line
+ * near hers, who wrote twice in the room `c4` "αυλή" in the last days and once ten days ago; Ελένη's line there three
+ * days ago; the room `c5` "ημερολόγιο", a mirror of her diary with a line of Ελένη's; and `extraPeople` more people,
+ * each with a relationship and an account.
+ */
+export function heartbeatWorld({ extraPeople = 0 }: { extraPeople?: number } = {}): World {
+  const w = serviceWorld();
+  const yard = addRoom(w.db, { iface: 'fake', native: 'c4', root: rootId('fake', 'g1'), name: 'αυλή' });
+  const mirror = addRoom(w.db, { iface: 'fake', native: 'c5', root: rootId('fake', 'g1'), name: 'ημερολόγιο' });
+  w.db
+    .prepare(
+      `INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra)
+       VALUES ('mirror:1', 'diary', ?, 1, ?, 'owner', NULL)`
+    )
+    .run(mirror, iso(TURN_NOW - 30 * DAY));
+  addPerson(w.db, { id: NIKOS, accounts: [{ id: 'fake:222', iface: 'fake', native: '222', names: ['Νίκος'] }] });
+  describe(
+    w,
+    'desc:nikos',
+    'person',
+    NIKOS,
+    'relationship',
+    `${HEARTBEAT_TEXT.nikosRelation} ${HEARTBEAT_TEXT.nikosRelationRest}.`
+  );
+  describe(w, 'desc:yard', 'place', yard, 'purpose', HEARTBEAT_TEXT.yardPurpose);
+  addAttitude(w.db, {
+    id: 'aff:nikos',
+    person: NIKOS,
+    at: iso(TURN_NOW - 5 * DAY),
+    applied: 40,
+    score: 40,
+    reason: null,
+    audience: { group: 'fake' },
+  });
+  const line = (id: string, author: string, ago: number, place = yard, text: string = HEARTBEAT_TEXT.yardLine) =>
+    addLine(w.db, { id, iface: 'fake', place, author, text: `${text}-${id}`, at: iso(TURN_NOW - ago) });
+  line('y1', 'fake:222', 2 * DAY);
+  line('y2', 'fake:222', DAY);
+  line('y3', 'fake:111', 3 * DAY);
+  line('y0', 'fake:222', 10 * DAY);
+  line('m1', 'fake:111', DAY, mirror, HEARTBEAT_TEXT.mirrorLine);
+  for (let i = 0; i < extraPeople; i += 1) {
+    const id = `person:fake:9${String(i).padStart(3, '0')}`;
+    addPerson(w.db, {
+      id,
+      accounts: [{ id: `fake:9${String(i).padStart(3, '0')}`, iface: 'fake', native: `9${i}`, names: [`Άτομο${i}`] }],
+    });
+    describe(w, `desc:extra:${i}`, 'person', id, 'relationship', `ΑΤΟΜΟ-${i}.`);
+  }
+  return w;
+}
+
 export type ServiceRun = {
   result: Record<string, Untyped>;
   /** The user text of each request the model got. */
@@ -165,6 +272,8 @@ export type ServiceTurnSpec = {
   labels?: object;
   /** The place the drain names as the turn's current channel, as it does for an intention with a destination: null for none. */
   currentChannel?: string | null;
+  /** The turn runner's random source; Math.random when absent. */
+  rng?: () => number;
 };
 
 /** The adapter that answers a call naming one of `others`' interfaces by that one, and every other call by `main`. */
@@ -207,7 +316,7 @@ function cliAdapter(): Fake {
   return cli;
 }
 
-type RigSpec = Pick<ServiceTurnSpec, 'seed' | 'adapters' | 'labels'> & {
+type RigSpec = Pick<ServiceTurnSpec, 'seed' | 'adapters' | 'labels' | 'rng'> & {
   mind: World;
   settings?: Record<string, number>;
   /** Laid over SERVICE_CONTEXT, such as `channelMessages`. */
@@ -253,6 +362,7 @@ function rigOf(spec: RigSpec) {
       'errand-result': 'An errand ended.',
       inner: MARK.inner,
       heartbeat: MARK.heartbeat,
+      'heartbeat-seeds': HEARTBEAT_SEEDS,
       labels: spec.labels ?? shippedLabels,
     },
   };
@@ -346,6 +456,7 @@ function rigOf(spec: RigSpec) {
       runOwnOp: admin.runOwnSkillOp,
       runInitiativeOp: admin.runInitiativeSkillOp,
       intentions,
+      ...(spec.rng ? { rng: spec.rng } : {}),
     });
   const turns = runner();
   /**

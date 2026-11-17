@@ -78,11 +78,13 @@ test('an errand result in a place reads the ordinary turn', () => {
   assert.deepEqual(frame.blocks, REPLY_LIST);
 });
 
-test('a heartbeat reads the service list', () => {
+test('a heartbeat reads its own list', () => {
   // Bug: the heartbeat keeps `<chat>` or `<surroundings>` of the place its wake rode in on.
+  // Changed: the expectation was the service list; a heartbeat lists people and places in `<memory>` and draws
+  // `<fragments>`, with no `<meanwhile>`, `<media>`, `<recall>` or `<found>` (spec 2026-11-17-heartbeat-own-request).
   const frame = frameOf(wakeInput('heartbeat'));
   assert.equal(frame.kind, 'heartbeat');
-  assert.deepEqual(frame.blocks, SERVICE_LIST);
+  assert.deepEqual(frame.blocks, ['persona', 'self', 'memory', 'inner', 'fragments', 'spatial_awareness', 'task']);
 });
 
 test('an intention with a place reads the ordinary turn in that place', () => {

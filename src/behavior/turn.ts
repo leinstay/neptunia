@@ -681,6 +681,7 @@ export function createTurnRunner({
     llm,
     calibrator,
     clock,
+    rng,
     schedule,
     describer,
     fetchImpl,

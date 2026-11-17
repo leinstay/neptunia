@@ -35,7 +35,7 @@ import { createIntention } from '../src/intentions/model.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import { MARK, SERVICE_CONTEXT, TEXT, TURN_NOW, blockOf, serviceWake, serviceWorld } from './fixtures/service-turn.ts';
+import { MARK, SERVICE_CONTEXT, TURN_NOW, blockOf, serviceWake, serviceWorld } from './fixtures/service-turn.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -444,6 +444,8 @@ async function heartbeatDataDir(): Promise<string> {
 test('a replayed heartbeat reads her lines, memory and intentions as the core turn does, and reads a place it showed', async () => {
   // Bug: the replay composed its own turn runner with no memory database and no memory context, so <meanwhile> and
   // <memory> were empty, <inner> lacked her day and intentions, and no place she named resolved.
+  // Changed: the expectations read her lines in <meanwhile>; a heartbeat's request has no <meanwhile> since it lists
+  // people and places in <memory>, so the guard reads both places in <places> and a known person in <people>.
   const dataDir = await heartbeatDataDir();
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => TURN_NOW });
   port.seedChat({
@@ -465,9 +467,11 @@ test('a replayed heartbeat reads her lines, memory and intentions as the core tu
       const text = messages.map((message) => userText(message.content)).join('\n');
       requests.push(text);
       if (requests.length > 1) return Promise.resolve(completionOf('<skip/>'));
-      // The handle of the place whose header stands above her garden line.
-      const before = blockOf(text, 'meanwhile').split(TEXT.ownGarden)[0];
-      const handle = [...before.matchAll(/^(#[A-Za-z0-9_-]+):/gm)].at(-1)?.[1] ?? '#none';
+      // The handle the request's `<places>` gives her garden.
+      const garden = blockOf(text, 'memory')
+        .split('\n')
+        .find((line) => line.includes('κήπος'));
+      const handle = /^(#[A-Za-z0-9_-]+):/.exec(garden ?? '')?.[1] ?? '#none';
       return Promise.resolve(
         toolAnswer('', [
           toolCall('conversation.read', { place: handle }),
@@ -517,10 +521,11 @@ test('a replayed heartbeat reads her lines, memory and intentions as the core tu
     wired.close();
   }
   const first = requests[0] ?? '';
-  const meanwhile = blockOf(first, 'meanwhile');
-  assert.ok(meanwhile.includes(TEXT.ownGarden) && meanwhile.includes(TEXT.ownHarbour), 'her lines in both places');
-  assert.equal(new Set([...meanwhile.matchAll(/^(#[A-Za-z0-9_-]+):/gm)].map((m) => m[1])).size, 2, 'both places named');
-  assert.notEqual(blockOf(first, 'memory'), '', '<memory> raised');
+  const memory = blockOf(first, 'memory');
+  const places = /<places>\n([\s\S]*?)\n<\/places>/.exec(memory)?.[1] ?? '';
+  const people = /<people>\n([\s\S]*?)\n<\/people>/.exec(memory)?.[1] ?? '';
+  assert.ok(places.includes('κήπος') && places.includes('λιμάνι'), 'both places listed');
+  assert.ok(people.includes('Ελένη'), 'a known person listed');
   assert.ok(blockOf(first, 'inner').includes(PURPOSE), '<inner> lists the open intention');
   const reads = ((result as Rec).inner as { actions: Array<Rec> }).actions.filter(
     (action) => action.skill === 'conversation.read'

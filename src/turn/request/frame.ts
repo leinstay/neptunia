@@ -22,6 +22,7 @@ export type BlockName =
   | 'recall'
   | 'found'
   | 'inner'
+  | 'fragments'
   | 'spatial_awareness'
   | 'task';
 
@@ -161,6 +162,18 @@ const SERVICE: ReadonlyArray<BlockName> = Object.freeze([
   'task',
 ] as const);
 
+// A heartbeat's `<memory>` lists the people and places memory holds, drawn anew at each wake, and its fragments stand
+// after `<inner>`, before the place and the task.
+const HEARTBEAT: ReadonlyArray<BlockName> = Object.freeze([
+  'persona',
+  'self',
+  'memory',
+  'inner',
+  'fragments',
+  'spatial_awareness',
+  'task',
+] as const);
+
 const DIARY: ReadonlyArray<BlockName> = Object.freeze([
   'persona',
   'self',
@@ -184,7 +197,7 @@ export function blocksOf(kind: TurnKind, place: FramePlace | null): ReadonlyArra
     case 'errand_result':
       return place === null ? SERVICE : ORDINARY;
     case 'heartbeat':
-      return SERVICE;
+      return HEARTBEAT;
     case 'diary_plan':
     case 'diary':
       return DIARY;
