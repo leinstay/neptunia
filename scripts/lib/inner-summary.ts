@@ -113,7 +113,11 @@ export function sampleFacts(
   else if (errands.some((errand) => !errand.answered)) end = { kind: 'unresolved', code: 'errand-unanswered' };
   else if (change) {
     const skill = text(change.skill) as keyof typeof CHANGES;
-    const args = answers.flatMap((answer) => answer.calls ?? []).findLast((call) => call.skill === skill)?.args ?? {};
+    // A call that confirms a notice carries the notice's id alone: the arguments are those of the call the notice held.
+    const args =
+      answers
+        .flatMap((answer) => answer.calls ?? [])
+        .findLast((call) => call.skill === skill && text(call.args?.confirm) === '')?.args ?? {};
     const place = text(args.place) || null;
     const resolved = text(change.target?.channel) || place;
     const due = parseWhen(args.due, now, { timezone });
