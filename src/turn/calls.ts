@@ -11,7 +11,7 @@ import type { StoredSourceRef } from '../memory/db/recall.ts';
 import { parseToolCallBlocks } from '../llm/tool-text.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { thinkLeakOf } from '../llm/parse.ts';
-import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { CHANNEL_HANDLE_PREFIX, idText, widenHandles } from '../behavior/handles.ts';
 import { readablePlaces } from '../behavior/readable-places.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
@@ -690,7 +690,7 @@ const lookupKey = (tool: string, args: Record<string, unknown>): string => `${to
 /**
  * A ring of her lookups, seeded with `seed` (the journal's lookups of the last days, oldest first, src/memory/journal.ts):
  * one entry per place, tool and arguments, at most `maxItems` per place with the one noted earliest dropped first, each
- * extract cut to `extractChars`. In process.
+ * extract kept whole as noted (the turn retells one over `extractChars` before it notes it). In process.
  */
 export function createLookupRing(seed: ReadonlyArray<Lookup>): LookupRing {
   const byPlace = new Map<string, Map<string, Lookup>>();
@@ -711,9 +711,8 @@ export function createLookupRing(seed: ReadonlyArray<Lookup>): LookupRing {
   };
   for (const lookup of seed) keep(lookup, Number.MAX_SAFE_INTEGER);
   return {
-    note(lookup, { maxItems, extractChars }) {
-      const extract = clampWithEllipsis(lookup.extract, Math.max(1, extractChars));
-      keep({ ...lookup, extract }, maxItems);
+    note(lookup, { maxItems }) {
+      keep(lookup, maxItems);
     },
     forPlace(placeId, window) {
       const entries = byPlace.get(placeId);

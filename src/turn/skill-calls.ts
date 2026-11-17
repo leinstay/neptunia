@@ -38,7 +38,7 @@ import {
   WRITTEN_SKILLS,
 } from './calls.ts';
 import type { CallEnvelope, KnownPlace, Lookup, LookupRing, SearchRef, SearchRefs } from './calls.ts';
-import { clampWithEllipsis } from '../memory/clamp.ts';
+import type { Summarize } from '../behavior/summarize.ts';
 import { journalResultOf, portError, postedOf } from './journal.ts';
 import type { JournalOp } from './journal.ts';
 import type { CallMark, JournalNotes, NotesDraft } from './journal-notes.ts';
@@ -108,6 +108,8 @@ export type SkillCallsContext = {
   noteCall: JournalNotes['noteCall'];
   recordSaid: JournalNotes['recordSaid'];
   journalOp: JournalNotes['journalOp'];
+  /** Retells a lookup's extract over `context.recall.extractChars` once (src/behavior/summarize.ts); none keeps it whole. */
+  summarize?: Summarize | undefined;
   /** The ring of her lookups per place (src/turn/calls.ts#createLookupRing); absent: none is kept. */
   lookupRing?: LookupRing | null;
 };
@@ -390,20 +392,22 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     recordSaid,
     journalOp,
     lookupRing = null,
+    summarize,
   } = ctx;
 
   /**
    * The lookup a call of a read tool is, kept in the ring for `<recall>` on the next turns of the place and returned for
-   * the operation's closing line, its extract cut to `context.recall.extractChars`; null for any other call.
+   * the operation's closing line, its extract retold once by `summarize` when it runs over `context.recall.extractChars`
+   * (a retelling still over it is kept whole); null for any other call.
    */
-  function keptLookup(
+  async function keptLookup(
     skill: string,
     args: Obj,
     result: CallAnswer,
     draft: CallsDraft | null | undefined,
     found: { trigger: { id?: string | null } | null | undefined; lines: ReadonlyArray<SearchRef> }
-  ): Lookup | null {
-    const lookup = lookupOfCall({
+  ): Promise<Lookup | null> {
+    const called = lookupOfCall({
       read: (skills ?? defaultSkills()).get(skill)?.kind === 'read' && draft?.inner?.shadow !== true,
       place: draft?.framePlace ?? null,
       turnId: draft?.started?.turnId,
@@ -416,11 +420,15 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       anchorIds: [found.trigger?.id],
       lines: found.lines,
     });
-    if (lookup === null) return null;
+    if (called === null) return null;
     const settings = lookupSettingsOf(hot.config);
+    const over = summarize && Array.from(called.extract).length > settings.extractChars;
+    const lookup = over
+      ? { ...called, extract: await summarize(called.extract, { maxChars: settings.extractChars, kind: 'text' }) }
+      : called;
     lookupRing?.note(lookup, settings);
     // The closing line keeps the identities of the lines, never their text, so a restored extract keeps its numbers.
-    const kept: Lookup = { ...lookup, extract: clampWithEllipsis(lookup.extract, settings.extractChars) };
+    const kept: Lookup = { ...lookup };
     if (lookup.lines) kept.lines = lineIdentities(lookup.lines);
     return kept;
   }
@@ -936,7 +944,10 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     }
     // A lookup of hers stays for `<recall>`, and its closing line keeps it for a restart (src/memory/journal.ts#callMarksOf).
     const quoted = quotedSince(draft, quotedBefore);
-    const lookup = keptLookup(skill, plan.resolved?.args ?? call.args ?? {}, result, draft, { trigger, lines: quoted });
+    const lookup = await keptLookup(skill, plan.resolved?.args ?? call.args ?? {}, result, draft, {
+      trigger,
+      lines: quoted,
+    });
     const kept = lookup ? { lookup } : {};
     if (op.opId) {
       if (result.status === 'ok') await op.succeeded({ ...journalResultOf(result), ...kept });
