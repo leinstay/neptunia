@@ -101,14 +101,15 @@ export function messageRefsOf(
 }
 
 /**
- * `cleanText` with each custom emoji as the protocol token `<emoji:ID>`. discord.js's cleanContent writes
- * the markup `<:name:id>` as `:name:`, dropping the id, so the markup of the raw `content` gives the ids in the order
- * they stand. Markup cleanContent leaves behind takes its own id.
+ * `cleanText` with each custom emoji of the message as the protocol token `<emoji:ID>`. discord.js's cleanContent
+ * writes the markup `<:name:id>` as `:name:`, dropping the id, so the markup of the raw `content` gives the ids in the
+ * order they stand. cleanContent also writes a mentioned member's, role's or channel's name, and markup inside such a
+ * name stays the text it is: only an id of `emojis`, the message's own emoji, becomes a token.
  */
-function tokenEmoji(cleanText: string, raw: unknown): string {
-  let text = cleanText.replace(
-    CUSTOM_EMOJI_RE,
-    (_markup: string, _animated: string, _name: string, id: string) => `<emoji:${id}>`
+function tokenEmoji(cleanText: string, raw: unknown, emojis: ReadonlyArray<NormalEmoji>): string {
+  const own = new Set(emojis.map((emoji) => emoji.id));
+  let text = cleanText.replace(CUSTOM_EMOJI_RE, (markup: string, _animated: string, _name: string, id: string) =>
+    own.has(id) ? `<emoji:${id}>` : markup
   );
   let from = 0;
   for (const [, , name, id] of scalarText(raw ?? '').matchAll(CUSTOM_EMOJI_RE)) {
@@ -418,7 +419,7 @@ function normalizeSnapshot(snapshot: SnapshotLike, videoSites: ReadonlyArray<str
   const isVoice = isVoiceMessageFlag(snapshot);
   const cleanContent = snapshot.cleanContent ?? snapshot.content ?? '';
   const emojis = extractEmojis(snapshot.content ?? cleanContent);
-  const cleanText = tokenEmoji(cleanContent, snapshot.content).trim();
+  const cleanText = tokenEmoji(cleanContent, snapshot.content, emojis).trim();
   const { attachments, links, content } = normalizeMedia(
     snapshot.id ?? 'fwd',
     snapshot,
@@ -509,7 +510,7 @@ export function normalizeMessage(
   const isVoice = isVoiceMessageFlag(message);
   const cleanContent = message.cleanContent ?? '';
   const emojis = extractEmojis(message.content ?? cleanContent);
-  const cleanText = tokenEmoji(cleanContent, message.content).trim();
+  const cleanText = tokenEmoji(cleanContent, message.content, emojis).trim();
   const { attachments, links, content } = normalizeMedia(
     message.id,
     message,

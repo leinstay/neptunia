@@ -155,13 +155,25 @@ function checkMessage(message: Rec): void {
   for (const key of ['replyToId', 'replyPingAccountId']) need(message[key], `message.${key}`, isNullableId);
   need(message.forwardedFrom, 'message.forwardedFrom', isNullableString);
   for (const key of MESSAGE_LISTS) need(message[key], `message.${key}`, Array.isArray);
-  const listed = new Set((message.emojis as Array<unknown>).map((emoji) => asRecord(emoji).id));
-  need(
-    message.content,
-    'message.content',
-    (content) => [...String(content).matchAll(EMOJI_TOKEN_RE)].every(([, id]) => listed.has(id)),
-    { problem: 'emoji' }
+  need(message, 'message.content', emojiTokensListed, { problem: 'emoji' });
+}
+
+/** Whether one part's content names by its tokens only ids its own `emojis` lists. */
+function partTokensListed(part: Rec): boolean {
+  const listed = new Set((Array.isArray(part.emojis) ? part.emojis : []).map((emoji) => asRecord(emoji).id));
+  return [...(typeof part.content === 'string' ? part.content : '').matchAll(EMOJI_TOKEN_RE)].every(([, id]) =>
+    listed.has(id)
   );
+}
+
+/**
+ * Whether every `<emoji:ID>` token of a message and of each forwarded part names an entry of that part's `emojis`:
+ * the one rule by which the door refuses a live message and a read leaves an event out.
+ */
+export function emojiTokensListed(message: unknown): boolean {
+  const whole = asRecord(message);
+  const forwarded = Array.isArray(whole.forwarded) ? whole.forwarded : [];
+  return [whole, ...forwarded.map(asRecord)].every(partTokensListed);
 }
 
 function checkAddressing(given: unknown): void {
