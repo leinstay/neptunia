@@ -53,7 +53,7 @@ export function writeMediaNames(db: Db, write: MediaNamesWrite, at: number): { w
 }
 
 /** A write as the writer receives it, checked. */
-function mediaNamesWriteOf(update: Row): MediaNamesWrite {
+export function mediaNamesWriteOf(update: Row): MediaNamesWrite {
   const refused = Object.assign(new Error('MEDIA_NAMES_ROWS'), { code: 'MEDIA_NAMES_ROWS' });
   const { rows } = update;
   if (!Array.isArray(rows)) throw refused;

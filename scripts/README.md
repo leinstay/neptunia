@@ -18,7 +18,7 @@ A flag `--<role> <route>` replaces one role for that run alone and writes nothin
 
 ## Rules
 
-- **Read-only on `data/`.** No script writes under `data/guilds/`. A script that needs to change memory works on a copy of the memory database taken from a backup of `data/`. `recall-eval.ts` writes under `data/recall-eval/` only. `vision-compare.ts` writes under `data/vision-compare/` only.
+- **Read-only on `data/`.** No script writes under `data/guilds/`. A script that needs to change memory works on a copy of the memory database taken from a backup of `data/`, except `stable-names-rewrite.ts --apply`, which writes the one rewrite through the memory writer after a backup. `recall-eval.ts` writes under `data/recall-eval/` only. `vision-compare.ts` writes under `data/vision-compare/` only.
 - **Side effects off.** Nothing is posted to Discord. Discord is read over REST without a gateway session. The engine's daily counters are private copies. Requests are marked with the tool's own `origin` and never count against `llm.maxRequestsPerDay`.
 - **Spending needs a word.** A script that sends model requests prints an estimate and refuses with exit code 2 unless `--spend <usd>` covers it.
 - **Output.** Reports go to stdout, logs and estimates to stderr. Reports that quote memory or chat are for the owner's eyes on the server: never paste them into an issue, a commit or a chat.
@@ -49,6 +49,7 @@ A flag `--<role> <route>` replaces one role for that run alone and writes nothin
 | `graph-retrieval-bench.ts` | Builds identical synthetic graphs in temporary databases (`--sizes`, `--shapes` uniform, zipf, star) and reads them with source-only recall and with graph-enabled retrieval, idle and under a concurrent ingest. Prints p50 and p95 latency, peak RSS, WAL size, pages stopped on a bound, write latency and the query plans | no (temporary folder only) | no | no |
 | `vision-compare.ts` | Describes the same media with each model. `--from-cache` reads from the guild's media cache via Discord REST. Writes one HTML page | `data/vision-compare/` only | no | yes, 1 request per item and model |
 | `memory-db.ts` | The memory database: `stats`, `hash`, `reproject`, `rebuild`, `media-check`, `index-policy`, `restore-tables`. Opens the database read-only | no | no | no |
+| `stable-names-rewrite.ts` | Rewrites the lines stored before stable names to `:e23:` and gives their emoji and stickers their stable names, once per deployment after a backup. `--data <dir>` is required. Without `--apply` it prints counts only: lines and tokens to rewrite, media rows to rename, names to issue per interface and kind, and lines not tied. `--apply` writes through the memory writer. The core's start check refuses it while an engine holds the folder | with `--apply`: `memory.db` | yes | no |
 | `memory-session.ts` | Runs her memory session once, on a copy, in shadow. Says what she proposed | no | no | yes |
 
 Pure helpers live in `scripts/lib/` and are tested by `tests/tools-*.test.js`.
