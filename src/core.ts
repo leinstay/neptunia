@@ -573,6 +573,8 @@ async function buildCore(
     youtubeApiKey,
     proxy: () => proxy.current(),
     track: loopWatch.track,
+    // Her name in the place, for the picture prompt; getSelfName is defined below and read at each description.
+    selfName: (placeId: string) => getSelfName(placeId),
     // An answer over its length is shortened on the analyzer.
     summarize,
     // An attachment's address may lapse: its message is read again for a fresh one before each download.
