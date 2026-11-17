@@ -570,6 +570,7 @@ export function buildCheckRequest({
   candidates,
   triggerOf,
   now,
+  mediaNameOf,
 }: BuildCheckRequestInput): { system: string; user: string; candidates: Array<Candidate> } | null {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   const list = Array.isArray(history) ? history : [];
@@ -585,6 +586,7 @@ export function buildCheckRequest({
     labels,
     seeReactions: false,
     now,
+    ...(mediaNameOf ? { mediaNameOf } : {}),
   });
   const indexOf = new Map(items.map((item) => [item.id, item.index]));
   const numbered = candidates.filter((candidate) => indexOf.has(candidate.messageId));
@@ -1131,16 +1133,16 @@ export function createMissed({
   async function classify(list: Array<Candidate>, { channel, history, config }: ClassifyContext) {
     const unchecked = () => list.map(() => UNCHECKED);
     const prompts = hot.prompts;
-    const placeId = sharedPlaceOf(store, channel);
     const request = buildCheckRequest({
       prompt: prompts?.missed,
       labels: prompts?.labels,
       config,
-      selfName: getSelfName(placeId),
+      selfName: getSelfName(sharedPlaceOf(store, channel)),
       history,
       candidates: list,
       triggerOf: typeof turns?.triggerOf === 'function' ? (id: string) => turns.triggerOf(id) : undefined,
       now: now(),
+      ...(store.mediaNameOf ? { mediaNameOf: store.mediaNameOf } : {}),
     });
     if (!request) {
       if (!promptMissingLogged && !(typeof prompts?.missed === 'string' && prompts.missed.trim())) {

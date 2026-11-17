@@ -1286,6 +1286,7 @@ async function buildCore(
     selfId: () => identity.selfId,
     getSelfName,
     memberNameOf: (placeId, accountId) => members.nameOf(nativeOfPlace(placeId), accountId),
+    mediaNameOf: store.mediaNameOf,
     directory,
     // /nep status: when the interface's link to its platform last came back.
     connection,

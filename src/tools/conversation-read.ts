@@ -20,6 +20,11 @@ import { idText, isObj, listOf, objOf } from './types.ts';
 import type { SearchRef } from '../turn/calls.ts';
 import type { ChatFind } from './tools.ts';
 import type { Obj } from './types.ts';
+import { legendBlock } from '../turn/request/legend.ts';
+import type { MediaName } from '../memory/store-media-names.ts';
+
+/** The options a read renders its lines with: formatTranscript's, and the store's read of a stable name for the legend. */
+type Render = Obj & { mediaNameOf?: (name: string) => MediaName | null };
 import type { Reads } from '../interface/reads.ts';
 import type { ChatRef, HistoryQuery } from '../protocol/adapter.ts';
 
@@ -369,6 +374,20 @@ function openingDate(
  * lines that stayed in the text are registered (`{ n, id, placeId, authorId, self, deleted,
  * message }`); a line cut away never is. Otherwise pure.
  */
+/** The legend `<interface>` of the kept items' messages, as one line, or none without a read of stable names. */
+function keptLegend(
+  kept: ReadonlyArray<TranscriptItem>,
+  byId: ReadonlyMap<string, ReadMessage>,
+  mediaNameOf: ((name: string) => MediaName | null) | undefined,
+  options: Render
+): Array<string> {
+  if (!mediaNameOf) return [];
+  const descriptions = options.descriptions instanceof Map ? new Map<string, string>(options.descriptions) : null;
+  const messages = kept.map((item): unknown => byId.get(idText(item.id)));
+  const legend = legendBlock(messages, mediaNameOf, options.labels, descriptions);
+  return legend ? [legend] : [];
+}
+
 export function chatText(
   slice: ReadonlyArray<ReadMessage>,
   {
@@ -386,7 +405,7 @@ export function chatText(
     labels: unknown;
     placeId: string;
     channelName?: string;
-    render: Obj | ((slice: ReadonlyArray<ReadMessage>) => Obj);
+    render: Render | ((slice: ReadonlyArray<ReadMessage>) => Render);
     maxChars?: number;
     refs?: HandleRefs | null;
     earlier?: boolean;
@@ -405,9 +424,11 @@ export function chatText(
   }
   const offset = refs ? refs.next() - 1 : 0;
   const options = typeof render === 'function' ? render(slice) : render;
+  // The legend stands before the kept items, so the transcript itself renders none: a cut could drop its first item.
+  const { mediaNameOf, ...shownOptions } = options;
   const items = formatTranscript(
     slice as Array<ReadMessage>,
-    { ...options, indexOffset: offset } as Parameters<typeof formatTranscript>[1]
+    { ...shownOptions, indexOffset: offset } as Parameters<typeof formatTranscript>[1]
   );
   const byId = new Map(slice.map((message) => [idText(message.id), message]));
   // The room: whole items, from the far end of the span (the newest are kept for a read of the newest lines).
@@ -428,6 +449,7 @@ export function chatText(
   const dropped = items.length - kept.length;
   if (refs && l.handles) lines.push(l.handles);
   lines.push(...openingDate(openDate, items, kept, options));
+  lines.push(...keptLegend(kept, byId, mediaNameOf, options));
   lines.push(...kept.map((item) => item.text));
   if (dropped > 0 && l.cut) lines.push(fill(l.cut, { dropped: String(dropped) }));
   const first = kept[0]?.index;
@@ -702,7 +724,7 @@ export async function runConversationRead({
         minTs: number;
       }) => Promise<LiveLines>)
     | null;
-  render: Obj | ((slice: ReadonlyArray<ReadMessage>) => Obj);
+  render: Render | ((slice: ReadonlyArray<ReadMessage>) => Render);
   refs?: HandleRefs | null;
   now?: number;
   timezone?: string;

@@ -6,7 +6,7 @@
 
 A line whose kind starts with `archived` (`archived episode`, `archived interest`, `archived participation` and so on) is an item that left {{name}}'s active memory and was kept in the archive; the date is when the thing was originally observed. Archived items are genuine observations, less current than the other kinds.
 
-<found> holds numbered stretches of old chat, newest first. Each stretch has a header with its number, the date and the place; lines that matched the search are marked. A header may end with [your lines] when {{name}} took part in that stretch, [current conversation] when the stretch overlaps with what is being said right now, or both. A picture, drawing or GIF may carry a caption. These count as evidence: what happened is often in a picture.
+<found> holds numbered stretches of old chat, newest first. Each stretch has a header with its number, the date and the place; lines that matched the search are marked. A header may end with [your lines] when {{name}} took part in that stretch, [current conversation] when the stretch overlaps with what is being said right now, or both. A picture, drawing or GIF may carry a caption. These count as evidence: what happened is often in a picture. <interface>, when present before the lines, lists each custom emoji and sticker the lines name by a short code, with its name and a description of the picture.
 
 A section headed `## n | date | #place | source: record` was read from {{name}}'s own record of recent weeks, not found by the search. These are real chat lines, as trustworthy as any other stretch, and often newer than both the search results and the memory lines. They can be named as a stretch.
 

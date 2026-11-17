@@ -52,7 +52,7 @@ import { accountProfileValue } from './account-profile.ts';
 import { accountCollection } from './unit-keys.ts';
 import { SELF_PERSON, shortHash } from './ids.ts';
 import { storedMediaTags } from '../../format.ts';
-import { legendLabelsOf, messagesLegend } from '../../turn/request/legend.ts';
+import { legendBlock } from '../../turn/request/legend.ts';
 import { mediaNameRows } from './media-names.ts';
 import type { MediaNameRow } from './media-names.ts';
 import { LINE_HOLDS_TOLD_MEDIA, lineMedia, mediaMessageParts } from './media-store.ts';
@@ -666,9 +666,8 @@ export function buildSessionRequest({
     );
   }
   const names = new Map(mediaNameRows(db).map((row): [string, MediaNameRow] => [row.name, row]));
-  const legend = messagesLegend(shownMessages, (name) => names.get(name) ?? null, legendLabelsOf(labels));
-  const legendBlock = legend ? [`<interface>\n${legend}\n</interface>`] : [];
-  const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...legendBlock, ...rendered].join('\n');
+  const legend = legendBlock(shownMessages, (name) => names.get(name) ?? null, labels);
+  const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...(legend ? [legend] : []), ...rendered].join('\n');
 
   // <retrieved>
   let shownRetrieved: Array<string> = [];

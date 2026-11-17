@@ -1,5 +1,6 @@
 // The types of the signatures in ./recall.ts: the inputs and results that are too long to read inline.
 
+import type { MediaName } from '../memory/store-media-names.ts';
 import type { Untyped } from '../tools/types.ts';
 
 export type LocatorKeepArg2<TItem> = {
@@ -256,6 +257,8 @@ export type ScanArchiveArg2 = {
  * no memory line fits.
  */
 export type BuildRecallRequestInput = {
+  /** The store's read of a stable name: the found lines and the context open with their legend `<interface>`. */
+  mediaNameOf?: (name: string) => MediaName | null;
   prompt: string | null | undefined;
   selfName: string;
   question: { authorName?: string; content?: string };

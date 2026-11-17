@@ -56,7 +56,7 @@ export function userText(content: unknown): string {
  */
 export function classifierTranscript(
   messages: Array<Record<string, Untyped>>,
-  { config, selfName, labels, descriptions, videos, reads }: ClassifierTranscriptArg2
+  { config, selfName, labels, descriptions, videos, reads, mediaNameOf }: ClassifierTranscriptArg2
 ): string {
   const items = formatTranscript(messages, {
     timezone: config.bot?.timezone,
@@ -67,6 +67,7 @@ export function classifierTranscript(
     descriptions: descriptions as Map<string, string> | undefined,
     videos: videos as Map<string, VideoState> | undefined,
     reads: reads as Map<string, string> | undefined,
+    ...(mediaNameOf ? { mediaNameOf } : {}),
   });
   return renderTranscript(items, config.bot?.timezone, labels);
 }

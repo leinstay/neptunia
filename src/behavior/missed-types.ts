@@ -1,5 +1,6 @@
 // The types of the signatures in ./missed.ts: the inputs and results that are too long to read inline.
 
+import type { MediaName } from '../memory/store-media-names.ts';
 import type { KeepLines } from '../pipeline/keep-lines.ts';
 import type * as nodeFs from 'node:fs/promises';
 import type { MemoryDbService } from '../memory/db/service.ts';
@@ -55,11 +56,13 @@ export type BuildCheckRequestInput = {
   candidates: Array<Untyped>;
   triggerOf?: (id: string) => string | null;
   now: number;
+  /** The store's read of a stable name, for the legend of the transcript. */
+  mediaNameOf?: (name: string) => MediaName | null;
 };
 
 export type CreateMissedInput = {
   hot: { config: Untyped; prompts: Untyped };
-  store: { state: { data: Untyped } };
+  store: { state: { data: Untyped }; mediaNameOf?: (name: string) => MediaName | null };
   journal?: Untyped;
   llm?: { complete: (...args: Array<Untyped>) => Untyped } | null;
   turns: Untyped;

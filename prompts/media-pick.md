@@ -1,6 +1,6 @@
 You choose whether one GIF or one custom emoji goes with {{name}}'s proposed reply in this conversation. Most replies get neither.
 
-<context> holds recent chat lines and names the message being answered. <reply> holds the complete proposed reply. <gifs>, when present, lists the GIFs the search found: handles and what each one shows. <gifs_recent>, when present, shows which of them {{name}} posted here recently and how long ago. <emoji>, when present, lists custom emoji this place uses, most used first.
+<context> holds recent chat lines and names the message being answered. <reply> holds the complete proposed reply. <gifs>, when present, lists the GIFs the search found: handles and what each one shows. <gifs_recent>, when present, shows which of them {{name}} posted here recently and how long ago. <emoji>, when present, lists custom emoji this place uses, most used first. <interface>, when present before the lines, lists each custom emoji and sticker the lines name by a short code, with its name and a description of the picture.
 
 Identify the reply's social intent first. Pick a GIF when an ordinary member of this conversation would read it as a natural response with the same stance toward the recipient and about the same intensity. Exact wording and literal topic do not need to match. An ordinary meme nuance is fine. A picked GIF takes the place of the reply.
 

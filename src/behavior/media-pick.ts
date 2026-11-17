@@ -6,6 +6,7 @@
 // This module holds its settings, its candidate search over the library (src/memory/gifs.ts), the emoji rails per place,
 // its one request and the reading of its JSON answer. Every failure is `none`.
 
+import type { MediaName } from '../memory/store-media-names.ts';
 import { isPlainObject } from '../config.ts';
 import { fill, formatDuration, replyMarker } from '../format.ts';
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
@@ -291,6 +292,7 @@ type PickStore = {
   getGifVectors?: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
   getEmojiRails?: (placeId: string) => unknown;
   setEmojiRails?: (placeId: string, state: EmojiRails) => unknown;
+  mediaNameOf?: (name: string) => MediaName | null;
 };
 
 /** The describer's cache of the emoji's captions, when the turn has it. */
@@ -398,7 +400,12 @@ export function createMediaPick({
     const answered = context.answeredIndex === null ? null : context.messages[context.answeredIndex - 1];
     const body =
       context.messages.length > 0
-        ? classifierTranscript(context.messages, { config: hot.config, selfName, labels })
+        ? classifierTranscript(context.messages, {
+            config: hot.config,
+            selfName,
+            labels,
+            ...(store.mediaNameOf ? { mediaNameOf: store.mediaNameOf } : {}),
+          })
         : '';
     // The reply is marked as a transcript line replying to that line would be: its #n, author and a quote.
     const mark =

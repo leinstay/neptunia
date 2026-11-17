@@ -12,6 +12,8 @@
 // Time gaps and date changes are spelled out because the model must tell a
 // live chat from a dead chat that somebody has just poked.
 
+import { legendBlock } from './turn/request/legend.ts';
+import type { MediaName } from './memory/store-media-names.ts';
 import { reasonText } from './tools/codes.ts';
 import { objOf } from './tools/types.ts';
 import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.ts';
@@ -772,6 +774,11 @@ export type TranscriptOptions = {
   messageNumbers?: boolean;
   lineNumbers?: boolean;
   skip?: (message: Untyped) => boolean;
+  /**
+   * The store's read of a stable name (src/memory/store-media-names.ts): a transcript read outside the request's own
+   * window opens with the legend `<interface>` of its custom emoji and stickers (src/turn/request/legend.ts).
+   */
+  mediaNameOf?: (name: string) => MediaName | null;
 };
 
 /** The media of a transcript the caller already holds: the part of the options `mediaTags` and `replyMarker` read. */
@@ -951,6 +958,9 @@ function contentWithHandles(
  *   item, and a gap marker is measured from the last line that does render: the request builder
  *   shows such lines in another block (src/behavior/prompt.ts, the anchored window). Omitted:
  *   every message renders.
+ * @param [options.mediaNameOf]  The store's read of a stable name. With it, the first item opens with the legend
+ *   `<interface>` of the custom emoji and stickers of the items' messages, before any marker. The request's own `<chat>`
+ *   passes none: its legend is the root block of the request.
  * @throws {RangeError} when `indexOffset` is given but is not an integer of at least 0.
  *
  * In `mode: 'memory'`, messages come from possibly several channels (see
@@ -1158,7 +1168,25 @@ export function formatTranscript(
     previousChannelId = message.placeId;
   }
 
-  return items;
+  return withLegend(items, messages, options);
+}
+
+/** `items` with the legend `<interface>` of their messages' custom emoji and stickers before the first one. */
+function withLegend(
+  items: Array<{ id: string; index: number; ts: number; text: string }>,
+  messages: Array<Record<string, Untyped>>,
+  { mediaNameOf, labels, descriptions }: TranscriptOptions
+): Array<{ id: string; index: number; ts: number; text: string }> {
+  if (!mediaNameOf) return items;
+  const shown = new Set(items.map((item) => item.id));
+  const legend = legendBlock(
+    messages.filter((message) => shown.has(message.id)),
+    mediaNameOf,
+    labels,
+    descriptions ?? null
+  );
+  if (!legend || items.length === 0) return items;
+  return [{ ...items[0], text: `${legend}\n${items[0].text}` }, ...items.slice(1)];
 }
 
 /**

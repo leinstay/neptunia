@@ -214,6 +214,7 @@ const handlers = perEnv((env) => {
         selfName,
         labels,
         seeReactions: true,
+        mediaNameOf: env.mediaNameOf,
       }),
       now: now(),
       timezone,

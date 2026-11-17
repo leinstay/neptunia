@@ -493,6 +493,9 @@ export function createRecall({
   mediaNameOf = () => null,
 }: CreateRecallInput): CreateRecallResult {
   const buildSummary = createSummaryBuilder({ hot, llm, now });
+  /** The summary's request, its lines with the legend of their custom emoji and stickers. */
+  const recallRequest = (input: Parameters<typeof buildRecallRequest>[0]) =>
+    buildRecallRequest({ mediaNameOf, ...input });
 
   /** One search of the database: on the reader thread, or synchronously over a memory that offers only `database()`. */
   function searchDb(db: Untyped, input: Untyped, signal: AbortSignal): Promise<Untyped> {
@@ -1693,7 +1696,7 @@ export function createRecall({
     // Stored memory alone is enough to ask the summary.
     const messages =
       windows.length > 0 || memory.items.length > 0
-        ? buildRecallRequest({
+        ? recallRequest({
             prompt,
             question: candidate ?? {},
             people,

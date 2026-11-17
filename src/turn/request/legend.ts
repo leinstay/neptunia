@@ -107,19 +107,21 @@ export function legendLabelsOf(labels: unknown): LegendLabels {
 
 /**
  * The legend of a text of normalized messages read outside the request's own window (a recall stretch, a window read,
- * a prefetch excerpt, the memory session's batch): each custom emoji and sticker of `messages` and their forwarded
- * parts once, with the text form the stored line carries. '' for none.
+ * a prefetch excerpt, the memory session's batch, a transcript of src/format.ts#formatTranscript): each custom emoji and
+ * sticker of `messages` and their forwarded parts once, with the text form the line carries or else the caption of
+ * `descriptions` by `emoji:<id>` and `sticker:<id>`. '' for none.
  */
 export function messagesLegend(
   messages: ReadonlyArray<unknown>,
   nameOf: (name: string) => MediaName | null,
-  labels: LegendLabels
+  labels: LegendLabels,
+  descriptions: ReadonlyMap<string, string> | null = null
 ): string {
   const parts = messages.flatMap((message) => {
     const one = looseOf(message);
     return one ? [one, ...listOf(one.forwarded)] : [];
   });
-  const told = new Map<string, string>();
+  const told = new Map<string, string>(descriptions ?? []);
   for (const part of parts)
     for (const emoji of listOf(part.emojis)) {
       const text = toldOf(emoji);
@@ -129,11 +131,23 @@ export function messagesLegend(
   const stickers = parts.flatMap((part) =>
     listOf(part.stickers).flatMap((sticker): Array<SeenSticker> => {
       const name = textOf(sticker.name);
-      return name ? [{ name, text: toldOf(sticker), readable: Boolean(sticker.url) }] : [];
+      const text = toldOf(sticker) ?? descriptions?.get(`sticker:${String(sticker.id)}`) ?? null;
+      return name ? [{ name, text, readable: Boolean(sticker.url) }] : [];
     })
   );
   return legendText(
     legendItems(texts, stickers, nameOf, (key) => told.get(key) ?? null),
     labels
   );
+}
+
+/** The legend of `messages` as the root block `<interface>` that stands before their lines, or '' for none. */
+export function legendBlock(
+  messages: ReadonlyArray<unknown>,
+  nameOf: (name: string) => MediaName | null,
+  labels: unknown,
+  descriptions: ReadonlyMap<string, string> | null = null
+): string {
+  const legend = messagesLegend(messages, nameOf, legendLabelsOf(labels), descriptions);
+  return legend ? `<interface>\n${legend}\n</interface>` : '';
 }

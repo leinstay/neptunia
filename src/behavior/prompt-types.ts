@@ -1,5 +1,6 @@
 // The types of the signatures in ./prompt.ts: the inputs and results that are too long to read inline.
 
+import type { MediaName } from '../memory/store-media-names.ts';
 import type { Frame } from '../turn/request/frame.ts';
 import type { Mind } from '../memory/db/mind-read.ts';
 import type { Lookup as RingLookup, SearchRef } from '../turn/calls.ts';
@@ -22,6 +23,8 @@ export type ClassifierTranscriptArg2 = {
   descriptions?: Map<string, unknown>;
   videos?: Map<string, unknown>;
   reads?: Map<string, unknown>;
+  /** The store's read of a stable name: the transcript opens with the legend of its custom emoji and stickers. */
+  mediaNameOf?: (name: string) => MediaName | null;
 };
 
 export type BuildDrawPromptInput = {
