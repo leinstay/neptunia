@@ -178,8 +178,7 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  embedding: openai/text-embedding-x -> llm.provider (ignore some-provider, fallbacks: on)',
     `  speech: ${ROLE_DEFAULTS.speech} -> llm.provider (ignore some-provider, fallbacks: on)`,
     '  drawing: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
-    `  scout: ${ROLE_DEFAULTS.scout} -> OpenCode's own routing (llm.providerByModel not read)`,
-    `  server: ${ROLE_DEFAULTS.server} -> OpenCode's own routing (llm.providerByModel not read)`,
-    // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
+    // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16), and the errand agents
+    // with `models.errands` (owner, 2026-11-17): their routes are the subharness's, which route.list does not show.
   ]);
 });

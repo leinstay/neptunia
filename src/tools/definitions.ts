@@ -326,7 +326,7 @@ const ENTRIES: Array<Definition> = [
     traits: ['ungrantable'],
     params: obj(
       {
-        role: oneOf(['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing', 'scout', 'server']),
+        role: oneOf(['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing']),
         id: str(),
       },
       ['role', 'id']

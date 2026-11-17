@@ -5,9 +5,10 @@
 // the keys, costs, memory and speed fields. Every field lists one item per line; the state field ends
 // with the gateway and the uptime. The card keeps two groups, matching the model config: the base
 // (`models.base`, `keys.base`, `costs.base`: her `core` and the other model roles) and the errands (`models.errands`,
-// `costs.errands`: the delegated agents). The models sit in two fields, one line per role, `<role> · <model> ...`:
-// `models.base` (core, memory, then the model roles analyzer, vision, video, embedding, speech, then drawing) and
-// `models.errands` (scout, server), which an OpenCode worker runs, so they are never probed. The owner's card probes on every call: one minimal chat completion per
+// `costs.errands`: the delegated agents). The models sit in two fields, one line per role or agent: `models.base`
+// (core, memory, then the model roles analyzer, vision, video, embedding, speech, then drawing), `<role> · <model> ...`,
+// and `models.errands` (scout, server), `<agent> · <harness> · <model>`, each agent's route
+// (src/subharness/routing.ts), which its own harness runs, so it is never probed. The owner's card probes on every call: one minimal chat completion per
 // distinct chat model and route (`labels.status.probe`, `llm.probeTimeoutMs`, never counted
 // against `llm.maxRequestsPerDay` nor calibrated, `origin: 'status'`), one one-input embedding
 // request for the embedding role, and one free GET of the drawing model's provider listing; a
@@ -32,13 +33,14 @@ import { ARCHIVE_EVENTS } from '../../memory/index.ts';
 import { clampChars, oneLine } from '../../memory/clamp.ts';
 import { isOwnerCaller } from './grants.ts';
 import { MODEL_ROLES, STATUS_FIELDS } from './catalog.ts';
-import { CORE_ROLE, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
+import { CORE_ROLE, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
+import { agentRouteOf, SUBHARNESS_AGENTS } from '../../subharness/routing.ts';
+import { routeName } from '../../subharness/route-names.ts';
 import { EMBED_ROLE } from '../../llm/embed.ts';
 import { missedCounts, missedStatusLine } from '../../behavior/missed.ts';
 import { SPEED_METRICS } from './metrics.ts';
 import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccount, readActivity } from './usage.ts';
 import { withKeyLines } from './key-lines.ts';
-import { PROFILES } from '../../agent-runner/profiles.ts';
 import { fill } from '../../format.ts';
 import { log } from '../../log.ts';
 import { modelForRole } from './shared.ts';
@@ -56,12 +58,9 @@ export { STATUS_FIELDS };
 /** The fields a member's card leaves out. */
 const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.errands', 'inner', 'memory', 'speed']);
 
-/** The model roles of the errand agents (src/agent-runner/profiles.ts) and `drawing`, which shares
- * their key: a key only they use is the errands' key, which `keys.base` leaves out. */
-const ERRAND_KEY_ROLES = new Set([
-  ...(Object.values(PROFILES) as Array<Untyped>).map((profile) => profile.modelRole as string),
-  'drawing',
-]);
+/** The errand agents and `drawing`, which shares their key: a key only they use is the errands' key, which
+ * `keys.base` leaves out. */
+const ERRAND_KEY_ROLES = new Set<string>([...SUBHARNESS_AGENTS, 'drawing']);
 
 /**
  * The `models.base` field's groups before drawing, in order: one line per role, then the
@@ -160,14 +159,16 @@ function roleHead(role: string, model: string): string {
   return `${role} · ${model}`;
 }
 
-/** An OpenCode agent role's line: its model (an OpenCode worker runs it, so it is never probed). */
-function agentLine(role: string, cfg: Untyped): string {
-  return roleHead(role, roleModel(cfg, role) ?? 'no model configured');
+/** An errand agent's line: the harness and model of its route (its harness runs it, so it is never probed). */
+function agentLine(agent: string, cfg: Untyped): string {
+  const route = agentRouteOf(cfg, agent);
+  if (route === null) return roleHead(agent, 'no model configured');
+  return roleHead(agent, `${routeName(route.backend)} · ${route.model ?? 'default'}`);
 }
 
-/** The `models.errands` field: each role's `agentLine`. */
-function agentModels(cfg: Untyped, roles: ReadonlyArray<string>): string {
-  return roles.map((role) => agentLine(role, cfg)).join('\n');
+/** The `models.errands` field: each agent's `agentLine`. */
+function agentModels(cfg: Untyped): string {
+  return SUBHARNESS_AGENTS.map((agent) => agentLine(agent, cfg)).join('\n');
 }
 
 /** The `models.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
@@ -653,8 +654,8 @@ const handlers = perEnv((env) => {
    * no figures shows no runs. `-` when the labels give no line. */
   function errandCostsValue(): string {
     const tasks = typeof errands?.store === 'function' ? errands.store() : null;
-    const totals = typeof tasks?.costs === 'function' ? tasks.costs(ERRAND_ROLES) : {};
-    const lines = agentCostsLines({ agents: ERRAND_ROLES, totals, labels: hot.prompts?.labels });
+    const totals = typeof tasks?.costs === 'function' ? tasks.costs(SUBHARNESS_AGENTS) : {};
+    const lines = agentCostsLines({ agents: SUBHARNESS_AGENTS, totals, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
@@ -919,7 +920,7 @@ const handlers = perEnv((env) => {
         owner && probe && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg),
       'keys.base': () => keyCostsValue(cfg),
       'costs.base': () => roleCostsValue(),
-      'models.errands': () => agentModels(cfg, ERRAND_ROLES),
+      'models.errands': () => agentModels(cfg),
       'costs.errands': () => errandCostsValue(),
       inner: () => innerValue(),
       limits: () => limitsValue(cfg, data),

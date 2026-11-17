@@ -26,20 +26,6 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
       'What each model can do, keyed by model id: a list of `text`, `imagesIn`, `imagesOut`, `videoIn`, `audioOut` and `embeddings`. A model without an entry has `text` only',
   },
   {
-    'key': 'models.errands.scout',
-    'types': ['string'],
-    'reader': 'src/tools/operations/status.ts',
-    'default': 'openrouter/openai/gpt-6.1-sol',
-    'text': 'OpenCode model id of the scout errand agent',
-  },
-  {
-    'key': 'models.errands.server',
-    'types': ['string'],
-    'reader': 'src/tools/operations/status.ts',
-    'default': 'openrouter/openai/gpt-6.1-sol',
-    'text': 'OpenCode model id of the server errand agent',
-  },
-  {
     'key': 'models.agents.via',
     'types': ['map'],
     'reader': 'src/subharness/routing.ts',

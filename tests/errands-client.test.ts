@@ -4,9 +4,9 @@
 // and ping go out as lines, a dropped connection fails its tasks with `disconnected` and is
 // reopened, a profile that is not set up answers `not-configured` without connecting, and each
 // outcome of the connect loop reaches the `onLink` listeners. The deployment's preamble goes out
-// on a run's line only when non-empty, read at each run: the files of prompts.local/preambles/ are
-// picked by agent and by the agent's role model; prompts.local/agents.md
-// (`hot.prompts.agents`) is never read as one. A run carries the live role model and the live
+// on a run's line only when non-empty, read at each run: the files of data/prompts/preambles/ are
+// picked by agent and by the model of the run's route; data/prompts/agents.md
+// (`hot.prompts.agents`) is never read as one. A run carries the live
 // `agents.<profile>.cost` (when usable), since the runners cannot read the private config.
 import { consumers, consumerRig } from './fixtures/agent-consumers.ts';
 import { test } from 'node:test';
@@ -18,7 +18,6 @@ import path from 'node:path';
 import { createErrandClient } from '../src/errands/client.ts';
 import { encodeLine } from '../src/agent-runner/protocol.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
-import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { TaskRoute } from '../src/agent-runner/protocol.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -124,13 +123,13 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
         limits: { steps: 3, seconds: 30 },
       });
       const request = await runner.next((r: Untyped) => r.op === 'run');
+      // Changed: the run line carries no `model`: the runner takes the model from the route (owner, 2026-11-17).
       assert.deepEqual(request, {
         op: 'run',
         id: 'task-1',
         goal: 'find a meme',
         context: { scope: 'group' },
         limits: { steps: 3, seconds: 30 },
-        model: ROLE_DEFAULTS.scout,
       });
       runner.reply({ id: 'task-1', event: 'progress', step: 1, tool: 'search', note: 'looking' });
       runner.reply({
@@ -224,22 +223,26 @@ test("errands client: the preamble goes out on a run's line only when non-empty,
   }
 });
 
-test('errands client: the preamble is composed from prompts.local/preambles/ by agent and the role model, logged by file names only', async () => {
+// Changed: the preamble's model is the model of the run's route, and the run line carries no `model` (owner,
+// 2026-11-17): `models.errands` is gone.
+test("errands client: the preamble is composed by agent and the route's model, logged by file names only", async () => {
+  // Catches: the client picks the model files by another model than the one the run uses, so the agent gets the
+  // instructions written for a different model.
   const sock = socketPath();
   const runner = await fakeRunner(sock);
   const hot = hotFor(sock);
-  loose(hot.config).models = { errands: { scout: 'openrouter/moonshotai/kimi-k3' } };
   loose(hot).prompts = {
     preambles: {
       all: 'ALL-TEXT',
       scout: 'SCOUT-TEXT',
-      '@moonshotai-kimi-k3': 'KIMI-TEXT',
-      'scout@openrouter-openai-gpt-6-sol': 'SCOUT-SOL-TEXT',
+      '@claude-sonnet-4.6': 'SONNET-TEXT',
+      'scout@gpt-6-sol': 'SCOUT-SOL-TEXT',
     },
   };
   const client = createErrandClient({ hot });
-  const runOnce = async (id: string, extra = {}) => {
-    const running = client.run({ agent: 'scout', id, goal: 'look', ...extra });
+  const routeOn = (model: string | null): TaskRoute => ({ backend: 'opencode', model, effort: null, mode: 'read' });
+  const runOnce = async (id: string, route?: TaskRoute) => {
+    const running = client.run({ agent: 'scout', id, goal: 'look', ...(route === undefined ? {} : { route }) });
     const request = await runner.next((r: Untyped) => r.op === 'run' && r.id === id);
     runner.reply({ id, event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
     await running;
@@ -247,75 +250,58 @@ test('errands client: the preamble is composed from prompts.local/preambles/ by 
   };
   try {
     const { logs } = await withCapturedLogs(async () => {
-      const onRole = await runOnce('task-role');
-      assert.equal(
-        loose(onRole).preamble,
-        'ALL-TEXT\n\nSCOUT-TEXT\n\nKIMI-TEXT',
-        'the role model picks the model file'
-      );
-      assert.equal(
-        loose(onRole).model,
-        'openrouter/moonshotai/kimi-k3',
-        'the live role model is sent: the runner cannot read the private config'
-      );
-      assert.equal(Object.hasOwn(onRole, 'cost'), false, 'no cost is sent when the live config has none');
+      const onSonnet = await runOnce('task-sonnet', routeOn('openrouter/anthropic/claude-sonnet-4.6'));
+      assert.equal(loose(onSonnet).preamble, 'ALL-TEXT\n\nSCOUT-TEXT\n\nSONNET-TEXT', "the route's model file");
+      assert.equal(Object.hasOwn(onSonnet, 'model'), false, 'the route carries the model, the line no second one');
+      assert.equal(Object.hasOwn(onSonnet, 'cost'), false, 'no cost is sent when the live config has none');
 
-      loose(hot.config).models = { errands: { scout: 'openrouter/openai/gpt-6-sol' } };
       loose(hot.config.agents.scout).cost = { input: 2, output: 6 };
       loose(hot).prompts = { ...loose(hot).prompts, preambles: { ...loose(hot).prompts.preambles, all: '' } };
-      const live = await runOnce('task-live');
+      const live = await runOnce('task-live', routeOn('openrouter/openai/gpt-6-sol'));
       assert.equal(
         loose(live).preamble,
         'SCOUT-TEXT\n\nSCOUT-SOL-TEXT',
-        'role and files read at each run; an emptied all.md sends nothing'
+        'model and files read at each run; an emptied all.md sends nothing'
       );
-      assert.equal(loose(live).model, 'openrouter/openai/gpt-6-sol', 'the role model is read at each run');
       assert.deepEqual(loose(live).cost, { input: 2, output: 6 }, 'the live price is sent');
 
       loose(hot.config.agents.scout).cost = { input: 2, output: Number.NaN };
-      const unusable = await runOnce('task-bad-cost');
+      const unusable = await runOnce('task-bad-cost', routeOn('openrouter/openai/gpt-6-sol'));
       assert.equal(Object.hasOwn(unusable, 'cost'), false, 'a price without finite input and output is not sent');
-      assert.equal(loose(unusable).model, 'openrouter/openai/gpt-6-sol');
+
+      const noModel = await runOnce('task-no-model', routeOn(null));
+      assert.equal(loose(noModel).preamble, 'SCOUT-TEXT', 'a route with no model reads no model file');
+      const noRoute = await runOnce('task-no-route');
+      assert.equal(loose(noRoute).preamble, 'SCOUT-TEXT', 'no route reads no model file');
     });
     const sent = logs.filter((entry) => entry.msg === 'errands: sent');
     assert.deepEqual(
       sent.map((entry) => entry.preambleFiles),
       [
-        ['preambles/all.md', 'preambles/scout.md', 'preambles/@moonshotai-kimi-k3.md'],
-        ['preambles/scout.md', 'preambles/scout@openrouter-openai-gpt-6-sol.md'],
-        ['preambles/scout.md', 'preambles/scout@openrouter-openai-gpt-6-sol.md'],
+        ['preambles/all.md', 'preambles/scout.md', 'preambles/@claude-sonnet-4.6.md'],
+        ['preambles/scout.md', 'preambles/scout@gpt-6-sol.md'],
+        ['preambles/scout.md', 'preambles/scout@gpt-6-sol.md'],
+        ['preambles/scout.md'],
+        ['preambles/scout.md'],
       ]
     );
     assert.deepEqual(
       sent.map((entry) => entry.model),
-      ['openrouter/moonshotai/kimi-k3', 'openrouter/openai/gpt-6-sol', 'openrouter/openai/gpt-6-sol'],
-      'the model id is logged'
+      [
+        'openrouter/anthropic/claude-sonnet-4.6',
+        'openrouter/openai/gpt-6-sol',
+        'openrouter/openai/gpt-6-sol',
+        null,
+        null,
+      ],
+      "the route's model id is logged"
     );
     assert.ok(
       sent.every((entry) => !Object.hasOwn(entry, 'cost')),
       'the cost is not logged'
     );
-    assert.equal(sent[0].preambleChars, 'ALL-TEXT\n\nSCOUT-TEXT\n\nKIMI-TEXT'.length);
+    assert.equal(sent[0].preambleChars, 'ALL-TEXT\n\nSCOUT-TEXT\n\nSONNET-TEXT'.length);
     assert.ok(!/-TEXT/.test(JSON.stringify(logs)), 'no preamble text in a log line');
-  } finally {
-    client.close();
-    await runner.close();
-  }
-});
-
-test('errands client: without a role in the live config the run carries the engine default model and no cost', async () => {
-  const sock = socketPath();
-  const runner = await fakeRunner(sock);
-  const client = createErrandClient({ hot: hotFor(sock) });
-  try {
-    await withCapturedLogs(async () => {
-      const running = client.run({ agent: 'scout', id: 'task-bare', goal: 'look' });
-      const request = await runner.next((r: Untyped) => r.op === 'run' && r.id === 'task-bare');
-      assert.equal(loose(request).model, ROLE_DEFAULTS.scout, 'the role resolves to its engine default');
-      assert.equal(Object.hasOwn(request, 'cost'), false, 'no cost without agents.scout.cost');
-      runner.reply({ id: 'task-bare', event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
-      await running;
-    });
   } finally {
     client.close();
     await runner.close();
@@ -496,7 +482,7 @@ test('a reconnect timer contains an invalid personal edit without reconnecting o
 });
 
 // The preamble the errand client (src/errands/client.ts) sends on a `run` line: every matching file of
-// prompts.local/preambles/, whole, however long the composed text is. No cap, no dropped file, no cap warning.
+// data/prompts/preambles/, whole, however long the composed text is. No cap, no dropped file, no cap warning.
 
 /** A runner socket that hands over the first request line and answers it with a finished task. */
 async function oneShotRunner(sock: string) {
@@ -541,14 +527,15 @@ test('errands client: a composed preamble of 110000 characters goes out whole on
   const hot = {
     config: {
       agents: { scout: { enabled: true, socket: sock } },
-      models: { errands: { scout: 'openrouter/vendor/model' } },
     },
-    prompts: { preambles: { all, scout, '@vendor-model': 'MODEL' } },
+    prompts: { preambles: { all, scout, '@model': 'MODEL' } },
   };
   const client = createErrandClient({ hot });
   try {
     const { logs } = await withCapturedLogs(async () => {
-      const outcome = await client.run({ agent: 'scout', id: 'task-long', goal: 'look' });
+      // Changed: the model file is picked by the route's model, `models.errands` is gone (owner, 2026-11-17).
+      const route: TaskRoute = { backend: 'opencode', model: 'openrouter/vendor/model', effort: null, mode: 'read' };
+      const outcome = await client.run({ agent: 'scout', id: 'task-long', goal: 'look', route });
       assert.equal(outcome.status, 'done');
     });
     const sent = String((await runner.firstRequest).preamble);

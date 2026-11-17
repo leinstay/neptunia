@@ -56,8 +56,6 @@ async function runOnce(profileProvider: string | null, extra: Record<string, unk
     name: 'scout',
     agentId: 'errand-scout',
     promptFiles: [prompt],
-    modelRole: 'scout',
-    defaultModel: 'x',
     defaultLimits: { steps: 5, seconds: 30 },
     defaultSearchProvider: profileProvider,
     sandbox: 'read-only',

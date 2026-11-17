@@ -125,6 +125,17 @@ export function readRouting(privateDir: string): Routing {
 }
 
 /**
+ * The backend and model `agent` runs on as the settings tree `config` holds them, for a line the owner reads: null
+ * while the agent has no backend, a null model while it runs on the backend's own default.
+ */
+export function agentRouteOf(config: unknown, agent: string): { backend: BackendName; model: string | null } | null {
+  const { uses, models } = routingOf(treeOf(config)).subharness;
+  const backend = Object.hasOwn(uses, agent) ? uses[agent] : undefined;
+  if (backend === undefined) return null;
+  return { backend, model: Object.hasOwn(models, agent) ? (models[agent] ?? null) : null };
+}
+
+/**
  * The named key opencode runs on (`models.agents.opencodeKey`) with its value from keys.json, or null while it names
  * none or a key that left the store.
  */

@@ -509,6 +509,27 @@ test('createHot: a config that still sets memory.voiceModel warns once at startu
   }
 });
 
+test('createHot: a config that still sets models.errands warns once, naming the key and never its value', async () => {
+  // Catches: the agents' old model setting stays in a live config unread and unreported, so the owner believes it
+  // still picks the agent's model.
+  const dir = makeRoot(wrongly({ config: { models: { errands: { scout: 'x/old-agent-model' } } } }));
+  const retired = (logs: Record<string, Untyped>) =>
+    logs.filter((entry: Record<string, Untyped>) => entry.msg === 'config: models.errands is no longer read');
+  let hot = wrongly<Hot>(undefined);
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+      hot.reloadConfig();
+    });
+    assert.equal(retired(started.logs).length, 1);
+    assert.equal(retired(started.logs)[0].use, 'models.agents.model');
+    assert.ok(!JSON.stringify(started.logs).includes('x/old-agent-model'), 'the key, never its value');
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createHot: a data/config/config.json is read key by key: an old model key is not read, a reload keeps the previous config on bad JSON', async () => {
   const dir = makeRoot(wrongly({ config: { models: { routes: chainsOf({ analyzer: 'x/default' }) } } }));
   fs.mkdirSync(path.join(dir, 'data', 'config'), { recursive: true });

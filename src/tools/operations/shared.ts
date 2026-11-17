@@ -484,15 +484,14 @@ export function writeLocalConfig(localPath: string, value: unknown): void {
 
 export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
 
-/** Every role a route may name: the chat and embedding roles, then the drawing model's; never an
- * OpenCode role (src/llm/roles.ts#OPENCODE_ROLES), whose worker reads no route. */
+/** Every role a route may name: the chat and embedding roles, then the drawing model's. */
 export const ROUTE_ROLES: ReadonlyArray<string> = [...MODEL_ROLES, IMAGE_ROLE];
 
 /** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */
 export const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
 
 /** The model id one role resolves to right now (`model.show`, `route.*`, the status
- * card): `models.<group>.<role>`, else the role's own default
+ * card): the first route of its chain, else the role's own default
  * (src/llm/roles.ts#roleModel; no purpose, so no `models.byPurpose` entry). */
 export function modelForRole(role: string, cfg: object): string | undefined {
   return roleModel(cfg, role);

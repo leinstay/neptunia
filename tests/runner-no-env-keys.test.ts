@@ -75,8 +75,6 @@ async function runOnce(extra: Record<string, unknown>) {
       name: 'scout',
       agentId: 'errand-scout',
       promptFiles: [prompt],
-      modelRole: 'scout',
-      defaultModel: 'x',
       defaultLimits: { steps: 5, seconds: 30 },
       defaultSearchProvider: 'exa',
       sandbox: 'read-only',

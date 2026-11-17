@@ -2,8 +2,9 @@
 // `agents/<id>/profile.json` per agent, beside its tracked prompt
 // (`agents/<id>/prompt.md`). Persona files under `data/agents/<id>/` override shared defaults. A profile describes its
 // kind (`worker`, run under this runner on a socket; `consultation`, a
-// model role tools call directly). The runner loads only workers. Model
-// roles (`scout`, `server`) remain stable. Definitions carry a prompt filename and migration override metadata.
+// model role tools call directly). The runner loads only workers. A profile's `role` is identity that a personal
+// profile may restate and never change; nothing reads its value, as an agent runs on the model of its route
+// (src/subharness/routing.ts). Definitions carry a prompt filename and migration override metadata.
 // Worker definitions also list tools, a shell class, default limits, daily caps, socket and out directory, and
 // environment variable names their run may fall back on (the core sends
 // the keys with each task). It never authorizes anything: the shell classes
@@ -15,7 +16,7 @@
 // OpenCode config for one task (`buildConfig`): one agent definition
 // carrying the prompt and a permission map that starts every
 // tool at deny and allow-lists only what the profile asks for within its
-// class, plus the model and its cost (so OpenCode's local cost estimate is
+// class, plus the model it is given and its cost (so OpenCode's local cost estimate is
 // right). In a filtered scope (`dm`/`group`) the path tools also deny the
 // withheld paths, and the read-only server shell's `bash` denies a
 // content-reading command on one (src/agent-runner/policy.ts), so OpenCode
@@ -53,7 +54,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from './policy.ts';
-import { OPENCODE_ROLES, ROLE_DEFAULTS } from '../llm/roles.ts';
 import { resolvePaths } from '../paths.ts';
 import { errorFields } from '../error-fields.ts';
 import { scalarText } from '../tools/types.ts';
@@ -149,8 +149,6 @@ export type Profile = {
   agentId: string;
   promptFiles: Array<string>;
   envNames: ReadonlyArray<string>;
-  modelRole: string;
-  defaultModel: string;
   tools: ReadonlyArray<string>;
   shell: string;
   childEnv: Readonly<Record<string, string>>;
@@ -899,11 +897,6 @@ function hasKey(table: object, key: unknown): key is string {
   return typeof key === 'string' && Object.hasOwn(table, key);
 }
 
-/** Whether `value` is one of the strings of `list`. */
-function isOneOf(list: ReadonlyArray<string>, value: unknown): value is string {
-  return typeof value === 'string' && list.includes(value);
-}
-
 /** Whether `value` is a plain JSON object. */
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -1014,8 +1007,8 @@ function checkId(agent: string): void {
 function checkDefinitionIdentity(agent: string, raw: Record<string, unknown>): void {
   if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
   checkId(agent);
-  if (!isOneOf(OPENCODE_ROLES, raw.role))
-    throw new AgentProfileError(agent, 'role', `must be one of ${OPENCODE_ROLES.join(', ')}`);
+  if (typeof raw.role !== 'string' || !ID_PATTERN.test(raw.role))
+    throw new AgentProfileError(agent, 'role', 'must be lowercase letters, digits and dashes');
   checkFileName(agent, 'prompt', raw.prompt, raw.kind === 'consultation');
   checkFileName(agent, 'override', raw.override, raw.kind !== 'worker');
   if (typeof raw.description !== 'string' || !raw.description.trim())
@@ -1229,8 +1222,7 @@ export function listAgents(options: AgentPaths = {}): ReadonlyArray<AgentDefinit
  * @param definition a worker's validated profile.json
  */
 function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): Profile {
-  const { id: name, role: modelRole } = definition;
-  const defaultModel = ROLE_DEFAULTS[modelRole];
+  const { id: name } = definition;
   const agentId = `errand-${name}`;
   return {
     name,
@@ -1240,10 +1232,6 @@ function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): P
     agentId,
     promptFiles: promptCandidates(name, paths, definition.prompt ?? 'prompt.md'),
     envNames: definition.env,
-    // The model role (src/llm/roles.ts) whose model the agent runs on: `models.<group>.<modelRole>`,
-    // else its default, which is `defaultModel`.
-    modelRole,
-    defaultModel,
     // The tools the profile asks for and its shell class (SHELL_CLASSES): what buildConfig grants.
     tools: definition.tools,
     shell: definition.shell,
@@ -1275,7 +1263,7 @@ function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): P
       cost,
       toolResultChars,
     }: BuildConfigOptions = {}): OpenCodeConfig {
-      const [providerId, ...rest] = scalarText(providerModel ?? defaultModel).split('/');
+      const [providerId, ...rest] = scalarText(providerModel ?? '').split('/');
       const modelId = rest.join('/');
       // No `steps` here, by the owner's word of 2026-11-05: OpenCode's step cap ends a run on an assistant turn that
       // Gemini and Anthropic refuse. The time limit of the task bounds the run.

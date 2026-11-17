@@ -4,7 +4,6 @@
 
 import { IMAGE_ROLE } from '../../llm/images.ts';
 import { matchRoute } from '../../llm/openrouter.ts';
-import { OPENCODE_ROLES } from '../../llm/roles.ts';
 import {
   NONE,
   onOff,
@@ -77,9 +76,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `route.list`: every route, one line each (prefix | role or any | providers | fallbacks | byok),
-   * then each role with the model it uses now and the routing that applies to it; the OpenCode
-   * agents' roles (`scout`, `server`) last, which the bot never routes: their workers never
-   * read `llm.providerByModel` (no route resolved). */
+   * then each role with the model it uses now and the routing that applies to it. */
   function cmdRouteList(): string {
     const cfg = hot.config;
     const byModel = effectiveRoutes();
@@ -101,12 +98,6 @@ const handlers = perEnv((env) => {
       );
     }
     lines.push('by role:', ...ROUTE_ROLES.map((role) => routeRoleLine(role, cfg, byModel)));
-    lines.push(
-      ...OPENCODE_ROLES.map(
-        (role) =>
-          `  ${role}: ${modelForRole(role, cfg) ?? '(no model configured)'} -> OpenCode's own routing (llm.providerByModel not read)`
-      )
-    );
     return lines.join('\n');
   }
 

@@ -28,7 +28,6 @@ function rig({
   const chainOf = everyKeyChains(store, (role) => `current/${role}`);
   const ring = chainRing(store, chainOf);
   const { fetch, calls } = fakeFetch(answer);
-  const saved: Array<[string, string]> = [];
   const chains: Record<string, unknown> = {};
   const keys = createKeysCommands({
     store,
@@ -43,13 +42,9 @@ function rig({
     defaults: {},
     currentModel: () => model,
     speechVoice: () => 'voice-1',
-    saveModel: (role, id) => {
-      saved.push([role, id]);
-      return Promise.resolve();
-    },
     pause: fakePause(null),
   });
-  return { keys, calls, saved, chains };
+  return { keys, calls, chains };
 }
 
 test('the speech probe sends one short synthesis on the speech endpoint with the voice and the key', async () => {

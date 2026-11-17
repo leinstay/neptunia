@@ -3,7 +3,7 @@
 // The operations under src/tools/operations/, her tool definitions (src/tools/definitions.ts) and the owner's command table
 // read them, and `leafPaths` lists every setting of a config.
 
-import { CORE_ROLES, OPENCODE_ROLES, ROLES } from '../../llm/roles.ts';
+import { BASE_ROLES, CORE_ROLES } from '../../llm/roles.ts';
 import { isObj, objOf } from '../types.ts';
 
 /**
@@ -14,12 +14,11 @@ import { isObj, objOf } from '../types.ts';
 export const MODEL_ROLES: ReadonlyArray<string> = Object.freeze([...CORE_ROLES]);
 
 /**
- * The roles whose model `model.show` lists and `model.set` changes (src/llm/roles.ts#ROLES): the base roles (the core,
- * the other model roles, drawing), whose model is their chain's, then the errand roles, whose model is
- * their `models.<group>.<role>` and which take no request of the bot (OpenCode workers run them). Drawing
- * (src/llm/images.ts#IMAGE_ROLE) takes no chat completion. The choices of `model.set` and `/model set`.
+ * The roles whose model `model.show` lists and `model.set` changes (src/llm/roles.ts#BASE_ROLES): the core, the other
+ * model roles and drawing, whose model is their chain's. Drawing (src/llm/images.ts#IMAGE_ROLE) takes no chat
+ * completion. The choices of `model.set` and, with the agents, of `/model set`.
  */
-export const MODEL_SET_ROLES: ReadonlyArray<string> = Object.freeze([...ROLES]);
+export const MODEL_SET_ROLES: ReadonlyArray<string> = Object.freeze([...BASE_ROLES]);
 
 /** The `section` choices of `memory.profile.read`, in display order (it falls back to `summary`). */
 export const MEMORY_SHOW_SECTIONS = Object.freeze([
@@ -53,9 +52,8 @@ export const STATUS_FIELDS = Object.freeze([
   'speed',
 ]);
 
-/** The roles a route may name: the `model.set` roles but the OpenCode ones (`scout`, `server`), whose workers never read `llm.providerByModel`, and `speech`, whose one model
- * is routed by its own prefix. */
-export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.includes(role) && role !== 'speech');
+/** The roles a route may name: the `model.set` roles but `speech`, whose one model is routed by its own prefix. */
+export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => role !== 'speech');
 
 /** The `kind` choices of `memory.journal.read` (`all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']);

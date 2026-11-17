@@ -7,7 +7,7 @@
 // nothing. An answer names keys by name and last four characters and never holds a value; a refusal names the store's
 // code, never the word that was refused.
 
-import { CORE_ROLE, SEARCH_ROLE, directSelectionOf, roleGroup } from '../llm/roles.ts';
+import { CORE_ROLE, SEARCH_ROLE, directSelectionOf, isModelRole } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
 import type { CheckResult } from './check.ts';
@@ -96,8 +96,6 @@ export type KeysDeps = {
   currentModel(role: string): string;
   /** The live `speech.voice`, which `checkRole` probes the speech role with. */
   speechVoice?(): string;
-  /** Saves an agent's model (the console runs the `model.set` operation). */
-  saveModel(role: string, model: string): Promise<void>;
   pause: PauseControl;
   /** Told what a check of `role` came to, so a launch's readiness (src/setup/readiness.ts) needs no request of its own. */
   recordCheck?(role: string, check: { selection: string; ok: boolean; code: string | null }): void;
@@ -268,7 +266,7 @@ function showChains(deps: KeysDeps): Answer {
   return { text: ROUTE_ROLES.map((role) => `${role}: ${chainText(deps.chainOf(role))}`).join('\n'), status: 'ok' };
 }
 
-/** The answer of a chain command, or null for one the chains do not take (an agent's `/model set`, an unknown role). */
+/** The answer of a chain command, or null for a role the chains do not take. */
 function chainCommand(deps: KeysDeps, name: string, args: Record<string, unknown>): Promise<Answer> | null {
   if (name === 'model.show') return Promise.resolve(showChains(deps));
   const role = text(args.role);
@@ -401,7 +399,7 @@ export function createKeysCommands(deps: KeysDeps): {
 
   /** `keys check <name|role>`: a role's route in force with one request, or a key with the free read of its record. */
   async function checkTarget(name: string, target: string): Promise<Answer> {
-    if (roleGroup(target) === 'base' || target === SEARCH_ROLE) return checkOne(name, target);
+    if (isModelRole(target) || target === SEARCH_ROLE) return checkOne(name, target);
     const value = store.valueOf(target);
     if (value === null) return invalid(name, `${target} is no model role and no key of keys.json`, 'unknown-target');
     const info = await checkKey({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value });
@@ -447,19 +445,6 @@ export function createKeysCommands(deps: KeysDeps): {
     return { text: line, status: result.ok ? 'ok' : 'failed' };
   }
 
-  /** `model set` of an agent: its model is an OpenCode id, no OpenRouter model id, so it is saved with no check. */
-  async function setAgentModel(name: string, args: Record<string, unknown>): Promise<Answer> {
-    const role = text(args.role);
-    const model = text(args.model);
-    const group = roleGroup(role);
-    if (group !== 'errands') return invalid(name, `the roles are ${ROUTE_ROLES.join(', ')}`);
-    if (model === '') return invalid(name, 'a role and a model are needed');
-    if (text(args.provider) !== '' || text(args.effort) !== '')
-      return invalid(name, `the ${role} role takes no provider and no effort here`);
-    await deps.saveModel(role, model);
-    return { text: `The ${role} model is ${model}. Its id is not checked here.`, status: 'ok' };
-  }
-
   async function dispatch(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
     switch (name) {
       case 'keys.add':
@@ -471,7 +456,6 @@ export function createKeysCommands(deps: KeysDeps): {
       case 'keys.check':
         return checkTarget(name, text(args.target ?? args.role));
       case 'model.set':
-        return chainCommand(deps, name, args) ?? setAgentModel(name, args);
       case 'model.add':
       case 'model.remove':
       case 'model.show':

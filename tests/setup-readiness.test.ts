@@ -215,7 +215,6 @@ function keysRig(status: number) {
     baseUrl: () => BASE_URL,
     defaults: {},
     currentModel: () => 'vendor/core-1',
-    saveModel: () => Promise.resolve(),
     pause: fakePause(),
     recordCheck: (role, check) => recorded.push({ role, ...check }),
   });

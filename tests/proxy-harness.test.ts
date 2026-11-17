@@ -91,8 +91,6 @@ test("the runner's engine passes the task's proxy to the child of every backend"
     name: 'server',
     agentId: 'errand-server',
     promptFiles: [prompt],
-    modelRole: 'server',
-    defaultModel: 'x',
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
     search: false,

@@ -1,13 +1,16 @@
 // Operations: `model.show|set`: which model serves each role. A base role's model is the model of the routes of its
 // chain (`models.routes.<role>`, src/llm/route-chain.ts): `model.set` puts the model on each route of the chain and
-// refuses a role with no route, whose key only `/model set <role> <key>/<model>` can name. An agent's model is its
-// `models.<group>.<role>` entry. Each `run` calls one of the handlers with the operation's `ctx` as the command context.
+// refuses a role with no route, whose key only `/model set <role> <key>/<model>` can name. `model.show` also lists
+// each errand agent's route, its harness and model (src/subharness/routing.ts), which `/model set <agent>` writes
+// through the subharness. Each `run` calls one of the handlers with the operation's `ctx` as the command context.
 
 import { MODEL_SET_ROLES } from './catalog.ts';
 import { IMAGE_ROLE } from '../../llm/images.ts';
-import { CORE_ROLE, ERRAND_ROLES, NON_CORE_ROLES, roleConfigKeys, roleGroup, roleModel } from '../../llm/roles.ts';
+import { CORE_ROLE, NON_CORE_ROLES, roleModel } from '../../llm/roles.ts';
 import { routesOf } from '../../llm/route-chain.ts';
 import { isRouteRole } from '../../llm/route-text.ts';
+import { agentRouteOf, SUBHARNESS_AGENTS } from '../../subharness/routing.ts';
+import { routeName } from '../../subharness/route-names.ts';
 import { reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { objOf } from '../types.ts';
@@ -18,17 +21,22 @@ const MEDIA_ROLES = new Set(['vision', 'video']);
 const handlers = perEnv((env) => {
   const { hot, writeLocalPath, editLocalConfig, imageModelLabel, now } = env;
 
-  /** One `<role>: <model>` line per role: the base roles (the core, the model roles other than `core`, drawing), then the errand roles under the group line `errands:`. */
+  /** One `<role>: <model>` line per role: the base roles (the core, the model roles other than `core`, drawing), then
+   * under the group line `errands:` one `<agent>: <harness> <model>` line per agent, `-` for one with no route. */
   function cmdModelShow() {
     const cfg = hot.config;
     const lineOf = (role: string): string => `${role}: ${modelForRole(role, cfg) ?? '-'}`;
+    const agentLineOf = (agent: string): string => {
+      const route = agentRouteOf(cfg, agent);
+      return `${agent}: ${route === null ? '-' : `${routeName(route.backend)} ${route.model ?? 'default'}`}`;
+    };
     const lines = [
       'base:',
       lineOf(CORE_ROLE),
       ...NON_CORE_ROLES.map(lineOf),
       `${IMAGE_ROLE}: ${imageModelLabel(cfg)}`,
       'errands:',
-      ...ERRAND_ROLES.map(lineOf),
+      ...SUBHARNESS_AGENTS.map(agentLineOf),
     ];
     return lines.join('\n');
   }
@@ -43,20 +51,12 @@ const handlers = perEnv((env) => {
     if (!MODEL_ID_RE.test(id))
       throw invalid('id must look like a model id, e.g. anthropic/claude-haiku-4.5 (3-100 chars)');
 
-    // An agent's `models.<group>.<role>`; a base role's chain, each route of it on the new model.
-    const agentKeys = roleConfigKeys(role);
-    let keys: Array<string>;
-    let value: unknown;
-    if (agentKeys !== undefined) {
-      keys = agentKeys;
-      value = id;
-    } else {
-      const chain = roleGroup(role) === 'base' && isRouteRole(role) ? routesOf(config, role) : [];
-      if (chain.length === 0)
-        throw invalid(`the ${role} role has no route yet: /model set ${role} <key>/<model> names its key and model`);
-      keys = ['models', 'routes', role];
-      value = chain.map((route) => ({ ...route, model: id }));
-    }
+    // The role's chain, each route of it on the new model.
+    const chain = isRouteRole(role) ? routesOf(config, role) : [];
+    if (chain.length === 0)
+      throw invalid(`the ${role} role has no route yet: /model set ${role} <key>/<model> names its key and model`);
+    const keys = ['models', 'routes', role];
+    const value = chain.map((route) => ({ ...route, model: id }));
 
     // A new vision or video model: every description cached before now is described again
     // when it comes up (src/memory/describe.ts), written in the same edit of the private settings file.

@@ -1,77 +1,90 @@
 // Tests for src/errands/preambles.ts: the preamble of one errand run, picked from the files of
-// prompts.local/preambles/ by agent and model, composed in order (all, agent, model,
-// agent+model), prompts.local/agents.md never read.
+// data/prompts/preambles/ by agent and by the last path segment of the run's model, composed in order
+// (all, agent, model, agent+model), data/prompts/agents.md never read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { modelSlugs, preambleNames, composePreamble } from '../src/errands/preambles.ts';
+import { modelSlug, preambleNames, composePreamble } from '../src/errands/preambles.ts';
 
-test('modelSlugs: lowercased, every character outside [a-z0-9.] a dash, the openrouter/ prefix also dropped', () => {
-  assert.deepEqual(modelSlugs('openrouter/moonshotai/kimi-k3'), [
-    'openrouter-moonshotai-kimi-k3',
-    'moonshotai-kimi-k3',
-  ]);
-  assert.deepEqual(modelSlugs('openrouter/OpenAI/GPT-6.1-Sol:free'), [
-    'openrouter-openai-gpt-6.1-sol-free',
-    'openai-gpt-6.1-sol-free',
-  ]);
-  assert.deepEqual(modelSlugs('anthropic/claude_x'), ['anthropic-claude-x'], 'no prefix: one form');
-  assert.deepEqual(modelSlugs('vendor/modèle'), ['vendor-mod-le'], 'a non-ASCII letter is a dash');
-  assert.deepEqual(modelSlugs(''), []);
-  assert.deepEqual(modelSlugs(null), []);
-  assert.deepEqual(modelSlugs('openrouter/'), ['openrouter-'], 'a bare prefix has no short form');
+// Changed: the slug is the last path segment of the id, literally, replacing the dashed slugs of the whole id
+// (owner, 2026-11-17), so `@claude-sonnet-4.6.md` matches the model on every provider.
+test('modelSlug: the last path segment of the id, lowercased, null for a blank or non-string id', () => {
+  assert.equal(modelSlug('openrouter/anthropic/claude-sonnet-4.6'), 'claude-sonnet-4.6');
+  assert.equal(modelSlug('google/Claude-Sonnet-4.6'), 'claude-sonnet-4.6');
+  assert.equal(modelSlug('claude-opus-5-5'), 'claude-opus-5-5', 'an id with no slash is its own segment');
+  assert.equal(modelSlug('openrouter/openai/gpt-6.1-sol:free'), 'gpt-6.1-sol:free', 'no character is replaced');
+  assert.equal(modelSlug('  vendor/model  '), 'model', 'trimmed');
+  assert.equal(modelSlug('vendor/'), null, 'an id that ends in a slash has no segment');
+  assert.equal(modelSlug(''), null);
+  assert.equal(modelSlug('   '), null);
+  assert.equal(modelSlug(null), null);
+  assert.equal(modelSlug(42), null);
 });
 
-test('preambleNames: all, agent, model forms, agent+model forms, in that order', () => {
+// Changed: one model form per run, the last path segment, in place of the whole-id and short forms.
+test('preambleNames: all, agent, @model, agent@model, in that order', () => {
   assert.deepEqual(preambleNames('scout', 'openrouter/moonshotai/kimi-k3'), [
     'all',
     'scout',
-    '@openrouter-moonshotai-kimi-k3',
-    '@moonshotai-kimi-k3',
-    'scout@openrouter-moonshotai-kimi-k3',
-    'scout@moonshotai-kimi-k3',
+    '@kimi-k3',
+    'scout@kimi-k3',
   ]);
   assert.deepEqual(preambleNames('server', null), ['all', 'server']);
+  assert.deepEqual(preambleNames('', 'vendor/model'), ['all', '@model'], 'no agent: no agent forms');
 });
 
-test('composePreamble: the matching files in order, joined by a blank line, empty and foreign files skipped', () => {
+test('composePreamble: @claude-sonnet-4.6 matches openrouter/anthropic/claude-sonnet-4.6', () => {
+  // Catches: the model files are still keyed by the whole id, so an OpenRouter run misses the file named by the model.
+  const prompts = { preambles: { '@claude-sonnet-4.6': 'SONNET', 'scout@claude-sonnet-4.6': 'SCOUT-SONNET' } };
+  const out = composePreamble({ prompts, agent: 'scout', model: 'openrouter/anthropic/claude-sonnet-4.6' });
+  assert.equal(out.text, 'SONNET\n\nSCOUT-SONNET');
+  assert.deepEqual(out.files, ['preambles/@claude-sonnet-4.6.md', 'preambles/scout@claude-sonnet-4.6.md']);
+});
+
+test('composePreamble: @claude-sonnet-4.6 matches google/claude-sonnet-4.6', () => {
+  // Catches: only the `openrouter/` prefix is stripped, so the same model from another provider misses its file.
+  const prompts = { preambles: { '@claude-sonnet-4.6': 'SONNET' } };
+  const out = composePreamble({ prompts, agent: 'scout', model: 'google/claude-sonnet-4.6' });
+  assert.equal(out.text, 'SONNET');
+  assert.deepEqual(out.files, ['preambles/@claude-sonnet-4.6.md']);
+});
+
+test('composePreamble: @claude-sonnet-4.6 does not match claude-sonnet-4-6', () => {
+  // Catches: dots and dashes are normalised, so a file written for one model id reaches a different one.
+  const prompts = { preambles: { '@claude-sonnet-4.6': 'SONNET', 'scout@claude-sonnet-4.6': 'SCOUT-SONNET' } };
+  const out = composePreamble({ prompts, agent: 'scout', model: 'claude-sonnet-4-6' });
+  assert.deepEqual(out, { text: '', files: [], chars: 0 });
+});
+
+test('composePreamble: all, agent, @model, agent@model in that order, joined by a blank line, an empty file skipped', () => {
+  // Catches: the files go in another order, or an empty file adds a blank part, or another agent's file is read.
   const prompts = {
     preambles: {
+      'scout@kimi-k3': 'SCOUT-MODEL',
+      '@kimi-k3': 'MODEL',
+      scout: '   ',
       all: 'ALL',
-      scout: 'SCOUT',
       server: 'SERVER',
-      '@openrouter-moonshotai-kimi-k3': 'MODEL-FULL',
-      '@moonshotai-kimi-k3': 'MODEL-SHORT',
-      'scout@moonshotai-kimi-k3': 'SCOUT-MODEL',
-      'server@moonshotai-kimi-k3': 'SERVER-MODEL',
-      '@openai-gpt-6.1-sol': 'OTHER-MODEL',
-      'scout@openrouter-moonshotai-kimi-k3': '',
+      'server@kimi-k3': 'SERVER-MODEL',
+      '@other': 'OTHER-MODEL',
     },
   };
-  // Stage X: the preamble has no cap, so `maxChars` and the result's `dropped` are gone from these expectations.
   const out = composePreamble({ prompts, agent: 'scout', model: 'openrouter/moonshotai/kimi-k3' });
-  assert.equal(out.text, 'ALL\n\nSCOUT\n\nMODEL-FULL\n\nMODEL-SHORT\n\nSCOUT-MODEL');
-  assert.deepEqual(out.files, [
-    'preambles/all.md',
-    'preambles/scout.md',
-    'preambles/@openrouter-moonshotai-kimi-k3.md',
-    'preambles/@moonshotai-kimi-k3.md',
-    'preambles/scout@moonshotai-kimi-k3.md',
-  ]);
+  assert.equal(out.text, 'ALL\n\nMODEL\n\nSCOUT-MODEL');
+  assert.deepEqual(out.files, ['preambles/all.md', 'preambles/@kimi-k3.md', 'preambles/scout@kimi-k3.md']);
   assert.equal(out.chars, out.text.length);
 
-  const short = composePreamble({
-    prompts: { preambles: { '@moonshotai-kimi-k3': '  only the short form \n' } },
+  const withAgent = composePreamble({
+    prompts: { preambles: { ...prompts.preambles, scout: ' SCOUT \n' } },
     agent: 'scout',
     model: 'openrouter/moonshotai/kimi-k3',
   });
-  assert.equal(short.text, 'only the short form', 'the id without its provider prefix matches, trimmed');
+  assert.equal(withAgent.text, 'ALL\n\nSCOUT\n\nMODEL\n\nSCOUT-MODEL', 'the agent file second, trimmed');
 
-  const none = composePreamble({ prompts: {}, agent: 'scout', model: 'openrouter/x/y' });
-  assert.deepEqual(none, { text: '', files: [], chars: 0 });
+  assert.deepEqual(composePreamble({ prompts: {}, agent: 'scout', model: 'x/y' }), { text: '', files: [], chars: 0 });
   assert.deepEqual(composePreamble({ agent: 'scout' }), { text: '', files: [], chars: 0 }, 'no prompts at all');
 });
 
-test('composePreamble: prompts.local/agents.md (the prompt `agents`) is never a preamble', () => {
+test('composePreamble: data/prompts/agents.md (the prompt `agents`) is never a preamble', () => {
   const beside = composePreamble({
     // @ts-expect-error: the retired agents key is passed on purpose, to check that it is ignored
     prompts: { agents: 'OLD', preambles: { scout: 'SCOUT' } },
