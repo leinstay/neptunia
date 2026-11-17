@@ -39,7 +39,6 @@ export type StoredSegment = {
 /** What `delivery` holds: the entry's messages as first sent, so a retry cuts the same segments, and the segments. */
 export type StoredDelivery = {
   messages?: ReadonlyArray<string>;
-  mentions?: ReadonlyArray<ReadonlyArray<string>>;
   segments: Array<StoredSegment>;
 };
 
@@ -165,9 +164,6 @@ function claim(db: Db, update_: Row): { ok: true; delivery: StoredDelivery } | {
   const stored = deliveryOf(row);
   const delivery: StoredDelivery = {
     messages: stored.messages ?? (Array.isArray(update_.messages) ? (update_.messages as Array<string>) : []),
-    ...(stored.mentions || Array.isArray(update_.mentions)
-      ? { mentions: stored.mentions ?? (update_.mentions as Array<Array<string>>) }
-      : {}),
     segments: claimedSegments(row, Number(update_.count)),
   };
   update(db, row, {

@@ -36,7 +36,7 @@ export function deliveriesOf(hold: SendHold | null | undefined, turn: DeliveryTu
     target: chat.chatId,
     payload: {
       chat: { iface: chat.iface, chatId: chat.chatId },
-      content: { text: content.text ?? '', replyTo: content.replyTo ?? null, mentions: content.mentions ?? null },
+      content: { text: content.text ?? '', replyTo: content.replyTo ?? null },
       ...turn,
       ...(publicationBoundary ? { publicationBoundary } : {}),
       skill: note?.skill ?? null,
@@ -86,12 +86,10 @@ function contentOf(life: InnerContext, delivery: Delivery): Content {
   const attachments = read ? deliveryFiles(read, life.dataDir, delivery) : [];
   // The payload is what deliveriesOf recorded from a send's content (src/protocol/actions.ts#Content).
   const replyTo = given.replyTo as Content['replyTo'] | null;
-  const mentions = given.mentions as Content['mentions'] | null;
   return {
     text: typeof given.text === 'string' ? given.text : '',
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(replyTo ? { replyTo } : {}),
-    ...(mentions ? { mentions } : {}),
   };
 }
 

@@ -182,7 +182,7 @@ export type HeldSpeech = {
   delivered: false;
   answered: Set<string>;
   texts: Array<string>;
-  rendered: Array<{ text: string; accountIds: Array<string | undefined> }>;
+  rendered: Array<string>;
   staged: Array<HeldPicture>;
   posts: Array<PostNote>;
   reacted: Array<ReactNote>;
@@ -225,16 +225,13 @@ export function createAct(ctx: ActContext): Act {
   }
 
   /**
-   * A diary post's speech held where act would send it: her messages as written and as renderPost renders them (the
-   * members it names) and the staged pictures; the turn records the entry
+   * A diary post's speech held where act would send it: her messages as written and as renderPost renders them and the
+   * staged pictures; the turn records the entry
    * (diary-turn.ts#recordEntry), its mirrors post it.
    */
   function holdSpeech({ channel, placeId, dmChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
     const options = { channel, snapshot: snapshotOfDraft(draft), placeId, dmChat, ...routing, link: null };
-    const rendered = parsed.messages.map((message) => {
-      const { text, accountIds } = renderPost(message.text, options);
-      return { text, accountIds: accountIds.filter((id) => typeof id === 'string' && id !== '') };
-    });
+    const rendered = parsed.messages.map((message) => renderPost(message.text, options).text);
     const texts = parsed.messages.map((message) => message.text);
     const staged = set?.pictures ?? [];
     for (const picture of staged) {
@@ -484,7 +481,7 @@ export function createAct(ctx: ActContext): Act {
     // When it fails to send (`turn: gif failed`), the first message goes as written after all.
     const replaced = picked.kind === 'gif' && capability ? Boolean(await sendGif(picked, capability.gifForms)) : false;
     const messages = replaced ? parsed.messages.slice(1) : parsed.messages;
-    // An emoji the pick chose goes on the first message as written, as the interface renders it (replyTo and mentions stay).
+    // An emoji the pick chose goes on the first message as written, as the interface renders it (replyTo stays).
     const emojiPick = picked.kind === 'emoji' && capability?.emoji ? { picked, render: capability.emoji.render } : null;
     // Every message but the first one as written waits and is typed here; that one was typed alongside the picker.
     const typedAbove = (index: number): boolean => index === 0 && !replaced;
@@ -565,10 +562,6 @@ export function createAct(ctx: ActContext): Act {
       const result = await port.send(chatOf(channel), {
         text,
         ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
-        mentions: {
-          users: accountIds.filter((id): id is string => typeof id === 'string' && id !== ''),
-          repliedUser: true,
-        },
       });
       if (result.status !== 'ok') {
         if (op.opId) await closeResult(op, result);

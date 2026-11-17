@@ -144,10 +144,7 @@ export function createPersonLinks({
       try {
         const chat = await port.dmChatOf({ iface: target.iface, accountId: target.native });
         if (chat.status !== 'ok') continue;
-        const delivery = await port.send(
-          { iface: target.iface, chatId: chat.chatId },
-          { text, mentions: { users: [], repliedUser: false } }
-        );
+        const delivery = await port.send({ iface: target.iface, chatId: chat.chatId }, { text });
         if (delivery.status === 'ok') return true;
       } catch {
         // An interface that threw reaches nobody now; the next account is tried.

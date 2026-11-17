@@ -411,7 +411,7 @@ test("her @handle in a post to another interface mentions the person's account t
   ]);
   const post = run.sends.find((one) => one.iface === 'fake' && one.text.includes('ΕΡΧΟΜΑΙ'));
   assert.ok(post, JSON.stringify(run.sends));
-  assert.deepEqual(post.mentioned, ['u1']);
+  // Changed: content carries no mentions, so the mention in the text is what is checked.
   assert.ok(post.text.includes('<@u1>'), post.text);
 });
 
@@ -432,7 +432,7 @@ test('her @handle of a person with no account on the interface she writes to car
   ]);
   const post = run.sends.find((one) => one.iface === 'fake' && one.text.includes('ΗΡΘΕ'));
   assert.ok(post, JSON.stringify(run.sends));
-  assert.deepEqual(post.mentioned, []);
+  // Changed: content carries no mentions, so the text alone shows that none was made.
   assert.ok(post.text.includes('Γιάννης'), post.text);
   assert.doesNotMatch(post.text, /<@|@u[0-9a-z]+/);
 });

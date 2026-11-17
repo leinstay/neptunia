@@ -312,7 +312,7 @@ export function createSends(ctx: SendsContext): Sends {
    * links (withMessageLinks), channel names into channel links (withChannelLinks), then `link`
    * joined (withLink). Resolves
    * `text` (as sent), `spoken` (before any link: what the typing time is taken from) and
-   * `accountIds` (the members it mentions: the only ones a send may notify, allowedMentions).
+   * `accountIds` (the members it mentions).
    */
   function renderPost(
     written: string,

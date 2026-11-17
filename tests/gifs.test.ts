@@ -750,7 +750,6 @@ test('the pick: a link handle sends the stored url in place of the first message
   assert.equal(channel.sent[0].content, TENOR);
   assert.equal(channel.sent[1].content, 'more');
   assert.equal(channel.sent[0].reply?.messageReference, 'm1');
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [] });
 });
 
 test('the pick: a sent gif stamps ownLast and ownUses on its entry, for the place it went to', async () => {

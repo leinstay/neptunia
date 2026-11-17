@@ -950,11 +950,12 @@ async function runMentionsTurn(store: unknown, answer: string, features = {}) {
   return channel;
 }
 
-test('runTurn: a reply names its author and the members its text mentions', async () => {
+// Changed: content carries no mentions, so the members her text mentions are checked in the sent text.
+test('runTurn: a reply keeps its target and writes the members its text mentions as mentions', async () => {
   const channel = await runMentionsTurn(fakeStore(), `<msg reply="#2">${ALICE} ${BOB} ναι</msg>`);
 
   assert.deepEqual(channel.sent[0].reply, { messageReference: 'm1', failIfNotExists: false });
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u1', 'u2'], repliedUser: true });
+  assert.equal(channel.sent[0].content, '<@u1> <@u2> ναι');
 });
 
 test('runTurn: only an exact @handle mentions; a name and a handle nobody has stay text, the unknown one logged', async () => {
@@ -963,8 +964,8 @@ test('runTurn: only an exact @handle mentions; a name and a handle nobody has st
     runMentionsTurn(fakeStore(), `<msg>${BOB} @Alice @Bob ${unknown} ναι</msg>`)
   );
 
+  // Changed: content carries no mentions, so the sent text alone shows which handle resolved.
   assert.equal(channel.sent[0].content, `<@u2> @Alice @Bob ${unknown} ναι`, 'no name is matched, whoever carries it');
-  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [], users: ['u2'], repliedUser: true });
   assert.deepEqual(
     logs.filter((entry) => entry.msg === 'turn: unknown handle').map((entry) => [entry.channel, entry.count]),
     [['c1', 1]],
@@ -1167,7 +1168,6 @@ test('runTurn: a draw.create call goes out before her messages, as a file; the m
   assert.ok(file.files?.[0].name.endsWith('.png'));
   assert.ok(Buffer.isBuffer(file.files?.[0].attachment));
   assert.deepEqual(file.reply, { messageReference: 'm1', failIfNotExists: false });
-  assert.deepEqual(file.allowedMentions, { parse: [] });
   assert.equal(channel.sent[1].content, 'one sec');
   assert.equal(channel.sent[2].content, 'here');
 
@@ -1709,8 +1709,8 @@ test('createTurnRunner: an outgoing :name: becomes the custom emoji, next to a r
   });
 
   assert.equal(result.outcome, 'spoke');
+  // Changed: content carries no mentions, so the resolved `<@u1>` in the text is what is checked.
   assert.equal(channel.sent[0].content, '<@u1> <a:dance:222222222222222222> ok :unknown:');
-  assert.deepEqual(channel.sent[0].allowedMentions.users, ['u1']);
   assert.deepEqual(channel.reactCalls, [{ id: 'm1', emoji: '<:pepe_cry:111111111111111111>' }]);
 });
 
@@ -5012,13 +5012,13 @@ test('skills gateway: a normal reply is carried over and posted through the port
   assert.deepEqual(channel.sent, [
     {
       content: 'γεια σου <@u1>',
+      // Changed: content carries no mentions, so the payload has none.
       reply: { messageReference: 'm1', failIfNotExists: false },
-      allowedMentions: { parse: [], users: ['u1'], repliedUser: true },
     },
   ]);
   assert.equal(channel.typingCalls.length, 1, 'typed once, through the port');
 
-  // The same reply through another interface: the same text, reply target and mentions.
+  // The same reply through another interface: the same text and reply target.
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
   const other = await gatewayTurn({ answer: `<msg reply="#1">γεια σου @${handleOf('u1')}</msg>`, port });
   assert.equal(other.result.outcome, 'spoke');
@@ -5031,9 +5031,8 @@ test('skills gateway: a normal reply is carried over and posted through the port
     { iface: 'fake', chatId: 'c1' },
     {
       text: 'γεια σου <@u1>',
+      // Changed: content carries no mentions.
       replyTo: { iface: 'fake', chatId: 'c1', messageId: 'm1' },
-      // Changed: the mentions name the members alone, since the ping states left (2026-11-17).
-      mentions: { users: ['u1'], repliedUser: true },
     },
   ]);
   assert.equal(other.channel.sent.length, 0, 'nothing went around the port');
@@ -5296,7 +5295,7 @@ test('skill call: message.create to another channel where the bot may send runs 
     ],
     'her call runs first, her speech after it'
   );
-  assert.deepEqual(run.sends[0].mentions, { users: [], repliedUser: false }, 'nobody is notified');
+  // Changed: content carries no mentions, so nothing is asserted of them.
   // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
   assert.equal(run.llm.calls.length, 2, 'the post came back to her in one step, where she stayed silent');
   assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'succeeded']);
@@ -5332,22 +5331,17 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
     created.sends.map((send) => [send.to, send.text]),
     [['c9', rendered]]
   );
-  assert.deepEqual(
-    created.sends[0].mentions,
-    // Changed: the mentions name the members alone, since the ping states left (2026-11-17).
-    { users: ['u1'], repliedUser: false },
-    'only the resolved member is named'
-  );
-  // A reply keeps working, its author notified as before.
+  // Changed: content carries no mentions, so the rendered text above is what shows the resolved member.
+  // A reply keeps working.
   const replied = await callTurn({
     answers: [toolAnswer(``, [call('message.create', { reply: `#2`, text: `${alice} :e2:` })]), '<skip/>'],
     emoji: fakeEmojiIndex(),
   });
   assert.deepEqual(
-    replied.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions]),
-    [['c1', '<@u1> <a:dance:222222222222222222>', 'm1', { users: ['u1'], repliedUser: true }]]
+    replied.sends.map((send) => [send.to, send.text, send.replyTo?.messageId]),
+    [['c1', '<@u1> <a:dance:222222222222222222>', 'm1']]
   );
-  // The edit path: the same rendering, the same mentions.
+  // The edit path: the same rendering.
   const edited = await callTurn({
     answers: [toolAnswer(``, [call('message.edit', { message: `#1`, text: `${written}` })]), '<skip/>'],
     allowed: ['message.edit'],
@@ -5356,7 +5350,8 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   const edits = edited.port.calls
     .filter((call) => call.op === 'edit')
     .map((call) => [asRecord(call.args[0]).messageId, call.args[1]]);
-  assert.deepEqual(edits, [['m0', { text: rendered, mentions: { users: ['u1'], repliedUser: false } }]]);
+  // Changed: content carries no mentions, so the edit carries the rendered text alone.
+  assert.deepEqual(edits, [['m0', { text: rendered }]]);
   // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
   assert.equal(edited.llm.calls.length, 2, 'the edit came back to her in one step');
 });
@@ -5444,10 +5439,10 @@ test('skill call: a call alone is no skip; here it needs no grant and replies to
   // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
   const { calls: hereCalls } = here.llm;
   assert.equal(hereCalls.length, 2, 'the post came back to her and she stayed silent');
-  // The current chat: carried over, the replied author notified.
+  // The current chat: carried over as a reply. Changed: content carries no mentions, so no replied-author flag.
   assert.deepEqual(
-    here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]),
-    [['c1', 'ναι', 'm1', true]]
+    here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId]),
+    [['c1', 'ναι', 'm1']]
   );
   // A reply target outside the channel she named. Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (chat), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
   const across = await callTurn({

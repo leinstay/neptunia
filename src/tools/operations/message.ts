@@ -2,8 +2,7 @@
 // `message.create` is hers alone (`context.actor` 'persona', her skills, src/tools/): her own text -- the call's body --
 // is posted through her interface (src/interface/port.ts, `env.port`), replying to a message when one is named. Anyone
 // else is refused: a person asks her to write somewhere, and she does or does not. Her text
-// (a post or an edit) arrives rendered as a `<msg>` of hers (src/tools/executors.ts#executeCall), and the members it
-// mentions (`context.mentionAccountIds`) go with it as its mentions. Edit,
+// (a post or an edit) arrives rendered as a `<msg>` of hers (src/tools/executors.ts#executeCall). Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
 // an edit, a deletion or a reaction in the chat the command runs in, or in any text
 // channel of the served place where the bot holds the platform permissions it needs
@@ -190,12 +189,6 @@ const handlers = perEnv((env) => {
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
   const clock = typeof env.now === 'function' ? env.now : Date.now;
 
-  /** The members her rendered text mentions (`context.mentionAccountIds`, her own calls only). */
-  function mentionedUsers(context: OpContext): Array<string> {
-    if (context?.actor !== 'persona' || !Array.isArray(context.mentionAccountIds)) return [];
-    return (context.mentionAccountIds as Array<unknown>).map(idText).filter(Boolean);
-  }
-
   /**
    * The attachment of a post's `media` (a picture of one of her own messages, `args.item` picking
    * one of several; 1 is the first), downloaded for upload, or null without `media`. The message is
@@ -265,14 +258,12 @@ const handlers = perEnv((env) => {
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const to = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
     const { chatId } = to;
-    const mentions = { users: mentionedUsers(context), repliedUser: reply !== null };
     const entry = gifEntry(env, args);
     const attachment = (await errandFile(env, args, context, chatId, p)) ?? (await mediaFile(args, context, p));
     const content: Content = {
       text,
       ...(attachment ? { attachments: [attachment] } : {}),
       ...(reply ? { replyTo: { ...to, messageId: reply.messageId } } : {}),
-      mentions,
     };
     let result: Untyped = null;
     if (text || attachment) {
@@ -305,7 +296,7 @@ const handlers = perEnv((env) => {
   /**
    * One library GIF as a message of hers: its stored URL, a fresh one first when it is an
    * attachment. Counted once sent and stamped on its entry. A GIF-only post carries the reply
-   * and mentions (`lead`); one after a text carries none.
+   * (`lead`); one after a text carries none.
    */
   async function postGif(p: Adapter, to: ChatRef, entry: Untyped, lead: Content | null): Promise<Untyped> {
     const fresh =
@@ -318,7 +309,7 @@ const handlers = perEnv((env) => {
         : null;
     const content = lead
       ? { ...lead, text: gifPostUrl(entry as { url: string }, fresh) }
-      : { text: gifPostUrl(entry as { url: string }, fresh), mentions: { users: [], repliedUser: false } };
+      : { text: gifPostUrl(entry as { url: string }, fresh) };
     const sent = await p.send(to, content);
     if (sent?.status === 'ok') {
       if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(to.chatId, entry.key, clock());
@@ -396,9 +387,7 @@ const handlers = perEnv((env) => {
     if (!text) throw invalid('text is required');
     const { placeId, messageId, ref } = await target(args, context, 'read', { last: true });
     if (publicationRefusal(context.publicationBoundary, ref)) throw denied('publication-boundary', 'not-allowed');
-    const users = mentionedUsers(context);
-    const content = { text, ...(users.length > 0 ? { mentions: { users, repliedUser: false } } : {}) };
-    return portAnswer('message.edit', await p.edit(ref, content), `edited message ${messageId} in ${placeId}`);
+    return portAnswer('message.edit', await p.edit(ref, { text }), `edited message ${messageId} in ${placeId}`);
   }
 
   /** `message.delete`: one of the persona's own messages, deleted. */

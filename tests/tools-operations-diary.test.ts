@@ -280,7 +280,7 @@ function seedRestrictedDiary(core: Root, metadata: unknown = PRIVATE_BOUNDARY): 
     text: PRIVATE_DIARY,
     itemId: 'diary:restricted-seed',
     publicationBoundary: metadata,
-    send: { messages: [PRIVATE_DIARY], mentions: [[]] },
+    send: { messages: [PRIVATE_DIARY] },
   };
   core.store.appendDiaryPost(post);
 }
