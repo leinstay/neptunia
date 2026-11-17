@@ -17,6 +17,8 @@ const DISCORD_EXTERNAL_PROXY_HOST_RE = /^images-ext-\d+\.discordapp\.net$/;
 // GIF=4 -- Lottie is a vector animation, never a raster picture, so it is
 // deliberately absent from this map (see stickerUrl below).
 const STICKER_FORMAT_EXT: Record<number, string> = { 1: 'png', 2: 'png', 4: 'gif' };
+// The formats that move: APNG and GIF. An animated sticker is watched as a GIF from its own address.
+const ANIMATED_STICKER_FORMATS = new Set([2, 4]);
 // Verified against the live CDN: media.discordapp.net/stickers/<id>.<ext>
 // takes a `size` query param (a power of two), NOT width/height/format —
 // cdn.discordapp.com 404s on a GIF sticker entirely, so that host is never
@@ -106,15 +108,26 @@ export function mediaProxyUrl(
 }
 
 /**
- * Rebuild a sticker's picture URL from just its id/format -- the only two
- * fields a slim message keeps for a sticker (see src/memory/update.ts
- * #slimMessage), so no stored URL is needed to look up a description-cache
- * entry. `null` for a Lottie sticker (format 3) or any
- * other non-picture format: it is never a picture, name only.
+ * A sticker's picture URL from its id and Discord format. `null` for a Lottie sticker (format 3) or any other
+ * non-picture format: it is never a picture, name only.
  */
 export function stickerUrl(id: string, format: number): string | null {
   const ext = STICKER_FORMAT_EXT[format];
   return ext ? `https://media.discordapp.net/stickers/${id}.${ext}?size=${STICKER_SIZE}` : null;
+}
+
+/**
+ * A sticker as the interface hands it to the core: `{ id, name, animated, url }`, plus `animationUrl` (its own
+ * address, a `.png` for an APNG and a `.gif` for a GIF) when it moves. Discord's format number stays here.
+ */
+export function normalSticker(
+  id: string,
+  name: string,
+  format: number
+): { id: string; name: string; animated: boolean; url: string | null; animationUrl?: string } {
+  const url = stickerUrl(id, format);
+  const animated = url !== null && ANIMATED_STICKER_FORMATS.has(format);
+  return { id, name, animated, url, ...(animated && url ? { animationUrl: url } : {}) };
 }
 
 /**
