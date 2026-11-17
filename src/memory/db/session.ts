@@ -564,12 +564,11 @@ export type SessionRequest = {
 /**
  * The body of `<batch>`: the `cutoff` line, one legend `<media>` for the request (the custom emoji and stickers of the
  * batch's lines and every stable name the `stored` blocks name, a claim in `<people>` or an episode among them), then
- * the lines. A legend description's `SELF_MARK` reads `selfName`.
+ * the lines.
  */
 function batchBodyOf(
   db: Db,
   labels: unknown,
-  selfName: string,
   parts: {
     cutoff: string;
     shownMessages: ReadonlyArray<Row>;
@@ -579,7 +578,7 @@ function batchBodyOf(
 ): string {
   const names = new Map(mediaNameRows(db).map((row): [string, MediaNameRow] => [row.name, row]));
   const texts = parts.stored.map((content) => ({ content }));
-  const legend = legendBlock([...parts.shownMessages, ...texts], (name) => names.get(name) ?? null, labels, selfName);
+  const legend = legendBlock([...parts.shownMessages, ...texts], (name) => names.get(name) ?? null, labels);
   return [`cutoff: ${parts.cutoff}`, ...(legend ? [legend] : []), ...parts.rendered].join('\n');
 }
 
@@ -632,7 +631,7 @@ export function buildSessionRequest({
   batch: ReadonlyArray<BatchLine>;
   config: Config;
   prompts: Row | null | undefined;
-  selfName: string;
+  selfName: unknown;
   now: number;
   page?: number;
   /** A page sent in `parts` requests: this request shows the `part`-th share of the page's people (see `partsOf`). */
@@ -718,7 +717,7 @@ export function buildSessionRequest({
         timezone,
         handle: handleOf.get(line.place_id) ?? null,
         authorHandle: authorHandleOf.get((line.author_participant ?? line.author_account) as string) ?? null,
-        tags: media.length > 0 ? storedMediaTags(parts, labels, selfName) : [],
+        tags: media.length > 0 ? storedMediaTags(parts, labels) : [],
       })
     );
   }
@@ -879,12 +878,7 @@ export function buildSessionRequest({
     .filter(Boolean)
     .join('\n\n');
   const stored = [stable, ...shownRetrieved];
-  const batchBody = batchBodyOf(db, labels, selfName, {
-    cutoff: stamp(cutoff, timezone),
-    shownMessages,
-    stored,
-    rendered,
-  });
+  const batchBody = batchBodyOf(db, labels, { cutoff: stamp(cutoff, timezone), shownMessages, stored, rendered });
   const user = [
     // `<place>` always has its scope line, so the stable part is never empty.
     { type: 'text' as const, text: `${stable}\n\n`, cacheSegment: 'stable' as const },

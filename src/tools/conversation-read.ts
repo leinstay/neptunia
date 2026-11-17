@@ -24,7 +24,7 @@ import { legendBlock } from '../turn/request/legend.ts';
 import type { MediaName } from '../memory/store-media-names.ts';
 
 /** The options a read renders its lines with: formatTranscript's, and the store's read of a stable name for the legend. */
-type Render = Obj & { mediaNameOf: (name: string) => MediaName | null; selfName: string };
+type Render = Obj & { mediaNameOf: (name: string) => MediaName | null };
 import type { Reads } from '../interface/reads.ts';
 import type { ChatRef, HistoryQuery } from '../protocol/adapter.ts';
 
@@ -384,7 +384,7 @@ function keptLegend(
   if (!mediaNameOf) return [];
   const descriptions = options.descriptions instanceof Map ? new Map<string, string>(options.descriptions) : null;
   const messages = kept.map((item): unknown => byId.get(idText(item.id)));
-  const legend = legendBlock(messages, mediaNameOf, options.labels, options.selfName, descriptions);
+  const legend = legendBlock(messages, mediaNameOf, options.labels, descriptions);
   return legend ? [legend] : [];
 }
 

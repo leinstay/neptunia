@@ -135,7 +135,6 @@ import { isFiniteNumber, objOf } from '../tools/types.ts';
 import { untracked } from '../loop-watch.ts';
 import type { ChatInfo } from '../protocol/adapter.ts';
 import type { Untyped } from '../tools/types.ts';
-import type { RenderRecallWindowsArg2 } from './recall-types.ts';
 import type {
   EmptyStatsResult,
   NewTraceInput,
@@ -1686,7 +1685,7 @@ export function createRecall({
         placeId: window.placeId,
         channelName: window.channelName,
         startTs: lines[0].ts,
-        lines: stretchText(lines, window.messages, render, mediaNameOf),
+        lines: stretchText(lines, window.messages, render.labels, mediaNameOf),
         entries,
       };
     };
@@ -1996,7 +1995,7 @@ export function createRecall({
     config: Untyped,
     placeId: string | null,
     decorate: Untyped,
-    render: RenderRecallWindowsArg2,
+    render: Parameters<typeof renderRecallWindows>[1],
     excerptChars: number,
     nameOf: Untyped,
     captionsFromCache: boolean
@@ -2031,7 +2030,7 @@ export function createRecall({
       const [shown] = renderRecallWindows([window], render);
       const lines = cutStretch(shown?.lines ?? [], excerptChars);
       if (lines.length === 0) continue;
-      const text = stretchText(lines, window.messages, render, mediaNameOf);
+      const text = stretchText(lines, window.messages, render?.labels, mediaNameOf);
       const ids = lines.map((line) => line.id);
       rendered.push({
         source: 'history',

@@ -32,7 +32,6 @@ import {
   observeLine,
   outsideLegend,
   recallRig,
-  tell,
 } from './fixtures/media-memory.ts';
 import type { MediaName } from '../src/memory/store-media-names.ts';
 import type { Env, Kind, Presence } from './fixtures/media-memory.ts';
@@ -379,16 +378,3 @@ test('owner browser: a media row opens with a link to each line that shows it', 
     env.done();
   }
 });
-
-// The owner on 2026-11-17: a stored description names her `@self`, and the memory session reads her name there.
-for (const kindName of ['image', 'sticker'] as const) {
-  test(`session batch: a ${kindName} whose text form names her by the marker shows her name and no marker`, () =>
-    withLine(KINDS.find((one) => one.name === kindName) as Kind, 'absent', (env) => {
-      const kind = KINDS.find((one) => one.name === kindName) as Kind;
-      const [item] = itemsOf(kind, 'pic');
-      tell(env, kind, { ...item, told: '@self holds a lighthouse' });
-      const batch = sessionBatch(env);
-      assert.ok(batch.includes('Self holds a lighthouse'), batch);
-      assert.ok(!batch.includes('@self'), batch);
-    }));
-}

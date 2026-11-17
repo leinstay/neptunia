@@ -304,6 +304,7 @@
       "none": "Measured from the file: this clip has no audible sound. Do not describe any music, speech or sound effects.",
       "map": "Measured from the file's audio levels: sound is audible only during {spans}. Everything outside those stretches is silence."
     },
+    "gifCut": "This clip is the first {seconds} seconds of a GIF that lasts {total} seconds. Describe only what the clip shows.",
     "diary": {
       "intro": "Your latest diary posts, newest first:",
       "line": "- {date} {kind}: {gist}",

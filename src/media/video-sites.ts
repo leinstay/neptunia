@@ -449,7 +449,7 @@ export function ffmpegGifArgs(
       '-y',
       '-hide_banner',
       '-loglevel',
-      'error',
+      'info',
       ...(inputFormat ? ['-f', inputFormat] : []),
       '-i',
       String(inPath),

@@ -129,8 +129,6 @@ export type ReaderInput = {
   mediaNameOf: (name: string) => MediaName | null;
   /** A custom emoji's or a sticker's description by its media key, null when none is known. */
   describe: (key: string) => string | null;
-  /** Her name in the turn's place, put where a description holds `SELF_MARK`. */
-  selfName: string;
   tempoText: string;
   inner: InnerParts;
   /** A diary request's past entries and own parts of `<inner>`; null on any other kind. */
@@ -718,7 +716,6 @@ function offeredOf(given: ReaderInput): Offered {
         frame,
         labels,
         given.nameOf,
-        given.selfName,
         windowHandle(given, names, window),
         handled(given) ? names.meanwhileRefs : null,
         keepsEmoji(given.config)
@@ -870,7 +867,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
  */
 function legendOf(given: ReaderInput, texts: ReadonlyArray<string>, stickers: ReadonlyArray<SeenSticker>): string {
   if (!given.mediaNameOf) return '';
-  return legendText(legendItems(texts, stickers, given.mediaNameOf, given.describe), given.labels, given.selfName);
+  return legendText(legendItems(texts, stickers, given.mediaNameOf, given.describe), given.labels);
 }
 
 /** The stickers the kept lines of `<chat>` and the kept `<meanwhile>` windows show. */
@@ -927,7 +924,6 @@ export function readerRequest(given: ReaderInput): ReaderResult {
       given.frame,
       labels,
       given.nameOf,
-      given.selfName,
       (window) => windowHandle(given, names, window),
       named ? names.meanwhileRefs : null,
       keepsEmoji(given.config)

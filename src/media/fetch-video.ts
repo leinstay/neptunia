@@ -174,7 +174,8 @@ type Failed<R extends string> = { ok: false; reason: R };
 type AttachmentResult =
   | { ok: true; dataUrl: string; mimeType: string; seconds: number | null; bytes: number; audio?: object | null }
   | ClipFailure;
-type GifResult = { ok: true; dataUrl: string; mimeType: string; seconds: number; bytes: number } | ClipFailure;
+type GifResult =
+  { ok: true; dataUrl: string; mimeType: string; seconds: number; bytes: number; totalSeconds?: number } | ClipFailure;
 type SiteProbeResult =
   | { ok: true; durationSec: number | null; title: string | null }
   | { ok: false; reason: 'download' | 'tool' | 'timeout' };
@@ -440,7 +441,7 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
    * A tool still running at `timeoutMs` is killed with its process tree and
    * reported as timed out -- but only once it has closed, or `closeGraceMs`
    * after the kill, so the caller never removes a directory it still writes
-   * to. stderr is read only with `readStderr` (the audio measurement; '' otherwise),
+   * to. stderr is read only with `readStderr` (the audio measurement and a GIF's length; '' otherwise),
    * capped at STDERR_MAX_BYTES, and never logged.
    */
   function runTool({ command, args }: ToolCommand, timeoutMs: number, { readStderr = false }: ReadStderr = {}) {
@@ -856,11 +857,10 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
    * (tenor, giphy) serves for it -- and convert it with ffmpeg into a short
    * mp4 (src/media/video-sites.ts#ffmpegGifArgs: the first `maxSeconds`, at
    * most 360p, no audio), so the video describer can watch what happens in
-   * it. Always converted: a GIF's own length is unknown here, and a .gif is
-   * no video a model takes. The download is capped like an attachment's
+   * it. Always converted: a .gif is no video a model takes. The download is capped like an attachment's
    * (`maxBytes * DOWNLOAD_CEILING_FACTOR`), the clip at `maxBytes`. A missing
-   * or failing ffmpeg is `tool`. `seconds` is `maxSeconds`, the upper bound
-   * the request is estimated at. A PNG is taken when its bytes hold an `acTL` chunk (an APNG sticker) and ffmpeg is
+   * or failing ffmpeg is `tool`. `totalSeconds` is the GIF's length from the `Duration:` of ffmpeg's input section,
+   * absent when it prints none, and `seconds` the clip's length, `maxSeconds` at most and when the length is unknown. A PNG is taken when its bytes hold an `acTL` chunk (an APNG sticker) and ffmpeg is
    * told so, since ffmpeg reads a PNG as one still image otherwise; a still PNG is `download`. Never rejects.
    * @param options `fetchTimeoutMs` falls back to `toolTimeoutMs`.
    */
@@ -882,19 +882,29 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
       if (png === 'still') return fail('gif', url, 'download');
       const inputFormat = png === 'apng' ? 'apng' : null;
 
-      const run = await runTool(ffmpegGifArgs(inPath, outPath, { ffmpegPath, maxSeconds, inputFormat }), toolTimeoutMs);
+      // stderr is read for the input's `Duration:` alone and never logged.
+      const run = await runTool(
+        ffmpegGifArgs(inPath, outPath, { ffmpegPath, maxSeconds, inputFormat }),
+        toolTimeoutMs,
+        {
+          readStderr: true,
+        }
+      );
       if (run.timedOut) return fail('gif', url, 'timeout', { code: runCode(run) });
       if (run.spawnError || run.code !== 0) return fail('gif', url, 'tool', { code: runCode(run) });
 
       const bytes = await sizeOf(outPath);
       if (bytes === null) return fail('gif', url, 'tool', { code: runCode(run) });
       if (bytes > maxBytes) return fail('gif', url, 'size');
+      // An animated PNG may print no duration: its clip is estimated at maxSeconds.
+      const totalSeconds = parseSilenceDetect(run.stderr).durationSec;
       return {
         ok: true,
         dataUrl: await asDataUrl(outPath, 'video/mp4'),
         mimeType: 'video/mp4',
-        seconds: maxSeconds,
+        seconds: totalSeconds === null ? maxSeconds : Math.min(totalSeconds, maxSeconds),
         bytes,
+        ...(totalSeconds === null ? {} : { totalSeconds }),
       };
     } catch (err) {
       return fail('gif', url, 'download', { code: errorCode(err) });
