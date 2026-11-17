@@ -449,6 +449,12 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       labels: hot.prompts?.labels,
       timezone: (hot.config as { bot?: { timezone?: string } }).bot?.timezone ?? 'UTC',
       placeName: (placeId) => draft.requestRefs?.placeRef(placeId) ?? placeId,
+      // A person the request holds a handle for is named by it; one it does not is counted and not named.
+      personName: (key) => {
+        const refs = draft.requestRefs;
+        const handle = refs ? refs.personHandle(key) : null;
+        return handle !== null && refs?.targets.has(handle) ? `@${handle}` : null;
+      },
     });
     return { plan: planned, answer: { status: 'refused', code: CODE.INTENTION_NOTICE, data: { text } } };
   }

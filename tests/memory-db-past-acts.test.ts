@@ -146,6 +146,24 @@ function pastWorld(): World {
   run(world, 'turn:r6', 'i6', 7 * DAY);
   ownLine(world, 'r6-line', GARDEN, 7 * DAY, 'turn:r6');
   answer(world, 'r6-answer', GARDEN, 'r6-line', TURN_NOW - 7 * DAY + 36 * HOUR);
+  // Her line in the room answered first by a bot, then by Ζωή, then by Ελένη.
+  ownLine(world, 'p7', ROOM, 15 * DAY, 'turn:e', NEAR);
+  world.db.prepare("INSERT INTO accounts (id, iface, native_id, kind) VALUES ('fake:999', 'fake', '999', 'bot')").run();
+  for (const [id, author, minutes] of [
+    ['p7-bot', 'fake:999', 30],
+    ['p7-zoe', 'fake:5678', 60],
+    ['p7-eleni', 'fake:111', 120],
+  ] as const) {
+    addLine(world.db, {
+      id,
+      iface: 'fake',
+      place: ROOM,
+      author,
+      text: `ΑΠΑΝΤΗΣΗ-${id}`,
+      at: iso(TURN_NOW - 15 * DAY + minutes * 60_000),
+    });
+    world.db.prepare("UPDATE sources SET reply_to = 'p7' WHERE id = ?").run(id);
+  }
   return world;
 }
 
@@ -185,9 +203,15 @@ test('her near line comes with how many lines people wrote in its place within a
     const answered = acts.find((one) => one.kind === 'line' && one.id === 'p1');
     const quiet = acts.find((one) => one.kind === 'line' && one.id === 'p4');
     assert.ok(answered?.kind === 'line' && quiet?.kind === 'line', JSON.stringify(acts));
-    assert.deepEqual(answered.after, { lines: 2, people: 2, answers: 1, direct: false });
+    assert.deepEqual(answered.after, {
+      lines: 2,
+      people: 2,
+      answers: 1,
+      answeredBy: ['person:fake:111'],
+      direct: false,
+    });
     assert.equal(answered.placeId, GARDEN);
-    assert.deepEqual(quiet.after, { lines: 0, people: 0, answers: 0, direct: false });
+    assert.deepEqual(quiet.after, { lines: 0, people: 0, answers: 0, answeredBy: [], direct: false });
   } finally {
     world.close();
   }
@@ -287,7 +311,9 @@ test('a run that wrote in a direct chat reports a line that answered it a day an
   // Bug: a direct chat is counted within a day, so a person who answered two days later reads as silent.
   const world = pastWorld();
   try {
-    assert.deepEqual(followOf(world, 'i5'), [{ lines: 1, people: 1, answers: 1, direct: true }]);
+    assert.deepEqual(followOf(world, 'i5'), [
+      { lines: 1, people: 1, answers: 1, answeredBy: ['person:fake:5678'], direct: true },
+    ]);
   } finally {
     world.close();
   }
@@ -297,7 +323,9 @@ test('a run that wrote in a group chat reports no line within the day and the on
   // Bug: an answer after the day is lost in a group chat, or every later line of a busy room is counted.
   const world = pastWorld();
   try {
-    assert.deepEqual(followOf(world, 'i6'), [{ lines: 0, people: 0, answers: 1, direct: false }]);
+    assert.deepEqual(followOf(world, 'i6'), [
+      { lines: 0, people: 0, answers: 1, answeredBy: ['person:fake:5678'], direct: false },
+    ]);
   } finally {
     world.close();
   }
@@ -308,6 +336,32 @@ test('a run that sent no line reports nothing after it', () => {
   const world = pastWorld();
   try {
     assert.deepEqual(followOf(world, 'i2'), [null]);
+  } finally {
+    world.close();
+  }
+});
+
+/** What followed her line `id` among the acts. */
+function lineFollow(world: World, id: string) {
+  const found = actsOf(world, {}).find((one) => one.kind === 'line' && one.id === id);
+  return found?.kind === 'line' ? found.after : null;
+}
+
+test('two lines that answer hers by two people name both, in the order they answered', () => {
+  // Bug: the count of answers says nothing of who answered, so an answer from a bystander reads as the person's.
+  const world = pastWorld();
+  try {
+    assert.deepEqual(lineFollow(world, 'p7')?.answeredBy, ['person:fake:5678', 'person:fake:111']);
+  } finally {
+    world.close();
+  }
+});
+
+test('a line of a bot that answers hers is no answer', () => {
+  // Bug: a bot's automatic reply counts as someone answering her.
+  const world = pastWorld();
+  try {
+    assert.equal(lineFollow(world, 'p7')?.answers, 2);
   } finally {
     world.close();
   }

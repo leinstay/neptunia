@@ -6,6 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { roleModel } from '../src/llm/roles.ts';
+import { noticeText } from '../src/turn/intention-notice.ts';
+import type { PastAct } from '../src/memory/db/past-acts.ts';
 import { quantize } from '../src/memory/vectors.ts';
 import { chainsOnDefaults } from './fixtures/chains.ts';
 import { addLine } from './fixtures/memory-db/mind-world.ts';
@@ -166,4 +168,18 @@ test('an intention set in a chat turn near the same post is saved with no notice
   } finally {
     world.close();
   }
+});
+
+/** The notice of one intention of `status` that no run carried, under labels that mark which wording was chosen. */
+function noRunNotice(status: string): string {
+  const act: PastAct = { kind: 'intention', id: 'i1', score: 0.9, at: TURN_NOW, status, purpose: 'Π', runs: [] };
+  const labels = { heartbeat: { notice: { intention: '{state}', notRun: 'NOT-YET', noRunRecorded: 'NO-RECORD' } } };
+  return noticeText([act], { id: 'notice-1', labels, timezone: 'UTC', placeName: (id) => id, personName: () => null });
+}
+
+test('a closed intention no run names says the record holds no turn, and an open one that it is not carried out yet', () => {
+  // Bug: a done intention older than the record of runs reads as never carried out, which contradicts its state.
+  assert.ok(noRunNotice('done').includes('NO-RECORD'));
+  assert.ok(!noRunNotice('done').includes('NOT-YET'));
+  assert.ok(noRunNotice('pending').includes('NOT-YET'));
 });

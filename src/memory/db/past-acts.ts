@@ -20,9 +20,10 @@ export type PastLine = {
 /**
  * What followed lines of hers in their place: people's lines after the last of them, bots aside, within `AFTER_MS` in a
  * group chat and up to now in a direct chat (`direct`), how many people wrote them, and how many lines of any time answer
- * one of hers by `reply_to`.
+ * one of hers by `reply_to`, bots aside, with the people who wrote those (`answeredBy`): a person id, or the account where
+ * a line holds no person, each once, at most ANSWERERS, in the order of their first answer.
  */
-export type Follow = { lines: number; people: number; answers: number; direct: boolean };
+export type Follow = { lines: number; people: number; answers: number; answeredBy: Array<string>; direct: boolean };
 /** A near line as the vector read finds it, with the message id its answers name. */
 type FoundLine = Omit<PastLine, 'after'> & { nativeId: string };
 /**
@@ -46,6 +47,8 @@ export type OwnIntention = { id: string; purpose: string; createdAt: number; sta
 
 /** How long after a line of hers in a group chat what people wrote there counts as what followed it. */
 const AFTER_MS = 86_400_000;
+/** The most people a notice names as having answered one act. */
+const ANSWERERS = 3;
 
 const momentOf = (value: unknown): number | null => {
   const at = typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN;
@@ -154,17 +157,24 @@ function followOf(
          AND COALESCE(a.kind, 'user') <> 'bot'`
     )
     .get(placeId, from, new Date(direct ? now : at + AFTER_MS).toISOString());
-  const answers = db
+  const answerers = db
     .prepare(
-      `SELECT COUNT(DISTINCT s.native_id) AS n FROM sources s
+      `SELECT COALESCE(s.author_person, s.author_account) AS who, COUNT(DISTINCT s.native_id) AS n,
+         MIN(s.occurred_at) AS first
+       FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
        WHERE s.place_id = ? AND s.occurred_at > ? AND s.kind = 'seen' AND s.retired_at IS NULL
-         AND s.reply_to IN (${nativeIds.map(() => '?').join(', ')})`
+         AND s.reply_to IN (${nativeIds.map(() => '?').join(', ')}) AND COALESCE(a.kind, 'user') <> 'bot'
+       GROUP BY who ORDER BY first, who`
     )
-    .get(placeId, from, ...nativeIds);
+    .all(placeId, from, ...nativeIds);
   return {
     lines: Number(window?.n ?? 0),
     people: Number(window?.people ?? 0),
-    answers: Number(answers?.n ?? 0),
+    answers: answerers.reduce((sum, row) => sum + Number(row.n ?? 0), 0),
+    answeredBy: answerers
+      .map((row) => row.who)
+      .filter((who): who is string => typeof who === 'string')
+      .slice(0, ANSWERERS),
     direct,
   };
 }

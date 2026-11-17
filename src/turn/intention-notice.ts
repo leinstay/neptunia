@@ -169,22 +169,36 @@ export function noteShown(state: NoticeState, acts: ReadonlyArray<PastAct>): voi
 /** A label of `labels.heartbeat.notice`, '' when it is missing. */
 const word = (words: Obj, key: string): string => (typeof words[key] === 'string' ? words[key] : '');
 
+/** How the notice names places and people: a place as the request names it, a person by a handle it holds or not at all. */
+type Names = { placeName: (id: string) => string; personName: (id: string) => string | null };
+
 /**
- * What followed lines of hers: `followed` or `followedDirect` with the counts while anything followed, else `noReply`
- * or `noReplyDirect`.
+ * What followed lines of hers. A group chat says first who answered (`answers` with the people the request names, or
+ * `answersUnnamed`, or `noAnswer`), then the lines of the day after (`dayLines`, or `dayQuiet`). A direct chat, whose
+ * partner is plain from the place, says `followedDirect` with the counts while anything followed, else `noReplyDirect`.
  */
-function followText(after: Follow, words: Obj): string {
-  if (after.lines === 0 && after.answers === 0) return word(words, after.direct ? 'noReplyDirect' : 'noReply');
-  const values = { lines: after.lines, people: after.people, answers: after.answers };
-  return fill(word(words, after.direct ? 'followedDirect' : 'followed'), values);
+function followText(after: Follow, words: Obj, { personName }: Names): string {
+  if (after.direct) {
+    if (after.lines === 0 && after.answers === 0) return word(words, 'noReplyDirect');
+    return fill(word(words, 'followedDirect'), { lines: after.lines, people: after.people, answers: after.answers });
+  }
+  const names = after.answeredBy.map(personName).filter((name): name is string => name !== null);
+  const answered =
+    after.answers === 0
+      ? word(words, 'noAnswer')
+      : names.length > 0
+        ? fill(word(words, 'answers'), { answers: after.answers, names: names.join(', ') })
+        : fill(word(words, 'answersUnnamed'), { answers: after.answers });
+  const day = after.lines > 0 ? fill(word(words, 'dayLines'), { lines: after.lines }) : word(words, 'dayQuiet');
+  return `${answered}; ${day}`;
 }
 
+/** An intention's states that are still open: one with no run is not carried out yet. */
+const OPEN_STATES: ReadonlyArray<string> = ['pending', 'waiting'];
+
 /** One act as its line of the notice. */
-function actLine(
-  act: PastAct,
-  words: Obj,
-  { timezone, placeName }: { timezone: string; placeName: (id: string) => string }
-) {
+function actLine(act: PastAct, words: Obj, { timezone, names }: { timezone: string; names: Names }) {
+  const { placeName } = names;
   const date = formatDay(act.at, timezone);
   if (act.kind === 'line') {
     const place = placeName(act.placeId);
@@ -192,7 +206,7 @@ function actLine(
       act.text === null
         ? fill(word(words, 'linePrivate'), { date, place })
         : fill(word(words, 'line'), { date, place, text: act.text });
-    return `${said}; ${followText(act.after, words)}`;
+    return `${said}; ${followText(act.after, words, names)}`;
   }
   const states = objOf(words.states);
   const state = typeof states[act.status] === 'string' ? states[act.status] : act.status;
@@ -203,15 +217,18 @@ function actLine(
           date: formatDay(run.at, timezone),
           sent: run.sent,
           places: run.placeIds.map(placeName).join(', '),
-        })}; ${followText(run.after, words)}`
+        })}; ${followText(run.after, words, names)}`
   );
   const intention = fill(word(words, 'intention'), { date, state, purpose: act.purpose });
-  return [intention, ...(runs.length > 0 ? runs : [word(words, 'notRun')])].join('; ');
+  // A closed intention no run names is older than the record of runs, or ended without one: the record says no more.
+  const none = word(words, OPEN_STATES.includes(act.status) ? 'notRun' : 'noRunRecorded');
+  return [intention, ...(runs.length > 0 ? runs : [none])].join('; ');
 }
 
 /**
  * The notice of `acts`: the lead with its id, one line per act and the ways on, from `labels.heartbeat.notice`
- * (`lead`, `line`, `linePrivate`, `followed`, `noReply`, `followedDirect`, `noReplyDirect`, `intention`, `states`, `run`, `runSilent`, `notRun`, `ways`).
+ * (`lead`, `line`, `linePrivate`, `answers`, `answersUnnamed`, `noAnswer`, `dayLines`, `dayQuiet`, `followedDirect`,
+ * `noReplyDirect`, `intention`, `states`, `run`, `runSilent`, `notRun`, `noRunRecorded`, `ways`).
  */
 export function noticeText(
   acts: ReadonlyArray<PastAct>,
@@ -220,13 +237,20 @@ export function noticeText(
     labels,
     timezone,
     placeName,
-  }: { id: string; labels: unknown; timezone: string; placeName: (id: string) => string }
+    personName,
+  }: {
+    id: string;
+    labels: unknown;
+    timezone: string;
+    placeName: (id: string) => string;
+    personName: (id: string) => string | null;
+  }
 ): string {
   const words = objOf(objOf(labels).heartbeat).notice;
   const table = objOf(words);
   return [
     fill(word(table, 'lead'), { id }),
-    ...acts.map((act) => `- ${actLine(act, table, { timezone, placeName })}`),
+    ...acts.map((act) => `- ${actLine(act, table, { timezone, names: { placeName, personName } })}`),
     fill(word(table, 'ways'), { id }),
   ].join('\n');
 }

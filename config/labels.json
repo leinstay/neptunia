@@ -348,8 +348,11 @@
         "lead": "{id} lists related past activity, nearest first:",
         "line": "{date}, in {place}, you wrote: {text}",
         "linePrivate": "{date}, you wrote in {place}",
-        "followed": "lines by people there within a day after it: {lines}, from {people} people; lines that answer it: {answers}",
-        "noReply": "nobody wrote there within a day after it",
+        "answers": "lines that answer it: {answers}, by {names}",
+        "answersUnnamed": "lines that answer it: {answers}",
+        "noAnswer": "no line answers it",
+        "dayLines": "lines by people there within a day after it: {lines}",
+        "dayQuiet": "nobody wrote there within a day after it",
         "followedDirect": "lines by people there since then: {lines}, from {people} people; lines that answer it: {answers}",
         "noReplyDirect": "nobody wrote there since then",
         "intention": "{date}, you set an intention, now {state}: {purpose}",
@@ -363,7 +366,8 @@
         },
         "run": "the turn that carried it out on {date} sent lines: {sent}, in {places}",
         "runSilent": "the turn that carried it out on {date} sent nothing",
-        "notRun": "no turn has carried it out",
+        "notRun": "no turn has carried it out yet",
+        "noRunRecorded": "the record holds no turn for it",
         "ways": "Three ways on: save it unchanged with intention.set and confirm {id}, which needs no reason; change it and call intention.set with the changed intention; or leave it, with <skip/> or with no further call."
       }
     },
