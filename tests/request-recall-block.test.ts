@@ -52,6 +52,15 @@ test('a lookup of one turn renders in <recall> of the next with where from, what
   assert.notEqual(text, failed, 'the status is rendered');
 });
 
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('the ring keeps an extract longer than extractChars whole, with no ellipsis', () => {
+  const extract = 'ΑΠΟΣΠΑΣΜΑ-ΚΗΠΟΥ με τριαντάφυλλα και λεμονιές. '.repeat(40).trim();
+  const ring = createLookupRing([]);
+  ring.note(lookup({ extract }), SETTINGS);
+  const [kept] = ring.forPlace('place:room', lines('m10'), NOW);
+  assert.equal(kept?.extract, extract);
+});
+
 test('a lookup leaves the ring when its anchor leaves the window', () => {
   // Bug: lookups pile up for ever, a hundred turns giving a hundred extracts.
   const ring = createLookupRing([]);

@@ -155,6 +155,15 @@ function readsOf(members: Record<string, Member | 'failed'>, asked: Array<string
   });
 }
 
+/** The stored description of u1's avatar, or undefined when none is stored. */
+function avatarText(store: ReturnType<typeof fakeStore>): unknown {
+  const avatar: unknown = profileOf(store, 'u1').avatar;
+  return avatar && typeof avatar === 'object' && 'text' in avatar ? avatar.text : undefined;
+}
+
+/** The summarizer as the avatar describer calls it: a picture's description over its limit, retold once. */
+type AvatarSummarize = (text: string, options: { maxChars: number; kind: 'picture' }) => Promise<string>;
+
 function setup({
   profiles = { u1: {} } as Record<string, Untyped>,
   hot = fakeHot(),
@@ -164,6 +173,7 @@ function setup({
   now = clock(),
   members = {},
   paused = false,
+  summarize = null as AvatarSummarize | null,
 } = {}) {
   const store = fakeStore(profiles);
   const log = fakeLog();
@@ -181,6 +191,7 @@ function setup({
     selfId: () => SELF,
     paused: () => paused,
     reads: readsOf(members),
+    ...(summarize ? { summarize } : {}),
   });
   return { queue, store, llm, imageFetcher, state, now, log, hot };
 }
@@ -275,9 +286,9 @@ test('tick: a default avatar is stored without any request or download', async (
   assert.ok(log.entries.some((entry) => entry.msg === 'avatars: described' && entry.default === true));
 });
 
-test('tick: one vision request on purpose avatar, the prompt filled, one clamped line stored', async () => {
-  const long = `a fox in a red scarf ${'and more '.repeat(40)}\nsecond line`;
-  const { queue, store, llm, imageFetcher, log } = setup({ llm: fakeLlm(long) });
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('tick: one vision request on purpose avatar, the prompt filled, the whole answer stored on one line when it fits', async () => {
+  const { queue, store, llm, imageFetcher, log } = setup({ llm: fakeLlm('a fox in a red scarf\nsecond line') });
   queue.offer(ROOT, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'described');
   assert.equal(imageFetcher.calls.length, 1);
@@ -292,15 +303,43 @@ test('tick: one vision request on purpose avatar, the prompt filled, one clamped
   assert.equal(options.countAgainstDailyCap, true);
   const stored = profileOf(store, 'u1').avatar as { hash: string; text: string; describedAt: string };
   assert.equal(stored.hash, 'h1');
-  assert.ok(stored.text.startsWith('a fox in a red scarf'));
-  assert.ok(Array.from(stored.text).length <= 200, stored.text);
-  assert.ok(!stored.text.includes('second line'));
+  assert.equal(stored.text, 'a fox in a red scarf second line');
   assert.equal(stored.describedAt, new Date(NOW).toISOString());
   // Counts and codes only: never the text or the url.
   const described = log.entries.find((entry) => entry.msg === 'avatars: described');
   assert.ok(described);
   assert.ok(!JSON.stringify(log.entries).includes('fox'));
   assert.ok(!JSON.stringify(log.entries).includes('cdn.example'));
+});
+
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('tick: an answer over 200 characters goes to summarize once as a picture and its answer is stored', async () => {
+  const long = `a fox in a red scarf ${'and more '.repeat(40)}`;
+  const calls: Array<{ text: string; options: { maxChars: number; kind: 'picture' } }> = [];
+  const summarize: AvatarSummarize = (text, options) => {
+    calls.push({ text, options });
+    return Promise.resolve('a fox in a red scarf');
+  };
+  const { queue, store } = setup({ llm: fakeLlm(long), summarize });
+  queue.offer(ROOT, view('u1', 'h1'));
+  await queue.tick();
+  assert.deepEqual(
+    calls.map((one) => one.options),
+    [{ maxChars: 200, kind: 'picture' }]
+  );
+  assert.equal(avatarText(store), 'a fox in a red scarf');
+});
+
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('tick: a summary still over 200 characters is stored whole', async () => {
+  const still = `a fox in a red scarf ${'and still more '.repeat(30)}`.trim();
+  const { queue, store } = setup({
+    llm: fakeLlm(`a fox ${'and more '.repeat(40)}`),
+    summarize: () => Promise.resolve(still),
+  });
+  queue.offer(ROOT, view('u1', 'h1'));
+  await queue.tick();
+  assert.equal(avatarText(store), still);
 });
 
 test('tick: one request at a time, 20 s apart on the injected clock', async () => {
