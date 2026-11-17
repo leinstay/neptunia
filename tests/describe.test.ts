@@ -2466,7 +2466,8 @@ test('describe: a GIF embed is fetched by its stored mp4 address with no call of
   );
 });
 
-test('describe: a cached one-frame GIF caption is served as it is, never re-watched automatically', async () => {
+// The owner on 2026-11-17: a GIF is never described from one frame.
+test('describe: a cached GIF text is served as it is, never re-watched automatically', async () => {
   const run = gifDescriber();
   loose(cacheView(run.store, 'g1'))['m1#e0'] = {
     text: 'a sign in a foreign script',
@@ -2599,15 +2600,14 @@ const WATCHED_GIF_ENTRY = {
   gif: true,
 };
 
+// The owner on 2026-11-17: a GIF is never described from one frame.
 test('watchedGifs: only watched GIF entries with an animation, from the cache alone', async () => {
   const run = gifDescriber({ hot: gifRewatchHot() });
   const cache = cacheView(run.store, 'g1');
   loose(cache)['m1#e0'] = { ...WATCHED_GIF_ENTRY };
-  loose(cache)['m2#e0'] = { text: 'one frame', ts: 1, gif: true };
   loose(cache)['m3#e0'] = { ...WATCHED_GIF_ENTRY };
   const items = [
     gifEmbedItem('m1#e0'),
-    gifEmbedItem('m2#e0', { messageId: 'm2' }),
     gifEmbedItem('m3#e0', { messageId: 'm3', animationUrl: undefined }),
     pictureItem('p1'),
   ];

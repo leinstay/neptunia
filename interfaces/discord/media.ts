@@ -82,16 +82,14 @@ export function discordCdnVideo(url: string): { id: string; name: string } | nul
  * e.g. a tenor embed's thumbnail) accepts the same parameters and gets them
  * the same way, but keeps its own host: its path is proxy-specific. Every
  * other host is returned unchanged (its own thumbnail is already a plain
- * image, not a video needing frame extraction). `animated` (when
- * given) sets the proxy's `animated` param: `false` asks for one still frame
- * of an animated picture. The proxy fills a `width` x `height` box and centre-crops
+ * image, not a video needing frame extraction). The proxy fills a `width` x `height` box and centre-crops
  * to it (a lone `width` or `height` is ignored), so callers pass either a
  * pair of the picture's own aspect (fitBox) or no size at all.
  * Best-effort: an unparsable URL is returned as-is.
  */
 export function mediaProxyUrl(
   url: string,
-  { width, height, format, animated }: { width?: number; height?: number; format?: string; animated?: boolean } = {}
+  { width, height, format }: { width?: number; height?: number; format?: string } = {}
 ): string {
   let parsed;
   try {
@@ -104,7 +102,6 @@ export function mediaProxyUrl(
   if (width != null) parsed.searchParams.set('width', String(width));
   if (height != null) parsed.searchParams.set('height', String(height));
   if (format) parsed.searchParams.set('format', format);
-  if (typeof animated === 'boolean') parsed.searchParams.set('animated', String(animated));
   return parsed.toString();
 }
 

@@ -61,6 +61,7 @@ export const labels = {
     imageAttached: '[picture #{n}, attached]',
     imageDescribed: '[image: {text}]',
     gif: '[gif: {name}]',
+    gifNotWatched: '[gif: {name}, not watched: {reason}]',
     gifDescribed: '[gif: {text}]',
     gifKnown: '[gif {id}: {text}]',
     gifKnownNoText: '[gif {id}: {name}]',
@@ -104,6 +105,11 @@ export const labels = {
       size: 'too big',
       error: 'failed',
       pending: 'still loading',
+      download: 'could not download',
+      timeout: 'took too long',
+      tool: 'could not convert',
+      llm: 'the viewer failed',
+      empty: 'the viewer said nothing',
     },
   },
   channelDirectory: {
@@ -113,7 +119,6 @@ export const labels = {
   senses: {
     imageSee: 'you can see pictures attached to a request with your own eyes',
     imageDescribed: 'pictures not attached to you come with a helper\'s one-line caption',
-    gifDescribed: 'gifs you do not see yourself come with a caption of their frame',
     gifWatched: 'gifs you do not see yourself come with a caption of the watched loop',
     videoDescribed: 'videos come with a caption of one frame, never the motion or sound',
     videoWatch: 'short videos come with a summary of what was watched, or why not',

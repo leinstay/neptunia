@@ -174,16 +174,6 @@ test('normalizeMessage: an attachment of the Discord CDN is expiring and carries
   assert.equal(preview.searchParams.get('hm'), 'abc123', 'the signature survives');
 });
 
-test('normalizeMessage: the preview url of a GIF attachment asks for one still frame', () => {
-  const url = `https://cdn.discordapp.com/attachments/111/222/loop.gif?${SIGNED}`;
-  const raw = rawMessage({
-    attachments: new Map([['a1', { id: 'a1', contentType: 'image/gif', name: 'loop.gif', url, size: 5 }]]),
-  });
-  const [attachment] = normalizeMessage(raw, 'self').attachments;
-  assert.equal(attachment.kind, 'gif');
-  assert.equal(new URL(attachment.previewUrl ?? '').searchParams.get('animated'), 'false');
-});
-
 test('normalizeMessage: a link on the Discord CDN is expiring and a link elsewhere is not', () => {
   const cdn = `https://media.discordapp.net/attachments/1/2/dance.gif?${SIGNED}`;
   const embed = {
@@ -222,20 +212,6 @@ test('normalizeMessage: the preview of an image of known size keeps its aspect i
     height: 1306,
   });
   assert.equal(preview, 'https://media.discordapp.net/attachments/1/2/pic.png?ex=1&width=194&height=256&format=webp');
-});
-
-test('normalizeMessage: the preview of a GIF of known size is one still png frame inside media.imageSize', () => {
-  const preview = attachmentPreview({
-    contentType: 'image/gif',
-    name: 'anim.gif',
-    url: 'https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=1',
-    width: 498,
-    height: 280,
-  });
-  assert.equal(
-    preview,
-    'https://media.discordapp.net/attachments/1/2/anim.gif?ex=1&width=256&height=144&format=png&animated=false'
-  );
 });
 
 test('normalizeMessage: the preview of a picture of unknown size carries no width or height', () => {

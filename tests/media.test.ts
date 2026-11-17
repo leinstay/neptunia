@@ -190,33 +190,14 @@ test('mediaProxyUrl: replaces existing width/height/format instead of duplicatin
   assert.equal([...parsed.searchParams.keys()].filter((k) => k === 'width').length, 1, 'no duplicate keys');
 });
 
-test('mediaProxyUrl: animated: false asks the proxy for a single still frame, replacing an existing value', () => {
-  const url = mediaProxyUrl(`https://cdn.discordapp.com/attachments/1/2/anim.gif?animated=true&${SIGNED_QUERY}`, {
-    width: 512,
-    height: 512,
-    format: 'png',
-    animated: false,
-  });
-  const parsed = new URL(url);
-  assert.equal(parsed.hostname, 'media.discordapp.net');
-  assert.equal(parsed.searchParams.get('format'), 'png');
-  assert.equal(parsed.searchParams.get('animated'), 'false');
-  assert.equal(parsed.searchParams.getAll('animated').length, 1, 'no duplicate keys');
-  assert.equal(parsed.searchParams.get('ex'), '671f1a00');
-});
-
-test('mediaProxyUrl: without the animated option no animated param is added', () => {
-  const url = mediaProxyUrl(`https://cdn.discordapp.com/x/pic.png?${SIGNED_QUERY}`, { width: 512, format: 'webp' });
-  assert.equal(new URL(url).searchParams.has('animated'), false);
-});
-
+// The owner on 2026-11-17: a GIF is never described from one frame.
 test('mediaProxyUrl: an images-ext-<n>.discordapp.net URL keeps its host and path, parameters appended to the existing query', () => {
   const original = 'https://images-ext-1.discordapp.net/external/abc123/https/media.tenor.com/x/anim.gif?ex=1&is=2';
-  const url = mediaProxyUrl(original, { width: 512, height: 512, format: 'png', animated: false });
+  const url = mediaProxyUrl(original, { width: 512, height: 512, format: 'png' });
   const parsed = new URL(url);
   assert.equal(parsed.hostname, 'images-ext-1.discordapp.net');
   assert.equal(parsed.pathname, '/external/abc123/https/media.tenor.com/x/anim.gif');
-  assert.equal(url, `${original}&width=512&height=512&format=png&animated=false`);
+  assert.equal(url, `${original}&width=512&height=512&format=png`);
 });
 
 test('mediaProxyUrl: any images-ext-<n> number is rewritten, a lookalike host is not', () => {

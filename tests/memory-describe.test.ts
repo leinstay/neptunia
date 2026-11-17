@@ -101,9 +101,18 @@ test('describeMany: a picture is still described while only video is off', async
 });
 
 // Bug caught: the GIF check keyed on the wrong role, so a GIF with video on is left undescribed.
+// The owner on 2026-11-17: a GIF is never described from one frame.
 test('describeMany: a GIF with video on is described', async () => {
   const on = rig(ON);
-  const gif = picture('g1', 'gif', 'https://cdn.discordapp.com/x/anim.gif');
+  loose(on.videoFetcher).fetchGif = () =>
+    Promise.resolve({ ok: true, dataUrl: 'data:video/mp4;base64,AAAA', mimeType: 'video/mp4', seconds: 3, bytes: 3 });
+  const gif = {
+    ...picture('g1', 'gif', 'https://images-ext-1.discordapp.net/external/t/https/media.tenor.com/x/AAAAe/still.png'),
+    source: 'embed',
+    messageId: 'm1',
+    name: 'Tenor',
+    animationUrl: 'https://images-ext-1.discordapp.net/external/v/https/media.tenor.com/x/AAAPo/loop.mp4',
+  };
   await on.describer.describeMany('g1', [gif], { maxNew: 5 });
   assert.ok(on.llm.calls.length >= 1, 'a request went out');
 });
