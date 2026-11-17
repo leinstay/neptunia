@@ -50,14 +50,14 @@ test("an agent's route lands in config.json and keys.json gains nothing", async 
   const { dir, deps } = rig();
   const before = keysText(dir);
   assert.equal((await setAgentModel(deps, 'server', 'claude-sonnet-5-5', 'high', 'claude')).ok, true);
-  assert.equal((await setUnitMode(dir, 'host', 'full')).ok, true);
+  assert.equal((await setUnitMode(dir, 'server', 'full')).ok, true);
   const { models } = configOf(dir);
   assert.deepEqual(models?.agents, {
     via: { server: 'claude' },
     model: { server: 'claude-sonnet-5-5' },
     effort: { server: 'high' },
     // Changed: the mode is the server's unit's, `host`.
-    mode: { host: 'full' },
+    mode: { server: 'full' },
   });
   assert.equal(keysText(dir), before);
 });

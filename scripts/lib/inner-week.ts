@@ -50,6 +50,7 @@ import {
   wakeOfDue,
   POSTING_SKILLS,
 } from '../../src/behavior/inner.ts';
+import { ERRAND_TOOLS } from '../../src/tools/definitions.ts';
 import { createEventDoor } from '../../src/interface/door.ts';
 import { createIntentionStores } from '../../src/intentions/store.ts';
 import { createIntentionService } from '../../src/intentions/service.ts';
@@ -618,12 +619,12 @@ export async function runWeek({
       const cancelled = intentions.cancel(String(args.id ?? ''), { by: 'persona' });
       return cancelled.ok ? { ok: true } : { ok: false, code: cancelled.code };
     }
-    if (call.skill === 'errand.add') {
+    if (Object.hasOwn(ERRAND_TOOLS, call.skill)) {
       world.taskSeq += 1;
       const id = `task-${world.taskSeq}`;
       world.tasks.set(id, {
         id,
-        agent: null,
+        agent: ERRAND_TOOLS[call.skill],
         state: 'running',
         origin: { turnId },
         ...(key ? { idempotencyKey: key } : {}),

@@ -45,7 +45,6 @@ export function fixture(): {
   const definition: AgentDefinition = {
     id: 'scout',
     description: 'A synthetic agent.',
-    unit: 'web',
     prompt: 'prompt.md',
     limits: { steps: 25, seconds: 300 },
     daily: { tasks: 40 },

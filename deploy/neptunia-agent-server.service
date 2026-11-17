@@ -1,10 +1,9 @@
-# systemd unit of the host agents (src/agent-runner/): the runner of every agent
-# whose profile says `"unit": "host"`.
+# systemd unit of the agent `server` (src/agent-runner/): its errand runner.
 #
 # A separate, unprivileged process that runs read-only errands on this server
-# (`codex exec -s read-only` in the mode `read`), one errand per agent at a
-# time: it reads files and runs read-only shell commands to answer the owner's
-# questions about the machine. The backend runs from
+# (`codex exec -s read-only` in the mode `read`), one errand at a
+# time: it reads files and runs read-only shell commands to answer questions
+# about the machine. The backend runs from
 # <private>/subharness/<backend>/, which holds its binary and its login.
 # Its network reaches only the local resolver, Cloudflare's ranges, where
 # chatgpt.com, api.openai.com and auth.openai.com sit, and Anthropic's own
@@ -23,14 +22,14 @@
 #
 # `neptunia setup` renders this template for the installing user
 # (deploy/README.md). The sandbox below is the mode `read`; `agent mode
-# host <mode>` in the chat sets the mode, which the next `neptunia setup`
+# server <mode>` in the chat sets the mode, which the next `neptunia setup`
 # renders into the unit: `full` drops the mount
 # sandbox (ProtectSystem, ProtectHome and the bind and write paths) and `sudo`
 # also drops NoNewPrivileges and the capability bounding set.
-# Logs:    journalctl -u neptunia-agent-host -f
+# Logs:    journalctl -u neptunia-agent-server -f
 
 [Unit]
-Description=neptunia host errand agents
+Description=neptunia server errand agent
 After=network.target
 
 [Service]
@@ -38,7 +37,7 @@ Type=simple
 User=neptunia
 Group=neptunia-discord-interface
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --unit host
+ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --unit server
 # Node's folder goes on the PATH; the backend is started by its path in the private layer.
 Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 # The bot's data directory, set as in the core unit (deploy/neptunia-core.service).
@@ -79,13 +78,13 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
-StateDirectory=neptunia-agent-host
-RuntimeDirectory=neptunia-agent-host
+StateDirectory=neptunia-agent-server
+RuntimeDirectory=neptunia-agent-server
 RuntimeDirectoryMode=0750
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=neptunia-agent-host
+SyslogIdentifier=neptunia-agent-server
 
 [Install]
 WantedBy=multi-user.target

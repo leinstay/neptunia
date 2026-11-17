@@ -1,10 +1,9 @@
-// Operations `errand.add`, `errand.list`, `errand.cancel`, `errand.read` and `errand.resolve`, reached by
-// `errand.add|status|cancel|result|resolve`: the persona's errands handed to her agents
-// (src/errands/, src/agent-runner/). Their rules are here, for every caller alike: the owner's command
-// and the persona's own call (her skills: the requester of her turn is the caller).
-// `errand.add` names no agent, and the dispatcher picks one before the errand runs (src/errands/service.ts), unless an
-// owner names the agent (`/errands add <agent> <goal>`): naming an agent is the owner's alone (`owner-only`). An errand asked in a private chat is `dm`-scoped,
-// else `group`, and the runner withholds more in a filtered scope. `errand.add` answers at once
+// Operations `errand.server`, `errand.scout`, `errand.code`, `errand.list`, `errand.cancel`, `errand.read` and
+// `errand.resolve`: the persona's errands handed to her agents (src/errands/, src/agent-runner/). Their rules are here,
+// for every caller alike: the owner's command (`/errands add <agent> <goal>` runs the tool of that agent) and the
+// persona's own call (her skills: the requester of her turn is the caller). Each of the three tools that file an errand
+// files it for the agent of its name (ERRAND_TOOLS). An errand asked in a private chat is `dm`-scoped,
+// else `group`, and the runner withholds more in a filtered scope. A filing tool answers at once
 // with the id and `queued`: the errand runs in the background (src/errands/service.ts) and its
 // end opens her own turn where it was asked. `errand.cancel` is for the requester of the errand or an
 // owner; `errand.list` shows a private chat's errands only to their requester or an
@@ -14,7 +13,7 @@
 // pages of `errands.resultMaxChars` (the error, the sources and the files with their handles and
 // whether they expired come with the first page) and marks the errand read when its last page is
 // returned; `errand.resolve id` closes a finished errand (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line. A
-// `errand.add` of her turn links the intentions of that turn waiting for its errand (src/intentions/). In a heartbeat or
+// filing tool of her turn links the intentions of that turn waiting for its errand (src/intentions/). In a heartbeat or
 // a diary turn her call carries `waitMs` and waits for the errand's end: its answer is the result as a result turn
 // shows it (src/errands/blocks.ts), `failed` with the errand's own code or `cancelled`, or, past `waitMs`,
 // `errand-wait-ended` with the errand still running and unread.
@@ -27,6 +26,7 @@ import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../../errands/blocks
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
+import { ERRAND_TOOLS } from '../definitions.ts';
 import { windowBound } from './shared.ts';
 import type { Obj, OpContext } from '../types.ts';
 import type { ErrandRecord, ErrandService, WaitResult } from '../../errands/types.ts';
@@ -83,7 +83,7 @@ const handlers = perEnv((env) => {
     );
   }
 
-  /** One line of an errand: id, agent (`-` before it has one), state (with the error code and `files-expired`), age, goal. */
+  /** One line of an errand: id, agent, state (with the error code and `files-expired`), age, goal. */
   function errandLine(errand: ErrandRecord): string {
     const minutes = Math.max(0, Math.floor((now() - (errand.createdAt ?? now())) / MINUTE_MS));
     const codes = [
@@ -91,7 +91,7 @@ const handlers = perEnv((env) => {
       ...(errand.filesExpired === true ? ['files-expired'] : []),
     ];
     const state = codes.length > 0 ? `${errand.state} (${codes.join(', ')})` : errand.state;
-    return `${errand.id} ${errand.agent ?? '-'} ${state} ${minutes}m: ${oneLine(errand.goal)}`;
+    return `${errand.id} ${errand.agent} ${state} ${minutes}m: ${oneLine(errand.goal)}`;
   }
 
   /** A refusal of the store or the service as the operation's result. */
@@ -113,7 +113,7 @@ const handlers = perEnv((env) => {
     const current = errand ?? queued;
     const task = { id: current.id, agent: current.agent, state: current.state };
     if (!ended) {
-      const line = `errand ${current.id}: still ${current.state} (${current.agent ?? '-'})`;
+      const line = `errand ${current.id}: still ${current.state} (${current.agent})`;
       return {
         status: 'failed',
         code: CODE.ERRAND_WAIT_ENDED,
@@ -131,16 +131,12 @@ const handlers = perEnv((env) => {
     return { status: 'failed', code, summary: text, data: { text, task } };
   }
 
-  /** `errand.add goal [agent]`: a new errand, answered at once with its id and `queued`, or after its end with `waitMs`. */
-  async function cmdAdd(args: Obj, context: OpContext) {
+  /** `errand.<agent> goal`: a new errand of `agent`, answered at once with its id and `queued`, or after its end with `waitMs`. */
+  async function cmdAdd(agent: string, args: Obj, context: OpContext) {
     assertNotPaused();
-    const named = textOf(args.agent).trim();
     const goal = textOf(args.goal).trim();
     if (!goal) throw invalid('a goal is required');
     const requester = requesterOf(context);
-    // Her call names no agent; only an owner picks one.
-    if (named && requester.kind !== 'owner') throw denied('only an owner may name the agent', CODE.OWNER_ONLY);
-    const agent = named || null;
     const scope = inPrivate(context) ? 'dm' : 'group';
     // Her own call carries its turn and its idempotency key (src/tools/executors.ts); a command neither.
     const persona = context?.actor === 'persona';
@@ -167,7 +163,7 @@ const handlers = perEnv((env) => {
     const waitMs = context?.waitMs;
     if (typeof waitMs === 'number' && waitMs > 0)
       return await waitedAnswer(await errands().wait({ id: errand.id, ms: waitMs }), errand);
-    const line = agent === null ? `errand ${errand.id}: queued` : `errand ${errand.id}: queued (${agent})`;
+    const line = `errand ${errand.id}: queued (${agent})`;
     return {
       status: 'ok',
       code: CODE.OK,
@@ -321,11 +317,12 @@ const handlers = perEnv((env) => {
   return { cmdAdd, cmdStatus, cmdCancel, cmdRead, cmdResolve };
 });
 
-defineOp({
-  name: 'errand.add',
-  rights: { kind: 'write' },
-  run: (args, ctx) => handlers(ctx.env).cmdAdd(args, ctx),
-});
+for (const [name, agent] of Object.entries(ERRAND_TOOLS))
+  defineOp({
+    name,
+    rights: { kind: 'write' },
+    run: (args, ctx) => handlers(ctx.env).cmdAdd(agent, args, ctx),
+  });
 defineOp({
   name: 'errand.list',
   rights: { kind: 'read' },

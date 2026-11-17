@@ -1,7 +1,6 @@
 {
   "id": "code",
-  "description": "Writes code on request and returns the files. It is not for searching the web or for questions about this machine.",
-  "unit": "web",
+  "description": "Writes code of any kind on request and returns it in files. It is not for searching the web or for questions about this machine.",
   "prompt": "prompt.md",
   "limits": {
     "steps": 40,

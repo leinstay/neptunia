@@ -84,7 +84,8 @@ test('the table names registered operations, in the operations registry order, a
   // Changed: 55 since `alias.add`, `alias.remove`, `learning.add` and `learning.remove` left with their commands.
   // Changed: 53 since `pings.get` and `pings.set` left with the members' ping states.
   // Changed: 49 since `media.status`, `media.rescan`, `media.recache` and `memory.snapshot` left with their operations.
-  assert.equal(SKILL_DEFINITIONS.length, 49);
+  // Changed: 51 since `errand.add` became `errand.server`, `errand.scout` and `errand.code`.
+  assert.equal(SKILL_DEFINITIONS.length, 51);
   const names = SKILL_DEFINITIONS.map((definition) => definition.name);
   const ops = listOps().map((op) => op.name);
   // Changed: an operation of the console alone has no entry, so the table is the registry less those, in its order.
@@ -223,10 +224,11 @@ test('the quirks of the mapping are kept', () => {
   assert.equal(BY_NAME.get('intention.update')?.params, INTENT_PARAMS.update);
 });
 
-// Changed: `errand.add` is the one background tool, since `media.recache` left her tools.
+// Changed: `errand.scout` is the one background tool, since `media.recache` left her tools.
 test('the result of a skill: job for the background one, data for a read, effect for the rest', () => {
   for (const definition of SKILL_DEFINITIONS) {
-    const expected = ['errand.add'].includes(definition.name)
+    // Changed: the three errand tools are the background jobs.
+    const expected = ['errand.server', 'errand.scout', 'errand.code'].includes(definition.name)
       ? 'job'
       : definition.effects === 'read'
         ? 'data'
@@ -235,7 +237,7 @@ test('the result of a skill: job for the background one, data for a read, effect
   }
 });
 
-test('the API names: 49, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 51, well-formed, unique, a round trip, no longer than 64', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
   // Changed: task.unblock is the 77th tool.
@@ -247,8 +249,9 @@ test('the API names: 49, well-formed, unique, a round trip, no longer than 64', 
   // Changed: 55 since the alias and lesson writes left with their commands.
   // Changed: 53 since the ping states left.
   // Changed: 49 since the media tools and memory.snapshot left.
-  assert.equal(apis.length, 49);
-  assert.equal(new Set(apis).size, 49);
+  // Changed: 51 since three errand tools replace `errand.add`.
+  assert.equal(apis.length, 51);
+  assert.equal(new Set(apis).size, 51);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);
@@ -330,7 +333,8 @@ const PLATFORM_WORD = /\b(?:channel|server|root|discord)s?\b/i;
 
 /** A non-platform word spelled the same, where a tool means it: the errand agent named `server` and the machine she runs on. */
 // Changed: `watcher_read` is gone with the watcher (maintainer, 2026-11-16).
-const MACHINE_SERVER: ReadonlySet<string> = new Set(['errand_add']);
+// Changed: the server agent has a tool of its own, `errand.server`.
+const MACHINE_SERVER: ReadonlySet<string> = new Set(['errand_server']);
 const NOT_A_MACHINE = /\b(?:channel|root|discord)s?\b/i;
 
 /** `text` without the names of the tools it refers to (`memory.server.read`, `memory_server_read`) and its `{{fill}}`s. */

@@ -17,7 +17,7 @@ import { isIntentionId } from '../intentions/model.ts';
 import { log } from '../log.ts';
 import { callArgsText } from '../tools/call-args.ts';
 import { CODE } from '../tools/codes.ts';
-import { hasTrait } from '../tools/definitions.ts';
+import { JOBS, hasTrait } from '../tools/definitions.ts';
 import { executeCall, outcomeDetail, refusalStatus, resolveCallWithMeaning } from '../tools/executors.ts';
 import type { CallResult, CallView, ExecuteDeps, Resolved, RunOperation } from '../tools/executors.ts';
 import { checkSkill } from '../tools/gateway.ts';
@@ -154,8 +154,6 @@ function withPlaceNamed(args: Record<string, unknown>, refs: RequestRefs | null)
 
 /** The skills whose `text` is stored as a record of hers: an intention made or changed. */
 const STORED_TEXT_SKILLS: ReadonlyArray<string> = ['intention.set', 'intention.update'];
-/** The skill whose errand a heartbeat or a diary turn waits for. */
-const WAITING_SKILL = 'errand.add';
 /** How much sooner the errand's own wait ends than the call's timeout, so its answer, not the timeout's, comes back. */
 const ERRAND_WAIT_MARGIN_MS = 1000;
 
@@ -865,7 +863,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             : resolvedCall;
         const kept = procedureKept(draft, skill, executed.args);
         // The errand of a turn that waits for it holds the call for the time left, not for the timeout of a call.
-        const waits = skill === WAITING_SKILL && typeof waitMs === 'number' && waitMs > 0;
+        const waits = JOBS.includes(skill) && typeof waitMs === 'number' && waitMs > 0;
         result =
           kept ??
           (await executeCall(executed, {

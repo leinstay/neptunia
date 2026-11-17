@@ -31,7 +31,7 @@ function engineOver(base: string, subharness: RunDeps) {
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
-    unit: 'web',
+    unit: 'scout',
   };
   return createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],

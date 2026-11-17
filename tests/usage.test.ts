@@ -585,7 +585,8 @@ test('keyCostsLines: agentsName names the agents among the roles of an extra key
     labels,
     roleKeys: [
       {
-        roles: ['fetch', 'server', 'scout'],
+        // Changed: the agents are code, scout and server.
+        roles: ['code', 'server', 'scout'],
         key: ok({ limit: 10, limit_remaining: 9, usage_daily: 0.5 }),
         windows: { last7: window(0), last30: window(0) },
       },

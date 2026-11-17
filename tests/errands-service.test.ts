@@ -176,6 +176,44 @@ test('errands service: an http proxy is sent as it is', async () => {
 
 // PR 7d: `errands.recentLines` is the constant 6, so the channel's four lines with text all go.
 // The owner on 2026-11-16: a line given to an errand agent is kept whole; the limit of 200 is gone.
+test("errands service: a run's context carries the UTC day it is sent and the folder of the engine's checkout", async () => {
+  const rootDir = tempDir('nep-errands-service-');
+  const engine = path.resolve(import.meta.dirname, '..');
+  const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
+  const client = fakeClient();
+  const stores = createErrandStores({
+    memoryDb: memoryOf(path.join(rootDir, 'data')),
+    config: () => hot.config,
+    log: fakeLog(),
+  });
+  const errands = createErrandService({
+    // @ts-expect-error: the stand-in's result carries only the text; the real client adds sources and files
+    client,
+    stores,
+    hot,
+    agentPaths: { rootDir: engine, dataDir: path.join(rootDir, 'data') },
+    log: fakeLog(),
+    defer: (fn) => fn(),
+    now: () => Date.UTC(2026, 10, 17, 23, 30),
+  });
+  errands.submit(ask('scout'));
+  await errands.idle();
+  const context = loose(loose(client.runs[0]).context);
+  assert.deepEqual([context.today, context.engine], ['2026-11-17', engine]);
+  fs.rmSync(rootDir, { recursive: true, force: true });
+});
+
+test('errands service: submit refuses an errand that names no agent and runs nothing', async () => {
+  const { errands, client, cleanup } = makeService();
+  // A caller that bypasses the types: an errand with no agent cannot be filed.
+  const refused = errands.submit({ ...ask('scout'), agent: null as unknown as string });
+  await errands.idle();
+  assert.deepEqual(refused, { ok: false, code: 'unknown-agent' });
+  assert.equal(client.runs.length, 0);
+  assert.equal(errands.store()?.open().length ?? 0, 0);
+  cleanup();
+});
+
 test("errands service: a task carries context.recent, the origin channel's last errands.recentLines lines as of its queuing, whole; a dm task sends none", async () => {
   const rootDir = tempDir('nep-errands-service-');
   const hot = {
@@ -266,10 +304,10 @@ async function pongRunner(sock: Untyped) {
 
 test('errands service: with the runner socket absent the flag goes down, submit refuses runner-down at once and writes no task; a ping that succeeds flips it back', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  // Changed: the socket is the web unit's, which a user unit keeps under its runtime folder.
+  // Changed: the socket is the scout unit's, which a user unit keeps under its runtime folder.
   const runtime = tempDir('nep-errands-runtime-');
-  fs.mkdirSync(path.join(runtime, 'neptunia-agent-web'));
-  const sock = path.join(runtime, 'neptunia-agent-web', 'sock');
+  fs.mkdirSync(path.join(runtime, 'neptunia-agent-scout'));
+  const sock = path.join(runtime, 'neptunia-agent-scout', 'sock');
   const agentPaths = { env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_RUNTIME_DIR: runtime } };
   const hot = {
     config: {
@@ -298,7 +336,7 @@ test('errands service: with the runner socket absent the flag goes down, submit 
     const downs = log.calls.filter((c) => c.msg === 'errands: runner down');
     assert.equal(downs.length, 1, 'logged once per change');
     // Changed: the flag is the unit's.
-    assert.equal(downs[0].fields.unit, 'web');
+    assert.equal(downs[0].fields.unit, 'scout');
 
     // Another refusal within RUNNER_RECHECK_MS sends no recheck and logs nothing new.
     errands.submit(ask('scout'));
@@ -347,15 +385,14 @@ test("errands service: the connect loop's outcomes set the flag; start pings the
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(pinged, ['scout'], 'only the enabled agent');
     assert.equal(errands.runnerUp('scout'), false);
-    // Changed: a link event names the unit, and every agent of the unit reads its flag.
-    linkListener?.({ unit: 'web', up: true });
-    linkListener?.({ unit: 'web', up: true });
+    // Changed: a link event names the unit, which is the agent's own.
+    linkListener?.({ unit: 'scout', up: true });
+    linkListener?.({ unit: 'scout', up: true });
     assert.equal(errands.runnerUp('scout'), true);
-    assert.equal(errands.runnerUp('fetch'), true, 'another agent of the web unit');
-    assert.equal(errands.runnerUp('server'), null, 'the host unit is not known');
+    assert.equal(errands.runnerUp('server'), null, 'the server unit is not known');
     assert.equal(log.calls.filter((c) => c.msg === 'errands: runner up').length, 1, 'once per change');
     assert.equal(errands.submit(ask('scout')).ok, true);
-    linkListener?.({ unit: 'web', up: false, code: 'ENOENT' });
+    linkListener?.({ unit: 'scout', up: false, code: 'ENOENT' });
     assert.equal(errands.submit(ask('scout')).code, 'runner-down');
     assert.equal(
       log.calls.find((c) => c.msg === 'errands: runner down')?.fields.code,
@@ -547,9 +584,9 @@ test('errands service: at start the finished errands whose result turn never ran
 
 test("errands service: the file of an expired task is a marker, not a path; a private chat's only in that chat", () => {
   const rootDir = tempDir('nep-errands-service-');
-  // Changed: the out folder is the web unit's, which a user unit keeps under its state folder.
+  // Changed: the out folder is the scout unit's, which a user unit keeps under its state folder.
   const agentPaths = { env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_STATE_HOME: path.join(rootDir, 'state') } };
-  fs.mkdirSync(path.join(rootDir, 'state', 'neptunia-agent-web', 'out'), { recursive: true });
+  fs.mkdirSync(path.join(rootDir, 'state', 'neptunia-agent-scout', 'out'), { recursive: true });
   const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   try {
     const stores = createErrandStores({

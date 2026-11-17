@@ -110,9 +110,6 @@ const NOT_BUILT = {
   // tests/memory-db-session.test.ts and tests/memory-db-describe.test.ts check what they load.
   // The summarizer builds its request from a text and a limit, with no turn around it: tests/summarize.test.ts checks which
   // of the two prompts it takes and what it fills.
-  // The dispatcher builds its request from an errand's goal and the roster, with no turn around it.
-  dispatcher:
-    'built by src/errands/dispatcher.ts from a goal and a roster, checked in tests/errands-dispatcher.test.ts',
   'summarize-media':
     'built by src/behavior/summarize.ts from a text over its limit, checked in tests/summarize.test.ts',
   'summarize-text': 'built by src/behavior/summarize.ts from a text over its limit, checked in tests/summarize.test.ts',

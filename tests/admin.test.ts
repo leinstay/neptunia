@@ -435,7 +435,7 @@ test("run: model.show lists each role with its own model; an unset role shows it
   // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
   assert.deepEqual(
     lines.map((line: string) => line.split(':')[0]),
-    // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
+    // Changed: the agents are read from disk: `code`, `scout` and `server`.
     [
       'base',
       'core',
@@ -447,7 +447,6 @@ test("run: model.show lists each role with its own model; an unset role shows it
       'drawing',
       'errands',
       'code',
-      'fetch',
       'scout',
       'server',
     ],
@@ -455,9 +454,9 @@ test("run: model.show lists each role with its own model; an unset role shows it
   );
   assert.equal(lines[0], 'base:');
   assert.equal(lines[8], 'errands:');
-  // Changed: an agent's line is its route, harness and model, `-` with no route (owner, 2026-11-17), and `code` and
-  // `fetch` come first.
-  assert.deepEqual(lines.slice(11, 13), ['scout: opencode-harness vendor/agent', 'server: -']);
+  // Changed: an agent's line is its route, harness and model, `-` with no route (owner, 2026-11-17), and `code` comes
+  // first.
+  assert.deepEqual(lines.slice(10, 12), ['scout: opencode-harness vendor/agent', 'server: -']);
 });
 
 /** `hot` with a chain of one route on `main` for each role of `models`, over the chains it holds. */
@@ -1105,13 +1104,10 @@ test('status: the card carries the fields in order and the member variant drops 
   assert.equal(
     value('models.errands'),
     // Changed: an agent's line is its route, harness and model (owner, 2026-11-17).
-    // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
-    [
-      'code · no model configured',
-      'fetch · no model configured',
-      'scout · claude-harness · claude-sonnet-4.6',
-      'server · no model configured',
-    ].join('\n'),
+    // Changed: the agents are read from disk: `code`, `scout` and `server`.
+    ['code · no model configured', 'scout · claude-harness · claude-sonnet-4.6', 'server · no model configured'].join(
+      '\n'
+    ),
     'one line per errand agent with its route'
   );
   // PR 7d: the daily caps of videos, recall and lookups are gone, so the limits field is the request rail alone.
@@ -1639,10 +1635,9 @@ test('status: the card lists one item per line in every field, the models one li
     'each line starts with its role and its model, drawing last'
   );
   // Changed: an agent's line is its route, harness and model, and these rigs give no agent a route (owner, 2026-11-17).
-  // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
+  // Changed: the agents are read from disk: `code`, `scout` and `server`.
   assert.deepEqual(lines('models.errands').map(head), [
     'code · no model configured',
-    'fetch · no model configured',
     'scout · no model configured',
     'server · no model configured',
   ]);
@@ -1729,13 +1724,8 @@ test("status: the owner card probes every role's model and shows its provider an
   assert.deepEqual(
     errands,
     // Changed: an agent's line is its route, and this rig gives no agent a route (owner, 2026-11-17).
-    // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
-    [
-      'code · no model configured',
-      'fetch · no model configured',
-      'scout · no model configured',
-      'server · no model configured',
-    ],
+    // Changed: the agents are read from disk: `code`, `scout` and `server`.
+    ['code · no model configured', 'scout · no model configured', 'server · no model configured'],
     'just role and model'
   );
   assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
@@ -1776,13 +1766,8 @@ test('status: the member card shows the models one line per role without probing
   assert.equal(
     valueOf('models.errands'),
     // Changed: an agent's line is its route, and this rig gives no agent a route (owner, 2026-11-17).
-    // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
-    [
-      'code · no model configured',
-      'fetch · no model configured',
-      'scout · no model configured',
-      'server · no model configured',
-    ].join('\n')
+    // Changed: the agents are read from disk: `code`, `scout` and `server`.
+    ['code · no model configured', 'scout · no model configured', 'server · no model configured'].join('\n')
   );
   assert.equal(llm.calls.length, 0, 'no probe request');
   assert.equal(llm.listings.length, 0, 'no listing request');

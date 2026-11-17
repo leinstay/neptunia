@@ -135,15 +135,6 @@ test('Main, Voice, API, the route and a model commit the speech role on a route 
   // Changed: a base role has no config key of its own, its model being its chain's (slice 4), so the path check is deleted.
 });
 
-test('Main, Dispatcher, API, the route and a model commit the dispatcher on a route of its key', () => {
-  // Catches: the dispatcher missing from Main, or committed as an agent's model with --via instead of one route.
-  const at = play(atRole('main', 'dispatcher', [API]), choose('api', 'api:openrouter', 'vendor/voice-1'));
-  const saved = play(at.state, [{ kind: 'confirm' }]);
-  assert.deepEqual(committed(saved.effects), [
-    { name: 'model.set', args: { role: 'dispatcher', model: 'helpers/vendor/voice-1' } },
-  ]);
-});
-
 test('nothing commits before the confirmation, and a double confirmation commits once', () => {
   // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: highlighting that saves, or Enter pressed twice checking the model twice.
@@ -161,7 +152,7 @@ test('Errand offers every agent on disk', () => {
   // Changed: the watcher and its utility row are gone (maintainer, 2026-11-16), so Errand holds the two agents alone.
   const rows = pickerRows(play(opened(), choose('errand')).state);
   // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
-  assert.deepEqual(rows.map((one) => one.id).sort(), ['code', 'fetch', 'scout', 'server']);
+  assert.deepEqual(rows.map((one) => one.id).sort(), ['code', 'scout', 'server']);
 });
 
 test('the three kinds of evidence are told apart on the rows and in the review', () => {

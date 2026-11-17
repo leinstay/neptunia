@@ -1373,7 +1373,7 @@
    }
   },
   {
-   "tool": "errand.add",
+   "tool": "errand.server",
    "effect": "paid",
    "costClass": "paid",
    "feature": null,
@@ -1383,8 +1383,8 @@
    "grantableToPersona": true,
    "nested": [],
    "reply": {
-    "on": "unknown-skill:errand.add",
-    "off": "unknown-skill:errand.add"
+    "on": "unknown-skill:errand.server",
+    "off": "unknown-skill:errand.server"
    },
    "envelope": {
     "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
@@ -1400,8 +1400,104 @@
     "member-granted-here": "ok",
     "owner-there": "ok",
     "member-there": "ok",
-    "ungranted-owner-here": "not-allowed:errand.add",
-    "shipped-owner-here": "not-allowed:errand.add",
+    "ungranted-owner-here": "not-allowed:errand.server",
+    "shipped-owner-here": "not-allowed:errand.server",
+    "no-requester": "ok",
+    "own-initiative": "ok",
+    "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",
+    "wake-review": "not-allowed:wakes.kinds.review.maxActs",
+    "wake-errand_deadline": "not-allowed:wakes.kinds.errand_deadline.maxTasks",
+    "wake-attend": "not-allowed:wakes.kinds.attend.tools",
+    "wake-feedback": "not-allowed:wakes.kinds.feedback.maxActs",
+    "wake-heartbeat": "not-allowed:heartbeat.maxTasks",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
+    "mixed-requesters": "ok",
+    "cooldown": "ok",
+    "budget-spent": "cap-open:tasks.maxOpen",
+    "budget-unknown": "no-budget:unavailable",
+    "unknown-principal": "unknown-principal:member"
+   }
+  },
+  {
+   "tool": "errand.scout",
+   "effect": "paid",
+   "costClass": "paid",
+   "feature": null,
+   "result": "job",
+   "grantedByDefault": false,
+   "carriedOver": false,
+   "grantableToPersona": true,
+   "nested": [],
+   "reply": {
+    "on": "unknown-skill:errand.scout",
+    "off": "unknown-skill:errand.scout"
+   },
+   "envelope": {
+    "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
+    "review": "not-allowed:wakes.kinds.review.maxActs",
+    "errand_deadline": "not-allowed:wakes.kinds.errand_deadline.maxTasks",
+    "attend": "not-allowed:wakes.kinds.attend.tools",
+    "feedback": "not-allowed:wakes.kinds.feedback.maxActs",
+    "heartbeat": "not-allowed:heartbeat.maxTasks"
+   },
+   "verdicts": {
+    "owner-here": "ok",
+    "member-here": "ok",
+    "member-granted-here": "ok",
+    "owner-there": "ok",
+    "member-there": "ok",
+    "ungranted-owner-here": "not-allowed:errand.scout",
+    "shipped-owner-here": "not-allowed:errand.scout",
+    "no-requester": "ok",
+    "own-initiative": "ok",
+    "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",
+    "wake-review": "not-allowed:wakes.kinds.review.maxActs",
+    "wake-errand_deadline": "not-allowed:wakes.kinds.errand_deadline.maxTasks",
+    "wake-attend": "not-allowed:wakes.kinds.attend.tools",
+    "wake-feedback": "not-allowed:wakes.kinds.feedback.maxActs",
+    "wake-heartbeat": "not-allowed:heartbeat.maxTasks",
+    "safe-mode": "safe-mode:tools.safeMode",
+    "tools-off": "ok",
+    "features-off": "ok",
+    "mixed-requesters": "ok",
+    "cooldown": "ok",
+    "budget-spent": "cap-open:tasks.maxOpen",
+    "budget-unknown": "no-budget:unavailable",
+    "unknown-principal": "unknown-principal:member"
+   }
+  },
+  {
+   "tool": "errand.code",
+   "effect": "paid",
+   "costClass": "paid",
+   "feature": null,
+   "result": "job",
+   "grantedByDefault": false,
+   "carriedOver": false,
+   "grantableToPersona": true,
+   "nested": [],
+   "reply": {
+    "on": "unknown-skill:errand.code",
+    "off": "unknown-skill:errand.code"
+   },
+   "envelope": {
+    "intention_due": "not-allowed:wakes.kinds.intention_due.tools",
+    "review": "not-allowed:wakes.kinds.review.maxActs",
+    "errand_deadline": "not-allowed:wakes.kinds.errand_deadline.maxTasks",
+    "attend": "not-allowed:wakes.kinds.attend.tools",
+    "feedback": "not-allowed:wakes.kinds.feedback.maxActs",
+    "heartbeat": "not-allowed:heartbeat.maxTasks"
+   },
+   "verdicts": {
+    "owner-here": "ok",
+    "member-here": "ok",
+    "member-granted-here": "ok",
+    "owner-there": "ok",
+    "member-there": "ok",
+    "ungranted-owner-here": "not-allowed:errand.code",
+    "shipped-owner-here": "not-allowed:errand.code",
     "no-requester": "ok",
     "own-initiative": "ok",
     "wake-intention_due": "not-allowed:wakes.kinds.intention_due.tools",

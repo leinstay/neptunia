@@ -25,15 +25,15 @@ import { tempDir } from './fixtures/tmp.ts';
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
 
 // The socket of a unit derives from its name: under a user unit's runtime folder, which this file points at a temporary
-// folder of its own, the web unit listens on `<runtime>/neptunia-agent-web/sock`.
+// folder of its own, the scout unit listens on `<runtime>/neptunia-agent-scout/sock`.
 const RUNTIME = tempDir('errand-runtime-');
-fs.mkdirSync(path.join(RUNTIME, 'neptunia-agent-web'));
+fs.mkdirSync(path.join(RUNTIME, 'neptunia-agent-scout'));
 process.env.NEPTUNIA_UNIT_SCOPE = 'user';
 process.env.XDG_RUNTIME_DIR = RUNTIME;
 
-/** The web unit's socket, where the scout's runner listens. */
+/** The scout unit's socket, where the scout's runner listens. */
 function socketPath() {
-  return path.join(RUNTIME, 'neptunia-agent-web', 'sock');
+  return path.join(RUNTIME, 'neptunia-agent-scout', 'sock');
 }
 
 /** A fake runner: collects each connection's request lines; `reply(obj)` writes to the newest one. */
@@ -161,38 +161,6 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
       assert.equal(outcome.error, undefined);
       assert.deepEqual(progress, [{ agent: 'scout', id: 'task-1', step: 1, tool: 'search', note: 'looking' }]);
     });
-  } finally {
-    client.close();
-    await runner.close();
-  }
-});
-
-test('errands client: two agents of one unit share its connection, and each progress line names its own agent', async () => {
-  // Bug: one runner serves the whole unit, and the client opens a connection per agent or credits progress to the wrong one.
-  const sock = socketPath();
-  const runner = await fakeRunner(sock);
-  const client = createErrandClient({
-    hot: { config: { agents: { scout: { enabled: true }, fetch: { enabled: true } } } },
-  });
-  const progress: Array<{ agent: string; id: string }> = [];
-  client.onProgress((event) => progress.push(event));
-  try {
-    await withCapturedLogs(async () => {
-      const first = client.run({ agent: 'scout', id: 'task-s', goal: 'look' });
-      await runner.next((r: Untyped) => r.id === 'task-s');
-      const second = client.run({ agent: 'fetch', id: 'task-f', goal: 'bring' });
-      const line = await runner.next((r: Untyped) => r.id === 'task-f');
-      assert.equal(line.agent, 'fetch');
-      assert.equal(runner.connections.length, 1);
-      runner.reply({ id: 'task-f', event: 'progress', step: 1, tool: 'fetch', note: 'downloading' });
-      runner.reply({ id: 'task-s', event: 'end', status: 'done', result: { text: 'a' } });
-      runner.reply({ id: 'task-f', event: 'end', status: 'done', result: { text: 'b' } });
-      await Promise.all([first, second]);
-    });
-    assert.deepEqual(
-      progress.map((event) => [event.agent, event.id]),
-      [['fetch', 'task-f']]
-    );
   } finally {
     client.close();
     await runner.close();
@@ -366,8 +334,8 @@ test('errands client: cancel and ping go out as lines; a pong answers the ping',
       const ping = await runner.next((r: Untyped) => r.op === 'ping');
       assert.deepEqual(loose(ping).ids, ['task-c'], 'the ping names the tasks still waited for');
       // Changed: a runner serves a unit, and its pong names the unit.
-      runner.reply({ event: 'pong', unit: 'web', busy: true, queued: 0 });
-      assert.deepEqual(await pinged, { ok: true, unit: 'web', busy: true, queued: 0 });
+      runner.reply({ event: 'pong', unit: 'scout', busy: true, queued: 0 });
+      assert.deepEqual(await pinged, { ok: true, unit: 'scout', busy: true, queued: 0 });
       runner.reply({ id: 'task-c', event: 'end', status: 'cancelled', error: 'cancelled' });
       const outcome = await running;
       assert.equal(outcome.status, 'cancelled');
@@ -447,16 +415,16 @@ test('errands client: onLink gets each outcome of the connect loop: a failed con
     await withCapturedLogs(async () => {
       assert.deepEqual(await client.ping('scout'), { ok: false, error: 'disconnected' });
       // Changed: a link is the unit's, so its events name the unit.
-      assert.deepEqual(events, [{ unit: 'web', up: false, code: 'ENOENT' }]);
+      assert.deepEqual(events, [{ unit: 'scout', up: false, code: 'ENOENT' }]);
       runner = await fakeRunner(sock);
       const pinging = client.ping('scout');
       await runner.next((r: Untyped) => r.op === 'ping');
-      assert.deepEqual(events.at(-1), { unit: 'web', up: true });
-      runner.reply({ event: 'pong', unit: 'web', busy: false, queued: 0 });
+      assert.deepEqual(events.at(-1), { unit: 'scout', up: true });
+      runner.reply({ event: 'pong', unit: 'scout', busy: false, queued: 0 });
       assert.equal((await pinging).ok, true);
       runner.dropAll();
       for (let i = 0; i < 100 && events.length < 3; i += 1) await new Promise((r) => setTimeout(r, 10));
-      assert.deepEqual(events.at(-1), { unit: 'web', up: false, code: 'disconnected' });
+      assert.deepEqual(events.at(-1), { unit: 'scout', up: false, code: 'disconnected' });
       assert.equal(events.length, 3);
     });
   } finally {
@@ -484,7 +452,7 @@ test('the running client reads whether an agent is on from the live config at ea
 
 test('a reconnect timer contains an invalid personal edit without reconnecting or replaying the failed errand', async () => {
   const rig = consumerRig();
-  // Changed: the socket is the web unit's, and the live config switches the scout on.
+  // Changed: the socket is the scout unit's, and the live config switches the scout on.
   const socket = socketPath();
   const connects: Array<string> = [];
   const timers: Array<{ fire: () => void; handle: ReturnType<typeof setTimeout> }> = [];
@@ -509,7 +477,7 @@ test('a reconnect timer contains an invalid personal edit without reconnecting o
     const failed = await client.run({ agent: 'scout', id: 'synthetic-errand', goal: 'inspect synthetic files' });
     assert.deepEqual([failed.status, failed.error], ['failed', 'disconnected']);
     assert.deepEqual(connects, [socket]);
-    assert.deepEqual(links, [{ unit: 'web', up: false, code: 'ECONNREFUSED' }]);
+    assert.deepEqual(links, [{ unit: 'scout', up: false, code: 'ECONNREFUSED' }]);
     assert.equal(timers.length, 1);
     rig.override({ limits: { seconds: 0 } });
     assert.doesNotThrow(() => timers[0]?.fire());

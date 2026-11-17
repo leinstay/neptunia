@@ -16,7 +16,6 @@ const ROLE_FITS: Readonly<Record<string, Fit>> = {
   core: { input: 'text', output: 'text' },
   memory: { input: 'text', output: 'text' },
   analyzer: { input: 'text', output: 'text' },
-  dispatcher: { input: 'text', output: 'text' },
   vision: { input: 'image', output: 'text' },
   video: { input: 'video', output: 'text' },
   drawing: { output: 'image' },

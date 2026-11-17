@@ -3,8 +3,7 @@
 // installing user. The templates keep the paths of the first deployment; the renderer maps them onto the folders of this
 // one, so a template edit stays the single source of a unit. The render is pure.
 //
-// There are two agent units, `neptunia-agent-web.service` and `neptunia-agent-host.service`, each the runner of every
-// agent whose profile names its unit. The sandbox of an agent unit follows the unit's mode (src/subharness/control.ts). `read` and `write` keep every
+// There is one agent unit per agent, `neptunia-agent-<agent>.service`, the runner of that agent alone. The sandbox of an agent unit follows the unit's mode (src/subharness/control.ts). `read` and `write` keep every
 // directive of the template. `full` drops the mount sandbox (`ProtectSystem`, `ProtectHome` and the bind and write
 // paths), and `sudo` drops in addition what would stop `sudo` (`NoNewPrivileges` and the capability bounding set).
 //
@@ -14,7 +13,7 @@
 // backend a role names in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.
 //
-// The host unit runs as the user of the core, so the mount namespace is all that keeps a child of its agent
+// The server unit runs as the user of the core, so the mount namespace is all that keeps a child of its agent
 // from the clients' tokens and the interfaces' `credentials.json`. Given the names of the clients and the interfaces the
 // install has, the unit hides them with `InaccessiblePaths=-<path>` (the leading `-` lets the unit start before a file
 // exists). The modes `full` and `sudo` drop the entries with the rest of the mount sandbox.
@@ -30,15 +29,13 @@ import { subharnessPlace } from '../subharness/place.ts';
 export const UNIT_FILES: ReadonlyArray<string> = [
   'neptunia-core.service',
   'neptunia-interface@.service',
-  'neptunia-agent-web.service',
-  'neptunia-agent-host.service',
+  'neptunia-agent-server.service',
+  'neptunia-agent-scout.service',
+  'neptunia-agent-code.service',
 ];
 
-/** The per-agent unit files of earlier deployments, which `neptunia setup` removes when it finds them. */
-export const RETIRED_UNIT_FILES: ReadonlyArray<string> = [
-  'neptunia-agent-scout.service',
-  'neptunia-agent-server.service',
-];
+/** The shared agent unit files of earlier deployments, which `neptunia setup` removes when it finds them. */
+export const RETIRED_UNIT_FILES: ReadonlyArray<string> = ['neptunia-agent-web.service', 'neptunia-agent-host.service'];
 
 /**
  * Node's compile cache of every service: a folder systemd makes and keeps writable for the unit under its sandbox,
@@ -48,10 +45,10 @@ export const RETIRED_UNIT_FILES: ReadonlyArray<string> = [
 const COMPILE_CACHE_LINES = ['CacheDirectory=neptunia-compile', 'Environment=NODE_COMPILE_CACHE=%C/neptunia-compile'];
 
 /**
- * The unit that hides the secrets of the core's user from its agents, found by its `ExecStart=`. The web unit needs no
- * entry: its persona folder is an empty tmpfs.
+ * The unit that hides the secrets of the core's user from its agents, found by its `ExecStart=`. The scout and code units need
+ * no entry: their persona folder is an empty tmpfs.
  */
-const SECRET_HIDER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner --unit host\b/m;
+const SECRET_HIDER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner --unit server\b/m;
 
 /** A client or interface name that is one plain path segment: nothing that climbs out of its folder. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -88,7 +85,7 @@ export type UnitVars = {
   mode?: AgentMode;
   /** the backends a role names in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
   backends?: ReadonlyArray<BackendName>;
-  /** the names of the clients of `clients.json`; the host unit hides every token */
+  /** the names of the clients of `clients.json`; the server unit hides every token */
   clients?: ReadonlyArray<string>;
   /** the names of the interfaces, each with a `interfaces/<name>/credentials.json` that unit hides */
   interfaces?: ReadonlyArray<string>;

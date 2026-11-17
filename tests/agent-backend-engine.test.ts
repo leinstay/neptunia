@@ -38,7 +38,7 @@ function engineRig(backend: 'codex' | 'claude' | 'opencode' | null, agent: strin
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
-    unit: 'web',
+    unit: agent,
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
@@ -62,11 +62,11 @@ test('a task while the subharness is off fails with subharness-off and starts no
 });
 
 test("a task runs in the mode of its agent's unit", async () => {
-  // Bug: the host unit runs read-only, the owner set it to write, and the engine still passes read-only.
-  // Changed: the mode belongs to the unit (`host` for the server agent), not to the agent.
+  // Bug: the server unit runs read-only, the owner set it to write, and the engine still passes read-only.
+  // Changed: the mode belongs to the unit, which is the server agent's own.
   const { engine, calls, privateDir } = engineRig('codex', 'server');
   await engine.run(TASK);
-  await setUnitMode(privateDir, 'host', 'write');
+  await setUnitMode(privateDir, 'server', 'write');
   await engine.run({ ...TASK, id: 't2' });
   assert.deepEqual(
     calls.map((one) => one.sandbox),
@@ -186,7 +186,7 @@ test('a run of any agent hands back the file it left in its folder', async () =>
     hostEnv: { PATH: '/usr/bin' },
     backendFactory: (name) => ({ name, run: saveAPicture }),
   };
-  const profile = { name: 'scout', unit: 'web', promptFiles: [prompt], defaultLimits: { steps: 5, seconds: 30 } };
+  const profile = { name: 'scout', unit: 'scout', promptFiles: [prompt], defaultLimits: { steps: 5, seconds: 30 } };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
     outDir: path.join(base, 'out'),

@@ -589,7 +589,7 @@ function parseRange(value: Untyped, timezone: Untyped, now: number | undefined) 
  *   starting with `none` is no query, cut to 200 characters.
  * - `agent`: ignored. An old prompt's errand line is read as a label only so
  *   it is never taken for the unlabelled web query; the classifier never
- *   asks for an errand (only the persona's own `errand.add` call does).
+ *   asks for an errand (only the persona's own call of an errand tool does).
  * - `history` / `who`: comma-separated forms, each trimmed, wrapping quotes
  *   and trailing punctuation stripped, whitespace collapsed, lower-cased,
  *   kept when 2..40 characters and at most 3 words, de-duplicated in order,

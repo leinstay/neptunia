@@ -42,7 +42,8 @@ const valuesOf = (text: string, key: string): Array<string> =>
     .filter((line) => line.startsWith(`${key}=`))
     .map((line) => line.slice(key.length + 1));
 
-const AGENTS = ['neptunia-agent-web.service', 'neptunia-agent-host.service'];
+// Changed: each agent has a unit of its own name.
+const AGENTS = ['neptunia-agent-server.service', 'neptunia-agent-scout.service', 'neptunia-agent-code.service'];
 
 for (const field of ['rootDir', 'privateDir', 'dataDir'] as const) {
   test(`rendering preserves ${field} when its replacement contains a legacy home prefix`, () => {
@@ -138,7 +139,7 @@ test('agent units keep every sandbox directive in read and write, drop the mount
 
 test('user units drop the address allow-list and capability set only where the mode asks, never by scope', () => {
   // Bug: a user unit loses IPAddressDeny for the read-only server agent because the scope was blamed for it.
-  const server = renderUnit(template('neptunia-agent-host.service'), 'user', { ...VARS, mode: 'read' });
+  const server = renderUnit(template('neptunia-agent-server.service'), 'user', { ...VARS, mode: 'read' });
   assert.deepEqual(valuesOf(server, 'IPAddressDeny'), ['any']);
   assert.deepEqual(valuesOf(server, 'CapabilityBoundingSet'), ['CAP_DAC_READ_SEARCH']);
 });
@@ -159,7 +160,7 @@ test('system units run as the installing user and group, and keep the template h
     assert.deepEqual(valuesOf(text, 'Group'), [VARS.group], name);
     assert.ok(valuesOf(text, 'WantedBy').includes('multi-user.target'), name);
   }
-  const server = renderUnit(template('neptunia-agent-host.service'), 'system', VARS);
+  const server = renderUnit(template('neptunia-agent-server.service'), 'system', VARS);
   assert.deepEqual(valuesOf(server, 'ProtectSystem'), ['strict']);
   assert.deepEqual(valuesOf(server, 'IPAddressDeny'), ['any']);
 });
@@ -308,7 +309,7 @@ test('agent units bind the folder of every connected backend', () => {
 test('the scout unit replaces the persona folder with an empty one and shows only its agents and backends', () => {
   // Bug: InaccessiblePaths on the folder is mode 000, so the runner died on data/agents and could not reach its backend.
   const vars = { ...VARS, backends: ['opencode' as const] };
-  const unit = renderUnit(template('neptunia-agent-web.service'), 'system', vars);
+  const unit = renderUnit(template('neptunia-agent-scout.service'), 'system', vars);
   assert.deepEqual(valuesOf(unit, 'InaccessiblePaths'), []);
   assert.deepEqual(valuesOf(unit, 'TemporaryFileSystem'), [`${vars.dataDir}:ro`]);
   assert.ok(valuesOf(unit, 'BindReadOnlyPaths').join(' ').includes(`-${vars.dataDir}/agents`));
@@ -317,11 +318,11 @@ test('the scout unit replaces the persona folder with an empty one and shows onl
 
 test('the mode full drops the empty persona folder with the rest of the mount sandbox', () => {
   // Bug: a scout in full keeps the tmpfs, so an agent the owner opened up still sees no persona folder.
-  const unit = renderUnit(template('neptunia-agent-web.service'), 'system', { ...VARS, mode: 'full' });
+  const unit = renderUnit(template('neptunia-agent-scout.service'), 'system', { ...VARS, mode: 'full' });
   assert.deepEqual(valuesOf(unit, 'TemporaryFileSystem'), []);
 });
 
-// The two errand runner units (deploy/neptunia-agent-web.service, deploy/neptunia-agent-host.service) as
+// The two errand runner units (deploy/neptunia-agent-scout.service, deploy/neptunia-agent-server.service) as
 // `neptunia setup` renders them: no `EnvironmentFile` line in any scope or mode, so a key never reaches a runner from a
 // file beside the unit. Every key comes with the task. The interface unit has none either: its token is read from
 // `interfaces/<name>/credentials.json`.
@@ -342,7 +343,7 @@ const runnerUnitNoEnvFileTemplate = (file: string): string => fs.readFileSync(pa
 const environmentFiles = (text: string): Array<string> =>
   text.split('\n').filter((line) => /^\s*EnvironmentFile\s*=/.test(line));
 
-for (const file of ['neptunia-agent-web.service', 'neptunia-agent-host.service']) {
+for (const file of ['neptunia-agent-scout.service', 'neptunia-agent-server.service']) {
   for (const scope of ['user', 'system'] as const) {
     for (const mode of ['write', 'full', 'sudo'] as const) {
       test(`${file} rendered for ${scope} in mode ${mode} has no EnvironmentFile line`, () => {
@@ -378,7 +379,7 @@ const backendBindsValuesOf = (text: string, key: string): Array<string> =>
     .filter((line) => line.startsWith(`${key}=`))
     .map((line) => line.slice(key.length + 1));
 
-for (const file of ['neptunia-agent-web.service', 'neptunia-agent-host.service']) {
+for (const file of ['neptunia-agent-scout.service', 'neptunia-agent-server.service']) {
   test(`${file} binds the installed backend and not the uninstalled one while nothing is connected`, async () => {
     // Catches: the binds follow the connected list, so a role moved to an installed backend finds its folder hidden.
     const base = tempDir('nep-binds-');
@@ -409,7 +410,7 @@ for (const file of ['neptunia-agent-web.service', 'neptunia-agent-host.service']
 
 test("the server unit's network reaches Anthropic's API and Cloudflare's ranges, with everything else denied", () => {
   // Catches: a claude child under the server unit cannot connect at all, or the new range replaces the ones codex needs.
-  const template = fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-agent-host.service'), 'utf8');
+  const template = fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-agent-server.service'), 'utf8');
   const unit = renderUnit(template, 'system', {
     user: 'alice',
     group: 'alice',
@@ -482,8 +483,9 @@ async function childEnv(dataDir: string): Promise<Record<string, string>> {
 }
 
 for (const [file, mode] of [
-  ['neptunia-agent-web.service', 'write'],
-  ['neptunia-agent-host.service', 'read'],
+  ['neptunia-agent-scout.service', 'write'],
+  ['neptunia-agent-code.service', 'write'],
+  ['neptunia-agent-server.service', 'read'],
 ] as const) {
   test(`${file} leaves every folder an opencode child writes writable`, async () => {
     // Bug: opencode derives its cache folder from HOME, which the unit mounts as an empty read-only tmpfs, so every

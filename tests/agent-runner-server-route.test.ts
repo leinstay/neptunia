@@ -42,7 +42,7 @@ test("a run's route reaches the engine, and a bad one comes back as a code and n
     },
   };
   const sock = path.join(tempDir('nep-server-route-'), 'runner.sock');
-  const server = createRunnerServer({ unit: 'web', runner, socketPath: sock });
+  const server = createRunnerServer({ unit: 'scout', runner, socketPath: sock });
   const route = { backend: 'claude', model: 'claude-opus-5-5', effort: 'medium', mode: 'write' };
   await withCapturedLogs(async () => {
     await server.start();

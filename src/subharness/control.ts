@@ -31,8 +31,9 @@ export const DIRECT_ONLY_ROLES = ['analyzer', 'embedding', 'vision', 'video', 's
 
 /** The mode of a unit the owner has not set. Nobody starts without a sandbox. */
 const DEFAULT_MODES: Readonly<Record<UnitName, AgentMode>> = {
-  web: 'write',
-  host: 'read',
+  server: 'read',
+  scout: 'write',
+  code: 'write',
 };
 
 /** The effort word that drops the stored level, so the agent runs at its model's default. */

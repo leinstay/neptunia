@@ -26,7 +26,7 @@
 // of its own there.
 
 import { ROUTE_ROLES as CHAIN_ROLES } from '../../llm/route-text.ts';
-import { DISPATCHER_ROLE, MEMORY_ROLE } from '../../llm/roles.ts';
+import { MEMORY_ROLE } from '../../llm/roles.ts';
 import { BACKEND_NAMES, UNITS, agentNames } from '../../agent-runner/profiles.ts';
 import { AGENT_MODES } from '../../subharness/control.ts';
 import { SERVICE_NAMES, setupRefusal } from '../../service/schedule.ts';
@@ -55,8 +55,14 @@ export type Subcommand = {
   word?: string;
 };
 
-/** The operation a leaf runs as the owner, and how the parsed arguments become the operation's: none when absent. */
-export type LeafOp = { name: string; args?: (args: Readonly<Record<string, unknown>>) => Record<string, unknown> };
+/**
+ * The operation a leaf runs as the owner, named outright or from the parsed arguments, and how the parsed arguments
+ * become the operation's: none when absent.
+ */
+export type LeafOp = {
+  name: string | ((args: Readonly<Record<string, unknown>>) => string);
+  args?: (args: Readonly<Record<string, unknown>>) => Record<string, unknown>;
+};
 
 /** One command of the table. */
 export type Command = {
@@ -104,7 +110,7 @@ const bareFlagArg = (name: string): CommandArg => ({ name, required: false, flag
 const sub = (name: string, help: string, args: ReadonlyArray<CommandArg> = []): Subcommand => ({ name, help, args });
 
 /** A leaf that runs the operation `name`, its arguments made from the parsed ones by `args`. */
-const runs = (one: Subcommand, name: string, args?: LeafOp['args']): Subcommand => ({
+const runs = (one: Subcommand, name: LeafOp['name'], args?: LeafOp['args']): Subcommand => ({
   ...one,
   op: args === undefined ? { name } : { name, args },
 });
@@ -164,7 +170,7 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
  */
 function checkModelRole(name: string, args: Readonly<Record<string, string>>): string | null {
   if (name !== 'model.set' && name !== 'model.sources') return null;
-  const roles = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, DISPATCHER_ROLE, ...agentNames()])];
+  const roles = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, ...agentNames()])];
   const role = args.role ?? '';
   return roles.includes(role) ? null : `/${name.replace('.', ' ')}: role is one of ${roles.join(', ')}, not "${role}"`;
 }
@@ -398,10 +404,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
-      runs(sub('add', 'Hand an errand to an agent', [arg('agent'), arg('goal')]), 'errand.add', (args) => ({
-        agent: args.agent,
-        goal: args.goal,
-      })),
+      runs(
+        sub('add', 'Hand an errand to an agent', [arg('agent', true, UNITS), arg('goal')]),
+        (args) => `errand.${String(args.agent)}`,
+        (args) => ({ goal: args.goal })
+      ),
       runs(sub('list', 'Show latest errands'), 'errand.list', () => ({ limit: 10 })),
       runs(sub('show', 'Show one errand', [arg('id')]), 'errand.list', (args) => ({ id: args.id })),
       runs(sub('cancel', 'Cancel an open errand', [arg('id')]), 'errand.cancel', (args) => ({ id: args.id })),
@@ -708,7 +715,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'agent',
-    help: 'Switch an agent on or off, or set what the agents of a unit may do',
+    help: 'Switch an agent on or off, or set what an agent may do',
     args: [],
     needsSubcommand: true,
     subcommands: [
@@ -914,7 +921,9 @@ export function operationOf(
   const [first, ...rest] = name.split('.');
   const command = COMMANDS.find((one) => one.name === first);
   const op = rest.length === 0 ? command?.op : leafOf(name)?.op;
-  return op === undefined ? null : { op: op.name, args: op.args?.(args) ?? {} };
+  return op === undefined
+    ? null
+    : { op: typeof op.name === 'function' ? op.name(args) : op.name, args: op.args?.(args) ?? {} };
 }
 
 /** Whether the leaf of a parsed name takes `--secret-stdin` in the command line. */

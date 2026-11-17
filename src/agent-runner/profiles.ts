@@ -1,14 +1,13 @@
 // The agents on disk: one folder per agent, `agents/<id>/` at the engine root (tracked) or `<data>/agents/<id>/` (local),
-// each holding a `profile.json` and its prompt. A local folder that shares a tracked agent's name overlays the tracked
-// profile key by key. A local folder with no tracked twin is an agent of its own when it holds a profile, which must
-// then be whole and sit beside its prompt; a local folder with no profile is no agent. The list of agents is this read
-// and nothing else: no code names an agent.
+// each holding a `profile.json` and its prompt. The agents are the tracked folders, one per name of UNITS, and each runs
+// in the unit of its name. A local folder that shares a tracked agent's name overlays the tracked profile key by key; a
+// local folder with any other name is no agent.
 //
-// A profile holds exactly `id`, `description`, `unit`, `prompt`, `limits`, `daily` and `cost`. A profile that misses a
-// key, names an unknown one or holds a value of the wrong form fails `listAgents` and `loadProfiles` with one error
-// naming the agent and the key, and a symbolic link anywhere in the local layer is refused. A profile authorizes
-// nothing: the agent's prompt is its only limit, and the unit `unit` names sets the sandbox of the process (deploy/).
-// The socket and the out folder of a unit derive from its name (`unitPaths`). Keep in sync with docs/errands.md and agents/README.md.
+// A profile holds exactly `id`, `description`, `prompt`, `limits`, `daily` and `cost`. A profile that misses a key, names
+// an unknown one or holds a value of the wrong form fails `listAgents` and `loadProfiles` with one error naming the agent
+// and the key, and a symbolic link anywhere in the local layer is refused. A profile authorizes nothing: the agent's
+// prompt is its only limit, and its unit sets the sandbox of the process (deploy/). The socket and the out folder of a
+// unit derive from its name (`unitPaths`). Keep in sync with docs/errands.md and agents/README.md.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,24 +22,26 @@ export const BACKEND_NAMES = ['codex', 'claude', 'opencode'] as const;
 /** One of BACKEND_NAMES. */
 export type BackendName = (typeof BACKEND_NAMES)[number];
 
-/** The units that carry the agents: `web` reaches the internet, `host` reads this machine (deploy/). */
-export const UNITS = ['web', 'host'] as const;
+/**
+ * The agents, each carried by the unit of its name (deploy/): `server` reads this machine, `scout` searches the web,
+ * `code` writes code.
+ */
+export const UNITS = ['server', 'scout', 'code'] as const;
 
 /** One of UNITS. */
 export type UnitName = (typeof UNITS)[number];
 
 /** The validated profile.json of an agent. */
 export type AgentDefinition = Readonly<{
-  id: string;
+  id: UnitName;
   description: string;
-  unit: UnitName;
   prompt: string;
   limits: Readonly<Record<string, number>>;
   daily: Readonly<Record<string, number>>;
   cost: Readonly<{ input: number; output: number }>;
 }>;
 
-/** Where an agent's folder lives: the checkout (`tracked`, maybe overlaid by a local twin) or the data folder alone (`local`). */
+/** Where an agent's profile comes from: the checkout alone (`tracked`) or overlaid by a local twin (`local`). */
 export type AgentOrigin = 'tracked' | 'local';
 
 /** The engine and persona agent trees, resolved independently of private credentials. */
@@ -73,15 +74,7 @@ const AGENTS_DIRNAME = 'agents';
 const PROFILE_FILE = 'profile.json';
 
 /** The keys of a profile, all required. */
-const PROFILE_KEYS: ReadonlyArray<string> = Object.freeze([
-  'id',
-  'description',
-  'unit',
-  'prompt',
-  'limits',
-  'daily',
-  'cost',
-]);
+const PROFILE_KEYS: ReadonlyArray<string> = Object.freeze(['id', 'description', 'prompt', 'limits', 'daily', 'cost']);
 
 /** Resolves explicit and environment data paths against the engine root. */
 function agentPaths(options: AgentPaths): ResolvedAgentPaths {
@@ -196,9 +189,9 @@ function validateProfile(agent: string, raw: unknown) {
   }
   if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
   checkId(agent);
+  checkWord(agent, 'id', raw.id, UNITS);
   if (typeof raw.description !== 'string' || !raw.description.trim())
     throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
-  checkWord(agent, 'unit', raw.unit, UNITS);
   if (typeof raw.prompt !== 'string' || !FILE_NAME_PATTERN.test(raw.prompt))
     throw new AgentProfileError(agent, 'prompt', 'must be a .md file name with no directory part');
   checkNumbers(agent, 'limits', raw.limits, { steps: true, seconds: false });
@@ -328,40 +321,24 @@ function personalDefinition(definition: AgentDefinition, dataDir: string): Agent
   return result;
 }
 
-/** A local agent with no tracked twin: a whole profile and its prompt in its folder; null for a folder with no profile. */
-function localDefinition(agent: string, dataDir: string): AgentDefinition | null {
-  checkPersonalPaths(dataDir, agent);
-  const raw = readDefinition(path.join(dataDir, AGENTS_DIRNAME), agent, true);
-  // A folder with no profile.json, such as one an older version left, is no agent.
-  if (raw === undefined) return null;
-  validateProfile(agent, raw);
-  const result = frozenCopy(raw) as AgentDefinition;
-  checkPersonalPaths(dataDir, agent, result.prompt);
-  if (!personalStat(path.join(dataDir, AGENTS_DIRNAME, agent, result.prompt))?.isFile())
-    throw new AgentProfileError(agent, 'prompt', 'missing');
-  return result;
-}
-
-/** Every agent on disk with its origin, sorted by id. */
+/** Every agent on disk with its origin, sorted by id: a tracked agent, overlaid by its local twin when it has one. */
 function definitionsOf(paths: ResolvedAgentPaths): Array<{ definition: AgentDefinition; origin: AgentOrigin }> {
-  const shared = sharedAgents(paths.rootDir);
   const personal = personalFolders(paths.dataDir);
-  const tracked = shared.map((definition) => ({
-    definition: personal.includes(definition.id) ? personalDefinition(definition, paths.dataDir) : definition,
-    origin: 'tracked' as const,
-  }));
-  const local = personal
-    .filter((name) => !shared.some((definition) => definition.id === name))
-    .flatMap((name) => {
-      const definition = localDefinition(name, paths.dataDir);
-      return definition === null ? [] : [{ definition, origin: 'local' as const }];
-    });
-  return [...tracked, ...local].sort((x, y) => (x.definition.id < y.definition.id ? -1 : 1));
+  return sharedAgents(paths.rootDir).map((definition) =>
+    personal.includes(definition.id)
+      ? { definition: personalDefinition(definition, paths.dataDir), origin: 'local' as const }
+      : { definition, origin: 'tracked' as const }
+  );
 }
 
 /** Reads and validates every agent on disk, tracked and local, sorted by id. */
 export function listAgents(options: AgentPaths = {}): ReadonlyArray<AgentDefinition> {
   return Object.freeze(definitionsOf(agentPaths(options)).map(({ definition }) => definition));
+}
+
+/** The folder of the engine's checkout the agents are read from. */
+export function engineRoot(options: AgentPaths = {}): string {
+  return agentPaths(options).rootDir;
 }
 
 /** The names of every agent on disk, sorted. */
@@ -379,7 +356,7 @@ function makeProfile(definition: AgentDefinition, origin: AgentOrigin, paths: Re
   return {
     name: definition.id,
     description: definition.description,
-    unit: definition.unit,
+    unit: definition.id,
     origin,
     promptFiles: promptCandidates(definition.id, paths, definition.prompt),
     defaultLimits: definition.limits,

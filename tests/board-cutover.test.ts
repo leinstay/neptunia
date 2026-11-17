@@ -35,7 +35,7 @@ async function fakeScout(path: string, usd = 0.2): Promise<Runner> {
         const line: unknown = JSON.parse(buffer.slice(0, end));
         buffer = buffer.slice(end + 1);
         if (!isRecord(line)) continue;
-        if (line.op === 'ping') socket.write(encodeLine(pongEvent({ unit: 'web', busy: false, queued: 0 })));
+        if (line.op === 'ping') socket.write(encodeLine(pongEvent({ unit: 'scout', busy: false, queued: 0 })));
         if (line.op === 'run' && typeof line.id === 'string') {
           runs.push(line);
           const result = { text: 'nine to five', sources: [], files: [] };
@@ -54,7 +54,7 @@ type Asked = { line: string; goal: string };
 const OPENING: Asked = { line: 'Ask the scout when the library opens.', goal: 'find the opening hours of the library' };
 
 /**
- * The model of her turns: the first request that holds the line of an errand calls `errand.add` for the scout with its
+ * The model of her turns: the first request that holds the line of an errand calls `errand.scout` for the scout with its
  * goal, and every other request is answered with one message. Her result turn shows the asking line again, so it gets
  * the message.
  */
@@ -69,15 +69,12 @@ function errandModel(asked: ReadonlyArray<Asked>): Llm {
     complete: (messages: unknown, given?: unknown) => {
       if ((given as { purpose?: unknown } | undefined)?.purpose === 'address')
         return Promise.resolve({ text: 'yes', usage: {}, estimated: 1 });
-      // Changed: her errand names no agent, so the dispatcher is asked; it picks the scout.
-      if ((given as { purpose?: unknown } | undefined)?.purpose === 'dispatch')
-        return Promise.resolve({ text: '<agent>scout</agent>', usage: {}, estimated: 1 });
       requests.push(messages);
       const text = JSON.stringify(messages);
       const due = asked.find((item) => !used.has(item.line) && text.includes(item.line));
       if (due === undefined) return Promise.resolve({ text: `<msg>${ANSWER}</msg>`, usage: {}, estimated: 10 });
       used.add(due.line);
-      const answer = toolAnswer('<think>a scout errand</think>', [call('errand.add', { goal: due.goal })]);
+      const answer = toolAnswer('<think>a scout errand</think>', [call('errand.scout', { goal: due.goal })]);
       // toolAnswer gives the completion the native transport resolves, its text and usage included.
       return Promise.resolve(answer as { text: string; usage: object; estimated: number });
     },
@@ -88,18 +85,16 @@ function errandModel(asked: ReadonlyArray<Asked>): Llm {
 const logged = (logs: ReadonlyArray<Record<string, unknown>>, msg: string, id: unknown): number =>
   logs.filter((entry) => entry.msg === msg && entry.id === id).length;
 
-/** The private layer of an errand rig: the scout on, her `errand.add` granted. */
+/** The private layer of an errand rig: the scout on, her `errand.scout` granted. */
 function errandConfig(): Settings {
   return {
-    bot: { access: { 'errand.add': { everyone: false, roles: [], users: [SELF_ID] } } },
+    bot: { access: { 'errand.scout': { everyone: false, roles: [], users: [SELF_ID] } } },
     // The scout's end can reach the core while her opening turn still holds the attention, and the result turn is
     // held and tried again every `resultRetrySeconds`, twenty times. At 0 the twenty tries run out within milliseconds
     // when the opening turn's reply waits on a slow interface process, and no result turn runs at all. One second
     // gives the opening turn twenty seconds.
     errands: { maxOpen: 3, resultCooldownSeconds: 0, resultRetrySeconds: 1 },
     agents: { scout: { enabled: true, daily: { tasks: 5 } } },
-    // Changed: the dispatcher's roster takes only an agent with a route.
-    models: { agents: { via: { scout: 'claude' } } },
   };
 }
 
@@ -108,11 +103,11 @@ function errandConfig(): Settings {
 const errandTasks = (dirs: Dirs): Array<Record<string, unknown>> =>
   query(dirs, 'SELECT id, role, status FROM board_tasks ORDER BY created_at, rowid');
 
-test('her errand goes from her errand.add to its scout and back to her once, through the core alone', async () => {
+test('her errand goes from her errand.scout to its scout and back to her once, through the core alone', async () => {
   const sockets = tempDir('nb-');
-  // The web unit's socket, where a user unit puts it under the runtime folder (unitPaths).
-  fs.mkdirSync(join(sockets, 'neptunia-agent-web'));
-  const scout = await fakeScout(join(sockets, 'neptunia-agent-web', 'sock'));
+  // The scout unit's socket, where a user unit puts it under the runtime folder (unitPaths).
+  fs.mkdirSync(join(sockets, 'neptunia-agent-scout'));
+  const scout = await fakeScout(join(sockets, 'neptunia-agent-scout', 'sock'));
   const env = { NEPTUNIA_UNIT_SCOPE: 'user', XDG_RUNTIME_DIR: sockets, XDG_STATE_HOME: join(sockets, 'state') };
   try {
     const config = errandConfig();

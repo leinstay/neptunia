@@ -59,8 +59,8 @@
 // key or token value is ever printed.
 //
 // `errand-runner` reads config.json and, when its user can read it, the local layer's config/config.json, takes the socket
-// and the output folder of its unit (src/agent-runner/profiles.ts#unitPaths), and serves the tasks of every agent whose
-// profile names the unit (src/agent-runner/server.ts). On SIGTERM it ends open tasks and exits 0.
+// and the output folder of its unit (src/agent-runner/profiles.ts#unitPaths), and serves the tasks of the agent of the unit's
+// name (src/agent-runner/server.ts). On SIGTERM it ends open tasks and exits 0.
 //
 // `interface run` loads `<dir>/<name>/index.ts` or `index.js` (the default dir is the checkout's `interfaces/`), reads
 // the client's token from `<private>/clients/<name>.token`, connects to the core's socket and calls the package's

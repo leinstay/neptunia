@@ -80,7 +80,7 @@ function makeStore({
   errands?: Record<string, unknown>;
   agents?: Record<string, unknown>;
   journal?: Parameters<typeof createErrandStore>[0]['journal'];
-  /** the state folder of a user unit, whose `neptunia-agent-web/out` is the scout's out folder */
+  /** the state folder of a user unit, whose `neptunia-agent-scout/out` is the scout's out folder */
   stateDir?: string;
 } = {}) {
   const config = {
@@ -322,8 +322,8 @@ test('task store: a file handle resolves only to a file the task lists, inside i
     const file = store.fileOf(handle);
     assert.equal(
       loose(file).path,
-      // Changed: the out folder is the web unit's.
-      path.resolve(os.tmpdir(), 'errands-no-such-state-dir', 'neptunia-agent-web', 'out', idOf(task), 'meme.png'),
+      // Changed: the out folder is the scout unit's.
+      path.resolve(os.tmpdir(), 'errands-no-such-state-dir', 'neptunia-agent-scout', 'out', idOf(task), 'meme.png'),
       'the out directory, never the path the runner wrote'
     );
     assert.equal(loose(file).contentType, 'image/png');
@@ -361,9 +361,9 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
 // PR 6d: the mark is written to the errand's board task (its metadata), where errands.json held it before.
 test("task store: a finished task's files expire once the runner removed its directory; the handle then names nothing", async () => {
   await withCapturedLogs(async () => {
-    // Changed: the out folder is the web unit's, under the state folder of a user unit.
+    // Changed: the out folder is the scout unit's, under the state folder of a user unit.
     const stateDir = tempDir('errands-state-');
-    const out = path.join(stateDir, 'neptunia-agent-web', 'out');
+    const out = path.join(stateDir, 'neptunia-agent-scout', 'out');
     fs.mkdirSync(out, { recursive: true });
     const { store, dataDir } = makeStore({ errands: { maxOpen: 5 }, stateDir });
     const files = [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 12 }];

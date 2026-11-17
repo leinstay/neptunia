@@ -1,6 +1,6 @@
 // Her errand tools (src/tools/operations/errand.ts) over the board (PR 6d): `errand.status`, `errand.list`, `errand.read`,
 // `errand.resolve` and `errand.cancel` answer over errands moved from the `work` archive exactly as they answer over
-// the same errands kept in memory, and `errand.add` and `errand.cancel` write the board. The errand client is a fake
+// the same errands kept in memory, and `errand.scout` and `errand.cancel` write the board. The errand client is a fake
 // the test ends by hand; the memory service is the real one on the calling thread. Temporary data directories, a
 // fixed clock.
 import { after, test } from 'node:test';
@@ -63,8 +63,6 @@ function makeEnv(memoryDb: MemoryDb | null): Rig {
       bot: { owners: [OWNER], access: {} },
       features: {},
       errands: { maxOpen: 3, resultMaxChars: 40 },
-      // Changed: the dispatcher's roster takes only an agent with a route.
-      models: { agents: { via: { scout: 'claude', server: 'claude' } } },
       agents: { scout: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } } },
     },
     prompts: { labels: {} },
@@ -73,9 +71,7 @@ function makeEnv(memoryDb: MemoryDb | null): Rig {
   };
   const client = fakeClient();
   const stores = createErrandStores({ config: () => hot.config, now: () => NOW, log: SILENT, memoryDb });
-  // Changed: her errand names no agent; a fake dispatcher picks the scout, as ERRAND_AGENT did.
-  const dispatch = () => Promise.resolve({ ok: true as const, agent: 'scout' });
-  const errands = createErrandService({ client, stores, hot, dispatch, now: () => NOW, log: SILENT });
+  const errands = createErrandService({ client, stores, hot, now: () => NOW, log: SILENT });
   const env = createOpsEnv({
     discord: createDiscordInterface().capabilities,
     hot,
@@ -104,7 +100,7 @@ async function ask(env: Env, name: string, args: Obj, accountId: string = MEMBER
   return { status, code, summary, data };
 }
 
-/** The id of the errand an `errand.add` answer names. */
+/** The id of the errand an `errand.scout` answer names. */
 function idOf(answer: Answer): string {
   const data = answer.data;
   const task = data !== null && typeof data === 'object' && 'task' in data ? data.task : null;
@@ -133,11 +129,11 @@ function openedAt(prefix: string, prepare: ((file: string) => void) | null = nul
   return opened.memoryDb;
 }
 
-test('errand.add files the errand on the board as a scout task in progress once it is sent', async () => {
+test('errand.scout files the errand on the board as a scout task in progress once it is sent', async () => {
   await withCapturedLogs(async () => {
     const memoryDb = openedAt('nep-errand-tools-run-');
     const { env, stores } = makeEnv(memoryDb);
-    const id = idOf(await ask(env, 'errand.add', { goal: 'find the changelog' }));
+    const id = idOf(await ask(env, 'errand.scout', { goal: 'find the changelog' }));
     await tick();
     await stores.flush();
     const task = taskOf(memoryDb, id);
@@ -150,7 +146,7 @@ test('errand.cancel moves the board task to cancelled', async () => {
   await withCapturedLogs(async () => {
     const memoryDb = openedAt('nep-errand-tools-cancel-');
     const { env, stores, errands } = makeEnv(memoryDb);
-    const id = idOf(await ask(env, 'errand.add', { goal: 'find the changelog' }));
+    const id = idOf(await ask(env, 'errand.scout', { goal: 'find the changelog' }));
     await tick();
     assert.equal((await ask(env, 'errand.cancel', { id })).status, 'ok');
     await errands.idle();

@@ -14,12 +14,12 @@ test('accepts memory.read in a heartbeat and refuses memory.profile.read', () =>
 });
 
 // Bug caught: the heartbeat refuses the errand it is to wait for, or takes the errand for its decision and ends.
-test('accepts errand.add and errand.read in a heartbeat, and neither ends the wake', () => {
+test('accepts errand.scout and errand.read in a heartbeat, and neither ends the wake', () => {
   assert.deepEqual(
     [
-      wakeRefusalCode('heartbeat', 'errand.add'),
+      wakeRefusalCode('heartbeat', 'errand.scout'),
       wakeRefusalCode('heartbeat', 'errand.read'),
-      endsWake('heartbeat', 'errand.add'),
+      endsWake('heartbeat', 'errand.scout'),
       endsWake('heartbeat', 'errand.read'),
     ],
     [null, null, false, false]

@@ -9,7 +9,6 @@ import type net from 'node:net';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
 import type { Untyped } from '../tools/types.ts';
-import type { Dispatch } from './dispatcher.ts';
 
 /** A logger of a module that reports errors too. */
 export type ErrorLogger = Logger & { error: (message: string, meta?: Untyped) => unknown };
@@ -76,8 +75,7 @@ export type Limits = { steps?: number; seconds?: number };
 /** An errand as the store keeps it (a task of the board holds one, src/board/archive.ts). */
 export type ErrandRecord = {
   id: string;
-  /** null while an errand that named no agent waits for the dispatcher, and after the dispatcher found none */
-  agent: string | null;
+  agent: string;
   goal: string;
   requester: ErrandRequester;
   origin: ErrandOrigin;
@@ -116,8 +114,7 @@ export type CostRecord = {
 
 /** What a caller hands the store to queue an errand. */
 export type AddInput = {
-  /** null for an errand the dispatcher assigns */
-  agent: string | null;
+  agent: string;
   goal: string;
   requester: { accountId?: string | null; kind?: string };
   origin: {
@@ -167,7 +164,6 @@ export type FlushCounts = { waiting: number };
 export type ErrandStore = {
   add: (input: AddInput) => AddResult;
   start: (id: unknown) => ErrandRecord | null;
-  assign: (id: unknown, agent: string) => ErrandRecord | null;
   finish: (id: unknown, outcome?: FinishOutcome) => ErrandRecord | null;
   cancel: (id: unknown) => ErrandRecord | null;
   markSeen: (id: unknown) => ErrandRecord | null;
@@ -201,6 +197,10 @@ export type ErrandStores = {
 
 /** What the service hands the client to run one errand. */
 export type RunContext = {
+  /** the UTC day the errand is sent, YYYY-MM-DD */
+  today: string;
+  /** the folder of the engine's checkout */
+  engine: string;
   scope: ErrandScope;
   channel: string | null;
   asker: string | null;
@@ -262,7 +262,7 @@ export type ErrandService = {
   /** Resolves when errand `id` ends, marked seen and read, or after `ms` with the errand still open and unread. */
   wait: (input: { id: string; ms: number }) => Promise<WaitResult>;
   cancel: (input: { id: string; by?: string }) => CancelResult;
-  budget: (input?: { agent?: string }) => Budget | null;
+  budget: (input: { agent: string }) => Budget | null;
   view: (input?: { dmChatId?: string | null }) => Array<ErrandRecord>;
   fileOf: (input?: { handle?: unknown; dmChatId?: string | null }) => ErrandFileRef | ExpiredFileRef | null;
   markSeen: (input?: IdsInput) => number;
@@ -304,8 +304,6 @@ export type ErrandServiceOptions = {
   /** The stored facts of an errand's goal through the one retrieval service, under a group context. */
   retrieve?: RetrieveForErrand | null;
   onFinished?: ((errand: ErrandRecord) => unknown) | null;
-  /** The dispatcher, which picks the agent of an errand that names none (src/errands/dispatcher.ts). */
-  dispatch?: Dispatch | null;
   log?: Logger;
   defer?: (fn: () => unknown) => unknown;
   now?: () => number;

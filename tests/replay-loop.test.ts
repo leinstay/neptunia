@@ -1,6 +1,6 @@
 // Tests for the step engine of scripts/replay.ts (`--skills`, `--pair-transport`, `--loop-triggers`): a
 // scenario run is answered as a live turn answers it -- every call of each answer through the real
-// gateway, her in-turn tools run (here by fakes), an errand.add only recorded, the turn continued step after
+// gateway, her in-turn tools run (here by fakes), an errand.scout only recorded, the turn continued step after
 // step within the loop's bounds, her speech held when a call left something to read -- and what runs.jsonl,
 // the report and the pair sheet make of it. Fakes only: no network, no data/.
 import { test } from 'node:test';
@@ -93,7 +93,7 @@ const SELF = '100000000000000001';
 const HERE = '200000000000000001';
 const GUILD = '300000000000000001';
 const NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
-const TOOLS = ['web.search', 'memory.search', 'errand.add'];
+const TOOLS = ['web.search', 'memory.search', 'errand.scout'];
 const THINK = '<think>t</think>';
 
 /** The config of a scenario with her tools granted; `loop` its bounds. */
@@ -545,7 +545,7 @@ test('loopRecord: a loop that ended on the token cap counts as capped though no 
   );
 });
 
-test('the step engine: reads run together, a data result holds her speech, the next request appends to the first messages; a job covers the speech; an errand.add is only recorded', async () => {
+test('the step engine: reads run together, a data result holds her speech, the next request appends to the first messages; a job covers the speech; an errand.scout is only recorded', async () => {
   const { run, llm, toolCalls } = await loopRun(
     [
       toolAnswer(`${THINK}<msg>μισό λεπτό</msg>`, [
@@ -553,7 +553,7 @@ test('the step engine: reads run together, a data result holds her speech, the n
         call('memory.search', { question: 'τι είπαμε για τον τελικό' }, { id: 'm1' }),
       ]),
       toolAnswer(`${THINK}<msg>το στέλνω</msg>`, [
-        call('errand.add', { goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' }, { id: 't1' }),
+        call('errand.scout', { goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' }, { id: 't1' }),
       ]),
     ],
     { tool: (skill: unknown) => (skill === 'web.search' ? okTool('Η Ana κέρδισε.') : okTool('Élodie: το είδα', 0)) }
@@ -601,12 +601,12 @@ test('the step engine: reads run together, a data result holds her speech, the n
     [
       [0, 'web.search', 'ok'],
       [0, 'memory.search', 'ok'],
-      [1, 'errand.add', 'ok'],
+      [1, 'errand.scout', 'ok'],
     ]
   );
   assert.deepEqual(asRecord(record).loop.errands, [
-    // Changed: her errand names no agent, and a replay runs no dispatcher.
-    { step: 1, agent: null, goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' },
+    // Changed: the tool she called names its agent.
+    { step: 1, agent: 'scout', goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' },
   ]);
   const [reply, after] = asRecord(record).loop.steps;
   assert.equal(reply.resultChars, 'Η Ana κέρδισε.'.length + 'Élodie: το είδα'.length);
@@ -643,9 +643,9 @@ test('the step engine: reads run together, a data result holds her speech, the n
       records: [record],
     },
   ]);
-  assert.ok(report.includes('calls in order: 0:web.search ok; 0:memory.search ok; 1:errand.add ok'));
-  // Changed: a replay runs no dispatcher, so the recorded errand names no agent.
-  assert.ok(report.includes('errand recorded (step 1, not dispatched): : Βρες τον πλήρη'));
+  assert.ok(report.includes('calls in order: 0:web.search ok; 0:memory.search ok; 1:errand.scout ok'));
+  // Changed: the recorded errand names the agent of the tool she called.
+  assert.ok(report.includes('errand recorded (step 1, not dispatched): scout: Βρες τον πλήρη'));
   assert.ok(report.includes('speech held (not posted):'));
   assert.ok(report.includes('cost: 0.0220'));
 });
@@ -789,7 +789,7 @@ test('the step engine: unreadable and unknown calls get a refusal she reads; arg
   assert.ok(results[0].content.includes(labels.tools.result.reasons['malformed-call']));
 });
 
-test('loopCall: a tool past its time answers the live timeout; one that throws fails; a refused call never runs; an errand.add is recorded only', async () => {
+test('loopCall: a tool past its time answers the live timeout; one that throws fails; a refused call never runs; an errand.scout is recorded only', async () => {
   const outcome = (skill: string, args = {}) => ({
     verdict: { stage: 'gateway', ok: true },
     executed: { skill, args },
@@ -829,15 +829,15 @@ test('loopCall: a tool past its time answers the live timeout; one that throws f
   });
   assert.equal(await refused({ skill: 'web.search' }, {}), refusal);
   const errand = loopCall({
-    simulate: () => outcome('errand.add', { goal: 'Βρες το πρόγραμμα' }),
+    simulate: () => outcome('errand.scout', { goal: 'Βρες το πρόγραμμα' }),
     runTool: () => {
       ran += 1;
     },
     inTurn: IN_TURN_TOOLS,
   });
-  const recorded = await errand({ skill: 'errand.add', args: { goal: 'Βρες το πρόγραμμα' }, body: '' }, {});
-  // Changed: her errand names no agent, and a replay runs no dispatcher.
-  assert.deepEqual(asRecord(recorded).errand, { agent: null, goal: 'Βρες το πρόγραμμα' });
+  const recorded = await errand({ skill: 'errand.scout', args: { goal: 'Βρες το πρόγραμμα' }, body: '' }, {});
+  // Changed: the tool she called names its agent.
+  assert.deepEqual(asRecord(recorded).errand, { agent: 'scout', goal: 'Βρες το πρόγραμμα' });
   assert.equal(asRecord(recorded).result.data.text, 'canned');
   assert.equal(ran, 0);
 });

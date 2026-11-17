@@ -27,13 +27,13 @@ test('heartbeat: a skill run is refused, an errand is accepted and does not end 
   const run = await wakeTurn({
     wake: BEAT,
     answers: [
-      toolAnswer(THINK, [call('errand.add', { goal: 'g' }), call('skill.run', { name: 'x', script: 'y' })]),
+      toolAnswer(THINK, [call('errand.scout', { goal: 'g' }), call('skill.run', { name: 'x', script: 'y' })]),
       SET,
     ],
     errands: waitedErrands().service,
   });
   assert.deepEqual(run.actions, [
-    'errand.add:executed:ok',
+    'errand.scout:executed:ok',
     'skill.run:refused:heartbeat-only',
     'intention.set:executed:ok',
   ]);
@@ -75,12 +75,12 @@ test('heartbeat: a waited errand that returns is read in a follow-up request of 
   const { service } = waitedErrands();
   const run = await wakeTurn({
     wake: BEAT,
-    answers: [toolAnswer(THINK, [call('errand.add', { goal: 'g' })]), SET],
+    answers: [toolAnswer(THINK, [call('errand.scout', { goal: 'g' })]), SET],
     errands: service,
   });
   assert.equal(run.requests.length, 2);
   assert.ok(requestText(run.requests[1] ?? []).includes('ΤΟ ΑΠΟΤΕΛΕΣΜΑ ΤΗΣ ΑΝΑΖΗΤΗΣΗΣ'));
-  assert.deepEqual(run.actions, ['errand.add:executed:ok', 'intention.set:executed:ok']);
+  assert.deepEqual(run.actions, ['errand.scout:executed:ok', 'intention.set:executed:ok']);
 });
 
 test("heartbeat: the waiting call gets the budget's remaining time when wakes.loop.callTimeoutMs is smaller", async () => {
@@ -88,11 +88,11 @@ test("heartbeat: the waiting call gets the budget's remaining time when wakes.lo
   const { service, waits } = waitedErrands(1500);
   const run = await wakeTurn({
     wake: BEAT,
-    answers: [toolAnswer(THINK, [call('errand.add', { goal: 'g' })]), SET],
+    answers: [toolAnswer(THINK, [call('errand.scout', { goal: 'g' })]), SET],
     errands: service,
     wakes: { loop: { maxSteps: 4, timeBudgetMs: 500_000, maxCallsPerStep: 4, callTimeoutMs: 1000 } },
   });
-  assert.equal(run.actions[0], 'errand.add:executed:ok', 'not cut at the timeout of an ordinary call');
+  assert.equal(run.actions[0], 'errand.scout:executed:ok', 'not cut at the timeout of an ordinary call');
   assert.ok((waits[0] ?? 0) > 400_000, `the wait got ${waits[0]} ms`);
 });
 

@@ -61,7 +61,9 @@ const AGREED = new Set([
   'message.delete',
   'message.react.add',
   'message.react.remove',
-  'errand.add',
+  'errand.server',
+  'errand.scout',
+  'errand.code',
   'errand.list',
   'errand.cancel',
   'errand.read',
@@ -370,10 +372,9 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
 
   const [agents] = await card('costs.errands');
   assert.equal(agents.name, 'costs.errands');
-  // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
+  // Changed: the agents are read from disk: `code`, `scout` and `server`.
   assert.deepEqual(agents.value.split('\n'), [
     'code: none',
-    'fetch: none',
     'scout: D 1r 12k/3.1k 0.12 | W 1r 12k/3.1k 0.12 | M 2r 52k/5.1k 0.62',
     'server: D 1r 1.0k/100 0.01 | W 1r 1.0k/100 0.01 | M 1r 1.0k/100 0.01',
     'est.',
@@ -401,8 +402,8 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   );
   assert.deepEqual(
     empty.value.split('\n'),
-    // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
-    ['code: none', 'fetch: none', 'scout: none', 'server: none', 'est.'],
+    // Changed: the agents are read from disk: `code`, `scout` and `server`.
+    ['code: none', 'scout: none', 'server: none', 'est.'],
     'no errands: every agent with no runs'
   );
 });

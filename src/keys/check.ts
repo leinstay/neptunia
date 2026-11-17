@@ -7,7 +7,6 @@
 // Called by src/keys/commands.ts.
 
 import { apiUrl, openRouterHeaders } from '../llm/openrouter.ts';
-import { DISPATCHER_ROLE } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { TEXT_ROLES } from '../llm/route-text.ts';
 
@@ -55,8 +54,7 @@ function probeOf(role: string, voice: string | undefined): Probe | null {
     return voice === undefined || voice === ''
       ? null
       : { endpoint: 'audio/speech', body: { input: SPEECH_PROBE_TEXT, voice, response_format: 'mp3' } };
-  // The dispatcher answers in text from a chat model too, with no reasoning effort.
-  if (!TEXT_ROLES.some((one) => one === role) && role !== DISPATCHER_ROLE) return null;
+  if (!TEXT_ROLES.some((one) => one === role)) return null;
   return {
     endpoint: 'chat/completions',
     body: { messages: [{ role: 'user', content: 'Reply with ok.' }], max_tokens: 8 },

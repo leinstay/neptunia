@@ -227,9 +227,9 @@ test('restarted, pong and error events', () => {
     usage: { input: 0, output: 0, usd: 0, steps: 0, seconds: 0 },
     error: 'restarted',
   });
-  assert.deepEqual(pongEvent({ unit: 'web', busy: true, queued: 2 }), {
+  assert.deepEqual(pongEvent({ unit: 'scout', busy: true, queued: 2 }), {
     event: 'pong',
-    unit: 'web',
+    unit: 'scout',
     busy: true,
     queued: 2,
   });

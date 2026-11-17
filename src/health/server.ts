@@ -35,7 +35,12 @@ const DISK_WARN_SHARE = 0.1;
 const LOAD_WARN_PER_CPU = 2;
 
 /** The engine's units the probe asks `systemctl` about: the core and the two errand runners (deploy/). */
-const ENGINE_UNITS = ['neptunia-core.service', 'neptunia-agent-web.service', 'neptunia-agent-host.service'];
+const ENGINE_UNITS = [
+  'neptunia-core.service',
+  'neptunia-agent-server.service',
+  'neptunia-agent-scout.service',
+  'neptunia-agent-code.service',
+];
 
 /** The interface units, one per interface (deploy/neptunia-interface@.service). */
 const INTERFACE_UNITS = 'neptunia-interface@*.service';

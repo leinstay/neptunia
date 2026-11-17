@@ -76,8 +76,8 @@ test('the route of an errand is read from keys.json at each dispatch, and no rou
   errands.submit(ask);
   await errands.idle();
   assert.deepEqual(runs[0]?.route, { backend: 'claude', model: 'claude-opus-5-5', effort: 'medium', mode: 'write' });
-  // Changed: a mode is stored per unit, and the scout runs in the `web` unit.
-  writeKeysFile(privateDir, { subharness: { backends: ['codex'], key: null, modes: { web: 'read' } } });
+  // Changed: a mode is stored per unit, and the scout runs in the unit of its name.
+  writeKeysFile(privateDir, { subharness: { backends: ['codex'], key: null, modes: { scout: 'read' } } });
   errands.submit(ask);
   await errands.idle();
   assert.deepEqual(runs[1]?.route, { backend: 'codex', model: null, effort: null, mode: 'read' });

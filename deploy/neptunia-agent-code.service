@@ -1,9 +1,8 @@
-# systemd unit of the web agents (src/agent-runner/): the runner of every agent
-# whose profile says `"unit": "web"`.
+# systemd unit of the agent `code` (src/agent-runner/): its errand runner.
 #
-# A separate, unprivileged process that runs internet errands for the bot
-# through the subharness backend (src/agent-runner/backend.ts), one errand per
-# agent at a time. It reaches the internet but never the
+# A separate, unprivileged process that runs coding errands for the bot
+# through the subharness backend (src/agent-runner/backend.ts), one errand at a
+# time. It reaches the internet but never the
 # server's filesystem beyond its own out dir and the backend's folder in the
 # private layer, and never localhost or private networks. The backend runs from
 # <private>/subharness/<backend>/, which holds its binary and its login, so no
@@ -15,14 +14,14 @@
 #
 # `neptunia setup` renders this template for the installing user
 # (deploy/README.md). The sandbox below is the mode `write`; `agent mode
-# web <mode>` in the chat sets the mode, which the next `neptunia setup`
+# code <mode>` in the chat sets the mode, which the next `neptunia setup`
 # renders into the unit: `full` drops the mount
 # sandbox (ProtectSystem, ProtectHome and the bind and write paths) and `sudo`
 # also drops NoNewPrivileges.
-# Logs:    journalctl -u neptunia-agent-web -f
+# Logs:    journalctl -u neptunia-agent-code -f
 
 [Unit]
-Description=neptunia web errand agents
+Description=neptunia code errand agent
 After=network-online.target
 Wants=network-online.target
 
@@ -31,7 +30,7 @@ Type=simple
 User=neptunia
 Group=neptunia-discord-interface
 WorkingDirectory=/opt/neptunia/app
-ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --unit web
+ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --unit code
 # Node's folder goes on the PATH; the backend is started by its path in the private layer.
 Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 # The bot's data directory, set as in the core unit (deploy/neptunia-core.service).
@@ -60,8 +59,8 @@ PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 TemporaryFileSystem=/opt/neptunia/data:ro
-StateDirectory=neptunia-agent-web
-RuntimeDirectory=neptunia-agent-web
+StateDirectory=neptunia-agent-code
+RuntimeDirectory=neptunia-agent-code
 RuntimeDirectoryMode=0750
 
 # Network: the agent reaches the public internet only. Localhost, link-local
@@ -83,7 +82,7 @@ IPAddressDeny=fe80::/10
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=neptunia-agent-web
+SyslogIdentifier=neptunia-agent-code
 
 [Install]
 WantedBy=multi-user.target
