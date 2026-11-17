@@ -68,7 +68,7 @@ function controllableRunner() {
   const runner = {
     run(task: Untyped) {
       started.push(task.id);
-      waiting.get(task.id)?.();
+      waiting.get(String(task.id))?.();
       return new Promise<Untyped>((resolve) => {
         gates.set(task.id, (outcome: Untyped) => resolve(outcome));
       });
