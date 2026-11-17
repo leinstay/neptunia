@@ -1330,17 +1330,12 @@
         "complexity": 41
       },
       "sandboxRequestInput": {
-        "complexity": 34
+        "complexity": 33
       }
     },
     "src/behavior/wake.ts": {
       "feedbackFactText": {
         "complexity": 31
-      }
-    },
-    "src/errands/blocks.ts": {
-      "errandResultText": {
-        "complexity": 25
       }
     },
     "src/errands/client.ts": {

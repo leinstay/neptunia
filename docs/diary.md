@@ -34,7 +34,7 @@ An entry the planner planned keeps `plan` in its `extra`: the `brief`, the `seed
 
 An entry also keeps `turnId` in its `extra`, the id of the diary turn that wrote it. `recordEntry` takes it from the turn runner. An entry recorded before the field has no `turnId`.
 
-`<diary>` shows a past picture post by its scene. `sceneOf` takes the scene from the stored `plan.brief`, else from the description of the entry's first linked picture, else from its drawing prompt. `readDiary` reads that description from the entry's `media_links` on every read and never stores it, and `<diary>` cuts it to one line of at most `diary.sceneChars` (400) characters at a word boundary.
+`<diary>` shows a past picture post by its scene, on one line and whole. `sceneOf` takes the scene from the stored `plan.brief`, else from the entry's drawing prompt.
 
 ## Mirrors
 
