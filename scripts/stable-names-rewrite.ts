@@ -1,6 +1,7 @@
 // Rewrites what a deployment stored before stable names to `:e23:`, gives its emoji and stickers their stable names and
-// links each line to the emoji its text names (src/memory/db/stable-names-rewrite.ts). Run once per deployment, with the
-// core stopped, after a backup.
+// links each line to the emoji its text names (src/memory/db/stable-names-rewrite.ts). It then rewrites the log of
+// requests and the recall traces in batches (src/memory/db/stable-names-logs.ts). Run once per deployment, with the core
+// stopped, after a backup.
 //
 //   node scripts/stable-names-rewrite.ts --data <folder>            dry run: counts only, nothing written
 //   node scripts/stable-names-rewrite.ts --data <folder> --apply    writes the plan through the memory writer
@@ -15,7 +16,12 @@ import { claimCore, openMemoryDb } from '../src/memory/db/open.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { planStableNamesRewrite } from '../src/memory/db/stable-names-rewrite.ts';
 import type { StableNamesPlan } from '../src/memory/db/stable-names-rewrite.ts';
+import { planLogBatches } from '../src/memory/db/stable-names-logs.ts';
 import { dbOf } from '../src/memory/db/types.ts';
+import type { MemoryHandle } from '../src/memory/db/types.ts';
+
+/** Rows of a log table read per batch: a few hundred requests hold some tens of megabytes of JSON. */
+const BATCH_SIZE = 200;
 
 function print(plan: StableNamesPlan): void {
   const { counts } = plan;
@@ -31,6 +37,30 @@ function print(plan: StableNamesPlan): void {
   console.log(`left, raw markup ids of no known interface: ${counts.left.markupIface}`);
   if (counts.left.markupIface > 0)
     console.log('give the interface their markup belongs to with --markup-iface <interface>');
+}
+
+/**
+ * The log batches: each applied at once with `--apply`, counted only in a dry run, where a batch reads the names as the
+ * main plan leaves them unwritten. Prints rows to change per table and progress, counts only.
+ */
+function runLogs(handle: MemoryHandle, options: { choose: Record<string, string>; markupIface: string | null }): void {
+  const sums: Record<string, number> = {};
+  const left = { sharedName: 0, unlinkedSticker: 0 };
+  let batches = 0;
+  for (const batch of planLogBatches(dbOf(handle), { batchSize: BATCH_SIZE, ...options })) {
+    if (apply) applyMemoryWrite(handle, { kind: 'stable-names-rewrite', ...batch, now: Date.now() });
+    batches += 1;
+    const { tables, left: batchLeft } = batch.counts;
+    for (const [table, count] of Object.entries(tables)) sums[table] = (sums[table] ?? 0) + count;
+    left.sharedName += batchLeft.sharedName;
+    left.unlinkedSticker += batchLeft.unlinkedSticker;
+    if (batches % 10 === 0) console.log(`log batches read: ${batches}`);
+  }
+  console.log(`log batches read: ${batches}`);
+  for (const table of ['model_requests', 'operational'])
+    console.log(`log rows to change, ${table}: ${sums[table] ?? 0}`);
+  console.log(`log left, a name two emoji hold: ${left.sharedName}`);
+  console.log(`log left, an old sticker reference of a name no one sticker holds: ${left.unlinkedSticker}`);
 }
 
 /** The `--choose <platformName>=<platformId>` arguments as one choice. */
@@ -72,14 +102,16 @@ claimCore(dbPath)();
 const apply = argv.includes('--apply');
 const handle = openMemoryDb(dbPath, { readOnly: !apply });
 try {
-  const plan = planStableNamesRewrite(dbOf(handle), { choose: choiceOf(argv), markupIface: markupIfaceOf(argv) });
+  const options = { choose: choiceOf(argv), markupIface: markupIfaceOf(argv) };
+  const plan = planStableNamesRewrite(dbOf(handle), options);
   print(plan);
-  if (!apply) console.log('dry run, nothing written');
-  else
+  if (apply)
     console.log(
       'applied',
       JSON.stringify(applyMemoryWrite(handle, { kind: 'stable-names-rewrite', ...plan, now: Date.now() }))
     );
+  runLogs(handle, options);
+  if (!apply) console.log('dry run, nothing written');
 } finally {
   handle.close();
 }
