@@ -43,7 +43,6 @@ export type NormalizedResult = {
   text: string;
   sources: Array<string>;
   files: Array<ErrandFile>;
-  withheld?: Array<string>;
   filesDropped?: Array<{ name: string; reason: string }>;
   searchFailures?: number;
 };
@@ -66,7 +65,6 @@ export type ErrandUsage = {
   usd: number;
   steps: number;
   seconds: number;
-  costUnknown?: number;
 };
 
 /** The limits an errand runs under. */

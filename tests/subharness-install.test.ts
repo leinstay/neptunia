@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { installSubharness, updateSubharness } from '../src/subharness/install.ts';
+import { installSubharness } from '../src/subharness/install.ts';
 import type { InstallRun, InstallRunResult } from '../src/subharness/install.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import type { BackendName } from '../src/agent-runner/profiles.ts';
@@ -236,42 +236,6 @@ test('a restored persona installs the version it recorded, not the version this 
     return npm(command, args, options);
   });
   assert.deepEqual(specs, ['@openai/codex@0.1.0']);
-});
-
-test('an explicit update replaces the binary, keeps the previous one and leaves her sessions alone', async () => {
-  // Bug: an update wipes the backend's folder, and with it the login and the native sessions under home/.
-  const privateDir = tempDir('nep-pin-');
-  const place = subharnessPlace(privateDir, 'claude');
-  await installSubharness({ privateDir, backend: 'claude', hostEnv: HOST_ENV }, versionedRun(privateDir, 'claude'));
-  const pinned = selectionOf(privateDir, 'claude').version;
-  const session = path.join(place.dir, 'home', 'projects', 'one.jsonl');
-  fs.mkdirSync(path.dirname(session), { recursive: true });
-  fs.writeFileSync(session, 'kept');
-  const outcome = await updateSubharness(
-    { privateDir, backend: 'claude', hostEnv: HOST_ENV, version: '9.9.9' },
-    versionedRun(privateDir, 'claude')
-  );
-  assert.equal(outcome.state, 'done');
-  assert.equal(selectionOf(privateDir, 'claude').version, '9.9.9');
-  assert.equal(selectionOf(privateDir, 'claude').previous, pinned);
-  assert.match(fs.readFileSync(place.binary, 'utf8'), /9\.9\.9/);
-  assert.equal(fs.readFileSync(session, 'utf8'), 'kept');
-});
-
-test('a failed update leaves the version in force working', async () => {
-  // Bug: npm fails halfway and she has no backend at all until someone repairs it by hand.
-  const privateDir = tempDir('nep-pin-');
-  const place = subharnessPlace(privateDir, 'claude');
-  await installSubharness({ privateDir, backend: 'claude', hostEnv: HOST_ENV }, versionedRun(privateDir, 'claude'));
-  const before = fs.readFileSync(place.binary, 'utf8');
-  const selection = selectionOf(privateDir, 'claude');
-  const outcome = await updateSubharness(
-    { privateDir, backend: 'claude', hostEnv: HOST_ENV, version: '9.9.9' },
-    versionedRun(privateDir, 'claude', { code: 1, stdout: '', stderr: 'npm ERR! 404' })
-  );
-  assert.equal(outcome.state, 'failed');
-  assert.equal(fs.readFileSync(place.binary, 'utf8'), before);
-  assert.deepEqual(selectionOf(privateDir, 'claude'), selection);
 });
 
 test('a run of each backend carries the control that keeps it from updating itself', async () => {

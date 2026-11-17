@@ -9,7 +9,7 @@ import type { Dirent } from 'node:fs';
 import { log } from '../log.ts';
 import { errorFields } from '../error-fields.ts';
 import { objOf, scalarText } from '../tools/types.ts';
-import { containsSecret, isFiltered } from './policy.ts';
+import { containsSecret } from './policy.ts';
 import type { RunnerTask, RunOutcome } from './protocol.ts';
 import { readWithoutLinks } from './profiles.ts';
 import type { Profile } from './profiles.ts';
@@ -165,20 +165,15 @@ async function fileCarriesSecret(file: ResultFile): Promise<boolean> {
 }
 
 /**
- * The result files actually delivered, and the ones dropped with their reason. In a filtered scope a
- * run that reached a withheld path delivers no file (reason `withheld`): a `cp` that slipped past the
- * rules could have copied the withheld file whole. In every scope, `core` included, a text file that
- * carries a secret is dropped (reason `secret`). Nothing of a file's content is logged.
+ * The result files actually delivered, and the ones dropped with their reason. In every scope, `core`
+ * included, a text file that carries a secret is dropped (reason `secret`). Nothing of a file's content
+ * is logged.
  */
 export async function deliverableFiles(
-  collected: Array<ResultFile>,
-  { scope, withheldCount }: { scope: string; withheldCount: number }
-): Promise<{ files: Array<ResultFile>; dropped: Array<{ name: string; reason: 'withheld' | 'secret' }> }> {
-  if (isFiltered(scope) && withheldCount > 0) {
-    return { files: [], dropped: collected.map((f) => ({ name: f.name, reason: 'withheld' as const })) };
-  }
+  collected: Array<ResultFile>
+): Promise<{ files: Array<ResultFile>; dropped: Array<{ name: string; reason: 'secret' }> }> {
   const files: Array<ResultFile> = [];
-  const dropped: Array<{ name: string; reason: 'withheld' | 'secret' }> = [];
+  const dropped: Array<{ name: string; reason: 'secret' }> = [];
   for (const file of collected) {
     if (await fileCarriesSecret(file)) dropped.push({ name: file.name, reason: 'secret' });
     else files.push(file);

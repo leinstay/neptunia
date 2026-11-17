@@ -1130,7 +1130,6 @@ export function simulateCall({
   view,
   config,
   selfId,
-  requester,
   chatId,
   now,
   images = null,
@@ -1149,7 +1148,6 @@ export function simulateCall({
     skill: resolved.skill,
     args: resolved.args,
     principal: PERSONA,
-    requester,
     audience: { chatId: String(chatId) },
     context: {
       config,

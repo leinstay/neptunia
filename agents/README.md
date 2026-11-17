@@ -21,7 +21,6 @@ A profile holds these keys and no other.
 | `prompt` | the file name of the prompt in the same folder |
 | `limits` | `{ steps, seconds }` of one errand |
 | `daily` | `{ tasks }`, the errands a day |
-| `cost` | `{ input, output }`, USD per million tokens |
 
 A profile with a missing key, an unknown key or a value of the wrong form stops the process at start, with one error naming the agent and the key. A profile names no harness and no model. An agent runs on the backend, model and effort of its route, which `/model set <agent>` writes, see [docs/errands.md](../docs/errands.md#the-route-of-an-errand).
 
@@ -41,7 +40,7 @@ The folders here are tracked. A deployment's agents live in `<data>/agents/<name
 
 The owner hands an agent an errand himself with `/errands add <agent> <goal>`.
 
-An agent is off until `/agent enable <name>` writes `agents.<name>.enabled` as `true` in the local config, and `/agent disable <name>` switches it off again. `agents.<name>` also overrides `cost`, `limits` and `daily`. `/agents` lists every agent with its description, unit, route, state and whether a local folder overlays it (`local`) or not (`tracked`).
+An agent is off until `/agent enable <name>` writes `agents.<name>.enabled` as `true` in the local config, and `/agent disable <name>` switches it off again. `agents.<name>` also overrides `limits` and `daily`. `/agents` lists every agent with its description, unit, route, state and whether a local folder overlays it (`local`) or not (`tracked`).
 
 ## Further reading
 

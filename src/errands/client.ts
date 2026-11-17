@@ -13,11 +13,9 @@
 // `agents.<name>` over it (agentSettings), read at the moment of use. Logs carry the profile, ids and codes, never a goal, a result or an errand's `secrets`
 // (sent on the `run` line and nowhere else). A `run` also carries the deployment's preamble when
 // one matches: the files of data/prompts/preambles/ picked by agent and by the model of the run's
-// route (src/errands/preambles.ts; `hot.prompts.preambles`, read live; no tracked default), and the
-// deployment's own price (`agents.<profile>.cost` of the live config, when it has finite input and output) as
-// `cost`: the runners cannot read the private config, so without it a run falls back to the profile's price. The
+// route (src/errands/preambles.ts; `hot.prompts.preambles`, read live; no tracked default). The
 // composed preamble goes out whole, however long. The core reads the private layer, the runners never do. Logs carry
-// the model id, the file names and the length, never a text or the cost.
+// the model id, the file names and the length, never a text.
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.ts';
@@ -57,15 +55,6 @@ const DEFAULT_ERRAND_SECONDS = 600;
 /** A failed outcome with `error`, in the shape `run` resolves. */
 function failed(error: string): RunOutcome {
   return { status: 'failed', result: normalizeResult(null), usage: normalizeUsage(null), error };
-}
-
-/** The price the deployment sets for `agent` (`agents.<agent>.cost`) when both fields are usable, else null: the runner has the profile's. */
-function costFor(agent: string, config: Untyped): { input: number; output: number } | null {
-  const agentConfig = config?.agents?.[agent];
-  const cost = agentConfig?.cost;
-  const usable = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
-  if (!cost || typeof cost !== 'object' || !usable(cost.input) || !usable(cost.output)) return null;
-  return { input: cost.input, output: cost.output };
 }
 
 /** The unit of `agent` and its socket path when the agent is enabled now, else null. */
@@ -119,7 +108,7 @@ function notifyProgress(
 }
 
 /**
- * `hot` holds the live config (`agents.<name>.enabled`, `.cost`) and prompts
+ * `hot` holds the live config (`agents.<name>.enabled`) and prompts
  * (`preambles`: read at each run). `connect` opens a socket (tests inject one).
  */
 export function createErrandClient({
@@ -365,8 +354,6 @@ export function createErrandClient({
       if (limits && Object.keys(limits).length > 0) request.limits = limits;
       if (secrets) request.secrets = secrets;
       const model = route?.model ?? null;
-      const cost = costFor(agent, hot?.config);
-      if (cost) request.cost = cost;
       const preamble = preambleOf(agent, model, hot);
       if (preamble.text) request.preamble = preamble.text;
       if (!send(unit, request)) {
