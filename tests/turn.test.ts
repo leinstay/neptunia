@@ -621,10 +621,9 @@ test("createTurnRunner: the trigger's picture is captioned by the describer and 
   );
   const text = userText(llm);
   assert.ok(text.includes(labels.transcript.imageDescribed.replace('{text}', 'a grey cat')));
-  assert.ok(
-    !text.includes(labels.transcript.imageAttached.replace('{n}', '1')),
-    'no line claims the picture is attached'
-  );
+  // No code reads `transcript.imageAttached` (second production audit, N6), so the label goes; the claim it checked is
+  // that no line says the picture is attached, in the words the fixture gave that label.
+  assert.ok(!text.includes('[picture #1, attached]'), 'no line claims the picture is attached');
 });
 
 test('createTurnRunner: captions go newest message first, media.maxPerTurn still caps new captions', async () => {

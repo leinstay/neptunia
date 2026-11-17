@@ -7,6 +7,8 @@ import assert from 'node:assert/strict';
 import { createEdits } from '../src/pipeline/edits.ts';
 import type { MessageEvent } from '../src/pipeline/edits.ts';
 import { createObserve } from '../src/pipeline/observe.ts';
+import { createEventDoor } from '../src/interface/door.ts';
+import { createIngestRecord } from '../src/memory/db/ingest.ts';
 import type { Message } from '../src/protocol/events.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import type { TestMemory } from './fixtures/memory-db/service.ts';
@@ -564,6 +566,68 @@ test('a description that lands after an update replaced its attachment leaves no
     await lateDescription(memory, 'c-old');
     assert.deepEqual(liveWithNoLink(memory, ['c-old']), []);
     assert.deepEqual(liveDescribed(memory, 'c-old'), []);
+  } finally {
+    await memory.close();
+  }
+});
+
+/** The link preview the platform fills in a later update of the message: a page's title and text and its picture. */
+function preview(id: string) {
+  return {
+    id: `${id}#e0`,
+    kind: 'link',
+    site: 'Synthetic News',
+    title: 'Ο φάρος ανάβει ξανά',
+    text: 'Ένα μικρό άρθρο για έναν φάρο.',
+    url: `https://news.example.invalid/${id}`,
+    thumbnailUrl: `https://media.example.invalid/${id}-thumb.png`,
+  };
+}
+
+// Guard (green on main, second audit row 5): an update that only adds a link preview reaches the core through
+// the event door with its receipt, as the live interface sends it, and then the edit handler. The preview ends linked to
+// the line, and the description the prefill writes lands on that linked row, with no unlinked described row beside it.
+test('a late link preview that arrives through the door is linked to the line and its description is on the linked row', async () => {
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
+  try {
+    const prefill = describingPrefill(memory);
+    const { observed, edits } = editsOver(memory, prefill.warm);
+    const ingest = createIngestRecord({ memoryDb: memory.memoryDb, hot: memory.hot, now: () => NOW });
+    const door = createEventDoor({
+      log: { info() {}, warn() {} },
+      ingest,
+      handlers: {
+        'message.received': async (event: MessageEvent, context) => {
+          const acceptedEvent = context.receipt
+            ? {
+                eventId: context.receipt.eventId,
+                locator: { iface: event.iface, chatId: event.chat.id, messageId: event.message.id },
+                receipt: context.receipt,
+              }
+            : undefined;
+          if (event.edit) await edits.onMessageUpdate(event, { acceptedEvent });
+          else await observed.observeLine(event, false, { placeId: ROOT }, acceptedEvent);
+        },
+      },
+    });
+    const first: Message = { ...created('9401'), content: 'https://news.example.invalid/9401' };
+    const second: Message = { ...first, links: [preview('9401')] };
+    assert.equal((await door.submit(eventOf('create-9401', first), { principal: 'adapter', seq: 1 })).status, 'ok');
+    const update = await door.submit(eventOf('update-9401', second, first), { principal: 'adapter', seq: 2 });
+    assert.equal(update.status, 'ok');
+    await prefill.settled();
+    assert.deepEqual(stored(memory, '9401'), [{ revision: 1, refs: ['9401#e0'] }]);
+    assert.deepEqual(describedWithNoLink(memory), []);
+    const db = memory.memoryDb.database();
+    if (!db) throw new Error('database unavailable');
+    const linked = db
+      .prepare(
+        `SELECT m.description AS description FROM media_links l JOIN media m ON m.id = l.media_id
+         WHERE m.native_ref = ? AND m.retired_at IS NULL`
+      )
+      .all('9401#e0');
+    assert.equal(linked.length, 1);
+    assert.equal(typeof linked[0]?.description === 'string' && linked[0].description !== '', true);
   } finally {
     await memory.close();
   }
