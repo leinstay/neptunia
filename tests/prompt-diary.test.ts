@@ -201,3 +201,21 @@ test('<publication_places> in <inner> lists two mirrors, each on its own line wi
   assert.ok(journal >= 0 && pages >= 0 && journal !== pages, part);
   assert.ok(!part.includes('fake:channel:c2'), part);
 });
+
+// The owner on 2026-11-17: the diary planner and the diary writer read her appearance beside the character card, in the
+// system message. The appearance sentence is the test's own.
+const LOOKS = 'ΕΜΦΑΝΙΣΗ a tall figure in a mustard raincoat with a crooked umbrella';
+
+test('the planner and the writer read <appearance> in the system message, after the card', async () => {
+  // Bug: only the chat turns get the appearance, so her diary describes someone she does not look like.
+  const run = await frameTurn({ prompts: { appearance: LOOKS } });
+  const block = `<appearance>\n${LOOKS}\n</appearance>`;
+  for (const [who, text] of [
+    ['planner', run.planner[0] ?? ''],
+    ['writer', run.writer[0] ?? ''],
+  ] as const) {
+    const at = text.indexOf(block);
+    assert.ok(at > text.indexOf('CARD_TEXT'), `${who}: ${text.slice(0, 300)}`);
+    assert.ok(at < text.indexOf('<self>'), `${who}: in the system message, before the user message`);
+  }
+});

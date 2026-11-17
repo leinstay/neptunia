@@ -16,6 +16,9 @@ import {
 // proving the feature switches (reactions, multiMessage, typingSimulation, memory) are applied where this module is
 // responsible for them.
 import { after, test } from 'node:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import { resolveMentions, mentionDirectory, paceSettings } from '../src/behavior/turn.ts';
 import { between, typingMs } from '../src/behavior/random.ts';
@@ -1029,7 +1032,22 @@ test('createTurnRunner: lookup -- a turn a returned errand opened runs no engine
 // Drawing: the persona's <draw> goes to the image client after its messages;
 // a failed generation gets its own follow-up turn.
 
-const DRAW_IMAGE_CFG = { reference: 'avatar', referenceMaxBytes: 4_000_000 };
+// The owner on 2026-11-17: `image.reference` is removed; a picture of herself takes `appearance.png` of the data folder
+// as its reference, and the avatar is not fetched for drawing.
+const DRAW_IMAGE_CFG = { referenceMaxBytes: 4_000_000 };
+const LOOK_BYTES = Buffer.from('LOOK-PNG-BYTES');
+const DRAW_FOLDERS: Array<string> = [];
+after(() => {
+  for (const folder of DRAW_FOLDERS.splice(0)) rmSync(folder, { recursive: true, force: true });
+});
+
+/** A fresh data folder under TMPDIR, holding `appearance.png` when `withLook`. */
+function drawDataDir(withLook: boolean): string {
+  const folder = mkdtempSync(path.join(tmpdir(), 'appearance-'));
+  DRAW_FOLDERS.push(folder);
+  if (withLook) writeFileSync(path.join(folder, 'appearance.png'), LOOK_BYTES);
+  return folder;
+}
 
 /** A fake createImageGen()-shaped dependency (see src/llm/images.ts). */
 function fakeImages({ error = null, mediaType = 'image/png' }: { error?: Error | null; mediaType?: string } = {}) {
@@ -1091,6 +1109,7 @@ async function runDrawTurn({
   withTrigger = true,
   attachFiles = true,
   triggerKind = 'mention',
+  dataDir = null,
 }: {
   answers: Array<string | Record<string, unknown>>;
   hot?: FakeHot;
@@ -1100,6 +1119,7 @@ async function runDrawTurn({
   withTrigger?: boolean;
   attachFiles?: boolean;
   triggerKind?: TriggerKind;
+  dataDir?: string | null;
 }) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'draw me a cat' });
   const channel = fakeTurnChannel({ id: 'c1', name: 'general', historyMessages: [raw], attachFiles });
@@ -1114,6 +1134,7 @@ async function runDrawTurn({
     client,
     images,
     imageFetcher,
+    dataDir,
   });
   const params: TurnParams = withTrigger
     ? { channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind }
@@ -1174,9 +1195,8 @@ test('runTurn: the draw request reaches the image model whole', async () => {
   assert.ok(images.generateCalls[0].prompt.endsWith(`\n\n${text}`));
 });
 
-test('runTurn: a self <draw> passes the avatar as reference', async () => {
-  // The address of her large avatar comes from the interface (`memberInfo` of herself, `avatar.largeUrl`), which
-  // sizes it for its platform; the size the Discord adapter asks for is that adapter's own test.
+// The owner on 2026-11-17: the reference is `appearance.png` of the data folder; the avatar is not asked for or fetched.
+test('runTurn: a self <draw> passes appearance.png of the data folder as reference', async () => {
   const avatarAsks: Array<Untyped> = [];
   world().tap('memberInfo', ([member]: Array<Untyped>) => {
     if (member.accountId === 'self-id') avatarAsks.push(member.accountId);
@@ -1186,7 +1206,6 @@ test('runTurn: a self <draw> passes the avatar as reference', async () => {
     name: 'Bot',
     avatar: { hash: null, url: null, largeUrl: 'https://cdn.example.com/avatar.png' },
   });
-  const client = fakeClient();
   const imageFetcher = fakeImageFetcher({
     dataUrl: 'data:image/png;base64,YXZhdGFy',
     bytes: 6,
@@ -1196,61 +1215,37 @@ test('runTurn: a self <draw> passes the avatar as reference', async () => {
     // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to
     // her in one step; she stays silent there.
     answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })]), '<skip/>'],
-    client,
+    client: fakeClient(),
     imageFetcher,
+    dataDir: drawDataDir(true),
   });
 
-  assert.deepEqual(avatarAsks, ['self-id']);
-  assert.equal(imageFetcher.calls.length, 1);
-  assert.equal(imageFetcher.calls[0].url, 'https://cdn.example.com/avatar.png');
-  assert.equal(imageFetcher.calls[0].options.maxBytes, DRAW_IMAGE_CFG.referenceMaxBytes);
-  assert.equal(imageFetcher.calls[0].options.timeoutMs, 10_000);
-  assert.equal(images.generateCalls[0].reference, 'data:image/png;base64,YXZhdGFy');
-  assert.ok(
-    images.generateCalls[0].prompt.includes('Bot wears a green scarf.'),
-    'a self picture carries the appearance'
-  );
+  assert.deepEqual(avatarAsks, [], 'the avatar is not asked for');
+  assert.equal(imageFetcher.calls.length, 0, 'nothing is fetched');
+  const [sent] = images.generateCalls;
+  assert.equal(sent.reference, `data:image/png;base64,${LOOK_BYTES.toString('base64')}`);
+  assert.ok(sent.prompt.includes('Bot wears a green scarf.'), 'a self picture carries the appearance');
 });
 
-test('runTurn: reference none skips the avatar', async () => {
-  let avatarAsked = false;
-  world().tap('memberInfo', ([member]: Array<Untyped>) => {
-    if (member.accountId === 'self-id') avatarAsked = true;
-  });
+// The owner on 2026-11-17: `image.reference` is removed, so the test of `reference: 'none'` is deleted; with no
+// `appearance.png` a picture of herself is drawn with no reference, and the avatar does not stand in for it.
+test('runTurn: a self <draw> with no appearance.png is drawn without a reference', async () => {
   world().member('g1', {
     id: 'self-id',
     name: 'Bot',
     avatar: { hash: null, url: null, largeUrl: 'https://cdn.example.com/avatar.png' },
   });
-  const client = fakeClient();
-  const { images, imageFetcher } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })])],
-    hot: drawHot({}, { reference: 'none' }),
-    client,
-  });
-
-  assert.equal(avatarAsked, false);
-  assert.equal(imageFetcher.calls.length, 0);
-  assert.equal(images.generateCalls[0].reference, null);
-});
-
-test('runTurn: an avatar that cannot be fetched is logged and the picture is drawn without it', async () => {
-  const client = fakeClient();
-  world().member('g1', {
-    id: 'self-id',
-    name: 'Bot',
-    avatar: { hash: null, url: null, largeUrl: 'https://cdn.example.com/avatar.png' },
-  });
-  const { images, channel, logs } = await runDrawTurn({
-    // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to
-    // her in one step; she stays silent there.
+  const { images, channel, imageFetcher } = await runDrawTurn({
     answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me' })]), '<skip/>'],
-    client,
-    imageFetcher: fakeImageFetcher(null),
+    hot: drawHot({}, { reference: 'avatar' }),
+    client: fakeClient(),
+    imageFetcher: fakeImageFetcher({ dataUrl: 'data:image/png;base64,YXZhdGFy', bytes: 6, contentType: 'image/png' }),
+    dataDir: drawDataDir(false),
   });
 
-  assert.ok(logs.some((l) => l.msg === 'turn: avatar reference unavailable'));
-  assert.equal(images.generateCalls[0].reference, null);
+  assert.equal(imageFetcher.calls.length, 0, 'the avatar is not fetched');
+  const [sent] = images.generateCalls;
+  assert.equal(sent.reference, null);
   assert.equal(channel.sent.length, 1);
 });
 

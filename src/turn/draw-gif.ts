@@ -112,7 +112,6 @@ type DrawDraft = {
   memoryContext?: Context;
   staged?: Array<Staged>;
   diary?: { set?: unknown } | null;
-  avatar?: { reference?: string | null };
   limits?: { add: (limit: { kind: string; where: string }) => void } | null;
 };
 
@@ -122,11 +121,9 @@ export type DrawGifContext = {
   store: DrawGifStore;
   dataDir: string | null;
   images: DrawGifImages | null | undefined;
-  imageFetcher: NonNullable<Parameters<typeof drawPicture>[0]>['imageFetcher'];
   ifaceReads: Reads;
   iface: DrawGifPort;
   routes: { report: <TValue>(role: string, model: string | null, made: Promise<TValue>) => Promise<TValue> };
-  selfIdOf: () => string;
   clock: () => number;
   schedule: (run: () => void, ms: number) => () => void;
   chatOf: (channel: PostChannel) => ChatRef;
@@ -145,7 +142,6 @@ export type DrawGif = {
     args: { self?: unknown; text?: unknown; placeId?: unknown; replyTo?: unknown } | null | undefined,
     at: {
       channel: ChatInfo;
-      placeId?: string | null;
       trigger?: DrawTrigger;
       triggerKind?: TriggerKind | null;
       selfName: string;
@@ -180,11 +176,9 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     store,
     dataDir,
     images,
-    imageFetcher,
     ifaceReads,
     iface,
     routes,
-    selfIdOf,
     clock,
     schedule,
     chatOf,
@@ -212,42 +206,32 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   }
 
   /**
-   * One picture (src/media/draw.ts#drawPicture): her scene verbatim into the drawing prompt, the avatar reference for a
-   * picture she is in, one generation. `accountId` is the member whose rail counts it (null: nobody's); `avatar` the
-   * holder a diary set reuses the avatar through; `model` the core model's id when the call is routed there (null: the
-   * drawing role's own, whose outcome the role health is told). Throws what the image client throws (ImageCapError,
+   * One picture (src/media/draw.ts#drawPicture): her scene verbatim into the drawing prompt, `appearance.png` of the data
+   * folder as the reference for a picture she is in, one generation. `accountId` is the member whose rail counts it
+   * (null: nobody's); `model` the core model's id when the call is routed there (null: the drawing role's own, whose
+   * outcome the role health is told). Throws what the image client throws (ImageCapError,
    * ImageGenError).
    */
   function makePicture({
     scene,
     self,
     selfName,
-    placeId = null,
     accountId = null,
-    avatar = null,
     model = null,
   }: {
     scene: string;
     self: boolean;
     selfName: string;
-    placeId?: string | null;
     accountId?: string | null;
-    avatar?: { reference?: string | null } | null;
     model?: string | null;
-  }): Promise<{ picture: object; referenceMissing: boolean }> {
+  }): Promise<{ picture: object }> {
     const made = drawPicture({
       // drawTool asks makePicture only once it found the image client.
       images: images!,
       hot,
-      // The persona's large avatar, asked of the interface only when the picture needs the reference.
-      avatarUrl: async () => {
-        const found = await ifaceReads.memberInfo({ placeId, accountId: selfIdOf() });
-        const member = found?.member;
-        return member?.avatar.largeUrl ?? null;
-      },
-      imageFetcher,
+      dataDir,
       now: clock,
-      input: { scene, selfName, self, withTime: true, accountId, avatar, model },
+      input: { scene, selfName, self, withTime: true, accountId, model },
     });
     return routes.report('drawing', model, made);
   }
@@ -272,7 +256,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     args: Parameters<DrawGif['drawTool']>[0],
     {
       channel,
-      placeId = null,
       trigger = null,
       triggerKind = null,
       selfName,
@@ -339,11 +322,9 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
           scene,
           self,
           selfName,
-          placeId,
           // askedFor is true only for a turn with a trigger.
           accountId: asked ? (trigger!.authorId ?? null) : null,
           model,
-          ...(staging && draft ? { avatar: (draft.avatar ??= {}) } : {}),
         });
       } catch (err) {
         if (err instanceof UnsupportedImageModelError) return failed('failed', CODE.UNSUPPORTED_MODEL);
@@ -362,8 +343,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       }
       // src/media/draw.ts#drawPicture hands on the image client's picture (src/llm/images.ts, generate).
       const picture = made.picture as Picture;
-      const { referenceMissing } = made;
-      if (referenceMissing) log.warn('turn: avatar reference unavailable', { channel: channel.id });
       if (staging) {
         (draft ? (draft.staged ??= []) : []).push({ picture, self, text: scene });
         const data = await seenData({

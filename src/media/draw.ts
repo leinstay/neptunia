@@ -1,6 +1,6 @@
 // Drawing, a built-in ability of the core: the persona's scene goes into the drawing prompt exactly
-// as she wrote it (prompts `draw` + `appearance` + the local time around it), the bot's avatar rides along as the reference for a picture she is in
-// (`image.reference: 'avatar'`), and the Images client (src/llm/images.ts, injected as `images`:
+// as she wrote it (prompts `draw` + `appearance` + the local time around it), `appearance.png` of the data folder rides
+// along as the reference for a picture she is in, and the Images client (src/llm/images.ts, injected as `images`:
 // the boundary every picture crosses, its rails and `image.timeoutMs` included) makes the picture.
 // Nothing else touches her scene: no model rewrites, summarizes or "improves" it.
 //
@@ -13,7 +13,8 @@
 
 import { buildDrawPrompt } from '../behavior/prompt.ts';
 import { formatNow } from '../format.ts';
-import { avatarReference } from './fetch-image.ts';
+import fs from 'node:fs';
+import path from 'node:path';
 import { objOf } from '../tools/types.ts';
 import type { GeneratedPicture } from '../llm/images.ts';
 
@@ -59,30 +60,42 @@ export function drawPromptOf({
   });
 }
 
+/** The picture that shows how she looks, the reference of a picture she is in. */
+const APPEARANCE_FILE = 'appearance.png';
+
+/** `appearance.png` of `dataDir` as a `data:` URL; null when there is no data folder or no file. */
+function appearanceReference(dataDir: string | null): string | null {
+  if (!dataDir) return null;
+  try {
+    return `data:image/png;base64,${fs.readFileSync(path.join(dataDir, APPEARANCE_FILE)).toString('base64')}`;
+  } catch (err) {
+    // The deployment keeps no picture of her: the picture is drawn from the appearance text alone.
+    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
 /**
- * One picture: the prompt, the avatar reference, then one generation through the Images client.
- * Resolves the picture and whether a wanted avatar reference was missing; throws what the client throws.
+ * One picture: the prompt, the reference, then one generation through the Images client.
+ * Resolves the picture; throws what the client throws.
  */
 export type DrawInput = {
   /** The persona's scene, as she wrote it. */
   scene: string;
   selfName: string;
-  /** A picture she is in: her appearance in the prompt, her avatar as reference. */
+  /** A picture she is in: her appearance in the prompt, `appearance.png` as reference. */
   self?: boolean;
   /** The local time in the prompt. */
   withTime?: boolean;
   /** The member whose per-member rail counts it (null: nobody's). */
   accountId?: string | null;
-  /** A holder the avatar is fetched into once and reused (a diary set): a `reference` of null counts as fetched, absent as not yet. */
-  avatar?: { reference?: string | null } | null;
   /** The core model's id when the call is routed to it (src/tools/gateway.ts#callOnRoute), null for the drawing role's own. */
   model?: string | null;
 };
 export async function drawPicture({
   images,
   hot,
-  avatarUrl = null,
-  imageFetcher = null,
+  dataDir,
   now = Date.now,
   input,
 }: {
@@ -95,27 +108,14 @@ export async function drawPicture({
     }) => Promise<GeneratedPicture>;
   };
   hot: DrawHot;
-  avatarUrl?: (() => Promise<string | null | undefined>) | null;
-  imageFetcher?: Parameters<typeof avatarReference>[0]['imageFetcher'];
+  /** The data folder that holds `appearance.png`; null: no reference. */
+  dataDir: string | null;
   now?: () => number;
   input: DrawInput;
-}): Promise<{ picture: GeneratedPicture; referenceMissing: boolean }> {
-  const { scene, selfName, self = false, withTime = false, accountId = null, avatar = null, model = null } = input;
+}): Promise<{ picture: GeneratedPicture }> {
+  const { scene, selfName, self = false, withTime = false, accountId = null, model = null } = input;
   const prompt = drawPromptOf({ hot, selfName, scene, self, withTime, now });
-  let reference: string | null = null;
-  let referenceMissing = false;
-  if (self === true && objOf(objOf(hot.config).image).reference === 'avatar') {
-    if (avatar && avatar.reference !== undefined) reference = avatar.reference;
-    else {
-      reference = await avatarReference({
-        url: typeof avatarUrl === 'function' ? await avatarUrl() : null,
-        imageFetcher,
-        config: hot.config,
-      });
-      referenceMissing = reference === null;
-      if (avatar) avatar.reference = reference;
-    }
-  }
+  const reference = self === true ? appearanceReference(dataDir) : null;
   const picture = await images.generate({ prompt, reference, accountId, ...(model ? { model } : {}) });
-  return { picture, referenceMissing };
+  return { picture };
 }

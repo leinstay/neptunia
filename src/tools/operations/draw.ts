@@ -16,14 +16,14 @@ import type { Obj, OpContext, Untyped } from '../types.ts';
 import type { Adapter } from '../../protocol/adapter.ts';
 
 const handlers = perEnv((env) => {
-  const { hot, images, imageFetcher, assertNotPaused, resolvedPlaceId } = env;
+  const { hot, images, dataDir, assertNotPaused, resolvedPlaceId } = env;
   const { reads } = env;
   const port = env.port as Adapter | null | undefined;
 
   /**
    * `draw.create`: one picture (src/media/draw.ts), the same prompt
-   * a turn builds (prompts read now, the scene whole, the avatar as
-   * reference for `self` when `image.reference` is `'avatar'`; no local time). Answers `{ text, files }`:
+   * a turn builds (prompts read now, the scene whole, `appearance.png` of the data folder as
+   * reference for `self`; no local time). Answers `{ text, files }`:
    * one line with the model, seconds and cost, plus the picture. A rail or
    * generation failure throws with its reason and HTTP status; the prompt is
    * never logged. With `placeId` the picture is posted there as the persona, through her
@@ -71,21 +71,13 @@ const handlers = perEnv((env) => {
     const selfName = env.getSelfName(placeId);
 
     let picture: Untyped;
-    let referenceMissing = false;
     try {
-      ({ picture, referenceMissing } = await drawPicture({
+      ({ picture } = await drawPicture({
         images,
         hot,
-        // The persona's large avatar, asked of the interface only when the picture needs the reference.
-        avatarUrl: async () => {
-          const found = await reads?.memberInfo({ placeId, accountId: String(env.selfId() ?? '') });
-          const member = found?.member;
-          return member?.avatar.largeUrl ?? null;
-        },
-        imageFetcher,
+        dataDir,
         input: { scene: request, selfName, self, withTime: false, accountId: null },
       }));
-      if (referenceMissing) log.warn('admin: draw avatar reference unavailable', {});
     } catch (err) {
       if (err instanceof ImageGenError) {
         const status = 'statusCode' in err && err.statusCode ? `, HTTP ${err.statusCode}` : '';
@@ -105,7 +97,6 @@ const handlers = perEnv((env) => {
 
     const cost = picture.cost == null ? 'cost unknown' : `cost ${picture.cost}`;
     const parts = [picture.model, `${picture.seconds}s`, cost];
-    if (referenceMissing) parts.push('no avatar reference');
     const file = { attachment: picture.buffer, name: imageFileName(picture.mediaType) };
     if (!postTo) return { text: parts.join(' · '), files: [file] };
     if (!port) throw new Error("the persona's interface is not available");
