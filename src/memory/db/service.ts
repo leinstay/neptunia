@@ -71,6 +71,7 @@
 //   - `writeMediaEntry(write)` (media-store.ts): one entry of the describer's cache put on its row, or one key dropped.
 //   - `writeGifLibrary(write)` (gif-library.ts): the entries of the GIF library a change put and dropped, and its rest;
 //     `writeGifVector(write)` (gif-vectors.ts): the caption vector of one entry.
+//   - `writeMediaNames(write)` (media-names.ts): the stable names of custom emoji and stickers a store issued or saw renamed.
 //   - `writeErrand(write)` (errand-write.ts): an errand on the task board, with the closing journal line of its end.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
@@ -121,6 +122,7 @@ import type { ChannelEntryWrite } from './channel-entry.ts';
 import type { PlaceLoreWrite } from './place-lore.ts';
 import type { MediaEntryWrite } from './media-store.ts';
 import type { GifLibraryWrite } from './gif-library.ts';
+import type { MediaNamesWrite } from './media-names.ts';
 import type { GifVectorWrite } from './gif-vectors.ts';
 import type { ErrandWrite } from './errand-write.ts';
 import type { ParticipationWrite } from './participation-episodes.ts';
@@ -575,6 +577,8 @@ export type MemoryDbService = {
   writeGifLibrary(write: GifLibraryWrite): Promise<unknown>;
   /** The caption vector of one GIF library entry (gif-vectors.ts). */
   writeGifVector(write: GifVectorWrite): Promise<unknown>;
+  /** The stable names of custom emoji and stickers a store issued or saw renamed (media-names.ts). */
+  writeMediaNames(write: MediaNamesWrite): Promise<unknown>;
   /** An errand on the task board with the closing journal line of its end (errand-write.ts): resolves whether it ended. */
   writeErrand(write: ErrandWrite): Promise<unknown>;
   recordWake(update: unknown): Promise<unknown> | null;
@@ -1748,6 +1752,7 @@ export function createMemoryDb({
       write(withLiveIface({ ...library, kind: 'gif-library', now: now() }, iface)),
     writeGifVector: (vector: GifVectorWrite) =>
       write(withLiveIface({ ...vector, kind: 'gif-vector', now: now() }, iface)),
+    writeMediaNames: (names: MediaNamesWrite) => write({ ...names, kind: 'media-names', now: now() }),
     writeErrand: (errand: ErrandWrite) => write(withLiveIface({ ...errand, kind: 'errand', now: now() }, iface)),
     recordWake,
     issueContext,

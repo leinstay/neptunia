@@ -32,6 +32,7 @@ const TABLES_BY_CLASS: Readonly<Record<Exclude<StorageClass, 'unclassified'>, Re
     'interfaces',
     'media',
     'media_links',
+    'media_names',
     'memberships',
     'message_families',
     'model_requests',

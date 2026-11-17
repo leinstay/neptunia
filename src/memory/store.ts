@@ -47,6 +47,7 @@ import { entryPictureDescriptions } from './db/media-store.ts';
 import type { MediaDescriptionEntry } from './db/media-store.ts';
 import { createStoreMedia } from './store-media.ts';
 import { createStoreGifs } from './store-gifs.ts';
+import { createStoreMediaNames } from './store-media-names.ts';
 import type { InterfaceNames } from './db/roots.ts';
 
 import { linkedProfileUnit } from './db/person-links.ts';
@@ -416,7 +417,7 @@ function emptyPlace() {
     self: [],
     learned: [], // things people taught the persona: detail-shaped items plus an optional `from` (src/memory/details.ts)
     learnedNextId: 1, // the next id a learned item gets -- never reused, even after a remove
-    emojiUsage: {}, // { [emojiId]: { name, count, last } } -- members' custom emoji uses, see recordEmojiUsage
+    emojiUsage: {}, // { [emojiId]: { count, last } } -- members' custom emoji uses, see recordEmojiUsage
     emojiBackfill: null, // { at, channels, messages } once src/memory/emoji-backfill.ts has read the history
     updatedAt: null,
     notesUpdatedAt: null, // when patterns, starters or injokes last changed -- see updatePlace
@@ -1047,6 +1048,8 @@ function buildStore({
   const media = createStoreMedia({ memoryDb, seam });
   // The GIF library, one row of `media` per entry (src/memory/store-gifs.ts).
   const gifs = createStoreGifs({ memoryDb, seam });
+  // The stable names of custom emoji and stickers, one row of `media_names` each (src/memory/store-media-names.ts).
+  const mediaNames = createStoreMediaNames({ memoryDb, seam });
 
   // ---- The archive (src/memory/archive.ts): nothing leaves a hot list without a copy ----
   //
@@ -1408,6 +1411,7 @@ function buildStore({
   function flushAll({ force = false } = {}) {
     media.flush();
     gifs.flush();
+    mediaNames.flush();
     return track('store.flushAll', () => writes.flushAll({ force }));
   }
 
@@ -2343,6 +2347,11 @@ function buildStore({
      * the empty library when nothing is stored. Normalised on read, persisted the next time anything writes it, never
      * reset implicitly.
      */
+    /** The stable names of custom emoji and stickers (src/memory/store-media-names.ts). */
+    nameMedia: mediaNames.nameMedia,
+    mediaNameOf: mediaNames.mediaNameOf,
+    mediaNameFor: mediaNames.mediaNameFor,
+
     getGifs(): GifLibrary {
       return gifs.library();
     },
@@ -2786,6 +2795,8 @@ function buildStore({
       }
       const lostGifs = await gifs.settle({ final, ...(isFiniteNumber(timeoutMs) ? { timeoutMs } : {}) });
       if (lostGifs > 0) counts.waiting = Number(counts.waiting ?? 0) + lostGifs;
+      const lostNames = await mediaNames.settle({ final, ...(isFiniteNumber(timeoutMs) ? { timeoutMs } : {}) });
+      if (lostNames > 0) counts.waiting = Number(counts.waiting ?? 0) + lostNames;
       return counts;
     },
 
