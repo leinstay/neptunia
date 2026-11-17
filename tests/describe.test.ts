@@ -162,7 +162,7 @@ async function describeWith(text: string, prompt?: string, summarize?: Summarize
   return { result, llm, store };
 }
 
-// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('describe: a picture answer over 750 characters goes to summarize once and its result is stored', async () => {
   const answer = `${proseLine(300)} The left hand is drawn with six fingers.`;
   const summary = fakeSummarize(() => 'A street scene. The left hand is drawn with six fingers.');
@@ -190,7 +190,7 @@ test('describe: without summarize a 4000-character answer is stored whole', asyn
   assert.equal(cache.a1.text, answer);
 });
 
-// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('describe: {{maxChars}} in the describe prompt is filled with the description length', async () => {
   const { llm } = await describeWith('Une chatte grise.', 'Say it in at most {{maxChars}} characters. Keep {{other}}.');
   const [{ messages }] = llm.calls;
@@ -1218,7 +1218,7 @@ test('describeVideo: a missing prompt or a non-video item -> null without any re
   }
 });
 
-// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('describeVideo: a 7000-character answer goes to summarize on one line with 5000 and kind video', async () => {
   const long = `  Première   scène\n\nκάποιος χορεύει\t${'mot '.repeat(1745)}fin`;
   const flat = `Première scène κάποιος χορεύει ${'mot '.repeat(1745)}fin`;
@@ -1796,7 +1796,7 @@ test('rewatchVideo: a pinned agentic link passes directUrlTokensPerSecond like a
 
 // --- account length: media.video.summaryChars ------------------------------
 
-// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('describeVideo: {{maxChars}} of describe-video is filled with the video length', async () => {
   const hot = videoHot({ prompts: { 'describe-video': 'Summarise in at most {{maxChars}} characters.' } });
   const { describer, llm } = videoDescriber({ hot, llm: fakeLlm({ text: 'Première scène.' }) });
@@ -1827,7 +1827,7 @@ function clock(start = Date.parse('2026-09-23T12:00:00Z')) {
   return now;
 }
 
-// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('rewatchVideo: one fetch and one video request with the question and answerChars filled', async () => {
   const now = clock();
   const { describer, llm, videoFetcher, store } = videoDescriber({
@@ -1953,7 +1953,7 @@ function relookDescriber({
   return { describer, store, llm, imageFetcher, state };
 }
 
-// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('relookImage: one download and one vision request with the question; the answer is not the picture caption', async () => {
   const { describer, store, llm, imageFetcher } = relookDescriber({ now: clock() });
   const item = pictureItem('a1', { previewUrl: 'https://previews.example/a1.webp' });
@@ -1984,7 +1984,7 @@ test('relookImage: one download and one vision request with the question; the an
   assert.equal(loose(cache)[keys[0]].answer, 'pas de chargeur, juste un reflet');
 });
 
-// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('relookImage: with no {{question}} in the prompt the question goes only as the user text part, next to the image', async () => {
   const hot = relookHot({ prompts: { 'rewatch-answer': 'Answer in at most {{maxChars}} characters.' } });
   const { describer, llm, imageFetcher } = relookDescriber({ hot, now: clock() });
@@ -2123,7 +2123,7 @@ const GIF_CLIP_URL = 'data:video/mp4;base64,Z2lm';
 const GIF_VIDEO_PROMPT = 'Account of this clip, up to {{maxChars}} characters.';
 
 /** videoHot plus the GIF settings and a describe-video prompt that shows its cap. */
-// PR 7d: GIF watching is code, its length (15 s) and the caption length (1,500 since the owner's word of 2026-11-17) are the describer's constants, and the
+// PR 7d: GIF watching is code, its length (15 s) and the caption length (1,000 since the owner's word of 2026-11-17) are the describer's constants, and the
 // daily GIF cap is gone.
 function gifHot({ video = {}, media = {}, prompts = {} }: Opts = {}) {
   const hot = videoHot({ video, prompts: { 'describe-video': GIF_VIDEO_PROMPT, ...prompts } });
@@ -2206,7 +2206,7 @@ function gifAttachmentItem(itemId = 'a9', overrides = {}) {
   };
 }
 
-// The owner on 2026-11-17: a GIF is described under 1,500 characters.
+// The owner on 2026-11-17: a GIF is described under 1,000 characters.
 test('describe: a gifv embed is watched from its mp4 by the video model, cached watched under its own id', async () => {
   const { describer, store, llm, videoFetcher, imageFetcher } = gifDescriber();
 
@@ -2228,7 +2228,7 @@ test('describe: a gifv embed is watched from its mp4 by the video model, cached 
   });
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
-  assert.deepEqual(system, { role: 'system', content: 'Account of this clip, up to 1500 characters.' });
+  assert.deepEqual(system, { role: 'system', content: 'Account of this clip, up to 1000 characters.' });
   assert.deepEqual(user.content, [{ type: 'video_url', video_url: { url: GIF_CLIP_URL } }]);
   const options = llm.calls[0].options;
   assert.equal(options.role, 'video');
@@ -2284,8 +2284,8 @@ test('describe: the GIF length (15 s) caps the watched length', async () => {
   assert.equal(liar.llm.calls[0].options.videoSeconds, 15);
 });
 
-// The owner on 2026-11-17: a GIF's answer goes to the summarizer on one line with 1,500 and kind GIF, never cut.
-test('describe: a watched GIF answer goes to summarize on one line with 1500 and kind GIF', async () => {
+// The owner on 2026-11-17: a GIF's answer goes to the summarizer on one line with 1,000 and kind GIF, never cut.
+test('describe: a watched GIF answer goes to summarize on one line with 1000 and kind GIF', async () => {
   const words = proseLine(300);
   const summary = fakeSummarize(() => 'A short account of the loop.');
   const { describer, store } = gifDescriber({
@@ -2293,7 +2293,7 @@ test('describe: a watched GIF answer goes to summarize on one line with 1500 and
     summarize: summary.summarize,
   });
   const result = await describer.describe('g1', gifEmbedItem());
-  assert.deepEqual(summary.calls, [{ text: `Première ligne. ${words}`, options: { maxChars: 1500, kind: 'GIF' } }]);
+  assert.deepEqual(summary.calls, [{ text: `Première ligne. ${words}`, options: { maxChars: 1000, kind: 'GIF' } }]);
   assert.equal(loose(result).text, 'A short account of the loop.');
   const cache = loose(cacheView(store, 'g1'));
   assert.equal(cache['m1#e0'].text, 'A short account of the loop.');
@@ -2522,7 +2522,7 @@ test('describe: pictures and videos are untouched by the GIF watch', async () =>
 
 // --- The GIF watch's own prompt ----------------------------------------------
 
-// The owner on 2026-11-17: a GIF is described under 1,500 characters.
+// The owner on 2026-11-17: a GIF is described under 1,000 characters.
 test('describe: a GIF watch uses describe-gif when present, with {{maxChars}} and {{seconds}}', async () => {
   const hot = gifHot({
     prompts: { 'describe-gif': 'Silent loop of {{seconds}} s, caption up to {{maxChars}}, {{today}}.' },
@@ -2531,12 +2531,12 @@ test('describe: a GIF watch uses describe-gif when present, with {{maxChars}} an
   await run.describer.describe('g1', gifEmbedItem());
   assert.deepEqual(run.llm.calls[0].messages[0], {
     role: 'system',
-    content: 'Silent loop of 15 s, caption up to 1500, 2026-10-01.',
+    content: 'Silent loop of 15 s, caption up to 1000, 2026-10-01.',
   });
   assert.equal(run.llm.calls[0].options.role, 'video');
 });
 
-// The owner on 2026-11-17: a GIF is described under 1,500 characters.
+// The owner on 2026-11-17: a GIF is described under 1,000 characters.
 test('describe: describe-gif alone (no describe-video) is enough to watch GIFs', async () => {
   const run = gifDescriber({
     hot: gifHot({ prompts: { 'describe-video': undefined, 'describe-gif': 'Loop, {{maxChars}}.' } }),
@@ -2545,7 +2545,7 @@ test('describe: describe-gif alone (no describe-video) is enough to watch GIFs',
   await run.describer.describe('g1', gifEmbedItem());
   assert.equal(run.videoFetcher.calls[0].fn, 'fetchGif');
   const [{ messages }] = run.llm.calls;
-  assert.equal(messages[0].content, 'Loop, 1500.');
+  assert.equal(messages[0].content, 'Loop, 1000.');
 });
 
 // --- A GIF is one text ---------------------------------------------------------
@@ -2617,7 +2617,7 @@ test('watchedGifs: only watched GIF entries with an animation, from the cache al
   assert.equal(run.llm.calls.length, 0);
 });
 
-// The owner on 2026-11-17: the second look at a GIF takes the GIF length, 1,500.
+// The owner on 2026-11-17: the second look at a GIF takes the GIF length, 1,000.
 test('rewatchGif: one GIF clip fetch and one video request with the question; the answer cached under gif:<itemId>:q:', async () => {
   const run = gifDescriber({
     hot: gifRewatchHot(),
@@ -2633,7 +2633,7 @@ test('rewatchGif: one GIF clip fetch and one video request with the question; th
   );
   assert.equal(run.llm.calls.length, 1);
   const [system, user] = run.llm.calls[0].messages;
-  assert.equal(system.content, 'Question: Qui est dans le miroir ?. At most 1500 characters.');
+  assert.equal(system.content, 'Question: Qui est dans le miroir ?. At most 1000 characters.');
   assert.deepEqual(user.content, [{ type: 'video_url', video_url: { url: GIF_CLIP_URL } }]);
   const options = run.llm.calls[0].options;
   assert.equal(options.role, 'video');
@@ -3061,7 +3061,7 @@ test('describe: a picture keeps every paragraph of the answer, joined into one l
   );
 });
 
-// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('describe: a caption of 700 characters is stored as it is', async () => {
   const answer = fiveCharWords(117); // 117 words and 116 spaces: 701 characters
   const summary = fakeSummarize((text) => text);
@@ -3138,7 +3138,7 @@ function assertWatched(run: Rig, itemId: string, clip: string) {
   assert.equal(llm.calls.length, 1);
   const [{ messages, options }] = llm.calls;
   assert.equal(options.role, 'video');
-  assert.equal(messages[0].content, 'Loop of 15 s, up to 1500.');
+  assert.equal(messages[0].content, 'Loop of 15 s, up to 1000.');
   const entry = loose(cacheView(store, 'g1'))[itemId];
   assert.equal(entry.text, 'a man pulls a child back as a train rushes past');
   assert.equal(entry.watched, true);
@@ -3559,7 +3559,7 @@ function systemOf(llm: Rig['llm']): string {
 
 // --- The length of each kind -------------------------------------------------------
 
-// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000.
 async function promptOfStill(item: ReturnType<typeof pictureItem>): Promise<string> {
   const llm = fakeLlm({ text: 'a cat' });
   const describer = createDescriber({
