@@ -142,7 +142,19 @@ test('record: toRecordLine keeps only the whitelisted fields and lists participa
     by: 'u1',
     replyTo: 'm0',
     text: 'Καλημέρα',
-    media: ['image', 'gif', 'sticker'],
+    // The owner on 2026-11-17: a record line carries its emoji and stickers as media items with their ids and stable names.
+    media: [
+      'image',
+      'gif',
+      {
+        kind: 'sticker',
+        availability: 'unreadable',
+        nativeRef: 's1',
+        description: null,
+        origin: null,
+        extra: { name: 'wave' },
+      },
+    ],
     mentions: ['u2'],
     direct: true,
     participants: ['u1', 'u2', 'u3'],

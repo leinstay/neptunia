@@ -215,7 +215,8 @@ test('leaves an unlinked line whose name two emoji hold and counts it as left fo
   media(db, 'm2', 'emoji', '902', 'aga');
   line(db, 'l1', 'so :aga:');
   const plan = planStableNamesRewrite(db);
-  assert.equal(plan.counts.left.sharedName, 1);
+  const { left } = plan.counts;
+  assert.equal(left.sharedName, 1);
   apply(handle, plan);
   assert.equal(textOf(db, 'l1'), 'so :aga:');
   assert.deepEqual(linksOf(db, 'l1'), []);
@@ -227,7 +228,8 @@ test('ties an unlinked line whose name two emoji hold to the emoji the choice na
   media(db, 'm2', 'emoji', '902', 'aga');
   line(db, 'l1', 'so :aga:');
   const plan = planStableNamesRewrite(db, { choose: { aga: '902' } });
-  assert.equal(plan.counts.left.sharedName, 0);
+  const { left } = plan.counts;
+  assert.equal(left.sharedName, 0);
   apply(handle, plan);
   const [chosen] = boundOf(db, '902');
   assert.equal(textOf(db, 'l1'), `so :${String(chosen)}:`);
@@ -282,7 +284,8 @@ test('leaves an old sticker reference of a line that links no sticker and counts
   media(db, 'm1', 'sticker', '801', 'wave_hello');
   line(db, 'l1', 'hi [sticker: wave_hello]');
   const plan = planStableNamesRewrite(db);
-  assert.equal(plan.counts.left.unlinkedSticker, 1);
+  const { left } = plan.counts;
+  assert.equal(left.unlinkedSticker, 1);
   apply(handle, plan);
   assert.equal(textOf(db, 'l1'), 'hi [sticker: wave_hello]');
 });
@@ -307,5 +310,6 @@ test('plans no change after an apply and still counts what it leaves', () => {
   const again = planStableNamesRewrite(db);
   assert.deepEqual(again.counts.tables, {});
   assert.deepEqual(again.issue, []);
-  assert.equal(again.counts.left.sharedName, 1);
+  const { left } = again.counts;
+  assert.equal(left.sharedName, 1);
 });

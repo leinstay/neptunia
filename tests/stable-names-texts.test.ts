@@ -156,16 +156,21 @@ test('rewrites raw markup of an emoji nothing stores in a diary entry and issues
   assert.deepEqual(boundOf(db, '931'), ['e1', 'blush', 0]);
 });
 
-test('rewrites raw markup of an animated emoji in a rendered publication and issues it as animated', () => {
+// A rendered publication is the text as it was sent to the platform, in the platform's own markup, and the trigger
+// `publications_content_fixed` guards it. Its markup is the outbound form, not an old format: the rewrite leaves it.
+test('leaves a rendered publication byte for byte and keeps the trigger that guards it', () => {
   const { handle, db } = openTemp();
   const insert = db.prepare(
     `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, status, idempotency_key, created_at)
-     VALUES ('pb1', 'diary', 'dy1', 'h1', 'out now <a:dance:907>', 'sent', 'k1', '2026-11-01T00:00:00Z')`
+     VALUES ('pb1', 'diary', 'dy1', 'h1', 'out now <a:dance:907> :pog:', 'sent', 'k1', '2026-11-01T00:00:00Z')`
   );
   insert.run();
+  pog(db);
+  const before = db.prepare("SELECT * FROM publications WHERE id = 'pb1'").get();
   rewrite(handle, db);
-  assert.equal(cell(db, 'publications', 'rendered', 'pb1'), 'out now :e1:');
-  assert.deepEqual(boundOf(db, '907'), ['e1', 'dance', 1]);
+  assert.deepEqual(db.prepare("SELECT * FROM publications WHERE id = 'pb1'").get(), before);
+  const trigger = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?");
+  assert.equal(trigger.get('publications_content_fixed')?.name, 'publications_content_fixed');
 });
 
 test('names raw markup by its id and never by the name it spells', () => {
