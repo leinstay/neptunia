@@ -41,9 +41,15 @@ function extraOf(raw: unknown): Row {
 }
 
 type Linked = { kind: Kind; nativeId: string; platformName: string; stable: string };
+type Namer = {
+  held: Map<string, MediaNameRow>;
+  issue: Array<MediaNameRow>;
+  issued: Record<string, number>;
+  nameOf: (iface: string, kind: Kind, nativeId: string, name: string, animated: boolean) => MediaNameRow;
+};
 
-/** What a rewrite of `db` would do, read from its rows alone. */
-export function planStableNamesRewrite(db: Db): StableNamesPlan {
+/** The names `media_names` holds, and the next number of a kind for a thing it does not hold. */
+function namerOf(db: Db): Namer {
   const held = new Map<string, MediaNameRow>();
   const highest = { emoji: 0, sticker: 0 };
   const remember = (row: MediaNameRow): void => {
@@ -53,12 +59,25 @@ export function planStableNamesRewrite(db: Db): StableNamesPlan {
   for (const row of mediaNameRows(db)) remember(row);
   const issue: Array<MediaNameRow> = [];
   const issued: Record<string, number> = {};
-  const media = new Map<string, Change<'mediaId'>>();
-  const byLine = new Map<string, { text: string; linked: Array<Linked> }>();
+  const nameOf: Namer['nameOf'] = (iface, kind, nativeId, platformName, animated) => {
+    const known = held.get(keyOf(iface, kind, nativeId));
+    if (known) return known;
+    const row = { name: `${PREFIX[kind]}${highest[kind] + 1}`, kind, iface, nativeId, platformName, animated };
+    remember(row);
+    issue.push(row);
+    issued[`${iface} ${kind}`] = (issued[`${iface} ${kind}`] ?? 0) + 1;
+    return row;
+  };
+  return { held, issue, issued, nameOf };
+}
 
+/** The emoji and stickers each stored line links, with their stable names, and the media rows to rename. */
+function tiesOf(db: Db, namer: Namer): { byLine: Map<string, Array<Linked>>; media: Map<string, Change<'mediaId'>> } {
+  const byLine = new Map<string, Array<Linked>>();
+  const media = new Map<string, Change<'mediaId'>>();
   const links = db
     .prepare(
-      `SELECT s.id AS source_id, s.iface AS iface, s.text AS text, m.id AS media_id, m.kind AS kind,
+      `SELECT s.id AS source_id, s.iface AS iface, m.id AS media_id, m.kind AS kind,
          m.native_ref AS native_ref, m.extra AS extra
        FROM sources s JOIN media_links l ON l.owner_kind = 'source' AND l.owner_id = s.id
        JOIN media m ON m.id = l.media_id
@@ -72,29 +91,19 @@ export function planStableNamesRewrite(db: Db): StableNamesPlan {
     const nativeId = text(link.native_ref);
     const iface = text(link.iface);
     if (!isKind(kind) || !name || !nativeId || !iface) continue;
-    const sourceId = text(link.source_id);
-    const line = byLine.get(sourceId) ?? { text: text(link.text), linked: [] };
-    byLine.set(sourceId, line);
-    let row = held.get(keyOf(iface, kind, nativeId));
-    if (!row) {
-      row = {
-        name: `${PREFIX[kind]}${highest[kind] + 1}`,
-        kind,
-        iface,
-        nativeId,
-        platformName: name,
-        animated: extra.animated === true,
-      };
-      remember(row);
-      issue.push(row);
-      issued[`${iface} ${kind}`] = (issued[`${iface} ${kind}`] ?? 0) + 1;
-    }
+    const row = namer.nameOf(iface, kind, nativeId, name, extra.animated === true);
     const mediaId = text(link.media_id);
     if (name !== row.name) media.set(mediaId, { mediaId, from: name, to: row.name });
-    line.linked.push({ kind, nativeId, platformName: name === row.name ? row.platformName : name, stable: row.name });
+    const sourceId = text(link.source_id);
+    const linked = byLine.get(sourceId) ?? [];
+    byLine.set(sourceId, linked);
+    linked.push({ kind, nativeId, platformName: name === row.name ? row.platformName : name, stable: row.name });
   }
+  return { byLine, media };
+}
 
-  // The platform names of every known custom emoji: a token of one in a line that cannot be tied is counted.
+/** The platform names of every known custom emoji: a token of one in a line that cannot be tied is counted. */
+function knownNames(db: Db, held: Map<string, MediaNameRow>): Set<string> {
   const known = new Set<string>();
   for (const row of held.values()) if (row.kind === 'emoji') known.add(row.platformName);
   for (const row of db.prepare("SELECT extra FROM media WHERE kind = 'emoji'").all()) {
@@ -102,40 +111,52 @@ export function planStableNamesRewrite(db: Db): StableNamesPlan {
     if (name) known.add(name);
   }
   for (const row of held.values()) if (row.kind === 'emoji' && row.name !== row.platformName) known.delete(row.name);
+  return known;
+}
 
+/** One text with each token its emoji tie to one platform id rewritten; `loose` when a known name stays untied. */
+function rewriteText(
+  from: string,
+  emoji: ReadonlyArray<Linked>,
+  known: Set<string>
+): { to: string; tied: number; loose: boolean } {
+  let tied = 0;
+  let loose = false;
+  const to = replaceNameTokens(from, (name) => {
+    const matching = emoji.filter((one) => one.platformName === name);
+    const ids = new Set(matching.map((one) => one.nativeId));
+    const stable = matching[0]?.stable;
+    if (ids.size === 1 && stable !== name) {
+      tied += 1;
+      return `:${stable}:`;
+    }
+    if (known.has(name) && ids.size !== 1) loose = true;
+    return null;
+  });
+  return { to, tied, loose };
+}
+
+/** What a rewrite of `db` would do, read from its rows alone. */
+export function planStableNamesRewrite(db: Db): StableNamesPlan {
+  const namer = namerOf(db);
+  const { byLine, media } = tiesOf(db, namer);
+  const known = knownNames(db, namer.held);
   const lines: StableNamesPlan['lines'] = [];
   let tokens = 0;
   let untied = 0;
   for (const row of db.prepare("SELECT id, text FROM sources WHERE text LIKE '%:%:%' ORDER BY rowid").all()) {
     const sourceId = text(row.id);
     const from = text(row.text);
-    const emoji = (byLine.get(sourceId)?.linked ?? []).filter((one) => one.kind === 'emoji');
-    let tied = 0;
-    let loose = false;
-    const to = replaceNameTokens(from, (name) => {
-      const ids = new Set(emoji.filter((one) => one.platformName === name).map((one) => one.nativeId));
-      const stable = emoji.find((one) => one.platformName === name)?.stable;
-      if (ids.size === 1 && stable !== undefined && stable !== name) {
-        tied += 1;
-        return `:${stable}:`;
-      }
-      if (known.has(name) && ids.size !== 1) loose = true;
-      return null;
-    });
-    if (loose) {
-      untied += 1;
-      continue;
+    const emoji = (byLine.get(sourceId) ?? []).filter((one) => one.kind === 'emoji');
+    const { to, tied, loose } = rewriteText(from, emoji, known);
+    if (loose) untied += 1;
+    else if (to !== from) {
+      tokens += tied;
+      lines.push({ sourceId, from, to });
     }
-    if (to === from) continue;
-    tokens += tied;
-    lines.push({ sourceId, from, to });
   }
-  return {
-    issue,
-    lines,
-    media: [...media.values()],
-    counts: { lines: lines.length, tokens, media: media.size, untied, issue: issued },
-  };
+  const counts = { lines: lines.length, tokens, media: media.size, untied, issue: namer.issued };
+  return { issue: namer.issue, lines, media: [...media.values()], counts };
 }
 
 const stale = (): Error => Object.assign(new Error('STABLE_NAMES_STALE'), { code: 'STABLE_NAMES_STALE' });
