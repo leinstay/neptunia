@@ -1482,6 +1482,40 @@ test('formatTranscript: a GIF whose watch failed renders transcript.gifNotWatche
   assert.ok(text.endsWith('<gif anim.gif missed: could not download>'), text);
 });
 
+// The owner on 2026-11-17: a picture that could not be seen shows it, with its reason in words.
+function unseenLine(unseen: Map<string, string>): string {
+  const standIn = {
+    ...labels,
+    transcript: {
+      ...labels.transcript,
+      imageNotSeen: '<image unseen: {reason}>',
+      imageNotSeenNoReason: '<image unseen>',
+      imageReason: { cut: 'cut off' },
+    },
+  };
+  const message = msg('m1', GIF_T, { content: '', attachments: [{ id: 'p1', kind: 'image', name: 'p.png' }] });
+  const [{ text }] = formatTranscript([message], {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 800,
+    selfName: 'Nept',
+    labels: standIn,
+    unseen,
+  });
+  return text;
+}
+
+test('formatTranscript: a picture that could not be seen renders transcript.imageNotSeen with its reason', () => {
+  const text = unseenLine(new Map([['p1', 'cut']]));
+  assert.ok(text.endsWith('<image unseen: cut off>'), text);
+});
+
+test('formatTranscript: a picture that could not be seen with no stored reason renders transcript.imageNotSeenNoReason', () => {
+  const text = unseenLine(new Map([['p1', '']]));
+  assert.ok(text.endsWith('<image unseen>'), text);
+});
+
 // --- the turn trigger of the persona's own lines -------------------------
 
 test('formatTranscript: a plain line of the persona names the message that started its turn', () => {

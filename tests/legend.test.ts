@@ -91,3 +91,17 @@ test('legendText writes a sticker with no picture in unreadable, whatever text i
   const text = legendText([sticker('s13', 'dance_loop', 'a stale caption', false)], LABELS);
   assert.deepEqual(kindLines(text, 'discord', 'stickers'), ['UNSEEN s13 dance_loop']);
 });
+
+// The owner on 2026-11-17: a custom emoji or sticker that could not be seen shows it, with its reason in words.
+test('legendText: a sticker whose picture could not be seen renders legend.notSeen with its reason', () => {
+  const standIn = {
+    ...LABELS,
+    legend: {
+      ...LABELS.legend,
+      notSeen: 'NOTSEEN {name} {platformName}: {reason}',
+      notSeenReason: { download: 'no file' },
+    },
+  };
+  const item: Item = { ...sticker('s1', 'wave', null), unseen: 'download' };
+  assert.ok(legendText([item], standIn).includes('NOTSEEN s1 wave: no file'));
+});

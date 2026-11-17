@@ -3100,7 +3100,8 @@ test('describe: a caption of 1400 characters is stored as it is', async () => {
 });
 
 // The owner on 2026-11-17: the answer of a second look goes to the summarizer as text, with its media's length.
-test('relookImage: the answer goes to summarize with 1500 and kind text, and its result is returned', async () => {
+// The owner on 2026-11-17: a picture's description takes at most 2,000 characters.
+test('relookImage: the answer goes to summarize with 2000 and kind text, and its result is returned', async () => {
   const summary = fakeSummarize(() => 'no charger');
   const store = createStore(memoryAt(tmpDataDir()));
   const describer = createDescriber({
@@ -3114,7 +3115,7 @@ test('relookImage: the answer goes to summarize with 1500 and kind text, and its
   });
   const result = await describer.relookImage('g1', pictureItem('a1'), 'Un chargeur ?');
   assert.deepEqual(summary.calls, [
-    { text: 'pas de chargeur, juste un reflet', options: { maxChars: 1500, kind: 'text' } },
+    { text: 'pas de chargeur, juste un reflet', options: { maxChars: 2000, kind: 'text' } },
   ]);
   assert.equal(loose(result).text, 'no charger');
 });
@@ -3609,4 +3610,64 @@ test('relookImage: an answer cut by the content filter comes back as failed "cut
   const result = await describer.relookImage('g1', pictureItem('a1'), 'Que dit le panneau ?');
   assert.deepEqual(result, { question: 'Que dit le panneau ?', failed: 'cut' });
   assert.deepEqual(Object.keys(cacheView(store, 'g1')), []);
+});
+
+// --- a picture that could not be seen is never silent ------------------------------
+
+// The owner on 2026-11-17: a failure is never silent; a picture miss keeps its reason.
+test('describe: a picture whose download fails is a miss with reason "download"', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const describer = createDescriber({
+    hot: fakeHot(),
+    store,
+    llm: fakeLlm({ text: 'x' }),
+    imageFetcher: fakeImageFetcher(null),
+  });
+  await describer.describe('g1', pictureItem('a1'));
+  assert.equal(loose(cacheView(store, 'g1')).a1.reason, 'download');
+});
+
+// The owner on 2026-11-17: a failure is never silent; a picture miss keeps its reason.
+test('describe: a picture whose request fails is a miss with reason "llm-error"', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm(new Error('provider down'));
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
+  await describer.describe('g1', pictureItem('a1'));
+  assert.equal(loose(cacheView(store, 'g1')).a1.reason, 'llm-error');
+});
+
+// The owner on 2026-11-17: a failure is never silent; a picture miss keeps its reason.
+test('describe: a picture whose answer is empty is a miss with reason "empty"', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const describer = createDescriber({
+    hot: fakeHot(),
+    store,
+    llm: fakeLlm({ text: '  ' }),
+    imageFetcher: fakeImageFetcher(),
+  });
+  await describer.describe('g1', pictureItem('a1'));
+  assert.equal(loose(cacheView(store, 'g1')).a1.reason, 'empty');
+});
+
+// The owner on 2026-11-17: a picture that could not be seen shows it; one still in flight keeps its plain form.
+test('failedPictures: a picture with a miss maps to its reason, one with no entry is left out', () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const describer = createDescriber({
+    hot: fakeHot(),
+    store,
+    llm: fakeLlm({ text: 'x' }),
+    imageFetcher: fakeImageFetcher(),
+  });
+  const cache = loose(cacheView(store, 'g1'));
+  cache.a1 = { miss: true, ts: 1, reason: 'cut' };
+  cache.a2 = { miss: true, ts: 1 };
+  cache.a3 = { text: 'un chat', ts: 1 };
+  const items = ['a1', 'a2', 'a3', 'a4'].map((id) => pictureItem(id));
+  assert.deepEqual(
+    loose(describer).failedPictures('g1', items),
+    new Map([
+      ['a1', 'cut'],
+      ['a2', ''],
+    ])
+  );
 });
