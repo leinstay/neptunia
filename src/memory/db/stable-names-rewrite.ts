@@ -12,7 +12,7 @@
 import { replaceNameTokens } from '../../behavior/emoji.ts';
 import { mediaNameRows, mediaNamesWriteOf, writeMediaNames } from './media-names.ts';
 import type { MediaNameRow } from './media-names.ts';
-import { TEXT_COLUMNS, textCells } from './stable-names-texts.ts';
+import { TEXT_COLUMNS, markupNames, textCells } from './stable-names-texts.ts';
 import type { Cell, Resolver } from './stable-names-texts.ts';
 import { markStemsPending } from './stems.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
@@ -167,9 +167,28 @@ function knownOf(db: Db, namer: Namer, media: Map<string, Change<'mediaId'>>): K
     if (name !== named.name) media.set(mediaId, { mediaId, from: name, to: named.name });
     if (row.kind === 'emoji') addCandidate(known, platformName, { ...named, stable: named.name, mediaId });
   }
-  for (const row of namer.held.values())
-    if (row.kind === 'emoji') addCandidate(known, row.platformName, { ...row, stable: row.name, mediaId: null });
+  const rowOf = db.prepare(
+    "SELECT id FROM media WHERE kind = 'emoji' AND scope_iface = ? AND native_ref = ? AND retired_at IS NULL ORDER BY rowid"
+  );
+  for (const row of namer.held.values()) {
+    if (row.kind !== 'emoji') continue;
+    const mediaId = rowOf.get(row.iface, row.nativeId)?.id;
+    addCandidate(known, row.platformName, {
+      ...row,
+      stable: row.name,
+      mediaId: typeof mediaId === 'string' ? mediaId : null,
+    });
+  }
   return known;
+}
+
+/** What a token is matched against: the known emoji, the owner's choice and the interfaces that hold an emoji. */
+type Match = { known: Known; choose: Choice; ifaces: Set<string> };
+
+function matchOf(known: Known, choose: Choice): Match {
+  const ifaces = new Set<string>();
+  for (const ids of known.values()) for (const one of ids.values()) ifaces.add(one.iface);
+  return { known, choose, ifaces };
 }
 
 /** The one candidate of `platformName` in `iface` (any interface when null), a choice settling two; null for none. */
@@ -186,13 +205,9 @@ type Rewritten = { to: string; tied: number; loose: boolean; shared: boolean; ti
  * One text of a line with each token rewritten: by the emoji the line links under that name, else by the one known emoji
  * of its interface. `loose` when the line links two emoji of one name, `shared` when two known emoji hold an unlinked one.
  */
-function rewriteText(
-  from: string,
-  emoji: ReadonlyArray<Linked>,
-  iface: string,
-  known: Known,
-  choose: Choice
-): Rewritten {
+function rewriteText(from: string, emoji: ReadonlyArray<Linked>, lineIface: string, match: Match): Rewritten {
+  // A line of an interface that holds no emoji, or of none, such as a memory note: matched across every interface, unlinked.
+  const iface = match.ifaces.has(lineIface) ? lineIface : null;
   const out: Rewritten = { to: from, tied: 0, loose: false, shared: false, ties: [] };
   out.to = replaceNameTokens(from, (name) => {
     const matching = emoji.filter((one) => one.platformName === name);
@@ -204,11 +219,11 @@ function rewriteText(
       out.tied += 1;
       return `:${stable}:`;
     }
-    const found = pick(known, choose, name, iface);
+    const found = pick(match.known, match.choose, name, iface);
     if (found === 'shared') out.shared = true;
     if (found === null || found === 'shared') return null;
     out.tied += 1;
-    if (!out.ties.some((one) => one.nativeId === found.nativeId)) out.ties.push(found);
+    if (iface !== null && !out.ties.some((one) => one.nativeId === found.nativeId)) out.ties.push(found);
     return `:${found.stable}:`;
   });
   return out;
@@ -237,11 +252,11 @@ type LinesOut = Pick<StableNamesPlan, 'lines' | 'cells' | 'ties'> & {
 };
 
 /** One line's text: its tokens, its sticker references and the links it misses. */
-function planLineText(row: Row, linked: ReadonlyArray<Linked>, known: Known, choose: Choice, out: LinesOut): void {
+function planLineText(row: Row, linked: ReadonlyArray<Linked>, match: Match, out: LinesOut): void {
   const sourceId = text(row.id);
   const from = text(row.text);
   const emoji = linked.filter((one) => one.kind === 'emoji');
-  const result = rewriteText(from, emoji, text(row.iface), known, choose);
+  const result = rewriteText(from, emoji, text(row.iface), match);
   if (result.shared) out.left.sharedName += 1;
   if (result.loose) {
     out.untied += 1;
@@ -256,17 +271,17 @@ function planLineText(row: Row, linked: ReadonlyArray<Linked>, known: Known, cho
 }
 
 /** One line's think, by the rule of its text, with no link: her thought shows nothing. */
-function planThink(row: Row, linked: ReadonlyArray<Linked>, known: Known, choose: Choice, out: LinesOut): void {
+function planThink(row: Row, linked: ReadonlyArray<Linked>, match: Match, out: LinesOut): void {
   const from = text(row.think);
   const emoji = linked.filter((one) => one.kind === 'emoji');
-  const result = rewriteText(from, emoji, text(row.iface), known, choose);
+  const result = rewriteText(from, emoji, text(row.iface), match);
   if (result.loose || result.to === from) return;
   out.tokens += result.tied;
   out.cells.push({ table: 'sources', column: 'think', id: text(row.id), from, to: result.to });
 }
 
 /** The lines and thinks the rewrite changes, and the links their texts tie. */
-function planLines(db: Db, byLine: Map<string, Array<Linked>>, known: Known, choose: Choice): LinesOut {
+function planLines(db: Db, byLine: Map<string, Array<Linked>>, match: Match): LinesOut {
   const out: LinesOut = {
     lines: [],
     cells: [],
@@ -282,24 +297,35 @@ function planLines(db: Db, byLine: Map<string, Array<Linked>>, known: Known, cho
     .all();
   for (const row of rows) {
     const linked = byLine.get(text(row.id)) ?? [];
-    planLineText(row, linked, known, choose, out);
-    if (text(row.think)) planThink(row, linked, known, choose, out);
+    planLineText(row, linked, match, out);
+    if (text(row.think)) planThink(row, linked, match, out);
   }
   return out;
 }
 
+/** How raw markup is named: by its id, under the row's interface, else the interface that holds or stored that id. */
+function markupOf(db: Db, namer: Namer): Resolver['markup'] {
+  const stored = db.prepare(
+    "SELECT scope_iface FROM media WHERE kind = 'emoji' AND native_ref = ? AND scope_iface IS NOT NULL"
+  );
+  const ifaceOfId = (nativeId: string): string | undefined => {
+    const held = [...namer.held.values()].find((row) => row.kind === 'emoji' && row.nativeId === nativeId)?.iface;
+    const iface = held ?? stored.get(nativeId)?.scope_iface;
+    return typeof iface === 'string' ? iface : undefined;
+  };
+  return (iface, nativeId, platformName, animated) =>
+    namer.nameOf(iface ?? ifaceOfId(nativeId) ?? MARKUP_IFACE, 'emoji', nativeId, platformName, animated).name;
+}
+
 /** How the texts outside `sources` find names: a name held once in any interface, markup by its id. */
-function resolverOf(namer: Namer, known: Known, choose: Choice, left: LinesOut['left']): Resolver {
-  const ifaceOfId = (nativeId: string): string | undefined =>
-    [...namer.held.values()].find((row) => row.kind === 'emoji' && row.nativeId === nativeId)?.iface;
+function resolverOf(markup: Resolver['markup'], match: Match, left: LinesOut['left']): Resolver {
   return {
     name: (platformName) => {
-      const found = pick(known, choose, platformName, null);
+      const found = pick(match.known, match.choose, platformName, null);
       if (found === 'shared') left.sharedName += 1;
       return found === null || found === 'shared' ? null : found.stable;
     },
-    markup: (iface, nativeId, platformName, animated) =>
-      namer.nameOf(iface ?? ifaceOfId(nativeId) ?? MARKUP_IFACE, 'emoji', nativeId, platformName, animated).name,
+    markup,
   };
 }
 
@@ -323,9 +349,11 @@ export function planStableNamesRewrite(db: Db, { choose = {} }: { choose?: Choic
   const namer = namerOf(db);
   const renames = new Map<string, Change<'mediaId'>>();
   const byLine = tiesOf(db, namer, renames);
-  const known = knownOf(db, namer, renames);
-  const planned = planLines(db, byLine, known, choose);
-  const cells = [...planned.cells, ...textCells(db, resolverOf(namer, known, choose, planned.left))];
+  const markup = markupOf(db, namer);
+  markupNames(db, markup);
+  const match = matchOf(knownOf(db, namer, renames), choose);
+  const planned = planLines(db, byLine, match);
+  const cells = [...planned.cells, ...textCells(db, resolverOf(markup, match, planned.left))];
   const plan = { issue: namer.issue, lines: planned.lines, media: [...renames.values()], cells, ties: planned.ties };
   const counts = {
     lines: planned.lines.length,

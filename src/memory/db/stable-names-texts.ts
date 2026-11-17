@@ -130,6 +130,25 @@ function rewriteCell(column: TextColumn, raw: string, resolver: Resolver, iface:
   return column.kind === 'json' ? jsonText(raw, resolver, iface) : freeText(raw, resolver, iface);
 }
 
+/**
+ * Names every emoji raw markup in a column of `TEXT_COLUMNS` holds, before any text is matched, so a name only markup
+ * tells is known to every line and text of the same plan.
+ */
+export function markupNames(db: Db, markup: Resolver['markup']): void {
+  for (const target of TEXT_COLUMNS.filter((one) => one.kind !== 'rails')) {
+    const rows = db
+      .prepare(
+        `SELECT ${target.column} AS value, ${target.iface} AS iface FROM ${target.table} WHERE ${target.column} LIKE '%<%:%>%'`
+      )
+      .all();
+    for (const row of rows) {
+      const iface = typeof row.iface === 'string' && row.iface !== '' ? row.iface : null;
+      for (const [, animated, name, id] of String(row.value).matchAll(MARKUP_RE))
+        markup(iface, id, name, animated === 'a');
+    }
+  }
+}
+
 /** The cells of every column of `TEXT_COLUMNS` the rewrite changes. */
 export function textCells(db: Db, resolver: Resolver): Array<Cell> {
   const cells: Array<Cell> = [];
