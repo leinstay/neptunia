@@ -66,11 +66,12 @@
 // (or `--snapshot`) read only: `--intention <id>` names the intention of an `intention_due` or
 // `errand_deadline` wake (required for those), in the intention's destination, or nowhere when it names none. No
 // server is chosen: every guild the bot is in is served, as the core serves them, and the state is the persona's
-// data/persona/inner.json. The real turn runner over
-// Discord REST (GET only, every write refused), an in-memory port and an unflushed copy of the
-// memory store; `wakes.mode` forced to `shadow`, so her reads run (on production's routing)
-// and every other call is only proposed; the journal is not written (a journal read, `memory.journal.read`, answers from the journal of the data read, read only); intentions read
-// only (an expiry sweep writes nothing). Prints the request's blocks (`--show-request`: the
+// data/persona/inner.json. Each sample's turn runner is the one scripts/turn-replay.ts composes as the core composes
+// its own (scripts/lib/turn-wiring.ts): the memory database read only for `<meanwhile>`, `<memory>`, her day and the
+// places she names, a memory context per turn, her intentions and errands, her identity as the core holds it, over
+// the Discord adapter on REST (GET only, every write kept and answered as delivered) and an unflushed copy of the
+// memory store; `wakes.mode` forced to `shadow`, so her reads run (on production's routing) and every other call is
+// only proposed; the journal reads the data and writes nothing; intentions read only (an expiry sweep writes nothing). Prints the request's blocks (`--show-request`: the
 // whole request), her answers, her proposed and executed actions, the cost.
 //
 // `--inner heartbeat`: the heartbeat's turn. The wake is built by the scheduler itself (a real
@@ -551,6 +552,13 @@ import {
   seededRng,
 } from './lib/diary-day.ts';
 import { innerSummary, innerSummaryTable, sampleFacts } from './lib/inner-summary.ts';
+import { buildTurnRunner, homeIdentity } from './lib/turn-wiring.ts';
+import type { Wired, WiringInput } from './lib/turn-wiring.ts';
+import { recordingPort } from './lib/turn-port.ts';
+import type { RecordedWrite } from './lib/turn-port.ts';
+import type { Adapter } from '../src/protocol/adapter.ts';
+import type { Reads } from '../src/interface/reads.ts';
+import type { Db } from '../src/memory/db/types.ts';
 import type { InnerSummary } from './lib/inner-summary.ts';
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.ts';
 import { promptLayersHot, overlayPromptsHot, diaryPromptLayers } from './lib/prompt-layers.ts';
@@ -563,7 +571,6 @@ import {
   discordReads,
   guildListing,
   hiddenReads,
-  identityOf,
   lazyRecallScope,
   ownHistoryReads,
   recallScope,
@@ -2344,16 +2351,6 @@ function blockNames(text: string) {
 }
 
 /**
- * The journal of `--inner`, read functions only (`read`, `findTurn`, `timeline`) over the data
- * directory the run reads: a simulated `memory.journal.read` returns the real records, and
- * nothing can be written (no `system`, no `start`).
- * @param journal From src/memory/journal.ts#createJournal.
- */
-export function readOnlyJournal(journal: Untyped): { read: Untyped; findTurn: Untyped; timeline: Untyped } {
-  return { read: journal.read, findTurn: journal.findTurn, timeline: journal.timeline };
-}
-
-/**
  * The ids `--hide-channel` / `--hide-message` name, as sets (an experiment: salient items removed from a frozen moment).
  * @param args From parseArgs.
  */
@@ -2746,6 +2743,63 @@ async function directPlaces(iface: unknown, reads: Untyped, actions: Array<Rec>,
 }
 
 /**
+ * The turn runner of one `--inner` sample: the runner a replayed turn has (scripts/lib/turn-wiring.ts#buildTurnRunner),
+ * composed as the core composes its own over the data folder read only: the memory database for the graph reader, her
+ * lines elsewhere, her day and the places she names, a memory context per turn, her intentions and errands. She is
+ * who the core holds her to be (turn-wiring.ts#homeIdentity), on no root. `port`'s reads answer the turn; every write
+ * of the turn is kept in `writes` and answered as delivered (scripts/lib/turn-port.ts#recordingPort).
+ */
+export function innerTurnRunner({
+  root,
+  dataDir,
+  hot,
+  port,
+  llm,
+  embed,
+  rng,
+  now,
+  turnId,
+  wrapReads,
+}: {
+  root: string;
+  dataDir: string;
+  hot: unknown;
+  port: unknown;
+  llm: unknown;
+  embed: (texts: Array<string>, options?: unknown) => Promise<Array<ArrayLike<number> | null>>;
+  rng: () => number;
+  now: () => number;
+  turnId: string;
+  wrapReads?: (reads: Reads) => Reads;
+}): { wired: Wired; writes: Array<RecordedWrite> } {
+  const memory = readOnlyMemory(dataDir);
+  const db = memory.memoryDb?.database() as Db | null | undefined;
+  if (!db) throw new CliError(`replay-cli: no memory database in ${dataDir}`);
+  let identity;
+  try {
+    identity = homeIdentity(db, dataDir);
+  } finally {
+    memory.close();
+  }
+  const recorded = recordingPort(port as Adapter, now);
+  const wired = buildTurnRunner({
+    root,
+    dataDir,
+    hot: hot as Hot,
+    turnId,
+    now,
+    identity: { iface: identity.iface, selfId: identity.selfId, selfName: identity.selfName, rootNative: null },
+    rootPlace: null,
+    port: recorded.port,
+    llm: llm as WiringInput['llm'],
+    embed,
+    rng,
+    ...(wrapReads ? { wrapReads } : {}),
+  });
+  return { wired, writes: recorded.writes };
+}
+
+/**
  * The `--inner` mode (see the header): one inner turn for one wake (`--samples` times), in shadow, against the
  * live data (or `--snapshot`) read only. Returns `{ code, result }`.
  */
@@ -2759,8 +2813,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     ...(await load('memory/append-store.ts')),
     ...(await load('memory/record.ts')),
     ...(await load('memory/journal.ts')),
-    ...(await load('admin.ts')),
-    ...(await load('tools/registry.ts')),
+    ...(await load('llm/embed.ts')),
     ...(await load('behavior/prompt.ts')),
   };
   await load('tools/operations/index.ts');
@@ -2770,12 +2823,9 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     createStore,
     createCalibrator,
     createLlm,
-    createFakeAdapter,
     createIntentionStores,
     createIntentionService,
     createErrandStore,
-    createAdmin,
-    skillRegistry,
     userText,
   } = mods;
   const liveData = defaultDataDir(root);
@@ -2820,7 +2870,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     // Every guild the bot is in, none chosen: an inner turn belongs to the persona, not to one server.
     const connection = await connectDiscord({ discord, token: discordToken, everyGuild: true, log });
     client = connection.client;
-    const { self } = connection;
     const rootIds = connection.guilds.map((guild) => String(guild.id));
     refuseDiscordWrites(client);
     const hide = hideSetsOf(args);
@@ -2828,21 +2877,12 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const discordPort = mods.createDiscordInterface({ client, config: () => hot.config }).port;
     const reads = hiddenReads(mods.createReads(discordPort, log), hide);
 
-    // Her intentions and errands, read only; her inner state as it stands.
+    // Her intentions and errands for the scheduler's wake, read only; the turn reads its own (innerTurnRunner).
     const taskStore = createErrandStore({
       config: () => hot.config,
       journal: null,
       memoryDb: memoryFor(dataDir),
     });
-    const errands = {
-      view: ({ dmChatId = null }: Rec = {}) =>
-        [...taskStore.open(), ...taskStore.unseen()].filter(
-          (task) => task.scope !== 'dm' || (dmChatId !== null && task.origin?.placeId === String(dmChatId))
-        ),
-      markSeen: () => {},
-      budget: ({ agent }: Rec) => taskStore.budget(agent),
-      store: () => taskStore,
-    };
     const intentions = createIntentionService({
       stores: readOnlyIntentionStores(createIntentionStores({ memoryDb: memoryFor(dataDir) })),
       hot,
@@ -2853,7 +2893,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     let intention = null;
     let chat = null;
     let info = null;
-    let currentChannel;
+    let currentChannel: string | null = null;
     if (args.inner === 'heartbeat') {
       // The scheduler builds it over the stores as they are; it runs nowhere.
       if (!settings.heartbeat.enabled)
@@ -2902,47 +2942,10 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       info = innerReplayWake({ inner: mods, kind: args.inner, intention, now, timezone }).info;
     }
 
-    // The engine, wired as src/index.js wires it: her skills through a real admin over the copies.
-    const port = createFakeAdapter({
-      iface: 'discord',
-      selfId: self.id,
-      now: Date.now,
-      capabilities: { maxFileBytes: 64 * 1024 * 1024 },
-    });
-    const admin = createAdmin({
-      hot,
-      store,
-      reads,
-      ...identityOf(self),
-      port,
-      intentions,
-      errands,
-      journal: readOnlyJournal(createJournal({ dataDir, config: () => ({}), log, memoryDb: memoryFor(dataDir) })),
-      dataDir: null,
-    });
-    // `--seed`: each sample draws from its own seeded source; without one, from Math.random as the runner does.
-    let sampleRng: () => number = Math.random;
-    const turns = diaryTurnRunner(mods, {
-      hot,
-      store,
-      llm,
-      calibrator,
-      client,
-      self,
-      images: null,
-      state,
-      port,
-      rng: () => sampleRng(),
-      wrapReads: (found: Untyped) => hiddenReads(found, hide),
-      extra: {
-        skills: skillRegistry(),
-        runOp: admin.runSkillOp,
-        runOwnOp: admin.runOwnSkillOp,
-        runInitiativeOp: admin.runInitiativeSkillOp,
-        intentions,
-        errands,
-      },
-    });
+    // The embedder of the turn's recall, on the embedding role's key; an offline run embeds nothing.
+    const embedder = answers ? null : mods.createEmbedder({ apiKey: '', keyOf: routing.keyOf, state });
+    const embed = (texts: Array<string>, options?: unknown) =>
+      embedder === null ? Promise.resolve(texts.map(() => null)) : embedder.embed(texts, options);
     log.info('replay-cli: inner ready', {
       guilds: rootIds.length,
       chatId: chat?.chatId ?? null,
@@ -2957,7 +2960,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     let stopped = null;
     let lastCost = 0;
     let code = 0;
-    let posted = 0;
     for (let n = 0; n < args.samples!; n += 1) {
       // The same request again, independent runs; none starts when its expected cost would pass --spend.
       if (n > 0 && budget !== null && total.cost + lastCost > budget) {
@@ -2966,22 +2968,39 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       }
       requests.length = 0;
       calls.length = 0;
-      sampleRng = innerSampleRng(args.seed, n) ?? Math.random;
-      let result;
+      // Each sample on a runner of its own, composed as the core composes it, so no sample carries into the next.
+      const { wired, writes } = innerTurnRunner({
+        root,
+        dataDir,
+        hot,
+        port: discordPort,
+        llm,
+        embed,
+        rng: innerSampleRng(args.seed, n) ?? Math.random,
+        now: Date.now,
+        turnId: `t-replay-inner-${n + 1}`,
+        wrapReads: (found) => hiddenReads(found, hide),
+      });
+      let result: Untyped;
       try {
-        result = await turns.runTurn({
-          chat,
-          mode: 'inner',
-          triggerKind: 'inner',
-          inner: {
-            wake: structuredClone(info),
-            shadow: true,
-            mayAct: () => false,
-            ...(args.inner === 'heartbeat' ? { currentChannel } : {}),
-          },
-        });
+        await wired.seed();
+        result = await wired.under(() =>
+          wired.runner.runTurn({
+            chat,
+            mode: 'inner',
+            triggerKind: 'inner',
+            inner: {
+              wake: structuredClone(info),
+              currentChannel,
+              shadow: true,
+              mayAct: () => false,
+            },
+          })
+        );
       } catch (err: Untyped) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
+      } finally {
+        wired.close();
       }
       const replies = requests.filter((request) => request.purpose === 'reply');
       const firstReply = replies[0] as { messages: Array<Rec> } | undefined;
@@ -2999,7 +3018,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         cost: total.cost + usage.cost,
       };
       lastCost = usage.cost;
-      const sent = port.calls.filter((call: Rec) => call.op === 'send').length;
       if (result?.outcome === 'error') code = 1;
       const answers = calls
         .filter((call) => call.purpose === 'reply')
@@ -3020,14 +3038,13 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         ...(answers.at(-1)?.failed ? { endedInError: answers.at(-1)?.failed?.code } : {}),
         answers,
         actions,
-        posted: sent - posted,
+        posted: writes.filter((write) => write.op === 'send').length,
         usage,
         facts: sampleFacts(
           { requests: calls.filter((call) => call.purpose === 'reply'), answers, actions },
           { now, timezone, directOf: (place) => direct.get(place) ?? null }
         ),
       });
-      posted = sent;
     }
     const blocks: Rec = {};
     for (const tag of ['wake', 'intentions', 'errands', 'retrieved', 'task']) {

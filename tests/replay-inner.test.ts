@@ -17,8 +17,8 @@ import {
   innerReplayWake,
   innerReportMarkdown,
   innerSampleRng,
+  innerTurnRunner,
   parseArgs,
-  readOnlyJournal,
   recordingLlm,
 } from '../scripts/replay.ts';
 import '../src/tools/operations/index.ts';
@@ -29,6 +29,17 @@ import * as inner from '../src/behavior/inner.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { userText } from '../src/behavior/prompt.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
+import { createIntention } from '../src/intentions/model.ts';
+import { createIntentionStores } from '../src/intentions/store.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { MARK, SERVICE_CONTEXT, TEXT, TURN_NOW, blockOf, serviceWake, serviceWorld } from './fixtures/service-turn.ts';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
+import { shippedLabels } from './fixtures/shipped-labels.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import { completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 
 type Rec = Record<string, unknown>;
 
@@ -337,11 +348,6 @@ test('innerReportMarkdown prints the hidden ids in the header', () => {
   assert.match(md, /Hidden messages: 99, 98/);
 });
 
-test('replay --inner: the journal handed to the operations can read and nothing else', () => {
-  const journal = readOnlyJournal({ read: 1, findTurn: 2, timeline: 3, system: 4, start: 5, withWriterLock: 6 });
-  assert.deepEqual(Object.keys(journal).sort(), ['findTurn', 'read', 'timeline']);
-});
-
 test('replay --inner: --answers-dir is accepted with its timeout and samples', () => {
   const ok = parseArgs(['--inner', 'heartbeat', '--answers-dir', 'd', '--answers-timeout-min', '5', '--samples', '3']);
   assert.equal(ok.answersDir, 'd');
@@ -397,4 +403,131 @@ test('innerSampleRng: the same seed and sample give the same draws, another seed
   assert.notDeepEqual(draws(innerSampleRng('s', 0)), draws(innerSampleRng('t', 0)));
   assert.notDeepEqual(draws(innerSampleRng('s', 0)), draws(innerSampleRng('s', 1)));
   assert.equal(innerSampleRng(null, 0), null);
+});
+
+// The heartbeat the replay runs is the core's own: the same fixture world as the core's heartbeat test
+// (tests/fixtures/service-turn.ts, tests/inner-turn-service.test.ts), written to a data folder the replay reads.
+const PROMPTS = {
+  'system-prompt': 'You are a regular member of this chat.',
+  'character-card': 'You are friendly and terse.',
+  format: 'Use <msg> and <react> tags.',
+  heartbeat: MARK.heartbeat,
+  inner: MARK.inner,
+  labels: shippedLabels,
+};
+const HEARTBEAT_GRANTED = ['conversation.read', 'memory.search', 'intention.set'];
+const PURPOSE = 'ΠΡΟΘΕΣΗ-ΓΙΑ-ΤΟΝ-ΚΗΠΟ';
+
+async function heartbeatDataDir(): Promise<string> {
+  const dataDir = tempDir('nep-replay-heartbeat-');
+  const handle = openMemoryDb(path.join(dataDir, 'memory.db'));
+  serviceWorld({ handle, db: dbOf(handle), close: () => handle.close() });
+  dbOf(handle)
+    .prepare('INSERT INTO accounts (id, iface, native_id, person_id, names, kind) VALUES (?, ?, ?, ?, ?, ?)')
+    .run('fake:self-id', 'fake', 'self-id', 'person:self', '["Αθηνά"]', 'self');
+  handle.close();
+  const mem = openTestMemorySync({ dataDir, now: () => TURN_NOW });
+  const stores = createIntentionStores({ memoryDb: mem.memoryDb, now: () => TURN_NOW }).get()!;
+  const made = createIntention({
+    purpose: PURPOSE,
+    provenance: { kind: 'self', turnId: 't' },
+    now: TURN_NOW - 60_000,
+    id: 'i1',
+  });
+  if (!made.ok) throw new Error(`the fixture intention is refused: ${made.code}`);
+  assert.equal(stores.add(made.intention).ok, true);
+  await stores.flush();
+  mem.close();
+  return dataDir;
+}
+
+test('a replayed heartbeat reads her lines, memory and intentions as the core turn does, and reads a place it showed', async () => {
+  // Bug: the replay composed its own turn runner with no memory database and no memory context, so <meanwhile> and
+  // <memory> were empty, <inner> lacked her day and intentions, and no place she named resolved.
+  const dataDir = await heartbeatDataDir();
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => TURN_NOW });
+  port.seedChat({
+    iface: 'fake',
+    id: 'c2',
+    kind: 'channel',
+    name: 'κήπος',
+    rootId: 'g1',
+    topic: null,
+    permissions: { read: true, send: true, attach: true, react: true },
+    owner: null,
+    lastMessageAt: null,
+    voice: false,
+    public: true,
+  });
+  const requests: Array<string> = [];
+  const llm = {
+    complete: (messages: Array<{ content: unknown }>) => {
+      const text = messages.map((message) => userText(message.content)).join('\n');
+      requests.push(text);
+      if (requests.length > 1) return Promise.resolve(completionOf('<skip/>'));
+      // The handle of the place whose header stands above her garden line.
+      const before = blockOf(text, 'meanwhile').split(TEXT.ownGarden)[0];
+      const handle = [...before.matchAll(/^(#[A-Za-z0-9_-]+):/gm)].at(-1)?.[1] ?? '#none';
+      return Promise.resolve(
+        toolAnswer('', [
+          toolCall('conversation.read', { place: handle }),
+          toolCall('conversation.read', { place: 'κήπος' }),
+        ])
+      );
+    },
+  };
+  const hot = {
+    config: {
+      bot: {
+        timezone: 'UTC',
+        access: Object.fromEntries(
+          HEARTBEAT_GRANTED.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])
+        ),
+      },
+      context: SERVICE_CONTEXT,
+      llm: { maxRequestTokens: 60000 },
+      tools: { transport: 'native', resultMaxChars: 2000, callTimeoutMs: 120000 },
+      wakes: { mode: 'shadow', loop: { maxSteps: 3 } },
+      intentions: { expiresDays: 14, maxOpen: 20 },
+    },
+    prompts: PROMPTS,
+  };
+  const { wired } = innerTurnRunner({
+    root: process.cwd(),
+    dataDir,
+    hot,
+    port,
+    llm,
+    embed: (texts: Array<string>) => Promise.resolve(texts.map(() => null)),
+    rng: () => 0.5,
+    now: () => TURN_NOW,
+    turnId: 't-inner-1',
+  });
+  let result: Untyped;
+  try {
+    result = await wired.under(() =>
+      wired.runner.runTurn({
+        chat: null,
+        mode: 'inner',
+        triggerKind: 'inner',
+        inner: { wake: serviceWake('heartbeat'), currentChannel: null, shadow: true, mayAct: () => false },
+      })
+    );
+  } finally {
+    wired.close();
+  }
+  const first = requests[0] ?? '';
+  const meanwhile = blockOf(first, 'meanwhile');
+  assert.ok(meanwhile.includes(TEXT.ownGarden) && meanwhile.includes(TEXT.ownHarbour), 'her lines in both places');
+  assert.equal(new Set([...meanwhile.matchAll(/^(#[A-Za-z0-9_-]+):/gm)].map((m) => m[1])).size, 2, 'both places named');
+  assert.notEqual(blockOf(first, 'memory'), '', '<memory> raised');
+  assert.ok(blockOf(first, 'inner').includes(PURPOSE), '<inner> lists the open intention');
+  const reads = ((result as Rec).inner as { actions: Array<Rec> }).actions.filter(
+    (action) => action.skill === 'conversation.read'
+  );
+  assert.deepEqual(
+    reads.map((action) => `${String(action.status)}:${String(action.result)}`),
+    ['executed:ok', 'executed:ok'],
+    JSON.stringify(reads)
+  );
 });

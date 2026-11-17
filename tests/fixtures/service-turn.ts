@@ -85,9 +85,8 @@ const GRANTED = [
   'intention.cancel',
 ];
 
-/** The memory database of the world above. */
-export function serviceWorld(): World {
-  const w = openWorld();
+/** The memory database of the world above, written into `w` (a database of its own when absent). */
+export function serviceWorld(w: World = openWorld()): World {
   noteInterface(w, 'fake', [{ id: 'g1', name: 'Αγορά' }]);
   noteInterface(w, 'tele', [{ id: 't1', name: 'Νησί' }]);
   const room = addRoom(w.db, { iface: 'fake', native: 'c1', root: rootId('fake', 'g1'), name: 'γενικά' });

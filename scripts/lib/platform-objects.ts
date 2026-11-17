@@ -122,11 +122,6 @@ export async function customEmojiOf(
   return index.list();
 }
 
-/** What the engine asks of the interface about the persona herself: her member id and the name she goes by. */
-export function identityOf(self: { id: string; name: string }): { selfId: () => string; getSelfName: () => string } {
-  return { selfId: () => self.id, getSelfName: () => self.name };
-}
-
 const quiet = { info() {}, warn() {}, error() {} };
 
 /**
