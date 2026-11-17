@@ -68,7 +68,10 @@ export type BackendRunOptions = {
    * `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`. codex has no such control either. `backendLimits` says the same per backend.
    */
   maxOutputTokens?: number;
-  /** codex: `-s <sandbox>`, `read-only` unless told otherwise; `none` runs without a sandbox (the modes full and sudo) */
+  /**
+   * codex: `-s <sandbox>`, `read-only` unless told otherwise; `none` runs without a sandbox (the modes full and sudo).
+   * claude: the tools it gets (`claudeToolArgs`). opencode: the `permission` block of its config file (`permissionOf`).
+   */
   sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access' | 'none';
   /** the model flag of the backend (`-m`, `--model`); absent runs the backend's own default */
   model?: string;
@@ -610,24 +613,37 @@ function refusalOf(
     : null;
 }
 
-/** Whether a run has a file to write: system instructions, or a provider pin. */
-function hasConfig(options: Pick<BackendRunOptions, 'system' | 'provider'>): boolean {
-  return options.system !== undefined || options.provider !== undefined;
+/** Whether a run of `name` has a file to write: system instructions, a provider pin, or opencode's permissions. */
+function hasConfig(name: BackendName, options: Pick<BackendRunOptions, 'system' | 'provider' | 'sandbox'>): boolean {
+  return (
+    options.system !== undefined ||
+    options.provider !== undefined ||
+    (name === 'opencode' && options.sandbox !== undefined)
+  );
+}
+
+/**
+ * The opencode `permission` block of a sandbox: `"*"` allows every permission, `external_directory` (a path outside
+ * the run's folder) among them, and `read-only` then denies `edit` (write, edit, apply_patch). Nothing is left on
+ * "ask", since a headless run has nobody to answer and opencode ends the session on a refused call.
+ */
+function permissionOf(sandbox: NonNullable<BackendRunOptions['sandbox']>): Record<string, 'allow' | 'deny'> {
+  return sandbox === 'read-only' ? { '*': 'allow', edit: 'deny' } : { '*': 'allow' };
 }
 
 /**
  * Writes the config a run of `name` reads from `dir`, mode 600. claude and codex read the system instructions as a file of
  * their own. opencode reads one config file (`OPENCODE_CONFIG`) that holds the `build` agent's `prompt` and, for a pinned run, the model's OpenRouter
- * `provider` option, keyed by the model id without the `openrouter/` prefix opencode is started with.
+ * `provider` option, keyed by the model id without the `openrouter/` prefix opencode is started with, and, for a run with a
+ * sandbox, the `permission` block of that sandbox.
  */
 async function writeConfig(
   name: BackendName,
   dir: string,
-  options: Pick<BackendRunOptions, 'system' | 'provider' | 'model'>
+  options: Pick<BackendRunOptions, 'system' | 'provider' | 'model' | 'sandbox'>
 ): Promise<{ file?: string; env?: Record<string, string> } | undefined> {
-  const { system, provider, model } = options;
+  const { system, provider, model, sandbox } = options;
   if (name === 'opencode') {
-    if (system === undefined && provider === undefined) return undefined;
     const config = path.join(dir, 'opencode.json');
     const pin =
       provider === undefined || model === undefined
@@ -644,7 +660,8 @@ async function writeConfig(
             },
           };
     const agent = system === undefined ? {} : { agent: { build: { prompt: system } } };
-    await fsp.writeFile(config, JSON.stringify({ ...agent, ...pin }), { mode: 0o600 });
+    const permission = sandbox === undefined ? {} : { permission: permissionOf(sandbox) };
+    await fsp.writeFile(config, JSON.stringify({ ...agent, ...pin, ...permission }), { mode: 0o600 });
     return { env: { OPENCODE_CONFIG: config } };
   }
   if (system === undefined) return undefined;
@@ -687,7 +704,7 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
         result = { ok: false, text: '', exitCode: null, error: 'backend-missing' };
       } else {
         // mkdtemp makes the folder mode 700, so only this user reads the system instructions written into it.
-        const needsConfig = hasConfig(options);
+        const needsConfig = hasConfig(name, options);
         tmpDir = recipe.outFile || needsConfig ? await fsp.mkdtemp(path.join(os.tmpdir(), `${name}-`)) : undefined;
         const outFile = recipe.outFile && tmpDir ? path.join(tmpDir, 'final.txt') : undefined;
         const systemForm = needsConfig && tmpDir ? await writeConfig(name, tmpDir, options) : undefined;
