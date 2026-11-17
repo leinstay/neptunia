@@ -166,7 +166,10 @@ test('leaves an old sticker reference of a name no sticker holds and counts it',
   const batches = runAll(handle, db, { batchSize: 10 });
   assert.equal(requestCol(db, 'r1', 'response_text'), 'hi [sticker: unknown_one]');
   assert.equal(
-    batches.reduce((sum, batch) => sum + batch.counts.left.unlinkedSticker, 0),
+    batches.reduce((sum, batch) => {
+      const { left } = batch.counts;
+      return sum + left.unlinkedSticker;
+    }, 0),
     1
   );
 });
@@ -192,7 +195,10 @@ test('leaves a name two emoji hold and counts it, and ties it when the caller ch
   const left = runAll(handle, db, { batchSize: 10 });
   assert.equal(requestCol(db, 'r1', 'response_text'), 'ok :aga:');
   assert.equal(
-    left.reduce((sum, batch) => sum + batch.counts.left.sharedName, 0),
+    left.reduce((sum, batch) => {
+      const { left: held } = batch.counts;
+      return sum + held.sharedName;
+    }, 0),
     1
   );
   runAll(handle, db, { batchSize: 10, choose: { aga: '902' } });
