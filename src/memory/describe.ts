@@ -95,9 +95,9 @@
 // see src/memory/gif-watch.ts): its animation -- the mp4 of a tenor/giphy
 // embed, an attached .gif, a .gif link -- is converted to a short mp4 (the
 // first `media.gif.maxSeconds`) and summarised by the video model under the
-// video request rails. An attached GIF is fetched from the address the
-// `freshAddress` dependency reads from its message again, else from its
-// stored address. The caption is cached under the GIF's own item id like a
+// video request rails. Every attachment with a message, a GIF included, is
+// downloaded from the address the `freshAddress` dependency reads from its
+// message again, else from its stored address. The caption is cached under the GIF's own item id like a
 // picture's (so the transcript, the analyzer and the GIF library read it
 // unchanged), marked `watched: true`. The answer is prose, kept as one text on
 // one line and shown whole. A failed fetch, conversion or request, or an
@@ -463,14 +463,14 @@ type DescriberDeps = {
   /** Shortens an answer over `maxChars` (src/behavior/summarize.ts); none keeps every answer whole. */
   summarize?: (text: string, options: { maxChars: number; kind: SummaryKind }) => Promise<string>;
   /**
-   * A fresh address of an attached GIF, read from its message again (`item.placeId` the place it is described in);
+   * A fresh address of an attachment, read from its message again (`item.placeId` the place it is described in);
    * null, or no dependency, fetches the stored address.
    */
-  freshAddress?: (item: AttachedGif) => Promise<string | null>;
+  freshAddress?: (item: AttachedItem) => Promise<string | null>;
 };
 
-/** An attached GIF whose address is read again: the place it is described in and the message it came with. */
-export type AttachedGif = MediaItem & { placeId: string; messageId?: string };
+/** An attachment whose address is read again: the place it is described in and the message it came with. */
+export type AttachedItem = MediaItem & { placeId: string; messageId?: string };
 
 /** A text file's whole text, over plain HTTP; `readTextFile` retells one over `TEXT_FORM_CHARS`. */
 async function readTextForm(url: string): Promise<{ ok: boolean; text?: string; reason?: string }> {
@@ -666,6 +666,16 @@ function buildDescriber({
   }
 
   /**
+   * `item` with the address to download it from: an attachment with a message to ask gets the address `freshAddress`
+   * reads from it, else keeps its stored one. A link, an embed, a sticker and an emoji ask nothing.
+   */
+  async function addressed(placeId: string, item: MediaItem): Promise<MediaItem> {
+    if (item.source !== 'attachment' || !item.messageId || !freshAddress) return item;
+    const fresh = await freshAddress({ ...item, placeId });
+    return fresh ? { ...item, url: fresh } : item;
+  }
+
+  /**
    * The uncached part of describe(): the GIF watch, else the download and
    * the request; the cache is written here. `previous` is the cached entry
    * being described again (a stale caption), else null: on a
@@ -674,10 +684,11 @@ function buildDescriber({
    * request) instead of a miss being cached.
    */
   // health: allow complexity until 2027-04-01 -- the steps of one description, in their order
-  async function describeNow(placeId: string, item: MediaItem, previous: Untyped = null) {
+  async function describeNow(placeId: string, stored: MediaItem, previous: Untyped = null) {
+    if (watchedAsGif(stored)) return describeGif(placeId, stored, previous);
+    const item = await addressed(placeId, stored);
     if (isAudioItem(item)) return hearAudio(audioDeps(placeId), item);
     if (item.kind === 'text') return readTextFile(audioDeps(placeId), item);
-    if (watchedAsGif(item)) return describeGif(placeId, item, previous);
     const promptText: unknown = hot.prompts?.describe;
     if (typeof promptText !== 'string' || !promptText) return null;
 
@@ -904,8 +915,10 @@ function buildDescriber({
     // The request would be refused: no fetch, no GIF slot.
     if (capSpent()) return report({ state: 'unavailable', reason: 'daily-cap' });
 
-    const fresh = item.source === 'attachment' && freshAddress ? await freshAddress({ ...item, placeId }) : null;
-    const fetched = await fetchGifClip(fresh ?? source, maxSeconds);
+    const fetched = await fetchGifClip(
+      item.source === 'attachment' ? (await addressed(placeId, item)).url : source,
+      maxSeconds
+    );
     if (!fetched.ok) return report({ state: 'failed', reason: fetched.reason });
 
     const { clip } = fetched;
@@ -1186,11 +1199,11 @@ function buildDescriber({
    * (`media.video.audioMap`, read now), null for a public URL, with measuring
    * off or after a failed measurement.
    */
-  async function fetchVideoMedia(item: MediaItem, videoCfg: Untyped) {
+  async function fetchVideoMedia(placeId: string, item: MediaItem, videoCfg: Untyped) {
     const { maxSeconds, maxBytes, toolTimeoutMs, ffmpegPath, ytdlpPath } = videoCfg;
     const audioMap = audioMapSettings();
     if (item.source === 'attachment') {
-      const got = await videoFetcher.fetchAttachment(item.url, {
+      const got = await videoFetcher.fetchAttachment((await addressed(placeId, item)).url, {
         durationSec: item.durationSec,
         maxSeconds,
         maxBytes,
@@ -1328,7 +1341,7 @@ function buildDescriber({
       return { result: previous?.result ?? null, sent: false, attempted: false };
     }
 
-    const media = await fetchVideoMedia(item, videoCfg);
+    const media = await fetchVideoMedia(placeId, item, videoCfg);
     if (!media.ok) {
       if (previous) {
         report(
@@ -1574,7 +1587,7 @@ function buildDescriber({
       return null;
     }
 
-    const media = await fetchVideoMedia(item, videoCfg);
+    const media = await fetchVideoMedia(placeId, item, videoCfg);
     if (!media.ok) {
       report(PERMANENT_VIDEO_MISSES.has(media.reason) ? 'limit' : 'error', { reason: media.reason ?? 'download' });
       return null;
@@ -1662,7 +1675,7 @@ function buildDescriber({
     }
 
     const visionCfg = hot.config.context?.vision ?? {};
-    const downloaded = await imageFetcher.fetchAsDataUrl(pictureImageUrl(item), {
+    const downloaded = await imageFetcher.fetchAsDataUrl(pictureImageUrl(await addressed(placeId, item)), {
       maxBytes: VISION_MAX_BYTES,
       timeoutMs: visionCfg.fetchTimeoutMs,
     });
