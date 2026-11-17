@@ -64,7 +64,7 @@ export const SETTINGS = { ...dbSettings({})!, candidates: 40, minMeaning: 0.5, r
 
 /**
  * The labels every read of these tests renders with. A retelling form names its kind, and a kind no model can read says
- * so. `voiceDescribed`, `audioDescribed`, `fileUnreadable` and `stickerUnreadable` are the transcript keys this
+ * so. `voiceDescribed`, `audioDescribed` and `fileUnreadable` are the transcript keys this
  * specification adds to the labels contract.
  */
 export const UNREADABLE = 'not readable';
@@ -83,9 +83,6 @@ export const LABELS = {
     voiceDescribed: '<voice: {text}>',
     audio: '<audio {name}>',
     audioDescribed: '<audio {name}: {text}>',
-    sticker: '<sticker {name}>',
-    stickerDescribed: '<sticker {name}: {text}>',
-    stickerUnreadable: `[sticker: {name}, ${UNREADABLE}]`,
     link: '<link {title}>',
     linkText: '<link {title}: {text}>',
     file: '<file {name}>',
