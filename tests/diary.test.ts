@@ -824,29 +824,33 @@ test('usedSeedLines: seed 0, a seed past the list and a post with no plan leave 
   assert.equal(usedSeedLines(posts, 10).size, 0);
 });
 
-test('sceneOf: the stored brief of a planned picture post comes first', () => {
-  // Bug: the drawing prompt names the room and the light, and the planner cannot see the activity repeat.
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('sceneOf: the stored brief of a planned picture post comes first, whole', () => {
+  // Bug: the drawing prompt names the room and the light, and the planner cannot see the activity repeat; or a long
+  // brief is cut.
+  const brief = `she learns to skate on a frozen lake, ${'falling and getting up again, '.repeat(16)}at dusk`;
   const post = {
     picture: 'a cafe interior, warm light',
     pictureDescription: 'a girl at a window table',
-    plan: { brief: 'she learns to skate on a frozen lake', seeds: [['a lake', 'skating']], seed: 1 },
+    plan: { brief, seeds: [['a lake', 'skating']], seed: 1 },
   };
-  assert.equal(sceneOf(post, 400), 'she learns to skate on a frozen lake');
+  assert.equal(sceneOf(post), brief);
 });
 
-test('sceneOf: without a plan the picture description, one line cut at a word boundary to chars', () => {
-  // Bug: an old row with no brief falls back to the drawing prompt although its picture was described, or the
-  // description spills over several lines or past the setting.
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('sceneOf: without a plan the stored drawing prompt, even when the picture was described', () => {
+  // Bug: the scene taken from the picture description, which the scene's bound then cut.
   const post = {
     picture: 'a cafe interior, warm light',
     pictureDescription: 'a girl rides a red bicycle\ndown a wet hill road at dawn',
   };
-  assert.equal(sceneOf(post, 30), 'a girl rides a red bicycle');
+  assert.equal(sceneOf(post), 'a cafe interior, warm light');
 });
 
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
 test('sceneOf: with neither a plan nor a description, the stored drawing prompt', () => {
   // Bug: an old row loses its scene and shows nothing.
-  assert.equal(sceneOf({ picture: 'a cafe interior, warm light' }, 400), 'a cafe interior, warm light');
+  assert.equal(sceneOf({ picture: 'a cafe interior, warm light' }), 'a cafe interior, warm light');
 });
 
 test('renderSeedsBlock: one line per set', () => {
