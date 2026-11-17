@@ -1,8 +1,8 @@
 # Errands
 
-An errand is work the persona delegates through `errand.run`, such as researching a question with the scout. The persona receives the result and decides what to say or do next.
+An errand is work the persona delegates through `errand.add`, such as researching a question. The persona receives the result and decides what to say or do next.
 
-The core chooses the requested agent profile and submits the work to an errand runner. The result is associated with the original work and can wake the persona. Starting an errand is different from executing a quick in-turn tool.
+Her `errand.add` names only the goal, and the core hands every one to the scout (`ERRAND_AGENT` in `src/tools/operations/catalog.ts`). The owner reaches any agent with `/errands add <agent> <goal>`, and an operation that names an agent for anyone else is refused `owner-only`. A journal row written under `errand.run` or `task.run` reads as `errand.add`. The core submits the work to an errand runner. The result is associated with the original work and can wake the persona. Starting an errand is different from executing a quick in-turn tool.
 
 ## The board
 

@@ -106,7 +106,7 @@ const counted = (action: WakeAction | null | undefined): boolean =>
  * (`detail`: the refusing setting, `wakes.kinds.<kind>.tools`, `maxActs` or `maxTasks`, or `<kind>.<field>` for a kind
  * of OWN_LIMITS). No wake kind (not an inner turn): null. `actions` are
  * the turn's calls so far (`{ skill, status }`): a call that changes something counts against `maxActs`, an errand
- * (`errand.run`) against `maxTasks`. With `nested` true only the allowlist is checked (the call itself was counted).
+ * (`errand.add`) against `maxTasks`. With `nested` true only the allowlist is checked (the call itself was counted).
  */
 export function wakeEnvelopeRefusal({
   config,
@@ -140,8 +140,8 @@ export function wakeEnvelopeRefusal({
     return deny('maxActs');
   if (
     envelope.maxTasks !== null &&
-    skill === 'errand.run' &&
-    done.filter((action) => action.skill === 'errand.run').length >= envelope.maxTasks
+    skill === 'errand.add' &&
+    done.filter((action) => action.skill === 'errand.add').length >= envelope.maxTasks
   )
     return deny('maxTasks');
   return null;

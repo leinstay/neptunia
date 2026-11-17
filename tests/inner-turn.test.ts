@@ -716,18 +716,18 @@ test('inner turn, live: errands she hands off are queued like any call, with no 
   const run = await innerTurn({
     answers: [
       toolAnswer('', [
-        call('errand.run', { agent: 'scout', goal: 'βρες τον πρώτο πίνακα' }),
-        call('errand.run', { agent: 'scout', goal: 'βρες τον δεύτερο πίνακα' }),
+        call('errand.add', { goal: 'βρες τον πρώτο πίνακα' }),
+        call('errand.add', { goal: 'βρες τον δεύτερο πίνακα' }),
       ]),
       '<skip/>',
     ],
     shadow: false,
-    allowed: ['errand.run'],
+    allowed: ['errand.add'],
     withErrands: true,
   });
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`),
-    ['errand.run:executed:', 'errand.run:executed:']
+    ['errand.add:executed:', 'errand.add:executed:']
   );
   assert.equal(run.tasks.length, 2);
   assert.ok(run.tasks.every((task) => typeof task.idempotencyKey === 'string' && task.idempotencyKey));
@@ -1308,9 +1308,9 @@ test("feedbackFacts: every status that is not ok is a callFailed with its code a
 
 test("inner turn, live: a call that did not work carries the operation's own words into its action and its callFailed fact", async () => {
   const run = await innerTurn({
-    answers: [toolAnswer('', [call('errand.run', { agent: 'scout', goal: 'βρες τον πίνακα' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('errand.add', { goal: 'βρες τον πίνακα' })]), '<skip/>'],
     shadow: false,
-    allowed: ['errand.run'],
+    allowed: ['errand.add'],
     withErrands: true,
     errandConfigured: false,
   });
@@ -1320,7 +1320,7 @@ test("inner turn, live: a call that did not work carries the operation's own wor
   assert.deepEqual(feedbackFacts(run.result), [], 'her next step showed the outcome: no fact');
   const [fact] = feedbackFacts({ inner: { actions: [{ ...action, presented: undefined }] } });
   assert.equal(fact.kind, 'callFailed');
-  assert.equal(fact.skill, 'errand.run');
+  assert.equal(fact.skill, 'errand.add');
   assert.equal(
     fact.status,
     ['failed', 'partial', 'invalid', 'denied', 'not_configured', 'unknown', 'timeout', 'refused'].includes(
@@ -1448,7 +1448,7 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
     'message.create',
     'message.react.add',
     'draw.create',
-    'errand.run',
+    'errand.add',
     'errand.read',
     'errand.resolve',
     'intention.set',

@@ -26,15 +26,12 @@ test('guard: heartbeat: a filing or a skill run is refused, and an intention end
   const run = await wakeTurn({
     wake: BEAT,
     answers: [
-      toolAnswer(THINK, [
-        call('errand.run', { agent: 'scout', goal: 'g' }),
-        call('skill.run', { name: 'x', script: 'y' }),
-      ]),
+      toolAnswer(THINK, [call('errand.add', { goal: 'g' }), call('skill.run', { name: 'x', script: 'y' })]),
       SET,
     ],
   });
   assert.deepEqual(run.actions, [
-    'errand.run:refused:heartbeat-only',
+    'errand.add:refused:heartbeat-only',
     'skill.run:refused:heartbeat-only',
     'intention.set:executed:ok',
   ]);

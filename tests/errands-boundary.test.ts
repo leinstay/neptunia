@@ -15,24 +15,24 @@ const registry = buildSkills({ table: SKILL_DEFINITIONS });
 
 test('the same call under the new name is a call of hers on both transports', () => {
   const [native] = normalizeCalls({
-    calls: toolCallsOf([{ id: 'c1', function: { name: 'errand_run', arguments: '{"agent":"scout","goal":"x"}' } }]),
+    calls: toolCallsOf([{ id: 'c1', function: { name: 'errand_add', arguments: '{"goal":"x"}' } }]),
     registry,
     step: 1,
   });
-  assert.deepEqual([native?.problem, native?.name], [null, 'errand.run']);
+  assert.deepEqual([native?.problem, native?.name], [null, 'errand.add']);
   const [text] = normalizeCalls({
-    calls: [{ id: null, name: 'errand.run', arguments: '{}', parsed: { agent: 'scout', goal: 'x' }, parseError: null }],
+    calls: [{ id: null, name: 'errand.add', arguments: '{}', parsed: { goal: 'x' }, parseError: null }],
     transport: 'text',
     registry,
     step: 1,
   });
-  assert.deepEqual([text?.problem, text?.name], [null, 'errand.run']);
+  assert.deepEqual([text?.problem, text?.name], [null, 'errand.add']);
 });
 
 test('a journal that wrote the old names is read under the new ones, and any other name comes back as it is', () => {
   // `task.status` and `task.cancel` stay out of this list: a stored row of either name may come from an older board tool.
   assert.deepEqual(['task.run', 'task.read', 'task.resolve', 'task.list'].map(currentToolName), [
-    'errand.run',
+    'errand.add',
     'errand.read',
     'errand.resolve',
     'errand.list',
@@ -47,6 +47,8 @@ test('a journal that wrote the old names is read under the new ones, and any oth
   assert.equal(currentToolName('skills.describe'), 'skills.describe');
   // The merged reads: a journal that wrote the old name is read under the tool that took it over.
   assert.equal(currentToolName('errand.status'), 'errand.list');
+  // Both old names of the errand tool read as `errand.add` in one hop, the older one included.
+  assert.deepEqual(['task.run', 'errand.run'].map(currentToolName), ['errand.add', 'errand.add']);
   assert.equal(currentToolName('memory.affinity.read'), 'memory.profile.read');
   assert.equal(currentToolName('message.create'), 'message.create');
   assert.equal(currentToolName(null), null);

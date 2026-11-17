@@ -595,17 +595,16 @@ function callText(mark: CallMark, labels: Untyped) {
 }
 
 /** The refusals worded by their own `labels.tools.refusals` key before any other phrase: kind -> key. */
-const REFUSAL_LABELS = Object.freeze({ 'agent-required': 'agentRequired', 'unknown-arg': 'unknownArg' });
+const REFUSAL_LABELS = Object.freeze({ 'unknown-arg': 'unknownArg' });
 
 /**
  * Why a call of the persona's did not work, worded (`mark.detail`, callMarksFor's), the first of: a
- * refusal's own `labels.tools.refusals[<key>]` (REFUSAL_LABELS; `{arg}` the argument, `{agents}`
- * and `{args}` the values it lists, comma-separated: the agents of an errand, the arguments a skill
- * takes for an argument it does not); the
+ * refusal's own `labels.tools.refusals[<key>]` (REFUSAL_LABELS; `{arg}` the argument and `{args}` the values it
+ * lists, comma-separated: the arguments a skill takes for an argument it does not); the
  * specific `labels.transcript.callReasons[<kind>]` (`{arg}` the argument, `{channel}` the target
  * channel's name); the operation's own message (`detail.text`, one line, cut by its maker) as it
  * is; the generic `labels.tools.result.reasons[<code>]`; `labels.tools.result.reasons.other`. A
- * phrase counts when it is a non-empty string whose `{arg}`, `{channel}`, `{agents}` and `{args}` can be filled. ''
+ * phrase counts when it is a non-empty string whose `{arg}`, `{channel}` and `{args}` can be filled. ''
  * without a detail or anything to say.
  */
 export function callReason(mark: Untyped, labels: Untyped): string {
@@ -613,7 +612,7 @@ export function callReason(mark: Untyped, labels: Untyped): string {
   if (!detail) return '';
   const arg = typeof detail.arg === 'string' && detail.arg ? detail.arg : '';
   const channel = typeof mark.targetChannel === 'string' && mark.targetChannel ? mark.targetChannel : '';
-  const agents = Array.isArray(detail.values)
+  const listed = Array.isArray(detail.values)
     ? detail.values.filter((value: Untyped) => typeof value === 'string' && value).join(', ')
     : '';
   const fields = detail.fields && typeof detail.fields === 'object' ? detail.fields : {};
@@ -623,13 +622,13 @@ export function callReason(mark: Untyped, labels: Untyped): string {
     (!phrase.includes('{status}') || fields.status) &&
     (arg || !phrase.includes('{arg}')) &&
     (channel || !phrase.includes('{channel}')) &&
-    (agents || (!phrase.includes('{agents}') && !phrase.includes('{args}')));
+    (listed || !phrase.includes('{args}'));
   const own = labels.transcript.callReasons;
   const coded = objOf(objOf(labels.tools).result).reasons;
   const lookup = (map: Untyped, key: Untyped) =>
     map && typeof map === 'object' && typeof key === 'string' && Object.hasOwn(map, key) ? map[key] : null;
   const refusal = lookup(labels.tools?.refusals, lookup(REFUSAL_LABELS, detail.kind));
-  if (usable(refusal)) return fill(refusal, { arg, agents, args: agents });
+  if (usable(refusal)) return fill(refusal, { arg, args: listed });
   const specific = lookup(own, detail.kind);
   if (usable(specific)) return fill(specific, { arg, channel });
   // Before any generic phrase: the operation's own message, as it said it (one line, already cut),

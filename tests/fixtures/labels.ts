@@ -552,7 +552,6 @@ export const labels = {
     },
     toolsText: { lead: 'your tools, one JSON line each:', protocol: 'write a call as <tool_call>{json}</tool_call> after your thinking' },
     refusals: {
-      agentRequired: '{arg} missing, pick one of: {agents}',
       unknownArg: 'no argument {arg}; takes: {args}',
     },
   },
@@ -608,7 +607,7 @@ export const labels = {
     madeWeek: 'the last seven days: {made}',
     madeItem: '{count} {kind}',
     madeJoin: ', ',
-    kinds: { 'draw.create': 'pictures', 'media.find': 'GIF searches', 'voice.say': 'voice lines', 'errand.run': 'errands' },
+    kinds: { 'draw.create': 'pictures', 'media.find': 'GIF searches', 'voice.say': 'voice lines', 'errand.add': 'errands' },
     kindsOne: { 'draw.create': 'picture', 'voice.say': 'voice line' },
     madeDay: 'altogether {forOthers} made at asking, {own} unasked',
   },

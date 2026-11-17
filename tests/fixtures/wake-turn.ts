@@ -43,7 +43,7 @@ const GRANTED = [
   'intention.set',
   'intention.update',
   'intention.cancel',
-  'errand.run',
+  'errand.add',
   'web.search',
   'skill.read',
   'skill.run',

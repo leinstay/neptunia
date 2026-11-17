@@ -240,6 +240,16 @@ test('a leaf turns the parsed words into the arguments of its operation', () => 
   assert.equal(call?.args.providers, 'alpha,beta');
 });
 
+test('/errands add hands the named agent the rest of the line as its goal', () => {
+  // Catches: the owner's command loses the agent, so his server errand goes to the scout, or the goal is cut at a space.
+  const parsed = parseCommandLine('/errands add server list the failed units');
+  assert.ok(parsed.ok, parsed.ok ? '' : parsed.reason);
+  assert.deepEqual(operationOf(parsed.name, parsed.args), {
+    op: 'errand.add',
+    args: { agent: 'server', goal: 'list the failed units' },
+  });
+});
+
 test('a leaf answered by a module of its own declares no operation', () => {
   // Catches: `/tools grant` runs a raw operation and skips the console's choice of her account as the target.
   assert.equal(operationOf('tools.grant', { tool: 'web.search' }), null);

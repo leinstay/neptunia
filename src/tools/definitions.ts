@@ -219,7 +219,7 @@ export function intentArgs(action: string): ToArgs {
 }
 
 const NO_REFS: Readonly<Record<string, RefKind>> = Object.freeze({});
-const JOBS: ReadonlyArray<string> = Object.freeze(['errand.run']);
+const JOBS: ReadonlyArray<string> = Object.freeze(['errand.add']);
 const ROUTE_ROLES = ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'];
 const ACCESS_PARAMS = () => obj({ command: str() }, ['command']);
 const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), place: ref() }, ['message', 'emoji']);
@@ -524,11 +524,11 @@ const ENTRIES: Array<Definition> = [
     effects: 'write',
     toArgs: reactArgs('remove'),
   }),
-  def('errand.run', {
-    params: obj({ agent: oneOf(['scout', 'server']), goal: str(2000) }, ['agent', 'goal']),
+  def('errand.add', {
+    params: obj({ goal: str(2000) }, ['goal']),
     body: 'goal',
     effects: 'paid',
-    toArgs: (a) => ({ agent: val(a, 'agent'), goal: val(a, 'goal') }),
+    toArgs: (a) => ({ goal: val(a, 'goal') }),
   }),
   def('errand.list', {
     params: obj({
@@ -859,7 +859,8 @@ export function hasTrait(name: string, trait: Trait): boolean {
  * out: a stored row of either name may come from an older tool of the board, not from an errand.
  */
 export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({
-  'task.run': 'errand.run',
+  'task.run': 'errand.add',
+  'errand.run': 'errand.add',
   'task.read': 'errand.read',
   'task.resolve': 'errand.resolve',
   'task.list': 'errand.list',

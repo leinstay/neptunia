@@ -61,7 +61,7 @@ const AGREED = new Set([
   'message.delete',
   'message.react.add',
   'message.react.remove',
-  'errand.run',
+  'errand.add',
   'errand.list',
   'errand.cancel',
   'errand.read',

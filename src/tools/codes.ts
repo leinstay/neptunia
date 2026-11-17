@@ -82,7 +82,6 @@ export const CATALOGUE = Object.freeze({
   'file-expired': skill('invalid'),
   'file-elsewhere': skill('invalid'),
   'target-ambiguous': skill('invalid'),
-  'agent-required': skill('invalid'),
   'not-own-message': skill('invalid'),
   'no-own-message': skill('invalid'),
   'target-required': skill('invalid'),

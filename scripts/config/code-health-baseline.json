@@ -321,7 +321,7 @@
       "repeated": 0
     },
     "tests/format.test.ts": {
-      "deep": 92,
+      "deep": 88,
       "repeated": 0
     },
     "tests/gif-backfill.test.ts": {
@@ -1133,7 +1133,7 @@
         "function-length": 561
       },
       "runWeek>act": {
-        "complexity": 39
+        "complexity": 38
       },
       "runWeek>runTurn": {
         "complexity": 28
@@ -1556,11 +1556,8 @@
       "executeCall": {
         "complexity": 57
       },
-      "outcomeDetail": {
-        "complexity": 21
-      },
       "resolveCall": {
-        "complexity": 66
+        "complexity": 62
       }
     },
     "src/tools/gateway.ts": {

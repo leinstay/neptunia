@@ -45,7 +45,7 @@ export const INNER_DEFAULTS = Object.freeze({
 /** The skills that post where people read: the trait `posts` of their definitions. */
 export const POSTING_SKILLS = toolsWith('posts');
 /** The calls that deliver something out of an inner turn: the posting skills and an errand. */
-export const DELIVERY_SKILLS = Object.freeze([...POSTING_SKILLS, 'errand.run']);
+export const DELIVERY_SKILLS = Object.freeze([...POSTING_SKILLS, 'errand.add']);
 
 /** The most facts one turn is shown; the rest stay for the next one. */
 export const FACTS_SHOWN_MAX = 12;

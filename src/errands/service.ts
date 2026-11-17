@@ -1,4 +1,4 @@
-// The persona's errands in the background: an errand the `errand.run` operation accepted (queued in
+// The persona's errands in the background: an errand the `errand.add` operation accepted (queued in
 // the place's errand store, src/errands/store.ts) is handed to its agent runner through the client
 // (src/errands/client.ts) right after the operation answered -- nobody waits for it. The errand is
 // `running` from the moment it is sent, with the limits of the profile (`limits`, overridable under `agents.<profile>`; the

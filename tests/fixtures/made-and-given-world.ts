@@ -39,7 +39,7 @@ export const DM = 'discord:dm:n-boris';
 const CHAT: Record<string, string> = { [CAFE]: 'room-1', [SALON]: 'room-2', [DM]: 'dm-chat-boris' };
 
 /** The skills the labels name a kind for, as the turn hands them to the reader. */
-export const KINDS = ['draw.create', 'media.find', 'voice.say', 'errand.run'];
+export const KINDS = ['draw.create', 'media.find', 'voice.say', 'errand.add'];
 
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const iso = (at: number): string => new Date(at).toISOString();

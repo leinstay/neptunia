@@ -386,10 +386,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'errands',
-    help: 'Inspect or cancel errands handed to agents',
+    help: 'Hand off, inspect or cancel errands of agents',
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
+      runs(sub('add', 'Hand an errand to an agent', [arg('agent'), arg('goal')]), 'errand.add', (args) => ({
+        agent: args.agent,
+        goal: args.goal,
+      })),
       runs(sub('list', 'Show latest errands'), 'errand.list', () => ({ limit: 10 })),
       runs(sub('show', 'Show one errand', [arg('id')]), 'errand.list', (args) => ({ id: args.id })),
       runs(sub('cancel', 'Cancel an open errand', [arg('id')]), 'errand.cancel', (args) => ({ id: args.id })),
