@@ -78,25 +78,26 @@ test('reactors store: an add on her message is kept in order, each user once', (
   assert.deepEqual(store.reactors('m1', '😂'), ['2', '1']);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('reactors store: remove takes one user back, removeEmoji one emoji, removeAll every emoji', () => {
   const store = createReactorStore();
   for (const [emoji, user] of [
     ['😂', '1'],
     ['😂', '2'],
     ['👍', '3'],
-    [':kek:', '4'],
+    ['<emoji:77>', '4'],
   ]) {
-    const parsed = emoji.startsWith(':') ? { id: '77', name: 'kek' } : { name: emoji };
+    const parsed = emoji.startsWith('<emoji:') ? { id: '77', name: 'kek' } : { name: emoji };
     feed(store, 'add', { emoji: parsed, accountId: user });
   }
   feed(store, 'remove', { emoji: { name: '😂' }, accountId: '1' });
   assert.deepEqual(store.reactors('m1', '😂'), ['2']);
   feed(store, 'removeEmoji', { emoji: { name: '👍' } });
   assert.equal(store.reactors('m1', '👍'), null);
-  assert.deepEqual(store.reactors('m1', ':kek:'), ['4']);
+  assert.deepEqual(store.reactors('m1', '<emoji:77>'), ['4']);
   feed(store, 'removeAll');
   assert.equal(store.reactors('m1', '😂'), null);
-  assert.equal(store.reactors('m1', ':kek:'), null);
+  assert.equal(store.reactors('m1', '<emoji:77>'), null);
   assert.equal(store.isOwn('m1'), true, 'the message stays hers');
 });
 

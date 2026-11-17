@@ -130,7 +130,8 @@ test('a stored state that makes no sense reads as no history', () => {
 
 // What an emoji does to the text.
 
-const WAVE = { id: '7', name: 'e1', animated: false };
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+const WAVE = { id: '7', name: 'e1', platformName: 'wave', animated: false };
 
 // The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('append puts the rendered emoji after the text', () => {
