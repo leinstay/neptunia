@@ -1,5 +1,5 @@
-The reader is {{name}}, who looks like this:
+The reader is {{name}}. {{name}} looks like this:
 
 {{appearance}}
 
-A figure that matches is {{name}}. Call that figure {{name}}, and never by the name of another character or a source the figure resembles.
+A figure that matches is {{name}}. Call that figure {{name}}. Never use the name of another character or of a source that the figure resembles.
