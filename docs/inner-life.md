@@ -34,6 +34,10 @@ An inner turn that posted nothing, reacted to nothing and answered `<skip/>` las
 
 A restarted heartbeat does not repeat its decision. Its `intention.set` carries a key built from the wake's `chainId`, and a repeated call answers with what the first one made. Any other `intention.set` of hers is keyed by its turn and its place in that turn.
 
+## Measuring a heartbeat before it goes live
+
+`node scripts/replay.ts --inner heartbeat` runs the heartbeat's turn with the real turn runner in shadow over an unflushed copy of `data/`, or of `--snapshot <dir>`, and posts nothing. The scheduler builds its wake from the persona's stored state, every server the bot is in is served, and no server is chosen. `--samples n` repeats the turn up to 10 times, `--prompts <dir>` lays a variant of `heartbeat.md` over the live prompts, and `--seed <text>` gives sample i a random source drawn from the seed and i, so two variants meet the same order. The JSON on stdout holds each sample's words and a `facts` field with sizes, calls, refusal codes and how it ended. A `summary` over the samples counts skips, intentions with a place, intentions in a direct chat, dues more than six hours away, each place and each refusal code, with the median and largest think and request sizes. The Markdown report on stderr and in `--out` opens with that summary as a table. `--inner intention_due` and `--inner errand_deadline` take `--intention <id>` and run in the intention's place, or nowhere when it names none.
+
 ## Missed and changed schedules
 
 The heartbeat and diary run in the core's one scheduler, each with its own policy after a downtime. The heartbeat keeps its next moment in its state, gives one wake when that moment has passed, and draws the next one from then. `heartbeat.schedule` as an interval is moved by `heartbeat.jitterMinutes`, and daily times stay exact. A moment ahead that a changed schedule no longer holds is drawn again at the next tick.

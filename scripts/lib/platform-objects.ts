@@ -21,13 +21,6 @@ export function cachedChannel(holder: unknown, id: unknown): Untyped {
   return typeof get === 'function' ? get.call(cache, id) : undefined;
 }
 
-/** The guild the cache of a client holds under `id`, undefined when it holds none. */
-export function cachedGuild(client: unknown, id: unknown): Untyped {
-  const cache = obj(obj(client).guilds).cache;
-  const get = obj(cache).get;
-  return typeof get === 'function' ? get.call(cache, id) : undefined;
-}
-
 const obj = (value: unknown): Obj => (value !== null && typeof value === 'object' ? (value as Obj) : {});
 
 /** The values of a `cache` Map-like, or none. */

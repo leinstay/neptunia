@@ -16,6 +16,7 @@ import {
   innerReplayHot,
   innerReplayWake,
   innerReportMarkdown,
+  innerSampleRng,
   parseArgs,
   readOnlyJournal,
   recordingLlm,
@@ -28,6 +29,8 @@ import * as inner from '../src/behavior/inner.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+
+type Rec = Record<string, unknown>;
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -133,12 +136,14 @@ function heartbeatFixture({ stopped = false } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-test-data-'));
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-test-tmp-'));
   fixtureDirs.push(dataDir, tmpRoot);
-  const stateFile = path.join(dataDir, 'guilds', 'g1', 'inner.json');
+  // The persona's state, where src/behavior/inner/queue.ts keeps it (the replay read a per-server path no one writes).
+  const stateFile = path.join(dataDir, 'persona', 'inner.json');
   fs.mkdirSync(path.dirname(stateFile), { recursive: true });
   const kept = JSON.stringify({
     ...inner.emptyState(),
     stopped,
     heartbeat: { nextAt: NOW - 1000, lastAt: NOW - 3 * 3_600_000 },
+    facts: [{ id: 'f1', kind: 'errand_done', placeId: null, dmChat: false, at: NOW - 60_000, told: false }],
   });
   fs.writeFileSync(stateFile, kept);
   world().channel({ id: 'c1', name: 'general', placeId: 'g1' });
@@ -167,7 +172,6 @@ test("heartbeatReplayWake: the scheduler's heartbeat wake and chat, read only, t
     inner,
     hot: fx.hot,
     dataDir: fx.dataDir,
-    placeId: 'g1',
     now: NOW,
     deps: fx.deps,
     tmpRoot: fx.tmpRoot,
@@ -182,6 +186,11 @@ test("heartbeatReplayWake: the scheduler's heartbeat wake and chat, read only, t
   // Slice 5: the heartbeat view left the wake with heartbeatLines, and a service runs nowhere: no chat.
   assert.equal(chat, null);
   assert.equal(currentChannel, null, 'a heartbeat has no current channel');
+  assert.deepEqual(
+    (asRecord(info).facts as Array<Rec>).map((fact) => fact.kind),
+    ['errand_done'],
+    "the persona's stored state is the one the wake is built from"
+  );
   assert.equal(fs.readFileSync(fx.stateFile, 'utf8'), fx.kept, 'the data directory is untouched');
   assert.deepEqual(fs.readdirSync(fx.tmpRoot), [], 'the throwaway directory is gone');
 });
@@ -375,4 +384,17 @@ test('recordingLlm notes the failure code of a failed completion', async () => {
   await assert.rejects(llm.complete([], { purpose: 'reply' }));
   assert.equal(calls[0].code, 'provider-limit');
   assert.match(calls[0].error, /rate limited/);
+});
+
+test('replay --inner takes --seed, and with none the seed is null', () => {
+  assert.equal(parseArgs(['--inner', 'heartbeat', '--seed', 'base-1']).seed, 'base-1');
+  assert.equal(parseArgs(['--inner', 'heartbeat']).seed, null);
+});
+
+test('innerSampleRng: the same seed and sample give the same draws, another seed or sample others, no seed none', () => {
+  const draws = (rng: (() => number) | null) => Array.from({ length: 5 }, () => rng!());
+  assert.deepEqual(draws(innerSampleRng('s', 0)), draws(innerSampleRng('s', 0)));
+  assert.notDeepEqual(draws(innerSampleRng('s', 0)), draws(innerSampleRng('t', 0)));
+  assert.notDeepEqual(draws(innerSampleRng('s', 0)), draws(innerSampleRng('s', 1)));
+  assert.equal(innerSampleRng(null, 0), null);
 });

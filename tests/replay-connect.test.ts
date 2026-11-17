@@ -56,3 +56,21 @@ test('connectDiscord reaches the only guild the bot is in by its native id when 
   const { guild } = connection as { guild: { id: string } };
   assert.equal(guild.id, '4242');
 });
+
+test('connectDiscord with every guild serves both servers when none is configured, with no error', async () => {
+  // Bug: `--inner` resolved one server and stopped on a bot in two, though a heartbeat runs nowhere.
+  const connection = await connectDiscord({
+    discord: fakeDiscord([
+      { id: '4242', name: 'Home' },
+      { id: '4343', name: 'Other' },
+    ]),
+    token: 't',
+    everyGuild: true,
+    log: quietLog,
+  });
+  const { guilds } = connection as { guilds: Array<{ id: string }> };
+  assert.deepEqual(
+    guilds.map((guild) => guild.id),
+    ['4242', '4343']
+  );
+});

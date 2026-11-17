@@ -59,12 +59,14 @@
 //   cd /opt/neptunia/app && node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD]
 //        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat>
-//        [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--answers-dir <dir>]
+//        [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--seed <text>] [--prompts <dir>] [--out <file>]
+//        [--spend <usd>] [--answers-dir <dir>]
 //
 // `--inner <kind>`: the inner turn the scheduler would run for one wake, against the live data
 // (or `--snapshot`) read only: `--intention <id>` names the intention of an `intention_due` or
-// `errand_deadline` wake (required for those), in the intention's destination. Its `<wake>` carries what is
-// left of her caps as data/guilds/<id>/inner.json has them now. The real turn runner over
+// `errand_deadline` wake (required for those), in the intention's destination, or nowhere when it names none. No
+// server is chosen: every guild the bot is in is served, as the core serves them, and the state is the persona's
+// data/persona/inner.json. The real turn runner over
 // Discord REST (GET only, every write refused), an in-memory port and an unflushed copy of the
 // memory store; `wakes.mode` forced to `shadow`, so her reads run (on production's routing)
 // and every other call is only proposed; the journal is not written (a journal read, `memory.journal.read`, answers from the journal of the data read, read only); intentions read
@@ -81,8 +83,14 @@
 // replaces only that file, so a variant of the task text is tried without a deploy) and
 // `--out <file>` (the report as Markdown; not under data/). The JSON on stdout holds every
 // sample: the `<wake>` block, her `<think>`, her messages and calls with their arguments,
-// the actions (proposed, executed, refused), the cost; the same report in Markdown goes to
-// stderr. `--spend` also stops the samples: none starts when the cost reported so far plus the
+// the actions (proposed, executed, refused), the cost, and `facts` (scripts/lib/inner-summary.ts#sampleFacts: the
+// first request's prompt tokens and block sizes, each request's tokens and think size, every call's name, status and
+// refusal code, and how the sample ended: a skip, or one intention change with its kind, place as the call gave it,
+// whether that place is a direct chat, minutes to its due time, recurrence and purpose length in words). `summary`
+// counts them over the samples (innerSummary) and heads the Markdown report as a table; the same report in Markdown
+// goes to stderr and to `--out` whatever its extension, and the JSON is stdout's. `--seed <text>` draws sample i from
+// a random source of the seed and i, so two variants meet the same order; without it the samples draw from
+// Math.random. `--spend` also stops the samples: none starts when the cost reported so far plus the
 // last sample's would pass it.
 //
 // `--answers-dir <dir> [--answers-timeout-min 20]` (any mode that sends requests): the offline model. No request of any
@@ -542,13 +550,14 @@ import {
   renderDiaryDayReport,
   seededRng,
 } from './lib/diary-day.ts';
+import { innerSummary, innerSummaryTable, sampleFacts } from './lib/inner-summary.ts';
+import type { InnerSummary } from './lib/inner-summary.ts';
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.ts';
 import { promptLayersHot, overlayPromptsHot, diaryPromptLayers } from './lib/prompt-layers.ts';
 export { diaryPromptLayers, overlayPromptsHot } from './lib/prompt-layers.ts';
 import { readOnlyMemory } from './lib/memory-read.ts';
 import {
   cachedChannel,
-  cachedGuild,
   chatRef,
   customEmojiOf,
   discordReads,
@@ -716,33 +725,53 @@ function turnStartForTrigger(records: Array<Rec>, triggerId: string) {
  * A REST-only Discord connection: no login, no gateway, no event handler.
  * Fetches the served guild (`bot.placeId`, else the only guild the bot is
  * in), its channels (so `#channel` mentions and categories resolve as in the
- * live cache), its custom emoji, the bot's own user and member.
+ * live cache), its custom emoji, the bot's own user and member. With
+ * `everyGuild` it serves every guild the bot is in and resolves none, as the
+ * core does for a turn that runs nowhere (`--inner`); `guild` is then the first.
  */
 export async function connectDiscord({
   discord,
   token,
-  configuredGuildId,
-  resolveGuild,
+  configuredGuildId = '',
+  resolveGuild = null,
+  everyGuild = false,
   log,
-}: Rec): Promise<{ client: Untyped; guild: Untyped; placeId: Untyped; self: { id: string; name: Untyped } }> {
+}: Rec): Promise<{
+  client: Untyped;
+  guild: Untyped;
+  guilds: Array<Untyped>;
+  placeId: Untyped;
+  self: { id: string; name: Untyped };
+}> {
   const { Client, Routes } = discord;
   const client = new Client({ intents: [] });
   client.rest.setToken(token);
   try {
-    const guilds = await client.rest.get(Routes.userGuilds());
-    const resolved = resolveGuild(
-      configuredGuildId,
-      (Array.isArray(guilds) ? guilds : []).map((g) => ({ id: g.id, name: g.name }))
-    );
-    if (resolved.error) throw new CliError(`replay-cli: ${resolved.error}`);
-    const placeId = resolved.guildId;
-    const guild = await client.guilds.fetch(placeId);
-    const channels = await guild.channels.fetch();
-    try {
-      await guild.emojis.fetch();
-    } catch (err: Untyped) {
-      log.warn('replay-cli: the custom emoji cannot be fetched', { errorName: err?.name, statusCode: err?.status });
+    const listed = await client.rest.get(Routes.userGuilds());
+    const known = (Array.isArray(listed) ? listed : []).map((g) => ({ id: String(g.id), name: g.name }));
+    let ids: Array<string>;
+    if (everyGuild) {
+      if (known.length === 0) throw new CliError('replay-cli: the bot is not in any server yet');
+      ids = known.map((g) => g.id);
+    } else {
+      const resolved = resolveGuild(configuredGuildId, known);
+      if (resolved.error) throw new CliError(`replay-cli: ${resolved.error}`);
+      ids = [resolved.guildId];
     }
+    const guilds: Array<Untyped> = [];
+    let channelCount = 0;
+    for (const id of ids) {
+      const fetched = await client.guilds.fetch(id);
+      channelCount += (await fetched.channels.fetch()).size;
+      try {
+        await fetched.emojis.fetch();
+      } catch (err: Untyped) {
+        log.warn('replay-cli: the custom emoji cannot be fetched', { errorName: err?.name, statusCode: err?.status });
+      }
+      guilds.push(fetched);
+    }
+    const guild = guilds[0];
+    const placeId = guild.id;
     const me = await client.rest.get(Routes.user());
     try {
       client.user = new discord.ClientUser(client, me);
@@ -765,14 +794,13 @@ export async function connectDiscord({
       });
     }
     const self = { id: String(me.id), name: member?.displayName ?? me.username ?? 'bot' };
-    const emojiCount = (guild.emojis.cache as Map<string, unknown>).size;
     log.info('replay-cli: discord over REST', {
-      placeId,
-      channels: channels.size,
-      emoji: emojiCount,
+      guilds: guilds.length,
+      channels: channelCount,
+      emoji: guilds.reduce((n, g) => n + (g.emojis.cache as Map<string, unknown>).size, 0),
       self: self.id,
     });
-    return { client, guild, placeId, self };
+    return { client, guild, guilds, placeId, self };
   } catch (err) {
     await client.destroy().catch(() => {});
     throw err;
@@ -1855,6 +1883,8 @@ export function recordingLlm(realLlm: Untyped, calls: Rec, { noCache = false, er
             usage: null,
             error: null,
             code: null,
+            // The turn's blocks with their sizes, as it hands them to the request archive.
+            ...(Array.isArray(options?.blocks) ? { blocks: options.blocks } : {}),
           };
           calls.push(call);
           try {
@@ -2392,20 +2422,20 @@ export function innerSourcesOf({
   };
 }
 
-/** The inner life's record and journal over the data directory, with the served places as the core builds them. */
+/** The inner life's record and journal over the data directory, every guild the bot is in served as the core serves it. */
 function replayInnerSources({
   mods,
   dataDir,
   log,
   store,
-  placeId,
+  rootIds,
   hide,
 }: {
   mods: Untyped;
   dataDir: string;
   log: Untyped;
   store: Untyped;
-  placeId: string;
+  rootIds: Array<string>;
   hide: Rec;
 }) {
   const memoryDb = memoryFor(dataDir);
@@ -2413,7 +2443,7 @@ function replayInnerSources({
     record: mods.createRecord({ dataDir, log, memoryDb }),
     journal: mods.createJournal({ dataDir, config: () => ({}), log, memoryDb }),
     store,
-    places: () => [store.placeOfRoot(placeId, 'discord') as string],
+    places: () => rootIds.map((id) => store.placeOfRoot(id, 'discord') as string),
     hide,
   });
 }
@@ -2427,7 +2457,7 @@ export function hiddenPlaces(places: unknown, hide: Rec): (...args: Array<Untype
 
 /**
  * The heartbeat's wake, built by the scheduler itself: a real inner life (src/behavior/inner.ts#createInnerLife)
- * over a throwaway data directory holding a copy of the guild's inner.json (`dataDir` is only read), the
+ * over a throwaway data directory holding a copy of the persona's inner.json (`dataDir` is only read), the
  * stores and sources it was given, the heartbeat wake queued for `now` and one drain; its turn runner only
  * records what it was handed (the `<wake>` facts, the chat, the current channel) and ends the turn
  * as a skip. So the facts are the ones the live heartbeat would carry now, with no chat, since a heartbeat
@@ -2442,7 +2472,6 @@ export async function heartbeatReplayWake({
   inner,
   hot,
   dataDir,
-  placeId,
   now,
   deps = {},
   tmpRoot = os.tmpdir(),
@@ -2451,7 +2480,6 @@ export async function heartbeatReplayWake({
   inner: Rec;
   hot: Rec;
   dataDir: string;
-  placeId: string;
   now: number;
   deps?: Rec;
   tmpRoot?: string;
@@ -2463,15 +2491,13 @@ export async function heartbeatReplayWake({
 }> {
   const scratch = fs.mkdtempSync(path.join(tmpRoot, 'replay-heartbeat-'));
   try {
-    const stateFile = path.join(dataDir, 'guilds', String(placeId), 'inner.json');
+    // The persona's state where src/behavior/inner/queue.ts keeps it.
+    const stateFile = path.join(dataDir, 'persona', 'inner.json');
     if (fs.existsSync(stateFile)) {
       // A copy with the kill switch lifted (a stopped life would queue nothing; a preview is wanted anyway).
       const kept = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-      fs.mkdirSync(path.join(scratch, 'guilds', String(placeId)), { recursive: true });
-      fs.writeFileSync(
-        path.join(scratch, 'guilds', String(placeId), 'inner.json'),
-        JSON.stringify({ ...kept, stopped: false })
-      );
+      fs.mkdirSync(path.join(scratch, 'persona'), { recursive: true });
+      fs.writeFileSync(path.join(scratch, 'persona', 'inner.json'), JSON.stringify({ ...kept, stopped: false }));
     }
     let seen = null;
     const life = inner.createInnerLife({
@@ -2497,7 +2523,6 @@ export async function heartbeatReplayWake({
       kind: 'inner.wake',
       at: now,
       id: `inner.wake:heartbeat:${now}`,
-      placeId,
       wake: inner.heartbeatWake(now),
     });
     if (queued?.status !== 'queued')
@@ -2511,6 +2536,14 @@ export async function heartbeatReplayWake({
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/**
+ * The random source of sample `n` of an `--inner` run with `--seed`: the same seed and sample give the same draws, so
+ * two variants meet the same order. Null without a seed: the sample draws from `Math.random`, the runner's default.
+ */
+export function innerSampleRng(seed: string | null, n: number): (() => number) | null {
+  return seed === null ? null : seededRng(seed, `inner-sample-${n}`);
 }
 
 /**
@@ -2610,6 +2643,7 @@ export function innerReportMarkdown(result: Untyped): string {
       `Hidden messages: ${(result.hidden.messages ?? []).join(', ') || '-'}`,
       ''
     );
+  if (result.summary) lines.push('## summary', '', ...innerSummaryTable(result.summary as InnerSummary), '');
   if (result.wake) lines.push('## wake', '', fence(result.wake), '');
   if (result.request?.messages)
     lines.push('## request', '', fence(JSON.stringify(result.request.messages, null, 2)), '');
@@ -2664,6 +2698,54 @@ export function innerReportMarkdown(result: Untyped): string {
 }
 
 /**
+ * The readable channels of every served guild at once, with whether she can write there, as the core's places listing
+ * gives them to the inner life.
+ */
+function guildPlaces(guilds: Array<Untyped>, capabilities: Untyped): Array<Rec> {
+  return guilds.flatMap((guild) =>
+    capabilities.channelDirectoryOf(guild).map((entry: Rec) => {
+      let writable = null;
+      try {
+        const found = cachedChannel(guild, entry.id);
+        writable = found ? capabilities.canSend(found) : null;
+      } catch {
+        // A channel the cache holds in a shape canSend cannot read: its permission is unknown.
+        writable = null;
+      }
+      return { id: entry.id, name: entry.name, writable };
+    })
+  );
+}
+
+/**
+ * Whether each place her intention calls name is a direct chat, read from the interface (a chat with no root), the
+ * command line's chat always one. A place the interface does not know is left out.
+ */
+async function directPlaces(iface: unknown, reads: Untyped, actions: Array<Rec>, answers: Array<Rec>) {
+  const named = new Set<string>();
+  for (const action of actions) {
+    const channel: unknown = action.target?.channel;
+    if (typeof channel === 'string') named.add(channel);
+  }
+  for (const answer of answers)
+    for (const call of answer.calls ?? []) {
+      const place: unknown = call.args?.place;
+      if (typeof place === 'string') named.add(place);
+    }
+  const direct = new Map<string, boolean>();
+  for (const place of named) {
+    if (place.startsWith('cli:dm:')) {
+      direct.set(place, true);
+      continue;
+    }
+    // A handle the interface cannot read as a chat id answers with an error: its kind stays unknown.
+    const found = await reads.chatInfo({ iface, chatId: place }).catch(() => null);
+    if (found?.chat) direct.set(place, found.chat.rootId === null);
+  }
+  return direct;
+}
+
+/**
  * The `--inner` mode (see the header): one inner turn for one wake (`--samples` times), in shadow, against the
  * live data (or `--snapshot`) read only. Returns `{ code, result }`.
  */
@@ -2688,7 +2770,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     createStore,
     createCalibrator,
     createLlm,
-    resolveGuild,
     createFakeAdapter,
     createIntentionStores,
     createIntentionService,
@@ -2736,15 +2817,11 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
 
     // Discord over REST, every write refused; anything the turn would post goes to an in-memory port.
     const discord = createRequire(path.join(root, 'package.json'))('discord.js');
-    const connection = await connectDiscord({
-      discord,
-      token: discordToken,
-      configuredGuildId: config.bot?.placeId || '',
-      resolveGuild,
-      log,
-    });
+    // Every guild the bot is in, none chosen: an inner turn belongs to the persona, not to one server.
+    const connection = await connectDiscord({ discord, token: discordToken, everyGuild: true, log });
     client = connection.client;
-    const { placeId, self } = connection;
+    const { self } = connection;
+    const rootIds = connection.guilds.map((guild) => String(guild.id));
     refuseDiscordWrites(client);
     const hide = hideSetsOf(args);
     const capabilities = mods.createDiscordInterface({ client }).capabilities;
@@ -2753,7 +2830,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
 
     // Her intentions and errands, read only; her inner state as it stands.
     const taskStore = createErrandStore({
-      placeId,
       config: () => hot.config,
       journal: null,
       memoryDb: memoryFor(dataDir),
@@ -2772,7 +2848,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       hot,
       tasks: { store: () => taskStore },
     });
-    const sources = replayInnerSources({ mods: { ...mods, createJournal }, dataDir, log, store, placeId, hide });
+    const sources = replayInnerSources({ mods: { ...mods, createJournal }, dataDir, log, store, rootIds, hide });
     const now = Date.now();
     let intention = null;
     let chat = null;
@@ -2796,27 +2872,13 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         inner: mods,
         hot,
         dataDir,
-        placeId,
         now,
         log,
         deps: {
           intentions,
           record: sources.record,
           journal: sources.journal,
-          places: hiddenPlaces((id: string) => {
-            const guild = cachedGuild(client, String(id));
-            if (!guild) return [];
-            return capabilities.channelDirectoryOf(guild).map((entry: Rec) => {
-              let writable = null;
-              try {
-                const found = cachedChannel(guild, entry.id);
-                writable = found ? capabilities.canSend(found) : null;
-              } catch {
-                writable = null;
-              }
-              return { id: entry.id, name: entry.name, writable };
-            });
-          }, hide),
+          places: hiddenPlaces(() => guildPlaces(connection.guilds, capabilities), hide),
           nameOf: (id: string, accountId: string) => store.getUser(accountOf(store, accountId))?.names?.[0] ?? null,
           reads,
           iface: () => discordPort.iface,
@@ -2831,12 +2893,12 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         log.warn('replay-cli: the intention is not open, no wake is due', { status: intention.status });
       const dmChat = intention.provenance?.scope === 'dm';
       const target = dmChat ? intention.provenance?.placeId : (intention.destination ?? intention.provenance?.placeId);
-      const found = target ? await client.channels.fetch(String(target)).catch(() => null) : null;
-      if (found) chat = chatRef(found);
-      if (!chat)
-        throw new CliError(
-          'replay-cli: no chat for this wake (the intention names no channel, or its channel is gone)'
-        );
+      // An intention with no place runs nowhere, as the drain runs it (src/behavior/inner/drain.ts#chatFor).
+      if (target) {
+        const found = await client.channels.fetch(String(target)).catch(() => null);
+        if (!found) throw new CliError("replay-cli: the intention's place is gone; the live drain runs it nowhere");
+        chat = chatRef(found);
+      }
       info = innerReplayWake({ inner: mods, kind: args.inner, intention, now, timezone }).info;
     }
 
@@ -2858,6 +2920,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       journal: readOnlyJournal(createJournal({ dataDir, config: () => ({}), log, memoryDb: memoryFor(dataDir) })),
       dataDir: null,
     });
+    // `--seed`: each sample draws from its own seeded source; without one, from Math.random as the runner does.
+    let sampleRng: () => number = Math.random;
     const turns = diaryTurnRunner(mods, {
       hot,
       store,
@@ -2868,6 +2932,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       images: null,
       state,
       port,
+      rng: () => sampleRng(),
       wrapReads: (found: Untyped) => hiddenReads(found, hide),
       extra: {
         skills: skillRegistry(),
@@ -2879,7 +2944,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       },
     });
     log.info('replay-cli: inner ready', {
-      placeId,
+      guilds: rootIds.length,
       chatId: chat?.chatId ?? null,
       kind: args.inner,
       intention: intention?.id ?? null,
@@ -2901,11 +2966,11 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       }
       requests.length = 0;
       calls.length = 0;
+      sampleRng = innerSampleRng(args.seed, n) ?? Math.random;
       let result;
       try {
         result = await turns.runTurn({
           chat,
-          placeId,
           mode: 'inner',
           triggerKind: 'inner',
           inner: {
@@ -2946,15 +3011,21 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
             finishReason: call.finishReason,
           })
         );
+      const actions = result?.inner?.actions ?? [];
+      const direct = await directPlaces(discordPort.iface, reads, actions, answers);
       samples.push({
         outcome: result?.outcome ?? null,
         reason: result?.reason ?? null,
         failedSteps: answers.filter((answer) => answer.failed).length,
         ...(answers.at(-1)?.failed ? { endedInError: answers.at(-1)?.failed?.code } : {}),
         answers,
-        actions: result?.inner?.actions ?? [],
+        actions,
         posted: sent - posted,
         usage,
+        facts: sampleFacts(
+          { requests: calls.filter((call) => call.purpose === 'reply'), answers, actions },
+          { now, timezone, directOf: (place) => direct.get(place) ?? null }
+        ),
       });
       posted = sent;
     }
@@ -2974,6 +3045,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         ...blocks,
         ...(args.showRequest && firstRequest?.messages ? { messages: firstRequest.messages } : {}),
       },
+      ...(args.seed !== null ? { seed: args.seed } : {}),
+      summary: innerSummary(samples.map((sample) => sample.facts)),
       samples,
       usage: total,
       ...(stopped ? { stopped } : {}),
