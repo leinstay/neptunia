@@ -17,7 +17,7 @@
 // vision model, every line joined into one with single spaces. Its length is
 // `PICTURE_DESCRIPTION_CHARS` (750, the prompt learns it through `{{maxChars}}`),
 // shared by a sticker and an emoji. A GIF takes `GIF_DESCRIPTION_CHARS`
-// (1,500), a video's summary `VIDEO_DESCRIPTION_CHARS` (5,000) and a sound's
+// (1,000), a video's summary `VIDEO_DESCRIPTION_CHARS` (5,000) and a sound's
 // `AUDIO_DESCRIPTION_CHARS` (3,000). A second look takes the length of its
 // media. Nothing is cut: an answer over its length goes once through the
 // `summarize` dependency (src/behavior/summarize.ts), and what it returns is
@@ -165,7 +165,7 @@ const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
 /** The length of a picture's, a sticker's and an emoji's description, and of a second look at a picture. */
 const PICTURE_DESCRIPTION_CHARS = 750;
 /** The length of a GIF's description and of a second look at a GIF. */
-const GIF_DESCRIPTION_CHARS = 1500;
+const GIF_DESCRIPTION_CHARS = 1000;
 /** The length of a video's summary and of a second look at a video. */
 const VIDEO_DESCRIPTION_CHARS = 5000;
 /** The length of a voice message's or an audio file's summary. */
