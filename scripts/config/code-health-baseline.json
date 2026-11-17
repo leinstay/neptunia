@@ -1157,7 +1157,7 @@
     },
     "scripts/lib/vision-compare.ts": {
       "describeOne": {
-        "complexity": 29
+        "complexity": 27
       },
       "parseArgs": {
         "complexity": 22

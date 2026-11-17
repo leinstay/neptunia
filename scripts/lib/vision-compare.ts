@@ -344,7 +344,7 @@ export type Cell = {
 /**
  * One item described with one model, through the live describer exactly as the bot reaches it
  * for that kind: `describe()` for a picture, an emoji, a sticker and a GIF (which watches the GIF
- * first and falls back to one frame, as live), `describeVideo(..., { force: true })` for a video.
+ * as a clip, as live), `describeVideo(..., { force: true })` for a video.
  * The describer gets toolHot's view, an empty in-memory media cache and throwaway daily counters
  * of its own (nothing read from or written to data/), and a client wrapper that marks every
  * request `origin: vision-compare`, outside `llm.maxRequestsPerDay`, never calibrated, no
@@ -466,11 +466,8 @@ export async function describeOne({
   const latencyMs = now() - started;
   const watched = entry.kind === 'video' ? result?.state === 'watched' : true;
   const text = watched && typeof result?.text === 'string' && result.text ? result.text : null;
-  let mode = null;
-  if (entry.kind === 'gif' && text) {
-    const cached = cache[item.itemId];
-    mode = cached?.watched === true ? 'watched' : gifWatch ? `one frame (watch: ${gifWatch})` : 'one frame';
-  }
+  // A GIF's text is always its watch.
+  const mode = entry.kind === 'gif' && text ? 'watched' : null;
   let error = null;
   if (!text) {
     const blocker = entry.kind === 'video' ? null : describer.pictureBlocker();

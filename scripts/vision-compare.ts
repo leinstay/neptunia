@@ -20,7 +20,7 @@
 //
 // Each item with each model: scripts/lib/vision-compare.ts#describeOne -- the live describer
 // (src/memory/describe.ts: `describe` for a picture, an emoji, a sticker and a GIF, which is
-// watched first and falls back to one frame as live; `describeVideo` with `force` for a video)
+// watched as a clip as live; `describeVideo` with `force` for a video)
 // over a tool-local hot view whose `vision` and `video` chains run on the model (the live
 // config is never changed), provider routing as configured (`llm.providerByModel`), an empty
 // in-memory media cache and throwaway daily counters. Requests go out on the keys production uses for `vision` and
