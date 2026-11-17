@@ -33,7 +33,7 @@ export function archivedRequest(
     .get(turnId, purpose);
   if (!row) return null;
   const messages = JSON.parse(String(row.messages)) as Array<Rec>;
-  const tools = row.tools === null ? [] : (JSON.parse(String(row.tools)) as Array<unknown>);
+  const tools = typeof row.tools === 'string' ? (JSON.parse(row.tools) as Array<unknown>) : [];
   return { parts: partsOf(messages, tools), text: typeof row.response_text === 'string' ? row.response_text : null };
 }
 
