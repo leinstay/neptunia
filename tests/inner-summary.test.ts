@@ -109,6 +109,20 @@ test('sampleFacts: an intention in a direct chat with no due and no recurrence',
   });
 });
 
+test('sampleFacts: an intention aimed at a person counts as one in a direct chat when the call names no place', () => {
+  const facts = sampleFacts(
+    {
+      requests: [request(null)],
+      answers: [answer('', [{ skill: 'intention.set', args: { text: 'ask how it went', person: '@u1' } }])],
+      actions: [{ skill: 'intention.set', status: 'proposed', result: 'ok' }],
+      turn: SPOKE,
+    },
+    at
+  );
+  assert.equal(facts.end.kind === 'intention' && facts.end.direct, true);
+  assert.equal(facts.end.kind === 'intention' && facts.end.place, null);
+});
+
 test('sampleFacts: a refused intention change is no ending; neither a skip nor a change is unresolved', () => {
   const facts = sampleFacts(
     {

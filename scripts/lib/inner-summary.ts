@@ -85,7 +85,7 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
  * spoke nor skipped is unresolved with its outcome; an errand call left without a result is unresolved; the last
  * intention change that was proposed or ran is the ending; a loop cut is unresolved; the runner's `skip`, or her last
  * answer's skip, is a skip; anything else is unresolved `no-decision`. `directOf` says whether a place is a direct
- * chat, null when unknown.
+ * chat, null when unknown. An intention whose call names a `person` is one in a direct chat.
  */
 export function sampleFacts(
   {
@@ -122,7 +122,7 @@ export function sampleFacts(
       kind: 'intention',
       change: CHANGES[skill],
       place,
-      direct: resolved === null ? null : directOf(resolved),
+      direct: text(args.person) !== '' ? true : resolved === null ? null : directOf(resolved),
       dueInMinutes: due === null ? null : Math.round((due - now) / 60_000),
       recurs: every !== '' && every !== 'none',
       purposeWords: text(args.text).split(/\s+/).filter(Boolean).length,
