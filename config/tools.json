@@ -25,7 +25,7 @@
     "whenNotToUse": "DO NOT USE FOR (use these instead):\n- An answer with a GIF -> media.find\n- A picture you already sent, posted again -> message.create with media",
     "args": {
       "text": "The scene in English.",
-      "self": "true when you appear. Leave out your appearance. Think first: where, time, clothes, where the camera stands and which way you face, expression as features rather than mood (several, pick one new), pose, action. Write all of it into the scene.",
+      "self": "true when you appear. Leave out your appearance. Think first: where, time, clothes, where the camera stands and which way you face, what is my expression as seen from that camera angle (list several that fit the action and your mood, pick one that is not the expression from your previous picture, describe it concretely as the mouth, eyes, brows and head tilt the camera can see, not a mood word), pose, action. Write all of it into the scene.",
       "place": "#handle of the place to post in. Default this chat.",
       "reply": "#N or link of the message to reply to."
     }
