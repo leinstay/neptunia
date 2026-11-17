@@ -897,8 +897,13 @@ async function runGroup(life: InnerContext, group: Array<Wake>, step: DrainStep)
   save(life);
   const recorded = await finishWakes(life, group, deliveriesOf(hold, { turnId: turnKey, chainId }));
   await sendDeliveries(life, recorded);
+  // A call refused with the heartbeat's own code asks for nothing a later turn may do: the refusal stays a fact,
+  // which the next turn that carries kept facts tells her, and wakes no feedback turn that could post what it refused.
+  const woken = feedback.flatMap((fact, i) =>
+    fact.code === CODE.HEARTBEAT_ONLY ? [] : [{ fact, kept: keptFacts[i] }]
+  );
   let feedbackWakeId: string | null = null;
-  if (feedback.length > 0 && !isFeedback && !comesBack) {
+  if (woken.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;
     await enqueueWake(life, {
       id: feedbackWakeId,
@@ -911,8 +916,8 @@ async function runGroup(life: InnerContext, group: Array<Wake>, step: DrainStep)
       dmChat,
       here: channel ? current.placeId : null,
       turnId: turnId ? asText(turnId) : null,
-      facts: feedback,
-      factIds: keptFacts.map((fact) => fact.id),
+      facts: woken.map((one) => one.fact),
+      factIds: woken.map((one) => one.kept.id),
     });
   }
   const actions = inner.actions ?? [];
