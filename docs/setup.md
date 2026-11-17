@@ -88,6 +88,6 @@ A backend is available when it is installed and its login works: `sourceState` i
 
 Login and logout change availability alone. No role moves, no model is chosen, and a role whose source logged out stays on it, shown `unavailable` by `/subharness status`, with no fallback to another source. Model and source are chosen in the [`/model` selector](keys.md#the-model-selector) or with `/model set <role> <model> --via <route>` and execution permissions with `/agent mode <unit> [<mode>]`. Every such choice is written to `config/config.json` of the data folder under `models.agents` and `models.harness`, and `keys.json` keeps the secrets alone. See [keys and models](keys.md#model-sources).
 
-Versions are recorded in `version.json`, and a normal setup preserves the recorded choice. The installer preserves the backend home when replacing its binary. Keep that home in persona backups so native sessions remain available for later inspection. Pinning does not guarantee that a provider will continue accepting an old client.
+Versions are recorded in `version.json`, and a normal setup preserves the recorded choice. The installer leaves the backend home alone. Keep that home in persona backups so native sessions remain available for later inspection. Pinning does not guarantee that a provider will continue accepting an old client.
 
 Read the implementation in [setup steps](../src/setup/run.ts), [module settings](../src/setup/modules.ts) and [backend installation](../src/subharness/install.ts).

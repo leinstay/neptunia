@@ -194,7 +194,7 @@ export type ScenarioInventoryInput = {
  * One `<call>` of the persona (`call`, src/llm/parse.js's) taken through what a live turn does
  * before the operation runs (src/behavior/turn.ts#planToolCall and #runCall): resolved on the
  * server's side over `view` (src/tools/executors.ts#resolveCall; src/behavior/turn.ts#callViewOf),
- * checked by the gateway (src/tools/gateway.ts#checkSkill: the persona as principal, `requester`,
+ * checked by the gateway (src/tools/gateway.ts#checkSkill: the persona as principal,
  * `chatId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
  * no earlier destructive run, `now`, the image quota of `images`, the
  * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.ts#budget's answer, as a

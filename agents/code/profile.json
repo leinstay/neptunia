@@ -8,9 +8,5 @@
   },
   "daily": {
     "tasks": 20
-  },
-  "cost": {
-    "input": 2,
-    "output": 6
   }
 }

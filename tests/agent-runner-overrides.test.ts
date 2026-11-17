@@ -123,7 +123,6 @@ const invalidOverrides: Array<[string, unknown]> = [
   ['limits.steps', { limits: { steps: 1.5 } }],
   ['limits.seconds', { limits: { seconds: 0 } }],
   ['daily.tasks', { daily: { tasks: 0 } }],
-  ['cost.input', { cost: { input: -1 } }],
   ['prompt', '../prompt.md'],
 ];
 for (const [key, value] of invalidOverrides) {
@@ -150,7 +149,7 @@ test('merged definitions freeze nested objects before returning them', (t) => {
   const all = agents.listAgents(f.options);
   const definition = all[0];
   if (definition === undefined) assert.fail('expected the shared agent');
-  for (const value of [all, definition, definition.limits, definition.cost, definition.daily]) {
+  for (const value of [all, definition, definition.limits, definition.daily]) {
     assert.equal(Object.isFrozen(value), true);
   }
   assert.throws(() => Object.assign(definition.limits, { steps: 99 }), TypeError);
@@ -180,11 +179,11 @@ for (const reader of ['listAgents', 'loadProfiles', 'profileOf', 'agentSettings'
 test('live config overrides personal settings while retaining the other nested limit', (t) => {
   const f = fixture();
   t.after(f.close);
-  f.override({ limits: { steps: 8 }, cost: { input: 1 } });
-  const config = { agents: { scout: { enabled: true, limits: { seconds: 12 }, cost: { output: 3 } } } };
+  f.override({ limits: { steps: 8 } });
+  const config = { agents: { scout: { enabled: true, limits: { seconds: 12 } } } };
   const settings = agents.agentSettings('scout', config, f.options);
+  // The cost overlay left with the profile key `cost`, which no runner read; the limits carry the same merge.
   assert.deepEqual(settings?.limits, { steps: 8, seconds: 12 });
-  assert.deepEqual(settings?.cost, { input: 1, output: 3 });
   assert.equal(settings?.enabled, true);
   config.agents.scout.limits.seconds = 13;
   assert.equal(agents.agentSettings('scout', config, f.options)?.limits.seconds, 13);
