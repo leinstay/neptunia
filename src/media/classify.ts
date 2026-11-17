@@ -480,6 +480,9 @@ export function mediaLabelFor(
           : { key: 'gifKnownNoText', values: { id: gifHandle, name } };
         return withExtra(known, answered);
       }
+      // A failed watch (its reason the cached miss's own code, src/memory/describe.ts).
+      if (video?.state === 'error')
+        return { key: 'gifNotWatched', values: { name, reason: String(video.reason ?? '') } };
       return withExtra(
         description ? { key: 'gifDescribed', values: { text: description } } : { key: 'gif', values: { name } },
         answered

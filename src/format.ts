@@ -173,7 +173,8 @@ export function formatDuration(
  * `context.gifHandles` is an optional `Map` from src/memory/gifs.js#gifHandleMap:
  * a GIF (attachment or embed) the library knows renders `transcript.gifKnown` /
  * `gifKnownNoText` with its handle; with the key in question blanked it
- * renders `gifDescribed` / `gif` instead.
+ * renders `gifDescribed` / `gif` instead. A GIF whose watch failed (an `error` state in `context.videos`) renders
+ * `transcript.gifNotWatched` with its name and reason.
  */
 // The part-watched forms: their reason code reads labels.transcript.videoPartReason.
 const PART_KEYS = new Set(['videoWatchedPart', 'linkWatchedPart']);
@@ -255,9 +256,11 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
   const pushTag = (tag: Untyped) => {
     const { key, values } = partFallback(tag, labels);
     const reasons = PART_KEYS.has(key) ? labels.transcript.videoPartReason : labels.transcript.videoReason;
+    // A GIF's failure reads a video's wording where one exists, else its own code (`llm`, `empty`, `download`).
+    const unworded = key === 'gifNotWatched' ? values?.reason : '';
     const filled =
       values && Object.hasOwn(values as object, 'reason')
-        ? { ...values, reason: reasons?.[values.reason] ?? '' }
+        ? { ...values, reason: reasons?.[values.reason] ?? unworded }
         : values;
     tags.push(fill(labels.transcript[key], filled));
   };

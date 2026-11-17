@@ -107,7 +107,7 @@ export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: Gathe
   const descriptions = captions?.done ? captions.value?.descriptions : undefined;
   // A video stage past the deadline: the cached states stay, and the videos it was still
   // watching render not watched (`pending`) instead of as a bare still frame.
-  const videos: Map<string, VideoState> | undefined =
+  const videoStates: Map<string, VideoState> | undefined =
     rewatchStage?.done && rewatchStage.value?.videos
       ? rewatchStage.value.videos
       : videoStage?.done
@@ -115,6 +115,9 @@ export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: Gathe
         : videoStage
           ? (lateVideoStates(videoCandidates, await videosSoFar(), VIDEOS_PER_TURN) as Map<string, VideoState>)
           : undefined;
+  // A GIF whose watch failed renders not watched, through the same states.
+  const failedGifs = ctx.describer?.failedGifs?.(placeId, captionCandidates);
+  const videos = failedGifs?.size ? new Map([...(videoStates ?? []), ...failedGifs]) : videoStates;
   // What the request shows as not ready, for the steps that follow (lateMediaTeller): the videos rendered
   // `pending`, and whether the captions were late.
   const pendingMedia = {
