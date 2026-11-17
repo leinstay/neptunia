@@ -144,6 +144,21 @@ test('withStableNames leaves out of a history answer the one event whose token n
   assert.deepEqual(contents, ['nice :e1: job']);
 });
 
+// Seen on production on 2026-11-17: a token whose id the message's emojis do not hold stopped a read of history.
+test('withStableNames answers as missing the fetched message whose token names no entry', async () => {
+  const port = seededPort();
+  port.seedEvent({ ...eventOf({ id: 'm2', content: 'bad <emoji:999>', emojis: [] }), id: 'fake:message:m2' });
+  const answer = await withStableNames(port, namer()).fetchMessages(REF, ['m1', 'm2']);
+  const found = answer.status === 'ok' ? answer.messages : [];
+  assert.deepEqual(
+    found.map((one) => [one.messageId, one.missing === true, one.text]),
+    [
+      ['m1', false, 'nice :e1: job'],
+      ['m2', true, undefined],
+    ]
+  );
+});
+
 test('withStableNames names the event and the text fetchMessages answers', async () => {
   const fake = seededPort();
   const port = withStableNames(fake, namer());

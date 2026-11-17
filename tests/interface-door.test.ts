@@ -76,6 +76,45 @@ test('door: a malformed event is invalid, logged by kind and reason only, and ne
   assert.equal(JSON.stringify(log.lines).includes('private words'), false);
 });
 
+// Seen on production on 2026-11-17: a token whose id the message's emojis do not hold stopped a read of history.
+test('door: a message whose forwarded part holds a token its emojis do not list is invalid and never handled', async () => {
+  let called = 0;
+  const door = createEventDoor({
+    handlers: {
+      'message.received': () => {
+        called += 1;
+      },
+    },
+    log: quiet(),
+  });
+  const part = { content: 'look <emoji:888>', attachments: [], links: [], stickers: [], emojis: [] };
+  const event = {
+    kind: 'message.received',
+    iface: 'fake',
+    at: 1,
+    id: 'fake:message:m1',
+    chat: { id: 'c1', kind: 'channel' },
+    message: {
+      id: 'm1',
+      author: { id: 'u1', name: 'Ann', self: false, bot: false },
+      content: 'fwd',
+      at: 1,
+      replyToId: null,
+      replyPingAccountId: null,
+      forwardedFrom: null,
+      attachments: [],
+      links: [],
+      forwarded: [part],
+      stickers: [],
+      emojis: [],
+      reactions: [],
+    },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
+  };
+  assert.deepEqual(await door.submit(event), { status: 'invalid', id: null, reason: 'message.content:emoji' });
+  assert.equal(called, 0);
+});
+
 test('door: a kind without a handler is unhandled and not remembered', async () => {
   const door = createEventDoor({ handlers: {}, log: quiet() });
   assert.deepEqual(await door.submit(reaction()), { status: 'unhandled', id: 'fake:reaction:1' });
