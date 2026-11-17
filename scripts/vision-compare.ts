@@ -13,8 +13,7 @@
 // a GIF's url is its animation, a video's a video file or a link of `media.video.sites`).
 // `--from-cache N`: N recent entries of the guild's media cache (data/guilds/<id>/media.json,
 // read only), spread across the kinds (pickFromCache). The cache keeps descriptions, not URLs,
-// so each picked entry is found again as the live media recache finds it
-// (src/memory/gif-recache.ts): an emoji from its id; a library GIF from its library entry's
+// so each picked entry is found again (src/memory/record-finder.ts): an emoji from its id; a library GIF from its library entry's
 // message; anything else from the messages the record says may hold it, read again over the
 // Discord REST API (GET only, no gateway, the interface's stored token), newest first, at most
 // MAX_MESSAGE_READS messages. An entry not found again is counted and left out.
@@ -131,7 +130,7 @@ async function resolveFromCache({
   const { emojiUrl } = await import('../interfaces/discord/collect.ts');
   const { normalizeMessage } = await import('../interfaces/discord/index.ts');
   const { normalizeGifs } = await import('../src/memory/gifs.ts');
-  const { recordFinder, snowflakeMs } = await import('../src/memory/gif-recache.ts');
+  const { recordFinder, snowflakeMs } = await import('../src/memory/record-finder.ts');
   const found = new Map();
   for (const p of picked) {
     if (p.kind === 'emoji')

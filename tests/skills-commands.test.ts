@@ -14,7 +14,8 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const LOOK = skillText('look-it-up', 'I check the web first', ['web.search'], 'First body.', 't0000001f');
 const LOOK2 = skillText('look-it-up', 'I check the web twice', ['web.search', 'web.read'], 'Second body.');
-const PING = skillText('ping-someone', 'I ping on request', ['pings.set']);
+// Changed: the tool a skill names is `voice.say`, since `pings.set` is no tool of hers.
+const PING = skillText('ping-someone', 'I ping on request', ['voice.say']);
 
 function desk(skills: SkillsPort | null) {
   const dir = tempDir('nep-skills-console-');
@@ -61,10 +62,10 @@ test('list names the tool a skill misses with its reason, and shows the version 
   rig.writeLocal('look-it-up', LOOK);
   rig.port.activate('look-it-up', 'agent:hand');
   const first = rig.port.list()[0]?.active?.version ?? 'no-version';
-  rig.writeLocal('look-it-up', skillText('look-it-up', 'I check the web twice', ['pings.set'], 'Second body.'));
+  rig.writeLocal('look-it-up', skillText('look-it-up', 'I check the web twice', ['voice.say'], 'Second body.'));
   rig.port.activate('look-it-up', 'agent:hand');
   const line = (await desk(rig.port)('/skills')).text.split('\n').find((one) => one.includes('look-it-up')) ?? '';
-  assert.ok(line.includes('pings.set'), line);
+  assert.ok(line.includes('voice.say'), line);
   assert.ok(line.includes('not-granted'), line);
   assert.ok(line.includes(first), `the rollback target ${first} is shown: ${line}`);
 });

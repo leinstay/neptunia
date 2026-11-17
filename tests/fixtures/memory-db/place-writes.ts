@@ -47,7 +47,6 @@ export const notes = (extra: Row = {}): Row => ({
     { id: 2, text: 'dinner is at eight', weight: 1, firstSeen: '2026-09-03', lastSeen: '2026-09-03', from: 'the owner' },
   ],
   emojiUsage: { '500000000000000001': { name: 'smile', count: 3, last: 1759400000000 } },
-  pings: { [TEACHER]: { off: true } },
   updatedAt: '2026-10-01T00:00:00.000Z',
   ...extra,
 });

@@ -28,8 +28,6 @@ import type { PostRefs, Sends } from './sends.ts';
 import type { RequestRefs } from './request/types.ts';
 import { reactionChannel, replyTarget, sendArgs, withLink } from './targets.ts';
 import type { TriggerKind } from './triggers.ts';
-import { mentionsUnderPings } from './mentions.ts';
-import type { PingState } from '../memory/pings.ts';
 
 /** The typing imitation's settings (`typing`): the pauses before a reaction and between messages, the typing speed. */
 type TypingSettings = Parameters<typeof typingMs>[1] & {
@@ -60,7 +58,6 @@ type EffectVerdict = { ok: boolean };
 export type ActContext = {
   hot: { readonly config: ActConfig; readonly prompts?: { readonly labels?: Parameters<typeof withLink>[2] } };
   store: {
-    getPings?: (placeId: string, accountId: string) => PingState;
     getPlace?: (placeId: string) => { emojiUsage?: unknown } | null | undefined;
     mediaEntries?: (placeId: string, keys: Iterable<string>) => object;
   };
@@ -185,7 +182,7 @@ export type HeldSpeech = {
   delivered: false;
   answered: Set<string>;
   texts: Array<string>;
-  rendered: Array<{ text: string; accountIds: Array<string | undefined>; notify?: boolean }>;
+  rendered: Array<{ text: string; accountIds: Array<string | undefined> }>;
   staged: Array<HeldPicture>;
   posts: Array<PostNote>;
   reacted: Array<ReactNote>;
@@ -227,23 +224,16 @@ export function createAct(ctx: ActContext): Act {
     return (store.mediaEntries?.(placeId, keys) as Record<string, unknown> | undefined) ?? null;
   }
 
-  /** A member's ping state in `placeId` (store.getPings); a private chat has none. */
-  function pingStateIn(placeId: string, dmChat: boolean): (accountId: string) => PingState {
-    return (accountId) => (dmChat || !store.getPings ? null : store.getPings(placeId, accountId));
-  }
-
   /**
    * A diary post's speech held where act would send it: her messages as written and as renderPost renders them (the
-   * members it names under their ping states, mentionsUnderPings) and the staged pictures; the turn records the entry
+   * members it names) and the staged pictures; the turn records the entry
    * (diary-turn.ts#recordEntry), its mirrors post it.
    */
   function holdSpeech({ channel, placeId, dmChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
     const options = { channel, snapshot: snapshotOfDraft(draft), placeId, dmChat, ...routing, link: null };
-    const stateOf = pingStateIn(placeId, dmChat);
     const rendered = parsed.messages.map((message) => {
       const { text, accountIds } = renderPost(message.text, options);
-      const mentions = mentionsUnderPings({ users: accountIds, replying: false, stateOf });
-      return { text, accountIds: mentions.users, ...(mentions.notify ? { notify: true } : {}) };
+      return { text, accountIds: accountIds.filter((id) => typeof id === 'string' && id !== '') };
     });
     const texts = parsed.messages.map((message) => message.text);
     const staged = set?.pictures ?? [];
@@ -281,9 +271,6 @@ export function createAct(ctx: ActContext): Act {
    * (`iface`): a send it answers `unknown` is journaled so and never sent again.
    *
    * The messages are posted as the model wrote them: nothing rewrites them.
-   * A member with pings off (store.getPings) is mentioned and replied to
-   * without a notification: only allowedMentions changes, never the text. A message whose every
-   * concerned member chose `on` carries `mentions.notify` (mentionsUnderPings).
    * After the reactions, the media pick (src/behavior/media-pick.ts) runs alongside the first message's typing imitation
    * on an interface that declares it (portMediaPick): both start together, the first message waits for both, the pick at
    * most its grace past the end of that typing: a pick still out then is left behind for this turn (its answer is ignored;
@@ -501,8 +488,6 @@ export function createAct(ctx: ActContext): Act {
     const emojiPick = picked.kind === 'emoji' && capability?.emoji ? { picked, render: capability.emoji.render } : null;
     // Every message but the first one as written waits and is typed here; that one was typed alongside the picker.
     const typedAbove = (index: number): boolean => index === 0 && !replaced;
-    // Each member's own ping state (`pings.set`), read from the store at each send (server channels only).
-    const stateOf = pingStateIn(placeId, dmChat);
     // A message that did not go out ends the posting; the turn then ends `partial` with a `sendFailed` fact (its code, how many of how many went out).
     // A send whose answer never came (`unknown`: a timeout, a network error) may have gone out: it keeps the hash of its text, and her next turn here looks for it before telling.
     const failSend = (code: unknown, { unknown = false, text: sentText = '' } = {}): void => {
@@ -578,7 +563,10 @@ export function createAct(ctx: ActContext): Act {
       const result = await port.send(chatOf(channel), {
         text,
         ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
-        mentions: mentionsUnderPings({ users: accountIds, repliedAuthorId, stateOf }),
+        mentions: {
+          users: accountIds.filter((id): id is string => typeof id === 'string' && id !== ''),
+          repliedUser: true,
+        },
       });
       if (result.status !== 'ok') {
         if (op.opId) await closeResult(op, result);

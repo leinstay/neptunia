@@ -46,6 +46,7 @@ import { answerSkillScenario, personaGrantsConfig } from '../src/behavior/sandbo
 
 // ---- liveView ----------------------------------------------------------------
 
+// Changed: the granted write in these tests is `intention.set`, since `learning.add` is no tool of hers.
 test('liveView: reads prompts at call time', () => {
   const hot = fakeHot();
   const view = liveView({ hot, store: fakeStore(), placeId: 'g1' });
@@ -830,14 +831,14 @@ const OK_DATA = (skill: unknown, text = '') => ({
 const BOUNDS = { settings: { maxSteps: 3, timeBudgetMs: 60000, maxCallsPerStep: 4 } };
 
 test('sandboxToolset: her granted and carried-over skills as native definitions, or as the <tools> text on the text transport', () => {
-  const native = sandbox.sandboxToolset({ view: grantedView(['learning.add']), selfId: SELF_ID });
+  const native = sandbox.sandboxToolset({ view: grantedView(['intention.set']), selfId: SELF_ID });
   assert.equal(native.transport, 'native');
-  assert.ok(native.names.includes('learning.add') && native.names.includes('message.create'));
+  assert.ok(native.names.includes('intention.set') && native.names.includes('message.create'));
   assert.equal(native.tools.length, native.names.length);
   assert.equal(native.block, null);
   assert.ok(native.tokens > 0);
   const text = sandbox.sandboxToolset({
-    view: grantedView(['learning.add'], { tools: { transport: 'text' } }),
+    view: grantedView(['intention.set'], { tools: { transport: 'text' } }),
     selfId: SELF_ID,
   });
   assert.equal(text.transport, 'text');
@@ -854,9 +855,9 @@ test('sandboxRequestInput: a skill scenario passes its inventory and her tools s
   const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const wanted = buildRequestInputs();
   const rows = [
-    { name: 'learning.add', title: 'Add a lesson', whenToUse: 'when asked', allowed: true, reason: 'allowed' },
+    { name: 'intention.set', title: 'Set an intention', whenToUse: 'when asked', allowed: true, reason: 'allowed' },
   ];
-  const toolset = { names: ['learning.add'], block: 'TOOLS_MARKER', tokens: 321 };
+  const toolset = { names: ['intention.set'], block: 'TOOLS_MARKER', tokens: 321 };
   const input = sandboxRequestInput({
     view,
     situation: twoLines(),
@@ -868,7 +869,7 @@ test('sandboxRequestInput: a skill scenario passes its inventory and her tools s
     toolset,
   } as unknown as Parameters<typeof sandboxRequestInput>[0]);
   assert.equal(input.skillsInventory, rows);
-  assert.deepEqual([input.toolsGranted, input.toolsBlock, input.toolsTokens], [['learning.add'], 'TOOLS_MARKER', 321]);
+  assert.deepEqual([input.toolsGranted, input.toolsBlock, input.toolsTokens], [['intention.set'], 'TOOLS_MARKER', 321]);
   const passed = Object.keys(input).filter((key) => !Object.hasOwn(SKILL_SCENARIO_OMITS, key));
   assert.deepEqual(new Set([...passed, ...Object.keys(SKILL_SCENARIO_OMITS)]), wanted);
   for (const key of passed) assert.notEqual(input[key], undefined, `${key} is named`);
@@ -905,11 +906,11 @@ test('sandboxRequestInput: a skill scenario passes its inventory and her tools s
 
 test('answerSkillScenario: native -- the tools ride on every request; a data result is read in a second step that appends to the first messages; an effect covers the speech; nothing real runs', async () => {
   const { answerSkillScenario } = sandbox;
-  const view = grantedView(['learning.add', 'web.search']);
+  const view = grantedView(['intention.set', 'web.search']);
   const llm = fakeToolLlm([
     toolAnswer('<think>a</think><msg>μια στιγμή</msg>', [call('web.search', { query: 'chess' }, { id: 'w1' })]),
     '<think>b</think><msg>έγινε</msg>',
-    toolAnswer('<think>c</think><msg>σημειώθηκε</msg>', [call('learning.add', { text: 'όχι spoilers' })]),
+    toolAnswer('<think>c</think><msg>σημειώθηκε</msg>', [call('intention.set', { text: 'όχι spoilers' })]),
     toolAnswer('<think>d</think><msg>πάω</msg>', [call('nope.skill', {})]),
     '<think>e</think><msg>δεν υπάρχει</msg>',
   ]);
@@ -1776,14 +1777,14 @@ test('answerSkillScenario: a message.create text is resolved like a <msg> (callM
   assert.equal('callMentions' in second, false, 'a run without a call has none');
 });
 
-test("answerSkillScenario: only a message's text is rendered as a post (message.edit too, learning.add not)", async () => {
+test("answerSkillScenario: only a message's text is rendered as a post (message.edit too, intention.set not)", async () => {
   const { answerSkillScenario } = sandbox;
   const view = handlesView();
   // Slice 7: the handle is an author's in the request; a profiled member outside it has none (no directory).
   const alice = `@${handleOf(ALICE)}`;
   const llm = fakeToolLlm([
     toolAnswer('<think>a</think>', [call('message.edit', { message: '#1', text: alice })]),
-    toolAnswer('<think>b</think>', [call('learning.add', { text: alice })]),
+    toolAnswer('<think>b</think>', [call('intention.set', { text: alice })]),
   ]);
   const result = await answerSkillScenario({
     view,

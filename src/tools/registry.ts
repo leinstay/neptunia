@@ -1,7 +1,7 @@
 // The persona's skills: one catalogue, defined by a table of their own (src/tools/definitions.ts).
-// Every registered operation (src/tools/operations/registry.ts) is a skill of the same name, its arguments the
-// table's `params` and its `kind` the operation's. No skill exists without an operation behind it, and nothing here
-// reads the owner's commands. Every skill is closed until the owner grants it to her (src/tools/access.ts,
+// Every entry of the table is a skill of the same name as the operation it runs (src/tools/operations/registry.ts), its
+// arguments the table's `params` and its `kind` the operation's. No skill exists without an operation behind it, an
+// operation with no entry is the owner's console's alone, and nothing here reads the owner's commands. Every skill is closed until the owner grants it to her (src/tools/access.ts,
 // `/tools grant`). Their wording (`title`, `whenToUse`, `whenNotToUse`) lives in prompts/skills.json, keyed by
 // operation name (the hot prompts layer, `hot.prompts.tools`), never here: `describeSkill` joins the two at the
 // moment of use, and a skill without texts is shown by its name alone.

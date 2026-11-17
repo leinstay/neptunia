@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { SNAPSHOTS_DIR, memoryRootOf } from '../src/memory/root.ts';
+import { memoryRootOf } from '../src/memory/root.ts';
 
 const dataDir = path.join(path.sep, 'srv', 'bot', 'data');
 const root = memoryRootOf(dataDir);
@@ -14,10 +14,9 @@ test('memoryRootOf: the folder of a place is named by its id, and the persona ha
   assert.equal(root.placeDir(null), path.join(dataDir, 'persona'));
 });
 
-test('memoryRootOf: the state file and the snapshots root sit at the top of data/', () => {
+// Changed: the state file alone, since the snapshots root left with `memory.snapshot`.
+test('memoryRootOf: the state file sits at the top of data/', () => {
   assert.equal(root.stateFile, path.join(dataDir, 'state.json'));
-  assert.equal(root.snapshotsRoot, path.join(dataDir, SNAPSHOTS_DIR));
-  assert.equal(SNAPSHOTS_DIR, 'snapshots');
 });
 
 test('memoryRootOf: relative is forward-slash separated', () => {

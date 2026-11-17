@@ -5,12 +5,11 @@
 // docs/prompt-contract.md, "Details are atomic items too" and
 // "Confirmation (the "(?)" mechanism), same for interests and details". A
 // detail's `id` is a per-profile incrementing integer (`opts.nextId` in,
-// `nextId` out -- the caller, src/memory/store.ts#applyProfileOps, persists
-// it on the profile) that is never reused, even for a removed item.
+// `nextId` out -- the caller, src/memory/store.ts#applyPrivateOps, persists
+// it on the layer) that is never reused, even for a removed item.
 // `normalizeDetails` validates whatever a profile's `details` field currently
-// holds on disk. The same mechanics serve the place's `learned` list (things
-// people taught the persona, see src/memory/store.ts#applyLearnedOps), whose
-// items may also carry `from` -- the teacher's `<@id>` token.
+// holds on disk. The same validation serves the place's `learned` list (things
+// people taught the persona), whose items may also carry `from` -- the teacher's `<@id>` token.
 
 import {
   DEFAULT_CONFIRM_GAP_HOURS,
@@ -33,8 +32,7 @@ function normalizedNextId(startId: Untyped) {
   return isIntegerNumber(startId) && startId >= 1 ? startId : 1;
 }
 
-/** An item's optional `from` (who taught it -- place `learned` items, see
- * src/memory/store.ts#applyLearnedOps): kept only as a non-empty string,
+/** An item's optional `from` (who taught it -- place `learned` items): kept only as a non-empty string,
  * trimmed; anything else -> `undefined`, so the key is never stored. */
 function teacherOf(from: Untyped) {
   if (typeof from !== 'string') return undefined;

@@ -156,8 +156,8 @@ test('an own post is marked for the place it went to', () => {
   assert.equal(entry.places[A].ownLast, undefined);
 });
 
-test('a rescan of one place resets its counter and leaves the others', () => {
-  // Bug: a place's rescan over a shared library would wipe the counts of every other place.
+test('a recount of one place resets its counter and leaves the others', () => {
+  // Bug: a place's recount over a shared library would wipe the counts of every other place.
   const gifs = library([linkMessage('m1', A, T0), linkMessage('m2', B, T0), linkMessage('m3', B, T0)]);
   const handle = only(gifs).id;
   const entry = only(resetGifCounts(gifs, A));

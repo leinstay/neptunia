@@ -2014,7 +2014,7 @@ test("skillsInventoryText: each line lists the skill's arguments -- required mar
       args: [],
     },
     {
-      name: 'learning.remove',
+      name: 'rule.remove',
       title: 'Ξέχνα',
       whenToUse: 'ένα μάθημα',
       allowed: true,
@@ -2040,7 +2040,7 @@ test("skillsInventoryText: each line lists the skill's arguments -- required mar
     '',
     'message.create: Στείλε -- σε άλλη συζήτηση (allowed here) args: channel, text*',
     '',
-    'learning.remove: Ξέχνα -- ένα μάθημα (allowed) args: number=1..*, detail=true|false',
+    'rule.remove: Ξέχνα -- ένα μάθημα (allowed) args: number=1..*, detail=true|false',
   ]);
   assert.equal(skillsInventoryText(rows, argLabels), text, 'the same rows, the same text');
   // Without the args labels the slot is empty; a missing form leaves the bare name.

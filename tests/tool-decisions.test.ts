@@ -1,7 +1,7 @@
 // The decision table of the persona's tools (tests/fixtures/tool-decisions.ts): what the gateway answers for every tool
 // in every context, regenerated from the code and compared with the table committed from the code before the tools moved
-// to src/tools/. The comparison goes through TOOL_ALIASES, the one list of strings the renames changed (the tool
-// `skills.describe`, the ten tools of the errands and intentions, and the config keys named in a refusal's detail),
+// to src/tools/. The comparison goes through TOOL_ALIASES, the one list of strings the renames changed (the ten tools
+// of the errands and intentions, and the config keys named in a refusal's detail),
 // applied to both sides, so a move that changes no answer passes before and after it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +12,6 @@ type Table = Awaited<ReturnType<typeof toolDecisions>>;
 
 /** Old string to new string, for every name the tools rename changed. */
 const TOOL_ALIASES: Readonly<Record<string, string>> = {
-  'skills.describe': 'tools.describe',
   'features.skills': 'features.tools',
   'skills.safeMode': 'tools.safeMode',
   'skills.destructiveCooldownMinutes': 'tools.destructiveCooldownMinutes',

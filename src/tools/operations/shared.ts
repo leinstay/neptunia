@@ -208,19 +208,6 @@ export function reloadNote(ok: unknown): string {
   return `(reload ${ok ? 'ok' : 'FAILED'})`;
 }
 
-/** The weight an item reaches when the owner confirms it at once (`alias.add`,
- * `learning.add`): `memory.confirmAfter` rounded up, at least 1 (default 2). */
-export function confirmTarget(memoryCfg: unknown): number {
-  const given = objOf(memoryCfg).confirmAfter;
-  const confirmAfter = typeof given === 'number' && Number.isFinite(given) && given > 0 ? Math.ceil(given) : 2;
-  return Math.max(1, confirmAfter);
-}
-
-/** The history-backfill stamp of `media.status` for emoji and for GIFs, or `never`. */
-export function backfillText(stamp: Untyped): string {
-  return stamp?.at ? `${stamp.at}, ${stamp.channels} channels, ${stamp.messages} messages` : 'never';
-}
-
 // ---------------------------------------------------------------------------
 // `memory.profile.read` — sectioned view
 // ---------------------------------------------------------------------------
@@ -438,20 +425,9 @@ export function episodeLine(ep: Untyped, resolve: (text: unknown) => string): st
 }
 
 /** `[weight N, last DATE] name`, or just `[weight N] name`, used by
- * both the `raw` view (via `rawMemoryShowView`) and the `aliases` section, and by the
- * "resulting alias list" reply of `alias.add` and `alias.remove`. */
+ * both the `raw` view (via `rawMemoryShowView`) and the `aliases` section. */
 export function aliasLine(alias: Untyped): string {
   return `[weight ${alias.weight}${lastDateSuffix(alias.lastSeen)}] ${alias.name}`;
-}
-
-/** The member's stored aliases, rank-ordered, one per line — the reply
- * `alias.add` and `alias.remove` give after writing. */
-export function formatAliasList(profile: Untyped, memoryCfg: Untyped): string {
-  const aliases = profile?.aliases ?? [];
-  if (!aliases.length) return NONE;
-  return (topByRank(aliases, undefined, memoryCfg?.aliasHalfLifeDays) as Array<Untyped>)
-    .map((alias) => aliasLine(alias))
-    .join('\n');
 }
 
 /**
@@ -572,33 +548,6 @@ export function routeRoleArg(args: unknown): string | null {
   if (!ROUTE_ROLES.includes(name)) throw invalid(`unknown role: ${name} (${ROUTE_ROLES.join(', ')})`);
   return name;
 }
-
-// ---------------------------------------------------------------------------
-// Access and the media commands: pure functions
-// ---------------------------------------------------------------------------
-
-/** Why `media.rescan` did not run, by src/memory/emoji-backfill.ts's skip reason (the
- * reasons every background job shares -- paused, no place -- are worded by `skipText`). */
-export const EMOJI_RESCAN_SKIPS: Record<string, string> = {
-  running: 'An emoji backfill is already running.',
-};
-
-/** Why `media.rescan` did not run, by src/memory/gif-backfill.ts's skip reason. */
-export const GIFS_RESCAN_SKIPS: Record<string, string> = {
-  running: 'A GIF backfill is already running.',
-};
-
-/** Why `media.recache` did not start, by src/memory/gif-recache.ts's skip reason. */
-export const GIFS_RECACHE_SKIPS: Record<string, string> = {
-  unavailable: 'the GIF recache is not available',
-  'no-prompt': 'GIFs are not watched: the describe-video prompt is missing.',
-};
-
-/** Why `media.recache kind:pictures` did not start, by src/memory/gif-recache.ts#startMedia's skip reason. */
-export const PICTURES_RECACHE_SKIPS: Record<string, string> = {
-  unavailable: 'the media recache is not available',
-  'no-prompt': 'Pictures are not described: the describe prompt is missing.',
-};
 
 // ---------------------------------------------------------------------------
 // Pure line formatters shared by several operations

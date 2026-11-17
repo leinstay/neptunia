@@ -1,6 +1,6 @@
-// Operations: `tools.describe name` -- her read skill `tools.describe`: one skill in full (its
+// Operations: `tools.describe name`, the owner's `/tools describe`: one of her skills in full (its
 // title, when to use it, when not to, its arguments and whether it is switched on for her), or a
-// family (`memory`, `intent`, ...) as one line per skill. The text is the very rendering a core row of
+// family (`memory`, `intent`, ...) as one line per skill. It is an operation of the console and no tool of hers. The text is the very rendering a core row of
 // her tool list gets (src/behavior/prompt.ts#skillsInventoryText over src/tools/discovery.ts#describeRows),
 // from the registry and the skills layer read now. A name that is no skill is `unknown-skill` with the closest
 // skill names (`labels.tools.tools.describe.closest`). A read.

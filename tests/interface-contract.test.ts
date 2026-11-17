@@ -184,7 +184,8 @@ for (const [name, makeAny] of table([
     assert.deepEqual(h.lastSent(), {
       text: 'ναι',
       replyToId: target.messageId,
-      mentions: { users: [OTHER], repliedUser: true },
+      // Changed: the Discord port notifies nobody, so its payload names no member and no replied author (2026-11-17).
+      mentions: name === 'discord' ? { users: [], repliedUser: false } : { users: [OTHER], repliedUser: true },
       attachments: [],
     });
   });
@@ -330,12 +331,14 @@ for (const [name, makeAny] of table([
 // ---------------------------------------------------------------------------
 // The Discord adapter's own translation.
 
-test('discord adapter: absent mentions are allowedMentions { parse: [] }, given ones name exactly their members', async () => {
+// Changed: the Discord port notifies nobody, so absent and given mentions give the same allowedMentions (2026-11-17).
+test('discord adapter: absent and given mentions alike are allowedMentions that name nobody', async () => {
   const h = discordHarness();
+  const nobody = { parse: [], users: [], repliedUser: false };
   await h.port.send({ iface: 'discord', chatId: ROOM }, { text: 'α' });
-  assert.deepEqual(h.payloads[0], { content: 'α', reply: undefined, allowedMentions: { parse: [] } });
+  assert.deepEqual(h.payloads[0], { content: 'α', reply: undefined, allowedMentions: nobody });
   await h.port.send({ iface: 'discord', chatId: ROOM }, { text: 'β', mentions: { users: ['u1'], repliedUser: false } });
-  assert.deepEqual(h.payloads[1].allowedMentions, { parse: [], users: ['u1'], repliedUser: false });
+  assert.deepEqual(h.payloads[1].allowedMentions, nobody);
 });
 
 test('discord adapter: a channel the caller holds is used before the client', async () => {
@@ -423,7 +426,10 @@ test('createDiscordInterface: the port is the Discord adapter over the given cli
   const result = await built.port.send({ iface: 'discord', chatId: 'c9' }, { text: 'ναι' });
   assert.equal(result.status, 'ok');
   assert.deepEqual(result.ref, { iface: 'discord', chatId: 'c9', messageId: 'x1', accountId: SELF });
-  assert.deepEqual(sent, [{ content: 'ναι', reply: undefined, allowedMentions: { parse: [] } }]);
+  // Changed: the Discord port names nobody and no replied author in every send (2026-11-17).
+  assert.deepEqual(sent, [
+    { content: 'ναι', reply: undefined, allowedMentions: { parse: [], users: [], repliedUser: false } },
+  ]);
 });
 
 test('snowflakeTime and createDiscordClient: the creation time of an id, and the client the root logs in', () => {

@@ -73,7 +73,6 @@ function buildEnv({
   imageFetcher,
   emojiBackfill,
   gifBackfill,
-  gifRecache,
   archive = null,
   journal,
   llm,
@@ -121,8 +120,7 @@ function buildEnv({
   /**
    * `bot.pause`: refuse a command that would write under `data/` while
    * paused, with a hint to resume first. Guards message.create,
-   * alias.add, alias.remove, lore.add, lore.remove, learned.add,
-   * learned.remove, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
+   * lore.add, lore.remove and draw (it counts against the image rail
    * in state.json).
    */
   /** Whether state.json holds the pause flag (`bot.pause`), read at the call. */
@@ -264,7 +262,6 @@ function buildEnv({
     imageFetcher,
     emojiBackfill,
     gifBackfill,
-    gifRecache,
     archive,
     journal,
     llm,

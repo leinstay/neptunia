@@ -535,7 +535,13 @@ test('the archive list of a group names no private item of a member who has no D
 test("a lesson taught in a DM is out of a group's reach", async () => {
   // Bug: the place mapper writes every lesson and in-joke `group`, whichever place holds them.
   const w = world();
-  w.store.applyLearnedOps(DM, { add: [{ text: `the ${SECRET} lesson` }] }, { seenAt: NOW });
+  // Changed: the lesson is put in the DM place's notes by hand and written with the next change of the notes, since the
+  // store's writer of lessons left with `/memory lessons add`.
+  const at = new Date(NOW).toISOString();
+  // The store hands its place back as a plain object; the test writes its list as the store would.
+  const notes = w.store.getPlace(DM) as { learned: Array<object> };
+  notes.learned = [{ id: 1, text: `the ${SECRET} lesson`, weight: 1, firstSeen: at, lastSeen: at }];
+  w.store.updatePlace(DM, { patterns: 'short replies' });
   w.store.flush();
   await settled();
   assert.notEqual(secretRows(w.read(), 'claims', internalContext()).length, 0);

@@ -9,7 +9,8 @@ import type { IndexedSkill, TurnCall } from '../src/skills/uses.ts';
 
 const AT = Date.parse('2026-11-01T10:00:00Z');
 const LOOK: IndexedSkill = { name: 'look-it-up', versionId: 'v-look', tools: ['web.search', 'web.read'] };
-const PING: IndexedSkill = { name: 'ping-someone', versionId: 'v-ping', tools: ['pings.set'] };
+// Changed: the tool a skill names is `voice.say`, since `pings.set` is no tool of hers.
+const PING: IndexedSkill = { name: 'ping-someone', versionId: 'v-ping', tools: ['voice.say'] };
 
 const read = (name: string): TurnCall => ({ tool: 'skill.read', name, ok: true });
 const call = (tool: string, ok = true): TurnCall => ({ tool, ok });

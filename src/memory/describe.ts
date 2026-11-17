@@ -102,15 +102,13 @@
 // cannot be watched -- the switches, no animation, a spent daily rail, a
 // failed fetch, conversion or request -- gets the one-frame description as
 // before (marked `gif: true`, plus `watchFailed` when a watch failed). A
-// cached one-frame caption is served as it is; only `watchGif()` (the
-// owner's recache, src/memory/gif-recache.ts) replaces it -- or
-// `media.recacheBefore`, below.
+// cached one-frame caption is served as it is until `media.recacheBefore`,
+// below, makes it stale.
 //
 // Provenance and the recache rule. Every description the describer writes
 // (a picture's caption -- an emoji and a sticker included --, a GIF watch, a
 // video summary) carries `describedAt` (ms) and `model` (the model id the
-// request asked for); a cache hit stamps `usedAt` (ms), so the owner's
-// recache (src/memory/gif-recache.ts#startMedia) can tell recent use from
+// request asked for); a cache hit stamps `usedAt` (ms), which tells recent use from
 // the write time `ts`. With `media.recacheBefore` set (an ISO date-time, read
 // at the moment of use; null = off) a cached description whose `describedAt`
 // is missing or earlier is stale: it is treated as a miss and described
@@ -692,38 +690,6 @@ function buildDescriber({
   }
 
   /**
-   * Describe one picture again whatever its cache holds, for the owner's
-   * recache (src/memory/gif-recache.ts#startMedia): the normal uncached path
-   * (describeNow, a GIF watched first), every rail of a new description. A
-   * cached caption is the fallback: a failure keeps it (stamped
-   * `refreshFailedAt`). Joins a description of the same picture already in
-   * flight.
-   * @param item  One collectPictures / collectEmojiItems item.
-   *   `unavailable`: pictures are not described now (pictureBlocker) or `llm.maxRequestsPerDay` is spent.
-   */
-  async function redescribe(
-    placeId: string,
-    item: MediaItem
-  ): Promise<{ state: 'done' } | { state: 'failed' } | { state: 'unavailable'; reason: string }> {
-    const blocker = pictureBlockerOf(hot);
-    if (blocker !== null) return { state: 'unavailable', reason: blocker };
-    if (capSpent()) return { state: 'unavailable', reason: 'daily-cap' };
-    const flightKey = `${placeId}:${item.itemId}`;
-    let promise = pictureFlights.get(flightKey);
-    if (!promise) {
-      const entry = readEntry(placeId, item.itemId);
-      const previous = entry && !entry.miss && typeof entry.text === 'string' && entry.text ? entry : null;
-      promise = describeNow(placeId, item, previous).finally(() => pictureFlights.delete(flightKey));
-      pictureFlights.set(flightKey, promise);
-    }
-    const result = await promise;
-    if (result && !result.kept) return { state: 'done' };
-    // The request itself may have been the one the daily cap refused.
-    if (capSpent()) return { state: 'unavailable', reason: 'daily-cap' };
-    return { state: 'failed' };
-  }
-
-  /**
    * One picture's caption through the cache. A new picture is described once
    * even when several callers reach it at once (they share the result); with
    * `llm.maxRequestsPerDay` spent it is not downloaded and nothing is cached.
@@ -741,7 +707,7 @@ function buildDescriber({
   /**
    * The uncached part of describe(): the GIF watch, else the download and
    * the request; the cache is written here. `previous` is the cached entry
-   * being described again (a stale or recached caption), else null: on a
+   * being described again (a stale caption), else null: on a
    * failure it is kept (its text returned as a cached result marked `kept`,
    * the entry stamped `refreshFailedAt` unless the daily cap refused the
    * request) instead of a miss being cached.
@@ -865,8 +831,7 @@ function buildDescriber({
     );
     const { text } = standard.answer;
 
-    // A GIF's one-frame caption is marked (`gif`) so the recache can find it
-    // (src/memory/gif-recache.ts), and `watchFailed` when a watch was tried.
+    // A GIF's one-frame caption is marked (`gif`), and `watchFailed` when a watch was tried.
     const ts = now();
     const entry: Record<string, Untyped> = { text, ts, describedAt: ts, model, ...standard.marks };
     if (item.kind === 'gif') entry.gif = true;
@@ -1057,56 +1022,6 @@ function buildDescriber({
     const promise = watchGifNow(placeId, item, source).finally(() => inFlight.delete(flightKey));
     inFlight.set(flightKey, promise);
     return promise;
-  }
-
-  /** Mark a GIF's cache entry as a failed watch (`watchFailed`): its caption, if any, is kept. */
-  function markGifWatchFailed(placeId: string, itemId: string) {
-    const entry = store.mediaEntry(placeId, itemId);
-    const ts = now();
-    const next =
-      entry && !entry.miss && typeof entry.text === 'string' && entry.text
-        ? { ...entry, watchFailed: ts }
-        : { miss: true, ts, gif: true, watchFailed: ts };
-    putVideoEntry(placeId, itemId, next);
-  }
-
-  /**
-   * Re-describe one GIF by watching it, for the recache
-   * (src/memory/gif-recache.ts): an entry already watched with its three
-   * fields (`reaction` present) is served from the cache; any other cached
-   * caption (a one-frame one, or a watched one of the older one-line format)
-   * is ignored and, when
-   * the watch succeeds, replaced -- under the same item id, so nothing else
-   * has to change. A failed watch never falls back to one frame here: the
-   * old caption stays and the entry is marked `watchFailed` (a GIF with no
-   * caption gets a miss so marked). Every rail of watchGifNow applies.
-   * @param item  A gif picture item (src/media/classify.ts#collectPictures).
-   *   `unavailable`: GIFs are not watched now (see gifWatchBlocker) or a daily rail is spent.
-   */
-  async function watchGif(
-    placeId: string,
-    item: MediaItem
-  ): Promise<
-    | { state: 'watched'; text: string; cached?: true }
-    | { state: 'failed'; reason: string }
-    | { state: 'unavailable'; reason: string }
-  > {
-    const blocker = gifWatchBlocker();
-    if (blocker !== null) return { state: 'unavailable', reason: blocker };
-    const cached = readEntry(placeId, item.itemId);
-    // An old-format watched entry (no `reaction` field) is watched again for its three fields.
-    if (cached?.watched && typeof cached.text === 'string' && typeof cached.reaction === 'string') {
-      return { state: 'watched', text: cached.text, cached: true };
-    }
-    if (!gifAnimationSource(item)) {
-      markGifWatchFailed(placeId, item.itemId);
-      log.info('describe: gif', { state: 'failed', reason: 'source' });
-      return { state: 'failed', reason: 'source' };
-    }
-    const outcome = await watchGifShared(placeId, item);
-    if (outcome.state === 'failed') markGifWatchFailed(placeId, item.itemId);
-    if (outcome.state === 'watched') return { state: 'watched', text: outcome.text };
-    return { state: outcome.state, reason: outcome.reason };
   }
 
   /**
@@ -1924,7 +1839,6 @@ function buildDescriber({
 
   return {
     describe: ((...args) => track('describe', () => describe(...args))) as typeof describe,
-    redescribe,
     pictureBlocker: () => pictureBlockerOf(hot),
     describeMany: ((...args) => track('describe.many', () => describeMany(...args))) as typeof describeMany,
     cachedDescriptions,
@@ -1935,7 +1849,6 @@ function buildDescriber({
     relookImage,
     rewatchGif,
     watchedGifs,
-    watchGif,
     gifWatchBlocker,
     checkYoutube,
   };

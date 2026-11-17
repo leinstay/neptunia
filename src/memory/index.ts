@@ -17,7 +17,6 @@ export { createMemoryUpdater } from './update.ts';
 export { createEmojiBackfill } from './emoji-backfill.ts';
 export { createGifBackfill } from './gif-backfill.ts';
 export { createGifKeeper } from './gif-keeper.ts';
-export { createGifRecache } from './gif-recache.ts';
 export { createDescriber } from './describe.ts';
 export { createAvatarQueue } from './avatar-queue.ts';
 export { startYoutubeCheck } from './youtube-check.ts';
@@ -33,7 +32,6 @@ export { normalizeAvatar } from './avatars.ts';
 export { rankEmojiUsage } from './emoji-usage.ts';
 export { findGif, gifHandleMap, gifHandleOf, gifOpts, normalizeGifs, rankGifs } from './gifs.ts';
 export { gifWatchBlocker } from './gif-watch.ts';
-export { RECACHE_DAYS, gifCaptionCounts, gifFormatCounts } from './gif-recache.ts';
 export { createOffPeriodsReader, journalLine, turnView } from './journal.ts';
 export { ARCHIVE_EVENTS, ARCHIVE_KINDS, archiveEntry } from './archive.ts';
 
@@ -41,11 +39,7 @@ export { ARCHIVE_EVENTS, ARCHIVE_KINDS, archiveEntry } from './archive.ts';
 export { appendRevision, toRecordLine } from './record.ts';
 export { slimMessage } from './update.ts';
 export { recordFollowing, recordOwnLine } from './participation.ts';
-export { applyAliasOps } from './aliases.ts';
 export { writeJsonAtomic } from './store.ts';
-
-// The folder of the snapshots of data/.
-export { SNAPSHOTS_DIR } from './store.ts';
 
 // The root: every memory path under data/.
 export { memoryRootOf } from './root.ts';

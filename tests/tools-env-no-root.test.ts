@@ -3,8 +3,8 @@
 // Contract, plan 2026-11-04-cli-and-memory task 5: `createOpsEnv` takes no `getRootId`; the env has no `requireRootId` or
 // `resolvedRootId`; `OpContext.placeId` replaces `OpContext.rootId`; a place operation with no place refuses with code
 // `PLACE_REQUIRED`.
-// Appendix entries: src/tools/operations/{env,access,alias,draw,errand,index,inner,intention,learning,lore,media,memory,message,
-// pause,pings,places,search,shared,status,voice}.ts, src/tools/{codes,conversation-read,executors,tools,types}.ts,
+// Appendix entries: src/tools/operations/{env,access,draw,errand,index,inner,intention,learning,lore,media,memory,message,
+// pause,places,search,shared,status,voice}.ts, src/tools/{codes,conversation-read,executors,tools,types}.ts,
 // src/turn/{act,calls,draw-gif,in-turn-tools,skill-calls,tool-round}.ts.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';

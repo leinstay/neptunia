@@ -154,7 +154,6 @@ function putAccount(rows: Rows, value: Row, ctx: ProfileContext): Row {
       place_id: ctx.membership?.placeId ?? null,
       nick: null,
       roles: null,
-      pings_off: null,
       ...membership.cols,
       extra: extraText(membership.rest),
       valid_from_at: null,

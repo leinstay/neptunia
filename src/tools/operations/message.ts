@@ -1,11 +1,9 @@
 // Operations: `message.create|edit|delete|react`: the persona's own messages and reactions.
 // `message.create` is hers alone (`context.actor` 'persona', her skills, src/tools/): her own text -- the call's body --
-// is posted through her interface (src/interface/port.ts, `env.port`), replying to a message when one is named, and a
-// reply notifies the replied author unless they turned pings off. Anyone else is refused: a person asks her to write
-// somewhere, and she does or does not. Her text
-// (a post or an edit) arrives rendered as a `<msg>` of hers (src/tools/executors.ts#executeCall);
-// only the members it mentions (`context.mentionAccountIds`) are notified, under each one's ping
-// state as a turn's messages are (src/turn/mentions.ts#mentionsUnderPings). Edit,
+// is posted through her interface (src/interface/port.ts, `env.port`), replying to a message when one is named. Anyone
+// else is refused: a person asks her to write somewhere, and she does or does not. Her text
+// (a post or an edit) arrives rendered as a `<msg>` of hers (src/tools/executors.ts#executeCall), and the members it
+// mentions (`context.mentionAccountIds`) go with it as its mentions. Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
 // an edit, a deletion or a reaction in the chat the command runs in, or in any text
 // channel of the served place where the bot holds the platform permissions it needs
@@ -42,8 +40,6 @@ import type { Content } from '../../protocol/actions.ts';
 import { ifaceOfChat } from '../../interface/cli-chat.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
-import { mentionsUnderPings } from '../../turn/mentions.ts';
-import type { PingState } from '../../memory/pings.ts';
 import { chatsOfMessage } from '../../memory/db/message-families.ts';
 import type { MemoryDbService } from '../../memory/db/service.ts';
 
@@ -187,13 +183,6 @@ function gifEntry(env: Env, args: Obj): Untyped {
   return entry;
 }
 
-/** The ping state each member chose in the place of the call (store.getPings). */
-function pingStates(env: Env, context: OpContext): (accountId: string) => PingState {
-  const placeId = env.resolvedPlaceId(context);
-  const store = env.store as { getPings?: (placeId: string, accountId: string) => PingState } | null | undefined;
-  return (accountId) => (placeId && typeof store?.getPings === 'function' ? store.getPings(placeId, accountId) : null);
-}
-
 const handlers = perEnv((env) => {
   const { store, assertNotPaused } = env;
   const { reads } = env;
@@ -276,12 +265,7 @@ const handlers = perEnv((env) => {
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const to = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
     const { chatId } = to;
-    const mentions = mentionsUnderPings({
-      users: mentionedUsers(context),
-      repliedAuthorId: context?.repliedAuthorId ? idText(context.repliedAuthorId) : null,
-      replying: reply !== null,
-      stateOf: pingStates(env, context),
-    });
+    const mentions = { users: mentionedUsers(context), repliedUser: reply !== null };
     const entry = gifEntry(env, args);
     const attachment = (await errandFile(env, args, context, chatId, p)) ?? (await mediaFile(args, context, p));
     const content: Content = {
@@ -412,12 +396,7 @@ const handlers = perEnv((env) => {
     if (!text) throw invalid('text is required');
     const { placeId, messageId, ref } = await target(args, context, 'read', { last: true });
     if (publicationRefusal(context.publicationBoundary, ref)) throw denied('publication-boundary', 'not-allowed');
-    // An edit notifies nobody new on the interface; the mentions only keep a member with pings off out of the allowed list.
-    const { users } = mentionsUnderPings({
-      users: mentionedUsers(context),
-      replying: false,
-      stateOf: pingStates(env, context),
-    });
+    const users = mentionedUsers(context);
     const content = { text, ...(users.length > 0 ? { mentions: { users, repliedUser: false } } : {}) };
     return portAnswer('message.edit', await p.edit(ref, content), `edited message ${messageId} in ${placeId}`);
   }

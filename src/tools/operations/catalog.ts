@@ -37,7 +37,7 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
 
 /**
  * The fields of the status card, in order (src/tools/operations/status.ts renders them; the costs,
- * memory and speed ones are the owner's only): the choices of the `field` argument of `status.show`.
+ * memory and speed ones are the owner's only): the `field` argument of `status.show`.
  */
 export const STATUS_FIELDS = Object.freeze([
   'state',
@@ -53,22 +53,12 @@ export const STATUS_FIELDS = Object.freeze([
   'speed',
 ]);
 
-/**
- * The parts of the status card her own `status.show` call may ask for (`part`), each a few of the
- * card's fields (src/tools/operations/status.ts#PART_FIELDS): `overview` (the default of her call), `limits`,
- * `models`, `memory`, `inner`, `errands` and `all` (the whole card).
- */
-export const STATUS_PARTS = Object.freeze(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'all']);
-
 /** The roles a route may name: the `model.set` roles but the OpenCode ones (`scout`, `server`), whose workers never read `llm.providerByModel`, and `speech`, whose one model
  * is routed by its own prefix. */
 export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.includes(role) && role !== 'speech');
 
 /** The `kind` choices of `memory.journal.read` (`all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']);
-
-/** The `mode` choices of `pings.set`: a state, or `clear` back to the interface's switch. */
-export const PINGS_MODES = Object.freeze(['on', 'off', 'clear']);
 
 /** The `agent` choices of `errand.run`: the errand agents (src/agent-runner/profiles.ts). */
 export const TASK_AGENTS = Object.freeze(['scout', 'server']);

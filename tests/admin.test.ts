@@ -26,11 +26,9 @@ import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { makeAdmin, makeHot, makeHotWithMedia, makeRoot, mayRun, readLocal } from './fixtures/admin-rig.ts';
-import type { AdminExtra } from './fixtures/admin-rig.ts';
 import { world } from './fixtures/turn-world.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { makeStore } from './fixtures/admin-store.ts';
-import { memoryAt } from './fixtures/store-kit.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
@@ -610,87 +608,27 @@ test('runSkillOp: a typed command runs an operation that was owner-only, with no
   }
 });
 
-/** makeStore with the ping states of one guild, the way src/memory/store.ts hands them out (getPings, setPings). */
-function storeWithPings() {
-  const store = makeStore();
-  const pings = new Map<string, string>();
-  store.pings = pings;
-  store.getPings = (placeId: string, accountId: string) => pings.get(`${placeId}:${accountId}`) ?? null;
-  store.setPings = (placeId: string, accountId: string, state: string | null) => {
-    if (state === null) pings.delete(`${placeId}:${accountId}`);
-    else pings.set(`${placeId}:${accountId}`, state);
-    return state;
-  };
-  return store;
-}
-
-// The owner's word of 2026-11-06: a member has the states `on` and `off`, or none, where the interface's silent switch
-// decides. So a member who never chose reads `Pings: default` (it read `Pings: on`), and `on` is kept as a state of its
-// own instead of clearing `off`.
-test('run: pings with no mode shows the state of the caller; off and on change only the caller, in the guild of the interaction', async () => {
-  const rootDir = makeRoot();
-  const store = storeWithPings();
-  const { admin } = makeAdmin(rootDir, { store });
-  const context = { placeId: 'g1', accountId: '999' };
-
-  assert.equal(await admin.run('pings.get', {}, context), 'Pings: default');
-  assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
-  assert.equal(await admin.run('pings.get', { mode: undefined }, context), 'Pings: off');
-  assert.deepEqual([...store.pings], [['g1:999', 'off']]);
-  assert.equal(
-    await admin.run('pings.get', {}, { ...context, accountId: '777' }),
-    'Pings: default',
-    'another member is untouched'
-  );
-  assert.equal(await admin.run('pings.set', { mode: 'on' }, context), 'Pings: on');
-  assert.deepEqual([...store.pings], [['g1:999', 'on']]);
-});
-
-test('run: pings refuses an unknown mode, writing nothing', async () => {
-  const rootDir = makeRoot();
-  const store = storeWithPings();
-  const { admin } = makeAdmin(rootDir, { store });
-
-  await assert.rejects(
-    () => admin.run('pings.set', { mode: 'maybe' }, { placeId: 'g1', accountId: '999' }),
-    /mode must be one of: on, off/
-  );
-  assert.deepEqual([...store.pings], []);
-});
-
-test('run: pings works while paused, a change included, reading fresh off disk first', async () => {
-  const rootDir = makeRoot();
-  const store = storeWithPings();
-  const { admin } = makeAdmin(rootDir, { store });
-  const context = { placeId: 'g1', accountId: '999' };
-  store.state.data.paused = true;
-
-  assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
-  assert.equal(await admin.run('pings.get', {}, context), 'Pings: off');
-  assert.deepEqual([...store.pings], [['g1:999', 'off']]);
-  assert.equal(store.dropCachesCalls, 2, 'each call reads past the caches while paused');
-});
-
 // ---------------------------------------------------------------------------
 // access.grant / access.revoke / access.list
 // ---------------------------------------------------------------------------
 
 // The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
+// Changed: the tool is `memory.search`, since `status.show` is an operation of the console and no tool of hers.
 test('run: access.grant stores her id alone under the operation name', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-  await admin.run('access.grant', { command: 'status.show' }, {});
-  assert.deepEqual(readLocal(rootDir), { bot: { access: { 'status.show': { users: ['self-id'] } } } });
+  await admin.run('access.grant', { command: 'memory.search' }, {});
+  assert.deepEqual(readLocal(rootDir), { bot: { access: { 'memory.search': { users: ['self-id'] } } } });
 });
 
 // The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
 test('run: access.grant takes no role or other user: a stray target argument still grants her alone', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-  await admin.run('access.grant', { command: 'status.show', roleId: '123' }, {});
+  await admin.run('access.grant', { command: 'memory.search', roleId: '123' }, {});
   await admin.run('access.grant', { command: 'lore.list', accountId: '456' }, {});
   assert.deepEqual(readLocal(rootDir), {
-    bot: { access: { 'status.show': { users: ['self-id'] }, 'lore.list': { users: ['self-id'] } } },
+    bot: { access: { 'memory.search': { users: ['self-id'] }, 'lore.list': { users: ['self-id'] } } },
   });
 });
 
@@ -698,7 +636,7 @@ test('run: access.grant takes no role or other user: a stray target argument sti
 test('run: access.grant refuses and writes nothing while no interface has said who she is', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { selfId: () => null });
-  await assert.rejects(() => admin.run('access.grant', { command: 'status.show' }, {}));
+  await assert.rejects(() => admin.run('access.grant', { command: 'memory.search' }, {}));
   assert.equal(fs.existsSync(localPath(rootDir)), false);
 });
 
@@ -716,7 +654,7 @@ test('run: access.list names her grants alone; a key held by everyone, a role or
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
   const people = {
-    'status.show': { everyone: true, roles: [], users: [] },
+    'memory.search': { everyone: true, roles: [], users: [] },
     'lore.list': { everyone: false, roles: ['r1'], users: ['u-9'] },
   };
   fs.writeFileSync(
@@ -735,9 +673,9 @@ test('run: access.revoke of her last grant deletes the entry, even one that stil
   const { admin } = makeAdmin(rootDir);
   fs.writeFileSync(
     madeLocalPath(rootDir),
-    JSON.stringify({ bot: { access: { 'status.show': { everyone: true, roles: ['r1'], users: ['self-id'] } } } })
+    JSON.stringify({ bot: { access: { 'memory.search': { everyone: true, roles: ['r1'], users: ['self-id'] } } } })
   );
-  await admin.run('access.revoke', { command: 'status.show' }, {});
+  await admin.run('access.revoke', { command: 'memory.search' }, {});
   assert.deepEqual(readLocal(rootDir), { bot: { access: {} } });
 });
 
@@ -760,11 +698,11 @@ test('run: access grant, list and revoke of a group: her reads under it, named w
   assert.equal(await admin.run('access.revoke', { command: 'memory' }, {}), 'Nothing to revoke');
 });
 
-test('memory.profile.read affinity / alias.add / alias.remove: a member with no profile is refused and none is created', async () => {
+// Changed: the alias writes left with `alias.add` and `alias.remove`, so the affinity read is the one write path left.
+test('memory.profile.read affinity: a member with no profile is refused and none is created', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
   const writes: Array<Array<unknown>> = [];
-  store.applyProfileOps = (...call: Array<unknown>) => writes.push(call);
   const adjustAffinity = store.adjustAffinity.bind(store);
   store.adjustAffinity = (...call: Parameters<typeof adjustAffinity>) => {
     writes.push(call);
@@ -773,14 +711,6 @@ test('memory.profile.read affinity / alias.add / alias.remove: a member with no 
 
   await assert.rejects(
     () => admin.run('memory.profile.read', { accountId: '555', section: 'affinity', score: 10 }, { placeId: 'g1' }),
-    /^Error: no profile for 555$/
-  );
-  await assert.rejects(
-    () => admin.run('alias.add', { accountId: '555', name: 'Ari' }, { placeId: 'g1' }),
-    /^Error: no profile for 555$/
-  );
-  await assert.rejects(
-    () => admin.run('alias.remove', { accountId: '555', name: 'Ari' }, { placeId: 'g1' }),
     /^Error: no profile for 555$/
   );
   assert.deepEqual(writes, []);
@@ -1023,226 +953,6 @@ test('run: memory.show respects a custom limit, capping a list section', async (
     { placeId: 'g1' }
   );
   assert.equal(result.split('\n').length, 2);
-});
-
-// ---------------------------------------------------------------------------
-// alias.add / alias.remove -- real store.js/aliases.js,
-// so these prove the actual store integration, not a re-implementation.
-// ---------------------------------------------------------------------------
-
-// The real store hands its records back as plain objects; these read their fields through Untyped.
-const userOf = (store: { getUser: (accountId: string) => object | null }, accountId: string): Untyped =>
-  store.getUser(accountOf(store, accountId));
-const guildOf = (store: { getPlace: (placeId: string) => object }): Untyped => store.getPlace('g1');
-
-function makeRealStoreAdmin(rootDir: string, extra: AdminExtra = {}) {
-  const dataDir = tempDir('nep-admin-alias-');
-  const realStore = createStore(memoryAt(dataDir));
-  const hot = extra.hot ?? makeHot(rootDir);
-  const { admin } = makeAdmin(rootDir, { ...extra, hot, store: realStore });
-  return { admin, store: realStore, hot, dataDir };
-}
-
-// PR 7d: `memory.confirmAfter` is the constant MEMORY_LIMITS.confirmAfter, so the weight is the constant's.
-test('run: alias.add creates a new alias already confirmed, firstSeen == lastSeen == now', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    const before = Date.now();
-    await admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' });
-    const after = Date.now();
-
-    const alias = userOf(store, '123').aliases.find((a: Untyped) => a.name === 'Ari');
-    assert.ok(alias, 'the alias was stored');
-    assert.ok(alias.weight >= MEMORY_LIMITS.confirmAfter, 'confirmed at once');
-    assert.equal(alias.firstSeen, alias.lastSeen, 'firstSeen and lastSeen land on the same instant');
-    const seenMs = Date.parse(alias.lastSeen);
-    assert.ok(seenMs >= before && seenMs <= after, 'that instant is "now"');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: alias.add is idempotent -- a second call does not keep bumping the weight', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    await admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' });
-    const weightAfterFirst = userOf(store, '123').aliases.find((a: Untyped) => a.name === 'Ari').weight;
-
-    await admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' });
-    const weightAfterSecond = userOf(store, '123').aliases.find((a: Untyped) => a.name === 'Ari').weight;
-
-    assert.equal(weightAfterSecond, weightAfterFirst, 'already-confirmed alias is left alone by a repeat add');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: alias.add leaves the 40-character clamp to the store, boundary-safe, and stays idempotent', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    const longName = 'x'.repeat(60);
-    await admin.run('alias.add', { accountId: '123', name: longName }, { placeId: 'g1' });
-    const [alias] = userOf(store, '123').aliases;
-    assert.equal(alias.name.length, 40);
-    assert.equal(alias.name, 'x'.repeat(40));
-    const weight = alias.weight;
-    await admin.run('alias.add', { accountId: '123', name: longName }, { placeId: 'g1' });
-    assert.equal(userOf(store, '123').aliases[0].weight, weight, 'a repeat add of the long name is left alone');
-
-    // 39 letters, then a mathematical Greek omega (two UTF-16 units) right at the 40th position.
-    const astral = `${'y'.repeat(39)}\u{1D6C0}tail`;
-    await admin.run('alias.add', { accountId: '123', name: astral }, { placeId: 'g1' });
-    const stored = userOf(store, '123').aliases.find((a: Untyped) => a.name.startsWith('y'));
-    assert.ok(stored, 'the long name was stored');
-    assert.ok(!/[\uD800-\uDBFF]$/.test(stored.name), 'never cut inside a surrogate pair');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test("run: alias.add ignores a name equal, case-insensitively, to one of the member's display names", async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    const result = await admin.run('alias.add', { accountId: '123', name: 'bob' }, { placeId: 'g1' });
-    assert.deepEqual(userOf(store, '123').aliases, []);
-    assert.equal(result, '(none)');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: alias.remove removes an alias case-insensitively and reports the resulting list', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    await admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' });
-    const result = await admin.run('alias.remove', { accountId: '123', name: 'ARI' }, { placeId: 'g1' });
-
-    assert.deepEqual(userOf(store, '123').aliases, []);
-    assert.equal(result, '(none)');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: alias.add/alias.remove are refused while paused', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-
-  await admin.run('bot.pause', {}, {});
-
-  await assert.rejects(
-    () => admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' }),
-    /paused.*resume/i
-  );
-  await assert.rejects(
-    () => admin.run('alias.remove', { accountId: '123', name: 'Ari' }, { placeId: 'g1' }),
-    /paused.*resume/i
-  );
-});
-
-// ---------------------------------------------------------------------------
-// learned.list / learned.add / learned.remove -- real store.js/details.js,
-// the guild's list of things people taught the persona.
-// ---------------------------------------------------------------------------
-
-const LEARNED_DAY = (iso: string) => Date.parse(`${iso}T12:00:00.000Z`);
-
-// PR 7d: `memory.confirmAfter` is the constant MEMORY_LIMITS.confirmAfter, so the weight is the constant's.
-test('run: learned.add stores a new item without from, confirmed at once, firstSeen == lastSeen == now', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    const before = Date.now();
-    await admin.run('learning.add', { text: '  ο φάρος ανάβει στις εννιά  ' }, { placeId: 'g1' });
-    const after = Date.now();
-    const learned = guildOf(store).learned;
-    assert.equal(learned.length, 1);
-    const [item] = learned;
-    assert.equal(item.text, 'ο φάρος ανάβει στις εννιά');
-    assert.equal(item.weight, MEMORY_LIMITS.confirmAfter, 'confirmed at once, and no further');
-    assert.equal('from' in item, false);
-    assert.equal(item.firstSeen, item.lastSeen, 'every sighting lands on the same instant');
-    const seenMs = Date.parse(item.lastSeen);
-    assert.ok(seenMs >= before && seenMs <= after);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: learned.add confirms an existing unconfirmed item in place (same id and text)', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.applyLearnedOps('g1', { add: ['Ο Φάρος'] }, { seenAt: LEARNED_DAY('2026-09-01') });
-    await admin.run('learning.add', { text: 'ο φάρος' }, { placeId: 'g1' });
-    const learned = guildOf(store).learned;
-    assert.equal(learned.length, 1);
-    assert.equal(learned[0].id, 1);
-    assert.equal(learned[0].weight, MEMORY_LIMITS.confirmAfter);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-// PR 7d: `memory.confirmAfter` and `memory.confirmGapHours` are constants (2 and 12 h), so the confirmed item is seeded
-// by two sightings a day apart and the sighting past the gap is the next call, weeks later.
-test('run: a repeat learned.add of a confirmed item is one ordinary sighting, never more', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.applyLearnedOps('g1', { add: ['première'] }, { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-01') });
-    store.applyLearnedOps('g1', { add: ['première'] }, { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-02') });
-    assert.equal(guildOf(store).learned[0].weight, 2);
-
-    // Past confirmGapHours a sighting bumps by exactly one, and so does the repeat.
-    await admin.run('learning.add', { text: 'Première' }, { placeId: 'g1' });
-    assert.equal(guildOf(store).learned[0].weight, 3);
-
-    // Within confirmGapHours: a sighting would not bump it, so neither does the repeat.
-    await admin.run('learning.add', { text: 'première' }, { placeId: 'g1' });
-    const learned = guildOf(store).learned;
-    assert.equal(learned.length, 1);
-    assert.equal(learned[0].weight, 3);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: learned.remove deletes the item by id and reports it', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.applyLearnedOps('g1', { add: ['première', 'δεύτερο'] }, { seenAt: LEARNED_DAY('2026-09-01') });
-    const result = await admin.run('learning.remove', { id: 1 }, { placeId: 'g1' });
-    assert.deepEqual(
-      guildOf(store).learned.map((i: Untyped) => i.id),
-      [2]
-    );
-    assert.match(result, /#1/);
-    assert.match(result, /première/);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: learned.add/learned.remove are refused while paused', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-
-  await admin.run('bot.pause', {}, {});
-
-  await assert.rejects(() => admin.run('learning.add', { text: 'première' }, { placeId: 'g1' }), /paused.*resume/i);
-  await assert.rejects(() => admin.run('learning.remove', { id: 1 }, { placeId: 'g1' }), /paused.*resume/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -2524,215 +2234,6 @@ test('run: draw is refused while paused', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// emoji.status / emoji.rescan -- the custom emoji ranking and its history backfill
-// ---------------------------------------------------------------------------
-
-function fakeEmojiBackfill(result = { ok: true, channels: 3, messages: 120, emoji: 17 }, { running = false } = {}) {
-  return {
-    calls: [] as Array<Untyped>,
-    async run(placeId: string, opts: Untyped) {
-      this.calls.push([placeId, opts]);
-      return result;
-    },
-    isRunning: () => running,
-  };
-}
-
-test('run: emoji.rescan runs the backfill forced and replies with the counts', async () => {
-  const rootDir = makeRoot();
-  const emojiBackfill = fakeEmojiBackfill();
-  const { admin } = makeAdmin(rootDir, { emojiBackfill });
-
-  const body = await admin.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { placeId: 'g1' });
-  assert.deepEqual(emojiBackfill.calls, [['g1', { force: true }]]);
-  assert.equal(body, 'Emoji rescan done: 3 channels, 120 messages read, 17 emoji uses counted.');
-});
-
-test('run: emoji.rescan is refused while paused and without the backfill', async () => {
-  const rootDir = makeRoot();
-  const emojiBackfill = fakeEmojiBackfill();
-  const { admin } = makeAdmin(rootDir, { emojiBackfill });
-  await admin.run('bot.pause', {}, {});
-  await assert.rejects(
-    () => admin.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { placeId: 'g1' }),
-    /paused/
-  );
-  assert.equal(emojiBackfill.calls.length, 0);
-
-  const { admin: bare } = makeAdmin(rootDir);
-  assert.equal(
-    await bare.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { placeId: 'g1' }),
-    'the emoji backfill is not available'
-  );
-});
-
-// ---------------------------------------------------------------------------
-// gifs.status / gifs.rescan -- the GIF library and its history backfill
-// ---------------------------------------------------------------------------
-
-function fakeGifBackfill(
-  result = { ok: true, channels: 3, messages: 120, gifs: 9, described: 4 },
-  { running = false } = {}
-) {
-  return {
-    calls: [] as Array<Untyped>,
-    async run(placeId: string, opts: Untyped) {
-      this.calls.push([placeId, opts]);
-      return result;
-    },
-    isRunning: () => running,
-  };
-}
-
-test('run: gifs.rescan is refused while paused and without the backfill', async () => {
-  const rootDir = makeRoot();
-  const gifBackfill = fakeGifBackfill();
-  const { admin } = makeAdmin(rootDir, { gifBackfill });
-  await admin.run('bot.pause', {}, {});
-  await assert.rejects(
-    () => admin.run('media.rescan', { kind: 'gifs', action: 'rescan' }, { placeId: 'g1' }),
-    /paused/
-  );
-  assert.equal(gifBackfill.calls.length, 0);
-
-  const { admin: bare } = makeAdmin(rootDir);
-  assert.equal(
-    await bare.run('media.rescan', { kind: 'gifs', action: 'rescan' }, { placeId: 'g1' }),
-    'the GIF backfill is not available'
-  );
-});
-
-test('run: gifs.status counts the library by caption format: watched with fields, old format, unwatched', async () => {
-  const rootDir = makeRoot();
-  const store = makeStore();
-  const entry = (n: number) => ({
-    id: `g${n}`,
-    kind: 'link',
-    url: `https://tenor.com/view/danse-${n}`,
-    itemId: `m${n}#e0`,
-    count: 5 - n,
-    last: 1,
-  });
-  store.getGifs = () => ({
-    nextId: 5,
-    entries: Object.fromEntries([1, 2, 3, 4].map((n) => [`m${n}#e0`, entry(n)])),
-    backfill: null,
-  });
-  store.mediaEntries = () => ({
-    'm1#e0': {
-      text: 'a cat lifts its chin',
-      reaction: 'agreement',
-      action: 'a cat lifts its chin',
-      screen: 'oui.',
-      ts: 1,
-      watched: true,
-      gif: true,
-    },
-    'm2#e0': { text: 'a caracal stares', ts: 1, watched: true, gif: true },
-    'm3#e0': { text: 'a still', ts: 1, gif: true },
-  });
-  const { admin } = makeAdmin(rootDir, { store });
-  const out = await admin.run('media.status', { kind: 'gifs', action: 'status' }, { placeId: 'g1' });
-  assert.ok(
-    out.includes('caption format: 1 watched with fields, 1 watched in the old format (to re-describe), 2 unwatched'),
-    out
-  );
-  assert.equal(out.includes('oui.'), false, 'counts only, no field text');
-});
-
-// gifs.recache -- the GIF library re-described by watching
-
-function fakeGifRecache(result = { ok: true, dropped: 4, queued: 50 }, { running = false } = {}) {
-  return {
-    calls: [] as Array<Untyped>,
-    idleWaits: 0,
-    start(placeId: string) {
-      this.calls.push(placeId);
-      return result;
-    },
-    isRunning: () => running,
-    async waitIdle() {
-      this.idleWaits += 1;
-    },
-  };
-}
-
-test('run: gifs.recache is refused while paused and without the recache; pause waits for a run in flight', async () => {
-  const rootDir = makeRoot();
-  const gifRecache = fakeGifRecache();
-  const { admin } = makeAdmin(rootDir, { gifRecache });
-  await admin.run('bot.pause', {}, {});
-  assert.equal(gifRecache.idleWaits, 1, '/nep pause waits for the recache');
-  await assert.rejects(
-    () => admin.run('media.recache', { kind: 'gifs', action: 'recache' }, { placeId: 'g1' }),
-    /paused/
-  );
-  assert.equal(gifRecache.calls.length, 0);
-
-  const { admin: bare } = makeAdmin(rootDir);
-  assert.equal(
-    await bare.run('media.recache', { kind: 'gifs', action: 'recache' }, { placeId: 'g1' }),
-    'the GIF recache is not available'
-  );
-});
-
-// media kind:pictures action:recache -- the cached descriptions of an older model described again
-
-function fakeMediaRecache(result: Untyped = { ok: true, picked: 12, days: 7 }) {
-  return {
-    calls: [] as Array<Untyped>,
-    start() {
-      throw new Error('the GIF run is not asked for');
-    },
-    startMedia(placeId: string, options: Untyped) {
-      this.calls.push({ placeId, options });
-      return typeof result === 'function' ? result(options) : result;
-    },
-    isRunning: () => false,
-    async waitIdle() {},
-  };
-}
-
-test('run: media pictures recache starts the media run with days (default 7) and replies at once with how many are queued', async () => {
-  const rootDir = makeRoot();
-  const gifRecache = fakeMediaRecache((options: Untyped) => ({ ok: true, picked: 12, days: options.days }));
-  const { admin } = makeAdmin(rootDir, { gifRecache });
-
-  const reply = await admin.run('media.recache', { kind: 'pictures', action: 'recache' }, { placeId: 'g1' });
-  assert.deepEqual(gifRecache.calls[0], { placeId: 'g1', options: { days: 7 } });
-  assert.match(reply, /^Media recache started: 12 cached descriptions used in the last 7 days/);
-  await admin.run('media.recache', { kind: 'pictures', action: 'recache', days: 30 }, { placeId: 'g1' });
-  assert.deepEqual(gifRecache.calls[1].options, { days: 30 });
-});
-
-test('run: media pictures recache refuses days out of 1..60 and a run in flight; status and rescan have no pictures kind', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache() });
-  for (const days of [0, 61, 2.5, '7']) {
-    await assert.rejects(
-      () => admin.run('media.recache', { kind: 'pictures', action: 'recache', days }, { placeId: 'g1' }),
-      /days must be a whole number from 1 to 60/,
-      String(days)
-    );
-  }
-  await assert.rejects(
-    () => admin.run('media.status', { kind: 'pictures', action: 'status' }, { placeId: 'g1' }),
-    /kind must be one of: emoji, gifs/
-  );
-
-  const { admin: busy } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache({ ok: false, reason: 'running' }) });
-  assert.match(
-    await busy.run('media.recache', { kind: 'pictures', action: 'recache' }, { placeId: 'g1' }),
-    /already running/
-  );
-  const { admin: bare } = makeAdmin(rootDir);
-  assert.equal(
-    await bare.run('media.recache', { kind: 'pictures', action: 'recache' }, { placeId: 'g1' }),
-    'the media recache is not available'
-  );
-});
-
-// ---------------------------------------------------------------------------
 // memory.recent
 // ---------------------------------------------------------------------------
 
@@ -2817,6 +2318,10 @@ test('run: memory.recent works while paused and writes nothing', async (t) => {
 // ---------------------------------------------------------------------------
 // memory.archive / memory.restore
 // ---------------------------------------------------------------------------
+
+// The real store hands its records back as plain objects; these read their fields through Untyped.
+const userOf = (store: { getUser: (accountId: string) => object | null }, accountId: string): Untyped =>
+  store.getUser(accountOf(store, accountId));
 
 test('admin: memory restore re-inserts an episode and writes a restored event, idempotent', async () => {
   const rootDir = makeRoot();

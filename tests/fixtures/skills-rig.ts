@@ -115,6 +115,7 @@ export type SkillsRig = {
 export function skillsRig(
   t: { after: (fn: () => void) => void },
   options: { granted?: ReadonlyArray<string>; registered?: ReadonlyArray<string>; reviewDays?: number } = {}
+// Changed: the tool a skill names is `voice.say`, since `pings.set` is no tool of hers.
 ): SkillsRig {
   const root = tempDir('nep-skills-rig-');
   const folders = { trackedDir: path.join(root, 'skills'), localDir: path.join(root, 'skills.local') };
@@ -122,7 +123,7 @@ export function skillsRig(
   t.after(() => handle.close());
   const clock = { t: SKILLS_T0 };
   const granted = new Set(options.granted ?? ['web.search', 'web.read', 'message.create', 'skill.read']);
-  const registered = new Set(options.registered ?? ['web.search', 'web.read', 'message.create', 'skill.read', 'pings.set']);
+  const registered = new Set(options.registered ?? ['web.search', 'web.read', 'message.create', 'skill.read', 'voice.say']);
   const port = createSkillsPort({
     handle,
     now: () => clock.t,

@@ -43,7 +43,8 @@ test('a journal that wrote the old names is read under the new ones, and any oth
     'intention.cancel',
     'intention.list',
   ]);
-  assert.equal(currentToolName('skills.describe'), 'tools.describe');
+  // Changed: `skills.describe` maps to nothing, since `tools.describe` is an operation of the console and no tool of hers.
+  assert.equal(currentToolName('skills.describe'), 'skills.describe');
   // The merged reads: a journal that wrote the old name is read under the tool that took it over.
   assert.equal(currentToolName('errand.status'), 'errand.list');
   assert.equal(currentToolName('memory.affinity.read'), 'memory.profile.read');

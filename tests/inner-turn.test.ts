@@ -578,12 +578,13 @@ test('inner turn, live: no count of posts refuses a post; a read still runs', as
 
 test('gateway: with nobody asking a write she holds runs, her own initiative or not; without her grant it is refused', () => {
   const config = {
-    bot: { owners: ['u1'], access: personaGrants(['lore.add']) },
+    bot: { owners: ['u1'], access: personaGrants(['errand.cancel']) },
     tools: { safeMode: false },
   };
+  // Changed: the write is `errand.cancel`, since `lore.add` is no tool of hers.
   const call = {
-    skill: 'lore.add',
-    args: { title: 'x', keys: 'x', text: 'y' },
+    skill: 'errand.cancel',
+    args: { id: 'e1' },
     principal: { kind: 'persona' },
     requester: null,
     audience: { chatId: 'c1' },
@@ -689,23 +690,24 @@ test('wakeLanes: the purposes of the intentions as one wake lane; none without a
   assert.deepEqual(wakeLanes([]), { lanes: [], skip: 'no-trigger' });
 });
 
-test('inner turn, shadow: a lore.add with an argument it does not take is refused, and she hears why within the turn (no lasting mark)', async () => {
+// Changed: the write is `person.link`, since `lore.add` is no tool of hers.
+test('inner turn, shadow: a person.link with an argument it does not take is refused, and she hears why within the turn (no lasting mark)', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await innerTurn({
     answers: [
-      toolAnswer('', [call('lore.add', { channel: '#general', title: 'δεν', keys: 'μπορώ', text: 'να κοιμηθώ' })]),
-      toolAnswer('', [call('lore.add', { title: 'δεν', keys: 'μπορώ', text: 'να κοιμηθώ' })]),
+      toolAnswer('', [call('person.link', { channel: '#general', person: 'Ζωή' })]),
+      toolAnswer('', [call('person.link', { person: 'Ζωή' })]),
       '<skip/>',
     ],
-    allowed: ['lore.add'],
+    allowed: ['person.link'],
     journal,
   });
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`),
-    ['lore.add:refused:invalid-args', 'lore.add:proposed:shadow']
+    ['person.link:refused:invalid-args', 'person.link:proposed:shadow']
   );
   assert.equal(run.llm.calls.length, 2, 'the refusal came back to her; the corrected call is only proposed');
-  const reason = fill(labels.tools.refusals.unknownArg, { arg: 'channel', args: 'title, keys, text, always' });
+  const reason = fill(labels.tools.refusals.unknownArg, { arg: 'channel', args: 'person' });
   assert.ok(readsOf(run, 1).join('\n').includes(reason), readsOf(run, 1).join('\n'));
   assert.deepEqual(callMarksOf(lines).calls, [], 'nothing of a shadow turn is marked for later turns');
 });

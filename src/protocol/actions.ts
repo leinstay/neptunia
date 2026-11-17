@@ -31,22 +31,16 @@ export type Attachment = {
 };
 
 /**
- * Who a message may notify: the members named, and whether the author of the message replied to
- * is. Absent means none. `notify` true says that everyone the message concerns asked to be pinged.
- * `asked` is present when the message concerns someone: the named members who asked to be pinged and
- * whether the replied author did. An interface that sends silently pings exactly `asked`, and the
- * `users` and `repliedUser` of a message with `notify` and no `asked`.
+ * Whom a message names: the members it mentions, and whether it concerns the author of the message it replies to.
+ * Absent means none. An interface decides whether anyone named is notified.
  */
 export type Mentions = {
   users: Array<string>;
   repliedUser: boolean;
-  notify?: boolean;
-  asked?: { users: Array<string>; repliedUser: boolean };
 };
 
 /**
- * What a message carries: text and/or attachments, the message it replies to, the mentions that
- * may notify (default: none).
+ * What a message carries: text and/or attachments, the message it replies to, the members it names (default: none).
  */
 export type Content = { text?: string; attachments?: Array<Attachment>; replyTo?: MessageRef; mentions?: Mentions };
 
@@ -190,21 +184,7 @@ export function mentionsOf(content: { mentions?: Partial<Mentions> | null } | nu
   const users = Array.isArray(given.users)
     ? given.users.filter((id): id is string => typeof id === 'string' && id !== '')
     : [];
-  const asked = given.asked;
-  const askedUsers = asked && typeof asked === 'object' && Array.isArray(asked.users) ? asked.users : null;
-  return {
-    users,
-    repliedUser: given.repliedUser === true,
-    ...(given.notify === true ? { notify: true } : {}),
-    ...(asked && typeof asked === 'object'
-      ? {
-          asked: {
-            users: (askedUsers ?? []).filter((id): id is string => typeof id === 'string' && id !== ''),
-            repliedUser: asked.repliedUser === true,
-          },
-        }
-      : {}),
-  };
+  return { users, repliedUser: given.repliedUser === true };
 }
 
 /** True when `ref` is a reference of `iface` with a non-empty `chatId` (and `messageId` when `needMessage`). */

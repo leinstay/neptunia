@@ -58,7 +58,7 @@ type Result = {
 async function innerTurn({
   answers,
   kind = 'heartbeat',
-  allowed = ['lore.list', 'tools.describe'],
+  allowed = ['lore.list', 'memory.journal.read'],
   shadow = false,
   withIntentions = false,
   errands = false,
@@ -208,7 +208,8 @@ async function innerTurn({
 }
 
 // Changed: the read is tools.describe, granted and accepted by every wake, since her tools hold no task.status.
-const READ_THEN_SKIP = [toolAnswer('', [call('tools.describe', { name: 'lore.list' })]), '<skip/>'];
+// Changed: the read is memory.journal.read, since tools.describe is an operation of the console and no tool of hers.
+const READ_THEN_SKIP = [toolAnswer('', [call('memory.journal.read', { n: 1 })]), '<skip/>'];
 
 for (const kind of Object.keys(WAKES)) {
   test(`a ${kind} wake that only read and answered skip ends skip`, async () => {
@@ -235,7 +236,7 @@ test('several reads over several steps end skip too', async () => {
   const run = await innerTurn({
     answers: [
       toolAnswer('', [call('lore.list')]),
-      toolAnswer('', [call('lore.list'), call('tools.describe', { name: 'lore.list' })]),
+      toolAnswer('', [call('lore.list'), call('memory.journal.read', { n: 1 })]),
       '<skip/>',
     ],
   });
@@ -250,7 +251,7 @@ test('a skip after reads gives the same reason as a skip at once, and keeps her 
   assert.equal(after.result.reason, atOnce.result.reason);
   assert.deepEqual(
     after.result.inner.actions.map((one) => `${one.skill}:${one.status}`),
-    ['tools.describe:executed']
+    ['memory.journal.read:executed']
   );
 });
 

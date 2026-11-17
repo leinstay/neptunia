@@ -309,7 +309,7 @@ test('parseOutput: a <call> or a <draw> outside code is a retired tag: cut out, 
     { kind: 'retiredTag', tag: 'draw' },
   ]);
   assert.equal('call' in parsed, false);
-  const alone = parseOutput('<call skill="status.show"/>');
+  const alone = parseOutput('<call skill="memory.search"/>');
   assert.equal(alone.skip, true);
   assert.deepEqual(alone.messages, []);
   assert.deepEqual(alone.diagnostics, [{ kind: 'retiredTag', tag: 'call' }]);

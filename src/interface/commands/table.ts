@@ -221,14 +221,8 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   sub('users.show', 'Show a person: names, accounts, links, merges, relationship and exact records', [arg('person')]),
   sub('users.accounts', 'Show the accounts of a person and every link with its window', [arg('person')]),
   sub('users.names', 'Show the names on record for a person', [arg('person')]),
-  runs(sub('users.names.add', "Confirm a member's alias", [arg('user'), arg('name')]), 'alias.add', (args) => ({
-    accountId: args.user,
-    name: args.name,
-  })),
-  runs(sub('users.names.remove', "Remove a member's alias", [arg('user'), arg('name')]), 'alias.remove', (args) => ({
-    accountId: args.user,
-    name: args.name,
-  })),
+  sub('users.names.add', 'Give a person a name the door and the classifier know', [arg('user'), arg('name')]),
+  sub('users.names.remove', 'Take back a name given to a person', [arg('user'), arg('name')]),
   sub('users.relationship', 'Show the affinity of a person with its history', [arg('person')]),
   sub('users.private', 'Show the private memory of a person across their DMs', [arg('person')]),
   sub('users.merge', 'Merge a person into another, moving everything stored about them', [
@@ -541,11 +535,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
         arg('person'),
       ]),
       ...MEMORY_BROWSER,
-      runs(sub('lessons.add', 'Add a lesson', [arg('text')]), 'learning.add', (args) => ({ text: args.text })),
       sub('lessons.list', 'Show lessons'),
-      runs(sub('lessons.remove', 'Remove a lesson by its number', [arg('id')]), 'learning.remove', (args) => ({
-        id: Number(args.id),
-      })),
     ],
   },
   {

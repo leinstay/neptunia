@@ -156,7 +156,7 @@ const EVERYONE = {
   memberGroups: {} as Record<string, Array<string>>,
 };
 
-/** The send of the fake as the payload discord.js would have got it. */
+/** The send of the fake in the shape of a discord.js payload, its `allowedMentions` the mentions the core handed the port. */
 function payloadOf(given: unknown): Posted {
   const content = (given ?? {}) as {
     text?: string;

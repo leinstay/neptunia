@@ -34,7 +34,6 @@ import {
   createEmojiBackfill,
   createGifBackfill,
   createGifKeeper,
-  createGifRecache,
   createDescriber,
   createAvatarQueue,
   startYoutubeCheck,
@@ -1163,28 +1162,15 @@ async function buildCore(
     // `neptunia -p` with text ends when the turn over its line ends.
     intake.turnEnded(end);
   });
-  // The custom emoji ranking read from history (the interface's reads only, no model call): once at startup, again on /nep emoji rescan.
+  // The custom emoji ranking read from history (the interface's reads only, no model call): once at startup.
   const emojiBackfill = createEmojiBackfill({ store, reads, iface: () => identity.iface, log });
-  // The GIF library read from history (the interface's reads; the describer captions the top ones): once at
-  // startup, again on /nep gifs rescan.
+  // The GIF library read from history (the interface's reads; the describer captions the top ones): once at startup.
   const gifBackfill = createGifBackfill({
     store,
     reads,
     iface: () => identity.iface,
     describer,
     keeper: gifKeeper,
-    log,
-  });
-  // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache; and the pictures
-  // an older model described, found through the record: only on /nep media kind:pictures action:recache.
-  const gifRecache = createGifRecache({
-    hot,
-    store,
-    reads,
-    iface: () => identity.iface,
-    emoji,
-    describer,
-    record,
     log,
   });
 
@@ -1288,12 +1274,9 @@ async function buildCore(
     speech,
     // /nep draw self: the avatar reference, fetched the same way a turn fetches it.
     imageFetcher,
-    // /nep emoji status|rescan: the emoji ranking and its history backfill.
+    // The history backfills, which the status card names while they run.
     emojiBackfill,
-    // /nep gifs status|rescan: the GIF library and its history backfill.
     gifBackfill,
-    // /nep gifs recache: the library's captions re-described by watching; /nep pause waits for it.
-    gifRecache,
     // /nep memory archive | restore: the archive of what left hot memory.
     archive,
     // /nep pause|resume: system records; /nep memory journal reads it.
@@ -1320,7 +1303,7 @@ async function buildCore(
     // /nep status: each key's activity for its last 7 and 30 days (GETs only), with the management key read from
     // keys.json at the moment of the card. Never logged.
     cardKeys: () => statusCardKeys(paths.privateDir),
-    // memory.snapshot: the data directory it writes its copy of the memory database under.
+    // The data directory a skill's run and an errand's file are read under.
     dataDir,
   });
   // The key commands: the checks go to the provider with the global `fetch` of the moment, a model is saved through the

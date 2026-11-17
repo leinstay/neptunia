@@ -26,7 +26,7 @@ const TOOLS = [
   },
   {
     type: 'function',
-    function: { name: 'status_show', description: 'Show the status', parameters: { type: 'object', properties: {} } },
+    function: { name: 'web_search', description: 'Search the web', parameters: { type: 'object', properties: {} } },
   },
 ];
 // The lead: the first tool's function gets a name, so the reads stay three segments deep (R.2).
@@ -79,7 +79,7 @@ test('tools/list gives her definitions as MCP tools with their names bare and th
       description: 'Update an intention',
       inputSchema: firstToolFunction?.parameters,
     },
-    { name: 'status_show', description: 'Show the status', inputSchema: { type: 'object', properties: {} } },
+    { name: 'web_search', description: 'Search the web', inputSchema: { type: 'object', properties: {} } },
   ]);
 });
 
@@ -104,8 +104,8 @@ test('tools/call forwards the bare name, the arguments and the meta to the peer 
 test('tools/call strips the mcp__nep__ prefix before the peer sees the name', async () => {
   // Catches: a prefixed name reaching the gateway, which knows no such tool and refuses every call of hers.
   const { peer, calls } = fakePeer();
-  await createMcpServer(peer).handle(rpc(4, 'tools/call', { name: `${MCP_TOOL_PREFIX}status_show`, arguments: {} }));
-  assert.equal(calls[0]?.name, 'status_show');
+  await createMcpServer(peer).handle(rpc(4, 'tools/call', { name: `${MCP_TOOL_PREFIX}web_search`, arguments: {} }));
+  assert.equal(calls[0]?.name, 'web_search');
 });
 
 test('a refused call reaches the CLI as an error result that names the code', async () => {
@@ -113,7 +113,7 @@ test('a refused call reaches the CLI as an error result that names the code', as
   const refusal = Object.assign(new Error('refused'), { code: 'turn-unknown' });
   const { peer } = fakePeer(() => Promise.reject(refusal));
   const reply = replyOf(
-    await createMcpServer(peer).handle(rpc(5, 'tools/call', { name: 'status_show', arguments: {} }))
+    await createMcpServer(peer).handle(rpc(5, 'tools/call', { name: 'web_search', arguments: {} }))
   );
   assert.equal(reply.result?.isError, true);
   const content = reply.result?.content as Array<{ text?: string }> | undefined;
@@ -161,16 +161,16 @@ test('the bridge hands a call to its session with the prefix stripped', async ()
       return Promise.resolve({ text: 'shown', isError: false });
     },
   });
-  const answer = await bridge.call(token, { name: 'mcp__nep__status_show', arguments: {}, meta: null });
+  const answer = await bridge.call(token, { name: 'mcp__nep__web_search', arguments: {}, meta: null });
   assert.deepEqual(answer, { text: 'shown', isError: false });
-  assert.equal(seen[0]?.name, 'status_show');
+  assert.equal(seen[0]?.name, 'web_search');
 });
 
 test('a token the bridge never gave is refused with turn-unknown', async () => {
   // Catches: any local process that reaches the socket running her tools without the turn's token.
   const bridge = bridgeRig();
   bridge.open({ tools: TOOLS, call: () => Promise.resolve({ text: '', isError: false }) });
-  await assert.rejects(bridge.call('forged', { name: 'status_show', arguments: {}, meta: null }), {
+  await assert.rejects(bridge.call('forged', { name: 'web_search', arguments: {}, meta: null }), {
     code: 'turn-unknown',
   });
   await assert.rejects(bridge.list('forged'), { code: 'turn-unknown' });
@@ -181,7 +181,7 @@ test('a closed session refuses its token', async () => {
   const bridge = bridgeRig();
   const session = bridge.open({ tools: TOOLS, call: () => Promise.resolve({ text: '', isError: false }) });
   session.close();
-  await assert.rejects(bridge.call(session.token, { name: 'status_show', arguments: {}, meta: null }), {
+  await assert.rejects(bridge.call(session.token, { name: 'web_search', arguments: {}, meta: null }), {
     code: 'turn-unknown',
   });
 });
@@ -215,5 +215,5 @@ test('a peer with a wrong token is refused with turn-unknown across the socket',
   const { core, client } = createLoopback();
   serveBridge(core, bridge);
   const peer = bridgePeer(client, 'forged');
-  await assert.rejects(peer.call({ name: 'status_show', arguments: {}, meta: null }), { code: 'turn-unknown' });
+  await assert.rejects(peer.call({ name: 'web_search', arguments: {}, meta: null }), { code: 'turn-unknown' });
 });

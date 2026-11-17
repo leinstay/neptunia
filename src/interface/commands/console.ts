@@ -178,8 +178,13 @@ function ownCommand(
   }
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
   if (name === 'memory.bind') return personLinkCommand({ memoryDb, runOp, hot }, args, dialog);
-  if ((name === 'memory.users.names.add' || name === 'memory.users.names.remove') && personWord(memoryDb, args.user))
-    return ownerNameCommand(memoryDb, name, args);
+  if (name === 'memory.users.names.add' || name === 'memory.users.names.remove')
+    return personWord(memoryDb, args.user)
+      ? ownerNameCommand(memoryDb, name, args)
+      : Promise.resolve({
+          text: `/${name.replaceAll('.', ' ')}: ${String(args.user)} is no stored person`,
+          status: 'invalid',
+        });
   const joined = rootsCommand(joining, name, args);
   if (joined !== null) return joined;
   const action = moduleActionOf(name);
@@ -187,8 +192,8 @@ function ownCommand(
 }
 
 /**
- * Whether a name command names a stored person (`person:self`, `person:<id>`, a `people` row) where it takes an account:
- * the name goes on the person. Nothing is a person while the database is closed.
+ * Whether a name command names a stored person (`person:self`, `person:<id>`, a `people` row): a name goes on a person
+ * alone. Nothing is a person while the database is closed.
  */
 function personWord(memoryDb: unknown, value: unknown): boolean {
   const db = callMethod(memoryDb, 'database') as Db | null | undefined;

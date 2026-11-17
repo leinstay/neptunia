@@ -72,61 +72,6 @@ test('stripUrls: keeps lines, drops a line that held only a link, leaves mention
 
 // ---- a member's public profile ----
 
-test('applyProfileOps: character, style and relationship are stored without links; a link alone writes nothing', () => {
-  const store = tmpStore();
-  const profile = store.applyProfileOps(accountOf(store, 'u1'), {
-    character: `Γράφει πολύ ${URL} κάθε βράδυ.`,
-    style: URL,
-    relationship: `Φίλη (${URL}).`,
-  });
-  assert.equal(asRecord(profile).character, 'Γράφει πολύ κάθε βράδυ.');
-  assert.equal(asRecord(profile).style, '');
-  assert.equal(asRecord(profile).relationship, 'Φίλη.');
-  store.applyProfileOps(accountOf(store, 'u1'), { character: URL, relationship: ` ${URL} ` });
-  assert.equal(
-    asRecord(store.getUser(accountOf(store, 'u1'))).character,
-    'Γράφει πολύ κάθε βράδυ.',
-    'a link alone never blanks the stored text'
-  );
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationship, 'Φίλη.');
-});
-
-test('applyProfileOps: interests, details, aliases and the real name are stored without links', () => {
-  const store = tmpStore();
-  store.touchUser(accountOf(store, 'u1'), 'Ελένη', 1000);
-  const profile = store.applyProfileOps(accountOf(store, 'u1'), {
-    interests: {
-      add: [
-        { topic: `ταινίες ${URL}`, note: `βλέπει στο ${URL} συχνά` },
-        { topic: URL, note: 'τίποτα' },
-      ],
-    },
-    details: { add: [`ζει στη Λιόν ${URL}`, URL] },
-    aliases: { add: [`Λένα ${URL}`, URL] },
-    realName: `Hélène ${URL}`,
-  });
-  assert.deepEqual(
-    asRecord(profile).interests.map((i: Untyped) => [i.topic, i.note]),
-    [['ταινίες', 'βλέπει στο συχνά']]
-  );
-  assert.deepEqual(
-    asRecord(profile).details.map((d: Untyped) => d.text),
-    ['ζει στη Λιόν']
-  );
-  assert.deepEqual(
-    asRecord(profile).aliases.map((a: Untyped) => a.name),
-    ['Λένα']
-  );
-  assert.equal(asRecord(profile).realName.name, 'Hélène');
-  noUrl(profile);
-});
-
-test('applyProfileOps: a real name that is only a link is not stored', () => {
-  const store = tmpStore();
-  const profile = store.applyProfileOps(accountOf(store, 'u1'), { realName: URL });
-  assert.equal(asRecord(profile).realName, undefined);
-});
-
 test('updateUser: the prose fields are stored without links; a link alone does not blank them', () => {
   const store = tmpStore();
   store.updateUser(accountOf(store, 'u1'), { character: `Ήσυχη ${URL}`, portraitDueAt: '2026-10-14T00:00:00.000Z' });
@@ -194,20 +139,6 @@ test('updatePlace: patterns, starters, in-jokes and self facts are stored withou
   assert.equal(asRecord(guild).starters, '«καλημέρα»', 'a link alone never blanks the stored notes');
   assert.deepEqual(asRecord(guild).injokes, ['ο βράχος']);
   assert.deepEqual(asRecord(guild).self, ['μου αρέσει το τσάι']);
-});
-
-test('applyLearnedOps: lessons are stored without links; a link alone adds nothing', () => {
-  const store = tmpStore();
-  const learned = store.applyLearnedOps(
-    placeOfRoot(store, 'g1'),
-    { add: [{ text: `το café ανοίγει στις 8 ${URL}` }, URL] },
-    { seenAt: 1000 }
-  );
-  assert.deepEqual(
-    learned.map((item) => asRecord(item).text),
-    ['το café ανοίγει στις 8']
-  );
-  noUrl(store.getPlace(placeOfRoot(store, 'g1')));
 });
 
 // ---- channel notes ----
@@ -330,25 +261,15 @@ function opsEnv(store: ReturnType<typeof tmpStore>) {
   });
 }
 
-test('ops lore.add / learning.add / alias.add: what they store holds no link', async () => {
+// Changed: lore.add alone, since learning.add and alias.add left with their commands.
+test('ops lore.add: what it stores holds no link', async () => {
   const store = tmpStore();
-  store.touchUser(accountOf(store, '7'), 'Ελένη', 1000);
   const ctx = { env: opsEnv(store), placeId: 'g1', accountId: '42', roleIds: [] };
   await runOp('lore.add', { title: `Ο βράχος ${URL}`, keys: `βράχος, ${URL}`, text: `Το αστείο ${URL}` }, ctx);
-  await runOp('learning.add', { text: `το café κλείνει νωρίς ${URL}` }, ctx);
-  await runOp('alias.add', { accountId: '7', name: `Λένα ${URL}` }, ctx);
   const [entry] = store.getLore('g1');
   assert.deepEqual(
     [asRecord(entry).title, asRecord(entry).keys, asRecord(entry).text],
     ['Ο βράχος', ['βράχος'], 'Το αστείο']
-  );
-  assert.deepEqual(
-    asRecord(store.getPlace('g1')).learned.map((item: Untyped) => item.text),
-    ['το café κλείνει νωρίς']
-  );
-  assert.deepEqual(
-    asRecord(store.getUser(accountOf(store, '7'))).aliases.map((a: Untyped) => a.name),
-    ['Λένα']
   );
 });
 

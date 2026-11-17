@@ -70,7 +70,7 @@ function samplesOf(definition: Untyped) {
   return samples;
 }
 
-test('the table holds every operation, in the operations registry order', () => {
+test('the table names registered operations, in the operations registry order, and leaves out the console ones', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   // And skill.run of the executable skills, and task.cancel, task.comment and task.answer of her wake.
   // Changed: task.unblock is the 77th tool.
@@ -80,10 +80,21 @@ test('the table holds every operation, in the operations registry order', () => 
   // Changed: 74 since `memory.read` (lookup loop slice 12): one operation, one row; the six reads it replaces for her stay.
   // Changed: 68 since her six board tools left with the selfimprovement wake (the maintainer's decision of 2026-11-16).
   // Changed: 67 since `watcher.read` left with the watcher (2026-11-16).
-  assert.equal(SKILL_DEFINITIONS.length, 67);
+  // Changed: 59 since eight tools left her list and stayed operations of the owner's console (2026-11-17).
+  // Changed: 55 since `alias.add`, `alias.remove`, `learning.add` and `learning.remove` left with their commands.
+  // Changed: 53 since `pings.get` and `pings.set` left with the members' ping states.
+  // Changed: 49 since `media.status`, `media.rescan`, `media.recache` and `memory.snapshot` left with their operations.
+  assert.equal(SKILL_DEFINITIONS.length, 49);
+  const names = SKILL_DEFINITIONS.map((definition) => definition.name);
+  const ops = listOps().map((op) => op.name);
+  // Changed: an operation of the console alone has no entry, so the table is the registry less those, in its order.
   assert.deepEqual(
-    SKILL_DEFINITIONS.map((definition) => definition.name),
-    listOps().map((op) => op.name)
+    names,
+    ops.filter((name) => names.includes(name))
+  );
+  assert.deepEqual(
+    ops.filter((name) => !names.includes(name)),
+    ['status.show', 'model.show', 'route.list', 'rule.list', 'access.list', 'lore.add', 'lore.remove', 'tools.describe']
   );
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS));
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS[0].params));
@@ -152,7 +163,8 @@ test('the intent skills carry only what their operation reads', () => {
 });
 
 test('the members a leaf needs are required: without one the arguments are null', () => {
-  for (const name of ['memory.profile.read', 'alias.add', 'alias.remove', 'memory.private.read']) {
+  // Changed: `alias.add` and `alias.remove` left with their commands.
+  for (const name of ['memory.profile.read', 'memory.private.read']) {
     assert.equal(BY_NAME.get(name)?.toArgs({ name: 'x' }), null, name);
     assert.equal(BY_NAME.get(name)?.toArgs({ user: ID, name: 'x' })?.accountId, ID, name);
   }
@@ -176,8 +188,6 @@ test('memory.profile.read reads one person or, with section changes, every perso
 
 test('the quirks of the mapping are kept', () => {
   assert.deepStrictEqual(BY_NAME.get('lore.list')?.toArgs({}), { query: undefined });
-  assert.deepStrictEqual(BY_NAME.get('status.show')?.toArgs({}), { field: null });
-  assert.deepStrictEqual(BY_NAME.get('learning.remove')?.toArgs({ number: 3 }), { id: 3 });
   assert.deepStrictEqual(BY_NAME.get('memory.restore')?.toArgs({ id: 'a' }), { itemId: 'a' });
   assert.deepStrictEqual(BY_NAME.get('message.delete')?.toArgs({ message: 'm' }), {
     messageId: 'm',
@@ -190,7 +200,6 @@ test('the quirks of the mapping are kept', () => {
     placeId: '5',
   });
   assert.deepStrictEqual(BY_NAME.get('errand.read')?.toArgs({ id: 'i' }), { id: 'i', action: 'read', from: undefined });
-  assert.deepStrictEqual(BY_NAME.get('media.status')?.toArgs({ kind: 'gifs' }), { kind: 'gifs', action: 'status' });
   assert.deepStrictEqual(intentArgs('add')({ text: 't', settle: 0, place: 7 }), {
     action: 'add',
     text: 't',
@@ -201,9 +210,10 @@ test('the quirks of the mapping are kept', () => {
   assert.equal(BY_NAME.get('intention.update')?.params, INTENT_PARAMS.update);
 });
 
-test('the result of a skill: job for the two background ones, data for a read, effect for the rest', () => {
+// Changed: `errand.run` is the one background tool, since `media.recache` left her tools.
+test('the result of a skill: job for the background one, data for a read, effect for the rest', () => {
   for (const definition of SKILL_DEFINITIONS) {
-    const expected = ['errand.run', 'media.recache'].includes(definition.name)
+    const expected = ['errand.run'].includes(definition.name)
       ? 'job'
       : definition.effects === 'read'
         ? 'data'
@@ -212,7 +222,7 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 67, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 49, well-formed, unique, a round trip, no longer than 64', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
   // Changed: task.unblock is the 77th tool.
@@ -220,8 +230,12 @@ test('the API names: 67, well-formed, unique, a round trip, no longer than 64', 
   // Changed: 74 since `memory.read` (lookup loop slice 12).
   // Changed: 68 since her six board tools left (2026-11-16).
   // Changed: 67 since `watcher.read` left with the watcher (2026-11-16).
-  assert.equal(apis.length, 67);
-  assert.equal(new Set(apis).size, 67);
+  // Changed: 59 since eight tools left her list for the owner's console (2026-11-17).
+  // Changed: 55 since the alias and lesson writes left with their commands.
+  // Changed: 53 since the ping states left.
+  // Changed: 49 since the media tools and memory.snapshot left.
+  assert.equal(apis.length, 49);
+  assert.equal(new Set(apis).size, 49);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);
@@ -261,7 +275,8 @@ test('validateDefinitions accepts the table and throws on bad input', () => {
   assert.throws(() => validateDefinitions([copy(first, { body: 'nothing' })]), /body/);
   assert.throws(() => validateDefinitions([copy(BY_NAME.get('rule.remove'), { body: 'number' })]), /body/);
   assert.throws(() => validateDefinitions([copy(first, { refs: { nothing: 'channel' } })]), /ref/);
-  assert.throws(() => validateDefinitions([copy(first, { refs: { field: 'thing' } })]), /kind/);
+  // Changed: the first entry is `config.set`, whose arguments are `path` and `value`.
+  assert.throws(() => validateDefinitions([copy(first, { refs: { path: 'thing' } })]), /kind/);
   assert.throws(() => validateDefinitions([copy(first, { effects: 'loud' })]), /effects/);
   assert.throws(() => validateDefinitions([copy(first, { costClass: 'dear' })]), /costClass/);
   assert.throws(() => validateDefinitions([copy(first, { result: 'maybe' })]), /result/);

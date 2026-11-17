@@ -333,7 +333,6 @@ function makeAdmin({
     state: { data: {}, markDirty() {} },
     getUser: () => null,
     getPlace: () => ({}),
-    getPings: (placeId: string, accountId: string) => (accountId === '8' ? 'off' : null),
     // The tree of each channel the interface describes (plan T.4: a tool asks the store for the top of its place).
     rootPlaceOf: (placeId: string) =>
       placeId === OTHER_GUILD ? 'g2' : placeId === 'g1' || channels.has(placeId) ? 'g1' : null,
@@ -432,7 +431,7 @@ test('executeCall: the result she reads is cut to tools.resultMaxChars; ok is sa
   assert.ok(block.includes(labels.tools.result.ok));
   for (const status of RESULT_STATUSES.filter((s) => s !== 'ok')) {
     assert.ok(
-      !toolResultText({ skill: 'lore.add', status, code: 'x', data: { text: 't' } }, labels).includes(
+      !toolResultText({ skill: 'errand.cancel', status, code: 'x', data: { text: 't' } }, labels).includes(
         labels.tools.result.ok
       ),
       status
@@ -449,7 +448,7 @@ test('executeCall: the result she reads is cut to tools.resultMaxChars; ok is sa
   );
 });
 
-test('executeCall: message.create posts her own text where she may, the reply notifying its author unless pings are off', async () => {
+test('executeCall: message.create posts her own text where she may, the reply naming its author', async () => {
   const { admin, port } = makeAdmin();
   port.seed(NEWS, { authorId: MEMBER, messageId: '1003', text: 'ερώτηση' });
   const resolved = resolve('message.create', { reply: '#3' }, 'απάντηση');
@@ -458,8 +457,8 @@ test('executeCall: message.create posts her own text where she may, the reply no
   assert.equal(asRecord(result.ref).chatId, NEWS);
   const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
   assert.equal(posted.text, 'απάντηση');
-  // The lead: `asked` names who chose `on`, nobody here (owner, 2026-11-06: silent mode pings only those members).
-  assert.deepEqual(posted.mentions, { users: [], repliedUser: true, asked: { users: [], repliedUser: false } });
+  // Changed: the mentions name the members alone, since the ping states left (2026-11-17).
+  assert.deepEqual(posted.mentions, { users: [], repliedUser: true });
   // a channel the bot may see but not send in: refused before anything is sent
   const away = await executeCall(resolve('message.create', { place: '#αλλού' }, 'γεια'), deps(admin, port));
   assert.deepEqual([away.status, away.code], ['denied', 'channel-no-permission']);
@@ -724,7 +723,7 @@ test("resolveCall: an errand's file goes to the channel the errand was asked in,
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('executeCall: her written text goes out as rendered; only the members the rendering resolved are notified, never one with pings off', async () => {
+test('executeCall: her written text goes out as rendered; only the members the rendering resolved are named', async () => {
   const { admin, port } = makeAdmin();
   // The turn's rendering: two names it knows become mentions; @everyone is no name of anyone.
   const renderText = (text: string) => {
@@ -743,12 +742,8 @@ test('executeCall: her written text goes out as rendered; only the members the r
   assert.equal(created.status, 'ok');
   const posted = port.messagesIn(HERE).at(-1);
   assert.equal(posted?.text, `<@${MEMBER}> <@8> @everyone`);
-  // The lead: `asked` names who chose `on`, nobody here (owner, 2026-11-06: silent mode pings only those members).
-  assert.deepEqual(
-    posted?.mentions,
-    { users: [MEMBER], repliedUser: false, asked: { users: [], repliedUser: false } },
-    'Élodie (8) turned pings off'
-  );
+  // Changed: both resolved members are named, since the ping state that left Élodie (8) out is gone (2026-11-17).
+  assert.deepEqual(posted?.mentions, { users: [MEMBER, '8'], repliedUser: false });
   // The edit: the same text and mentions.
   port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'λάθος' });
   const edited = await executeCall(
@@ -1571,63 +1566,6 @@ test("an unknown argument is still refused by the engine although the model's sc
   });
   assert.equal(gate.ok, false);
   assert.equal(gate.code, 'invalid-args');
-});
-
-// ---- a member's notification switch through her (PR 7b) -----------------------------------------------
-// With `/nep pings` gone, a member asks her in the chat and her `pings.set` runs under that member's own right: it
-// switches the asker's pings and nobody else's.
-
-/**
- * A store whose ping states work as the real ones: `off` holds the `<guild>:<user>` keys whose state is `off`. The owner's
- * word of 2026-11-06 gave a member the states `on`, `off` or none (getPings, setPings), so the fake keeps only `off` here.
- */
-function pingsStore(off: Array<string> = []) {
-  const keys = new Set(off);
-  return {
-    keys,
-    state: { data: {}, markDirty() {} },
-    getUser: () => null,
-    getPlace: () => ({}),
-    // Every channel of the rig sits in g1 (plan T.4: the switch is kept under the top of the call's place).
-    rootPlaceOf: () => 'g1',
-    getPings: (placeId: string, accountId: string) => (keys.has(`${placeId}:${accountId}`) ? 'off' : null),
-    setPings(placeId: string, accountId: string, state: unknown) {
-      if (state === 'off') keys.add(`${placeId}:${accountId}`);
-      else keys.delete(`${placeId}:${accountId}`);
-      return state;
-    },
-  };
-}
-
-const pingsGranted = () =>
-  config({
-    access: { 'pings.set': { everyone: false, roles: [], users: [SELF] } },
-  });
-
-test('a member who asks her turns off their own pings through pings.set, and nobody else is switched', async () => {
-  const cfg = pingsGranted();
-  const store = pingsStore(['g1:8']);
-  const { admin, port } = makeAdmin({ cfg, extra: { store } });
-  const gate = checkSkill({
-    skill: 'pings.set',
-    args: { mode: 'off' },
-    principal: { kind: 'persona' },
-    requester: { id: MEMBER, roleIds: [] },
-    audience: { chatId: HERE },
-    context: { config: cfg, selfId: SELF },
-  });
-  assert.deepEqual(gate, { ok: true });
-  const result = await executeCall(
-    resolve('pings.set', { mode: 'off' }),
-    deps(admin, port, { requester: { id: MEMBER, roleIds: [] } })
-  );
-  assert.equal(result.status, 'ok');
-  assert.deepEqual([...store.keys].sort(), ['g1:7', 'g1:8']);
-});
-
-test('pings.set takes no member to switch: a call that names another member is refused before it runs', () => {
-  const call = resolve('pings.set', { mode: 'off', user: '@Élodie' });
-  assert.deepEqual([call.ok, call.reason], [false, 'args.user:unknown']);
 });
 
 test('stored memory handles carry exact source identity through execution into the real SQLite reader', async () => {

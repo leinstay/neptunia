@@ -1,7 +1,7 @@
 {
   "chains": {
     "tests/admin.test.ts": {
-      "deep": 36,
+      "deep": 34,
       "repeated": 0
     },
     "tests/agent-backend-engine-route.test.ts": {
@@ -39,10 +39,6 @@
     "tests/agent-runner-server-route.test.ts": {
       "deep": 0,
       "repeated": 2
-    },
-    "tests/aliases.test.ts": {
-      "deep": 3,
-      "repeated": 0
     },
     "tests/audience-warm.test.ts": {
       "deep": 1,
@@ -169,7 +165,7 @@
       "repeated": 0
     },
     "tests/describe.test.ts": {
-      "deep": 117,
+      "deep": 113,
       "repeated": 0
     },
     "tests/diary-audience-refusal.test.ts": {
@@ -342,10 +338,6 @@
     },
     "tests/gif-library.test.ts": {
       "deep": 12,
-      "repeated": 0
-    },
-    "tests/gif-recache.test.ts": {
-      "deep": 4,
       "repeated": 0
     },
     "tests/gifs.test.ts": {
@@ -905,7 +897,7 @@
       "repeated": 0
     },
     "tests/store.test.ts": {
-      "deep": 33,
+      "deep": 30,
       "repeated": 0
     },
     "tests/subharness-control.test.ts": {
@@ -1089,7 +1081,7 @@
       "repeated": 0
     },
     "tests/turn.test.ts": {
-      "deep": 219,
+      "deep": 214,
       "repeated": 8
     },
     "tests/usage.test.ts": {
@@ -1514,11 +1506,6 @@
         "function-length": 479
       }
     },
-    "src/memory/gif-recache.ts": {
-      "buildGifRecache>workMedia>run": {
-        "complexity": 22
-      }
-    },
     "src/memory/interests.ts": {
       "applyRankedOps>sight": {
         "complexity": 21
@@ -1593,7 +1580,7 @@
     },
     "src/tools/operations/memory.ts": {
       "<anonymous>": {
-        "function-length": 424
+        "function-length": 404
       },
       "<anonymous>>cmdMemoryShow": {
         "complexity": 22
@@ -1604,7 +1591,7 @@
         "complexity": 26
       },
       "<anonymous>>post": {
-        "complexity": 34
+        "complexity": 33
       }
     },
     "src/tools/operations/metrics.ts": {
@@ -1730,7 +1717,6 @@
       "src/speech/synth.ts",
       "src/tools/call-args.ts",
       "src/tools/gateway.ts",
-      "src/tools/operations/alias.ts",
       "src/tools/operations/catalog.ts",
       "src/tools/operations/draw.ts",
       "src/tools/operations/env.ts",
@@ -1741,7 +1727,6 @@
       "src/tools/operations/message.ts",
       "src/tools/operations/model.ts",
       "src/tools/operations/pause.ts",
-      "src/tools/operations/pings.ts",
       "src/tools/operations/places.ts",
       "src/tools/operations/registry.ts",
       "src/tools/operations/rights.ts",

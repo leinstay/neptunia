@@ -63,16 +63,14 @@ export type EntryVoice = { ogg: Uint8Array; durationSecs: number; waveform: stri
 export type EntryFile = { message: number; name: string; data: Uint8Array; contentType: string | null };
 
 /**
- * A diary entry as it is published: its `diary` row's id, her messages as they are sent, the members each message may
- * notify (`mentions[i]` for `messages[i]`, none when absent), whether everyone a message names chose to be pinged (`notify[i]`,
- * src/turn/mentions.ts#mentionsUnderPings), the pictures and the voice message.
+ * A diary entry as it is published: its `diary` row's id, her messages as they are sent, the members each message
+ * names (`mentions[i]` for `messages[i]`, none when absent), the pictures and the voice message.
  */
 export type DiaryEntry = {
   publicationBoundary?: PublicationBoundary;
   id: string;
   messages: ReadonlyArray<string>;
   mentions?: ReadonlyArray<ReadonlyArray<string>>;
-  notify?: ReadonlyArray<boolean>;
   pictures?: ReadonlyArray<EntryPicture>;
   voice?: EntryVoice | null;
   /** The files her messages carry, each with the index of its message in `messages`. */
@@ -244,7 +242,6 @@ export function entryPlan(
       mentions: {
         users: [...(entry.mentions?.[index] ?? [])],
         repliedUser: false,
-        ...(entry.notify?.[index] === true ? { notify: true } : {}),
       },
       ...(own.length > 0 ? { attachments: own.map(({ file }) => fileAttachment(file)) } : {}),
     };

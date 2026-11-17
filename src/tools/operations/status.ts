@@ -31,7 +31,7 @@ import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../../time.ts';
 import { ARCHIVE_EVENTS } from '../../memory/index.ts';
 import { clampChars, oneLine } from '../../memory/clamp.ts';
 import { isOwnerCaller } from './grants.ts';
-import { MODEL_ROLES, STATUS_FIELDS, STATUS_PARTS } from './catalog.ts';
+import { MODEL_ROLES, STATUS_FIELDS } from './catalog.ts';
 import { CORE_ROLE, ERRAND_ROLES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
 import { EMBED_ROLE } from '../../llm/embed.ts';
 import { missedCounts, missedStatusLine } from '../../behavior/missed.ts';
@@ -52,20 +52,6 @@ type InnerTokens = { prompt: number; cached: number; completion: number };
 
 /** The card's field names, in order (src/tools/operations/catalog.ts#STATUS_FIELDS, the `field` option's choices). */
 export { STATUS_FIELDS };
-
-/**
- * The card's fields each part of her `status.show part=` call shows, in card order (STATUS_PARTS; `all` is the whole
- * card).
- */
-export const PART_FIELDS: Readonly<Record<string, ReadonlyArray<string> | null>> = Object.freeze({
-  overview: ['state', 'limits'],
-  limits: ['limits', 'costs.base'],
-  models: ['models.base', 'models.errands'],
-  memory: ['memory'],
-  inner: ['inner'],
-  errands: ['tasks', 'costs.errands'],
-  all: null,
-});
 
 /** The fields a member's card leaves out. */
 const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.errands', 'inner', 'memory', 'speed']);
@@ -344,8 +330,8 @@ function stateValue(data: Untyped): string {
 /** One field of the status card. */
 type CardField = { name: string; value: string };
 
-/** What the status card asks: for an owner or a member, one field, or one of her parts. */
-type CardRequest = { owner: boolean; field?: string | null; part?: string | null; offline?: boolean };
+/** What the status card asks: for an owner or a member, one field or the whole card. */
+type CardRequest = { owner: boolean; field?: string | null; offline?: boolean };
 
 /** The fields whose work reads the network (the key limits' GETs): the offline card of the owner's console leaves
  * them out, as it probes no model (`/status full`; the probes are `/doctor live`, the keys `/usage`). */
@@ -369,7 +355,6 @@ const handlers = perEnv((env) => {
     errands,
     emojiBackfill,
     gifBackfill,
-    gifRecache,
     freshenIfPaused,
     imageModelLabel,
     llm,
@@ -394,14 +379,13 @@ const handlers = perEnv((env) => {
     return typeof pending === 'number' && Number.isFinite(pending) ? pending : 0;
   }
 
-  /** The long-tasks field: the history backfills and the GIF recache running, and what the archive
-   * drain still holds; `none` when nothing runs. */
+  /** The long-tasks field: the history backfills running, and what the archive drain still holds; `none` when
+   * nothing runs. */
   function longTasksValue(): string {
     const parts: Array<string> = [];
     for (const [job, name] of [
       [emojiBackfill, 'emoji backfill'],
       [gifBackfill, 'GIF backfill'],
-      [gifRecache, 'GIF recache'],
     ]) {
       if (job?.isRunning?.() === true) parts.push(`${name} running`);
     }
@@ -905,7 +889,6 @@ const handlers = perEnv((env) => {
   async function cmdStatusCard({
     owner,
     field = null,
-    part = null,
     offline = false,
   }: CardRequest): Promise<{ fields: Array<CardField> }> {
     freshenIfPaused();
@@ -914,16 +897,9 @@ const handlers = perEnv((env) => {
     const places: ReadonlyArray<string> = store.topPlaces?.() ?? [];
     const shownTo = (name: string): boolean => owner || !OWNER_FIELDS.has(name);
     const visible = STATUS_FIELDS.filter((name) => shownTo(name) && !(offline && NETWORK_FIELDS.has(name)));
-    // Her own call may ask for a part (PART_FIELDS): the fields it holds that she may see, models named and never probed.
-    const partFields =
-      typeof part === 'string' && Object.hasOwn(PART_FIELDS, part) && part !== 'all' ? PART_FIELDS[part] : null;
-    const probe = partFields === null && part !== 'all';
-    const shown: Array<string> = partFields
-      ? partFields.filter((name) => visible.includes(name))
-      : field !== null && visible.includes(field)
-        ? [field]
-        : [...visible];
-    if (partFields && shown.length === 0) return { fields: [{ name: part ?? '', value: '-' }] };
+    // The offline card names the models and probes none.
+    const probe = !offline;
+    const shown: Array<string> = field !== null && visible.includes(field) ? [field] : [...visible];
     // Each field's work, run only for the fields shown, all at once: the account reads go out
     // alongside the model probes.
     const compute: Record<string, () => Promise<string> | string> = {
@@ -965,12 +941,9 @@ defineOp({
     const { env } = ctx;
     const owner = isOwnerCaller(env.hot.config, ctx);
     const field = typeof args.field === 'string' ? args.field : null;
-    // Her own call without a part gets the short overview; the owner's command without a field, the whole card.
-    const asked = typeof args.part === 'string' && STATUS_PARTS.includes(args.part) ? args.part : null;
     // The owner's console asks for the whole card with nothing read over the network (`offline`).
-    const offline = args.offline === true && ctx?.actor !== 'persona';
-    const part = offline ? 'all' : (asked ?? (ctx?.actor === 'persona' && !field ? 'overview' : null));
-    const card = await handlers(ctx.env).cmdStatusCard({ owner, field: offline ? null : field, part, offline });
+    const offline = args.offline === true;
+    const card = await handlers(ctx.env).cmdStatusCard({ owner, field: offline ? null : field, offline });
     return { text: '', fields: card.fields };
   },
 });
