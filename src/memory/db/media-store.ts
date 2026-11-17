@@ -22,6 +22,7 @@ import { preparedPlace } from './place-owner.ts';
 import { loadStemmer } from './stems.ts';
 import { asText, dbOf, isFiniteNumber, transactionOf } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';
+import { fillSelfMark } from '../self-mark.ts';
 
 /** The prefix of the id of a picture of a diary entry, `media:diary:<entry>-<n>`. */
 export const ENTRY_MEDIA = 'media:diary:';
@@ -1310,6 +1311,7 @@ export async function embedMedia({
   config,
   now,
   quantize,
+  selfName,
   model = null,
   limit = 50,
 }: {
@@ -1319,6 +1321,8 @@ export async function embedMedia({
   config: unknown;
   now: number;
   quantize: (vector: Float32Array) => { bytes: Uint8Array | Int8Array; scale: number; norm: number };
+  /** Her name, put where a text form holds `SELF_MARK`. */
+  selfName: string;
   model?: string | null;
   limit?: number;
 }): Promise<{ embedded: number; written: number; skipped: number; pending: number }> {
@@ -1326,7 +1330,7 @@ export async function embedMedia({
   if (pending.length === 0) return { embedded: 0, written: 0, skipped: 0, pending: 0 };
   // The embedding client answers one vector per text.
   const vectors = (await embed(
-    pending.map((row) => String(row.description)),
+    pending.map((row) => fillSelfMark(String(row.description), selfName)),
     { config, purpose: 'media' }
   )) as ArrayLike<ArrayLike<number>>;
   const rows = pending.map((row, i) => {

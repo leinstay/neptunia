@@ -13,6 +13,7 @@
 // live chat from a dead chat that somebody has just poked.
 
 import { legendBlock } from './turn/request/legend.ts';
+import { fillSelfMark } from './memory/self-mark.ts';
 import type { MediaName } from './memory/store-media-names.ts';
 import { reasonText } from './tools/codes.ts';
 import { objOf } from './tools/types.ts';
@@ -229,8 +230,9 @@ function partFallback(tag: Untyped, labels: Untyped) {
   return tag;
 }
 
+// A tag's `SELF_MARK` (src/memory/self-mark.ts) reads `context.selfName`, her name where the line is read.
 // health: allow complexity until 2027-04-01 -- one walk over every media field of a line; a stored item only adds its own text form
-function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}) {
+function mediaTags(message: Untyped, labels: Untyped, context: MediaContext) {
   const unknownDuration = labels.transcript.unknownDuration ?? '?';
   const videosOn = Boolean(labels.transcript.videoWatched);
   // A second look's answer (videoAnswered): a key blanked in
@@ -264,7 +266,7 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
       values && Object.hasOwn(values as object, 'reason')
         ? { ...values, reason: reasons?.[values.reason] ?? unworded }
         : values;
-    tags.push(fill(labels.transcript[key], filled));
+    tags.push(fillSelfMark(fill(labels.transcript[key], filled), context.selfName));
   };
   const pushLabel = ({ key, values, extra }: { key: Untyped; values: Untyped; extra?: Untyped }) => {
     pushTag({ key, values });
@@ -330,9 +332,12 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
   return tags.filter(Boolean);
 }
 
-/** The tags of a stored line's media, for a reader that is not a transcript (the memory session's batch). */
-export function storedMediaTags(parts: Record<string, unknown>, labels: unknown): Array<string> {
-  return (labels as { transcript?: unknown } | null)?.transcript ? mediaTags(parts, labels) : [];
+/**
+ * The tags of a stored line's media, for a reader that is not a transcript (the memory session's batch), with
+ * `selfName` her name where the line is read.
+ */
+export function storedMediaTags(parts: Record<string, unknown>, labels: unknown, selfName: string): Array<string> {
+  return (labels as { transcript?: unknown } | null)?.transcript ? mediaTags(parts, labels, { selfName }) : [];
 }
 
 /**
@@ -435,7 +440,7 @@ function replyQuote(parent: Untyped, labels: Untyped, context: Untyped) {
  * `labels.transcript.replyTo` with `{index}`, `{author}` (the parent's name,
  * `labels.self` filled with `selfName` for the persona's own line) and
  * `{quote}` (replyQuote, the parent's text whole;
- * `context` as mediaTags reads it, every map optional). With `mode: 'memory'`
+ * `context` as mediaTags reads it, every map optional, with `selfName`). With `mode: 'memory'`
  * (the analyzer's transcript, which shows no `#index`) it renders
  * `labels.transcript.replyToMemory` instead, same `{author}` and `{quote}`,
  * `index` unused. The one copy for both transcript modes and the media pick's
@@ -453,12 +458,12 @@ export function replyMarker(
   }: {
     labels: Record<string, Untyped>;
     selfName: string;
-    context?: MediaContext;
+    context?: Omit<MediaContext, 'selfName'>;
     mode?: 'chat' | 'memory';
   }
 ): string {
   const author = parent.self ? fill(labels.self, { name: selfName }) : parent.authorName;
-  const quote = replyQuote(parent, labels, context);
+  const quote = replyQuote(parent, labels, { ...context, selfName });
   const template = mode === 'memory' ? labels.transcript.replyToMemory : labels.transcript.replyTo;
   return fill(template, { index, author, quote });
 }
@@ -788,7 +793,10 @@ export type TranscriptOptions = {
 };
 
 /** The media of a transcript the caller already holds: the part of the options `mediaTags` and `replyMarker` read. */
-type MediaContext = Pick<TranscriptOptions, 'descriptions' | 'videos' | 'reads' | 'gifHandles' | 'imageAnswers'>;
+type MediaContext = Pick<
+  TranscriptOptions,
+  'descriptions' | 'videos' | 'reads' | 'gifHandles' | 'imageAnswers' | 'selfName'
+>;
 
 /** The handles two or more author ids of `messages` share: one person writing from several accounts. */
 function sharedHandles(messages: ReadonlyArray<Record<string, Untyped>>, handles: Map<string, string>): Set<string> {
@@ -1002,6 +1010,7 @@ export function formatTranscript(
     reads,
     gifHandles,
     imageAnswers,
+    selfName,
   };
   const locale = labels.locale;
   const selfLabel = fill(labels.self, { name: selfName });
@@ -1181,13 +1190,14 @@ export function formatTranscript(
 function withLegend(
   items: Array<{ id: string; index: number; ts: number; text: string }>,
   messages: Array<Record<string, Untyped>>,
-  { mediaNameOf, labels, descriptions }: TranscriptOptions
+  { mediaNameOf, labels, descriptions, selfName }: TranscriptOptions
 ): Array<{ id: string; index: number; ts: number; text: string }> {
   const shown = new Set(items.map((item) => item.id));
   const legend = legendBlock(
     messages.filter((message) => shown.has(message.id)),
     mediaNameOf,
     labels,
+    selfName,
     descriptions ?? null
   );
   if (!legend || items.length === 0) return items;

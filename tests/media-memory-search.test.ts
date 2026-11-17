@@ -203,6 +203,25 @@ test('an item linked from three messages is embedded once', () =>
     assert.equal((await embedLines(env)).embedded, 0, 'nothing changed: no request');
   }));
 
+// The owner on 2026-11-17: a stored description names her `@self`, and its meaning is read with her name in its place.
+test('a text form that names her by the marker is embedded with her name', () =>
+  withEnv(async (env) => {
+    reuse(env, 'm1', AT, 'same');
+    tell(env, IMAGE, { id: 'same', told: '@self holds a lighthouse' });
+    const { asked: texts } = await embedLines(env, 'Mira');
+    assert.deepEqual(texts, ['Mira holds a lighthouse']);
+  }));
+
+test('a memory search result shows her name where the text form names her by the marker', () =>
+  withEnv(async (env) => {
+    reuse(env, 'm1', AT, 'same');
+    tell(env, IMAGE, { id: 'same', told: '@self holds a lighthouse' });
+    env.stem();
+    const text = await recallRig(env).ask({ terms: 'lighthouse' });
+    assert.ok(text.includes('Self holds a lighthouse'), text);
+    assert.ok(!text.includes('@self'), text);
+  }));
+
 test('a changed text form replaces the vector of its row', () =>
   withEnv(async (env) => {
     reuse(env, 'm1', AT, 'same');

@@ -1715,7 +1715,7 @@ export function quotesOf(
       placeId: one.placeId,
       channelName: one.channelName,
       startTs: lines[0].ts,
-      lines: stretchText(lines, one.messages, render.labels, mediaNameOf),
+      lines: stretchText(lines, one.messages, render, mediaNameOf),
       entries,
     });
   }

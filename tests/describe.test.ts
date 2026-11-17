@@ -3135,6 +3135,75 @@ test('describe: a blank appearance leaves nothing of describe-self in the system
   assert.ok(!system.includes('{{'), system);
 });
 
+// The owner on 2026-11-17: the vision model reads her name, and the describer stores `@self` in its place, because one
+// description is kept per file while her name differs per root and can change.
+async function storedCaption(
+  answer: string,
+  item: ReturnType<typeof pictureItem>,
+  name: string | null = 'Mira'
+): Promise<{ returned: string; stored: string }> {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const describer = createDescriber({
+    hot: selfHot('tall, silver hair'),
+    store,
+    llm: fakeLlm({ text: answer }),
+    imageFetcher: fakeImageFetcher(),
+    selfName: () => name ?? '',
+  });
+  const result = await describer.describe('g1', item);
+  const itemId = String(item.itemId);
+  const entry = loose(cacheView(store, 'g1'))[itemId] as { text: string };
+  return { returned: String(loose(result).text), stored: entry.text };
+}
+
+test('describe: her name in a caption is returned and stored as @self', async () => {
+  // Bug: the cache keeps the name of one root, and another root or a rename reads the wrong name.
+  const { returned, stored } = await storedCaption(
+    'Mira waves at the camera, and behind Mira a cat sleeps.',
+    pictureItem('a1')
+  );
+  assert.equal(stored, '@self waves at the camera, and behind @self a cat sleeps.');
+  assert.equal(returned, stored);
+});
+
+test('describe: a longer word that contains her name stays in the stored caption', async () => {
+  // Bug: a substring replace turns `Miranda` into `@selfnda`.
+  const { stored } = await storedCaption('Miranda holds a sign that reads Mira.', pictureItem('a1'));
+  assert.equal(stored, 'Miranda holds a sign that reads @self.');
+});
+
+test('describe: a caption in a place where no name is known is stored unchanged', async () => {
+  // Bug: an empty name matches everywhere and scatters the marker through the caption.
+  const { stored } = await storedCaption('A woman with silver hair waves.', pictureItem('a1'), null);
+  assert.equal(stored, 'A woman with silver hair waves.');
+});
+
+test('describe: a caption without her name is stored unchanged', async () => {
+  const { stored } = await storedCaption('A street at night, a man in a red coat.', pictureItem('a1'));
+  assert.equal(stored, 'A street at night, a man in a red coat.');
+});
+
+test('describe: her name in a still sticker caption is stored as @self', async () => {
+  // Bug: the replacement runs on attachments only, and a sticker of her keeps the name.
+  const { stored } = await storedCaption(
+    'Mira gives a thumbs up.',
+    pictureItem('sticker:s1', { kind: 'sticker', url: 'https://media.discordapp.net/stickers/s1.png?size=160' })
+  );
+  assert.equal(stored, '@self gives a thumbs up.');
+});
+
+test('describe: her name in a still custom emoji caption is stored as @self', async () => {
+  const { stored } = await storedCaption(
+    'Mira laughing.',
+    pictureItem('emoji:e1', {
+      source: 'emoji',
+      kind: 'emoji',
+      url: 'https://cdn.discordapp.com/emojis/e1.webp?size=96',
+    })
+  );
+  assert.equal(stored, '@self laughing.');
+});
+
 // --- Animated custom emoji and stickers ------------------------------------------
 
 // The owner on 2026-11-17: an animated custom emoji or sticker is a GIF, watched as a clip and never from one still.

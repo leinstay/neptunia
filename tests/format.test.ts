@@ -1951,3 +1951,30 @@ test('formatTranscript: a typed :e99: the store holds no row for opens no legend
   assert.ok(!first.text.includes('<media>'), first.text);
   assert.ok(first.text.endsWith('try :e99:'), first.text);
 });
+
+// --- formatTranscript: a description that names her by the marker -----
+
+// The owner on 2026-11-17: a stored description names her `@self`, and the line she reads shows her name in that place.
+function describedPicture(selfName: string) {
+  const messages = [msg('a', T0, { content: '', attachments: [{ id: 'p1', kind: 'image' }] })];
+  const [line] = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    selfName,
+    labels,
+    descriptions: new Map([['p1', '@self waves at the camera']]),
+  });
+  return line.text;
+}
+
+test('formatTranscript: a description that names her by the marker shows her name and no marker', () => {
+  const text = describedPicture('Mira');
+  assert.ok(text.includes('[image: Mira waves at the camera]'), text);
+  assert.ok(!text.includes('@self'), text);
+});
+
+test('formatTranscript: one description read in two places shows the name of each place', () => {
+  // Bug: the name is put in once, when the description is stored, and the second root reads the first root's name.
+  assert.ok(describedPicture('Mira').includes('[image: Mira waves'));
+  assert.ok(describedPicture('Lune').includes('[image: Lune waves'));
+});

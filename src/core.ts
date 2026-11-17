@@ -63,6 +63,7 @@ import { createSummarizer } from './behavior/summarize.ts';
 import { createActivity } from './behavior/activity.ts';
 import { ownerNamesOf } from './memory/db/people-read.ts';
 import { loadStemmer } from './memory/db/stems.ts';
+import { fillSelfMark } from './memory/self-mark.ts';
 import { createMissed } from './behavior/missed.ts';
 import { createEmojiIndex } from './behavior/emoji-index.ts';
 import { ownMessagesOf } from './behavior/own-messages.ts';
@@ -992,9 +993,15 @@ async function buildCore(
   const turns = createTurnRunner({
     personLinks,
     // Her eyes on a picture she drew: a posted one through its attachment, cached under the place her chat window
-    // reads (the top of the chat's tree), a staged one from its bytes alone.
-    describePicture: (picture) =>
-      describeDrawn(describer, { ...picture, placeId: store.rootPlaceOf(picture.placeId) ?? picture.placeId }),
+    // reads (the top of the chat's tree), a staged one from its bytes alone. The caption's `SELF_MARK` reads her name
+    // in the picture's place.
+    describePicture: async (picture) => {
+      const caption = await describeDrawn(describer, {
+        ...picture,
+        placeId: store.rootPlaceOf(picture.placeId) ?? picture.placeId,
+      });
+      return caption === null ? null : fillSelfMark(caption, getSelfName(picture.placeId));
+    },
     // The lines of a turn's chat, stored when memory lacks them, by the message handler built below.
     keepLines: (events) => onMessage.keepLines(events),
     track: loopWatch.track,
