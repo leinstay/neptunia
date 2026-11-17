@@ -151,9 +151,9 @@ export type TurnReport = {
   diary: { plan: { kind: unknown; brief: unknown; seed: unknown } | null; messages: Array<string> } | null;
 };
 
-/** The planner's answer of a diary turn as its JSON names it, or null when it sent none or none that parses. */
+/** The planner's last answer of a diary turn, the one the post is written from, or null when none parses. */
 function planOf(requests: ReadonlyArray<KeptRequest>): { kind: unknown; brief: unknown; seed: unknown } | null {
-  const text = requests.find((request) => request.purpose === 'diary-planner')?.text;
+  const text = requests.findLast((request) => request.purpose === 'diary-planner')?.text;
   if (typeof text !== 'string') return null;
   try {
     const answer = JSON.parse(text) as Rec | null;

@@ -113,6 +113,7 @@ test('a judge request that fails keeps the brief it was given', async () => {
   assert.equal(run.plan.brief, 'BRIEF-A');
   assert.equal(run.plan.fallback, false);
   assert.ok(run.logs.some((entry) => entry.msg === 'diary: judge failed'));
+  assert.equal(run.plan.judge, undefined, 'a judge that gave no verdict leaves none on the plan');
 });
 
 test('no stored entry of the kind sends no judge request', async () => {

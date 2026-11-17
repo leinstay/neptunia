@@ -247,7 +247,7 @@ export function createDiary(ctx: DiaryContext): Diary {
    * against the newest JUDGE_ENTRIES of `posts` of the plan's kind and answers whether it repeats them. On a repeat
    * `replan` asks the planner again with the brief and the reason, up to JUDGE_BRIEFS briefs; the last brief stays
    * whatever the judge said. A plan that fell back, or no entry of its kind, is not judged (null). A judge request
-   * that fails ends the step with the brief it was given, as if it had passed. A request or token cap throws.
+   * that fails ends the step with the brief it was given and leaves no verdict on the plan. A request or token cap throws.
    */
   async function judgedAnswer({
     config,
@@ -304,7 +304,7 @@ export function createDiary(ctx: DiaryContext): Diary {
       }
       if (!verdict) {
         log.warn('diary: judge failed', { channel: channel.id, kind: plan.kind, briefs, reason });
-        return { answer, judge: { briefs, passed: true } };
+        return { answer, judge: null };
       }
       const next =
         verdict.repeats && briefs < JUDGE_BRIEFS
