@@ -198,9 +198,20 @@ function machineWords(
 }
 
 /**
+ * What her eyes saw of a picture she drew (src/turn/draw-gif.ts), after a result's data and outside its cap:
+ * `data.description` through `labels.tools.result.seen`, a failed look through `.unseen`, else ''.
+ */
+function seenLine(body: Obj, words: Obj): string {
+  if (typeof body.description === 'string' && typeof words.seen === 'string')
+    return fill(words.seen, { description: body.description });
+  return body.descriptionFailed === true && typeof words.unseen === 'string' ? words.unseen : '';
+}
+
+/**
  * What she reads for one call: the `labels.tools.result` line of its status (the status carried in
  * the words) with `{reason}` filled from `labels.tools.result.reasons[<code>]` (else `.other`, else
- * the code), then the call's data cut to `maxChars` (with the `labels.task.step.cut` line when it was cut), then the call's `memory` whole; before them, one `labels.tools.result.coerced`
+ * the code), then the call's data cut to `maxChars` (with the `labels.task.step.cut` line when it was cut), then what her eyes saw of a drawn picture (`labels.tools.result.seen`, `{description}`, or `.unseen` for
+ * `data.descriptionFailed`), then the call's `memory` whole; before them, one `labels.tools.result.coerced`
  * line (`{arg}`, `{value}`) per argument that was read in another type. '' for no result.
  * @param {{ status?: string, code?: string|null, reason?: string|null, values?: object|null, data?: { text?: string, rows?: object[] }|null }|null} result
  * @param {object} labels
@@ -248,6 +259,7 @@ export function toolResultText(
       : textOf(body.text);
     data = cutAtLimit(data, maxChars, labels);
   }
+  const seen = seenLine(body, words);
   const coercedWord = words.coerced;
   const told =
     typeof coercedWord === 'string' && coercedWord
@@ -264,7 +276,7 @@ export function toolResultText(
   // What her memory holds of the people of a read (src/turn/in-turn-tools.ts), after the data and outside its cap:
   // the graph reader cut it to the memory's budget already. What the engine noticed about a call comes last.
   const tail = [result.memory, result.note].filter((part): part is string => typeof part === 'string');
-  return [...told, [lead, data, ...tail].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');
+  return [...told, [lead, data, seen, ...tail].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');
 }
 
 /**
