@@ -230,9 +230,7 @@
 // `--as-of-moment`) and clock (the trigger's moment), once on the native tool-calling transport
 // (A) and once on the text one (B), under the live grants, each as a skill-scenario turn of the
 // sandbox (runTriggerLoops). What a live turn runs before her reply is run once and shared: the
-// memory prefetch with features.coreTools on, else the search classifier (preTurnLookup: its web
-// search on the key production gives quick search, its server search read only, its `skills:` line naming her
-// `<skills>`, the `<lookup>` it found). No errand is dispatched. Written to `--out` (default
+// memory prefetch. No errand is dispatched. Written to `--out` (default
 // ./replay-pair-transport-<time>/, refused when it exists and is not empty) as `--pair`
 // writes it: `sheet.html` (every posted message of each side's turn, its reactions, pictures and
 // message-call posts, blind and in a random order) and `key.json` (`a`/`b` name the sides; per pair
@@ -956,7 +954,7 @@ const FOUND_LINE_RE = /^(>> )?#\d+ \[/;
  * The engine functions --recall uses, named one by one (no module spread: two
  * modules may export the same name). A missing one is a CliError.
  */
-async function loadRecallMods(load: Untyped) {
+export async function loadRecallMods(load: Untyped): Promise<Rec> {
   const recall = (await load('behavior/recall.ts')) as Rec;
   const queryBuilder = (await load('behavior/query-builder.ts')) as Rec;
   const summaryBuilder = (await load('behavior/summary-builder.ts')) as Rec;
@@ -989,8 +987,11 @@ async function loadRecallMods(load: Untyped) {
     collectReadableLinks: media.collectReadableLinks,
     checkPull: pull.checkPull,
   };
-  for (const [name, fn] of Object.entries(mods)) {
-    if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--recall needs it)`);
+  // QUERY_PLAN_FORMAT is the response format of the query builder, an object: everything else here is a function.
+  for (const [name, part] of Object.entries(mods)) {
+    const present =
+      name === 'QUERY_PLAN_FORMAT' ? typeof part === 'object' && part !== null : typeof part === 'function';
+    if (!present) throw new CliError(`replay-cli: the engine has no ${name} (--recall needs it)`);
   }
   return mods;
 }
@@ -4028,17 +4029,6 @@ export function createReplayTools({
     });
   };
   return {
-    // The lookup and the recall runner over the same private copies, on one metered client: the
-    // searches a live switch-off turn runs before her reply (preTurnLookup).
-    searchers() {
-      const { usage, client } = metered();
-      return {
-        lookup: createLookup({ hot, store: webStore, llm: client, state: webState, searches, keys }),
-        recall: recallOf(client),
-        client,
-        usage,
-      };
-    },
     recallAvailable: () => {
       try {
         return recallOf(llm).available() === true;
@@ -5690,200 +5680,6 @@ async function runSkills({
   };
 }
 
-/** The trigger kinds a failed search classifier falls back on (src/behavior/turn.js#DIRECT_CALLS). */
-const DIRECT_CALL_KINDS = Object.freeze(['mention', 'reply', 'name', 'followUp', 'private']);
-
-/**
- * What a live turn with features.coreTools off runs before her reply (src/behavior/turn.js#maybeLookup,
- * the classifier path; the turn planner's is not reproduced): the search classifier -- prompts['query-builder']
- * with `{{name}}`, `{{today}}` (`at`'s day in `bot.timezone`) and `{{skills}}` (`discovery.index`), the
- * user part lookupClassifierInput builds, on the `analyzer` (roleModel, roleRequestOptions, purpose
- * `lookup`) -- asked when its prompt is there and a side can run: the web side under
- * features.webLookup, web.quickSearch.enabled, `web.quickSearch.maxPerTurn` >= 1, the lookup's search and its
- * daily slots; the server side when the recall runner is available. Its answer (parseQueryPlan) runs
- * a `web` query through `lookup.search` and a `server` part through `recall.run` (the chat as
- * history, the trigger as candidate), in parallel, a failing part counting as nothing; a failed or
- * empty answer on a direct call falls back to the server search on the question's own words
- * (fallbackLookupPlan, recall.fallbackOnClassifierFailure). Resolves `{ lookup, skills, recallAvailable,
- * trace }`: `lookup` the request's input as the live turn hands it to buildRequest (the web result,
- * `server` when the server search found text or a stretch; null when nothing), `skills` the answer's
- * `skills:` line (null for none), `trace` what happened (asked, error, the web query and the server
- * part asked for, which ran and found). Never throws for a failed part.
- */
-export async function preTurnLookup({
-  config,
-  prompts,
-  llm,
-  lookup,
-  recall,
-  discovery,
-  guild,
-  placeId,
-  channel,
-  selfId,
-  selfName,
-  history,
-  trigger,
-  triggerKind,
-  descriptions,
-  videos,
-  at,
-  store,
-  deps,
-}: Rec): Promise<{ lookup: Untyped; skills: Untyped; recallAvailable: boolean; trace: Rec }> {
-  const {
-    lookupClassifierInput,
-    fillPromptTemplate,
-    zonedDay,
-    roleModel,
-    roleRequestOptions,
-    parseQueryPlan,
-    QUERY_PLAN_FORMAT,
-    recallSettings,
-    fallbackLookupPlan,
-  } = deps;
-  const searchCfg = config.web?.quickSearch ?? {};
-  const webOn = searchCfg.enabled !== false && typeof lookup?.search === 'function';
-  const webCan =
-    webOn &&
-    (searchCfg.maxPerTurn ?? 1) >= 1 &&
-    (typeof lookup.hasSearch !== 'function' || lookup.hasSearch()) &&
-    (typeof lookup.webCapLeft !== 'function' || lookup.webCapLeft() > 0);
-  let serverOn = false;
-  try {
-    serverOn = typeof recall?.available === 'function' ? recall.available() === true : Boolean(recall);
-  } catch {
-    serverOn = false;
-  }
-  const trace: Rec = {
-    asked: false,
-    error: null,
-    web: null,
-    server: null,
-    webRan: false,
-    webFound: false,
-    serverRan: false,
-    serverFound: false,
-    fallback: false,
-  };
-  const done = (found: Untyped, skills: Untyped = null) => ({
-    lookup: found,
-    skills,
-    recallAvailable: serverOn,
-    trace,
-  });
-  const prompt = prompts?.['query-builder'];
-  if (!prompt || (!webCan && !serverOn)) return done(null);
-  const { triggerText, user } = lookupClassifierInput({
-    config,
-    labels: prompts.labels,
-    selfName,
-    history,
-    trigger,
-    descriptions,
-    videos,
-    reads: undefined,
-  });
-  const timezone = config.bot?.timezone;
-  trace.asked = true;
-  let parsed = null;
-  try {
-    const completion = await llm.complete(
-      [
-        {
-          role: 'system',
-          content: fillPromptTemplate(prompt, {
-            today: zonedDay(at, timezone),
-            name: selfName ?? '',
-            skills: discovery.index,
-          }),
-        },
-        { role: 'user', content: user },
-      ],
-      {
-        model: roleModel(config, 'analyzer', 'query-builder'),
-        ...roleRequestOptions(config, {
-          role: 'analyzer',
-          maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
-          purpose: 'query-builder',
-        }),
-        responseFormat: QUERY_PLAN_FORMAT,
-      }
-    );
-    if (String(completion?.text ?? '').trim())
-      parsed = parseQueryPlan(completion.text, {
-        timezone,
-        now: at,
-        maxForms: recallSettings(config)?.maxForms,
-        skillNames: discovery.names,
-      });
-    else trace.error = 'empty';
-  } catch (err: Untyped) {
-    trace.error = err?.name ?? 'classifier-failed';
-  }
-  let web = parsed?.web ?? null;
-  let server = parsed?.history ?? null;
-  if (!parsed) {
-    // The failed classifier's fallback: on a direct call, the server search on the question's own words.
-    const settings = recallSettings(config);
-    const plan =
-      serverOn && DIRECT_CALL_KINDS.includes(triggerKind) && settings?.fallbackOnClassifierFailure
-        ? fallbackLookupPlan({
-            text: triggerText,
-            profiles: store.listUserProfiles?.() ?? [],
-            selfId,
-            selfName,
-            maxForms: settings.maxForms,
-          })
-        : null;
-    if (!plan) return done(null);
-    trace.fallback = true;
-    web = null;
-    server = plan;
-  }
-  trace.web = web;
-  trace.server = server;
-  const runWeb = webCan && Boolean(web);
-  const runServer = serverOn && Boolean(server);
-  trace.webRan = runWeb;
-  trace.serverRan = runServer;
-  const settle = (work: Untyped) =>
-    Promise.resolve()
-      .then(work)
-      .catch(() => null);
-  const [webResult, found]: Array<Untyped> = await Promise.all([
-    runWeb ? settle(() => lookup.search(placeId, web)) : null,
-    runServer
-      ? settle(() =>
-          recall.run({
-            guild,
-            placeId,
-            channel,
-            selfId,
-            selfName,
-            history,
-            context: history,
-            contextDescriptions: descriptions,
-            candidate: trigger,
-            server,
-          })
-        )
-      : null,
-  ]);
-  trace.webFound = Boolean(webResult?.text);
-  const serverPart =
-    found && (found.text || found.stretch)
-      ? {
-          text: found.text ?? null,
-          stretch: found.stretch ?? null,
-          people: Array.isArray(found.people) ? found.people : [],
-        }
-      : null;
-  trace.serverFound = Boolean(serverPart);
-  const result = serverPart ? { ...(webResult ?? {}), server: serverPart } : (webResult ?? null);
-  return done(result, parsed?.skills ?? null);
-}
-
 /**
  * Whether the replay's requests go out without the prompt-cache marker: the splitter and the recall run, one sample
  * outside a scenario file, or `--no-cache`. The trigger runs (`--pair-transport`, `--loop-triggers`) are marked like a
@@ -6411,7 +6207,7 @@ function answerOut(answer: Untyped) {
  * archive and vector index iterated only; with features.meaningSearch on, the embedder on the
  * embedding role's key, off the daily counter), the describer's cached captions only.
  */
-async function loopDepsOf({
+export async function loopDepsOf({
   load,
   hot,
   store,
@@ -6424,7 +6220,7 @@ async function loopDepsOf({
   turnMod,
   coreOn,
   log = null,
-}: Rec) {
+}: Rec): Promise<Rec> {
   const { createLookup } = await load('web/lookup.ts');
   const { createBraveSearch } = await load('web/brave.ts');
   const { createExaSearch } = await load('web/exa.ts');
@@ -6472,27 +6268,9 @@ async function loopDepsOf({
         }
       : null;
   const { transportOf } = await load('tools/tool-calls.ts');
-  const { skillsIndex } = await load('tools/discovery.ts');
   // The automatic memory prefetch a live turn with the tool loop runs (absent from an older engine: none).
   const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.ts').catch(() => ({}));
-  // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
-  const { fillPromptTemplate } = await load('behavior/prompt.ts');
   const { recallSettings } = await load('behavior/recall.ts');
-  const { parseQueryPlan, QUERY_PLAN_FORMAT } = await load('behavior/query-builder.ts');
-  const { zonedDay } = await load('time.ts');
-  const { roleModel } = await load('llm/roles.ts');
-  const { roleRequestOptions } = await load('llm/openrouter.ts');
-  const preTurnDeps = {
-    lookupClassifierInput: turnMod.lookupClassifierInput,
-    fallbackLookupPlan: turnMod.fallbackLookupPlan,
-    fillPromptTemplate,
-    zonedDay,
-    roleModel,
-    roleRequestOptions,
-    parseQueryPlan,
-    QUERY_PLAN_FORMAT,
-    recallSettings,
-  };
   const { createAppendStore } = await load('memory/append-store.ts');
   const { createRecord } = await load('memory/record.ts');
   const { createArchive } = await load('memory/archive.ts');
@@ -6511,8 +6289,6 @@ async function loopDepsOf({
     createRecord,
     createArchive,
     createVectors,
-    skillsIndex,
-    ...preTurnDeps,
   };
   for (const [name, fn] of Object.entries(fns))
     if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (the tool loop needs it)`);
@@ -6557,13 +6333,6 @@ async function loopDepsOf({
     // Her own tools stand in for the pre-reply classifiers in every loop run, so `coreOn` is true whenever the loop runs.
     coreOn,
     loopSettings: turnMod.loopSettings,
-    preTurnDeps,
-    // The search classifier's `{{skills}}` and the names its `skills:` line may give (src/behavior/turn.js#discoveryPrompt):
-    // the registry without her in-turn tools, never offered to a classifier.
-    discoveryOf: (config: Rec, registry: Untyped, texts: Untyped) => {
-      const offered = new Map<Untyped, Untyped>([...registry].filter(([name]) => !IN_TURN_TOOLS.includes(name)));
-      return { index: skillsIndex(offered, texts), names: [...offered.keys()] };
-    },
     toolsFor: ({ hot: sideHot, channel, llm }: Rec) =>
       createReplayTools({
         hot: sideHot,

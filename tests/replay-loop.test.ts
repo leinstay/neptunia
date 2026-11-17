@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import {
@@ -21,25 +22,15 @@ import {
 } from '../src/tools/tools.ts';
 import { runConversationRead, fetchSpan, recordMessages } from '../src/tools/conversation-read.ts';
 import { pullPictures } from '../src/behavior/pull.ts';
-import {
-  callViewOf,
-  searchHandles,
-  fallbackLookupPlan,
-  loopSettings,
-  lookupClassifierInput,
-  requesterOf,
-} from '../src/behavior/turn.ts';
+import { callViewOf, searchHandles, loopSettings, requesterOf } from '../src/behavior/turn.ts';
 import { transportOf } from '../src/tools/tool-calls.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { createImageGen } from '../src/llm/images.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 import { fill } from '../src/format.ts';
-import { fillPromptTemplate } from '../src/behavior/prompt.ts';
 import { recallSettings } from '../src/behavior/recall.ts';
-import { parseQueryPlan } from '../src/behavior/query-builder.ts';
-import { zonedDay } from '../src/time.ts';
-import { roleModel } from '../src/llm/roles.ts';
-import { cacheTtlFor, roleRequestOptions, withCacheMarker } from '../src/llm/openrouter.ts';
+import { cacheTtlFor, withCacheMarker } from '../src/llm/openrouter.ts';
 import * as sandbox from '../src/behavior/sandbox.ts';
 import {
   afterScenarioTurn,
@@ -54,12 +45,13 @@ import {
 import {
   createReplayTools,
   loopCall,
+  loopDepsOf,
+  loadRecallMods,
   loopRecord,
   loopRequestEstimate,
   pairAnswerOf,
   parseArgs,
   parseScenarios,
-  preTurnLookup,
   renderLoopTriggersReport,
   renderSkillsReport,
   guildListing,
@@ -1098,120 +1090,6 @@ test("renderLoopTriggersReport: a table of the turns, then each turn's calls and
   assert.ok(report.includes('calls in order: 0:web.search ok') && report.includes('speech held (not posted):'));
 });
 
-// ---- the search classifier before her reply (the replay's pre-turn path) ----
-
-const PRE_DEPS = {
-  lookupClassifierInput,
-  fallbackLookupPlan,
-  fillPromptTemplate,
-  zonedDay,
-  roleModel,
-  roleRequestOptions,
-  parseQueryPlan,
-  recallSettings,
-};
-
-/** One pre-turn path over fakes: the classifier answers `answer` (or throws), the searches answer as given. */
-async function preTurn({
-  answer,
-  web = { query: 'τελικός', text: 'Η Ana κέρδισε.', sources: [] },
-  found = { text: 'Είπε ναι.', stretch: null, people: [] },
-  kind = 'mention',
-  recallOn = true,
-  web: webSettings = null,
-}: Record<string, Untyped> = {}) {
-  const config = webSettings ? { ...toolConfig(), web: webSettings } : toolConfig();
-  const here = { id: HERE, name: 'γενικά' };
-  const trigger = scenarioTrigger({
-    text: 'Ποιος κέρδισε τον τελικό;',
-    authorId: OWNER,
-    authorName: 'Élodie',
-    channel: here,
-    selfId: SELF,
-    at: NOW,
-  });
-  const requests: Array<{ messages: Untyped; options: Untyped }> = [];
-  const ran = { web: [] as Array<Untyped>, server: [] as Array<Untyped> };
-  const llm = {
-    complete: async (messages: unknown, options: unknown) => {
-      requests.push({ messages, options });
-      if (answer instanceof Error) throw answer;
-      return { text: answer, usage: { prompt_tokens: 30, completion_tokens: 3 } };
-    },
-  };
-  const lookup = {
-    hasSearch: () => true,
-    webCapLeft: () => 3,
-    search: async (placeId: string, query: Untyped) => {
-      ran.web.push(query);
-      return web as unknown;
-    },
-  };
-  const recall = {
-    available: () => recallOn,
-    run: async (input: Untyped) => {
-      ran.server.push(input.server);
-      return found;
-    },
-  };
-  const out = await preTurnLookup({
-    config,
-    prompts: { 'query-builder': 'LOOKUP {{name}} {{today}} {{skills}}', labels },
-    llm,
-    lookup,
-    recall,
-    discovery: { index: 'SKILLS-INDEX', names: ['rule.add'] },
-    guild: {},
-    placeId: GUILD,
-    channel: fakeChannel(),
-    selfId: SELF,
-    selfName: 'Persona',
-    history: [trigger],
-    trigger,
-    triggerKind: kind,
-    at: NOW,
-    store: { listUserProfiles: () => [] },
-    deps: PRE_DEPS,
-  });
-  return { out, requests, ran };
-}
-
-test("preTurnLookup: the live classifier request; its web and server parts run and come back as the request's <lookup>; its skills: line is handed on", async () => {
-  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const { out, requests, ran } = await preTurn({
-    answer:
-      '{"web":"τελικός 2026","history":"τελικός","who":null,"when":null,"when_role":null,"recent":null,"skills":"inventory"}',
-  });
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].options.purpose, 'query-builder'); // plan 2026-11-04-cli-and-memory B4
-  assert.ok(
-    requests[0].messages[0].content.includes('SKILLS-INDEX') && requests[0].messages[0].content.includes('Persona')
-  );
-  assert.ok(requests[0].messages[1].content.includes('<candidate>\nÉlodie: Ποιος κέρδισε τον τελικό;'));
-  assert.deepEqual(ran.web, ['τελικός 2026']);
-  assert.equal(ran.server.length, 1);
-  assert.deepEqual([out.lookup.text, out.lookup.server.text], ['Η Ana κέρδισε.', 'Είπε ναι.']);
-  assert.equal(asRecord(out.skills)?.inventory, true);
-  assert.equal(out.recallAvailable, true);
-  assert.deepEqual(
-    [out.trace.asked, out.trace.webRan, out.trace.webFound, out.trace.serverRan, out.trace.serverFound],
-    [true, true, true, true, true]
-  );
-});
-
-test('preTurnLookup: none runs nothing; a failed classifier on a direct call falls back to the server search only; with no side able to run it is not asked', async () => {
-  const none = await preTurn({ answer: 'none' });
-  assert.equal(none.out.lookup, null);
-  assert.deepEqual([none.ran.web.length, none.ran.server.length], [0, 0]);
-  const failed = await preTurn({ answer: new Error('boom') });
-  const fallbackOn = asRecord(recallSettings(toolConfig())).fallbackOnClassifierFailure === true;
-  assert.equal(failed.out.trace.fallback, fallbackOn);
-  assert.equal(failed.ran.web.length, 0, 'never the web side');
-  // PR 7d: the web lookup switch is code; the web search setting closes the web side.
-  const closed = await preTurn({ answer: 'web: x', recallOn: false, web: { quickSearch: { enabled: false } } });
-  assert.deepEqual([closed.requests.length, closed.out.trace.asked, closed.out.lookup], [0, false, null]);
-});
-
 // PR 7d: her tools are code, so the request of the classifier path (<lookup>, the recall senses line) is gone.
 test('her request holds the tool lines and no <lookup>; requestBlocks names what it held', async () => {
   const { llm: onLlm } = await loopRun([`${THINK}<msg>ok</msg>`], { tool: () => okTool('x') });
@@ -1329,8 +1207,6 @@ async function triggerRun({ single, transport = null, answers, config = toolConf
     loopSettings,
     IN_TURN_TOOLS,
     transportOf,
-    discoveryOf: () => ({ index: '', names: [] }),
-    preTurnDeps: {},
   };
   const mods = {
     answerSkillScenario,
@@ -1754,4 +1630,34 @@ test('loopCall: a tool that throws logs one warning with its message', async () 
   });
   assert.equal(asRecord(await broken({ skill: 'conversation.read' }, {})).result.code, 'error');
   assert.deepEqual(warnings, [['replay: in-turn tool threw', { skill: 'conversation.read', error: 'boom' }]]);
+});
+
+test('the tool loop of --skills loads what it needs from the engine and asks for no pre-reply classifier', async () => {
+  const src = path.join(import.meta.dirname, '..', 'src');
+  const load = (rel: string) => import(pathToFileURL(path.join(src, rel)).href);
+  const dataDir = tempDir('nep-replay-loop-deps-');
+  memoryAt(dataDir);
+  const deps = await loopDepsOf({
+    load,
+    hot: { config: {}, prompts: {} },
+    store: {},
+    guild: { client: {} },
+    placeId: GUILD,
+    self: { id: SELF, name: 'Persona' },
+    dataDir,
+    mediaCache: null,
+    embeddingKey: null,
+    turnMod: await load('behavior/turn.ts'),
+    coreOn: true,
+  });
+  assert.equal(Object.hasOwn(deps, 'preTurnLookup'), false);
+});
+
+test('loadRecallMods: every engine part --recall names is there, the response format included', async () => {
+  // Bug: the query builder's response format is an object, the loader demands a function of every part, and
+  // --recall stops with "the engine has no QUERY_PLAN_FORMAT" before it reads a message.
+  const src = path.join(import.meta.dirname, '..', 'src');
+  const load = (rel: string) => import(pathToFileURL(path.join(src, rel)).href);
+  const mods = await loadRecallMods(load);
+  assert.equal(mods.QUERY_PLAN_FORMAT.name, 'query-plan');
 });

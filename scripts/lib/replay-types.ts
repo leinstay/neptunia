@@ -99,7 +99,6 @@ export type ToolRun = {
 
 /** The tools of a replay: the searches and recall over private copies, and the runs of the persona's tools. */
 export type ReplayTools = {
-  searchers(): { lookup: Untyped; recall: Untyped; client: Untyped; usage: Rec };
   recallAvailable(): boolean;
   prefetch(input?: Rec): Promise<Untyped>;
   run(skill: string, args: Rec, refs?: Rec): Promise<ToolRun>;

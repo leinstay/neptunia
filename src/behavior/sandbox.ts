@@ -178,6 +178,9 @@ export const SANDBOX_STORE_READS = Object.freeze([
   'getRecent',
   'getGifs',
   'mediaEntries',
+  // The stable names of custom emoji and stickers: a held name is read, a new one is issued in memory and stays
+  // unwritten over a memory handle with no writer, the one a replay reads (scripts/lib/memory-read.ts).
+  'nameMedia',
   // The addresses of src/memory/store-addresses.ts: each reads a row or spells an id, and writes nothing.
   'dmHomeOf',
   'placeOfChat',
