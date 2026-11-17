@@ -9,6 +9,6 @@ export const FORMAT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/turn/phases/response.ts',
     'default': true,
     'text':
-      'Remove em dashes and en dashes from `<msg>` texts before posting. Guillemets become `"`. Only `false` turns it off',
+      'Remove em dashes and en dashes from `<msg>` texts and from the text of her own `message.create` and `message.edit` calls before posting. Guillemets become `"`. Only `false` turns it off',
   },
 ];

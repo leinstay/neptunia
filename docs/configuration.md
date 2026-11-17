@@ -220,7 +220,7 @@ The chain of routes each model role runs on, the one place a role's key, harness
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `format.stripDashes` | boolean | `true` | Remove em dashes and en dashes from `<msg>` texts before posting. Guillemets become `"`. Only `false` turns it off | `src/turn/phases/response.ts` |
+| `format.stripDashes` | boolean | `true` | Remove em dashes and en dashes from `<msg>` texts and from the text of her own `message.create` and `message.edit` calls before posting. Guillemets become `"`. Only `false` turns it off | `src/turn/phases/response.ts` |
 
 ## humanizer
 

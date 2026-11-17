@@ -31,7 +31,7 @@ import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { hasThinkTag } from '../llm/parse.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { log } from '../log.ts';
-import { oneLine } from '../memory/clamp.ts';
+import { countDashes, oneLine, stripDashes } from '../memory/clamp.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { linksOfCalls, outcomeDetail } from '../tools/executors.ts';
@@ -90,6 +90,7 @@ export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
   };
   diary?: unknown;
   humanizer?: { enabled?: unknown } | null;
+  format?: { stripDashes?: unknown } | null;
 };
 
 /** The labels, as the tool round hands them on; the text functions read their own sections. */
@@ -705,6 +706,13 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           if (deciding) decisionPlanned = true;
           // coerceArgs answers an object for the object a normalized call carries.
           const args = coercion.args as Obj;
+          // format.stripDashes holds for the text of her own post or edit as for a <msg> (src/turn/phases/response.ts).
+          const writes = record.name === 'message.create' || record.name === 'message.edit';
+          if (writes && typeof args.text === 'string' && hot.config.format?.stripDashes !== false) {
+            const dashes = countDashes(args.text);
+            args.text = stripDashes(args.text);
+            if (dashes > 0) log.info('turn: dashes stripped', { channel: channel.id, count: dashes });
+          }
           // A post of her own goes through the humanizer as one message, one call at a time (docs/humanizer.md).
           if (record.name === 'message.create' && typeof args.text === 'string') {
             const speech = { messages: [{ text: args.text }], think: answer.parsed.think };

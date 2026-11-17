@@ -41,4 +41,4 @@ A failed or timed-out request of either role, a linter answer that is not the JS
 
 ## What it leaves alone
 
-Reactions, pictures, GIFs and every call other than `message.create` go out as she made them. The writer's text is not checked a second time. `format.stripDashes` holds for the writer's text as it holds for hers. The diary's link removal runs on her answer before the humanizer reads it.
+Reactions, pictures, GIFs and every call other than `message.create` go out as she made them. The writer's text is not checked a second time. `format.stripDashes` strips her own call's text before the humanizer reads it, as it strips a `<msg>`, and holds for the writer's text too. The diary's link removal runs on her answer before the humanizer reads it.
