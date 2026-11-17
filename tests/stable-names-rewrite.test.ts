@@ -475,7 +475,8 @@ test('leaves a confirmed line with a known emoji name and no link as typed and c
   media(db, 'm1', 'emoji', '901', 'pog');
   line(db, 'l1', 'typed :pog: by hand');
   const plan = planStableNamesRewrite(db, { confirmed: new Set(['l1']) });
-  assert.equal(plan.counts.left.plainText, 1);
+  const { left } = plan.counts;
+  assert.equal(left.plainText, 1);
   apply(handle, plan);
   assert.equal(textOf(db, 'l1'), 'typed :pog: by hand');
   assert.deepEqual(linksOf(db, 'l1'), []);
@@ -522,5 +523,6 @@ test('plans no change after an apply with a confirmed set and still counts the p
   const again = planStableNamesRewrite(db, { confirmed });
   assert.deepEqual(again.counts.tables, {});
   assert.deepEqual(again.issue, []);
-  assert.equal(again.counts.left.plainText, 1);
+  const { left } = again.counts;
+  assert.equal(left.plainText, 1);
 });
