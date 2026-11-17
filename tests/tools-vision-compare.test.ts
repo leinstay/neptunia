@@ -249,9 +249,10 @@ test('vision-compare describeOne: a picture goes through the live describer with
   assert.deepEqual(base.config, before);
 });
 
+// The owner on 2026-11-17: a GIF's answer is prose kept whole; the three labelled lines go.
 test('vision-compare describeOne: a GIF is watched on the video role, each call on counters of its own', async () => {
   const base = liveHot();
-  const llm = fakeLlm({ text: 'reaction: delight\naction: a dog spins\ntext: none' });
+  const llm = fakeLlm({ text: 'A dog spins.\nIt looks delighted.' });
   const videoFetcher = { fetchGif: async () => ({ ok: true, dataUrl: MP4, seconds: 3, bytes: 4 }) };
   const entry = parseMediaList([{ kind: 'gif', url: 'https://media.example.com/b.mp4' }]).items[0];
   const { result } = await withCapturedLogs(() =>
@@ -266,7 +267,7 @@ test('vision-compare describeOne: a GIF is watched on the video role, each call 
     } as unknown as Parameters<typeof describeOne>[0])
   );
   assert.equal(result.ok, true);
-  assert.equal(result.text, 'a dog spins');
+  assert.equal(result.text, 'A dog spins. It looks delighted.');
   assert.equal(result.mode, 'watched');
   assert.equal(llm.calls[0].options.model, 'cand/model');
   assert.equal(llm.calls[0].options.role, 'video');
