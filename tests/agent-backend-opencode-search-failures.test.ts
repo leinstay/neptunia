@@ -155,3 +155,73 @@ test('the engine puts the count on the task result of an opencode run', async ()
   assert.equal(outcome.result.text, ANSWER);
   assert.equal(outcome.result.searchFailures, 2);
 });
+
+const stepFinish = (part: Record<string, unknown>) =>
+  JSON.stringify({ type: 'step_finish', part: { type: 'step-finish', reason: 'stop', ...part } });
+
+/** Two model steps with invented counts and costs. */
+const STEPS = [
+  stepFinish({ tokens: { input: 7, output: 40, reasoning: 5, cache: { write: 1000, read: 0 } }, cost: 0.25 }),
+  text(ANSWER),
+  stepFinish({ tokens: { input: 2, output: 10, reasoning: 0, cache: { write: 30, read: 1000 } }, cost: 0.125 }),
+].join('\n');
+
+test('an opencode run sums the tokens, cached tokens, steps and dollars of its step_finish events', async () => {
+  // Catches: OpenCode runs recording zero usage, or the cache counts left out of the input.
+  const { base, backend } = backendOf('opencode', STEPS);
+  const result = await backend.run('find the release notes', OPTIONS(base));
+  assert.deepEqual(result.usage, { input: 2039, cached: 1000, output: 55, steps: 2, usd: 0.375 });
+});
+
+test('an opencode run with no step_finish event has no usage', async () => {
+  // Catches: a zero usage invented for a run that reported none.
+  const { base, backend } = backendOf('opencode', text(ANSWER));
+  const result = await backend.run('find the release notes', OPTIONS(base));
+  assert.equal(result.usage, undefined);
+});
+
+test('a step_finish with no cost and no tokens counts as zeros and still counts as a step', async () => {
+  // Catches: a partial event dropping the step or turning the sums into NaN.
+  const { base, backend } = backendOf('opencode', [stepFinish({}), text(ANSWER)].join('\n'));
+  const result = await backend.run('find the release notes', OPTIONS(base));
+  assert.deepEqual(result.usage, { input: 0, cached: 0, output: 0, steps: 1, usd: 0 });
+});
+
+test('the engine puts the dollars and steps of an opencode run on the task usage', async () => {
+  // Catches: the dollars stopping at the backend, so the errand record keeps usd 0.
+  const base = tempDir('nep-oc-usage-engine-');
+  const binary = path.join(base, 'fake-binary');
+  fs.writeFileSync(binary, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const prompt = path.join(base, 'agent.md');
+  fs.writeFileSync(prompt, 'You are an errand agent.');
+  const profile = {
+    name: 'scout',
+    agentId: 'errand-scout',
+    promptFiles: [prompt],
+    defaultLimits: { steps: 5, seconds: 30 },
+    defaultSearchProvider: 'exa',
+    sandbox: 'read-only',
+    unit: 'scout',
+  };
+  const engine = createAgentEngine({
+    profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
+    outDir: path.join(base, 'out'),
+    subharness: {
+      privateDir: path.join(base, 'private'),
+      denyDir: path.join(base, 'nosudo'),
+      hostEnv: { PATH: '/usr/bin' },
+      backendFactory: (name) => createBackend(name, { binary, spawnImpl: fakeSpawn(STEPS) }),
+    },
+  });
+  const task = {
+    id: 'u1',
+    goal: 'find the release notes',
+    context: {},
+    route: { backend: 'opencode', model: null, effort: null, mode: 'read' },
+    secrets: { openrouterKey: 'sk-or-v1-task-secret-0123456789' },
+  } as unknown as Task;
+  const outcome = await engine.run(task);
+  assert.equal(outcome.usage.usd, 0.375);
+  assert.equal(outcome.usage.steps, 2);
+  assert.equal(outcome.usage.input, 2039);
+});

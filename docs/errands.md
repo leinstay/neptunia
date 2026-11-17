@@ -108,6 +108,8 @@ A `claude` run prints `--output-format stream-json` with `--verbose`, one messag
 
 An `opencode` run prints `--format json`, one event per line. The answer is the text of its `text` events, one per line, and a run whose output holds no event keeps its printed text as the answer. Each `tool_use` event of the `websearch` tool whose `part.state.status` is `error`, such as Exa's rate limit, counts as one failed web search. The backend logs the count as `searchFailures` on the `agent-runner: backend run` line, without the query or the error text, and puts it on the task's `result.searchFailures`. The errand store keeps it, and the result she reads gains the line `labels.errands.result.searchFailed` with `{count}`, on a done errand and a failed one alike. A run with no failed search carries no count and no line.
 
+Each model step of an `opencode` run ends with a `step_finish` event that holds the step's tokens and its `cost` in US dollars, as the provider reported it. The run's usage is the sum over those events. Its input counts the fresh, cache-written and cache-read tokens, its output counts the output and reasoning tokens, its steps count the events, and its dollars are the sum of `cost`. A run with no `step_finish` event has no usage. A `claude` run takes its tokens and steps from its `result` line, a `codex` run gives only the number after `tokens used` as its output, and neither reports dollars, so their errands keep `usd` at 0. The errand store keeps the usage, and the agents' spend adds it up.
+
 ## Search from an errand
 
 The scout's search and the core's [quick search](keys.md#quick-search) have separate configuration. Implementation starts in [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) and [agent profiles](../agents/).
