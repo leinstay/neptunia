@@ -323,7 +323,7 @@ test('inner drain: a heartbeat that is due while a reply turn is in flight start
   clock.t = NOW + 181 * MINUTE_MS;
   await run.inner.tick();
   assert.deepEqual(
-    turns.calls.map((call: InnerTurnParams) => call.inner.wake.kind),
+    turns.calls.map(({ inner }: InnerTurnParams) => inner.wake.kind),
     ['heartbeat']
   );
 });

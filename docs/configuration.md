@@ -371,7 +371,7 @@ The settings of the `diary` service. A deployment keeps its own values under the
 | `diary.schedule` | string, null | `null` | Exact UTC slots of the diary, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/diary.ts` |
 | `diary.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
 | `diary.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
-| `diary.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running heartbeat or diary turn | `src/behavior/diary.ts` |
+| `diary.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/diary.ts` |
 | `diary.entries` | number | `150` | How many of her newest stored entries `<diary>` shows the planner, newest first | `src/turn/request/diary.ts` |
 | `diary.writerEntries` | number | `30` | How many of her newest stored entries `<diary>` shows the writer, newest first | `src/turn/request/diary.ts` |
 | `diary.openingsShown` | number | `5` | How many of her newest entries of the post's kind `<plan>` tells the writer how they opened. 0 shows none | `src/turn/request/diary.ts` |
