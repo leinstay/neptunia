@@ -22,6 +22,7 @@ test('limits: collects and lists', () => {
   assert.equal(limits.list()[0].lost, 312);
 });
 
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
 test('limits: an entry without a known kind is ignored; a lost amount that is not a number is null', () => {
   const limits = createLimits();
   limits.add({ kind: 'not-a-limit', where: 'x', lost: 1 });
@@ -38,7 +39,6 @@ test('limits: an entry without a known kind is ignored; a lost amount that is no
     'output-cap',
     'message-cut',
     'message-merge',
-    'preview-cut',
     'helper-timeout',
     'helper-fallback',
     'daily-cap',

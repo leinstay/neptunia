@@ -210,10 +210,11 @@ const MACHINE_LEAVES = new Set(['doctor', 'doctor.server', 'doctor.core', 'docto
 
 /** Every leaf of the table as a line, each required argument filled with its first choice or `1`. */
 function everyLine(): Array<string> {
+  // Changed: the role of `/model set` and `/model sources` has no choice list, since the agents on disk are roles too, so
+  // its word is the first model role.
+  const word = (one: CommandArg): string => one.choices?.[0] ?? (one.name === 'role' ? 'core' : '1');
   const filled = (args: ReadonlyArray<CommandArg>): Array<string> =>
-    args
-      .filter((one) => one.required)
-      .flatMap((one) => (one.flag === undefined ? [one.choices?.[0] ?? '1'] : [one.flag, one.choices?.[0] ?? '1']));
+    args.filter((one) => one.required).flatMap((one) => (one.flag === undefined ? [word(one)] : [one.flag, word(one)]));
   // The `/interfaces` family puts the interface before its command (owner's decision of 2026-11-11), which a line built
   // from the table's subcommand words cannot spell, so its lines are the spec's forms.
   return COMMANDS.flatMap((command) => {

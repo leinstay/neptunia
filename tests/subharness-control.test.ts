@@ -5,15 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  DEFAULT_MODES,
-  SUBHARNESS_AGENTS,
-  agentPaths,
-  setAgentMode,
-  setAgentModel,
-  statusText,
-  subharnessView,
-} from '../src/subharness/control.ts';
+import { agentPaths, setUnitMode, setAgentModel, statusText, subharnessView } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 import { readRouting } from '../src/subharness/routing.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
@@ -54,7 +46,8 @@ test('a store with no subharness section reads as off with the default modes', a
   assert.deepEqual(readRouting(dir).subharness.uses, {});
   const view = await subharnessView(dir);
   assert.equal(view.key, null);
-  assert.deepEqual(view.modes, DEFAULT_MODES);
+  // Changed: the modes belong to the units, `web` writing and `host` reading by default.
+  assert.deepEqual(view.modes, { web: 'write', host: 'read' });
   assert.equal(
     view.sources.some((one) => one.available),
     false
@@ -82,60 +75,57 @@ test('no result, log line or status text holds a key value', async () => {
   assert.equal(result.results[1]?.ok, false);
 });
 
-test('mode sets one agent and leaves the others at what they were', async () => {
-  // Bug: writing the whole modes map from defaults overwrites the other agents' choices.
+test('mode sets one unit and leaves the other at what it was', async () => {
+  // Bug: writing the whole modes map from defaults overwrites the other unit's choice.
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
-  await setAgentMode(dir, 'scout', 'read');
-  // Changed: the agent `dev` is gone (maintainer, 2026-11-16), so the server is the agent set.
-  const result = await setAgentMode(dir, 'server', 'sudo');
+  await setUnitMode(dir, 'web', 'read');
+  const result = await setUnitMode(dir, 'host', 'sudo');
   assert.equal(result.ok, true);
   assert.equal(result.changed, true);
-  assert.deepEqual((await subharnessView(dir)).modes, {
-    scout: 'read',
-    server: 'sudo',
-    // Changed: the watcher is gone (maintainer, 2026-11-16), so the view holds the two errand agents.
-  });
+  // Changed: a mode belongs to a unit, so the view holds the two units.
+  assert.deepEqual((await subharnessView(dir)).modes, { web: 'read', host: 'sudo' });
 });
 
 test('mode with no value reports the current mode and writes nothing', async () => {
   // Bug: an inspection (Hermes /approvals without an argument) changes the setting it was asked to show.
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
-  // Changed: the agent `dev` is gone (maintainer, 2026-11-16), so the scout, also `write` by default, is read.
-  const result = await setAgentMode(dir, 'scout');
+  const result = await setUnitMode(dir, 'web');
   assert.equal(result.ok, true);
   assert.equal(result.changed, false);
   assert.equal(result.mode, 'write');
   assert.deepEqual(readKeysFile(dir).subharness.modes, {});
 });
 
-test('an unknown agent or mode is refused and the file is not touched', async () => {
+test('an unknown unit or mode is refused and the file is not touched', async () => {
   // Bug: "root" or "thinker" is written into keys.json and read later as a mode no code maps to a flag.
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
-  assert.equal((await setAgentMode(dir, 'scout', 'root')).code, 'unknown-mode');
-  assert.equal((await setAgentMode(dir, 'editor', 'read')).code, 'unknown-agent');
+  assert.equal((await setUnitMode(dir, 'web', 'root')).code, 'unknown-mode');
+  // Changed: a mode is set per unit, so a name that is no unit is refused as such.
+  assert.equal((await setUnitMode(dir, 'scout', 'read')).code, 'unknown-unit');
   assert.deepEqual(readKeysFile(dir).subharness.modes, {});
 });
 
 test('a stored mode that is no mode reads as the default, never as an unsandboxed one', async () => {
   // Bug: a hand-edited or damaged value such as "root" is passed on and an agent runs with more than the owner gave it.
   const dir = tempDir('nep-subharness-');
-  // Changed: the agent `dev` is gone (maintainer, 2026-11-16), so the damaged value is the server's, default `read`.
-  writeKeysFile(dir, { subharness: { backend: 'codex', key: null, modes: { server: 'root', scout: 'sudo' } } });
+  // Changed: modes are stored per unit, so the damaged value is the host unit's, default `read`.
+  writeKeysFile(dir, { subharness: { backend: 'codex', key: null, modes: { host: 'root', web: 'sudo' } } });
   const view = await subharnessView(dir);
-  assert.equal(view.modes.server, 'read');
-  assert.equal(view.modes.scout, 'sudo');
+  assert.equal(view.modes.host, 'read');
+  assert.equal(view.modes.web, 'sudo');
 });
 
 test('the status text names the backend, the key name and every agent with its mode', async () => {
   // Bug: the status leaves out an agent, so a sudo mode is set and nobody sees it.
   // Changed: the status takes each agent's path, and opencode reads as a source by its seeded key.
   const { dir } = rig();
-  await setAgentMode(dir, 'server', 'sudo');
+  await setUnitMode(dir, 'host', 'sudo');
   const text = statusText(await subharnessView(dir), agentPaths(dir));
-  for (const word of ['opencode', ...SUBHARNESS_AGENTS, 'sudo']) assert.ok(text.includes(word), word);
+  for (const word of ['opencode', 'fetch', 'scout', 'code', 'server', 'host', 'sudo'])
+    assert.ok(text.includes(word), word);
 });
 
 // The one-reply check of `setAgentModel` goes out through the provider the owner pinned: OpenRouter's request body carries
@@ -211,7 +201,8 @@ test('the route of an agent is its backend, model, effort and mode as keys.json 
     subharness: {
       backends: ['codex', 'claude'],
       key: null,
-      modes: { scout: 'full' },
+      // Changed: a mode is stored per unit, and the scout runs in the `web` unit.
+      modes: { web: 'full' },
       models: { scout: 'claude-opus-5-5', server: 'gpt-6-sol' },
       efforts: { scout: 'high' },
       uses: { scout: 'claude' },

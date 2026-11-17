@@ -4722,7 +4722,8 @@ test('turn: a post that grew past 2000 characters is posted whole and the journa
   assert.equal(turn.limits.filter((limit: Untyped) => limit.kind === 'message-cut').length, 0);
 });
 
-test('turn: limits lists a preview cut', async () => {
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('turn: a text file over the preview bound reaches the request whole, and no preview cut is listed', async () => {
   const raw = rawMessage({
     id: 'm1',
     attachments: new Map([
@@ -4740,17 +4741,18 @@ test('turn: limits lists a preview cut', async () => {
   const fetchImpl = async (url: string) => ({
     ok: true,
     headers: { get: () => null },
-    // PR 7d: media.filePreviewChars is the constant 10000, so the long file is cut at that many characters.
+    // PR 7d: media.filePreviewChars is the constant 10000; the long file passes it.
     text: async () => (url.endsWith('notes.txt') ? 'é'.repeat(12000) : 'ένα'),
   });
   const { journal, lines } = journalOverMemory();
   const hot = fakeHot();
+  const llm = fakeLlm('<msg>ok</msg>');
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
     hot,
     store: fakeStore(),
-    llm: fakeLlm('<msg>ok</msg>'),
+    llm,
     calibrator: identityCalibrator(),
     client: fakeClient(),
     fetchImpl,
@@ -4762,7 +4764,12 @@ test('turn: limits lists a preview cut', async () => {
   const turn = lines.find(({ record }) => record.kind === 'turn')?.record;
   assert.deepEqual(
     turn.limits.filter((limit: Untyped) => limit.kind === 'preview-cut'),
-    [{ kind: 'preview-cut', where: 'm1', lost: 2000, detail: 't1' }]
+    []
+  );
+  const [first] = llm.calls;
+  assert.ok(
+    textOf(first[1].content).includes('é'.repeat(12000)),
+    'with no summarize-text prompt the summarizer keeps the file whole'
   );
 });
 

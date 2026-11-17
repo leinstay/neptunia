@@ -275,7 +275,9 @@ export function createTurnRunner({
   calibrator,
   rng = Math.random,
   describer = undefined,
+  describePicture = undefined,
   fetchImpl = fetch,
+  summarize = undefined,
   imageFetcher = createImageFetcher(),
   lookup = undefined,
   recall = null,
@@ -370,6 +372,7 @@ export function createTurnRunner({
     intentions,
     places,
     chatPlaces: () => frameReads?.chatPlaces?.() ?? [],
+    summarize,
   });
   const { turnContextOf, chatOf, messageOf, checkEffect } = inputs;
 
@@ -519,6 +522,7 @@ export function createTurnRunner({
     lastPostAt,
     diaryPictureGate: (config, channel, now) =>
       diaryPictureGate(config as Parameters<typeof diaryPictureGate>[0], channel, now),
+    ...(describePicture ? { describePicture } : {}),
   });
   const { emojiLookup, renderPost, settleAuthor, settles, diaryChannelName } = createSends({
     hot,
@@ -644,6 +648,7 @@ export function createTurnRunner({
     hot,
     store,
     lookup,
+    summarize,
     describer,
     recall,
     speech,
@@ -682,6 +687,7 @@ export function createTurnRunner({
     schedule,
     describer,
     fetchImpl,
+    summarize,
     lookup,
     images,
     emoji,

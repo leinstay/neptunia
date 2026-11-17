@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runAgent, sandboxOfMode } from '../src/subharness/run.ts';
 import type { AgentRun, RunDeps } from '../src/subharness/run.ts';
-import { setAgentMode, setAgentModel } from '../src/subharness/control.ts';
+import { setUnitMode, setAgentModel } from '../src/subharness/control.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import type { Backend, BackendResult, BackendRunOptions } from '../src/agent-runner/backend.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
@@ -113,7 +113,7 @@ test('a run goes to the stored backend with the sandbox of the default mode of i
 test("the owner's mode wins over the profile: server set to write runs workspace-write", async () => {
   // Bug: the profile's sandbox key overrides the mode, so "subharness mode server write" has no effect.
   const { deps, privateDir, seen } = rig({ backend: 'codex' });
-  await setAgentMode(privateDir, 'server', 'write');
+  await setUnitMode(privateDir, 'host', 'write');
   await runAgent(request('server'), deps);
   assert.equal(seen[0]?.options.sandbox, 'workspace-write');
 });
@@ -123,7 +123,7 @@ test('a mode change takes effect on the next run without a restart', async () =>
   // Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16).
   const { deps, privateDir, seen } = rig({ backend: 'codex' });
   await runAgent(request('scout'), deps);
-  await setAgentMode(privateDir, 'scout', 'sudo');
+  await setUnitMode(privateDir, 'web', 'sudo');
   await runAgent(request('scout'), deps);
   assert.deepEqual(
     seen.map((one) => one.options.sandbox),
@@ -131,14 +131,14 @@ test('a mode change takes effect on the next run without a restart', async () =>
   );
 });
 
-test('an agent the table does not list runs in read', async () => {
+test('a name that is no agent on disk does not run, whatever its source', async () => {
   // Bug: an unlisted agent falls through to an unsandboxed or writable mode.
-  // Changed: no first backend stands in for an agent nobody assigned, so the stranger's source is seeded.
+  // Changed: a mode belongs to the unit an agent's profile names, so a name with no profile has no mode and no run.
   const { deps, privateDir, seen } = rig({ backend: 'codex' });
   const stored = readKeysFile(privateDir);
   writeKeysFile(privateDir, { ...stored, subharness: { ...stored.subharness, uses: { stranger: 'codex' } } });
   await runAgent(request('stranger'), deps);
-  assert.equal(seen[0]?.options.sandbox, 'read-only');
+  assert.equal(seen.length, 0);
 });
 
 test('the brief, the cwd, the timeout, search, images and the signal reach the backend unchanged', async () => {
@@ -159,7 +159,7 @@ test('in read, write and full the PATH starts with a directory whose sudo refuse
   // Bug: an agent in write mode runs sudo through the host PATH, which the owner never allowed.
   for (const mode of ['read', 'write', 'full'] as const) {
     const { deps, privateDir, denyDir, seen } = rig({ backend: 'codex' });
-    await setAgentMode(privateDir, 'scout', mode);
+    await setUnitMode(privateDir, 'web', mode);
     await runAgent(request('scout'), deps);
     assert.equal(seen[0]?.options.env?.PATH, `${denyDir}:${HOST_PATH}`, mode);
   }
@@ -179,7 +179,7 @@ test('the sudo stand-in is an executable that exits non-zero with one line', asy
 test('in sudo the host PATH is passed as it is and no stand-in is written', async () => {
   // Bug: sudo mode still shadows sudo, so the agents the owner gave sudo cannot use it.
   const { deps, privateDir, denyDir, seen } = rig({ backend: 'codex' });
-  await setAgentMode(privateDir, 'scout', 'sudo');
+  await setUnitMode(privateDir, 'web', 'sudo');
   await runAgent(request('scout'), deps);
   const path = seen[0]?.options.env?.PATH;
   assert.ok(path === undefined || path === HOST_PATH);
@@ -190,13 +190,13 @@ test('a run in full or sudo writes one log line naming the agent and the mode, a
   // Bug: nothing shows who worked without a sandbox, or the log line carries the brief.
   const { deps, privateDir } = rig({ backend: 'codex' });
   // Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16), so the server takes sudo.
-  await setAgentMode(privateDir, 'server', 'sudo');
-  await setAgentMode(privateDir, 'scout', 'full');
+  await setUnitMode(privateDir, 'host', 'sudo');
+  await setUnitMode(privateDir, 'web', 'full');
   const { logs } = await withCapturedLogs(async () => {
     await runAgent(request('server'), deps);
     await runAgent(request('scout'), deps);
     // Changed: the watcher is gone (maintainer, 2026-11-16), so the sandboxed run is the scout's back in read.
-    await setAgentMode(privateDir, 'scout', 'read');
+    await setUnitMode(privateDir, 'web', 'read');
     await runAgent(request('scout'), deps);
   });
   const lines = logs.filter((line) => line.mode !== undefined);
@@ -213,7 +213,7 @@ test('a run in full or sudo writes one log line naming the agent and the mode, a
 test('the line is written even when the run fails', async () => {
   // Bug: the line is written after the run, so a crashing unsandboxed run leaves no trace.
   const { deps, privateDir } = rig({ backend: 'codex' });
-  await setAgentMode(privateDir, 'scout', 'sudo');
+  await setUnitMode(privateDir, 'web', 'sudo');
   const failing: RunDeps = {
     ...deps,
     backendFactory: (name) => ({ name, run: () => Promise.reject(new Error('boom')) }),

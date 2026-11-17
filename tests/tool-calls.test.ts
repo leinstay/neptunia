@@ -338,3 +338,21 @@ test('a text call named with a quote is refused, and the broken name opens no at
   const part = JSON.stringify(messages[1]?.content);
   assert.equal(part.includes('tool_id='), false, part);
 });
+
+// The owner, 2026-11-16 and 17: what her eyes saw of a picture she drew comes back in the call's result.
+const SEEN_LABELS = { tools: { result: { ok: 'OK:', seen: 'SEEN {description}', unseen: 'UNSEEN' } } };
+
+test('toolResultText: the description of a result follows its data, worded by labels.tools.result.seen', () => {
+  // Bug: the result keeps only `data.text`, and the description of the picture she drew never reaches her.
+  const text = toolResultText(
+    { status: 'ok', data: { text: 'posted', description: 'a laptop with its screen on the outside of the lid' } },
+    SEEN_LABELS
+  );
+  assert.equal(text, 'OK:\nposted\nSEEN a laptop with its screen on the outside of the lid');
+});
+
+test('toolResultText: a picture her eyes could not look at is told with labels.tools.result.unseen', () => {
+  // Bug: a failed look renders like a result with no description, and she assumes the picture came out as asked.
+  const text = toolResultText({ status: 'ok', data: { text: 'posted', descriptionFailed: true } }, SEEN_LABELS);
+  assert.equal(text, 'OK:\nposted\nUNSEEN');
+});

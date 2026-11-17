@@ -190,7 +190,8 @@ const doneTask = {
 };
 
 // The owner on 2026-11-16: an errand's goal in the block is kept whole; the limit of 120 is gone.
-test('errandsBlockText / errandResultText: every word from labels.errands; none without tasks or labels', () => {
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('errandsBlockText / errandResultText: every word from labels.errands; none without tasks or labels', async () => {
   const text = errandsBlockText([runningTask], labels, { now: NOW });
   const [header, line] = text.split('\n');
   assert.equal(header, labels.errands.header);
@@ -198,12 +199,14 @@ test('errandsBlockText / errandResultText: every word from labels.errands; none 
   assert.ok(line.includes(runningTask.goal.trim()), 'the goal is kept whole');
   assert.equal(errandsBlockText([], labels, { now: NOW }), '');
   assert.equal(errandsBlockText([runningTask], {}, { now: NOW }), '');
-  const result = errandResultText(doneTask as unknown as Parameters<typeof errandResultText>[0], labels, {
-    maxChars: 30,
-  }).split('\n');
+  const result = (
+    await errandResultText(doneTask as unknown as Parameters<typeof errandResultText>[0], labels, {
+      maxChars: 30,
+    })
+  ).split('\n');
   assert.equal(result[0], 'errand tab02 (scout) ended done: find a meme');
   assert.equal(result[1], labels.errands.result.text);
-  assert.ok(result[2].length <= 31, 'the result text cut to maxChars');
+  assert.equal(result[2], doneTask.result.text, 'without a summarizer the result text is kept whole');
   assert.deepEqual(result.slice(3), [
     'sources:',
     '1. https://example.org/board/1',
@@ -211,21 +214,78 @@ test('errandsBlockText / errandResultText: every word from labels.errands; none 
     'files:',
     'file:tab02/meme.png | image/png | 2048 bytes',
   ]);
-  const failed = errandResultText(
-    { ...doneTask, state: 'failed', error: 'withheld-path', result: null } as unknown as Parameters<
-      typeof errandResultText
-    >[0],
-    labels
+  const failed = (
+    await errandResultText(
+      { ...doneTask, state: 'failed', error: 'withheld-path', result: null } as unknown as Parameters<
+        typeof errandResultText
+      >[0],
+      labels
+    )
   ).split('\n');
   assert.deepEqual(failed, [
     'errand tab02 (scout) ended failed: find a meme',
     'no result text',
     'error: withheld-path',
   ]);
-  assert.equal(errandResultText(doneTask as unknown as Parameters<typeof errandResultText>[0], {}), '');
+  assert.equal(await errandResultText(doneTask as unknown as Parameters<typeof errandResultText>[0], {}), '');
 });
 
-test('errandsBlockText / errandResultText: expired files show the expired state word and no handle', () => {
+/** A fake summarizer: its calls in order, and `answer` for a text over the bound; a text within it comes back as it is. */
+function fakeSummarize(answer: string) {
+  const calls: Array<{ text: string; options: { maxChars: number; kind: 'text' } }> = [];
+  const summarize = (text: string, options: { maxChars: number; kind: 'text' }): Promise<string> => {
+    calls.push({ text, options });
+    return Promise.resolve(Array.from(text).length > options.maxChars ? answer : text);
+  };
+  return { calls, summarize };
+}
+
+const RETOLD = 'STAND-IN: a shorter retelling of the result follows.';
+const retoldLabels = {
+  ...labels,
+  errands: { ...labels.errands, result: { ...labels.errands.result, retold: RETOLD } },
+};
+const asErrand = (errand: unknown) => errand as Parameters<typeof errandResultText>[0];
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('errandResultText: a result over maxChars goes to summarize once and its summary stands in the block, told by result.retold', async () => {
+  // Catches: a long result cut with an ellipsis, or summarized without her being told it is a retelling.
+  const whole = `${doneTask.result.text} ${'More of what the agent found on the board. '.repeat(3)}`.trim();
+  const { calls, summarize } = fakeSummarize('A board post about cats and keyboards.');
+  const lines = (
+    await errandResultText(asErrand({ ...doneTask, result: { ...doneTask.result, text: whole } }), retoldLabels, {
+      maxChars: 60,
+      summarize,
+    })
+  ).split('\n');
+  assert.equal(calls.length, 1);
+  const [call] = calls;
+  assert.equal(call.text, whole, 'the whole result goes to the summarizer');
+  assert.deepEqual(call.options, { maxChars: 60, kind: 'text' });
+  assert.ok(lines.includes('A board post about cats and keyboards.'), JSON.stringify(lines));
+  assert.ok(lines.includes(RETOLD), 'the block says the result is retold');
+  assert.ok(!lines.some((line) => line.includes('More of what')), 'the long text itself is not shown');
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('errandResultText: a result within maxChars is shown as it is, with no result.retold line', async () => {
+  // Catches: a short result rewritten, or the retelling label printed for every result.
+  const { summarize } = fakeSummarize('never shown');
+  const lines = (await errandResultText(asErrand(doneTask), retoldLabels, { maxChars: 3000, summarize })).split('\n');
+  assert.equal(lines[2], doneTask.result.text);
+  assert.ok(!lines.includes(RETOLD));
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('errandResultText: a summary still over maxChars is shown whole', async () => {
+  // Catches: the summary itself cut at the bound.
+  const long = `${'A summary that runs past its bound. '.repeat(4)}end.`;
+  const { summarize } = fakeSummarize(long);
+  const lines = (await errandResultText(asErrand(doneTask), retoldLabels, { maxChars: 30, summarize })).split('\n');
+  assert.ok(lines.includes(long), JSON.stringify(lines));
+});
+
+test('errandsBlockText / errandResultText: expired files show the expired state word and no handle', async () => {
   const expired = { ...doneTask, filesExpired: true };
   const withWord = {
     ...labels,
@@ -236,7 +296,9 @@ test('errandsBlockText / errandResultText: expired files show the expired state 
       .split('\n')[1]
       .startsWith('tab02 | scout | done, files gone | 3 min')
   );
-  const result = errandResultText(expired as unknown as Parameters<typeof errandResultText>[0], withWord).split('\n');
+  const result = (await errandResultText(expired as unknown as Parameters<typeof errandResultText>[0], withWord)).split(
+    '\n'
+  );
   assert.equal(result[0], 'errand tab02 (scout) ended done, files gone: find a meme');
   assert.ok(
     !result.includes('files:') && !result.some((line) => line.startsWith('file:')),
@@ -247,35 +309,41 @@ test('errandsBlockText / errandResultText: expired files show the expired state 
     errandsBlockText([expired], labels, { now: NOW }).split('\n')[1].startsWith('tab02 | scout | done | 3 min')
   );
   assert.equal(
-    errandResultText(expired as unknown as Parameters<typeof errandResultText>[0], labels).split('\n')[0],
+    (await errandResultText(expired as unknown as Parameters<typeof errandResultText>[0], labels)).split('\n')[0],
     'errand tab02 (scout) ended done: find a meme'
   );
 });
 
-test('errandResultText: the withheld paths close the block in labels.errands.result.withheld; without the label, no line', () => {
+test('errandResultText: the withheld paths close the block in labels.errands.result.withheld; without the label, no line', async () => {
   const withheld = { ...doneTask, result: { ...doneTask.result, withheld: ['/etc/shadow', '/srv/app/.env'] } };
   const withLabel = {
     ...labels,
     errands: { ...labels.errands, result: { ...labels.errands.result, withheld: 'not readable here: {paths}' } },
   };
-  const lines = errandResultText(withheld as unknown as Parameters<typeof errandResultText>[0], withLabel).split('\n');
+  const lines = (
+    await errandResultText(withheld as unknown as Parameters<typeof errandResultText>[0], withLabel)
+  ).split('\n');
   assert.equal(lines.at(-1), 'not readable here: /etc/shadow, /srv/app/.env');
   assert.equal(lines.at(-2), 'file:tab02/meme.png | image/png | 2048 bytes', 'after the text and the files');
-  const without = errandResultText(withheld as unknown as Parameters<typeof errandResultText>[0], labels).split('\n');
+  const without = (await errandResultText(withheld as unknown as Parameters<typeof errandResultText>[0], labels)).split(
+    '\n'
+  );
   assert.equal(without.at(-1), 'file:tab02/meme.png | image/png | 2048 bytes');
   assert.equal(
-    errandResultText(doneTask as unknown as Parameters<typeof errandResultText>[0], withLabel),
-    errandResultText(doneTask as unknown as Parameters<typeof errandResultText>[0], labels),
+    await errandResultText(doneTask as unknown as Parameters<typeof errandResultText>[0], withLabel),
+    await errandResultText(doneTask as unknown as Parameters<typeof errandResultText>[0], labels),
     'no withheld path, no line'
   );
-  const failed = errandResultText(
-    {
-      ...withheld,
-      state: 'failed',
-      error: 'withheld-path',
-      result: { text: '', withheld: ['/etc/shadow'] },
-    } as unknown as Parameters<typeof errandResultText>[0],
-    withLabel
+  const failed = (
+    await errandResultText(
+      {
+        ...withheld,
+        state: 'failed',
+        error: 'withheld-path',
+        result: { text: '', withheld: ['/etc/shadow'] },
+      } as unknown as Parameters<typeof errandResultText>[0],
+      withLabel
+    )
   ).split('\n');
   assert.deepEqual(failed, [
     'errand tab02 (scout) ended failed: find a meme',
@@ -285,7 +353,7 @@ test('errandResultText: the withheld paths close the block in labels.errands.res
   ]);
 });
 
-test('errandResultText: the files the runner held back follow the withheld line in labels.errands.result.held, with no handle; without the label, no line', () => {
+test('errandResultText: the files the runner held back follow the withheld line in labels.errands.result.held, with no handle; without the label, no line', async () => {
   const held = {
     ...doneTask,
     result: { ...doneTask.result, withheld: ['/etc/shadow'], filesDropped: [{ name: 'x.env', reason: 'secret' }] },
@@ -297,23 +365,27 @@ test('errandResultText: the files the runner held back follow the withheld line 
       result: { ...labels.errands.result, withheld: 'not readable here: {paths}', held: 'not delivered: {names}' },
     },
   };
-  const lines = errandResultText(held as unknown as Parameters<typeof errandResultText>[0], withLabels).split('\n');
+  const lines = (await errandResultText(held as unknown as Parameters<typeof errandResultText>[0], withLabels)).split(
+    '\n'
+  );
   assert.deepEqual(lines.slice(-2), ['not readable here: /etc/shadow', 'not delivered: x.env']);
   assert.ok(!lines.some((line) => line.includes('file:tab02/x.env')), 'no handle for a held-back file');
   const names = { ...held, result: { ...held.result, filesDropped: ['x.env', 'id_rsa', '', 7] } };
   assert.equal(
-    errandResultText(names as unknown as Parameters<typeof errandResultText>[0], withLabels)
-      .split('\n')
-      .at(-1),
+    (await errandResultText(names as unknown as Parameters<typeof errandResultText>[0], withLabels)).split('\n').at(-1),
     'not delivered: x.env, id_rsa',
     'the record keeps names'
   );
   const noLabel = { ...labels, errands: { ...labels.errands, result: { ...labels.errands.result, held: undefined } } };
-  assert.ok(!errandResultText(held as unknown as Parameters<typeof errandResultText>[0], noLabel).includes('x.env'));
+  assert.ok(
+    !(await errandResultText(held as unknown as Parameters<typeof errandResultText>[0], noLabel)).includes('x.env')
+  );
   assert.equal(
-    errandResultText(
-      { ...held, result: { ...held.result, filesDropped: [] } } as unknown as Parameters<typeof errandResultText>[0],
-      withLabels
+    (
+      await errandResultText(
+        { ...held, result: { ...held.result, filesDropped: [] } } as unknown as Parameters<typeof errandResultText>[0],
+        withLabels
+      )
     )
       .split('\n')
       .at(-1),
@@ -383,6 +455,7 @@ test('<errands>: a finished errand she has not read is listed with its marker an
   assert.deepEqual(errands.read, []);
 });
 
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
 test('task turns: a finished errand opens her turn where it was asked, with <errand_result>, through the interface', async () => {
   const raw = rawMessage({ id: 'm1', content: 'βρες μου ένα meme' });
   fakeChannel({ historyMessages: [raw] });
@@ -424,7 +497,10 @@ test('task turns: a finished errand opens her turn where it was asked, with <err
     'the sources numbered'
   );
   assert.ok(text.includes('files:\nfile:tab02/meme.png | image/png | 2048 bytes'), 'the file as its handle');
-  assert.ok(!text.includes('posted this morning'), 'the text cut to errands.resultMaxChars');
+  assert.ok(
+    text.includes('posted this morning'),
+    'with no summarizer the result over errands.resultMaxChars is kept whole'
+  );
   assert.equal(text.includes('<errands>'), false, 'the errand of this turn is not listed twice');
   const sends = port.calls.filter((call) => call.op === 'send');
   assert.equal(sends.length, 1);

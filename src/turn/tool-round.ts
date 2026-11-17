@@ -12,6 +12,7 @@ import type { StepLabels } from '../behavior/tool-step.ts';
 import {
   appendStep,
   cutToFit,
+  squeezedLabel,
   deltaLines,
   giveWay,
   rescueRequest,
@@ -909,7 +910,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         const excessChars = Math.ceil(((cost(sent) - limit) * 3.5) / Math.max(0.1, calibrator.ratio));
         last = true;
         reason = LOOP_WHY.tokens;
-        sent = build(true, cutToFit(resultTexts, excessChars), base);
+        sent = build(true, cutToFit(resultTexts, excessChars, undefined, squeezedLabel(labels)), base);
         if (cost(sent) > limit) {
           log.warn('skills: loop cap', { channel: channel.id, reason, step, dropped: results.length });
           draft.loopCut = { reason, dropped: (draft.loopCut?.dropped ?? 0) + results.length };

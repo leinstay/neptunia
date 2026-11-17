@@ -33,7 +33,7 @@ import { emptyKeys, writeKeys } from '../keys/file.ts';
 import { CLI_CLIENT, provisionClients } from './clients.ts';
 import { interfacesStep } from './interfaces.ts';
 import { servicesStep } from './services.ts';
-import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
+import { installUnits, removeRetiredUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
 import { mechanicsStep } from './mechanics.ts';
 import { subharnessStep } from './subharness.ts';
@@ -189,6 +189,8 @@ async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcom
   } catch (err) {
     return failed(`the clients cannot be written: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`);
   }
+  const retired = await removeRetiredUnits(options, (command, args) => deps.run(command, args));
+  if (!retired.ok) return failed(retired.reason);
   const result = await installUnits(options, (command, args) => deps.run(command, args), UNIT_FILES);
   if (!result.ok) return failed(result.reason);
   const where = unitDirOf(options);
@@ -198,8 +200,10 @@ async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcom
     result.written.length === 0
       ? `${UNIT_FILES.length} units are in ${where}`
       : `${result.written.length} units written to ${where}`;
-  const detail = `${units}${made}${there}`;
-  return result.written.length === 0 && clients.made.length === 0 ? already(detail) : done(detail);
+  const gone = retired.removed.length === 0 ? '' : `; removed ${retired.removed.join(', ')}`;
+  const detail = `${units}${gone}${made}${there}`;
+  const changed = result.written.length > 0 || retired.removed.length > 0 || clients.made.length > 0;
+  return changed ? done(detail) : already(detail);
 }
 
 async function lingerStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {

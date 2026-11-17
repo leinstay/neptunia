@@ -1141,6 +1141,29 @@ test('formatTranscript: reads appends linkRead after the link tag and its other 
   );
 });
 
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('formatTranscript: a read excerpt longer than the excerpt bound renders whole in linkRead', () => {
+  // Catches: the transcript cutting again what the lookup already summarized or kept whole.
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const excerpt = `${'une recette simple et longue, '.repeat(50)}fin`;
+  const messages = [
+    msg('a', t0, {
+      content: 'regarde',
+      links: [{ id: 'a#e0', kind: 'link', site: 'example.org', title: 'Crêpes', url: 'https://example.org/c' }],
+    }),
+  ];
+  const items = formatTranscript(messages, {
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100_000,
+    selfName: 'Nept',
+    labels,
+    reads: new Map([['a#e0', excerpt]]),
+  });
+  const [{ text }] = items;
+  assert.ok(text.includes(`[page read: ${excerpt}]`), text);
+});
+
 // --- formatTranscript: reactions ---------------------------------------
 
 function reactionTranscript(messages: Array<Record<string, Untyped>>, extra = {}) {

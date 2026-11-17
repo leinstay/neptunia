@@ -9,7 +9,7 @@
 //   neptunia -p "<text>" [--attach <file>]...    one turn with the persona, with images; her reply on stdout
 //   neptunia doctor [live] [--json]              the checks of the installation, with the core up or down
 //   neptunia doctor server|core|memory           one read of the running core, which answers it
-//   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
+//   neptunia errand-runner --unit <web|host>     the errand runner of one unit (deploy/neptunia-agent-<unit>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia services list                       the two scheduled mechanics (src/service/commands.ts)
 //   neptunia services <name> setup|enable|disable|status   one of them
@@ -59,8 +59,8 @@
 // key or token value is ever printed.
 //
 // `errand-runner` reads config.json and, when its user can read it, the local layer's config/config.json, takes the socket
-// and the output folder from `agents.<name>.socket` and `.out` (src/agent-runner/profiles.ts#agentSettings), and serves
-// the agent's tasks (src/agent-runner/server.ts). On SIGTERM it ends open tasks and exits 0.
+// and the output folder of its unit (src/agent-runner/profiles.ts#unitPaths), and serves the tasks of every agent whose
+// profile names the unit (src/agent-runner/server.ts). On SIGTERM it ends open tasks and exits 0.
 //
 // `interface run` loads `<dir>/<name>/index.ts` or `index.js` (the default dir is the checkout's `interfaces/`), reads
 // the client's token from `<private>/clients/<name>.token`, connects to the core's socket and calls the package's
@@ -85,7 +85,8 @@ import { interfacePackageDir, interfacePackageNames } from '../src/config/files.
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
 import { createAgentEngine } from '../src/agent-runner/backend.ts';
-import { agentSettings, profileOf, refusedAgents } from '../src/agent-runner/profiles.ts';
+import { UNITS, agentSettings, listAgents, loadProfiles, profileOf, unitPaths } from '../src/agent-runner/profiles.ts';
+import type { Profile, UnitName } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { spawnRun } from '../src/setup/install.ts';
@@ -172,7 +173,7 @@ const USAGE = [
   '       neptunia -p "<text>" [--attach <file>]...   one turn with the persona, her reply on stdout',
   '       neptunia doctor [live] [--json]',
   '       neptunia doctor server|core|memory',
-  '       neptunia errand-runner --profile <name>',
+  '       neptunia errand-runner --unit <web|host>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia services list',
   '       neptunia services <name> setup|enable|disable|status   (heartbeat, diary)',
@@ -992,15 +993,8 @@ const NODE_MAJOR = 26;
 
 function checkAgents(where: { rootDir: string; dataDir: string }): Check {
   try {
-    const refused = refusedAgents({ rootDir: where.rootDir, dataDir: where.dataDir });
-    if (refused.length === 0)
-      return { name: 'agents', status: 'ok', detail: 'every agent folder names a shared agent' };
-    const named = refused.map((entry) => `${entry.name} (${entry.code})`).join(', ');
-    return {
-      name: 'agents',
-      status: 'warn',
-      detail: `data/agents holds a folder with no shared agent, refused: ${named}`,
-    };
+    const count = listAgents({ rootDir: where.rootDir, dataDir: where.dataDir }).length;
+    return { name: 'agents', status: 'ok', detail: `${count} agent profiles load` };
   } catch (err) {
     return { name: 'agents', status: 'fail', detail: (err as Error).message };
   }
@@ -1251,19 +1245,18 @@ async function runDoctor(argv: ReadonlyArray<string>): Promise<void> {
 // errand-runner
 // ---------------------------------------------------------------------------------------------------------------
 
-/** `--profile <name>`, the one flag of `errand-runner`. */
-function profileFlag(argv: ReadonlyArray<string>): string {
+/** `--unit <web|host>`, the one flag of `errand-runner`. */
+function unitFlag(argv: ReadonlyArray<string>): UnitName {
   const [flag, name, ...rest] = argv;
-  if (flag !== '--profile' || name === undefined || rest.length > 0) usage();
-  return name;
+  const unit = UNITS.find((one) => one === name);
+  if (flag !== '--unit' || unit === undefined || rest.length > 0) usage();
+  return unit;
 }
 
 async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
-  const name = profileFlag(argv);
+  const unit = unitFlag(argv);
   const where = paths();
   const agentPaths = { rootDir: where.rootDir, dataDir: where.dataDir, env: process.env };
-  const profile = profileOf(name, agentPaths);
-  if (profile === null) die(`unknown profile: ${name} (expected scout or server)`);
   // config/config.json, then the private settings file when this user can read it: the runner's user may not read the
   // local layer.
   const localFile = localConfigPath(where.privateDir);
@@ -1271,11 +1264,7 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   const read = (): Settings => files.read();
   let config = read();
   const errands = isObject(config.errands) ? config.errands : {};
-  const settings = agentSettings(name, config, agentPaths);
-  const socketPath = typeof settings?.socket === 'string' ? settings.socket : '';
-  const outDir = typeof settings?.out === 'string' ? settings.out : '';
-  if (socketPath === '') die(`no socket for ${name}: set agents.${name}.socket`);
-  if (outDir === '') die(`no output folder for ${name}: set agents.${name}.out`);
+  const { socket: socketPath, out: outDir } = unitPaths(unit, process.env);
   const opencodePath = typeof errands.opencodePath === 'string' ? errands.opencodePath : DEFAULT_OPENCODE_PATH;
   fs.mkdirSync(outDir, { recursive: true });
   // The config as of each task (for the model role); the last readable one while the files are mid-edit.
@@ -1283,33 +1272,37 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
     try {
       config = read();
     } catch (err) {
-      log.warn('agent-runner: config reload failed', { profile: name, reason: (err as Error).name });
+      log.warn('agent-runner: config reload failed', { unit, reason: (err as Error).name });
     }
     return config;
   };
-  const engine = createAgentEngine({
-    agentPaths,
-    profile,
-    outDir,
-    env: process.env,
-    opencodePath,
-    getConfig: currentConfig,
-    // Every task runs through the subharness: the owner's backend and the mode of this agent, read at each task.
-    subharness: { privateDir: where.privateDir, denyDir: defaultDenyDir() },
-  });
+  /** The engine of one agent of this unit: every task runs through the subharness, the owner's route of the agent. */
+  const engineOf = (profile: Profile) =>
+    createAgentEngine({
+      agentPaths,
+      profile,
+      outDir,
+      env: process.env,
+      opencodePath,
+      getConfig: currentConfig,
+      subharness: { privateDir: where.privateDir, denyDir: defaultDenyDir() },
+    });
+  const served = Object.values(loadProfiles(agentPaths)).filter((profile) => profile.unit === unit);
   try {
-    engine.checkPrompt();
+    for (const profile of served) engineOf(profile).checkPrompt();
   } catch (err) {
     die((err as Error).message);
   }
   const runner = {
     run(task: RunnerTask) {
       const config = currentConfig();
-      const profile = profileOf(name, agentPaths);
-      if (!profile) throw new Error('the worker profile is unavailable');
-      const settings = agentSettings(name, config, agentPaths);
+      const profile = profileOf(task.agent, agentPaths);
+      // A run for an agent of another unit, or one that left the disk, is refused before anything starts.
+      if (!profile || profile.unit !== unit)
+        return Promise.resolve({ status: 'failed', result: {}, usage: {}, error: 'unknown-agent' });
+      const settings = agentSettings(task.agent, config, agentPaths);
       const errands = isObject(config.errands) ? config.errands : {};
-      return engine.run({
+      return engineOf(profile).run({
         ...task,
         limits: {
           ...profile.defaultLimits,
@@ -1318,19 +1311,24 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
           ...task.limits,
         },
         cost: task.cost ?? settings?.cost,
-        searchProvider: task.searchProvider ?? settings?.searchProvider,
       });
     },
   };
-  const server = createRunnerServer({ profile: name, runner, socketPath }) as {
+  const server = createRunnerServer({ unit, runner, socketPath }) as {
     start(): Promise<void>;
     stop(): Promise<void>;
     liveIds(): Array<string>;
   };
   await server.start();
-  log.info('agent-runner: ready', { profile: name, socket: socketPath, out: outDir, opencode: opencodePath });
+  log.info('agent-runner: ready', {
+    unit,
+    agents: served.map((profile) => profile.name),
+    socket: socketPath,
+    out: outDir,
+    opencode: opencodePath,
+  });
   const sweeper = startSweeper({
-    profile: name,
+    unit,
     outDir,
     keepHours: () =>
       isObject(currentConfig().errands) ? (currentConfig().errands as Settings).keepFilesHours : undefined,
@@ -1340,7 +1338,7 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     if (stopping) return;
     stopping = true;
-    log.info('agent-runner: shutting down', { profile: name, signal });
+    log.info('agent-runner: shutting down', { unit, signal });
     sweeper.stop();
     await server.stop();
     process.exit(0);

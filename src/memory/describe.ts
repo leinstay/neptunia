@@ -472,7 +472,7 @@ type DescriberDeps = {
 /** An attached GIF whose address is read again: the place it is described in and the message it came with. */
 export type AttachedGif = MediaItem & { placeId: string; messageId?: string };
 
-/** A text file's opening, over plain HTTP. */
+/** A text file's whole text, over plain HTTP; `readTextFile` retells one over `TEXT_FORM_CHARS`. */
 async function readTextForm(url: string): Promise<{ ok: boolean; text?: string; reason?: string }> {
   const text = await fetchTextPreview(url, TEXT_FORM_CHARS);
   return text === null ? { ok: false, reason: 'download' } : { ok: true, text };
@@ -678,10 +678,8 @@ function buildDescriber({
     if (isAudioItem(item)) return hearAudio(audioDeps(placeId), item);
     if (item.kind === 'text') return readTextFile(audioDeps(placeId), item);
     if (watchedAsGif(item)) return describeGif(placeId, item, previous);
-    const promptText = hot.prompts?.describe;
-    if (!promptText) return null;
-    const mediaCfg = hot.config.media ?? {};
-    const descriptionChars = DESCRIPTION_CHARS;
+    const promptText: unknown = hot.prompts?.describe;
+    if (typeof promptText !== 'string' || !promptText) return null;
 
     const keepPrevious = (mark: boolean) => keptCaption(placeId, item, previous, mark);
 
@@ -698,15 +696,41 @@ function buildDescriber({
     };
 
     const visionCfg = hot.config.context?.vision ?? {};
-    const downloaded = await imageFetcher.fetchAsDataUrl(imageUrl, {
+    // src/media/fetch-image.ts answers the picture as a data URL, null on a failure.
+    const downloaded = (await imageFetcher.fetchAsDataUrl(imageUrl, {
       maxBytes: VISION_MAX_BYTES,
       timeoutMs: visionCfg.fetchTimeoutMs,
-    });
+    })) as { dataUrl: string } | null;
     if (!downloaded) {
       log.warn('describe: failed', { kind: item.kind, reason: 'download' });
       return fail();
     }
 
+    const captioned = await captionPicture(placeId, downloaded.dataUrl, promptText, item.kind);
+    // A refusal by the daily cap says nothing about the picture: described after the reset.
+    if ('failed' in captioned) return fail(captioned.failed !== 'daily-cap');
+    const { text, usage, estimated, model, marks } = captioned;
+    const ts = now();
+    store.putMediaEntry(placeId, item.itemId, { text, ts, describedAt: ts, model, ...marks });
+    return { text, usage, estimated };
+  }
+
+  /**
+   * One picture's caption from the vision model: the describe prompt (`{{self}}` her paragraph for `placeId`) over the
+   * picture at `dataUrl`, brought to the English standard and summarized past DESCRIPTION_CHARS. Caches nothing; a
+   * failure is `{ failed }` with its reason (`daily-cap` for a refusal by `llm.maxRequestsPerDay`).
+   */
+  async function captionPicture(
+    placeId: string,
+    dataUrl: string,
+    promptText: string,
+    kind: string
+  ): Promise<
+    | { text: string; usage: Untyped; estimated: number; model: string | undefined; marks: StandardMarks }
+    | { failed: string }
+  > {
+    const mediaCfg = hot.config.media ?? {};
+    const descriptionChars = DESCRIPTION_CHARS;
     const model = roleModel(hot.config, 'vision', 'describe');
     const ask = (): Promise<Answered> =>
       llm.complete(
@@ -721,7 +745,7 @@ function buildDescriber({
               .replace(/(?:\r?\n){3,}/g, '\n\n')
               .trim(),
           },
-          { role: 'user', content: [{ type: 'image_url', image_url: { url: downloaded.dataUrl } }] },
+          { role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }] },
         ],
         // An in-turn `vision` request (llm.analyzerTimeoutMs, counted, never calibrated: the
         // rail estimates the picture at a flat context.vision.tokensPerImage while
@@ -741,13 +765,12 @@ function buildDescriber({
     } catch (err) {
       const reason = requestFailureReason(err);
       log.warn('describe: failed', {
-        kind: item.kind,
+        kind,
         reason,
         status: propOf(err, 'statusCode'),
         detail: safeDetail(propOf(err, 'message')),
       });
-      // A refusal by the daily cap says nothing about the picture: described after the reset.
-      return fail(reason !== 'daily-cap');
+      return { failed: reason };
     }
 
     // The whole answer on one line.
@@ -755,8 +778,8 @@ function buildDescriber({
     const firstCaption = captionOf(completion);
 
     if (!firstCaption) {
-      log.warn('describe: failed', { kind: item.kind, reason: 'empty' });
-      return fail();
+      log.warn('describe: failed', { kind, reason: 'empty' });
+      return { failed: 'empty' };
     }
 
     let estimated = completion.estimated ?? 0;
@@ -772,9 +795,18 @@ function buildDescriber({
     );
     const text = await shorten(standard.answer.text, descriptionChars, 'picture');
 
-    const ts = now();
-    store.putMediaEntry(placeId, item.itemId, { text, ts, describedAt: ts, model, ...standard.marks });
-    return { text, usage: standard.answer.usage ?? null, estimated };
+    return { text, usage: standard.answer.usage ?? null, estimated, model, marks: standard.marks };
+  }
+
+  /**
+   * The caption of a picture that has no message yet, from its `data:` address (a diary picture she staged): one
+   * request, nothing cached, null on any failure, with pictures off or with `llm.maxRequestsPerDay` spent.
+   */
+  async function describeDataUrl(placeId: string, dataUrl: string): Promise<string | null> {
+    const promptText: unknown = hot.prompts?.describe;
+    if (!picturesOn() || typeof promptText !== 'string' || !promptText || capSpent()) return null;
+    const captioned = await captionPicture(placeId, dataUrl, promptText, 'image');
+    return 'failed' in captioned ? null : captioned.text;
   }
 
   /** The old caption of `item` kept on a failure, its entry stamped `refreshFailedAt` when `mark` is set. */
@@ -1815,6 +1847,7 @@ function buildDescriber({
   return {
     describe: ((...args) => track('describe', () => describe(...args))) as typeof describe,
     pictureBlocker: () => pictureBlockerOf(hot),
+    describeDataUrl: ((...args) => track('describe.data', () => describeDataUrl(...args))) as typeof describeDataUrl,
     describeMany: ((...args) => track('describe.many', () => describeMany(...args))) as typeof describeMany,
     cachedDescriptions,
     describeVideo,
@@ -1831,6 +1864,22 @@ function buildDescriber({
 }
 
 export type Describer = ReturnType<typeof buildDescriber>;
+
+/**
+ * What the describer sees on a picture she drew (src/turn/draw-gif.ts), from its bytes as a `data:` address: a posted
+ * one through describe() as the attachment it became (`itemId`), so its caption is cached under it; one with no
+ * message yet through describeDataUrl, caching nothing. Null with no bytes or no caption.
+ */
+export async function describeDrawn(
+  describer: Pick<Describer, 'describe' | 'describeDataUrl'>,
+  picture: { placeId: string; itemId?: string; buffer?: Buffer; mediaType?: string }
+): Promise<string | null> {
+  // The image client answers a picture without bytes when its provider sent none.
+  if (!picture.buffer || !picture.mediaType) return null;
+  const url = `data:${picture.mediaType};base64,${picture.buffer.toString('base64')}`;
+  if (!picture.itemId) return describer.describeDataUrl(picture.placeId, url);
+  return (await describer.describe(picture.placeId, { itemId: picture.itemId, kind: 'image', url }))?.text ?? null;
+}
 
 /**
  * @param deps.hot     Live config + prompts; read at the moment of use.

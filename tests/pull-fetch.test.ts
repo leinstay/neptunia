@@ -47,7 +47,7 @@ function config({
       },
     },
     elsewhere: { settleSeconds: 90, settleMaxSeconds: 300, rememberPings: 20, pingMaxAgeDays: 7 },
-    media: { embedTextChars: 200, video: { sites: [] } },
+    media: { video: { sites: [] } },
   };
 }
 

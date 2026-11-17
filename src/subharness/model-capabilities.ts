@@ -7,9 +7,9 @@
 // `openrouter:` path, so OpenRouter's models reach it through opencode alone. The console answers `/model sources` with
 // this, and interfaces/cli/model-picker.ts draws it.
 
-import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
+import { BACKEND_NAMES, agentNames, isAgentName } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { opencodeKey, readRouting, SUBHARNESS_AGENTS } from './routing.ts';
+import { opencodeKey, readRouting } from './routing.ts';
 import { harnessPathOf } from './memory-path.ts';
 import { roleModelListing } from '../keys/models.ts';
 import { BASE_ROLES, MEMORY_ROLE } from '../llm/roles.ts';
@@ -79,18 +79,16 @@ const BACKEND_LABELS: Readonly<Record<BackendName, string>> = {
 /** The role a listing is filtered by: an agent takes and gives text, as the core does. */
 const LISTING_ROLE_OF_AGENT = 'core';
 
-const isAgent = (role: string): boolean => SUBHARNESS_AGENTS.some((agent) => agent === role);
-
 /** Every role the chooser offers, Main first, each agent under the group the role table gives it. */
 export function modelRoleRegistry(): Array<ModelRoleRow> {
   const row = (group: ModelRoleRow['group'], role: string): ModelRoleRow => ({ group, role, label: labelOf(role) });
-  return [...MAIN_ROLES.map((role) => row('main', role)), ...SUBHARNESS_AGENTS.map((agent) => row('errand', agent))];
+  return [...MAIN_ROLES.map((role) => row('main', role)), ...agentNames().map((agent) => row('errand', agent))];
 }
 
 /** The backends `role` can run through: an agent all of them, the memory writer those that carry a system prompt. */
 function backendsOf(role: string): ReadonlyArray<BackendName> {
   if (role === MEMORY_ROLE) return BACKEND_NAMES.filter((name) => name !== 'opencode');
-  return isAgent(role) ? BACKEND_NAMES : [];
+  return isAgentName(role) ? BACKEND_NAMES : [];
 }
 
 const noEffort = (): SourceDescriptor['effort'] => ({ evidence: 'unsupported', levels: [] });
@@ -125,7 +123,7 @@ async function opencodeReady(deps: CapabilityDeps, role: string): Promise<Source
   const { key } = readRouting(deps.privateDir).subharness;
   const reading = await roleModelListing(
     { fetch: deps.fetch, baseUrl: deps.baseUrl, value: opencodeKey(deps.privateDir)?.value ?? '' },
-    isAgent(role) ? LISTING_ROLE_OF_AGENT : role
+    isAgentName(role) ? LISTING_ROLE_OF_AGENT : role
   );
   const shape = { ...backendShape('opencode'), account: key, setup: [], effort: await effortOf(deps, 'opencode') };
   if (!reading.ok) return { ...shape, code: 'provider-rejected', listing: 'failed', models: [] };
@@ -211,7 +209,7 @@ function currentOf(privateDir: string, role: string): RoleSources['current'] {
     const memory = harnessPathOf(privateDir, 'memory');
     return memory.kind === 'direct' ? null : { via: memory.backend, model: memory.model, effort: memory.effort };
   }
-  if (!isAgent(role)) return null;
+  if (!isAgentName(role)) return null;
   return {
     via: Object.hasOwn(stored.uses, role) ? (stored.uses[role] ?? null) : null,
     model: Object.hasOwn(stored.models, role) ? (stored.models[role] ?? null) : null,

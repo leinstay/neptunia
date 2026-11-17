@@ -1550,9 +1550,7 @@ async function fetchWindow({
     anchorId: anchorId ?? undefined,
     limit,
     selfId: self.id,
-    embedTextChars: config.media?.embedTextChars,
     videoSites: videoConfig?.sites,
-    maxUrlChars: config.context?.maxUrlChars,
   };
   // Pass 1 learns who wrote and who is mentioned; their members are cached; pass 2 normalizes with their display names.
   const first = limit > 0 ? await fetchHistoryWindow(channel, windowOptions) : [];
@@ -1967,6 +1965,8 @@ export function diaryTurnRunner(
   }: Rec
 ): Untyped {
   const imageFetcher = mods.createImageFetcher();
+  // The one summarizer src/core.ts shares (absent from an older engine, which cuts a long text itself).
+  const summarize = mods.createSummarizer?.({ hot, llm }).summarize;
   const describer = mods.createDescriber({
     hot,
     store,
@@ -1977,7 +1977,7 @@ export function diaryTurnRunner(
     youtubeApiKey: serviceKey('youtube'),
     proxy: () => (proxySettings(hot.config).enabled ? serviceKey('proxy') : null),
     selfName: () => String(self.name),
-    summarize: mods.createSummarizer?.({ hot, llm }).summarize,
+    summarize,
   });
   const lookup = mods.createLookup({
     hot,
@@ -1987,6 +1987,7 @@ export function diaryTurnRunner(
     pageFetcher: mods.createPageFetcher(),
     searches: { brave: mods.createBraveSearch(), exa: mods.createExaSearch() },
     keys: serviceKeys(),
+    summarize,
   });
   // The Discord interface over `client`: its adapter reads for the turn and writes unless a port is given.
   const discord = mods.createDiscordInterface({ client, config: () => hot.config });
@@ -2000,6 +2001,7 @@ export function diaryTurnRunner(
     describer,
     imageFetcher,
     lookup,
+    summarize,
     images,
     recall: mods.createRecall({ hot, store, llm, reads, describer }),
     emoji: mods.createEmojiIndex({ reads, now: Date.now, iface: discord.port.iface, names: store }),
@@ -4083,9 +4085,11 @@ export function createReplayTools({
     ): Promise<ToolRun> {
       const { usage, client } = metered();
       const labels = hot.prompts?.labels ?? {};
+      // The summarizer a live turn's tools share, on the metered client (absent from an older engine).
+      const summarize = mediaTools?.createSummarizer?.({ hot, llm: client }).summarize;
       if (skill === 'web.search') {
-        const lookup = createLookup({ hot, store: webStore, llm: client, state: webState, searches, keys });
-        return { result: await runWebSearch({ lookup, config: hot.config, labels, placeId, args }), usage };
+        const lookup = createLookup({ hot, store: webStore, llm: client, state: webState, searches, keys, summarize });
+        return { result: await runWebSearch({ lookup, config: hot.config, labels, placeId, args, summarize }), usage };
       }
       // web.read: the page fetched for real (no model request, free), into the private cache copy.
       if (skill === 'web.read' && typeof runWebRead === 'function' && pageFetcher) {
@@ -4097,6 +4101,7 @@ export function createReplayTools({
           pageFetcher,
           searches,
           keys,
+          summarize,
         });
         const linkOf = (id: string) => {
           const message = history.find((item: Rec) => String(item?.id) === String(id));
@@ -4133,7 +4138,7 @@ export function createReplayTools({
           hot,
           store: webStore,
           llm: client,
-          summarize: mediaTools.createSummarizer?.({ hot, llm: client }).summarize,
+          summarize,
         });
         const cap = typeof mediaTools.lookPerTurn === 'function' ? mediaTools.lookPerTurn() : Infinity;
         const result = await mediaTools.runMediaLook({

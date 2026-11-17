@@ -3,7 +3,8 @@
 // (src/errands/, src/agent-runner/). Their rules are here, for every caller alike: the owner's command
 // and the persona's own call (her skills: the requester of her turn is the caller).
 // `errand.add` goes to `ERRAND_AGENT` unless an owner names another agent (`/errands add <agent> <goal>`), so naming an
-// agent is the owner's alone (`owner-only`). An errand asked in a private chat is `dm`-scoped,
+// agent is the owner's alone (`owner-only`), and an agent whose profile says `audience: owner` runs an errand only when
+// the owner asks (src/errands/service.ts). An errand asked in a private chat is `dm`-scoped,
 // else `group`, and the runner withholds more in a filtered scope. `errand.add` answers at once
 // with the id and `queued`: the errand runs in the background (src/errands/service.ts) and its
 // end opens her own turn where it was asked. `errand.cancel` is for the requester of the errand or an
@@ -110,7 +111,7 @@ const handlers = perEnv((env) => {
   }
 
   /** The answer of a call that waited for its errand: the result, the errand's own failure, or the wait's end. */
-  function waitedAnswer({ ended, errand }: WaitResult, queued: ErrandRecord): Obj {
+  async function waitedAnswer({ ended, errand }: WaitResult, queued: ErrandRecord): Promise<Obj> {
     const current = errand ?? queued;
     const task = { id: current.id, agent: current.agent, state: current.state };
     if (!ended) {
@@ -122,7 +123,10 @@ const handlers = perEnv((env) => {
         data: { text: line, task, unknown: true },
       };
     }
-    const text = errandResultText(current, objOf(objOf(hot).prompts).labels, { maxChars: resultMaxChars() });
+    const text = await errandResultText(current, objOf(objOf(hot).prompts).labels, {
+      maxChars: resultMaxChars(),
+      summarize: env.summarize,
+    });
     if (current.state === 'done')
       return { status: 'ok', code: CODE.OK, summary: text, data: { text, task, waited: true } };
     const code = current.state === 'cancelled' ? CODE.CANCELLED : (current.error ?? CODE.ERROR);
@@ -136,7 +140,7 @@ const handlers = perEnv((env) => {
     const goal = textOf(args.goal).trim();
     if (!goal) throw invalid('a goal is required');
     const requester = requesterOf(context);
-    // Her call names no agent; only an owner picks one, and the server agent reads this machine.
+    // Her call names no agent; only an owner picks one.
     if (named && requester.kind !== 'owner') throw denied('only an owner may name the agent', CODE.OWNER_ONLY);
     const agent = named || ERRAND_AGENT;
     const scope = inPrivate(context) ? 'dm' : 'group';
@@ -164,7 +168,7 @@ const handlers = perEnv((env) => {
     if (origin.turnId) env.intentions?.linkTurnErrand?.({ turnId: origin.turnId, errandId: errand.id });
     const waitMs = context?.waitMs;
     if (typeof waitMs === 'number' && waitMs > 0)
-      return waitedAnswer(await errands().wait({ id: errand.id, ms: waitMs }), errand);
+      return await waitedAnswer(await errands().wait({ id: errand.id, ms: waitMs }), errand);
     return {
       status: 'ok',
       code: CODE.OK,

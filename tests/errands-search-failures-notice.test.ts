@@ -74,33 +74,33 @@ test('the errand store keeps the count of failed searches on the finished errand
   }
 });
 
-test('the result she reads says the web search failed N times, with the count', () => {
+test('the result she reads says the web search failed N times, with the count', async () => {
   // Catches: a failed web search staying silent in an errand that otherwise looks done.
-  const lines = errandResultText(record({ text: 'found', sources: [], files: [], searchFailures: 3 }), labels).split(
-    '\n'
-  );
+  const lines = (
+    await errandResultText(record({ text: 'found', sources: [], files: [], searchFailures: 3 }), labels)
+  ).split('\n');
   assert.ok(
     lines.includes('The web search failed 3 times.'),
     `the notice is a line of the result: ${JSON.stringify(lines)}`
   );
 });
 
-test('the result she reads has no search notice when the count is zero or missing', () => {
+test('the result she reads has no search notice when the count is zero or missing', async () => {
   // Catches: the notice printed for every errand.
   for (const searchFailures of [0, undefined]) {
-    const text = errandResultText(record({ text: 'found', sources: [], files: [], searchFailures }), labels);
+    const text = await errandResultText(record({ text: 'found', sources: [], files: [], searchFailures }), labels);
     assert.equal(text.includes('web search'), false);
   }
 });
 
-test('a failed errand that counted failed searches still says so beside its error', () => {
+test('a failed errand that counted failed searches still says so beside its error', async () => {
   // Catches: the notice kept for done errands only, hiding the likely cause of a run that ended empty.
   const failed = {
     ...record({ text: '', sources: [], files: [], searchFailures: 1 }),
     state: 'failed',
     error: 'empty-answer',
   };
-  const text = errandResultText(failed as unknown as Parameters<typeof errandResultText>[0], labels);
+  const text = await errandResultText(failed as unknown as Parameters<typeof errandResultText>[0], labels);
   assert.ok(text.includes('error: empty-answer'));
   assert.ok(text.includes('The web search failed 1 times.'));
 });

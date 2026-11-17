@@ -59,7 +59,6 @@ function putPosts(rows: Rows, posts: ReadonlyArray<Row>, iface: string): void {
   const uniq = uniqueIds();
   posts.forEach((post: Row, position: number) => {
     const body = { ...post };
-    delete body.pictureDescription;
     const mirrored = isIds(post.messageIds);
     if (mirrored) delete body.messageIds;
     // The entry's text, when the post carries it (a post recorded before it is sent), is the row's.

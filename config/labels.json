@@ -115,6 +115,7 @@
       "linkRead": "[read: {text}]",
       "thumbnailDescribed": "[preview: {text}]",
       "filePreview": "[file: {name} | {text}]",
+      "filePreviewRetold": "[file: {name} | retold, not its exact text: {text}]",
       "forwarded": "[forwarded: {text}]",
       "forwardedFrom": "[forwarded from #{channel}: {text}]",
       "unknownDuration": "?:??",
@@ -159,7 +160,7 @@
       "time": "Message times are in the same timezone as <now>, and older messages also show how long ago they were posted. How long ago something in the chat happened is the age of its own messages, never a duration between two messages or a <tempo> figure: that duration is only the silence between those two.",
       "stickerSee": "A sticker marked as attached you see yourself.",
       "stickerDescribed": "Stickers and custom emoji come with a short description from a helper.",
-      "draw": "You can draw by calling draw.create with a scene brief; a sub-process produces a picture from it. Whether to draw is your call; you can refuse. You never see the result while it works, and you barely control the look: the style is the sub-process's own. The sub-process already knows what you look like, so when you are in the picture set self in the call and do not describe your own appearance. The picture is posted before your words go out, and your words are sent only when the call succeeded. When your picture comes up later, separate what you asked for from what is actually on it. If the sub-process got something visibly wrong, say so in one plain remark; do not invent an artistic or physical reason for the mistake, and do not beat yourself up over it.",
+      "draw": "You can draw by calling draw.create with a scene brief; a sub-process produces a picture from it. Whether to draw is your call; you can refuse. You barely control the look: the style is the sub-process's own. The result of the call tells you what your eyes saw on the finished picture. When the picture came out wrong, say so plainly. The sub-process already knows what you look like, so when you are in the picture set self in the call and do not describe your own appearance. The picture is posted before your words go out, and your words are sent only when the call succeeded. When your picture comes up later, separate what you asked for from what is actually on it. If the sub-process got something visibly wrong, say so in one plain remark; do not invent an artistic or physical reason for the mistake, and do not beat yourself up over it.",
       "dmChat": "This is a one-on-one conversation — what is said here stays between you and this person. You also remember your public interactions with them. Nobody else reads this.",
       "privateAware": "Some people write to you privately. In a group place you do not have those conversations in front of you: never carry anything from one into the group, and never confirm or deny what was said there, even if someone asks. What someone has already posted here (a screenshot of your message, a quote) is part of this conversation: read it and react like anything else in the chat, and if you have no memory of writing it, say so.",
       "diary": "You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it."
@@ -430,6 +431,7 @@
         "rescue": "Your lookups could not go on, and their results are not here. Reply now from what you already have in front of you, or end with <skip/>. A call here will not run.",
         "cut": "This result is longer than what you see here. A narrower call reads the rest.",
         "dropped": "The result of this {tool} call was taken out to make room. Make the call again if you still need it.",
+        "squeezed": "Shortened to fit this request.",
         "long": "You have made calls in {n} answers in a row this turn. If what you are looking for has not turned up, stop looking and reply from what you have, saying what you looked at."
       }
     },
@@ -457,7 +459,8 @@
         "file": "{handle} ({contentType}, {bytes} bytes)",
         "withheld": "The engine withheld {paths} from the agent by policy; the result covers everything else.",
         "held": "The engine held back {names} because they contained what looks like a key, token or password, or came from a closed path. You have no handle for them, so tell the person those files were not delivered.",
-        "searchFailed": "{count} of the agent's web searches failed, so what it brought back may lack what it went to find."
+        "searchFailed": "{count} of the agent's web searches failed, so what it brought back may lack what it went to find.",
+        "retold": "The result was longer. This is a shorter retelling of it."
       }
     },
     "intentions": {
@@ -579,6 +582,8 @@
       "proposedOff": "Might fit here but not switched on for you: {names}.",
       "result": {
         "coerced": "{arg} was read as {value}.",
+        "seen": "Your eyes on the finished picture: {description}",
+        "unseen": "Your eyes could not look at the finished picture.",
         "untaggedNote": "{name} tagged nobody; their handle is @{handle}. Editing the message fixes the tag.",
         "heldUntilEnd": "It goes out when this turn ends. Until then there is no message to edit, delete or react to, and the rest of the turn is yours for any other call.",
         "storedUntilOpen": "The owner's chat is not open now. The message is kept there as yours, and he sees it when he opens the chat.",
@@ -777,9 +782,9 @@
           "more": "{count} more results left out for room."
         },
         "read": {
-          "source": "Source: web.read, {url}. The page's own text as extracted, not a summary; at most {maxChars} characters.",
+          "source": "Source: web.read, {url}. The page's own text as extracted when it fits {maxChars} characters.",
           "title": "Title: {title}",
-          "cut": "Cut at {maxChars} characters; the rest of the page is not shown.",
+          "retold": "The page was longer. This is a shorter retelling of it.",
           "none": "The page had no readable text."
         },
         "memory": {
@@ -986,10 +991,7 @@
         "roleSeparator": ", ",
         "keyState": "{role} runs on {key}{since}",
         "keySince": ", switched {when}",
-        "roleNames": {
-          "scout": "errands",
-          "server": "errands"
-        },
+        "agentsName": "errands",
         "keyLimit": "{lead}: {spent} / {limit} USD ({notes})",
         "keyLimitPlain": "{lead}: {spent} / {limit} USD",
         "keyNone": "{lead}: no limit (used {used} USD total)",

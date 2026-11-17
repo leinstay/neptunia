@@ -16,6 +16,7 @@ import { invalid } from './registry.ts';
 import { PLACE_REQUIRED, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf } from '../types.ts';
+import type { Summarize } from '../../behavior/summarize.ts';
 import type { Untyped } from '../types.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { RoleHealth } from '../../llm/role-health.ts';
@@ -48,6 +49,8 @@ export type OpsDeps = {
   skills?: SkillsAccess | null;
   /** The status card's key read at the moment of the card (src/keys/card-keys.ts); when given, it stands in for `managementKey`. */
   cardKeys?: (() => CardKeys) | null;
+  /** Retells a text over its bound once (src/behavior/summarize.ts): a search snippet, an errand result. */
+  summarize?: Summarize;
   [subsystem: string]: Untyped;
 };
 
@@ -82,6 +85,7 @@ function buildEnv({
   record = null,
   metrics = null,
   lookup = null,
+  summarize = undefined,
   recall = null,
   describer = null,
   usage = null,
@@ -273,6 +277,8 @@ function buildEnv({
     metrics,
     // The web lookup: the status card's search line and `web.search` (src/tools/operations/search.ts).
     lookup,
+    // The summarizer that retells a long search snippet or errand result: `web.search`, `errand.add` with a wait.
+    summarize,
     // The server search of the recall runner (src/behavior/recall-run.ts): `memory.search`.
     recall,
     // The media describer (src/memory/describe.ts): `media.look`, its second look.

@@ -9,7 +9,7 @@ import { composePreamble } from '../src/errands/preambles.ts';
 test('validateRequest: a preamble of 100000 characters is accepted and kept whole', () => {
   // Catches: the old 8000-character cap still refuses a long preamble with preamble-too-long, or the text is cut.
   const long = `START ${'p'.repeat(100_000)} END`;
-  const checked = validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: long });
+  const checked = validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', preamble: long });
   const kept = checked.ok && checked.message.op === 'run' ? (checked.message.preamble ?? '') : '';
   assert.deepEqual(
     { ok: checked.ok, chars: kept.length, whole: kept === long },
@@ -20,7 +20,9 @@ test('validateRequest: a preamble of 100000 characters is accepted and kept whol
 test('parseRequestLine: a run line with a preamble of 300000 two-byte characters arrives whole', () => {
   // Catches: a cap counted in bytes or characters anywhere on the way in from the socket line.
   const long = 'é'.repeat(300_000);
-  const parsed = parseRequestLine(JSON.stringify({ op: 'run', id: 'task-long', goal: 'g', preamble: long }));
+  const parsed = parseRequestLine(
+    JSON.stringify({ op: 'run', agent: 'scout', id: 'task-long', goal: 'g', preamble: long })
+  );
   const kept = parsed.ok && parsed.message.op === 'run' ? (parsed.message.preamble ?? '') : '';
   assert.deepEqual(
     { ok: parsed.ok, chars: kept.length, whole: kept === long },

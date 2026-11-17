@@ -483,3 +483,51 @@ test("drawPicture: a failure is the image client's own error, unwrapped", async 
 
 // The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
 ownedBy(['42']);
+
+// The owner, 2026-11-16 and 17: a staged diary picture is looked at from its own bytes, and what her eyes saw comes
+// back in the result of its draw.create call.
+test('diary: a staged picture is looked at once from its bytes and the description is in the result she reads next', async () => {
+  // Bug: a staged picture answers `staged` alone, and her diary entry speaks of a picture she never saw.
+  const asked: Array<{ placeId: string; buffer?: Buffer; mediaType?: string }> = [];
+  const describePicture = (picture: { placeId: string; buffer?: Buffer; mediaType?: string }) => {
+    asked.push(picture);
+    return Promise.resolve('a pier in fog, the rail bent');
+  };
+  const { tools } = LABELS;
+  const seenLabels = { ...LABELS, tools: { ...tools, result: { ...tools.result, seen: 'SEEN {description}' } } };
+  const hotValue = { ...hot(), prompts: { ...PROMPTS, labels: seenLabels } };
+  const base = llm(
+    [toolAnswer('<think>x</think>', [call('draw.create', { text: 'the pier in fog' })]), '<msg>the pier</msg>'],
+    wrongly({ kind: 'picture', brief: 'the pier', search: '', picture: true })
+  );
+  const requests: Array<Array<Record<string, Untyped>>> = [];
+  const recording = {
+    complete: (messages: Array<Record<string, Untyped>>, opts: Record<string, Untyped>) => {
+      if (opts?.purpose !== 'diary-planner') requests.push(messages);
+      return base.complete(wrongly(messages), opts);
+    },
+  };
+  client();
+  const turns = createTurnRunner({
+    hot: hotValue,
+    store: store(),
+    llm: recording,
+    calibrator: { ratio: 1, apply: (n: Record<string, Untyped>) => n, observe: () => {} },
+    images: recordingImages(),
+    imageFetcher: imageFetcher(),
+    lookup: null,
+    rng: () => 0.5,
+    now: () => NOW,
+    describePicture,
+  });
+  await withCapturedLogs(() =>
+    turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: 'picture', forced: false } })
+  );
+  assert.equal(requests.length, 2, 'she reads the staged result in one more step');
+  assert.equal(asked.length, 1, 'one look per picture');
+  const [look] = asked;
+  assert.equal(present(look).buffer?.toString(), 'png');
+  assert.equal(present(look).mediaType, 'image/png');
+  const second = JSON.stringify(present(requests[1]));
+  assert.ok(second.includes('SEEN a pier in fog, the rail bent'), second.slice(-600));
+});

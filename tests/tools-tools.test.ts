@@ -91,7 +91,8 @@ test('webSearchText: her query and the evidence type first, what she wanted to e
   );
 });
 
-test('webSearchText results: duplicates and trackers dropped, titles, links and snippets cut, the whole within its cap', () => {
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('webSearchText results: duplicates and trackers dropped, titles and links cut, the whole within its cap', () => {
   const long = `https://example.com/${'p'.repeat(400)}`;
   const results = [
     { title: 'Α', url: 'https://www.example.com/a/?utm_source=x&id=7#top', snippet: 'α'.repeat(50) },
@@ -100,11 +101,9 @@ test('webSearchText results: duplicates and trackers dropped, titles, links and 
     { title: 'Γ', url: `https://example.net/c?q=${'z'.repeat(400)}`, snippet: 'γ' },
     { title: 'Δ', url: long, snippet: 'δ' },
   ];
-  const lines = webSearchText({ query: 'q', results }, { labels, snippetChars: 20, maxChars: 5000 }).split('\n');
+  const lines = webSearchText({ query: 'q', results }, { labels, maxChars: 5000 }).split('\n');
   assert.ok(lines.includes('https://www.example.com/a/?id=7'), 'tracking parameters and the fragment go');
   assert.ok(!lines.some((line) => line === 'again'), 'the same page once');
-  const snippet = lines[lines.indexOf('https://www.example.com/a/?id=7') + 1];
-  assert.ok(snippet.length <= 20 && snippet.endsWith('…'), snippet);
   assert.ok(
     lines.some((line) => line.startsWith('2. ') && line.length < 130),
     'a long title is cut'
@@ -116,27 +115,28 @@ test('webSearchText results: duplicates and trackers dropped, titles, links and 
   );
   const capped = webSearchText(
     { query: 'q', results: results.map((r, i) => ({ ...r, url: `https://e${i}.example/`, snippet: 'σ'.repeat(300) })) },
-    { labels, snippetChars: 300, maxChars: 500 }
+    { labels, maxChars: 500 }
   );
   assert.ok(capped.length <= 500, String(capped.length));
   assert.ok(capped.includes('1. Α') && !capped.includes('5. Δ'), 'the first result shows, the rest stop at the cap');
 });
 
-test('webReadText: the source with the page link and the cut, the title, the page text as it is, the cut said when it was cut', () => {
-  const l = labels.tools.tools.read;
-  const page = { url: 'https://example.com/p', title: 'Σελίδα', text: 'Πρώτη γραμμή.\nΔεύτερη.', cut: true };
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('webReadText: the source, the title, the page text as it is, then read.retold when the page is a retelling', () => {
+  // Catches: a retold page shown as if it were the page's own text, or the retelling label on every page.
+  const readLabels = {
+    tools: {
+      tools: { read: { source: 'SOURCE {url} {maxChars}', title: 'TITLE {title}', retold: 'STAND-IN RETOLD' } },
+    },
+  };
+  const page = { url: 'https://example.com/p', title: 'Σελίδα', text: 'Πρώτη γραμμή.\nΔεύτερη.', retold: true };
   assert.equal(
-    webReadText(page, { labels, maxChars: 4000 }),
-    [
-      fill(l.source, { url: 'https://example.com/p', maxChars: '4000' }),
-      fill(l.title, { title: 'Σελίδα' }),
-      'Πρώτη γραμμή.\nΔεύτερη.',
-      fill(l.cut, { maxChars: '4000' }),
-    ].join('\n')
+    webReadText(page, { labels: readLabels, maxChars: 4000 }),
+    ['SOURCE https://example.com/p 4000', 'TITLE Σελίδα', 'Πρώτη γραμμή.\nΔεύτερη.', 'STAND-IN RETOLD'].join('\n')
   );
   assert.equal(
-    webReadText({ ...page, title: '', cut: false }, { labels, maxChars: 10 }),
-    [fill(l.source, { url: 'https://example.com/p', maxChars: '10' }), 'Πρώτη γραμμή.\nΔεύτερη.'].join('\n')
+    webReadText({ ...page, title: '', retold: false }, { labels: readLabels, maxChars: 10 }),
+    ['SOURCE https://example.com/p 10', 'Πρώτη γραμμή.\nΔεύτερη.'].join('\n')
   );
 });
 
@@ -198,6 +198,88 @@ test('memorySearchText: each stretch is cut on its own, the whole by stretches t
     [l.source, fill(l.window, { date: '2026-10-01', channel: 'a' }), 'one\ntwo'].join('\n'),
     'nothing cut, nothing left: no extra line'
   );
+});
+
+/** Three results whose snippets are long or short as asked, each on its own page. */
+function searchFound(snippets: Array<string>) {
+  return {
+    query: 'q',
+    results: snippets.map((snippet, i) => ({
+      title: `T${i}`,
+      url: `https://e${i}.example/`,
+      site: `e${i}.example`,
+      snippet,
+    })),
+  };
+}
+
+/** A summarizer whose answers wait until `release` is called, recording when each call starts. */
+function heldSummarize(answerOf: (text: string) => string) {
+  const calls: Array<{ text: string; options: { maxChars: number; kind: 'text' } }> = [];
+  const waiting: Array<() => void> = [];
+  const summarize = (text: string, options: { maxChars: number; kind: 'text' }): Promise<string> => {
+    calls.push({ text, options });
+    return new Promise((resolve) => waiting.push(() => resolve(answerOf(text))));
+  };
+  const release = () => {
+    for (const go of waiting.splice(0)) go();
+  };
+  return { calls, summarize, release };
+}
+
+/** A web.search over `found` with `summarize`, its text once it settles. */
+async function searchText(found: ReturnType<typeof searchFound>, summarize: unknown): Promise<string> {
+  const result = await runWebSearch({
+    lookup: fakeLookup({ found }),
+    config: WEB_ON,
+    labels,
+    placeId: 'g1',
+    args: { query: 'q' },
+    summarize,
+  } as unknown as Parameters<typeof runWebSearch>[0]);
+  return result.data?.text ?? '';
+}
+
+const passThrough = (text: string, options: { maxChars: number; kind: 'text' }): Promise<string> =>
+  Promise.resolve(Array.from(text).length > options.maxChars ? `SUMMARY of ${text.length}` : text);
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('runWebSearch: the snippets over 400 characters go to summarize side by side, each answered by its summary', async () => {
+  // Catches: snippets cut at 400 with an ellipsis, or summarized one after another so a search waits three times.
+  const long = (n: number) => `${'λέξη '.repeat(100)}${n}`;
+  const held = heldSummarize((text) => `SUMMARY ${text.slice(-1)}`);
+  const pending = searchText(searchFound([long(1), long(2), long(3)]), held.summarize);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(held.calls.length, 3, 'all three started before the first was answered');
+  held.release();
+  const text = await pending;
+  assert.deepEqual(
+    held.calls.map(({ options }) => options),
+    [1, 2, 3].map(() => ({ maxChars: 400, kind: 'text' }))
+  );
+  assert.ok(
+    held.calls.every(({ text: given }, i) => given === long(i + 1)),
+    'each whole snippet goes to the summarizer'
+  );
+  for (const n of [1, 2, 3]) assert.ok(text.includes(`SUMMARY ${n}`), text);
+  assert.ok(!text.includes('λέξη λέξη'), 'no long snippet itself');
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('runWebSearch: a snippet within 400 characters is shown as it is', async () => {
+  // Catches: a short snippet rewritten.
+  const snippet = 'λέξη '.repeat(70).trim();
+  assert.ok((await searchText(searchFound([snippet]), passThrough)).includes(snippet));
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('runWebSearch: a summary still over 400 characters, and a long snippet with no summarizer, are shown whole', async () => {
+  // Catches: a summary or a snippet cut at the bound.
+  const longer = `${'σύνοψη '.repeat(80)}τέλος`;
+  const snippet = `${'λέξη '.repeat(100)}τέλος`;
+  const over = (): Promise<string> => Promise.resolve(longer);
+  assert.ok((await searchText(searchFound([snippet]), over)).includes(longer));
+  assert.ok((await searchText(searchFound([snippet]), undefined)).includes(snippet));
 });
 
 test('runWebSearch: her query goes to the raw search as written, the results are cut at the snippet length; the statuses of a search that cannot run', async () => {

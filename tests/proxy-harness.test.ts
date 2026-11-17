@@ -74,10 +74,10 @@ test('the engine proxy beats a proxy variable the caller put into the run enviro
 
 test('the run protocol takes secrets that hold the proxy alone', () => {
   // Catches: a claude or codex errand, which carries no OpenRouter key, cannot carry the proxy either.
-  const checked = validateRequest({ op: 'run', id: 'p1', goal: 'look', secrets: { proxy: HTTP_FORM } });
+  const checked = validateRequest({ op: 'run', agent: 'scout', id: 'p1', goal: 'look', secrets: { proxy: HTTP_FORM } });
   assert.equal(checked.ok, true);
   if (checked.ok) assert.deepEqual((checked.message as { secrets?: unknown }).secrets, { proxy: HTTP_FORM });
-  const empty = validateRequest({ op: 'run', id: 'p2', goal: 'look', secrets: {} });
+  const empty = validateRequest({ op: 'run', agent: 'scout', id: 'p2', goal: 'look', secrets: {} });
   assert.equal(empty.ok, false);
 });
 
@@ -94,7 +94,9 @@ test("the runner's engine passes the task's proxy to the child of every backend"
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
     search: false,
-    buildConfig: () => ({ agent: {} }),
+    unit: 'web',
+    abilities: ['search', 'fetch', 'download', 'shell'],
+    returns: 'files',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
@@ -164,7 +166,8 @@ test('every errand carries the proxy of the moment in its secrets, whatever the 
   // Catches: only the scout gets the proxy, as with the old video proxy, and the server agent goes out direct.
   const { errands, runs } = errandRig(() => PROXY);
   errands.submit(ask('scout'));
-  errands.submit(ask('server'));
+  // Changed: the server agent's audience is the owner, so the owner asks for its errand.
+  errands.submit({ ...ask('server'), requester: { accountId: '7', kind: 'owner' } });
   await errands.idle();
   assert.equal(runs.length, 2);
   for (const run of runs) {

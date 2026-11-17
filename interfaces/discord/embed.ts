@@ -3,7 +3,7 @@
 // collect.ts#normalizeMessage for every embed of a message. Pure: no network, no discord.js import; it reads the plain
 // fields of an embed or a discord.js Embed's `data`.
 
-import { clipWithEllipsis, isGifHostUrl, positiveDimension, siteOf } from '../../src/media/classify.ts';
+import { isGifHostUrl, positiveDimension, siteOf } from '../../src/media/classify.ts';
 import { videoSiteFor } from '../../src/media/video-sites.ts';
 import { DISCORD_CDN_HOSTS } from './media.ts';
 
@@ -135,7 +135,7 @@ function gifOf(
  */
 export function classifyEmbed(
   embed: EmbedInput | null | undefined,
-  { embedTextChars = 200, videoSites = [] }: { embedTextChars?: number; videoSites?: ReadonlyArray<string> } = {}
+  { videoSites = [] }: { videoSites?: ReadonlyArray<string> } = {}
 ): EmbedItem {
   const url = embed?.url ?? null;
   const host = siteOf(url ?? '');
@@ -144,8 +144,8 @@ export function classifyEmbed(
   const site = providerName || host || '';
   return {
     site,
-    title: clipWithEllipsis(String(embed?.title ?? '').trim(), embedTextChars),
-    text: clipWithEllipsis(String(embed?.description ?? '').trim(), embedTextChars),
+    title: String(embed?.title ?? '').trim(),
+    text: String(embed?.description ?? '').trim(),
     thumbnailUrl: embed?.thumbnail?.proxyURL ?? embed?.thumbnail?.url ?? null,
     thumbnailWidth: positiveDimension(embed?.thumbnail?.width),
     thumbnailHeight: positiveDimension(embed?.thumbnail?.height),

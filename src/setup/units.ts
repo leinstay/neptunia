@@ -3,7 +3,8 @@
 // installing user. The templates keep the paths of the first deployment; the renderer maps them onto the folders of this
 // one, so a template edit stays the single source of a unit. The render is pure.
 //
-// The sandbox of an agent unit follows the agent's mode (src/subharness/control.ts). `read` and `write` keep every
+// There are two agent units, `neptunia-agent-web.service` and `neptunia-agent-host.service`, each the runner of every
+// agent whose profile names its unit. The sandbox of an agent unit follows the unit's mode (src/subharness/control.ts). `read` and `write` keep every
 // directive of the template. `full` drops the mount sandbox (`ProtectSystem`, `ProtectHome` and the bind and write
 // paths), and `sudo` drops in addition what would stop `sudo` (`NoNewPrivileges` and the capability bounding set).
 //
@@ -13,7 +14,7 @@
 // backend a role names in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.
 //
-// The server agent's unit runs as the user of the core, so the mount namespace is all that keeps a child of its agent
+// The host unit runs as the user of the core, so the mount namespace is all that keeps a child of its agent
 // from the clients' tokens and the interfaces' `credentials.json`. Given the names of the clients and the interfaces the
 // install has, the unit hides them with `InaccessiblePaths=-<path>` (the leading `-` lets the unit start before a file
 // exists). The modes `full` and `sudo` drop the entries with the rest of the mount sandbox.
@@ -21,13 +22,20 @@
 import path from 'node:path';
 import { UNIT_SCOPE_ENV } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import type { AgentMode, SubharnessAgent } from '../subharness/control.ts';
+import type { UnitName } from '../agent-runner/profiles.ts';
+import type { AgentMode } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
 
 /** The templates `setup` renders, by file name. The bot unit is not among them. */
 export const UNIT_FILES: ReadonlyArray<string> = [
   'neptunia-core.service',
   'neptunia-interface@.service',
+  'neptunia-agent-web.service',
+  'neptunia-agent-host.service',
+];
+
+/** The per-agent unit files of earlier deployments, which `neptunia setup` removes when it finds them. */
+export const RETIRED_UNIT_FILES: ReadonlyArray<string> = [
   'neptunia-agent-scout.service',
   'neptunia-agent-server.service',
 ];
@@ -40,10 +48,10 @@ export const UNIT_FILES: ReadonlyArray<string> = [
 const COMPILE_CACHE_LINES = ['CacheDirectory=neptunia-compile', 'Environment=NODE_COMPILE_CACHE=%C/neptunia-compile'];
 
 /**
- * The unit that hides the secrets of the core's user from its agent, found by its `ExecStart=`. The scout needs no
+ * The unit that hides the secrets of the core's user from its agents, found by its `ExecStart=`. The web unit needs no
  * entry: its persona folder is an empty tmpfs.
  */
-const SECRET_HIDER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner --profile server\b/m;
+const SECRET_HIDER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner --unit host\b/m;
 
 /** A client or interface name that is one plain path segment: nothing that climbs out of its folder. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -63,11 +71,8 @@ function hiddenLine(text: string, vars: UnitVars): string | null {
 /** The `ExecStart=` of an agent unit: the errand runner. */
 const AGENT_RUNNER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner\b/m;
 
-/** The agent whose mode shapes a unit, by the unit's file name. */
-export const UNIT_AGENTS: Readonly<Record<string, SubharnessAgent>> = {
-  'neptunia-agent-scout.service': 'scout',
-  'neptunia-agent-server.service': 'server',
-};
+/** The file of the agent unit `unit`. */
+export const unitFileOf = (unit: UnitName): string => `neptunia-agent-${unit}.service`;
 
 /** What a unit is rendered with. */
 export type UnitVars = {
@@ -79,11 +84,11 @@ export type UnitVars = {
   dataDir: string;
   /** the absolute path of the node binary */
   node: string;
-  /** the mode of the agent the unit runs; absent keeps the template's own sandbox */
+  /** the mode of the unit's agents; absent keeps the template's own sandbox */
   mode?: AgentMode;
   /** the backends a role names in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
   backends?: ReadonlyArray<BackendName>;
-  /** the names of the clients of `clients.json`; the unit of the server agent hides every token */
+  /** the names of the clients of `clients.json`; the host unit hides every token */
   clients?: ReadonlyArray<string>;
   /** the names of the interfaces, each with a `interfaces/<name>/credentials.json` that unit hides */
   interfaces?: ReadonlyArray<string>;

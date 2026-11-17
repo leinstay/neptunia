@@ -403,7 +403,6 @@
     "writerEntries": 30,
     "openingsShown": 5,
     "openingWords": 4,
-    "sceneChars": 400,
     "loop": {
       "maxSteps": 50,
       "timeBudgetMs": 1000000

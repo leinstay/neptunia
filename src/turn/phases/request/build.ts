@@ -968,7 +968,12 @@ type BuildNeeds = Pick<
 >;
 
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
-export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: Draft, turn: BuildNeeds): BuiltRequest {
+export async function buildTurnRequest(
+  ctx: PhaseContext,
+  params: PhaseParams,
+  draft: Draft,
+  turn: BuildNeeds
+): Promise<BuiltRequest> {
   const { store, calibrator, skills, lookup, emoji, memoryReads, turnContextOf } = ctx;
   const { aroundInputFor, errandsInputFor, intentionsInputFor, earlierThinkFor } = ctx;
   const { diaryChannelName, stableFreezeOf } = ctx;
@@ -1035,7 +1040,7 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
   const errands =
     finalMode === 'diary'
       ? null
-      : errandsInputFor({ placeId, channel, isDm, taskResult, wake, config, labels: prompts?.labels, now });
+      : await errandsInputFor({ placeId, channel, isDm, taskResult, wake, config, labels: prompts?.labels, now });
   draft.errandShown = errands?.whole ?? null;
   const requestInput = turnRequestInput({
     frame,

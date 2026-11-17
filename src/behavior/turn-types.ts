@@ -2,6 +2,7 @@
 
 import type { KeepLines } from '../pipeline/keep-lines.ts';
 import type { Track } from '../loop-watch.ts';
+import type { Summarize } from './summarize.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ActiveSkill } from '../skills/index-block.ts';
 import type { createEmojiIndex } from './emoji-index.ts';
@@ -12,6 +13,7 @@ import type { Draft } from '../turn/draft.ts';
 import type { Attention, Lane } from '../turn/triggers.ts';
 import type { FactsApi } from './inner.ts';
 import type { ReportedTurn } from './turn.ts';
+import type { DescribePicture } from '../turn/draw-gif.ts';
 import type { PersonLinks } from '../interface/person-link.ts';
 
 export type CreateTurnRunnerInput = {
@@ -32,7 +34,11 @@ export type CreateTurnRunnerInput = {
   };
   rng?: () => number;
   describer?: Untyped;
+  /** Her eyes on a picture she drew (src/turn/draw-gif.ts); absent: a draw.create result says nothing of the picture. */
+  describePicture?: DescribePicture;
   fetchImpl?: typeof fetch;
+  /** Retells a text over its bound once (src/behavior/summarize.ts): an errand result, a text file; none keeps it whole. */
+  summarize?: Summarize;
   imageFetcher?: Untyped;
   lookup?: Untyped;
   recall?: Untyped;

@@ -13,7 +13,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createErrandClient } from '../src/errands/client.ts';
 import { encodeLine } from '../src/agent-runner/protocol.ts';
@@ -25,8 +24,16 @@ import { tempDir } from './fixtures/tmp.ts';
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
 
+// The socket of a unit derives from its name: under a user unit's runtime folder, which this file points at a temporary
+// folder of its own, the web unit listens on `<runtime>/neptunia-agent-web/sock`.
+const RUNTIME = tempDir('errand-runtime-');
+fs.mkdirSync(path.join(RUNTIME, 'neptunia-agent-web'));
+process.env.NEPTUNIA_UNIT_SCOPE = 'user';
+process.env.XDG_RUNTIME_DIR = RUNTIME;
+
+/** The web unit's socket, where the scout's runner listens. */
 function socketPath() {
-  return path.join(os.tmpdir(), `errand-sock-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
+  return path.join(RUNTIME, 'neptunia-agent-web', 'sock');
 }
 
 /** A fake runner: collects each connection's request lines; `reply(obj)` writes to the newest one. */
@@ -80,8 +87,8 @@ async function fakeRunner(sock: Untyped) {
   };
 }
 
-function hotFor(sock: Untyped, { enabled = true } = {}) {
-  return { config: { agents: { scout: { enabled, socket: sock }, server: { enabled: false, socket: sock } } } };
+function hotFor({ enabled = true } = {}) {
+  return { config: { agents: { scout: { enabled }, server: { enabled: false } } } };
 }
 
 /** Short timers, so a reconnect happens within the test. */
@@ -90,7 +97,7 @@ const fastTimer = (fn: Untyped, ms: number) => setTimeout(fn, Math.min(ms, 20));
 test('errands client: a profile that is not enabled answers not-configured without connecting', async () => {
   let connects = 0;
   const client = createErrandClient({
-    hot: hotFor('/nowhere', { enabled: false }),
+    hot: hotFor({ enabled: false }),
     connect: () => {
       connects += 1;
       throw new Error('must not connect');
@@ -110,7 +117,7 @@ test('errands client: a profile that is not enabled answers not-configured witho
 test('errands client: a run sends its line, progress reaches the listeners, the end resolves it', async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
-  const client = createErrandClient({ hot: hotFor(sock) });
+  const client = createErrandClient({ hot: hotFor() });
   const progress: Array<Untyped> = [];
   client.onProgress((event) => progress.push(event));
   try {
@@ -124,9 +131,11 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
       });
       const request = await runner.next((r: Untyped) => r.op === 'run');
       // Changed: the run line carries no `model`: the runner takes the model from the route (owner, 2026-11-17).
+      // Changed: one runner serves every agent of its unit, so the run line names its agent.
       assert.deepEqual(request, {
         op: 'run',
         id: 'task-1',
+        agent: 'scout',
         goal: 'find a meme',
         context: { scope: 'group' },
         limits: { steps: 3, seconds: 30 },
@@ -158,10 +167,42 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
   }
 });
 
+test('errands client: two agents of one unit share its connection, and each progress line names its own agent', async () => {
+  // Bug: one runner serves the whole unit, and the client opens a connection per agent or credits progress to the wrong one.
+  const sock = socketPath();
+  const runner = await fakeRunner(sock);
+  const client = createErrandClient({
+    hot: { config: { agents: { scout: { enabled: true }, fetch: { enabled: true } } } },
+  });
+  const progress: Array<{ agent: string; id: string }> = [];
+  client.onProgress((event) => progress.push(event));
+  try {
+    await withCapturedLogs(async () => {
+      const first = client.run({ agent: 'scout', id: 'task-s', goal: 'look' });
+      await runner.next((r: Untyped) => r.id === 'task-s');
+      const second = client.run({ agent: 'fetch', id: 'task-f', goal: 'bring' });
+      const line = await runner.next((r: Untyped) => r.id === 'task-f');
+      assert.equal(line.agent, 'fetch');
+      assert.equal(runner.connections.length, 1);
+      runner.reply({ id: 'task-f', event: 'progress', step: 1, tool: 'fetch', note: 'downloading' });
+      runner.reply({ id: 'task-s', event: 'end', status: 'done', result: { text: 'a' } });
+      runner.reply({ id: 'task-f', event: 'end', status: 'done', result: { text: 'b' } });
+      await Promise.all([first, second]);
+    });
+    assert.deepEqual(
+      progress.map((event) => [event.agent, event.id]),
+      [['fetch', 'task-f']]
+    );
+  } finally {
+    client.close();
+    await runner.close();
+  }
+});
+
 test("errands client: a run's secrets go out on its line and into no log line", async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
-  const client = createErrandClient({ hot: hotFor(sock) });
+  const client = createErrandClient({ hot: hotFor() });
   const secrets = { openrouterKey: 'sk-SECRET', proxy: 'http://u:SECRET@proxy.example:8000' };
   try {
     const { logs } = await withCapturedLogs(async () => {
@@ -185,7 +226,7 @@ test("errands client: a run's secrets go out on its line and into no log line", 
 test("errands client: the preamble goes out on a run's line only when non-empty, read at each run, and into no log line", async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
-  const hot = hotFor(sock);
+  const hot = hotFor();
   const client = createErrandClient({ hot });
   const runOnce = async (id: string) => {
     const running = client.run({ agent: 'scout', id, goal: 'look' });
@@ -230,7 +271,7 @@ test("errands client: the preamble is composed by agent and the route's model, l
   // instructions written for a different model.
   const sock = socketPath();
   const runner = await fakeRunner(sock);
-  const hot = hotFor(sock);
+  const hot = hotFor();
   loose(hot).prompts = {
     preambles: {
       all: 'ALL-TEXT',
@@ -314,7 +355,7 @@ test("errands client: the preamble is composed by agent and the route's model, l
 test('errands client: cancel and ping go out as lines; a pong answers the ping', async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
-  const client = createErrandClient({ hot: hotFor(sock) });
+  const client = createErrandClient({ hot: hotFor() });
   try {
     await withCapturedLogs(async () => {
       const running = client.run({ agent: 'scout', id: 'task-c', goal: 'slow' });
@@ -324,8 +365,9 @@ test('errands client: cancel and ping go out as lines; a pong answers the ping',
       const pinged = client.ping('scout');
       const ping = await runner.next((r: Untyped) => r.op === 'ping');
       assert.deepEqual(loose(ping).ids, ['task-c'], 'the ping names the tasks still waited for');
-      runner.reply({ event: 'pong', profile: 'scout', busy: true, queued: 0 });
-      assert.deepEqual(await pinged, { ok: true, profile: 'scout', busy: true, queued: 0 });
+      // Changed: a runner serves a unit, and its pong names the unit.
+      runner.reply({ event: 'pong', unit: 'web', busy: true, queued: 0 });
+      assert.deepEqual(await pinged, { ok: true, unit: 'web', busy: true, queued: 0 });
       runner.reply({ id: 'task-c', event: 'end', status: 'cancelled', error: 'cancelled' });
       const outcome = await running;
       assert.equal(outcome.status, 'cancelled');
@@ -340,7 +382,7 @@ test('errands client: cancel and ping go out as lines; a pong answers the ping',
 test('errands client: a runner error about a task fails it with that code', async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
-  const client = createErrandClient({ hot: hotFor(sock) });
+  const client = createErrandClient({ hot: hotFor() });
   try {
     await withCapturedLogs(async () => {
       const running = client.run({ agent: 'scout', id: 'task-e', goal: 'x' });
@@ -359,7 +401,7 @@ test('errands client: a runner error about a task fails it with that code', asyn
 test('errands client: a dropped connection fails its tasks as disconnected and is reopened', async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
-  const client = createErrandClient({ hot: hotFor(sock), setTimer: fastTimer });
+  const client = createErrandClient({ hot: hotFor(), setTimer: fastTimer });
   try {
     await withCapturedLogs(async () => {
       const running = client.run({ agent: 'scout', id: 'task-d', goal: 'x', limits: { seconds: 60 } });
@@ -383,7 +425,7 @@ test('errands client: a dropped connection fails its tasks as disconnected and i
 });
 
 test('errands client: a runner that is not listening fails the run as disconnected', async () => {
-  const client = createErrandClient({ hot: hotFor(socketPath()), setTimer: fastTimer });
+  const client = createErrandClient({ hot: hotFor(), setTimer: fastTimer });
   try {
     await withCapturedLogs(async () => {
       const outcome = await client.run({ agent: 'scout', id: 'task-n', goal: 'x' });
@@ -397,23 +439,24 @@ test('errands client: a runner that is not listening fails the run as disconnect
 
 test('errands client: onLink gets each outcome of the connect loop: a failed connect, an open link, a dropped one', async () => {
   const sock = socketPath();
-  const client = createErrandClient({ hot: hotFor(sock), setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) });
+  const client = createErrandClient({ hot: hotFor(), setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) });
   const events: Array<Untyped> = [];
   client.onLink((event) => events.push(event));
   let runner = null as Awaited<ReturnType<typeof fakeRunner>> | null; // assigned inside a callback, so no narrowing to null
   try {
     await withCapturedLogs(async () => {
       assert.deepEqual(await client.ping('scout'), { ok: false, error: 'disconnected' });
-      assert.deepEqual(events, [{ agent: 'scout', up: false, code: 'ENOENT' }]);
+      // Changed: a link is the unit's, so its events name the unit.
+      assert.deepEqual(events, [{ unit: 'web', up: false, code: 'ENOENT' }]);
       runner = await fakeRunner(sock);
       const pinging = client.ping('scout');
       await runner.next((r: Untyped) => r.op === 'ping');
-      assert.deepEqual(events.at(-1), { agent: 'scout', up: true });
-      runner.reply({ event: 'pong', profile: 'scout', busy: false, queued: 0 });
+      assert.deepEqual(events.at(-1), { unit: 'web', up: true });
+      runner.reply({ event: 'pong', unit: 'web', busy: false, queued: 0 });
       assert.equal((await pinging).ok, true);
       runner.dropAll();
       for (let i = 0; i < 100 && events.length < 3; i += 1) await new Promise((r) => setTimeout(r, 10));
-      assert.deepEqual(events.at(-1), { agent: 'scout', up: false, code: 'disconnected' });
+      assert.deepEqual(events.at(-1), { unit: 'web', up: false, code: 'disconnected' });
       assert.equal(events.length, 3);
     });
   } finally {
@@ -422,17 +465,17 @@ test('errands client: onLink gets each outcome of the connect loop: a failed con
   }
 });
 
-test('the running client reads personal enabled settings beneath live config overrides', () => {
+test('the running client reads whether an agent is on from the live config at each call', () => {
+  // Changed: `enabled` left the profile, so the live config alone switches an agent on.
   const rig = consumerRig();
-  const hot = { config: { agents: {} } };
-  rig.override({ enabled: true });
+  const hot: { config: { agents: Record<string, unknown> } } = { config: { agents: {} } };
   const client = consumers.client({ hot, agentPaths: rig.options });
   try {
-    assert.equal(client.configured('scout'), true);
-    rig.override({ enabled: false });
     assert.equal(client.configured('scout'), false);
     hot.config.agents = { scout: { enabled: true } };
     assert.equal(client.configured('scout'), true);
+    hot.config.agents = { scout: { enabled: false } };
+    assert.equal(client.configured('scout'), false);
   } finally {
     client.close();
     rig.close();
@@ -441,14 +484,14 @@ test('the running client reads personal enabled settings beneath live config ove
 
 test('a reconnect timer contains an invalid personal edit without reconnecting or replaying the failed errand', async () => {
   const rig = consumerRig();
-  const socket = path.join(rig.base, 'personal-runner.sock');
-  rig.override({ enabled: true, socket });
+  // Changed: the socket is the web unit's, and the live config switches the scout on.
+  const socket = socketPath();
   const connects: Array<string> = [];
   const timers: Array<{ fire: () => void; handle: ReturnType<typeof setTimeout> }> = [];
-  const links: Array<{ agent: string; up: boolean; code?: string }> = [];
+  const links: Array<{ unit: string; up: boolean; code?: string }> = [];
   const client = consumers.client({
-    agentPaths: rig.options,
-    hot: { config: { agents: {} } },
+    agentPaths: { ...rig.options, env: process.env },
+    hot: { config: { agents: { scout: { enabled: true } } } },
     connect: (selected) => {
       connects.push(selected);
       throw Object.assign(new Error('synthetic runner unavailable'), { code: 'ECONNREFUSED' });
@@ -466,9 +509,9 @@ test('a reconnect timer contains an invalid personal edit without reconnecting o
     const failed = await client.run({ agent: 'scout', id: 'synthetic-errand', goal: 'inspect synthetic files' });
     assert.deepEqual([failed.status, failed.error], ['failed', 'disconnected']);
     assert.deepEqual(connects, [socket]);
-    assert.deepEqual(links, [{ agent: 'scout', up: false, code: 'ECONNREFUSED' }]);
+    assert.deepEqual(links, [{ unit: 'web', up: false, code: 'ECONNREFUSED' }]);
     assert.equal(timers.length, 1);
-    rig.override({ enabled: true, socket, limits: { seconds: 0 } });
+    rig.override({ limits: { seconds: 0 } });
     assert.doesNotThrow(() => timers[0]?.fire());
     await Promise.resolve();
     assert.deepEqual(connects, [socket], 'the failed errand cannot reopen a cached runner path');
@@ -520,13 +563,13 @@ async function oneShotRunner(sock: string) {
 
 test('errands client: a composed preamble of 110000 characters goes out whole on the run line, with no cap warning', async () => {
   // Catches: the client still drops preamble files over a cap, so a deployment's long preamble loses a part unasked.
-  const sock = path.join(os.tmpdir(), `errand-preamble-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
+  const sock = socketPath();
   const runner = await oneShotRunner(sock);
   const all = 'b'.repeat(70_000);
   const scout = 'w'.repeat(40_000);
   const hot = {
     config: {
-      agents: { scout: { enabled: true, socket: sock } },
+      agents: { scout: { enabled: true } },
     },
     prompts: { preambles: { all, scout, '@model': 'MODEL' } },
   };
@@ -553,7 +596,7 @@ test('errands client: a composed preamble of 110000 characters goes out whole on
 
 test("a run's route goes out on its line", async () => {
   // Catches: the client drops the route like any unknown field, so the scout runner never learns it and fails subharness-off.
-  const sock = path.join(tempDir('nep-client-route-'), 'runner.sock');
+  const sock = socketPath();
   const lines: Array<Record<string, unknown>> = [];
   const conns: Array<net.Socket> = [];
   const server = net.createServer((conn) => {
@@ -567,7 +610,7 @@ test("a run's route goes out on its line", async () => {
     });
   });
   await new Promise<void>((resolve) => server.listen(sock, resolve));
-  const hot = { config: { agents: { scout: { enabled: true, socket: sock } } } };
+  const hot = { config: { agents: { scout: { enabled: true } } } };
   const client = createErrandClient({ hot });
   const route: TaskRoute = { backend: 'claude', model: 'claude-opus-5-5', effort: 'medium', mode: 'write' };
   try {

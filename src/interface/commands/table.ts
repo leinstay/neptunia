@@ -25,10 +25,10 @@
 // the operation's. The core's console runs it as the owner (`operationOf`); a leaf without `op` is answered by a module
 // of its own there.
 
-import { MEMORY_ROLE } from '../../llm/roles.ts';
 import { ROUTE_ROLES as CHAIN_ROLES } from '../../llm/route-text.ts';
-import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
-import { AGENT_MODES, SUBHARNESS_AGENTS } from '../../subharness/control.ts';
+import { MEMORY_ROLE } from '../../llm/roles.ts';
+import { BACKEND_NAMES, UNITS, agentNames } from '../../agent-runner/profiles.ts';
+import { AGENT_MODES } from '../../subharness/control.ts';
 import { SERVICE_NAMES, setupRefusal } from '../../service/schedule.ts';
 import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/operations/catalog.ts';
 
@@ -88,9 +88,6 @@ export const UNKNOWN_INTERFACE = 'unknown-interface';
 
 /** The roles a route names, and `any` for a route of every role. */
 const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...ROUTE_ROLES];
-
-/** The roles `/model set` names: the model roles, her memory session and the agents, whose models are their subharnesses'. */
-const MODEL_SET_CHOICES: ReadonlyArray<string> = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, ...SUBHARNESS_AGENTS])];
 
 /** A yes or no argument. */
 const FLAGS: ReadonlyArray<string> = ['true', 'false'];
@@ -159,6 +156,17 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
     if (i < start) return '/logs since needs a value, such as "1 hour ago"';
   }
   return null;
+}
+
+/**
+ * The role of `/model set` and `/model sources`: a model role, her memory session or an agent on disk, whose model is
+ * its subharness's. The agents are read at the moment of the check, so the list is no choice list of the table.
+ */
+function checkModelRole(name: string, args: Readonly<Record<string, string>>): string | null {
+  if (name !== 'model.set' && name !== 'model.sources') return null;
+  const roles = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, ...agentNames()])];
+  const role = args.role ?? '';
+  return roles.includes(role) ? null : `/${name.replace('.', ' ')}: role is one of ${roles.join(', ')}, not "${role}"`;
 }
 
 /** The flags of `services <name> setup`: one mode, a real schedule, and the jitter only where it means something. */
@@ -447,19 +455,21 @@ export const COMMANDS: ReadonlyArray<Command> = [
     help: 'Choose the chain of routes each role runs on, and the model of each agent',
     args: [],
     defaultSubcommand: 'show',
+    check: checkModelRole,
     subcommands: [
       runs(sub('show', 'Show the chain of routes of every model role'), 'model.show'),
       sub(
         'sources',
         'Show what can serve a role, with its evidence and setup commands, as JSON, with no model request',
-        [arg('role', true, MODEL_SET_CHOICES)]
+        // The agents on disk are roles too, so the word is checked against them by checkModelRole.
+        [arg('role')]
       ),
       runs(
         sub(
           'set',
           'Run a role on one route, <key>/<model> or harness:<claude|codex>/<model>, after one reply on it; an agent takes <model> --via',
           [
-            arg('role', true, MODEL_SET_CHOICES),
+            arg('role'),
             arg('model', false),
             flagArg('provider', false),
             flagArg('effort', false),
@@ -690,13 +700,22 @@ export const COMMANDS: ReadonlyArray<Command> = [
     ],
   },
   {
+    name: 'agents',
+    help: 'List every agent with its unit, abilities, route, state and whether it is tracked or local',
+    args: [],
+    subcommands: [],
+    op: { name: 'agent.list' },
+  },
+  {
     name: 'agent',
-    help: 'Set what each agent may do',
+    help: 'Switch an agent on or off, or set what the agents of a unit may do',
     args: [],
     needsSubcommand: true,
     subcommands: [
-      sub('mode', "Show or set an agent's mode: read, write, full or sudo", [
-        arg('agent', true, SUBHARNESS_AGENTS),
+      runs(sub('enable', 'Switch an agent on', [arg('name')]), 'agent.enable', (args) => ({ name: args.name })),
+      runs(sub('disable', 'Switch an agent off', [arg('name')]), 'agent.disable', (args) => ({ name: args.name })),
+      sub('mode', "Show or set a unit's mode: read, write, full or sudo", [
+        arg('unit', true, UNITS),
         arg('mode', false, AGENT_MODES),
       ]),
     ],

@@ -107,12 +107,12 @@ export async function sweepOutputs({
 /**
  * The sweeper of one runner: a sweep now, then every `intervalMs`, each one reading the hours
  * and the live ids at its own moment. Sweeps never overlap.
- * @param options.profile The profile name (for the log line).
+ * @param options.unit The unit name (for the log line).
  * @param options.keepHours The live `errands.keepFilesHours`.
  * @param options.liveIds The ids of the tasks the runner still has.
  */
 export function startSweeper({
-  profile,
+  unit,
   outDir,
   keepHours,
   liveIds,
@@ -120,7 +120,7 @@ export function startSweeper({
   now = Date.now,
   log = defaultLog,
 }: {
-  profile: string;
+  unit: string;
   outDir: string;
   keepHours: () => unknown;
   liveIds: () => Iterable<string>;
@@ -143,7 +143,7 @@ export function startSweeper({
         hours = DEFAULT_KEEP_FILES_HOURS;
       }
       const counts = await sweepOutputs({ outDir, keepHours: hours, liveIds, now });
-      log.info('agent-runner: swept', { profile, hours, ...counts });
+      log.info('agent-runner: swept', { unit, hours, ...counts });
       return counts;
     })().finally(() => {
       busy = null;

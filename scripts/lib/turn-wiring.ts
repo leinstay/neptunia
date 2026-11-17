@@ -350,6 +350,8 @@ export function buildTurnRunner(input: WiringInput): Wired {
   const llm = input.llm;
   const keptFetch = createKeptFetch({ dataDir, next: fetch });
   const imageFetcher = createImageFetcher({ fetchImpl: keptFetch });
+  // The one summarizer src/core.ts shares among the describer, the web lookup and its clients, the turns and the operations.
+  const summarize = createSummarizer({ hot, llm } as unknown as Parameters<typeof createSummarizer>[0]).summarize;
   // The store, the model client and the state are the core's untyped objects, the ones src/core.ts hands these
   // three modules, so their shapes match at run time where the declared types of the deps do not.
   const describer = createDescriber({
@@ -364,7 +366,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     // Her name as every request uses it; `members` is built below and read when a picture is described.
     selfName: () =>
       (identity.rootNative !== null ? members.nameOf(identity.rootNative, identity.selfId) : null) ?? identity.selfName,
-    summarize: createSummarizer({ hot, llm } as unknown as Parameters<typeof createSummarizer>[0]).summarize,
+    summarize,
   } as unknown as Parameters<typeof createDescriber>[0]);
   const lookup = createLookup({
     hot,
@@ -375,6 +377,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     searches: { brave: createBraveSearch(), exa: createExaSearch() },
     keys: serviceKeys({ dataDir }),
     now,
+    summarize,
   } as unknown as Parameters<typeof createLookup>[0]);
   const reads = createReads(withStableNames(port, namesStore), quietLog, () => identity.rootNative);
   const members = seededMembers(memoryDb.database() as Db, input.rootPlace, identity.rootNative);
@@ -452,6 +455,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     errands,
     journal,
     dataDir: null,
+    summarize,
   });
   const carried: Array<unknown> = [];
   const gate = gatedOps({
@@ -466,6 +470,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     personLinks: gatedPersonLinks(gate.calls, now),
     dataDir,
     fetchImpl: keptFetch,
+    summarize,
     embedQuery: embedOne('media-pick'),
     embedFind: embedOne('recall-query'),
     hot,

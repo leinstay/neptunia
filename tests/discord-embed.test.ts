@@ -246,9 +246,11 @@ test('collectReadableLinks: a gifv embed from any provider is never a page to re
   );
 });
 
-test('classifyEmbed: title/description are truncated to embedTextChars', () => {
-  const embed = { url: 'https://example.com', title: 'x'.repeat(50), description: 'y'.repeat(50) };
-  const item = classifyEmbed(embed, { embedTextChars: 10 });
-  assert.equal(item.title, `${'x'.repeat(10)}…`);
-  assert.equal(item.text, `${'y'.repeat(10)}…`);
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('classifyEmbed: a preview title and a description of 600 characters arrive whole', () => {
+  // Catches: a link preview's texts cut with an ellipsis.
+  const embed = { url: 'https://example.com', title: 'x'.repeat(300), description: 'y'.repeat(600) };
+  const item = classifyEmbed(embed);
+  assert.equal(item.title, 'x'.repeat(300));
+  assert.equal(item.text, 'y'.repeat(600));
 });

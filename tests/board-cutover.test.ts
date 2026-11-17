@@ -6,6 +6,7 @@
 // 2026-11-16), so only the errand's path stays.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import net from 'node:net';
 import { join } from 'node:path';
 import { endEvent, encodeLine, pongEvent } from '../src/agent-runner/protocol.ts';
@@ -34,7 +35,7 @@ async function fakeScout(path: string, usd = 0.2): Promise<Runner> {
         const line: unknown = JSON.parse(buffer.slice(0, end));
         buffer = buffer.slice(end + 1);
         if (!isRecord(line)) continue;
-        if (line.op === 'ping') socket.write(encodeLine(pongEvent({ profile: 'scout', busy: false, queued: 0 })));
+        if (line.op === 'ping') socket.write(encodeLine(pongEvent({ unit: 'web', busy: false, queued: 0 })));
         if (line.op === 'run' && typeof line.id === 'string') {
           runs.push(line);
           const result = { text: 'nine to five', sources: [], files: [] };
@@ -84,8 +85,8 @@ function errandModel(asked: ReadonlyArray<Asked>): Llm {
 const logged = (logs: ReadonlyArray<Record<string, unknown>>, msg: string, id: unknown): number =>
   logs.filter((entry) => entry.msg === msg && entry.id === id).length;
 
-/** The private layer of an errand rig: the scout on `runner`, her `errand.add` granted, and `extra` over it. */
-function errandConfig(runner: string, out: string, extra: Settings = {}): Settings {
+/** The private layer of an errand rig: the scout on, her `errand.add` granted. */
+function errandConfig(): Settings {
   return {
     bot: { access: { 'errand.add': { everyone: false, roles: [], users: [SELF_ID] } } },
     // The scout's end can reach the core while her opening turn still holds the attention, and the result turn is
@@ -93,11 +94,7 @@ function errandConfig(runner: string, out: string, extra: Settings = {}): Settin
     // when the opening turn's reply waits on a slow interface process, and no result turn runs at all. One second
     // gives the opening turn twenty seconds.
     errands: { maxOpen: 3, resultCooldownSeconds: 0, resultRetrySeconds: 1 },
-    ...extra,
-    agents: {
-      scout: { enabled: true, socket: runner, out, daily: { tasks: 5 } },
-      ...(isRecord(extra.agents) ? extra.agents : {}),
-    },
+    agents: { scout: { enabled: true, daily: { tasks: 5 } } },
   };
 }
 
@@ -108,11 +105,14 @@ const errandTasks = (dirs: Dirs): Array<Record<string, unknown>> =>
 
 test('her errand goes from her errand.add to its scout and back to her once, through the core alone', async () => {
   const sockets = tempDir('nb-');
-  const scout = await fakeScout(join(sockets, 'r.sock'));
+  // The web unit's socket, where a user unit puts it under the runtime folder (unitPaths).
+  fs.mkdirSync(join(sockets, 'neptunia-agent-web'));
+  const scout = await fakeScout(join(sockets, 'neptunia-agent-web', 'sock'));
+  const env = { NEPTUNIA_UNIT_SCOPE: 'user', XDG_RUNTIME_DIR: sockets, XDG_STATE_HOME: join(sockets, 'state') };
   try {
-    const config = errandConfig(join(sockets, 'r.sock'), join(sockets, 'out'));
+    const config = errandConfig();
     await withRig({ config }, async ({ dirs, cores, units, logs }) => {
-      cores.push(await startUnitsCore(dirs, errandModel([OPENING])));
+      cores.push(await startUnitsCore(dirs, errandModel([OPENING]), undefined, env));
       const unit = await startedUnit(dirs);
       units.push(unit);
       await (

@@ -36,12 +36,15 @@ export function segments(
  * What a step's calls mean for her speech and for the next request. `speak`: every call worked and
  * its definition's result is an effect or a job (src/tools/tool-calls.ts#coversSpeech), so her
  * speech goes out after them; with no calls it is true. `fresh`: some call returned something to
- * read (a `data` result, or the result of an errand the turn waited for) or did not work (or has no definition), or an
+ * read (a `data` result, the result of an errand the turn waited for, or what her eyes saw of a picture she drew) or did not work (or has no definition), or an
  * inner turn still has an open follow-up, so a request follows when there is room.
  * @param outcomes  One per call, in order.
  */
 export function stepVerdict(
-  outcomes: Array<{ name: string; result: { status?: string; waited?: unknown } }>,
+  outcomes: Array<{
+    name: string;
+    result: { status?: string; waited?: unknown; data?: { description?: unknown; descriptionFailed?: unknown } };
+  }>,
   {
     definitionOf,
     openFollowUp = false,
@@ -55,11 +58,16 @@ export function stepVerdict(
       (outcome) =>
         outcome.result?.status !== 'ok' ||
         outcome.result.waited === true ||
+        lookedAt(outcome.result.data) ||
         !definitionOf(outcome.name) ||
         definitionOf(outcome.name)?.result === 'data'
     );
   return { speak, fresh };
 }
+
+/** Whether a result's data holds what her eyes saw of a picture she drew, or that they could not look. */
+const lookedAt = (data: { description?: unknown; descriptionFailed?: unknown } | undefined): boolean =>
+  data !== undefined && (data.description !== undefined || data.descriptionFailed === true);
 
 const textPart = (text: string) => ({ type: 'text', text });
 
@@ -220,6 +228,7 @@ export type StepLabels =
           rescue?: string;
           cut?: string;
           dropped?: string;
+          squeezed?: string;
           long?: string;
         };
         diagnostics?: string;
@@ -353,11 +362,18 @@ export function roomLeft({
   return { run: !timeSpent, capReason: timeSpent ? 'time' : null, next: finalNext ? 'final' : 'normal', tokensOver };
 }
 
+/** The line that closes a result squeezed to fit (`labels.task.step.squeezed`), '' without it. */
+export function squeezedLabel(labels: StepLabels): string {
+  const step = labels?.task?.step;
+  return step?.squeezed ?? '';
+}
+
 /**
  * `texts` cut so that together they lose about `excess` characters, the longest first, none below
- * `floor` characters (an ellipsis closes a cut one). A fresh array; what cannot be cut stays.
+ * `floor` characters (an ellipsis and then `label`, `labels.task.step.squeezed`, close a cut one). A fresh array; what
+ * cannot be cut stays.
  */
-export function cutToFit(texts: Array<string>, excess: number, floor: number = 400): Array<string> {
+export function cutToFit(texts: Array<string>, excess: number, floor: number = 400, label: string = ''): Array<string> {
   const lengths = texts.map((text) => Array.from(text).length);
   const need = Math.max(0, Math.ceil(excess));
   if (need === 0) return [...texts];
@@ -370,7 +386,11 @@ export function cutToFit(texts: Array<string>, excess: number, floor: number = 4
     if (lost(middle) >= need) low = middle;
     else high = middle - 1;
   }
-  return texts.map((text, i) => (lengths[i] > low ? clampWithEllipsis(text, low) : text));
+  const squeeze = (text: string): string => {
+    const cut = clampWithEllipsis(text, low);
+    return label ? `${cut} ${label}` : cut;
+  };
+  return texts.map((text, i) => (lengths[i] > low ? squeeze(text) : text));
 }
 
 /** Whether her answer did not begin with her thinking: the trimmed text opens with neither `<think>` nor `<thinking>`. */

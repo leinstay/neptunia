@@ -37,7 +37,7 @@ import { recallSettings } from '../src/behavior/recall.ts';
 import { loopSettings, paceSettings } from '../src/turn/settings.ts';
 import { hedgeSettings } from '../src/llm/openrouter.ts';
 import { attentionSettings, heartbeatLimits, intentionSettings } from '../src/intentions/model.ts';
-import { agentSettings } from '../src/agent-runner/profiles.ts';
+import { agentNames, agentSettings } from '../src/agent-runner/profiles.ts';
 import { CliError, parseFlags } from './lib/cli.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
@@ -75,7 +75,7 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['missedSettings', (config) => missedSettings(config)],
   ['paceSettings', (config) => paceSettings(config)],
   ['loopSettings', (config) => loopSettings(config)],
-  ...['scout', 'server'].map((agent): [string, (config: Tree) => unknown] => [
+  ...agentNames({ rootDir: ROOT_DIR }).map((agent): [string, (config: Tree) => unknown] => [
     `agentSettings ${agent}`,
     (config) => agentSettings(agent, config, { rootDir: ROOT_DIR }),
   ]),
@@ -87,8 +87,7 @@ const CAP_FIELDS = [
   'dbSettings.maxPerDay',
   'attentionSettings.perDayDefault',
   'innerSettings.attention.perDayDefault',
-  'agentSettings scout.daily',
-  'agentSettings server.daily',
+  ...agentNames({ rootDir: ROOT_DIR }).map((agent) => `agentSettings ${agent}.daily`),
 ];
 
 /** Whether the difference at `leaf` is a declared one. */

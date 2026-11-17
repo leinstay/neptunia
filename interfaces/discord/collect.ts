@@ -8,14 +8,8 @@
 
 import { ChannelType, PermissionFlagsBits, SnowflakeUtil, MessageReferenceType, OverwriteType } from 'discord.js';
 import { log } from '../../src/log.ts';
-import { ID_DIGITS, URL_PATTERN } from '../../src/memory/mentions.ts';
-import {
-  classifyAttachment,
-  linkThumbnailCacheKey,
-  siteOf,
-  positiveDimension,
-  clipWithEllipsis,
-} from '../../src/media/classify.ts';
+import { ID_DIGITS } from '../../src/memory/mentions.ts';
+import { classifyAttachment, linkThumbnailCacheKey, siteOf, positiveDimension } from '../../src/media/classify.ts';
 import { classifyEmbed } from './embed.ts';
 import { DISCORD_CDN_SITES, discordCdnVideo, normalSticker, previewAttachments, previewLinks } from './media.ts';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/media/video-sites.ts';
@@ -78,9 +72,6 @@ const CUSTOM_EMOJI_RE = new RegExp(CUSTOM_EMOJI_MARKUP, 'g');
 const MAX_CHANNEL_MENTIONS = 5;
 // A raw channel mention `<#id>`; the group is the id.
 const CHANNEL_MENTION_RE = new RegExp(`<#(${ID_DIGITS})>`, 'g');
-// config.json's context.maxUrlChars: the longest a URL in a message's text reads.
-const DEFAULT_MAX_URL_CHARS = 200;
-const URL_IN_TEXT_RE = new RegExp(URL_PATTERN, 'g');
 // A Discord message link inside a text, optionally in angle brackets (`https://discord.com/channels/<guild>/<channel>/<message>`,
 // the ptb, canary and discordapp hosts too, `@me` for a private chat). Groups: `<`, the link, the channel id, the
 // message id, `>`. Not glued to a word or a path before it, and nothing that continues a URL (a word character,
@@ -284,14 +275,13 @@ type EmbedLink =
 function normalizeEmbedLinks(
   idPrefix: string,
   embeds: ReadonlyArray<EmbedInput> | undefined,
-  embedTextChars: number,
   videoSites: ReadonlyArray<string>
 ) {
   const watchSites = Array.isArray(videoSites) && videoSites.length > 0;
   return [...(embeds ?? [])]
     .filter((embed) => embed?.url)
     .map((embed, index) => {
-      const classified = classifyEmbed(embed, { embedTextChars, videoSites });
+      const classified = classifyEmbed(embed, { videoSites });
       let id: string;
       const url = classified.url;
       if (classified.kind === 'link' && watchSites && url !== null && videoSiteFor(url, videoSites) !== null) {
@@ -317,11 +307,10 @@ function normalizeEmbedLinks(
 function normalizeLinks(
   idPrefix: string,
   embeds: ReadonlyArray<EmbedInput> | undefined,
-  embedTextChars: number,
   cleanText: string,
   videoSites: ReadonlyArray<string>
 ) {
-  const embedLinks = normalizeEmbedLinks(idPrefix, embeds, embedTextChars, videoSites);
+  const embedLinks = normalizeEmbedLinks(idPrefix, embeds, videoSites);
   const links: Array<EmbedLink> = [...embedLinks];
   if (Array.isArray(videoSites) && videoSites.length > 0) {
     const seenUrls = new Set<string | null>(embedLinks.map((link) => link.url));
@@ -384,37 +373,23 @@ function hidesUrl(link: { kind: string; url: string | null }): boolean {
 }
 
 /**
- * Every URL in `text` cut to `maxUrlChars` code points with an ellipsis
- * (clipWithEllipsis); query and tracking parameters stay as posted up to the
- * cut. `0` (or anything not a positive number) keeps every URL whole.
- */
-function capUrls(text: string, maxUrlChars: unknown): string {
-  const limit = Math.floor(Number(maxUrlChars));
-  if (!Number.isFinite(limit) || limit <= 0) return text;
-  return text.replace(URL_IN_TEXT_RE, (url) => clipWithEllipsis(url, limit));
-}
-
-/**
  * The media of a message or a snapshot: its real attachments followed by the
  * Discord CDN video links (see cdnVideoAttachments), the links without the
  * embeds of those videos, and the text with the URL of every GIF embed and
  * Discord CDN file embed (hidesUrl) and every CDN video URL stripped (an
- * `<url>` form included). A posted link's URL stays in the text, every URL
- * left there cut to `maxUrlChars` (capUrls).
+ * `<url>` form included). A posted link's URL stays in the text whole.
  */
 function normalizeMedia(
   idPrefix: string,
   source: SnapshotLike,
   isVoice: boolean,
   cleanText: string,
-  embedTextChars: number,
   videoSites: ReadonlyArray<string>,
-  maxUrlChars: unknown,
   imageSize: unknown
 ) {
   const real = normalizeAttachments(source.attachments, isVoice);
   const size = typeof imageSize === 'number' ? imageSize : undefined;
-  const { embedLinks, links } = normalizeLinks(idPrefix, source.embeds, embedTextChars, cleanText, videoSites);
+  const { embedLinks, links } = normalizeLinks(idPrefix, source.embeds, cleanText, videoSites);
   const cdn = cdnVideoAttachments(source.embeds, cleanText, real);
   const stripped = cdn.urls.flatMap((url) => [{ url: `<${url}>` }, { url }]);
   return {
@@ -423,7 +398,7 @@ function normalizeMedia(
     links: [...previewLinks(embedLinks, size), ...links.slice(embedLinks.length)].filter(
       (link) => !(typeof link.url === 'string' && cdn.embedUrls.has(link.url))
     ),
-    content: capUrls(stripEmbedUrls(cleanText, [...stripped, ...embedLinks.filter(hidesUrl)]), maxUrlChars),
+    content: stripEmbedUrls(cleanText, [...stripped, ...embedLinks.filter(hidesUrl)]),
   };
 }
 
@@ -442,13 +417,7 @@ function stripEmbedUrls(content: string, links: ReadonlyArray<{ url?: string | n
  * no id/channel/author. A Discord CDN video link in it becomes a video
  * attachment and its URLs read as in the message itself (see normalizeMedia).
  */
-function normalizeSnapshot(
-  snapshot: SnapshotLike,
-  embedTextChars: number,
-  videoSites: ReadonlyArray<string>,
-  maxUrlChars: unknown,
-  imageSize: unknown
-) {
+function normalizeSnapshot(snapshot: SnapshotLike, videoSites: ReadonlyArray<string>, imageSize: unknown) {
   const isVoice = isVoiceMessageFlag(snapshot);
   const cleanContent = snapshot.cleanContent ?? snapshot.content ?? '';
   const emojis = extractEmojis(snapshot.content ?? cleanContent);
@@ -458,9 +427,7 @@ function normalizeSnapshot(
     snapshot,
     isVoice,
     cleanText,
-    embedTextChars,
     videoSites,
-    maxUrlChars,
     imageSize
   );
   return {
@@ -517,8 +484,7 @@ export type NormalizedMessage = {
 
 /**
  * Reduce a discord.js Message to the plain shape the rest of the code works
- * with. `options.embedTextChars` caps link/gif title+description text
- * (default `config.media.embedTextChars`, see config.json).
+ * with. A link preview's title and description are kept whole.
  * `options.videoSites` (default `[]`) lists the video-site hosts whose URLs
  * typed in the text become synthetic `link` items (see normalizeLinks), in
  * the message and its forwarded snapshots alike. A link to a Discord CDN
@@ -531,21 +497,17 @@ export type NormalizedMessage = {
  * extractChannelIds; `[]` when there are none; forwarded snapshots are not
  * scanned), while `content` keeps reading `#name`. A posted link's URL stays
  * in `content` where it was written; a GIF's or a Discord CDN file's does not
- * (see normalizeMedia). `options.maxUrlChars` cuts every URL left in the text
- * (default `config.context.maxUrlChars`, see config.json; `0` keeps them whole);
- * the link items keep the whole URL.
+ * (see normalizeMedia). Every URL left in the text stays whole, as in the link items.
  * @param message A discord.js Message.
  * @param options `imageSize`: `media.imageSize`, the longest side of a preview address (see media.ts#previewUrlOf).
  */
 export function normalizeMessage(
   given: object,
   selfId: string,
-  options: { embedTextChars?: number; videoSites?: Array<string>; maxUrlChars?: number; imageSize?: number } = {}
+  options: { videoSites?: Array<string>; imageSize?: number } = {}
 ): NormalizedMessage {
   const message = asMessage(given);
-  const embedTextChars = options.embedTextChars ?? 200;
   const videoSites = options.videoSites ?? [];
-  const maxUrlChars = options.maxUrlChars ?? DEFAULT_MAX_URL_CHARS;
   const imageSize = options.imageSize;
   const isVoice = isVoiceMessageFlag(message);
   const cleanContent = message.cleanContent ?? '';
@@ -556,13 +518,11 @@ export function normalizeMessage(
     message,
     isVoice,
     cleanText,
-    embedTextChars,
     videoSites,
-    maxUrlChars,
     imageSize
   );
   const forwarded = [...(message.messageSnapshots?.values?.() ?? [])].map((snapshot) =>
-    normalizeSnapshot(snapshot, embedTextChars, videoSites, maxUrlChars, imageSize)
+    normalizeSnapshot(snapshot, videoSites, imageSize)
   );
 
   // A forward's `message.reference.messageId` is the ORIGINAL message, not
@@ -650,22 +610,15 @@ function editedAtOf(message: MessageLike): number | null {
 const requiredId = (value: unknown): string => idString(value) as string;
 
 /**
- * The normalizeMessage options from the live config (`media.embedTextChars`,
- * `media.video.sites`, `context.maxUrlChars`) and IMAGE_SIZE: the one copy every caller reads.
+ * The normalizeMessage options from the live config (`media.video.sites`) and IMAGE_SIZE: the one copy every caller
+ * reads.
  */
-export function normalizeOptions(
-  config:
-    | { media?: { embedTextChars?: number; video?: { sites?: Array<string> } }; context?: { maxUrlChars?: number } }
-    | null
-    | undefined
-): { embedTextChars?: number; videoSites?: Array<string>; maxUrlChars?: number; imageSize?: number } {
+export function normalizeOptions(config: { media?: { video?: { sites?: Array<string> } } } | null | undefined): {
+  videoSites?: Array<string>;
+  imageSize?: number;
+} {
   const video = config?.media?.video;
-  return {
-    embedTextChars: config?.media?.embedTextChars,
-    videoSites: video?.sites,
-    maxUrlChars: config?.context?.maxUrlChars,
-    imageSize: IMAGE_SIZE,
-  };
+  return { videoSites: video?.sites, imageSize: IMAGE_SIZE };
 }
 
 /**
@@ -784,9 +737,7 @@ export function toEvent(
   given: object,
   selfId: string,
   options: {
-    embedTextChars?: number;
     videoSites?: Array<string>;
-    maxUrlChars?: number;
     edit?: boolean;
     deleted?: boolean;
     previous?: object | null;
@@ -1027,23 +978,16 @@ export function canAttach(channel: object): boolean {
 }
 
 /**
- * Last `limit` messages of a channel (at most one page), oldest first, normalized. `embedTextChars` caps link/gif embed
- * title+description (config.media.embedTextChars); `videoSites` lists the video-site hosts whose typed URLs become link
- * items (config.media.video.sites); `maxUrlChars` cuts the URLs left in the text (config.context.maxUrlChars).
+ * Last `limit` messages of a channel (at most one page), oldest first, normalized. `videoSites` lists the video-site
+ * hosts whose typed URLs become link items (config.media.video.sites).
  */
 export async function fetchHistory(
   channel: TextBasedChannel,
-  {
-    limit,
-    selfId,
-    embedTextChars,
-    videoSites,
-    maxUrlChars,
-  }: { limit: number; selfId: string; embedTextChars?: number; videoSites?: Array<string>; maxUrlChars?: number }
+  { limit, selfId, videoSites }: { limit: number; selfId: string; videoSites?: Array<string> }
 ): Promise<Array<object>> {
   const fetched = await channel.messages.fetch({ limit: Math.min(PAGE, limit) });
   const raw = [...fetched.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-  return raw.map((message) => normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
+  return raw.map((message) => normalizeMessage(message, selfId, { videoSites }));
 }
 
 /**
@@ -1084,17 +1028,13 @@ export async function fetchHistoryWindow(
     limit,
     minTs = 0,
     selfId,
-    embedTextChars,
     videoSites,
-    maxUrlChars,
   }: {
     anchorId?: string | null;
     limit: number;
     minTs?: number;
     selfId: string;
-    embedTextChars?: number;
     videoSites?: Array<string>;
-    maxUrlChars?: number;
   }
 ): Promise<Array<object>> {
   const collected = []; // newest first while accumulating; reversed at the end
@@ -1117,7 +1057,7 @@ export async function fetchHistoryWindow(
         hitFloor = true;
         break;
       }
-      collected.push(normalizeMessage(message, selfId, { embedTextChars, videoSites, maxUrlChars }));
+      collected.push(normalizeMessage(message, selfId, { videoSites }));
       if (collected.length >= limit) break;
     }
 

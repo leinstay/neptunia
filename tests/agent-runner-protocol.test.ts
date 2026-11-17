@@ -31,6 +31,7 @@ const loose = (value: unknown): Record<string, Untyped> => value as Record<strin
 test('validateRequest: a full run passes and is normalised', () => {
   const r = validateRequest({
     op: 'run',
+    agent: 'scout',
     id: 'task-1',
     goal: '  find a meme  ',
     context: { scope: 'dm', asker: 'Theodora' },
@@ -46,26 +47,39 @@ test('validateRequest: a full run passes and is normalised', () => {
   assert.equal(loose(r.message).context.scope, 'dm');
 });
 
+test('validateRequest: run needs the name of its agent, since one runner serves every agent of its unit', () => {
+  // Bug: a run with no agent reaches a runner that cannot tell which agent's prompt and abilities to use.
+  assert.equal(loose(validateRequest({ op: 'run', id: 'a', goal: 'x' })).error, 'bad-agent');
+  assert.equal(loose(validateRequest({ op: 'run', agent: '../scout', id: 'a', goal: 'x' })).error, 'bad-agent');
+  assert.equal(loose(loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x' })).message).agent, 'scout');
+});
+
 test('validateRequest: run needs a non-empty goal and an id', () => {
-  assert.equal(loose(validateRequest({ op: 'run', id: 'a' })).error, 'bad-goal');
-  assert.equal(loose(validateRequest({ op: 'run', id: 'a', goal: '   ' })).error, 'bad-goal');
+  assert.equal(loose(validateRequest({ op: 'run', agent: 'scout', id: 'a' })).error, 'bad-goal');
+  assert.equal(loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: '   ' })).error, 'bad-goal');
   assert.equal(loose(validateRequest({ op: 'run', goal: 'x' })).error, 'bad-id');
-  assert.equal(loose(validateRequest({ op: 'run', id: 'bad id!', goal: 'x' })).error, 'bad-id');
+  assert.equal(loose(validateRequest({ op: 'run', agent: 'scout', id: 'bad id!', goal: 'x' })).error, 'bad-id');
 });
 
 test('validateRequest: a bad scope, limit, cost or search provider is refused', () => {
   assert.equal(
-    loose(validateRequest({ op: 'run', id: 'a', goal: 'x', context: { scope: 'nope' } })).error,
+    loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', context: { scope: 'nope' } })).error,
     'bad-scope'
   );
-  assert.equal(loose(validateRequest({ op: 'run', id: 'a', goal: 'x', limits: { steps: -1 } })).error, 'bad-limits');
-  assert.equal(loose(validateRequest({ op: 'run', id: 'a', goal: 'x', limits: { nope: 1 } })).error, 'bad-limits');
   assert.equal(
-    loose(validateRequest({ op: 'run', id: 'a', goal: 'x', cost: { input: -1, output: 2 } })).error,
+    loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', limits: { steps: -1 } })).error,
+    'bad-limits'
+  );
+  assert.equal(
+    loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', limits: { nope: 1 } })).error,
+    'bad-limits'
+  );
+  assert.equal(
+    loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', cost: { input: -1, output: 2 } })).error,
     'bad-cost'
   );
   assert.equal(
-    loose(validateRequest({ op: 'run', id: 'a', goal: 'x', searchProvider: 'Exa!' })).error,
+    loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', searchProvider: 'Exa!' })).error,
     'bad-search-provider'
   );
 });
@@ -74,6 +88,7 @@ test('validateRequest: a run carries its secrets, each a non-empty string; only 
   assert.deepEqual([...SECRET_KEYS], ['openrouterKey', 'proxy', 'searchKey']);
   const full = validateRequest({
     op: 'run',
+    agent: 'scout',
     id: 'a',
     goal: 'x',
     secrets: { openrouterKey: 'sk-or-1', proxy: 'http://u:p@proxy.example:8000', searchKey: 'srch-1' },
@@ -84,10 +99,19 @@ test('validateRequest: a run carries its secrets, each a non-empty string; only 
     proxy: 'http://u:p@proxy.example:8000',
     searchKey: 'srch-1',
   });
-  const keyOnly = validateRequest({ op: 'run', id: 'a', goal: 'x', secrets: { openrouterKey: 'sk-or-1' } });
+  const keyOnly = validateRequest({
+    op: 'run',
+    agent: 'scout',
+    id: 'a',
+    goal: 'x',
+    secrets: { openrouterKey: 'sk-or-1' },
+  });
   assert.deepEqual(loose(keyOnly).message.secrets, { openrouterKey: 'sk-or-1' });
   assert.equal(
-    Object.hasOwn(loose(validateRequest({ op: 'run', id: 'a', goal: 'x' })).message as object, 'secrets'),
+    Object.hasOwn(
+      loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x' })).message as object,
+      'secrets'
+    ),
     false,
     'none given: none passed on'
   );
@@ -108,13 +132,14 @@ test('validateRequest / parseRequestLine: refused secrets come back as a code, n
     'sk-or-v1-VERYSECRET',
   ];
   for (const secrets of bad) {
-    const checked = validateRequest({ op: 'run', id: 'a', goal: 'x', secrets });
+    const checked = validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', secrets });
     assert.deepEqual(checked, { ok: false, error: 'bad-secrets' }, JSON.stringify(secrets).slice(0, 60));
     assert.ok(!JSON.stringify(checked).includes('VERYSECRET'));
   }
   // A run refused for another reason while carrying good secrets: the refusal and its error event name no secret.
   const line = JSON.stringify({
     op: 'run',
+    agent: 'scout',
     id: 'task-7',
     goal: '',
     secrets: { openrouterKey: secret, proxy: 'http://u:VERYSECRET@p.example:1', searchKey: secret },
@@ -123,7 +148,13 @@ test('validateRequest / parseRequestLine: refused secrets come back as a code, n
   assert.deepEqual(parsed, { ok: false, error: 'bad-goal', id: 'task-7' });
   assert.ok(!encodeLine(errorEvent(parsed.error, parsed.id)).includes('VERYSECRET'));
   const badSecrets = parseRequestLine(
-    JSON.stringify({ op: 'run', id: 'task-8', goal: 'g', secrets: { openrouterKey: secret, extra: secret } })
+    JSON.stringify({
+      op: 'run',
+      agent: 'scout',
+      id: 'task-8',
+      goal: 'g',
+      secrets: { openrouterKey: secret, extra: secret },
+    })
   );
   assert.deepEqual(badSecrets, { ok: false, error: 'bad-secrets', id: 'task-8' });
   assert.ok(!encodeLine(errorEvent(badSecrets.error, badSecrets.id)).includes('VERYSECRET'));
@@ -143,7 +174,7 @@ test('httpProxyForm: a socks5h URL becomes the http one with the same credential
 
 test('validateRequest: goal over the cap is refused', () => {
   const long = 'a'.repeat(4001);
-  assert.equal(loose(validateRequest({ op: 'run', id: 'a', goal: long })).error, 'goal-too-long');
+  assert.equal(loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: long })).error, 'goal-too-long');
 });
 
 test('validateRequest: cancel and ping', () => {
@@ -158,7 +189,7 @@ test('validateRequest: cancel and ping', () => {
 test('parseRequestLine: bad JSON, oversize, and a valid id surfaced on a bad message', () => {
   assert.equal(loose(parseRequestLine('{not json')).error, 'bad-json');
   assert.equal(loose(parseRequestLine('x'.repeat(1_000_001))).error, 'line-too-long');
-  const r = parseRequestLine(JSON.stringify({ op: 'run', id: 'task-5', goal: '' }));
+  const r = parseRequestLine(JSON.stringify({ op: 'run', agent: 'scout', id: 'task-5', goal: '' }));
   assert.equal(r.ok, false);
   assert.equal(r.id, 'task-5');
 });
@@ -198,9 +229,9 @@ test('restarted, pong and error events', () => {
     usage: { input: 0, output: 0, usd: 0, steps: 0, seconds: 0 },
     error: 'restarted',
   });
-  assert.deepEqual(pongEvent({ profile: 'scout', busy: true, queued: 2 }), {
+  assert.deepEqual(pongEvent({ unit: 'web', busy: true, queued: 2 }), {
     event: 'pong',
-    profile: 'scout',
+    unit: 'web',
     busy: true,
     queued: 2,
   });
@@ -242,6 +273,7 @@ test('validateRequest: context.recent passes as { author, text } lines, the late
   const many = Array.from({ length: 25 }, (_, i) => line(i));
   const ok = validateRequest({
     op: 'run',
+    agent: 'scout',
     id: 't1',
     goal: 'g',
     context: { scope: 'group', channel: 'c1', recent: many },
@@ -256,6 +288,7 @@ test('validateRequest: context.recent passes as { author, text } lines, the late
   assert.equal(loose(ok.message).context.channel, 'c1');
   const long = validateRequest({
     op: 'run',
+    agent: 'scout',
     id: 't1',
     goal: 'g',
     context: { recent: [{ author: 'a'.repeat(300), text: 'b'.repeat(3000) }] },
@@ -265,7 +298,8 @@ test('validateRequest: context.recent passes as { author, text } lines, the late
     [300, 3000]
   );
   assert.deepEqual(
-    loose(validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: [] } })).message.context.recent,
+    loose(validateRequest({ op: 'run', agent: 'scout', id: 't1', goal: 'g', context: { recent: [] } })).message.context
+      .recent,
     []
   );
   for (const bad of [
@@ -277,7 +311,7 @@ test('validateRequest: context.recent passes as { author, text } lines, the late
     [{ author: 'a', text: 'b' }, 'c'],
   ]) {
     assert.deepEqual(
-      validateRequest({ op: 'run', id: 't1', goal: 'g', context: { recent: bad } }),
+      validateRequest({ op: 'run', agent: 'scout', id: 't1', goal: 'g', context: { recent: bad } }),
       { ok: false, error: 'bad-recent' },
       JSON.stringify(bad)
     );
@@ -286,23 +320,33 @@ test('validateRequest: context.recent passes as { author, text } lines, the late
 
 test('validateRequest: a run carries the shared preamble trimmed; a blank one is dropped, none given none passed on', () => {
   // Stage X: the preamble has no cap, so the constant this line pinned is gone (tests/preamble-no-cap.test.ts).
-  const ok = validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '  Shared text for every agent.\n' });
+  const ok = validateRequest({
+    op: 'run',
+    agent: 'scout',
+    id: 'a',
+    goal: 'x',
+    preamble: '  Shared text for every agent.\n',
+  });
   assert.equal(ok.ok, true);
   assert.equal(loose(ok.message).preamble, 'Shared text for every agent.');
   assert.equal(
-    loose(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: 'é'.repeat(8000) })).message.preamble.length,
+    loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', preamble: 'é'.repeat(8000) })).message
+      .preamble.length,
     8000,
     'at the cap: kept'
   );
   assert.equal(
     Object.hasOwn(
-      loose(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '   ' })).message as object,
+      loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', preamble: '   ' })).message as object,
       'preamble'
     ),
     false
   );
   assert.equal(
-    Object.hasOwn(loose(validateRequest({ op: 'run', id: 'a', goal: 'x' })).message as object, 'preamble'),
+    Object.hasOwn(
+      loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x' })).message as object,
+      'preamble'
+    ),
     false
   );
 });
@@ -310,7 +354,7 @@ test('validateRequest: a run carries the shared preamble trimmed; a blank one is
 test('validateRequest / parseRequestLine: a non-string preamble is refused with its code, never its text', () => {
   for (const preamble of [42, null, ['PREAMBLE-TEXT'], { text: 'PREAMBLE-TEXT' }, true]) {
     assert.deepEqual(
-      validateRequest({ op: 'run', id: 'a', goal: 'x', preamble }),
+      validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', preamble }),
       { ok: false, error: 'bad-preamble' },
       JSON.stringify(preamble)
     );
@@ -318,7 +362,7 @@ test('validateRequest / parseRequestLine: a non-string preamble is refused with 
   // Stage X: the owner removed the preamble cap, so the over-long case and its `preamble-too-long` code are gone; the
   // refusal that leaks no text is checked on a non-string preamble instead.
   const parsed = parseRequestLine(
-    JSON.stringify({ op: 'run', id: 'task-p', goal: 'g', preamble: { text: 'PREAMBLE-TEXT' } })
+    JSON.stringify({ op: 'run', agent: 'scout', id: 'task-p', goal: 'g', preamble: { text: 'PREAMBLE-TEXT' } })
   );
   assert.deepEqual(parsed, { ok: false, error: 'bad-preamble', id: 'task-p' });
   assert.ok(!encodeLine(errorEvent(parsed.error, parsed.id)).includes('PREAMBLE-TEXT'));
@@ -382,7 +426,7 @@ test('parseRoute refuses a provider on a route with no model', () => {
 
 test('validateRequest keeps the provider of the route inside a run', () => {
   // Catches: the validator rebuilds the route from four fields and drops the pin on the way to the runner.
-  const checked = validateRequest({ op: 'run', id: 'a', goal: 'x', route: PINNED });
+  const checked = validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', route: PINNED });
   assert.ok(checked.ok);
   assert.ok(checked.message.op === 'run');
   assert.deepEqual(checked.message.route, PINNED);
@@ -391,7 +435,10 @@ test('validateRequest keeps the provider of the route inside a run', () => {
 test('validateRequest refuses a provider on a claude route as bad-route', () => {
   // Catches: the refusal has another code, or none, so the core cannot tell the owner what was wrong.
   const route = { ...PINNED, backend: 'claude' };
-  assert.deepEqual(validateRequest({ op: 'run', id: 'a', goal: 'x', route }), { ok: false, error: 'bad-route' });
+  assert.deepEqual(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', route }), {
+    ok: false,
+    error: 'bad-route',
+  });
 });
 
 // src/agent-runner/protocol.ts: the `route` of a `run`, the path the core decided for the task. Pure; no I/O.
@@ -407,7 +454,7 @@ for (const route of [
 ]) {
   test(`validateRequest keeps the route ${JSON.stringify(route)}`, () => {
     // Catches: the validator drops the field, or a model the owner set is refused and every errand of that agent fails.
-    const checked = validateRequest({ op: 'run', id: 'a', goal: 'x', route });
+    const checked = validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', route });
     assert.ok(checked.ok);
     assert.ok(checked.message.op === 'run');
     assert.deepEqual(checked.message.route, route);
@@ -433,12 +480,21 @@ for (const [name, route] of [
 ] as const) {
   test(`validateRequest refuses a route with ${name} as bad-route`, () => {
     // Catches: a route the runner cannot honour reaches the engine, or a credential travels in a field that is not `secrets`.
-    assert.deepEqual(validateRequest({ op: 'run', id: 'a', goal: 'x', route }), { ok: false, error: 'bad-route' });
+    assert.deepEqual(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', route }), {
+      ok: false,
+      error: 'bad-route',
+    });
   });
 }
 
 test('parseRequestLine keeps the task id of a refused route and names no value of it', () => {
   // Catches: the refusal has no id, so the core waits for the errand's whole time cap, or a value travels back in the error.
-  const line = JSON.stringify({ op: 'run', id: 'task-r', goal: 'g', route: { ...ROUTE, key: 'sk-SECRET' } });
+  const line = JSON.stringify({
+    op: 'run',
+    agent: 'scout',
+    id: 'task-r',
+    goal: 'g',
+    route: { ...ROUTE, key: 'sk-SECRET' },
+  });
   assert.deepEqual(parseRequestLine(line), { ok: false, error: 'bad-route', id: 'task-r' });
 });

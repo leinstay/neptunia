@@ -92,18 +92,6 @@ export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: Gathe
   // Every line the request shows, the reply parents and the deleted lines included, with its number among the stored
   // lines of its place (src/turn/history.ts), which `<chat>` prints.
   history = withLineNumbers(history, numberLines(history, draft.placeLines ?? null));
-  // A text attachment cut at FILE_PREVIEW_CHARS (src/turn/phases/request/stages.ts, src/media/text-preview.ts#withTextPreviews).
-  for (const message of history) {
-    for (const attachment of message.attachments ?? []) {
-      if ((attachment?.previewLost ?? 0) > 0)
-        draft.limits?.add({
-          kind: 'preview-cut',
-          where: message.id,
-          lost: attachment.previewLost,
-          detail: attachment.id,
-        });
-    }
-  }
   const descriptions = captions?.done ? captions.value?.descriptions : undefined;
   // A video stage past the deadline: the cached states stay, and the videos it was still
   // watching render not watched (`pending`) instead of as a bare still frame.

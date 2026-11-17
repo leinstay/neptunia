@@ -23,15 +23,14 @@
 // Items are `{ title, url, snippet, age? }` exactly as Brave's: `age` is Exa's
 // published date as it comes (an ISO date string), left out when absent,
 // empty or `N/A` (any case);
-// snippets are cut to SNIPPET_MAX_CHARS, since Exa returns page text where
-// Brave returns a one-line description, and the summary prompt reads them all.
+// a snippet comes back whole, though Exa returns page text where Brave returns a one-line description: each reader
+// retells it for its own bound.
 //
 // Every call resolves to a result object and never rejects. One warn line per
 // failure (`web: exa failed`), carrying the reason and an HTTP status only --
 // never the query (it is chat content), never the key, never the URL.
 
 import { log } from '../log.ts';
-import { clampText } from '../memory/clamp.ts';
 import { objOf } from '../tools/types.ts';
 import type { SearchClient, SearchFailure, SearchOptions, SearchOutcome, SearchResult } from './search-types.ts';
 
@@ -44,7 +43,6 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 /** `value` when it is a finite number above zero, else `fallback`. */
 const positiveOr = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
-const SNIPPET_MAX_CHARS = 600;
 const RATE_LIMITED_META = 'ai.exa/rateLimited';
 
 // The line keys of the formatted text form, lower-cased, mapped to the item field they fill
@@ -113,7 +111,7 @@ function itemOf({
   const item: SearchResult = {
     title: inlineText(title),
     url: link,
-    snippet: clampText(inlineText(snippet), SNIPPET_MAX_CHARS, { tolerance: 1 }),
+    snippet: inlineText(snippet),
   };
   const date = inlineText(age);
   if (date && !NO_DATE.test(date)) item.age = date;

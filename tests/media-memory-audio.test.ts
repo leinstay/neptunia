@@ -156,6 +156,42 @@ test('a text file is kept as its text form from its own words, with no model', a
   assert.equal(llm.calls.length, 0);
 });
 
+/** A describer of text files that reads `body`, with a fake summarizer answering `answer` over the bound. */
+function textFileRig(body: string, answer: string) {
+  const calls: Array<{ text: string; options: { maxChars: number; kind: string } }> = [];
+  const summarize = (text: string, options: { maxChars: number; kind: 'picture' | 'GIF' | 'video' | 'text' }) => {
+    calls.push({ text, options });
+    return Promise.resolve(Array.from(text).length > options.maxChars ? answer : text);
+  };
+  const describer = createDescriber({
+    hot: { config: { models: { routes: chainsOf({ vision: 'x/vision' }) } }, prompts: { describe: 'Describe.' } },
+    store: createStore(memoryAt(tempDir('nep-media-memory-'))),
+    llm: fakeLlm({ text: 'never asked' }),
+    fetchText: () => Promise.resolve({ ok: true, text: body }),
+    summarize,
+  });
+  const item = { ...voiceItem('text'), itemId: 't1', url: 'https://x.invalid/notes.txt' };
+  const described = async () => (await describer.describeMany('g1', [item])).descriptions.get('t1');
+  return { calls, described };
+}
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('a text file over 2000 characters goes to summarize once and its summary is the text form', async () => {
+  // Catches: a long file cut silently at 2000 characters.
+  const body = `${'marzipan recipes, '.repeat(150)}the end`;
+  const { calls, described } = textFileRig(body, 'a list of marzipan recipes');
+  assert.equal(await described(), 'a list of marzipan recipes');
+  assert.deepEqual(calls, [{ text: body, options: { maxChars: 2000, kind: 'text' } }]);
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('a summary of a text file still over 2000 characters is the text form whole', async () => {
+  // Catches: the summary cut at the bound.
+  const longer = `${'a long retelling, '.repeat(130)}done`;
+  const { described } = textFileRig('marzipan recipes, '.repeat(150), longer);
+  assert.equal(await described(), longer);
+});
+
 test('the prefill hands an observed voice message and audio file to the describer, as it does a picture', async () => {
   const asked: Array<Row> = [];
   const prefill = createMediaPrefill({

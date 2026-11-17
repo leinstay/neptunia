@@ -530,6 +530,25 @@ test('createHot: a config that still sets models.errands warns once, naming the 
   }
 });
 
+test('createHot: an agent entry that still sets its socket warns once, whatever agent it names', async () => {
+  // Catches: a deployment keeps `agents.<name>.socket` from the per-agent units, nothing reads it, and the owner believes
+  // the runner listens there.
+  const dir = makeRoot(wrongly({ config: { agents: { mine: { socket: '/run/old/sock' } } } }));
+  const retired = (logs: Record<string, Untyped>) =>
+    logs.filter((entry: Record<string, Untyped>) => entry.msg === 'config: agents.mine.socket is no longer read');
+  let hot = wrongly<Hot>(undefined);
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+      hot.reloadConfig();
+    });
+    assert.equal(retired(started.logs).length, 1);
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createHot: a data/config/config.json is read key by key: an old model key is not read, a reload keeps the previous config on bad JSON', async () => {
   const dir = makeRoot(wrongly({ config: { models: { routes: chainsOf({ analyzer: 'x/default' }) } } }));
   fs.mkdirSync(path.join(dir, 'data', 'config'), { recursive: true });

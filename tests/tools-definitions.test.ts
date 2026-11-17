@@ -92,9 +92,22 @@ test('the table names registered operations, in the operations registry order, a
     names,
     ops.filter((name) => names.includes(name))
   );
+  // Changed: the owner's agent operations, `agent.list`, `agent.enable` and `agent.disable`, are no tools of hers.
   assert.deepEqual(
     ops.filter((name) => !names.includes(name)),
-    ['status.show', 'model.show', 'route.list', 'rule.list', 'access.list', 'lore.add', 'lore.remove', 'tools.describe']
+    [
+      'status.show',
+      'model.show',
+      'route.list',
+      'rule.list',
+      'access.list',
+      'lore.add',
+      'lore.remove',
+      'agent.list',
+      'agent.enable',
+      'agent.disable',
+      'tools.describe',
+    ]
   );
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS));
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS[0].params));

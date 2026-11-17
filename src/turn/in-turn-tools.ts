@@ -7,6 +7,7 @@ import { diaryVoiceTool } from '../behavior/diary-turn.ts';
 import { pullPictures } from '../behavior/pull.ts';
 import { checkPull } from '../behavior/pull-fetch.ts';
 import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.ts';
+import type { Summarize } from '../behavior/summarize.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { TurnRoutes } from '../behavior/turn-ability-route.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -81,6 +82,8 @@ export type InTurnToolsContext = {
   hot: { readonly config: InTurnConfig; readonly prompts: { labels?: unknown } | null | undefined };
   store: InTurnStore;
   lookup: WebLookup | undefined;
+  /** Retells a search snippet over its bound once (src/behavior/summarize.ts); none keeps it whole. */
+  summarize?: Summarize | undefined;
   describer: InTurnDescriber | undefined;
   recall: RecallClient | null;
   speech: unknown;
@@ -196,6 +199,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     hot,
     store,
     lookup,
+    summarize,
     describer,
     recall,
     speech,
@@ -293,7 +297,14 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       // The attempt always hands its draft to a diary post's tools.
       ...(mode === 'diary' ? diaryVoiceTool({ speech, held: draft as InTurnDraft }) : {}),
       'web.search': (args) =>
-        runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, placeId, args }),
+        runWebSearch({
+          lookup: lookup ?? null,
+          config: hot.config,
+          labels: hot.prompts?.labels ?? {},
+          placeId,
+          args,
+          summarize,
+        }),
       'web.read': (args, call) =>
         runWebRead({
           lookup: lookup ?? null,

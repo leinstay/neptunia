@@ -30,6 +30,7 @@ import type { MyDayReader } from '../request/my-day.ts';
 import type { FrameReads } from '../../memory/db/frame-reads.ts';
 import type { LookupRing } from '../calls.ts';
 import type { SeedRing } from '../seed-ring.ts';
+import type { Summarize } from '../../behavior/summarize.ts';
 
 /** The live config, as far as the phases read it; the functions they call read their own sections. */
 export type PhaseConfig = LookupConfig &
@@ -103,6 +104,7 @@ export type PhaseContext = {
   schedule: (fn: () => void, ms: number) => () => void;
   describer: PhaseDescriber | null | undefined;
   fetchImpl: typeof fetch;
+  summarize?: Summarize | undefined;
   lookup: PhaseWebLookup | null | undefined;
   images: { quota: (args: { accountId: string | null }) => unknown } | null | undefined;
   emoji:
@@ -275,6 +277,6 @@ export type HistoryLine = {
   authorId?: string;
   authorName?: string;
   content?: string;
-  attachments?: Array<{ id?: string; previewLost?: number; [key: string]: unknown }>;
+  attachments?: Array<{ id?: string; [key: string]: unknown }>;
   [key: string]: unknown;
 };

@@ -47,6 +47,8 @@ test('the table holds the plural collections and none of the retired singular or
     [
       // `/agent mode` came from main after this list was written (b6a91eac), and the naming policy leaves it alone.
       'agent',
+      // `/agents` lists the agents on disk; the plural names the whole collection, as the policy asks.
+      'agents',
       'clear',
       'config',
       'doctor',

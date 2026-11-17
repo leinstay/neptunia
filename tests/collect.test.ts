@@ -863,15 +863,19 @@ test('normalizeMessage: replyPingAccountId is null without a reply, and for a fo
   assert.equal(normalizeMessage(forward, 'self').replyPingAccountId, null);
 });
 
-// --- fetchHistory: embedTextChars reaches normalizeMessage -------------------
+// --- fetchHistory: a link preview's texts reach normalizeMessage whole ------
 
-test('fetchHistory: threads embedTextChars through to the embed classification', async () => {
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('fetchHistory: a preview title and a description of 600 characters reach the link item whole', async () => {
+  // Catches: the history reader cutting a preview's texts.
   const raw = rawMessage({
-    embeds: [{ url: 'https://example.com', title: 'x'.repeat(50), description: 'y'.repeat(50) }],
+    embeds: [{ url: 'https://example.com', title: 'x'.repeat(300), description: 'y'.repeat(600) }],
   });
   const channel = fakeOf<Chan>({ messages: { fetch: async () => new Map([[raw.id, raw]]) } });
-  const [message] = await fetchHistory(channel, { limit: 10, selfId: 'self', embedTextChars: 10 });
-  assert.equal(loose(message).links[0].title, `${'x'.repeat(10)}…`);
+  const [message] = await fetchHistory(channel, { limit: 10, selfId: 'self' });
+  const preview = loose(message) as { links: Array<{ title: string; text: string }> };
+  const [link] = preview.links;
+  assert.deepEqual([link.title, link.text], ['x'.repeat(300), 'y'.repeat(600)]);
 });
 
 test('fetchHistory: threads videoSites through, a typed video-site URL becomes a link item', async () => {
@@ -881,13 +885,12 @@ test('fetchHistory: threads videoSites through, a typed video-site URL becomes a
   const [withSites] = await fetchHistory(channel, {
     limit: 10,
     selfId: 'self',
-    embedTextChars: 200,
     videoSites: ['youtube.com'],
   });
   assert.equal(loose(withSites).links.length, 1);
   assert.equal(loose(withSites).links[0].url, 'https://www.youtube.com/watch?v=abc');
 
-  const [withoutSites] = await fetchHistory(channel, { limit: 10, selfId: 'self', embedTextChars: 200 });
+  const [withoutSites] = await fetchHistory(channel, { limit: 10, selfId: 'self' });
   assert.equal(loose(withoutSites).links.length, 0);
 });
 
@@ -1497,7 +1500,7 @@ test('normalizeMessage: a posted link keeps its URL, tracking parameters include
       { url, provider: { name: 'YouTube' }, title: 'Clip', thumbnail: { url: 'https://i.ytimg.com/vi/ID42/hq.jpg' } },
     ],
   });
-  const m = normalizeMessage(raw, 'self', { videoSites: VIDEO_SITES, maxUrlChars: 200 });
+  const m = normalizeMessage(raw, 'self', { videoSites: VIDEO_SITES });
   assert.equal(m.content, `δες ${url} τώρα`);
   assert.equal(m.links.length, 1);
   assert.ok(lineOf([m]).endsWith(`Alice: δες ${url} τώρα [link: YouTube — Clip]`), lineOf([m]));
@@ -1524,15 +1527,18 @@ test('normalizeMessage: attachment, sticker, emoji and Discord CDN file URLs nev
     embeds: [{ url: pasted, thumbnail: { url: pasted } }],
     stickers: new Map([['s1', { id: 's1', name: 'pepe', format: 1 }]]),
   });
-  const m = normalizeMessage(raw, 'self', { maxUrlChars: 200 });
+  const m = normalizeMessage(raw, 'self');
   assert.equal(m.content, 'voilà <emoji:111>');
   const line = lineOf([m]);
   assert.ok(!line.includes('https://'), line);
 });
 
-test('normalizeMessage: a URL longer than maxUrlChars is cut there with an ellipsis, in a message and a forward; the link item keeps it whole', () => {
-  const url = `https://example.com/search?q=${'κ'.repeat(10)}&utm_source=${'x'.repeat(80)}`;
-  const cut = `${[...url].slice(0, 40).join('')}…`;
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('normalizeMessage: a URL of 400 characters arrives whole, in a message and a forward', () => {
+  // Catches: a long URL in a message's text cut with an ellipsis.
+  const head = `https://example.com/search?q=${'κ'.repeat(10)}&utm_source=`;
+  const url = head + 'x'.repeat(400 - [...head].length);
+  assert.equal([...url].length, 400);
   const raw = rawMessage({
     cleanContent: `δες ${url} ok`,
     embeds: [{ url, title: 'Search' }],
@@ -1550,11 +1556,10 @@ test('normalizeMessage: a URL longer than maxUrlChars is cut there with an ellip
       ],
     ]),
   });
-  const m = normalizeMessage(raw, 'self', { maxUrlChars: 40 });
-  assert.equal(m.content, `δες ${cut} ok`);
-  assert.equal(m.forwarded[0].content, `και ${cut}`);
-  assert.equal(m.links[0].url, url, 'the web lookup still reads the whole page address');
-  assert.equal(normalizeMessage(raw, 'self', { maxUrlChars: 0 }).content, `δες ${url} ok`, '0 keeps every URL whole');
+  const m = normalizeMessage(raw, 'self');
+  assert.equal(m.content, `δες ${url} ok`);
+  assert.equal(m.forwarded[0].content, `και ${url}`);
+  assert.equal(m.links[0].url, url);
 });
 
 test("normalizeMessage: the persona's own posted link reads in her line like anyone's, URL as she wrote it", () => {
@@ -1565,7 +1570,7 @@ test("normalizeMessage: the persona's own posted link reads in her line like any
     cleanContent: `να το ${url}`,
     embeds: [{ url, provider: { name: 'YouTube' }, title: 'Cool video' }],
   });
-  const m = normalizeMessage(raw, 'self', { videoSites: VIDEO_SITES, maxUrlChars: 200 });
+  const m = normalizeMessage(raw, 'self', { videoSites: VIDEO_SITES });
   assert.equal(m.self, true);
   assert.equal(m.content, `να το ${url}`);
   assert.ok(lineOf([m]).endsWith(`Bot (you): να το ${url} [link: YouTube — Cool video]`), lineOf([m]));
@@ -1620,7 +1625,7 @@ test('toEvent: the chat of a channel in a category carries the guild as parent a
 test('toEvent: a message becomes a valid message.received event, field for field', () => {
   // A category is no place, the owner's word of 2026-11-06.
   const raw = guildMessage();
-  const event = toEvent(raw, 'self', { maxUrlChars: 200 });
+  const event = toEvent(raw, 'self');
   assert.deepEqual(validateEvent(event), { ok: true });
   assert.equal(event.kind, 'message.received');
   assert.equal(event.iface, 'discord');
