@@ -3243,9 +3243,11 @@ const FRESH_URL = 'https://cdn.discordapp.com/attachments/7/8/file.bin?ex=renewe
 const FILE_WORDS = 'shopping list: flour, eggs, lemons';
 
 /** One describer for every kind, its fetchers answering a download of STORED_URL as a 404. */
-function lapsedRig(freshAddress?: (item: Untyped) => Promise<string | null>) {
+function lapsedRig(
+  freshAddress?: (item: Untyped) => Promise<string | null>,
+  hot: Untyped = videoHot({ prompts: { 'describe-audio': 'Retell what is heard in up to {{maxChars}} characters.' } })
+) {
   const store = createStore(memoryAt(tmpDataDir()));
-  const hot = videoHot({ prompts: { 'describe-audio': 'Retell what is heard in up to {{maxChars}} characters.' } });
   const llm = fakeLlm({ text: 'a lemon on a table' });
   const reads: Array<string> = [];
   const imageFetcher = fakeImageFetcher((url: string) => {
@@ -3260,6 +3262,14 @@ function lapsedRig(freshAddress?: (item: Untyped) => Promise<string | null>) {
         url === STORED_URL
           ? { ok: false, reason: 'download', status: 404 }
           : { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 12, bytes: 4 }
+      );
+    },
+    fetchGif: (url: string): Promise<Record<string, Untyped>> => {
+      reads.push(url);
+      return Promise.resolve(
+        url === STORED_URL
+          ? { ok: false, reason: 'download' }
+          : { ok: true, dataUrl: GIF_CLIP_URL, seconds: 4, bytes: 9 }
       );
     },
     fetchAudio: (url: string): Promise<Record<string, Untyped>> => {
@@ -3307,8 +3317,9 @@ test('describe: a picture attachment whose stored address is gone is described f
   const result = await describer.describe('g1', lapsedAttachment('image'));
   assert.equal(loose(result ?? {}).text, 'a lemon on a table');
   assert.deepEqual(reads, [FRESH_URL]);
+  const [asked] = fresh.calls;
   assert.equal(fresh.calls.length, 1);
-  assert.equal(fresh.calls[0].messageId, 'm7');
+  assert.equal(asked.messageId, 'm7');
   assert.equal(store.mediaEntry('g1', 'image-a1')?.text, 'a lemon on a table');
 });
 
@@ -3398,4 +3409,22 @@ test('describe: a custom emoji asks for no fresh address', async () => {
   const { describer } = lapsedRig(fresh.freshAddress);
   await describer.describe('g1', animatedEmojiItem({ animated: false, animationUrl: undefined }));
   assert.equal(fresh.calls.length, 0);
+});
+
+test('rewatchVideo: the second look at a video attachment whose stored address is gone reads the fresh address', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer, reads } = lapsedRig(fresh.freshAddress, rewatchHot());
+  const answer = await describer.rewatchVideo('g1', lapsedAttachment('video'), 'what colour is the car?');
+  assert.equal(loose(answer ?? {}).text, 'a lemon on a table');
+  assert.deepEqual(reads, [FRESH_URL]);
+  assert.equal(fresh.calls.length, 1);
+});
+
+test('rewatchGif: the second look at an attached GIF whose stored address is gone reads the fresh address', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer, reads } = lapsedRig(fresh.freshAddress, gifRewatchHot());
+  const answer = await describer.rewatchGif('g1', lapsedAttachment('gif'), 'who waves?');
+  assert.equal(loose(answer ?? {}).text, 'a lemon on a table');
+  assert.deepEqual(reads, [FRESH_URL]);
+  assert.equal(fresh.calls.length, 1);
 });
