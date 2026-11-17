@@ -16,7 +16,7 @@ import type { StableNamesPlan } from '../src/memory/db/stable-names-rewrite.ts';
 import { fillStems, loadStemmer, stemsOf, stemsPending } from '../src/memory/db/stems.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Config, Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
-import { reembedTouched } from '../src/memory/db/index-policy.ts';
+import { applyReembed, reembedTouched } from '../src/memory/db/index-policy.ts';
 import { quantize } from '../src/memory/vectors.ts';
 
 const T0 = Date.parse('2026-11-17T10:00:00Z');
@@ -495,7 +495,8 @@ async function reembedInputs(handle: MemoryHandle, db: Db): Promise<Array<string
     inputs.push(...texts);
     return Promise.resolve(texts.map(() => Float32Array.from([1, 0, 0, 0])));
   };
-  const write = (update: Row): Promise<Row> => Promise.resolve(applyMemoryWrite(handle, update));
+  const write = (update: Row): Promise<Row> =>
+    Promise.resolve(applyReembed(handle, { rows: Array.isArray(update.rows) ? update.rows : [] }));
   const config: Config = { recall: { db: { reembed: true } } };
   await reembedTouched({
     db,
