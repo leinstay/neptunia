@@ -149,6 +149,8 @@ export const CATALOGUE = Object.freeze({
   size: skill('failed'),
   redirects: skill('failed'),
   'turn-cap': skill('failed'),
+  // A second look whose answer the provider cut off (src/memory/describe.ts).
+  cut: skill('failed'),
   'runner-down': skill('failed'),
   // A /memory command answered while the memory database is closed (src/interface/commands/memory.ts).
   'memory-closed': skill('failed'),

@@ -980,6 +980,11 @@ const LOOKS: Readonly<
   gif: { method: 'rewatchGif', role: 'video' },
 });
 
+/** The code of a second look that gave nothing back: `cut` when the provider cut its answer off, else `error`. */
+function lookFailureCode(answer: Obj): string {
+  return answer.failed === CODE.CUT ? CODE.CUT : CODE.ERROR;
+}
+
 /** The look on its route: through `onRoute` when the caller routes, else on the role's own model. */
 function lookOnRoute(
   onRoute: OnRoute | null,
@@ -1004,7 +1009,7 @@ function lookOnRoute(
  * kind; `failed` with `daily-cap` when the
  * describer's `videoCapsLeft()` says the day's second looks are spent (a video also needs a video
  * slot, a GIF a GIF watch slot), with `turn-cap` when `takeTurnSlot()` (the caller's per-turn
- * count, asked only once every other check passed) refuses, with `error` when the second look
+ * count, asked only once every other check passed) refuses, with `cut` when the provider cut its answer off, with `error` when the second look
  * gave nothing back; else `ok` with mediaLookText as its `data.text`. Never throws.
  */
 export async function runMediaLook({
@@ -1094,7 +1099,7 @@ export async function runMediaLook({
     if (looked.route?.kind === 'unavailable') return abilityUnavailable(looked.route);
     const answer = objOf(looked.value);
     const said = typeof answer.text === 'string' ? answer.text.trim() : '';
-    if (!said) return { status: 'failed', code: CODE.ERROR };
+    if (!said) return { status: 'failed', code: lookFailureCode(answer) };
     return {
       ...(looked.route?.kind === 'core' ? { route: 'core' } : {}),
       status: 'ok',

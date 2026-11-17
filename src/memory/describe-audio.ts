@@ -15,7 +15,16 @@ type VideoSettings = {
   provider?: unknown;
 };
 type Clip = { ok: true; dataUrl: string; seconds: number; bytes: number } | { ok: false; reason: string };
-export type Completion = { text?: unknown; usage?: unknown; estimated?: unknown };
+export type Completion = { text?: unknown; usage?: unknown; estimated?: unknown; finishReason?: unknown };
+
+/**
+ * Whether the provider cut an answer off: its finish reason is `content_filter` or `length`. A cut answer is no
+ * description, so every first look and second look ends as its kind's failure with the reason `cut`.
+ */
+export function cutByProvider(completion: unknown): boolean {
+  if (typeof completion !== 'object' || completion === null || !('finishReason' in completion)) return false;
+  return completion.finishReason === 'content_filter' || completion.finishReason === 'length';
+}
 
 /** What the describer gives this module, read at the moment of use. */
 export type AudioDeps = {
@@ -78,6 +87,7 @@ export async function hearAudio(
     // A refusal by the daily cap says nothing about the file: heard after the reset.
     return reason === 'daily-cap' ? null : deps.miss(item, reason);
   }
+  if (cutByProvider(completion)) return deps.miss(item, 'cut');
   const heard = typeof completion.text === 'string' ? completion.text : '';
   if (!heard.trim()) return deps.miss(item, 'empty');
   const text = await deps.summarize(heard.trim(), maxChars);

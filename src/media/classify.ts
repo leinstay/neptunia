@@ -303,6 +303,7 @@ function durationOrUnknown(durationSec: number | null | undefined, unknownDurati
  * `labels.transcript.videoReason[code]`.
  */
 function videoReasonCode(video: VideoState): string {
+  if (video.state === 'error' && video.reason === 'cut') return 'cut';
   if (video.state === 'error' || video.state === 'pending') return video.state;
   return String(video.reason ?? '');
 }

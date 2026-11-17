@@ -15,10 +15,12 @@
 // videos of the last hours are still described after 00:00 UTC. Descriptions
 // are data: never logged. A picture's caption is the whole answer of the
 // vision model, every line joined into one with single spaces. Its length is
-// `DESCRIPTION_CHARS` (1,500, the prompt learns it through `{{maxChars}}`),
-// shared by a sticker, an emoji and a GIF. A video's summary takes
+// `PICTURE_DESCRIPTION_CHARS` (2,000, the prompt learns it through `{{maxChars}}`),
+// shared by a still sticker and a still emoji. A GIF and an animated sticker or emoji take
+// `GIF_DESCRIPTION_CHARS` (1,500). A video's summary takes
 // `VIDEO_DESCRIPTION_CHARS` (6,000) and a sound's `AUDIO_DESCRIPTION_CHARS`
-// (3,000). A second look takes the length of its media. Nothing is cut: an
+// (3,000). A second look takes the length of its media. An answer the provider cut off
+// (`cutByProvider`) is no description and ends as its kind's failure with the reason `cut`. Nothing is cut: an
 // answer over its length goes once through the `summarize` dependency
 // (src/behavior/summarize.ts), and what it returns is stored whole on one
 // line, as the answer is, even when it is still longer. The picture prompt's `{{self}}`
@@ -127,7 +129,7 @@
 // this, and a second look's answer is outside it.
 
 import { fetchTextPreview } from '../media/text-preview.ts';
-import { TEXT_FORM_CHARS, hearAudio, readTextFile } from './describe-audio.ts';
+import { TEXT_FORM_CHARS, cutByProvider, hearAudio, readTextFile } from './describe-audio.ts';
 import type { AudioDeps } from './describe-audio.ts';
 import { isRecord, propOf, isFiniteNumber } from './types.ts';
 import { watchedLengths } from '../media/classify.ts';
@@ -160,8 +162,10 @@ const MISS_TTL_MS = 60 * MINUTE_MS;
 // Only when media.video.errorRetryMinutes is missing or invalid (config.json always has it).
 const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
 // The describer's measures. Production values, config cut of 2026-10-31.
-/** The length of a picture's, a sticker's, an emoji's and a GIF's description, and of a second look at one of them. */
-export const DESCRIPTION_CHARS = 1500;
+/** The length of a still picture's, a still sticker's and a still emoji's description, and of a second look at a picture. */
+const PICTURE_DESCRIPTION_CHARS = 2000;
+/** The length of a GIF's and an animated emoji's or sticker's description, and of a second look at a GIF. */
+const GIF_DESCRIPTION_CHARS = 1500;
 /** The length of a video's summary and of a second look at a video. */
 export const VIDEO_DESCRIPTION_CHARS = 6000;
 /** The length of a voice message's or an audio file's summary. */
@@ -203,7 +207,7 @@ type Ask = { model?: string | null };
 type VideoPurpose = 'watch' | 'gif' | 'voice' | 'rewatch';
 
 /** What a second look answers: the question as asked and the text, or null when there is nothing to look at. */
-type Looked = Promise<{ question: string; text: string } | null>;
+type Looked = Promise<{ question: string; text: string } | { question: string; failed: 'cut' } | null>;
 
 /** A picture, GIF or video the describer is asked about: its item id, its kind and where it is fetched from. */
 export type MediaItem = {
@@ -282,7 +286,18 @@ function pictureImageUrl(item: MediaItem) {
 }
 
 /** What the model client answers a description's request. */
-type Answered = { text?: unknown; usage?: unknown; estimated?: number };
+type Answered = { text?: unknown; usage?: unknown; estimated?: number; finishReason?: unknown };
+
+/** Why an answer is no description: `cut` when the provider cut it off, `empty` when it holds no text, else null. */
+function answerFailure(completion: unknown, text: string): 'cut' | 'empty' | null {
+  if (cutByProvider(completion)) return 'cut';
+  return text ? null : 'empty';
+}
+
+/** What a failed second look gives back: a cut answer tells her so, any other failure is nothing. */
+function lookFailure(question: string, reason: string): { question: string; failed: 'cut' } | null {
+  return reason === 'cut' ? { question, failed: 'cut' } : null;
+}
 
 /** What an entry says of the English standard (src/memory/text-standard.ts). */
 type StandardMarks = { redescribed?: true; offScript?: true };
@@ -728,10 +743,10 @@ function buildDescriber({
     const imageUrl = pictureImageUrl(item);
 
     // A failure: the previous caption kept, else a miss cached (`mark` false: the daily cap, nothing cached).
-    const fail = (mark = true) => {
+    const fail = (mark = true, reason?: string) => {
       if (previous) return keepPrevious(mark);
       if (mark) {
-        store.putMediaEntry(placeId, item.itemId, { miss: true, ts: now() });
+        store.putMediaEntry(placeId, item.itemId, { miss: true, ts: now(), ...(reason === 'cut' ? { reason } : {}) });
       }
       return null;
     };
@@ -749,7 +764,7 @@ function buildDescriber({
 
     const captioned = await captionPicture(placeId, downloaded.dataUrl, promptText, item.kind);
     // A refusal by the daily cap says nothing about the picture: described after the reset.
-    if ('failed' in captioned) return fail(captioned.failed !== 'daily-cap');
+    if ('failed' in captioned) return fail(captioned.failed !== 'daily-cap', captioned.failed);
     const { text, usage, estimated, model, marks } = captioned;
     const ts = now();
     store.putMediaEntry(placeId, item.itemId, { text, ts, describedAt: ts, model, ...marks });
@@ -758,7 +773,7 @@ function buildDescriber({
 
   /**
    * One picture's caption from the vision model: the describe prompt (`{{self}}` her paragraph for `placeId`) over the
-   * picture at `dataUrl`, brought to the English standard and summarized past DESCRIPTION_CHARS. Caches nothing; a
+   * picture at `dataUrl`, brought to the English standard and summarized past PICTURE_DESCRIPTION_CHARS. Caches nothing; a
    * failure is `{ failed }` with its reason (`daily-cap` for a refusal by `llm.maxRequestsPerDay`).
    */
   async function captionPicture(
@@ -771,7 +786,7 @@ function buildDescriber({
     | { failed: string }
   > {
     const mediaCfg = hot.config.media ?? {};
-    const descriptionChars = DESCRIPTION_CHARS;
+    const descriptionChars = PICTURE_DESCRIPTION_CHARS;
     const model = roleModel(hot.config, 'vision', 'describe');
     const ask = (): Promise<Answered> =>
       llm.complete(
@@ -817,10 +832,10 @@ function buildDescriber({
     // The whole answer on one line.
     const captionOf = (answered: Answered): string => oneLine(typeof answered.text === 'string' ? answered.text : '');
     const firstCaption = captionOf(completion);
-
-    if (!firstCaption) {
-      log.warn('describe: failed', { kind, reason: 'empty' });
-      return { failed: 'empty' };
+    const failure = answerFailure(completion, firstCaption);
+    if (failure) {
+      log.warn('describe: failed', { kind, reason: failure });
+      return { failed: failure };
     }
 
     let estimated = completion.estimated ?? 0;
@@ -830,7 +845,7 @@ function buildDescriber({
       async () => {
         const again = await ask();
         estimated += again.estimated ?? 0;
-        const caption = captionOf(again);
+        const caption = cutByProvider(again) ? '' : captionOf(again);
         return caption ? { text: caption, usage: again.usage } : null;
       }
     );
@@ -914,15 +929,15 @@ function buildDescriber({
    * converted to a short mp4 (src/media/fetch-video.ts#fetchGif, the first
    * `media.gif.maxSeconds`, the video size and tool settings), then
    * summarised by the video model through the `describe-gif` prompt
-   * (`{{maxChars}}` = `DESCRIPTION_CHARS` and `{{seconds}}` = `media.gif.maxSeconds`),
+   * (`{{maxChars}}` = `GIF_DESCRIPTION_CHARS` and `{{seconds}}` = `media.gif.maxSeconds`),
    * else the `describe-video` prompt with `{{maxChars}}` alone;
    * under the video token cap and output budget. The answer on one line, through the summarizer at
-   * `DESCRIPTION_CHARS`, is cached under the GIF's own item id as `{ text, ts, watched: true, gif: true }`;
+   * `GIF_DESCRIPTION_CHARS`, is cached under the GIF's own item id as `{ text, ts, watched: true, gif: true }`;
    * nothing is cached otherwise. An attached GIF's clip comes from the address `freshAddress` reads, else from
    * `source`.
    * Resolves `{ state: 'watched', text, usage, estimated }`, `{ state:
    * 'failed', reason }` (the fetch's own reason, `llm` for a failed request, `empty` for an empty
-   * answer) or `{ state: 'unavailable', reason: 'daily'|'daily-cap' }` (a
+   * answer, `cut` for an answer the provider cut off) or `{ state: 'unavailable', reason: 'daily'|'daily-cap' }` (a
    * daily rail is spent: no failure of this GIF; with `llm.maxRequestsPerDay`
    * spent before the watch, nothing is fetched). One
    * `describe: gif` log line, codes only.
@@ -930,7 +945,7 @@ function buildDescriber({
   async function watchGifNow(placeId: string, item: MediaItem, source: Untyped) {
     const videoCfg = videoSettingsOf(hot.config);
     const maxSeconds = GIF_MAX_SECONDS;
-    const descriptionChars = DESCRIPTION_CHARS;
+    const descriptionChars = GIF_DESCRIPTION_CHARS;
     const report = <const TOutcome extends { state: string; reason?: string }>(
       outcome: TOutcome,
       extra: Record<string, Untyped> = {}
@@ -976,7 +991,8 @@ function buildDescriber({
     }
 
     const firstText = oneLine(completion.text);
-    if (!firstText) return report({ state: 'failed', reason: 'empty' }, sizes);
+    const failure = answerFailure(completion, firstText);
+    if (failure) return report({ state: 'failed', reason: failure }, sizes);
     let estimated = completion.estimated ?? 0;
     const standard = await toStandard(
       { text: firstText, usage: completion.usage },
@@ -984,7 +1000,7 @@ function buildDescriber({
       async () => {
         const again = await ask();
         estimated += again.estimated ?? 0;
-        const answer = oneLine(again.text);
+        const answer = cutByProvider(again) ? '' : oneLine(again.text);
         return answer ? { text: answer, usage: again.usage } : null;
       }
     );
@@ -1371,7 +1387,8 @@ function buildDescriber({
         return keepPrevious();
       }
       putVideoEntry(placeId, key, { miss: true, ts: now(), reason: 'error' });
-      return report({ state: 'error' }, { ...extra, reason });
+      // A cut answer tells her why in the line; every other failure reads as one that could not load.
+      return report(reason === 'cut' ? { state: 'error', reason } : { state: 'error' }, { ...extra, reason });
     };
 
     // The request would be refused: no fetch, no slot, no miss.
@@ -1434,7 +1451,8 @@ function buildDescriber({
     }
 
     const firstSummary = oneLine(completion.text);
-    if (!firstSummary) return { result: errorMiss('empty', sizes), sent: true, attempted: true };
+    const failure = answerFailure(completion, firstSummary);
+    if (failure) return { result: errorMiss(failure, sizes), sent: true, attempted: true };
 
     let estimated = completion.estimated ?? 0;
     const standard = await toStandard(
@@ -1656,9 +1674,10 @@ function buildDescriber({
     }
 
     const answer = oneLine(completion.text);
-    if (!answer) {
-      report('error', { reason: 'empty', seconds: media.seconds ?? null });
-      return null;
+    const failure = answerFailure(completion, answer);
+    if (failure) {
+      report('error', { reason: failure, seconds: media.seconds ?? null });
+      return lookFailure(asked, failure);
     }
     const text = await shorten(answer, answerChars, 'text');
     putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
@@ -1673,7 +1692,7 @@ function buildDescriber({
    * media model (`vision`, a request on a model role other than `core`, `purpose: 'relook'`,
    * output capped at `media.video.rewatch.maxOutputTokens`) `question`: the
    * `rewatch-answer` prompt is the system message (`{{maxChars}}` =
-   * `DESCRIPTION_CHARS`; a `{{question}}` still in it is filled
+   * `PICTURE_DESCRIPTION_CHARS`; a `{{question}}` still in it is filled
    * too, never left literal) and the question goes as a text part of the user
    * message next to the picture. Only an `image` item with a URL and a
    * non-empty question. The answer is NOT the picture's caption: it is
@@ -1689,7 +1708,7 @@ function buildDescriber({
 
     const mediaCfg = hot.config.media ?? {};
     const rewatchCfg = mediaCfg.video?.rewatch ?? {};
-    const answerChars = DESCRIPTION_CHARS;
+    const answerChars = PICTURE_DESCRIPTION_CHARS;
     const report = (outcome: string, extra: Record<string, Untyped> = {}) => {
       log.info('describe: relook', {
         source: item.source ?? null,
@@ -1757,9 +1776,10 @@ function buildDescriber({
     }
 
     const answer = oneLine(completion.text);
-    if (!answer) {
-      report('error', { reason: 'empty' });
-      return null;
+    const failure = answerFailure(completion, answer);
+    if (failure) {
+      report('error', { reason: failure });
+      return lookFailure(asked, failure);
     }
     const text = await shorten(answer, answerChars, 'text');
     putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
@@ -1809,7 +1829,7 @@ function buildDescriber({
    * the way the GIF watch fetches it (fetchGifClip, the first
    * `media.gif.maxSeconds` -- the same cap as the first watch) and the video
    * model asked `question` through the `rewatch-answer` prompt
-   * (`{{question}}`, `{{maxChars}}` = `DESCRIPTION_CHARS`,
+   * (`{{question}}`, `{{maxChars}}` = `GIF_DESCRIPTION_CHARS`,
    * output capped at `media.video.rewatch.maxOutputTokens`), under the video
    * request rails. Needs GIFs watched now (gifWatchBlocker),
    * the prompt, a `gif` item with an
@@ -1829,7 +1849,7 @@ function buildDescriber({
 
     const videoCfg = videoSettingsOf(hot.config);
     const rewatchCfg = videoCfg.rewatch ?? {};
-    const answerChars = DESCRIPTION_CHARS;
+    const answerChars = GIF_DESCRIPTION_CHARS;
     const maxSeconds = GIF_MAX_SECONDS;
     const report = (outcome: string, extra: Record<string, Untyped> = {}) => {
       log.info('describe: rewatch', {
@@ -1888,9 +1908,10 @@ function buildDescriber({
     }
 
     const answer = oneLine(completion.text);
-    if (!answer) {
-      report('error', { reason: 'empty', seconds: clip.seconds });
-      return null;
+    const failure = answerFailure(completion, answer);
+    if (failure) {
+      report('error', { reason: failure, seconds: clip.seconds });
+      return lookFailure(asked, failure);
     }
     const text = await shorten(answer, answerChars, 'text');
     putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });

@@ -100,7 +100,8 @@
         "tool": "could not convert",
         "llm": "the viewer failed",
         "empty": "the viewer said nothing",
-        "interrupted": "the viewing was interrupted"
+        "interrupted": "the viewing was interrupted",
+        "cut": "the provider cut the description off, so it is not shown"
       },
       "voice": "[voice message, {duration}]",
       "voiceDescribed": "[voice message, {duration}: {text}]",
@@ -644,6 +645,7 @@
           "no-media": "that message holds no picture or video to look at",
           "not-video-site": "that link is not from a supported video site",
           "turn-cap": "you have looked again as many times as one turn allows",
+          "cut": "the provider cut the answer off, so it is not shown",
           "scheme": "that is not a web address",
           "private": "that address is private or local",
           "type": "the page is not text",
