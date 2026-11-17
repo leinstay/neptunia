@@ -23,6 +23,10 @@ const LONG_A =
   'το πρωί πήγα στην αγορά και βρήκα φρέσκα ψάρια, ντομάτες, ελιές και ψωμί από τον φούρνο της γειτονιάς που ανοίγει πολύ νωρίς κάθε μέρα';
 const LONG_B =
   'μετά γύρισα σπίτι, μαγείρεψα για όλους και κάτσαμε στην αυλή ως το βράδυ μιλώντας για το ταξίδι που σχεδιάζουμε στα νησιά το καλοκαίρι';
+// The fake writer's texts, 15 and 14 words: a rewrite is posted only when it keeps at least half the words of the draft.
+const WRITTEN_A = 'πρώτα πήγα στην αγορά το πρωί και πήρα ψάρια, ντομάτες, ελιές και ψωμί του φούρνου';
+const WRITTEN_B = 'μετά μαγείρεψα για όλους και μείναμε στην αυλή ως αργά μιλώντας για το ταξίδι';
+const WRITTEN = `${WRITTEN_A} ${WRITTEN_B}`;
 const LINT_YES = JSON.stringify({
   rewrite: true,
   findings: [{ kind: 'shape', quote: '', problem: 'δύο μπλοκ ίδια', fix: 'σπάσε τη συμμετρία' }],
@@ -108,11 +112,11 @@ test('an addressed turn posts her answer as written and asks no humanizer reques
 test('an addressed turn posts the writer messages, each on the line it answers', async () => {
   // Catches: the turn posts her draft after a rewrite, or the rewrite loses the two reply targets.
   const { run, requests } = await turnOf({
-    write: '<msg reply="#1">πρώτα η αγορά</msg><msg reply="#2">και το βράδυ</msg>',
+    write: `<msg reply="#1">${WRITTEN_A}</msg><msg reply="#2">${WRITTEN_B}</msg>`,
   });
   assert.deepEqual(sentOf(run), [
-    ['πρώτα η αγορά', 'm0'],
-    ['και το βράδυ', 'm1'],
+    [WRITTEN_A, 'm0'],
+    [WRITTEN_B, 'm1'],
   ]);
   assert.deepEqual(
     requests.map((request) => request.options.purpose),
@@ -124,7 +128,10 @@ const THOUGHT = [`<think>κρυφή σκέψη</think><msg reply="#1">${LONG_A}<
 
 test('the writer request of an addressed turn holds her think', async () => {
   // Catches: the turn hands the humanizer her messages without her think, and the writer rewrites without what she meant.
-  const { requests } = await turnOf({ answers: THOUGHT, write: '<msg reply="#1">ένα</msg><msg reply="#2">δύο</msg>' });
+  const { requests } = await turnOf({
+    answers: THOUGHT,
+    write: `<msg reply="#1">${WRITTEN_A}</msg><msg reply="#2">${WRITTEN_B}</msg>`,
+  });
   const [linter, writer] = requests.map(userOf);
   assert.ok(writer.includes('κρυφή σκέψη'));
   assert.ok(!linter.includes('κρυφή σκέψη'));
@@ -132,10 +139,13 @@ test('the writer request of an addressed turn holds her think', async () => {
 
 test('an inner turn posts the writer messages in place of her lowered message.create calls', async () => {
   // Catches: an inner turn's speech skips the humanizer, as it is lowered into calls before postSpeech.
-  const { run, requests } = await turnOf({ inner: WAKE, write: '<msg reply="#1">ένα</msg><msg reply="#2">δύο</msg>' });
+  const { run, requests } = await turnOf({
+    inner: WAKE,
+    write: `<msg reply="#1">${WRITTEN_A}</msg><msg reply="#2">${WRITTEN_B}</msg>`,
+  });
   assert.deepEqual(sentOf(run), [
-    ['ένα', 'm0'],
-    ['δύο', 'm1'],
+    [WRITTEN_A, 'm0'],
+    [WRITTEN_B, 'm1'],
   ]);
   assert.ok(userOf(requests[0]).includes(LONG_A), 'the linter read the lowered messages');
 });
@@ -153,7 +163,7 @@ test('a turn split into two parts sends the speech of each part to the humanizer
     split: JSON.stringify({ parts: SPLIT_PARTS.slice(0, 2) }),
     talk: (index) => `<msg reply="#2">μέρος ${index} ${LONG_A} ${LONG_B}</msg>`,
   });
-  const llm = humanizerLlm(rest, '<msg reply="#2">ξαναγραμμένο</msg>');
+  const llm = humanizerLlm(rest, `<msg reply="#2">${WRITTEN}</msg>`);
   const { channel } = await runSplitTurn({ hot, llm: { ...rest, complete: llm.complete } });
   const linted = llm.requests.filter((request) => request.options.purpose === 'humanizer-linter').map(userOf);
   assert.equal(linted.length, 2);
@@ -161,7 +171,7 @@ test('a turn split into two parts sends the speech of each part to the humanizer
   assert.ok(linted[1].includes('μέρος 1') && !linted[1].includes('μέρος 0'));
   assert.deepEqual(
     channel.sent.map((payload) => payload.content),
-    ['ξαναγραμμένο', 'ξαναγραμμένο']
+    [WRITTEN, WRITTEN]
   );
 });
 
@@ -205,7 +215,7 @@ test("a diary post stores the writer's text as its entry", async () => {
         estimated: 5,
       }),
   };
-  const llm = humanizerLlm(rest, '<msg>μια μέρα στην αγορά</msg><msg>και στην αυλή</msg>');
+  const llm = humanizerLlm(rest, `<msg>${WRITTEN_A}</msg><msg>${WRITTEN_B}</msg>`);
   const store = {
     appended: [] as Array<unknown>,
     getPlace: () => ({}),
@@ -232,14 +242,14 @@ test("a diary post stores the writer's text as its entry", async () => {
   });
   world().channel({ id: 'd1', name: 'journal', placeId: 'g1', permissions: { attach: true }, historyMessages: [] });
   const result = await turns.runTurn({ channel: { id: 'd1' }, mode: 'diary', diary: {} });
-  assert.deepEqual(entryOf(result).messages, ['μια μέρα στην αγορά', 'και στην αυλή']);
+  assert.deepEqual(entryOf(result).messages, [WRITTEN_A, WRITTEN_B]);
 });
 
 test('a message.create call of hers is made with the writer text and its other arguments unchanged', async () => {
   // Catches: a post she writes as a tool call skips the humanizer, or its reply target is lost on the way.
   const answers = [toolAnswer('', [call('message.create', { reply: '#1', text: `${LONG_A} ${LONG_B}` })]), '<skip/>'];
-  const { run } = await turnOf({ answers, write: '<msg>γραμμένο ξανά</msg>' });
-  assert.deepEqual(sentOf(run), [['γραμμένο ξανά', 'm0']]);
+  const { run } = await turnOf({ answers, write: `<msg>${WRITTEN}</msg>` });
+  assert.deepEqual(sentOf(run), [[WRITTEN, 'm0']]);
 });
 
 test('two message.create calls of hers in one answer are rewritten one at a time', async () => {
@@ -251,13 +261,13 @@ test('two message.create calls of hers in one answer are rewritten one at a time
     ]),
     '<skip/>',
   ];
-  const write = (draft: string) => (draft.includes('πρώτο') ? '<msg>ένα</msg>' : '<msg>δύο</msg>');
+  const write = (draft: string) => `<msg>${draft.includes('πρώτο') ? 'ένα' : 'δύο'} ${WRITTEN}</msg>`;
   const { run, requests } = await turnOf({ answers, write });
   const linted = requests.filter((request) => request.options.purpose === 'humanizer-linter').map(userOf);
   assert.equal(linted.length, 2);
   assert.ok(linted.every((text) => !(text.includes('πρώτο') && text.includes('δεύτερο'))));
   assert.deepEqual(
     run.sends.map((send) => send.text),
-    ['ένα', 'δύο']
+    [`ένα ${WRITTEN}`, `δύο ${WRITTEN}`]
   );
 });

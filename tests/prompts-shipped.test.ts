@@ -1694,11 +1694,13 @@ test('humanizeSpeech: the linter and the writer requests fill humanizer-linter.m
     models: { routes: chainsOf({ 'humanizer.linter': 'x/linter', 'humanizer.writer': 'x/writer' }) },
   });
   const calls: Array<{ messages: unknown; purpose: unknown }> = [];
+  // Twenty words: a rewrite is posted only when it keeps at least half the words of the draft.
+  const written = Array.from({ length: 20 }, (_, i) => `χα${i}`).join(' ');
   const llm = {
     complete: async (messages: Array<{ role: string; content: string }>, options: Record<string, unknown>) => {
       calls.push({ messages, purpose: options.purpose });
       const rewrite = { rewrite: true, findings: [{ kind: 'shape', quote: '', problem: 'a report', fix: 'reorder' }] };
-      return { text: options.purpose === 'humanizer-linter' ? JSON.stringify(rewrite) : '<msg>χα</msg>' };
+      return { text: options.purpose === 'humanizer-linter' ? JSON.stringify(rewrite) : `<msg>${written}</msg>` };
     },
   };
   // Forty words, the least the humanizer reads.
@@ -1713,7 +1715,7 @@ test('humanizeSpeech: the linter and the writer requests fill humanizer-linter.m
       place: 'c1',
     })
   );
-  assert.deepEqual(result.messages, [{ text: 'χα', replyTo: null }]);
+  assert.deepEqual(result.messages, [{ text: written, replyTo: null }]);
   const linter = calls.find((call) => call.purpose === 'humanizer-linter');
   const writer = calls.find((call) => call.purpose === 'humanizer-writer');
   assertFilled(linter?.messages, { files: ['humanizer-linter'] }, 'humanizer linter');

@@ -24,6 +24,10 @@ const WRITER_MAX_TOKENS = 3000;
 const LINTER_TIMEOUT_MS = 30_000;
 const WRITER_TIMEOUT_MS = 120_000;
 
+// A rewrite keeps every detail, and the measured ones of 2026-11-17 held 96 to 101 words per 100 of the draft. Under
+// half, the answer is a refusal inside message tags or a text that lost its content.
+const MIN_KEPT = 0.5;
+
 const KINDS = ['shape', 'rhythm', 'wit', 'tone', 'words', 'language', 'overdone'] as const;
 
 /** The schema of the linter's answer, handed to the client as `responseFormat`. */
@@ -55,6 +59,9 @@ const LINTER_FORMAT = {
 
 const draftOf = (messages: ReadonlyArray<HumanizerMessage>): string =>
   messages.map((one) => `<msg${one.replyTo === null ? '' : ` reply="#${one.replyTo}"`}>${one.text}</msg>`).join('\n');
+
+const wordsOf = (messages: ReadonlyArray<HumanizerMessage>): number =>
+  messages.reduce((sum, one) => sum + one.text.split(/\s+/).filter(Boolean).length, 0);
 
 const textOf = (value: unknown): unknown => (value as { text?: unknown } | null)?.text;
 
@@ -104,6 +111,23 @@ export async function humanizeSpeech<TCall extends LoweredCall>({
 }
 
 /**
+ * Why the writer's answer is not posted, or null. The count is hers (the owner, 2026-11-17): each message keeps its
+ * place and its reply target, and only its text changes. A broken think tag leaves parseOutput with no message, so the
+ * count refuses it too.
+ */
+function refusalOf(
+  written: ReadonlyArray<HumanizerMessage>,
+  messages: ReadonlyArray<HumanizerMessage>,
+  cut: boolean
+): 'count' | 'empty' | 'reply' | 'cut' | 'short' | null {
+  if (written.length !== messages.length) return 'count';
+  if (written.some((one) => one.text.trim() === '')) return 'empty';
+  if (written.some((one, i) => one.replyTo !== messages[i].replyTo)) return 'reply';
+  if (cut) return 'cut';
+  return wordsOf(written) < wordsOf(messages) * MIN_KEPT ? 'short' : null;
+}
+
+/**
  * The messages to post: hers, or the writer's when the humanizer is on, the text holds at least 40 words, both roles
  * have a route, the linter asks for a rewrite and the writer's answer passes its checks.
  */
@@ -124,7 +148,7 @@ async function humanize({
 }): Promise<Array<HumanizerMessage>> {
   const config = hot.config as { humanizer?: { enabled?: unknown }; format?: { stripDashes?: unknown } };
   if (config.humanizer?.enabled !== true) return messages;
-  const words = messages.reduce((sum, one) => sum + one.text.split(/\s+/).filter(Boolean).length, 0);
+  const words = wordsOf(messages);
   if (words < MIN_WORDS) return messages;
   const linterModel = roleModel(config, HUMANIZER_LINTER_ROLE);
   const writerModel = roleModel(config, HUMANIZER_WRITER_ROLE);
@@ -171,6 +195,7 @@ async function humanize({
   if (!verdict.rewrite) return messages;
 
   let written: Array<HumanizerMessage>;
+  let cut: boolean;
   try {
     const answer = await llm.complete(
       [
@@ -196,23 +221,17 @@ async function humanize({
         }),
       }
     );
-    written = parseOutput(textOf(answer)).messages;
+    const parsed = parseOutput(textOf(answer));
+    written = parsed.messages;
+    // An answer that ends at the output cap leaves its last message tag open.
+    cut = parsed.diagnostics.some((one) => one.kind === 'msgMalformed');
     // format.stripDashes holds for the writer's words as for hers (src/turn/phases/response.ts).
     if (config.format?.stripDashes !== false) written = written.map((one) => ({ ...one, text: stripDashes(one.text) }));
   } catch (err) {
     log.warn('humanizer: failed', { channel: place, stage: 'writer', reason: railReason(err) });
     return messages;
   }
-  // The count is hers (the owner, 2026-11-17): each message keeps its place and its reply target, and only its text
-  // changes. A broken think tag leaves parseOutput with no message, so the count refuses it too.
-  const refused =
-    written.length !== messages.length
-      ? 'count'
-      : written.some((one) => one.text.trim() === '')
-        ? 'empty'
-        : written.some((one, i) => one.replyTo !== messages[i].replyTo)
-          ? 'reply'
-          : null;
+  const refused = refusalOf(written, messages, cut);
   if (refused !== null) {
     log.warn('humanizer: failed', { channel: place, stage: 'writer', reason: refused, messages: written.length });
     return messages;
