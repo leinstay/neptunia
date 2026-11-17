@@ -264,6 +264,27 @@ test("resolveCall: a member by the request's @handle; the people of an attention
   );
 });
 
+test("resolveCall: a request's handle written without its @ resolves to the same member in every member argument", () => {
+  // Bug: she writes `h7` for `@h7` in about one call in four, and the call is refused as an unknown member.
+  const memberHandles = new Map([['h7', MEMBER]]);
+  assert.equal(resolve('memory.profile.read', { user: 'h7' }, '', { memberHandles }).args?.user, MEMBER, 'a user');
+  assert.equal(
+    resolve('intention.set', { people: 'h7' }, 'remind', { memberHandles }).args?.people,
+    MEMBER,
+    'the people of an intention'
+  );
+  assert.equal(
+    resolve('draw.create', { people: 'h7', text: 'a picnic' }, '', { memberHandles }).args?.people,
+    MEMBER,
+    'the people of a drawing'
+  );
+  assert.equal(
+    resolve('memory.profile.read', { user: 'Zoë' }, '', { memberHandles }).args?.user,
+    MEMBER,
+    'a bare word that is no handle still resolves by name'
+  );
+});
+
 test('resolveCall: a channel by name, mention or id; a member by name, alias or mention', () => {
   for (const channel of ['#🍡νέα', '💖νέα', 'ΝΕΑ'])
     assert.equal(resolve('memory.channel.read', { place: channel }).args.place, NEWS, channel);
