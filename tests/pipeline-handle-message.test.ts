@@ -110,7 +110,8 @@ test('shows a custom emoji reaction and a sticker by their stable names in her r
       !chat.includes('kekw') && !chat.includes('kymata') && !text.includes('<emoji:'),
       'no platform name or token'
     );
-    const legend = text.slice(text.lastIndexOf('<interface>', text.indexOf('<chat>')), text.indexOf('<chat>'));
+    // The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+    const legend = text.slice(text.lastIndexOf('<media>', text.indexOf('<chat>')), text.indexOf('<chat>'));
     assert.ok(legend.includes('kekw') && legend.includes('kymata'), 'the legend gives the platform names');
   });
 });

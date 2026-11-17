@@ -1,4 +1,5 @@
-// src/turn/request/legend.ts: the body of the root block `<interface>`, the legend. Each custom emoji and sticker the
+// The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+// src/turn/request/legend.ts: the body of the root block `<media>`, the legend. Each custom emoji and sticker the
 // window uses stands once, under its interface and its kind, with its stable name, its platform name and its full
 // description (.agents/docs/specs/2026-11-17-stable-names-and-legend.md, "The legend"). Contract:
 //   legendText(items: ReadonlyArray<{ iface, kind: 'emoji' | 'sticker', name, platformName, text: string | null,

@@ -2409,7 +2409,8 @@ const legendPrompts = (): Record<string, Untyped> => ({
   },
 });
 // The candidate's transcript opens with its legend, then its one line.
-const CANDIDATE_LINE = /<candidate>\n<interface>\n[\s\S]*<\/interface>\n[^\n]*\[sticker s7\]\n<\/candidate>/;
+// The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+const CANDIDATE_LINE = /<candidate>\n<media>\n[\s\S]*<\/media>\n[^\n]*\[sticker s7\]\n<\/candidate>/;
 
 test('follow-up: a sticker-only candidate with a cached caption reaches the classifier with the caption', async () => {
   const llm = fakeFollowUpLlm();

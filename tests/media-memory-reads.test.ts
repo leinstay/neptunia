@@ -343,6 +343,7 @@ test('session batch: the legend stands right after the cutoff line, before the f
     const batch = sessionBatch(env);
     const afterCutoff = batch.slice(batch.indexOf('cutoff: '));
     const [, second] = afterCutoff.split('\n');
-    assert.equal(second, '<interface>', batch);
-    assert.ok(batch.indexOf('</interface>') < batch.indexOf('#1 ['), batch);
+    // The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+    assert.equal(second, '<media>', batch);
+    assert.ok(batch.indexOf('</media>') < batch.indexOf('#1 ['), batch);
   }));

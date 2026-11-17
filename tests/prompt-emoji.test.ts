@@ -169,9 +169,10 @@ test('buildRequest: a chat line holds the bare stable name, with an index and wi
   }
 });
 
-// ---- the legend: each custom emoji and sticker of the window described once, in <interface> ----
+// The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+// ---- the legend: each custom emoji and sticker of the window described once, in <media> ----
 
-// The owner on 2026-11-17: the legend is the root block `<interface>`, grouped by interface and kind, present only when
+// The owner on 2026-11-17: the legend is the root block `<media>`, grouped by interface and kind, present only when
 // the window holds a custom emoji or a sticker. Labels are the test's own, values are read off the request.
 const LEGEND_LABELS = {
   ...labels,
@@ -220,13 +221,13 @@ function legendInput(history: Array<unknown>, descriptions: Map<string, string>)
   });
 }
 
-/** The body of the root block `<interface>`, which stands between `</surroundings>` and `<chat>`; null when absent. */
+/** The body of the root block `<media>`, which stands between `</surroundings>` and `<chat>`; null when absent. */
 function legendOf(request: Built): string | null {
   const text = userText(request);
   const from = Math.max(0, text.lastIndexOf('</surroundings>'));
   const to = text.indexOf('<chat>');
   const between = text.slice(from, to < 0 ? text.length : to);
-  const match = /<interface>([\s\S]*?)<\/interface>/.exec(between);
+  const match = /<media>([\s\S]*?)<\/media>/.exec(between);
   return match ? match[1] : null;
 }
 
@@ -244,13 +245,13 @@ function stickerOf(id: string, name: string, url: string | null) {
   return { id, name, url };
 }
 
-test('buildRequest: no <interface> block when the window holds no custom emoji and no sticker', () => {
+test('buildRequest: no <media> block when the window holds no custom emoji and no sticker', () => {
   // Bug: the legend is printed empty on every turn and the tail grows by a block that says nothing.
   const built = buildRequest(legendInput([chatLine('1', 'γεια', [])], new Map()));
   assert.equal(legendOf(built), null);
 });
 
-test('buildRequest: an emoji of the chat stands once in <interface><discord><emojis> with its platform name and description', () => {
+test('buildRequest: an emoji of the chat stands once in <media><discord><emojis> with its platform name and description', () => {
   // Bug: the description is lost with the bracket, or the legend misses the platform name she knows it by.
   const history = [chatLine('1', 'ωραίο :e23:', [{ id: '9', name: 'e23' }])];
   const built = buildRequest(legendInput(history, new Map([['emoji:9', 'a surprised cat face']])));

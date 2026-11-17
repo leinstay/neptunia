@@ -1152,6 +1152,7 @@ test('a read keeps the legend of its kept lines when the room cuts its first lin
   });
   const text = textOf(await run({ last: 20 }));
   assert.ok(text.includes('lines cut)'), text);
-  assert.ok(text.includes('<interface>\n<discord><emojis>\n:e5: blob: a round blob\n'), text);
-  assert.ok(text.indexOf('</interface>') < text.indexOf('end :e5:'), text);
+  // The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+  assert.ok(text.includes('<media>\n<discord><emojis>\n:e5: blob: a round blob\n'), text);
+  assert.ok(text.indexOf('</media>') < text.indexOf('end :e5:'), text);
 });

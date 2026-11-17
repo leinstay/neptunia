@@ -718,10 +718,11 @@ test('createTurnRunner: features.mediaDescriptions on describes a custom emoji i
   assert.equal(userMessage.split('a surprised cat face').length - 1, 1, 'the description stands once');
 });
 
-/** The root block `<interface>` of a user message, the legend, which stands before `<chat>`; '' when absent. */
+// The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+/** The root block `<media>` of a user message, the legend, which stands before `<chat>`; '' when absent. */
 function legendBlockOf(userMessage: string): string {
   const before = userMessage.slice(0, Math.max(0, userMessage.indexOf('<chat>')));
-  const from = before.lastIndexOf('<interface>');
+  const from = before.lastIndexOf('<media>');
   return from < 0 || from < before.lastIndexOf('</surroundings>') ? '' : before.slice(from);
 }
 

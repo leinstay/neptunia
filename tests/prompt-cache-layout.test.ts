@@ -142,7 +142,8 @@ test('the entries of <people>, <places> and <lore> print the same whatever <foun
 
 // ---- the legend ----------------------------------------------------------------------------------------------------
 
-// The owner on 2026-11-17: the legend `<interface>` stands in the tail, after `<meanwhile>` and before `<chat>`, and
+// The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+// The owner on 2026-11-17: the legend `<media>` stands in the tail, after `<meanwhile>` and before `<chat>`, and
 // reads the custom emoji of the lines of `<chat>` and of `<meanwhile>`. The labels are the test's own.
 const LEGEND_LABELS = {
   ...shippedLabels,
@@ -207,15 +208,15 @@ const userOf = (built: Built): string => {
   return message.content.map((part) => String(part.text ?? '')).join('');
 };
 
-test('<interface> stands as a root block after </meanwhile> and before <chat>, in the uncached tail', () => {
+test('<media> stands as a root block after </meanwhile> and before <chat>, in the uncached tail', () => {
   // Bug: the legend lands in the cached memory segment, so a new emoji in the chat rewrites the cache; or it stands
   // after <chat>, below the lines that refer to it.
   const built = legendRequest('δες :e23:', [{ id: '901', name: 'e23' }], 'εκεί');
   const user = userOf(built);
-  const legendAt = user.indexOf('\n<interface>', user.indexOf('</meanwhile>'));
+  const legendAt = user.indexOf('\n<media>', user.indexOf('</meanwhile>'));
   assert.ok(user.indexOf('</meanwhile>') > 0, 'the request has <meanwhile>');
   assert.ok(legendAt > 0, user);
-  assert.ok(legendAt < user.indexOf('<chat>'), '<interface> before <chat>');
+  assert.ok(legendAt < user.indexOf('<chat>'), '<media> before <chat>');
   const sent = withCacheMarker(built.messages, '1h');
   const parts = (sent[1].content as Array<{ text?: string; cache_control?: unknown }>).filter(
     (part) => typeof part.text === 'string'
@@ -223,15 +224,15 @@ test('<interface> stands as a root block after </meanwhile> and before <chat>, i
   const lastMarked = parts.findLastIndex((part) => Object.hasOwn(part, 'cache_control'));
   const next = String(parts[lastMarked + 1]?.text);
   assert.match(String(parts[lastMarked]?.text), /<\/meanwhile>\n\n$/, 'the cached part still ends with <meanwhile>');
-  assert.match(next, /^<interface>/, 'the tail opens with <interface>');
+  assert.match(next, /^<media>/, 'the tail opens with <media>');
 });
 
-test('an emoji used only in a <meanwhile> window still stands in <interface>', () => {
+test('an emoji used only in a <meanwhile> window still stands in <media>', () => {
   // Bug: the legend reads the chat alone, and her own line elsewhere names an emoji she cannot look up.
   const built = legendRequest('γεια σου', [], 'τέλεια :e24:');
   const user = userOf(built);
   const legend = user.slice(user.indexOf('</meanwhile>'), user.indexOf('<chat>'));
-  assert.ok(legend.includes('<interface>'), user);
+  assert.ok(legend.includes('<media>'), user);
   assert.ok(legend.includes(':e24: wavey: a cat waving a paw'), legend);
   assert.ok(!legend.includes(':e23:'), 'only what occurs');
 });

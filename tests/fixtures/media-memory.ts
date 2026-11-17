@@ -116,7 +116,7 @@ export type Kind = {
   origin: MediaOrigin | null;
   /**
    * A custom emoji or sticker: its kind in `media_names`, the platform names of the two items and the subtag of the
-   * legend `<interface>` it stands under. Its line holds the stable name alone.
+   * legend `<media>` it stands under. Its line holds the stable name alone.
    */
   named?: { kind: 'emoji' | 'sticker'; platform: [string, string]; tag: string };
   /** The message fields of a line, given the two items, whether each is told and their stable names. */
@@ -431,16 +431,18 @@ export const neutralRows = (rows: ReadonlyArray<Row>): Array<Row> =>
 /** How many times `part` stands in `text`. */
 export const countOf = (text: string, part: string): number => text.split(part).length - 1;
 
-/** `text` without its legend blocks `<interface>`: the lines alone. */
-export const outsideLegend = (text: string): string => text.replace(/<interface>[\s\S]*?<\/interface>/g, '');
+// The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+/** `text` without its legend blocks `<media>`: the lines alone. */
+export const outsideLegend = (text: string): string => text.replace(/<media>[\s\S]*?<\/media>/g, '');
 
 /**
- * A custom emoji's or sticker's forms: the legend `<interface>` holds each item's stable name, platform name and the
+ * A custom emoji's or sticker's forms: the legend `<media>` holds each item's stable name, platform name and the
  * description told, a bare mark for one untold; the line holds the stable name and no description.
  */
 function assertLegendForms(text: string, kind: Kind, named: NonNullable<Kind['named']>, presence: Presence): void {
   // The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
-  const legend = /<interface>[\s\S]*?<\/interface>/.exec(text)?.[0] ?? '';
+  // The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+  const legend = /<media>[\s\S]*?<\/media>/.exec(text)?.[0] ?? '';
   assert.ok(legend.includes(`<discord><${named.tag}>`), `the text opens with the legend: ${text.slice(0, 400)}`);
   const lines = outsideLegend(text);
   assert.ok(lines.includes(kind.marker), `the line holds the stable name ${kind.marker}: ${lines.slice(0, 300)}`);
