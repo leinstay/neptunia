@@ -219,8 +219,9 @@ test('ffmpegGifArgs: a GIF becomes a short, even-sided, never upscaled yuv420p H
     args: [
       '-y',
       '-hide_banner',
+      // The input section on stderr carries the GIF's `Duration:`, the one place its whole length is read.
       '-loglevel',
-      'error',
+      'info',
       '-i',
       '/tmp/in',
       '-t',

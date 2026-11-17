@@ -3550,6 +3550,13 @@ test('rewatchGif: a second-look answer with emphasis and an em dash is returned 
   assert.equal(loose(result).text, PLAIN_ANSWER);
 });
 
+/** The system text of the first request `llm` received. */
+function systemOf(llm: Rig['llm']): string {
+  const [call] = llm.calls;
+  const [system] = call.messages;
+  return String(system.content);
+}
+
 // --- The length of each kind -------------------------------------------------------
 
 // The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500.
@@ -3562,7 +3569,7 @@ async function promptOfStill(item: ReturnType<typeof pictureItem>): Promise<stri
     imageFetcher: fakeImageFetcher(),
   });
   await describer.describe('g1', item);
-  return String(llm.calls[0].messages[0].content);
+  return systemOf(llm);
 }
 
 test('describe: a still sticker is asked for the picture length in {{maxChars}}', async () => {
@@ -3600,18 +3607,18 @@ test('describe: a GIF of 3.24 s is told its length to one decimal and nothing of
   // Bug: the prompt says 15 s for every GIF, and the model invents motion for the seconds that do not exist.
   const run = gifClipOf(3.24, 3.24);
   await run.describer.describe('g1', gifEmbedItem());
-  assert.equal(run.llm.calls[0].messages[0].content, 'Loop of 3.2 s.');
+  assert.equal(systemOf(run.llm), 'Loop of 3.2 s.');
 });
 
 test('describe: a GIF of 4 s is told 4, with no decimal', async () => {
   const run = gifClipOf(4, 4);
   await run.describer.describe('g1', gifEmbedItem());
-  assert.equal(run.llm.calls[0].messages[0].content, 'Loop of 4 s.');
+  assert.equal(systemOf(run.llm), 'Loop of 4 s.');
 });
 
 test('describe: a GIF longer than the watching limit is told the clip length and the gifCut line with both lengths', async () => {
   // Bug: the model is not told it sees only the start, and describes the clip as the whole GIF.
   const run = gifClipOf(15, 42.46);
   await run.describer.describe('g1', gifEmbedItem());
-  assert.equal(run.llm.calls[0].messages[0].content, 'Loop of 15 s.\n\nCUT 15 OF 42.5');
+  assert.equal(systemOf(run.llm), 'Loop of 15 s.\n\nCUT 15 OF 42.5');
 });

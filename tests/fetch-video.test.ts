@@ -356,6 +356,40 @@ test('fetchGif: a .gif is downloaded and always converted by ffmpeg into a short
   assert.deepEqual(await leftovers(), [], 'both temp files are removed');
 });
 
+// The owner on 2026-11-17: the describer tells the model the watched clip's real length and the GIF's whole length,
+// read from the `Duration:` line ffmpeg prints for the input of its one run.
+function gifWithDuration(duration: string | null) {
+  return (child: FakeChild, command: string, args: Array<string>) => {
+    if (duration !== null)
+      child.stderr.emit('data', Buffer.from(`Input #0, gif, from 'in':\n  Duration: ${duration}, start: 0\n`));
+    writesOutput(300)(child, command, args);
+  };
+}
+
+async function gifLengths(duration: string | null): Promise<{ seconds: unknown; totalSeconds: unknown }> {
+  const { fetchImpl } = fakeFetch(fakeResponse({ contentType: 'image/gif' }));
+  const { spawnImpl } = fakeSpawn(gifWithDuration(duration));
+  const result = (await makeFetcher({ fetchImpl, spawnImpl, tmpDir }).fetchGif(GIF_URL, GIF_OPTS)) as Record<
+    string,
+    unknown
+  >;
+  return { seconds: result.seconds, totalSeconds: result.totalSeconds };
+}
+
+test('fetchGif: a GIF shorter than maxSeconds reports its own length as seconds and totalSeconds', async () => {
+  // Bug: every GIF reports maxSeconds, and the model is told of seconds the loop does not have.
+  assert.deepEqual(await gifLengths('00:00:03.24'), { seconds: 3.24, totalSeconds: 3.24 });
+});
+
+test('fetchGif: a GIF longer than maxSeconds reports maxSeconds as seconds and its whole length as totalSeconds', async () => {
+  assert.deepEqual(await gifLengths('00:00:42.50'), { seconds: 8, totalSeconds: 42.5 });
+});
+
+test('fetchGif: a file with no readable duration reports maxSeconds and no totalSeconds', async () => {
+  // An animated sticker whose input section prints no duration line.
+  assert.deepEqual(await gifLengths(null), { seconds: 8, totalSeconds: undefined });
+});
+
 /** A PNG chunk: its length, its type, its data and a zeroed checksum the fetcher does not verify. */
 function pngChunk(type: string, data: Buffer) {
   const length = Buffer.alloc(4);
