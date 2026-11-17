@@ -1,8 +1,8 @@
 // What a model chooser may read about a role: the registry of the roles under their display groups, and each source of a
-// role with its state, the evidence behind its models and effort, and the commands that repair it. A row says how it is
-// known: `observed` came from the provider or the installed binary now, `suggestion` is a fixed name nobody checked
-// against this account. Effort levels are `observed` only when the binary's help lists them
-// (src/subharness/place.ts#effortLevelsOfHelp); the global constants in src/llm/roles.ts never stand in for them. Reading
+// role with its state, the evidence behind its models, the effort levels it takes and the commands that repair it. A
+// model row says how it is known: `observed` came from the provider or the installed binary now, `suggestion` is a fixed
+// name nobody checked against this account. A source's effort levels are what its backend takes by the survey in
+// src/subharness/models.ts, and a direct-path source has none, because `/model set --effort` sets its effort. Reading
 // sends no model request, starts no model run and returns no key value, only a key's name. An agent cannot run on a direct
 // `openrouter:` path, so OpenRouter's models reach it through opencode alone. The console answers `/model sources` with
 // this, and interfaces/cli/model-picker.ts draws it.
@@ -13,8 +13,8 @@ import { opencodeKey, readRouting } from './routing.ts';
 import { harnessPathOf } from './memory-path.ts';
 import { roleModelListing } from '../keys/models.ts';
 import { BASE_ROLES, MEMORY_ROLE } from '../llm/roles.ts';
-import { FIXED_MODELS } from './models.ts';
-import { effortLevelsOfHelp } from './place.ts';
+import type { EffortLevel } from '../llm/roles.ts';
+import { BACKEND_EFFORTS, FIXED_MODELS } from './models.ts';
 import { sourceState } from './sources.ts';
 
 export type ModelRoleRow = {
@@ -40,7 +40,8 @@ export type SourceDescriptor = {
     /** what a commit stores when the backend names the model differently from the listing */
     saveAs?: string;
   }>;
-  effort: { evidence: 'observed' | 'unknown' | 'unsupported'; levels: Array<string> };
+  /** the levels a commit may name; empty when the source takes none from the chooser */
+  effort: ReadonlyArray<EffortLevel>;
   /** the setter takes a name the listing lacks */
   manualModel: boolean;
 };
@@ -60,8 +61,6 @@ export type CapabilityDeps = {
   openRouterKey: string | null;
   /** the name of that key, for the source's account */
   openRouterKeyName?: string | null;
-  /** the installed binary's `--help`; without it no level is observed and none is asked of a binary */
-  helpOf?(name: BackendName): Promise<string>;
 };
 
 /** Main's display order and names. `Voice` is the display name of the role `speech`, whose chain is `models.routes.speech`. */
@@ -91,8 +90,6 @@ function backendsOf(role: string): ReadonlyArray<BackendName> {
   return isAgentName(role) ? BACKEND_NAMES : [];
 }
 
-const noEffort = (): SourceDescriptor['effort'] => ({ evidence: 'unsupported', levels: [] });
-
 function backendShape(
   backend: BackendName
 ): Omit<SourceDescriptor, 'code' | 'listing' | 'models' | 'setup' | 'effort'> {
@@ -106,18 +103,6 @@ function backendShape(
   };
 }
 
-/** The levels this binary's help lists, or `unknown`: a flag with no list proves no level. */
-async function effortOf(deps: CapabilityDeps, backend: BackendName): Promise<SourceDescriptor['effort']> {
-  if (deps.helpOf === undefined) return { evidence: 'unknown', levels: [] };
-  try {
-    const levels = effortLevelsOfHelp(await deps.helpOf(backend));
-    return levels.length > 0 ? { evidence: 'observed', levels } : { evidence: 'unknown', levels: [] };
-  } catch {
-    // A help that cannot be read proves nothing about the levels.
-    return { evidence: 'unknown', levels: [] };
-  }
-}
-
 /** opencode's source when it can run: OpenRouter's listing on the named key it logged in with. */
 async function opencodeReady(deps: CapabilityDeps, role: string): Promise<SourceDescriptor> {
   const { key } = readRouting(deps.privateDir).subharness;
@@ -125,7 +110,7 @@ async function opencodeReady(deps: CapabilityDeps, role: string): Promise<Source
     { fetch: deps.fetch, baseUrl: deps.baseUrl, value: opencodeKey(deps.privateDir)?.value ?? '' },
     isAgentName(role) ? LISTING_ROLE_OF_AGENT : role
   );
-  const shape = { ...backendShape('opencode'), account: key, setup: [], effort: await effortOf(deps, 'opencode') };
+  const shape = { ...backendShape('opencode'), account: key, setup: [], effort: BACKEND_EFFORTS.opencode };
   if (!reading.ok) return { ...shape, code: 'provider-rejected', listing: 'failed', models: [] };
   return {
     ...shape,
@@ -144,7 +129,7 @@ async function backendSource(deps: CapabilityDeps, backend: BackendName, role: s
       setup: [],
       listing: 'none',
       models: [],
-      effort: noEffort(),
+      effort: [],
     };
   const state = await sourceState(deps.privateDir, backend);
   if (!state.available) {
@@ -155,7 +140,7 @@ async function backendSource(deps: CapabilityDeps, backend: BackendName, role: s
       setup: [{ command: `/subharness ${backend} login${key}`, masked: false }],
       listing: 'none',
       models: [],
-      effort: { evidence: 'unknown', levels: [] },
+      effort: BACKEND_EFFORTS[backend],
     };
   }
   if (backend === 'opencode') return opencodeReady(deps, role);
@@ -165,7 +150,7 @@ async function backendSource(deps: CapabilityDeps, backend: BackendName, role: s
     setup: [],
     listing: 'suggestion',
     models: FIXED_MODELS[backend].map((id) => ({ id, evidence: 'suggestion' })),
-    effort: await effortOf(deps, backend),
+    effort: BACKEND_EFFORTS[backend],
   };
 }
 
@@ -177,7 +162,7 @@ async function apiSource(deps: CapabilityDeps, role: string): Promise<SourceDesc
     via: null,
     label: 'OpenRouter',
     account: deps.openRouterKeyName ?? null,
-    effort: noEffort(),
+    effort: [],
     manualModel: true,
   };
   if (deps.openRouterKey === null)

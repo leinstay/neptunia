@@ -128,7 +128,6 @@ async function rig(
         return Promise.resolve(check(model));
       },
       fetch: fakeFetch().fetch,
-      helpOf: () => Promise.resolve('Options:\n  --effort <level>\n'),
       applyMode: () => Promise.resolve('the unit took it'),
     },
     ...extra,

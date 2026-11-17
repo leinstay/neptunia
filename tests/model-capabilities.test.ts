@@ -166,20 +166,25 @@ test('a fixed list is a suggestion, a provider listing is observed', async () =>
   assert.ok(api.models.every((one) => one.evidence === 'observed'));
 });
 
-test('global effort constants are never offered as a model capability', async () => {
-  // Catches: low, medium and high shown for a model nobody asked, or a --effort flag in help read as a list of levels.
+test('each backend offers the levels of its survey, and opencode none past high', async () => {
+  // Catches: xhigh offered on opencode, whose models nobody surveyed, or claude and codex held to the global three.
+  // Changed: the levels are the survey in src/subharness/models.ts, so no backend offers none for want of a help text.
   const { deps, privateDir } = withOpencode();
   fakeVendor(privateDir, 'claude', { loggedIn: true });
   fakeVendor(privateDir, 'codex', { loggedIn: true });
   const read = await roleSources(deps, 'server');
-  assert.equal(read.sources.length, 3);
-  for (const one of read.sources) assert.deepEqual(one.effort, { evidence: 'unknown', levels: [] }, one.id);
+  const levels = Object.fromEntries(read.sources.map((one) => [one.via, one.effort]));
+  assert.deepEqual(levels, {
+    claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+    codex: ['low', 'medium', 'high', 'xhigh', 'max'],
+    opencode: ['low', 'medium', 'high'],
+  });
 });
 
 test('the core role says provider effort is unsupported', async () => {
   // Catches: an effort step for the core, which has its own thinking contract and rejects provider effort.
   const { deps } = rig();
-  assert.equal(source(await roleSources(deps, 'core'), null).effort.evidence, 'unsupported');
+  assert.deepEqual(source(await roleSources(deps, 'core'), null).effort, []);
 });
 
 // What keeps a source out
@@ -302,7 +307,6 @@ function deskOf(privateDir: string, fetch: typeof globalThis.fetch) {
         return Promise.resolve({ ok: true, text: 'ok', exitCode: 0 });
       },
       fetch,
-      helpOf: () => Promise.resolve(''),
       applyMode: () => Promise.resolve(''),
     },
   });

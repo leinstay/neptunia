@@ -4,15 +4,13 @@
 // executable under `bin/`. The home goes to every run (src/agent-runner/backend.ts, `createInstalledBackend`) and to
 // the owner's login (src/subharness/account.ts), as the variable each CLI reads its home from. The paths are
 // computed; `isInstalled` is the one look at the disk, and `helpOfInstalled` the one run of the binary outside an agent
-// run, which reads its `--help` so the effort flag is offered only to a binary that takes it. `CURL_HOME` points curl
+// run, which reads the `--help` of claude to find how it logs in. `CURL_HOME` points curl
 // in every run at the home, where `writeHarnessCurlrc` keeps the `.curlrc` with the user agent `/proxy useragent` set.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { isListedEffort } from '../llm/roles.ts';
-import type { EffortLevel } from '../llm/roles.ts';
 
 /** Where one backend lives inside the private layer, and the environment every run of it gets. */
 export type SubharnessPlace = {
@@ -140,20 +138,6 @@ const LOGIN_ARGS: Readonly<Partial<Record<BackendName, ReadonlyArray<string>>>> 
 /** A word as one shell word: bare when it holds only safe characters, else in single quotes. */
 const shellWord = (word: string): string =>
   /^[\w./:=@%+-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
-
-/**
- * The levels a CLI's `--help` lists for its `--effort` flag, in its order, as `--effort <level> ... (low, high)` on the
- * flag's lines, wrapped or not. A flag with no list has no levels, and a word keys.json cannot hold is left out.
- */
-export function effortLevelsOfHelp(help: string): Array<EffortLevel> {
-  const lines = help.split('\n');
-  const at = lines.findIndex((line) => /^\s*--effort\b/.test(line));
-  if (at === -1) return [];
-  const next = lines.slice(at + 1).findIndex((line) => /^\s*-/.test(line) || line.trim() === '');
-  const flag = lines.slice(at, next === -1 ? undefined : at + 1 + next).join(' ');
-  const listed = /\(([a-z]+(?:,\s*[a-z]+)+)\)/.exec(flag)?.[1] ?? '';
-  return listed.split(/,\s*/).filter(isListedEffort);
-}
 
 /**
  * The commands a CLI's `--help` lists under its `Commands:` heading: the first word of each line at the column of the

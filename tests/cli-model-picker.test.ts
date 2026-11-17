@@ -24,7 +24,7 @@ const API: SourceDescriptor = {
   setup: [],
   listing: 'observed',
   models: [{ id: 'vendor/voice-1', evidence: 'observed' }],
-  effort: { evidence: 'unsupported', levels: [] },
+  effort: [],
   manualModel: true,
 };
 const CODEX: SourceDescriptor = {
@@ -37,7 +37,7 @@ const CODEX: SourceDescriptor = {
   setup: [],
   listing: 'suggestion',
   models: [{ id: 'suggested-1', evidence: 'suggestion' }],
-  effort: { evidence: 'unknown', levels: [] },
+  effort: ['low', 'medium', 'high'],
   manualModel: true,
 };
 const CLAUDE_OUT: SourceDescriptor = {
@@ -222,19 +222,12 @@ test('a role-unsupported combination stays visible as a disabled provider or sou
 
 // Effort
 
-test('unknown effort offers only keep and the model default', () => {
-  // Catches: low, medium and high fabricated for a model whose levels nobody established.
-  const at = play(atRole('errand', 'scout', [CODEX]), choose('subharness', 'backend:codex', 'suggested-1')).state;
-  assert.equal(at.step, 'effort');
-  assert.deepEqual(rowIds(at), ['keep', 'default']);
-});
-
-test('observed effort offers its levels and commits the chosen one', () => {
+test('a source offers the levels its backend takes and commits the chosen one', () => {
   // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the chosen level dropped on the way to the setter.
-  const proven: SourceDescriptor = { ...CODEX, effort: { evidence: 'observed', levels: ['minimal', 'high'] } };
+  const proven: SourceDescriptor = { ...CODEX, effort: ['high', 'max'] };
   const at = play(atRole('errand', 'scout', [proven]), choose('subharness', 'backend:codex', 'suggested-1'));
-  assert.deepEqual(rowIds(at.state), ['keep', 'default', 'minimal', 'high']);
+  assert.deepEqual(rowIds(at.state), ['keep', 'default', 'high', 'max']);
   const saved = play(at.state, [...choose('high'), { kind: 'confirm' }]);
   assert.deepEqual(committed(saved.effects), [
     { name: 'model.set', args: { role: 'scout', model: 'suggested-1', via: 'codex-harness', effort: 'high' } },
@@ -532,19 +525,14 @@ test('a refused commit stays on the review with the reason on the screen', async
   }
 });
 
-test('a CLI level outside the route scale commits its nearest level of the scale for a model role', () => {
+test('a level past the route scale commits high for a model role', () => {
   // Catches: the selector saving `:xhigh` on the memory writer's route, which the route reader refuses as retired.
-  const proven: SourceDescriptor = { ...CODEX, effort: { evidence: 'observed', levels: ['minimal', 'xhigh'] } };
+  const proven: SourceDescriptor = { ...CODEX, effort: ['xhigh'] };
   const high = play(atRole('main', 'memory', [proven]), [
     ...choose('subharness', 'backend:codex', 'suggested-1', 'xhigh'),
     { kind: 'confirm' },
   ]);
   assert.equal(committed(high.effects)[0]?.args.model, 'harness:codex/suggested-1:high');
-  const low = play(atRole('main', 'memory', [proven]), [
-    ...choose('subharness', 'backend:codex', 'suggested-1', 'minimal'),
-    { kind: 'confirm' },
-  ]);
-  assert.equal(committed(low.effects)[0]?.args.model, 'harness:codex/suggested-1:disabled');
 });
 
 // The source step of the model selector (interfaces/cli/model-picker.ts) offers the four route names, `direct-api`,
@@ -562,7 +550,7 @@ const API_ROUTES: SourceDescriptor = {
   setup: [],
   listing: 'observed',
   models: [{ id: 'vendor/invented-1', evidence: 'observed' }],
-  effort: { evidence: 'unsupported', levels: [] },
+  effort: [],
   manualModel: true,
 };
 const CODEX_ROUTES: SourceDescriptor = {
@@ -573,7 +561,7 @@ const CODEX_ROUTES: SourceDescriptor = {
   label: 'Codex',
   listing: 'suggestion',
   models: [{ id: 'suggested-1', evidence: 'suggestion' }],
-  effort: { evidence: 'unknown', levels: [] },
+  effort: ['low', 'medium', 'high'],
 };
 const CLAUDE: SourceDescriptor = { ...CODEX_ROUTES, id: 'backend:claude', via: 'claude', label: 'Claude' };
 const OPENCODE: SourceDescriptor = { ...CODEX_ROUTES, id: 'backend:opencode', via: 'opencode', label: 'OpenCode' };

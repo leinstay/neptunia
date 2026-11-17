@@ -1,15 +1,19 @@
 // Tests for the chain commands of src/keys/commands.ts: `/model show`, `/model set <role> <route>`, `/model add` and
 // `/model remove`. A route on a key is checked with one request on that key and model, a route on a harness with one
 // reply through it, and nothing is saved on a refusal. The store is a temp folder, the provider a fake fetch, the harness
-// check a fake; the tests assert on what is saved and sent, never on wording.
+// check a fake unless a test runs the real check of src/subharness/selection.ts on a fake vendor; the tests assert on what is saved and sent, never on wording.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createKeysCommands } from '../src/keys/commands.ts';
 import { createKeyStore } from '../src/keys/store.ts';
+import type { KeysDeps } from '../src/keys/commands.ts';
+import { checkedRoute } from '../src/subharness/selection.ts';
+import { harnessEffort } from '../src/llm/route-text.ts';
 import { isRouteRole } from '../src/llm/route-text.ts';
 import type { Route, RouteRole } from '../src/llm/route-text.ts';
 import { BASE_URL, SECRET, SECRET_2, chainRing, fakeFetch, fakePause, healthy } from './fixtures/keys-rig.ts';
 import type { Call, Reply } from './fixtures/keys-rig.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const api = (key: string, model: string): Route => ({ via: 'api', key, model, effort: null });
@@ -21,7 +25,8 @@ const firstModel = (chain: ReadonlyArray<Route> | undefined): string => chain?.[
 function rig(
   chains: Partial<Record<RouteRole, Array<Route>>> = {},
   answer: (call: Call) => Reply = healthy,
-  llm: Record<string, unknown> = {}
+  llm: Record<string, unknown> = {},
+  check?: KeysDeps['checkHarness']
 ) {
   const privateDir = tempDir('keys-route-commands-');
   const store = createKeyStore({ privateDir });
@@ -50,6 +55,7 @@ function rig(
     },
     checkHarness: (route) => {
       harnessChecks.push(route);
+      if (check !== undefined) return check(route);
       return Promise.resolve(harnessOk ? { ok: true, code: 'ok' } : { ok: false, code: 'not-logged-in' });
     },
   });
@@ -100,6 +106,34 @@ test('model set on a harness route checks it through the harness and saves it, a
   const refused = await keys.run('model.set', { role: 'core', model: 'harness:claude/claude-opus-4-8' }, null);
   assert.equal(refused.status, 'failed');
   assert.deepEqual(held.core, [harness('claude-opus-4-6')]);
+});
+
+test('model set on a claude harness route with a level runs the check at that level and saves the route', async () => {
+  // Catches: every level on a claude route refused as unsupported, because the check of the core reads no binary's help.
+  const privateDir = tempDir('keys-route-harness-');
+  fakeVendor(privateDir, 'claude', { loggedIn: true });
+  const levels: Array<unknown> = [];
+  const real: KeysDeps['checkHarness'] = (route) =>
+    checkedRoute(
+      {
+        privateDir,
+        fetch: () => Promise.reject(new Error('no request goes out')),
+        runBackend: (_name, _brief, _model, effort) => {
+          levels.push(effort);
+          return Promise.resolve({ ok: true, text: 'ok', exitCode: 0 });
+        },
+      },
+      { ...route, effort: harnessEffort(route.effort, route.backend) }
+    );
+  const { keys, held } = rig({ core: [api('helpers', 'x/core')] }, healthy, {}, real);
+  const answer = await keys.run(
+    'model.set',
+    { role: 'humanizer.writer', model: 'harness:claude/claude-opus-5-5:low' },
+    null
+  );
+  assert.equal(answer.status, 'ok', answer.text);
+  assert.deepEqual(levels, ['low']);
+  assert.deepEqual(held['humanizer.writer'], [{ ...harness('claude-opus-5-5'), effort: 'low' }]);
 });
 
 test('a harness route on a role that runs no CLI chat step and an unknown key are refused before anything is sent', async () => {

@@ -1,6 +1,6 @@
 // A path per role on the subharness side (spec 2026-11-02 PR 5, "A path per role"): `model set <agent> <model> [--effort
 // <level>]` names its model and effort after one reply on the source the store names for it, the status lists each agent's path, and the six direct roles have no subharness path. keys.json lives
-// in a temp dir; the backend runner, its `--help` and fetch are fakes, so no process starts and no request goes out.
+// in a temp dir; the backend runner and fetch are fakes, so no process starts and no request goes out.
 // Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
 // so the agent checks use `server`.
 import { test } from 'node:test';
@@ -20,13 +20,10 @@ import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-const HELP_WITH_EFFORT = 'Usage: claude [options]\n  --model <model>\n  --effort <level>  reasoning effort\n';
-const HELP_WITHOUT_EFFORT = 'Usage: claude [options]\n  --model <model>\n';
-
 type Ran = { name: string; model: string | undefined; effort: EffortLevel | undefined };
 
 /** keys.json with codex and claude connected; the runner answers for every model but `bad-model`. */
-function rig(options: { help?: string | null; backends?: Array<'codex' | 'claude' | 'opencode'> } = {}) {
+function rig(options: { backends?: Array<'codex' | 'claude' | 'opencode'> } = {}) {
   const dir = tempDir('nep-paths-');
   writeKeysFile(dir, {
     subharness: { backends: options.backends ?? ['codex', 'claude'], key: null, modes: {}, models: {}, uses: {} },
@@ -35,7 +32,6 @@ function rig(options: { help?: string | null; backends?: Array<'codex' | 'claude
   for (const backend of options.backends ?? (['codex', 'claude'] as const))
     if (backend !== 'opencode') fakeVendor(dir, backend, { loggedIn: true });
   const ran: Array<Ran> = [];
-  const help = options.help === undefined ? HELP_WITH_EFFORT : options.help;
   const deps: EnableDeps = {
     privateDir: dir,
     runBackend: (name, _brief, model, effort) => {
@@ -44,7 +40,6 @@ function rig(options: { help?: string | null; backends?: Array<'codex' | 'claude
       return Promise.resolve({ ok, text: ok ? 'ok' : '', exitCode: ok ? 0 : 1 });
     },
     fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
-    ...(help === null ? {} : { helpOf: () => Promise.resolve(help) }),
   };
   return { dir, deps, ran };
 }
@@ -96,45 +91,23 @@ test('a model whose reply check fails keeps the model and the effort stored befo
 });
 
 test('an effort that is no level is refused before anything runs', async () => {
-  // Catches: "max" or "xhigh" passed to the CLI, which refuses it at the agent's next real run.
+  // Catches: a word that is no level passed to the CLI, which refuses it at the agent's next real run.
+  // Changed: codex takes `max` by the survey in src/subharness/models.ts, so the word is one no backend takes.
   const { dir, deps, ran } = rig();
-  const result = await setAgentModel(deps, 'server', 'gpt-6.1-sol', 'max');
+  const result = await setAgentModel(deps, 'server', 'gpt-6.1-sol', 'turbo');
   assert.equal(result.code, 'unknown-effort');
   assert.deepEqual(ran, []);
   assert.deepEqual(readKeysFile(dir).subharness.models, {});
 });
 
-test('claude takes an effort when its --help lists --effort', async () => {
-  // Catches: the help check refuses every effort on claude, or reads the help of another binary.
-  const { dir, deps } = rig({ help: HELP_WITH_EFFORT });
+test('claude takes an effort and runs the check at it', async () => {
+  // Catches: every effort on claude refused, or the level dropped from the check.
+  const { dir, deps, ran } = rig();
   seedUses(dir, 'server', 'claude');
   const result = await setAgentModel(deps, 'server', 'claude-opus-5-5', 'medium');
   assert.equal(result.ok, true);
+  assert.deepEqual(ran, [{ name: 'claude', model: 'claude-opus-5-5', effort: 'medium' }]);
   assert.equal(readKeysFile(dir).subharness.efforts?.server, 'medium');
-});
-
-test('claude refuses an effort when its --help does not list --effort, and runs nothing', async () => {
-  // Catches: "--effort" passed to a claude that does not know it, so every run of the agent exits with an error.
-  const { dir, deps, ran } = rig({ help: HELP_WITHOUT_EFFORT });
-  seedUses(dir, 'server', 'claude');
-  const result = await setAgentModel(deps, 'server', 'claude-opus-5-5', 'medium');
-  assert.equal(result.code, 'effort-unsupported');
-  assert.deepEqual(ran, []);
-  assert.equal(readKeysFile(dir).subharness.efforts?.server, undefined);
-});
-
-test('claude refuses an effort when its --help cannot be read', async () => {
-  // Catches: a missing help reader taken as "supported", which ends in the same failed runs.
-  const { dir, deps } = rig({ help: null });
-  seedUses(dir, 'server', 'claude');
-  assert.equal((await setAgentModel(deps, 'server', 'claude-opus-5-5', 'high')).code, 'effort-unsupported');
-});
-
-test('claude without an effort needs no --help check', async () => {
-  // Catches: the help check applied to every claude model set, so a claude without --effort cannot change models at all.
-  const { dir, deps } = rig({ help: HELP_WITHOUT_EFFORT });
-  seedUses(dir, 'server', 'claude');
-  assert.equal((await setAgentModel(deps, 'server', 'claude-sonnet-5-5')).ok, true);
 });
 
 test('a model set without an effort keeps the effort stored before', async () => {

@@ -11,14 +11,15 @@ import { isProviderSlug } from '../agent-runner/protocol.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { BACKEND_NAMES, UNITS, agentNames, isAgentName, profileOf } from '../agent-runner/profiles.ts';
 import type { BackendName, UnitName } from '../agent-runner/profiles.ts';
-import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
+import { EFFORT_LEVELS, isListedEffort } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { readRouting, updateRouting } from './routing.ts';
 import type { Routing } from './routing.ts';
 import { readKeys } from '../keys/file.ts';
+import { BACKEND_EFFORTS } from './models.ts';
 import { modelOfBackend } from './place.ts';
 import { routeName, routeNamesText } from './route-names.ts';
-import { checkedSelection, listsEffort } from './selection.ts';
+import { checkedSelection } from './selection.ts';
 import { sourceState } from './sources.ts';
 import type { SourceState } from './sources.ts';
 
@@ -57,8 +58,6 @@ export type EnableDeps = {
   privateDir: string;
   /** One minimal run of codex or claude, `effort` passed as BackendRunOptions.effort; resolves, never rejects. */
   runBackend(name: 'codex' | 'claude', brief: string, model?: string, effort?: EffortLevel): Promise<BackendResult>;
-  /** The `--help` output of the installed binary; absent means it cannot be read. */
-  helpOf?(name: BackendName): Promise<string>;
   fetch: typeof fetch;
   baseUrl?: string;
   /**
@@ -150,16 +149,16 @@ export async function setAgentModel(
   const badSlug = badProvider(provider);
   if (badSlug !== null) return badSlug;
   const level = effort === DEFAULT_EFFORT ? undefined : effort;
-  const noEffort = (word: string): SubharnessResult =>
-    refused('unknown-effort', `${word} is no effort; use ${EFFORT_LEVELS.join(', ')}`);
+  const noEffort = (word: string, levels: ReadonlyArray<EffortLevel> = EFFORT_LEVELS): SubharnessResult =>
+    refused('unknown-effort', `${word} is no effort here; use ${levels.join(', ')}`);
   if (level !== undefined && !isListedEffort(level)) return noEffort(level);
   const store = readRouting(deps.privateDir);
   const current = backendOfAgent(store.subharness, agent);
   const backend = via === undefined ? current : BACKEND_NAMES.find((one) => one === via);
   if (backend === undefined)
     return refused('unknown-backend', `${via ?? ''} is no backend; use ${routeNamesText(BACKEND_NAMES)}`);
-  if (level !== undefined && !isEffortLevel(level) && (backend === null || !(await listsEffort(deps, backend, level))))
-    return noEffort(level);
+  const takes: ReadonlyArray<EffortLevel> = backend === null ? EFFORT_LEVELS : BACKEND_EFFORTS[backend];
+  if (level !== undefined && !takes.includes(level)) return noEffort(level, takes);
   if (backend === null)
     return refused('subharness-off', `${agent} has no source yet: /model set ${agent} <model> --via <route>`);
   const unsupported = providerUnsupported(provider, backend);

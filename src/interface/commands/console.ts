@@ -547,7 +547,6 @@ async function modelSources(deps: ConsoleDeps, args: Record<string, unknown>): P
       baseUrl: deps.subharness?.baseUrl ?? DEFAULT_BASE_URL,
       openRouterKey: key?.value ?? null,
       openRouterKeyName: key?.name ?? null,
-      ...(deps.subharness?.helpOf === undefined ? {} : { helpOf: deps.subharness.helpOf }),
     },
     role
   );
