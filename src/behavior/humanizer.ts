@@ -4,7 +4,8 @@
 
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { parseOutput, strictJsonObject } from '../llm/parse.ts';
-import { roleModel } from '../llm/roles.ts';
+import { stripDashes } from '../memory/clamp.ts';
+import { HUMANIZER_LINTER_ROLE, HUMANIZER_WRITER_ROLE, roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { block, fillPromptTemplate } from '../turn/request/text.ts';
 
@@ -22,10 +23,6 @@ const WRITER_MAX_TOKENS = 3000;
 // A writer on a harness takes tens of seconds; the analyzer timeout would cut it.
 const LINTER_TIMEOUT_MS = 30_000;
 const WRITER_TIMEOUT_MS = 120_000;
-
-// The two roles, named once (docs/humanizer.md).
-const LINTER_ROLE = 'humanizer.linter';
-const WRITER_ROLE = 'humanizer.writer';
 
 const KINDS = ['shape', 'rhythm', 'wit', 'tone', 'words', 'language', 'overdone'] as const;
 
@@ -125,12 +122,12 @@ async function humanize({
   name: string;
   place: string;
 }): Promise<Array<HumanizerMessage>> {
-  const config = hot.config as { humanizer?: { enabled?: unknown } };
+  const config = hot.config as { humanizer?: { enabled?: unknown }; format?: { stripDashes?: unknown } };
   if (config.humanizer?.enabled !== true) return messages;
   const words = messages.reduce((sum, one) => sum + one.text.split(/\s+/).filter(Boolean).length, 0);
   if (words < MIN_WORDS) return messages;
-  const linterModel = roleModel(config, LINTER_ROLE);
-  const writerModel = roleModel(config, WRITER_ROLE);
+  const linterModel = roleModel(config, HUMANIZER_LINTER_ROLE);
+  const writerModel = roleModel(config, HUMANIZER_WRITER_ROLE);
   if (linterModel === undefined || writerModel === undefined) return messages;
   const prompts = (hot.prompts ?? {}) as Record<string, unknown>;
   const draft = draftOf(messages);
@@ -146,7 +143,7 @@ async function humanize({
       {
         model: linterModel,
         ...roleRequestOptions(config, {
-          role: LINTER_ROLE,
+          role: HUMANIZER_LINTER_ROLE,
           maxOutputTokens: LINTER_MAX_TOKENS,
           purpose: 'humanizer-linter',
           timeoutMs: LINTER_TIMEOUT_MS,
@@ -173,7 +170,7 @@ async function humanize({
   });
   if (!verdict.rewrite) return messages;
 
-  let written;
+  let written: Array<HumanizerMessage>;
   try {
     const answer = await llm.complete(
       [
@@ -192,14 +189,16 @@ async function humanize({
       {
         model: writerModel,
         ...roleRequestOptions(config, {
-          role: WRITER_ROLE,
+          role: HUMANIZER_WRITER_ROLE,
           maxOutputTokens: WRITER_MAX_TOKENS,
           purpose: 'humanizer-writer',
           timeoutMs: WRITER_TIMEOUT_MS,
         }),
       }
     );
-    written = parseOutput(textOf(answer));
+    written = parseOutput(textOf(answer)).messages;
+    // format.stripDashes holds for the writer's words as for hers (src/turn/phases/response.ts).
+    if (config.format?.stripDashes !== false) written = written.map((one) => ({ ...one, text: stripDashes(one.text) }));
   } catch (err) {
     log.warn('humanizer: failed', { channel: place, stage: 'writer', reason: railReason(err) });
     return messages;
@@ -207,8 +206,8 @@ async function humanize({
   // The count is hers (the owner, 2026-11-17): each message keeps its place and its reply target, and only its text
   // changes. A broken think tag leaves parseOutput with no message, so the count refuses it too.
   const isKept =
-    written.messages.length === messages.length &&
-    written.messages.every((one, i) => one.text.trim() !== '' && one.replyTo === messages[i].replyTo);
+    written.length === messages.length &&
+    written.every((one, i) => one.text.trim() !== '' && one.replyTo === messages[i].replyTo);
   if (!isKept) {
     log.warn('humanizer: failed', { channel: place, stage: 'writer', reason: 'refused' });
     return messages;
@@ -218,5 +217,5 @@ async function humanize({
     messages: messages.length,
     ms: Date.now() - startedAt,
   });
-  return written.messages;
+  return written;
 }

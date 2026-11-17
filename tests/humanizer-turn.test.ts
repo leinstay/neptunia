@@ -88,7 +88,10 @@ async function turnOf({
   return { run, requests: llm.requests };
 }
 
-const userOf = (request: Request): string => contentText(request.messages[1]?.content);
+const userOf = (request: Request): string => {
+  const [, user] = request.messages;
+  return contentText(user?.content);
+};
 const sentOf = (run: Awaited<ReturnType<typeof coreTurn>>) =>
   run.sends.map((send) => [send.text, (send.replyTo as { messageId?: string } | undefined)?.messageId ?? null]);
 

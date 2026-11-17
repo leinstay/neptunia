@@ -107,18 +107,21 @@ test('the linter gets the draft as msg tags with reply targets and a strict sche
   // Catches: the linter reads the messages without their targets, or its answer is asked in free text.
   const llm = fakeLlm({ lint: JSON.stringify({ rewrite: false, findings: [] }) });
   await run(llm);
-  const [system, user] = llm.calls[0].messages;
+  const [linter] = llm.calls;
+  const [system, user] = linter.messages;
   assert.equal(system.content, 'Check the text Ελένη is about to post.');
   assert.ok(user.content.includes(`<msg reply="#3">${LONG_A}</msg>`));
   assert.ok(user.content.includes(`<msg reply="#5">${LONG_B}</msg>`));
-  assert.equal((llm.calls[0].options.responseFormat as { name: string }).name, 'humanizer');
+  const format = linter.options.responseFormat as { name: string };
+  assert.equal(format.name, 'humanizer');
 });
 
 test('the writer request holds her think, the draft and the findings', async () => {
   // Catches: the writer rewrites blind, without what she meant or what the linter found.
   const llm = fakeLlm({ lint: LINT_YES, write: '<msg>κάτι</msg>' });
   await run(llm);
-  const [system, user] = llm.calls[1].messages;
+  const [, writer] = llm.calls;
+  const [system, user] = writer.messages;
   assert.equal(system.content, 'Write the text of Ελένη again.');
   assert.ok(user.content.includes(THINK));
   assert.ok(user.content.includes(`<msg reply="#3">${LONG_A}</msg>`));
@@ -181,4 +184,13 @@ test('posts three writer messages for a draft of three', async () => {
     { text: 'δύο', replyTo: 5 },
     { text: 'τρία', replyTo: null },
   ]);
+});
+
+test("strips the long dashes of the writer's text as her own text loses them", async () => {
+  // Catches: format.stripDashes runs on her answer before the humanizer, so a dash the writer adds reaches the chat.
+  const llm = fakeLlm({ lint: LINT_YES, write: '<msg reply="#3">πρώτο — μέρος</msg><msg reply="#5">δεύτερο</msg>' });
+  assert.deepEqual(
+    (await run(llm)).map((one) => one.text),
+    ['πρώτο μέρος', 'δεύτερο']
+  );
 });

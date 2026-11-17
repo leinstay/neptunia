@@ -683,3 +683,43 @@ test("the bind merge's description join runs through claude on the harness path"
   assert.equal(seen.length, 1);
   assert.equal(after(seen[0]?.args ?? [], '--system-prompt'), 'MERGE PROMPT');
 });
+
+// the humanizer's writer: another role's one-shot request on the same client (src/llm/core-routes.ts)
+
+const WRITER_OPTIONS = {
+  role: 'humanizer.writer',
+  purpose: 'humanizer-writer',
+  model: 'claude-opus-5-5',
+  chainRoute: { via: 'harness', backend: 'claude', model: 'claude-opus-5-5', effort: null },
+};
+
+test('a run of another role is counted under that role and says nothing of the memory login', async () => {
+  // Catches: the humanizer writer's tokens counted as her memory's, and its run taken as proof of the memory harness.
+  const { deps } = rig(claudeAnswers(ANSWER));
+  const recorded: Array<UsageEntry> = [];
+  const outcomes: Array<string> = [];
+  const { llm } = clientOf(deps, {
+    record: (entry) => recorded.push(entry),
+    ran: (backend, outcome) => outcomes.push(`${backend}:${outcome}`),
+  });
+  await llm.complete(SESSION_MESSAGES, WRITER_OPTIONS);
+  assert.deepEqual(
+    recorded.map((entry) => entry.role),
+    ['humanizer.writer']
+  );
+  assert.deepEqual(outcomes, []);
+});
+
+test('a refused run of another role does not wake the memory probe', async () => {
+  // Catches: a failed humanizer rewrite starting a memory probe and marking the memory harness as logged out.
+  const { deps } = rig(() => ({ exitCode: 1, stdout: '', stderr: '' }));
+  let refused = 0;
+  const outcomes: Array<string> = [];
+  const { llm } = clientOf(deps, {
+    onRefused: () => (refused += 1),
+    ran: (backend, outcome) => outcomes.push(`${backend}:${outcome}`),
+  });
+  await assert.rejects(llm.complete(SESSION_MESSAGES, WRITER_OPTIONS));
+  assert.equal(refused, 0);
+  assert.deepEqual(outcomes, []);
+});

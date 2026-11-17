@@ -89,6 +89,7 @@ export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
     reactions?: { fetchTimeoutMs?: number } | null;
   };
   diary?: unknown;
+  humanizer?: { enabled?: unknown } | null;
 };
 
 /** The labels, as the tool round hands them on; the text functions read their own sections. */
@@ -1050,7 +1051,16 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       deliveries: Array<{ n: number; total: number; code: string }>;
     }> {
       // Her speech read as one text and, when the humanizer asks for it, written again (docs/humanizer.md).
-      const humanized = await humanizeSpeech({ parsed, loweredCalls, llm, hot, name: selfName, place: channel.id });
+      // An addressed turn shows her typing for the seconds the humanizer takes; with the humanizer off nothing is sent.
+      const stopTyping = hot.config.humanizer?.enabled === true ? typingWhileCalls(channel, triggerKind, draft) : null;
+      const humanized = await humanizeSpeech({
+        parsed,
+        loweredCalls,
+        llm,
+        hot,
+        name: selfName,
+        place: channel.id,
+      }).finally(() => stopTyping?.());
       parsed = { ...parsed, messages: humanized.messages };
       loweredCalls = humanized.loweredCalls;
       let acted: ActOutcome | HeldSpeech | null = null;

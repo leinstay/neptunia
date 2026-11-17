@@ -22,6 +22,7 @@ import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.ts';
 import { buildDrawPrompt, hasRequiredLabels, userText } from '../src/behavior/prompt.ts';
 import { fill } from '../src/format.ts';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
+import { humanizeSpeech } from '../src/behavior/humanizer.ts';
 import { createRecall as createRecallOf } from '../src/behavior/recall-run.ts';
 import { createTagHistory } from '../src/behavior/mention.ts';
 import { createMissed as createMissedOf } from '../src/behavior/missed.ts';
@@ -222,6 +223,7 @@ const LOADS = {
   merge: ['merge'],
   missed: ['missed'],
   mediaPick: ['media-pick'],
+  humanizer: ['humanizer-linter', 'humanizer-writer'],
   turn: [...SYSTEM, 'reply'],
 };
 
@@ -1684,4 +1686,40 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
   assert.equal(llm.calls.length, 1);
   assertFilled(llm.calls[0].messages, { files: LOADS.avatar }, 'avatar');
   assert.equal(profile.avatar!.text, 'an illustrated fox in a scarf');
+});
+
+test('humanizeSpeech: the linter and the writer requests fill humanizer-linter.md and humanizer-writer.md', async () => {
+  const hot = shippedHot({
+    humanizer: { enabled: true },
+    models: { routes: chainsOf({ 'humanizer.linter': 'x/linter', 'humanizer.writer': 'x/writer' }) },
+  });
+  const calls: Array<{ messages: unknown; purpose: unknown }> = [];
+  const llm = {
+    complete: async (messages: Array<{ role: string; content: string }>, options: Record<string, unknown>) => {
+      calls.push({ messages, purpose: options.purpose });
+      const rewrite = { rewrite: true, findings: [{ kind: 'shape', quote: '', problem: 'a report', fix: 'reorder' }] };
+      return { text: options.purpose === 'humanizer-linter' ? JSON.stringify(rewrite) : '<msg>χα</msg>' };
+    },
+  };
+  // Forty words, the least the humanizer reads.
+  const text = Array.from({ length: 40 }, (_, i) => `λέξη${i}`).join(' ');
+  const { result } = await withCapturedLogs(() =>
+    humanizeSpeech({
+      parsed: { messages: [{ text, replyTo: null }], think: 'σκέψη' },
+      loweredCalls: [],
+      llm,
+      hot,
+      name: SELF_NAME,
+      place: 'c1',
+    })
+  );
+  assert.deepEqual(result.messages, [{ text: 'χα', replyTo: null }]);
+  const linter = calls.find((call) => call.purpose === 'humanizer-linter');
+  const writer = calls.find((call) => call.purpose === 'humanizer-writer');
+  assertFilled(linter?.messages, { files: ['humanizer-linter'] }, 'humanizer linter');
+  assertFilled(
+    writer?.messages,
+    { files: ['humanizer-writer'], blocks: ['thoughts', 'draft', 'findings'] },
+    'humanizer writer'
+  );
 });

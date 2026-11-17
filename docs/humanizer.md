@@ -6,7 +6,7 @@ This document is for an operator who wants the persona's longer texts checked be
 
 The humanizer runs while `humanizer.enabled` is `true` (default `false`). It reads her speech of each step before it is posted: the messages of an addressed turn, the entry of a diary post and the messages of an inner turn. A turn split into parts runs one whole turn per part, so each part's speech is read by itself. A `message.create` call she writes herself is read as one message before the call is made, one call at a time, so text never moves from one place to another.
 
-A text under 40 words goes out as she wrote it, with no model request. The 40 words count every message of the step together.
+A text under 40 words goes out as she wrote it, with no model request. The 40 words count every message of the step together. An addressed turn shows her typing while the two requests run.
 
 ## The two requests
 
@@ -18,7 +18,7 @@ The tracked prompts are character-neutral. A deployment overrides them with its 
 
 ## Roles and routes
 
-The linter runs on the role `humanizer.linter` and the writer on `humanizer.writer`. Neither role has a built-in model, and a role with no route makes the humanizer skip every text with no request. `humanizer.linter` runs on a key. `humanizer.writer` runs on a key or on a harness, where the memory writer's client runs it as one request with a system text and no tools. The requests carry the purposes `humanizer-linter` and `humanizer-writer`.
+The linter runs on the role `humanizer.linter` and the writer on `humanizer.writer`. Neither role has a built-in model, and a role with no route makes the humanizer skip every text with no request. `humanizer.linter` runs on a key. `humanizer.writer` runs on a key or on a harness, where the memory writer's client runs it as one request with a system text and no tools and counts its usage under `humanizer.writer`. The requests carry the purposes `humanizer-linter` and `humanizer-writer`.
 
 ```
 /model set humanizer.linter <key>/<model>:low
@@ -41,4 +41,4 @@ A failed or timed-out request of either role, a linter answer that is not the JS
 
 ## What it leaves alone
 
-Reactions, pictures, GIFs and every call other than `message.create` go out as she made them. The writer's text is not checked a second time. `format.stripDashes` and the diary's link removal run on her answer before the humanizer reads it, so they do not run on the writer's text.
+Reactions, pictures, GIFs and every call other than `message.create` go out as she made them. The writer's text is not checked a second time. `format.stripDashes` holds for the writer's text as it holds for hers. The diary's link removal runs on her answer before the humanizer reads it.
