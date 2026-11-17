@@ -148,6 +148,8 @@ test('the expected differences: draw.create takes reply, message.create requires
   assert.deepEqual(Object.keys(BY_NAME.get('draw.create')?.params.properties ?? {}), [
     'text',
     'self',
+    // Changed: the people a picture shows besides her are a required list (the spec of her media marks, 2026-11-17).
+    'people',
     'reply',
     // Slice 7 of the turn frame: the place argument is `place` on every tool, no platform noun.
     'place',

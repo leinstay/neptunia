@@ -1520,10 +1520,10 @@
     },
     "src/tools/executors.ts": {
       "executeCall": {
-        "complexity": 57
+        "complexity": 55
       },
       "resolveCall": {
-        "complexity": 62
+        "complexity": 61
       }
     },
     "src/tools/gateway.ts": {

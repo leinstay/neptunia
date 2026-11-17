@@ -142,7 +142,7 @@ type StepLine = {
 };
 
 /** A diary set's picture as the turn staged it. */
-type StagedPicture = { picture: Obj; self: unknown; text: string };
+type StagedPicture = { picture: Obj; self: unknown; text: string; made?: unknown; depicts?: unknown };
 
 /** The counts of what a turn's answers looked like, for its turn record. */
 type FormatCounts = {
@@ -498,7 +498,15 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     // The pictures staged so far as the set the post carries (a single picture is a set of one), or null.
     const stagedSet = () =>
       diary && (draft.staged?.length ?? 0) > 0
-        ? { pictures: (draft.staged ?? []).map(({ picture, self, text }) => ({ ...picture, self, text })) }
+        ? {
+            pictures: (draft.staged ?? []).map(({ picture, self, text, made, depicts }) => ({
+              ...picture,
+              self,
+              text,
+              made,
+              depicts,
+            })),
+          }
         : null;
     // The most one call may run: an inner turn's own (wakes.loop.callTimeoutMs), else tools.callTimeoutMs (read now).
     // loopSettings gives an inner turn its own callTimeoutMs.

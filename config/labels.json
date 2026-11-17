@@ -87,6 +87,9 @@
       "videoNotWatchedFrame": "[video: {name}, {duration} — not watched: {reason} — still frame: {text}]",
       "videoAnswered": "[looked more closely at the video for {question}: {text}]",
       "imageAnswered": "[looked more closely at the picture for {question}: {text}]",
+      "mediaMade": "[made by you]",
+      "mediaDepicts": "[shows: {names}]",
+      "mediaDepictsSelf": "you",
       "videoPartReason": {
         "clip": "clip length limit"
       },

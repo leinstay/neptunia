@@ -18,7 +18,7 @@
 // factory at the end (createDiary) is the module's edge: it ticks, keeps the
 // day plan in state.json and runs the post through the turn runner.
 
-import { fill } from '../format.ts';
+import { fill, mediaMarkTags } from '../format.ts';
 import { strictJsonObject } from '../llm/parse.ts';
 import { log } from '../log.ts';
 import { oneLine, stripUrls } from '../memory/clamp.ts';
@@ -629,17 +629,19 @@ function pictureSuffix(post: Obj, labels: unknown): string {
   const scene = sceneOf(post);
   if (!scene) return fill(labelOf(words.picture), { scene: words.pictureUnknown ?? '' });
   const count = countOf(post.pictures);
-  if (count > 1 && words.pictureSet) return fill(labelOf(words.pictureSet), { count, scene });
-  return fill(labelOf(words.picture), { scene });
+  const marks = mediaMarkTags(post, labels).map((mark) => ` ${mark}`);
+  if (count > 1 && words.pictureSet) return fill(labelOf(words.pictureSet), { count, scene }) + marks.join('');
+  return fill(labelOf(words.picture), { scene }) + marks.join('');
 }
 
 /**
  * The body of the `<diary>` block over `posts` (given oldest first; each `{ at, kind, gist, picture, pictures }`, with `plan` when the
- * store has it): `labels.diary.intro`, then one
+ * store has it, and `made` and `depicted` for a picture she drew): `labels.diary.intro`, then one
  * `labels.diary.line` per post (`{date}` the post's local date in
  * `timezone`, `{kind}` its kind key or `labels.diary.kindUnknown`, `{gist}`)
  * with `labels.diary.picture` appended when the post had a picture, its scene from sceneOf
- * (`labels.diary.pictureSet` with the count for a set: `pictures` above 1). The
+ * (`labels.diary.pictureSet` with the count for a set: `pictures` above 1), and after it the marks of a picture she
+ * drew (src/format.ts#mediaMarkTags). The
  * newest `max` posts, listed newest first. '' when there is no post.
  */
 export function renderDiaryBlock(

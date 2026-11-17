@@ -840,7 +840,9 @@ test('loopCall: a tool past its time answers the live timeout; one that throws f
 test('a write and a paid effect are answered canned: draw.create is recorded as a drawing, nothing real runs', async () => {
   const { run, llm } = await loopRun(
     [
-      toolAnswer(`${THINK}<msg>ορίστε</msg>`, [call('draw.create', { text: 'a cat on a roof', self: true })]),
+      toolAnswer(`${THINK}<msg>ορίστε</msg>`, [
+        call('draw.create', { people: [], text: 'a cat on a roof', self: true }),
+      ]),
       `${THINK}<msg>δεύτερο</msg>`,
     ],
     {
@@ -1024,7 +1026,7 @@ test("pairAnswerOf: the sheet shows every posted message of a side's turn, its d
   const { run } = await loopRun(
     [
       toolAnswer(`${THINK}<msg>ορίστε</msg>`, [
-        call('draw.create', { text: 'a cat', self: false }),
+        call('draw.create', { people: [], text: 'a cat', self: false }),
         call('message.create', { place: '#γενικά', text: 'και ένα κείμενο' }),
       ]),
     ],

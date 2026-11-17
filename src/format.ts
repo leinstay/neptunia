@@ -299,6 +299,7 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
         })
       )
     );
+    tags.push(...mediaMarkTags((attachment as { marks?: unknown }).marks, labels));
   }
   for (const link of message.links ?? []) {
     // A plain 'link' (video-site preview) thumbnail description
@@ -327,6 +328,26 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
   for (const sticker of message.stickers ?? []) pushLabel(stickerLabelFor(sticker));
   // A key blanked in prompts.local/labels.json (fill() returns '' for it)
   // must not leave a stray double space where that tag would have sat.
+  return tags.filter(Boolean);
+}
+
+/**
+ * The marks after the tag of an item she made (src/memory/db/media-store.ts#marksOf): `transcript.mediaMade` when she
+ * made it, then `transcript.mediaDepicts` with the names of the people it shows joined by ", ", her own person worded
+ * by `transcript.mediaDepictsSelf`. [] for an item with no marks; a blank label leaves its mark out.
+ */
+export function mediaMarkTags(marks: unknown, labels: unknown): Array<string> {
+  const given = marks as { made?: unknown; depicted?: unknown } | null | undefined;
+  const transcript = (labels as { transcript?: Record<string, unknown> } | null)?.transcript ?? {};
+  const tags: Array<string> = [];
+  if (given?.made === 'self' && typeof transcript.mediaMade === 'string') tags.push(fill(transcript.mediaMade, {}));
+  const depicted = Array.isArray(given?.depicted) ? (given.depicted as Array<{ self?: unknown; name?: unknown }>) : [];
+  const selfWord = typeof transcript.mediaDepictsSelf === 'string' ? transcript.mediaDepictsSelf : '';
+  const names = depicted
+    .map((one) => (one.self === true ? selfWord : typeof one.name === 'string' ? one.name : ''))
+    .filter(Boolean);
+  if (names.length > 0 && typeof transcript.mediaDepicts === 'string')
+    tags.push(fill(transcript.mediaDepicts, { names: names.join(', ') }));
   return tags.filter(Boolean);
 }
 

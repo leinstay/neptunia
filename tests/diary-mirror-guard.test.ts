@@ -331,7 +331,7 @@ test('a message, a picture and a voice from an ordinary turn elsewhere are refus
     answers: [
       toolAnswer('', [
         call('message.create', { place: '#journal', text: 'από εδώ' }),
-        call('draw.create', { place: '#journal', text: 'a pier' }),
+        call('draw.create', { people: [], place: '#journal', text: 'a pier' }),
         call('voice.say', { place: '#journal', text: 'από εδώ' }),
       ]),
       '<skip/>',

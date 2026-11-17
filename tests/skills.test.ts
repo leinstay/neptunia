@@ -535,7 +535,7 @@ test('skills gateway: her own expressive operations need only her grant, whoever
   assert.deepEqual(
     check({
       skill: 'draw.create',
-      args: { text: 'ένα δέντρο' },
+      args: { text: 'ένα δέντρο', people: [] },
       granted: ['draw.create'],
       requester: member,
       images: imagesWith({}),

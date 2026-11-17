@@ -5,8 +5,8 @@
 // (`internal`, src/turn/inputs.ts#turnContextOf), so these reads apply no scope: every row is hers to read. Read only;
 // it makes no model request.
 
-import { strongestAttitudesOf, personNamesOf } from './frame-reads.ts';
-import { dmOfAccount, profileAccountsOf } from './meta-person.ts';
+import { strongestAttitudesOf } from './frame-reads.ts';
+import { dmOfAccount, personNamesOf, profileAccountsOf } from './meta-person.ts';
 import { mirrorPlaces } from './mirrors.ts';
 import { PERSONA_ID } from './ids.ts';
 import { internalContext } from './scope.ts';

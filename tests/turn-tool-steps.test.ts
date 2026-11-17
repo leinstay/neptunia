@@ -107,7 +107,9 @@ test('draw failure with held speech: nothing is posted in step 1, step 2 sees th
   const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const run = await drawTurn({
     answers: [
-      toolAnswer('<think>x</think><msg>ορίστε</msg>', [call('draw.create', { text: 'ένας φάρος' }, { id: 'd1' })]),
+      toolAnswer('<think>x</think><msg>ορίστε</msg>', [
+        call('draw.create', { people: [], text: 'ένας φάρος' }, { id: 'd1' }),
+      ]),
       '<think>y</think><msg>δεν βγήκε</msg>',
     ],
     images: fakeImages([new ImageGenError('moderation')]),
@@ -125,7 +127,7 @@ test('all-quiet completion: draw.create ok with no speech posts the picture once
   const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const images = fakeImages();
   const run = await drawTurn({
-    answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'],
+    answers: [toolAnswer('<think>x</think>', [call('draw.create', { people: [], text: 'ένας φάρος' })]), '<skip/>'],
     images,
   });
   // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
@@ -140,7 +142,7 @@ test('a picture and its announcement in one answer: the picture result covers th
   const { drawTurn } = await import('./fixtures/turn-draws.ts');
   const run = await drawTurn({
     answers: [
-      toolAnswer('<think>x</think><msg>ορίστε</msg>', [call('draw.create', { text: 'ένας φάρος' })]),
+      toolAnswer('<think>x</think><msg>ορίστε</msg>', [call('draw.create', { people: [], text: 'ένας φάρος' })]),
       '<skip/>',
     ],
   });
@@ -165,7 +167,7 @@ test('dependent diary announcement: a failed picture and a post to the diary cha
   const run = await drawTurn({
     answers: [
       toolAnswer('<think>x</think><msg>έγινε</msg>', [
-        call('draw.create', { text: 'ένας φάρος' }, { id: 'p1' }),
+        call('draw.create', { people: [], text: 'ένας φάρος' }, { id: 'p1' }),
         call('message.create', { place: '#jardin', text: 'νέα ζωγραφιά!' }, { id: 'p2' }),
       ]),
       '<msg>δεν βγήκε, το είπα νωρίς</msg>',
@@ -432,7 +434,7 @@ test('carried over: draw.create runs on a spontaneous turn with nobody asking, i
   const here = await drawTurn({
     spontaneous: 'initiate',
     allowed: [],
-    answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })])],
+    answers: [toolAnswer('<think>x</think>', [call('draw.create', { people: [], text: 'ένας φάρος' })])],
   });
   assert.deepEqual(called(here), ['draw.create:ok']);
   assert.equal(here.sends.filter((send) => asRecord(send.attachments)?.length === 1).length, 1);
@@ -452,7 +454,7 @@ test('carried over: draw.create runs on a spontaneous turn with nobody asking, i
     images,
     neighbours: [jardin],
     answers: [
-      toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος', place: '#jardin' })]),
+      toolAnswer('<think>x</think>', [call('draw.create', { people: [], text: 'ένας φάρος', place: '#jardin' })]),
       '<think>y</think><msg>τίποτα</msg>',
     ],
   });

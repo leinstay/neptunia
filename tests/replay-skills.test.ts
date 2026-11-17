@@ -315,7 +315,7 @@ test('simulateCall: a call the server cannot resolve, a drawing answered canned'
     { grants: ['message.create'] }
   );
   assert.deepEqual([channel.verdict.stage, channel.verdict.code], ['resolve', 'invalid-args']);
-  const drawing = { skill: 'draw.create', args: { text: 'un chat sur la lune' } };
+  const drawing = { skill: 'draw.create', args: { text: 'un chat sur la lune', people: [] } };
   const left = simulate(drawing, { images: { quota: () => ({ spent: false, userSpent: false }) } });
   assert.equal(left.verdict.ok, true, 'a paid effect is recorded and answered canned, never run');
   assert.equal(left.result.status, 'ok');

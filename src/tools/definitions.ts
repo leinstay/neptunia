@@ -298,7 +298,10 @@ const ENTRIES: Array<Definition> = [
   def('bot.resume', { traits: ['ungrantable'], params: EMPTY(), effects: 'administrative', toArgs: none }),
   def('draw.create', {
     traits: ['self', 'carried', 'posts', 'attaches', 'here', 'publishes'],
-    params: obj({ text: str(), self: bool(), reply: ref(), place: ref() }, ['text']),
+    params: obj({ text: str(), self: bool(), people: { type: 'array', items: ref() }, reply: ref(), place: ref() }, [
+      'text',
+      'people',
+    ]),
     refs: { place: 'place' },
     body: 'text',
     effects: 'paid',
@@ -308,6 +311,7 @@ const ENTRIES: Array<Definition> = [
       return {
         text: val(a, 'text'),
         self: flag(val(a, 'self')) ?? false,
+        ...(val(a, 'people') === null ? {} : { people: val(a, 'people') }),
         ...(placeId ? { placeId } : {}),
         ...(replyTo === undefined ? {} : { replyTo }),
       };

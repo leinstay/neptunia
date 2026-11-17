@@ -161,6 +161,25 @@ function moveFocus(db: Db, from: string, survivor: string): number {
   return moved;
 }
 
+/**
+ * The pictures of hers that show `from` show the survivor instead: each id in a media row's `depicts` moves, kept once
+ * when the picture already shows the survivor. Returns the ids of the rows it changed.
+ */
+function moveDepicts(db: Db, from: string, survivor: string): Array<string> {
+  const rows = db
+    .prepare(
+      `SELECT m.id AS id, m.extra AS extra FROM media m
+       WHERE EXISTS (SELECT 1 FROM json_each(m.extra, '$.depicts') d WHERE d.value = ?)`
+    )
+    .all(from);
+  const update = db.prepare("UPDATE media SET extra = json_set(extra, '$.depicts', json(?)) WHERE id = ?");
+  for (const row of rows) {
+    const depicts = (JSON.parse(String(row.extra)) as { depicts: Array<string> }).depicts;
+    update.run(JSON.stringify([...new Set(depicts.map((id) => (id === from ? survivor : id)))]), row.id);
+  }
+  return rows.map((row) => String(row.id));
+}
+
 /** Moves every row of `from` to `survivor`; returns the counts and the rows the graph projects again. */
 function moveRows(
   db: Db,
@@ -193,6 +212,9 @@ function moveRows(
   }
   moved.relationship = moveRelationship(db, from, survivor);
   moved.focus = moveFocus(db, from, survivor);
+  const pictures = moveDepicts(db, from, survivor);
+  moved.depicts = pictures.length;
+  for (const id of pictures) project.push(['media', id]);
   return { moved, project };
 }
 

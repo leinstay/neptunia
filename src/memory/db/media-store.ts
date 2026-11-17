@@ -20,6 +20,9 @@ import { keptPathOf } from '../../media/kept-files.ts';
 import { mediaStamp } from './media-stems.ts';
 import { preparedPlace } from './place-owner.ts';
 import { loadStemmer } from './stems.ts';
+import { SELF_PERSON } from './ids.ts';
+import { personNamesOf, personOfAccount } from './meta-person.ts';
+import { accountOfMember } from './native-rows.ts';
 import { asText, dbOf, isFiniteNumber, transactionOf } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';
 
@@ -68,7 +71,15 @@ export type MediaRow = {
   availability: MediaState;
   sha1: string | null;
   extra: Row;
+  /** The marks of an item she made (marksOf), absent or null on anyone else's. */
+  marks?: MediaMarks | null;
 };
+
+/**
+ * The marks of an item she made, as a reader shows them: that she made it, and the people a picture shows by the
+ * names they go by now, her own person as `self`.
+ */
+export type MediaMarks = { made: 'self' | null; depicted: Array<{ self: boolean; name: string }> };
 
 /** One media item as a writer hands it in: what an interface's message or a record line knows of it. */
 export type MediaItem = {
@@ -256,6 +267,7 @@ export function lineMedia(
       sha1: orNull(row.sha1),
       extra: parsedObject(row.extra),
     };
+    item.marks = marksOf(db, item.extra);
     const list = found.get(String(row.owner_id));
     if (list) list.push(item);
     else found.set(String(row.owner_id), [item]);
@@ -264,10 +276,36 @@ export function lineMedia(
 }
 
 /**
+ * The marks the `extra` of a media row holds (`made`, `depicts`), with the people's current names; null when it holds
+ * none. A person with no name is left out.
+ */
+export function marksOf(db: Db, extra: Row): MediaMarks | null {
+  const made = extra.made === 'self' ? 'self' : null;
+  const ids = Array.isArray(extra.depicts) ? (extra.depicts as Array<unknown>).filter(filled) : [];
+  if (made === null && ids.length === 0) return null;
+  const names = personNamesOf(
+    db,
+    ids.filter((id) => id !== SELF_PERSON)
+  );
+  const depicted = ids.flatMap((id) => {
+    if (id === SELF_PERSON) return [{ self: true, name: '' }];
+    const name = names[id];
+    return name === undefined ? [] : [{ self: false, name }];
+  });
+  return { made, depicted };
+}
+
+/**
  * A line's media item as a request reads it: its kind and its text form, null while it has none. A sticker adds its
  * stable name and whether it has no picture, for the legend (src/turn/request/legend.ts).
  */
-export type LineMediaItem = { kind: string; text: string | null; name?: string | null; unreadable?: boolean };
+export type LineMediaItem = {
+  kind: string;
+  text: string | null;
+  name?: string | null;
+  unreadable?: boolean;
+  marks?: MediaMarks;
+};
 
 /** A line's media rows as a request reads them, in position order. Pure. */
 export const lineMediaItems = (rows: ReadonlyArray<MediaRow>): Array<LineMediaItem> =>
@@ -279,7 +317,7 @@ export const lineMediaItems = (rows: ReadonlyArray<MediaRow>): Array<LineMediaIt
           name: orNull(row.extra.name),
           unreadable: row.availability === 'unreadable',
         }
-      : { kind: row.kind, text: row.description }
+      : { kind: row.kind, text: row.description, ...(row.marks ? { marks: row.marks } : {}) }
   );
 
 /** A request's media items of a line in the fields of a normalized message, through mediaMessageParts. Pure. */
@@ -295,6 +333,7 @@ export function lineItemParts(
       description: item.text,
       availability: item.unreadable ? 'unreadable' : item.text === null ? 'unknown' : 'present',
       extra: item.name ? { name: item.name } : {},
+      marks: item.marks ?? null,
     })),
     lineId
   );
@@ -328,7 +367,9 @@ export function recordFieldsOf(db: Db, sourceId: string): { media: Array<string>
 /** A stored line's media in the fields of a normalized message, as src/format.ts renders them. Pure. */
 // health: allow complexity until 2027-04-01 -- one switch over the closed kinds
 export function mediaMessageParts(
-  rows: ReadonlyArray<Pick<MediaRow, 'kind' | 'position' | 'nativeRef' | 'description' | 'availability' | 'extra'>>,
+  rows: ReadonlyArray<
+    Pick<MediaRow, 'kind' | 'position' | 'nativeRef' | 'description' | 'availability' | 'extra' | 'marks'>
+  >,
   lineId: unknown
 ): { attachments: Array<Row>; links: Array<Row>; stickers: Array<Row>; emojis: Array<Row> } {
   const parts = {
@@ -342,7 +383,9 @@ export function mediaMessageParts(
     const name = orNull(row.extra.fileName) ?? orNull(row.extra.name);
     const told =
       row.description === null ? {} : { told: { text: row.description, origin: row.extra.textOrigin ?? null } };
-    const held = told;
+    // The marks of an item she made follow its tag (src/format.ts#mediaTags).
+    const marked = row.marks ? { marks: row.marks } : {};
+    const held = { ...told, ...marked };
     switch (row.kind) {
       case 'link':
         parts.links.push({
@@ -374,10 +417,11 @@ export function mediaMessageParts(
           kind: 'text',
           name: name ?? row.kind,
           ...(row.description === null ? {} : { previewText: row.description }),
+          ...marked,
         });
         break;
       case 'file':
-        parts.attachments.push({ id, kind: 'file', name: name ?? row.kind });
+        parts.attachments.push({ id, kind: 'file', name: name ?? row.kind, ...marked });
         break;
       case 'image':
       case 'gif':
@@ -751,26 +795,56 @@ export function takeRecordMedia(row: Row): Row | null {
   const extra = typeof row.extra === 'string' ? parsedObject(row.extra) : {};
   const hasCards = 'links' in extra;
   const hasVoiced = 'voiced' in extra;
+  const hasMarks = 'marks' in extra;
   const taken: Row = {
     media: typeof kinds === 'string' ? parsedList(kinds) : kinds,
     links: extra.links,
     voiced: extra.voiced,
+    marks: extra.marks,
   };
-  if (hasCards || hasVoiced) {
+  if (hasCards || hasVoiced || hasMarks) {
     delete extra.links;
     delete extra.voiced;
+    delete extra.marks;
     row.extra = Object.keys(extra).length > 0 ? JSON.stringify(extra) : null;
   }
-  return (Array.isArray(taken.media) && taken.media.length > 0) || hasCards || hasVoiced ? taken : null;
+  return (Array.isArray(taken.media) && taken.media.length > 0) || hasCards || hasVoiced || hasMarks ? taken : null;
 }
 
-/** What a record line brings for its source row: its kinds and cards, and the words of her voice message. */
+/** The kinds of item she makes herself: a picture, a clip, a voice message, a file. A GIF, an emoji, a sticker or a link she reposts is not hers. */
+const MADE_KINDS = ['image', 'video', 'voice', 'audio', 'text', 'file'];
+
+/**
+ * The marks of her record line on the items of its source row (`made`, and `depicts` as person ids): `marks` is
+ * `{ self, accounts }`, the accounts native ids of the line's interface. Merged into each item's `extra`.
+ */
+function writeMarks(db: Db, source: LineRow, marks: unknown): void {
+  const given = marks as { self?: unknown; accounts?: unknown } | null;
+  if (given === null || typeof given !== 'object') return;
+  const iface = asText(source.iface ?? '');
+  const accounts = Array.isArray(given.accounts) ? (given.accounts as Array<unknown>).filter(filled) : [];
+  const people = accounts.flatMap((native) => {
+    const account = accountOfMember(db, iface, native);
+    const person = account === null ? null : personOfAccount(db, account);
+    return person === null ? [] : [person];
+  });
+  const depicts = [...new Set([...(given.self === true ? [SELF_PERSON] : []), ...people])];
+  const fields = { made: 'self', ...(depicts.length > 0 ? { depicts } : {}) };
+  db.prepare(
+    `UPDATE media SET extra = json_patch(COALESCE(extra, '{}'), ?)
+     WHERE id IN (SELECT l.media_id FROM media_links l WHERE l.owner_kind = 'source' AND l.owner_id = ?)
+       AND kind IN (SELECT value FROM json_each(?))`
+  ).run(JSON.stringify(fields), source.id, JSON.stringify(MADE_KINDS));
+}
+
+/** What a record line brings for its source row: its kinds and cards, the words of her voice message and the marks of what she made. */
 export function writeRecordMedia(db: Db, sourceId: string, line: Row, at: unknown): void {
   const source = sourceLine(db, sourceId);
   if (!source) return;
   const links = db.prepare("SELECT COUNT(*) AS n FROM media_links WHERE owner_kind = 'source' AND owner_id = ?");
   // An observation that came first knows more than the record line: it stays, and the line only tells what she voiced.
   if (links.get(sourceId)?.n === 0) writeLineMedia(db, source, recordItems(line), { at });
+  writeMarks(db, source, line.marks ?? null);
   if (!filled(line.voiced)) return;
   const voice = db
     .prepare(

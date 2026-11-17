@@ -17,8 +17,8 @@ import type { Mind, Seeds } from './mind-read.ts';
 import { lineMedia, lineMediaItems } from './media-store.ts';
 import { interfaceTakes, routeMessageSql } from './message-locator.ts';
 import type { LineMediaItem } from './media-store.ts';
-import { personOfAccount as personOfMeta, profileAccountsOf } from './meta-person.ts';
-import { interfaceDmWord, interfaceNouns, namesIn, placesNamed } from './names.ts';
+import { personNamesOf, personOfAccount as personOfMeta } from './meta-person.ts';
+import { interfaceDmWord, interfaceNouns, placesNamed } from './names.ts';
 import { ownerAccountOfPlace } from './person-links.ts';
 import { placeChainInDb } from './place-tree.ts';
 import type { PlaceChainLink } from './place-tree.ts';
@@ -564,7 +564,7 @@ export function placeFieldsOf(db: Db, ctx: Context, placeId: string): Record<str
   return fields;
 }
 
-export { placeStatsOf };
+export { placeStatsOf, personNamesOf };
 export type { PlaceStats };
 
 /** One thing people taught her: its text and the person id of the teacher, null when the row names nobody. */
@@ -647,25 +647,6 @@ export function strongestAttitudesOf(db: Db, ctx: Context, limit: number): Array
     })
     .sort((a, b) => Math.abs(b.score) - Math.abs(a.score) || (a.person < b.person ? -1 : a.person > b.person ? 1 : 0))
     .slice(0, Math.floor(limit));
-}
-
-/**
- * The name each of `personIds` goes by, for a line that declares the person: the first display name of their profile
- * accounts, else the first stored name of an account, else the person's real name. A person with none is left out.
- */
-export function personNamesOf(db: Db, personIds: ReadonlyArray<string>): Record<string, string> {
-  const names: Record<string, string> = {};
-  for (const id of personIds) {
-    const accounts = profileAccountsOf(db, id);
-    const person = db.prepare('SELECT real_name FROM people WHERE id = ?').get(id);
-    const name =
-      accounts.map((one) => text(one.displayName)).find((one) => one !== null) ??
-      accounts.flatMap((one) => one.names ?? []).find((one) => one.trim() !== '') ??
-      namesIn(person?.real_name)[0] ??
-      null;
-    if (name !== null) names[id] = name;
-  }
-  return names;
 }
 
 /**

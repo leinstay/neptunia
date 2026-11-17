@@ -111,6 +111,11 @@ export type CallResult = { status: string; code?: string; reason?: string; data?
 /** The text of a value an argument may carry: a string, a number or a boolean; else empty. */
 const argText = (value: unknown): string =>
   typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+/** What an operation's data hands the turn as it is: the posted message's `ref`, a voice message's `voice`, a picture's `marks`. */
+function carriedData(data: Obj): Obj {
+  return Object.fromEntries(['ref', 'voice', 'marks'].filter((key) => data[key]).map((key) => [key, data[key]]));
+}
+
 /**
  * What an operation's result carries for her turn beside its text: the values its code's label names, the route
  * of a model role's call that went to the core model or did not happen (src/tools/gateway.ts#callOnRoute), read off
@@ -226,8 +231,27 @@ function strangerLine(
 /** The options whose value is a file handle of one of her errands (`file:<task id>/<name>`). */
 const FILE_OPTIONS: ReadonlyArray<string> = Object.freeze(['file']);
 
-/** The skills whose `people` option is a list of members (ids, names, `@handle`s, comma or space separated), resolved one by one. */
-const PEOPLE_LIST_SKILLS: ReadonlyArray<string> = Object.freeze(['intention.set', 'intention.update']);
+/**
+ * The skills whose `people` option is a list of members (ids, names, `@handle`s), resolved one by one: a text comma or space
+ * separated, or a list of them, which stays a list of ids.
+ */
+const PEOPLE_LIST_SKILLS: ReadonlyArray<string> = Object.freeze(['intention.set', 'intention.update', 'draw.create']);
+
+/** The member ids of a `people` argument (a text comma or space separated, or a list), each resolved as a member option is. */
+function peopleOf(raw: unknown, view: CallView | undefined): Array<string> | Refusal {
+  const tokens = Array.isArray(raw)
+    ? (raw as Array<unknown>).map((one) => argText(one).trim())
+    : argText(raw)
+        .trim()
+        .split(/[\s,]+/);
+  const ids: Array<string> = [];
+  for (const token of tokens.filter(Boolean)) {
+    const member = memberOf(token, view?.members, view?.memberHandles);
+    if ('ok' in member) return member;
+    if (!ids.includes(member.id)) ids.push(member.id);
+  }
+  return ids;
+}
 
 /** Every status a call result may have. */
 export const RESULT_STATUSES: ReadonlyArray<string> = Object.freeze([
@@ -530,8 +554,8 @@ function transcriptReference({
  * any other value -- a raw message id -- is passed on as written. Pure.
  * `call` is `{ skill, args }`, `args` the strings she wrote. A channel option resolves a `#handle` of `view.channelHandles` (the request's, handle -> channel
  * id) exactly before any name; a member option a `@handle` of `view.memberHandles` (handle -> member
- * id) the same way. The `people` option of PEOPLE_LIST_SKILLS is a list of members (comma or space
- * separated), each resolved like a member option; the ids come out comma-separated.
+ * id) the same way. The `people` option of PEOPLE_LIST_SKILLS is a list of members (a text comma or space
+ * separated, or a list), each resolved like a member option; the ids come out comma-separated, or as a list for a list.
  */
 
 export function resolveCall(
@@ -579,13 +603,9 @@ export function resolveCall(
       default: {
         // A list of people: each token a member reference, resolved as a member option is.
         if (option === 'people' && PEOPLE_LIST_SKILLS.includes(name)) {
-          const ids: Array<string> = [];
-          for (const token of text.split(/[\s,]+/).filter(Boolean)) {
-            const member = memberOf(token, view?.members, view?.memberHandles);
-            if ('ok' in member) return member;
-            if (!ids.includes(member.id)) ids.push(member.id);
-          }
-          args[option] = ids.join(',');
+          const people = peopleOf(raw, view);
+          if (!Array.isArray(people)) return people;
+          args[option] = Array.isArray(raw) ? people : people.join(',');
           break;
         }
         // A file handle must name a file of one of her errands this chat may see.
@@ -999,8 +1019,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
       status,
       ...(status === 'ok' ? {} : { code: argText(result.code ?? CODE.ERROR) }),
       data: { text },
-      ...(resultData.ref ? { ref: resultData.ref } : {}),
-      ...(resultData.voice ? { voice: resultData.voice } : {}),
+      ...carriedData(resultData),
       ...carriedOf(result),
       ...(status === 'ok' && typeof taskId === 'string' ? { taskId } : {}),
       ...(status === 'ok' && typeof intentionId === 'string' ? { intentionId } : {}),

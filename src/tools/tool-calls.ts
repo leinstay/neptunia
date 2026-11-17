@@ -7,7 +7,7 @@
 // `coversSpeech` says whether a finished call lets the speech of its step go out. No I/O, no clock,
 // no state. Every word comes from the labels; ids, names and statuses are protocol tokens.
 
-import { fill } from '../format.ts';
+import { fill, mediaMarkTags } from '../format.ts';
 import { clampWithEllipsis } from '../memory/clamp.ts';
 import { reasonText } from './codes.ts';
 import { apiNameOf } from './definitions.ts';
@@ -199,12 +199,18 @@ function machineWords(
 
 /**
  * What her eyes saw of a picture she drew (src/turn/draw-gif.ts), after a result's data and outside its cap:
- * `data.description` through `labels.tools.result.seen`, a failed look through `.unseen`, else ''.
+ * `data.description` through `labels.tools.result.seen`, a failed look through `.unseen`, else ''; then the marks of
+ * her picture (`data.made`, `data.depicted`: src/format.ts#mediaMarkTags).
  */
-function seenLine(body: Obj, words: Obj): string {
-  if (typeof body.description === 'string' && typeof words.seen === 'string')
-    return fill(words.seen, { description: body.description });
-  return body.descriptionFailed === true && typeof words.unseen === 'string' ? words.unseen : '';
+function seenLine(body: Obj, labels: unknown): string {
+  const words = objOf(objOf(objOf(labels).tools).result);
+  const seen =
+    typeof body.description === 'string' && typeof words.seen === 'string'
+      ? fill(words.seen, { description: body.description })
+      : body.descriptionFailed === true && typeof words.unseen === 'string'
+        ? words.unseen
+        : '';
+  return [seen, ...mediaMarkTags(body, labels)].filter(Boolean).join(' ');
 }
 
 /**
@@ -259,7 +265,7 @@ export function toolResultText(
       : textOf(body.text);
     data = cutAtLimit(data, maxChars, labels);
   }
-  const seen = seenLine(body, words);
+  const seen = seenLine(body, labels);
   const coercedWord = words.coerced;
   const told =
     typeof coercedWord === 'string' && coercedWord

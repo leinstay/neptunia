@@ -90,6 +90,13 @@ function mediaOf(slim: Untyped) {
   return [...kinds, ...mediaItemsOf({ stickers: slim.stickers, emojis: slim.emojis })];
 }
 
+/** The marks of a line of hers on what she made (`{ self, accounts }`), as the line keeps them; none when not given. */
+function marksOf(given: unknown): { marks?: { self: boolean; accounts: Array<string> } } {
+  if (given === null || typeof given !== 'object') return {};
+  const marks = given as { self?: unknown; accounts?: unknown };
+  return { marks: { self: marks.self === true, accounts: idList(marks.accounts) } };
+}
+
 /**
  * The compact links of a record line, from a normalized message's links (src/protocol/events.ts#Message:
  * `{ id, kind, url, title, text, site }`) or from links already in this shape (`description`
@@ -127,7 +134,8 @@ export function recordLinks(
  * and `replyToAuthorId` are read when the slim has them). Only the whitelisted fields are
  * copied: `messageId`, `revision`, `occurredAt` (the slim's `ts`), the channel (as `scope`),
  * `by`, `replyTo`, `text`, `media` (kinds, and the items of stickers and custom emoji), `links` (recordLinks of the slim's `linkCards`,
- * only when there are some: a line without the key has no link preview), `mentions`, `direct`;
+ * only when there are some: a line without the key has no link preview), `voiced`, `marks` of a `said` line (what she
+ * made: `{ self, accounts }`), `mentions`, `direct`;
  * `participants` = the author, the mentioned members and the reply target's author when known. A `said` line names
  * no author (it is the persona's) and carries `turnId` / `opId`; a `deleted` line keeps only
  * the message id and its author as a participant. `placeId` is stamped on append.
@@ -188,6 +196,7 @@ export function toRecordLine(
     media: mediaOf(source),
     ...(links.length > 0 ? { links } : {}),
     ...(typeof source.voiced === 'string' && source.voiced !== '' ? { voiced: source.voiced } : {}),
+    ...(kind === 'said' ? marksOf(source.marks) : {}),
     mentions,
   };
   if (kind === 'said') {

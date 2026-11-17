@@ -174,3 +174,22 @@ export function partnerOfDmAudience(db: Db, audienceId: string): string | null {
     .get(audienceId);
   return typeof row?.native_id === 'string' ? row.native_id : null;
 }
+
+/**
+ * The name each of `personIds` goes by, for a line that declares the person: the first display name of their profile
+ * accounts, else the first stored name of an account, else the person's real name. A person with none is left out.
+ */
+export function personNamesOf(db: Db, personIds: ReadonlyArray<string>): Record<string, string> {
+  const names: Record<string, string> = {};
+  for (const id of personIds) {
+    const accounts = profileAccountsOf(db, id);
+    const person = db.prepare('SELECT real_name FROM people WHERE id = ?').get(id);
+    const name =
+      accounts.map((one) => textOrNull(one.displayName)).find((one) => one !== null) ??
+      accounts.flatMap((one) => one.names ?? []).find((one) => one.trim() !== '') ??
+      namesIn(person?.real_name)[0] ??
+      null;
+    if (name !== null) names[id] = name;
+  }
+  return names;
+}

@@ -254,6 +254,8 @@ type CallAnswer = CallResult & {
   ref?: { chatId?: string; messageId?: string } | null;
   values?: unknown;
   voice?: { text: unknown; durationSecs: unknown } | null;
+  /** The marks of a picture she posted (src/tools/operations/draw.ts, src/turn/draw-gif.ts). */
+  marks?: { self: boolean; accounts: ReadonlyArray<string> };
   intentionId?: unknown;
   error?: { code?: string; cause?: unknown } | null;
   note?: string;
@@ -984,8 +986,18 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       // A voice message a diary turn posted through her operation: the post keeps its text as voiced and its length.
       if (skill === 'voice.say' && draft?.diary && result.voice)
         draft.diaryVoice = { text: result.voice.text, durationSecs: result.voice.durationSecs };
-      // A voice message is a line of hers with no words of its own: what she voiced is its item's text form.
-      if (skill === 'voice.say' && result.voice) {
+      // A voice message or a picture is a line of hers with no words of its own: what she voiced is its item's text
+      // form, and the marks say she made it and whom it shows (src/memory/db/media-store.ts#writeMarks).
+      const made =
+        skill === 'voice.say' && result.voice
+          ? {
+              voiced: typeof result.voice.text === 'string' ? result.voice.text : '',
+              marks: { self: true, accounts: [] },
+            }
+          : skill === 'draw.create' && result.marks
+            ? { item: 'image' as const, marks: result.marks }
+            : null;
+      if (made) {
         recordSaid({
           placeId,
           channel: { id: where },
@@ -998,7 +1010,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           replyId: null,
           repliedAuthorId: null,
           accountIds: [],
-          voiced: typeof result.voice.text === 'string' ? result.voice.text : '',
+          ...made,
         });
       }
       if (skill === 'message.create') {

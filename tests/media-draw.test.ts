@@ -243,9 +243,9 @@ test('diary set: appearance.png goes with the picture she is in, none with the o
   const plan = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
   const answer = [
     toolAnswer('<msg>a walk</msg>', [
-      call('draw.create', { text: 'me at the harbour gate', self: true }),
-      call('draw.create', { text: 'boats in the harbour' }),
-      call('draw.create', { text: 'a café terrace' }),
+      call('draw.create', { people: [], text: 'me at the harbour gate', self: true }),
+      call('draw.create', { people: [], text: 'boats in the harbour' }),
+      call('draw.create', { people: [], text: 'a café terrace' }),
     ]),
   ];
   const target = channel('d1', 'journal');
@@ -312,7 +312,7 @@ test("draw.create from a member's mention: the picture is charged to the member"
   const turns = createTurnRunner({
     hot: hotCase,
     store: store(),
-    llm: llm(toolAnswer('', [call('draw.create', { text: 'a lighthouse at dusk' })])),
+    llm: llm(toolAnswer('', [call('draw.create', { people: [], text: 'a lighthouse at dusk' })])),
     calibrator: { ratio: 1, apply: (n: Record<string, Untyped>) => n, observe: () => {} },
     images,
     imageFetcher: imageFetcher(),
@@ -527,7 +527,10 @@ test('diary: a staged picture is looked at once from its bytes and the descripti
   const seenLabels = { ...LABELS, tools: { ...tools, result: { ...tools.result, seen: 'SEEN {description}' } } };
   const hotValue = { ...hot(), prompts: { ...PROMPTS, labels: seenLabels } };
   const base = llm(
-    [toolAnswer('<think>x</think>', [call('draw.create', { text: 'the pier in fog' })]), '<msg>the pier</msg>'],
+    [
+      toolAnswer('<think>x</think>', [call('draw.create', { people: [], text: 'the pier in fog' })]),
+      '<msg>the pier</msg>',
+    ],
     wrongly({ kind: 'picture', brief: 'the pier', search: '', picture: true })
   );
   const requests: Array<Array<Record<string, Untyped>>> = [];

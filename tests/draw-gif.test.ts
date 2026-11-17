@@ -55,7 +55,10 @@ const pictures = (run: Awaited<ReturnType<typeof drawTurn>>) =>
   run.sends.filter((send) => asRecord(send.attachments)?.length === 1);
 
 const { ok: okLabel } = labels.tools.result;
-const DRAW_ANSWERS = [toolAnswer('<think>x</think>', [call('draw.create', { text: 'my laptop' })]), '<skip/>'];
+const DRAW_ANSWERS = [
+  toolAnswer('<think>x</think>', [call('draw.create', { people: [], text: 'my laptop' })]),
+  '<skip/>',
+];
 
 test('a posted picture is looked at once and what her eyes saw is in the result she reads next', async () => {
   // Bug: draw.create answers ok with the reference alone, and she reads laughter at a broken picture as praise.
