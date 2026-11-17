@@ -109,9 +109,8 @@ import { createChatStore } from './chat/store.ts';
 import { withStoredHistory } from './chat/stored-history.ts';
 import { echoThrough, keepLineFiles, withKeptSends } from './chat/kept-media.ts';
 import { createKeptFetch } from './media/kept-files.ts';
-import { chatLines, recentGroupLines } from './memory/db/chat-lines.ts';
+import { chatLines, errandRecentLines } from './memory/db/chat-lines.ts';
 import { ownerConsoleName, ownerConsolePlace } from './memory/db/identity-links.ts';
-import { mediaText } from './memory/db/media-store.ts';
 import { createConsole } from './interface/commands/console.ts';
 import { statusBrief } from './interface/commands/status-brief.ts';
 import { wakeClockOf } from './service/commands.ts';
@@ -941,23 +940,10 @@ async function buildCore(
   function recentChannelLines(chatId: string, count: number) {
     const db = memoryDb.database();
     if (!db || !chatId || !(count > 0)) return [];
-    const rows = recentGroupLines(db, placeOfChat(store, { id: String(chatId) }, identity.iface), count);
-    const lines: Array<{ author: string; text: string }> = [];
-    for (const row of rows) {
-      let name = '';
-      if (row.kind === 'said') name = hot.config?.bot?.name ?? '';
-      else {
-        try {
-          const names = JSON.parse(row.names ?? '[]');
-          name = Array.isArray(names) && typeof names[0] === 'string' ? names[0] : '';
-        } catch {
-          name = '';
-        }
-      }
-      lines.push({ author: name, text: [row.text ?? '', mediaText(row.media ?? [])].filter(Boolean).join(' ') });
-      if (lines.length >= count) break;
-    }
-    return lines.reverse();
+    return errandRecentLines(db, placeOfChat(store, { id: String(chatId) }, identity.iface), count, {
+      selfName: hot.config?.bot?.name ?? '',
+      labels: hot.prompts.labels,
+    });
   }
   const errands = createErrandService({
     agentPaths,

@@ -632,22 +632,24 @@ function buildDescriber({
 
   /**
    * `run`, the request of the item under `key`, with the entry marked `pending` while it is out, so a stop that cuts it
-   * leaves a mark the start turns into a miss (src/memory/db/media-store.ts#interruptPendingMediaEntries). A stale
-   * entry described again (`previous`) stays as it is. A run that cached nothing, such as one the daily cap refused,
-   * takes its mark away.
+   * leaves a mark the start reads (src/memory/db/media-store.ts#interruptPendingMediaEntries). A stale entry described
+   * again (`previous`) keeps its text under the mark, and the start stamps it `refreshFailedAt`. A run that cached
+   * nothing, such as one the daily cap refused, takes its mark away and leaves `previous` as it was.
    */
   async function whilePending<TResult>(
     placeId: string,
     key: string,
-    previous: unknown,
+    previous: Record<string, unknown> | null,
     run: () => Promise<TResult>
   ): Promise<TResult> {
-    if (previous) return run();
-    store.putMediaEntry(placeId, key, { pending: true, ts: now() });
+    store.putMediaEntry(placeId, key, previous ? { ...previous, pending: true } : { pending: true, ts: now() });
     try {
       return await run();
     } finally {
-      if (store.mediaEntry(placeId, key)?.pending === true) store.dropMediaEntry(placeId, key);
+      if (store.mediaEntry(placeId, key)?.pending === true) {
+        if (previous) store.putMediaEntry(placeId, key, previous);
+        else store.dropMediaEntry(placeId, key);
+      }
     }
   }
 

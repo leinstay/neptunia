@@ -139,3 +139,21 @@ test('at the start an entry still pending from before a restart becomes a miss w
     handle.close();
   }
 });
+
+// Bug (second production audit, row 7): an entry with a description that a stop cut while it was described again kept
+// no trace of the attempt. The specifier's choice follows how a failed refresh is recorded (src/memory/describe.ts,
+// `refreshFailedAt`): the start keeps the old text, takes the mark away and stamps the failed attempt, so the line still
+// shows the old text and the attempt is not retried before the miss time.
+test('at the start a described entry still pending from before a restart keeps its text and is stamped refreshFailedAt', () => {
+  const handle = copyOf(seededPlaces());
+  try {
+    put(handle, 'att-again', { ...DESCRIBED, pending: true });
+    recoverRequestArchive(handle, { now: NOW });
+    const [row] = rowsHolding(dbOf(handle), 'att-again');
+    const cache = (JSON.parse(String(row?.extra)) as { cache: Record<string, Row> }).cache;
+    assert.deepEqual(cache['att-again'], { ...DESCRIBED, refreshFailedAt: NOW });
+    assert.equal(row?.description, DESCRIBED.text);
+  } finally {
+    handle.close();
+  }
+});

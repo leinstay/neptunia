@@ -354,3 +354,27 @@ test('session batch: the legend stands right after the cutoff line, before the f
     assert.equal(second, '<media>', batch);
     assert.ok(batch.indexOf('</media>') < batch.indexOf('#1 ['), batch);
   }));
+
+// Bug (second production audit, N5): `/memory media show` lists no links of a media row, so the owner cannot see which
+// lines show it. The record of a media row links each line that shows it.
+test('owner browser: a media row opens with a link to each line that shows it', () => {
+  const env = fixture();
+  try {
+    const source = observeLine(env, KINDS[0], 'full');
+    const row = env.db
+      .prepare(
+        "SELECT media_id FROM media_links WHERE owner_kind = 'source' AND owner_id = ? ORDER BY position LIMIT 1"
+      )
+      .get(source);
+    assert.ok(row);
+    const detail = domainDetail(env.db, { family: 'media', id: String(row.media_id), context: internalContext() });
+    assert.equal(detail.found, true);
+    const links = detail.found ? detail.links : [];
+    assert.deepEqual(
+      links.filter((link) => link.family === 'sources').map((link) => link.id),
+      [source]
+    );
+  } finally {
+    env.done();
+  }
+});

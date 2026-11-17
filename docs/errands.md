@@ -10,7 +10,7 @@ In a conversation her call answers at once, and the result comes in a turn of it
 
 ## What a run is told
 
-The core sends the agent the goal as she wrote it and a context. The context holds `today`, the UTC date of the engine's clock when the errand is sent, as `YYYY-MM-DD`, and `engine`, the folder of the engine's checkout. It also holds the scope, the channel and the asker of the errand, the channel's latest lines for a group errand, and the stored facts that bear on the goal. Each agent's prompt says how to read the date and the folder.
+The core sends the agent the goal as she wrote it and a context. The context holds `today`, the UTC date of the engine's clock when the errand is sent, as `YYYY-MM-DD`, and `engine`, the folder of the engine's checkout. It also holds the scope, the channel and the asker of the errand, the channel's latest lines for a group errand, and the stored facts that bear on the goal. `errandRecentLines` in `src/memory/db/chat-lines.ts` gives those lines oldest first, each with its author and its text, her own under `bot.name`. A line's media follow its words as the memory session writes them, each with its kind's `transcript` label and its text form. A custom emoji or a sticker stands under its stable name, and the legend `<media>` of those names heads the oldest line's text. Each agent's prompt says how to read the date and the folder.
 
 ## The board
 

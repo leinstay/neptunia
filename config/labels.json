@@ -73,7 +73,6 @@
       },
       "postedFrom": "(posted from #{channel})",
       "image": "[image]",
-      "imageAttached": "[attached image {n}]",
       "imageDescribed": "[image: {text}]",
       "gif": "[GIF: {name}]",
       "gifDescribed": "[GIF: {text}]",
@@ -132,11 +131,9 @@
     },
     "directory": {
       "lead": "Members you can mention. Write the handle exactly as listed to tag someone; a name alone pings nobody.",
-      "line": "{handle}: {names}",
-      "lineAliases": "{handle}: {names}; also called {aliases}"
+      "line": "{handle}: {names}"
     },
     "senses": {
-      "imageSee": "Pictures marked as attached you see yourself; they may carry a helper's note, which is a fallible reading whose confident wording is not evidence. Check identities and claims against what you see, and when a region is too small or unclear to make out, do not adopt a name or story from the note or the chat as fact. The helper may have seen more detail, so a vague view is inconclusive.",
       "imageDescribed": "Other pictures come with a description from a helper; you did not see them yourself.",
       "gifWatched": "GIFs come with a description of their visible content from a helper. They have no sound. Without a description, do not infer what the GIF shows.",
       "videoDescribed": "Videos show a name, a duration and a description of a single still frame — you have never watched or heard any video.",
@@ -156,7 +153,6 @@
       "abilitiesOff": "These abilities are switched off here, and you cannot do them: {abilities}.",
       "abilitiesOffSeparator": ", ",
       "time": "Message times are in the same timezone as <now>, and older messages also show how long ago they were posted. How long ago something in the chat happened is the age of its own messages, never a duration between two messages or a <tempo> figure: that duration is only the silence between those two.",
-      "stickerSee": "A sticker marked as attached you see yourself.",
       "stickerDescribed": "Custom emoji and stickers in the lines are listed once in <media>, each with a description from a helper.",
       "draw": "You can draw by calling draw.create with a scene brief; a sub-process produces a picture from it. Whether to draw is your call; you can refuse. You barely control the look: the style is the sub-process's own. The result of the call tells you what your eyes saw on the finished picture. When the picture came out wrong, say so plainly. The sub-process already knows what you look like, so when you are in the picture set self in the call and do not describe your own appearance. The picture is posted before your words go out, and your words are sent only when the call succeeded. When your picture comes up later, separate what you asked for from what is actually on it. If the sub-process got something visibly wrong, say so in one plain remark; do not invent an artistic or physical reason for the mistake, and do not beat yourself up over it.",
       "dmChat": "This is a one-on-one conversation — what is said here stays between you and this person. You also remember your public interactions with them. Nobody else reads this.",
@@ -209,14 +205,12 @@
     "gifs": {
       "entry": "{id}: {text}",
       "entryNoText": "{id}",
-      "ownMark": "(you, {ago})",
-      "ownMarkRecent": "(you, recent)"
+      "ownMark": "(you, {ago})"
     },
     "lookup": {
       "header": "Looked up: {query}",
       "sources": "Sources: {list}",
       "none": "Nothing useful found.",
-      "webHeader": "Online (web search):",
       "stretch": "{date} in #{channel}:",
       "stretchSelf": " [your lines]",
       "stretchCurrent": " [current conversation]",
@@ -274,12 +268,9 @@
       "starters": "How conversations start: {text}",
       "injokes": "Running jokes: {text}",
       "learned": "Things people taught you: {text}",
-      "learnedItem": "{text} (from {who})",
-      "learnedItemNoFrom": "{text}",
       "unsureMark": " (unconfirmed)"
     },
     "server": {
-      "currentMark": " ← you are here",
       "topic": "Topic: {text}",
       "purpose": "What it's for: {text}",
       "topics": "People talk about: {text}",
@@ -288,9 +279,6 @@
       "topWriters": "Top writers: {names}",
       "readOnly": "You can read and react here, but not write.",
       "activity": "Activity: {activity}",
-      "activityLive": "active",
-      "activitySlow": "slow",
-      "activityDead": "dead",
       "diary": "Your diary."
     },
     "triggers": {
@@ -382,7 +370,6 @@
       "lore": "{subject}: {text}",
       "live": "right now: {value}",
       "ownLines": "you wrote {count} or more messages here, the last on {date}",
-      "ownNone": "you have not written here",
       "episode": "{date}: {what}",
       "warmer": "{date}: you grew warmer toward them by {amount}",
       "cooler": "{date}: you grew cooler toward them by {amount}",
@@ -1066,7 +1053,6 @@
       },
       "memorySession": {
         "off": "session: off",
-        "notConfigured": "session: no key",
         "refused": "session: refused ({code})",
         "line": "session · {mode} · {path} · {sweeps} today · {cap} per scope · last run {outcome} at {at}",
         "pending": "session · {n} batches waiting for another try · {tries} of {limit} tries"

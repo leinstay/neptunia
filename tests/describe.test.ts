@@ -3466,6 +3466,28 @@ test('describe: while the vision request is out the item holds a pending entry',
   assert.equal(cacheView(store, 'g1')['a-out']?.pending, true);
 });
 
+// Bug (second production audit, row 7): a description of an item that already holds an entry left no mark while its
+// request was out, so a stop that cut it left the old text standing as if nothing had been tried. The entry keeps its
+// text and says `pending` while the new request is out.
+test('describe: while a stale entry is described again its entry keeps its text and holds a pending mark', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  loose(cacheView(store, 'g1')).again = { text: 'une vieille photo', ts: 1 };
+  const asked: Array<unknown> = [];
+  const llm = {
+    complete: (messages: unknown) => {
+      asked.push(messages);
+      return new Promise<never>(() => {});
+    },
+  };
+  const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO } } });
+  const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => CUTOFF + HOUR });
+  void describer.describe('g1', pictureItem('again'));
+  for (let tick = 0; tick < 20 && asked.length === 0; tick += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(asked.length, 1, 'the request went out');
+  const entry = loose(cacheView(store, 'g1')).again;
+  assert.deepEqual([entry.text, entry.pending], ['une vieille photo', true]);
+});
+
 // Bug (audit row 21, production 2026-11-17): two picture descriptions hold a line break. The describer joins every
 // line of the vision answer into one (src/memory/describe.ts, "the whole answer on one line"), but the summary of a
 // long answer is stored as the summarizer returns it, breaks and all.
