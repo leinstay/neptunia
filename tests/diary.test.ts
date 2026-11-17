@@ -17,8 +17,6 @@ import {
   setSettings,
   validatePlan,
   renderDiaryBlock,
-  recentOpenings,
-  renderOpenings,
   renderKindsBlock,
   usedSeedLines,
   sceneOf,
@@ -566,86 +564,6 @@ test('renderDiaryBlock: a set renders its first scene with the picture count', (
 /** Past entries as the store keeps them, oldest first, one day apart: a `[kind, gist]` pair each. */
 const entriesOf = (...rows: Array<[string, string]>) =>
   rows.map(([kind, gist], index) => ({ at: Date.UTC(2026, 2, 1 + index, 10), kind, gist, picture: null }));
-
-test('recentOpenings: the first words of the newest entries of the kind, newest first, up to count', () => {
-  // Bug: the openings come oldest first, whole gists, or more than count of them.
-  const posts = entriesOf(
-    ['status', 'first walk by the harbour today'],
-    ['status', 'second walk in the morning rain'],
-    ['status', 'third walk before the market opens']
-  );
-  assert.deepEqual(recentOpenings(posts, 'status', { count: 2, words: 3 }), ['third walk before', 'second walk in']);
-});
-
-test('recentOpenings: an entry of another kind is skipped', () => {
-  // Bug: the openings of a thought are shown to a status entry, so the kinds blur their own habits.
-  const posts = entriesOf(
-    ['status', 'harbour walk at dawn'],
-    ['thought', 'tides and the moon'],
-    ['thought', 'a note on sleep']
-  );
-  assert.deepEqual(recentOpenings(posts, 'status', { count: 5, words: 2 }), ['harbour walk']);
-});
-
-test('recentOpenings: an entry with no text is skipped and takes no place from count', () => {
-  // Bug: a picture entry with an empty gist gives an empty line or uses up the count.
-  const posts = [
-    ...entriesOf(['status', 'older walk by the pier']),
-    { at: Date.UTC(2026, 2, 2, 10), kind: 'status', gist: '', picture: 'a pier' },
-    { at: Date.UTC(2026, 2, 3, 10), kind: 'status', gist: '   ', picture: null },
-  ];
-  assert.deepEqual(recentOpenings(posts, 'status', { count: 1, words: 2 }), ['older walk']);
-});
-
-test('recentOpenings: count 0 gives none', () => {
-  // Bug: 0 reads as unset and the default count shows.
-  const posts = entriesOf(['status', 'a walk by the pier']);
-  assert.deepEqual(recentOpenings(posts, 'status', { count: 0, words: 3 }), []);
-});
-
-test('recentOpenings: words 0 gives none', () => {
-  // Bug: 0 words reads as the whole gist.
-  const posts = entriesOf(['status', 'a walk by the pier']);
-  assert.deepEqual(recentOpenings(posts, 'status', { count: 3, words: 0 }), []);
-});
-
-test('recentOpenings: a gist shorter than words gives its whole text', () => {
-  // Bug: the short gist is padded, dropped or ends on a stray separator.
-  const posts = entriesOf(['status', 'quiet day']);
-  assert.deepEqual(recentOpenings(posts, 'status', { count: 3, words: 4 }), ['quiet day']);
-});
-
-test('recentOpenings: no posts, or a value that is no list, give none', () => {
-  // Bug: an empty store or an old malformed value throws before the compose request is built.
-  assert.deepEqual(recentOpenings([], 'status', { count: 3, words: 3 }), []);
-  assert.deepEqual(recentOpenings(undefined, 'status', { count: 3, words: 3 }), []);
-});
-
-test('renderOpenings: the lead line with the count, then one line per opening in the given order', () => {
-  // Bug: the count in the lead is missing or wrong, or the lines come back reordered.
-  const words = { diary: { planOpenings: 'RECENT {count}', planOpening: 'OPENED {words}' } };
-  assert.deepEqual(renderOpenings(['third walk', 'second walk'], words), [
-    'RECENT 2',
-    'OPENED third walk',
-    'OPENED second walk',
-  ]);
-});
-
-test('renderOpenings: an empty list gives no lines, not a lead with nothing under it', () => {
-  // Bug: a lead line that promises openings stands alone in the plan.
-  const words = { diary: { planOpenings: 'RECENT {count}', planOpening: 'OPENED {words}' } };
-  assert.deepEqual(renderOpenings([], words), []);
-});
-
-test('renderOpenings: a missing lead label gives no lines', () => {
-  // Bug: a deployment that holds no label gets "undefined" lines in her request.
-  assert.deepEqual(renderOpenings(['third walk'], { diary: { planOpening: 'OPENED {words}' } }), []);
-});
-
-test('renderOpenings: a missing line label gives no lines', () => {
-  // Bug: the lead stands alone, or the openings are listed with no label around them.
-  assert.deepEqual(renderOpenings(['third walk'], { diary: { planOpenings: 'RECENT {count}' } }), []);
-});
 
 test('isSetKind: listed kinds, the default list when none is given', () => {
   assert.equal(isSetKind('tour', ['tour']), true);

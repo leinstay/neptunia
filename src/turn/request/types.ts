@@ -210,8 +210,6 @@ export type RequestConfig = {
   readonly diary?: {
     readonly entries?: number;
     readonly writerEntries?: number;
-    readonly openingsShown?: number;
-    readonly openingWords?: number;
   };
   readonly media?: { readonly video?: { readonly sites?: ReadonlyArray<string> } };
   readonly models?: { readonly routes?: Record<string, unknown> };

@@ -1,10 +1,10 @@
 // A diary request's own parts: her past entries (`<diary>`), the
 // post's `<plan>`, the planner's `<kinds>` and `<topic>`, the `<seeds>`, the mirrors to choose among
-// (`<publication_places>`) and the audiences she has not heard were refused. buildRequest (src/behavior/prompt.ts) calls
+// (`<publication_places>`), the brief the judge turned down (`<rejected>`) and the audiences she has not heard were refused. buildRequest (src/behavior/prompt.ts) calls
 // `diaryFramedOf` for the planner and the writer on the frame, and `diaryOf` for a request with no frame.
 // None of it reaches a request of another kind.
 
-import { localDayKey, recentOpenings, renderOpenings, renderDiaryBlock } from '../../behavior/diary.ts';
+import { localDayKey, renderDiaryBlock } from '../../behavior/diary.ts';
 import { fill } from '../../format.ts';
 import { refusedAudience } from '../../tools/publication.ts';
 import { kindOfRequest } from './frame.ts';
@@ -26,6 +26,7 @@ export type DiaryInput = {
   readonly kinds?: string;
   readonly topic?: string;
   readonly facts?: string;
+  readonly rejected?: string;
 };
 
 export type DiaryPlan = {
@@ -37,14 +38,10 @@ export type DiaryPlan = {
 
 /**
  * The `<plan>` body: `labels.diary.plan`, then one line per field of the plan: `planKind` and `planBrief` with
- * `{value}`, the `openings` lines (renderOpenings) under the brief, `planPicture` or `planNoPicture`, and `planTopic`
+ * `{value}`, `planPicture` or `planNoPicture`, and `planTopic`
  * with `{value}` when the owner gave one. '' without a plan.
  */
-export function planBody(
-  plan: DiaryPlan | null | undefined,
-  labels: Labels,
-  openings: ReadonlyArray<string> = []
-): string {
+export function planBody(plan: DiaryPlan | null | undefined, labels: Labels): string {
   if (!plan || typeof plan !== 'object') return '';
   const kind = typeof plan.kind === 'string' ? plan.kind : '';
   const brief = typeof plan.brief === 'string' ? plan.brief : '';
@@ -57,7 +54,6 @@ export function planBody(
     words.plan,
     line(words.planKind, kind),
     line(words.planBrief, brief),
-    ...openings,
     plan.picture === true ? words.planPicture : words.planNoPicture,
     line(words.planTopic, topic),
   ]
@@ -128,10 +124,6 @@ export const DEFAULT_ENTRIES_SHOWN = 150;
 /** How many past entries the writer's `<diary>` shows by default. */
 export const DEFAULT_WRITER_ENTRIES = 30;
 
-/** How many entries of the plan's kind `<plan>` tells how they opened, and how many words of each, by default. */
-export const DEFAULT_OPENINGS_SHOWN = 5;
-export const DEFAULT_OPENING_WORDS = 4;
-
 type DiaryConfig = { diary?: Readonly<Record<string, unknown>> | null } | null | undefined;
 
 /** A `diary` setting that is a whole count from 0, else `fallback`; the setting read now. */
@@ -155,8 +147,8 @@ const textPart = (tag: string, text: unknown): Array<{ tag: string; text: string
 
 /**
  * The parts of the planner's or the writer's request on the frame, null on any other kind. Both carry her past entries, newest first: the planner the newest `diary.entries`, the writer the newest
- * `diary.writerEntries`. The planner adds `<kinds>`, `<seeds>`, `<topic>` and `<stored_facts>`, what it chooses from. The writer
- * adds `<plan>` with what the search found and how her last entries of the plan's kind opened, a set post's `<seeds>`, `<publication_places>` and the refused audiences.
+ * `diary.writerEntries`. The planner adds `<kinds>`, `<seeds>`, `<topic>` and `<stored_facts>`, what it chooses from, and `<rejected>`, the brief
+ * the judge turned down. The writer adds `<plan>` with what the search found, a set post's `<seeds>`, `<publication_places>` and the refused audiences.
  */
 export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFramed | null {
   const { config, labels } = given;
@@ -175,14 +167,6 @@ export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFr
     typeof input.found === 'string' && input.found.trim()
       ? [labels.diary?.found, input.found.trim()].filter(Boolean).join('\n')
       : '';
-  const planKind = typeof input.plan?.kind === 'string' ? input.plan.kind : '';
-  const openings = renderOpenings(
-    recentOpenings(past, planKind, {
-      count: settingOf(config, 'openingsShown', DEFAULT_OPENINGS_SHOWN),
-      words: settingOf(config, 'openingWords', DEFAULT_OPENING_WORDS),
-    }),
-    labels
-  );
   const parts =
     kind === 'diary_plan'
       ? [
@@ -190,9 +174,10 @@ export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFr
           ...textPart('seeds', input.seeds),
           ...textPart('topic', input.topic),
           ...textPart('stored_facts', input.facts),
+          ...textPart('rejected', input.rejected),
         ]
       : [
-          ...textPart('plan', [planBody(input.plan, labels, openings), found].filter(Boolean).join('\n')),
+          ...textPart('plan', [planBody(input.plan, labels), found].filter(Boolean).join('\n')),
           ...textPart('seeds', input.seeds),
           ...textPart('publication_places', publicationPlacesBody(input.publicationPlaces, labels)),
         ];

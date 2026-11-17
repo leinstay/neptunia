@@ -150,6 +150,9 @@ export const DIARY_KINDS: Readonly<Record<string, number>> = Object.freeze({
 });
 /** The seed sets a post's request carries. */
 export const SEED_SETS = 2;
+/** How many of her newest entries of the plan's kind the judge reads, and how many briefs the planner writes at most. */
+export const JUDGE_ENTRIES = 10;
+export const JUDGE_BRIEFS = 3;
 export const DEFAULT_SEARCH_KINDS: Array<string> = ['news', 'facts'];
 /** The messages one diary post sends at most. */
 export const DIARY_MAX_MESSAGES = 3;
@@ -663,40 +666,44 @@ export function renderDiaryBlock(
 }
 
 /**
- * How the newest `count` posts of `kind` that have text open: the first `words` words of each gist, newest first.
- * `posts` are oldest first, as the store keeps them. A post of another kind or with a blank gist is skipped and takes no
- * place from `count`. `count` or `words` at 0 gives none, and a gist shorter than `words` gives its whole text.
+ * The body of the judge's `<entries>` block: the newest `JUDGE_ENTRIES` of `posts` (oldest first) of `kind`, one
+ * `labels.diary.line` each with its picture as renderDiaryBlock shows it, newest first. '' when there is none.
  */
-export function recentOpenings(
-  posts: unknown,
-  kind: string,
-  { count, words }: { count: unknown; words: unknown }
-): Array<string> {
-  const limit = countOf(count);
-  const length = countOf(words);
-  const openings: Array<string> = [];
-  if (limit === 0 || length === 0) return openings;
-  for (const post of [...listOf(posts)].reverse()) {
-    if (openings.length >= limit) break;
-    const entry = objOf(post);
-    if (entry.kind !== kind) continue;
-    const opening = oneLine(entry.gist).split(' ').filter(Boolean).slice(0, length).join(' ');
-    if (opening) openings.push(opening);
-  }
-  return openings;
+export function judgeEntriesBody(posts: unknown, kind: string, labels: unknown, timezone?: string): string {
+  return renderDiaryBlock(
+    listOf(posts).filter((post) => objOf(post).kind === kind),
+    { ...objOf(labels), diary: { ...diaryWords(labels), intro: '' } },
+    { timezone, max: JUDGE_ENTRIES }
+  );
 }
 
 /**
- * The lines that list `openings` (recentOpenings) under the brief of `<plan>`: `labels.diary.planOpenings` with
- * `{count}`, then one `labels.diary.planOpening` with `{words}` per opening, in the order given. [] when
- * there is no opening or either label is missing.
+ * The schema of the judge's answer, handed to the client as `responseFormat`: `{ "repeats", "what" }`.
  */
-export function renderOpenings(openings: ReadonlyArray<string>, labels: unknown): Array<string> {
-  const words = diaryWords(labels);
-  const lead = labelOf(words.planOpenings);
-  const line = labelOf(words.planOpening);
-  if (openings.length === 0 || !lead || !line) return [];
-  return [fill(lead, { count: openings.length }), ...openings.map((opening) => fill(line, { words: opening }))];
+export const DIARY_JUDGE_FORMAT: { name: string; schema: object } = Object.freeze({
+  name: 'diary-judge',
+  schema: {
+    type: 'object',
+    properties: { repeats: { type: 'boolean' }, what: { type: 'string' } },
+    required: ['repeats', 'what'],
+    additionalProperties: false,
+  },
+});
+
+/** The judge's answer `text` read strictly: the object of DIARY_JUDGE_FORMAT, else null. Pure. */
+export function parseJudgeAnswer(text: unknown): { repeats: boolean; what: string } | null {
+  const answer = strictJsonObject(text);
+  if (!answer) return null;
+  const { repeats, what } = answer;
+  return typeof repeats === 'boolean' && typeof what === 'string' ? { repeats, what } : null;
+}
+
+/**
+ * The body of the planner's `<rejected>` block: `labels.diary.rejected` with `{brief}`, the brief the judge turned
+ * down, and `{what}`, the judge's reason.
+ */
+export function renderRejectedBlock(brief: string, what: string, labels: unknown): string {
+  return fill(labelOf(diaryWords(labels).rejected), { brief, what: oneLine(what) });
 }
 
 /**

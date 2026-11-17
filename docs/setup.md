@@ -20,7 +20,7 @@ Interactive setup uses a keyboard selector for `on` or `off` and `yes` or `no` q
 | `linger` | Let user services continue without an interactive login |
 | `core` | Enable and start the core service |
 
-The `mechanics` step writes `heartbeat.enabled`, `diary.enabled` and `humanizer.enabled` to `config/config.json` of the data folder. The diary reads its settings under the key `diary`, its local prompts from `prompts/diary.md`, `prompts/diary-planner.md` and `prompts/diary-seeds.md` of the data folder, and its pictures from `media/diary/`. A setting under any other key reaches the diary nowhere, and the diary runs on its default `diary.enabled` of `true` until that key holds `false`. The core logs a warning at start and on each reload for every retired key the file holds, `RETIRED_CONFIG_KEYS` in `src/hot.ts`.
+The `mechanics` step writes `heartbeat.enabled`, `diary.enabled` and `humanizer.enabled` to `config/config.json` of the data folder. The diary reads its settings under the key `diary`, its local prompts from `prompts/diary.md`, `prompts/diary-planner.md`, `prompts/diary-judge.md` and `prompts/diary-seeds.md` of the data folder, and its pictures from `media/diary/`. A setting under any other key reaches the diary nowhere, and the diary runs on its default `diary.enabled` of `true` until that key holds `false`. The core logs a warning at start and on each reload for every retired key the file holds, `RETIRED_CONFIG_KEYS` in `src/hot.ts`.
 
 A failure stops later steps. Without a terminal, interactive questions are skipped and no chat opens. Inspect the report instead of assuming that a noninteractive setup configured your credentials.
 

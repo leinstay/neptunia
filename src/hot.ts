@@ -86,6 +86,8 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'models.errands', use: 'models.agents.model' },
     { key: 'board', use: null },
     { key: 'selfreflection', use: 'diary' },
+    { key: 'diary.openingsShown', use: null },
+    { key: 'diary.openingWords', use: null },
   ].map(({ key, use }) => ({ key, use, read: (config: Untyped) => valueAtKey(config, key) }))
 );
 

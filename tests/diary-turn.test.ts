@@ -146,6 +146,7 @@ function fakeLlm(plan: Untyped, post: Untyped) {
         // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
         return { text: planAnswerText(plan, opts), usage: {}, estimated: 5 };
       }
+      if (opts?.purpose === 'diary-judge') return { text: '{"repeats":false,"what":""}', usage: {}, estimated: 5 };
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;
       return completionOf(answer);
@@ -313,8 +314,10 @@ test('diary turn: plans on the analyzer model, then composes with the card', asy
   });
 
   assert.equal(loose(result).outcome, 'spoke');
-  assert.equal(llm.calls.length, 2);
-  const [plan, compose] = llm.calls;
+  // The judge reads the brief against the past status entry between the plan and the post
+  // (specs/2026-11-17-diary-similarity-judge.md), so three requests go out where two did.
+  assert.equal(llm.calls.length, 3);
+  const [plan, , compose] = llm.calls;
   // Slice 6: the planner is a frame request: the persona is its system message and the planner prompt its `<task>`,
   // the time is in `<spatial_awareness>`, the kinds and the seeds in `<inner>`.
   assert.ok(String(plan[0].content).includes('CARD_TEXT'), 'the planner is the persona');
@@ -1338,74 +1341,17 @@ test("the writer's <diary> is cut at diary.writerEntries, whatever diary.entries
   );
 });
 
-/** The marker texts of the openings under the brief: the test's own wording, so no shipped wording is read. */
-const OPENING_LABELS = { planOpenings: 'OPENINGS-LEAD {count}', planOpening: 'OPENING-LINE {words}' };
-
-/** A gist of four words whose first two are `gistOf(index)` and a marker, so a cut at two words is visible. */
-const longGist = (index: number): string => `${gistOf(index)} ΑΡΧΗ-${index} ΜΕΣΗ-${index} ΤΕΛΟΣ-${index}`;
-
-/** The three oldest entries are status, the three newest thought, so an opening that ignores the kind shows the newest. */
-const KINDS = ['status', 'status', 'status', 'thought', 'thought', 'thought'];
-
-test('the compose request holds the openings of the entry kind under the brief, newest first, and none of another kind', async () => {
-  // Bug: she is not told how her last entries of this kind began, or is told how a thought began for a status.
-  const run = await frameTurn({
-    entries: 6,
-    entryKinds: KINDS,
-    entryGist: longGist,
-    labels: OPENING_LABELS,
-    diary: { openingsShown: 3, openingWords: 2 },
-  });
-  const plan = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'plan');
-  const at = (text: string): number => plan.indexOf(text);
-  const lines = [2, 1, 0].map((index) => `OPENING-LINE ${gistOf(index)} ΑΡΧΗ-${index}`);
-  const positions = [at(FRAME_PLAN.brief), at('OPENINGS-LEAD 3'), ...lines.map(at)];
-  assert.ok(
-    positions.every((one) => one >= 0),
-    plan
-  );
-  assert.deepEqual(
-    positions,
-    [...positions].sort((a, b) => a - b),
-    'under the brief, newest first'
-  );
-  assert.ok(!plan.includes('ΜΕΣΗ-'), 'only the first two words of each');
-  for (const index of [3, 4, 5]) assert.ok(!plan.includes(gistOf(index)), `no thought: ${gistOf(index)}`);
-});
-
-test("the openings go to the compose request and the planner's request holds none", async () => {
-  // Bug: the planner is shown how entries opened and writes a brief that already carries the entry's first words.
-  const run = await frameTurn({
-    entries: 6,
-    entryKinds: KINDS,
-    entryGist: longGist,
-    labels: OPENING_LABELS,
-    diary: { openingsShown: 3, openingWords: 2 },
-  });
-  assert.ok((run.writer[0] ?? '').includes('OPENINGS-LEAD'), 'the writer holds them, so the planner has a reason to');
-  const text = run.planner[0] ?? '';
-  assert.ok(text.length > 0, 'the planner was asked');
-  assert.ok(!text.includes('OPENINGS-LEAD'), 'no lead');
-  assert.ok(!text.includes('OPENING-LINE'), 'no line');
-});
-
 test('two compose requests with nothing stored between them hold the same <plan> and <diary>', async () => {
-  // Bug: something per request (a clock, a draw, an unordered set) enters the openings or the list and breaks the cache.
+  // Bug: something per request (a clock, a draw, an unordered set) enters the plan or the list and breaks the cache.
   // Her answer skips, so the first turn stores nothing for the second to read.
-  const run = await frameTurn({
-    entries: 6,
-    entryKinds: KINDS,
-    entryGist: longGist,
-    labels: OPENING_LABELS,
-    diary: { openingsShown: 3, openingWords: 2 },
-    answer: '<skip/>',
-    turns: 2,
-  });
+  // The openings left `<plan>` with the judge of the brief (specs/2026-11-17-diary-similarity-judge.md), so the plan
+  // is checked for its brief instead of its openings.
+  const run = await frameTurn({ entries: 6, answer: '<skip/>', turns: 2 });
   assert.equal(run.writer.length, 2, 'one compose request per turn');
   const [first = '', second = ''] = run.writer.map((text) => blockOf(text, 'inner'));
   assert.ok(
-    partOf(first, 'plan').includes('OPENINGS-LEAD'),
-    'the plan holds openings, so the comparison means something'
+    partOf(first, 'plan').includes(FRAME_PLAN.brief),
+    'the plan holds the brief, so the comparison means something'
   );
   assert.equal(partOf(second, 'plan'), partOf(first, 'plan'));
   assert.notEqual(partOf(first, 'diary'), '');
