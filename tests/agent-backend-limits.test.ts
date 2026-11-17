@@ -166,7 +166,8 @@ test('a claude run reads its answer and its real usage out of the JSON it printe
     });
     assert.equal(result.ok, true);
     assert.equal(result.text, 'an answer');
-    assert.deepEqual(result.usage, { input: 160, cached: 30, output: 45, steps: 3 });
+    // BackendUsage carries dollars for OpenCode's step costs; claude reports none, so its usd is 0.
+    assert.deepEqual(result.usage, { input: 160, cached: 30, output: 45, steps: 3, usd: 0 });
     const seen = reportOf(
       (
         await createBackend('claude', { binary: STUB }).run('hello', {
@@ -251,7 +252,7 @@ test('the usage of a run reaches the errand, with its steps', async () => {
             ok: true,
             text: 'done',
             exitCode: 0,
-            usage: { input: 160, cached: 30, output: 45, steps: 3 },
+            usage: { input: 160, cached: 30, output: 45, steps: 3, usd: 0 },
           }),
       }),
     },

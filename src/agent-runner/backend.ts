@@ -112,8 +112,11 @@ export type BackendError =
   | 'provider-unsupported'
   | 'backend-error';
 
-/** A run's tokens and model steps, as far as its backend reports them. `input` counts the cached tokens too. */
-export type BackendUsage = { input: number; cached: number; output: number; steps: number };
+/**
+ * A run's tokens, model steps and dollars, as far as its backend reports them. `input` counts the cached tokens too.
+ * `usd` is OpenCode's own step costs as the provider reported them, 0 for a backend that reports none.
+ */
+export type BackendUsage = { input: number; cached: number; output: number; steps: number; usd: number };
 
 /** What a run gives back. */
 export type BackendResult = {
@@ -125,7 +128,7 @@ export type BackendResult = {
   exitCode: number | null;
   /** codex: the number after the `tokens used` line of stdout */
   tokens?: number;
-  /** claude: what its JSON result reports */
+  /** claude: what its JSON result reports; opencode: the sums of its `step_finish` events */
   usage?: BackendUsage;
   error?: BackendError;
   /** A run that failed on its own: the last line the child printed, for the owner's answer and never for a log. */
@@ -373,12 +376,35 @@ function claudeResultOf(output: string): ClaudeResult | null {
       cached,
       output: countOf(usage, 'output_tokens'),
       steps: countOf(fields, 'num_turns'),
+      usd: 0,
     },
   };
 }
 
-/** What `opencode run --format json` printed: its answer, the failed web searches, and the last error it reported. */
-type OpenCodeEvents = { text: string; searchFailures: number; error: string | undefined };
+/**
+ * What `opencode run --format json` printed: its answer, the failed web searches, the last error it reported, and the
+ * usage of its `step_finish` events (undefined when there is none).
+ */
+type OpenCodeEvents = {
+  text: string;
+  searchFailures: number;
+  error: string | undefined;
+  usage: BackendUsage | undefined;
+};
+
+/** The usage of one OpenCode `step_finish` part: a missing or non-numeric field counts as 0. */
+function openCodeStepOf(part: Record<string, unknown>): BackendUsage {
+  const tokens = objOf(part.tokens);
+  const cache = objOf(tokens.cache);
+  const cached = countOf(cache, 'read');
+  return {
+    input: countOf(tokens, 'input') + countOf(cache, 'write') + cached,
+    cached,
+    output: countOf(tokens, 'output') + countOf(tokens, 'reasoning'),
+    steps: 1,
+    usd: countOf(part, 'cost'),
+  };
+}
 
 /** The message of an OpenCode `error` event, as its plain output prints it: `error.data.message`, else `error.name`. */
 function openCodeErrorOf(event: Record<string, unknown>): string | undefined {
@@ -409,14 +435,25 @@ function openCodeEventsOf(output: string): OpenCodeEvents | null {
   const texts: Array<string> = [];
   let searchFailures = 0;
   let error: string | undefined;
+  let usage: BackendUsage | undefined;
   for (const event of events) {
     const part = objOf(event.part);
     if (event.type === 'text' && typeof part.text === 'string' && part.text.trim() !== '') texts.push(part.text.trim());
     if (event.type === 'tool_use' && part.tool === 'websearch' && objOf(part.state).status === 'error')
       searchFailures++;
     if (event.type === 'error') error = openCodeErrorOf(event) ?? error;
+    if (event.type === 'step_finish') {
+      const step = openCodeStepOf(part);
+      usage = {
+        input: (usage?.input ?? 0) + step.input,
+        cached: (usage?.cached ?? 0) + step.cached,
+        output: (usage?.output ?? 0) + step.output,
+        steps: (usage?.steps ?? 0) + 1,
+        usd: (usage?.usd ?? 0) + step.usd,
+      };
+    }
   }
-  return { text: texts.join('\n'), searchFailures, error };
+  return { text: texts.join('\n'), searchFailures, error, usage };
 }
 
 /** What a child process came to: its exit, its stdout, or why it never ran. */
@@ -573,6 +610,7 @@ function resultOf(name: BackendName, outcome: Outcome, written: string | null): 
     ...(error ? { error } : {}),
     ...failureDetailOf(ok, outcome, claude, events, name === 'claude' && printed.startsWith('{')),
     ...(claude === null ? {} : { usage: claude.usage }),
+    ...(events?.usage === undefined ? {} : { usage: events.usage }),
     ...(events !== null && events.searchFailures > 0 ? { searchFailures: events.searchFailures } : {}),
   };
 }
@@ -885,7 +923,7 @@ function usageOf(outcome: BackendResult, seconds: number): TaskUsage {
   return {
     input: outcome.usage?.input ?? 0,
     output: outcome.usage?.output ?? outcome.tokens ?? 0,
-    usd: 0,
+    usd: outcome.usage?.usd ?? 0,
     steps: outcome.usage?.steps ?? 0,
     seconds,
   };

@@ -1,7 +1,7 @@
 // The agents' spend from the errand records (src/errands/store.ts): per agent, over today, the
 // last 7 and the last 30 UTC days (today included), its runs, input and output tokens and
-// dollars. The dollars are the `usd` the runner reports in the errand's usage, never an OpenRouter
-// key's figure. A run counts on the UTC day its errand was queued (an open errand included), its tokens and
+// dollars. The dollars are OpenCode's own step costs as the provider reported them
+// (src/agent-runner/backend.ts), 0 for a Claude Code or Codex run, never an OpenRouter key's figure. A run counts on the UTC day its errand was queued (an open errand included), its tokens and
 // dollars on the day it ended. The same numbers are the daily caps' (`agents.<agent>.daily.errands`
 // and `.usd`, the `today` window) and the owner card's `costs.errands` field. Pure; the clock is
 // passed in.
