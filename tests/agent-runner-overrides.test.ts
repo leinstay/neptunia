@@ -50,13 +50,12 @@ test('an empty personal object retains every shared field', (t) => {
   assert.deepEqual(agents.listAgents(f.options), [f.definition]);
 });
 
-test('nested limits retain absent siblings while abilities replace the entire shared array', (t) => {
+test('nested limits retain absent siblings', (t) => {
   const f = fixture();
   t.after(f.close);
-  f.override({ limits: { steps: 7 }, abilities: ['fetch'] });
+  f.override({ limits: { steps: 7 } });
   const definition = agents.listAgents(f.options)[0];
   assert.deepEqual(definition?.limits, { steps: 7, seconds: 300 });
-  assert.deepEqual(definition?.abilities, ['fetch']);
 });
 
 test('a null required object fails validation instead of inheriting shared limits', (t) => {
@@ -119,8 +118,6 @@ test('a personal patch cannot repair an invalid shared definition before validat
 const invalidOverrides: Array<[string, unknown]> = [
   ['backend', 'claude'],
   ['model', 'synthetic/model'],
-  ['abilities', ['write']],
-  ['abilities', ['fetch', 'fetch']],
   ['unit', 'cloud'],
   ['limits.steps', { limits: { steps: 1.5 } }],
   ['limits.seconds', { limits: { seconds: 0 } }],
@@ -146,18 +143,17 @@ test('a personal directory with no profile adds no agent', (t) => {
   assert.deepEqual(agents.listAgents(f.options), [f.definition]);
 });
 
-test('merged definitions freeze nested objects and arrays before returning them', (t) => {
+test('merged definitions freeze nested objects before returning them', (t) => {
   const f = fixture();
   t.after(f.close);
   f.override({ limits: { steps: 7 } });
   const all = agents.listAgents(f.options);
   const definition = all[0];
   if (definition === undefined) assert.fail('expected the shared agent');
-  for (const value of [all, definition, definition.limits, definition.cost, definition.daily, definition.abilities]) {
+  for (const value of [all, definition, definition.limits, definition.cost, definition.daily]) {
     assert.equal(Object.isFrozen(value), true);
   }
   assert.throws(() => Object.assign(definition.limits, { steps: 99 }), TypeError);
-  assert.throws(() => Object.assign(definition.abilities, { 0: 'shell' }), TypeError);
   assert.throws(() => Object.assign(all, { 0: {} }), TypeError);
   assert.equal(agents.loadProfiles(f.options).scout.defaultLimits.steps, 7);
 });

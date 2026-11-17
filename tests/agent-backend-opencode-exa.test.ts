@@ -1,6 +1,6 @@
 // src/agent-runner/backend.ts#createAgentEngine over a real backend with a fake spawn: OpenCode's own `websearch` tool
 // (Exa's free hosted endpoint, no key) is switched on by `OPENCODE_ENABLE_EXA=1` in the child's environment, and only for
-// an OpenCode run whose search provider is `exa`, from the profile (`defaultSearchProvider`) or from the task. The
+// an OpenCode run whose search provider is `exa`, the task's or else the default `exa`. The
 // child is a fake; no request goes out.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,8 +26,8 @@ const isJson = (value: unknown): value is Json => typeof value === 'object' && v
 /** What the fake child saw: its environment and the config file it would load, read while it ran. */
 type Seen = { env: Record<string, string>; config: Json };
 
-/** One engine run of a profile with `defaultSearchProvider` and the task `extra`; returns what each spawned child saw. */
-async function runOnce(profileProvider: string | null, extra: Record<string, unknown>): Promise<Array<Seen>> {
+/** One engine run of the task `extra`; returns what each spawned child saw. */
+async function runOnce(extra: Record<string, unknown>): Promise<Array<Seen>> {
   const base = tempDir('nep-oc-exa-');
   const binary = path.join(base, 'fake-binary');
   fs.writeFileSync(binary, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -58,11 +58,7 @@ async function runOnce(profileProvider: string | null, extra: Record<string, unk
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
-    search: false,
     unit: 'web',
-    // Changed: the search provider follows the `search` ability, so `exa` stands for an agent that searches.
-    abilities: profileProvider === 'exa' ? ['search', 'fetch'] : ['fetch'],
-    returns: 'files',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
@@ -78,17 +74,17 @@ async function runOnce(profileProvider: string | null, extra: Record<string, unk
   return seen;
 }
 
-test('an opencode run of an agent whose profile searches with exa gets OPENCODE_ENABLE_EXA and no Exa key', async () => {
+test('an opencode run of any agent gets OPENCODE_ENABLE_EXA and no Exa key', async () => {
   // Catches: OpenCode agents keep only webfetch and bash because the allowlisted child environment never switches websearch on.
-  const [child] = await runOnce('exa', { id: 'e1', route: route('opencode'), secrets: { openrouterKey: KEY } });
+  const [child] = await runOnce({ id: 'e1', route: route('opencode'), secrets: { openrouterKey: KEY } });
   assert.ok(child, 'the child was spawned');
   assert.equal(child.env.OPENCODE_ENABLE_EXA, '1');
   assert.equal(Object.hasOwn(child.env, 'EXA_API_KEY'), false);
 });
 
-test('an opencode run whose task names exa gets OPENCODE_ENABLE_EXA although the profile has no provider', async () => {
-  // Catches: only the profile's default is read, so a task's own searchProvider is ignored.
-  const [child] = await runOnce(null, {
+test('an opencode run whose task names exa gets OPENCODE_ENABLE_EXA', async () => {
+  // Catches: a task's own searchProvider is ignored.
+  const [child] = await runOnce({
     id: 'e2',
     route: route('opencode'),
     secrets: { openrouterKey: KEY },
@@ -99,18 +95,23 @@ test('an opencode run whose task names exa gets OPENCODE_ENABLE_EXA although the
   assert.equal(Object.hasOwn(child.env, 'EXA_API_KEY'), false);
 });
 
-test('an opencode run of an agent without the search ability gets neither OPENCODE_ENABLE_EXA nor EXA_API_KEY', async () => {
-  // Catches: the switch is set for every OpenCode run, giving websearch to agents whose profile asked for none.
-  const [child] = await runOnce(null, { id: 'e3', route: route('opencode'), secrets: { openrouterKey: KEY } });
+test('an opencode run whose task names another search provider gets neither OPENCODE_ENABLE_EXA nor EXA_API_KEY', async () => {
+  // Catches: the default exa overrides the provider the task named.
+  const [child] = await runOnce({
+    id: 'e3',
+    route: route('opencode'),
+    secrets: { openrouterKey: KEY },
+    searchProvider: 'brave',
+  });
   assert.ok(child, 'the child was spawned');
   assert.equal(Object.hasOwn(child.env, 'OPENCODE_ENABLE_EXA'), false);
   assert.equal(Object.hasOwn(child.env, 'EXA_API_KEY'), false);
 });
 
 for (const backend of ['claude', 'codex'] as const) {
-  test(`a ${backend} run of an agent that searches with exa never gets OPENCODE_ENABLE_EXA`, async () => {
+  test(`a ${backend} run never gets OPENCODE_ENABLE_EXA`, async () => {
     // Catches: the Exa switch leaks into a backend that has its own web tools.
-    const [child] = await runOnce('exa', { id: `e-${backend}`, route: route(backend), searchProvider: 'exa' });
+    const [child] = await runOnce({ id: `e-${backend}`, route: route(backend), searchProvider: 'exa' });
     assert.ok(child, 'the child was spawned');
     assert.equal(Object.hasOwn(child.env, 'OPENCODE_ENABLE_EXA'), false);
     assert.equal(Object.hasOwn(child.env, 'EXA_API_KEY'), false);
@@ -119,7 +120,7 @@ for (const backend of ['claude', 'codex'] as const) {
 
 test('an opencode run with exa does not deny websearch in the permissions written for the run', async () => {
   // Catches: the run's permission block, where one is written, still denies websearch, so the tool OpenCode now shows cannot be used.
-  const [child] = await runOnce('exa', { id: 'e4', route: route('opencode'), secrets: { openrouterKey: KEY } });
+  const [child] = await runOnce({ id: 'e4', route: route('opencode'), secrets: { openrouterKey: KEY } });
   assert.ok(child, 'the child was spawned');
   const permission = child.config.permission;
   if (isJson(permission)) assert.equal(permission.websearch, 'allow');

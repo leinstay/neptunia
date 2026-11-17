@@ -91,7 +91,7 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
 
 /**
  * The retired keys of each entry of `agents` in the config, whatever agent it names: the dollar caps, and the socket,
- * out folder and search provider that the unit and the abilities of a profile give (src/agent-runner/profiles.ts).
+ * out folder that the unit of a profile gives (src/agent-runner/profiles.ts), and the search provider of the runner.
  */
 const RETIRED_AGENT_KEYS = Object.freeze(['daily.usd', 'limits.usd', 'socket', 'out', 'searchProvider']);
 

@@ -2,9 +2,6 @@
   "id": "server",
   "description": "Answers the owner's questions about this machine by reading files and running read-only commands. It has no web access and changes nothing.",
   "unit": "host",
-  "abilities": ["shell"],
-  "returns": "text",
-  "audience": "owner",
   "prompt": "prompt.md",
   "limits": {
     "steps": 20,

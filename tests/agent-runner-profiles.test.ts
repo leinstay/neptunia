@@ -35,9 +35,6 @@ test('the tracked agents are fetch, scout, code and server, each on the unit its
       ['server', 'host', 'tracked'],
     ]
   );
-  assert.equal(profiles.server?.audience, 'owner');
-  assert.equal(profiles.scout?.returns, 'text');
-  assert.ok(!profiles.scout?.abilities.includes('download'));
   assert.equal(profileOf('nope', { env: {} }), null);
 });
 
@@ -47,9 +44,6 @@ function agentProfile(id: string, changes: Record<string, unknown> = {}) {
     id,
     description: 'A test agent.',
     unit: 'web',
-    abilities: ['search', 'fetch'],
-    returns: 'text',
-    audience: 'any',
     prompt: 'prompt.md',
     limits: { steps: 5, seconds: 60 },
     daily: { tasks: 3 },
@@ -90,10 +84,9 @@ function assertRefused(rootDir: string, agent: string, key: string) {
 }
 
 test("loadProfiles: a valid profile from a temporary agents/ tree becomes a profile with the runner's shape", () => {
-  withAgentsTree({ probe: agentProfile('probe', { unit: 'host', abilities: ['shell'] }) }, (rootDir: string) => {
+  withAgentsTree({ probe: agentProfile('probe', { unit: 'host' }) }, (rootDir: string) => {
     const probe = loadProfiles({ rootDir, env: {} }).probe;
     assert.equal(probe.unit, 'host');
-    assert.deepEqual([...probe.abilities], ['shell']);
     assert.deepEqual(probe.promptFiles, [
       path.join(rootDir, 'data', 'agents', 'probe', 'prompt.md'),
       path.join(rootDir, 'agents', 'probe', 'prompt.md'),
@@ -104,7 +97,9 @@ test("loadProfiles: a valid profile from a temporary agents/ tree becomes a prof
 });
 
 test('loadProfiles: a key of the old profile shape is refused as an unknown key', () => {
-  for (const key of ['kind', 'role', 'tools', 'shell', 'sandbox', 'socket', 'enabled', 'searchProvider']) {
+  const keys = ['kind', 'role', 'tools', 'shell', 'sandbox', 'socket', 'enabled', 'searchProvider'];
+  // Bug: a profile still carrying `abilities`, `returns` or `audience` reads as if the engine limited the agent by them.
+  for (const key of [...keys, 'abilities', 'returns', 'audience']) {
     withAgentsTree({ probe: agentProfile('probe', { [key]: 'x' }) }, (rootDir: string) =>
       assertRefused(rootDir, 'probe', key)
     );
@@ -115,10 +110,6 @@ test('loadProfiles: a missing key or a value of the wrong form is refused, namin
   const cases: Array<[Record<string, unknown>, string]> = [
     [{ unit: undefined }, 'unit'],
     [{ unit: 'cloud' }, 'unit'],
-    [{ abilities: ['search', 'fly'] }, 'abilities'],
-    [{ abilities: ['fetch', 'fetch'] }, 'abilities'],
-    [{ returns: 'links' }, 'returns'],
-    [{ audience: 'members' }, 'audience'],
     [{ id: 'other' }, 'id'],
     [{ prompt: '../prompt.md' }, 'prompt'],
     [{ limits: { steps: 5 } }, 'limits.seconds'],

@@ -31,10 +31,7 @@ function engineOver(base: string, subharness: RunDeps) {
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
-    search: false,
     unit: 'web',
-    abilities: ['search', 'fetch', 'download', 'shell'],
-    returns: 'files',
   };
   return createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],

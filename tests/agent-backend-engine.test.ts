@@ -38,10 +38,7 @@ function engineRig(backend: 'codex' | 'claude' | 'opencode' | null, agent: strin
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
-    search: false,
     unit: 'web',
-    abilities: ['search', 'fetch', 'download', 'shell'],
-    returns: 'files',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
@@ -171,13 +168,14 @@ test("the profile's step limit reaches the run, and a task's own limit wins", as
   );
 });
 
-/** The files a run hands back when the agent leaves `picture.png` in its folder and has `abilities` and `returns`. */
-async function filesHandedBack(abilities: Array<string>, returns: string): Promise<number> {
+test('a run of any agent hands back the file it left in its folder', async () => {
+  // Bug: the runner keeps the files of an agent its profile marks as answering in text, and the owner never sees
+  // the file the agent made, so he cannot fix its prompt.
   const base = tempDir('nep-engine-files-');
   const prompt = path.join(base, 'agent.md');
   fs.writeFileSync(prompt, 'You are an errand agent.');
   const privateDir = path.join(base, 'private');
-  writeKeysFile(privateDir, { subharness: { key: null, modes: {}, uses: { fetch: 'codex' } } });
+  writeKeysFile(privateDir, { subharness: { key: null, modes: {}, uses: { scout: 'codex' } } });
   const saveAPicture = (_brief: string, options: BackendRunOptions) => {
     fs.writeFileSync(path.join(options.cwd, 'picture.png'), 'not really a picture');
     return Promise.resolve({ ok: true, text: 'answer', exitCode: 0 });
@@ -188,29 +186,12 @@ async function filesHandedBack(abilities: Array<string>, returns: string): Promi
     hostEnv: { PATH: '/usr/bin' },
     backendFactory: (name) => ({ name, run: saveAPicture }),
   };
-  const profile = {
-    name: 'fetch',
-    unit: 'web',
-    abilities,
-    returns,
-    promptFiles: [prompt],
-    defaultLimits: { steps: 5, seconds: 30 },
-  };
+  const profile = { name: 'scout', unit: 'web', promptFiles: [prompt], defaultLimits: { steps: 5, seconds: 30 } };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
     outDir: path.join(base, 'out'),
     subharness,
   });
-  const { result } = await engine.run({ ...TASK, agent: 'fetch' });
-  return result.files.length;
-}
-
-test('an agent that downloads and returns files hands back the file it saved', async () => {
-  assert.equal(await filesHandedBack(['search', 'download'], 'files'), 1);
-});
-
-test('an agent without the download ability, or one that returns text, hands back no file', async () => {
-  // Bug: a search agent leaves a scraped page in its folder and the persona receives it as a deliverable.
-  assert.equal(await filesHandedBack(['search', 'fetch'], 'files'), 0);
-  assert.equal(await filesHandedBack(['search', 'download'], 'text'), 0);
+  const { result } = await engine.run(TASK);
+  assert.equal(result.files.length, 1);
 });

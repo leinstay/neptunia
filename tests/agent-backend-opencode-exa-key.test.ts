@@ -22,8 +22,8 @@ const TASK = { id: 't1', goal: 'find the release notes', context: {} } as unknow
 
 type Seen = { env: Record<string, string>; args: Array<string> };
 
-/** One engine run of a profile with `defaultSearchProvider` and the task `extra`; returns what each child saw. */
-async function runOnce(profileProvider: string | null, extra: Record<string, unknown>): Promise<Array<Seen>> {
+/** One engine run of the task `extra`; returns what each child saw. */
+async function runOnce(extra: Record<string, unknown>): Promise<Array<Seen>> {
   const base = tempDir('nep-oc-exakey-');
   const binary = path.join(base, 'fake-binary');
   fs.writeFileSync(binary, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -49,11 +49,7 @@ async function runOnce(profileProvider: string | null, extra: Record<string, unk
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
-    search: false,
     unit: 'web',
-    // Changed: the search provider follows the `search` ability, so `exa` stands for an agent that searches.
-    abilities: profileProvider === 'exa' ? ['search', 'fetch'] : ['fetch'],
-    returns: 'files',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
@@ -71,7 +67,7 @@ async function runOnce(profileProvider: string | null, extra: Record<string, unk
 
 test('an opencode run with exa and a searchKey gets EXA_API_KEY and OPENCODE_ENABLE_EXA, and the key is in no argument', async () => {
   // Catches: the stored key reaching the task but not the child, or leaking into the command line where ps shows it.
-  const [child] = await runOnce('exa', {
+  const [child] = await runOnce({
     id: 'k1',
     route: route('opencode'),
     secrets: { openrouterKey: OR_KEY, searchKey: EXA_KEY },
@@ -85,11 +81,12 @@ test('an opencode run with exa and a searchKey gets EXA_API_KEY and OPENCODE_ENA
   );
 });
 
-test('an opencode run of an agent that does not search gets no EXA_API_KEY although the task carries one', async () => {
+test('an opencode run whose task names another search provider gets no EXA_API_KEY although the task carries one', async () => {
   // Catches: the key handed to a run that never uses Exa.
-  const [child] = await runOnce(null, {
+  const [child] = await runOnce({
     id: 'k3',
     route: route('opencode'),
+    searchProvider: 'brave',
     secrets: { openrouterKey: OR_KEY, searchKey: EXA_KEY },
   });
   assert.ok(child, 'the child was spawned');
@@ -99,7 +96,7 @@ test('an opencode run of an agent that does not search gets no EXA_API_KEY altho
 for (const backend of ['claude', 'codex'] as const) {
   test(`a ${backend} run whose task carries a searchKey gets no EXA_API_KEY`, async () => {
     // Catches: the Exa key reaching a Claude or Codex child, which have web tools of their own.
-    const [child] = await runOnce('exa', {
+    const [child] = await runOnce({
       id: `k-${backend}`,
       route: route(backend),
       searchProvider: 'exa',

@@ -131,10 +131,7 @@ test('the engine puts the count on the task result of an opencode run', async ()
     defaultLimits: { steps: 5, seconds: 30 },
     defaultSearchProvider: 'exa',
     sandbox: 'read-only',
-    search: false,
     unit: 'web',
-    abilities: ['search', 'fetch', 'download', 'shell'],
-    returns: 'files',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],

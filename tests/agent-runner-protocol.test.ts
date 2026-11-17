@@ -48,7 +48,7 @@ test('validateRequest: a full run passes and is normalised', () => {
 });
 
 test('validateRequest: run needs the name of its agent, since one runner serves every agent of its unit', () => {
-  // Bug: a run with no agent reaches a runner that cannot tell which agent's prompt and abilities to use.
+  // Bug: a run with no agent reaches a runner that cannot tell which agent's prompt to use.
   assert.equal(loose(validateRequest({ op: 'run', id: 'a', goal: 'x' })).error, 'bad-agent');
   assert.equal(loose(validateRequest({ op: 'run', agent: '../scout', id: 'a', goal: 'x' })).error, 'bad-agent');
   assert.equal(loose(loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x' })).message).agent, 'scout');

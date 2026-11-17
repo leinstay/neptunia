@@ -4,12 +4,11 @@
 // then be whole and sit beside its prompt; a local folder with no profile is no agent. The list of agents is this read
 // and nothing else: no code names an agent.
 //
-// A profile holds exactly `id`, `description`, `unit`, `abilities`, `returns`, `audience`, `prompt`, `limits`, `daily`
-// and `cost`. A profile that misses a key, names an unknown one or holds a value of the wrong form fails `listAgents` and
-// `loadProfiles` with one error naming the agent and the key, and a symbolic link anywhere in the local layer is refused.
-// A profile authorizes nothing by itself: the runner maps `abilities` to what the harness of a run accepts
-// (src/agent-runner/backend.ts) and the unit `unit` names sets the sandbox of the process (deploy/). The socket and the
-// out folder of a unit derive from its name (`unitPaths`). Keep in sync with docs/errands.md and agents/README.md.
+// A profile holds exactly `id`, `description`, `unit`, `prompt`, `limits`, `daily` and `cost`. A profile that misses a
+// key, names an unknown one or holds a value of the wrong form fails `listAgents` and `loadProfiles` with one error
+// naming the agent and the key, and a symbolic link anywhere in the local layer is refused. A profile authorizes
+// nothing: the agent's prompt is its only limit, and the unit `unit` names sets the sandbox of the process (deploy/).
+// The socket and the out folder of a unit derive from its name (`unitPaths`). Keep in sync with docs/errands.md and agents/README.md.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,26 +29,11 @@ export const UNITS = ['web', 'host'] as const;
 /** One of UNITS. */
 export type UnitName = (typeof UNITS)[number];
 
-/** What an agent may do: search the web, read a page, write files into its out folder, run commands. */
-const ABILITIES = ['search', 'fetch', 'download', 'shell'] as const;
-
-/** One of ABILITIES. */
-export type Ability = (typeof ABILITIES)[number];
-
-/** What an agent hands back: its text alone, or its text and files. */
-const RETURNS = ['text', 'files'] as const;
-
-/** Who may have an errand run by an agent: anyone she runs errands for, or the owner alone. */
-const AUDIENCES = ['any', 'owner'] as const;
-
 /** The validated profile.json of an agent. */
 export type AgentDefinition = Readonly<{
   id: string;
   description: string;
   unit: UnitName;
-  abilities: ReadonlyArray<Ability>;
-  returns: (typeof RETURNS)[number];
-  audience: (typeof AUDIENCES)[number];
   prompt: string;
   limits: Readonly<Record<string, number>>;
   daily: Readonly<Record<string, number>>;
@@ -73,9 +57,6 @@ export type Profile = {
   name: string;
   description: string;
   unit: UnitName;
-  abilities: ReadonlyArray<Ability>;
-  returns: AgentDefinition['returns'];
-  audience: AgentDefinition['audience'];
   origin: AgentOrigin;
   promptFiles: Array<string>;
   defaultLimits: Readonly<Record<string, number>>;
@@ -96,9 +77,6 @@ const PROFILE_KEYS: ReadonlyArray<string> = Object.freeze([
   'id',
   'description',
   'unit',
-  'abilities',
-  'returns',
-  'audience',
   'prompt',
   'limits',
   'daily',
@@ -197,20 +175,6 @@ function checkWord(agent: string, key: string, value: unknown, allowed: Readonly
     throw new AgentProfileError(agent, key, `must be one of ${allowed.join(', ')}`);
 }
 
-/** Checks `abilities`: a list of distinct names of ABILITIES, empty allowed. */
-function checkAbilities(agent: string, value: unknown): void {
-  if (!Array.isArray(value)) throw new AgentProfileError(agent, 'abilities', 'must be a list');
-  for (const ability of value as Array<unknown>) {
-    if (typeof ability !== 'string' || !ABILITIES.some((known) => known === ability))
-      throw new AgentProfileError(
-        agent,
-        'abilities',
-        `unknown ability ${JSON.stringify(ability)} (known: ${ABILITIES.join(', ')})`
-      );
-  }
-  if (new Set(value).size !== value.length) throw new AgentProfileError(agent, 'abilities', 'names an ability twice');
-}
-
 /** A path-safe agent directory name. */
 function checkId(agent: string): void {
   if (typeof agent !== 'string' || !ID_PATTERN.test(agent))
@@ -235,9 +199,6 @@ function validateProfile(agent: string, raw: unknown) {
   if (typeof raw.description !== 'string' || !raw.description.trim())
     throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
   checkWord(agent, 'unit', raw.unit, UNITS);
-  checkAbilities(agent, raw.abilities);
-  checkWord(agent, 'returns', raw.returns, RETURNS);
-  checkWord(agent, 'audience', raw.audience, AUDIENCES);
   if (typeof raw.prompt !== 'string' || !FILE_NAME_PATTERN.test(raw.prompt))
     throw new AgentProfileError(agent, 'prompt', 'must be a .md file name with no directory part');
   checkNumbers(agent, 'limits', raw.limits, { steps: true, seconds: false });
@@ -419,9 +380,6 @@ function makeProfile(definition: AgentDefinition, origin: AgentOrigin, paths: Re
     name: definition.id,
     description: definition.description,
     unit: definition.unit,
-    abilities: definition.abilities,
-    returns: definition.returns,
-    audience: definition.audience,
     origin,
     promptFiles: promptCandidates(definition.id, paths, definition.prompt),
     defaultLimits: definition.limits,

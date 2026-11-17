@@ -1,14 +1,13 @@
 // The tool flags of `claude -p` (src/agent-runner/backend.ts, the claude recipe), seen at the spawn boundary: a
 // disposable shell script stands where claude is installed and records the arguments it was started with. A run
-// reaches it through `runAgent` (src/subharness/run.ts) with a route, and through `createAgentEngine` for a profile.
-// Contract: `AgentRun.tools` is the profile's OpenCode tool names (absent for a run whose profile names none);
-// the mode (read, write, full, sudo) and those tools become `--tools` and `--allowedTools`; full and sudo become
-// `--dangerously-skip-permissions` instead.
+// reaches it through `runAgent` (src/subharness/run.ts) with a route.
+// Contract: every run gets Read, Grep, Glob, Bash, WebFetch and WebSearch, a write mode adds Edit and Write, and the
+// list goes to `--tools` and `--allowedTools`; full and sudo pass `--dangerously-skip-permissions` instead.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createAgentEngine, runChildProcess } from '../src/agent-runner/backend.ts';
+import { runChildProcess } from '../src/agent-runner/backend.ts';
 import type { TaskRoute } from '../src/agent-runner/protocol.ts';
 import { runMemoryWriter } from '../src/subharness/memory-writer.ts';
 import type { MemoryWriterDeps } from '../src/subharness/memory-writer.ts';
@@ -58,8 +57,8 @@ function namesOf(argv: ReadonlyArray<string>, flag: string): Array<string> {
   return values.sort();
 }
 
-/** One run of `agent` in `mode` with the profile's `tools`; the arguments claude was started with. */
-async function launch(agent: string, mode: TaskRoute['mode'], tools?: ReadonlyArray<string>) {
+/** One run of `agent` in `mode`; the arguments claude was started with. */
+async function launch(agent: string, mode: TaskRoute['mode']) {
   const { deps, argv } = rig();
   const outcome = await runAgent(
     {
@@ -68,7 +67,6 @@ async function launch(agent: string, mode: TaskRoute['mode'], tools?: ReadonlyAr
       cwd: tempDir('nep-claude-cwd-'),
       timeoutMs: 20_000,
       route: route(mode),
-      ...(tools ? { tools } : {}),
     },
     deps
   );
@@ -76,77 +74,24 @@ async function launch(agent: string, mode: TaskRoute['mode'], tools?: ReadonlyAr
   return argv();
 }
 
-test('a read run without profile tools names Read, Grep, Glob and Bash in --tools and --allowedTools, and no edit tool', async () => {
+test('a read run of any agent names the shell and web tools in --tools and --allowedTools, and no edit tool', async () => {
   // Bug: the claude recipe passed no tool flags, so a read agent's shell command was denied.
-  // Changed: the watcher is gone (maintainer, 2026-11-16), so the server, read by default, runs without profile tools.
+  // Changed: the prompt is an agent's only limit (owner, 2026-11-17), so every run gets the web tools too.
   const argv = await launch('server', 'read');
-  assert.deepEqual(namesOf(argv, '--tools'), ['Bash', 'Glob', 'Grep', 'Read']);
-  assert.deepEqual(namesOf(argv, '--allowedTools'), ['Bash', 'Glob', 'Grep', 'Read']);
+  const expected = ['Bash', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch'];
+  assert.deepEqual(namesOf(argv, '--tools'), expected);
+  assert.deepEqual(namesOf(argv, '--allowedTools'), expected);
   assert.equal(argv.includes(SKIP), false);
 });
 
 test('a write run adds Edit and Write to both lists', async () => {
   // Bug: an agent run reached the model but its edits were denied.
+  // Changed: every run gets the web tools (owner, 2026-11-17).
   const argv = await launch('dev', 'write');
-  const expected = ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'];
-  assert.deepEqual(namesOf(argv, '--tools'), expected);
-  assert.deepEqual(namesOf(argv, '--allowedTools'), expected);
-  assert.equal(argv.includes(SKIP), false);
-});
-
-test('the profile tools websearch and webfetch become WebSearch and WebFetch, and list or todowrite name nothing', async () => {
-  // Bug: the scout declares web tools in its profile and gets none on claude.
-  const argv = await launch('scout', 'write', ['websearch', 'webfetch', 'read', 'glob', 'list', 'bash', 'todowrite']);
   const expected = ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch', 'Write'];
   assert.deepEqual(namesOf(argv, '--tools'), expected);
   assert.deepEqual(namesOf(argv, '--allowedTools'), expected);
-});
-
-test('a read profile without web tools gets no WebFetch and no WebSearch', async () => {
-  // Bug: a flat tool list for every agent would hand the server a network tool.
-  const argv = await launch('server', 'read', ['read', 'grep', 'glob', 'list', 'bash']);
-  assert.deepEqual(namesOf(argv, '--tools'), ['Bash', 'Glob', 'Grep', 'Read']);
-  assert.deepEqual(namesOf(argv, '--allowedTools'), ['Bash', 'Glob', 'Grep', 'Read']);
-});
-
-/** The claude tool list a read run of an agent with `abilities` gets through the engine. */
-async function toolsOfAbilities(abilities: Array<string>): Promise<Array<string>> {
-  const { base, deps, argv } = rig();
-  const prompt = path.join(base, 'agent.md');
-  fs.writeFileSync(prompt, 'You are an errand agent.');
-  const profile = {
-    name: 'scout',
-    unit: 'web',
-    abilities,
-    returns: 'text',
-    promptFiles: [prompt],
-    defaultLimits: { steps: 5, seconds: 30 },
-  };
-  const engine = createAgentEngine({
-    profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
-    outDir: path.join(base, 'out'),
-    subharness: deps,
-  });
-  const task = {
-    id: 't1',
-    agent: 'scout',
-    goal: 'find it',
-    context: {},
-    route: route('read'),
-  } as unknown as Parameters<typeof engine.run>[0];
-  assert.equal((await engine.run(task)).status, 'done');
-  return namesOf(argv(), '--tools');
-}
-
-test('the engine turns search and fetch into the web tools of the run', async () => {
-  // Bug: the abilities of a profile never reach the recipe, so the agent searches nothing.
-  assert.deepEqual(await toolsOfAbilities(['search', 'fetch']), ['Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch']);
-});
-
-test('an agent without the shell ability gets no Bash in a read run', async () => {
-  // Bug: every agent runs commands, whatever its profile says.
-  assert.deepEqual(await toolsOfAbilities(['fetch']), ['Glob', 'Grep', 'Read', 'WebFetch']);
-  assert.deepEqual(await toolsOfAbilities(['shell']), ['Bash', 'Glob', 'Grep', 'Read']);
+  assert.equal(argv.includes(SKIP), false);
 });
 
 for (const mode of ['full', 'sudo'] as const) {
@@ -159,7 +104,7 @@ for (const mode of ['full', 'sudo'] as const) {
 for (const mode of ['read', 'write'] as const) {
   test(`a ${mode} run never passes --dangerously-skip-permissions or a bypass mode`, async () => {
     // Bug: the bypass flag spreading to the held modes would leave the unit's sandbox the only guard.
-    const argv = await launch('scout', mode, ['bash']);
+    const argv = await launch('scout', mode);
     assert.equal(argv.includes(SKIP), false);
     assert.equal(argv.includes('--allow-dangerously-skip-permissions'), false);
     assert.equal(argv.includes('bypassPermissions'), false);

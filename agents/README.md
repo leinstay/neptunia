@@ -18,9 +18,6 @@ A profile holds these keys and no other.
 | `id` | the folder's name |
 | `description` | what the agent is for and what it is not for, shown by `/agents` and read by the dispatcher when it picks the agent of an errand |
 | `unit` | `web` or `host`, the unit whose runner runs the agent |
-| `abilities` | any of `search`, `fetch`, `download` and `shell` |
-| `returns` | `text`, or `files` for an agent that hands back the files it saved |
-| `audience` | `any`, or `owner` for an agent whose errands only the owner may ask for |
 | `prompt` | the file name of the prompt in the same folder |
 | `limits` | `{ steps, seconds }` of one errand |
 | `daily` | `{ tasks }`, the errands a day |
@@ -28,7 +25,7 @@ A profile holds these keys and no other.
 
 A profile with a missing key, an unknown key or a value of the wrong form stops the process at start, with one error naming the agent and the key. A profile names no harness and no model. An agent runs on the backend, model and effort of its route, which `/model set <agent>` writes, see [docs/errands.md](../docs/errands.md#the-route-of-an-errand).
 
-The runner turns `abilities` into what the harness of a run accepts, and a harness that cannot withhold an ability keeps it, as [docs/errands.md](../docs/errands.md#units-and-abilities) lists. An agent hands back files only when it has `download` and says `"returns": "files"`.
+The prompt is the agent's only limit: every run gets the tools of its harness and hands back the files it left, as [docs/errands.md](../docs/errands.md#units-and-tools) lists.
 
 ## The two units
 
@@ -44,7 +41,7 @@ The folders here are tracked. A deployment's agents live in `<data>/agents/<name
 
 The dispatcher picks the agent of every errand she asks for from the agents that are enabled and free now, see [docs/errands.md](../docs/errands.md#the-dispatcher). The owner names one himself with `/errands add <agent> <goal>`.
 
-An agent is off until `/agent enable <name>` writes `agents.<name>.enabled` as `true` in the local config, and `/agent disable <name>` switches it off again. `agents.<name>` also overrides `cost`, `limits` and `daily`. `/agents` lists every agent with its description, unit, abilities, route, state and whether it is tracked or local.
+An agent is off until `/agent enable <name>` writes `agents.<name>.enabled` as `true` in the local config, and `/agent disable <name>` switches it off again. `agents.<name>` also overrides `cost`, `limits` and `daily`. `/agents` lists every agent with its description, unit, route, state and whether it is tracked or local.
 
 ## Further reading
 
