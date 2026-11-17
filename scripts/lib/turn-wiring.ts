@@ -44,6 +44,7 @@ import { createBraveSearch } from '../../src/web/brave.ts';
 import { createExaSearch } from '../../src/web/exa.ts';
 import { createLookup } from '../../src/web/lookup.ts';
 import { createReads } from '../../src/interface/reads.ts';
+import type { Reads } from '../../src/interface/reads.ts';
 import { withStableNames } from '../../src/behavior/stable-names.ts';
 import { loadPrincipals } from '../../src/interface/principals.ts';
 import { useOwnerAccounts } from '../../src/tools/operations/grants.ts';
@@ -296,6 +297,10 @@ export type WiringInput = {
   calibration?: number;
   /** The embedding client: the real one on `--embed live`, else one that embeds nothing. */
   embed: Embed;
+  /** The runner's random source (scripts/replay.ts `--inner --seed`); absent: `Math.random`. */
+  rng?: () => number;
+  /** Laid over the interface's reads (scripts/replay.ts `--hide-channel`, `--hide-message`); absent: the reads as built. */
+  wrapReads?: (reads: Reads) => Reads;
 };
 
 export type Wired = {
@@ -379,7 +384,8 @@ export function buildTurnRunner(input: WiringInput): Wired {
     now,
     summarize,
   } as unknown as Parameters<typeof createLookup>[0]);
-  const reads = createReads(withStableNames(port, namesStore), quietLog, () => identity.rootNative);
+  const built = createReads(withStableNames(port, namesStore), quietLog, () => identity.rootNative);
+  const reads = input.wrapReads ? input.wrapReads(built) : built;
   const members = seededMembers(memoryDb.database() as Db, input.rootPlace, identity.rootNative);
   const recall = createRecall({
     hot,
@@ -524,7 +530,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     intentions,
     places: null,
     now,
-    rng: Math.random,
+    rng: input.rng ?? Math.random,
   };
   const runner = createTurnRunner(deps);
   const seed = async (): Promise<void> => {

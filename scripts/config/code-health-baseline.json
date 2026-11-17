@@ -1139,8 +1139,8 @@
     },
     "scripts/lib/replay-args.ts": {
       "parseArgs": {
-        "complexity": 247,
-        "function-length": 331
+        "complexity": 246,
+        "function-length": 330
       }
     },
     "scripts/lib/vision-compare.ts": {
@@ -1187,8 +1187,7 @@
         "complexity": 31
       },
       "runInner": {
-        "complexity": 54,
-        "function-length": 326
+        "complexity": 54
       },
       "runMain": {
         "complexity": 152

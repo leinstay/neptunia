@@ -18,7 +18,7 @@ export const USAGE =
   '       node scripts/replay.ts --pair-transport (--triggers <file> | <placeId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --loop-triggers (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
-  '       node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat> [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
+  '       node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat> [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--seed <text>] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-timeout-min 20]])';
 
 /** The wake kinds `--inner` runs (src/behavior/inner.ts#WAKE_KINDS). */
@@ -32,7 +32,7 @@ export const DIARY_KINDS = Object.freeze(['selfPicture', 'picture']);
 
 export const MAX_DIARY_COUNT = 50;
 
-/** The longest `--seed` of a `--diary-day` run. */
+/** The longest `--seed` of a `--diary-day` or `--inner` run. */
 export const MAX_SEED_CHARS = 200;
 
 /** A journal turn id (src/memory/journal.ts#start). */
@@ -261,8 +261,8 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
   // --no-cache: the trigger runs send her requests with the prompt-cache marker a live turn has; this one sends none.
   if (out.noCache && !(out.pairTransport || out.loopTriggers)) throw new CliError(USAGE);
   if (out.inner !== null) {
-    // --intention for an intention's wake (the heartbeat takes none); --snapshot, --show-request, --samples, --prompts,
-    // --out and --spend; no positionals.
+    // --intention for an intention's wake (the heartbeat takes none); --snapshot, --show-request, --samples, --seed,
+    // --prompts, --out and --spend; no positionals.
     if (
       positional.length > 0 ||
       (out.inner === 'heartbeat' ? out.intention !== null : out.intention === null) ||
@@ -288,7 +288,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       out.pairTransport ||
       out.loopTriggers ||
       out.transport !== null ||
-      out.seed !== null ||
       out.date !== null ||
       out.draw !== null ||
       out.maxPictures !== null
