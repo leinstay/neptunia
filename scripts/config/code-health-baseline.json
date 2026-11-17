@@ -484,10 +484,6 @@
       "deep": 11,
       "repeated": 0
     },
-    "tests/media-pick-emoji-contract.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "tests/media-pick-emoji-turn.test.ts": {
       "deep": 2,
       "repeated": 0
