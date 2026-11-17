@@ -257,9 +257,31 @@ function isAudioType(type: string): boolean {
   return type.startsWith('audio/') || isVideoType(type);
 }
 
-/** Whether a bare content type is a GIF's animation: the .gif itself, or the mp4/webm a GIF site serves. */
+/**
+ * Whether a bare content type may be a GIF's animation: the .gif itself, the mp4/webm a GIF site serves, or a PNG,
+ * which is one only when its bytes say it is animated (isAnimatedPng).
+ */
 function isGifType(type: string): boolean {
-  return type === 'image/gif' || isVideoType(type);
+  return type === 'image/gif' || type === 'image/png' || isVideoType(type);
+}
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+// The head of a file read to tell a PNG apart: an APNG's acTL chunk comes before its first IDAT, near the start.
+const PNG_HEAD_BYTES = 64 * 1024;
+
+/** What the head of a downloaded animation is: an animated PNG, a still PNG, or no PNG at all. */
+function pngKind(head: Buffer): 'apng' | 'still' | 'other' {
+  if (head.length < PNG_SIGNATURE.length || !head.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+    return 'other';
+  }
+  let offset = PNG_SIGNATURE.length;
+  while (offset + 8 <= head.length) {
+    const type = head.toString('latin1', offset + 4, offset + 8);
+    if (type === 'acTL') return 'apng';
+    if (type === 'IDAT') return 'still';
+    offset += 12 + head.readUInt32BE(offset);
+  }
+  return 'still';
 }
 
 // The port a proxy URL means when it names none.
@@ -572,6 +594,18 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
     }
   }
 
+  /** The first PNG_HEAD_BYTES of a downloaded `file`, for pngKind. */
+  async function readHead(file: string): Promise<Buffer> {
+    const handle = await fs.open(file, 'r');
+    try {
+      const head = Buffer.alloc(PNG_HEAD_BYTES);
+      const { bytesRead } = await handle.read(head, 0, PNG_HEAD_BYTES, 0);
+      return head.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+  }
+
   async function asDataUrl(file: string, mimeType: string): Promise<string> {
     const buffer = await fs.readFile(file);
     return `data:${mimeType};base64,${buffer.toString('base64')}`;
@@ -826,7 +860,8 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
    * no video a model takes. The download is capped like an attachment's
    * (`maxBytes * DOWNLOAD_CEILING_FACTOR`), the clip at `maxBytes`. A missing
    * or failing ffmpeg is `tool`. `seconds` is `maxSeconds`, the upper bound
-   * the request is estimated at. Never rejects.
+   * the request is estimated at. A PNG is taken when its bytes hold an `acTL` chunk (an APNG sticker) and ffmpeg is
+   * told so, since ffmpeg reads a PNG as one still image otherwise; a still PNG is `download`. Never rejects.
    * @param options `fetchTimeoutMs` falls back to `toolTimeoutMs`.
    */
   async function fetchGif(url: string, options: GifOptions): Promise<GifResult> {
@@ -842,8 +877,12 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
         accept: isGifType,
       });
       if (!got.ok) return fail('gif', url, got.reason, got.extra);
+      const png = pngKind(await readHead(inPath));
+      // A still PNG is a picture, not an animation.
+      if (png === 'still') return fail('gif', url, 'download');
+      const inputFormat = png === 'apng' ? 'apng' : null;
 
-      const run = await runTool(ffmpegGifArgs(inPath, outPath, { ffmpegPath, maxSeconds }), toolTimeoutMs);
+      const run = await runTool(ffmpegGifArgs(inPath, outPath, { ffmpegPath, maxSeconds, inputFormat }), toolTimeoutMs);
       if (run.timedOut) return fail('gif', url, 'timeout', { code: runCode(run) });
       if (run.spawnError || run.code !== 0) return fail('gif', url, 'tool', { code: runCode(run) });
 
