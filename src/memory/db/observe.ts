@@ -77,6 +77,7 @@ import { projectRow } from './graph.ts';
 import { lineColumns, lineOwnerOfText, nextLinePosition } from './line-owner.ts';
 import { ingestOption, insertIngest } from './ingest.ts';
 import { dbOf, isWholeNumber } from './types.ts';
+import { nativeAuthorityOf } from '../../protocol/identity.ts';
 import type { Connection, Db, Log, MemoryHandle, Row } from './types.ts';
 import type { Scope } from './scope.ts';
 
@@ -586,10 +587,23 @@ function fillAddress(db: Db, existing: Row, address: unknown, at: string): void 
 /**
  * The writer kind `place-address` (session-write.ts): the chat an interface opened for a place that held no address,
  * when the core asked it to open a direct chat (`dm.chat`), stored as the place's `native_id`. A place that holds an
- * address keeps it, since a message's own address is the interface's word on it. Answers how many places took it.
+ * address keeps it, since a message's own address is the interface's word on it. A write that names the partner's
+ * platform id and its interface (`partner`, `iface`) instead of a place is the direct chat she opens with a person who
+ * has none stored: the place is made as a person's first direct message makes it (`placeOf`), keyed by the partner,
+ * with the chat as its address. Answers how many places took it and, for a partner, the place's id.
  */
-export function applyPlaceAddress(connection: Connection, update: Row): { stored: number } {
-  const { placeId, address } = update;
+export function applyPlaceAddress(connection: Connection, update: Row): { stored: number; placeId?: string } {
+  const { placeId, address, partner, iface } = update;
+  if (filled(partner) && filled(iface) && filled(address)) {
+    const db = dbOf(connection);
+    const at = typeof update.at === 'string' ? update.at : new Date().toISOString();
+    const authority = nativeAuthorityOf(iface);
+    ensureAuthority(db, authority, iface, authority.slice(iface.length + 1));
+    const place = { authority, key: `dm:${partner}`, kind: 'dm', chat: 'dm', address, partner: { key: partner } };
+    const envelope: ObservationPlaceInput = { iface, authority, place, occurredAt: at };
+    const made = placeOf(db, envelope, at);
+    return { stored: 1, placeId: made.id };
+  }
   if (!filled(placeId) || !filled(address)) return { stored: 0 };
   const result = dbOf(connection)
     .prepare('UPDATE places SET native_id = ? WHERE id = ? AND native_id IS NULL')

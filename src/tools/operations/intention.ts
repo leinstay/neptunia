@@ -8,7 +8,8 @@
 // waits on the errand her same turn hands off), `intention.cancel` (also how she rejects a
 // candidate), `intention.list`. Her own state, so her own calls run on her grant alone
 // (src/tools/definitions.ts, trait `self`). A call never widens anything: a wait
-// names only an errand the errand store holds, a place to begin in is recorded once the interface says
+// names only an errand the errand store holds, a place to begin in (`placeId`, or the direct chat of `person`,
+// src/tools/operations/person-chat.ts) is recorded once the interface says
 // she may write there and the place is no mirror of her diary (`diary-mirror`), an intention set with no place begins in
 // the chat of the call and is refused the same way when that chat is a mirror's, and a candidate is accepted only where its origin allows
 // (src/intentions/model.ts#acceptRefusal). An update or a cancel without `id=` whose body is one bare
@@ -34,11 +35,13 @@ import { HEARTBEAT_ORIGIN, isIntentionId, parseEvery, parseWhen } from '../../in
 import { isMirrorPlace } from '../../memory/db/mirrors.ts';
 import { isOwnerCaller } from './grants.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
+import { personPlace } from './person-chat.ts';
 import { writablePlace } from './shared.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
 import type { Intention } from '../../intentions/types.ts';
+import type { Env } from './env.ts';
 
 /** The service's refusal codes that mean bad arguments rather than a failure. */
 const INVALID = new Set([
@@ -65,6 +68,23 @@ const INVALID = new Set([
 /** Her call's key: a restarted turn or wake that makes the same call answers with the record the first one made. */
 function callKeyOf(context: OpContext): string | null {
   return context?.actor === 'persona' && typeof context.idempotencyKey === 'string' ? context.idempotencyKey : null;
+}
+
+/** A text argument trimmed, undefined when not given. */
+function text(args: Obj, key: string): string | undefined {
+  const value = args[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * The place an intention begins in as the call names it: `placeId`, else the direct chat of `person`, resolved and
+ * stored now (src/tools/operations/person-chat.ts), else undefined. Both together are `invalid-args`.
+ */
+async function beginOf(env: Env, args: Obj): Promise<string | undefined> {
+  const person = text(args, 'person');
+  const place = text(args, 'placeId');
+  if (person && place) throw invalid('a place or a person, not both');
+  return person ? personPlace(env, person) : place;
 }
 
 const handlers = perEnv((env) => {
@@ -101,12 +121,6 @@ const handlers = perEnv((env) => {
     const parsed = parseEvery(text);
     if (!parsed.ok) throw invalid('every: day, week, <n>h, <n>d or none', CODE.BAD_EVERY);
     return parsed.every;
-  }
-
-  /** A text argument trimmed, undefined when not given. */
-  function text(args: Obj, key: string): string | undefined {
-    const value = args[key];
-    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
   }
 
   /** `args.people` as ids (comma or space separated; `<@id>` unwrapped), undefined when not given. */
@@ -286,7 +300,7 @@ const handlers = perEnv((env) => {
     const place = text(args, 'attend');
     const purpose = text(args, 'text') ?? place;
     if (!purpose) throw invalid('a purpose is required');
-    const begin = text(args, 'placeId');
+    const begin = await beginOf(env, args);
     if (begin) await checkBegin(begin, context);
     else checkOrigin(context);
     const from = origin(context);
@@ -301,7 +315,7 @@ const handlers = perEnv((env) => {
       every: every(args) ?? null,
       expiresAt: moment(args, 'expires') ?? null,
       ...(text(args, 'standing') === 'true' || args.standing === true ? { standing: true } : {}),
-      destination: text(args, 'placeId') ?? null,
+      destination: begin ?? null,
       completionCondition: text(args, 'condition') ?? null,
       chainId: text(args, 'chain') ?? null,
       errandId: text(args, 'errand') ?? null,
@@ -315,7 +329,8 @@ const handlers = perEnv((env) => {
   async function cmdUpdate(given: Obj, context: OpContext): Promise<Obj> {
     const { id, args } = idOf(given);
     if (!id) throw invalid('an id is required');
-    await checkBegin(text(args, 'placeId'), context);
+    const begin = await beginOf(env, args);
+    await checkBegin(begin, context);
     const state = text(args, 'state');
     if (state !== undefined && state !== 'pending' && state !== 'done' && state !== 'dropped')
       throw invalid('state must be pending, done or dropped');
@@ -329,7 +344,7 @@ const handlers = perEnv((env) => {
       ...(recurrence !== undefined ? { every: recurrence } : {}),
       ...(attend ? { attend } : {}),
       ...(moment(args, 'expires') !== undefined ? { expiresAt: moment(args, 'expires') } : {}),
-      ...(text(args, 'placeId') ? { destination: text(args, 'placeId') } : {}),
+      ...(begin ? { destination: begin } : {}),
       ...(text(args, 'condition') ? { completionCondition: text(args, 'condition') } : {}),
       ...(text(args, 'chain') ? { chainId: text(args, 'chain') } : {}),
       ...(text(args, 'errand') ? { errandId: text(args, 'errand') } : {}),

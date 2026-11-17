@@ -6,9 +6,9 @@
 // it makes no model request.
 
 import { strongestAttitudesOf, personNamesOf } from './frame-reads.ts';
-import { dmOfAccount, profileAccountsOf } from './meta-person.ts';
+import { knownPersonIds, knownPersonOf } from './known-people.ts';
+import { dmOfAccount } from './meta-person.ts';
 import { mirrorPlaces } from './mirrors.ts';
-import { PERSONA_ID } from './ids.ts';
 import { internalContext } from './scope.ts';
 import type { Db } from './types.ts';
 
@@ -138,40 +138,6 @@ function chatIdsOf(db: Db): Array<string> {
     });
 }
 
-/** The people memory holds a description, a claim or an attitude change of, she aside. */
-function knownPersonIds(db: Db): Array<string> {
-  return db
-    .prepare(
-      `SELECT d.subject_id AS id FROM descriptions d
-         WHERE d.subject_kind = 'person' AND d.retired_at IS NULL AND d.current_version IS NOT NULL
-       UNION SELECT c.subject_id FROM claims c WHERE c.subject_kind = 'person' AND c.retired_at IS NULL
-       UNION SELECT e.person_id FROM affinity_events e WHERE e.person_id IS NOT NULL AND e.retired_at IS NULL
-       ORDER BY id`
-    )
-    .all()
-    .flatMap((row) => {
-      const id = text(row.id);
-      return id === null || id === PERSONA_ID ? [] : [id];
-    });
-}
-
-/** The person row of an id: its last seen moment, null for a retired or merged person. */
-function livePerson(db: Db, personId: string): { lastSeenAt: number | null } | null {
-  const row = db
-    .prepare(
-      `SELECT p.last_seen_at FROM people p WHERE p.id = ? AND p.retired_at IS NULL
-         AND NOT EXISTS (SELECT 1 FROM people_merges m WHERE m.from_person = p.id)`
-    )
-    .get(personId);
-  return row === undefined ? null : { lastSeenAt: momentOf(row.last_seen_at) };
-}
-
-/** Whether an account is a person's own, no bot's and no shared one. */
-function userAccount(db: Db, accountId: string): boolean {
-  const row = db.prepare('SELECT kind, retired_at FROM accounts WHERE id = ?').get(accountId);
-  return row !== undefined && row.retired_at === null && (row.kind === null || row.kind === 'user');
-}
-
 /** The people and the places of a heartbeat at `now`, in id order. */
 export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
   const since = new Date(now - ACTIVITY_DAYS * DAY_MS).toISOString();
@@ -199,9 +165,9 @@ export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
   const scores = new Map(strongestAttitudesOf(db, internalContext(), ids.length).map((one) => [one.person, one.score]));
   const names = personNamesOf(db, ids);
   const people = ids.flatMap((personId): Array<ListedPerson> => {
-    const person = livePerson(db, personId);
-    const accounts = profileAccountsOf(db, personId).filter((one) => userAccount(db, one.id));
-    if (person === null || accounts.length === 0) return [];
+    const person = knownPersonOf(db, personId);
+    if (person === null) return [];
+    const { accounts } = person;
     const seen = newest.get(personId) ?? null;
     const dm = accounts.map((one) => dmOfAccount(db, one.id)).find((one) => one !== null) ?? null;
     return [

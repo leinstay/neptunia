@@ -158,12 +158,13 @@
   },
   "message.create": {
     "title": "Post a message",
-    "whenToUse": "Posts a message of yours in another place, or a message that carries something. Without place it posts here. The result says if it went out.\nUSE FOR: a post in a place other than this chat, a file an errand or a skill brought back, a GIF of your library, a repost of an attachment of one of your own earlier messages.\nRULES:\n- One file, GIF or repost per post. They do not combine.",
+    "whenToUse": "Posts a message of yours in another place, in your direct chat with a person, or a message that carries something. Without place or person it posts here. The result says if it went out.\nUSE FOR: a post in a place other than this chat, a file an errand or a skill brought back, a GIF of your library, a repost of an attachment of one of your own earlier messages.\nRULES:\n- One file, GIF or repost per post. They do not combine.",
     "whenNotToUse": "DO NOT USE FOR (use these instead):\n- A plain message in this chat -> a <msg>",
     "args": {
       "media": "#N or link of one of your own messages. Reposts its attachment as a file.",
       "item": "Which attachment of that message, 1 to 20.",
       "place": "#handle or place id of where to post. Default this chat.",
+      "person": "@handle or name: posts in your direct chat with them, opened if you have none. Not with place.",
       "reply": "#N or link of the message to reply to.",
       "text": "The message, up to 2000 characters.",
       "file": "file:<errand id>/<name> from an errand's result, or skill:<skill>/<run>/<name> from a skill's result.",
@@ -390,6 +391,7 @@
       "attend": "A place to listen to. New lines there wake you. due and every are refused with it.",
       "text": "The purpose, up to 300 characters.",
       "place": "Where it happens.",
+      "person": "@handle or name: it happens in your direct chat with them. Not with place.",
       "every": "day, week, <n>h or <n>d.",
       "standing": "true: with every, it lasts until you cancel it.",
       "expires": "When it lapses, written like due.",
@@ -420,6 +422,7 @@
       "chain": "Links related intentions.",
       "condition": "What makes it done.",
       "place": "#handle of where it happens.",
+      "person": "@handle or name: it moves to your direct chat with them. Not with place.",
       "people": "@handles or ids, comma-separated.",
       "settle": "Seconds of quiet before waking.",
       "perday": "How many wakes a day at most."

@@ -158,6 +158,7 @@ export const INTENT_PARAMS = Object.freeze({
     chain: str(64),
     condition: str(300),
     place: ref(),
+    person: str(200),
     attend: ref(),
     people: str(500),
     settle: int(0, 86400),
@@ -179,6 +180,7 @@ export const INTENT_PARAMS = Object.freeze({
     chain: str(64),
     condition: str(300),
     place: ref(),
+    person: str(200),
     people: str(500),
     settle: int(0, 86400),
     perday: int(1, 1000),
@@ -203,6 +205,7 @@ export function intentArgs(action: string): ToArgs {
       'chain',
       'condition',
       'people',
+      'person',
       'reason',
     ]) {
       const value = val(a, name);
@@ -480,6 +483,7 @@ const ENTRIES: Array<Definition> = [
     params: obj(
       {
         place: ref(),
+        person: str(200),
         reply: str(),
         text: str(2000),
         file: str(300),
@@ -494,6 +498,7 @@ const ENTRIES: Array<Definition> = [
     effects: 'write',
     toArgs: (a) => ({
       placeId: idOf(a, 'place'),
+      person: opt(a, 'person'),
       replyTo: opt(a, 'reply'),
       text: opt(a, 'text'),
       file: opt(a, 'file'),

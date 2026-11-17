@@ -58,6 +58,10 @@ export const CATALOGUE = Object.freeze({
   'channel-no-permission': skill('denied'),
   'channel-not-visible': skill('denied'),
   'dm-disabled': skill('denied'),
+  // A post or an intention aimed at a person (src/tools/operations/person-chat.ts).
+  'attitude-low': skill('denied'),
+  'no-dm-account': skill('invalid'),
+  'dm-unopened': skill('failed'),
   // A post, an edit or an intention's place in a diary mirror's place, refused at the call
   // (src/tools/operations/shared.ts#postingRef, src/tools/operations/intention.ts), and any other send there by the
   // guarded port (src/behavior/mirror.ts#guardMirrorPort).

@@ -1554,7 +1554,7 @@
         "complexity": 26
       },
       "<anonymous>>post": {
-        "complexity": 33
+        "complexity": 32
       }
     },
     "src/tools/operations/metrics.ts": {
