@@ -123,7 +123,8 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     const built = request(env);
     const [system, user] = built.messages;
     assert.equal(system.role, 'system');
-    assert.equal(system.content, 'SYSTEM Nep\n\nCARD Nep\n\n- RULES\n\nFORMAT\n\nSESSION Nep');
+    // Changed: the rules prompt goes in only with a rule in the memory table `rules`, and this memory holds none.
+    assert.equal(system.content, 'SYSTEM Nep\n\nCARD Nep\n\nFORMAT\n\nSESSION Nep');
     assert.equal(user.role, 'user');
     const userText = textOf(user.content);
     const order = ['<self>', '<place>', '<people>', '<episodes>', '<intentions>', '<batch>'].map((tag) =>

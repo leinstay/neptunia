@@ -33,6 +33,7 @@ import { shortHash } from './ids.ts';
 import { namedIface } from './live-iface.ts';
 import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
+import { liveRules } from './rules.ts';
 import { CODES, DESCRIPTION_FIELDS, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.ts';
 import { block } from '../../behavior/prompt.ts';
 import { asText } from './types.ts';
@@ -453,7 +454,7 @@ export async function reviewDescription(
     const completion = await askMemoryModel(
       ctx,
       [
-        { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[DRAFT_PURPOSE]) },
+        { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[DRAFT_PURPOSE], liveRules(db)) },
         { role: 'user', content: draftUser },
       ],
       { purpose: DRAFT_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens }
@@ -487,7 +488,7 @@ export async function reviewDescription(
     const completion = await askMemoryModel(
       ctx,
       [
-        { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[CHECK_PURPOSE]) },
+        { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[CHECK_PURPOSE], liveRules(db)) },
         { role: 'user', content: checkUser },
       ],
       { purpose: CHECK_PURPOSE, maxOutputTokens: settings.descriptionMaxOutputTokens }

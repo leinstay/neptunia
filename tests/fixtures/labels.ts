@@ -5,6 +5,7 @@
 export const labels = {
   locale: 'en-US',
   self: '{name} (you)',
+  rules: { line: '- {text}' },
   units: {
     lessThanMinute: 'less than a minute',
     minute: 'min',

@@ -114,6 +114,7 @@ function fakeStore() {
     listUserProfiles: () => profiles,
     countUsers: () => profiles.length,
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };

@@ -369,9 +369,9 @@
     },
     {
       "path": "src/rules-list.ts",
-      "purpose": "The rules list of the rules prompt file: its bullets, and the rule that the file reaches a request only while the list holds one.",
+      "purpose": "The rules block of a system text: the rules prompt followed by one line per live rule, and nothing while no rule is live.",
       "layer": "public",
-      "imports": [],
+      "imports": ["src/format.ts"],
       "test": "required"
     },
     {

@@ -295,6 +295,7 @@ function rigOf(spec: RigSpec) {
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
     // A place id names its chat by the row the world holds, as the memory store answers it: without it a write named by

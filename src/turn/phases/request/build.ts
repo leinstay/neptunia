@@ -909,6 +909,8 @@ export function plannerRequest(
       wakeKind: null,
       previousThink: null,
       callMarks: null,
+      // The owner's rules, read now: the diary's system message carries them as a turn's does.
+      rules: ctx.store.liveRules(),
       stableFreeze: null,
       myDay: myDayLines(ctx, { draft, channel, config, prompts, now }, null),
       whereabouts: whereaboutsOfFrame(frame),
@@ -1135,6 +1137,8 @@ export async function buildTurnRequest(
     myDay: myDayLines(ctx, { draft, channel, config, prompts, now }, answeringPersonOf(ctx, frame)),
     // Her call marks, put among the lines of `<chat>` by time.
     callMarks,
+    // The owner's rules, read now (src/memory/store-rules.ts).
+    rules: store.liveRules(),
     // `<self_facts>` held per cache bucket, so a memory batch rewrites the cache once at most.
     stableFreeze: stableFreezeOf(placeId),
     // `<spatial_awareness>`: where she is, the whole nesting of the place in the interface's own nouns (buildRequest

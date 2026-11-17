@@ -99,7 +99,6 @@ function makeEnv({
 } = {}) {
   const rootDir = tempDir('nep-ops-');
   fs.mkdirSync(path.join(rootDir, 'prompts'));
-  fs.writeFileSync(path.join(rootDir, 'prompts', 'rules.md'), '## Rules\n\n- be kind\n');
   const hot = {
     config: { bot: { ownerPerson: OWNER_PERSON, access }, llm: { model: 'x/y', maxRequestsPerDay: 10 } },
     prompts: { labels: {} },
@@ -115,6 +114,8 @@ function makeEnv({
     flush() {},
     getUser: () => null,
     getPlace: () => ({ emojiUsage: {} }),
+    // The owner's rules: none stored.
+    liveRules: () => [],
   };
   return createOpsEnv({
     mediaNameOf: noMediaNames,

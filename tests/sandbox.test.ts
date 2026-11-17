@@ -523,6 +523,7 @@ test('answerReply: reads everything through the view, so another view of the sam
       listUserProfiles: () => [],
       listChannels: () => [],
       getLore: () => [],
+      liveRules: () => [],
       mediaNameOf: noMediaNames,
     },
   };
@@ -1238,6 +1239,7 @@ function baseView() {
         listUserProfiles: () => Object.values(asRecord(data).users),
         listChannels: () => asRecord(data).channels,
         getLore: () => asRecord(data).lore,
+        liveRules: () => [],
         mediaNameOf: noMediaNames,
       },
     },
@@ -1452,6 +1454,7 @@ test('hiddenLater: counts what the cutoff hides, by kind; nothing for undated me
       listUserProfiles: () => [bare],
       listChannels: () => [],
       getLore: () => null,
+      liveRules: () => [],
       mediaNameOf: noMediaNames,
     },
   };

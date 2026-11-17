@@ -1,66 +1,45 @@
-// Operations: `rule.*`: the live rules in data/prompts/rules.md (the tracked prompts/ layer is never written).
-// The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
-// the operation's `ctx` as the command context.
+// Operations: `rule.*`: the owner's rules, rows of the memory table `rules` (src/memory/store-rules.ts). A rule's
+// number is its place among the live rules, the first added first, counted from 1. Removing a rule deletes its row.
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { NONE, listRules, appendRule, removeRule, reloadNote } from './shared.ts';
+import { NONE } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { objOf } from '../types.ts';
+import type { StoreRules } from '../../memory/store-rules.ts';
 
 const handlers = perEnv((env) => {
-  const { hot } = env;
-
-  function localRulesFile() {
-    return path.join(hot.localPromptsDir, 'rules.md');
-  }
-
-  function baseRulesFile() {
-    return path.join(hot.promptsDir, 'rules.md');
-  }
-
-  /** The effective rules text: the local override when it exists, else the base file, else empty. */
-  function readRules() {
-    const localFile = localRulesFile();
-    if (fs.existsSync(localFile)) return fs.readFileSync(localFile, 'utf8');
-    const baseFile = baseRulesFile();
-    return fs.existsSync(baseFile) ? fs.readFileSync(baseFile, 'utf8') : '';
-  }
-
-  /** Write `text` to data/prompts/rules.md, creating the directory when needed, and reload the
-   * prompts; the reload's outcome. The tracked base file is never touched. */
-  function writeLocalRules(text: string): boolean {
-    const file = localRulesFile();
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, text);
-    return hot.reloadPrompts();
-  }
+  // The ops env carries the store untyped; these are the rules methods of src/memory/store.ts.
+  const store = env.store as Pick<StoreRules, 'liveRules' | 'addRule' | 'removeRule'>;
 
   function cmdRuleAdd(args: unknown): string {
     const said = objOf(args).text;
-    const rule = (typeof said === 'string' ? said : '').trim();
+    // A rule is one line of the list: the lines of a text given over several join with a space.
+    const rule = (typeof said === 'string' ? said : '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(' ');
     if (!rule) throw invalid('rule text is required');
-    const ok = writeLocalRules(appendRule(readRules(), rule));
-    return `Rule added: ${rule} ${reloadNote(ok)}`;
+    store.addRule(rule);
+    return `Rule added: ${rule}`;
   }
 
   function cmdRuleList() {
-    const rules = listRules(readRules());
+    const rules = store.liveRules();
     if (!rules.length) return NONE;
-    return rules.map((rule, i) => `${i + 1}. ${rule}`).join('\n');
+    return rules.map((rule, i) => `${i + 1}. ${rule.text}`).join('\n');
   }
 
   function cmdRuleRemove(args: unknown): string {
     const n = objOf(args).number;
     if (typeof n !== 'number' || !Number.isInteger(n)) throw invalid('a rule number is required');
-    const result = removeRule(readRules(), n);
-    if (!result) throw invalid(`no rule #${n}`, CODE.NOT_FOUND);
-    const ok = writeLocalRules(result.text);
-    return `Removed rule #${n}: ${result.removed} ${reloadNote(ok)}`;
+    const rule = n >= 1 ? store.liveRules()[n - 1] : undefined;
+    if (!rule) throw invalid(`no rule #${n}`, CODE.NOT_FOUND);
+    store.removeRule(rule.id);
+    return `Removed rule #${n}: ${rule.text}`;
   }
 
-  return { localRulesFile, baseRulesFile, readRules, writeLocalRules, cmdRuleAdd, cmdRuleList, cmdRuleRemove };
+  return { cmdRuleAdd, cmdRuleList, cmdRuleRemove };
 });
 
 defineOp({

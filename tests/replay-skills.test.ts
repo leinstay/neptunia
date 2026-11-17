@@ -526,6 +526,7 @@ async function playSequence(
     listChannels: () => [{ id: NEWS, name: 'νέα' }],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     state: { data: {} },
   };
   const view = liveView({ hot, store, placeId: 'g1' });

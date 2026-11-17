@@ -99,7 +99,8 @@ const SHIPPED = {
 const LABELS = SHIPPED.prompts.labels as typeof contractLabels;
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
-  rules: 'shipped with an empty list, which reaches no request (src/rules-list.ts#rulesPromptOf)',
+  rules:
+    'the prompt of the rules block, which a request carries only with a rule in memory: tests/rules-list.test.ts builds it',
   'describe-audio': 'a voice message needs a fetcher of the file: tests/media-memory-audio.test.ts builds it',
   // The voice-message preparation pass (src/speech/prepare.ts) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
   'speech-prepare': 'built by the speech pipeline (src/speech/prepare.ts), checked in tests/speech-prepare.test.js',
@@ -193,8 +194,9 @@ const PENDING_LABELS = {
   'participation.earlierOpen': 'retired',
 };
 
-// Changed: the shipped rules file holds an empty list, and a rules file reaches a request only while its list holds a
-// rule (src/rules-list.ts), so no request carries it. It is named in NOT_BUILT.
+// The rules prompt reaches a request only while the memory table `rules` holds a rule (src/rules-list.ts). The requests
+// here are built with no memory, the way a deployment starts, so it stays in NOT_BUILT: putting it in SYSTEM would mean
+// a rule in every fixture, and tests/rules-list.test.ts already checks the block with and without one.
 const SYSTEM = ['system-prompt', 'character-card', 'format'];
 
 /** The prompt files each request below must carry whole, by request. */
@@ -1288,6 +1290,7 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
     listUserProfiles: () => Object.values(PROFILES),
     listChannels: () => CHANNELS,
     getLore: () => LORE,
+    liveRules: () => [],
     ...objectMediaCache(mediaCache),
     getGifs: () => ({ nextId: 1, entries: {} }),
     getRecent: () => ({ lines: RECENT_LINES }),
@@ -1422,6 +1425,7 @@ function bareStore() {
     listUserProfiles: () => [],
     listChannels: () => [],
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
   };
 }

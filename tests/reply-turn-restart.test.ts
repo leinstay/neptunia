@@ -119,6 +119,7 @@ async function replyLives(spec: {
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
     placeRefOf: (id: string) => placeRefOf(mind.db, id),

@@ -390,6 +390,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     state: { data: {} },
   };
   const view = liveView({ hot, store, placeId: GUILD });
