@@ -45,7 +45,8 @@ test('the first key asks for the dispatcher model and saves its chain on the new
   const { dialog, asked } = scriptedDialog([SECRET, '', '', '', '', 'x/dispatcher']);
   const answer = await keys.run('keys.add', { name: 'main' }, dialog);
   assert.equal(answer.status, 'ok');
-  assert.ok(asked[5]?.question.includes('dispatcher'));
+  const sixth = asked[5];
+  assert.ok(sixth?.question.includes('dispatcher'));
   assert.deepEqual(chains.dispatcher, [{ via: 'api', key: 'main', model: 'x/dispatcher', effort: null }]);
 });
 
@@ -69,8 +70,9 @@ test('the dispatcher check sends one chat request with no reasoning', async () =
   });
   assert.equal(result.ok, true);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]?.body?.model, 'x/d');
-  assert.equal(Object.hasOwn(calls[0]?.body ?? {}, 'reasoning'), false);
+  const body = calls[0]?.body ?? {};
+  assert.equal(body.model, 'x/d');
+  assert.equal(Object.hasOwn(body, 'reasoning'), false);
 });
 
 test('a dispatcher route takes no reasoning level, and its model is its first route with no default', () => {

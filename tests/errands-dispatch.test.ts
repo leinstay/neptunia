@@ -118,7 +118,8 @@ test('an errand with no agent is queued, the dispatcher picks from the roster, a
       client.runs.map((run) => run.agent),
       ['fetch']
     );
-    assert.deepEqual([stores.get()?.get(id)?.agent, stores.get()?.get(id)?.state], ['fetch', 'done']);
+    const record = stores.get()?.get(id);
+    assert.deepEqual([record?.agent, record?.state], ['fetch', 'done']);
   });
 });
 
@@ -163,7 +164,8 @@ test('no fitting agent, a failed dispatcher request and an empty roster each end
   const none = rig({ answer: () => ({ ok: true, agent: null }) });
   const broken = rig({ answer: () => ({ ok: false }) });
   const empty = rig();
-  for (const name of ['scout', 'fetch', 'server']) empty.hot.config.agents[name] = { enabled: false };
+  const { agents } = empty.hot.config;
+  for (const name of ['scout', 'fetch', 'server']) agents[name] = { enabled: false };
   await withCapturedLogs(async () => {
     for (const one of [none, broken, empty]) {
       one.errands.submit(hers());
@@ -171,7 +173,7 @@ test('no fitting agent, a failed dispatcher request and an empty roster each end
     }
   });
   assert.deepEqual(
-    [none, broken, empty].map((one) => [one.finished[0]?.state, one.finished[0]?.error, one.finished[0]?.agent]),
+    [none, broken, empty].map(({ finished: [first] }) => [first?.state, first?.error, first?.agent]),
     [
       ['failed', 'no-agent', null],
       ['failed', 'dispatch-failed', null],
@@ -179,7 +181,10 @@ test('no fitting agent, a failed dispatcher request and an empty roster each end
     ]
   );
   assert.equal(empty.asked.length, 0, 'an empty roster asks no model');
-  assert.equal(none.client.runs.length + broken.client.runs.length + empty.client.runs.length, 0);
+  assert.deepEqual(
+    [none, broken, empty].map(({ client }) => client.runs.length),
+    [0, 0, 0]
+  );
 });
 
 test('a wait for an errand with no agent covers the dispatch and answers its failure', async () => {
@@ -207,7 +212,8 @@ test('an errand still queued with no agent when the core stopped is failed at st
     assert.equal(second.errands.start(), 1);
     return Promise.resolve();
   });
-  assert.deepEqual([second.stores.get()?.get(id)?.state, second.stores.get()?.get(id)?.error], ['failed', 'restarted']);
+  const record = second.stores.get()?.get(id);
+  assert.deepEqual([record?.state, record?.error], ['failed', 'restarted']);
 });
 
 test('the board keeps the agent the dispatcher assigned, so the errand reads back with it', async () => {
@@ -223,5 +229,6 @@ test('the board keeps the agent the dispatcher assigned, so the errand reads bac
   await first.memory.close();
   OPENED.splice(OPENED.indexOf(first.memory), 1);
   const second = rig({ dataDir: first.dataDir });
-  assert.deepEqual([second.stores.get()?.get(id)?.agent, second.stores.get()?.get(id)?.state], ['fetch', 'done']);
+  const record = second.stores.get()?.get(id);
+  assert.deepEqual([record?.agent, record?.state], ['fetch', 'done']);
 });

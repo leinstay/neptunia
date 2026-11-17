@@ -63,6 +63,8 @@ function makeEnv(memoryDb: MemoryDb | null): Rig {
       bot: { owners: [OWNER], access: {} },
       features: {},
       errands: { maxOpen: 3, resultMaxChars: 40 },
+      // Changed: the dispatcher's roster takes only an agent with a route.
+      models: { agents: { via: { scout: 'claude', server: 'claude' } } },
       agents: { scout: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } } },
     },
     prompts: { labels: {} },
@@ -71,7 +73,9 @@ function makeEnv(memoryDb: MemoryDb | null): Rig {
   };
   const client = fakeClient();
   const stores = createErrandStores({ config: () => hot.config, now: () => NOW, log: SILENT, memoryDb });
-  const errands = createErrandService({ client, stores, hot, now: () => NOW, log: SILENT });
+  // Changed: her errand names no agent; a fake dispatcher picks the scout, as ERRAND_AGENT did.
+  const dispatch = () => Promise.resolve({ ok: true as const, agent: 'scout' });
+  const errands = createErrandService({ client, stores, hot, dispatch, now: () => NOW, log: SILENT });
   const env = createOpsEnv({
     discord: createDiscordInterface().capabilities,
     hot,

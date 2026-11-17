@@ -605,7 +605,8 @@ test('the step engine: reads run together, a data result holds her speech, the n
     ]
   );
   assert.deepEqual(asRecord(record).loop.errands, [
-    { step: 1, agent: 'scout', goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' },
+    // Changed: her errand names no agent, and a replay runs no dispatcher.
+    { step: 1, agent: null, goal: 'Βρες τον πλήρη πίνακα του τελικού 2026 και επέστρεψε τα ονόματα' },
   ]);
   const [reply, after] = asRecord(record).loop.steps;
   assert.equal(reply.resultChars, 'Η Ana κέρδισε.'.length + 'Élodie: το είδα'.length);
@@ -643,7 +644,8 @@ test('the step engine: reads run together, a data result holds her speech, the n
     },
   ]);
   assert.ok(report.includes('calls in order: 0:web.search ok; 0:memory.search ok; 1:errand.add ok'));
-  assert.ok(report.includes('errand recorded (step 1, not dispatched): scout: Βρες τον πλήρη'));
+  // Changed: a replay runs no dispatcher, so the recorded errand names no agent.
+  assert.ok(report.includes('errand recorded (step 1, not dispatched): : Βρες τον πλήρη'));
   assert.ok(report.includes('speech held (not posted):'));
   assert.ok(report.includes('cost: 0.0220'));
 });
@@ -834,7 +836,8 @@ test('loopCall: a tool past its time answers the live timeout; one that throws f
     inTurn: IN_TURN_TOOLS,
   });
   const recorded = await errand({ skill: 'errand.add', args: { goal: 'Βρες το πρόγραμμα' }, body: '' }, {});
-  assert.deepEqual(asRecord(recorded).errand, { agent: 'scout', goal: 'Βρες το πρόγραμμα' });
+  // Changed: her errand names no agent, and a replay runs no dispatcher.
+  assert.deepEqual(asRecord(recorded).errand, { agent: null, goal: 'Βρες το πρόγραμμα' });
   assert.equal(asRecord(recorded).result.data.text, 'canned');
   assert.equal(ran, 0);
 });

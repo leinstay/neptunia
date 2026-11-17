@@ -47,7 +47,8 @@ test('tasks db reader: the list and the spend records come from the database', a
     // close_reason, the handoff), so the rebuilt errand carries them empty. Every errand the store adds has all four.
     assert.deepEqual(stores.get()!.get('t1'), {
       id: 't1',
-      agent: '',
+      // Changed: a task with an empty role is an errand no agent took, and it reads back with no agent.
+      agent: null,
       goal: '',
       error: null,
       result: null,

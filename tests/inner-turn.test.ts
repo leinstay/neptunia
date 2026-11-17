@@ -227,7 +227,7 @@ async function innerTurn({
   onCall = null,
   intentions = null,
   withErrands = false,
-  errandConfigured = true,
+  errandRefused = false,
   loop = null,
   skillsLoop = null,
   clock = () => NOW,
@@ -244,7 +244,7 @@ async function innerTurn({
   onCall?: ((calls: number) => void) | null;
   intentions?: Untyped;
   withErrands?: boolean;
-  errandConfigured?: boolean;
+  errandRefused?: boolean;
   loop?: Record<string, Untyped> | null;
   skillsLoop?: Record<string, Untyped> | null;
   clock?: () => number;
@@ -275,11 +275,14 @@ async function innerTurn({
   if (withErrands) {
     hot.config.agents = { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } };
     const stores = createErrandStores(wrongly({ dataDir: tempDir('nep-inner-errand-'), config: () => hot.config }));
-    errands = createErrandService({
-      client: { configured: () => errandConfigured, run: () => new Promise(() => {}), cancel: () => true },
+    const service = createErrandService({
+      client: { configured: () => true, run: () => new Promise(() => {}), cancel: () => true },
       stores,
       hot,
     });
+    // Changed: her errand names no agent, so an agent that is off no longer refuses it; the service refuses it as a
+    // runner that is down does, past the gateway.
+    errands = errandRefused ? { ...service, submit: () => ({ ok: false as const, code: 'runner-down' }) } : service;
   }
   const admin = createAdmin({
     discord: DISCORD,
@@ -1315,7 +1318,8 @@ test("inner turn, live: a call that did not work carries the operation's own wor
     shadow: false,
     allowed: ['errand.add'],
     withErrands: true,
-    errandConfigured: false,
+    // Changed: the service refuses her call, where an agent that is off refused it before the dispatcher.
+    errandRefused: true,
   });
   const [action] = run.result.inner.actions;
   assert.notEqual(action.result, 'ok');
