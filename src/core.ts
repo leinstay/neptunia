@@ -1354,6 +1354,7 @@ async function buildCore(
     ring: chainRing,
     fetch: (input, init) => globalThis.fetch(input, init),
     baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
+    llmConfig: () => objOf(hot.config).llm,
     defaults: { ...ROLE_DEFAULTS, memory: MEMORY_ROLE_DEFAULT },
     currentModel: (role) =>
       role === SEARCH_ROLE ? (searchModel(hot.config) ?? '') : (roleModel(hot.config, role) ?? ''),

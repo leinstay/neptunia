@@ -18,7 +18,11 @@ const harness = (model: string): Route => ({ via: 'harness', backend: 'claude', 
 /** The model of a chain's first route, '' for none. */
 const firstModel = (chain: ReadonlyArray<Route> | undefined): string => chain?.[0]?.model ?? '';
 
-function rig(chains: Partial<Record<RouteRole, Array<Route>>> = {}, answer: (call: Call) => Reply = healthy) {
+function rig(
+  chains: Partial<Record<RouteRole, Array<Route>>> = {},
+  answer: (call: Call) => Reply = healthy,
+  llm: Record<string, unknown> = {}
+) {
   const privateDir = tempDir('keys-route-commands-');
   const store = createKeyStore({ privateDir });
   // Changed: keys.json holds named keys (slice 4), and the ring is the core's view of the chains.
@@ -36,6 +40,7 @@ function rig(chains: Partial<Record<RouteRole, Array<Route>>> = {}, answer: (cal
     fetch,
     baseUrl: () => BASE_URL,
     defaults: {},
+    llmConfig: () => llm,
     currentModel: (role) => (isRouteRole(role) ? firstModel(held[role]) : ''),
     pause,
     chainOf: (role) => held[role] ?? [],
@@ -178,4 +183,55 @@ test('keys list names the roles whose chains use each key, and keys check reads 
   const checked = await keys.run('keys.check', { target: 'spare' }, null);
   assert.equal(checked.status, 'ok', checked.text);
   assert.ok(calls.some((call) => call.url.endsWith('/auth/key') && call.auth === SECRET_2));
+});
+
+/** A provider with no endpoint for any model: an answer of 404 to a request pinned to it alone. */
+const DEAD = 'deadprov';
+
+/** OpenRouter as the live client meets it: 404 for a body whose `provider.only` names DEAD, healthy otherwise. */
+function pinnedRefusal(call: Call): Reply {
+  const provider = call.body?.provider;
+  const only = provider !== null && typeof provider === 'object' ? (provider as { only?: unknown }).only : undefined;
+  if (Array.isArray(only) && only.length === 1 && only[0] === DEAD)
+    return { status: 404, body: { error: { message: 'No endpoints found' } } };
+  return healthy(call);
+}
+
+test('model set refuses a route whose live requests llm.providerByModel pins to a provider with no endpoint', async () => {
+  // Catches: a check sent without the routing of llm.providerByModel, which passes while every live request 404s.
+  const llm = { providerByModel: { 'vendor/': { only: [DEAD] } } };
+  const { keys, held } = rig({ analyzer: [api('spare', 'old/analyzer')] }, pinnedRefusal, llm);
+  const answer = await keys.run('model.set', { role: 'analyzer', model: 'helpers/vendor/model-1' }, null);
+  assert.equal(answer.status, 'failed', answer.text);
+  assert.deepEqual(held.analyzer, [api('spare', 'old/analyzer')]);
+});
+
+test('model set saves the route when an entry for its role routes the model to a provider that answers', async () => {
+  // Catches: a check that takes the role-less entry where the live request of that role takes the role's own.
+  const llm = { providerByModel: { 'vendor/': { only: [DEAD] }, 'vendor/@analyzer': { only: ['liveprov'] } } };
+  const { keys, held, calls } = rig({}, pinnedRefusal, llm);
+  const answer = await keys.run('model.set', { role: 'analyzer', model: 'helpers/vendor/model-1' }, null);
+  assert.equal(answer.status, 'ok', answer.text);
+  assert.deepEqual(calls[0]?.body?.provider, { only: ['liveprov'] });
+  assert.deepEqual(held.analyzer, [api('helpers', 'vendor/model-1')]);
+});
+
+test('model set refuses a route marked byok whose check the provider bills on its own capacity', async () => {
+  // Catches: a check that passes where the live client's BYOK guard refuses every answer of the route.
+  const llm = { providerByModel: { 'vendor/': { only: ['liveprov'], byok: true } } };
+  const { keys, held, calls } = rig({}, healthy, llm);
+  const answer = await keys.run('model.set', { role: 'analyzer', model: 'helpers/vendor/model-1' }, null);
+  assert.equal(answer.status, 'failed', answer.text);
+  assert.deepEqual(calls[0]?.body?.provider, { only: ['liveprov'] });
+  assert.equal(held.analyzer, undefined);
+});
+
+test('keys check of a humanizer role checks its route in force with the routing of its role', async () => {
+  // Catches: a role of the chains that keys check takes for a key name, or checks without its own routing.
+  const llm = { providerByModel: { 'vendor/': { only: [DEAD] } } };
+  const { keys, calls } = rig({ 'humanizer.linter': [api('helpers', 'vendor/model-1')] }, pinnedRefusal, llm);
+  const answer = await keys.run('keys.check', { target: 'humanizer.linter' }, null);
+  assert.equal(answer.status, 'failed', answer.text);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.body?.model, 'vendor/model-1');
 });
