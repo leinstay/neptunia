@@ -512,3 +512,32 @@ for (const [file, mode] of [
       );
   });
 }
+
+// The server unit denies every address it does not list, so a run told to use the stored proxy hangs on a denied
+// address unless the unit lists the proxy's address too.
+const PROXY_CASES: ReadonlyArray<readonly [string, string, Array<string>]> = [
+  ['an IPv4 literal adds its /32', 'http://user:pass@192.0.2.10:8080', ['192.0.2.10/32']],
+  ['an IPv6 literal adds its /128', 'socks5h://[2001:db8::7]:1080', ['2001:db8::7/128']],
+  ['a host name adds nothing', 'http://proxy.example.com:8080', []],
+  ['no stored proxy adds nothing', '', []],
+];
+for (const [what, proxy, added] of PROXY_CASES) {
+  test(`the server unit admits the stored proxy when ${what}`, () => {
+    // Bug: a Claude Code run sends every request to the proxy address the unit denies and hangs to its time limit.
+    const base = valuesOf(renderUnit(template('neptunia-agent-server.service'), 'system', VARS), 'IPAddressAllow');
+    const vars: UnitVars = proxy === '' ? VARS : { ...VARS, proxy };
+    for (const mode of ['read', 'sudo'] as const) {
+      const text = renderUnit(template('neptunia-agent-server.service'), 'system', { ...vars, mode });
+      assert.deepEqual(valuesOf(text, 'IPAddressAllow'), [...base, ...added], mode);
+    }
+  });
+}
+
+test('the scout unit never lists the stored proxy, since its filter denies only local ranges', () => {
+  // Bug: the proxy line goes to every unit with an address list, not only the one that denies all.
+  const text = renderUnit(template('neptunia-agent-scout.service'), 'system', {
+    ...VARS,
+    proxy: 'http://192.0.2.10:8080',
+  });
+  assert.deepEqual(valuesOf(text, 'IPAddressAllow'), ['127.0.0.53/32']);
+});

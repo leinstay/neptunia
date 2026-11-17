@@ -15,6 +15,7 @@ import { readRouting } from '../subharness/routing.ts';
 import { harnessPathOf } from '../subharness/memory-path.ts';
 import { modeOf } from '../subharness/control.ts';
 import { isInstalled } from '../subharness/place.ts';
+import { serviceCredential } from '../keys/file.ts';
 import { ClientsError, readClients } from './clients.ts';
 import { RETIRED_UNIT_FILES, renderUnit, unitFileOf } from './units.ts';
 import type { UnitVars } from './units.ts';
@@ -83,6 +84,8 @@ export function unitText(target: UnitTarget, template: string, file: string): st
     backends,
     ...secretsOf(target.privateDir),
   };
+  const proxy = serviceCredential(target.dataDir, 'proxy');
+  if (proxy !== null) vars.proxy = proxy;
   if (unit !== undefined) vars.mode = modeOf(subharness.modes, unit);
   return renderUnit(template, target.system ? 'system' : 'user', vars);
 }
