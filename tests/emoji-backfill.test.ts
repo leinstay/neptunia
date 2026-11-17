@@ -93,6 +93,7 @@ function standardRooms() {
   ];
 }
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test("emoji backfill run: counts members' emoji over every readable channel, bots too, self skipped", async () => {
   await withStore(async (store: Untyped) => {
     const log = fakeLog();
@@ -107,8 +108,8 @@ test("emoji backfill run: counts members' emoji over every readable channel, bot
     assert.deepEqual(result, { ok: true, channels: 2, messages: 5, emoji: 5 });
 
     const usage = store.getPlace('g1').emojiUsage;
-    assert.deepEqual(usage['111'], { name: 'kappa', count: 2, last: T0 + 2000 });
-    assert.deepEqual(usage['222'], { name: 'omega', count: 3, last: T0 + 6000 });
+    assert.deepEqual(usage['111'], { count: 2, last: T0 + 2000 });
+    assert.deepEqual(usage['222'], { count: 3, last: T0 + 6000 });
     assert.equal(
       world.asked('history').some((ref) => loose(ref).chatId === 'c3'),
       false,
@@ -139,6 +140,7 @@ test('emoji backfill run: a second run is a no-op and never double-counts', asyn
   });
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test("emoji backfill run: a first run over a ranking with counts ends with the history's counts alone", async () => {
   await withStore(async (store: Untyped) => {
     // What the analyzer counted since the feature went live: messages the history window also holds.
@@ -158,8 +160,8 @@ test("emoji backfill run: a first run over a ranking with counts ends with the h
     const result = await backfill.run(placeOfRoot(backfill, 'g1'));
     assert.deepEqual(result, { ok: true, channels: 2, messages: 5, emoji: 5 });
     assert.deepEqual(store.getPlace('g1').emojiUsage, {
-      111: { name: 'kappa', count: 2, last: T0 + 2000 },
-      222: { name: 'omega', count: 3, last: T0 + 6000 },
+      111: { count: 2, last: T0 + 2000 },
+      222: { count: 3, last: T0 + 6000 },
     });
   });
 });

@@ -36,7 +36,8 @@ const SERVED_PICK: MediaPickCapability = {
 /** What the command line declares in the scenes: it sends and types, and has no message address. */
 const CLI_OPERATIONS: ReadonlyArray<string> = ['message.send', 'chat.typing'];
 
-const WAVE = { id: '7', name: 'wave', animated: false };
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+const WAVE = { id: '7', name: 'wave', platformName: 'wave', animated: false };
 
 /** The tools her grants would give her on an interface that can do everything. */
 const MESSAGE_TOOLS = ['message.edit', 'message.delete', 'message.react.add', 'message.react.remove'];

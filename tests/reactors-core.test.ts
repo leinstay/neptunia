@@ -64,10 +64,11 @@ test('empties every emoji of the message on a clear of all', () => {
   assert.equal(store.isOwn('her1'), true);
 });
 
-test('names a custom emoji by its name between colons', () => {
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('keys a custom emoji by its protocol token', () => {
   const store = createReactorStore();
   applyReactionChanged(store, reaction({ emoji: { id: '55', name: 'kek' } }), served);
-  assert.deepEqual(store.reactors('her1', ':kek:'), ['u1']);
+  assert.deepEqual(store.reactors('her1', '<emoji:55>'), ['u1']);
 });
 
 test('ignores her own reaction, a message of someone else and an event of another root', () => {

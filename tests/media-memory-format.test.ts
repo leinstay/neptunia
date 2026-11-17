@@ -9,7 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyEntryMedia } from '../src/memory/db/diary-media.ts';
 import { topPlaceSpelled } from '../src/memory/db/ids.ts';
-import { MEDIA_KINDS, lineMedia } from '../src/memory/db/media-store.ts';
+import { MEDIA_KINDS, lineMedia, mediaMessageParts } from '../src/memory/db/media-store.ts';
+import { collectEmojiItems } from '../src/media/classify.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { rootPlaceInDb } from '../src/memory/db/place-tree.ts';
@@ -457,4 +458,33 @@ test('the core reads nothing into a reference: one that looks like a cache key s
     assert.deepEqual([row.kind, row.nativeRef], ['image', 'video:pic-a']);
     tell(env, KINDS[0], { id: 'video:pic-a', told: 'present' });
     assert.equal(rowsOf(env, source)[0].description, 'present');
+  }));
+
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('an animated emoji read back from a stored line is still an animated item with its animation address', () =>
+  withEnv((env) => {
+    const animationUrl = 'https://cdn.example.invalid/900.gif';
+    const event = {
+      iface: 'discord',
+      at: AT,
+      chat: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' },
+      message: {
+        id: 'anim',
+        at: AT,
+        content: 'χα :e1:',
+        author: { id: 'u-alice', name: 'Alice' },
+        attachments: [],
+        links: [],
+        stickers: [],
+        emojis: [{ id: '900', name: 'e1', animated: true, url: 'https://cdn.example.invalid/900.png', animationUrl }],
+      },
+    };
+    const envelope = observationOf(event, { selfId: HER });
+    assert.ok(envelope);
+    assert.equal(observe(env.handle, envelope, { now: () => AT }).ok, true);
+    const row = env.db.prepare('SELECT id FROM sources WHERE native_id = ? ORDER BY rowid LIMIT 1').get('anim');
+    const source = String(row?.id);
+    const parts = mediaMessageParts(rowsOf(env, source), 'anim');
+    const [item] = collectEmojiItems({ id: 'anim', ...parts });
+    assert.deepEqual([item?.name, item?.animated, item?.animationUrl], ['e1', true, animationUrl]);
   }));

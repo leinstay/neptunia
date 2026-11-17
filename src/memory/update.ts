@@ -98,7 +98,8 @@ export function touchMemory(
  * The media of one normalized message part (the message itself or one
  * forwarded snapshot) as a slim message keeps it. No URL ever survives
  * into it -- but the item `id` does. A sticker keeps `id`/`name`/`animated`/`animationUrl` and its `url` (a fixed picture address,
- * null for a sticker with no picture); a custom emoji keeps only `id`/`name` (its URL is rebuilt via emojiUrl).
+ * null for a sticker with no picture); a custom emoji keeps `id`, its stable `name` and, when animated, `animated` and
+ * its `animationUrl` (its URL is rebuilt via emojiUrl).
  */
 /** The media of a normalized message, or of one of its forwarded snapshots, as the interface describes them. */
 type MediaPart = {
@@ -160,7 +161,13 @@ function slimMedia(part: MediaPart) {
       durationSec: null,
     })),
     stickers: (part.stickers ?? []).map(slimSticker),
-    emojis: (part.emojis ?? []).map((e: Untyped) => ({ id: e.id, name: e.name })),
+    emojis: (part.emojis ?? []).map(
+      (e: { id?: unknown; name?: unknown; animated?: unknown; animationUrl?: unknown }) => ({
+        id: e.id,
+        name: e.name,
+        ...(e.animated === true ? { animated: true, animationUrl: e.animationUrl ?? null } : {}),
+      })
+    ),
   };
 }
 

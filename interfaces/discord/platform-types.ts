@@ -76,7 +76,7 @@ export type StickerLike = { id: string; name: string; format: number };
 export type ReactionLike = {
   count?: number;
   me?: boolean;
-  emoji?: { id?: string | null; name?: string | null } | null;
+  emoji?: { id?: string | null; name?: string | null; animated?: boolean | null } | null;
   message?: MessageLike | null;
 };
 

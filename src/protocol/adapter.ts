@@ -175,7 +175,8 @@ export type MemberHit = {
 };
 
 /** A custom emoji of a root with the address of its picture. */
-export type EmojiInfo = { id: string; name: string; animated: boolean; url: string };
+/** A custom emoji of a place; `available` false when the platform offers it no longer (a lost boost level). */
+export type EmojiInfo = { id: string; name: string; animated: boolean; url: string; available?: boolean };
 
 /** How a history read is anchored: at most one of `before`, `after` and `around`, a floor `since` in ms. */
 export type HistoryQuery = {

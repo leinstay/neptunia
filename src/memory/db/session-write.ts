@@ -144,6 +144,7 @@ import { applyChannelEntryWrite } from './channel-entry.ts';
 import { applyPlaceLoreWrite } from './place-lore.ts';
 import { applyMediaEntryWrite } from './media-store.ts';
 import { applyGifLibraryWrite } from './gif-library.ts';
+import { applyMediaNamesWrite } from './media-names.ts';
 import { applyGifVectorWrite } from './gif-vectors.ts';
 import { applyErrandWrite } from './errand-write.ts';
 import { applyParticipationWrite } from './participation-episodes.ts';
@@ -984,6 +985,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   // The entries of the GIF library and their caption vectors (gif-library.ts, gif-vectors.ts).
   ['gif-library', applyGifLibraryWrite],
   ['gif-vector', applyGifVectorWrite],
+  // The stable names of custom emoji and stickers (media-names.ts).
+  ['media-names', applyMediaNamesWrite],
   // An errand on the task board, with the closing journal line of its end (errand-write.ts).
   ['errand', applyErrandWrite],
   // A name the owner gives a person (owner-names.ts), and one tick of the projection job (projection-job.ts).

@@ -3,8 +3,9 @@
 // fake interface (tests/fixtures/core-over-fake.ts). Synthetic lines, in Greek.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { channelInfo, deliver, until, withFakeCore } from './fixtures/core-over-fake.ts';
-import type { Fake } from './fixtures/core-over-fake.ts';
+import { channelInfo, deliver, lineEvent, until, withFakeCore } from './fixtures/core-over-fake.ts';
+import type { Fake, LineOptions } from './fixtures/core-over-fake.ts';
+import type { MessageEvent } from '../src/protocol/adapter.ts';
 
 const NOW = Date.now();
 const seed = (fake: Fake): void => fake.seedChat(channelInfo('c1', { name: 'general' }));
@@ -50,5 +51,63 @@ test('stores her own line that carries a pairing phrase when its echo arrives', 
     assert.equal(await rig.emit(deliver(rig.fake, { id: 'k1', text, at: NOW - 1000, authorId: 'self-id' })), 'ok');
     await until(() => rig.linesOf('k1').length > 0);
     assert.equal(rig.linesOf('k1')[0]?.text, text);
+  });
+});
+
+const KEKW = { id: '900', name: 'kekw', animated: false, url: 'https://cdn.example.invalid/900.png' };
+const NOD = { id: '901', name: 'kekw', animated: false, url: 'https://cdn.example.invalid/901.png' };
+
+/** A member's line with custom emoji, stickers or reactions beside its text, seeded into the fake. */
+function mediaLine(
+  fake: Fake,
+  options: LineOptions,
+  media: { emojis?: Array<object>; stickers?: Array<object>; reactions?: Array<object> }
+): MessageEvent {
+  const base = lineEvent(options);
+  const event = { ...base, message: { ...base.message, ...media } };
+  fake.seedEvent(event);
+  return event;
+}
+
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('stores a line with its custom emoji under stable names, reusing a name for an id seen before', async () => {
+  await withFakeCore({ seed }, async (rig) => {
+    const first = mediaLine(rig.fake, { id: 'n1', text: 'χα <emoji:900>', at: NOW - 3000 }, { emojis: [KEKW] });
+    assert.equal(await rig.emit(first), 'ok');
+    await until(() => rig.linesOf('n1').length > 0);
+    const second = mediaLine(
+      rig.fake,
+      { id: 'n2', text: '<emoji:901> και <emoji:900>', at: NOW - 2000 },
+      { emojis: [NOD, KEKW] }
+    );
+    assert.equal(await rig.emit(second), 'ok');
+    await until(() => rig.linesOf('n2').length > 0);
+    assert.equal(rig.linesOf('n1')[0]?.text, 'χα :e1:');
+    assert.equal(rig.linesOf('n2')[0]?.text, ':e2: και :e1:');
+  });
+});
+
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('shows a custom emoji reaction and a sticker by their stable names in her request', async () => {
+  await withFakeCore({ seed }, async (rig) => {
+    const reacted = mediaLine(
+      rig.fake,
+      { id: 'r1', text: 'καλημέρα', at: NOW - 3000 },
+      {
+        reactions: [{ emoji: '<emoji:900>', name: 'kekw', animated: false, count: 2, mine: false }],
+        stickers: [{ id: '700', name: 'kymata', animated: false, url: 'https://cdn.example.invalid/700.png' }],
+      }
+    );
+    assert.equal(await rig.emit(reacted), 'ok');
+    await until(() => rig.linesOf('r1').length > 0);
+    assert.equal(await rig.emit(deliver(rig.fake, { id: 'r2', text: 'γεια', at: NOW - 1000, mention: true })), 'ok');
+    await until(() => rig.requests.length === 1);
+    const text = rig.requestText(0);
+    assert.ok(text.includes(':e1:'), 'the reaction reads by its stable name');
+    assert.ok(text.includes('s1'), 'the sticker reads by its stable name');
+    assert.ok(
+      !text.includes('kekw') && !text.includes('kymata') && !text.includes('<emoji:'),
+      'no platform name or token'
+    );
   });
 });

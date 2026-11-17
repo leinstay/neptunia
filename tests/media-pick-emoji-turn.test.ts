@@ -28,7 +28,7 @@ const CAPABLE = {
   emoji: { actions: ['append', 'replace'], render: { still: '[[{name}|{id}]]' } },
   text: CAPABILITY_TEXT,
 };
-const WAVE = { id: '7', name: 'wave', animated: false };
+const WAVE = { id: '7', name: 'e1', platformName: 'wave', animated: false };
 
 beforeEach(() => {
   freshWorld();
@@ -91,18 +91,15 @@ async function runScene({
   const library = sharedLibrary();
   const known = { key: 'k1', ...library.entries.k1 };
   const rails: Array<{ placeId: string; state: { lastUsed?: Record<string, number> } }> = [];
-  const store = Object.assign(
-    fakeStore({ placeMemory: { emojiUsage: { '7': { name: 'wave', count: 4, last: NOW - 1000 } } } }),
-    {
-      getGifs: () => library,
-      findGif: (...given: Array<string>) => (given.at(-1) === 'g1' ? known : null),
-      getEmojiRails: () => null,
-      setEmojiRails: (placeId: string, state: { lastUsed?: Record<string, number> }) => {
-        rails.push({ placeId, state });
-      },
-      recordOwnGif: () => {},
-    }
-  );
+  const store = Object.assign(fakeStore({ placeMemory: { emojiUsage: { '7': { count: 4, last: NOW - 1000 } } } }), {
+    getGifs: () => library,
+    findGif: (...given: Array<string>) => (given.at(-1) === 'g1' ? known : null),
+    getEmojiRails: () => null,
+    setEmojiRails: (placeId: string, state: { lastUsed?: Record<string, number> }) => {
+      rails.push({ placeId, state });
+    },
+    recordOwnGif: () => {},
+  });
   const emoji = {
     refresh: () => Promise.resolve(),
     byName: (name: string) => (name === WAVE.name ? WAVE : null),
@@ -139,17 +136,19 @@ async function runScene({
   };
 }
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('`emoji <name>` appends the emoji as the interface renders it', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const { sent } = await runScene({ pick: '{"pick":"emoji","name":"wave"}' });
+  const { sent } = await runScene({ pick: '{"pick":"emoji","name":"e1"}' });
   assert.deepEqual(sent, ['ναι, φυσικά, έλα [[wave|7]]']);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('`replace <name>` posts the emoji in place of the first message and the rest follow', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   const { sent } = await runScene({
     reply: '<msg>ναι, φυσικά, έλα</msg><msg>στις οκτώ</msg>',
-    pick: '{"pick":"replace","name":"wave"}',
+    pick: '{"pick":"replace","name":"e1"}',
   });
   assert.deepEqual(sent, ['[[wave|7]]', 'στις οκτώ']);
 });
@@ -174,15 +173,16 @@ test('a `:name:` the place does not have stays text', async () => {
   assert.deepEqual(sent, ['ναι :nope:']);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('a posted emoji is counted for the place, and so is a reply without one', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const withEmoji = await runScene({ pick: '{"pick":"emoji","name":"wave"}' });
+  const withEmoji = await runScene({ pick: '{"pick":"emoji","name":"e1"}' });
   assert.equal(withEmoji.rails.length, 1);
-  assert.equal(withEmoji.rails[0].state.lastUsed?.wave, NOW);
+  assert.equal(withEmoji.rails[0].state.lastUsed?.e1, NOW);
   freshWorld();
   const plain = await runScene({ pick: '{"pick":"none","name":null}' });
   assert.equal(plain.rails.length, 1);
-  assert.equal(plain.rails[0].state.lastUsed?.wave, undefined);
+  assert.equal(plain.rails[0].state.lastUsed?.e1, undefined);
 });
 
 test('a turn on an interface with the capability carries its text and no emoji block', async () => {
@@ -192,9 +192,10 @@ test('a turn on an interface with the capability carries its text and no emoji b
   assert.ok(!request.includes(labels.senses.customEmoji), 'no rule of the core');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('a turn on an interface without the capability carries no emoji block, no rule and no text', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const { picks, request, sent } = await runScene({ mediaPick: null, pick: '{"pick":"emoji","name":"wave"}' });
+  const { picks, request, sent } = await runScene({ mediaPick: null, pick: '{"pick":"emoji","name":"e1"}' });
   assert.equal(picks.length, 0);
   assert.deepEqual(sent, ['ναι, φυσικά, έλα']);
   assert.ok(!request.includes('<emoji>'), 'no <emoji>');

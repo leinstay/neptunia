@@ -19,7 +19,7 @@ const ROOM = '520000000000000002';
 const ROOM_NAME = 'general';
 const MEMBER_HANDLE = handleOf(MEMBER);
 const ROOM_HANDLE = handleOf(ROOM, undefined, CHANNEL_HANDLE_PREFIX);
-const WAVE = { id: '7', name: 'wave', animated: false };
+const WAVE = { id: '7', name: 'e1', platformName: 'wave', animated: false };
 /** The stored line her request numbered `#2`, and the number the owner's chat shows on it. */
 const QUOTED = 'cli-message-2';
 const OWNER_NUMBER = 41;
@@ -50,7 +50,7 @@ function routerOf(): ReturnType<typeof createIfaceRouter> {
   );
 }
 
-/** The sends over the router, an emoji index that knows `wave`, and a store that numbers the owner's lines. */
+/** The sends over the router, an emoji index that knows `e1`, and a store that numbers the owner's lines. */
 function sendsOf(): ReturnType<typeof createSends> {
   return createSends({
     hot: { config: { features: { customEmoji: true, messageLinks: true, channelLinks: true } }, prompts: null },
@@ -93,9 +93,10 @@ test('a channel handle in the command line reads as the place name', () => {
   assert.equal(render(`see #${ROOM_HANDLE}`, 'cli').text, `see ${ROOM_NAME}`);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('a custom emoji name in the command line stays as she wrote it', () => {
   // Bug: the terminal showed the served platform's `<:wave:7>` markup.
-  assert.equal(render('hi :wave:', 'cli').text, 'hi :wave:');
+  assert.equal(render('hi :e1:', 'cli').text, 'hi :e1:');
 });
 
 test('a numbered line in the command line reads as the number the owner sees on it', () => {
@@ -119,8 +120,9 @@ test('a mention whose person has no known name keeps the handle she wrote', () =
   assert.equal(post.text, 'ask @uzzzz');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('the served interface keeps its mention, channel link, emoji and jump link forms', () => {
-  const post = render(`@${MEMBER_HANDLE} #${ROOM_HANDLE} :wave: #2`, 'served');
+  const post = render(`@${MEMBER_HANDLE} #${ROOM_HANDLE} :e1: #2`, 'served');
   assert.ok(post.text.includes(`<@${MEMBER}>`), post.text);
   assert.ok(post.text.includes(`<#${ROOM}>`), post.text);
   assert.ok(post.text.includes('<:wave:7>'), post.text);

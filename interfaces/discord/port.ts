@@ -88,7 +88,7 @@ export const DISCORD_LIMITS = Object.freeze({
 const DISCORD_MEDIA_PICK = Object.freeze({
   gifForms: ['file', 'link'] as const,
   emoji: { actions: ['append', 'replace'] as const, render: { still: '<:{name}:{id}>', animated: '<a:{name}:{id}>' } },
-  text: "You can use this server's custom emoji by writing :name: exactly as they appear in the chat, in a message or as a reaction. The engine turns a known name into the real emoji; an unknown name stays as plain text. Discord's built-in animated stickers are Lottie animations, not pictures: they are always only a name.",
+  text: "You can use this server's custom emoji by writing a custom emoji's name exactly as it appears in the chat, such as :e23:, in a message or as a reaction. The engine turns a known name into the real emoji; an unknown name stays as plain text. Discord's built-in animated stickers are Lottie animations, not pictures: they are always only a name.",
 });
 
 /**

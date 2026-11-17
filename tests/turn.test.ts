@@ -671,9 +671,10 @@ test('createTurnRunner: features.mediaDescriptions on describes a picture-format
   assert.equal(describer.calls.length, 1);
   assert.equal(describer.calls[0].items[0].itemId, 'sticker:s1');
   const userMessage = textOf(llm.calls[0][1].content);
+  // The owner on 2026-11-17: a sticker stands in a line under the engine's stable name.
   assert.ok(
     userMessage.includes(
-      labels.transcript.stickerDescribed.replace('{name}', 'pepe').replace('{text}', 'a frog gives a thumbs up')
+      labels.transcript.stickerDescribed.replace('{name}', 's1').replace('{text}', 'a frog gives a thumbs up')
     )
   );
 });
@@ -701,10 +702,11 @@ test('createTurnRunner: features.mediaDescriptions on describes a custom emoji i
   assert.equal(describer.calls.length, 1);
   assert.equal(describer.calls[0].items[0].itemId, 'emoji:111');
   const userMessage = textOf(llm.calls[0][1].content);
-  assert.ok(userMessage.includes('nice :pog: job'));
+  // The owner on 2026-11-17: a custom emoji stands in a line under the engine's stable name.
+  assert.ok(userMessage.includes('nice :e1: job'));
   assert.ok(
     userMessage.includes(
-      labels.transcript.emojiDescribed.replace('{name}', 'pog').replace('{text}', 'a surprised cat face')
+      labels.transcript.emojiDescribed.replace('{name}', 'e1').replace('{text}', 'a surprised cat face')
     )
   );
 });
@@ -1638,21 +1640,22 @@ test('runTurn: a daily request cap or a token cap refusal returns outcome refuse
 // The server's custom emoji (features.customEmoji, src/behavior/emoji-index.ts).
 function fakeEmojiIndex() {
   const emojis = [
-    { id: '111111111111111111', name: 'pepe_cry', animated: false },
-    { id: '222222222222222222', name: 'dance', animated: true },
+    { id: '111111111111111111', name: 'e1', platformName: 'pepe_cry', animated: false },
+    { id: '222222222222222222', name: 'e2', platformName: 'dance', animated: true },
   ];
   const byName = (name: string) => emojis.find((e) => e.name === name) ?? null;
   return { refresh: () => Promise.resolve(), byName, list: () => emojis.map((e) => ({ ...e })) };
 }
 
 // B8: the pick offers the emoji list, and what the adapter declares takes the sense line's place.
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('createTurnRunner: the request carries no <emoji> block and the text the interface declares', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<skip/>');
   declarePick({ gifForms: ['link'], text: 'ένα σημάδι' });
   const store = fakeStore({
-    placeMemory: { emojiUsage: { '222222222222222222': { name: 'dance', count: 4, last: Date.now() } } },
+    placeMemory: { emojiUsage: { '222222222222222222': { count: 4, last: Date.now() } } },
     mediaCache: { 'emoji:222222222222222222': { text: 'a spinning figure', ts: 1 } },
   });
   const turns = createTurnRunner({
@@ -1675,10 +1678,11 @@ test('createTurnRunner: the request carries no <emoji> block and the text the in
   assert.ok(!text.includes(labels.senses.customEmoji));
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('createTurnRunner: an outgoing :name: becomes the custom emoji, next to a resolved mention', async () => {
   const raw = rawMessage({ id: 'm1', authorName: 'Zoé' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm(`<msg>@${handleOf('u1')} :dance: ok :unknown:</msg><react to="#1">:pepe_cry:</react>`);
+  const llm = fakeLlm(`<msg>@${handleOf('u1')} :e2: ok :unknown:</msg><react to="#1">:e1:</react>`);
   const turns = createTurnRunner({
     discord: DISCORD,
     createPort: createDiscordAdapter,
@@ -5302,10 +5306,11 @@ test('skill call: message.create to another channel where the bot may send runs 
   );
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('skill call: her message.create and message.edit text goes out like a <msg> -- a handle is named, a name, an unknown handle and @everyone stay text and name nobody; custom emoji, #N and channel links', async () => {
   const alice = `@${handleOf('u1')}`;
   const unknown = alice === '@uzzzz' ? '@u0000' : '@uzzzz';
-  const written = `${alice} @Alice ${unknown} @everyone :dance: #2 #αλλού`;
+  const written = `${alice} @Alice ${unknown} @everyone :e2: #2 #αλλού`;
   const rendered = `<@u1> @Alice ${unknown} @everyone <a:dance:222222222222222222> https://discord.com/channels/g1/c1/m1 <#c8>`;
   const created = await callTurn({
     // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
@@ -5326,7 +5331,7 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   );
   // A reply keeps working, its author notified as before.
   const replied = await callTurn({
-    answers: [toolAnswer(``, [call('message.create', { reply: `#2`, text: `${alice} :dance:` })]), '<skip/>'],
+    answers: [toolAnswer(``, [call('message.create', { reply: `#2`, text: `${alice} :e2:` })]), '<skip/>'],
     emoji: fakeEmojiIndex(),
   });
   assert.deepEqual(

@@ -133,6 +133,7 @@ import { accountOf, chatOfPlace, dmPartnerOf, placeOfChat } from './memory/addre
 import { personaJournal, personaRecord } from './behavior/inner/persona-sources.ts';
 import { createOwnerAccounts } from './memory/db/person-links.ts';
 import { createReads } from './interface/reads.ts';
+import { withStableNames } from './behavior/stable-names.ts';
 import { freshAttachmentUrl } from './media/gif-post.ts';
 import type { AttachedGif } from './memory/describe.ts';
 import { describeDrawn } from './memory/describe.ts';
@@ -851,7 +852,9 @@ async function buildCore(
       return name === null ? null : (linksByName.get(name)?.adapter ?? null);
     }
   );
-  const iface = guardMirrorPort(routed, { memoryDb });
+  // The messages its reads answer carry the engine's stable names of their custom emoji and stickers
+  // (src/behavior/stable-names.ts), whoever reads them.
+  const iface = withStableNames(guardMirrorPort(routed, { memoryDb }), store);
   // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror, through
   // the link of the mirror's own interface, or none while that link is closed.
   const mirrorPort = (name: string) => {
@@ -865,10 +868,14 @@ async function buildCore(
     id === PERSONA_ID ? null : store.nativeRootOf(store.rootPlaceOf(id) ?? id)
   );
   // The custom emoji of the turn's place, read from the interface and kept 60 seconds: the turn lists them to her
-  // and turns her `:name:` into the platform's markup through it.
+  // by their stable names and turns her `:e23:` into the platform's markup through it.
   const emoji = createEmojiIndex({
     reads,
     now: Date.now,
+    get iface() {
+      return routed.iface;
+    },
+    names: store,
   });
   // What each profiled member's avatar looks like (features.avatars, off by default): a throttled
   // background queue on the vision role, its daily counter next to the LLM client's. Each member is one read of the
@@ -1715,6 +1722,7 @@ async function buildCore(
       // The second argument holds the event's ingestion row, which the observation of its line commits with the line.
       'message.received': createMessageProducers({
         store,
+        names: store,
         onMessage,
         observeDirectory: (event) => directory.observe(event),
         offerAvatar: (event) => offerAvatar(event.chat?.rootId, event.message?.author),

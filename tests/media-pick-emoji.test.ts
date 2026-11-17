@@ -53,20 +53,22 @@ test('two forms in one answer are none, so a reply never gets a GIF and an emoji
 // The candidates.
 
 const INVENTORY = [
-  { id: '1', name: 'wave', animated: false },
-  { id: '2', name: 'clap', animated: true },
-  { id: '3', name: 'nod', animated: false },
+  { id: '1', name: 'e1', platformName: 'wave', animated: false },
+  { id: '2', name: 'e2', platformName: 'clap', animated: true },
+  { id: '3', name: 'e3', platformName: 'nod', animated: false },
 ];
+// The usage is keyed by the platform id and holds no name.
 const USAGE = {
-  '2': { name: 'clap', count: 9, last: NOW },
-  '1': { name: 'wave', count: 3, last: NOW },
-  gone: { name: 'removed', count: 50, last: NOW },
+  '2': { count: 9, last: NOW },
+  '1': { count: 3, last: NOW },
+  gone: { count: 50, last: NOW },
 };
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('the candidates are the most used emoji of the place, cut by the cap', () => {
   assert.deepEqual(
     rankEmojiCandidates(INVENTORY, USAGE, 2).map((emoji) => emoji.name),
-    ['clap', 'wave']
+    ['e2', 'e1']
   );
 });
 
@@ -74,6 +76,7 @@ test('an emoji the interface no longer offers is no candidate, however used it w
   assert.ok(!rankEmojiCandidates(INVENTORY, USAGE, 10).some((emoji) => emoji.name === 'removed'));
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('an empty inventory or a cap of 0 has no candidate', () => {
   assert.deepEqual(rankEmojiCandidates([], USAGE, 5), []);
   assert.deepEqual(rankEmojiCandidates(INVENTORY, USAGE, 0), []);
@@ -81,16 +84,17 @@ test('an empty inventory or a cap of 0 has no candidate', () => {
 
 // The rails.
 
-const NAMES = ['wave', 'clap'];
+const NAMES = ['e1', 'e2'];
 const rails = (emojiPerReplies: number, emojiCooldownMinutes: number) => ({ emojiPerReplies, emojiCooldownMinutes });
 
 test('with no history every emoji is open', () => {
   assert.deepEqual(openEmojiNames(null, NAMES, rails(3, 60), NOW), NAMES);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('at most one emoji per N replies: closed for N - 1 replies after one, open at the Nth', () => {
   const settings = rails(3, 0);
-  const withEmoji = afterReply(null, 'wave', NOW);
+  const withEmoji = afterReply(null, 'e1', NOW);
   assert.deepEqual(openEmojiNames(withEmoji, NAMES, settings, NOW), [], 'the reply right after');
   const onePlain = afterReply(withEmoji, null, NOW);
   assert.deepEqual(openEmojiNames(onePlain, NAMES, settings, NOW), [], 'the next one');
@@ -98,40 +102,48 @@ test('at most one emoji per N replies: closed for N - 1 replies after one, open 
   assert.deepEqual(openEmojiNames(twoPlain, NAMES, settings, NOW), NAMES, 'the third reply after it');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('a per-replies rail of 1 allows an emoji on every reply', () => {
-  assert.deepEqual(openEmojiNames(afterReply(null, 'wave', NOW), NAMES, rails(1, 0), NOW), NAMES);
+  assert.deepEqual(openEmojiNames(afterReply(null, 'e1', NOW), NAMES, rails(1, 0), NOW), NAMES);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('the cooldown closes that emoji alone until the minute it ends', () => {
-  const state = afterReply(null, 'wave', NOW);
+  const state = afterReply(null, 'e1', NOW);
   const settings = rails(0, 10);
-  assert.deepEqual(openEmojiNames(state, NAMES, settings, NOW + 10 * MINUTE - 1), ['clap']);
+  assert.deepEqual(openEmojiNames(state, NAMES, settings, NOW + 10 * MINUTE - 1), ['e2']);
   assert.deepEqual(openEmojiNames(state, NAMES, settings, NOW + 10 * MINUTE), NAMES);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('0 in either rail switches that rail off, and 0 in both leaves everything open', () => {
-  const state = afterReply(null, 'wave', NOW);
+  const state = afterReply(null, 'e1', NOW);
   assert.deepEqual(openEmojiNames(state, NAMES, rails(0, 0), NOW), NAMES);
-  assert.deepEqual(openEmojiNames(state, NAMES, rails(0, 10), NOW), ['clap'], 'the cooldown still holds');
+  assert.deepEqual(openEmojiNames(state, NAMES, rails(0, 10), NOW), ['e2'], 'the cooldown still holds');
   assert.deepEqual(openEmojiNames(state, NAMES, rails(3, 0), NOW), [], 'the per-replies rail still holds');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('a stored state that makes no sense reads as no history', () => {
   assert.deepEqual(openEmojiNames('πολλά', NAMES, rails(3, 60), NOW), NAMES);
 });
 
 // What an emoji does to the text.
 
-const WAVE = { id: '7', name: 'wave', animated: false };
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+const WAVE = { id: '7', name: 'e1', platformName: 'wave', animated: false };
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('append puts the rendered emoji after the text', () => {
   assert.equal(applyEmojiPick('ναι', { action: 'append', emoji: WAVE }, RENDER), 'ναι [[wave|7]]');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('replace leaves the rendered emoji alone', () => {
   assert.equal(applyEmojiPick('ναι', { action: 'replace', emoji: WAVE }, RENDER), '[[wave|7]]');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('an animated emoji takes the animated rendering, else the still one', () => {
   const animated = { ...WAVE, animated: true };
   assert.equal(applyEmojiPick('ναι', { action: 'replace', emoji: animated }, RENDER), '[[a|wave|7]]');
@@ -223,16 +235,18 @@ const ONE_GIF = {
   },
 };
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('an interface with no capability gets none, with no call, whatever the inventory holds', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const { pick, calls } = rig({ answer: '{"pick":"emoji","name":"wave"}' });
+  const { pick, calls } = rig({ answer: '{"pick":"emoji","name":"e1"}' });
   assert.deepEqual(await pick.pick(args({ capability: null })), NONE);
   assert.equal(calls.length, 0);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('an interface with GIFs and no emoji capability is offered no emoji and gets none for one', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const { pick, calls } = rig({ answer: '{"pick":"emoji","name":"wave"}', gifs: ONE_GIF });
+  const { pick, calls } = rig({ answer: '{"pick":"emoji","name":"e1"}', gifs: ONE_GIF });
   assert.deepEqual(await pick.pick(args({ capability: { gifForms: ['link'] } })), NONE);
   assert.equal(calls.length, 1);
   assert.equal(blockOf(calls[0], 'emoji'), null);
@@ -244,27 +258,30 @@ test('an interface with no emoji capability and no GIF candidate makes no call',
   assert.equal(calls.length, 0);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('one request covers both forms', async () => {
   const { pick, calls } = rig({ gifs: ONE_GIF });
   await pick.pick(args({ capability: { ...EMOJI_CAPABILITY, gifForms: ['link'] } }));
   assert.equal(calls.length, 1);
   assert.match(String(blockOf(calls[0], 'gifs')), /g1/);
-  assert.match(String(blockOf(calls[0], 'emoji')), /wave/);
+  assert.match(String(blockOf(calls[0], 'emoji')), /e1/);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('the emoji are listed most used first, cut by media.pick.emojiCandidates', async () => {
   const { pick, calls } = rig({ pickConfig: { emojiCandidates: 1 } });
   await pick.pick(args());
   const listed = String(blockOf(calls[0], 'emoji'));
-  assert.match(listed, /clap/);
-  assert.doesNotMatch(listed, /wave/);
+  assert.match(listed, /e2/);
+  assert.doesNotMatch(listed, /e1/);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('an emoji answer comes back with its action and the emoji as the interface knows it', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const appended = await rig({ answer: '{"pick":"emoji","name":"wave"}' }).pick.pick(args());
+  const appended = await rig({ answer: '{"pick":"emoji","name":"e1"}' }).pick.pick(args());
   assert.deepEqual(appended, { kind: 'emoji', action: 'append', emoji: INVENTORY[0] });
-  const replaced = await rig({ answer: '{"pick":"replace","name":"wave"}' }).pick.pick(args());
+  const replaced = await rig({ answer: '{"pick":"replace","name":"e1"}' }).pick.pick(args());
   assert.deepEqual(replaced, { kind: 'emoji', action: 'replace', emoji: INVENTORY[0] });
 });
 
@@ -275,43 +292,60 @@ test('`none` is the normal answer with emoji on offer', async () => {
   assert.equal(calls.length, 1);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('past the per-replies rail no emoji is offered, and without GIFs there is no call', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const { pick, calls } = rig({ answer: '{"pick":"emoji","name":"wave"}', pickConfig: { emojiPerReplies: 2 } });
-  pick.noteReply({ placeId: PLACE, emoji: 'wave' });
+  const { pick, calls } = rig({ answer: '{"pick":"emoji","name":"e1"}', pickConfig: { emojiPerReplies: 2 } });
+  pick.noteReply({ placeId: PLACE, emoji: 'e1' });
   assert.deepEqual(await pick.pick(args()), NONE);
   assert.equal(calls.length, 0);
   pick.noteReply({ placeId: PLACE, emoji: null });
   assert.equal((await pick.pick(args())).kind, 'emoji');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('the per-replies rail of one place leaves another place open', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const { pick } = rig({ answer: '{"pick":"emoji","name":"wave"}', pickConfig: { emojiPerReplies: 5 } });
-  pick.noteReply({ placeId: PLACE, emoji: 'wave' });
+  const { pick } = rig({ answer: '{"pick":"emoji","name":"e1"}', pickConfig: { emojiPerReplies: 5 } });
+  pick.noteReply({ placeId: PLACE, emoji: 'e1' });
   assert.equal((await pick.pick(args({ placeId: ELSEWHERE }))).kind, 'emoji');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('an emoji in its cooldown is not offered and a model that names it anyway gets none', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   const { pick, calls, advance } = rig({
-    answer: '{"pick":"emoji","name":"wave"}',
+    answer: '{"pick":"emoji","name":"e1"}',
     pickConfig: { emojiCooldownMinutes: 10 },
   });
-  pick.noteReply({ placeId: PLACE, emoji: 'wave' });
+  pick.noteReply({ placeId: PLACE, emoji: 'e1' });
   assert.deepEqual(await pick.pick(args()), NONE);
-  assert.doesNotMatch(String(blockOf(calls[0], 'emoji')), /wave/);
+  assert.doesNotMatch(String(blockOf(calls[0], 'emoji')), /e1/);
   advance(10 * MINUTE);
   assert.equal((await pick.pick(args())).kind, 'emoji');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('with both rails at 0 the rollout setting leaves the prompt alone to decide', async () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   const { pick, calls } = rig({
-    answer: '{"pick":"emoji","name":"wave"}',
+    answer: '{"pick":"emoji","name":"e1"}',
     pickConfig: { emojiPerReplies: 0, emojiCooldownMinutes: 0 },
   });
-  pick.noteReply({ placeId: PLACE, emoji: 'wave' });
+  pick.noteReply({ placeId: PLACE, emoji: 'e1' });
   assert.equal((await pick.pick(args())).kind, 'emoji');
   assert.equal(calls.length, 1);
+});
+
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('offers e1 by its stable name and appends its markup with the platform name when picked', async () => {
+  const { pick: chooser, calls } = rig({ answer: '{"pick":"emoji","name":"e1"}' });
+  const result = await chooser.pick(args());
+  const [request] = calls;
+  const listed = String(blockOf(request, 'emoji'));
+  assert.match(listed, /e1/);
+  assert.doesNotMatch(listed, /wave/);
+  assert.equal(result.kind, 'emoji');
+  if (result.kind !== 'emoji') return;
+  assert.equal(applyEmojiPick('ναι', result, RENDER), 'ναι [[wave|1]]');
 });

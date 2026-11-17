@@ -61,6 +61,7 @@ async function withStore(fn: Untyped) {
 // --- pure ranking ------------------------------------------------------------
 
 // Owner's rule of 2026-11-10: a bot is a person to her, so a bot's emoji count like a member's.
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('countEmojiUses: one use per emoji per message, her own left out', () => {
   const uses = countEmojiUses([
     msg({
@@ -76,8 +77,8 @@ test('countEmojiUses: one use per emoji per message, her own left out', () => {
     msg({ bot: true, ts: T0 + 3000, emojis: [{ id: '20', name: 'omega' }] }),
     msg({ emojis: undefined }),
   ]);
-  assert.deepEqual(uses.get('10'), { name: 'kappa_new', count: 2, last: T0 + 1000 });
-  assert.deepEqual(uses.get('20'), { name: 'omega', count: 2, last: T0 + 3000 });
+  assert.deepEqual(uses.get('10'), { count: 2, last: T0 + 1000 });
+  assert.deepEqual(uses.get('20'), { count: 2, last: T0 + 3000 });
   assert.equal(uses.size, 2);
 });
 
@@ -86,6 +87,7 @@ test("countEmojiUses: forwarded snapshots are not the member's own use", () => {
   assert.equal(uses.size, 0);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('mergeEmojiUsage: counts accumulate over batches and last follows the latest use', () => {
   const first = mergeEmojiUsage(undefined, [msg({ ts: T0, emojis: [{ id: '10', name: 'kappa' }] })]);
   assert.equal(first.counted, 1);
@@ -94,38 +96,41 @@ test('mergeEmojiUsage: counts accumulate over batches and last follows the lates
     msg({ ts: T0 + 2 * DAY, emojis: [{ id: '10', name: 'kappa' }] }),
   ]);
   assert.equal(second.counted, 2);
-  assert.deepEqual(second.usage, { 10: { name: 'kappa', count: 3, last: T0 + 2 * DAY } });
-  assert.deepEqual(first.usage, { 10: { name: 'kappa', count: 1, last: T0 } }, 'never mutates its input');
+  assert.deepEqual(second.usage, { 10: { count: 3, last: T0 + 2 * DAY } });
+  assert.deepEqual(first.usage, { 10: { count: 1, last: T0 } }, 'never mutates its input');
 });
 
-test('mergeEmojiUsage: an older batch never moves last or the name backwards', () => {
-  const { usage } = mergeEmojiUsage({ 10: { name: 'kappa_now', count: 2, last: T0 + DAY } }, [
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('mergeEmojiUsage: an older batch never moves last backwards', () => {
+  const { usage } = mergeEmojiUsage({ 10: { count: 2, last: T0 + DAY } }, [
     msg({ ts: T0, emojis: [{ id: '10', name: 'kappa_old' }] }),
   ]);
-  assert.deepEqual(usage['10'], { name: 'kappa_now', count: 3, last: T0 + DAY });
+  assert.deepEqual(usage['10'], { count: 3, last: T0 + DAY });
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('rankEmojiUsage: recency decay lets a fresh emoji outrank an old heavier one', () => {
   const usage = {
-    1: { name: 'old', count: 8, last: T0 },
-    2: { name: 'fresh', count: 2, last: T0 + 60 * DAY },
+    1: { count: 8, last: T0 },
+    2: { count: 2, last: T0 + 60 * DAY },
   };
   assert.deepEqual(
-    rankEmojiUsage(usage, 30).map((e) => e.name),
-    ['fresh', 'old']
+    rankEmojiUsage(usage, 30).map((e) => e.id),
+    ['2', '1']
   );
   // Without decay the count alone decides.
   assert.deepEqual(
-    rankEmojiUsage(usage, 0).map((e) => e.name),
-    ['old', 'fresh']
+    rankEmojiUsage(usage, 0).map((e) => e.id),
+    ['1', '2']
   );
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('mergeEmojiUsage: past storeMax the lowest-ranked entries are evicted', () => {
   const usage = {
-    1: { name: 'alpha', count: 5, last: T0 },
-    2: { name: 'beta', count: 1, last: T0 },
-    3: { name: 'gamma', count: 3, last: T0 },
+    1: { count: 5, last: T0 },
+    2: { count: 1, last: T0 },
+    3: { count: 3, last: T0 },
   };
   const { usage: next } = mergeEmojiUsage(usage, [msg({ ts: T0, emojis: [{ id: '4', name: 'delta' }] })], {
     storeMax: 3,
@@ -134,22 +139,24 @@ test('mergeEmojiUsage: past storeMax the lowest-ranked entries are evicted', () 
   assert.deepEqual(Object.keys(next).sort(), ['1', '3', '4']);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('normalizeEmojiUsage: a missing or broken field reads as empty, bad entries are dropped', () => {
   assert.deepEqual(normalizeEmojiUsage(undefined), {});
   assert.deepEqual(normalizeEmojiUsage('x'), {});
   assert.deepEqual(
     normalizeEmojiUsage({
-      1: { name: 'ok', count: 2, last: 5 },
-      2: { name: 'zero', count: 0 },
+      1: { count: 2, last: 5 },
+      2: { count: 0 },
       3: null,
       4: { count: 1 },
     }),
-    { 1: { name: 'ok', count: 2, last: 5 }, 4: { name: '', count: 1, last: 0 } }
+    { 1: { count: 2, last: 5 }, 4: { count: 1, last: 0 } }
   );
 });
 
 // --- storage -----------------------------------------------------------------
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('store.getPlace: emojiUsage is normalised on read, missing -> {}', async () => {
   await withStore(async (store: Untyped, memoryDb: Untyped) => {
     assert.deepEqual(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage, {});
@@ -157,13 +164,14 @@ test('store.getPlace: emojiUsage is normalised on read, missing -> {}', async ()
     await writeUnitUpdate(memoryDb as { memoryWrite: (update: unknown) => Promise<unknown> }, {
       op: 'value',
       key: placeCollection('place', placeOfRoot(store, 'g2')),
-      value: { patterns: 'p', emojiUsage: { 7: { name: 'ή', count: 4, last: 9 }, 8: 'junk' } },
+      value: { patterns: 'p', emojiUsage: { 7: { count: 4, last: 9 }, 8: 'junk' } },
     });
-    assert.deepEqual(store.getPlace(placeOfRoot(store, 'g2')).emojiUsage, { 7: { name: 'ή', count: 4, last: 9 } });
+    assert.deepEqual(store.getPlace(placeOfRoot(store, 'g2')).emojiUsage, { 7: { count: 4, last: 9 } });
     assert.equal(store.getPlace(placeOfRoot(store, 'g2')).patterns, 'p');
   });
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('store.recordEmojiUsage: persists counts; updatePlace never overwrites them', async () => {
   await withStore(async (store: Untyped, memoryDb: Untyped, dataDir: Untyped) => {
     const counted = store.recordEmojiUsage(
@@ -178,7 +186,7 @@ test('store.recordEmojiUsage: persists counts; updatePlace never overwrites them
     store.flush();
     await store.flushSettled({});
     const stored = createStore({ dataDir, memoryDb }).getPlace(placeOfRoot(store, 'g1'));
-    assert.deepEqual(loose(stored).emojiUsage, { 10: { name: 'kappa', count: 1, last: T0 } });
+    assert.deepEqual(loose(stored).emojiUsage, { 10: { count: 1, last: T0 } });
     assert.equal(loose(stored).patterns, 'friendly');
   });
 });
@@ -189,6 +197,7 @@ function hotFor() {
   return { config: { bot: { timezone: 'UTC' } } };
 }
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test("observe: a member's message adds its emoji to root.emojiUsage; her own adds nothing", async () => {
   await withStore(async (store: Untyped) => {
     const updater = createMemoryUpdater({ hot: hotFor(), store });
@@ -209,8 +218,8 @@ test("observe: a member's message adds its emoji to root.emojiUsage; her own add
       })
     );
     assert.deepEqual(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage, {
-      10: { name: 'kappa', count: 2, last: T0 + 2 },
-      20: { name: 'omega', count: 1, last: T0 + 2 },
+      10: { count: 2, last: T0 + 2 },
+      20: { count: 1, last: T0 + 2 },
     });
   });
 });

@@ -11,6 +11,9 @@ import { afterEach } from 'node:test';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { createReads } from '../../src/interface/reads.ts';
 import type { Reads } from '../../src/interface/reads.ts';
+import { withStableNames } from '../../src/behavior/stable-names.ts';
+import type { MediaNamer } from '../../src/behavior/stable-names.ts';
+import type { MediaName } from '../../src/memory/store-media-names.ts';
 import type { ChatInfo, MemberInfo, MessageRef, Permissions } from '../../src/protocol/adapter.ts';
 import { PermissionFlagsBits, SnowflakeUtil } from 'discord.js';
 import { normalizeOptions, toEvent } from '../../interfaces/discord/index.ts';
@@ -203,6 +206,25 @@ function infoOf(id: string, spec: ChannelSpec): { placeId: string | null; name: 
   return { placeId, name, info };
 }
 
+/** A namer as the store issues names: `e1`, `e2`... and `s1`, `s2`... by native id, the same id keeping its name. */
+function fakeNamer(): MediaNamer {
+  const held = new Map<string, MediaName>();
+  const count = { emoji: 0, sticker: 0 };
+  return {
+    nameMedia(iface, kind, items) {
+      return items.map((item) => {
+        const key = `${iface}|${kind}|${item.nativeId}`;
+        const known = held.get(key);
+        if (known !== undefined) return known;
+        count[kind] += 1;
+        const row: MediaName = { name: `${kind === 'emoji' ? 'e' : 's'}${count[kind]}`, kind, iface, ...item };
+        held.set(key, row);
+        return row;
+      });
+    },
+  };
+}
+
 function create(): World {
   // The clock the messages she sends are stamped by: the one the runner is given, else the real one.
   let clock: () => number = Date.now;
@@ -221,7 +243,9 @@ function create(): World {
   });
   // The history of a chat is what a test seeds, as the arrays it passes were before: her own sends stay out.
   port.showSendsInHistory(false);
-  const reads = createReads(port, quiet, nativeOfSpelled);
+  // The core reads through its adapter wrapped in stable names (src/core.ts); the world reads the same way.
+  const namer = fakeNamer();
+  const reads = createReads(withStableNames(port, namer), quiet, nativeOfSpelled);
   // What was seeded, replayed into another adapter a test brings (`adopt`) and applied to it from then on.
   const seeded: Array<(one: Fake) => void> = [];
   const adopted = new Map<Fake, Reads>([[port, reads]]);
@@ -472,7 +496,7 @@ function create(): World {
       if (known !== undefined) return known;
       other.showSendsInHistory(options.sendsInHistory === true);
       for (const op of wrapped) wrapPort(other, op);
-      const made = createReads(other, quiet, nativeOfSpelled);
+      const made = createReads(withStableNames(other, namer), quiet, nativeOfSpelled);
       for (const seeding of seeded) seeding(other);
       adopted.set(other, made);
       return made;

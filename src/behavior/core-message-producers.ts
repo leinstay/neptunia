@@ -1,6 +1,8 @@
 // Carries the door receipt beside the protocol event into every live message producer.
 
 import { holdIfPaused } from './core-pause.ts';
+import { nameEventMedia } from './stable-names.ts';
+import type { MediaNamer } from './stable-names.ts';
 import type { MessageHandler } from './pipeline.ts';
 import type { EventHandlerContext } from '../interface/door.ts';
 import type { Context } from '../memory/db/scope.ts';
@@ -9,6 +11,8 @@ import type { MessageReadOptions } from '../pipeline/types.ts';
 
 type ProducerDeps = {
   store: unknown;
+  /** The store's stable names of custom emoji and stickers, given to every message before anything reads it. */
+  names: MediaNamer;
   onMessage: MessageHandler;
   observeDirectory: (event: MessageReceived) => unknown;
   offerAvatar: (event: MessageReceived) => unknown;
@@ -18,7 +22,8 @@ type ProducerDeps = {
 export function createMessageProducers(
   deps: ProducerDeps
 ): (event: MessageReceived, context: EventHandlerContext) => Promise<void> {
-  return async (event: MessageReceived, context: EventHandlerContext): Promise<void> => {
+  return async (given: MessageReceived, context: EventHandlerContext): Promise<void> => {
+    const event = nameEventMedia(given, deps.names);
     holdIfPaused(event, context, deps.store);
     const sender = context.authenticated;
     const options: MessageReadOptions = {

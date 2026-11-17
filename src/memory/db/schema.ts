@@ -422,8 +422,32 @@ function noPings(db: Db): void {
   if (held) db.exec('ALTER TABLE memberships DROP COLUMN pings_off');
 }
 
+/**
+ * Version 63: `media_names`, the stable name of each custom emoji and sticker an interface showed (media-names.ts),
+ * bound to the interface and the platform id at first sight.
+ */
+const MEDIA_NAMES = `CREATE TABLE IF NOT EXISTS media_names (
+    name TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('emoji', 'sticker')),
+    iface TEXT NOT NULL,
+    native_id TEXT NOT NULL,
+    platform_name TEXT NOT NULL,
+    animated INTEGER NOT NULL DEFAULT 0,
+    first_seen_at TEXT NOT NULL,
+    renamed_at TEXT,
+    UNIQUE (iface, kind, native_id)
+  );`;
+
 /** The steps above the baseline, version 57 first. */
-export const MIGRATIONS: Array<Migration> = [rowLinks, vectorSources, nameScripts, errandBoard, diaryNames, noPings];
+export const MIGRATIONS: Array<Migration> = [
+  rowLinks,
+  vectorSources,
+  nameScripts,
+  errandBoard,
+  diaryNames,
+  noPings,
+  MEDIA_NAMES,
+];
 
 /** The tables that carry a scope and its `audience_id`. */
 export const SCOPED_TABLES = [

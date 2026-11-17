@@ -138,6 +138,8 @@ function checkChat(given: unknown): void {
 
 /** The values of `reaction.changed`'s `cleared`. */
 const CLEARED = ['emoji', 'all'];
+/** The protocol token of a custom emoji in a message's content; group 1 is an id its `emojis` list holds. */
+const EMOJI_TOKEN_RE = /<emoji:([^<>\s]+)>/g;
 const MESSAGE_LISTS = ['attachments', 'links', 'forwarded', 'stickers', 'emojis', 'reactions'];
 
 function checkMessage(message: Rec): void {
@@ -153,6 +155,13 @@ function checkMessage(message: Rec): void {
   for (const key of ['replyToId', 'replyPingAccountId']) need(message[key], `message.${key}`, isNullableId);
   need(message.forwardedFrom, 'message.forwardedFrom', isNullableString);
   for (const key of MESSAGE_LISTS) need(message[key], `message.${key}`, Array.isArray);
+  const listed = new Set((message.emojis as Array<unknown>).map((emoji) => asRecord(emoji).id));
+  need(
+    message.content,
+    'message.content',
+    (content) => [...String(content).matchAll(EMOJI_TOKEN_RE)].every(([, id]) => listed.has(id)),
+    { problem: 'emoji' }
+  );
 }
 
 function checkAddressing(given: unknown): void {

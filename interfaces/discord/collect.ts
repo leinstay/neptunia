@@ -102,12 +102,25 @@ export function messageRefsOf(
 }
 
 /**
- * Custom emoji markup `<:name:id>` / `<a:name:id>` reads better as `:name:`.
- * discord.js's cleanContent already does this for well-formed ids; this is a
- * safety net for any markup it leaves behind.
+ * `cleanText` with each custom emoji of `emojis` as the protocol token `<emoji:ID>`. discord.js's cleanContent writes
+ * the markup `<:name:id>` as `:name:`, dropping the id, so the markup of the raw `content` gives the ids in the order
+ * they stand. Markup cleanContent leaves behind takes its own id. An emoji past the list's cap stays `:name:`.
  */
-function cleanEmoji(text: string): string {
-  return text.replace(CUSTOM_EMOJI_RE, ':$2:');
+function tokenEmoji(cleanText: string, raw: unknown, emojis: ReadonlyArray<NormalEmoji>): string {
+  const listed = new Set(emojis.map((emoji) => emoji.id));
+  let text = cleanText.replace(CUSTOM_EMOJI_RE, (markup: string, _animated: string, _name: string, id: string) =>
+    listed.has(id) ? `<emoji:${id}>` : markup
+  );
+  let from = 0;
+  for (const [, , name, id] of scalarText(raw ?? '').matchAll(CUSTOM_EMOJI_RE)) {
+    if (!listed.has(id)) continue;
+    const at = text.indexOf(`:${name}:`, from);
+    if (at === -1) continue;
+    const token = `<emoji:${id}>`;
+    text = text.slice(0, at) + token + text.slice(at + name.length + 2);
+    from = at + token.length;
+  }
+  return text;
 }
 
 /** A custom emoji as the core takes it: `animationUrl` on an animated one. */
@@ -115,7 +128,7 @@ type NormalEmoji = { id: string; name: string; animated: boolean; url: string; a
 
 /**
  * Custom emoji `<:name:id>` / `<a:name:id>` written in a message's text (the
- * text itself keeps reading as `:name:`, see cleanEmoji above): de-duplicated
+ * text reads each as `<emoji:ID>`, see tokenEmoji above): de-duplicated
  * by id, in first-appearance order, capped at MAX_EMOJIS_PER_MESSAGE.
  * @param text The RAW `content` (discord.js's cleanContent has already
  *   rewritten the markup to `:name:`, dropping the id); cleanContent only as a
@@ -167,7 +180,9 @@ function normalizeStickers(stickers: Collection<StickerLike> | undefined) {
  * A discord.js reaction's emoji, or null: discord.js resolves it through the client's emoji cache, and on a REST-only
  * client (the tools) the getter throws.
  */
-export function emojiOf(reaction: object | null | undefined): { id?: string | null; name?: string | null } | null {
+export function emojiOf(
+  reaction: object | null | undefined
+): { id?: string | null; name?: string | null; animated?: boolean | null } | null {
   try {
     return asReaction(reaction)?.emoji ?? null;
   } catch {
@@ -176,21 +191,23 @@ export function emojiOf(reaction: object | null | undefined): { id?: string | nu
 }
 
 /**
- * The reactions on a message: a custom emoji reads as `:name:`, a unicode one
- * as itself; `mine` is the bot's own. Sorted by count descending, ties keep
+ * The reactions on a message: a custom emoji reads as `<emoji:ID>` with its platform name and whether it is animated,
+ * a unicode one as itself; `mine` is the bot's own. Sorted by count descending, ties keep
  * the collection's order; a count that is not a positive integer is skipped.
  */
 function normalizeReactions(
   reactions: { cache?: Collection<ReactionLike> } | undefined
-): Array<{ emoji: string; count: number; mine: boolean }> {
+): Array<{ emoji: string; name?: string; animated?: boolean; count: number; mine: boolean }> {
   // A reaction whose emoji cannot be read (emojiOf: a REST-only client) is skipped, never fatal.
   return [...(reactions?.cache?.values?.() ?? [])]
-    .map((reaction) => ({ reaction, emoji: reactionKey(emojiOf(reaction)) }))
-    .flatMap(({ reaction, emoji }) =>
-      typeof reaction.count === 'number' && Number.isInteger(reaction.count) && reaction.count > 0 && emoji
-        ? [{ emoji, count: reaction.count, mine: Boolean(reaction.me) }]
-        : []
-    )
+    .map((reaction) => ({ reaction, of: emojiOf(reaction) }))
+    .flatMap(({ reaction, of }) => {
+      const emoji = reactionKey(of);
+      if (!(typeof reaction.count === 'number' && Number.isInteger(reaction.count) && reaction.count > 0 && emoji))
+        return [];
+      const custom = of?.id && of.name ? { name: of.name, animated: Boolean(of.animated) } : {};
+      return [{ emoji, ...custom, count: reaction.count, mine: Boolean(reaction.me) }];
+    })
     .sort((a, b) => b.count - a.count);
 }
 
@@ -404,7 +421,7 @@ function normalizeSnapshot(snapshot: SnapshotLike, videoSites: ReadonlyArray<str
   const isVoice = isVoiceMessageFlag(snapshot);
   const cleanContent = snapshot.cleanContent ?? snapshot.content ?? '';
   const emojis = extractEmojis(snapshot.content ?? cleanContent);
-  const cleanText = cleanEmoji(cleanContent).trim();
+  const cleanText = tokenEmoji(cleanContent, snapshot.content, emojis).trim();
   const { attachments, links, content } = normalizeMedia(
     snapshot.id ?? 'fwd',
     snapshot,
@@ -495,7 +512,7 @@ export function normalizeMessage(
   const isVoice = isVoiceMessageFlag(message);
   const cleanContent = message.cleanContent ?? '';
   const emojis = extractEmojis(message.content ?? cleanContent);
-  const cleanText = cleanEmoji(cleanContent).trim();
+  const cleanText = tokenEmoji(cleanContent, message.content, emojis).trim();
   const { attachments, links, content } = normalizeMedia(
     message.id,
     message,

@@ -45,11 +45,12 @@ test('the Discord interface declares GIF links and files, both emoji actions and
   assert.ok(typeof declared.text === 'string' && declared.text.trim() !== '');
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('the Discord interface renders its own emoji markup', () => {
   const declared = portMediaPick(createDiscordAdapter({ client: fakeClient() }));
   assert.ok(declared?.emoji);
   const { render } = declared.emoji;
-  const still = { id: '42', name: 'wave', animated: false };
+  const still = { id: '42', name: 'e1', platformName: 'wave', animated: false };
   assert.equal(applyEmojiPick('', { action: 'replace', emoji: still }, render), '<:wave:42>');
   assert.equal(applyEmojiPick('', { action: 'replace', emoji: { ...still, animated: true } }, render), '<a:wave:42>');
 });

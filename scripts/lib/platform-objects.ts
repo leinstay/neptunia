@@ -9,7 +9,7 @@ import { takeSnapshot } from '../../src/behavior/snapshot.ts';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { createDiscordAdapter } from '../../interfaces/discord/index.ts';
 import { createEmojiIndex } from '../../src/behavior/emoji-index.ts';
-import type { IndexedEmoji } from '../../src/behavior/emoji-index.ts';
+import type { EmojiNames, IndexedEmoji } from '../../src/behavior/emoji-index.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
 type Obj = Record<string, unknown>;
@@ -119,8 +119,12 @@ export function lazyRecallScope(
 }
 
 /** The root's custom emoji as the turn lists them, read once through the interface. */
-export async function customEmojiOf(reads: Reads, placeId: string): Promise<Array<IndexedEmoji>> {
-  const index = createEmojiIndex({ reads, now: Date.now });
+export async function customEmojiOf(
+  { reads, iface }: { reads: Reads; iface: string },
+  placeId: string,
+  names: EmojiNames
+): Promise<Array<IndexedEmoji>> {
+  const index = createEmojiIndex({ reads, now: Date.now, iface, names });
   await index.refresh(placeId);
   return index.list();
 }
