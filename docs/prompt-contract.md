@@ -232,7 +232,7 @@ The writer refuses what only the database can judge, and each refusal is a `deci
 
 ## Media text forms
 
-A transcript and what she voiced are quoted speech as a whole. The transcript labels `voiceDescribed` and `audioDescribed` take `{duration}` and `{text}`, and `audioDescribed` also `{name}`. `fileUnreadable` and `stickerUnreadable` take `{name}` and state that no model can read the item. `senses.voiceHeard` replaces `senses.voice` while the `video` role is on. The prompt `describe-audio` takes `{{maxChars}}` and `{{today}}`. The memory session's `<batch>` shows a line's media with the same tags as the turn's chat, and numbers a line that holds only media.
+A transcript and what she voiced are quoted speech as a whole. The transcript labels `voiceDescribed` and `audioDescribed` take `{duration}` and `{text}`, and `audioDescribed` also `{name}`. `fileUnreadable` and `stickerUnreadable` take `{name}` and state that no model can read the item. `senses.voiceHeard` replaces `senses.voice` while the `video` role is on. `senses.gifWatched` stands in `<senses>` while GIFs are watched, and no GIF line stands there otherwise. A GIF whose watch failed renders `transcript.gifNotWatched` with `{name}` and `{reason}`, and `{reason}` takes the words of `transcript.videoReason` for its code, or the code itself when the map has none. The prompt `describe-audio` takes `{{maxChars}}` and `{{today}}`. The memory session's `<batch>` shows a line's media with the same tags as the turn's chat, and numbers a line that holds only media.
 
 ## Labels
 
