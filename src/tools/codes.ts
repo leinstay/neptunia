@@ -58,6 +58,10 @@ export const CATALOGUE = Object.freeze({
   'channel-no-permission': skill('denied'),
   'channel-not-visible': skill('denied'),
   'dm-disabled': skill('denied'),
+  // A post, an edit or an intention's place in a diary mirror's place, refused at the call
+  // (src/tools/operations/shared.ts#postingRef, src/tools/operations/intention.ts), and any other send there by the
+  // guarded port (src/behavior/mirror.ts#guardMirrorPort).
+  'diary-mirror': skill('denied'),
   'cap-open': skill('denied'),
   'cap-tasks': skill('denied'),
   'heartbeat-only': skill('denied'),
@@ -160,8 +164,6 @@ export const CATALOGUE = Object.freeze({
   'gif-failed': skill('partial'),
   'no-result': skill('failed'),
   'send-failed': skill('failed'),
-  // A send to a diary mirror's place, refused by the guarded port (src/behavior/mirror.ts#guardMirrorPort).
-  'diary-mirror': skill('failed'),
   'link-closed': skill('unknown'),
   // A post with files to the owner's command line chat while no chat is open (src/interface/cli-chat.ts).
   'chat-closed': skill('failed'),

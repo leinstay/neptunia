@@ -9,7 +9,8 @@
 // candidate), `intention.list`. Her own state, so her own calls run on her grant alone
 // (src/tools/definitions.ts, trait `self`). A call never widens anything: a wait
 // names only an errand the errand store holds, a place to begin in is recorded once the interface says
-// she may write there and the place is no mirror of her diary (`diary-mirror`), and a candidate is accepted only where its origin allows
+// she may write there and the place is no mirror of her diary (`diary-mirror`), an intention set with no place begins in
+// the chat of the call and is refused the same way when that chat is a mirror's, and a candidate is accepted only where its origin allows
 // (src/intentions/model.ts#acceptRefusal). An update or a cancel without `id=` whose body is one bare
 // intention id takes that as the id (isIntentionId);
 // any other body stays the update's purpose (or is ignored by the cancel). Off unless
@@ -253,17 +254,28 @@ const handlers = perEnv((env) => {
     };
   }
 
+  /** The name of the persona's interface, '' with no port. */
+  function portIface(): string {
+    const port = env.port as { iface?: unknown } | null | undefined;
+    return typeof port?.iface === 'string' ? port.iface : '';
+  }
+
   /**
    * A place to begin in, refused when she cannot write there (src/tools/operations/shared.ts#writablePlace) and when it
    * is the place of a diary mirror, where only the mirrors' publisher posts (src/behavior/mirror.ts).
    */
   async function checkBegin(place: string | undefined, context: OpContext): Promise<void> {
     if (!place) return;
-    const port = env.port as { iface?: unknown } | null | undefined;
-    const iface = typeof port?.iface === 'string' ? port.iface : '';
-    const target = await writablePlace({ reads: env.reads, store: env.store, iface, id: place, context });
+    const target = await writablePlace({ reads: env.reads, store: env.store, iface: portIface(), id: place, context });
     if (isMirrorPlace(env.memoryDb, target.iface, target.chatId))
       throw denied(`a mirror of your diary, ${place}`, CODE.DIARY_MIRROR);
+  }
+
+  /** An intention set with no place to begin in begins in the chat of the call: refused when that is a diary mirror's. */
+  function checkOrigin(context: OpContext): void {
+    const chatId = env.chatOf(context);
+    if (chatId !== null && isMirrorPlace(env.memoryDb, portIface(), chatId))
+      throw denied(`a mirror of your diary, ${chatId}`, CODE.DIARY_MIRROR);
   }
 
   /**
@@ -274,7 +286,9 @@ const handlers = perEnv((env) => {
     const place = text(args, 'attend');
     const purpose = text(args, 'text') ?? place;
     if (!purpose) throw invalid('a purpose is required');
-    await checkBegin(text(args, 'placeId'), context);
+    const begin = text(args, 'placeId');
+    if (begin) await checkBegin(begin, context);
+    else checkOrigin(context);
     const from = origin(context);
     const state = text(args, 'state');
     if (state !== undefined && state !== 'dropped') throw invalid('state must be dropped');

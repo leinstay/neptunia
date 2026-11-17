@@ -293,6 +293,7 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `channel-no-permission` | denied | - | `tools.result.reasons.channel-no-permission` |
 | `channel-not-visible` | denied | - | `tools.result.reasons.channel-not-visible` |
 | `dm-disabled` | denied | - | `tools.result.reasons.dm-disabled` |
+| `diary-mirror` | denied | - | `tools.result.reasons.diary-mirror` |
 | `cap-open` | denied | - | `tools.result.reasons.cap-open` |
 | `cap-tasks` | denied | - | `tools.result.reasons.cap-tasks` |
 | `heartbeat-only` | denied | - | `tools.result.reasons.heartbeat-only` |
@@ -387,7 +388,6 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `gif-failed` | partial | - | `tools.result.reasons.gif-failed` |
 | `no-result` | failed | - | `tools.result.reasons.no-result` |
 | `send-failed` | failed | - | `tools.result.reasons.send-failed` |
-| `diary-mirror` | failed | - | `tools.result.reasons.diary-mirror` |
 | `link-closed` | unknown | - | `tools.result.reasons.link-closed` |
 | `chat-closed` | failed | - | `tools.result.reasons.chat-closed` |
 | `link-busy` | failed | - | `tools.result.reasons.link-busy` |
