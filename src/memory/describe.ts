@@ -23,7 +23,9 @@
 // (src/behavior/summarize.ts), and what it returns is stored whole on one
 // line, as the answer is, even when it is still longer. The picture prompt's `{{self}}`
 // is the `describe-self` paragraph, her name and her appearance, filled when
-// the appearance prompt is not blank and `selfName` knows her name there.
+// the appearance prompt is not blank and `selfName` knows her name there. A
+// picture's caption is kept with her name of the place replaced by `SELF_MARK`
+// (src/memory/self-mark.ts#markSelf), and each reader fills it again.
 //
 // The picture is downloaded first (src/media/fetch-image.ts) and sent to
 // the model as a data: URL, never as a bare platform URL -- a platform's media host may refuse
@@ -154,6 +156,7 @@ import type { StoredRecord, Untyped } from './types.ts';
 import type { StoreView } from './store.ts';
 import type { Track } from '../loop-watch.ts';
 import { untracked } from '../loop-watch.ts';
+import { markSelf } from './self-mark.ts';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
 /** What a store with no database links. */
@@ -587,9 +590,8 @@ function buildDescriber({
    * The `{{self}}` of the picture prompt: `describe-self` with her name and her appearance (its own `{{name}}`
    * filled first) when the appearance is not blank and a name is known, else an empty string.
    */
-  function selfParagraph(placeId: string): string {
+  function selfParagraph(name: string): string {
     const prompts = hot.prompts as Record<string, unknown> | null | undefined;
-    const name = selfName?.(placeId);
     const template = prompts?.['describe-self'];
     if (!name || typeof template !== 'string') return '';
     const appearance = fillPromptTemplate(typeof prompts?.appearance === 'string' ? prompts.appearance : '', {
@@ -773,6 +775,8 @@ function buildDescriber({
     const mediaCfg = hot.config.media ?? {};
     const descriptionChars = DESCRIPTION_CHARS;
     const model = roleModel(hot.config, 'vision', 'describe');
+    // Her name in the place, read once: the prompt names her by it and the kept caption marks it.
+    const name = selfName?.(placeId) ?? '';
     const ask = (): Promise<Answered> =>
       llm.complete(
         [
@@ -781,7 +785,7 @@ function buildDescriber({
             content: fillPromptTemplate(promptText, {
               maxChars: descriptionChars,
               today: todayDate(),
-              self: selfParagraph(placeId),
+              self: selfParagraph(name),
             })
               .replace(/(?:\r?\n){3,}/g, '\n\n')
               .trim(),
@@ -834,7 +838,9 @@ function buildDescriber({
         return caption ? { text: caption, usage: again.usage } : null;
       }
     );
-    const text = await shorten(standard.answer.text, descriptionChars, 'picture');
+    // The summarizer reads the caption as the model wrote it; her name becomes the marker only in what is kept.
+    const shortened = await shorten(standard.answer.text, descriptionChars, 'picture');
+    const text = markSelf(shortened, name);
 
     return { text, usage: standard.answer.usage ?? null, estimated, model, marks: standard.marks };
   }

@@ -11,3 +11,13 @@ const MARK = new RegExp(`(?<![\\w@.])${SELF_MARK}(?![\\w@-])`, 'g');
 export function fillSelfMark(text: string, name: string): string {
   return text.replace(MARK, () => name);
 }
+
+/**
+ * `text` with every whole-word `name` replaced by `SELF_MARK`, the inverse of `fillSelfMark`; a longer word that
+ * contains the name stays, and an empty name leaves `text` as it is.
+ */
+export function markSelf(text: string, name: string): string {
+  if (!name) return text;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'gu'), SELF_MARK);
+}
