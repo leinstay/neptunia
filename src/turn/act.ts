@@ -267,7 +267,7 @@ export function createAct(ctx: ActContext): Act {
    * reaction or GIF is skipped alone. Every effect goes through the port
    * (`iface`): a send it answers `unknown` is journaled so and never sent again.
    *
-   * The messages are posted as the model wrote them: nothing rewrites them.
+   * The messages are posted with the texts they arrive with, which the humanizer of postSpeech may have written again.
    * After the reactions, the media pick (src/behavior/media-pick.ts) runs alongside the first message's typing imitation
    * on an interface that declares it (portMediaPick): both start together, the first message waits for both, the pick at
    * most its grace past the end of that typing: a pick still out then is left behind for this turn (its answer is ignored;
