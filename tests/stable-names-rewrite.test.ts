@@ -313,3 +313,65 @@ test('plans no change after an apply and still counts what it leaves', () => {
   const { left } = again.counts;
   assert.equal(left.sharedName, 1);
 });
+
+test('ties an unlinked line in one pass to an emoji whose name only raw markup in another table tells', () => {
+  const { handle, db } = openTemp();
+  db.prepare(
+    "INSERT INTO media (id, kind, native_ref, extra, scope_iface) VALUES ('m1', 'emoji', '901', '{}', 'fake')"
+  ).run();
+  const extra = JSON.stringify({ note: 'was <:pog:901>' });
+  db.prepare("INSERT INTO claim_versions (id, claim_id, text, extra) VALUES ('v1', 'c1', '', ?)").run(extra);
+  line(db, 'l1', 'so :pog:');
+  apply(handle, planStableNamesRewrite(db));
+  assert.equal(textOf(db, 'l1'), 'so :e1:');
+  assert.deepEqual(linksOf(db, 'l1'), ['m1']);
+  assert.deepEqual(boundOf(db, '901'), ['e1', 'pog']);
+  assert.deepEqual(planStableNamesRewrite(db).counts.tables, {});
+});
+
+/** A line of `kind` on interface `iface`, or with no interface when it is null. */
+function lineOf(db: Db, id: string, kind: string, iface: string | null, text: string): void {
+  db.prepare('INSERT INTO sources (id, kind, iface, text) VALUES (?, ?, ?, ?)').run(id, kind, iface, text);
+}
+
+test('rewrites a memory note with no interface to the stable name of the one emoji of that name and links nothing', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  lineOf(db, 'n1', 'memory_session', null, 'they love :pog:');
+  apply(handle, planStableNamesRewrite(db));
+  assert.equal(textOf(db, 'n1'), 'they love :e1:');
+  assert.deepEqual(linksOf(db, 'n1'), []);
+});
+
+test('rewrites a line of another interface to the stable name of the one emoji of that name and links nothing', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  lineOf(db, 'c1', 'seen', 'cli', 'typed :pog:');
+  apply(handle, planStableNamesRewrite(db));
+  assert.equal(textOf(db, 'c1'), 'typed :e1:');
+  assert.deepEqual(linksOf(db, 'c1'), []);
+});
+
+test('leaves a memory note whose name an emoji of each of two interfaces holds and counts it as a shared name', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  const extra = JSON.stringify({ name: 'pog', animated: false });
+  db.prepare("INSERT INTO media (id, kind, native_ref, extra, scope_iface) VALUES ('m2', 'emoji', '77', ?, 'cli')").run(
+    extra
+  );
+  lineOf(db, 'n1', 'description_review', null, 'they love :pog:');
+  const plan = planStableNamesRewrite(db);
+  const { left } = plan.counts;
+  assert.equal(left.sharedName, 1);
+  apply(handle, plan);
+  assert.equal(textOf(db, 'n1'), 'they love :pog:');
+});
+
+test('leaves a token that differs from a known emoji name only in letter case', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'loud :POG:');
+  apply(handle, planStableNamesRewrite(db));
+  assert.equal(textOf(db, 'l1'), 'loud :POG:');
+  assert.deepEqual(linksOf(db, 'l1'), []);
+});
