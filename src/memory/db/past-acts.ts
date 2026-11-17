@@ -15,9 +15,14 @@ export type PastLine = {
   at: number;
   placeId: string;
   text: string | null;
-  /** People's lines in the line's place within `AFTER_MS` after it, bots aside, and how many people wrote them. */
-  after: { lines: number; people: number };
+  /**
+   * People's lines in the line's place within `AFTER_MS` after it, bots aside, how many people wrote them and how many
+   * of them answer her line (`reply_to`).
+   */
+  after: { lines: number; people: number; answers: number };
 };
+/** A near line as the vector read finds it, with the message id its answers name. */
+type FoundLine = Omit<PastLine, 'after'> & { nativeId: string };
 /** One wake run that carried an intention: when it started, how it ended and the lines of hers it sent, by place. */
 export type PastRun = { at: number; status: string; sent: number; placeIds: Array<string> };
 /** An intention of hers near the purpose, with every run that carried it, oldest first. */
@@ -88,25 +93,26 @@ function cosine(row: Record<string, unknown>, query: ReadonlyArray<number>, quer
 }
 
 /**
- * Her lines whose stored vector of `model` lies at `minScore` or nearer, best first, each line once at its best row.
- * Her lines are walked over `sources_turn`, the lines her turns wrote, and each one's vectors over `vectors_item`.
+ * Her lines whose stored vector of `model` lies at `minScore` or nearer, each line once at its best row. The read walks
+ * the `record` vectors over `vectors_kind` and finds each one's line by its link `source_rowid`, the primary key of
+ * `sources`: her lines carry no index of their own, and an older line of hers holds no turn.
  */
 function nearLines(
   db: Db,
   { vector, model, minScore }: { vector: ReadonlyArray<number>; model: string; minScore: number }
-): Array<Omit<PastLine, 'after'>> {
+): Array<FoundLine> {
   const queryNorm = Math.sqrt(vector.reduce((sum, x) => sum + x * x, 0));
   if (!(queryNorm > 0)) return [];
   const rows = db
     .prepare(
-      `SELECT s.id, s.place_id, s.occurred_at, s.text, s.scope_kind, v.scale, v.norm, v.bytes
-       FROM sources s INDEXED BY sources_turn CROSS JOIN vectors v INDEXED BY vectors_item ON v.item_id = s.native_id
-       WHERE s.turn_id > '' AND s.kind = 'said' AND s.retired_at IS NULL
-         AND v.kind = 'record' AND v.model = ? AND v.dims = ? AND v.bytes IS NOT NULL
-         AND v.retired_at IS NULL AND v.evicted_at IS NULL`
+      `SELECT s.id, s.native_id, s.place_id, s.occurred_at, s.text, s.scope_kind, v.scale, v.norm, v.bytes
+       FROM vectors v INDEXED BY vectors_kind CROSS JOIN sources s ON s.rowid = v.source_rowid
+       WHERE v.kind = 'record' AND v.model = ? AND v.dims = ? AND v.bytes IS NOT NULL
+         AND v.retired_at IS NULL AND v.evicted_at IS NULL
+         AND s.kind = 'said' AND s.author_kind = 'self' AND s.retired_at IS NULL`
     )
     .all(model, vector.length);
-  const best = new Map<string, Omit<PastLine, 'after'>>();
+  const best = new Map<string, FoundLine>();
   for (const row of rows) {
     const score = cosine(row, vector, queryNorm);
     const id = String(row.id);
@@ -118,23 +124,25 @@ function nearLines(
       score,
       at,
       placeId: String(row.place_id),
+      nativeId: String(row.native_id),
       text: row.scope_kind === 'dm' || typeof row.text !== 'string' ? null : row.text,
     });
   }
   return [...best.values()];
 }
 
-/** People's lines in `placeId` within AFTER_MS after `at`, over the range of `sources_place_time`. */
-function afterOf(db: Db, placeId: string, at: number): PastLine['after'] {
+/** People's lines in the place of `line` within AFTER_MS after it, over the range of `sources_place_time`. */
+function afterOf(db: Db, line: FoundLine): PastLine['after'] {
   const row = db
     .prepare(
-      `SELECT COUNT(DISTINCT s.native_id) AS n, COUNT(DISTINCT COALESCE(s.author_person, s.author_account)) AS people
+      `SELECT COUNT(DISTINCT s.native_id) AS n, COUNT(DISTINCT COALESCE(s.author_person, s.author_account)) AS people,
+         COUNT(DISTINCT CASE WHEN s.reply_to = ? THEN s.native_id END) AS answers
        FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
        WHERE s.place_id = ? AND s.occurred_at > ? AND s.occurred_at <= ? AND s.kind = 'seen' AND s.retired_at IS NULL
          AND COALESCE(a.kind, 'user') <> 'bot'`
     )
-    .get(placeId, new Date(at).toISOString(), new Date(at + AFTER_MS).toISOString());
-  return { lines: Number(row?.n ?? 0), people: Number(row?.people ?? 0) };
+    .get(line.nativeId, line.placeId, new Date(line.at).toISOString(), new Date(line.at + AFTER_MS).toISOString());
+  return { lines: Number(row?.n ?? 0), people: Number(row?.people ?? 0), answers: Number(row?.answers ?? 0) };
 }
 
 /** The intention of `id` as the store holds it, over the primary key; null for one it holds no live row of. */
@@ -207,10 +215,13 @@ export function pastActsOf(
   ]
     .sort((a, b) => b.score - a.score)
     .slice(0, input.limit);
-  const oldest = Math.min(...near.flatMap((one) => (one.intention ? [one.intention.stored.createdAt] : [])));
+  const oldest = Math.min(...near.flatMap(({ intention }) => (intention ? [intention.stored.createdAt] : [])));
   const runs = Number.isFinite(oldest) ? runsSince(db, oldest) : new Map<string, Array<PastRun>>();
   return near.map((one): PastAct => {
-    if (one.line) return { ...one.line, after: afterOf(db, one.line.placeId, one.line.at) };
+    if (one.line) {
+      const { id, score, at, placeId, text } = one.line;
+      return { kind: 'line', id, score, at, placeId, text, after: afterOf(db, one.line) };
+    }
     const { stored, score } = one.intention;
     return {
       kind: 'intention',

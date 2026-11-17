@@ -22,19 +22,40 @@ const NEAR: ReadonlyArray<number> = [1, 0, 0, 0];
 const FAR: ReadonlyArray<number> = [0, 1, 0, 0];
 const iso = (at: number): string => new Date(at).toISOString();
 
-/** The stored vector of a line, as the index keeps one: int8 bytes with their scale and norm, under its message id. */
-function addVector(world: World, item: string, at: number, vector: ReadonlyArray<number>): void {
+/**
+ * The stored vector of a line, as the index keeps one: int8 bytes with their scale and norm, linked to the line's row.
+ * Its `item_id` is another message id than the line's own, as an older index wrote it, so only the link finds the line.
+ */
+function addVector(world: World, line: string, at: number, vector: ReadonlyArray<number>): void {
   const { bytes, scale, norm } = quantize(vector);
+  const row = world.db.prepare('SELECT rowid FROM sources WHERE id = ?').get(line);
   world.db
     .prepare(
-      `INSERT INTO vectors (item_id, chunk_key, model, dims, scale, norm, bytes, occurred_at, kind, place_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'record', 'fake:server:g1')`
+      `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, occurred_at, kind, place_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'record', 'fake:server:g1')`
     )
-    .run(item, `record:${item}:1`, MODEL, vector.length, scale, norm, new Uint8Array(bytes.buffer), iso(at));
+    .run(
+      Number(row?.rowid),
+      `other-${line}`,
+      `record:${line}:1`,
+      MODEL,
+      vector.length,
+      scale,
+      norm,
+      new Uint8Array(bytes.buffer),
+      iso(at)
+    );
 }
 
-/** A line of hers written by `turn`, with its vector when one is given. */
-function ownLine(world: World, id: string, place: string, ago: number, turn: string, vector?: ReadonlyArray<number>) {
+/** A line of hers written by `turn` (none for a line older than the turns that keep one), with its vector when given. */
+function ownLine(
+  world: World,
+  id: string,
+  place: string,
+  ago: number,
+  turn: string | null,
+  vector?: ReadonlyArray<number>
+) {
   const iface = place.split(':')[0] ?? 'fake';
   addLine(world.db, { id, iface, place, author: 'self', text: `ΓΡΑΜΜΗ-${id}`, at: iso(TURN_NOW - ago), turn });
   if (vector) addVector(world, id, TURN_NOW - ago, vector);
@@ -73,7 +94,17 @@ function pastWorld(): World {
     text: 'ΑΠΑΝΤΗΣΗ-ΤΗΣ-ΕΛΕΝΗΣ',
     at: iso(TURN_NOW - 30 * DAY + 2 * HOUR),
   });
+  world.db.prepare("UPDATE sources SET reply_to = 'p1' WHERE id = 'p2'").run();
   addVector(world, 'p2', TURN_NOW - 30 * DAY + 2 * HOUR, NEAR);
+  addLine(world.db, {
+    id: 'p2b',
+    iface: 'fake',
+    place: GARDEN,
+    author: 'fake:5678',
+    text: 'ΑΣΧΕΤΗ-ΓΡΑΜΜΗ',
+    at: iso(TURN_NOW - 30 * DAY + 3 * HOUR),
+  });
+  ownLine(world, 'p5', ROOM, 60 * DAY, null, NEAR);
   ownLine(world, 'p3', ROOM, 20 * DAY, 'turn:b', FAR);
   ownLine(world, 'p4', HARBOUR, 10 * DAY, 'turn:c', NEAR);
   writeIntentions(world.db, { op: 'value', intentions: [intention('i3', 'pending', 2 * DAY)] }, iso(TURN_NOW));
@@ -106,17 +137,28 @@ function actsOf(world: World, scores: Record<string, number>): Array<PastAct> {
   });
 }
 
-test('her near line comes with how many lines people wrote in its place within a day after it', () => {
-  // Bug: the record reads her line and nothing of what followed, so an answered post reads as an unanswered one.
+test('her near line comes with how many lines people wrote in its place within a day after it and how many answer it', () => {
+  // Bug: the record reads her line and nothing of what followed, or counts a busy chat's every line as an answer.
   const world = pastWorld();
   try {
     const acts = actsOf(world, {});
     const answered = acts.find((one) => one.kind === 'line' && one.id === 'p1');
     const quiet = acts.find((one) => one.kind === 'line' && one.id === 'p4');
     assert.ok(answered?.kind === 'line' && quiet?.kind === 'line', JSON.stringify(acts));
-    assert.deepEqual(answered.after, { lines: 1, people: 1 });
+    assert.deepEqual(answered.after, { lines: 2, people: 2, answers: 1 });
     assert.equal(answered.placeId, GARDEN);
-    assert.deepEqual(quiet.after, { lines: 0, people: 0 });
+    assert.deepEqual(quiet.after, { lines: 0, people: 0, answers: 0 });
+  } finally {
+    world.close();
+  }
+});
+
+test('a near line of hers with no turn and a vector under another message id is an item', () => {
+  // Bug: her lines are read by their turn and their vectors by message id, so a post older than the turns is invisible.
+  const world = pastWorld();
+  try {
+    const ids = actsOf(world, {}).map((one) => one.id);
+    assert.ok(ids.includes('p5'), ids.join(' '));
   } finally {
     world.close();
   }

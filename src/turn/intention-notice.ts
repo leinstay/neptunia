@@ -172,7 +172,11 @@ function actLine(
         : fill(word(words, 'line'), { date, place, text: act.text });
     const after =
       act.after.lines > 0
-        ? fill(word(words, 'followed'), { lines: act.after.lines, people: act.after.people })
+        ? fill(word(words, 'followed'), {
+            lines: act.after.lines,
+            people: act.after.people,
+            answers: act.after.answers,
+          })
         : word(words, 'noReply');
     return `${said}; ${after}`;
   }

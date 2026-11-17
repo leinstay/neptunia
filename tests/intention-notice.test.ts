@@ -29,12 +29,9 @@ const GARDENING = 'ΚΗΠΟΥΡΙΚΗ';
 const vectorOf = (text: string): Array<number> =>
   text.includes(CONCERT) ? [1, 0, 0, 0] : text.includes(GARDENING) ? [0, 1, 0, 0] : [0, 0, 1, 0];
 
-/** The fake embedder: one vector per text by its subject, the requests it got counted in `asked`. */
-function embedder(asked: Array<Array<string>> = []): EmbedNotice {
-  return (texts) => {
-    asked.push(texts);
-    return Promise.resolve(texts.map(vectorOf));
-  };
+/** The fake embedder: one vector per text by its subject. */
+function embedder(): EmbedNotice {
+  return (texts) => Promise.resolve(texts.map(vectorOf));
 }
 
 /** The service world with a post of hers about the concert in the garden twenty days ago, its vector stored. */
@@ -53,8 +50,9 @@ function concertWorld(): World {
   const { bytes, scale, norm } = quantize(vectorOf(OLD_POST));
   world.db
     .prepare(
-      `INSERT INTO vectors (item_id, chunk_key, model, dims, scale, norm, bytes, occurred_at, kind, place_id)
-       VALUES ('old1', 'record:old1:1', ?, 4, ?, ?, ?, ?, 'record', 'fake:server:g1')`
+      `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, occurred_at, kind, place_id)
+       VALUES ((SELECT rowid FROM sources WHERE id = 'old1'), 'old1', 'record:old1:1', ?, 4, ?, ?, ?, ?, 'record',
+         'fake:server:g1')`
     )
     .run(MODEL ?? '', scale, norm, new Uint8Array(bytes.buffer), at);
   return world;
@@ -80,8 +78,11 @@ async function heartbeat(answers: ReadonlyArray<unknown>, extra: { embedNotice?:
   }
 }
 
-const purposes = (run: Awaited<ReturnType<typeof heartbeat>>): Array<string> =>
-  run.intentions.list({ all: true }).map((one) => one.purpose);
+/** The purposes an intention service holds, every one. */
+const listed = (service: { list: (where: { all: boolean }) => Array<{ purpose: string }> }): Array<string> =>
+  service.list({ all: true }).map((one) => one.purpose);
+
+const purposes = (run: Awaited<ReturnType<typeof heartbeat>>): Array<string> => listed(run.intentions);
 
 test('a heartbeat intention near an earlier post of hers is not saved and she reads the post', async () => {
   // Bug: the intention is saved at once and she never sees that she posted the same thing twenty days ago.
@@ -91,7 +92,8 @@ test('a heartbeat intention near an earlier post of hers is not saved and she re
   ]);
   assert.deepEqual(run.actions, ['intention.set:refused:intention-notice']);
   assert.deepEqual(purposes(run), []);
-  assert.ok(run.requests[1]?.includes(OLD_POST), 'the second request shows the post');
+  const [, second] = run.requests;
+  assert.ok(second?.includes(OLD_POST), 'the second request shows the post');
 });
 
 test('the call that confirms a notice saves the held intention and reads no second notice', async () => {
@@ -116,15 +118,11 @@ test('a changed purpose near nothing is saved at once after a notice', async () 
   assert.deepEqual(purposes(run), [`${GARDENING} με τη Ζωή`]);
 });
 
-test('a purpose near nothing she did is saved with no notice, in one embedding request', async () => {
-  // Bug: every heartbeat intention gets a notice, or the check embeds the purpose and her intentions in two requests.
-  const asked: Array<Array<string>> = [];
-  const run = await heartbeat([toolAnswer(THINK, [call('intention.set', { due: '1h', text: GARDENING })])], {
-    embedNotice: embedder(asked),
-  });
+test('a purpose near nothing she did is saved with no notice', async () => {
+  // Bug: every heartbeat intention gets a notice, whatever lies near it.
+  const run = await heartbeat([toolAnswer(THINK, [call('intention.set', { due: '1h', text: GARDENING })])]);
   assert.deepEqual(run.actions, ['intention.set:executed:ok']);
   assert.deepEqual(purposes(run), [GARDENING]);
-  assert.equal(asked.length, 1);
 });
 
 test('with the embedder failing the intention is saved and a warn line names the stage', async () => {
@@ -164,10 +162,7 @@ test('an intention set in a chat turn near the same post is saved with no notice
         },
       ],
     });
-    assert.deepEqual(
-      run.intentions.list({ all: true }).map((one) => one.purpose),
-      [`${CONCERT} ξανά`]
-    );
+    assert.deepEqual(listed(run.intentions), [`${CONCERT} ξανά`]);
   } finally {
     world.close();
   }

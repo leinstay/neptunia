@@ -28,6 +28,7 @@ import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { HOUR_MS, MINUTE_MS, DAY_MS } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { heartbeatRefused } from '../src/behavior/inner/facts.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { personaKey } from '../src/memory/db/unit-keys.ts';
 import {
@@ -2228,4 +2229,15 @@ test("inner: the end of a heartbeat's turn leaves the in-flight mark of the inte
   assert.equal(run.inner.state().inflight?.kind, 'intention_due');
   release('intention_due');
   await both;
+});
+
+test('a notice a heartbeat did not read is a refusal of the heartbeat, which wakes no feedback turn', () => {
+  // Bug: the notice's fact wakes a feedback turn, which may post what the heartbeat held behind the notice.
+  const [fact] = feedbackFacts({
+    inner: {
+      actions: [{ skill: 'intention.set', status: 'refused', result: 'refused', code: 'intention-notice', target: {} }],
+    },
+  });
+  assert.equal(fact?.code, 'intention-notice');
+  assert.equal(heartbeatRefused(fact ?? {}), true);
 });

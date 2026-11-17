@@ -449,7 +449,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       timezone: (hot.config as { bot?: { timezone?: string } }).bot?.timezone ?? 'UTC',
       placeName: (placeId) => draft.requestRefs?.placeRef(placeId) ?? placeId,
     });
-    return { plan: planned, answer: { status: 'denied', code: CODE.INTENTION_NOTICE, data: { text } } };
+    return { plan: planned, answer: { status: 'refused', code: CODE.INTENTION_NOTICE, data: { text } } };
   }
 
   /**
