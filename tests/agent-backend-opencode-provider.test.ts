@@ -151,3 +151,30 @@ for (const name of ['claude', 'codex'] as const) {
     assert.deepEqual(spawned, []);
   });
 }
+
+// OpenCode's permission keys (https://opencode.ai/docs/permissions, v1): `"*"` sets every permission, a later key
+// overrides it, `edit` gates write, edit and apply_patch, and `external_directory` gates a path outside the folder.
+const PERMISSIONS = [
+  { sandbox: 'read-only', permission: { '*': 'allow', edit: 'deny' } },
+  { sandbox: 'workspace-write', permission: { '*': 'allow' } },
+  { sandbox: 'none', permission: { '*': 'allow' } },
+] as const;
+
+for (const { sandbox, permission } of PERMISSIONS) {
+  test(`an opencode run in the ${sandbox} sandbox writes a permission block that never asks`, async () => {
+    // Catches: the sandbox ignored, so OpenCode keeps its default "ask" for a path outside the run's folder and a
+    // headless run refuses the call and ends with no text.
+    const { spawned } = await runOnce('opencode', { sandbox });
+    const { config } = spawned[0];
+    assert.deepEqual(config.permission, permission);
+    const written = JSON.stringify(config.permission);
+    assert.equal(written.includes('ask'), false);
+  });
+}
+
+test('an opencode run with no sandbox writes no permission block', async () => {
+  // Catches: a permission block forced on a caller that passes no sandbox, which changes what that run may do.
+  const { spawned } = await runOnce('opencode', {});
+  const { config } = spawned[0];
+  assert.equal(Object.hasOwn(config, 'permission'), false);
+});
