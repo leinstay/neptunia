@@ -1939,6 +1939,7 @@ function fakePrivateStore({
     listUserProfiles: () => [],
     countUsers: () => Object.keys(profiles).length,
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
   };
 }

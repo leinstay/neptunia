@@ -29,6 +29,7 @@ import { linkAccount } from './person-links.ts';
 import { mergePersonInto } from './person-merge.ts';
 import type { SessionContext } from './session.ts';
 import { dbOf } from './types.ts';
+import { liveRules } from './rules.ts';
 import type { Config, Db, MemoryHandle, Row } from './types.ts';
 
 export const MERGE_PURPOSE = 'description-merge';
@@ -185,7 +186,10 @@ async function joinPair(deps: BindDeps, pair: Pair): Promise<Joined> {
   const completion = await askMemoryModel(
     { llm: deps.llm, hot: deps.hot },
     [
-      { role: 'system', content: systemTextOf(prompts, deps.selfName ?? '', prompts[MERGE_PURPOSE]) },
+      {
+        role: 'system',
+        content: systemTextOf(prompts, deps.selfName ?? '', prompts[MERGE_PURPOSE], liveRules(deps.db)),
+      },
       { role: 'user', content: user },
     ],
     { purpose: MERGE_PURPOSE, maxOutputTokens: sessionSettings(deps.hot.config).descriptionMaxOutputTokens }

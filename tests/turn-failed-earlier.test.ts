@@ -73,6 +73,7 @@ const store = {
   listChannels: () => [],
   listUserProfiles: () => [],
   getLore: () => [],
+  liveRules: () => [],
   state: { data: {}, markDirty() {} },
 };
 

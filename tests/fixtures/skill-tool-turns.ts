@@ -191,6 +191,7 @@ export async function skillTurn({
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };

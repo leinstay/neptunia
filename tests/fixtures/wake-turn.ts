@@ -183,6 +183,7 @@ export async function wakeTurn({
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => lore,
+    liveRules: () => [],
     ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };

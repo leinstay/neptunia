@@ -410,6 +410,7 @@ function fakeStore(gifs = null) {
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
