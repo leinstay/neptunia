@@ -208,7 +208,7 @@ test("resolveCall: only a registry skill; its arguments are its command's option
 // Changed: her errand names no agent (the owner's decision of 2026-11-17), so an `agent` she writes is an unknown argument.
 test('resolveCall: each skill declares the argument its main text fills; an errand takes its goal and no agent', () => {
   const bodyOf = (name: string) => skillRegistry().get(name)?.dispatch?.body;
-  assert.deepEqual(['errand.add', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), [
+  assert.deepEqual(['errand.scout', 'message.create', 'message.edit', 'rule.add'].map(bodyOf), [
     'goal',
     'text',
     'text',
@@ -217,9 +217,9 @@ test('resolveCall: each skill declares the argument its main text fills; an erra
   for (const name of ['errand.list', 'errand.cancel', 'message.delete', 'memory.journal.read', 'rule.remove'])
     assert.equal(bodyOf(name), null, name);
   const goal = 'read the git history of the server and say what changed this week';
-  const errand = resolve('errand.add', { goal });
+  const errand = resolve('errand.scout', { goal });
   assert.deepEqual([errand.ok, errand.args], [true, { goal }]);
-  const cfg = config({ access: { 'errand.add': { everyone: false, roles: [], users: [SELF] } } });
+  const cfg = config({ access: { 'errand.scout': { everyone: false, roles: [], users: [SELF] } } });
   const verdict = checkSkill({
     skill: errand.skill,
     args: errand.args,
@@ -229,7 +229,7 @@ test('resolveCall: each skill declares the argument its main text fills; an erra
     context: { config: cfg, selfId: SELF, tasks: { budget: () => ({ spent: false }) } },
   });
   assert.deepEqual(verdict, { ok: true });
-  const named = resolve('errand.add', { agent: 'server', goal });
+  const named = resolve('errand.scout', { agent: 'server', goal });
   assert.deepEqual([named.ok, named.code, named.reason], [false, 'invalid-args', 'args.agent:unknown']);
   assert.deepEqual(resolve('rule.add', { text: 'όχι emoji' }).args, { text: 'όχι emoji' });
 });

@@ -80,7 +80,7 @@ function controllableRunner() {
 
 async function withServer(runner: Untyped, fn: Untyped) {
   const sock = socketPath();
-  const server = createRunnerServer({ unit: 'web', runner, socketPath: sock });
+  const server = createRunnerServer({ unit: 'scout', runner, socketPath: sock });
   await server.start();
   try {
     return await fn(sock, server);
@@ -250,7 +250,7 @@ test('server: a bad line gets an error event, a ping gets a pong', async () => {
       assert.equal(loose(err).error, 'bad-json');
       c.send({ op: 'ping', ids: [] });
       const pong = await c.next((e: unknown) => loose(e).event === 'pong');
-      assert.equal(loose(pong).unit, 'web');
+      assert.equal(loose(pong).unit, 'scout');
       c.end();
     })
   );
@@ -274,7 +274,7 @@ test('server: a ping about an unknown id answers end/restarted', async () => {
 test('server: stop ends an open task with restarted', async () => {
   const { runner } = controllableRunner();
   const sock = socketPath();
-  const server = createRunnerServer({ unit: 'web', runner, socketPath: sock });
+  const server = createRunnerServer({ unit: 'scout', runner, socketPath: sock });
   await withCapturedLogs(async () => {
     await server.start();
     const c = connect(sock);

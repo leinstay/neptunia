@@ -6,7 +6,7 @@
 // a deadline (the model's invariant); an errand is linked only once the errand store holds it --
 // given by id, or handed off in the same turn (a wait asked before the errand was queued is kept
 // as `waitRequested` on a `pending` intention and linked by `linkTurnErrand` when that turn's
-// `errand.add` queues one; a failed launch links nothing, so nothing waits on it). Completion is
+// errand tool queues one; a failed launch links nothing, so nothing waits on it). Completion is
 // idempotent: a second end of the same errand finds nothing waiting. A recurring intention
 // (`every`, src/intentions/model.ts) is advanced to its next occurrence when the scheduler disposes
 // of its wake (`advance`: `recurred` when a call of hers named it, `missed` otherwise), when her

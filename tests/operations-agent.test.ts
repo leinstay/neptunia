@@ -10,17 +10,19 @@ import { tempDir } from './fixtures/tmp.ts';
 import type { OpContext } from '../src/tools/types.ts';
 
 /** A profile.json that passes every check. */
-const profile = (id: string, unit: string) => ({
+const profile = (id: string) => ({
   id,
   description: `The ${id} agent.`,
-  unit,
   prompt: 'prompt.md',
   limits: { steps: 5, seconds: 60 },
   daily: { tasks: 3 },
   cost: { input: 2, output: 6 },
 });
 
-/** A root with the tracked agent `alpha`, a data folder with the local agent `beta`, and a fake environment. */
+/**
+ * A root with the tracked agents `scout` and `server`, a data folder that overlays `server`, and a fake environment.
+ * Changed: the agents are named for their units, and a local folder only overlays a tracked agent.
+ */
 function rig(config: Record<string, unknown> = {}) {
   const rootDir = tempDir('agent-ops-');
   const dataDir = path.join(rootDir, 'data');
@@ -29,8 +31,9 @@ function rig(config: Record<string, unknown> = {}) {
     fs.writeFileSync(path.join(dir, 'profile.json'), JSON.stringify(value));
     fs.writeFileSync(path.join(dir, 'prompt.md'), 'prompt');
   };
-  write(path.join(rootDir, 'agents', 'alpha'), profile('alpha', 'web'));
-  write(path.join(dataDir, 'agents', 'beta'), profile('beta', 'host'));
+  write(path.join(rootDir, 'agents', 'scout'), profile('scout'));
+  write(path.join(rootDir, 'agents', 'server'), profile('server'));
+  write(path.join(dataDir, 'agents', 'server'), { description: 'The local server agent.' });
   const writes: Array<[unknown, unknown]> = [];
   const env = {
     hot: { config, rootDir, privateDir: dataDir },
@@ -44,30 +47,30 @@ function rig(config: Record<string, unknown> = {}) {
 
 test('agent.list prints each agent with its unit, route, state and origin', async (t) => {
   const r = rig({
-    agents: { alpha: { enabled: true } },
-    models: { agents: { via: { alpha: 'codex' }, model: { alpha: 'some-model' } } },
+    agents: { scout: { enabled: true } },
+    models: { agents: { via: { scout: 'codex' }, model: { scout: 'some-model' } } },
   });
   t.after(r.close);
   const result = await runOp('agent.list', {}, { env: r.env as unknown as OpContext['env'] });
   assert.equal(result.status, 'ok');
-  const [alpha, beta] = result.summary.split('\n');
-  assert.equal(alpha, 'alpha  web  codex-harness some-model  on  tracked  The alpha agent.');
-  assert.equal(beta, 'beta  host  no route  off  local  The beta agent.');
+  const [scout, server] = result.summary.split('\n');
+  assert.equal(scout, 'scout  scout  codex-harness some-model  on  tracked  The scout agent.');
+  assert.equal(server, 'server  server  no route  off  local  The local server agent.');
 });
 
-test('agent.enable writes agents.<name>.enabled true for a local agent', async (t) => {
+test('agent.enable writes agents.<name>.enabled true for an overlaid agent', async (t) => {
   const r = rig();
   t.after(r.close);
-  const result = await runOp('agent.enable', { name: 'beta' }, { env: r.env as unknown as OpContext['env'] });
+  const result = await runOp('agent.enable', { name: 'server' }, { env: r.env as unknown as OpContext['env'] });
   assert.equal(result.status, 'ok');
-  assert.deepEqual(r.writes, [[['agents', 'beta', 'enabled'], true]]);
+  assert.deepEqual(r.writes, [[['agents', 'server', 'enabled'], true]]);
 });
 
 test('agent.disable writes agents.<name>.enabled false', async (t) => {
-  const r = rig({ agents: { alpha: { enabled: true } } });
+  const r = rig({ agents: { scout: { enabled: true } } });
   t.after(r.close);
-  await runOp('agent.disable', { name: 'alpha' }, { env: r.env as unknown as OpContext['env'] });
-  assert.deepEqual(r.writes, [[['agents', 'alpha', 'enabled'], false]]);
+  await runOp('agent.disable', { name: 'scout' }, { env: r.env as unknown as OpContext['env'] });
+  assert.deepEqual(r.writes, [[['agents', 'scout', 'enabled'], false]]);
 });
 
 test('agent.enable refuses a name that is no agent and writes nothing', async (t) => {

@@ -348,7 +348,7 @@ function originOf(origin: AddInput['origin'] | undefined): ErrandOrigin {
 /** A new errand as `add` queues it. */
 function queuedErrand(
   { requester, origin, scope }: Partial<AddInput>,
-  fixed: { id: string; opId: string; at: number; agent: string | null; goal: string; key: string | null }
+  fixed: { id: string; opId: string; at: number; agent: string; goal: string; key: string | null }
 ): ErrandRecord {
   const { id, opId, at, agent, goal, key } = fixed;
   return {
@@ -512,12 +512,11 @@ export function createErrandStore({
     return { tasks: row.runs, usd: row.usd };
   }
 
-  /** The cap `agent` hits now, as its refusal code, or null; an errand with no agent yet meets `errands.maxOpen` alone. */
-  function capHit(agent: string | null): string | null {
+  /** The cap `agent` hits now, as its refusal code, or null. */
+  function capHit(agent: string): string | null {
     const set = config()?.errands?.maxOpen;
     const maxOpen = Number.isFinite(set) ? set : DEFAULT_MAX_OPEN;
     if (open().length >= maxOpen) return 'cap-open';
-    if (agent === null) return null;
     const caps = dailyCaps(agent, config(), agentPaths);
     const used = usedToday(agent);
     if (isFiniteNumber(caps.tasks) && used.tasks >= caps.tasks) return 'cap-tasks';
@@ -539,16 +538,15 @@ export function createErrandStore({
 
   /**
    * A new errand, `queued`, or the cap it hits: `{ ok: true, errand }` | `{ ok: false, code }`
-   * (`agent` null for an errand the dispatcher assigns later, see `assign`)
    * (`unknown-agent`, `bad-goal`, `cap-open`, `cap-tasks`). The persona's own call
    * brings its `idempotencyKey` (her turn and the call's index in it, src/behavior/turn.ts) and
    * its turn (`origin.turnId`): an errand the store still holds under the same key is answered as it
    * is, `{ ok: true, errand, duplicate: true }`, before any cap -- a retried call never queues a
    * second errand. The goal is kept as she wrote it (trimmed).
    */
-  function add(input: Partial<AddInput> = {}): AddResult {
-    const { agent = null, goal, idempotencyKey = null } = input;
-    if (agent !== null && !profileOf(agent, agentPaths)) return { ok: false, code: CODE.UNKNOWN_AGENT };
+  function add(input: AddInput): AddResult {
+    const { agent, goal, idempotencyKey = null } = input;
+    if (!profileOf(agent, agentPaths)) return { ok: false, code: CODE.UNKNOWN_AGENT };
     const text = String(goal ?? '').trim();
     if (!text) return { ok: false, code: CODE.BAD_GOAL };
     const key = typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : null;
@@ -568,16 +566,6 @@ export function createErrandStore({
     });
     log.info('errands: task queued', { id: errand.id, agent });
     return { ok: true, errand: copy(errand) };
-  }
-
-  /** Errand `id`, queued with no agent, given `agent`; null otherwise. */
-  function assign(id: unknown, agent: string): ErrandRecord | null {
-    const errand = find(id);
-    if (!errand || errand.state !== 'queued' || errand.agent !== null || !profileOf(agent, agentPaths)) return null;
-    errand.agent = agent;
-    persist(errand);
-    log.info('errands: agent assigned', { id: errand.id, agent });
-    return copy(errand);
   }
 
   /** Errand `id` moved from `queued` to `running`; null when it is not queued. */
@@ -727,8 +715,7 @@ export function createErrandStore({
    * when a cap would refuse a new errand now (`key` the setting).
    */
   function budget(agent: string): Budget {
-    // '' is an errand that names no agent: the dispatcher assigns one.
-    const code = agent === '' ? capHit(null) : profileOf(agent, agentPaths) ? capHit(agent) : CODE.UNKNOWN_AGENT;
+    const code = profileOf(agent, agentPaths) ? capHit(agent) : CODE.UNKNOWN_AGENT;
     const key =
       code === CODE.CAP_OPEN ? 'errands.maxOpen' : code === CODE.CAP_TASKS ? `agents.${agent}.daily.tasks` : null;
     return { spent: code !== null, key, code };
@@ -834,7 +821,6 @@ export function createErrandStore({
   return {
     add,
     start,
-    assign,
     finish,
     cancel,
     markSeen,

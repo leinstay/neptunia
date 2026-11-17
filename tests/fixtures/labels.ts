@@ -612,7 +612,7 @@ export const labels = {
     madeWeek: 'the last seven days: {made}',
     madeItem: '{count} {kind}',
     madeJoin: ', ',
-    kinds: { 'draw.create': 'pictures', 'media.find': 'GIF searches', 'voice.say': 'voice lines', 'errand.add': 'errands' },
+    kinds: { 'draw.create': 'pictures', 'media.find': 'GIF searches', 'voice.say': 'voice lines', 'errand.scout': 'errands' },
     kindsOne: { 'draw.create': 'picture', 'voice.say': 'voice line' },
     madeDay: 'altogether {forOthers} made at asking, {own} unasked',
   },

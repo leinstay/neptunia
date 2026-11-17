@@ -228,7 +228,7 @@ async function innerTurn({
   onCall = null,
   intentions = null,
   withErrands = false,
-  errandRefused = false,
+  errandConfigured = true,
   loop = null,
   skillsLoop = null,
   clock = () => NOW,
@@ -245,7 +245,7 @@ async function innerTurn({
   onCall?: ((calls: number) => void) | null;
   intentions?: Untyped;
   withErrands?: boolean;
-  errandRefused?: boolean;
+  errandConfigured?: boolean;
   loop?: Record<string, Untyped> | null;
   skillsLoop?: Record<string, Untyped> | null;
   clock?: () => number;
@@ -276,14 +276,11 @@ async function innerTurn({
   if (withErrands) {
     hot.config.agents = { maxOpen: 3, scout: { enabled: true, daily: { tasks: 10 } } };
     const stores = createErrandStores(wrongly({ dataDir: tempDir('nep-inner-errand-'), config: () => hot.config }));
-    const service = createErrandService({
-      client: { configured: () => true, run: () => new Promise(() => {}), cancel: () => true },
+    errands = createErrandService({
+      client: { configured: () => errandConfigured, run: () => new Promise(() => {}), cancel: () => true },
       stores,
       hot,
     });
-    // Changed: her errand names no agent, so an agent that is off no longer refuses it; the service refuses it as a
-    // runner that is down does, past the gateway.
-    errands = errandRefused ? { ...service, submit: () => ({ ok: false as const, code: 'runner-down' }) } : service;
   }
   const admin = createAdmin({
     mediaNameOf: noMediaNames,
@@ -721,18 +718,18 @@ test('inner turn, live: errands she hands off are queued like any call, with no 
   const run = await innerTurn({
     answers: [
       toolAnswer('', [
-        call('errand.add', { goal: 'βρες τον πρώτο πίνακα' }),
-        call('errand.add', { goal: 'βρες τον δεύτερο πίνακα' }),
+        call('errand.scout', { goal: 'βρες τον πρώτο πίνακα' }),
+        call('errand.scout', { goal: 'βρες τον δεύτερο πίνακα' }),
       ]),
       '<skip/>',
     ],
     shadow: false,
-    allowed: ['errand.add'],
+    allowed: ['errand.scout'],
     withErrands: true,
   });
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`),
-    ['errand.add:executed:', 'errand.add:executed:']
+    ['errand.scout:executed:', 'errand.scout:executed:']
   );
   assert.equal(run.tasks.length, 2);
   assert.ok(run.tasks.every((task) => typeof task.idempotencyKey === 'string' && task.idempotencyKey));
@@ -1316,12 +1313,11 @@ test("feedbackFacts: every status that is not ok is a callFailed with its code a
 
 test("inner turn, live: a call that did not work carries the operation's own words into its action and its callFailed fact", async () => {
   const run = await innerTurn({
-    answers: [toolAnswer('', [call('errand.add', { goal: 'βρες τον πίνακα' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('errand.scout', { goal: 'βρες τον πίνακα' })]), '<skip/>'],
     shadow: false,
-    allowed: ['errand.add'],
+    allowed: ['errand.scout'],
     withErrands: true,
-    // Changed: the service refuses her call, where an agent that is off refused it before the dispatcher.
-    errandRefused: true,
+    errandConfigured: false,
   });
   const [action] = run.result.inner.actions;
   assert.notEqual(action.result, 'ok');
@@ -1329,7 +1325,7 @@ test("inner turn, live: a call that did not work carries the operation's own wor
   assert.deepEqual(feedbackFacts(run.result), [], 'her next step showed the outcome: no fact');
   const [fact] = feedbackFacts({ inner: { actions: [{ ...action, presented: undefined }] } });
   assert.equal(fact.kind, 'callFailed');
-  assert.equal(fact.skill, 'errand.add');
+  assert.equal(fact.skill, 'errand.scout');
   assert.equal(
     fact.status,
     ['failed', 'partial', 'invalid', 'denied', 'not_configured', 'unknown', 'timeout', 'refused'].includes(
@@ -1457,7 +1453,7 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
     'message.create',
     'message.react.add',
     'draw.create',
-    'errand.add',
+    'errand.scout',
     'errand.read',
     'errand.resolve',
     'intention.set',

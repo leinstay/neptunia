@@ -49,7 +49,7 @@ async function runOnce(extra: Record<string, unknown>): Promise<Array<Seen>> {
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
-    unit: 'web',
+    unit: 'scout',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],

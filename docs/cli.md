@@ -380,7 +380,7 @@ On every other command `--secret-stdin` is ordinary text. `keys add` and `keys s
 
 ## Other entry points
 
-`neptunia setup` performs installation, as one flow with no step of its own to name. `neptunia errand-runner --unit <web|host>` is what `neptunia-agent-web.service` and `neptunia-agent-host.service` start: the runner of every agent whose profile names that unit, which takes its socket and output folder from the unit's name and ends its open errands on SIGTERM. `neptunia interface run <name>` starts a platform package and stays singular, because a unit starts it. `neptunia services start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone and never name a mechanic.
+`neptunia setup` performs installation, as one flow with no step of its own to name. `neptunia errand-runner --unit <server|scout|code>` is what `neptunia-agent-server.service`, `neptunia-agent-scout.service` and `neptunia-agent-code.service` start: the runner of the agent of that name, which takes its socket and output folder from the unit's name and ends its open errands on SIGTERM. `neptunia interface run <name>` starts a platform package and stays singular, because a unit starts it. `neptunia services start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone and never name a mechanic.
 
 `/status` needs a core connection. For service logs, use the systemd scope selected during [setup](setup.md#services).
 

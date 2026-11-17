@@ -1145,7 +1145,15 @@ function lostTurn(turnId = 't-1') {
 test('feedbackFacts: a call that did not go ok, an intention closed with nothing delivered, the loop cut; nothing when all went through', () => {
   assert.ok(WAKE_KINDS.includes('feedback'));
   // Changed: compared sorted, since the list derives from the posting tools' traits and their order is the table's.
-  assert.deepEqual([...DELIVERY_SKILLS].sort(), ['draw.create', 'errand.add', 'message.create', 'voice.say']);
+  // Changed: each of the three errand tools delivers.
+  assert.deepEqual([...DELIVERY_SKILLS].sort(), [
+    'draw.create',
+    'errand.code',
+    'errand.scout',
+    'errand.server',
+    'message.create',
+    'voice.say',
+  ]);
   const facts = feedbackFacts(lostTurn(), {
     named: ['i1'],
     intentions: [intention('i1', { purpose: 'send a cat meme' })],

@@ -98,10 +98,10 @@ test("status: drawing's spend is a row of costs.base from the usage accumulator,
     errands: await card('costs.errands'),
     base: await card('costs.base'),
   }));
-  // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
+  // Changed: the agents are read from disk: `code`, `scout` and `server`.
   assert.deepEqual(
     result.errands,
-    ['code: none', 'fetch: none', 'scout: none', 'server: none', 'est.'],
+    ['code: none', 'scout: none', 'server: none', 'est.'],
     'the pictures are not an errand'
   );
   assert.deepEqual(result.base, ['core: 1 req 0.40', 'drawing: 1 req 0.03']);

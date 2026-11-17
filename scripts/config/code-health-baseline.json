@@ -1340,7 +1340,7 @@
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 482
+        "function-length": 468
       }
     },
     "src/format.ts": {

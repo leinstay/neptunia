@@ -62,18 +62,20 @@ test('the units take the backend from keys.json, and the core names no home of t
 test('inside the core a mode change names neptunia setup for the unit, and runs nothing', () => {
   // Catches: the core answers a stored mode as if its unit were updated, so the owner never re-renders it.
   // Changed: a mode belongs to a unit, so every unit has a line and no name goes without one.
-  for (const unit of ['web', 'host'] as const) assert.ok(deferModeToUnit(unit).includes('neptunia setup'), unit);
+  for (const unit of ['server', 'scout', 'code'] as const)
+    assert.ok(deferModeToUnit(unit).includes('neptunia setup'), unit);
 });
 
-test('setup stops, disables and removes the per-agent units it finds, and leaves a folder without them alone', async () => {
-  // Bug: an upgraded install keeps running the old scout runner beside the web runner, on a socket nothing reads.
+test('setup stops, disables and removes the shared agent units it finds, and leaves a folder without them alone', async () => {
+  // Bug: an upgraded install keeps running the old web runner beside the scout runner, on a socket nothing reads.
+  // Changed: the retired units are the shared ones, `web` and `host`.
   const { target, run, calls, unitDir } = rig();
-  fs.writeFileSync(path.join(unitDir, 'neptunia-agent-scout.service'), '[Unit]\n');
+  fs.writeFileSync(path.join(unitDir, 'neptunia-agent-web.service'), '[Unit]\n');
   const done = await removeRetiredUnits(target, run);
-  assert.deepEqual(done, { ok: true, removed: ['neptunia-agent-scout.service'] });
+  assert.deepEqual(done, { ok: true, removed: ['neptunia-agent-web.service'] });
   assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-agent-scout.service')), false);
   assert.deepEqual(calls, [
-    'systemctl --user disable --now neptunia-agent-scout.service',
+    'systemctl --user disable --now neptunia-agent-web.service',
     'systemctl --user daemon-reload',
   ]);
   calls.length = 0;
@@ -85,9 +87,9 @@ test("the units take the backend from keys.json, so the agent units bind that ba
   // Catches: installUnits renders the agent units without the stored backend, and scout keeps no write access to codex.
   const { target, run, unitDir, privateDir } = rig();
   writeKeysFile(privateDir, { subharness: { backend: 'codex', key: null, modes: {} } });
-  const done = await installUnits(target, run, ['neptunia-agent-web.service']);
+  const done = await installUnits(target, run, ['neptunia-agent-scout.service']);
   assert.equal(done.ok, true);
-  const text = fs.readFileSync(path.join(unitDir, 'neptunia-agent-web.service'), 'utf8');
+  const text = fs.readFileSync(path.join(unitDir, 'neptunia-agent-scout.service'), 'utf8');
   const writable = text
     .split('\n')
     .filter((line) => line.startsWith('ReadWritePaths=') || line.startsWith('BindPaths='))
@@ -103,8 +105,9 @@ const DEPLOY = path.join(fileURLToPath(new URL('..', import.meta.url)), 'deploy'
 // Changed: the development unit and the agent `dev` are gone (maintainer, 2026-11-16).
 // Changed: a mode belongs to a unit, so the store names the unit.
 const UNITS = [
-  ['neptunia-agent-web.service', 'web'],
-  ['neptunia-agent-host.service', 'host'],
+  ['neptunia-agent-scout.service', 'scout'],
+  ['neptunia-agent-code.service', 'code'],
+  ['neptunia-agent-server.service', 'server'],
 ] as const;
 
 function rendered(file: string, agent: string, mode: string): string {

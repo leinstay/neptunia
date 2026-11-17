@@ -19,7 +19,8 @@ import { MINUTE_MS } from '../time.ts';
 import { CODE } from './codes.ts';
 import { CORE_ROLE, ROLE_ABILITY, modelAbilities, roleModel } from '../llm/roles.ts';
 import type { RoleDownReason, RoleHealth } from '../llm/role-health.ts';
-import { idText, isObj, objOf, textOf } from './types.ts';
+import { idText, isObj, objOf } from './types.ts';
+import { ERRAND_TOOLS } from './definitions.ts';
 import type { Skill, SkillMap } from './types.ts';
 import type { WakeAction } from './access.ts';
 import type { PlaceCandidate, PlaceChoices } from './place-names.ts';
@@ -76,14 +77,18 @@ function targetChat(args: unknown, audience: Audience | null): string | null {
 }
 
 /**
- * The budget of a paid skill that has one: a function of the call's context, requester and arguments answering
+ * The budget of a paid skill that has one: a function of the call's context answering
  * `{ spent }` (`code` and `key` naming the refusal and the cap that is spent), or null when unavailable. An errand's is
- * its agent's caps (open tasks and tasks a day), or the open tasks alone for one the dispatcher assigns, `context.tasks`; a drawing and a voice message have no daily budget.
+ * its agent's caps (open tasks and tasks a day), `context.tasks`, the agent the tool files for (ERRAND_TOOLS); a drawing
+ * and a voice message have no daily budget.
  */
-const taskBudget = (context: GateContext, _requester: Requester | null, args: unknown): unknown =>
-  typeof context.tasks?.budget === 'function' ? context.tasks.budget(textOf(objOf(args).agent)) : null;
-const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Requester | null, args: unknown) => unknown>> =
-  Object.freeze({ 'errand.add': taskBudget });
+const taskBudget =
+  (agent: string) =>
+  (context: GateContext): unknown =>
+    typeof context.tasks?.budget === 'function' ? context.tasks.budget(agent) : null;
+const BUDGETS: Readonly<Record<string, (context: GateContext) => unknown>> = Object.freeze(
+  Object.fromEntries(Object.entries(ERRAND_TOOLS).map(([tool, agent]) => [tool, taskBudget(agent)]))
+);
 
 /** Minutes between two destructive calls from one channel (`tools.destructiveCooldownMinutes`; config.json's value). */
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
@@ -107,11 +112,11 @@ function cooldownRefusal(skill: Skill, context: GateContext): Refusal | null {
 }
 
 /** Null when a paid skill with a budget still has some today, else the refusal; a budget it cannot read fails closed. */
-function budgetRefusal(skill: Skill, requester: Requester | null, context: GateContext, args: unknown): Refusal | null {
+function budgetRefusal(skill: Skill, context: GateContext): Refusal | null {
   if (skill.costClass !== 'paid') return null;
   const ask = BUDGETS[skill.name];
   if (!Object.hasOwn(BUDGETS, skill.name) || ask === undefined) return null;
-  const answer = ask(context, requester, args);
+  const answer = ask(context);
   if (!isObj(answer)) return refused(CODE.NO_BUDGET, 'unavailable');
   const budget: Budget = answer;
   if (budget.spent === true)
@@ -137,7 +142,6 @@ export function checkSkill({
   skill: name,
   args,
   principal,
-  requester = null,
   audience,
   context = {},
 }: {
@@ -183,7 +187,7 @@ export function checkSkill({
     : schemaError(args, skill.argsSchema);
   if (argsError) return refused(CODE.INVALID_ARGS, argsError);
 
-  return cooldownRefusal(skill, context) ?? budgetRefusal(skill, requester, context, args) ?? { ok: true };
+  return cooldownRefusal(skill, context) ?? budgetRefusal(skill, context) ?? { ok: true };
 }
 
 /**

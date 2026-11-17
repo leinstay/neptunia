@@ -204,7 +204,7 @@ test('coversSpeech: an ok effect or job covers speech, data and any other status
   assert.equal(coversSpeech({ result: 'effect' }, { status: 'failed' }), false);
   assert.equal(coversSpeech({ result: 'effect' }, { status: 'unknown' }), false);
   assert.equal(coversSpeech(null, { status: 'ok' }), false);
-  assert.equal(coversSpeech(registry.get('errand.add'), { status: 'ok' }), true);
+  assert.equal(coversSpeech(registry.get('errand.scout'), { status: 'ok' }), true);
   assert.equal(coversSpeech(registry.get('web.search'), { status: 'ok' }), false);
 });
 

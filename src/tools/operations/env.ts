@@ -280,7 +280,7 @@ function buildEnv({
     metrics,
     // The web lookup: the status card's search line and `web.search` (src/tools/operations/search.ts).
     lookup,
-    // The summarizer that retells a long search snippet or errand result: `web.search`, `errand.add` with a wait.
+    // The summarizer that retells a long search snippet or errand result: `web.search`, an errand tool with a wait.
     summarize,
     // The server search of the recall runner (src/behavior/recall-run.ts): `memory.search`.
     recall,

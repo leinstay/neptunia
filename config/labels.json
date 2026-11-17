@@ -146,7 +146,7 @@
       "linksWatch": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. A linked video may come watched (first-hand) or not watched with the reason, same rules as any video: a limit means this one, not all. You still cannot open the page itself.",
       "linksWatchTool": "Links show the site, the title, sometimes a text snippet and the address as posted. You can cite or repost the exact link. A preview picture may come described. A linked video may come watched (first-hand) or not watched with the reason, same rules as any video: a limit means this one, not all. A link may also show the opening of the page as a preview. You can read the whole page with web.read.",
       "linksRead": "A link's preview is the opening of the page's own text, first-hand. It is not the whole page.",
-      "deepSearchTool": "Nothing is searched for you, and you have no quick search. To look something up online, hand it off with errand.add in this turn; its result comes back to you later, or in the call's answer in a heartbeat or a diary entry.",
+      "deepSearchTool": "Nothing is searched for you, and you have no quick search. To look something up online, hand it off with errand.scout in this turn; its result comes back to you later, or in the call's answer in a heartbeat or a diary entry.",
       "searchTool": "Nothing is searched for you before your reply. To look something up online, call web.search in this turn. What it returns is in a <result> block: raw search results, each with a title, link, snippet and site. The pages were not opened. Without a call, nothing was searched. Never claim you searched when you made no call, and never invent results.",
       "readTool": "To read a page yourself, call web.read in this turn with its link, or with a message #N that holds one. The page's own text comes back in a <result> block, cut at a length. It is not a summary.",
       "lookTool": "To look more closely at a picture, GIF or video someone posted, call media.look in this turn with its message #N (item= picks one when the message holds several) and your question. The closer look comes back in a <result> block.",
@@ -440,8 +440,6 @@
     "errands": {
       "header": "Your errands (open, or finished and not yet read by you):",
       "line": "{id} · {agent} · {state} {error} · asked {age} min ago · {goal}",
-      "noAgent": "no agent yet",
-      "roster": "{name}: {description}",
       "states": {
         "queued": "waiting",
         "running": "in progress",
@@ -455,7 +453,6 @@
       "resultTurnFailed": "(result turn did not complete)",
       "result": {
         "header": "Your errand {id} for the {agent} agent has ended: {state}. It was: {goal}",
-        "headerNoAgent": "Your errand {id} has ended before any agent took it: {state}. It was: {goal}",
         "text": "What it brought back:",
         "empty": "It brought back no text.",
         "error": "Reason: {error}",
@@ -506,13 +503,17 @@
         "draw.create": "pictures",
         "media.find": "GIF searches",
         "voice.say": "voice lines",
-        "errand.add": "errands"
+        "errand.server": "server errands",
+        "errand.scout": "scout errands",
+        "errand.code": "code errands"
       },
       "kindsOne": {
         "draw.create": "picture",
         "media.find": "GIF search",
         "voice.say": "voice line",
-        "errand.add": "errand"
+        "errand.server": "server errand",
+        "errand.scout": "scout errand",
+        "errand.code": "code errand"
       },
       "madeDay": "Made today in all because someone asked: {forOthers}. Made of your own accord: {own}."
     },
@@ -708,8 +709,6 @@
           "PLACE_NOT_FOUND": "no such place",
           "error": "something went wrong",
           "runner-down": "that agent is not running",
-          "no-agent": "none of your agents fits this errand or is free to take it now",
-          "dispatch-failed": "the request that picks the agent for this errand failed",
           "memory-closed": "the memory database is closed",
           "write-failed": "it could not be saved",
           "skill-tampered": "the files of that skill version changed after it was activated, so nothing ran",
@@ -732,7 +731,7 @@
           "loop-cap": "the turn's step limit has been reached",
           "malformed-call": "the call could not be read",
           "truncated-call": "the call was cut off before it was complete",
-          "diary-draw-only": "a diary turn runs only draw.create, voice.say, errand.add and errand.read",
+          "diary-draw-only": "a diary turn runs only draw.create, voice.say, errand.server, errand.scout, errand.code and errand.read",
           "other": "something went wrong"
         },
         "params": {

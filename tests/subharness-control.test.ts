@@ -46,8 +46,8 @@ test('a store with no subharness section reads as off with the default modes', a
   assert.deepEqual(readRouting(dir).subharness.uses, {});
   const view = await subharnessView(dir);
   assert.equal(view.key, null);
-  // Changed: the modes belong to the units, `web` writing and `host` reading by default.
-  assert.deepEqual(view.modes, { web: 'write', host: 'read' });
+  // Changed: the modes belong to the units, `server` reading and `scout` and `code` writing by default.
+  assert.deepEqual(view.modes, { server: 'read', scout: 'write', code: 'write' });
   assert.equal(
     view.sources.some((one) => one.available),
     false
@@ -79,19 +79,19 @@ test('mode sets one unit and leaves the other at what it was', async () => {
   // Bug: writing the whole modes map from defaults overwrites the other unit's choice.
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
-  await setUnitMode(dir, 'web', 'read');
-  const result = await setUnitMode(dir, 'host', 'sudo');
+  await setUnitMode(dir, 'scout', 'read');
+  const result = await setUnitMode(dir, 'server', 'sudo');
   assert.equal(result.ok, true);
   assert.equal(result.changed, true);
-  // Changed: a mode belongs to a unit, so the view holds the two units.
-  assert.deepEqual((await subharnessView(dir)).modes, { web: 'read', host: 'sudo' });
+  // Changed: a mode belongs to a unit, so the view holds the three units.
+  assert.deepEqual((await subharnessView(dir)).modes, { server: 'sudo', scout: 'read', code: 'write' });
 });
 
 test('mode with no value reports the current mode and writes nothing', async () => {
   // Bug: an inspection (Hermes /approvals without an argument) changes the setting it was asked to show.
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
-  const result = await setUnitMode(dir, 'web');
+  const result = await setUnitMode(dir, 'scout');
   assert.equal(result.ok, true);
   assert.equal(result.changed, false);
   assert.equal(result.mode, 'write');
@@ -102,30 +102,30 @@ test('an unknown unit or mode is refused and the file is not touched', async () 
   // Bug: "root" or "thinker" is written into keys.json and read later as a mode no code maps to a flag.
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
-  assert.equal((await setUnitMode(dir, 'web', 'root')).code, 'unknown-mode');
+  assert.equal((await setUnitMode(dir, 'scout', 'root')).code, 'unknown-mode');
   // Changed: a mode is set per unit, so a name that is no unit is refused as such.
-  assert.equal((await setUnitMode(dir, 'scout', 'read')).code, 'unknown-unit');
+  assert.equal((await setUnitMode(dir, 'web', 'read')).code, 'unknown-unit');
   assert.deepEqual(readKeysFile(dir).subharness.modes, {});
 });
 
 test('a stored mode that is no mode reads as the default, never as an unsandboxed one', async () => {
   // Bug: a hand-edited or damaged value such as "root" is passed on and an agent runs with more than the owner gave it.
   const dir = tempDir('nep-subharness-');
-  // Changed: modes are stored per unit, so the damaged value is the host unit's, default `read`.
-  writeKeysFile(dir, { subharness: { backend: 'codex', key: null, modes: { host: 'root', web: 'sudo' } } });
+  // Changed: modes are stored per unit, so the damaged value is the server unit's, default `read`.
+  writeKeysFile(dir, { subharness: { backend: 'codex', key: null, modes: { server: 'root', scout: 'sudo' } } });
   const view = await subharnessView(dir);
-  assert.equal(view.modes.host, 'read');
-  assert.equal(view.modes.web, 'sudo');
+  assert.equal(view.modes.server, 'read');
+  assert.equal(view.modes.scout, 'sudo');
 });
 
 test('the status text names the backend, the key name and every agent with its mode', async () => {
   // Bug: the status leaves out an agent, so a sudo mode is set and nobody sees it.
   // Changed: the status takes each agent's path, and opencode reads as a source by its seeded key.
   const { dir } = rig();
-  await setUnitMode(dir, 'host', 'sudo');
+  await setUnitMode(dir, 'server', 'sudo');
   const text = statusText(await subharnessView(dir), agentPaths(dir));
-  for (const word of ['opencode', 'fetch', 'scout', 'code', 'server', 'host', 'sudo'])
-    assert.ok(text.includes(word), word);
+  // Changed: fetch is gone and each unit carries its agent's name.
+  for (const word of ['opencode', 'scout', 'code', 'server', 'sudo']) assert.ok(text.includes(word), word);
 });
 
 // The one-reply check of `setAgentModel` goes out through the provider the owner pinned: OpenRouter's request body carries
@@ -201,8 +201,8 @@ test('the route of an agent is its backend, model, effort and mode as keys.json 
     subharness: {
       backends: ['codex', 'claude'],
       key: null,
-      // Changed: a mode is stored per unit, and the scout runs in the `web` unit.
-      modes: { web: 'full' },
+      // Changed: a mode is stored per unit, and the scout runs in the unit of its name.
+      modes: { scout: 'full' },
       models: { scout: 'claude-opus-5-5', server: 'gpt-6-sol' },
       efforts: { scout: 'high' },
       uses: { scout: 'claude' },

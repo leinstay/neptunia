@@ -15,28 +15,31 @@ const registry = buildSkills({ table: SKILL_DEFINITIONS });
 
 test('the same call under the new name is a call of hers on both transports', () => {
   const [native] = normalizeCalls({
-    calls: toolCallsOf([{ id: 'c1', function: { name: 'errand_add', arguments: '{"goal":"x"}' } }]),
+    calls: toolCallsOf([{ id: 'c1', function: { name: 'errand_scout', arguments: '{"goal":"x"}' } }]),
     registry,
     step: 1,
   });
-  assert.deepEqual([native?.problem, native?.name], [null, 'errand.add']);
+  assert.deepEqual([native?.problem, native?.name], [null, 'errand.scout']);
   const [text] = normalizeCalls({
-    calls: [{ id: null, name: 'errand.add', arguments: '{}', parsed: { goal: 'x' }, parseError: null }],
+    calls: [{ id: null, name: 'errand.scout', arguments: '{}', parsed: { goal: 'x' }, parseError: null }],
     transport: 'text',
     registry,
     step: 1,
   });
-  assert.deepEqual([text?.problem, text?.name], [null, 'errand.add']);
+  assert.deepEqual([text?.problem, text?.name], [null, 'errand.scout']);
 });
 
 test('a journal that wrote the old names is read under the new ones, and any other name comes back as it is', () => {
   // `task.status` and `task.cancel` stay out of this list: a stored row of either name may come from an older board tool.
+  // Changed: three tools replace the one errand tool. Her errands went to the scout alone while that tool filed them,
+  // so its old names read as `errand.scout`.
   assert.deepEqual(['task.run', 'task.read', 'task.resolve', 'task.list'].map(currentToolName), [
-    'errand.add',
+    'errand.scout',
     'errand.read',
     'errand.resolve',
     'errand.list',
   ]);
+  assert.deepEqual(['errand.run', 'errand.add'].map(currentToolName), ['errand.scout', 'errand.scout']);
   assert.deepEqual(['intent.set', 'intent.update', 'intent.cancel', 'intent.list'].map(currentToolName), [
     'intention.set',
     'intention.update',
@@ -47,8 +50,6 @@ test('a journal that wrote the old names is read under the new ones, and any oth
   assert.equal(currentToolName('skills.describe'), 'skills.describe');
   // The merged reads: a journal that wrote the old name is read under the tool that took it over.
   assert.equal(currentToolName('errand.status'), 'errand.list');
-  // Both old names of the errand tool read as `errand.add` in one hop, the older one included.
-  assert.deepEqual(['task.run', 'errand.run'].map(currentToolName), ['errand.add', 'errand.add']);
   assert.equal(currentToolName('memory.affinity.read'), 'memory.profile.read');
   assert.equal(currentToolName('message.create'), 'message.create');
   assert.equal(currentToolName(null), null);

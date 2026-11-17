@@ -16,13 +16,14 @@ test('a missing personal root preserves the shared worker without creating perso
 test('shared agents remain sorted while ordinary root files are ignored', (t) => {
   const f = fixture();
   t.after(f.close);
-  f.writeShared('assistant', { ...f.definition, id: 'assistant', description: 'Synthetic second agent.' });
+  // Changed: an agent is named for its unit, so the second agent is the code agent.
+  f.writeShared('code', { ...f.definition, id: 'code', description: 'Synthetic second agent.' });
   fs.writeFileSync(path.join(f.rootDir, 'agents', 'README.md'), 'shared notes');
   fs.mkdirSync(path.join(f.dataDir, 'agents'), { recursive: true });
   fs.writeFileSync(path.join(f.dataDir, 'agents', 'README.md'), 'personal notes');
   assert.deepEqual(
     agents.listAgents(f.options).map((entry) => entry.id),
-    ['assistant', 'scout']
+    ['code', 'scout']
   );
 });
 
@@ -135,8 +136,7 @@ for (const [key, value] of invalidOverrides) {
 }
 
 test('a personal directory with no profile adds no agent', (t) => {
-  // Changed: a local folder with a whole profile and its prompt is an agent of its own (tests/agent-runner-profiles.test.ts);
-  // one with no profile, such as a folder an older version left, adds none and fails nothing.
+  // A local folder whose name is no tracked agent adds none and fails nothing (tests/agent-runner-profiles.test.ts).
   const f = fixture();
   t.after(f.close);
   fs.mkdirSync(path.join(f.dataDir, 'agents', 'ghost'), { recursive: true });

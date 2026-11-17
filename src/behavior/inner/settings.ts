@@ -4,7 +4,7 @@
 
 import { parseSchedule } from '../../service/schedule.ts';
 import type { ServiceSchedule } from '../../service/schedule.ts';
-import { toolsWith } from '../../tools/definitions.ts';
+import { JOBS, toolsWith } from '../../tools/definitions.ts';
 import { isPositive, objOf } from '../../tools/types.ts';
 import type { InnerSettings } from './types.ts';
 
@@ -45,7 +45,7 @@ export const INNER_DEFAULTS = Object.freeze({
 /** The skills that post where people read: the trait `posts` of their definitions. */
 export const POSTING_SKILLS = toolsWith('posts');
 /** The calls that deliver something out of an inner turn: the posting skills and an errand. */
-export const DELIVERY_SKILLS = Object.freeze([...POSTING_SKILLS, 'errand.add']);
+export const DELIVERY_SKILLS = Object.freeze([...POSTING_SKILLS, ...JOBS]);
 
 /** The most facts one turn is shown; the rest stay for the next one. */
 export const FACTS_SHOWN_MAX = 12;

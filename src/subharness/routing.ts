@@ -32,7 +32,7 @@ export type MemoryBackend = (typeof MEMORY_BACKENDS)[number];
 export type SubharnessRouting = {
   /** the named key opencode runs on; null while opencode has no login */
   key: string | null;
-  /** the mode of each unit, by unit (`web`, `host`) */
+  /** the mode of each unit, by unit (`server`, `scout`, `code`) */
   modes: Record<string, string>;
   /** the model each agent runs on, by agent; an agent with none runs on the backend's own default */
   models: Record<string, string>;

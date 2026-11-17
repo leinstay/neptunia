@@ -61,7 +61,7 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/subharness/routing.ts',
     'default': {},
     'text':
-      'What the agents of each unit may do, by unit (`web`, `host`): `read`, `write`, `full` or `sudo`. A unit with no entry runs in its default mode, `write` for `web` and `read` for `host` (see [Errands](errands.md#modes)). `/agent mode <unit> <mode>` writes it',
+      'What each agent may do, by the name of its unit (`server`, `scout`, `code`): `read`, `write`, `full` or `sudo`. A unit with no entry runs in its default mode, `read` for `server` and `write` for `scout` and `code` (see [Errands](errands.md#modes)). `/agent mode <unit> <mode>` writes it',
   },
   {
     'key': 'models.agents.opencodeKey',

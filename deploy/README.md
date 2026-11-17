@@ -6,9 +6,9 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 |---|---|---|
 | `neptunia-core.service` | The core with no interface of its own. The one unit setup starts. | yes |
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`. | yes |
-| `neptunia-agent-web.service`, `neptunia-agent-host.service` | The runners of the errand agents, `neptunia errand-runner --unit web` and `--unit host`, each serving every agent whose profile names its unit. See [Errands](../docs/errands.md#units-and-tools). | yes |
+| `neptunia-agent-server.service`, `neptunia-agent-scout.service`, `neptunia-agent-code.service` | The runner of each errand agent, `neptunia errand-runner --unit <agent>`. See [Errands](../docs/errands.md#units-and-tools). | yes |
 
-`neptunia setup` stops, disables and removes `neptunia-agent-scout.service` and `neptunia-agent-server.service` when it finds them in the unit folder, and leaves their state folders in place.
+`neptunia setup` stops, disables and removes `neptunia-agent-web.service` and `neptunia-agent-host.service` when it finds them in the unit folder, and leaves their state folders in place.
 
 ## How a template becomes a unit
 
@@ -26,7 +26,7 @@ A system unit, written with `neptunia setup --system`, goes to `/etc/systemd/sys
 
 An agent unit follows the mode of its unit (`agent mode <unit> <mode>`, see [Errands](../docs/errands.md#modes)). In `read` and `write` the unit keeps every directive of the template. In `full` it drops the mount sandbox: `ProtectSystem`, `ProtectHome` and the write and bind paths. In `sudo` it also drops `NoNewPrivileges` and `CapabilityBoundingSet`, which would stop `sudo`. `agent mode` in the chat stores the mode in `config.json` and renders nothing, because the core runs under `NoNewPrivileges` and cannot use `sudo`. Its answer names `neptunia setup`, which renders the unit again with the stored mode and reloads the manager, and the unit runs in the mode from its next start.
 
-The web unit replaces the persona folder with an empty `TemporaryFileSystem=` that shows only `agents/` read-only and the backend's folder, so it reads neither her memory nor `keys.json`. The modes `full` and `sudo` drop it with the rest of the mount sandbox.
+The scout and code units replace the persona folder with an empty `TemporaryFileSystem=` that shows only `agents/` read-only and the backend's folder, so they read neither her memory nor `keys.json`. The modes `full` and `sudo` drop it with the rest of the mount sandbox.
 
 A unit with `ProtectHome=tmpfs` still sees the checkout and the node binary when they lie under the home, because the renderer binds them read-only.
 

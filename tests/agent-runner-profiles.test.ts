@@ -1,5 +1,5 @@
-// Tests for src/agent-runner/profiles.ts: the agents on disk (tracked folders, a local overlay and a local agent with
-// no tracked twin), the profile's keys and their checks, the settings of an agent with the deployment's config over its
+// Tests for src/agent-runner/profiles.ts: the agents on disk (tracked folders, one per unit, and a local overlay), the
+// profile's keys and their checks, the settings of an agent with the deployment's config over its
 // profile, and the socket and out folder of a unit. Pure but for reading agents/ and temporary directories.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,15 +24,15 @@ import { consumerRig, consumers } from './fixtures/agent-consumers.ts';
 
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
 
-test('the tracked agents are fetch, scout, code and server, each on the unit its errands need', () => {
+// Changed: the three agents each run in the unit of their name, and fetch is gone.
+test('the tracked agents are code, scout and server, each in the unit of its name', () => {
   const profiles = loadProfiles({ env: {} });
   assert.deepEqual(
-    ['code', 'fetch', 'scout', 'server'].map((name) => [name, profiles[name]?.unit, profiles[name]?.origin]),
+    Object.values(profiles).map((profile) => [profile.name, profile.unit, profile.origin]),
     [
-      ['code', 'web', 'tracked'],
-      ['fetch', 'web', 'tracked'],
-      ['scout', 'web', 'tracked'],
-      ['server', 'host', 'tracked'],
+      ['code', 'code', 'tracked'],
+      ['scout', 'scout', 'tracked'],
+      ['server', 'server', 'tracked'],
     ]
   );
   assert.equal(profileOf('nope', { env: {} }), null);
@@ -43,7 +43,6 @@ function agentProfile(id: string, changes: Record<string, unknown> = {}) {
   const base = {
     id,
     description: 'A test agent.',
-    unit: 'web',
     prompt: 'prompt.md',
     limits: { steps: 5, seconds: 60 },
     daily: { tasks: 3 },
@@ -84,12 +83,13 @@ function assertRefused(rootDir: string, agent: string, key: string) {
 }
 
 test("loadProfiles: a valid profile from a temporary agents/ tree becomes a profile with the runner's shape", () => {
-  withAgentsTree({ probe: agentProfile('probe', { unit: 'host' }) }, (rootDir: string) => {
-    const probe = loadProfiles({ rootDir, env: {} }).probe;
-    assert.equal(probe.unit, 'host');
+  // Changed: an agent is named for its unit, so the probe is the server.
+  withAgentsTree({ server: agentProfile('server') }, (rootDir: string) => {
+    const probe = loadProfiles({ rootDir, env: {} }).server;
+    assert.equal(probe.unit, 'server');
     assert.deepEqual(probe.promptFiles, [
-      path.join(rootDir, 'data', 'agents', 'probe', 'prompt.md'),
-      path.join(rootDir, 'agents', 'probe', 'prompt.md'),
+      path.join(rootDir, 'data', 'agents', 'server', 'prompt.md'),
+      path.join(rootDir, 'agents', 'server', 'prompt.md'),
     ]);
     assert.deepEqual(probe.defaultLimits, { steps: 5, seconds: 60 });
     assert.deepEqual(probe.defaultDaily, { tasks: 3 });
@@ -99,31 +99,36 @@ test("loadProfiles: a valid profile from a temporary agents/ tree becomes a prof
 test('loadProfiles: a key of the old profile shape is refused as an unknown key', () => {
   const keys = ['kind', 'role', 'tools', 'shell', 'sandbox', 'socket', 'enabled', 'searchProvider'];
   // Bug: a profile still carrying `abilities`, `returns` or `audience` reads as if the engine limited the agent by them.
-  for (const key of [...keys, 'abilities', 'returns', 'audience']) {
-    withAgentsTree({ probe: agentProfile('probe', { [key]: 'x' }) }, (rootDir: string) =>
-      assertRefused(rootDir, 'probe', key)
+  // Changed: `unit` is of the old shape too, since an agent runs in the unit of its name.
+  for (const key of [...keys, 'abilities', 'returns', 'audience', 'unit']) {
+    withAgentsTree({ scout: agentProfile('scout', { [key]: 'x' }) }, (rootDir: string) =>
+      assertRefused(rootDir, 'scout', key)
     );
   }
 });
 
 test('loadProfiles: a missing key or a value of the wrong form is refused, naming the key', () => {
   const cases: Array<[Record<string, unknown>, string]> = [
-    [{ unit: undefined }, 'unit'],
-    [{ unit: 'cloud' }, 'unit'],
+    // Changed: the unit is the agent's name, so a missing `description` stands for a missing key.
+    [{ description: undefined }, 'description'],
     [{ id: 'other' }, 'id'],
     [{ prompt: '../prompt.md' }, 'prompt'],
     [{ limits: { steps: 5 } }, 'limits.seconds'],
     [{ cost: { input: -1, output: 6 } }, 'cost.input'],
   ];
   for (const [changes, key] of cases)
-    withAgentsTree({ probe: agentProfile('probe', changes) }, (rootDir: string) =>
-      assertRefused(rootDir, 'probe', key)
+    withAgentsTree({ scout: agentProfile('scout', changes) }, (rootDir: string) =>
+      assertRefused(rootDir, 'scout', key)
     );
+});
+
+test('a tracked folder whose name is no unit is refused', () => {
+  withAgentsTree({ probe: agentProfile('probe') }, (rootDir: string) => assertRefused(rootDir, 'probe', 'id'));
 });
 
 /** A temporary root with one tracked agent and a data folder; `fn` gets both. */
 function withLocalLayer(fn: (rootDir: string, dataDir: string) => void) {
-  withAgentsTree({ probe: agentProfile('probe') }, (rootDir: string) => {
+  withAgentsTree({ scout: agentProfile('scout') }, (rootDir: string) => {
     const dataDir = path.join(rootDir, 'data');
     fs.mkdirSync(path.join(dataDir, 'agents'), { recursive: true });
     fn(rootDir, dataDir);
@@ -138,48 +143,23 @@ function writeLocal(dataDir: string, name: string, profile: unknown, prompt: str
   if (prompt !== null) fs.writeFileSync(path.join(folder, 'prompt.md'), prompt);
 }
 
-test('a local folder with a whole profile and a prompt is an agent of its own', () => {
-  // Bug: a local agent needs a tracked twin, so a deployment cannot add one.
+// Changed: the agents are the three tracked ones, so a local folder of another name, whole or not, is no agent.
+test('a local folder with another name than a tracked agent is no agent', () => {
   withLocalLayer((rootDir, dataDir) => {
-    writeLocal(dataDir, 'extra', agentProfile('extra', { unit: 'host' }));
-    const options = { rootDir, dataDir, env: {} };
-    assert.deepEqual(agentNames(options), ['extra', 'probe']);
-    const extra = profileOf('extra', options);
-    assert.equal(extra?.origin, 'local');
-    assert.equal(extra?.unit, 'host');
-    assert.equal(profileOf('probe', options)?.origin, 'tracked');
-    assert.equal(readPromptFile(extra?.promptFiles ?? []), 'local prompt');
-  });
-});
-
-test('a local agent with no prompt is refused, and a folder with no profile is no agent', () => {
-  withLocalLayer((rootDir, dataDir) => {
-    const options = { rootDir, dataDir, env: {} };
+    writeLocal(dataDir, 'extra', agentProfile('extra'));
     fs.mkdirSync(path.join(dataDir, 'agents', 'empty'));
-    assert.deepEqual(agentNames(options), ['probe']);
-    writeLocal(dataDir, 'extra', agentProfile('extra'), null);
-    assert.throws(
-      () => listAgents(options),
-      (err) => err instanceof AgentProfileError && err.agent === 'extra' && err.key === 'prompt'
-    );
+    const options = { rootDir, dataDir, env: {} };
+    assert.deepEqual(agentNames(options), ['scout']);
+    assert.equal(profileOf('extra', options), null);
   });
 });
 
-test('a local agent whose profile misses a key is refused like a tracked one', () => {
+test('a local folder that shares a tracked name overlays it and marks it local', () => {
   withLocalLayer((rootDir, dataDir) => {
-    writeLocal(dataDir, 'extra', agentProfile('extra', { daily: undefined }));
-    assert.throws(
-      () => listAgents({ rootDir, dataDir, env: {} }),
-      (err) => err instanceof AgentProfileError && err.agent === 'extra' && err.key === 'daily'
-    );
-  });
-});
-
-test('a local folder that shares a tracked name overlays it and stays tracked', () => {
-  withLocalLayer((rootDir, dataDir) => {
-    writeLocal(dataDir, 'probe', { limits: { steps: 9 } }, null);
-    const probe = profileOf('probe', { rootDir, dataDir, env: {} });
-    assert.equal(probe?.origin, 'tracked');
+    writeLocal(dataDir, 'scout', { limits: { steps: 9 } }, null);
+    const probe = profileOf('scout', { rootDir, dataDir, env: {} });
+    // Changed: `local` names an overlaid agent, since no agent lives in the data folder alone.
+    assert.equal(probe?.origin, 'local');
     assert.equal(probe?.defaultLimits.steps, 9);
   });
 });
@@ -352,25 +332,28 @@ test('says null for agents.ledger and for a name no profile has', () => {
 });
 
 test('a unit has its socket and out folder under /run and /var/lib, named for the unit', () => {
-  assert.deepEqual(unitPaths('web', {}), {
-    socket: '/run/neptunia-agent-web/sock',
-    out: '/var/lib/neptunia-agent-web/out',
+  // Changed: the units are the agents' names.
+  assert.deepEqual(unitPaths('scout', {}), {
+    socket: '/run/neptunia-agent-scout/sock',
+    out: '/var/lib/neptunia-agent-scout/out',
   });
 });
 
 test('in a user unit the socket and out folder lie in the unit folders of the user', () => {
-  // Bug: the user unit starts a runner that tries to create /run/neptunia-agent-host and fails.
+  // Bug: the user unit starts a runner that tries to create /run/neptunia-agent-server and fails.
+  // Changed: the units are the agents' names.
   const env = { [UNIT_SCOPE_ENV]: 'user', XDG_RUNTIME_DIR: '/run/user/1000', XDG_STATE_HOME: '/home/a/.local/state' };
-  assert.deepEqual(unitPaths('host', env), {
-    socket: '/run/user/1000/neptunia-agent-host/sock',
-    out: '/home/a/.local/state/neptunia-agent-host/out',
+  assert.deepEqual(unitPaths('server', env), {
+    socket: '/run/user/1000/neptunia-agent-server/sock',
+    out: '/home/a/.local/state/neptunia-agent-server/out',
   });
 });
 
 test('the state folder falls back to HOME/.local/state when XDG_STATE_HOME is unset', () => {
   // Bug: the out folder becomes a relative path when the user manager sets no XDG_STATE_HOME.
   assert.equal(
-    unitPaths('web', { [UNIT_SCOPE_ENV]: 'user', HOME: '/home/b' }).out,
-    '/home/b/.local/state/neptunia-agent-web/out'
+    // Changed: the units are the agents' names.
+    unitPaths('scout', { [UNIT_SCOPE_ENV]: 'user', HOME: '/home/b' }).out,
+    '/home/b/.local/state/neptunia-agent-scout/out'
   );
 });

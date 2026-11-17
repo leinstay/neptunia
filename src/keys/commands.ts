@@ -7,7 +7,7 @@
 // nothing. An answer names keys by name and last four characters and never holds a value; a refusal names the store's
 // code, never the word that was refused.
 
-import { CORE_ROLE, DISPATCHER_ROLE, SEARCH_ROLE, directSelectionOf, isModelRole } from '../llm/roles.ts';
+import { CORE_ROLE, SEARCH_ROLE, directSelectionOf, isModelRole } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
 import type { CheckResult } from './check.ts';
@@ -18,7 +18,7 @@ import type { HarnessRoute, Route, RouteRole } from '../llm/route-text.ts';
 import type { KeyStore } from './store.ts';
 
 /** The model roles the first key must serve before its add finishes, in the order they are asked. */
-export const MANDATORY_ROLES: ReadonlyArray<RouteRole> = ['core', 'memory', 'analyzer', 'embedding', 'dispatcher'];
+export const MANDATORY_ROLES: ReadonlyArray<RouteRole> = ['core', 'memory', 'analyzer', 'embedding'];
 
 /** The pause reason of a core left with no usable route by `keys remove`; the `keys add` that gives it one lifts it. */
 const NO_CORE_ROUTE = 'no-core-route';
@@ -399,7 +399,7 @@ export function createKeysCommands(deps: KeysDeps): {
 
   /** `keys check <name|role>`: a role's route in force with one request, or a key with the free read of its record. */
   async function checkTarget(name: string, target: string): Promise<Answer> {
-    if (isModelRole(target) || target === SEARCH_ROLE || target === DISPATCHER_ROLE) return checkOne(name, target);
+    if (isModelRole(target) || target === SEARCH_ROLE) return checkOne(name, target);
     const value = store.valueOf(target);
     if (value === null) return invalid(name, `${target} is no model role and no key of keys.json`, 'unknown-target');
     const info = await checkKey({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value });

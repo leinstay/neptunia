@@ -69,13 +69,13 @@ const source = (read: RoleSources, via: SourceDescriptor['via']): SourceDescript
 
 // The registry
 
-test('Main lists the nine roles and Voice persists as the speech role', () => {
+test('Main lists the eight roles and Voice persists as the speech role', () => {
   // Catches: Voice writing a role `voice` that nothing reads.
   const main = modelRoleRegistry().filter((one) => one.group === 'main');
   assert.deepEqual(
     main.map((one) => one.role),
-    // Changed: the dispatcher is a model role with a chain of its own, set from Main like the others.
-    ['core', 'drawing', 'speech', 'memory', 'analyzer', 'vision', 'video', 'embedding', 'dispatcher']
+    // Changed: the dispatcher role is gone.
+    ['core', 'drawing', 'speech', 'memory', 'analyzer', 'vision', 'video', 'embedding']
   );
   assert.equal(main.find((one) => one.role === 'speech')?.label, 'Voice');
   assert.equal(
@@ -91,16 +91,9 @@ test('Errand comes from the registry', () => {
   // (maintainer, 2026-11-16).
   const rows = modelRoleRegistry();
   const roles = (group: string): Array<string> => rows.filter((one) => one.group === group).map((one) => one.role);
-  // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
-  assert.deepEqual(roles('errand'), ['code', 'fetch', 'scout', 'server']);
+  // Changed: the agents are read from disk: `code`, `scout` and `server`.
+  assert.deepEqual(roles('errand'), ['code', 'scout', 'server']);
   assert.deepEqual(roles('development'), []);
-});
-
-test('the dispatcher has the direct OpenRouter path with the text models listed', async () => {
-  // Catches: the dispatcher offered no source in the chooser, so its route can only be typed.
-  const { deps } = rig();
-  const api = source(await roleSources(deps, 'dispatcher'), null);
-  assert.deepEqual([api.code, api.models.map((one) => one.id)], ['ok', ['vendor/text-1']]);
 });
 
 // Openrouter for an agent

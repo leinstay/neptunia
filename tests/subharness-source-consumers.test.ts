@@ -48,7 +48,7 @@ function target(dataDir: string): UnitTarget {
 }
 
 const scoutUnit = (dataDir: string): string => {
-  const file = 'neptunia-agent-web.service';
+  const file = 'neptunia-agent-scout.service';
   return unitText(target(dataDir), fs.readFileSync(path.join(ROOT, 'deploy', file), 'utf8'), file);
 };
 
@@ -113,7 +113,7 @@ test('/subharness status lists the source, model, effort and mode of every role 
     models: { server: 'sonnet', scout: 'gpt-6-luna' },
     efforts: { server: 'high' },
     // Changed: a mode is stored per unit, the server's being `host`.
-    modes: { host: 'full' },
+    modes: { server: 'full' },
     memory: { backend: 'claude', model: 'claude-opus-4-6', effort: 'high' },
   });
   fakeVendor(privateDir, 'claude', { loggedIn: true });

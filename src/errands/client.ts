@@ -1,5 +1,5 @@
 // The core's side of the runners' sockets (src/agent-runner/server.ts): one Unix-socket connection per
-// unit (`web`, `host`), opened on first use, speaking the JSON-lines protocol of src/agent-runner/protocol.ts.
+// unit (`server`, `scout`, `code`), opened on first use, speaking the JSON-lines protocol of src/agent-runner/protocol.ts.
 // Every agent of a unit shares its connection, and each `run` names its agent. `run` sends one errand and
 // resolves on its `end` event; `progress` events go to the `onProgress` listeners; `cancel` and `ping` are
 // fire-and-answer. Each outcome of the connect loop goes to the `onLink` listeners: `{ unit, up: true }` once a

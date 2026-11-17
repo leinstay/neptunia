@@ -197,7 +197,8 @@ test('skills effects: one effect class per operation, by its actual effect, in o
     'bot.resume',
   ])
     assert.equal(effectOf(name), 'administrative', name);
-  assert.deepEqual(of('paid'), ['draw.create', 'errand.add', 'voice.say']);
+  // Changed: three errand tools, each paid.
+  assert.deepEqual(of('paid'), ['draw.create', 'errand.code', 'errand.scout', 'errand.server', 'voice.say']);
   for (const op of tools) if (op.rights.kind === 'read') assert.equal(effectOf(op.name), 'read', op.name);
   // a skill carries its operation's class
   assert.equal(skillRegistry().get('memory.restore')?.effects, 'destructive');
@@ -262,8 +263,8 @@ test('skills registry: every `args` key of config/tools.json names a property of
 
 test('skills registry: missingDefinitions names the table entries with no registered skill, none when whole', () => {
   assert.deepEqual(missingDefinitions(skillRegistry()), []);
-  const partial = new Map([...skillRegistry()].filter(([name]) => name !== 'lore.list' && name !== 'errand.add'));
-  assert.deepEqual(missingDefinitions(partial).sort(), ['errand.add', 'lore.list']);
+  const partial = new Map([...skillRegistry()].filter(([name]) => name !== 'lore.list' && name !== 'errand.scout'));
+  assert.deepEqual(missingDefinitions(partial).sort(), ['errand.scout', 'lore.list']);
 });
 
 test('skills registry: config/tools.json has the title and when-to-use of every tool (when-not-to-use optional), and no key that is not one', () => {
@@ -819,9 +820,9 @@ test('wake envelope: maxActs counts the calls that changed something, maxTasks t
   );
   assert.deepEqual(
     innerCheck({
-      skill: 'errand.add',
+      skill: 'errand.scout',
       args: { agent: 'scout', goal: 'βρες' },
-      granted: ['errand.add'],
+      granted: ['errand.scout'],
       wakes: { improvement: { maxTasks: 0 } },
       wakeKind: 'improvement',
     }),

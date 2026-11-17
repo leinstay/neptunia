@@ -1,18 +1,16 @@
 # Errands
 
-An errand is work the persona delegates through `errand.add`, such as researching a question. The persona receives the result and decides what to say or do next.
+An errand is work the persona hands to one of her three agents, such as researching a question. The persona receives the result and decides what to say or do next.
 
-In a conversation her `errand.add` answers at once, and the result comes in a turn of its own. In a heartbeat or a diary turn the call waits for the errand's end and answers with the result as a result turn shows it, a failure with the errand's own code, or `errand-wait-ended` when the turn's time ran out first. A waited end is marked seen and read before the core hears of it, so it opens no result turn. With `core` on a harness route, a turn that waits keeps its session held for its whole time budget in place of `llm.subscription.holdMs`.
+She picks the agent by the tool she calls. `errand.server` files an errand for `server`, which searches, checks and reads the machine the engine is installed on. `errand.scout` files one for `scout`, which searches the web in depth and downloads pages and files. `errand.code` files one for `code`, which writes code and returns it in files. Each tool takes one argument, `goal`, and answers `queued` with the errand's id and its agent. The owner reaches the same tools with `/errands add <agent> <goal>`. An errand always has its agent: the errand store refuses one whose agent is no agent on disk with `unknown-agent`. The core submits the work to the agent's runner. The result is associated with the original work and can wake the persona. Starting an errand is different from executing a quick in-turn tool.
 
-Her `errand.add` names only the goal. The errand is queued with no agent and answers `queued` with its id, and the dispatcher picks its agent before it runs. The owner reaches any agent with `/errands add <agent> <goal>`, which skips the dispatcher, and an operation that names an agent for anyone else is refused `owner-only`. A journal row written under `errand.run` or `task.run` reads as `errand.add`. The core submits the work to an errand runner. The result is associated with the original work and can wake the persona. Starting an errand is different from executing a quick in-turn tool.
+In a conversation her call answers at once, and the result comes in a turn of its own. In a heartbeat or a diary turn the call waits for the errand's end and answers with the result as a result turn shows it, a failure with the errand's own code, or `errand-wait-ended` when the turn's time ran out first. A waited end is marked seen and read before the core hears of it, so it opens no result turn. With `core` on a harness route, a turn that waits keeps its session held for its whole time budget in place of `llm.subscription.holdMs`.
 
-## The dispatcher
+`errands.maxOpen` counts an errand from the moment it is queued, an agent's `daily.tasks` caps its errands a day, and an agent that already runs an errand takes the next one after it. An errand still open when the core stops is failed `restarted` at the next start.
 
-The dispatcher is a model role with a chain of routes of its own, set with `/model set dispatcher <key>/<model>` and shown by `/model show`. It has no default model and takes no reasoning effort. It is a mandatory role, so the first key asks for its model and `/doctor` warns while it has no route.
+## What a run is told
 
-At the moment of the dispatch the core builds the roster from the agents on disk. An agent is on it when it is enabled, has a route, its unit's runner is not known down, and it has tasks left today under its `daily` cap, whoever asked. The dispatcher reads the goal and the roster, one line per agent with its name and its profile's `description`, and answers with one agent or none, as [the prompt contract](prompt-contract.md#dispatcher) says. It is asked even with one candidate, since that agent may not fit the goal. The goal goes to the agent as she wrote it.
-
-The chosen agent is written to the errand before it runs, and `errand.list`, the `<errands>` block and the result turn show an errand with no agent yet as such. An errand ends `failed` with `no-agent` when the roster is empty or the dispatcher names no agent, and with `dispatch-failed` when its request gives no answer. It reaches her as any failed errand does. A heartbeat or a diary turn that waits for its errand waits through the dispatch as well. `errands.maxOpen` counts an errand from the moment it is queued, and an agent that already runs an errand takes the next one after it. An errand still waiting for its agent when the core stops is failed `restarted` at the next start, like every open errand.
+The core sends the agent the goal as she wrote it and a context. The context holds `today`, the UTC date of the engine's clock when the errand is sent, as `YYYY-MM-DD`, and `engine`, the folder of the engine's checkout. It also holds the scope, the channel and the asker of the errand, the channel's latest lines for a group errand, and the stored facts that bear on the goal. Each agent's prompt says how to read the date and the folder.
 
 ## The board
 
@@ -32,7 +30,7 @@ Claude Code, Codex and OpenCode are supported execution backends. Install and au
 
 ### Units and tools
 
-Two units carry every agent: `neptunia-agent-web.service` runs `neptunia errand-runner --unit web` and `neptunia-agent-host.service` runs `neptunia errand-runner --unit host`. A runner serves every agent whose profile names its unit, takes the agent from each `run` line and works one errand per agent at a time, so an errand of one agent waits only for that agent's earlier errand. Its socket is `/run/neptunia-agent-<unit>/sock` and its out folder `/var/lib/neptunia-agent-<unit>/out`, or the same names under the user's runtime and state folders in a user unit. The core keeps one connection per unit, and the health flag of a unit, `errands: runner up` or `errands: runner down`, holds for every agent of it.
+Each agent has a unit of its name: `neptunia-agent-server.service`, `neptunia-agent-scout.service` and `neptunia-agent-code.service` run `neptunia errand-runner --unit <agent>`. A runner serves its one agent and works one errand at a time. Its socket is `/run/neptunia-agent-<unit>/sock` and its out folder `/var/lib/neptunia-agent-<unit>/out`, or the same names under the user's runtime and state folders in a user unit. The core keeps one connection per unit and a health flag per unit, logged as `errands: runner up` or `errands: runner down`.
 
 An agent's prompt is its only limit, and the runner checks nothing per agent. Every run gets the tools of its harness. Codex runs with live web search. Claude Code gets `Read`, `Grep`, `Glob`, `Bash`, `WebFetch` and `WebSearch`, and adds `Edit` and `Write` in the modes `write`, `full` and `sudo`. OpenCode has its whole tool set, with the permissions of the mode, and searches Exa unless the task names another search provider. Every run hands back the files the agent left in its folder. Only the sandbox of the mode and the unit holds a tool back.
 
@@ -42,7 +40,7 @@ Each run has a time limit. Claude receives a model-turn limit. OpenCode and Code
 
 `/subharness status` names a route by its harness: `claude-harness`, `codex-harness` or `opencode-harness`, see [keys](keys.md#model-sources). `keys.json` stores the backend word.
 
-The core decides an errand's path when it dispatches the errand. `src/subharness/control.ts` reads `models.agents` of `config.json` at that moment and puts the backend, model, effort and mode of the agent into the task as `route`, and its `provider` when the owner pinned one. The model of the route is the agent's one model, which `/model set <agent>` writes: the `run` line carries no model of its own, and a route with no model runs on the backend's own default. The runner takes everything from the route and never opens `keys.json`, because the web unit hides the persona folder. A route that is malformed fails the task with `bad-route`, and so does a `provider` on a Claude Code or Codex route, on a route with no model, or one that is not a slug of lower case letters, digits and hyphens (64 characters at most). While no backend is connected for the agent the core sends no route, and the runner fails the task with `subharness-off`.
+The core decides an errand's path when it dispatches the errand. `src/subharness/control.ts` reads `models.agents` of `config.json` at that moment and puts the backend, model, effort and mode of the agent into the task as `route`, and its `provider` when the owner pinned one. The model of the route is the agent's one model, which `/model set <agent>` writes: the `run` line carries no model of its own, and a route with no model runs on the backend's own default. The runner takes everything from the route and never opens `keys.json`, because the scout and code units hide the persona folder. A route that is malformed fails the task with `bad-route`, and so does a `provider` on a Claude Code or Codex route, on a route with no model, or one that is not a slug of lower case letters, digits and hyphens (64 characters at most). While no backend is connected for the agent the core sends no route, and the runner fails the task with `subharness-off`.
 
 Claude Code and Codex bring their own login, so no key travels with them, and an errand agent searches with its harness's own tools. An OpenCode route spends the named key of `keys.json` that `models.agents.opencodeKey` names in `config.json`. The core puts its value in the task's `secrets.openrouterKey`, and the runner uses it for that run alone. When that key is missing, the errand fails with `route-no-key`. When the core cannot read `config.json` or `keys.json` at dispatch, the errand fails with `keys-unreadable` and nothing is sent.
 
@@ -66,7 +64,7 @@ While the [engine proxy](proxy.md) is in force, the core puts it into every erra
 
 ## Modes
 
-Execution modes govern the agents' access: `read`, `write`, `full` and `sudo`. A mode belongs to a unit and every agent of the unit runs in it, `write` for `web` and `read` for `host` until the owner sets another (`models.agents.mode`, by unit). The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. The table shows what each mode gives each harness.
+Execution modes govern the agents' access: `read`, `write`, `full` and `sudo`. A mode belongs to a unit, and so to its agent: `read` for `server` and `write` for `scout` and `code` until the owner sets another (`models.agents.mode`, by unit). The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. The table shows what each mode gives each harness.
 
 | Mode | Claude Code | Codex | OpenCode |
 |---|---|---|---|
@@ -76,9 +74,9 @@ Execution modes govern the agents' access: `read`, `write`, `full` and `sudo`. A
 
 OpenCode reads its `permission` block from the run's `OPENCODE_CONFIG` file. `"*"` covers every permission, `external_directory` among them, so a path outside the run's folder is read in every mode and written outside `read`. No permission is left on `ask`, because a headless run has nobody to answer and OpenCode ends the session on a refused call. Use `/agent mode <unit> <mode>` to select one. Rerender units with `neptunia setup` and restart the affected unit to apply systemd restrictions. A mode stored in the key store alone does not change an already running service.
 
-The host unit hides every client's token and every interface's `credentials.json` with `InaccessiblePaths=-<path>`, because it runs as the core's user and reads the host. It connects as no client, so it keeps no token. The modes `full` and `sudo` drop these entries with the rest of the mount sandbox. `keys.json` stays readable to it, and a client made after the unit was rendered stays visible until `neptunia setup` renders the unit again. The web unit hides the whole persona folder instead.
+The server unit hides every client's token and every interface's `credentials.json` with `InaccessiblePaths=-<path>`, because it runs as the core's user and reads the host. It connects as no client, so it keeps no token. The modes `full` and `sudo` drop these entries with the rest of the mount sandbox. `keys.json` stays readable to it, and a client made after the unit was rendered stays visible until `neptunia setup` renders the unit again. The scout and code units hide the whole persona folder instead.
 
-The web and host units bind the folder of every backend a role names or that is installed under `data/subharness/`, writable, so a claude child keeps its config directory there (`CLAUDE_CONFIG_DIR`). The host unit's network also reaches Anthropic's ranges, `160.79.104.0/23` and `2607:6bc0::/48`, next to Cloudflare's.
+The agent units bind the folder of every backend a role names or that is installed under `data/subharness/`, writable, so a claude child keeps its config directory there (`CLAUDE_CONFIG_DIR`). The server unit's network also reaches Anthropic's ranges, `160.79.104.0/23` and `2607:6bc0::/48`, next to Cloudflare's.
 
 Native backend sessions belong to `data/subharness/<backend>/`. A task's final answer is only part of its history; keep native sessions for later inspection of the work.
 
@@ -112,4 +110,4 @@ An `opencode` run prints `--format json`, one event per line. The answer is the 
 
 ## Search from an errand
 
-The scout's deep search, the fetch agent's media search and the core's [quick search](keys.md#quick-search) have separate configuration. Implementation starts in [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) and [agent profiles](../agents/).
+The scout's search and the core's [quick search](keys.md#quick-search) have separate configuration. Implementation starts in [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) and [agent profiles](../agents/).

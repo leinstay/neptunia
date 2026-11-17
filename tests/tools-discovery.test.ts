@@ -404,7 +404,7 @@ test('exposedSkillNames: her grants and the carried-over skills, sorted, once ea
   const config = {
     bot: {
       access: {
-        'errand.add': grant,
+        'errand.scout': grant,
         'memory.search': grant,
         'draw.create': grant,
         'web.search': { everyone: true, roles: [], users: [] },
@@ -415,7 +415,7 @@ test('exposedSkillNames: her grants and the carried-over skills, sorted, once ea
   // Sorted by code unit: the errand tool sits between draw.create and memory.search.
   assert.deepEqual(exposedSkillNames({ config, selfId: self, registry }), [
     'draw.create',
-    'errand.add',
+    'errand.scout',
     'memory.search',
     'message.create',
     'message.react.add',
@@ -434,7 +434,7 @@ test('exposedSkillNames: safe mode keeps the carried-over ones, the registry dec
   const self = 'self-id';
   // Changed: drawing and speech are on by their chains (slice 4).
   const config = {
-    bot: { access: { 'errand.add': { everyone: false, roles: [], users: [self] } } },
+    bot: { access: { 'errand.scout': { everyone: false, roles: [], users: [self] } } },
     models: { routes: chainsOnDefaults({}) },
   };
   assert.deepEqual(exposedSkillNames({ config: { ...config, tools: { safeMode: true } }, selfId: self, registry }), [

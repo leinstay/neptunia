@@ -61,7 +61,7 @@ test('stepVerdict: all-quiet completion, every call an ok effect, speech goes ou
 });
 
 test('stepVerdict: an accepted job covers speech and needs no further request', () => {
-  assert.deepEqual(stepVerdict([outcome('errand.add')], { definitionOf }), { speak: true, fresh: false });
+  assert.deepEqual(stepVerdict([outcome('errand.scout')], { definitionOf }), { speak: true, fresh: false });
 });
 
 test('stepVerdict: a data result or a failure holds the speech and the next request follows', () => {
@@ -79,7 +79,7 @@ test('stepVerdict: a data result or a failure holds the speech and the next requ
 });
 
 test('stepVerdict: an inner turn with an open follow-up is fresh even when every call covered speech', () => {
-  assert.deepEqual(stepVerdict([outcome('errand.add')], { definitionOf, openFollowUp: true }), {
+  assert.deepEqual(stepVerdict([outcome('errand.scout')], { definitionOf, openFollowUp: true }), {
     speak: true,
     fresh: true,
   });

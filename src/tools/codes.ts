@@ -150,10 +150,6 @@ export const CATALOGUE = Object.freeze({
   redirects: skill('failed'),
   'turn-cap': skill('failed'),
   'runner-down': skill('failed'),
-  // An errand that named no agent and that no agent took: none fit, or none was free (src/errands/service.ts).
-  'no-agent': skill('failed'),
-  // The dispatcher's request for such an errand gave no answer.
-  'dispatch-failed': skill('failed'),
   // A /memory command answered while the memory database is closed (src/interface/commands/memory.ts).
   'memory-closed': skill('failed'),
   'write-failed': skill('failed'),

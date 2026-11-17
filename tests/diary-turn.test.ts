@@ -1208,7 +1208,7 @@ test('diary: a call other than draw.create is refused diary-draw-only and never 
 test('diary: an errand is accepted, waits for its end and its result is read in the next request', async () => {
   // Bug caught: the diary turn refuses the errand as diary-draw-only, or answers queued and never reads the result.
   const hot = fakeHot();
-  Object.assign(hot.config.bot, { access: { 'errand.add': { everyone: false, roles: [], users: ['self-id'] } } });
+  Object.assign(hot.config.bot, { access: { 'errand.scout': { everyone: false, roles: [], users: ['self-id'] } } });
   const waits: Array<unknown> = [];
   const runOp = (op: string, _args: unknown, context: Record<string, unknown>) => {
     waits.push(context.waitMs);
@@ -1217,13 +1217,13 @@ test('diary: an errand is accepted, waits for its end and its result is read in 
   };
   const errands = { budget: () => ({ spent: false, key: null, code: null }), view: () => [] };
   const llm = fakeLlm({ kind: 'status', brief: 'a pier', search: '', picture: false }, [
-    toolAnswer('', [call('errand.add', { goal: 'find the pier' })]),
+    toolAnswer('', [call('errand.scout', { goal: 'find the pier' })]),
     '<msg>y</msg>',
   ]);
   const { logs } = await withCapturedLogs(() =>
     runner({ hot, llm, extra: { runOp, errands } }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} })
   );
-  assert.deepEqual(calledOf(logs), ['errand.add:ok']);
+  assert.deepEqual(calledOf(logs), ['errand.scout:ok']);
   assert.ok(Number(waits[0]) > 0, 'the call carries the time it may wait');
   assert.equal(llm.calls.length, 3, 'the planner, the writer and the request that reads the result');
   assert.ok(JSON.stringify(llm.calls[2]).includes('ΤΟ ΑΠΟΤΕΛΕΣΜΑ ΤΟΥ ΗΜΕΡΟΛΟΓΙΟΥ'));

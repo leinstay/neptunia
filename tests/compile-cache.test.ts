@@ -42,7 +42,7 @@ for (const scope of ['user', 'system'] as const)
 test('an agent unit keeps its compile cache in the modes that drop the mount sandbox', () => {
   // Catches: the cache dropped with the sandbox lines, so a full or sudo agent starts slower than a read one.
   for (const mode of ['full', 'sudo'] as const) {
-    const lines = rendered('neptunia-agent-host.service', 'system', mode);
+    const lines = rendered('neptunia-agent-server.service', 'system', mode);
     assert.ok(lines.includes('Environment=NODE_COMPILE_CACHE=%C/neptunia-compile'), mode);
   }
 });

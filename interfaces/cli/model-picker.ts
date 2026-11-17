@@ -368,7 +368,6 @@ const CHAIN_ROLES: ReadonlyArray<string> = [
   'embedding',
   'speech',
   'drawing',
-  'dispatcher',
 ];
 
 /**

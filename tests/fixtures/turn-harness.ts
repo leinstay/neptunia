@@ -401,13 +401,11 @@ export function errandService(hot: { config: Record<string, unknown> }): {
   const runs: Array<RunRequest> = [];
   const client = { configured: () => true, run: (task: RunRequest) => (runs.push(task), new Promise<RunOutcome>(() => {})), cancel: () => true };
   const stores = createErrandStores({ config: () => hot.config });
-  // Her errand names no agent, so a fake dispatcher picks the scout.
-  const dispatch = () => Promise.resolve({ ok: true as const, agent: 'scout' });
-  const service = createErrandService({ client, stores, hot, dispatch, defer: (fn) => fn() });
+  const service = createErrandService({ client, stores, hot, defer: (fn) => fn() });
   return { service, runs };
 }
 
-// The scout has a route, since the dispatcher's roster takes only an agent with one.
+// The scout has a route.
 export const AGENTS = {
   errands: { maxOpen: 3, resultMaxChars: 400 },
   agents: { scout: { enabled: true, daily: { tasks: 10 } } },

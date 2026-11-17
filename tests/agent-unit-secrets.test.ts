@@ -31,7 +31,8 @@ const VARS: UnitVars = {
 };
 
 /** The units under test and the client each one connects as. */
-const AGENT_UNITS = [{ file: 'neptunia-agent-host.service' }] as const;
+// Changed: the server agent has a unit of its own name.
+const AGENT_UNITS = [{ file: 'neptunia-agent-server.service' }] as const;
 
 const template = (file: string): string => fs.readFileSync(path.join(ROOT, 'deploy', file), 'utf8');
 const render = (file: string, scope: 'user' | 'system', over: Partial<UnitVars> = {}): string =>
@@ -119,10 +120,11 @@ for (const { file } of AGENT_UNITS) {
   });
 }
 
-test('the core, the interfaces and the scout unit get no hidden token: they need theirs', () => {
+test('the core, the interfaces and the scout and code units get no hidden token: they need theirs', () => {
   // Bug: the same entries on the core or on an interface unit would lock the core out of every client's token.
   // The server unit is tested below: the server agent reads the host, not the persona's credentials.
-  for (const file of ['neptunia-core.service', 'neptunia-agent-web.service']) {
+  // Changed: the scout and code agents have units of their own names.
+  for (const file of ['neptunia-core.service', 'neptunia-agent-scout.service', 'neptunia-agent-code.service']) {
     const hidden = hiddenOf(render(file, 'system'));
     assert.equal(
       hidden.some((one) => one.includes('/clients/') || one.includes('credentials.json')),
@@ -135,10 +137,10 @@ test('the core, the interfaces and the scout unit get no hidden token: they need
 test('the server unit hides every token and every credentials.json, and drops them in the mode full', () => {
   // Bug: the server agent runs as the core's user with no persona folder emptied, so it could read owner.token. It connects
   // as no client, so it keeps no token. It reads the host, not the persona's credentials.
-  const hidden = hiddenOf(render('neptunia-agent-host.service', 'system'));
+  const hidden = hiddenOf(render('neptunia-agent-server.service', 'system'));
   for (const name of VARS.clients ?? []) assert.ok(hidden.includes(`-${token(name)}`), name);
   for (const name of VARS.interfaces ?? []) assert.ok(hidden.includes(`-${credentials(name)}`), name);
-  assert.deepEqual(hiddenOf(render('neptunia-agent-host.service', 'system', { mode: 'full' })), []);
+  assert.deepEqual(hiddenOf(render('neptunia-agent-server.service', 'system', { mode: 'full' })), []);
 });
 
 // ---------- the same lines, through `neptunia setup` ----------

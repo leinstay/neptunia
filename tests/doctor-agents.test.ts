@@ -27,11 +27,12 @@ async function doctorChecks(local: Record<string, unknown>): Promise<Array<Check
     : [];
 }
 
-test('neptunia doctor fails its agents check on a local profile that misses a key, naming the agent and the key', async () => {
+test('neptunia doctor fails its agents check on a local profile with a bad value, naming the agent and the key', async () => {
   // Bug: a broken local profile stops the core at start, and the doctor says nothing before the owner restarts.
-  const check = (await doctorChecks({ ghost: { id: 'ghost' } })).find((entry) => entry.name === 'agents');
+  // Changed: a local folder overlays a tracked agent alone, so the broken profile is the scout's overlay.
+  const check = (await doctorChecks({ scout: { limits: { steps: 0 } } })).find((entry) => entry.name === 'agents');
   assert.equal(check?.status, 'fail');
-  assert.ok((check?.detail ?? '').includes('"ghost"'), check?.detail);
+  assert.ok((check?.detail ?? '').includes('"scout"'), check?.detail);
 });
 
 test('neptunia doctor passes its agents check when a local folder holds no profile', async () => {

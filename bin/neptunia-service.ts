@@ -19,7 +19,12 @@ type ServiceRequest = { name: string; args: Record<string, unknown> };
 const FAMILY_WORDS: ReadonlyArray<string> = SERVICE_NAMES;
 
 /** The units the verbs act on when none is named: the core and the two errand runners (deploy/). */
-const DEFAULT_UNITS = ['neptunia-core.service', 'neptunia-agent-web.service', 'neptunia-agent-host.service'];
+const DEFAULT_UNITS = [
+  'neptunia-core.service',
+  'neptunia-agent-server.service',
+  'neptunia-agent-scout.service',
+  'neptunia-agent-code.service',
+];
 const UNIT_VERBS = ['start', 'stop', 'restart', 'status'];
 
 /** How many next times the dialog shows before it saves. */

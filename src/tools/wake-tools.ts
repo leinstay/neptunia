@@ -4,6 +4,7 @@
 // names from the registry.
 
 import { CODE } from './codes.ts';
+import { JOBS } from './definitions.ts';
 
 /** The calls that change an intention: what a heartbeat decides with. */
 export const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intention.set', 'intention.update', 'intention.cancel']);
@@ -17,7 +18,7 @@ export const HEARTBEAT_READ_SKILLS = Object.freeze([
   'intention.list',
 ]);
 /** The errand calls a service turn takes, a heartbeat and a diary entry alike; neither decides a wake. */
-export const SERVICE_ERRAND_SKILLS = Object.freeze(['errand.add', 'errand.read']);
+export const SERVICE_ERRAND_SKILLS = Object.freeze([...JOBS, 'errand.read']);
 type WakeRule = { accepts: ReadonlyArray<string>; decides: ReadonlyArray<string>; refusal: string };
 
 const RULES: Readonly<Record<string, WakeRule>> = Object.freeze({

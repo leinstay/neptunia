@@ -245,9 +245,10 @@ test('/errands add hands the named agent the rest of the line as its goal', () =
   // Catches: the owner's command loses the agent, so his server errand goes to the scout, or the goal is cut at a space.
   const parsed = parseCommandLine('/errands add server list the failed units');
   assert.ok(parsed.ok, parsed.ok ? '' : parsed.reason);
+  // Changed: each agent has a tool of its own, so the agent picks the operation and the goal is its one argument.
   assert.deepEqual(operationOf(parsed.name, parsed.args), {
-    op: 'errand.add',
-    args: { agent: 'server', goal: 'list the failed units' },
+    op: 'errand.server',
+    args: { goal: 'list the failed units' },
   });
 });
 

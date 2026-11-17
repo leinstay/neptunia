@@ -314,9 +314,9 @@ test('reads end skip, and every effect stays as it was: a message, an intention,
   assert.equal(changed.result.outcome, 'spoke');
 
   const errand = await innerTurn({
-    answers: [toolAnswer('', [call('errand.add', { goal: 'βρες τον πίνακα' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('errand.scout', { goal: 'βρες τον πίνακα' })]), '<skip/>'],
     kind: 'intention_due',
-    allowed: ['errand.add'],
+    allowed: ['errand.scout'],
     errands: true,
   });
   assert.equal(errand.result.inner.actions[0]?.status, 'executed');
