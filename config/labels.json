@@ -988,10 +988,7 @@
         "roleSeparator": ", ",
         "keyState": "{role} runs on {key}{since}",
         "keySince": ", switched {when}",
-        "roleNames": {
-          "scout": "errands",
-          "server": "errands"
-        },
+        "agentsName": "errands",
         "keyLimit": "{lead}: {spent} / {limit} USD ({notes})",
         "keyLimitPlain": "{lead}: {spent} / {limit} USD",
         "keyNone": "{lead}: no limit (used {used} USD total)",

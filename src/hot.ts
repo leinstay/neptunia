@@ -86,12 +86,29 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'models.errands', use: 'models.agents.model' },
     { key: 'board', use: null },
     { key: 'selfreflection', use: 'diary' },
-    ...['scout', 'server', 'thinker', 'dev'].flatMap((agent) => [
-      { key: `agents.${agent}.daily.usd`, use: null },
-      { key: `agents.${agent}.limits.usd`, use: null },
-    ]),
   ].map(({ key, use }) => ({ key, use, read: (config: Untyped) => valueAtKey(config, key) }))
 );
+
+/**
+ * The retired keys of each entry of `agents` in the config, whatever agent it names: the dollar caps, and the socket,
+ * out folder and search provider that the unit and the abilities of a profile give (src/agent-runner/profiles.ts).
+ */
+const RETIRED_AGENT_KEYS = Object.freeze(['daily.usd', 'limits.usd', 'socket', 'out', 'searchProvider']);
+
+/** The retired keys of RETIRED_CONFIG_KEYS and of every agent `config.agents` names, each with its reader. */
+function retiredKeysOf(
+  config: unknown
+): Array<{ key: string; use: string | null; read: (config: Untyped) => unknown }> {
+  const section: unknown = typeof config === 'object' && config !== null ? Reflect.get(config, 'agents') : null;
+  const agents = typeof section === 'object' && section !== null ? Object.keys(section) : [];
+  const perAgent = agents.flatMap((agent) =>
+    RETIRED_AGENT_KEYS.map((name) => {
+      const key = `agents.${agent}.${name}`;
+      return { key, use: null, read: (given: Untyped) => valueAtKey(given, key) };
+    })
+  );
+  return [...RETIRED_CONFIG_KEYS, ...perAgent];
+}
 
 /**
  * The live view `createHot` returns. `config` is the parsed settings and `prompts` the loaded prompt files, each
@@ -374,7 +391,9 @@ export function createHot({
   // startup or on a reload), none while it stays, another once it was removed and set again.
   const reportedRetired = new Set();
   const reportRetiredKeys = () => {
-    for (const { key, use, read } of RETIRED_CONFIG_KEYS) {
+    const retired = retiredKeysOf(hot.config);
+    for (const key of reportedRetired) if (!retired.some((one) => one.key === key)) reportedRetired.delete(key);
+    for (const { key, use, read } of retired) {
       if (read(hot.config) == null) {
         reportedRetired.delete(key);
       } else if (!reportedRetired.has(key)) {

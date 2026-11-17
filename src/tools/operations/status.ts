@@ -34,7 +34,8 @@ import { clampChars, oneLine } from '../../memory/clamp.ts';
 import { isOwnerCaller } from './grants.ts';
 import { MODEL_ROLES, STATUS_FIELDS } from './catalog.ts';
 import { CORE_ROLE, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
-import { agentRouteOf, SUBHARNESS_AGENTS } from '../../subharness/routing.ts';
+import { agentRouteOf } from '../../subharness/routing.ts';
+import { agentNames } from '../../agent-runner/profiles.ts';
 import { routeName } from '../../subharness/route-names.ts';
 import { EMBED_ROLE } from '../../llm/embed.ts';
 import { missedCounts, missedStatusLine } from '../../behavior/missed.ts';
@@ -60,7 +61,7 @@ const OWNER_FIELDS = new Set(['keys.base', 'costs.base', 'costs.errands', 'inner
 
 /** The errand agents and `drawing`, which shares their key: a key only they use is the errands' key, which
  * `keys.base` leaves out. */
-const ERRAND_KEY_ROLES = new Set<string>([...SUBHARNESS_AGENTS, 'drawing']);
+const errandKeyRoles = (): Set<string> => new Set<string>([...agentNames(), 'drawing']);
 
 /**
  * The `models.base` field's groups before drawing, in order: one line per role, then the
@@ -168,7 +169,9 @@ function agentLine(agent: string, cfg: Untyped): string {
 
 /** The `models.errands` field: each agent's `agentLine`. */
 function agentModels(cfg: Untyped): string {
-  return SUBHARNESS_AGENTS.map((agent) => agentLine(agent, cfg)).join('\n');
+  return agentNames()
+    .map((agent) => agentLine(agent, cfg))
+    .join('\n');
 }
 
 /** The `models.byPurpose` overrides of the live config whose purpose goes out on one of `roles`
@@ -576,7 +579,7 @@ const handlers = perEnv((env) => {
    * The owner's `keys.base` field (src/tools/operations/usage.ts#keyCostsLines, every word from
    * `labels.status.costs`): the main API key's limit and spend and those of
    * each other key a role's chain is on now (`llm.roleKeys`, read by role, never holding a key
-   * here) but the errand agents' (a key whose roles are all ERRAND_KEY_ROLES: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
+   * here) but the errand agents' (a key whose roles are all errandKeyRoles: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
    * `llm.maxRequestsPerDay`), with the rolling 7- and 30-day sums of each key's roles from the
    * usage accumulator. With the management key (the store's `management` key, `env.managementKey`,
    * used for these GETs only) each key's activity is read alongside (`llm.activity` by its hash,
@@ -590,8 +593,9 @@ const handlers = perEnv((env) => {
     const allGroups: Array<Untyped> =
       typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
     // The errand agents' key is not the core's: their spend is the costs.errands field.
+    const errandRoles = errandKeyRoles();
     const agentsOnly = (group: Untyped): boolean =>
-      group.roles.length > 0 && group.roles.every((role: string) => ERRAND_KEY_ROLES.has(role));
+      group.roles.length > 0 && group.roles.every((role: string) => errandRoles.has(role));
     const agentRoles = allGroups.filter(agentsOnly).flatMap((group) => group.roles);
     const groups = allGroups.filter((group) => !agentsOnly(group));
     const readRoleKeys = Promise.all(
@@ -654,8 +658,9 @@ const handlers = perEnv((env) => {
    * no figures shows no runs. `-` when the labels give no line. */
   function errandCostsValue(): string {
     const tasks = typeof errands?.store === 'function' ? errands.store() : null;
-    const totals = typeof tasks?.costs === 'function' ? tasks.costs(SUBHARNESS_AGENTS) : {};
-    const lines = agentCostsLines({ agents: SUBHARNESS_AGENTS, totals, labels: hot.prompts?.labels });
+    const agents = agentNames();
+    const totals = typeof tasks?.costs === 'function' ? tasks.costs(agents) : {};
+    const lines = agentCostsLines({ agents, totals, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 

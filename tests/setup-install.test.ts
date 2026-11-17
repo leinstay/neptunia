@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { deferModeToUnit, installUnits, unitText } from '../src/setup/install.ts';
+import { deferModeToUnit, installUnits, removeRetiredUnits, unitText } from '../src/setup/install.ts';
 import type { RunResult, UnitTarget } from '../src/setup/install.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -59,27 +59,35 @@ test('the units take the backend from keys.json, and the core names no home of t
 // `subharness mode` inside the core (spec 2026-11-02, follow-up 8): the core runs under NoNewPrivileges, so it never
 // tries sudo; it stores the mode and answers that `neptunia setup units` puts it into the unit.
 
-test('inside the core a mode change names neptunia setup for an agent with a unit, and runs nothing', () => {
+test('inside the core a mode change names neptunia setup for the unit, and runs nothing', () => {
   // Catches: the core answers a stored mode as if its unit were updated, so the owner never re-renders it.
-  // Changed: the step word left the public command, and the one flow re-renders the units.
-  for (const agent of ['scout', 'server']) assert.ok(deferModeToUnit(agent)?.includes('neptunia setup'), agent);
+  // Changed: a mode belongs to a unit, so every unit has a line and no name goes without one.
+  for (const unit of ['web', 'host'] as const) assert.ok(deferModeToUnit(unit).includes('neptunia setup'), unit);
 });
 
-test('inside the core an agent with no unit, or no agent, gets no unit line', () => {
-  // Catches: an agent that runs in no unit of its own is told to re-render a unit that does not exist.
-  // Changed: the watcher is gone (maintainer, 2026-11-16); `dev` below stands for a name with no unit.
-  // Changed: the development unit and the agent `dev` are gone (maintainer, 2026-11-16).
-  assert.equal(deferModeToUnit('dev'), null);
-  assert.equal(deferModeToUnit('nobody'), null);
+test('setup stops, disables and removes the per-agent units it finds, and leaves a folder without them alone', async () => {
+  // Bug: an upgraded install keeps running the old scout runner beside the web runner, on a socket nothing reads.
+  const { target, run, calls, unitDir } = rig();
+  fs.writeFileSync(path.join(unitDir, 'neptunia-agent-scout.service'), '[Unit]\n');
+  const done = await removeRetiredUnits(target, run);
+  assert.deepEqual(done, { ok: true, removed: ['neptunia-agent-scout.service'] });
+  assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-agent-scout.service')), false);
+  assert.deepEqual(calls, [
+    'systemctl --user disable --now neptunia-agent-scout.service',
+    'systemctl --user daemon-reload',
+  ]);
+  calls.length = 0;
+  assert.deepEqual(await removeRetiredUnits(target, run), { ok: true, removed: [] });
+  assert.deepEqual(calls, []);
 });
 
 test("the units take the backend from keys.json, so the agent units bind that backend's folder in her private layer", async () => {
   // Catches: installUnits renders the agent units without the stored backend, and scout keeps no write access to codex.
   const { target, run, unitDir, privateDir } = rig();
   writeKeysFile(privateDir, { subharness: { backend: 'codex', key: null, modes: {} } });
-  const done = await installUnits(target, run, ['neptunia-agent-scout.service']);
+  const done = await installUnits(target, run, ['neptunia-agent-web.service']);
   assert.equal(done.ok, true);
-  const text = fs.readFileSync(path.join(unitDir, 'neptunia-agent-scout.service'), 'utf8');
+  const text = fs.readFileSync(path.join(unitDir, 'neptunia-agent-web.service'), 'utf8');
   const writable = text
     .split('\n')
     .filter((line) => line.startsWith('ReadWritePaths=') || line.startsWith('BindPaths='))
@@ -93,9 +101,10 @@ test("the units take the backend from keys.json, so the agent units bind that ba
 
 const DEPLOY = path.join(fileURLToPath(new URL('..', import.meta.url)), 'deploy');
 // Changed: the development unit and the agent `dev` are gone (maintainer, 2026-11-16).
+// Changed: a mode belongs to a unit, so the store names the unit.
 const UNITS = [
-  ['neptunia-agent-scout.service', 'scout'],
-  ['neptunia-agent-server.service', 'server'],
+  ['neptunia-agent-web.service', 'web'],
+  ['neptunia-agent-host.service', 'host'],
 ] as const;
 
 function rendered(file: string, agent: string, mode: string): string {

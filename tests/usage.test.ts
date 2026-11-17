@@ -566,7 +566,8 @@ test('keyCostsLines: each extra role key gets its key line led by its roles and 
   );
 });
 
-test('keyCostsLines: roleNames names the roles of an extra key, each name once, so the agents key is one word', () => {
+test('keyCostsLines: agentsName names the agents among the roles of an extra key, once, so the agents key is one word', () => {
+  // Changed: the agents are read from disk, so one label names them all instead of a map that lists each.
   const labels = {
     status: {
       costs: {
@@ -575,7 +576,7 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
         roleKeyLead: '{roles} key',
         roleSeparator: '+',
         keyLimitPlain: '{lead} {spent}/{limit}',
-        roleNames: { scout: 'agents', server: 'agents', dev: 'agents' },
+        agentsName: 'agents',
       },
     },
   };
@@ -584,7 +585,7 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
     labels,
     roleKeys: [
       {
-        roles: ['dev', 'server', 'scout'],
+        roles: ['fetch', 'server', 'scout'],
         key: ok({ limit: 10, limit_remaining: 9, usage_daily: 0.5 }),
         windows: { last7: window(0), last30: window(0) },
       },
@@ -599,12 +600,12 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
   ]);
   const plain = keyCostsLines({
     key: ok({}),
-    labels: { status: { costs: { ...labels.status.costs, roleNames: 'odd' } } },
+    labels: { status: { costs: { ...labels.status.costs, agentsName: 7 } } },
     roleKeys: [{ roles: ['scout'], key: ok({ limit: 5, limit_remaining: 5 }) }],
   });
   assert.ok(
     plain.some((text) => text.startsWith('scout key')),
-    'no usable roleNames: the role itself'
+    'no usable agentsName: the role itself'
   );
 });
 

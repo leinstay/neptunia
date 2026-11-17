@@ -3,7 +3,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { readPromptFile } from '../src/agent-runner/opencode.ts';
 import { agents, fixture, profileError } from './fixtures/agent-overrides.ts';
 
@@ -17,15 +16,7 @@ test('a missing personal root preserves the shared worker without creating perso
 test('shared agents remain sorted while ordinary root files are ignored', (t) => {
   const f = fixture();
   t.after(f.close);
-  f.writeShared('assistant', {
-    id: 'assistant',
-    kind: 'consultation',
-    // Changed: `dev` is no model role (maintainer, 2026-11-16), so the consultation takes an errand role.
-    role: 'scout',
-    prompt: null,
-    override: null,
-    description: 'Synthetic consultation.',
-  });
+  f.writeShared('assistant', { ...f.definition, id: 'assistant', description: 'Synthetic second agent.' });
   fs.writeFileSync(path.join(f.rootDir, 'agents', 'README.md'), 'shared notes');
   fs.mkdirSync(path.join(f.dataDir, 'agents'), { recursive: true });
   fs.writeFileSync(path.join(f.dataDir, 'agents', 'README.md'), 'personal notes');
@@ -59,22 +50,13 @@ test('an empty personal object retains every shared field', (t) => {
   assert.deepEqual(agents.listAgents(f.options), [f.definition]);
 });
 
-test('nested limits retain absent siblings while tools replace the entire shared array', (t) => {
+test('nested limits retain absent siblings while abilities replace the entire shared array', (t) => {
   const f = fixture();
   t.after(f.close);
-  f.override({ limits: { steps: 7 }, tools: ['read'] });
+  f.override({ limits: { steps: 7 }, abilities: ['fetch'] });
   const definition = agents.listAgents(f.options)[0];
-  assert.equal(definition?.kind, 'worker');
-  if (definition?.kind !== 'worker') assert.fail('expected the shared worker');
-  assert.deepEqual(definition.limits, { steps: 7, seconds: 300 });
-  assert.deepEqual(definition.tools, ['read']);
-});
-
-test('an explicit nullable value replaces the shared search provider', (t) => {
-  const f = fixture();
-  t.after(f.close);
-  f.override({ searchProvider: null });
-  assert.equal(agents.loadProfiles(f.options).scout.defaultSearchProvider, null);
+  assert.deepEqual(definition?.limits, { steps: 7, seconds: 300 });
+  assert.deepEqual(definition?.abilities, ['fetch']);
 });
 
 test('a null required object fails validation instead of inheriting shared limits', (t) => {
@@ -87,16 +69,12 @@ test('a null required object fails validation instead of inheriting shared limit
 test('identical identity fields remain valid in a personal profile', (t) => {
   const f = fixture();
   t.after(f.close);
-  f.override({ id: 'scout', kind: 'worker', role: 'scout' });
+  f.override({ id: 'scout' });
   assert.deepEqual(agents.listAgents(f.options), [f.definition]);
 });
 
-for (const [key, value] of [
-  ['id', 'other'],
-  // Changed: `development` is no kind any more, so the shared kind is tried as a consultation.
-  ['kind', 'consultation'],
-  ['role', 'server'],
-] as const) {
+// Changed: `kind` and `role` left the profile, so `id` is the one identity a personal profile cannot change.
+for (const [key, value] of [['id', 'other']] as const) {
   test(`a personal profile cannot change shared ${key}`, (t) => {
     const f = fixture();
     t.after(f.close);
@@ -141,15 +119,13 @@ test('a personal patch cannot repair an invalid shared definition before validat
 const invalidOverrides: Array<[string, unknown]> = [
   ['backend', 'claude'],
   ['model', 'synthetic/model'],
-  ['tools', ['write']],
-  ['tools', []],
-  ['tools', ['read', 'read']],
+  ['abilities', ['write']],
+  ['abilities', ['fetch', 'fetch']],
+  ['unit', 'cloud'],
   ['limits.steps', { limits: { steps: 1.5 } }],
   ['limits.seconds', { limits: { seconds: 0 } }],
   ['daily.tasks', { daily: { tasks: 0 } }],
   ['cost.input', { cost: { input: -1 } }],
-  ['socket', 'relative/socket'],
-  ['out', '/synthetic/\0out'],
   ['prompt', '../prompt.md'],
 ];
 for (const [key, value] of invalidOverrides) {
@@ -161,9 +137,9 @@ for (const [key, value] of invalidOverrides) {
   });
 }
 
-test('a personal directory cannot introduce an agent without a shared definition', (t) => {
-  // Changed: the refusal no longer fails the whole load (a stray folder took down every agent at start). The folder
-  // is refused alone: it adds no agent, and `refusedAgents` reports it (tests/agent-refused-folders.test.ts).
+test('a personal directory with no profile adds no agent', (t) => {
+  // Changed: a local folder with a whole profile and its prompt is an agent of its own (tests/agent-runner-profiles.test.ts);
+  // one with no profile, such as a folder an older version left, adds none and fails nothing.
   const f = fixture();
   t.after(f.close);
   fs.mkdirSync(path.join(f.dataDir, 'agents', 'ghost'), { recursive: true });
@@ -176,20 +152,12 @@ test('merged definitions freeze nested objects and arrays before returning them'
   f.override({ limits: { steps: 7 } });
   const all = agents.listAgents(f.options);
   const definition = all[0];
-  if (definition?.kind !== 'worker') assert.fail('expected the shared worker');
-  for (const value of [
-    all,
-    definition,
-    definition.limits,
-    definition.cost,
-    definition.daily,
-    definition.tools,
-    definition.env,
-  ]) {
+  if (definition === undefined) assert.fail('expected the shared agent');
+  for (const value of [all, definition, definition.limits, definition.cost, definition.daily, definition.abilities]) {
     assert.equal(Object.isFrozen(value), true);
   }
   assert.throws(() => Object.assign(definition.limits, { steps: 99 }), TypeError);
-  assert.throws(() => Object.assign(definition.tools, { 0: 'write' }), TypeError);
+  assert.throws(() => Object.assign(definition.abilities, { 0: 'shell' }), TypeError);
   assert.throws(() => Object.assign(all, { 0: {} }), TypeError);
   assert.equal(agents.loadProfiles(f.options).scout.defaultLimits.steps, 7);
 });
@@ -202,8 +170,7 @@ for (const reader of ['listAgents', 'loadProfiles', 'profileOf', 'agentSettings'
       if (reader === 'loadProfiles') return agents.loadProfiles(f.options).scout.defaultLimits.steps;
       if (reader === 'profileOf') return agents.profileOf('scout', f.options)?.defaultLimits.steps;
       if (reader === 'agentSettings') return agents.agentSettings('scout', {}, f.options)?.limits.steps;
-      const definition = agents.listAgents(f.options)[0];
-      return definition?.kind === 'worker' ? definition.limits.steps : null;
+      return agents.listAgents(f.options)[0]?.limits.steps;
     };
     f.override({ limits: { steps: 8 } });
     assert.equal(steps(), 8);
@@ -217,43 +184,14 @@ for (const reader of ['listAgents', 'loadProfiles', 'profileOf', 'agentSettings'
 test('live config overrides personal settings while retaining the other nested limit', (t) => {
   const f = fixture();
   t.after(f.close);
-  f.override({ enabled: true, limits: { steps: 8 }, cost: { input: 1 } });
-  const config = { agents: { scout: { limits: { seconds: 12 }, cost: { output: 3 } } } };
+  f.override({ limits: { steps: 8 }, cost: { input: 1 } });
+  const config = { agents: { scout: { enabled: true, limits: { seconds: 12 }, cost: { output: 3 } } } };
   const settings = agents.agentSettings('scout', config, f.options);
   assert.deepEqual(settings?.limits, { steps: 8, seconds: 12 });
   assert.deepEqual(settings?.cost, { input: 1, output: 3 });
   assert.equal(settings?.enabled, true);
   config.agents.scout.limits.seconds = 13;
   assert.equal(agents.agentSettings('scout', config, f.options)?.limits.seconds, 13);
-});
-
-test('empty config paths fall back to the personal profile paths', (t) => {
-  const f = fixture();
-  t.after(f.close);
-  f.override({ socket: '/synthetic/persona.sock', out: '/synthetic/persona-out' });
-  const settings = agents.agentSettings('scout', { agents: { scout: { socket: '', out: null } } }, f.options);
-  assert.equal(settings?.socket, '/synthetic/persona.sock');
-  assert.equal(settings?.out, '/synthetic/persona-out');
-});
-
-test('injected user-unit paths replace profile defaults while usable config paths win', (t) => {
-  const f = fixture();
-  t.after(f.close);
-  const options = {
-    ...f.options,
-    env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_RUNTIME_DIR: '/synthetic/runtime', XDG_STATE_HOME: '/synthetic/state' },
-  };
-  const settings = agents.agentSettings('scout', {}, options);
-  assert.equal(settings?.socket, '/synthetic/runtime/neptunia-agent-scout/sock');
-  assert.equal(settings?.out, '/synthetic/state/neptunia-agent-scout/out');
-  const configured = agents.agentSettings(
-    'scout',
-    { agents: { scout: { socket: '/explicit.sock', out: '/explicit-out' } } },
-    options
-  );
-  assert.equal(configured?.socket, '/explicit.sock');
-  assert.equal(configured?.out, '/explicit-out');
-  assert.equal(agents.agentSettings('scout', {}, f.options)?.socket, f.definition.socket);
 });
 
 test('an explicitly empty environment excludes process user-unit and data settings', (t) => {
@@ -269,7 +207,6 @@ test('an explicitly empty environment excludes process user-unit and data settin
     NEPTUNIA_DATA_DIR: path.join(f.base, 'wrong-data'),
     XDG_RUNTIME_DIR: '/wrong-runtime',
   };
-  assert.equal(agents.agentSettings('scout', {}, f.options)?.socket, f.definition.socket);
   assert.deepEqual(agents.loadProfiles({ rootDir: f.rootDir, env: {} }).scout.promptFiles, [
     path.join(f.rootDir, 'data/agents/scout/prompt.md'),
     path.join(f.shared, 'prompt.md'),
@@ -374,62 +311,6 @@ test('an empty selected personal prompt fails instead of falling through to shar
   fs.mkdirSync(f.personal, { recursive: true });
   fs.writeFileSync(path.join(f.personal, 'prompt.md'), ' \n');
   assert.throws(() => readPromptFile(agents.loadProfiles(f.options).scout.promptFiles));
-});
-
-test('a consultation definition uses the same overlay without entering worker selection', (t) => {
-  // Changed: the development kind is gone with the development agents, and the watcher kind with the watcher
-  // (maintainer, 2026-11-16), so the personal overlay is checked on the consultation.
-  const f = fixture();
-  t.after(f.close);
-  const consult = {
-    id: 'consult',
-    kind: 'consultation',
-    role: 'scout',
-    prompt: null,
-    override: null,
-    description: 'Synthetic consultation.',
-  };
-  f.writeShared('consult', consult);
-  const folder = path.join(f.dataDir, 'agents', 'consult');
-  fs.mkdirSync(folder, { recursive: true });
-  fs.writeFileSync(
-    path.join(folder, 'profile.json'),
-    JSON.stringify({ description: 'Personal consultation.', prompt: 'custom.md' })
-  );
-  const all = agents.listAgents(f.options);
-  assert.deepEqual(
-    all.map((entry) => entry.id),
-    ['consult', 'scout']
-  );
-  assert.deepEqual(
-    all.find((entry) => entry.id === 'consult'),
-    { ...consult, description: 'Personal consultation.', prompt: 'custom.md' }
-  );
-  assert.deepEqual(Object.keys(agents.loadProfiles(f.options)), ['scout']);
-  assert.equal(agents.profileOf('consult', f.options), null);
-  assert.equal(agents.agentSettings('consult', {}, f.options), null);
-});
-
-test('shared compatibility snapshots ignore process persona links before explicit loader paths are supplied', (t) => {
-  const f = fixture();
-  t.after(f.close);
-  f.override({ limits: { seconds: 17 } });
-  const processData = path.join(f.base, 'process-persona');
-  fs.mkdirSync(path.join(processData, 'agents'), { recursive: true });
-  fs.symlinkSync(f.personal, path.join(processData, 'agents', 'scout'));
-  const moduleUrl = new URL('../src/agent-runner/profiles.ts', import.meta.url).href;
-  const script = `
-    const { PROFILES, loadProfiles } = await import(${JSON.stringify(moduleUrl)});
-    const selected = loadProfiles(${JSON.stringify(f.options)});
-    process.stdout.write(JSON.stringify([PROFILES.scout.name, Object.keys(PROFILES).sort(), selected.scout.defaultLimits.seconds]));
-  `;
-  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
-    encoding: 'utf8',
-    timeout: 10000,
-    env: { ...process.env, NEPTUNIA_DATA_DIR: processData },
-  });
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), ['scout', ['scout', 'server'], 17]);
 });
 
 test('an ordinary personal root file named for a shared worker contributes no override', (t) => {

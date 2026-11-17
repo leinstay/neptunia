@@ -90,7 +90,8 @@ test('Errand comes from the registry', () => {
   // (maintainer, 2026-11-16).
   const rows = modelRoleRegistry();
   const roles = (group: string): Array<string> => rows.filter((one) => one.group === group).map((one) => one.role);
-  assert.deepEqual(roles('errand'), ['scout', 'server']);
+  // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
+  assert.deepEqual(roles('errand'), ['code', 'fetch', 'scout', 'server']);
   assert.deepEqual(roles('development'), []);
 });
 

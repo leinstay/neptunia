@@ -48,10 +48,12 @@ async function runOnce(profileProvider: string | null, extra: Record<string, unk
     agentId: 'errand-scout',
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
-    defaultSearchProvider: profileProvider,
     sandbox: 'read-only',
     search: false,
-    buildConfig: () => ({ agent: {} }),
+    unit: 'web',
+    // Changed: the search provider follows the `search` ability, so `exa` stands for an agent that searches.
+    abilities: profileProvider === 'exa' ? ['search', 'fetch'] : ['fetch'],
+    returns: 'files',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
@@ -83,9 +85,9 @@ test('an opencode run with exa and a searchKey gets EXA_API_KEY and OPENCODE_ENA
   );
 });
 
-test('an opencode run whose search provider is not exa gets no EXA_API_KEY although the task carries one', async () => {
+test('an opencode run of an agent that does not search gets no EXA_API_KEY although the task carries one', async () => {
   // Catches: the key handed to a run that never uses Exa.
-  const [child] = await runOnce('brave', {
+  const [child] = await runOnce(null, {
     id: 'k3',
     route: route('opencode'),
     secrets: { openrouterKey: OR_KEY, searchKey: EXA_KEY },

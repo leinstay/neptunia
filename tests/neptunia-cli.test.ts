@@ -375,19 +375,20 @@ function ping(socket: string): Promise<Record<string, unknown>> {
 }
 
 // Case 9 of PR D.
-test('errand-runner starts the scout runner on the socket of the local layer and stops on SIGTERM', async () => {
+test('errand-runner --unit web serves the web agents on the socket of its user unit and stops on SIGTERM', async () => {
+  // Changed: a runner serves a unit, and its socket and out folder derive from the unit's name.
   const dirs = folders({});
-  const socket = join(dirs.root, 's.sock');
-  const out = join(dirs.root, 'out');
-  // The socket and the output folder come from the private layer the runner is pointed at, never the checkout's.
-  writeFileSync(join(dirs.dataDir, 'config', 'config.json'), JSON.stringify({ agents: { scout: { socket, out } } }));
-  const runner = spawnCli(dirs, ['errand-runner', '--profile', 'scout']);
+  const runtime = join(dirs.root, 'run');
+  const socket = join(runtime, 'neptunia-agent-web', 'sock');
+  const env = { NEPTUNIA_UNIT_SCOPE: 'user', XDG_RUNTIME_DIR: runtime, XDG_STATE_HOME: join(dirs.root, 'state') };
+  fs.mkdirSync(join(runtime, 'neptunia-agent-web'), { recursive: true });
+  const runner = spawnCli(dirs, ['errand-runner', '--unit', 'web'], env);
   try {
     await until(() => existsSync(socket) || runner.child.exitCode !== null, 'the runner socket');
     assert.ok(existsSync(socket), `the runner listens; stderr:\n${runner.stderr().slice(-2000)}`);
     const pong = await ping(socket);
     assert.equal(pong.event, 'pong');
-    assert.equal(pong.profile, 'scout');
+    assert.equal(pong.unit, 'web');
     runner.child.kill('SIGTERM');
     assert.deepEqual(await runner.exited, { code: 0, signal: null });
   } finally {

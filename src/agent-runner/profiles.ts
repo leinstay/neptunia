@@ -1,76 +1,22 @@
-// The agent profiles, built from the `agents/` folder at the engine root: one
-// `agents/<id>/profile.json` per agent, beside its tracked prompt
-// (`agents/<id>/prompt.md`). Persona files under `data/agents/<id>/` override shared defaults. A profile describes its
-// kind (`worker`, run under this runner on a socket; `consultation`, a
-// model role tools call directly). The runner loads only workers. A profile's `role` is identity that a personal
-// profile may restate and never change; nothing reads its value, as an agent runs on the model of its route
-// (src/subharness/routing.ts). Definitions carry a prompt filename and migration override metadata.
-// Worker definitions also list tools, a shell class, default limits, daily caps, socket and out directory, and
-// environment variable names their run may fall back on (the core sends
-// the keys with each task). It never authorizes anything: the shell classes
-// (their allow lists, which tools each class may grant) and every deny are
-// defined here and in src/agent-runner/policy.ts, a profile can only ask for
-// fewer tools than its class allows, and a profile that names an unknown
-// key, tool or shell class, or misses a key, fails `loadProfiles` at start
-// with one error naming the agent and the key. A profile also builds the
-// OpenCode config for one task (`buildConfig`): one agent definition
-// carrying the prompt and a permission map that starts every
-// tool at deny and allow-lists only what the profile asks for within its
-// class, plus the model it is given and its cost (so OpenCode's local cost estimate is
-// right). In a filtered scope (`dm`/`group`) the path tools also deny the
-// withheld paths, and the read-only server shell's `bash` denies a
-// content-reading command on one (src/agent-runner/policy.ts), so OpenCode
-// refuses that step and the agent goes on. A shell class also names the
-// variables its OpenCode child runs with (the server agent's git settings),
-// and whether its agent may reach paths outside its own working directory
-// (`external_directory`, which OpenCode asks for a path-tool target, a bash
-// workdir outside it, or a path argument of `cd`, `rm`, `cp`, `mv`, `mkdir`,
-// `touch`, `chmod`, `chown` and `cat`, with a `<dir>/*` resource): the
-// read-only server class gets it under the same value as its path tools (the
-// withheld denies in a filtered scope), the scout class only for its private
-// temporary directory (SCOUT_TMP_DIR, where OpenCode saves the files it
-// fetches), in every scope.
+// The agents on disk: one folder per agent, `agents/<id>/` at the engine root (tracked) or `<data>/agents/<id>/` (local),
+// each holding a `profile.json` and its prompt. A local folder that shares a tracked agent's name overlays the tracked
+// profile key by key. A local folder with no tracked twin is an agent of its own when it holds a profile, which must
+// then be whole and sit beside its prompt; a local folder with no profile is no agent. The list of agents is this read
+// and nothing else: no code names an agent.
 //
-// This matches OpenCode release v1.19.3 (the version installed on the
-// server), whose config is the V1 shape: the top-level key is `agent`
-// (singular), an agent carries `prompt` (not `system`) and
-// `permission` (an object keyed by tool, each value an action string or a
-// { pattern: action } map; a config typo falls back to `ask`, which a
-// headless run rejects). Tool/permission keys are OpenCode's own: `bash`
-// (the shell), `read`, `grep`, `glob`, `list`, `webfetch`, `websearch`,
-// `edit`, `write`, `patch`, `task` (subagents), `question`, `skill`,
-// `todowrite`, `lsp`, `plan_exit`, `execute`, `external_directory`; every
-// tool no class asks for is denied (ALWAYS_DENIED). v1.19.3 shows `websearch`
-// only with Exa or Parallel switched on directly. The engine switches Exa on with
-// `OPENCODE_ENABLE_EXA=1` for an OpenCode run whose search provider is `exa`; the
-// free endpoint takes no key (owner's word of 2026-11-06). The permission runtime takes the LAST matching rule,
-// so for `bash` a catch-all `*: deny` comes first and the allowed commands
-// after (then a class's staged rules, then the denies), and for a path tool (and the server class's `external_directory`)
-// `*: allow` comes first and the withheld-path denies after. The web search provider is chosen by an environment variable
-// at run time (src/agent-runner/opencode.ts), not in this config, because
-// v1.19.3 has no websearch config key. Keep in sync with docs/errands.md.
+// A profile holds exactly `id`, `description`, `unit`, `abilities`, `returns`, `audience`, `prompt`, `limits`, `daily`
+// and `cost`. A profile that misses a key, names an unknown one or holds a value of the wrong form fails `listAgents` and
+// `loadProfiles` with one error naming the agent and the key, and a symbolic link anywhere in the local layer is refused.
+// A profile authorizes nothing by itself: the runner maps `abilities` to what the harness of a run accepts
+// (src/agent-runner/backend.ts) and the unit `unit` names sets the sandbox of the process (deploy/). The socket and the
+// out folder of a unit derive from its name (`unitPaths`). Keep in sync with docs/errands.md and agents/README.md.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WITHHELD_GLOBS, WITHHELD_NAMES, WITHHELD_ROOTS, withheldRootsOf } from './policy.ts';
 import { resolvePaths } from '../paths.ts';
 import { errorFields } from '../error-fields.ts';
 import { scalarText } from '../tools/types.ts';
-
-/** One permission value of an OpenCode config: an action, or a map of patterns to actions. */
-type Permission = string | Record<string, string>;
-
-/** A shell class of a worker profile: the ceiling of what its OpenCode child may run. */
-type ShellClass = {
-  allow: ReadonlyArray<string>;
-  rules: ReadonlyArray<readonly [string, string]>;
-  withheldDenies: boolean;
-  externalDirectory: boolean | ReadonlyArray<string>;
-  tools: ReadonlyArray<string>;
-  order: ReadonlyArray<string>;
-  env: Readonly<Record<string, string>>;
-};
 
 /** The backends an agent can run on: `codex exec`, `claude -p` or OpenCode (src/agent-runner/backend.ts). */
 export const BACKEND_NAMES = ['codex', 'claude', 'opencode'] as const;
@@ -78,41 +24,40 @@ export const BACKEND_NAMES = ['codex', 'claude', 'opencode'] as const;
 /** One of BACKEND_NAMES. */
 export type BackendName = (typeof BACKEND_NAMES)[number];
 
-/** The keys every profile.json carries. */
-type CommonDefinition = {
+/** The units that carry the agents: `web` reaches the internet, `host` reads this machine (deploy/). */
+export const UNITS = ['web', 'host'] as const;
+
+/** One of UNITS. */
+export type UnitName = (typeof UNITS)[number];
+
+/** What an agent may do: search the web, read a page, write files into its out folder, run commands. */
+const ABILITIES = ['search', 'fetch', 'download', 'shell'] as const;
+
+/** One of ABILITIES. */
+export type Ability = (typeof ABILITIES)[number];
+
+/** What an agent hands back: its text alone, or its text and files. */
+const RETURNS = ['text', 'files'] as const;
+
+/** Who may have an errand run by an agent: anyone she runs errands for, or the owner alone. */
+const AUDIENCES = ['any', 'owner'] as const;
+
+/** The validated profile.json of an agent. */
+export type AgentDefinition = Readonly<{
   id: string;
-  role: string;
-  prompt: string | null;
-  override: string | null;
   description: string;
-};
+  unit: UnitName;
+  abilities: ReadonlyArray<Ability>;
+  returns: (typeof RETURNS)[number];
+  audience: (typeof AUDIENCES)[number];
+  prompt: string;
+  limits: Readonly<Record<string, number>>;
+  daily: Readonly<Record<string, number>>;
+  cost: Readonly<{ input: number; output: number }>;
+}>;
 
-/** A worker's profile.json: an errand agent run by the agent runner. */
-export type WorkerDefinition = Readonly<
-  CommonDefinition & {
-    kind: 'worker';
-    tools: ReadonlyArray<string>;
-    shell: string;
-    enabled: boolean;
-    cost: { input: number; output: number };
-    limits: Readonly<Record<string, number>>;
-    daily: Readonly<Record<string, number>>;
-    searchProvider: string | null;
-    socket: string;
-    out: string;
-    env: ReadonlyArray<string>;
-    /** true: the codex backend runs the agent with live web search */
-    search?: boolean;
-    /** the sandbox of the agent when the owner has set no mode for it; absent means workspace-write */
-    sandbox?: 'read-only' | 'workspace-write';
-  }
->;
-
-/** A consultation's profile.json: the common keys only. */
-export type ConsultationDefinition = Readonly<CommonDefinition & { kind: 'consultation' }>;
-
-/** The validated profile.json of any agent. */
-export type AgentDefinition = WorkerDefinition | ConsultationDefinition;
+/** Where an agent's folder lives: the checkout (`tracked`, maybe overlaid by a local twin) or the data folder alone (`local`). */
+export type AgentOrigin = 'tracked' | 'local';
 
 /** The engine and persona agent trees, resolved independently of private credentials. */
 export type AgentPaths = {
@@ -123,53 +68,42 @@ export type AgentPaths = {
 
 type ResolvedAgentPaths = Required<AgentPaths>;
 
-/** The OpenCode config of one task. */
-export type OpenCodeConfig = {
-  $schema: string;
-  agent: Record<string, { mode: string; prompt: string; permission: Record<string, Permission> }>;
-  model?: string;
-  provider?: Record<string, { models: Record<string, { cost: { input: number; output: number } }> }>;
-  tool_output?: { max_bytes: number };
-};
-
-/** What one task gives `buildConfig`. */
-export type BuildConfigOptions = {
-  systemPrompt?: unknown;
-  providerModel?: unknown;
-  scope?: string;
-  cost?: { input?: unknown; output?: unknown } | null;
-  toolResultChars?: unknown;
-};
-
-/** One worker profile, the object the runner and the core use. */
+/** One agent's profile, the object the runner and the core use. */
 export type Profile = {
   name: string;
-  kind: 'worker';
   description: string;
-  agentId: string;
+  unit: UnitName;
+  abilities: ReadonlyArray<Ability>;
+  returns: AgentDefinition['returns'];
+  audience: AgentDefinition['audience'];
+  origin: AgentOrigin;
   promptFiles: Array<string>;
-  envNames: ReadonlyArray<string>;
-  tools: ReadonlyArray<string>;
-  shell: string;
-  childEnv: Readonly<Record<string, string>>;
   defaultLimits: Readonly<Record<string, number>>;
   defaultDaily: Readonly<Record<string, number>>;
-  defaultSearchProvider: string | null;
-  defaultSocket: string;
-  defaultOut: string;
-  search: boolean;
-  sandbox: 'read-only' | 'workspace-write';
-  buildConfig: (options?: BuildConfigOptions) => OpenCodeConfig;
 };
 
 /** The engine root (two levels up from this file). */
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/** The folder of the agents under an engine root: one `<id>/profile.json` per agent. */
+/** The folder of the agents under an engine root or a data folder: one `<id>/profile.json` per agent. */
 const AGENTS_DIRNAME = 'agents';
 
 /** The description file inside an agent's folder. */
 const PROFILE_FILE = 'profile.json';
+
+/** The keys of a profile, all required. */
+const PROFILE_KEYS: ReadonlyArray<string> = Object.freeze([
+  'id',
+  'description',
+  'unit',
+  'abilities',
+  'returns',
+  'audience',
+  'prompt',
+  'limits',
+  'daily',
+  'cost',
+]);
 
 /** Resolves explicit and environment data paths against the engine root. */
 function agentPaths(options: AgentPaths): ResolvedAgentPaths {
@@ -182,698 +116,19 @@ function agentPaths(options: AgentPaths): ResolvedAgentPaths {
   };
 }
 
-/** Canonical candidates for a definition whose identity and filename have been validated. */
-function promptCandidates(
-  name: string,
-  paths: Pick<ResolvedAgentPaths, 'rootDir' | 'dataDir'>,
-  prompt: string
-): Array<string> {
+/** The prompt files of an agent, the local one first. */
+function promptCandidates(name: string, paths: ResolvedAgentPaths, prompt: string): Array<string> {
   return [
     path.join(paths.dataDir, AGENTS_DIRNAME, name, prompt),
     path.join(paths.rootDir, AGENTS_DIRNAME, name, prompt),
   ];
 }
 
-/** The first option words `tar` may start with on the server: the list mode (`-t`) with only
- * verbose, archive-file and decompression letters, so no cluster carries a write mode or `-I`.
- * The options after it are checked by TAR_DENIES. */
-const TAR_LIST_CLUSTERS = Object.freeze([
-  '-t',
-  '-tf',
-  '-tvf',
-  '-tzf',
-  '-tzvf',
-  '-tvzf',
-  '-tjf',
-  '-tjvf',
-  '-tvjf',
-  '-tJf',
-  '-tJvf',
-  '-tvJf',
-  '-taf',
-  '-tavf',
-  '-tvaf',
-  '--list',
-]);
-
-/** The `ip` objects the server agent may show (`ip a`, `ip r` and `ip l` are their short names), and
- * the display options that may precede one. Only `show` (or nothing) may follow: no `add`, `set`,
- * `flush`, `-batch` or `netns`. */
-const IP_OBJECTS = Object.freeze(['addr', 'address', 'a', 'route', 'r', 'link', 'l']);
-const IP_DISPLAY_OPTIONS = Object.freeze(['', '-br ', '-4 ', '-6 ', '-s ', '-d ', '-j ']);
-const IP_SHOW_ALLOW = Object.freeze(
-  IP_DISPLAY_OPTIONS.flatMap((option) =>
-    IP_OBJECTS.flatMap((object) => [
-      `ip ${option}${object}`,
-      `ip ${option}${object} show`,
-      `ip ${option}${object} show *`,
-    ])
-  )
-);
-
-/** The shell commands the server agent's `bash` may run (OpenCode bash patterns): read-only ones, and `cp` into its folder. */
-export const SERVER_SHELL_ALLOW = Object.freeze([
-  'ls',
-  'ls *',
-  'cat',
-  'cat *',
-  'head',
-  'head *',
-  'tail',
-  'tail *',
-  'grep',
-  'grep *',
-  'egrep *',
-  'fgrep *',
-  'find',
-  'find *',
-  'ps',
-  'ps *',
-  'df',
-  'df *',
-  'du',
-  'du *',
-  'wc',
-  'wc *',
-  'stat',
-  'stat *',
-  'which',
-  'which *',
-  'id',
-  'id *',
-  'uname',
-  'uname *',
-  'cut',
-  'cut *',
-  'sort',
-  'sort *',
-  'uniq',
-  'uniq *',
-  'sed -n --sandbox *',
-  'sed --sandbox -n *',
-  'ss -ln',
-  'ss -ln *',
-  'ss *',
-  'journalctl',
-  'journalctl *',
-  'systemctl status',
-  'systemctl status *',
-  'systemctl show',
-  'systemctl show *',
-  'systemctl cat *',
-  'systemctl list-units *',
-  'systemctl list-unit-files *',
-  'systemctl list-*',
-  'systemctl is-* *',
-  'git log *',
-  'git show *',
-  'git status',
-  'git status *',
-  'git diff',
-  'git diff *',
-  // The same reads of another checkout by path, so the agent never changes directory (OpenCode
-  // refuses a workdir outside its own as external_directory); GIT_WRITE_DENIES keeps writes out.
-  'git -C * log *',
-  'git -C * show *',
-  'git -C * status',
-  'git -C * status *',
-  'git -C * diff *',
-  'git -C * branch *',
-  'git -C * rev-parse *',
-  'readlink *',
-  'realpath *',
-  'file *',
-  'echo *',
-  'basename *',
-  'dirname *',
-  'date',
-  'date *',
-  'free',
-  'free *',
-  'uptime',
-  'hostname',
-  'pwd',
-  'command -v *',
-  // Searching and reading (each a content command, SHELL_CONTENT_COMMANDS): ripgrep without
-  // `--pre` and tar in its list mode only (SHELL_DENY_AFTER).
-  'rg',
-  'rg *',
-  'tree',
-  'tree *',
-  'jq *',
-  'diff *',
-  'sha256sum *',
-  'md5sum *',
-  'zcat *',
-  'zgrep *',
-  'xxd *',
-  'strings *',
-  'column',
-  'column *',
-  'nl',
-  'nl *',
-  ...TAR_LIST_CLUSTERS.map((cluster) => `tar ${cluster} *`),
-  // Who and what this machine is.
-  ...IP_SHOW_ALLOW,
-  'getent passwd',
-  'getent passwd *',
-  'getent group',
-  'getent group *',
-  'last',
-  'last *',
-  'w',
-  'w *',
-  'who',
-  'who *',
-  'timedatectl',
-  'timedatectl status',
-  'hostnamectl',
-  'hostnamectl status',
-  // The one command that writes: a copy, so the agent hands an existing file back whole as a
-  // result file (src/agent-runner/opencode.ts collects what its working directory holds) instead
-  // of retyping it. The OS keeps every other destination read-only: the unit's
-  // ProtectSystem=strict leaves only its StateDirectory (where the task folders live) and a
-  // private /tmp writable. cp is a content command (SHELL_CONTENT_COMMANDS), so a filtered scope
-  // refuses copying a withheld path exactly like cat.
-  'cp *',
-]);
-
-/** The curl/wget/yt-dlp/ffmpeg shell the scout agent's `bash` may run (its download step). yt-dlp
- * (a video page) reaches the network through the HTTPS_PROXY / HTTP_PROXY the runner gives the
- * child (src/agent-runner/opencode.ts). It runs only as `yt-dlp --ignore-config ...`: yt-dlp
- * otherwise loads a yt-dlp.conf from its working directory, HOME and XDG_CONFIG_HOME, all inside
- * the agent's task folder, where the agent itself can write one (curl -o, yt-dlp -o) carrying
- * `--exec`; a bare `yt-dlp <url>` matches no allow and is refused. Its options that run another
- * program, or name a config file again, are denied in YT_DLP_DENIES. Beside the download tools it
- * has the everyday commands that sort out what it fetched: text filters (sed only as
- * `sed -n --sandbox`, where sed refuses its `e`, `r` and `w` commands), `jq`, and `cp`, `mv`, `rm`
- * within its folder and SCOUT_TMP_DIR (SCOUT_FILE_RULES). */
-export const SCOUT_SHELL_ALLOW = Object.freeze([
-  'curl *',
-  'wget *',
-  'yt-dlp --ignore-config *',
-  'ffmpeg *',
-  'ffprobe *',
-  'file *',
-  'ls',
-  'ls *',
-  'mkdir *',
-  'cat *',
-  'head *',
-  'stat *',
-  'tail *',
-  'wc *',
-  'sort *',
-  'uniq *',
-  'cut *',
-  'tr *',
-  'grep *',
-  'egrep *',
-  'fgrep *',
-  'sed -n --sandbox *',
-  'sed --sandbox -n *',
-  'jq *',
-  'pwd',
-  'which *',
-  'command -v *',
-  'echo',
-  'echo *',
-  'cp *',
-  'mv *',
-  'rm *',
-]);
-
-/**
- * The private temporary directory of the scout agent's OpenCode: it saves the files `webfetch`
- * fetches under `<tmp>/opencode`, and the scout unit runs with PrivateTmp=yes and no TMPDIR, so this
- * one is the agent's own. Its path tools, `external_directory` and `cp`/`mv`/`rm` may reach it.
- */
-export const SCOUT_TMP_DIR = '/tmp/opencode';
-
-/** The commands of SCOUT_FILE_RULES and the only options each may start with (none recursive, none naming a target elsewhere). */
-const FILE_COMMAND_OPTIONS = Object.freeze({
-  cp: Object.freeze(['-f', '-v', '-n', '-p', '-fv', '-vf']),
-  mv: Object.freeze(['-f', '-v', '-n', '-fv', '-vf']),
-  rm: Object.freeze(['-f', '-v', '-fv', '-vf']),
-});
-
-/** The text OpenCode cannot resolve to a path (a variable, a command substitution, a `~user` home, a parent step), refused in a file command. */
-const FILE_BYPASS_PARTS = Object.freeze(['$', '`', '~', '..']);
-
-/** The top-level directories a file command may not name (an absolute path outside the folder; `/tmp` itself below). */
-const FILE_DENIED_ROOTS = Object.freeze([
-  '/bin',
-  '/boot',
-  '/dev',
-  '/etc',
-  '/home',
-  '/lib',
-  '/lost+found',
-  '/media',
-  '/mnt',
-  '/opt',
-  '/proc',
-  '/root',
-  '/run',
-  '/sbin',
-  '/snap',
-  '/srv',
-  '/sys',
-  '/usr',
-  '/var',
-]);
-
-/**
- * The staged `bash` rules of the scout agent's `cp`, `mv` and `rm` (`[pattern, action]`, in order,
- * after its allow list; the last match wins), so each works only on its own folder and
- * SCOUT_TMP_DIR, never recursively. OpenCode's `*` matches any text, spaces included, so a rule
- * cannot say "an option word without r": instead any leading option is denied, the plain ones of
- * FILE_COMMAND_OPTIONS allowed again, and then any later option word (` -...`), any text OpenCode
- * cannot resolve (FILE_BYPASS_PARTS), any top-level directory but /tmp (FILE_DENIED_ROOTS), `/`
- * and `/tmp` themselves denied. The main guard of the paths is OpenCode's own: these commands ask
- * `external_directory` for every path argument outside the folder, which the scout class allows only
- * for SCOUT_TMP_DIR; these rules refuse what that check cannot see.
- */
-export const SCOUT_FILE_RULES: ReadonlyArray<readonly [string, string]> = Object.freeze(
-  Object.entries(FILE_COMMAND_OPTIONS).flatMap(([command, options]) =>
-    (
-      [
-        [`${command} -*`, 'deny'],
-        ...options.map((option) => [`${command} ${option} *`, 'allow']),
-        [`${command} * -*`, 'deny'],
-        ...FILE_BYPASS_PARTS.map((part) => [`${command} *${part}*`, 'deny']),
-        ...FILE_DENIED_ROOTS.flatMap((root) => [
-          [`${command} ${root}*`, 'deny'],
-          [`${command} * ${root}*`, 'deny'],
-        ]),
-        [`${command} / *`, 'deny'],
-        [`${command} * / *`, 'deny'],
-        [`${command} /tmp *`, 'deny'],
-        [`${command} * /tmp *`, 'deny'],
-      ] as Array<[string, string]>
-    ).map((rule): readonly [string, string] => Object.freeze(rule))
-  )
-);
-
-/**
- * The yt-dlp options that run another program or load options that could (still needed with
- * `--ignore-config`, which only skips the config files found by default: these stop the same
- * options given on the command line, and `--config-locations` would load a file again): `--exec` (and
- * `--exec-before-download`), `--netrc-cmd`, `--config-locations` (also spelled
- * `--config-location`) and `--plugin-dirs`. yt-dlp accepts any unambiguous prefix of a long
- * option, so each pattern is a prefix that names only that option (`--exe`, `--netrc-c`,
- * `--conf`, `--plu`), not the full name. OpenCode's `*` matches any text, so the option is
- * refused wherever it stands, `=value` form included.
- */
-export const YT_DLP_DENIES = Object.freeze([
-  'yt-dlp *--exe*',
-  'yt-dlp *--netrc-c*',
-  'yt-dlp *--conf*',
-  'yt-dlp *--plu*',
-]);
-
-/** A permission value for a path tool in `scope`: a plain `allow`, or `*: allow` then the withheld denies. */
-function pathPermission(scope: string): Permission {
-  if (scope === 'core') return 'allow';
-  const map: Record<string, string> = { '*': 'allow' };
-  for (const glob of WITHHELD_GLOBS) map[glob] = 'deny';
-  return map;
-}
-
-/** The git subcommands that write (a repository, a working tree, a remote or a config): never run through `git -C`. */
-const GIT_WRITE_SUBCOMMANDS = Object.freeze([
-  'commit',
-  'push',
-  'pull',
-  'fetch',
-  'checkout',
-  'switch',
-  'restore',
-  'reset',
-  'config',
-  'merge',
-  'rebase',
-  'cherry-pick',
-  'revert',
-  'am',
-  'apply',
-  'add',
-  'rm',
-  'mv',
-  'clean',
-  'stash',
-  'tag',
-  'gc',
-  'prune',
-  'repack',
-  'worktree',
-  'submodule',
-  'remote',
-  'update-ref',
-  'update-index',
-  'symbolic-ref',
-  'notes',
-  'init',
-  'clone',
-  'filter-branch',
-  'replace',
-  'bisect',
-]);
-
-/** The `git branch` options that create, rename, copy, delete or retarget a branch. */
-const GIT_BRANCH_WRITE_OPTIONS = Object.freeze([
-  '-d',
-  '-D',
-  '--delete',
-  '-m',
-  '-M',
-  '--move',
-  '-c',
-  '-C',
-  '--copy',
-  '-f',
-  '--force',
-  '-u',
-  '--set-upstream-to',
-  '--unset-upstream',
-  '--edit-description',
-  '--track',
-  '--no-track',
-]);
-
-/**
- * The denies that keep the `git -C * <read> *` allows read-only. OpenCode's `*` matches any text,
- * spaces included, so `git -C * log *` alone would also pass `git -C /x commit -m log`: each write
- * subcommand is denied as a word after `-C`, and so are a config set on the command line (`-c`,
- * `--config-env`: a hook, a pager or an fsmonitor command would run), `--exec-path`, an `--output`
- * file, and the `git branch` options that change a branch.
- */
-export const GIT_WRITE_DENIES = Object.freeze([
-  ...GIT_WRITE_SUBCOMMANDS.flatMap((command) => [`git -C * ${command}`, `git -C * ${command} *`]),
-  'git -C * -c *',
-  'git -C * --config-env*',
-  'git -C * --exec-path*',
-  'git -C *--output*',
-  ...GIT_BRANCH_WRITE_OPTIONS.flatMap((option) => [
-    `git -C * branch* ${option}`,
-    `git -C * branch* ${option} *`,
-    `git -C * branch* ${option}=*`,
-  ]),
-]);
-
-/**
- * The tar options that write, run another program or reach a remote host, denied after the list
- * forms of SERVER_SHELL_ALLOW: a write mode or `-I`/`-F`/`-g` as a later option word, alone or as
- * the second letter of a cluster (`-x`, `-vx`; a longer cluster is not matched, since OpenCode's
- * `?` also matches a space and would refuse `-f x.tar`), and the long options by the shortest
- * prefix tar takes for each (`--ext` for `--extract`, `--to-c` for `--to-command`, `--use` for
- * `--use-compress-program`, ...).
- */
-export const TAR_DENIES = Object.freeze([
-  ...['x', 'c', 'r', 'u', 'A', 'I', 'F', 'g'].flatMap((letter) => [`tar * -${letter}*`, `tar * -?${letter}*`]),
-  ...[
-    '--ext',
-    '--get',
-    '--cr',
-    '--ap',
-    '--up',
-    '--del',
-    '--cat',
-    '--conc',
-    '--to-c',
-    '--use',
-    '--checkpoint-a',
-    '--rsh',
-    '--rmt',
-    '--info',
-    '--new-v',
-    '--listed',
-    '--index',
-    '--vol',
-  ].map((prefix) => `tar *${prefix}*`),
-]);
-
-/** The options of an allowed reader that run another program or edit in place: ripgrep's
- * `--pre`, sort's `--compress-program` (any prefix from `--co`), sed's `-i`/`--in-place`. */
-export const READER_DENIES = Object.freeze(['rg *--pre*', 'sort *--co*', 'sed * -i*', 'sed * -?i*', 'sed * --in*']);
-
-/** The forms of an allowed command that read the process environment, where the agent's API key
- * lives: echo with any `$` (a variable or a substitution; echo stays for literal text) and jq's
- * `env` / `$ENV`. */
-export const ENV_READ_DENIES = Object.freeze(['echo *$*', 'jq *env*', 'jq *$ENV*']);
-
-/** Patterns denied after the allows (the last match wins): the ways an allowed command could write, reach the network, run another program or read the environment. */
-export const SHELL_DENY_AFTER = Object.freeze([
-  ...GIT_WRITE_DENIES,
-  ...YT_DLP_DENIES,
-  ...TAR_DENIES,
-  ...READER_DENIES,
-  ...ENV_READ_DENIES,
-  'find * -exec*',
-  'find * -ok*',
-  'find * -delete*',
-  'find * -fprint*',
-  'awk */inet/*',
-  'gawk *',
-]);
-
-/** The allowed shell commands that open file contents: in a filtered scope each is refused on a withheld path. */
-export const SHELL_CONTENT_COMMANDS = Object.freeze([
-  'cat',
-  'head',
-  'tail',
-  'grep',
-  'egrep',
-  'fgrep',
-  'sed',
-  'cut',
-  'sort',
-  'uniq',
-  'wc',
-  'file',
-  'git',
-  'cp',
-  'rg',
-  'tree',
-  'jq',
-  'diff',
-  'sha256sum',
-  'md5sum',
-  'zcat',
-  'zgrep',
-  'xxd',
-  'strings',
-  'column',
-  'nl',
-  'tar',
-]);
-
-/** The `.env` forms policy.ts withholds (`.env`, `.env.<anything>`): one substring matches them all. */
-const ENV_FORM = '.env';
-
-/** The withheld names matched only where a path segment starts (so a bare repository named `<x>.git` stays readable). */
-export const SEGMENT_NAMES = Object.freeze(['.git', '.local.git']);
-/** The text that can precede a segment-start name in a command: the command word's space, any space, a slash, `=` or a quote. */
-const SEGMENT_STARTS = Object.freeze(['', '* ', '*/', '*=', "*'", '*"']);
-
-/**
- * The `bash` deny patterns of a filtered scope: one `<command> *<withheld>*` per content command
- * (SHELL_CONTENT_COMMANDS) and withheld root, name or `.env` form (src/agent-runner/policy.ts), so
- * OpenCode itself refuses such a read and the model gets the refusal and goes on. OpenCode's `*`
- * matches any text, `/` and spaces included. A SEGMENT_NAMES name gets one pattern per
- * SEGMENT_STARTS form instead (the name right after a space, a slash, `=` or a quote), so it
- * matches only where a path segment starts with it, never inside `core.git`. Listing commands
- * (`ls`, `find`, `stat`, `du`,
- * `readlink`, `realpath`) get none: names stay visible. `paths` (src/paths.ts#resolvePaths) picks
- * the deployment's withheld directories; by default this process's (WITHHELD_ROOTS).
- */
-export function withheldShellDenies({
-  paths,
-}: { paths?: { rootDir: string; privateDir: string; dataDir: string } } = {}): Array<string> {
-  const roots = paths ? withheldRootsOf({ paths }) : WITHHELD_ROOTS;
-  const withheld = [...roots, ...WITHHELD_NAMES.filter((name) => !SEGMENT_NAMES.includes(name)), ENV_FORM];
-  return SHELL_CONTENT_COMMANDS.flatMap((command) => [
-    ...withheld.map((part) => `${command} *${part}*`),
-    ...SEGMENT_NAMES.flatMap((name) => SEGMENT_STARTS.map((start) => `${command} ${start}${name}*`)),
-  ]);
-}
-
-/** A permission value for `bash`: deny-all first, then the allowed command patterns, then `rules`
- * (a class's staged `[pattern, action]` pairs, in order), then `denies` (the withheld-path ones of
- * a filtered scope), then SHELL_DENY_AFTER. */
-function bashPermission(
-  allow: ReadonlyArray<string>,
-  rules: ReadonlyArray<readonly [string, string]> = [],
-  denies: ReadonlyArray<string> = []
-): Record<string, string> {
-  const map: Record<string, string> = { '*': 'deny' };
-  for (const pattern of allow) map[pattern] = 'allow';
-  for (const [pattern, action] of rules) map[pattern] = action;
-  for (const pattern of denies) map[pattern] = 'deny';
-  for (const pattern of SHELL_DENY_AFTER) map[pattern] = 'deny';
-  return map;
-}
-
-/**
- * The `external_directory` value of a shell class in `scope`: the path tools' value
- * (pathPermission) when its `externalDirectory` is `true`; `*: deny` then each listed directory
- * and everything under it allowed when it is a list (OpenCode asks with a `<dir>/*` resource, and
- * its `*` matches any text, so `<dir>/*` covers the subfolders); else a plain deny.
- */
-function externalPermission(externalDirectory: boolean | ReadonlyArray<string>, scope: string): Permission {
-  if (externalDirectory === true) return pathPermission(scope);
-  if (typeof externalDirectory === 'boolean') return 'deny';
-  const map: Record<string, string> = { '*': 'deny' };
-  for (const dir of externalDirectory) {
-    map[dir] = 'allow';
-    map[`${dir}/*`] = 'allow';
-  }
-  return map;
-}
-
-/** The path tools: each takes `*: allow` then the withheld denies in a filtered scope. */
-const PATH_TOOLS = Object.freeze(['read', 'grep', 'glob', 'list']);
-
-/** The network tools: a plain allow when granted. */
-const NETWORK_TOOLS = Object.freeze(['websearch', 'webfetch']);
-
-/**
- * The environment the server agent's child runs with (src/agent-runner/opencode.ts): git trusts
- * every repository (`safe.directory=*`, set through GIT_CONFIG_COUNT), since its shell only reads
- * and the checkouts it reads belong to other users, which git otherwise refuses as "dubious
- * ownership"; and git never pages.
- */
-export const SERVER_CHILD_ENV = Object.freeze({
-  GIT_CONFIG_COUNT: '1',
-  GIT_CONFIG_KEY_0: 'safe.directory',
-  GIT_CONFIG_VALUE_0: '*',
-  GIT_PAGER: 'cat',
-});
-
-/**
- * The tools denied to every agent whatever its profile asks: no profile can grant one. Beside the
- * writing and delegating ones, every other tool v1.19.3 can expose that no shell class asks for:
- * `skill` and `todowrite` (always on), `lsp`, `plan_exit` and `execute` (behind experimental
- * flags). A tool whose permission is a plain deny is left out of the model's tool list.
- */
-export const ALWAYS_DENIED = Object.freeze([
-  'edit',
-  'write',
-  'patch',
-  'task',
-  'question',
-  'skill',
-  'todowrite',
-  'lsp',
-  'plan_exit',
-  'execute',
-]);
-
-/**
- * The shell classes a worker profile names in `shell`, the permission ceiling of this runner.
- * Each class has `allow`, the patterns its `bash` may run (SHELL_DENY_AFTER always after them);
- * `rules`, staged `[pattern, action]` pairs its `bash` takes in order after `allow` (SCOUT_FILE_RULES);
- * `withheldDenies`, whether a filtered scope adds the per-command withheld-path denies to its
- * `bash` (withheldShellDenies); `tools`, the OpenCode tools a profile of the class may ask for,
- * the most it can get; and `order`, the tools its permission map names before ALWAYS_DENIED, in
- * that order (a tool of `order` the profile does not ask for, or outside `tools`, is denied);
- * `externalDirectory`, what `external_directory` (paths outside the agent's working directory)
- * takes: `true` for the path tools' value (pathPermission), a list for those directories only, in
- * every scope, `false` for a deny (externalPermission); `env`, the
- * variables its OpenCode child runs with over the runner's environment; and `path`, the folders
- * of its own commands put first on the child's PATH. A profile picks a class
- * by name and never carries a pattern itself.
- */
-export const SHELL_CLASSES: Readonly<Record<string, ShellClass>> = Object.freeze({
-  'server-read-only': Object.freeze({
-    allow: SERVER_SHELL_ALLOW,
-    rules: Object.freeze([]),
-    withheldDenies: true,
-    externalDirectory: true,
-    tools: Object.freeze(['read', 'grep', 'glob', 'list', 'bash']),
-    order: Object.freeze(['read', 'grep', 'glob', 'list', 'bash', 'webfetch', 'websearch']),
-    env: SERVER_CHILD_ENV,
-  }),
-  'scout-download': Object.freeze({
-    allow: SCOUT_SHELL_ALLOW,
-    rules: SCOUT_FILE_RULES,
-    withheldDenies: false,
-    externalDirectory: Object.freeze([SCOUT_TMP_DIR]),
-    tools: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'bash']),
-    order: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'grep', 'bash']),
-    env: Object.freeze({}),
-  }),
-});
-
-/**
- * The V1 permission map of a worker for `scope`: each tool of its class's `order` allowed when
- * the profile asks for it (a path tool with the withheld denies of a filtered scope, `bash` with
- * its class's allow list and rules), else denied; then `external_directory` as the class's
- * `externalDirectory` says (externalPermission); then every tool of ALWAYS_DENIED denied.
- */
-function permissionFor(
-  { shell, tools }: { shell: string; tools: ReadonlyArray<string> },
-  scope: string
-): Record<string, Permission> {
-  const shellClass = SHELL_CLASSES[shell];
-  const granted = new Set(tools.filter((tool) => shellClass.tools.includes(tool)));
-  const map: Record<string, Permission> = {};
-  for (const tool of shellClass.order) {
-    if (!granted.has(tool)) map[tool] = 'deny';
-    else if (PATH_TOOLS.includes(tool)) map[tool] = pathPermission(scope);
-    else if (NETWORK_TOOLS.includes(tool)) map[tool] = 'allow';
-    else if (tool === 'bash')
-      map[tool] = bashPermission(
-        shellClass.allow,
-        shellClass.rules,
-        shellClass.withheldDenies && scope !== 'core' ? withheldShellDenies() : []
-      );
-  }
-  map.external_directory = externalPermission(shellClass.externalDirectory, scope);
-  for (const tool of ALWAYS_DENIED) map[tool] = 'deny';
-  return map;
-}
-
-// ---------------------------------------------------------------------------
-// profile.json: the keys and their checks
-
-/** The keys every profile carries, whatever its kind. */
-const COMMON_KEYS = Object.freeze(['id', 'kind', 'role', 'prompt', 'override', 'description']);
-
-/** The keys a profile may carry and need not: `search` and `sandbox` for a worker. */
-const OPTIONAL_WORKER_KEYS = Object.freeze(['search', 'sandbox']);
-
-/** The keys only a worker carries (a consultation naming one is refused as an unknown key). */
-const WORKER_KEYS = Object.freeze([
-  'tools',
-  'shell',
-  'enabled',
-  'cost',
-  'limits',
-  'daily',
-  'searchProvider',
-  'socket',
-  'out',
-  'env',
-]);
-
-/** The keys of each kind, all required. */
-const KEYS_BY_KIND: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
-  worker: Object.freeze([...COMMON_KEYS, ...WORKER_KEYS]),
-  consultation: COMMON_KEYS,
-});
-
 /** An agent id, the name of its folder: lowercase letters, digits and dashes. */
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
-/** A file name inside a folder (a prompt, an override): no directory part, a `.md` file. */
+/** A file name inside a folder: no directory part, a `.md` file. */
 const FILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
-
-/** An environment variable name. */
-const ENV_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
-
-/** A web search provider name, as OpenCode takes it. */
-const PROVIDER_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 /** The error a profile that cannot be used fails `listAgents` / `loadProfiles` with: one line naming the agent and the key. */
 export class AgentProfileError extends Error {
@@ -890,11 +145,6 @@ export class AgentProfileError extends Error {
     this.agent = agent;
     this.key = key;
   }
-}
-
-/** Whether `key` is a string that `table` has as its own key. */
-function hasKey(table: object, key: unknown): key is string {
-  return typeof key === 'string' && Object.hasOwn(table, key);
 }
 
 /** Whether `value` is a plain JSON object. */
@@ -927,11 +177,6 @@ function checkNumbers(agent: string, key: string, value: unknown, spec: Record<s
   }
 }
 
-/** Checks a worker's `enabled` switch: true or false. */
-function checkEnabled(agent: string, value: unknown) {
-  if (typeof value !== 'boolean') throw new AgentProfileError(agent, 'enabled', 'must be true or false');
-}
-
 /** Checks `cost`: exactly `input` and `output`, the USD per million tokens, each finite and not negative (zero is a price). */
 function checkCost(agent: string, value: unknown) {
   if (!isObject(value)) throw new AgentProfileError(agent, 'cost', 'must be an object');
@@ -946,55 +191,24 @@ function checkCost(agent: string, value: unknown) {
   }
 }
 
-/** Checks a file name key: a plain `.md` name inside its folder, or null when `nullable`. */
-function checkFileName(agent: string, key: string, value: unknown, nullable: boolean): void {
-  if (value === null && nullable) return;
-  if (typeof value !== 'string' || !FILE_NAME_PATTERN.test(value)) {
-    throw new AgentProfileError(
-      agent,
-      key,
-      `must be a .md file name with no directory part${nullable ? ', or null' : ''}`
-    );
-  }
+/** Checks a word key: one of `allowed`. */
+function checkWord(agent: string, key: string, value: unknown, allowed: ReadonlyArray<string>): void {
+  if (typeof value !== 'string' || !allowed.includes(value))
+    throw new AgentProfileError(agent, key, `must be one of ${allowed.join(', ')}`);
 }
 
-/** Checks `tools`: a non-empty list of distinct names, each one of `allowed` (`where` names the bound in the error). */
-function checkTools(
-  agent: string,
-  tools: unknown,
-  allowed: ReadonlyArray<string>,
-  where: string
-): asserts tools is Array<string> {
-  if (!Array.isArray(tools) || tools.length === 0)
-    throw new AgentProfileError(agent, 'tools', 'must be a non-empty list');
-  for (const tool of tools as Array<unknown>) {
-    if (typeof tool !== 'string' || !allowed.includes(tool))
+/** Checks `abilities`: a list of distinct names of ABILITIES, empty allowed. */
+function checkAbilities(agent: string, value: unknown): void {
+  if (!Array.isArray(value)) throw new AgentProfileError(agent, 'abilities', 'must be a list');
+  for (const ability of value as Array<unknown>) {
+    if (typeof ability !== 'string' || !ABILITIES.some((known) => known === ability))
       throw new AgentProfileError(
         agent,
-        'tools',
-        `unknown tool ${JSON.stringify(tool)} ${where} (allowed: ${allowed.join(', ')})`
+        'abilities',
+        `unknown ability ${JSON.stringify(ability)} (known: ${ABILITIES.join(', ')})`
       );
   }
-  if (new Set(tools).size !== tools.length) throw new AgentProfileError(agent, 'tools', 'names a tool twice');
-}
-
-/** Checks an absolute path default (`socket`, `out`). */
-function checkAbsolute(agent: string, key: string, value: unknown): void {
-  if (typeof value !== 'string' || !path.isAbsolute(value) || value.includes('\0'))
-    throw new AgentProfileError(agent, key, 'must be an absolute path');
-}
-
-/** The optional keys a profile of `kind` may carry. */
-function optionalKeysOf(kind: string): ReadonlyArray<string> {
-  return kind === 'worker' ? OPTIONAL_WORKER_KEYS : [];
-}
-
-/** Checks the optional keys when present: `search` true or false, `sandbox` read-only or workspace-write. */
-function checkOptional(agent: string, raw: Record<string, unknown>): void {
-  if (Object.hasOwn(raw, 'search') && typeof raw.search !== 'boolean')
-    throw new AgentProfileError(agent, 'search', 'must be true or false');
-  if (Object.hasOwn(raw, 'sandbox') && raw.sandbox !== 'read-only' && raw.sandbox !== 'workspace-write')
-    throw new AgentProfileError(agent, 'sandbox', 'must be read-only or workspace-write');
+  if (new Set(value).size !== value.length) throw new AgentProfileError(agent, 'abilities', 'names an ability twice');
 }
 
 /** A path-safe agent directory name. */
@@ -1003,73 +217,32 @@ function checkId(agent: string): void {
     throw new AgentProfileError(agent, 'id', 'must be lowercase letters, digits and dashes');
 }
 
-/** Checks identity and prompt fields shared by every definition kind. */
-function checkDefinitionIdentity(agent: string, raw: Record<string, unknown>): void {
-  if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
-  checkId(agent);
-  if (typeof raw.role !== 'string' || !ID_PATTERN.test(raw.role))
-    throw new AgentProfileError(agent, 'role', 'must be lowercase letters, digits and dashes');
-  checkFileName(agent, 'prompt', raw.prompt, raw.kind === 'consultation');
-  checkFileName(agent, 'override', raw.override, raw.kind !== 'worker');
-  if (typeof raw.description !== 'string' || !raw.description.trim())
-    throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
-}
-
 /**
- * Validates the parsed `profile.json` of the agent in folder `agent`: every key of its kind
- * present, no other key, each value of the right form; for a worker the shell class one this
- * runner defines (SHELL_CLASSES) and every tool one that class allows. Throws AgentProfileError
- * at the first problem.
+ * Validates the parsed `profile.json` of the agent in folder `agent`: every key of PROFILE_KEYS present, no other key,
+ * each value of the right form. Throws AgentProfileError at the first problem.
  * @param agent the folder name
  */
 function validateProfile(agent: string, raw: unknown) {
   if (!isObject(raw)) throw new AgentProfileError(agent, PROFILE_FILE, 'must be a JSON object');
-  if (!Object.hasOwn(raw, 'kind')) throw new AgentProfileError(agent, 'kind', 'missing');
-  if (!hasKey(KEYS_BY_KIND, raw.kind))
-    throw new AgentProfileError(agent, 'kind', `must be one of ${Object.keys(KEYS_BY_KIND).join(', ')}`);
-  const worker = raw.kind === 'worker';
-  const keys = KEYS_BY_KIND[raw.kind];
-  const allowed = [...keys, ...optionalKeysOf(raw.kind)];
   for (const key of Object.keys(raw)) {
-    if (!allowed.includes(key))
-      throw new AgentProfileError(
-        agent,
-        key,
-        worker || !WORKER_KEYS.includes(key)
-          ? 'unknown key'
-          : `unknown key (a ${String(raw.kind)} profile has no runner)`
-      );
+    if (!PROFILE_KEYS.includes(key)) throw new AgentProfileError(agent, key, 'unknown key');
   }
-  for (const key of keys) {
+  for (const key of PROFILE_KEYS) {
     if (!Object.hasOwn(raw, key)) throw new AgentProfileError(agent, key, 'missing');
   }
-
-  checkOptional(agent, raw);
-  checkDefinitionIdentity(agent, raw);
-  if (!worker) return;
-
-  if (!hasKey(SHELL_CLASSES, raw.shell))
-    throw new AgentProfileError(
-      agent,
-      'shell',
-      `unknown shell class ${JSON.stringify(raw.shell)} (known: ${Object.keys(SHELL_CLASSES).join(', ')})`
-    );
-  checkTools(agent, raw.tools, SHELL_CLASSES[raw.shell].tools, `for shell class ${raw.shell}`);
-  checkEnabled(agent, raw.enabled);
-  checkCost(agent, raw.cost);
+  if (raw.id !== agent) throw new AgentProfileError(agent, 'id', 'must be the folder name');
+  checkId(agent);
+  if (typeof raw.description !== 'string' || !raw.description.trim())
+    throw new AgentProfileError(agent, 'description', 'must be a non-empty string');
+  checkWord(agent, 'unit', raw.unit, UNITS);
+  checkAbilities(agent, raw.abilities);
+  checkWord(agent, 'returns', raw.returns, RETURNS);
+  checkWord(agent, 'audience', raw.audience, AUDIENCES);
+  if (typeof raw.prompt !== 'string' || !FILE_NAME_PATTERN.test(raw.prompt))
+    throw new AgentProfileError(agent, 'prompt', 'must be a .md file name with no directory part');
   checkNumbers(agent, 'limits', raw.limits, { steps: true, seconds: false });
   checkNumbers(agent, 'daily', raw.daily, { tasks: true });
-  if (
-    raw.searchProvider !== null &&
-    (typeof raw.searchProvider !== 'string' || !PROVIDER_PATTERN.test(raw.searchProvider))
-  ) {
-    throw new AgentProfileError(agent, 'searchProvider', 'must be a provider name or null');
-  }
-  checkAbsolute(agent, 'socket', raw.socket);
-  checkAbsolute(agent, 'out', raw.out);
-  if (!Array.isArray(raw.env) || raw.env.some((name) => typeof name !== 'string' || !ENV_NAME_PATTERN.test(name))) {
-    throw new AgentProfileError(agent, 'env', 'must be a list of environment variable names');
-  }
+  checkCost(agent, raw.cost);
 }
 
 /** A deep-frozen copy of a parsed JSON value. */
@@ -1114,7 +287,7 @@ export function readWithoutLinks(file: string): string {
   return fs.readFileSync(file, { encoding: 'utf8', flag: fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW });
 }
 
-/** Reads JSON without exposing its contents in an error. A missing personal profile inherits the shared one. */
+/** Reads JSON without exposing its contents in an error. A missing optional profile reads as undefined. */
 function readDefinition(folder: string, agent: string, optional = false): unknown {
   try {
     const raw: unknown = JSON.parse(readWithoutLinks(path.join(folder, agent, PROFILE_FILE)));
@@ -1131,7 +304,7 @@ function readDefinition(folder: string, agent: string, optional = false): unknow
   }
 }
 
-/** Shared definitions are validated before a personal override can change them. */
+/** The tracked definitions, validated before a local overlay can change them. */
 function sharedAgents(rootDir: string): ReadonlyArray<AgentDefinition> {
   const folder = path.join(rootDir, AGENTS_DIRNAME);
   return fs
@@ -1147,200 +320,25 @@ function sharedAgents(rootDir: string): ReadonlyArray<AgentDefinition> {
     });
 }
 
-/** Shared definitions for migration and compatibility snapshots, without reading a persona tree. */
-export function listSharedAgents({
-  rootDir = ROOT_DIR,
-}: Pick<AgentPaths, 'rootDir'> = {}): ReadonlyArray<AgentDefinition> {
-  return Object.freeze(sharedAgents(path.resolve(rootDir)));
-}
-
-/** A folder under `<data>/agents/` that names no agent the engine ships. */
-export type RefusedAgent = { name: string; code: 'no-shared-definition'; reason: string };
-
-/** Sorts the personal folders into those of shared agents and the stray ones. Links and ordinary files are handled as before. */
-function personalFolders(
-  dataDir: string,
-  shared: ReadonlyArray<AgentDefinition>
-): { personal: Set<string>; refused: Array<RefusedAgent> } {
+/** The names of the folders under `<data>/agents/`. A symbolic link among them is refused; ordinary files are skipped. */
+function personalFolders(dataDir: string): Array<string> {
   const folder = path.join(dataDir, AGENTS_DIRNAME);
   refuseLink(folder, 'agents', 'id');
-  const personal = new Set<string>();
-  const refused: Array<RefusedAgent> = [];
   let entries: Array<fs.Dirent>;
   try {
     entries = fs.readdirSync(folder, { withFileTypes: true });
   } catch (error) {
-    if (errorFields(error).code === 'ENOENT') return { personal, refused };
+    // A deployment with no local agents has no folder.
+    if (errorFields(error).code === 'ENOENT') return [];
     throw error;
   }
+  const names: Array<string> = [];
   for (const entry of entries) {
     if (entry.isSymbolicLink()) throw new AgentProfileError(entry.name, 'id', 'symbolic links are not allowed');
-    if (!entry.isDirectory()) continue;
-    if (shared.some((definition) => definition.id === entry.name)) personal.add(entry.name);
-    else refused.push({ name: entry.name, code: 'no-shared-definition', reason: 'has no shared definition' });
+    if (entry.isDirectory()) names.push(entry.name);
   }
-  refused.sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
-  return { personal, refused };
+  return names;
 }
-
-/** The folders under `<data>/agents/` that name no shared agent: the loaders skip them, callers report them. */
-export function refusedAgents(options: AgentPaths = {}): ReadonlyArray<RefusedAgent> {
-  const { rootDir, dataDir } = agentPaths(options);
-  return Object.freeze(personalFolders(dataDir, listSharedAgents({ rootDir })).refused);
-}
-
-function personalDefinition(definition: AgentDefinition, dataDir: string): AgentDefinition {
-  const agent = definition.id;
-  checkPersonalPaths(dataDir, agent);
-  const override = readDefinition(path.join(dataDir, AGENTS_DIRNAME), agent, true);
-  if (isObject(override)) {
-    for (const key of ['id', 'kind', 'role'] as const) {
-      if (Object.hasOwn(override, key) && override[key] !== Reflect.get(definition, key))
-        throw new AgentProfileError(agent, key, 'cannot change shared identity');
-    }
-  }
-  const merged = overlaid(definition, override);
-  validateProfile(agent, merged);
-  // Validation establishes the union member before freezing its nested values.
-  const result = frozenCopy(merged) as AgentDefinition;
-  checkPersonalPaths(dataDir, agent, result.prompt);
-  return result;
-}
-
-/** Reads and validates the current shared and personal definitions, sorted by agent id. */
-export function listAgents(options: AgentPaths = {}): ReadonlyArray<AgentDefinition> {
-  const { rootDir, dataDir } = agentPaths(options);
-  const shared = listSharedAgents({ rootDir });
-  const { personal } = personalFolders(dataDir, shared);
-  return Object.freeze(
-    shared.map((definition) => (personal.has(definition.id) ? personalDefinition(definition, dataDir) : definition))
-  );
-}
-
-/**
- * One worker profile, the object the runner and the core use, from its validated description.
- * @param definition a worker's validated profile.json
- */
-function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): Profile {
-  const { id: name } = definition;
-  const agentId = `errand-${name}`;
-  return {
-    name,
-    kind: definition.kind,
-    description: definition.description,
-    // The OpenCode agent name of one task's config (`--agent`).
-    agentId,
-    promptFiles: promptCandidates(name, paths, definition.prompt ?? 'prompt.md'),
-    envNames: definition.env,
-    // The tools the profile asks for and its shell class (SHELL_CLASSES): what buildConfig grants.
-    tools: definition.tools,
-    shell: definition.shell,
-    // The variables its OpenCode child runs with over the runner's environment (its shell class's `env`).
-    childEnv: SHELL_CLASSES[definition.shell].env,
-    // The folders of its own commands, first on its child's PATH (its shell class's `path`).
-    defaultLimits: definition.limits,
-    defaultDaily: definition.daily,
-    defaultSearchProvider: definition.searchProvider,
-    // Where the runner listens and writes its files when `agents.<profile>.socket` / `.out` are unset.
-    defaultSocket: definition.socket,
-    defaultOut: definition.out,
-    // Whether the codex backend runs it with live web search (`codex exec -c web_search="live"`).
-    search: definition.search === true,
-    // The sandbox of a CLI backend (`codex exec -s`): workspace-write unless the profile asks for read-only.
-    sandbox: definition.sandbox ?? 'workspace-write',
-    /**
-     * The OpenCode config (V1 shape) for one task, to pass as
-     * OPENCODE_CONFIG_CONTENT. `providerModel` is `provider/model`; `cost`
-     * (`{ input, output }` USD per million tokens) sets the catalog entry so
-     * the cost estimate is right; `toolResultChars` caps each tool result
-     * (`tool_output.max_bytes`); `scope` adds the withheld-path denies when
-     * filtered. `websearch` is switched on by the environment (`OPENCODE_ENABLE_EXA`), not here.
-     */
-    buildConfig({
-      systemPrompt,
-      providerModel,
-      scope = 'core',
-      cost,
-      toolResultChars,
-    }: BuildConfigOptions = {}): OpenCodeConfig {
-      const [providerId, ...rest] = scalarText(providerModel ?? '').split('/');
-      const modelId = rest.join('/');
-      // No `steps` here, by the owner's word of 2026-11-05: OpenCode's step cap ends a run on an assistant turn that
-      // Gemini and Anthropic refuse. The time limit of the task bounds the run.
-      const agent: OpenCodeConfig['agent'][string] = {
-        mode: 'primary',
-        prompt: scalarText(systemPrompt ?? ''),
-        permission: permissionFor(definition, scope),
-      };
-      const config: OpenCodeConfig = {
-        $schema: 'https://opencode.ai/config.json',
-        agent: { [agentId]: agent },
-      };
-      if (modelId) config.model = `${providerId}/${modelId}`;
-      if (
-        cost &&
-        typeof cost.input === 'number' &&
-        typeof cost.output === 'number' &&
-        Number.isFinite(cost.input) &&
-        Number.isFinite(cost.output) &&
-        modelId
-      ) {
-        config.provider = {
-          [providerId]: { models: { [modelId]: { cost: { input: cost.input, output: cost.output } } } },
-        };
-      }
-      if (typeof toolResultChars === 'number' && Number.isFinite(toolResultChars) && toolResultChars > 0)
-        config.tool_output = { max_bytes: Math.floor(toolResultChars) };
-      return config;
-    },
-  };
-}
-
-/**
- * The worker profiles under `<rootDir>/agents/`, by id: every agent of kind `worker` (a
- * consultation has no runner here and is skipped), each validated (listAgents) and built into the
- * profile object the runner and the core use. Throws AgentProfileError on the first profile that
- * cannot be used, so a bad file stops the process at start.
- */
-function profilesFrom(
-  definitions: ReadonlyArray<AgentDefinition>,
-  paths: ResolvedAgentPaths
-): Readonly<Record<string, Profile>> {
-  return Object.freeze(
-    Object.fromEntries(
-      definitions
-        .filter((definition): definition is WorkerDefinition => definition.kind === 'worker')
-        .map((definition) => [definition.id, makeProfile(definition, paths)])
-    )
-  );
-}
-
-export function loadProfiles(options: AgentPaths = {}): Readonly<Record<string, Profile>> {
-  return profilesFrom(listAgents(options), agentPaths(options));
-}
-
-/** The settings of one agent, from its profile with the deployment's override over it. */
-export type AgentSettings = {
-  /** the worker's switch */
-  enabled?: boolean;
-  /** USD per million tokens */
-  cost: { input: number; output: number };
-  /** a worker's runner socket */
-  socket?: string;
-  /** a worker's out directory */
-  out?: string;
-  /** `{ steps, seconds }` */
-  limits: Record<string, number>;
-  /** a worker's daily caps, `{ tasks }` */
-  daily?: Record<string, number>;
-  /** a worker's web search provider */
-  searchProvider?: string | null;
-};
-
-/** The keys of the settings of each kind of agent. */
-const SETTING_KEYS = Object.freeze({
-  worker: Object.freeze(['enabled', 'cost', 'socket', 'out', 'limits', 'daily', 'searchProvider']),
-});
 
 /** `override` laid over `base`: a plain object merged key by key, anything else replaced. */
 function overlaid(base: unknown, override: unknown): unknown {
@@ -1355,62 +353,155 @@ function overlaid(base: unknown, override: unknown): unknown {
   );
 }
 
-/**
- * The settings of agent `name`: current shared and personal profiles with `config.agents.<name>` laid over them.
- * Nested objects merge key by key. A worker gives `{ enabled, cost, socket, out,
- * limits, daily, searchProvider }`. A socket or out path that is not a
- * non-empty string in the override falls back to the profile's. The one reader of these settings for the core, the
- * runner and the dispatcher, read from the config it is given at each call. Null for a name that is no agent
- * (a key of `agents` that names no profile).
- * @param name The agent's id; anything else is no agent.
- * @param config The live config, or any object with an `agents` section.
- */
-export function agentSettings(name: unknown, config: unknown, options: AgentPaths = {}): AgentSettings | null {
-  if (typeof name !== 'string') return null;
-  const profile = listAgents(options).find((definition) => definition.id === name);
-  if (profile === undefined || profile.kind !== 'worker') return null;
-  const { env } = agentPaths(options);
-  const values: Record<string, unknown> = { ...profile };
-  const section = isObject(config) && isObject(config.agents) ? config.agents : {};
-  const given = section[name];
-  const override = isObject(given) ? given : {};
-  const out: Record<string, unknown> = {};
-  for (const key of SETTING_KEYS[profile.kind]) {
-    const value = override[key];
-    const unusablePath = (key === 'socket' || key === 'out') && !(typeof value === 'string' && value !== '');
-    const fromProfile = unusablePath || !Object.hasOwn(override, key);
-    if (fromProfile && (key === 'socket' || key === 'out') && inUserUnit(env)) out[key] = userPathOf(key, name, env);
-    else out[key] = fromProfile ? values[key] : overlaid(values[key], value);
-  }
-  return out as AgentSettings;
+/** A tracked definition with its local twin laid over it. */
+function personalDefinition(definition: AgentDefinition, dataDir: string): AgentDefinition {
+  const agent = definition.id;
+  checkPersonalPaths(dataDir, agent);
+  const override = readDefinition(path.join(dataDir, AGENTS_DIRNAME), agent, true);
+  if (isObject(override) && Object.hasOwn(override, 'id') && override.id !== agent)
+    throw new AgentProfileError(agent, 'id', 'cannot change shared identity');
+  const merged = overlaid(definition, override);
+  validateProfile(agent, merged);
+  const result = frozenCopy(merged) as AgentDefinition;
+  checkPersonalPaths(dataDir, agent, result.prompt);
+  return result;
 }
 
-/** The unit scope `neptunia setup` sets in every user unit it renders (src/setup/units.ts). */
-export const UNIT_SCOPE_ENV = 'NEPTUNIA_UNIT_SCOPE';
-
-/** Whether this process runs from a user unit, read at each call. */
-const inUserUnit = (env: Record<string, string | undefined>): boolean => env[UNIT_SCOPE_ENV] === 'user';
-
-/**
- * The socket or out folder of agent `name` in a user unit: the unit's `RuntimeDirectory` and `StateDirectory`, which
- * the core, running from a user unit of the same user, resolves to the same place.
- */
-function userPathOf(key: 'socket' | 'out', name: string, env: Record<string, string | undefined>): string {
-  const folder = `neptunia-agent-${name}`;
-  if (key === 'socket') {
-    const runtime = env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 0}`;
-    return path.join(runtime, folder, 'sock');
-  }
-  const state = env.XDG_STATE_HOME || path.join(env.HOME ?? '', '.local', 'state');
-  return path.join(state, folder, 'out');
+/** A local agent with no tracked twin: a whole profile and its prompt in its folder; null for a folder with no profile. */
+function localDefinition(agent: string, dataDir: string): AgentDefinition | null {
+  checkPersonalPaths(dataDir, agent);
+  const raw = readDefinition(path.join(dataDir, AGENTS_DIRNAME), agent, true);
+  // A folder with no profile.json, such as one an older version left, is no agent.
+  if (raw === undefined) return null;
+  validateProfile(agent, raw);
+  const result = frozenCopy(raw) as AgentDefinition;
+  checkPersonalPaths(dataDir, agent, result.prompt);
+  if (!personalStat(path.join(dataDir, AGENTS_DIRNAME, agent, result.prompt))?.isFile())
+    throw new AgentProfileError(agent, 'prompt', 'missing');
+  return result;
 }
 
-/** Shared worker snapshots for compatibility. Fresh path-aware consumers use loadProfiles or profileOf. */
-export const PROFILES = profilesFrom(listSharedAgents(), agentPaths({ rootDir: ROOT_DIR }));
+/** Every agent on disk with its origin, sorted by id. */
+function definitionsOf(paths: ResolvedAgentPaths): Array<{ definition: AgentDefinition; origin: AgentOrigin }> {
+  const shared = sharedAgents(paths.rootDir);
+  const personal = personalFolders(paths.dataDir);
+  const tracked = shared.map((definition) => ({
+    definition: personal.includes(definition.id) ? personalDefinition(definition, paths.dataDir) : definition,
+    origin: 'tracked' as const,
+  }));
+  const local = personal
+    .filter((name) => !shared.some((definition) => definition.id === name))
+    .flatMap((name) => {
+      const definition = localDefinition(name, paths.dataDir);
+      return definition === null ? [] : [{ definition, origin: 'local' as const }];
+    });
+  return [...tracked, ...local].sort((x, y) => (x.definition.id < y.definition.id ? -1 : 1));
+}
+
+/** Reads and validates every agent on disk, tracked and local, sorted by id. */
+export function listAgents(options: AgentPaths = {}): ReadonlyArray<AgentDefinition> {
+  return Object.freeze(definitionsOf(agentPaths(options)).map(({ definition }) => definition));
+}
+
+/** The names of every agent on disk, sorted. */
+export function agentNames(options: AgentPaths = {}): Array<string> {
+  return listAgents(options).map((definition) => definition.id);
+}
+
+/** Whether `name` is an agent on disk. */
+export function isAgentName(name: unknown, options: AgentPaths = {}): name is string {
+  return typeof name === 'string' && agentNames(options).includes(name);
+}
+
+/** The profile object of one validated definition. */
+function makeProfile(definition: AgentDefinition, origin: AgentOrigin, paths: ResolvedAgentPaths): Profile {
+  return {
+    name: definition.id,
+    description: definition.description,
+    unit: definition.unit,
+    abilities: definition.abilities,
+    returns: definition.returns,
+    audience: definition.audience,
+    origin,
+    promptFiles: promptCandidates(definition.id, paths, definition.prompt),
+    defaultLimits: definition.limits,
+    defaultDaily: definition.daily,
+  };
+}
+
+/**
+ * Every agent's profile by id. Throws AgentProfileError on the first profile that cannot be used, so a bad file stops
+ * the process at start.
+ */
+export function loadProfiles(options: AgentPaths = {}): Readonly<Record<string, Profile>> {
+  const paths = agentPaths(options);
+  return Object.freeze(
+    Object.fromEntries(
+      definitionsOf(paths).map(({ definition, origin }) => [definition.id, makeProfile(definition, origin, paths)])
+    )
+  );
+}
 
 /** The profile of `name`, or null. */
 export function profileOf(name: unknown, options: AgentPaths = {}): Profile | null {
   if (typeof name !== 'string') return null;
   const profiles = loadProfiles(options);
   return Object.hasOwn(profiles, name) ? profiles[name] : null;
+}
+
+/** The settings of one agent, from its profile with the deployment's `agents.<name>` over it. */
+export type AgentSettings = {
+  /** whether the agent is on: `agents.<name>.enabled` alone, false when absent */
+  enabled: boolean;
+  /** USD per million tokens */
+  cost: { input: number; output: number };
+  /** `{ steps, seconds }` */
+  limits: Record<string, number>;
+  /** the daily caps, `{ tasks }` */
+  daily: Record<string, number>;
+};
+
+/** The keys of `agents.<name>` that lay over the profile. */
+const SETTING_KEYS = Object.freeze(['cost', 'limits', 'daily']);
+
+/**
+ * The settings of agent `name`: its profile with `config.agents.<name>` laid over it, nested objects merged key by key,
+ * and `enabled` true only when the config says so. The one reader of these settings for the core and the runner, read
+ * from the config it is given at each call. Null for a name that is no agent.
+ * @param name The agent's id; anything else is no agent.
+ * @param config The live config, or any object with an `agents` section.
+ */
+export function agentSettings(name: unknown, config: unknown, options: AgentPaths = {}): AgentSettings | null {
+  if (typeof name !== 'string') return null;
+  const profile = listAgents(options).find((definition) => definition.id === name);
+  if (profile === undefined) return null;
+  const section = isObject(config) && isObject(config.agents) ? config.agents : {};
+  const given = section[name];
+  const override = isObject(given) ? given : {};
+  const values: Record<string, unknown> = { ...profile };
+  const out: Record<string, unknown> = { enabled: override.enabled === true };
+  for (const key of SETTING_KEYS)
+    out[key] = Object.hasOwn(override, key) ? overlaid(values[key], override[key]) : values[key];
+  return out as AgentSettings;
+}
+
+/** The unit scope `neptunia setup` sets in every user unit it renders (src/setup/units.ts). */
+export const UNIT_SCOPE_ENV = 'NEPTUNIA_UNIT_SCOPE';
+
+/**
+ * The socket and the out folder of unit `unit`: the unit's `RuntimeDirectory` and `StateDirectory`
+ * (`neptunia-agent-<unit>`), under `/run` and `/var/lib` for a system unit and under the user's runtime and state
+ * folders when this process runs from a user unit (`NEPTUNIA_UNIT_SCOPE=user`), which the core, running from a user unit
+ * of the same user, resolves to the same place.
+ */
+export function unitPaths(
+  unit: UnitName,
+  env: Record<string, string | undefined> = process.env
+): { socket: string; out: string } {
+  const folder = `neptunia-agent-${unit}`;
+  if (env[UNIT_SCOPE_ENV] !== 'user')
+    return { socket: path.join('/run', folder, 'sock'), out: path.join('/var/lib', folder, 'out') };
+  const runtime = env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 0}`;
+  const state = env.XDG_STATE_HOME || path.join(env.HOME ?? '', '.local', 'state');
+  return { socket: path.join(runtime, folder, 'sock'), out: path.join(state, folder, 'out') };
 }

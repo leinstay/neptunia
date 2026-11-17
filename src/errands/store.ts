@@ -44,7 +44,7 @@ import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.ts';
 import { createReadSeam } from '../memory/db/readers/common.ts';
 import { createWritesUnderWay } from '../memory/db/writes-under-way.ts';
 import { errandsOf, pendingEnds as boardEnds } from '../board/errands.ts';
-import { agentSettings, profileOf } from '../agent-runner/profiles.ts';
+import { agentSettings, profileOf, unitPaths } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, idText, isFiniteNumber, objOf } from '../tools/types.ts';
@@ -328,6 +328,12 @@ function dailyCaps(agent: string, config: Untyped, agentPaths?: AgentPaths): { t
  *   through the outbox (see the head of this file). Without a `memoryDb` (tests) nothing is read or written: the list
  *   lives in memory only, and no end is ever pending.
  */
+/** The out directory of `agent`, its unit's (unitPaths); null for an unknown agent. */
+function outDirOf(agent: string, agentPaths?: AgentPaths): string | null {
+  const profile = profileOf(agent, agentPaths);
+  return profile ? unitPaths(profile.unit, agentPaths?.env).out : null;
+}
+
 /** The stored origin of an errand. What an internal turn asked for stays restricted to where it was asked. */
 function originOf(origin: AddInput['origin'] | undefined): ErrandOrigin {
   return {
@@ -429,11 +435,6 @@ export function createErrandStore({
     );
   }
 
-  /** The out directory of `agent` (its profile's `out` under the deployment's override); null for an unknown agent. */
-  function outDirOf(agent: string): string | null {
-    return agentSettings(agent, config(), agentPaths)?.out || null;
-  }
-
   /** Whether `file` is missing (ENOENT); false when it is there or cannot be told. */
   function missing(file: string): boolean {
     try {
@@ -454,7 +455,7 @@ export function createErrandStore({
     for (const errand of state.errands) {
       if (isOpenState(errand.state) || errand.filesExpired === true) continue;
       if (resultFilesOf(errand).length === 0) continue;
-      const outDir = outDirOf(errand.agent);
+      const outDir = outDirOf(errand.agent, agentPaths);
       if (!outDir || missing(outDir) || !missing(path.join(outDir, errand.id))) continue;
       errand.filesExpired = true;
       persist(errand);
@@ -728,7 +729,7 @@ export function createErrandStore({
     if (!errand || errand.filesExpired === true) return null;
     const file = resultFilesOf(errand).find((entry) => entry?.name === parsed.name) ?? null;
     if (!file) return null;
-    const outDir = outDirOf(errand.agent);
+    const outDir = outDirOf(errand.agent, agentPaths);
     if (!outDir) return null;
     const base = path.resolve(outDir, errand.id);
     const full = path.resolve(base, parsed.name);

@@ -159,10 +159,15 @@ export function scriptedLlm(): Llm {
 }
 
 /** The core with no interface of its own. */
-export function startUnitsCore(dirs: Dirs, llm: Llm, now?: () => number): Promise<Core> {
+export function startUnitsCore(
+  dirs: Dirs,
+  llm: Llm,
+  now?: () => number,
+  env: Record<string, string> = {}
+): Promise<Core> {
   return startCore({
     paths: dirs.paths,
-    env: {},
+    env,
     interfaces: [],
     llm,
     embedder: { embed: () => Promise.resolve([]) },

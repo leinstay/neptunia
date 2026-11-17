@@ -6,7 +6,9 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 |---|---|---|
 | `neptunia-core.service` | The core with no interface of its own. The one unit setup starts. | yes |
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`. | yes |
-| `neptunia-agent-scout.service`, `neptunia-agent-server.service` | The errand agents, `neptunia errand-runner --profile <name>`. See [Errands](../docs/errands.md#the-subharness). | yes |
+| `neptunia-agent-web.service`, `neptunia-agent-host.service` | The runners of the errand agents, `neptunia errand-runner --unit web` and `--unit host`, each serving every agent whose profile names its unit. See [Errands](../docs/errands.md#units-and-abilities). | yes |
+
+`neptunia setup` stops, disables and removes `neptunia-agent-scout.service` and `neptunia-agent-server.service` when it finds them in the unit folder, and leaves their state folders in place.
 
 ## How a template becomes a unit
 
@@ -22,10 +24,10 @@ A system unit, written with `neptunia setup --system`, goes to `/etc/systemd/sys
 
 ## The sandbox of an agent unit
 
-The unit of an agent follows the agent's mode (`agent mode <agent> <mode>`, see [Errands](../docs/errands.md#modes)). In `read` and `write` the unit keeps every directive of the template. In `full` it drops the mount sandbox: `ProtectSystem`, `ProtectHome` and the write and bind paths. In `sudo` it also drops `NoNewPrivileges` and `CapabilityBoundingSet`, which would stop `sudo`. `agent mode` in the chat stores the mode in `keys.json` and renders nothing, because the core runs under `NoNewPrivileges` and cannot use `sudo`. Its answer names `neptunia setup`, which renders the unit again with the stored mode and reloads the manager, and the unit runs in the mode from its next start.
+An agent unit follows the mode of its unit (`agent mode <unit> <mode>`, see [Errands](../docs/errands.md#modes)). In `read` and `write` the unit keeps every directive of the template. In `full` it drops the mount sandbox: `ProtectSystem`, `ProtectHome` and the write and bind paths. In `sudo` it also drops `NoNewPrivileges` and `CapabilityBoundingSet`, which would stop `sudo`. `agent mode` in the chat stores the mode in `config.json` and renders nothing, because the core runs under `NoNewPrivileges` and cannot use `sudo`. Its answer names `neptunia setup`, which renders the unit again with the stored mode and reloads the manager, and the unit runs in the mode from its next start.
 
-The scout unit replaces the persona folder with an empty `TemporaryFileSystem=` that shows only `agents/` read-only and the backend's folder, so it reads neither her memory nor `keys.json`. The modes `full` and `sudo` drop it with the rest of the mount sandbox.
+The web unit replaces the persona folder with an empty `TemporaryFileSystem=` that shows only `agents/` read-only and the backend's folder, so it reads neither her memory nor `keys.json`. The modes `full` and `sudo` drop it with the rest of the mount sandbox.
 
 A unit with `ProtectHome=tmpfs` still sees the checkout and the node binary when they lie under the home, because the renderer binds them read-only.
 
-In a user unit the agents' socket and out folder need no setting. `neptunia setup` adds `NEPTUNIA_UNIT_SCOPE=user` to every user unit, and `agentSettings` then puts the socket in the unit's `RuntimeDirectory` (`$XDG_RUNTIME_DIR/neptunia-agent-<name>/sock`) and the out folder in its `StateDirectory` (`$XDG_STATE_HOME/neptunia-agent-<name>/out`, by default under `~/.local/state`). The core runs from a user unit too, so it reads the same paths. A path named in `agents.<name>.socket` or `agents.<name>.out` still wins.
+The socket and out folder of a unit derive from its name and need no setting: `/run/neptunia-agent-<unit>/sock` and `/var/lib/neptunia-agent-<unit>/out` for a system unit. `neptunia setup` adds `NEPTUNIA_UNIT_SCOPE=user` to every user unit, which then keeps the socket in its `RuntimeDirectory` (`$XDG_RUNTIME_DIR/neptunia-agent-<unit>/sock`) and the out folder in its `StateDirectory` (`$XDG_STATE_HOME/neptunia-agent-<unit>/out`, by default under `~/.local/state`). The core runs from a user unit too, so it reads the same paths.

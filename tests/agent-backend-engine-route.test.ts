@@ -32,7 +32,9 @@ function engineOver(base: string, subharness: RunDeps) {
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
     search: false,
-    buildConfig: () => ({ agent: {} }),
+    unit: 'web',
+    abilities: ['search', 'fetch', 'download', 'shell'],
+    returns: 'files',
   };
   return createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],

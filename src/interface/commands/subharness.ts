@@ -6,10 +6,11 @@
 
 import { accountCommand } from '../../subharness/account.ts';
 import type { AccountAction } from '../../subharness/account.ts';
-import { agentPaths, setAgentMode, setAgentModel, statusText, subharnessView } from '../../subharness/control.ts';
+import { agentPaths, setUnitMode, setAgentModel, statusText, subharnessView } from '../../subharness/control.ts';
 import { harnessPathOf, memoryPathText } from '../../subharness/memory-path.ts';
 import { memoryGaps } from '../../subharness/memory-writer.ts';
-import type { EnableDeps, SubharnessAgent, SubharnessResult } from '../../subharness/control.ts';
+import type { EnableDeps, SubharnessResult } from '../../subharness/control.ts';
+import { UNITS } from '../../agent-runner/profiles.ts';
 
 /** An answer: its text and status, and on a refused change the code that says why. */
 export type SubharnessAnswer = { text: string; status: string; code?: string };
@@ -106,19 +107,19 @@ async function statusOf(privateDir: string): Promise<string> {
   ].join('\n');
 }
 
-/** `agent.mode`: shows or sets the mode, and a change goes into the agent's unit when `deps.applyMode` is there. */
-async function agentMode(
+/** `agent.mode`: shows or sets the mode of a unit, and a change goes into its systemd unit when `deps.applyMode` is there. */
+async function unitMode(
   deps: EnableDeps,
   name: string,
   args: Readonly<Record<string, unknown>>
 ): Promise<SubharnessAnswer> {
-  const agent = text(args.agent);
   const mode = text(args.mode);
-  const result = await setAgentMode(deps.privateDir, agent, mode === '' ? undefined : mode);
-  if (!result.ok || !result.changed || result.mode === null || deps.applyMode === undefined)
+  const unit = UNITS.find((one) => one === text(args.unit));
+  const result = await setUnitMode(deps.privateDir, text(args.unit), mode === '' ? undefined : mode);
+  if (!result.ok || !result.changed || result.mode === null || unit === undefined || deps.applyMode === undefined)
     return answerOf(name, args, result);
-  const unit = await deps.applyMode(agent as SubharnessAgent, result.mode);
-  return { text: unit === null ? result.message : `${result.message}. ${unit}`, status: 'ok' };
+  const line = await deps.applyMode(unit, result.mode);
+  return { text: line === null ? result.message : `${result.message}. ${line}`, status: 'ok' };
 }
 
 /** The dotted name of an account command, read: its backend and action, null for any other name. */
@@ -174,7 +175,7 @@ export async function subharnessCommand(
     case 'subharness.model':
       return agentModel(deps, name, args);
     case 'agent.mode':
-      return agentMode(deps, name, args);
+      return unitMode(deps, name, args);
     default:
       return failed(name, args, 'no such command; type /help');
   }

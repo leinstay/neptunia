@@ -259,6 +259,7 @@ test('the usage of a run reaches the errand, with its steps', async () => {
   try {
     const done = await engine.run({
       id: 'usage',
+      agent: 'scout',
       goal: 'inspect synthetic files',
       context: {},
       signal: new AbortController().signal,

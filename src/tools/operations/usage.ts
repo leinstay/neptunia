@@ -24,6 +24,7 @@ import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.ts';
 import { fill } from '../../format.ts';
 import { log as defaultLog } from '../../log.ts';
 import { IMAGE_ROLE } from '../../llm/images.ts';
+import { isAgentName } from '../../agent-runner/profiles.ts';
 import { isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 
@@ -574,13 +575,11 @@ function rowLine(template: unknown, row: RoleRow, L: Untyped): string | null {
   });
 }
 
-/** The roles of a role key as its lead names them: each through `names` (`roleNames`, a role ->
- * shown name map; a role it lacks shows as itself), each shown name once, in order. */
-function shownRoles(roles: ReadonlyArray<string>, names: unknown): Array<string> {
-  const nameOf = (role: string): string => {
-    const shown = objOf(names)[role];
-    return Object.hasOwn(objOf(names), role) && typeof shown === 'string' && shown ? shown : role;
-  };
+/** The roles of a role key as its lead names them: an agent on disk as `agentsName`, any other role as itself, each
+ * shown name once, in order. */
+function shownRoles(roles: ReadonlyArray<string>, agentsName: unknown): Array<string> {
+  const nameOf = (role: string): string =>
+    isAgentName(role) && typeof agentsName === 'string' && agentsName ? agentsName : role;
   return [...new Set(roles.map(nameOf))];
 }
 
@@ -589,7 +588,7 @@ function shownRoles(roles: ReadonlyArray<string>, names: unknown): Array<string>
  * label leaves its line out; no `status.costs` at all gives []): per key, its limit line
  * immediately followed by its own usage line -- the main key (lead `keyLead`), then each role key
  * (a key the chains of other roles are on, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`, each role named
- * through `roleNames` and each name once, so the errand agents' roles show as one word). A limit line is
+ * through `agentsName` when it is an agent and each name once, so the errand agents' roles show as one word). A limit line is
  * `keyLimit` with its `notes` (the reset and whether BYOK counts) or `keyLimitPlain`; `keyNone` /
  * `keyNonePlain` without a limit; `keyUnavailable` on a failed read. A usage line is `usage` of
  * its parts: for the main and the role keys `usageToday` (today from the key's record) and
@@ -629,7 +628,7 @@ export function keyCostsLines({
   for (const extra of Array.isArray(roleKeys) ? roleKeys : []) {
     const roles = Array.isArray(extra.roles) ? extra.roles : [];
     const roleLead = line(L.roleKeyLead, {
-      roles: shownRoles(roles, L.roleNames).join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', '),
+      roles: shownRoles(roles, L.agentsName).join(typeof L.roleSeparator === 'string' ? L.roleSeparator : ', '),
     });
     if (!roleLead) continue;
     lines.push(extra.key.ok ? keyLine(extra.key.data, L, roleLead) : unavailable(extra.key, roleLead));

@@ -60,7 +60,7 @@ import type { ServiceName } from '../../service/schedule.ts';
 import { spawnRun } from '../../setup/install.ts';
 import type { RunManager } from '../../service/manager.ts';
 import { backendOfRouteName, routeName, routeNamesText } from '../../subharness/route-names.ts';
-import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
+import { isAgentName } from '../../agent-runner/profiles.ts';
 import { DEFAULT_BASE_URL } from '../../subharness/models.ts';
 import { modelRoleRegistry, roleSources } from '../../subharness/model-capabilities.ts';
 import { usageLines } from '../../subharness/usage.ts';
@@ -378,7 +378,7 @@ export const money = (value: number): string => `$${value.toFixed(value >= 1 ? 2
 /** The model group a role's spend counts under: base, errands or memory. */
 function groupOf(role: string): string {
   if (role === MEMORY_ROLE) return 'memory';
-  if (SUBHARNESS_AGENTS.some((agent) => agent === role)) return 'errands';
+  if (isAgentName(role)) return 'errands';
   return 'base';
 }
 
@@ -500,7 +500,7 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
   const typedLine = `/model set ${text(args.role)}`;
   const refuse = (why: string, code?: string): Promise<Answer> =>
     Promise.resolve({ text: `${typedLine}: ${why}`, status: 'invalid', ...(code === undefined ? {} : { code }) });
-  const isAgent = SUBHARNESS_AGENTS.some((agent) => agent === args.role);
+  const isAgent = isAgentName(args.role);
   if (isAgent) {
     const viaAnswer = agentSetVia(deps, args);
     if (viaAnswer !== null) return viaAnswer;

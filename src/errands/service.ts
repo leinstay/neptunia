@@ -18,21 +18,21 @@
 // (display names and text on one line), read from the memory's buffer
 // (the memory database's newest lines of the channel) at the moment the errand is queued and kept in memory only until it is sent;
 // a `dm`-scoped errand sends `recent: []` (nothing of a private chat reaches a runner this way).
-// Each agent has a health flag: the latest outcome of the client's connect loop (`onLink`) or of
-// a ping (a pong is up; a failed ping down), unknown until the first. While an agent's runner is
+// Each unit has a health flag, which every agent of the unit reads: the latest outcome of the client's connect loop
+// (`onLink`) or of a ping (a pong is up; a failed ping down), unknown until the first. While an agent's runner is
 // down a new errand is refused at once (`runner-down`), before anything is queued, so the caller
 // (the lookup's errand lane) falls back while it still can, instead of an `ok` the runner then
 // fails a few ms later. At start each enabled agent is pinged in the background (the flag is
 // known before the first ask), and a refusal pings the runner again, at most once per
 // RUNNER_RECHECK_MS, so the flag flips back even when the client's reconnect loop has stopped.
-// The flag is logged once per change (`errands: runner up` / `errands: runner down`).
+// The flag is logged once per change (`errands: runner up` / `errands: runner down`, with the unit).
 // A heartbeat or a diary turn waits for the errand it starts (`wait`): the wait resolves at the errand's end, which is
 // marked seen and read before `onFinished` runs, so her waiting call carries the result and no result turn opens for
 // it. A cancel resolves the wait with the cancelled errand. A wait whose time runs out first resolves with the errand
 // still open and unread, and its end reaches her as any other end does.
 
 import { log as defaultLog } from '../log.ts';
-import { loadProfiles, agentSettings, profileOf, refusedAgents } from '../agent-runner/profiles.ts';
+import { loadProfiles, agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { serviceCredential } from '../keys/file.ts';
 import { opencodeKey } from '../subharness/routing.ts';
@@ -118,8 +118,8 @@ type SecretsOptions = {
 };
 
 /**
- * The Exa key an errand of `agent` carries: keys.json `services.exa`, read now, for an agent whose search provider is
- * `exa` on an opencode route. Null otherwise: claude and codex search with their own tools, and with no stored key
+ * The Exa key an errand of `agent` carries: keys.json `services.exa`, read now, for an agent with the `search` ability
+ * on an opencode route, which searches with Exa. Null otherwise: claude and codex search with their own tools, and with no stored key
  * OpenCode searches Exa's free endpoint.
  */
 function exaKeyOf(
@@ -128,7 +128,7 @@ function exaKeyOf(
   { privateDir, route, agentPaths }: { privateDir?: string; route: TaskRoute | null; agentPaths?: AgentPaths }
 ): string | null {
   if (privateDir === undefined || route?.backend !== 'opencode') return null;
-  if (agentSettings(agent, config, agentPaths)?.searchProvider !== 'exa') return null;
+  if (!profileOf(agent, agentPaths)?.abilities.includes('search')) return null;
   return serviceCredential(privateDir, 'exa');
 }
 
@@ -313,22 +313,25 @@ export function createErrandService({
 
   // errand id -> its `context.recent`, from its queuing until it is sent (never written to disk).
   const recentById = new Map<string, RunContext['recent']>();
-  // agent -> { up: boolean, checkedAt: ms of the last recheck ping } once anything is known.
+  // unit -> { up: boolean, checkedAt: ms of the last recheck ping } once anything is known.
   const health = new Map<string, { up: boolean; checkedAt: number | null }>();
   const waits = createWaits(setTimer);
 
-  /** The health flag of `agent` set to `up` (`code` why it is down); logged when it changes. */
-  function setHealth(agent: string | undefined, up: boolean, code: string | null = null): void {
-    if (!agent) return;
-    const entry = health.get(agent);
+  /** The unit of `agent`, or null for a name that is no agent. */
+  const unitOf = (agent: string): string | null => profileOf(agent, agentPaths)?.unit ?? null;
+
+  /** The health flag of `unit` set to `up` (`code` why it is down); logged when it changes. */
+  function setHealth(unit: string | null | undefined, up: boolean, code: string | null = null): void {
+    if (!unit) return;
+    const entry = health.get(unit);
     if (entry?.up === up) return;
-    health.set(agent, { up, checkedAt: entry?.checkedAt ?? null });
-    if (up) log.info('errands: runner up', { agent });
-    else log.warn('errands: runner down', { agent, code: code ?? null });
+    health.set(unit, { up, checkedAt: entry?.checkedAt ?? null });
+    if (up) log.info('errands: runner up', { unit });
+    else log.warn('errands: runner down', { unit, code: code ?? null });
   }
 
   // The connect loop's outcomes: the health flag of each runner.
-  client?.onLink?.((event) => setHealth(event?.agent, event?.up === true, event?.code ?? null));
+  client?.onLink?.((event) => setHealth(event?.unit, event?.up === true, event?.code ?? null));
 
   /**
    * One ping of `agent`'s runner (a pong sets its flag up, a failed ping down), in the
@@ -345,14 +348,14 @@ export function createErrandService({
     }
     const error = answer.ok ? null : answer.error;
     // Not set up (meanwhile) tells nothing about the runner.
-    if (error === CODE.NOT_CONFIGURED) return health.get(agent)?.up ?? null;
-    setHealth(agent, answer.ok, error);
+    if (error === CODE.NOT_CONFIGURED) return health.get(unitOf(agent) ?? '')?.up ?? null;
+    setHealth(unitOf(agent), answer.ok, error);
     return answer.ok;
   }
 
   /** Whether `agent`'s runner is known down now; a refusal rechecks it at most once per RUNNER_RECHECK_MS. */
   function runnerDown(agent: string): boolean {
-    const entry = health.get(agent);
+    const entry = health.get(unitOf(agent) ?? '');
     if (entry?.up !== false) return false;
     const at = now();
     if (entry.checkedAt === null || at - entry.checkedAt >= RUNNER_RECHECK_MS) {
@@ -420,8 +423,8 @@ export function createErrandService({
 
   /**
    * A new errand queued and, once the caller has its answer, started in the background:
-   * `{ ok: true, errand }` (the errand as queued) or `{ ok: false, code }` (the store's refusal, or
-   * `not-configured` when the agent's runner is not set up, `runner-down` while its runner is
+   * `{ ok: true, errand }` (the errand as queued) or `{ ok: false, code }` (the store's refusal,
+   * `owner-only` for an agent whose audience is the owner when anyone else asks, `not-configured` when the agent is off, `runner-down` while its runner is
    * known unreachable, `no-place` without a place).
    * An errand the store already holds under the call's `idempotencyKey` is answered as it is
    * (`duplicate: true`), never run again.
@@ -429,7 +432,9 @@ export function createErrandService({
   function submit({ agent, goal, requester, origin, scope, idempotencyKey = null }: SubmitInput): AddResult {
     const store = storeOf();
     if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
-    if (!profileOf(agent, agentPaths)) return { ok: false, code: CODE.UNKNOWN_AGENT };
+    const profile = profileOf(agent, agentPaths);
+    if (!profile) return { ok: false, code: CODE.UNKNOWN_AGENT };
+    if (profile.audience === 'owner' && requester?.kind !== 'owner') return { ok: false, code: CODE.OWNER_ONLY };
     if (typeof client?.configured === 'function' && !client.configured(agent))
       return { ok: false, code: CODE.NOT_CONFIGURED };
     if (runnerDown(agent)) return { ok: false, code: CODE.RUNNER_DOWN };
@@ -544,9 +549,6 @@ export function createErrandService({
    * agent's runner is pinged in the background (its health flag).
    */
   function start(): number {
-    // A stray folder is refused alone and named, so the shared agents below still start.
-    for (const { name, code } of refusedAgents(agentPaths))
-      log.error?.('errands: agent folder refused', { agent: name, code });
     // Each enabled agent's runner pinged in the background: its flag known before the first ask.
     for (const agent of Object.keys(loadProfiles(agentPaths))) check(agent).catch(() => {});
     const store = storeOf();
@@ -586,7 +588,7 @@ export function createErrandService({
     start,
     idle,
     check,
-    runnerUp: (agent) => health.get(agent)?.up ?? null,
+    runnerUp: (agent) => health.get(unitOf(agent) ?? '')?.up ?? null,
     store: storeOf,
     limitsOf,
   };

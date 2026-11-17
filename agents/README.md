@@ -1,38 +1,49 @@
 # agents/
 
-Each agent has its own folder here with a `profile.json` and a prompt when its kind uses one.
+An agent is its folder: a `profile.json` and a prompt. This document is for whoever adds or changes an agent, here or in a deployment's `data/agents/`.
 
-| Folder | Kind | What it does |
+| Folder | Unit | What it does |
 |---|---|---|
-| `scout/` | worker | Internet errands: web searches, reading pages, downloading files through a proxy. |
-| `server/` | worker | Read-only questions about this machine: reads files and runs read-only shell commands, with no network but the model API. |
-
-## Kinds
-
-There are two kinds. A **worker** runs as its own systemd service and takes tasks on a Unix socket. A **consultation** has no process: tools call its model role directly (none ships today).
-
-The agent runner (`src/agent-runner/profiles.ts`) loads only workers. It skips consultations.
+| `fetch/` | `web` | Finds media on the web, such as pictures, video, audio or any other file, and brings the files back. |
+| `scout/` | `web` | A deep search for information: finds sources, checks one against another and reports with links. Downloads nothing. |
+| `code/` | `web` | Writes code on request and returns the files. |
+| `server/` | `host` | Answers the owner's questions about this machine by reading files and running read-only commands. |
 
 ## profile.json
 
-Worker and consultation profiles carry `id`, `kind`, `role`, `prompt`, `override` and `description`. A worker also carries `tools`, `shell`, `enabled`, `cost` (`{ input, output }`, USD per million tokens), `limits` (`{ steps, seconds }`), `daily` (`{ tasks }`), `searchProvider`, `socket`, `out` and `env`.
+A profile holds these keys and no other.
 
-A worker may also carry `search` (`true` enables live web search) and `sandbox` (`read-only` or `workspace-write`, the default). Profiles reject `backend` and `model`. An agent runs on the backend, model and effort of its route, which `/model set <agent>` writes, see [docs/errands.md](../docs/errands.md#the-route-of-an-errand). `role` is a slug of lower case letters, digits and dashes that a personal profile may restate and never change, and no code reads its value.
+| Key | Values |
+|---|---|
+| `id` | the folder's name |
+| `description` | what the agent is for and what it is not for, shown by `/agents` |
+| `unit` | `web` or `host`, the unit whose runner runs the agent |
+| `abilities` | any of `search`, `fetch`, `download` and `shell` |
+| `returns` | `text`, or `files` for an agent that hands back the files it saved |
+| `audience` | `any`, or `owner` for an agent whose errands only the owner may ask for |
+| `prompt` | the file name of the prompt in the same folder |
+| `limits` | `{ steps, seconds }` of one errand |
+| `daily` | `{ tasks }`, the errands a day |
+| `cost` | `{ input, output }`, USD per million tokens |
 
-A deployment overrides `enabled`, `cost`, `socket`, `out`, `limits`, `daily` and `searchProvider` of a worker under `agents.<name>` in `config.local/config.json`. `agentSettings(name, config)` in `src/agent-runner/profiles.ts` lays that override over the profile, and every reader of these settings goes through it.
+A profile with a missing key, an unknown key or a value of the wrong form stops the process at start, with one error naming the agent and the key. A profile names no harness and no model. An agent runs on the backend, model and effort of its route, which `/model set <agent>` writes, see [docs/errands.md](../docs/errands.md#the-route-of-an-errand).
 
-A profile only describes a request. It never authorizes anything: shell classes, permission ceilings and all deny rules are defined in code (`src/agent-runner/profiles.ts`, `src/agent-runner/policy.ts`). A profile can only narrow what the code allows.
+The runner turns `abilities` into what the harness of a run accepts, and a harness that cannot withhold an ability keeps it, as [docs/errands.md](../docs/errands.md#units-and-abilities) lists. An agent hands back files only when it has `download` and says `"returns": "files"`.
 
-A profile with a missing key, an unknown key, a tool its shell class does not allow, or a shell class the runner does not know stops the process at start.
+## The two units
 
-## Persona overrides
+Two systemd units carry every agent, and a profile names its unit in `unit`. `neptunia setup` installs both.
 
-`listAgents`, `loadProfiles`, `profileOf` and `agentSettings` in `src/agent-runner/profiles.ts` accept `AgentPaths` with `rootDir`, `dataDir` and `env`. Shared definitions live under `<rootDir>/agents/<name>/profile.json`. A partial personal profile under `<dataDir>/agents/<name>/profile.json` overlays that definition. Nested objects merge by own keys, arrays and scalar values replace their defaults, and null remains explicit. The loader validates the shared definition before applying the overlay, then validates and freezes the merged definition. A personal profile cannot change `id`, `kind` or `role` or introduce a new agent. A folder under `<dataDir>/agents/` that names no shared agent is refused alone: the loaders skip it, `refusedAgents` lists it with the code `no-shared-definition`, `errands.start` logs one `error` line with the folder and the code, and `neptunia doctor` warns in its `agents` check. A symbolic link there still fails the load.
+`neptunia-agent-web.service` runs `neptunia errand-runner --unit web`. It reaches the public internet and nothing of the local network, writes only its out folder and the backends' folders, and sees no part of the persona's data folder but `agents/`. `neptunia-agent-host.service` runs `neptunia errand-runner --unit host`. It reads this machine on a read-only filesystem, reaches only the model APIs, and hides every client token and interface credential. The sandboxes are in the templates under [deploy/](../deploy/README.md).
 
-Each public call reads current files. `agentSettings` applies live `config.agents.<name>` after the file overlay and retains user-unit socket and output defaults. `PROFILES`, `SCOUT` and `SERVER` are shared snapshots for compatibility. Errand consumers use the path-aware functions with the core or command entry roots. The runner refreshes its definition, prompt and default limits for each task.
+A runner serves every agent of its unit and works one errand per agent at a time. The mode of a unit, `/agent mode <unit> <mode>`, is the mode of every agent in it.
 
-`promptFilesOf` returns `<dataDir>/agents/<name>/<prompt>` before `<rootDir>/agents/<name>/<prompt>`, with `prompt.md` as the default filename. A personal prompt needs no personal profile. The profile's `override` field remains validated migration metadata and contributes no runtime path. Explicit `dataDir` wins over `NEPTUNIA_DATA_DIR`; relative data paths resolve against `rootDir`. The private directory does not select the agent tree. Personal directories, profile files and selected prompts reject symbolic links.
+## Tracked and local agents
+
+The folders here are tracked. A deployment's agents live in `<data>/agents/<name>/`. A local folder with the name of a tracked agent overlays its profile key by key: nested objects merge by their own keys, arrays and scalars replace, and `id` cannot change. A local prompt of that name is read before the tracked one, and needs no local profile. A local folder with any other name is an agent of its own when it holds a whole profile and its prompt, and a folder with no profile is no agent. Symbolic links under `<data>/agents/` are refused. Every call reads the files as they are now, so a runner picks up a changed prompt or limit at its next errand.
+
+An agent is off until `/agent enable <name>` writes `agents.<name>.enabled` as `true` in the local config, and `/agent disable <name>` switches it off again. `agents.<name>` also overrides `cost`, `limits` and `daily`. `/agents` lists every agent with its description, unit, abilities, route, state and whether it is tracked or local.
 
 ## Further reading
 
-- Workers: [docs/errands.md](../docs/errands.md)
+- Errands, units and modes: [docs/errands.md](../docs/errands.md)

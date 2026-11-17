@@ -45,7 +45,8 @@ function rig(privateDir: string) {
 const ask = (agent: string) => ({
   agent,
   goal: 'find the changelog',
-  requester: { accountId: '7', kind: 'member' },
+  // Changed: the server agent's audience is the owner, so the owner asks.
+  requester: { accountId: '7', kind: 'owner' },
   origin: { channelId: 'c1', messageId: 'm1' },
   scope: 'group' as const,
 });

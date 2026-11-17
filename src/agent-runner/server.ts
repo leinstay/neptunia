@@ -2,8 +2,8 @@
 // JSON-line requests (`run`, `cancel`, `ping`, src/agent-runner/protocol.ts);
 // the runner answers `progress` events while a task works and one `end` per
 // task. One connection may carry many tasks, and several connections may be
-// open, but a runner works one task at a time -- the rest wait in a queue, so
-// a slow scout errand never overlaps another. `cancel` aborts the running task
+// open. A runner serves every agent of its unit and works one task per agent at a time -- the rest of that
+// agent's tasks wait in its queue, while another agent's task runs beside it. `cancel` aborts the running task
 // or drops a queued one; `ping` lets the core learn that a task the runner no
 // longer knows (it restarted between the run and now) has failed, so the core
 // stops waiting. On startup the socket is chmod 660 (the core's group reaches
@@ -34,18 +34,18 @@ import type { RunnerTask, RunOutcome, RunRequest } from './protocol.ts';
 const FINISHED_MEMORY = 500;
 
 /**
- * @param options.profile The profile name (for `pong` and logs).
+ * @param options.unit The unit's name (for `pong` and logs).
  * @param options.runner The task engine; `run({ id, goal, context, limits, cost, searchProvider, secrets, preamble, route, signal, onProgress })`.
  * @param options.socketMode The socket file mode (default 0o660).
  */
 export function createRunnerServer({
-  profile,
+  unit,
   runner,
   socketPath,
   socketMode = 0o660,
   now = Date.now,
 }: {
-  profile: string;
+  unit: string;
   runner: { run: (task: RunnerTask) => Promise<RunOutcome> };
   socketPath: string;
   socketMode?: number;
@@ -61,7 +61,8 @@ export function createRunnerServer({
   const queue: Array<{ task: RunRequest; conn: net.Socket }> = [];
   const seen = new Set<string>();
   const finished: Array<string> = [];
-  let current: { id: string; conn: net.Socket; controller: AbortController } | null = null;
+  // agent -> its running task
+  const current = new Map<string, { id: string; conn: net.Socket; controller: AbortController }>();
   let draining = false;
   const connections = new Set<net.Socket>();
 
@@ -75,27 +76,32 @@ export function createRunnerServer({
     }
   }
 
+  /** Whether task `id` is running or queued. */
+  const inFlight = (id: string): boolean =>
+    [...current.values()].some((one) => one.id === id) || queue.some((item) => item.task.id === id);
+
   function rememberFinished(id: string): void {
     finished.push(id);
     if (finished.length > FINISHED_MEMORY) {
       const dropped = finished.shift();
       // keep `seen` bounded too, but only drop ids no longer in flight
-      if (dropped !== undefined && dropped !== current?.id && !queue.some((item) => item.task.id === dropped))
-        seen.delete(dropped);
+      if (dropped !== undefined && !inFlight(dropped)) seen.delete(dropped);
     }
   }
 
-  async function runNext(): Promise<void> {
-    if (current || draining) return;
-    const next = queue.shift();
-    if (!next) return;
-    const { task, conn } = next;
+  /** Starts the next queued task of `agent` unless one of its tasks runs. */
+  async function runNext(agent: string): Promise<void> {
+    if (current.has(agent) || draining) return;
+    const at = queue.findIndex((item) => item.task.agent === agent);
+    if (at === -1) return;
+    const [{ task, conn }] = queue.splice(at, 1);
     const controller = new AbortController();
-    current = { id: task.id, conn, controller };
+    current.set(agent, { id: task.id, conn, controller });
     let outcome: RunOutcome;
     try {
       outcome = await runner.run({
         id: task.id,
+        agent: task.agent,
         goal: task.goal,
         context: task.context,
         limits: task.limits,
@@ -109,10 +115,10 @@ export function createRunnerServer({
           send(conn, progressEvent({ id: task.id, step: p.step, tool: p.tool, note: p.note })),
       });
     } catch (err) {
-      log.error('agent-runner: task crashed', { id: task.id, profile, error: err });
+      log.error('agent-runner: task crashed', { id: task.id, unit, agent, error: err });
       outcome = { status: 'failed', result: {}, usage: {}, error: 'runner-error' };
     }
-    current = null;
+    if (current.get(agent)?.id === task.id) current.delete(agent);
     rememberFinished(task.id);
     send(
       conn,
@@ -126,11 +132,12 @@ export function createRunnerServer({
     );
     log.info('agent-runner: task end', {
       id: task.id,
-      profile,
+      unit,
+      agent,
       status: outcome.status,
       steps: objOf(outcome.usage).steps ?? 0,
     });
-    setImmediate(runNext);
+    setImmediate(() => void runNext(agent));
   }
 
   function handleRun(conn: net.Socket, task: RunRequest): void {
@@ -140,13 +147,14 @@ export function createRunnerServer({
     }
     seen.add(task.id);
     queue.push({ task, conn });
-    log.info('agent-runner: task queued', { id: task.id, profile, queued: queue.length });
-    runNext();
+    log.info('agent-runner: task queued', { id: task.id, unit, agent: task.agent, queued: queue.length });
+    void runNext(task.agent);
   }
 
   function handleCancel(id: string): void {
-    if (current && current.id === id) {
-      current.controller.abort();
+    const running = [...current.values()].find((one) => one.id === id);
+    if (running) {
+      running.controller.abort();
       return;
     }
     const at = queue.findIndex((item) => item.task.id === id);
@@ -158,11 +166,8 @@ export function createRunnerServer({
   }
 
   function handlePing(conn: net.Socket, ids: Array<string>): void {
-    send(conn, pongEvent({ profile, busy: Boolean(current), queued: queue.length }));
-    for (const id of ids) {
-      const inFlight = current?.id === id || queue.some((item) => item.task.id === id);
-      if (!inFlight && !seen.has(id)) send(conn, restartedEvent(id));
-    }
+    send(conn, pongEvent({ unit, busy: current.size > 0, queued: queue.length }));
+    for (const id of ids) if (!inFlight(id) && !seen.has(id)) send(conn, restartedEvent(id));
   }
 
   function onConnection(conn: net.Socket): void {
@@ -207,9 +212,9 @@ export function createRunnerServer({
         try {
           fs.chmodSync(socketPath, socketMode);
         } catch (err) {
-          log.warn('agent-runner: chmod failed', { profile, reason: errorFields(err).code ?? 'chmod' });
+          log.warn('agent-runner: chmod failed', { unit, reason: errorFields(err).code ?? 'chmod' });
         }
-        log.info('agent-runner: listening', { profile, socket: socketPath });
+        log.info('agent-runner: listening', { unit, socket: socketPath });
         resolve();
       });
     });
@@ -221,11 +226,11 @@ export function createRunnerServer({
    */
   async function stop(): Promise<void> {
     draining = true;
-    if (current) {
-      current.controller.abort();
-      send(current.conn, restartedEvent(current.id));
-      current = null;
+    for (const running of current.values()) {
+      running.controller.abort();
+      send(running.conn, restartedEvent(running.id));
     }
+    current.clear();
     for (const { task, conn } of queue.splice(0)) send(conn, restartedEvent(task.id));
     // Flush the pending ends, then half-close; a client that keeps its side
     // open is force-closed after a short grace so `close` cannot hang.
@@ -260,9 +265,9 @@ export function createRunnerServer({
     }
   }
 
-  /** The ids of the tasks the runner still has: the running one and the queued ones (the output sweep keeps their directories). */
+  /** The ids of the tasks the runner still has: the running ones and the queued ones (the output sweep keeps their directories). */
   function liveIds(): Array<string> {
-    return [...(current ? [current.id] : []), ...queue.map((item) => item.task.id)];
+    return [...[...current.values()].map((one) => one.id), ...queue.map((item) => item.task.id)];
   }
 
   return {
@@ -274,7 +279,7 @@ export function createRunnerServer({
       return queue.length;
     },
     get busy() {
-      return Boolean(current);
+      return current.size > 0;
     },
   };
 }

@@ -46,6 +46,8 @@ export type TaskRoute = {
 export type RunRequest = {
   op: 'run';
   id: string;
+  /** the agent of the unit that works the task */
+  agent: string;
   goal: string;
   context: RunContext;
   limits?: Record<string, number>;
@@ -194,9 +196,19 @@ function isSecret(value: unknown): value is string {
 /** The http form of a proxy URL, `proxy` of the secrets (src/net/proxy.ts). */
 export { httpProxyForm } from '../net/proxy.ts';
 
+/** An agent's name as a run names it: the name of its folder. */
+const AGENT_PATTERN = /^[a-z][a-z0-9-]*$/;
+
 /** `{ ok: false, error }`. */
 function refuse(error: string): { ok: false; error: string } {
   return { ok: false, error };
+}
+
+/** `run` with its agent checked and kept, then its route when the line has one. */
+function withAgentAndRoute(run: RunRequest, msg: Rec): Checked {
+  if (typeof msg.agent !== 'string' || !AGENT_PATTERN.test(msg.agent)) return refuse('bad-agent');
+  const named: RunRequest = { ...run, agent: msg.agent };
+  return msg.route === undefined ? { ok: true, message: named } : withRoute(named, msg.route);
 }
 
 /** `run` with its route checked and kept. Only the code on a refusal: a value of the route never travels back in an error. */
@@ -208,7 +220,8 @@ function withRoute(run: RunRequest, value: unknown): Checked {
 function validateRun(msg: Rec, id: string): Checked {
   if (typeof msg.goal !== 'string' || !msg.goal.trim()) return refuse('bad-goal');
   if (msg.goal.length > MAX_GOAL_CHARS) return refuse('goal-too-long');
-  const out: RunRequest = { op: 'run', id, goal: msg.goal.trim(), context: {} };
+  // The agent is checked after the rest of the line (withAgentAndRoute).
+  const out: RunRequest = { op: 'run', id, agent: '', goal: msg.goal.trim(), context: {} };
   if (msg.context !== undefined) {
     if (!isRec(msg.context)) return refuse('bad-context');
     const context = msg.context;
@@ -316,7 +329,7 @@ export function validateRequest(msg: unknown): Checked {
   if (typeof msg.id !== 'string' || !TASK_ID.test(msg.id)) return refuse('bad-id');
   if (msg.op === 'cancel') return { ok: true, message: { op: 'cancel', id: msg.id } };
   const checked = validateRun(msg, msg.id);
-  return checked.ok && msg.route !== undefined ? withRoute(checked.message as RunRequest, msg.route) : checked;
+  return checked.ok ? withAgentAndRoute(checked.message as RunRequest, msg) : checked;
 }
 
 /** Decode and validate one line from the core. */
@@ -472,9 +485,9 @@ export function restartedEvent(id: string): object {
   return endEvent({ id, status: 'failed', error: 'restarted' });
 }
 
-/** A `pong`: the profile, whether a task is running and how many wait. */
-export function pongEvent({ profile, busy, queued }: { profile: string; busy: boolean; queued: number }): object {
-  return { event: 'pong', profile: String(profile ?? ''), busy: busy === true, queued: count(queued) };
+/** A `pong`: the unit, whether a task is running and how many wait. */
+export function pongEvent({ unit, busy, queued }: { unit: string; busy: boolean; queued: number }): object {
+  return { event: 'pong', unit: String(unit ?? ''), busy: busy === true, queued: count(queued) };
 }
 
 /**

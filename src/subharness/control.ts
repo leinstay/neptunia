@@ -1,4 +1,5 @@
-// The owner's settings of the subharness roles: the source, model and effort each agent runs on and the mode it runs in.
+// The owner's settings of the subharness roles: the source, model and effort each agent runs on, and the mode of each
+// unit, which every agent of the unit runs in.
 // A source is a backend that is installed and logged in (src/subharness/sources.ts); it has no switch of its own, and its
 // account commands are src/subharness/account.ts. Everything is stored under `models.agents` of config.json
 // (src/subharness/routing.ts) and read again at each use, so a change needs no restart. The shape follows the approval mode of Hermes (hermes_cli/approval_mode.py): a
@@ -8,21 +9,18 @@
 import type { BackendResult } from '../agent-runner/backend.ts';
 import { isProviderSlug } from '../agent-runner/protocol.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
-import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
-import type { BackendName } from '../agent-runner/profiles.ts';
+import { BACKEND_NAMES, UNITS, agentNames, isAgentName, profileOf } from '../agent-runner/profiles.ts';
+import type { BackendName, UnitName } from '../agent-runner/profiles.ts';
 import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
-import { SUBHARNESS_AGENTS, readRouting, updateRouting } from './routing.ts';
-import type { Routing, SubharnessAgent } from './routing.ts';
+import { readRouting, updateRouting } from './routing.ts';
+import type { Routing } from './routing.ts';
 import { readKeys } from '../keys/file.ts';
 import { modelOfBackend } from './place.ts';
 import { routeName, routeNamesText } from './route-names.ts';
 import { checkedSelection, listsEffort } from './selection.ts';
 import { sourceState } from './sources.ts';
 import type { SourceState } from './sources.ts';
-
-export { SUBHARNESS_AGENTS };
-export type { SubharnessAgent };
 
 /** What an agent may do, from the narrowest: see run.ts#sandboxOfMode for the sandbox each maps to. */
 export const AGENT_MODES = ['read', 'write', 'full', 'sudo'] as const;
@@ -31,14 +29,11 @@ export type AgentMode = (typeof AGENT_MODES)[number];
 /** The model roles that have no subharness path: their requests run on the direct path alone. */
 export const DIRECT_ONLY_ROLES = ['analyzer', 'embedding', 'vision', 'video', 'speech', 'drawing'] as const;
 
-/** The mode of an agent the owner has not set. Nobody starts without a sandbox. */
-export const DEFAULT_MODES: Readonly<Record<SubharnessAgent, AgentMode>> = {
-  scout: 'write',
-  server: 'read',
+/** The mode of a unit the owner has not set. Nobody starts without a sandbox. */
+const DEFAULT_MODES: Readonly<Record<UnitName, AgentMode>> = {
+  web: 'write',
+  host: 'read',
 };
-
-/** The mode of an agent the table does not list. */
-export const FALLBACK_MODE: AgentMode = 'read';
 
 /** The effort word that drops the stored level, so the agent runs at its model's default. */
 const DEFAULT_EFFORT = 'default';
@@ -49,11 +44,11 @@ export const REPLY_CHECK_MS = 120_000;
 /** The outcome of one change: `code` is `ok` on success, else why it was refused. */
 export type SubharnessResult = { ok: boolean; code: string; changed: boolean; message: string };
 
-/** What the owner sees: every source as it stands, the name of opencode's key and every agent's mode. */
+/** What the owner sees: every source as it stands, the name of opencode's key and every unit's mode. */
 export type SubharnessView = {
   sources: Array<SourceState>;
   key: string | null;
-  modes: Record<SubharnessAgent, AgentMode>;
+  modes: Record<UnitName, AgentMode>;
 };
 
 /** What a model selection takes: the checks of src/subharness/selection.ts and the unit hook of a mode change. */
@@ -66,30 +61,29 @@ export type EnableDeps = {
   fetch: typeof fetch;
   baseUrl?: string;
   /**
-   * Called after a mode changed: puts the new mode into the agent's systemd unit (src/setup/mode-unit.ts). It answers
-   * a line for the owner, or null when the agent has no unit.
+   * Called after a mode changed: puts the new mode into the unit's systemd unit (src/setup/mode-unit.ts). It answers
+   * a line for the owner, or null when nothing was rendered.
    */
-  applyMode?(agent: SubharnessAgent, mode: AgentMode): Promise<string | null>;
+  applyMode?(unit: UnitName, mode: AgentMode): Promise<string | null>;
 };
 
 const done = (message: string, changed = true): SubharnessResult => ({ ok: true, code: 'ok', changed, message });
 const refused = (code: string, message: string): SubharnessResult => ({ ok: false, code, changed: false, message });
 
 const isMode = (value: unknown): value is AgentMode => AGENT_MODES.some((mode) => mode === value);
-const isAgent = (value: unknown): value is SubharnessAgent => SUBHARNESS_AGENTS.some((agent) => agent === value);
+const isUnit = (value: unknown): value is UnitName => UNITS.some((unit) => unit === value);
 
-/** The mode of `agent` among the stored `modes`: the stored one when it is a mode, else the agent's default, else `read`. */
-export function modeOf(modes: Readonly<Record<string, string>>, agent: string): AgentMode {
-  const stored = Object.hasOwn(modes, agent) ? modes[agent] : undefined;
-  if (isMode(stored)) return stored;
-  return isAgent(agent) ? DEFAULT_MODES[agent] : FALLBACK_MODE;
+/** The mode of `unit` among the stored `modes`: the stored one when it is a mode, else the unit's default. */
+export function modeOf(modes: Readonly<Record<string, string>>, unit: UnitName): AgentMode {
+  const stored = Object.hasOwn(modes, unit) ? modes[unit] : undefined;
+  return isMode(stored) ? stored : DEFAULT_MODES[unit];
 }
 
 /** The subharness as config.json and the installed sources hold it now. Runs each CLI's status command, no model. */
 export async function subharnessView(privateDir: string): Promise<SubharnessView> {
   const stored = readRouting(privateDir).subharness;
-  const modes = Object.fromEntries(SUBHARNESS_AGENTS.map((agent) => [agent, modeOf(stored.modes, agent)])) as Record<
-    SubharnessAgent,
+  const modes = Object.fromEntries(UNITS.map((unit) => [unit, modeOf(stored.modes, unit)])) as Record<
+    UnitName,
     AgentMode
   >;
   const sources = await Promise.all(BACKEND_NAMES.map((backend) => sourceState(privateDir, backend)));
@@ -100,7 +94,7 @@ export async function subharnessView(privateDir: string): Promise<SubharnessView
 function notAnAgent(name: string): SubharnessResult {
   if (DIRECT_ONLY_ROLES.some((role) => role === name))
     return refused('no-subharness-path', `${name} has no subharness path; its requests run on the direct path alone`);
-  return refused('unknown-agent', `${name} is no agent; use ${SUBHARNESS_AGENTS.join(', ')}`);
+  return refused('unknown-agent', `${name} is no agent; use ${agentNames().join(', ')}`);
 }
 
 /** What a stored route of `agent` is, for telling whether it moved while a check ran. */
@@ -151,7 +145,7 @@ export async function setAgentModel(
   via?: string,
   provider?: string
 ): Promise<SubharnessResult> {
-  if (!isAgent(agent)) return notAnAgent(agent);
+  if (!isAgentName(agent)) return notAnAgent(agent);
   const badSlug = badProvider(provider);
   if (badSlug !== null) return badSlug;
   const level = effort === DEFAULT_EFFORT ? undefined : effort;
@@ -218,47 +212,48 @@ export function backendOfAgent(
 
 /**
  * The path the core puts inside a task for `agent`: the backend it runs through, its model and effort (null where the
- * owner set none), its mode and the provider it is pinned to (absent where none), as config.json holds them now. Null while the agent has no source; a source that is
+ * owner set none), the mode of its unit and the provider it is pinned to (absent where none), as config.json holds them now. Null while the agent has no source; a source that is
  * gone from the machine fails the run with `not-installed`, where a runner can see it. Throws when config.json cannot be
  * read.
  */
 export function routeOfAgent(privateDir: string, agent: string): TaskRoute | null {
   const stored = readRouting(privateDir).subharness;
   const backend = backendOfAgent(stored, agent);
-  if (backend === null) return null;
+  const unit = profileOf(agent)?.unit;
+  if (backend === null || unit === undefined) return null;
   return {
     backend,
     model: Object.hasOwn(stored.models, agent) ? (stored.models[agent] ?? null) : null,
     effort: Object.hasOwn(stored.efforts, agent) ? (stored.efforts[agent] ?? null) : null,
-    mode: modeOf(stored.modes, agent),
+    mode: modeOf(stored.modes, unit),
     ...(Object.hasOwn(stored.providers, agent) ? { provider: stored.providers[agent] ?? '' } : {}),
   };
 }
 
-/** Sets the mode of one agent, or with no `mode` reports the current one and writes nothing. */
-export function setAgentMode(
+/** Sets the mode of one unit, or with no `mode` reports the current one and writes nothing. */
+export function setUnitMode(
   privateDir: string,
-  agent: string,
+  unit: string,
   mode?: string
 ): Promise<SubharnessResult & { mode: AgentMode | null }> {
-  if (!isAgent(agent))
+  if (!isUnit(unit))
     return Promise.resolve({
-      ...refused('unknown-agent', `${agent} is no agent; use ${SUBHARNESS_AGENTS.join(', ')}`),
+      ...refused('unknown-unit', `${unit} is no unit; use ${UNITS.join(', ')}`),
       mode: null,
     });
-  const current = modeOf(readRouting(privateDir).subharness.modes, agent);
-  if (mode === undefined) return Promise.resolve({ ...done(`${agent} runs in ${current}`, false), mode: current });
+  const current = modeOf(readRouting(privateDir).subharness.modes, unit);
+  if (mode === undefined) return Promise.resolve({ ...done(`${unit} runs in ${current}`, false), mode: current });
   if (!isMode(mode))
     return Promise.resolve({
       ...refused('unknown-mode', `${mode} is no mode; use ${AGENT_MODES.join(', ')}`),
       mode: null,
     });
-  if (mode === current) return Promise.resolve({ ...done(`${agent} runs in ${mode} already`, false), mode });
+  if (mode === current) return Promise.resolve({ ...done(`${unit} runs in ${mode} already`, false), mode });
   updateRouting(privateDir, (store) => ({
     ...store,
-    subharness: { ...store.subharness, modes: { ...store.subharness.modes, [agent]: mode } },
+    subharness: { ...store.subharness, modes: { ...store.subharness.modes, [unit]: mode } },
   }));
-  return Promise.resolve({ ...done(`${agent} runs in ${mode} from its next run`), mode });
+  return Promise.resolve({ ...done(`${unit} runs in ${mode} from its next run`), mode });
 }
 
 /** The line of one source: whether it can run, its key's name for opencode, and who enforces `read` and `write` under it. */
@@ -276,7 +271,8 @@ function sourceLine(view: SubharnessView, state: SourceState): string {
 
 /** The path of one agent: the backend it runs through (null when it names none), its model, its effort and its pinned provider. */
 export type AgentPath = {
-  agent: SubharnessAgent;
+  agent: string;
+  unit: UnitName;
   backend: BackendName | null;
   model: string | null;
   effort: EffortLevel | null;
@@ -286,13 +282,20 @@ export type AgentPath = {
 /** Each agent's path as config.json holds it now. */
 export function agentPaths(privateDir: string): Array<AgentPath> {
   const stored = readRouting(privateDir).subharness;
-  return SUBHARNESS_AGENTS.map((agent) => ({
-    agent,
+  return agentNames().flatMap((agent) => {
+    const unit = profileOf(agent)?.unit;
+    return unit === undefined ? [] : [{ agent, unit, ...pathOf(stored, agent) }];
+  });
+}
+
+/** The backend, model, effort and pinned provider of `agent` as `stored` holds them. */
+function pathOf(stored: Routing['subharness'], agent: string): Omit<AgentPath, 'agent' | 'unit'> {
+  return {
     backend: backendOfAgent(stored, agent),
     model: stored.models[agent] ?? null,
     effort: stored.efforts[agent] ?? null,
     ...(Object.hasOwn(stored.providers, agent) ? { provider: stored.providers[agent] ?? '' } : {}),
-  }));
+  };
 }
 
 /**
@@ -307,7 +310,7 @@ export function statusText(view: SubharnessView, paths: ReadonlyArray<AgentPath>
     const model = path.model ?? 'default';
     const effort = path.effort ?? 'default';
     const pin = path.provider === undefined ? '' : `  provider ${path.provider}`;
-    return `  ${path.agent}  ${view.modes[path.agent]}  ${path.backend === null ? 'none' : routeName(path.backend)}${mark}  model ${model}  effort ${effort}${pin}`;
+    return `  ${path.agent}  ${path.unit} ${view.modes[path.unit]}  ${path.backend === null ? 'none' : routeName(path.backend)}${mark}  model ${model}  effort ${effort}${pin}`;
   });
   return ['subharness:', ...view.sources.map((state) => sourceLine(view, state)), 'modes:', ...rows].join('\n');
 }

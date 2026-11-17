@@ -45,7 +45,7 @@ Which backend, model, effort, provider and mode each agent runs on, and the name
 | `models.agents.model` | map | `{}` | The model each agent runs on, by agent. An agent with no entry runs on its backend's own default | `src/subharness/routing.ts` |
 | `models.agents.effort` | map | `{}` | The reasoning effort each agent runs at, by agent. An agent with no entry runs at its model's default | `src/subharness/routing.ts` |
 | `models.agents.provider` | map | `{}` | The OpenRouter provider each agent on `opencode` is pinned to, by agent, with no fallback. `/model set <agent> <model> --via opencode-harness --provider <slug>` writes it | `src/subharness/routing.ts` |
-| `models.agents.mode` | map | `{}` | What each agent may do, by agent: `read`, `write`, `full` or `sudo`. An agent with no entry runs in its default mode (see [Errands](errands.md)). `/subharness mode <agent> <mode>` writes it | `src/subharness/routing.ts` |
+| `models.agents.mode` | map | `{}` | What the agents of each unit may do, by unit (`web`, `host`): `read`, `write`, `full` or `sudo`. A unit with no entry runs in its default mode, `write` for `web` and `read` for `host` (see [Errands](errands.md#modes)). `/agent mode <unit> <mode>` writes it | `src/subharness/routing.ts` |
 | `models.agents.opencodeKey` | string, null | `null` | The named key of `keys.json` that `opencode` runs on. Null while `opencode` has no login. `neptunia subharness opencode login --key <name>` sets it | `src/subharness/routing.ts` |
 
 ## models.routes
@@ -418,7 +418,7 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `agents` | map | `{}` | Per agent name, overrides of the settings in `agents/<name>/profile.json`, laid over the profile key by key | `src/agent-runner/profiles.ts` |
+| `agents` | map | `{}` | Per agent name, `enabled` (the agent is off while it is not `true`, `/agent enable <name>` writes it) and overrides of `cost`, `limits` and `daily` of `agents/<name>/profile.json`, laid over the profile key by key | `src/agent-runner/profiles.ts` |
 
 ## intentions
 

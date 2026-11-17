@@ -32,7 +32,7 @@ import {
 import type { RunnerDeps, Runner } from './opencode.ts';
 import { redactorFor, scopeOf } from './policy.ts';
 import { BACKEND_NAMES, profileOf } from './profiles.ts';
-import type { AgentPaths, BackendName, Profile } from './profiles.ts';
+import type { Ability, AgentPaths, BackendName, Profile } from './profiles.ts';
 import type { RunOutcome, RunnerTask, TaskResult, TaskUsage } from './protocol.ts';
 import { runAgent } from '../subharness/run.ts';
 import type { AgentRun, RunDeps } from '../subharness/run.ts';
@@ -776,7 +776,8 @@ const FALLBACK_SECONDS = 300;
 /**
  * The task engine of a runner: it works the task's goal and context in `<outDir>/<id>/`, with the task's preamble and
  * then the profile's prompt as its system instructions, through `runAgent` (src/subharness/run.ts) and delivers the files left there. The agent runs as
- * the agent named like the profile, in the mode the owner set for it, and with `-c web_search="live"` when the profile asks. A
+ * the agent named like the profile, in the mode the owner set for its unit, with what the harness takes of its abilities
+ * (harnessAbilities), and hands back files only when the agent may download and returns files (filesOf). A
  * task's `route` (the backend, model, effort and mode the core decided) is the path of the run and keys.json stays
  * closed; without one, and while the subharness is off, the task fails with `subharness-off`. A backend brings its own
  * login, so a task's `openrouterKey` reaches only opencode: it becomes that run's key (`routeKey`), and its `searchKey`
@@ -834,18 +835,17 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
         cwd: dir,
         timeoutMs: cap * 1000,
         ...(maxSteps === undefined ? {} : { maxSteps }),
-        search: profile.search,
-        tools: profile.tools,
+        ...harnessAbilities(profile),
         signal: task.signal,
         runId: task.id,
         ...(task.route === undefined ? {} : { route: task.route }),
         ...secretOptionsOf(task.secrets),
-        searchProvider: task.searchProvider ?? profile.defaultSearchProvider,
+        searchProvider: searchProviderOf(task, profile),
       },
       subharness
     );
     const usage = usageOf(outcome, Math.round(((deps.now ?? Date.now)() - startedAt) / 100) / 10);
-    const { files, dropped } = await deliverableFiles(await collectFiles(outDir, task.id), {
+    const { files, dropped } = await deliverableFiles(await filesOf(profile, outDir, task.id), {
       scope,
       withheldCount: 0,
     });
@@ -872,6 +872,39 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
 
   return { run, checkPrompt };
 }
+
+/**
+ * What a harness takes of an agent's abilities: codex its live web search for `search`; claude a tool list of
+ * Read, Grep and Glob with Bash for `shell`, WebFetch for `fetch` and WebSearch for `search`. opencode takes `search` as
+ * its search provider (searchProviderOf). `download` is no harness option: filesOf decides it.
+ */
+function harnessAbilities(profile: Profile): Pick<AgentRun, 'search' | 'tools'> {
+  const has = (ability: Ability): boolean => profile.abilities.includes(ability);
+  return {
+    search: has('search'),
+    tools: [
+      'read',
+      'grep',
+      'glob',
+      ...(has('shell') ? ['bash'] : []),
+      ...(has('fetch') ? ['webfetch'] : []),
+      ...(has('search') ? ['websearch'] : []),
+    ],
+  };
+}
+
+/** The files a run of `profile` left in its folder, or none for an agent that may not download or returns text. */
+async function filesOf(
+  profile: Profile,
+  outDir: string,
+  id: string
+): Promise<Awaited<ReturnType<typeof collectFiles>>> {
+  return profile.abilities.includes('download') && profile.returns === 'files' ? collectFiles(outDir, id) : [];
+}
+
+/** The search provider of a run: the task's, else `exa` for an agent with the `search` ability. */
+const searchProviderOf = (task: Pick<RunnerTask, 'searchProvider'>, profile: Profile): string | null =>
+  task.searchProvider ?? (profile.abilities.includes('search') ? 'exa' : null);
 
 /** The secrets of a task as options of its run: the route's key, the proxy and the Exa key, each when the task has it. */
 function secretOptionsOf(secrets: RunnerTask['secrets']): Pick<AgentRun, 'routeKey' | 'proxy' | 'searchKey'> {

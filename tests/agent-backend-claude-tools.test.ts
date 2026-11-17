@@ -109,28 +109,44 @@ test('a read profile without web tools gets no WebFetch and no WebSearch', async
   assert.deepEqual(namesOf(argv, '--allowedTools'), ['Bash', 'Glob', 'Grep', 'Read']);
 });
 
-test('the engine passes the profile tools of the scout to the run', async () => {
-  // Bug: createAgentEngine dropped profile.tools, so the scout's web tools never reached the recipe.
+/** The claude tool list a read run of an agent with `abilities` gets through the engine. */
+async function toolsOfAbilities(abilities: Array<string>): Promise<Array<string>> {
   const { base, deps, argv } = rig();
   const prompt = path.join(base, 'agent.md');
   fs.writeFileSync(prompt, 'You are an errand agent.');
   const profile = {
     name: 'scout',
+    unit: 'web',
+    abilities,
+    returns: 'text',
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
-    tools: ['websearch', 'webfetch', 'read', 'glob', 'list', 'bash'],
-    search: true,
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
     outDir: path.join(base, 'out'),
     subharness: deps,
   });
-  const task = { id: 't1', goal: 'find it', context: {}, route: route('read') } as unknown as Parameters<
-    typeof engine.run
-  >[0];
+  const task = {
+    id: 't1',
+    agent: 'scout',
+    goal: 'find it',
+    context: {},
+    route: route('read'),
+  } as unknown as Parameters<typeof engine.run>[0];
   assert.equal((await engine.run(task)).status, 'done');
-  assert.deepEqual(namesOf(argv(), '--tools'), ['Bash', 'Glob', 'Read', 'WebFetch', 'WebSearch']);
+  return namesOf(argv(), '--tools');
+}
+
+test('the engine turns search and fetch into the web tools of the run', async () => {
+  // Bug: the abilities of a profile never reach the recipe, so the agent searches nothing.
+  assert.deepEqual(await toolsOfAbilities(['search', 'fetch']), ['Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch']);
+});
+
+test('an agent without the shell ability gets no Bash in a read run', async () => {
+  // Bug: every agent runs commands, whatever its profile says.
+  assert.deepEqual(await toolsOfAbilities(['fetch']), ['Glob', 'Grep', 'Read', 'WebFetch']);
+  assert.deepEqual(await toolsOfAbilities(['shell']), ['Bash', 'Glob', 'Grep', 'Read']);
 });
 
 for (const mode of ['full', 'sudo'] as const) {

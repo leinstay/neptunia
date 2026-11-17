@@ -9,13 +9,14 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
+import { BACKEND_NAMES, UNITS } from '../agent-runner/profiles.ts';
+import type { UnitName } from '../agent-runner/profiles.ts';
 import { readRouting } from '../subharness/routing.ts';
 import { harnessPathOf } from '../subharness/memory-path.ts';
 import { modeOf } from '../subharness/control.ts';
 import { isInstalled } from '../subharness/place.ts';
 import { ClientsError, readClients } from './clients.ts';
-import { UNIT_AGENTS, renderUnit } from './units.ts';
+import { RETIRED_UNIT_FILES, renderUnit, unitFileOf } from './units.ts';
 import type { UnitVars } from './units.ts';
 
 /** What a command gave back. */
@@ -67,7 +68,7 @@ function secretsOf(privateDir: string): { clients: Array<string>; interfaces: Ar
  * private layer want it.
  */
 export function unitText(target: UnitTarget, template: string, file: string): string {
-  const agent = UNIT_AGENTS[file];
+  const unit = UNITS.find((one) => unitFileOf(one) === file);
   const { subharness } = readRouting(target.dataDir);
   // Named or installed: a restored persona's role finds its folder bound before the install, and a role moved to an
   // installed backend finds it bound before config.json says so.
@@ -82,7 +83,7 @@ export function unitText(target: UnitTarget, template: string, file: string): st
     backends,
     ...secretsOf(target.privateDir),
   };
-  if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
+  if (unit !== undefined) vars.mode = modeOf(subharness.modes, unit);
   return renderUnit(template, target.system ? 'system' : 'user', vars);
 }
 
@@ -139,19 +140,44 @@ export async function installUnits(
   }
 }
 
-/** The unit file of an agent, or null for an agent with no unit of its own. */
-export function unitOfAgent(agent: string): string | null {
-  return Object.entries(UNIT_AGENTS).find(([, name]) => name === agent)?.[0] ?? null;
+/**
+ * The line the core answers after a mode change, with no command run: the unit takes the mode when the owner runs
+ * `neptunia setup`. The core runs under `NoNewPrivileges`, so it never tries the `sudo` a system unit needs.
+ */
+export function deferModeToUnit(unit: UnitName): string {
+  return `${unitFileOf(unit)} takes the mode when you run "neptunia setup" in a shell`;
 }
 
 /**
- * The line the core answers after a mode change, with no command run: the agent's unit takes the mode when the owner
- * runs `neptunia setup`. The core runs under `NoNewPrivileges`, so it never tries the `sudo` a system unit needs.
- * Null for an agent with no unit or no agent at all.
+ * Stops, disables and removes the per-agent units of earlier deployments (RETIRED_UNIT_FILES) that the unit folder
+ * still holds, then reloads the manager once. Their state folders stay. Resolves with the names removed, or the reason
+ * it stopped.
  */
-export function deferModeToUnit(agent: string): string | null {
-  const file = unitOfAgent(agent);
-  return file === null ? null : `${file} takes the mode when you run "neptunia setup" in a shell`;
+export async function removeRetiredUnits(
+  target: UnitTarget,
+  run: (command: string, args: ReadonlyArray<string>) => Promise<RunResult>
+): Promise<{ ok: true; removed: Array<string> } | { ok: false; reason: string }> {
+  const dir = unitDirOf(target);
+  const removed: Array<string> = [];
+  for (const file of RETIRED_UNIT_FILES) {
+    const place = path.join(dir, file);
+    if (!fs.existsSync(place)) continue;
+    const [command, args] = systemctlOf(target, 'disable', '--now', file);
+    const stopped = await run(command, args);
+    if (stopped.code !== 0) return { ok: false, reason: `disable ${file}: ${whyFailed(stopped)}` };
+    if (!target.system) fs.rmSync(place, { force: true });
+    else {
+      const gone = await run('sudo', ['rm', '-f', place]);
+      if (gone.code !== 0) return { ok: false, reason: `sudo rm ${file}: ${whyFailed(gone)}` };
+    }
+    removed.push(file);
+  }
+  if (removed.length > 0) {
+    const [command, args] = systemctlOf(target, 'daemon-reload');
+    const reload = await run(command, args);
+    if (reload.code !== 0) return { ok: false, reason: `daemon-reload: ${whyFailed(reload)}` };
+  }
+  return { ok: true, removed };
 }
 
 /** Runs a command to its end and resolves with its output; `sudo` never waits for a password without a terminal. */

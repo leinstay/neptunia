@@ -22,6 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { backendLimits, createInstalledBackend } from '../agent-runner/backend.ts';
 import type { Backend, BackendResult, BackendRunOptions } from '../agent-runner/backend.ts';
+import { profileOf } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { parseRoute } from '../agent-runner/protocol.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
@@ -197,11 +198,12 @@ function pathFromStore(run: AgentRun, deps: RunDeps): Path | BackendResult {
   }
   const { models, efforts, providers } = sub;
   const name = backendOfAgent(sub, run.agent);
-  if (name === null) return off();
+  const unit = profileOf(run.agent)?.unit;
+  if (name === null || unit === undefined) return off();
   if (name === 'opencode' && opencode === null) return off();
   return {
     name,
-    mode: modeOf(sub.modes, run.agent),
+    mode: modeOf(sub.modes, unit),
     model: Object.hasOwn(models, run.agent) ? (models[run.agent] ?? null) : null,
     effort: Object.hasOwn(efforts, run.agent) ? (efforts[run.agent] ?? null) : null,
     keyValue: name === 'opencode' ? (opencode?.value ?? '') : null,
