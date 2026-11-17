@@ -4,6 +4,7 @@
 // createToolRound; the attempt calls its functions.
 
 import { setSettings } from '../behavior/diary.ts';
+import { humanizeSpeech } from '../behavior/humanizer.ts';
 import { historyLines } from '../behavior/lines.ts';
 import type { Line, ReactorNames } from '../behavior/lines.ts';
 import { skillsInventoryText } from '../behavior/prompt.ts';
@@ -88,6 +89,7 @@ export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
     reactions?: { fetchTimeoutMs?: number } | null;
   };
   diary?: unknown;
+  humanizer?: { enabled?: unknown } | null;
 };
 
 /** The labels, as the tool round hands them on; the text functions read their own sections. */
@@ -196,6 +198,7 @@ export type StepParsed = ActArgs['parsed'] &
   HoldArgs['parsed'] & {
     loweredCalls?: Array<PlannedCall>;
     skip?: unknown;
+    think?: unknown;
     thinkOpen?: unknown;
     untagged?: unknown;
   };
@@ -700,10 +703,25 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
               reason: 'one-change',
             });
           if (deciding) decisionPlanned = true;
+          // coerceArgs answers an object for the object a normalized call carries.
+          const args = coercion.args as Obj;
+          // A post of her own goes through the humanizer as one message, one call at a time (docs/humanizer.md).
+          if (record.name === 'message.create' && typeof args.text === 'string') {
+            const speech = { messages: [{ text: args.text }], think: answer.parsed.think };
+            const own = await humanizeSpeech({
+              parsed: speech,
+              loweredCalls: [],
+              llm,
+              hot,
+              name: selfName,
+              place: channel.id,
+            });
+            const [written] = own.messages;
+            args.text = written?.text ?? args.text;
+          }
           const call: PlannedCall = {
             skill: record.name,
-            // coerceArgs answers an object for the object a normalized call carries.
-            args: coercion.args as Obj,
+            args,
             body: '',
             toolCallId: record.id,
             index: record.index,
@@ -1032,6 +1050,19 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       loweredResults: Array<CallOutcome>;
       deliveries: Array<{ n: number; total: number; code: string }>;
     }> {
+      // Her speech read as one text and, when the humanizer asks for it, written again (docs/humanizer.md).
+      // An addressed turn shows her typing for the seconds the humanizer takes; with the humanizer off nothing is sent.
+      const stopTyping = hot.config.humanizer?.enabled === true ? typingWhileCalls(channel, triggerKind, draft) : null;
+      const humanized = await humanizeSpeech({
+        parsed,
+        loweredCalls,
+        llm,
+        hot,
+        name: selfName,
+        place: channel.id,
+      }).finally(() => stopTyping?.());
+      parsed = { ...parsed, messages: humanized.messages };
+      loweredCalls = humanized.loweredCalls;
       let acted: ActOutcome | HeldSpeech | null = null;
       const set = stagedSet();
       // A set kind with fewer pictures staged than `diary.set.minPosted` is not posted at all, not even its messages.

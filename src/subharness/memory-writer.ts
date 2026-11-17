@@ -353,7 +353,11 @@ export function memoryWriterClient(deps: {
   }
   return {
     complete(messages, options) {
-      return told(async () => {
+      // The humanizer's writer runs here too (src/llm/core-routes.ts): its runs are counted under its own role, and only a
+      // memory run moves the memory probe and the memory login state.
+      const role = typeof options.role === 'string' ? options.role : 'memory';
+      const forMemory = role === 'memory';
+      return (forMemory ? told : (run: () => Promise<Completion>) => run())(async () => {
         const path = chainPathOf(options.chainRoute) ?? deps.path?.() ?? memoryPath(writer.privateDir);
         if (path.kind === 'direct') return direct.complete(messages, options);
         const timeout = Number(options.timeoutMs);
@@ -370,13 +374,13 @@ export function memoryWriterClient(deps: {
             writer
           );
         } catch (error) {
-          ran?.(path.backend, runOutcomeOf(error));
+          if (forMemory) ran?.(path.backend, runOutcomeOf(error));
           throw error;
         }
-        ran?.(path.backend, 'ok');
+        if (forMemory) ran?.(path.backend, 'ok');
         const { usage } = completion;
         record?.({
-          role: 'memory',
+          role,
           // A backend that prints one total counts it as input, where it inflates nothing the writer wrote.
           promptTokens: usage?.prompt_tokens || usage?.total_tokens || 0,
           cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,

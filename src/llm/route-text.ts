@@ -20,6 +20,8 @@ export const ROUTE_ROLES = [
   'speech',
   'drawing',
   'search',
+  'humanizer.linter',
+  'humanizer.writer',
 ] as const;
 export type RouteRole = (typeof ROUTE_ROLES)[number];
 
@@ -31,13 +33,22 @@ export type HarnessBackend = (typeof HARNESS_BACKENDS)[number];
  * The roles that answer in text from a chat model, the ones a reasoning effort reaches. `embedding`, `speech` and
  * `drawing` call models that take no reasoning parameter.
  */
-export const TEXT_ROLES: ReadonlyArray<RouteRole> = ['core', 'memory', 'analyzer', 'search', 'vision', 'video'];
+export const TEXT_ROLES: ReadonlyArray<RouteRole> = [
+  'core',
+  'memory',
+  'analyzer',
+  'search',
+  'vision',
+  'video',
+  'humanizer.linter',
+  'humanizer.writer',
+];
 
 /** The effort of a text role whose route and `llm.routeEffort` name none. */
 export const DEFAULT_ROUTE_EFFORT = 'medium';
 
-/** The roles that run as a CLI chat step: her turns and the memory writer. */
-export const HARNESS_ROLES: ReadonlyArray<string> = ['core', 'memory'];
+/** The roles that run as a CLI chat step: her turns, the memory writer and the humanizer's writer. */
+export const HARNESS_ROLES: ReadonlyArray<string> = ['core', 'memory', 'humanizer.writer'];
 
 /** The one effort scale of a route, for every role and route. */
 export const ROUTE_EFFORTS = ['disabled', 'low', 'medium', 'high'] as const;

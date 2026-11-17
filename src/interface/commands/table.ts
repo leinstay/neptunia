@@ -170,7 +170,7 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
  */
 function checkModelRole(name: string, args: Readonly<Record<string, string>>): string | null {
   if (name !== 'model.set' && name !== 'model.sources') return null;
-  const roles = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, ...agentNames()])];
+  const roles = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, ...CHAIN_ROLES, ...agentNames()])];
   const role = args.role ?? '';
   return roles.includes(role) ? null : `/${name.replace('.', ' ')}: role is one of ${roles.join(', ')}, not "${role}"`;
 }
@@ -657,6 +657,17 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('disable', 'Turn quick search off; reading a known page stays'),
       sub('engine', 'Choose the engine of quick search', [arg('name', true, ['openrouter', 'brave', 'exa'])]),
       sub('model', 'Put another model on each route of quick search', [arg('id')]),
+    ],
+  },
+  {
+    name: 'humanizer',
+    help: 'Check her text before it is posted and write it again when it reads as composed',
+    args: [],
+    defaultSubcommand: 'status',
+    subcommands: [
+      sub('status', 'The humanizer: on or off, and the route of each of its two roles'),
+      sub('enable', 'Turn the humanizer on'),
+      sub('disable', 'Turn the humanizer off'),
     ],
   },
   {

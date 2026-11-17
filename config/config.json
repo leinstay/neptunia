@@ -218,6 +218,9 @@
   "format": {
     "stripDashes": true
   },
+  "humanizer": {
+    "enabled": false
+  },
   "split": {
     "maxOutputTokens": 300
   },

@@ -42,6 +42,7 @@ import { mirrorCommand } from './mirror.ts';
 import { mnemonicOf } from '../phrase-codes.ts';
 import { operationOf } from './table.ts';
 import type { MirrorDesk } from '../../behavior/mirror-desk.ts';
+import { humanizerCommand } from './humanizer.ts';
 import { searchCommand } from './search.ts';
 import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
@@ -176,6 +177,7 @@ function ownCommand(
     };
     return Promise.resolve({ text: JSON.stringify(read), status: 'ok' });
   }
+  if (name.startsWith('humanizer.')) return Promise.resolve(humanizerCommand(dataDir, name, ENGINE_ROOT));
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
   if (name === 'memory.bind') return personLinkCommand({ memoryDb, runOp, hot }, args, dialog);
   if (name === 'memory.users.names.add' || name === 'memory.users.names.remove')

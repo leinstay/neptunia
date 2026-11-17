@@ -82,6 +82,10 @@ The chain of routes each model role runs on, the one place a role's key, harness
 
 <!-- settings: format -->
 
+## humanizer
+
+<!-- settings: humanizer -->
+
 ## split
 
 <!-- settings: split -->
