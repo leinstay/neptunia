@@ -1,7 +1,6 @@
 // The runner's Unix-socket server: the bot (the core) connects and sends
 // JSON-line requests (`run`, `cancel`, `ping`, src/agent-runner/protocol.ts);
-// the runner answers `progress` events while a task works and one `end` per
-// task. One connection may carry many tasks, and several connections may be
+// the runner answers one `end` per task. One connection may carry many tasks, and several connections may be
 // open. A runner serves every agent of its unit and works one task per agent at a time -- the rest of that
 // agent's tasks wait in its queue, while another agent's task runs beside it. `cancel` aborts the running task
 // or drops a queued one; `ping` lets the core learn that a task the runner no
@@ -19,15 +18,7 @@ import fs from 'node:fs';
 import { objOf } from '../tools/types.ts';
 import { errorFields } from '../error-fields.ts';
 import { log } from '../log.ts';
-import {
-  encodeLine,
-  endEvent,
-  errorEvent,
-  parseRequestLine,
-  pongEvent,
-  progressEvent,
-  restartedEvent,
-} from './protocol.ts';
+import { encodeLine, endEvent, errorEvent, parseRequestLine, pongEvent, restartedEvent } from './protocol.ts';
 import type { RunnerTask, RunOutcome, RunRequest } from './protocol.ts';
 
 /** The most ids the runner remembers as finished (to answer a late `ping` without a duplicate `end`). */
@@ -35,7 +26,7 @@ const FINISHED_MEMORY = 500;
 
 /**
  * @param options.unit The unit's name (for `pong` and logs).
- * @param options.runner The task engine; `run({ id, goal, context, limits, searchProvider, secrets, preamble, route, signal, onProgress })`.
+ * @param options.runner The task engine; `run({ id, goal, context, limits, searchProvider, secrets, preamble, route, signal })`.
  * @param options.socketMode The socket file mode (default 0o660).
  */
 export function createRunnerServer({
@@ -110,8 +101,6 @@ export function createRunnerServer({
         preamble: task.preamble,
         route: task.route,
         signal: controller.signal,
-        onProgress: (p: { step: number; tool: string | null; note: string }) =>
-          send(conn, progressEvent({ id: task.id, step: p.step, tool: p.tool, note: p.note })),
       });
     } catch (err) {
       log.error('agent-runner: task crashed', { id: task.id, unit, agent, error: err });

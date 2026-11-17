@@ -264,7 +264,6 @@ test('the usage of a run reaches the errand, with its steps', async () => {
       goal: 'inspect synthetic files',
       context: {},
       signal: new AbortController().signal,
-      onProgress: () => {},
     });
     assert.equal(done.usage.input, 160);
     assert.equal(done.usage.output, 45);

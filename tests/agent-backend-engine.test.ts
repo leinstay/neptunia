@@ -90,7 +90,6 @@ test('a running engine reads personal prompts and limits afresh while retaining 
     goal: 'inspect synthetic files',
     context: {},
     signal: new AbortController().signal,
-    onProgress: () => {},
   };
   try {
     assert.equal(engine.checkPrompt(), 'PERSONAL-WORKER-FIRST');
@@ -139,7 +138,6 @@ test('a running engine refuses an invalid personal definition instead of using i
     goal: 'inspect synthetic files',
     context: {},
     signal: new AbortController().signal,
-    onProgress: () => {},
   };
   try {
     assert.equal((await engine.run(task)).status, 'done');

@@ -1,7 +1,7 @@
 // The core's side of the runners' sockets (src/agent-runner/server.ts): one Unix-socket connection per
 // unit (`server`, `scout`, `code`), opened on first use, speaking the JSON-lines protocol of src/agent-runner/protocol.ts.
 // Every agent of a unit shares its connection, and each `run` names its agent. `run` sends one errand and
-// resolves on its `end` event; `progress` events go to the `onProgress` listeners; `cancel` and `ping` are
+// resolves on its `end` event; `cancel` and `ping` are
 // fire-and-answer. Each outcome of the connect loop goes to the `onLink` listeners: `{ unit, up: true }` once a
 // connection opens, `{ unit, up: false, code }` when one fails (`code` the socket's error code) or an open one
 // closes (`disconnected`) -- the errand service's health flag of each runner, which every agent of the unit reads.
@@ -82,31 +82,6 @@ function preambleOf(
   return composePreamble({ prompts: { preambles: hot?.prompts?.preambles }, agent, model: runModel });
 }
 
-/** A progress line of errand `id` to `listeners`, under `agent`, the agent of its run; dropped for an unknown id. */
-function notifyProgress(
-  listeners: ReadonlySet<Parameters<ErrandClient['onProgress']>[0]>,
-  log: Pick<typeof defaultLog, 'warn'>,
-  agent: string | undefined,
-  id: string,
-  line: Untyped
-): void {
-  if (agent === undefined) return;
-  const event = {
-    agent,
-    id,
-    step: Number(line.step) || 0,
-    tool: typeof line.tool === 'string' ? line.tool : null,
-    note: String(line.note ?? ''),
-  };
-  for (const fn of listeners) {
-    try {
-      fn(event);
-    } catch (err) {
-      log.warn('errands: progress listener failed', { agent, id, error: err });
-    }
-  }
-}
-
 /**
  * `hot` holds the live config (`agents.<name>.enabled`) and prompts
  * (`preambles`: read at each run). `connect` opens a socket (tests inject one).
@@ -125,7 +100,6 @@ export function createErrandClient({
   const pending = new Map<string, Pending>();
   // unit -> the pings waiting for a pong
   const pings = new Map<string, Array<{ resolve: (answer: PingAnswer) => void; timer: TimerHandle | null }>>();
-  const progressListeners = new Set<Parameters<ErrandClient['onProgress']>[0]>();
   const linkListeners = new Set<Parameters<ErrandClient['onLink']>[0]>();
   let closed = false;
 
@@ -175,10 +149,6 @@ export function createErrandClient({
       return;
     }
     const id = textOf(line.id) || null;
-    if (line.event === 'progress' && id) {
-      notifyProgress(progressListeners, log, pending.get(id)?.agent, id, line);
-      return;
-    }
     if ((line.event === 'end' || line.event === 'error') && id && pending.has(id)) {
       // `has` was just checked, so the entry is there.
       const entry = pending.get(id)!;
@@ -403,14 +373,6 @@ export function createErrandClient({
     });
   }
 
-  function onProgress(fn: Parameters<ErrandClient['onProgress']>[0]): () => void {
-    if (typeof fn !== 'function') return () => {};
-    progressListeners.add(fn);
-    return () => {
-      progressListeners.delete(fn);
-    };
-  }
-
   function onLink(fn: Parameters<ErrandClient['onLink']>[0]): () => void {
     if (typeof fn !== 'function') return () => {};
     linkListeners.add(fn);
@@ -439,7 +401,6 @@ export function createErrandClient({
     run,
     cancel,
     ping,
-    onProgress,
     onLink,
     configured: (agent) => linkOf(agent, hot?.config, agentPaths) !== null,
     close,

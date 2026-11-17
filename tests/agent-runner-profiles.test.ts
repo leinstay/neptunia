@@ -293,7 +293,6 @@ test('new reproduction: a prompt swapped for a link after the check does not rea
       goal: 'inspect synthetic files',
       context: {},
       signal: new AbortController().signal,
-      onProgress: () => {},
     });
     for (const call of rig.calls) assert.doesNotMatch(call.brief, /OUTSIDE-SECRET-MARKER/);
   } finally {

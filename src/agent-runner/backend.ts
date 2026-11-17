@@ -834,7 +834,7 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
   }
   const checkPrompt = (): string => readPromptFile(currentProfile().promptFiles);
 
-  async function run(task: Omit<RunnerTask, 'onProgress'> & { onProgress?: RunnerTask['onProgress'] }) {
+  async function run(task: RunnerTask) {
     const scope = scopeOf(task.context);
     const redact = redactorFor(scope);
     const failed = (error: string, text = '') => ({

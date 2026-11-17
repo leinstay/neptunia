@@ -1,8 +1,7 @@
 // The JSON-lines protocol between the bot (the core) and an agent runner, one
 // object per line over the runner's Unix socket. The core asks (`run`,
-// `cancel`, `ping`); the runner answers with `progress` events while a task
-// works and exactly one `end` per task. This module only validates what comes
-// in and shapes what goes out: no I/O, so a malformed line from either side is
+// `cancel`, `ping`); the runner answers exactly one `end` per task. This
+// module only validates what comes in and shapes what goes out: no I/O, so a malformed line from either side is
 // refused here before anything acts on it. The task id ends up in a file path
 // (`<outDir>/<id>/`), so it is restricted to a safe character set. A `run` may
 // carry the task's secrets (the model key, the proxy, the search key: every key
@@ -68,7 +67,6 @@ export type RunnerTask = Omit<RunRequest, 'op' | 'limits' | 'searchProvider'> & 
   limits?: Record<string, unknown>;
   searchProvider?: string | null;
   signal: AbortSignal;
-  onProgress: (progress: { step: number; tool: string | null; note: string }) => void;
 };
 
 /** What the task engine gives back. */
@@ -332,33 +330,6 @@ export function encodeLine(obj: object): string {
 /** A finite non-negative number, else 0. */
 function count(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
-}
-
-/**
- * A `progress` event: `{ id, event: 'progress', step, tool, note }`; `tool`
- * is null for a step without a tool call, `note` is cut to 200 characters.
- */
-export function progressEvent({
-  id,
-  step,
-  tool = null,
-  note = '',
-}: {
-  id: string;
-  step: number;
-  tool?: string | null;
-  note?: string;
-}): object {
-  return {
-    id,
-    event: 'progress',
-    step: count(step),
-    tool: typeof tool === 'string' && tool ? tool : null,
-    note: String(note ?? '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, MAX_NOTE_CHARS),
-  };
 }
 
 /** A result in its protocol shape: `{ text, sources: [url], files: [{ path, name, contentType, bytes }] }`,
