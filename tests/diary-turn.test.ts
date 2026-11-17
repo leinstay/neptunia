@@ -146,7 +146,6 @@ function fakeLlm(plan: Untyped, post: Untyped) {
         // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
         return { text: planAnswerText(plan, opts), usage: {}, estimated: 5 };
       }
-      if (opts?.purpose === 'diary-judge') return { text: '{"repeats":false,"what":""}', usage: {}, estimated: 5 };
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;
       return completionOf(answer);
@@ -315,10 +314,8 @@ test('diary turn: plans on the analyzer model, then composes with the card', asy
   });
 
   assert.equal(loose(result).outcome, 'spoke');
-  // The judge reads the brief against the past status entry between the plan and the post
-  // (specs/2026-11-17-diary-similarity-judge.md), so three requests go out where two did.
-  assert.equal(llm.calls.length, 3);
-  const [plan, , compose] = llm.calls;
+  assert.equal(llm.calls.length, 2);
+  const [plan, compose] = llm.calls;
   // Slice 6: the planner is a frame request: the persona is its system message and the planner prompt its `<task>`,
   // the time is in `<spatial_awareness>`, the kinds and the seeds in `<inner>`.
   assert.ok(String(plan[0].content).includes('CARD_TEXT'), 'the planner is the persona');
@@ -1348,8 +1345,7 @@ test("the writer's <diary> is cut at diary.writerEntries, whatever diary.entries
 test('two compose requests with nothing stored between them hold the same <plan> and <diary>', async () => {
   // Bug: something per request (a clock, a draw, an unordered set) enters the plan or the list and breaks the cache.
   // Her answer skips, so the first turn stores nothing for the second to read.
-  // The openings left `<plan>` with the judge of the brief (specs/2026-11-17-diary-similarity-judge.md), so the plan
-  // is checked for its brief instead of its openings.
+  // `<plan>` holds no list of openings, so the plan is checked for its brief.
   const run = await frameTurn({ entries: 6, answer: '<skip/>', turns: 2 });
   assert.equal(run.writer.length, 2, 'one compose request per turn');
   const [first = '', second = ''] = run.writer.map((text) => blockOf(text, 'inner'));

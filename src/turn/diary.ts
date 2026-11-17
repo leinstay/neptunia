@@ -21,18 +21,13 @@ import {
   DEFAULT_SET_KINDS,
   drawWeights,
   DIARY_KINDS,
-  DIARY_JUDGE_FORMAT,
   diaryPlanFormat,
   diaryTopic,
   isSetKind,
-  JUDGE_BRIEFS,
-  judgeEntriesBody,
-  parseJudgeAnswer,
   parsePlanAnswer,
   pickKind,
   planSeed,
   renderKindsBlock,
-  renderRejectedBlock,
   renderSeedsBlock,
   renderTopicBlock,
   SEED_SETS,
@@ -42,7 +37,6 @@ import {
   withoutPictureKinds,
 } from '../behavior/diary.ts';
 import { parseSeedFamilies, pickSeeds } from '../behavior/seeds.ts';
-import { block, fillPromptTemplate } from './request/text.ts';
 import { pictureGate } from '../behavior/diary-turn.ts';
 import type { PictureGate } from '../behavior/diary-turn.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
@@ -67,11 +61,7 @@ type DiarySection = {
 /** The live config of a diary post: the `diary` section; the settings functions read their own sections. */
 export type DiaryConfig = Parameters<typeof pictureGate>[0]['config'] & {
   diary?: DiarySection | null;
-  bot?: { timezone?: string } | null;
 };
-
-/** How long the judge's answer may be: a boolean and one or two sentences. */
-const JUDGE_MAX_OUTPUT_TOKENS = 400;
 
 /** The prompt files and labels the plan request reads (hot.prompts). */
 type DiaryPrompts = Record<string, unknown> & { labels?: unknown };
@@ -87,14 +77,8 @@ export type DiaryStore = {
 /** The messages of a request, as the client sends them. */
 type PlanMessages = ReadonlyArray<{ role: string; content: unknown }>;
 
-/**
- * What the planner chooses from, each already rendered: the kinds, the seeds, the owner's topic and the stored facts,
- * and the brief the judge turned down with its reason ('' on the first request).
- */
-export type PlanParts = { kinds: string; seeds: string; topic: string; facts: string; rejected: string };
-
-/** What the judge did with a plan: how many briefs the planner wrote and whether the judge passed the last one. */
-export type PlanJudge = { briefs: number; passed: boolean };
+/** What the planner chooses from, each already rendered: the kinds, the seeds, the owner's topic and the stored facts. */
+export type PlanParts = { kinds: string; seeds: string; topic: string; facts: string };
 
 /** The language model client (src/llm/openrouter.ts#createLlm), as the plan request uses it. */
 export type DiaryLlm = {
@@ -129,7 +113,7 @@ type DiaryParams = { kind?: unknown; topic?: unknown; forced?: unknown } | null 
 export type PlanSeeding = { seeds: Array<Array<string>>; seed: number };
 
 /** The plan of a diary post, with the owner's topic when there is one and its seeding when the planner answered. */
-type DiaryPlan = ReturnType<typeof validatePlan> & { topic?: string; seeding?: PlanSeeding; judge?: PlanJudge };
+type DiaryPlan = ReturnType<typeof validatePlan> & { topic?: string; seeding?: PlanSeeding };
 
 export type DiaryPrepared = {
   posts: Array<object>;
@@ -147,8 +131,6 @@ export type Diary = {
     now: number;
     params: DiaryParams;
     memoryOn: boolean;
-    /** Her name, filled into the judge's prompt. */
-    name: string;
     /** The planner's request on the turn frame over what it chooses from; null when it cannot be built. */
     planMessages: (parts: PlanParts) => PlanMessages | null;
     draft?:
@@ -239,86 +221,6 @@ export function diaryPlaceNotes(
   return mergedNotes(readable.map((place) => (store.getPlace(place) ?? {}) as PlaceNotes));
 }
 
-/**
- * The judge of a brief (prompts/diary-judge.md on the `analyzer` role, purpose `diary-judge`): it reads the brief
- * against the newest JUDGE_ENTRIES of `posts` of the plan's kind and answers whether it repeats them. On a repeat
- * `replan` asks the planner again with the brief and the reason, up to JUDGE_BRIEFS briefs; the last brief stays
- * whatever the judge said. A plan that fell back, or no entry of its kind, is not judged (null). A judge request
- * that fails ends the step with the brief it was given and leaves no verdict on the plan. A request or token cap throws.
- */
-async function judgedAnswer(
-  ctx: Pick<DiaryContext, 'hot' | 'llm'>,
-  {
-    config,
-    channel,
-    name,
-    posts,
-    labels,
-    first,
-    planOf,
-    replan,
-  }: {
-    config: DiaryConfig;
-    channel: ChatInfo;
-    name: string;
-    posts: ReadonlyArray<object>;
-    labels: unknown;
-    first: Record<string, unknown>;
-    planOf: (answer: unknown) => ReturnType<typeof validatePlan>;
-    replan: (rejected: string) => Promise<Record<string, unknown> | null>;
-  }
-): Promise<{ answer: Record<string, unknown>; judge: PlanJudge | null }> {
-  const { hot, llm } = ctx;
-  const plan = planOf(first);
-  const entries =
-    plan.fallback || !plan.brief || plan.kind === null
-      ? ''
-      : judgeEntriesBody(posts, plan.kind, labels, config.bot?.timezone);
-  if (!entries) return { answer: first, judge: null };
-  const system = fillPromptTemplate(hot.prompts?.['diary-judge'], { name });
-  let answer = first;
-  let brief = plan.brief;
-  for (let briefs = 1; ; briefs += 1) {
-    let verdict: ReturnType<typeof parseJudgeAnswer> = null;
-    let reason = 'unparsed';
-    try {
-      const completion = await llm.complete(
-        [
-          { role: 'system', content: system },
-          { role: 'user', content: [block('brief', brief), block('entries', entries)].join('\n') },
-        ],
-        {
-          model: roleModel(config, 'analyzer', 'diary-judge'),
-          ...roleRequestOptions(config, {
-            role: 'analyzer',
-            maxOutputTokens: JUDGE_MAX_OUTPUT_TOKENS,
-            purpose: 'diary-judge',
-            timeoutMs: config.diary?.planTimeoutMs ?? 60000,
-          }),
-          responseFormat: DIARY_JUDGE_FORMAT,
-        }
-      );
-      verdict = parseJudgeAnswer(textOf(completion));
-    } catch (err) {
-      if (err instanceof DailyCapError || err instanceof TokenLimitError) throw err;
-      reason = railReason(err);
-    }
-    if (!verdict) {
-      log.warn('diary: judge failed', { channel: channel.id, kind: plan.kind, briefs, reason });
-      return { answer, judge: null };
-    }
-    const next =
-      verdict.repeats && briefs < JUDGE_BRIEFS ? await replan(renderRejectedBlock(brief, verdict.what, labels)) : null;
-    const nextPlan = next ? planOf(next) : null;
-    if (!next || !nextPlan || nextPlan.fallback || !nextPlan.brief) {
-      log.info('diary: judged', { channel: channel.id, kind: plan.kind, briefs, passed: !verdict.repeats });
-      return { answer, judge: { briefs, passed: !verdict.repeats } };
-    }
-    answer = next;
-    brief = nextPlan.brief;
-  }
-}
-
 export function createDiary(ctx: DiaryContext): Diary {
   const { hot, store, llm, rng, lookup, images, journalOp, diaryFacts = null } = ctx;
 
@@ -336,7 +238,7 @@ export function createDiary(ctx: DiaryContext): Diary {
    * with an owner's topic (`params.topic`, src/behavior/diary.ts#diaryTopic),
    * a `<topic>` after them, and the stored facts of the interval as `<stored_facts>`; the topic also rides on the plan as its
    * `topic` field (the `<plan>` block of the post). The request hands the client src/behavior/diary.ts#diaryPlanFormat over the kinds it offers,
-   * and the answer goes through parsePlanAnswer and validatePlan, its brief through the judge (judgedAnswer)
+   * and the answer goes through parsePlanAnswer and validatePlan
    * (the given kind with an empty brief when the answer is missing or broken; `diary.searchKinds`,
    * `diary.pictureKinds`). A plan the planner answered keeps its
    * `seeding`: the combinations offered and the answer's `seed` (src/behavior/diary.ts#planSeed). Before the
@@ -361,7 +263,6 @@ export function createDiary(ctx: DiaryContext): Diary {
     now,
     params,
     memoryOn,
-    name,
     planMessages,
     draft = null,
   }: Parameters<Diary['prepareDiary']>[0]): Promise<DiaryPrepared> {
@@ -392,7 +293,6 @@ export function createDiary(ctx: DiaryContext): Diary {
     let offered: Array<Array<string>> = [];
     const planPrompt = prompts?.['diary-planner'];
     let messages: PlanMessages | null = null;
-    let parts: PlanParts | null = null;
     if (typeof planPrompt === 'string' && planPrompt.trim() && labels) {
       const facts = memoryOn ? await reflectionFacts(diaryFacts, store, posts, now, labels, log) : '';
       // The lines the newest entries built on stay out of the draw, so the planner is offered other scenes.
@@ -400,26 +300,14 @@ export function createDiary(ctx: DiaryContext): Diary {
       offered = pickSeeds(parseSeedFamilies(prompts['diary-seeds']), SEED_SETS, rng, used).map((set) =>
         set.map(String)
       );
-      parts = {
+      messages = planMessages({
         kinds: renderKindsBlock(kinds, posts, labels, { window: DEFAULT_HISTORY_POSTS }),
         seeds: renderSeedsBlock(offered, labels),
         topic: renderTopicBlock(topic, labels),
         facts,
-        rejected: '',
-      };
-      messages = planMessages(parts);
+      });
     }
-    const planOf = (given: unknown): ReturnType<typeof validatePlan> =>
-      validatePlan(
-        chosenKind && given && typeof given === 'object' && !Array.isArray(given)
-          ? { ...given, kind: chosenKind }
-          : given,
-        kinds,
-        { pictureAllowed, searchKinds: DEFAULT_SEARCH_KINDS, pictureKinds: DEFAULT_PICTURE_KINDS },
-        rng
-      );
-    let judge: PlanJudge | null = null;
-    if (messages && parts) {
+    if (messages) {
       const planTimeoutMs = diaryCfg.planTimeoutMs ?? 60000;
       // A hedged plan request gets the plan's own limit, not llm.hedge.timeoutMs.
       const hedge = hedgeSettings(config);
@@ -428,68 +316,48 @@ export function createDiary(ctx: DiaryContext): Diary {
           ? { hedge: { afterMs: hedge.afterMs, timeoutMs: planTimeoutMs } }
           : {};
       const offeredKinds = Object.keys(kinds);
-      /** One plan request: the planner's answer read strictly, or null when it failed or broke. */
-      const askPlanner = async (request: PlanMessages): Promise<Record<string, unknown> | null> => {
-        let completion: unknown = null;
-        try {
-          completion = await llm.complete(request, {
-            model: roleModel(config, 'analyzer', 'diary-planner'),
-            ...roleRequestOptions(config, {
-              role: 'analyzer',
-              maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
-              purpose: 'diary-planner',
-              timeoutMs: planTimeoutMs,
-            }),
-            ...planHedge,
-            responseFormat: diaryPlanFormat(offeredKinds),
-          });
-        } catch (err) {
-          if (err instanceof DailyCapError || err instanceof TokenLimitError) throw err;
-          log.warn('diary: plan failed', {
-            channel: channel.id,
-            reason: railReason(err),
-            // A thrown value is anything; an HTTP error of the client carries its status.
-            status: (err as { statusCode?: unknown } | null)?.statusCode ?? null,
-          });
-          return null;
-        }
-        const parsed = parsePlanAnswer(textOf(completion), offeredKinds);
-        if (!parsed) log.warn('diary: plan failed', { channel: channel.id, reason: 'unparsed', status: null });
-        return parsed;
-      };
-      const first = await askPlanner(messages);
-      const planParts = parts;
-      const judged = first
-        ? await judgedAnswer(
-            { hot, llm },
-            {
-              config,
-              channel,
-              name,
-              posts,
-              labels,
-              first,
-              planOf,
-              // The same request with the same kind and seeds, and the brief turned down with the judge's reason.
-              replan: (rejected) => {
-                const again = planMessages({ ...planParts, rejected });
-                return again ? askPlanner(again) : Promise.resolve(null);
-              },
-            }
-          )
-        : null;
-      answer = judged?.answer ?? null;
-      judge = judged?.judge ?? null;
+      let completion: unknown = null;
+      try {
+        completion = await llm.complete(messages, {
+          model: roleModel(config, 'analyzer', 'diary-planner'),
+          ...roleRequestOptions(config, {
+            role: 'analyzer',
+            maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
+            purpose: 'diary-planner',
+            timeoutMs: planTimeoutMs,
+          }),
+          ...planHedge,
+          responseFormat: diaryPlanFormat(offeredKinds),
+        });
+      } catch (err) {
+        if (err instanceof DailyCapError || err instanceof TokenLimitError) throw err;
+        log.warn('diary: plan failed', {
+          channel: channel.id,
+          reason: railReason(err),
+          // A thrown value is anything; an HTTP error of the client carries its status.
+          status: (err as { statusCode?: unknown } | null)?.statusCode ?? null,
+        });
+      }
+      if (completion) {
+        answer = parsePlanAnswer(textOf(completion), offeredKinds);
+        if (!answer) log.warn('diary: plan failed', { channel: channel.id, reason: 'unparsed', status: null });
+      }
     } else {
       log.warn('diary: plan failed', { channel: channel.id, reason: 'no-prompt', status: null });
     }
-    const validated = planOf(answer);
+    if (chosenKind && answer && typeof answer === 'object' && !Array.isArray(answer))
+      answer = { ...answer, kind: chosenKind };
+    const validated = validatePlan(
+      answer,
+      kinds,
+      { pictureAllowed, searchKinds: DEFAULT_SEARCH_KINDS, pictureKinds: DEFAULT_PICTURE_KINDS },
+      rng
+    );
     // The owner's topic reaches the post even when the planner ignored it.
     const plan: DiaryPlan = {
       ...validated,
       ...(topic ? { topic } : {}),
       ...(validated.fallback ? {} : { seeding: { seeds: offered, seed: planSeed(answer, offered.length) } }),
-      ...(judge ? { judge } : {}),
     };
 
     let found: string | null = null;

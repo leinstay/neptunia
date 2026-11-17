@@ -134,7 +134,6 @@ const NOT_BUILT = {
   // reaches; tests/diary-turn.test.ts and tests/diary-planner.test.ts check what it loads.
   'diary-planner':
     'built on the turn frame by the diary turn (src/behavior/diary.ts), checked in tests/diary-turn.test.ts',
-  'diary-judge': 'sent by the diary turn after its plan (src/turn/diary.ts), checked in tests/diary-drawn-plan.test.ts',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
   // agent runner process (src/agent-runner/profiles.ts), never by a bot request.
 };

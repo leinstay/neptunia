@@ -1008,7 +1008,7 @@ type DiaryPostOptions = {
   text?: string;
   itemId?: string;
   /** What the planner planned: its brief, the seed combinations offered and the 1-based one taken (0 for none). */
-  plan?: { brief: string; seeds: Array<Array<string>>; seed: number; judge?: { briefs: number; passed: boolean } };
+  plan?: { brief: string; seeds: Array<Array<string>>; seed: number };
 };
 
 /** A copy of the persona's diary unit as `getDiary` returns it. */

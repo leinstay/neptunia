@@ -150,9 +150,6 @@ export const DIARY_KINDS: Readonly<Record<string, number>> = Object.freeze({
 });
 /** The seed sets a post's request carries. */
 export const SEED_SETS = 2;
-/** How many of her newest entries of the plan's kind the judge reads, and how many briefs the planner writes at most. */
-export const JUDGE_ENTRIES = 10;
-export const JUDGE_BRIEFS = 3;
 export const DEFAULT_SEARCH_KINDS: Array<string> = ['news', 'facts'];
 /** The messages one diary post sends at most. */
 export const DIARY_MAX_MESSAGES = 3;
@@ -665,47 +662,6 @@ export function renderDiaryBlock(
     return line + pictureSuffix(post, labels);
   });
   return [words.intro, ...lines].filter(Boolean).join('\n');
-}
-
-/**
- * The body of the judge's `<entries>` block: the newest `JUDGE_ENTRIES` of `posts` (oldest first) of `kind`, one
- * `labels.diary.line` each with its picture as renderDiaryBlock shows it, newest first. '' when there is none.
- */
-export function judgeEntriesBody(posts: unknown, kind: string, labels: unknown, timezone?: string): string {
-  return renderDiaryBlock(
-    listOf(posts).filter((post) => objOf(post).kind === kind),
-    { ...objOf(labels), diary: { ...diaryWords(labels), intro: '' } },
-    { timezone, max: JUDGE_ENTRIES }
-  );
-}
-
-/**
- * The schema of the judge's answer, handed to the client as `responseFormat`: `{ "repeats", "what" }`.
- */
-export const DIARY_JUDGE_FORMAT: { name: string; schema: object } = Object.freeze({
-  name: 'diary-judge',
-  schema: {
-    type: 'object',
-    properties: { repeats: { type: 'boolean' }, what: { type: 'string' } },
-    required: ['repeats', 'what'],
-    additionalProperties: false,
-  },
-});
-
-/** The judge's answer `text` read strictly: the object of DIARY_JUDGE_FORMAT, else null. Pure. */
-export function parseJudgeAnswer(text: unknown): { repeats: boolean; what: string } | null {
-  const answer = strictJsonObject(text);
-  if (!answer) return null;
-  const { repeats, what } = answer;
-  return typeof repeats === 'boolean' && typeof what === 'string' ? { repeats, what } : null;
-}
-
-/**
- * The body of the planner's `<rejected>` block: `labels.diary.rejected` with `{brief}`, the brief the judge turned
- * down, and `{what}`, the judge's reason.
- */
-export function renderRejectedBlock(brief: string, what: string, labels: unknown): string {
-  return fill(labelOf(diaryWords(labels).rejected), { brief, what: oneLine(what) });
 }
 
 /**

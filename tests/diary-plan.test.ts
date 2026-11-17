@@ -54,8 +54,7 @@ function offered(user: string): Array<Array<string>> {
 /** One diary wake whose planner answers `answer`, after the entries `earlier`: the plan request's user text. */
 async function wake(
   answer: Record<string, unknown>,
-  earlier: Array<Post> = [],
-  kind: string | null = null
+  earlier: Array<Post> = []
 ): Promise<{ scene: SceneMemory; user: string }> {
   const scene = await sceneMemory();
   OPEN.push(scene);
@@ -63,14 +62,11 @@ async function wake(
   sceneWorld();
   const hot = sceneHot();
   hot.prompts['diary-seeds'] = SEEDS;
-  hot.prompts['diary-judge'] = 'JUDGE for {{name}}';
   const plans: Array<Array<{ content: unknown }>> = [];
   const llm = {
     calls: [] as Array<unknown>,
     // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
     complete: (messages: Array<{ content: unknown }>, options?: { purpose?: string }) => {
-      if (options?.purpose === 'diary-judge')
-        return Promise.resolve({ text: JSON.stringify({ repeats: false, what: '' }), usage: {}, estimated: 5 });
       const planning = options?.purpose === PLANNER_PURPOSE;
       if (planning) plans.push(structuredClone(messages));
       const kind = offeredKind(options);
@@ -92,7 +88,7 @@ async function wake(
   });
   const result = await runner.runTurn({
     mode: 'diary',
-    diary: { kind, forced: kind !== null },
+    diary: { kind: null, forced: false },
     placeId: 'g1',
   });
   assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the wake records an entry');
@@ -117,13 +113,6 @@ test('an entry written after a plan keeps the brief, the combinations offered an
   // Bug: the plan is dropped on the way to the writer, so nothing can tell which seed an entry used.
   const { scene, user } = await wake(planAnswer(2));
   assert.deepEqual(newest(scene.store).plan, { brief: BRIEF, seeds: offered(user), seed: 2 });
-});
-
-test('an entry whose brief the judge read keeps how many briefs were written and whether the last passed', async () => {
-  // Bug: the entry does not say whether its brief was judged, so a repeat that went out cannot be found again.
-  const earlier = plannedEntry([['a pier', 'fog']], 1);
-  const { scene } = await wake(planAnswer(0), [earlier], 'status');
-  assert.deepEqual(newest(scene.store).plan?.judge, { briefs: 1, passed: true });
 });
 
 test('the plan of an entry is still there after the database is reopened', async () => {

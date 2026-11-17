@@ -438,7 +438,6 @@ export const labels = {
     found: 'What the search found. Retell it in your own words; no links, no quoting.',
     seeds: 'Random seeds (place; setting; detail; activity; subject; twist):',
     topic: 'Topic the owner asked for:',
-    rejected: 'Rejected brief: {brief}\nWhy: {what}',
     publicationPlaces: 'Who may read this post, and the audience tag:',
     publicationPlace: '{place} {name}, on {iface}',
     audienceRefused: 'not published {date}: {gist}: {reason}',
