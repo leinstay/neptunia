@@ -10,14 +10,17 @@ import assert from 'node:assert/strict';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { Frame } from '../src/turn/request/frame.ts';
 import { meanwhileText, meanwhileWindows } from '../src/turn/request/meanwhile.ts';
+// A namespace import, so the file loads while `meanwhileReadsOf` is still missing and only its test fails.
+import * as meanwhileModule from '../src/turn/request/meanwhile.ts';
 import { formatDate } from '../src/format.ts';
-import { DM, DM_CHAIN, PARTNER, frameInput } from './fixtures/frame-input.ts';
+import { DM, DM_CHAIN, PARTNER, frameInput, wakeInput } from './fixtures/frame-input.ts';
 import { line, meanwhileReads } from './fixtures/meanwhile-reads.ts';
 import type { FakePlace } from './fixtures/meanwhile-reads.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
-import { linesAroundOf, ownLinesOf } from '../src/memory/db/frame-reads.ts';
+import { frameReadsOver, linesAroundOf, ownLinesOf } from '../src/memory/db/frame-reads.ts';
+import type { Db, Statement } from '../src/memory/db/types.ts';
 import { linkedDmScopes } from '../src/memory/db/person-links.ts';
-import { issueContext } from '../src/memory/db/scope.ts';
+import { internalContext, issueContext } from '../src/memory/db/scope.ts';
 import {
   addDm,
   addLine,
@@ -426,4 +429,63 @@ test('a head label that uses only {path} and {date} still renders the reference 
     head
   );
   assert.ok(head.endsWith(`${formatDate(NOW - 30 * MIN, 'UTC', shippedLabels.locale)}:`), head);
+});
+
+/** `db` with a count of the statements it runs. */
+function counting(db: Db): { db: Db; ran: () => number } {
+  let ran = 0;
+  const prepare = (sql: string): Statement => {
+    const statement = db.prepare(sql);
+    return {
+      get: (...params) => ((ran += 1), statement.get(...params)),
+      all: (...params) => ((ran += 1), statement.all(...params)),
+      run: (...params) => ((ran += 1), statement.run(...params)),
+      iterate: (...params) => ((ran += 1), statement.iterate(...params)),
+    };
+  };
+  return { db: { prepare, exec: (sql) => db.exec(sql) }, ran: () => ran };
+}
+
+/**
+ * The bound on the statements of a placeless turn's `<meanwhile>` over 3 places, whatever the number of her lines: her
+ * lines and their media (2), the path of each place (4 each, 12), and per place one read of every window and one of
+ * their media (6).
+ */
+const SERVICE_MEANWHILE_STATEMENTS = 20;
+
+test('a turn with no place reads the windows of her last 100 lines in 3 places in statements that do not grow with her lines', () => {
+  // Bug (report 2026-11-17-diary-turn-stall): each of her 100 lines took two window reads and a media read, 300
+  // statements that held the event loop for 7.4 s in each diary request.
+  const world = openWorld();
+  try {
+    noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+    const rooms = ['c31', 'c32', 'c33'].map((native) =>
+      addRoom(world.db, { iface: 'fake', native, root: rootId('fake', 'g1'), name: `room ${native}` })
+    );
+    const start = Date.parse('2026-11-05T00:00:00.000Z');
+    for (let i = 0; i < 240; i += 1)
+      addLine(world.db, {
+        id: `src:fake:w${i}:1:seen`,
+        iface: 'fake',
+        place: rooms[i % 3] ?? '',
+        author: i % 2 === 0 ? 'self' : 'account:fake:5150',
+        text: `line ${i}`,
+        at: new Date(start + i * MIN).toISOString(),
+      });
+    const { db, ran } = counting(world.db);
+    const readsOf = meanwhileModule.meanwhileReadsOf;
+    const reads = readsOf(
+      frameReadsOver(
+        () => db,
+        () => ({})
+      ),
+      internalContext(),
+      null
+    );
+    const windows = meanwhileWindows(reads, frameOf(wakeInput('heartbeat')), { messages: 100, around: 2 });
+    assert.equal(windows.length, 3);
+    assert.ok(ran() <= SERVICE_MEANWHILE_STATEMENTS, `${ran()} statements`);
+  } finally {
+    world.close();
+  }
 });
