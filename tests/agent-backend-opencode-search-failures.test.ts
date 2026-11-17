@@ -128,8 +128,6 @@ test('the engine puts the count on the task result of an opencode run', async ()
     name: 'scout',
     agentId: 'errand-scout',
     promptFiles: [prompt],
-    modelRole: 'scout',
-    defaultModel: 'x',
     defaultLimits: { steps: 5, seconds: 30 },
     defaultSearchProvider: 'exa',
     sandbox: 'read-only',

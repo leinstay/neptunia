@@ -895,7 +895,6 @@ function rig() {
     baseUrl: () => BASE_URL,
     defaults: {},
     currentModel: () => '',
-    saveModel: () => Promise.resolve(),
     pause: fakePause(),
   });
   const deps: ConsoleDeps = {

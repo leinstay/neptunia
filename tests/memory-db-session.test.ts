@@ -23,7 +23,7 @@ import * as memoryIds from '../src/memory/db/ids.ts';
 import { groupContext, whereFor } from '../src/memory/db/scope.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { estimateMessages } from '../src/llm/tokens.ts';
-import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.ts';
+import { MEMORY_ROLE_DEFAULT, roleModel } from '../src/llm/roles.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 import {
@@ -61,8 +61,6 @@ import { openWorld } from './fixtures/memory-db/mind-world.ts';
 
 // Its key variable went with `llm.keyByRole`: the key ring routes the role (src/keys/ring.ts).
 test('the memory role: its own chain and its own default model', () => {
-  // Changed: a base role's model is its chain's (spec 2026-11-09-model-routes, slice 4), so it has no config key.
-  assert.equal(roleConfigKeys(MEMORY_ROLE), undefined);
   assert.equal(roleModel({ models: { routes: chainsOf({ memory: 'x/m', core: 'x/c' }) } }, 'memory'), 'x/m');
   assert.equal(
     roleModel({ models: { routes: chainsOf({ core: 'x/c' }) } }, 'memory'),

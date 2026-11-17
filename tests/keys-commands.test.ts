@@ -38,11 +38,10 @@ const DEFAULTS = Object.fromEntries(MANDATORY.map((role) => [role, `default/${ro
 
 const api = (key: string, model: string): Route => ({ via: 'api', key, model, effort: null });
 
-/** The key commands over `store` and a map of chains, with `pause`; what `model set` of an agent saved. */
+/** The key commands over `store` and a map of chains, with `pause`. */
 function commandsOver(store: KeyStore, pause: PauseControl, fetch: typeof globalThis.fetch) {
   const chains: Partial<Record<RouteRole, Array<Route>>> = {};
   const chainOf = (role: string): Array<Route> => (isRouteRole(role) ? (chains[role] ?? []) : []);
-  const saved: Array<[string, string]> = [];
   const keys = createKeysCommands({
     store,
     ring: chainRing(store, chainOf),
@@ -50,10 +49,6 @@ function commandsOver(store: KeyStore, pause: PauseControl, fetch: typeof global
     baseUrl: () => BASE_URL,
     defaults: DEFAULTS,
     currentModel: (role) => chainOf(role)[0]?.model ?? '',
-    saveModel: (role, model) => {
-      saved.push([role, model]);
-      return Promise.resolve();
-    },
     pause,
     chainOf,
     saveRoutes: (role, routes) => {
@@ -61,7 +56,7 @@ function commandsOver(store: KeyStore, pause: PauseControl, fetch: typeof global
       return Promise.resolve();
     },
   });
-  return { keys, chains, saved };
+  return { keys, chains };
 }
 
 function rig(answer: (call: Call) => Reply = healthy, paused: string | null = null) {
@@ -69,14 +64,14 @@ function rig(answer: (call: Call) => Reply = healthy, paused: string | null = nu
   const store = createKeyStore({ privateDir });
   const { fetch, calls } = fakeFetch(answer);
   const pause = fakePause(paused);
-  const { keys, chains, saved } = commandsOver(store, pause, fetch);
-  return { keys, store, calls, pause, chains, saved, file: path.join(privateDir, KEYS_FILE) };
+  const { keys, chains } = commandsOver(store, pause, fetch);
+  return { keys, store, calls, pause, chains, file: path.join(privateDir, KEYS_FILE) };
 }
 
 const BLANKS = ['', '', '', ''];
 
 test('the first key asks the value without echo, then the four models with the defaults offered, checks each and writes their chains', async () => {
-  const { keys, store, calls, chains, saved } = rig();
+  const { keys, store, calls, chains } = rig();
   const { dialog, asked } = scriptedDialog([SECRET, 'custom/core', '', '', '']);
   const answer = await keys.run('keys.add', { name: 'core-1' }, dialog);
   assert.equal(answer.status, 'ok');
@@ -93,7 +88,6 @@ test('the first key asks the value without echo, then the four models with the d
     analyzer: [api('core-1', 'default/analyzer')],
     embedding: [api('core-1', 'default/embedding')],
   });
-  assert.deepEqual(saved, [], 'no model is saved outside the chains');
   assert.deepEqual(store.names(), ['core-1']);
   assert.deepEqual(calls.map((call) => call.body?.model).sort(), [
     'custom/core',
@@ -279,16 +273,6 @@ test('keys check with no key for the role fails without sending anything', async
   assert.deepEqual(calls, []);
 });
 
-test('model set for an errand role saves at once: its ids are not OpenRouter model ids', async () => {
-  const { keys, saved, calls } = rig();
-  // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
-  for (const role of ['scout', 'server'])
-    assert.equal((await keys.run('model.set', { role, model: 'openrouter/x/model' }, null)).status, 'ok', role);
-  // Bug caught: a chat completion sent for an OpenCode id, which OpenRouter answers with 404 and blocks the change.
-  assert.deepEqual(calls, []);
-  assert.equal(saved.length, 2);
-});
-
 test('the table parses the keys commands to the names and arguments the commands answer to', () => {
   const parsed = (line: string) => {
     const result = parseCommandLine(line);
@@ -341,7 +325,6 @@ function checkMemoryRig({
     baseUrl: () => BASE_URL,
     defaults: {},
     currentModel: () => 'x/memory',
-    saveModel: () => Promise.resolve(),
     pause: fakePause(null),
     memoryPath: () => path,
     probeMemory: () => {

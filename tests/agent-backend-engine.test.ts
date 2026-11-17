@@ -36,8 +36,6 @@ function engineRig(backend: 'codex' | 'claude' | 'opencode' | null, agent: strin
     name: agent,
     agentId: `errand-${agent}`,
     promptFiles: [prompt],
-    modelRole: agent,
-    defaultModel: 'x',
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
     search: false,

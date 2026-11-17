@@ -29,8 +29,6 @@ function engineOver(base: string, subharness: RunDeps) {
     name: 'scout',
     agentId: 'errand-scout',
     promptFiles: [prompt],
-    modelRole: 'scout',
-    defaultModel: 'x',
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
     search: false,
@@ -66,10 +64,11 @@ function fakeRig() {
   return { engine, calls };
 }
 
-test("a task's route picks the backend, model, effort and sandbox of the run, over keys.json and the task's role model", async () => {
-  // Catches: the engine drops the route, or the role model of the line beats the model the owner set.
+// Changed: the run line carries no role model, so the route is the one source of the model (owner, 2026-11-17).
+test("a task's route picks the backend, model, effort and sandbox of the run, over keys.json", async () => {
+  // Catches: the engine drops the route, so the run goes out on another backend or model than the owner set.
   const { engine, calls } = fakeRig();
-  const outcome = await engine.run({ ...TASK, id: 'r1', model: 'role-model', route: ROUTE });
+  const outcome = await engine.run({ ...TASK, id: 'r1', route: ROUTE });
   assert.equal(outcome.status, 'done');
   assert.equal(calls[0]?.name, 'claude');
   assert.equal(calls[0]?.options.model, 'claude-opus-5-5');

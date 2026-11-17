@@ -37,7 +37,6 @@ function rig(chains: Partial<Record<RouteRole, Array<Route>>> = {}, answer: (cal
     baseUrl: () => BASE_URL,
     defaults: {},
     currentModel: (role) => (isRouteRole(role) ? firstModel(held[role]) : ''),
-    saveModel: () => Promise.resolve(),
     pause,
     chainOf: (role) => held[role] ?? [],
     saveRoutes: (role, routes) => {

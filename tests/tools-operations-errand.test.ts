@@ -133,7 +133,7 @@ test('errand.run: a member may run the scout agent; the answer is at once, the e
       { steps: 25, seconds: 300 },
       'the profile defaults under agents.scout.limits'
     );
-    assert.equal(Object.hasOwn(client.runs[0], 'model'), false, 'no model: the runner takes models.errands.scout');
+    assert.equal(Object.hasOwn(client.runs[0], 'model'), false, 'no model: the runner takes the model of the route');
     assert.equal(stores.get()?.get(id)?.state, 'running');
     client.end(id);
     await errands.idle();

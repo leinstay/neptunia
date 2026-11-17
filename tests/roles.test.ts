@@ -1,5 +1,6 @@
-// Tests for src/llm/roles.ts (the model roles in two groups: the core, its helpers and drawing on the first route of
-// their chains in `models.routes`, and `models.errands` for the errand agents; one resolver, no cross-role fallback), src/config.ts#readConfig and the call sites.
+// Tests for src/llm/roles.ts (the model roles: the core, its helpers and drawing on the first route of their chains in
+// `models.routes`; the errand agents are no model role; one resolver, no cross-role fallback), src/config.ts#readConfig
+// and the call sites.
 // Changed: `models.base` is retired (spec 2026-11-09-model-routes, slice 4), so a base role's model comes from its chain.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,14 +10,10 @@ import { fileURLToPath } from 'node:url';
 import {
   BASE_ROLES,
   CORE_ROLES,
-  ERRAND_ROLES,
   MEMORY_ROLE,
-  OPENCODE_ROLES,
-  ROLES,
   ROLE_DEFAULTS,
   PURPOSE_ROLES,
-  roleConfigKeys,
-  roleGroup,
+  isModelRole,
   roleModel,
   roleOn,
   searchModel,
@@ -106,8 +103,9 @@ test('roleModel: a byPurpose that is not a plain object, or an entry that is not
 
 test("roleModel: a mandatory role with no chain takes its own default, never another role's model", () => {
   const config = { models: { routes: { ...on('core', 'x/core'), ...on('analyzer', 'x/analyzer') } } };
-  // Changed: `dev` left the roles with the development agents (maintainer, 2026-11-16).
-  for (const role of ['embedding', 'memory', 'scout', 'server'])
+  // Changed: `dev` left the roles with the development agents (maintainer, 2026-11-16), and `scout` and `server` with
+  // `models.errands` (owner, 2026-11-17): an agent runs on the model of its route.
+  for (const role of ['embedding', 'memory'])
     assert.equal(roleModel(config, role), ROLE_DEFAULTS[role] ?? ROLE_DEFAULTS.core, role);
   assert.equal(roleModel(undefined, 'core'), ROLE_DEFAULTS.core);
   assert.equal(roleModel({ models: { routes: { analyzer: [] } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
@@ -128,27 +126,19 @@ test('roleModel: undefined for a name that is not a role, unless its purpose is 
   assert.equal(roleModel({ models: { byPurpose: { odd: 'x/odd' } } }, 'nope', 'odd'), 'x/odd');
 });
 
-test('roleModel: each role reads its own group only', () => {
+// Changed: the agents left the model roles with `models.errands` (owner, 2026-11-17), so only the base roles read a
+// model here, each from its own chain.
+test('roleModel: each role reads its own chain only', () => {
   const crossed = {
     models: {
       routes: { scout: [{ via: 'api', key: 'main', model: 'openrouter/x/scout' }] },
       errands: { core: 'x/core', drawing: 'x/draw' },
-      development: { analyzer: 'x/an', server: 'openrouter/x/server' },
+      development: { analyzer: 'x/an' },
     },
   };
-  for (const role of ['core', 'analyzer', 'scout', 'server'])
-    assert.equal(roleModel(crossed, role), ROLE_DEFAULTS[role], role);
+  for (const role of ['core', 'analyzer']) assert.equal(roleModel(crossed, role), ROLE_DEFAULTS[role], role);
   assert.equal(roleModel(crossed, 'drawing'), undefined, 'an optional role named in another group stays off');
-  const own = {
-    models: {
-      routes: on('drawing', 'x/draw'),
-      errands: { scout: 'openrouter/x/scout' },
-    },
-  };
-  assert.equal(roleModel(own, 'drawing'), 'x/draw');
-  assert.equal(roleModel(own, 'scout'), 'openrouter/x/scout');
-  // Changed: the `dev` role and its `models.development` group are gone (maintainer, 2026-11-16).
-  assert.equal(roleModel(own, 'server'), ROLE_DEFAULTS.server, "never another agent role's model");
+  assert.equal(roleModel({ models: { routes: on('drawing', 'x/draw') } }, 'drawing'), 'x/draw');
   for (const models of [null, 'x', ['a'], { routes: 7 }, { routes: [], errands: 'x', development: null }])
     assert.equal(roleModel({ models }, 'core'), ROLE_DEFAULTS.core, JSON.stringify(models));
 });
@@ -162,20 +152,14 @@ test("roleModel: the memory role has its own chain and default, never the core's
   );
 });
 
-test("roleGroup / roleConfigKeys: each role's group, and the config keys of an agent's model", () => {
-  // Changed: a base role's model is the first route of its chain, so it has no config key of its own (slice 4).
-  for (const role of [...BASE_ROLES, MEMORY_ROLE]) {
-    assert.equal(roleGroup(role), 'base', role);
-    assert.equal(roleConfigKeys(role), undefined, role);
-  }
-  for (const role of ERRAND_ROLES) {
-    assert.equal(roleGroup(role), 'errands', role);
-    assert.deepEqual(roleConfigKeys(role), ['models', 'errands', role]);
-  }
-  // Changed: the development roles are gone, so `thinker` and `dev` are names of no role (maintainer, 2026-11-16).
-  for (const name of ['byPurpose', 'web', 'voice', 'agents', 'helpers', 'base', 'thinker', 'dev', undefined]) {
-    assert.equal(roleGroup(name), undefined, String(name));
-    assert.equal(roleConfigKeys(name), undefined, String(name));
+// Changed: `roleGroup` and `roleConfigKeys` left with `models.errands`; the errand agents are no model role and run on
+// the model of their route (owner, 2026-11-17).
+test('isModelRole: the base roles and memory are model roles, the errand agents and other names are not', () => {
+  // Catches: an agent read as a model role, so roleModel hands the scout a built-in model its route never named.
+  for (const role of [...BASE_ROLES, MEMORY_ROLE]) assert.equal(isModelRole(role), true, role);
+  for (const name of ['scout', 'server', 'search', 'errands', 'thinker', 'dev', '', undefined, 3]) {
+    assert.equal(isModelRole(name), false, String(name));
+    assert.equal(roleModel({}, String(name)), undefined, String(name));
   }
 });
 
@@ -187,25 +171,23 @@ test("roles: the built-in defaults equal config.json's agent groups, and every r
   assert.deepEqual(Object.keys(shipped.models), [
     'byPurpose',
     'abilities',
-    'errands',
+    // Changed: `models.errands` is retired: an errand agent runs on the model of its route (owner, 2026-11-17).
     // Changed: `models.development` left with the development agents (maintainer, 2026-11-16).
     'agents',
     'routes',
   ]);
   assert.deepEqual(shipped.models.routes, {});
-  assert.deepEqual(Object.keys(shipped.models.errands), [...ERRAND_ROLES]);
   assert.equal(
     roleModel({}, 'memory'),
     roleModel({}, 'core'),
     "with no chain: the built-in default of the memory role is the core's default"
   );
-  const agents = Object.fromEntries(Object.entries(ROLE_DEFAULTS).filter(([role]) => OPENCODE_ROLES.includes(role)));
-  assert.deepEqual({ ...shipped.models.errands }, agents);
   assert.deepEqual(shipped.models.byPurpose, {});
-  assert.deepEqual(Object.keys(ROLE_DEFAULTS).sort(), [...ROLES].sort());
-  assert.deepEqual([...ROLES], [...CORE_ROLES, 'drawing', ...ERRAND_ROLES]);
-  assert.deepEqual([...MODEL_SET_ROLES], [...ROLES], '/nep model set offers every role');
-  for (const role of Object.values(PURPOSE_ROLES)) assert.ok(ROLES.includes(role), role);
+  // Changed: the agents have no built-in model and no `model.set` row (owner, 2026-11-17).
+  assert.deepEqual(Object.keys(ROLE_DEFAULTS).sort(), [...BASE_ROLES].sort());
+  assert.deepEqual([...BASE_ROLES], [...CORE_ROLES, 'drawing']);
+  assert.deepEqual([...MODEL_SET_ROLES], [...BASE_ROLES], '/nep model set offers every role');
+  for (const role of Object.values(PURPOSE_ROLES)) assert.ok(BASE_ROLES.includes(role), role);
 });
 
 // ---- readConfig --------------------------------------------------------------
@@ -275,11 +257,7 @@ test('call sites: every request role is one of the roles, every purpose goes out
     // A semantic predicate's argument also has a `role`; those files send no request.
     const semantic = /memory[\\/]db[\\/]semantic-/.test(file);
     for (const [, role] of semantic ? [] : text.matchAll(/\brole: '([\w.-]+)'/g)) {
-      if (!chatRoles.has(role)) assert.ok(ROLES.includes(role), `${file}: role '${role}'`);
-      assert.ok(
-        !OPENCODE_ROLES.includes(role),
-        `${file}: no request of the bot goes out on the OpenCode role '${role}'`
-      );
+      if (!chatRoles.has(role)) assert.ok(BASE_ROLES.includes(role), `${file}: role '${role}'`);
     }
     for (const [, role, purpose] of text.matchAll(/roleModel\([\w.]+, '([\w-]+)', '([\w-]+)'\)/g)) {
       assert.equal(purposeRoles[purpose], role, `${file}: roleModel for ${purpose}`);

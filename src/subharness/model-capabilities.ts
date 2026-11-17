@@ -12,7 +12,7 @@ import type { BackendName } from '../agent-runner/profiles.ts';
 import { opencodeKey, readRouting, SUBHARNESS_AGENTS } from './routing.ts';
 import { harnessPathOf } from './memory-path.ts';
 import { roleModelListing } from '../keys/models.ts';
-import { BASE_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../llm/roles.ts';
+import { BASE_ROLES, MEMORY_ROLE } from '../llm/roles.ts';
 import { FIXED_MODELS } from './models.ts';
 import { effortLevelsOfHelp } from './place.ts';
 import { sourceState } from './sources.ts';
@@ -84,7 +84,7 @@ const isAgent = (role: string): boolean => SUBHARNESS_AGENTS.some((agent) => age
 /** Every role the chooser offers, Main first, each agent under the group the role table gives it. */
 export function modelRoleRegistry(): Array<ModelRoleRow> {
   const row = (group: ModelRoleRow['group'], role: string): ModelRoleRow => ({ group, role, label: labelOf(role) });
-  return [...MAIN_ROLES.map((role) => row('main', role)), ...ERRAND_ROLES.map((role) => row('errand', role))];
+  return [...MAIN_ROLES.map((role) => row('main', role)), ...SUBHARNESS_AGENTS.map((agent) => row('errand', agent))];
 }
 
 /** The backends `role` can run through: an agent all of them, the memory writer those that carry a system prompt. */

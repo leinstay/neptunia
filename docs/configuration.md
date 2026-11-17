@@ -35,16 +35,9 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `diary-planner`, `planner`, `web-search` and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
 
-## models.errands
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/tools/operations/status.ts` |
-| `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/tools/operations/status.ts` |
-
 ## models.agents
 
-Which backend, model, effort, provider and mode each agent runs on, and the named key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
+Which backend, model, effort, provider and mode each agent runs on, and the named key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. An agent has no other model: the model of its route also picks its preamble files, see [Errands](errands.md#the-preamble-and-the-system-instructions). See [Keys and models](keys.md#model-sources).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|

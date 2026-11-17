@@ -29,7 +29,7 @@ import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
 import type { Dialog } from '../../keys/commands.ts';
 import type { Track } from '../../loop-watch.ts';
-import { ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
+import { MEMORY_ROLE } from '../../llm/roles.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownerPersonOf } from '../../tools/operations/grants.ts';
 import { ownValueAt, splitPath } from '../../tools/operations/shared.ts';
@@ -378,7 +378,7 @@ export const money = (value: number): string => `$${value.toFixed(value >= 1 ? 2
 /** The model group a role's spend counts under: base, errands or memory. */
 function groupOf(role: string): string {
   if (role === MEMORY_ROLE) return 'memory';
-  if (ERRAND_ROLES.includes(role)) return 'errands';
+  if (SUBHARNESS_AGENTS.some((agent) => agent === role)) return 'errands';
   return 'base';
 }
 

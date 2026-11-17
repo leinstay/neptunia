@@ -17,7 +17,7 @@ The agent runner (`src/agent-runner/profiles.ts`) loads only workers. It skips c
 
 Worker and consultation profiles carry `id`, `kind`, `role`, `prompt`, `override` and `description`. A worker also carries `tools`, `shell`, `enabled`, `cost` (`{ input, output }`, USD per million tokens), `limits` (`{ steps, seconds }`), `daily` (`{ tasks }`), `searchProvider`, `socket`, `out` and `env`.
 
-A worker may also carry `search` (`true` enables live web search) and `sandbox` (`read-only` or `workspace-write`, the default). Profiles reject `backend` and `model`. Backend, model and effort selections remain under the subharness contract in [docs/errands.md](../docs/errands.md#backends).
+A worker may also carry `search` (`true` enables live web search) and `sandbox` (`read-only` or `workspace-write`, the default). Profiles reject `backend` and `model`. An agent runs on the backend, model and effort of its route, which `/model set <agent>` writes, see [docs/errands.md](../docs/errands.md#the-route-of-an-errand). `role` is a slug of lower case letters, digits and dashes that a personal profile may restate and never change, and no code reads its value.
 
 A deployment overrides `enabled`, `cost`, `socket`, `out`, `limits`, `daily` and `searchProvider` of a worker under `agents.<name>` in `config.local/config.json`. `agentSettings(name, config)` in `src/agent-runner/profiles.ts` lays that override over the profile, and every reader of these settings goes through it.
 

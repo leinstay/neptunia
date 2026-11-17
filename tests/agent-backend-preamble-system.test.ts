@@ -157,8 +157,6 @@ function rig(name: BackendName) {
     name: 'scout',
     agentId: 'errand-scout',
     promptFiles: [promptFile],
-    modelRole: 'scout',
-    defaultModel: 'x',
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
     search: false,

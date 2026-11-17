@@ -1245,7 +1245,7 @@
     },
     "src/agent-runner/protocol.ts": {
       "validateRun": {
-        "complexity": 41
+        "complexity": 38
       }
     },
     "src/behavior/around.ts": {
@@ -1351,7 +1351,7 @@
     },
     "src/errands/client.ts": {
       "createErrandClient": {
-        "function-length": 346
+        "function-length": 345
       },
       "createErrandClient>onEvent": {
         "complexity": 26

@@ -522,8 +522,7 @@ export const KEPT: ReadonlyArray<string> = [
   // Changed: `models.base` is retired for `models.routes`, which came after the cut (spec 2026-11-09-model-routes, slice 4).
   'models.byPurpose',
   'models.abilities',
-  'models.errands.scout',
-  'models.errands.server',
+  // Changed: `models.errands` is retired: an errand agent runs on the model of its route (owner, 2026-11-17).
   // Changed: `models.development` left with the development agents (maintainer, 2026-11-16).
   'llm.baseUrl',
   'llm.maxOutputTokens',

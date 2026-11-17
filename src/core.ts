@@ -1339,9 +1339,6 @@ async function buildCore(
       const voice = objOf(objOf(hot.config).speech).voice;
       return typeof voice === 'string' ? voice : '';
     },
-    saveModel: async (role, model) => {
-      await ownerOp('model.set', { role, id: model });
-    },
     pause: pauseControl,
     recordCheck: (role, check) => {
       if (role === 'core') recordCoreCheck(paths.dataDir, { ...check, at: clock() });

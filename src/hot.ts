@@ -1,6 +1,6 @@
 // Hot configuration and prompt layers combine engine defaults with data/config and data/prompts. Settings and
 // labels merge recursively; nonempty personal prompts replace complete shared files. Preambles live under
-// data/prompts/preambles. Reloads retain the previous good value after a partial write. Watchers follow both roots.
+// data/prompts/preambles/. Reloads retain the previous good value after a partial write. Watchers follow both roots.
 // Legacy personal layouts refuse startup with offline migration guidance. Hashes describe the live layers.
 
 import fs from 'node:fs';
@@ -18,7 +18,7 @@ type Untyped = ReturnType<typeof JSON.parse>;
 
 const DEBOUNCE_MS = 250;
 const LOCAL_PROMPTS_DIRNAME = 'prompts';
-/** The subfolder of prompts.local/ holding the errand agents' preambles, loaded as `hot.prompts.preambles`. */
+/** The subfolder of data/prompts/ holding the errand agents' preambles, loaded as `hot.prompts.preambles`. */
 const PREAMBLES_DIRNAME = 'preambles';
 /**
  * The JSON files of the prompt layers, by name, each with how it is computed from the checkout and the private
@@ -54,7 +54,8 @@ const valueAtKey = (config: Untyped, key: string): unknown =>
  * engine is in dollars: `wakes.caps.usdPerDay`, `wakes.estimatedTurnUsd`,
  * `wakes.errandReserveMaxMinutes`, `agents.<agent>.daily.usd` and `agents.<agent>.limits.usd` are
  * not read (the provider keys' own limits are the money bounds; costs are only reported). `selfimprovement.*`,
- * `development.*` and `models.development.*` name a development worker the engine does not have, and `board.*` the
+ * `development.*` and `models.development.*` name a development worker the engine does not have, `models.errands.*`
+ * the errand agents' models, which their routes hold in `models.agents.model`, and `board.*` the
  * board's own operations and reaper, so nothing reads them. The diary's settings are `diary.*`, and a
  * `selfreflection` key is not read (an ignored `selfreflection.enabled` leaves the diary on by its default).
  */
@@ -82,6 +83,7 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'selfimprovement', use: null },
     { key: 'development', use: null },
     { key: 'models.development', use: null },
+    { key: 'models.errands', use: 'models.agents.model' },
     { key: 'board', use: null },
     { key: 'selfreflection', use: 'diary' },
     ...['scout', 'server', 'thinker', 'dev'].flatMap((agent) => [
@@ -472,7 +474,7 @@ export function createHot({
     return name.endsWith('.md') || name.endsWith('.json');
   }
 
-  /** Close and forget the prompts.local/preambles/ watcher, so a folder created again gets a new one. */
+  /** Close and forget the data/prompts/preambles/ watcher, so a folder created again gets a new one. */
   function stopPreamblesWatch() {
     const watcher = preamblesWatcher;
     if (!watcher) return;
@@ -492,18 +494,18 @@ export function createHot({
         if (preamblesWatcher === watcher) stopPreamblesWatch();
       });
     } catch (err) {
-      log.warn('hot: failed to watch prompts.local/preambles', { error: err });
+      log.warn('hot: failed to watch data/prompts/preambles', { error: err });
     }
   }
 
-  /** prompts.local/preambles/ appeared or went away: start or drop its watcher, then reload. */
+  /** data/prompts/preambles/ appeared or went away: start or drop its watcher, then reload. */
   function onPreamblesEntry() {
     if (!fs.existsSync(preamblesDir)) stopPreamblesWatch();
     else startPreamblesWatch();
     schedule('prompts', hot.reloadPrompts);
   }
 
-  /** Close and forget the prompts.local/ watcher (and its preambles/ one), so a directory created again gets new ones. */
+  /** Close and forget the data/prompts/ watcher (and its preambles/ one), so a directory created again gets new ones. */
   function stopLocalWatch() {
     stopPreamblesWatch();
     const watcher = localWatcher;

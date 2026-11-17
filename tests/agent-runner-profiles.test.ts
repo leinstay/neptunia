@@ -5,7 +5,7 @@
 // so the last match wins), the withheld-path denies added only in a
 // filtered scope (the path tools' globs and the server shell's per-command
 // patterns, checked through a copy of OpenCode's wildcard and last-match
-// rule), each profile's model role, where its system-prompt files are
+// rule), where its system-prompt files are
 // (the override under the persona data directory, the tracked prompt in
 // agents/<id>/), and the agents/ folder the profiles are built from: the
 // real one, and temporary trees with a valid worker, an unknown tool, an
@@ -49,7 +49,6 @@ import {
   withheldGlobsOf,
   withheldRootsOf,
 } from '../src/agent-runner/policy.ts';
-import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { resolvePaths } from '../src/paths.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -1223,8 +1222,6 @@ test("loadProfiles: a valid worker from a temporary agents/ tree becomes a profi
     const probe = profiles.probe;
     assert.equal(probe.name, 'probe');
     assert.equal(probe.agentId, 'errand-probe');
-    assert.equal(probe.modelRole, 'server');
-    assert.equal(probe.defaultModel, ROLE_DEFAULTS.server);
     // Credentials do not select persona prompts. The resolved data root owns agent overrides.
     assert.deepEqual(probe.promptFiles, [
       path.join(rootDir, 'data', 'agents', 'probe', 'prompt.md'),
@@ -1285,10 +1282,9 @@ test('loadProfiles: a missing key or an unknown one is refused, nested keys too'
   withAgentsTree({ probe: workerProfile('probe', { prompt: '../prompt.md' }) }, (rootDir: string) =>
     assertRefused(rootDir, 'probe', 'prompt')
   );
-  withAgentsTree({ probe: workerProfile('probe', { role: 'core' }) }, (rootDir: string) =>
-    assertRefused(rootDir, 'probe', 'role')
-  );
-  for (const role of ['web', 'drawing']) {
+  // Changed: a role names no model role any more, so any slug passes and only a malformed one is refused (owner,
+  // 2026-11-17: an agent runs on the model of its route).
+  for (const role of ['Core', '', 7]) {
     withAgentsTree({ probe: workerProfile('probe', { role }) }, (rootDir: string) =>
       assertRefused(rootDir, 'probe', 'role')
     );

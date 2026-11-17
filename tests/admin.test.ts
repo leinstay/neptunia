@@ -334,23 +334,23 @@ test('run: set and unset read a key with a dot as one key, never a path', async 
   const { admin, hot } = makeAdmin(rootDir);
   hot.config.models = {
     ...hot.config.models,
-    errands: { scout: 'openrouter/a/b' },
+    agents: { model: { scout: 'openrouter/a/b' } },
   };
   hot.config.names = { 'x.web': 'old' };
 
   const result = await admin.run(
     'config.set',
-    { path: 'models.errands.scout', value: 'openrouter/x-ai/web-model' },
+    { path: 'models.agents.model.scout', value: 'openrouter/x-ai/web-model' },
     {}
   );
-  assert.ok(result.startsWith('Set models.errands.scout = "openrouter/x-ai/web-model"'), result);
+  assert.ok(result.startsWith('Set models.agents.model.scout = "openrouter/x-ai/web-model"'), result);
   await admin.run('config.set', { path: 'names.x.web', value: 'new' }, {});
   assert.deepEqual(readLocal(rootDir), {
-    models: { errands: { scout: 'openrouter/x-ai/web-model' } },
+    models: { agents: { model: { scout: 'openrouter/x-ai/web-model' } } },
     names: { 'x.web': 'new' },
   });
 
-  await admin.run('config.unset', { path: 'models.errands.scout' }, {});
+  await admin.run('config.unset', { path: 'models.agents.model.scout' }, {});
   assert.deepEqual(readLocal(rootDir), { names: { 'x.web': 'new' } });
   await assert.rejects(
     () => admin.run('config.set', { path: 'names.x', value: '"x/y"' }, {}),
@@ -422,6 +422,10 @@ test('set: accepts only an own leaf path of the live config and a value of the s
 test("run: model.show lists each role with its own model; an unset role shows its own default, never another role's", async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
+  hot.config.models = {
+    ...hot.config.models,
+    agents: { via: { scout: 'opencode' }, model: { scout: 'vendor/agent' } },
+  };
   const { admin } = makeAdmin(rootDir, { hot });
 
   const lines = (await admin.run('model.show', {}, {})).split('\n');
@@ -436,7 +440,8 @@ test("run: model.show lists each role with its own model; an unset role shows it
   );
   assert.equal(lines[0], 'base:');
   assert.equal(lines[8], 'errands:');
-  assert.deepEqual(lines.slice(9, 11), [`scout: ${ROLE_DEFAULTS.scout}`, `server: ${ROLE_DEFAULTS.server}`]);
+  // Changed: an agent's line is its route, harness and model, `-` with no route (owner, 2026-11-17).
+  assert.deepEqual(lines.slice(9, 11), ['scout: opencode-harness vendor/agent', 'server: -']);
 });
 
 /** `hot` with a chain of one route on `main` for each role of `models`, over the chains it holds. */
@@ -445,7 +450,9 @@ function withChains(hot: ReturnType<typeof makeHotWithMedia>, models: Record<str
   return hot;
 }
 
-test("run: model.set puts the model on each route of a base role's chain and writes an agent's models.<group> path", async () => {
+// Changed: an agent's model is its route's, which `/model set <agent>` writes through the subharness, so model.set
+// takes the base roles alone (owner, 2026-11-17).
+test("run: model.set puts the model on each route of a base role's chain", async () => {
   // Changed: a base role's model is its chain's (spec 2026-11-09-model-routes, slice 4), so the rig gives each base role
   // a chain on `main` first, and the set rewrites the model of that chain.
   const rootDir = makeRoot();
@@ -466,8 +473,6 @@ test("run: model.set puts the model on each route of a base role's chain and wri
   await admin.run('model.set', { role: 'video', id: 'openrouter/video-model' }, {});
   await admin.run('model.set', { role: 'embedding', id: 'openai/text-embedding-3-small' }, {});
   await admin.run('model.set', { role: 'drawing', id: 'openai/gpt-image-x' }, {});
-  await admin.run('model.set', { role: 'scout', id: 'openrouter/x-ai/web-model' }, {});
-  await admin.run('model.set', { role: 'server', id: 'openrouter/x-ai/server-model' }, {});
   assert.deepEqual(readLocal(rootDir), {
     models: {
       routes: chainsOf({
@@ -478,16 +483,12 @@ test("run: model.set puts the model on each route of a base role's chain and wri
         embedding: 'openai/text-embedding-3-small',
         drawing: 'openai/gpt-image-x',
       }),
-      errands: {
-        scout: 'openrouter/x-ai/web-model',
-        server: 'openrouter/x-ai/server-model',
-      },
     },
     // The video model changed (the vision one was set to the model it already had).
     media: { recacheBefore: new Date(changedAt).toISOString() },
   });
   // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
-  assert.equal(hot.reloadConfigCalls, 8);
+  assert.equal(hot.reloadConfigCalls, 6);
 });
 
 test('run: model.set vision or video sets media.recacheBefore to the moment of the change and says so; other roles never do', async () => {
@@ -509,7 +510,7 @@ test('run: model.set vision or video sets media.recacheBefore to the moment of t
     assert.ok(reply.includes(`media.recacheBefore set to ${iso}`), role);
   }
   // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
-  for (const role of ['core', 'analyzer', 'embedding', 'scout', 'server', 'drawing']) {
+  for (const role of ['core', 'analyzer', 'embedding', 'drawing']) {
     const rootDir = makeRoot();
     const hot = withChains(makeHotWithMedia(rootDir), everyChain);
     const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
@@ -538,12 +539,13 @@ test('run: model.set rejects an unknown role and a role name that is no longer o
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
 
-  // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16).
-  for (const role of ['bogus', 'web', 'voice', 'writer', 'memory', 'byPurpose', 'thinker', 'dev']) {
+  // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16), and the agents `scout` and
+  // `server` run on their routes, which model.set never writes (owner, 2026-11-17).
+  for (const role of ['bogus', 'web', 'voice', 'writer', 'memory', 'byPurpose', 'thinker', 'dev', 'scout', 'server']) {
     await assert.rejects(
       () => admin.run('model.set', { role, id: 'x/y' }, {}),
       new RegExp(
-        `unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, vision, video, embedding, speech, drawing, scout, server\\)`
+        `unknown role: ${role.replace('.', '\\.')} \\(core, analyzer, vision, video, embedding, speech, drawing\\)`
       ),
       role
     );
@@ -1025,6 +1027,10 @@ test('status: the card carries the fields in order and the member variant drops 
   const client = { ws: { ping: 41.6 }, guilds: { cache: new Map() } };
   const { admin, hot, store } = makeAdmin(rootDir, { journal, archive, client });
   hot.config.context = { ...hot.config.context, channelMessages: 60 };
+  hot.config.models = {
+    ...hot.config.models,
+    agents: { via: { scout: 'claude' }, model: { scout: 'claude-sonnet-4.6' } },
+  };
   store.state.data.paused = true;
   store.state.data.pausedAt = '2026-10-13T08:30:00.000Z';
   store.state.data.pausedBy = '42';
@@ -1082,8 +1088,9 @@ test('status: the card carries the fields in order and the member variant drops 
   );
   assert.equal(
     value('models.errands'),
-    [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`].join('\n'),
-    'one line per errand role with its own model'
+    // Changed: an agent's line is its route, harness and model (owner, 2026-11-17).
+    ['scout · claude-harness · claude-sonnet-4.6', 'server · no model configured'].join('\n'),
+    'one line per errand agent with its route'
   );
   // PR 7d: the daily caps of videos, recall and lookups are gone, so the limits field is the request rail alone.
   assert.match(value('limits'), /^requests \d+\/300\nresets 00:00 UTC$/);
@@ -1609,10 +1616,8 @@ test('status: the card lists one item per line in every field, the models one li
     ],
     'each line starts with its role and its model, drawing last'
   );
-  assert.deepEqual(lines('models.errands').map(head), [
-    `scout · ${ROLE_DEFAULTS.scout}`,
-    `server · ${ROLE_DEFAULTS.server}`,
-  ]);
+  // Changed: an agent's line is its route, harness and model, and these rigs give no agent a route (owner, 2026-11-17).
+  assert.deepEqual(lines('models.errands').map(head), ['scout · no model configured', 'server · no model configured']);
   for (const field of fields) assert.ok(field.value.length > 0 && field.value.length <= 1024, field.name);
 });
 
@@ -1695,7 +1700,8 @@ test("status: the owner card probes every role's model and shows its provider an
   );
   assert.deepEqual(
     errands,
-    [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`],
+    // Changed: an agent's line is its route, and this rig gives no agent a route (owner, 2026-11-17).
+    ['scout · no model configured', 'server · no model configured'],
     'just role and model'
   );
   assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
@@ -1735,7 +1741,8 @@ test('status: the member card shows the models one line per role without probing
   );
   assert.equal(
     valueOf('models.errands'),
-    [`scout · ${ROLE_DEFAULTS.scout}`, `server · ${ROLE_DEFAULTS.server}`].join('\n')
+    // Changed: an agent's line is its route, and this rig gives no agent a route (owner, 2026-11-17).
+    ['scout · no model configured', 'server · no model configured'].join('\n')
   );
   assert.equal(llm.calls.length, 0, 'no probe request');
   assert.equal(llm.listings.length, 0, 'no listing request');

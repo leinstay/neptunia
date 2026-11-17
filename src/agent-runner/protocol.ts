@@ -50,7 +50,6 @@ export type RunRequest = {
   context: RunContext;
   limits?: Record<string, number>;
   tools?: Array<string>;
-  model?: string;
   cost?: { input: number; output: number };
   searchProvider?: string;
   secrets?: RunSecrets;
@@ -250,10 +249,6 @@ function validateRun(msg: Rec, id: string): Checked {
       return refuse('bad-tools');
     out.tools = [...new Set(tools)];
   }
-  if (msg.model !== undefined) {
-    if (typeof msg.model !== 'string' || !/^[\w.:/-]{1,128}$/.test(msg.model)) return refuse('bad-model');
-    out.model = msg.model;
-  }
   if (msg.cost !== undefined) {
     if (!isRec(msg.cost) || !isPrice(msg.cost.input) || !isPrice(msg.cost.output)) return refuse('bad-cost');
     out.cost = { input: msg.cost.input, output: msg.cost.output };
@@ -293,7 +288,7 @@ function validateRun(msg: Rec, id: string): Checked {
  * present and whose `recent`, when present, is a list of `{ author, text }`
  * strings: the latest MAX_RECENT_ENTRIES kept whole, any
  * other key of a line dropped; a malformed one refuses `bad-recent`), `limits` (only LIMIT_KEYS, each a positive number), `tools` (a
- * non-empty list of names), `model` (an OpenCode model id), `cost`
+ * non-empty list of names), `cost`
  * (`{ input, output }` in USD per million tokens), `searchProvider` (an
  * OpenCode web search provider id) and `secrets` (`{ openrouterKey?, proxy?,
  * searchKey? }`, at least one, each a non-empty string without whitespace, no other key;

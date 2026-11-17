@@ -22,13 +22,9 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: models.byPurpose -->
 
-## models.errands
-
-<!-- settings: models.errands -->
-
 ## models.agents
 
-Which backend, model, effort, provider and mode each agent runs on, and the named key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
+Which backend, model, effort, provider and mode each agent runs on, and the named key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. An agent has no other model: the model of its route also picks its preamble files, see [Errands](errands.md#the-preamble-and-the-system-instructions). See [Keys and models](keys.md#model-sources).
 
 <!-- settings: models.agents -->
 
