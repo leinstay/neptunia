@@ -25,6 +25,7 @@ import { scheduleTimer } from '../turn/timers.ts';
 import { DAY_MS, utcDay } from '../time.ts';
 import { log } from '../log.ts';
 import { postsPlain } from '../turn/triggers.ts';
+import type { Lane } from '../turn/triggers.ts';
 import { lookupClassifierInput } from '../turn/lookup-input.ts';
 import { mentionDirectory, pickOtherProfiles, resolveMentions, untaggedNote } from '../turn/mentions.ts';
 import { continuationHistory } from '../turn/history.ts';
@@ -321,8 +322,8 @@ export function createTurnRunner({
   personLinks = null,
   keepLines = null,
   memoryContext = null,
-  // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it); null: none.
-  attention = new Set(),
+  // Her attention, one turn at a time on each lane (src/behavior/attention.ts mirrors it as leases; plain sets without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it); null: none.
+  attention = { chat: new Set(), service: new Set() },
   roleHealth = null,
   track = untracked,
   cancelOf = () => null,
@@ -351,7 +352,6 @@ export function createTurnRunner({
   // What her earlier turns in a place raised, for the graph reader of the next (src/turn/seed-ring.ts), in process, seeded
   // at start from the journal's turn records with the thinks.
   const seedRing = createSeedRing();
-  const busy = attention;
   const routes = turnRoutes(hot, roleHealth);
   // The topic modules of the closure (src/turn/<topic>.ts), each built once from the context it reads.
   const { aroundInputFor, liveChannelName, recordOwnParticipation } = createParticipation({
@@ -477,7 +477,7 @@ export function createTurnRunner({
     createOutcome({
       store,
       clock,
-      busy,
+      attention,
       facts,
       factsOfKind,
       keepFact,
@@ -697,7 +697,7 @@ export function createTurnRunner({
     ownerAccount: ownerAccount ?? ((placeId: string) => frameReads?.ownerAccount?.(placeId) ?? null),
     lookupRing,
     seedRing,
-    busy,
+    attention,
     selfIdOf,
     getSelfName,
     dmChannels,
@@ -765,10 +765,10 @@ export function createTurnRunner({
     },
     waitingParts,
     addToPart,
-    isBusy: (placeId: string) => busy.has(placeId),
-    isAnyBusy: () => busy.size > 0,
-    /** The ids of the channels a turn is running in now (for log lines: where the attention is). */
-    busyChannels: () => [...busy],
+    isBusy: (placeId: string) => attention.chat.has(placeId),
+    isAnyBusy: (lane: Lane = 'chat') => attention[lane].size > 0,
+    /** The ids of the chats a chat turn is running in now (for log lines: where the attention is). */
+    busyChannels: () => [...attention.chat],
     lastPostAt: (placeId: string) => lastPostAt.get(placeId) ?? 0,
     notePost: (placeId: string, ts: Untyped) => lastPostAt.set(placeId, ts),
     /**

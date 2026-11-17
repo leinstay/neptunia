@@ -1,9 +1,9 @@
-// The drain and the turn it opens: one inner turn for the queue's first coalesced group, once the attention is free
-// and no cap holds it. The drain picks the chat, builds the `<wake>` facts, records the wake run, runs the
-// turn through the turn runner (src/behavior/turn.ts, mode `inner`), then marks the wakes handled or retries them,
-// keeps the turn's feedback facts and queues the feedback wake. The drain asks the wake queue (wake-queue.ts) to claim
-// the group before the turn asks the model and reports what became of each wake after it; a live turn's posts are held
-// and sent once the completion committed (deliveries.ts). The queue's start runs first. An errand an
+// The drain and the turn it opens: one inner turn for the queue's first coalesced group, once its lane of the
+// attention is free and no cap holds it. The drain picks the chat, builds the `<wake>` facts, records the wake run,
+// runs the turn through the turn runner (src/behavior/turn.ts, mode `inner`), then marks the wakes handled or retries
+// them, keeps the turn's feedback facts and queues the feedback wake. The drain asks the wake queue (wake-queue.ts) to
+// claim the group before the turn asks the model and reports what became of each wake after it; a live turn's posts are
+// held and sent once the completion committed (deliveries.ts). The queue's start runs first. An errand an
 // inner turn handed off has its cost counted here when it ends. The tick (src/behavior/inner.ts) calls `drain`.
 
 import { isPublicationBoundary } from '../../tools/publication.ts';
@@ -52,6 +52,9 @@ import {
 import type { TurnClaim } from './wake-queue.ts';
 import { ifaceOfChat } from '../../interface/cli-chat.ts';
 import { dmChatsOff } from '../core-pause.ts';
+import { turnKindOf } from '../../turn/request/frame.ts';
+import { laneOf } from '../../turn/triggers.ts';
+import type { Lane } from '../../turn/triggers.ts';
 import type {
   ChainBudget,
   CostMeter,
@@ -512,23 +515,33 @@ export type DrainAnswer =
   | { outcome: unknown; wakes: number; usd: number; feedback?: string }
   | null;
 
+/** The lane of the turn `wake` opens (src/turn/triggers.ts#laneOf). */
+const laneOfWake = (wake: Wake): Lane => laneOf(turnKindOf('inner', 'inner', wake.kind));
+
+/**
+ * What holds `lane` of her attention now: a turn running on it, or for the chat lane the people waiting for it, who go
+ * first; null when it is free. A wake runs only on a free lane, so a heartbeat goes on while a chat turn runs.
+ */
+function laneHeld({ turns, peopleWaiting }: InnerContext, lane: Lane): 'busy' | 'people' | null {
+  if (turns?.isAnyBusy?.(lane) === true) return 'busy';
+  return lane === 'chat' && peopleWaiting() ? 'people' : null;
+}
+
 /** Whether `wake` may run now: not held by a cap and not waiting for its retry time. */
 function isEligible(wake: Wake, now: { held: ReadonlyArray<Wake>; at: number }): boolean {
   return !now.held.includes(wake) && !(Number(wake.notBefore) > now.at);
 }
 
 /**
- * One inner turn for the queue's first coalesced group, when the attention is free and no cap
+ * One inner turn for the queue's first coalesced group whose lane of the attention is free and that no cap
  * refuses; a turn held back (`busy`, `paused`) leaves the group queued with its due times.
  */
 export async function drain(life: InnerContext): Promise<DrainAnswer> {
-  const { hot, turns, intentions, peopleWaiting, costs, now, log } = life;
+  const { hot, turns, intentions, costs, now, log } = life;
   const state = stateOf(life);
   await startUp(life);
   if (state.queue.length === 0) return null;
   if (state.stopped || paused(life)) return { deferred: 'stopped' };
-  if (typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy()) return { deferred: 'busy' };
-  if (peopleWaiting()) return { deferred: 'people' };
   const settings = innerSettings(hot.config);
   const at = now();
 
@@ -606,7 +619,9 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     return { refused: held[0].capped };
   }
 
-  const group = coalesceGroup(eligible, (wake) => held.includes(wake));
+  const free = eligible.filter((wake) => laneHeld(life, laneOfWake(wake)) === null);
+  if (free.length === 0) return { deferred: laneHeld(life, laneOfWake(eligible[0])) };
+  const group = coalesceGroup(free, (wake) => held.includes(wake));
   const anchor = group.find((wake) => !channelless(wake)) ?? group[0];
   const chainId = anchor.chainId;
 

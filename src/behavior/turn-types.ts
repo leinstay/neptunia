@@ -9,6 +9,7 @@ import type { scheduleTimer } from '../turn/timers.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { TurnEnd, TurnParams } from '../turn/outcome.ts';
 import type { Draft } from '../turn/draft.ts';
+import type { Attention, Lane } from '../turn/triggers.ts';
 import type { FactsApi } from './inner.ts';
 import type { ReportedTurn } from './turn.ts';
 import type { PersonLinks } from '../interface/person-link.ts';
@@ -81,7 +82,7 @@ export type CreateTurnRunnerInput = {
   /** The owner's account on the interface of a place; the memory's own reader (frame-reads.ts) when absent. */
   ownerAccount?: ((placeId: string) => string | null) | null;
   memoryContext?: Untyped;
-  attention?: Set<string>;
+  attention?: Attention;
   roleHealth?: Untyped;
 };
 
@@ -99,12 +100,13 @@ export type TurnRunner = {
     message: { id: string; text: string; ts: number }
   ) => boolean;
   isBusy: (placeId: string) => boolean;
-  isAnyBusy: () => boolean;
+  /** Whether a turn runs on `lane` (the chat lane when none is named). */
+  isAnyBusy: (lane?: Lane) => boolean;
   busyChannels: () => Array<string>;
   lastPostAt: (placeId: string) => number;
   notePost: (placeId: string, ts: number) => void;
   spokeAfterSeeing: (placeId: string, messageId: string) => boolean;
-  waitIdle: () => Promise<void>;
+  waitIdle: (lane?: Lane) => Promise<void>;
   setOnIdle: (fn: (() => unknown) | null) => void;
   setFactsSource: (source: FactsApi | null | undefined) => void;
   setOnTurnEnd: (fn: ((end: TurnEnd) => unknown) | null) => void;

@@ -2,6 +2,8 @@
 // for it or asked for it, and whether it may take the attention. src/behavior/turn.ts asks these per attempt; a limit
 // notice quotes by postsPlain too.
 
+import type { TurnKind } from './request/frame.ts';
+
 /**
  * Why a reply turn runs: a `@mention`, a platform reply to the persona, a
  * follow-up the address classifier said "yes" to, a line the
@@ -51,13 +53,35 @@ export function askedFor(trigger: unknown, triggerKind: TriggerKind | null | und
   return Boolean(trigger) && triggerKind !== 'overheard';
 }
 
+/** The lanes of her attention: a chat turn holds `chat`, a heartbeat or a diary turn holds `service`. */
+export type Lane = 'chat' | 'service';
+
+/** Her attention: per lane, the ids a turn runs under (src/behavior/attention.ts mirrors each as a lease). */
+export type Attention = Readonly<Record<Lane, Set<string>>>;
+
+/** The lane a turn of `kind` runs on: a service (the heartbeat, the diary and its planner) has its own. */
+export function laneOf(kind: TurnKind): Lane {
+  switch (kind) {
+    case 'heartbeat':
+    case 'diary':
+    case 'diary_plan':
+      return 'service';
+    case 'reply':
+    case 'intention':
+    case 'feedback':
+    case 'errand_result':
+      return 'chat';
+  }
+}
+
 /**
- * Takes the attention for `id` when the turn may start: one turn at a time, so not while one runs anywhere
- * (src/behavior/pipeline.ts is the only caller that turns
- * a direct ping caught by this into a pending one). True when taken.
+ * Takes the attention of the lane of `kind` for `id` when the turn may start: one turn at a time on each lane, so not
+ * while one runs anywhere on it (src/behavior/pipeline.ts is the only caller that turns a direct ping caught by this
+ * into a pending one). The lane taken, or null.
  */
-export function takeAttention(busy: Set<string>, id: string): boolean {
-  if (busy.size > 0) return false;
-  busy.add(id);
-  return true;
+export function takeAttention(attention: Attention, kind: TurnKind, id: string): Lane | null {
+  const lane = laneOf(kind);
+  if (attention[lane].size > 0) return null;
+  attention[lane].add(id);
+  return lane;
 }

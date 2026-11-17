@@ -473,7 +473,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
     },
     journalDb: () => db(),
     memoryContext,
-    attention: new Set(),
+    attention: { chat: new Set(), service: new Set() },
     llm,
     calibrator,
     describer,
