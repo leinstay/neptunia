@@ -1,29 +1,25 @@
-// What a heartbeat accepts (docs/inner-life.md "Heartbeat"). It lets her read her memory and hand off an errand, whose
-// result her call waits for, and ends in one decision: one intention recorded or a skip. Every turn offers the one tools array, her skills included, and a call
+// What a heartbeat accepts (docs/inner-life.md "Heartbeat"). It lets her make every call that only looks, on her memory,
+// a chat, the web or a picture, and hand off an errand, whose result her call waits for, and ends in one decision: one
+// intention recorded or a skip. Every turn offers the one tools array, her skills included, and a call
 // outside the heartbeat's set is refused by name with the heartbeat's own code. Pure: the kind comes from the turn, the
 // names from the registry.
 
 import { CODE } from './codes.ts';
-import { JOBS } from './definitions.ts';
+import { JOBS, SKILL_DEFINITIONS } from './definitions.ts';
 
 /** The calls that change an intention: what a heartbeat decides with. */
 export const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intention.set', 'intention.update', 'intention.cancel']);
-/** Memory inspection available while deciding; external reads and other effects remain deferred. */
-export const HEARTBEAT_READ_SKILLS = Object.freeze([
-  'memory.search',
-  'memory.read',
-  'memory.archive.read',
-  'memory.journal.read',
-  'conversation.read',
-  'intention.list',
-]);
+/** Every tool whose definition declares `effects` `read`: what a heartbeat looks with before it decides. */
+const READ_SKILLS = Object.freeze(
+  SKILL_DEFINITIONS.filter((definition) => definition.effects === 'read').map((definition) => definition.name)
+);
 /** The errand calls a service turn takes, a heartbeat and a diary entry alike; neither decides a wake. */
 export const SERVICE_ERRAND_SKILLS = Object.freeze([...JOBS, 'errand.read']);
 type WakeRule = { accepts: ReadonlyArray<string>; decides: ReadonlyArray<string>; refusal: string };
 
 const RULES: Readonly<Record<string, WakeRule>> = Object.freeze({
   heartbeat: {
-    accepts: [...HEARTBEAT_READ_SKILLS, ...SERVICE_ERRAND_SKILLS, ...HEARTBEAT_INTENT_SKILLS],
+    accepts: [...READ_SKILLS, ...SERVICE_ERRAND_SKILLS, ...HEARTBEAT_INTENT_SKILLS],
     decides: HEARTBEAT_INTENT_SKILLS,
     refusal: CODE.HEARTBEAT_ONLY,
   },

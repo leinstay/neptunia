@@ -1,14 +1,17 @@
-// What a heartbeat accepts (src/tools/wake-tools.ts) after the narrow reads of one subject merge into memory.read
-// (slice 12 of the lookup loop): the heartbeat reads memory through memory.read and no longer takes the old names.
+// What a heartbeat accepts (src/tools/wake-tools.ts): every call that only looks, as the tools' own definitions
+// declare it, the errand calls and one intention change; every other call is refused with heartbeat-only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { endsWake, wakeRefusalCode } from '../src/tools/wake-tools.ts';
+import { JOBS, SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { CODE } from '../src/tools/codes.ts';
 
-// Bug caught: the heartbeat's list keeps the old reads, so she is refused the one memory read she is offered.
-test('accepts memory.read in a heartbeat and refuses memory.profile.read', () => {
+// Changed: memory.profile.read declares `read`, and a heartbeat takes every read since a heartbeat looks at whatever
+// she wants before she decides; the call still refused here is a post.
+// Bug caught: the heartbeat's set misses memory.read, or takes a post.
+test('accepts memory.read in a heartbeat and refuses message.create', () => {
   assert.deepEqual(
-    [wakeRefusalCode('heartbeat', 'memory.read'), wakeRefusalCode('heartbeat', 'memory.profile.read')],
+    [wakeRefusalCode('heartbeat', 'memory.read'), wakeRefusalCode('heartbeat', 'message.create')],
     [null, CODE.HEARTBEAT_ONLY]
   );
 });
@@ -24,4 +27,16 @@ test('accepts errand.scout and errand.read in a heartbeat, and neither ends the 
     ],
     [null, null, false, false]
   );
+});
+
+// Bug caught: a read tool, one added later among them, is refused in a heartbeat, or a tool that changes something
+// outside her (a post, a reaction, a drawing, a setting) slips into the heartbeat's set.
+test('a heartbeat takes every tool that declares read, the errand calls and the intention changes, and refuses the rest', () => {
+  const decided = new Set([...JOBS, 'intention.set', 'intention.update', 'intention.cancel']);
+  const wrong = SKILL_DEFINITIONS.filter(
+    (definition) =>
+      (wakeRefusalCode('heartbeat', definition.name) === null) !==
+      (definition.effects === 'read' || decided.has(definition.name))
+  ).map((definition) => definition.name);
+  assert.deepEqual(wrong, []);
 });
