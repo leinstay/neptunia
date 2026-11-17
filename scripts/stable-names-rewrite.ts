@@ -7,6 +7,7 @@
 //   node scripts/stable-names-rewrite.ts --data <folder> --apply    writes the plan through the memory writer
 //   --choose <platformName>=<platformId>                            ties a name two emoji hold to one of them; repeatable
 //   --markup-iface <interface>                                      the interface of raw markup whose id no row holds
+//   --confirmed <file>                                              ids of the lines the platform answered for, one per line
 //
 // The core's own start check refuses the run while an engine holds the folder. Output holds counts and names of kinds.
 
@@ -35,6 +36,7 @@ function print(plan: StableNamesPlan): void {
   console.log(`left, a name two emoji hold: ${counts.left.sharedName}`);
   console.log(`left, a sticker reference of a line that links no one sticker: ${counts.left.unlinkedSticker}`);
   console.log(`left, raw markup ids of no known interface: ${counts.left.markupIface}`);
+  console.log(`left, a confirmed line with a typed emoji name and no link: ${counts.left.plainText}`);
   if (counts.left.markupIface > 0)
     console.log('give the interface their markup belongs to with --markup-iface <interface>');
 }
@@ -84,11 +86,25 @@ function markupIfaceOf(args: ReadonlyArray<string>): string | null {
   return at < 0 ? null : (args[at + 1] ?? null);
 }
 
+/** The ids of `--confirmed <file>`, one per line; undefined when absent. Refuses a file it cannot read. */
+function confirmedOf(args: ReadonlyArray<string>): Set<string> | undefined {
+  const at = args.indexOf('--confirmed');
+  if (at < 0) return undefined;
+  try {
+    const lines = fs.readFileSync(args[at + 1] ?? '', 'utf8').split('\n');
+    return new Set(lines.map((one) => one.trim()).filter((one) => one !== ''));
+  } catch {
+    // A missing path or a file the run may not read: the run would tie every line by name.
+    console.error('refused: cannot read the --confirmed file');
+    process.exit(2);
+  }
+}
+
 const argv = process.argv.slice(2);
 const dataAt = argv.indexOf('--data');
 if (dataAt < 0 || !argv[dataAt + 1]) {
   console.error(
-    'usage: node scripts/stable-names-rewrite.ts --data <folder> [--apply] [--choose <platformName>=<platformId>]... [--markup-iface <interface>]'
+    'usage: node scripts/stable-names-rewrite.ts --data <folder> [--apply] [--choose <platformName>=<platformId>]... [--markup-iface <interface>] [--confirmed <file>]'
   );
   process.exit(2);
 }
@@ -97,13 +113,14 @@ if (!fs.existsSync(dbPath)) {
   console.error('refused: the folder holds no memory.db');
   process.exit(2);
 }
+const confirmed = confirmedOf(argv);
 // The core's start check refuses while an engine holds the folder. Its lock goes at once: a writing open takes its own.
 claimCore(dbPath)();
 const apply = argv.includes('--apply');
 const handle = openMemoryDb(dbPath, { readOnly: !apply });
 try {
   const options = { choose: choiceOf(argv), markupIface: markupIfaceOf(argv) };
-  const plan = planStableNamesRewrite(dbOf(handle), options);
+  const plan = planStableNamesRewrite(dbOf(handle), { ...options, confirmed });
   print(plan);
   if (apply)
     console.log(

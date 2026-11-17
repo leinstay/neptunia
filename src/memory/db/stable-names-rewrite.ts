@@ -54,8 +54,11 @@ export type StableNamesPlan = {
   };
 };
 
-/** What a plan leaves: lines with a name two emoji hold, old sticker references, and markup ids of no known interface. */
-export type Left = { sharedName: number; unlinkedSticker: number; markupIface: number };
+/**
+ * What a plan leaves: lines with a name two emoji hold, old sticker references, markup ids of no known interface, and
+ * confirmed lines whose known name with no link is plain text a person typed.
+ */
+export type Left = { sharedName: number; unlinkedSticker: number; markupIface: number; plainText: number };
 
 /** The platform id to tie a platform name two emoji hold to, given by the owner. */
 export type Choice = Record<string, string>;
@@ -190,13 +193,16 @@ function knownOf(db: Db, namer: Namer, media: Map<string, Change<'mediaId'>>): K
   return known;
 }
 
-/** What a token is matched against: the known emoji, the owner's choice and the interfaces that hold an emoji. */
-type Match = { known: Known; choose: Choice; ifaces: Set<string> };
+/**
+ * What a token is matched against: the known emoji, the owner's choice, the interfaces that hold an emoji and the lines
+ * the platform answered for, whose tokens follow their links alone.
+ */
+type Match = { known: Known; choose: Choice; ifaces: Set<string>; confirmed?: ReadonlySet<string> };
 
-function matchOf(known: Known, choose: Choice): Match {
+function matchOf(known: Known, choose: Choice, confirmed?: ReadonlySet<string>): Match {
   const ifaces = new Set<string>();
   for (const ids of known.values()) for (const one of ids.values()) ifaces.add(one.iface);
-  return { known, choose, ifaces };
+  return { known, choose, ifaces, confirmed };
 }
 
 /** The one candidate of `platformName` in `iface` (any interface when null), a choice settling two; null for none. */
@@ -207,12 +213,15 @@ function pick(known: Known, choose: Choice, platformName: string, iface: string 
   return all.find((one) => one.nativeId === choose[platformName]) ?? 'shared';
 }
 
-type Rewritten = { to: string; tied: number; loose: boolean; shared: boolean; ties: Array<Candidate> };
+type Rewritten = {
+  to: string;
+  tied: number;
+  loose: boolean;
+  shared: boolean;
+  plain: boolean;
+  ties: Array<Candidate>;
+};
 
-/**
- * One text of a line with each token rewritten: by the emoji the line links under that name, else by the one known emoji
- * of its interface. `loose` when the line links two emoji of one name, `shared` when two known emoji hold an unlinked one.
- */
 /**
  * The emoji a line links under `name`, null when it links none. Two emoji of one name make the
  * token loose, unless `chosen` is the owner's choice of one of them.
@@ -224,17 +233,23 @@ function linkedName(matching: ReadonlyArray<Linked>, chosen: string | undefined)
   return matching.find((one) => one.nativeId === chosen) ?? 'loose';
 }
 
-/** One text of a line. The choice settles two linked emoji of one name only in her think, where no link tells. */
+/**
+ * One text of a line with each token rewritten: by the emoji the line links under that name, else, on a line the platform
+ * did not confirm, by the one known emoji of its interface. `loose` when the line links two emoji of one name, `shared`
+ * when two known emoji hold an unlinked one, `plain` when a confirmed line holds a known name it links no emoji of. The
+ * choice settles two linked emoji of one name only in her think, where no link tells.
+ */
 function rewriteText(
   from: string,
   emoji: ReadonlyArray<Linked>,
-  lineIface: string,
+  line: { iface: string; confirmed: boolean },
   match: Match,
   isThink = false
 ): Rewritten {
+  const lineIface = line.iface;
   // A line of an interface that holds no emoji, or of none, such as a memory note: matched across every interface, unlinked.
   const iface = match.ifaces.has(lineIface) ? lineIface : null;
-  const out: Rewritten = { to: from, tied: 0, loose: false, shared: false, ties: [] };
+  const out: Rewritten = { to: from, tied: 0, loose: false, shared: false, plain: false, ties: [] };
   out.to = replaceNameTokens(from, (name) => {
     const matching = emoji.filter((one) => one.platformName === name);
     const linked = linkedName(matching, isThink ? match.choose[name] : undefined);
@@ -245,6 +260,11 @@ function rewriteText(
       return `:${linked.stable}:`;
     }
     const found = pick(match.known, match.choose, name, iface);
+    // A confirmed line holds every emoji its message held as a link: a known name with none is text a person typed.
+    if (line.confirmed) {
+      if (found !== null) out.plain = true;
+      return null;
+    }
     if (found === 'shared') out.shared = true;
     if (found === null || found === 'shared') return null;
     out.tied += 1;
@@ -270,6 +290,11 @@ function rewriteStickers(from: string, linked: ReadonlyArray<Linked>): { to: str
   return { to, unlinked };
 }
 
+const lineOf = (row: Row, match: Match): { iface: string; confirmed: boolean } => ({
+  iface: text(row.iface),
+  confirmed: match.confirmed?.has(text(row.id)) === true,
+});
+
 type LinesOut = Pick<StableNamesPlan, 'lines' | 'cells' | 'ties'> & {
   tokens: number;
   untied: number;
@@ -281,8 +306,9 @@ function planLineText(row: Row, linked: ReadonlyArray<Linked>, match: Match, out
   const sourceId = text(row.id);
   const from = text(row.text);
   const emoji = linked.filter((one) => one.kind === 'emoji');
-  const result = rewriteText(from, emoji, text(row.iface), match);
+  const result = rewriteText(from, emoji, lineOf(row, match), match);
   if (result.shared) out.left.sharedName += 1;
+  if (result.plain) out.left.plainText += 1;
   if (result.loose) {
     out.untied += 1;
     return;
@@ -299,7 +325,7 @@ function planLineText(row: Row, linked: ReadonlyArray<Linked>, match: Match, out
 function planThink(row: Row, linked: ReadonlyArray<Linked>, match: Match, out: LinesOut): void {
   const from = text(row.think);
   const emoji = linked.filter((one) => one.kind === 'emoji');
-  const result = rewriteText(from, emoji, text(row.iface), match, true);
+  const result = rewriteText(from, emoji, lineOf(row, match), match, true);
   if (result.shared) out.left.sharedName += 1;
   if (result.loose || result.to === from) return;
   out.tokens += result.tied;
@@ -396,20 +422,25 @@ const twinsOf = (db: Db): Array<string> =>
     .map((row) => text(row.id));
 
 /**
- * What a rewrite of `db` would do, read from its rows alone. `choose` ties a platform name two emoji hold, and
- * `markupIface` names the interface of raw markup whose id no row holds.
+ * What a rewrite of `db` would do, read from its rows alone. `choose` ties a platform name two emoji hold,
+ * `markupIface` names the interface of raw markup whose id no row holds, and `confirmed` holds the ids of the lines the
+ * platform answered for, which are tied by their links alone.
  */
 export function planStableNamesRewrite(
   db: Db,
-  { choose = {}, markupIface = null }: { choose?: Choice; markupIface?: string | null } = {}
+  {
+    choose = {},
+    markupIface = null,
+    confirmed,
+  }: { choose?: Choice; markupIface?: string | null; confirmed?: ReadonlySet<string> } = {}
 ): StableNamesPlan {
   const namer = namerOf(db);
   const renames = new Map<string, Change<'mediaId'>>();
   const byLine = tiesOf(db, namer, renames);
-  const left: Left = { sharedName: 0, unlinkedSticker: 0, markupIface: 0 };
+  const left: Left = { sharedName: 0, unlinkedSticker: 0, markupIface: 0, plainText: 0 };
   const markup = markupOf(db, namer, markupIface, left);
   markupNames(db, markup);
-  const match = matchOf(knownOf(db, namer, renames), choose);
+  const match = matchOf(knownOf(db, namer, renames), choose, confirmed);
   const planned = planLines(db, byLine, match, left);
   const cells = [...planned.cells, ...textCells(db, resolverOf(markup, match, left))];
   const plan = {
@@ -451,7 +482,7 @@ export function logResolverOf(
   { choose = {}, markupIface = null }: { choose?: Choice; markupIface?: string | null }
 ): { resolver: LogResolver; issue: Array<MediaNameRow>; issued: Record<string, number>; left: Left } {
   const namer = namerOf(db);
-  const left: Left = { sharedName: 0, unlinkedSticker: 0, markupIface: 0 };
+  const left: Left = { sharedName: 0, unlinkedSticker: 0, markupIface: 0, plainText: 0 };
   const match = matchOf(knownOf(db, namer, new Map()), choose);
   const resolver = {
     ...resolverOf(markupOf(db, namer, markupIface, left), match, left),
