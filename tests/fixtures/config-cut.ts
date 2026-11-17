@@ -635,7 +635,6 @@ export const KEPT: ReadonlyArray<string> = [
   'recall.prefetch.trivial',
   'recall.prefetch.deictic',
   'image.maxPromptChars',
-  'image.reference',
   'image.timeoutMs',
   'image.retries',
   'image.provider',

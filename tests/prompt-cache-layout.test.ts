@@ -303,7 +303,8 @@ test('an empty or missing appearance gives no <appearance> block', () => {
   // Bug: an empty tag pair goes out, or a blank file prints a block of whitespace.
   for (const appearance of [undefined, '', '  \n ']) {
     const built = appearanceRequest(FRAME, appearance);
-    const system = String(built.messages[0].content);
+    const [first] = built.messages;
+    const system = String(first.content);
     assert.ok(!system.includes('<appearance>'), JSON.stringify(appearance));
   }
 });
