@@ -83,3 +83,25 @@ test('keeps the first request of the purpose it stops at and sends it nowhere', 
     ]
   );
 });
+
+test('reports the planner answer and the messages of a diary post', () => {
+  const report = turnReport({
+    turnId: 't-2',
+    sample: 1,
+    requests: [
+      request({
+        purpose: 'diary-planner',
+        text: '{"kind":"status","brief":"Μια βόλτα","search":"","picture":false,"seed":2}',
+      }),
+      request({ text: '<msg>Βγήκα έξω</msg>' }),
+    ],
+    writes: [],
+    keptCalls: [],
+    result: { outcome: 'spoke', diary: { kind: 'status', entry: { id: 'diary:1', messages: ['Βγήκα έξω'] } } },
+    estimate: (messages) => messages.length,
+  });
+  assert.deepEqual(report.diary, {
+    plan: { kind: 'status', brief: 'Μια βόλτα', seed: 2 },
+    messages: ['Βγήκα έξω'],
+  });
+});

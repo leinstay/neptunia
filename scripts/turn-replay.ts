@@ -4,7 +4,7 @@
 //
 //   node scripts/turn-replay.ts --data <copy dir> --turn <turnId> [--samples 1] [--out <dir>]
 //        [--answers-dir <dir>] [--compare] [--oracle <memory.db>] [--prompts <dir>] [--embed live|off]
-//        [--calibration <ratio>]
+//        [--calibration <ratio>] [--kind <diary kind>]
 //   node scripts/turn-replay.ts --data <copy dir> --cut <turnId> --into <new copy dir>
 //
 // `--cut` writes a new folder whose memory is the copy's as it stood when the turn started (scripts/lib/turn-cut.ts
@@ -14,13 +14,17 @@
 // (scripts/lib/turn-stage.ts), with every clock pinned to the turn's start. Her read tools run on the copy. Every other
 // tool and every write to the interface is kept and answered as done (scripts/lib/turn-tools.ts, turn-port.ts). She is
 // who the core holds her to be for every turn, her account on the home interface (turn-wiring.ts `homeIdentity`), and
-// stderr names that interface.
+// stderr names that interface. A diary turn (its `turn.start` row says `mode: "diary"`) names no place and no trigger:
+// it runs on the home interface as the diary service runs it, every place of that interface served from the copy, and
+// what the post would publish is kept with the turn's result. `--kind` pins the post's kind, not forced, and is refused
+// for any other turn. Without it the kind is drawn as live.
 // `--answers-dir` answers every model request from files (scripts/lib/answers-dir.ts). Without it the roles run on the
 // copy's routing (scripts/lib/script-routes.ts) and spend its keys. `--embed live` lets the embedding role alone reach
 // its provider while `--answers-dir` is set. With `--answers-dir` the default is `off`, without it `live`.
 // `--compare` builds the first request only and compares it, part by part, with the row the live turn archived in
 // `--oracle` (default `/opt/neptunia/data/memory.db`, opened read only): one line per part on stdout, sizes and
-// offsets only. Otherwise each sample's report goes to `<out>/<turnId>/sample-<n>.json` (default `out` beside the
+// offsets only. A diary turn's compare covers its planner request too: the planner is answered with the answer the
+// live turn archived, and the writer's first request is compared after it. Otherwise each sample's report goes to `<out>/<turnId>/sample-<n>.json` (default `out` beside the
 // copy) and a short table to stderr.
 //
 // THE REPORT FILE HOLDS HER WORDS AND MEMORY ABOUT REAL PEOPLE: it is private, like the copy. Nothing she says goes
@@ -42,11 +46,11 @@ import { CliError, flagText, parseFlags, runCli } from './lib/cli.ts';
 import { createAnswersDir, offlineCore } from './lib/answers-dir.ts';
 import { promptLayersHot } from './lib/prompt-layers.ts';
 import { cutCopy } from './lib/turn-cut.ts';
-import { stageOf, storedTurn, triggerOf, turnParamsOf } from './lib/turn-stage.ts';
+import { diaryParamsOf, stageOf, storedTurn, triggerOf, turnParamsOf } from './lib/turn-stage.ts';
 import { buildTurnRunner, homeIdentity, identityIn, scratchDir } from './lib/turn-wiring.ts';
-import { compareRequests, foldRepeats, blockOf, rowsText } from './lib/turn-compare.ts';
+import { archivedRequest, compareRequests, foldRepeats, blockOf, partsOf, rowsText } from './lib/turn-compare.ts';
 import type { RequestParts } from './lib/turn-compare.ts';
-import { STOPPED, contentOf, recordingLlm, reportTable, turnReport } from './lib/turn-report.ts';
+import { STOPPED, recordingLlm, reportTable, turnReport } from './lib/turn-report.ts';
 import type { KeptRequest } from './lib/turn-report.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,7 +59,7 @@ const ORACLE = '/opt/neptunia/data/memory.db';
 const USAGE = [
   'usage: node scripts/turn-replay.ts --data <copy dir> --turn <turnId> [--samples 1] [--out <dir>]',
   '         [--answers-dir <dir>] [--compare] [--oracle <memory.db>] [--prompts <dir>] [--embed live|off]',
-  '         [--calibration <ratio>]',
+  '         [--calibration <ratio>] [--kind <diary kind>]',
   '       node scripts/turn-replay.ts --data <copy dir> --cut <turnId> --into <new copy dir>',
 ].join('\n');
 
@@ -130,26 +134,13 @@ function hotOf(dataDir: string, promptsDir: string | null): { hot: Hot; close: (
   };
 }
 
-/** The parts of a request as the compare reads them: its system text, its user text and its tools. */
-function partsOf(messages: Array<Rec>, tools: Array<unknown>): RequestParts {
-  const system = messages.filter((one) => one.role === 'system').map((one) => contentOf(one.content));
-  const user = messages.find((one) => one.role === 'user');
-  return { system: system.join('\n\n'), user: contentOf(user?.content), tools };
-}
-
-/** The first reply request the live turn archived in `oracle`. */
-function archivedOf(oracle: string, turnId: string): RequestParts {
+/** The first request of `purpose` the live turn archived in `oracle`, with the answer it got. */
+function archivedOf(oracle: string, turnId: string, purpose: string): { parts: RequestParts; text: string | null } {
   const db = new DatabaseSync(oracle, { readOnly: true });
   try {
-    const row = db
-      .prepare(
-        "SELECT messages, tools FROM model_requests WHERE turn_id = ? AND purpose = 'reply' ORDER BY step, started_at LIMIT 1"
-      )
-      .get(turnId);
-    if (!row) throw new CliError(`${TOOL}: ${oracle} archived no reply request of ${turnId}`);
-    const messages = JSON.parse(String(row.messages)) as Array<Rec>;
-    const tools = row.tools === null ? [] : (JSON.parse(String(row.tools)) as Array<unknown>);
-    return partsOf(messages, tools);
+    const found = archivedRequest(db, turnId, purpose);
+    if (found === null) throw new CliError(`${TOOL}: ${oracle} archived no ${purpose} request of ${turnId}`);
+    return found;
   } finally {
     db.close();
   }
@@ -181,6 +172,18 @@ function compareText(rebuilt: RequestParts, archived: RequestParts): string {
   return `${rowsText(rows)}\n`;
 }
 
+/** The parameters of a reply turn: its trigger line read off the port, as the pipeline passes them. */
+async function replyParams(
+  stage: ReturnType<typeof stageOf>,
+  turn: ReturnType<typeof storedTurn>,
+  db: DatabaseSync,
+  wired: ReturnType<typeof buildTurnRunner>
+): Promise<Record<string, unknown>> {
+  const trigger = await triggerOf(stage, turn, db);
+  const internal = turn.iface === 'cli' ? wired.memoryContext({ kind: 'internal' }) : null;
+  return turnParamsOf(turn, stage, trigger, internal);
+}
+
 /** One run of the stored turn: its requests, its writes, its kept calls and the turn's result. */
 async function runOnce(options: {
   dataDir: string;
@@ -190,14 +193,18 @@ async function runOnce(options: {
   embed: (texts: Array<string>, options?: unknown) => Promise<Array<ArrayLike<number> | null>>;
   stopAt: string | null;
   calibration: number | null;
+  kind: string | null;
 }) {
   const db = new DatabaseSync(path.join(options.dataDir, 'memory.db'), { readOnly: true });
   const tmpDir = scratchDir('nep-turn-replay-');
   try {
-    const turn = storedTurn(db, options.turnId);
-    const now = () => turn.at;
+    const stored = storedTurn(db, options.turnId);
+    const now = () => stored.at;
     // The adapter of the turn's interface knows her by her account there, and the core by her account on the home one.
     const home = homeIdentity(db, options.dataDir);
+    // A turn in no place, a diary turn, runs on the home interface as the core's diary service runs it.
+    const turn = stored.placeId === null ? { ...stored, iface: home.iface } : stored;
+    const diary = stored.mode === 'diary' || options.kind !== null ? diaryParamsOf(stored, options.kind) : null;
     const self = { selfId: home.selfId, selfName: home.selfName };
     const said =
       home.from === 'clients.json'
@@ -228,9 +235,7 @@ async function runOnce(options: {
     });
     try {
       await wired.seed();
-      const trigger = await triggerOf(stage, turn, db);
-      const internal = turn.iface === 'cli' ? wired.memoryContext({ kind: 'internal' }) : null;
-      const params = turnParamsOf(turn, stage, trigger, internal);
+      const params = diary ?? (await replyParams(stage, turn, db, wired));
       const result = (await wired.under(() => wired.runner.runTurn(params))) as Rec;
       return {
         turn,
@@ -264,6 +269,7 @@ const FLAGS = {
     '--prompts',
     '--embed',
     '--calibration',
+    '--kind',
   ],
   switches: ['--compare'],
   usage: USAGE,
@@ -297,6 +303,7 @@ function turnOptions(flags: Flags, dataDir: string) {
     compare: flags['--compare'] === true,
     oracle: path.resolve(flagText(flags, '--oracle') ?? ORACLE),
     prompts: flagText(flags, '--prompts') ?? null,
+    kind: flagText(flags, '--kind') ?? null,
   };
 }
 
@@ -306,20 +313,56 @@ function writePrivate(file: string, value: unknown): void {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-/** The first request of the turn built again and compared with the archived one. */
+/**
+ * The first request of the turn built again and compared with the archived one. A diary turn's planner request is
+ * compared first and answered with the live answer, so the writer's first request is built on the live plan.
+ */
 async function compareRun(input: RunInput, outDir: string, oracle: string): Promise<string> {
-  const run = await runOnce({ ...input, stopAt: 'reply' });
+  const planner = archivedPlanner(input, oracle);
+  const llm =
+    planner === null
+      ? input.llm
+      : {
+          ...input.llm,
+          complete: (messages: unknown, options?: unknown) =>
+            (options as { purpose?: unknown } | undefined)?.purpose === 'diary-planner'
+              ? Promise.resolve({ text: planner.text ?? '', toolCalls: [] })
+              : input.llm.complete(messages, options),
+        };
+  const run = await runOnce({ ...input, llm, stopAt: 'reply' });
   const { turnId } = run.turn;
   const first: KeptRequest | undefined = run.requests.find((request) => request.purpose === 'reply');
-  if (first === undefined)
-    throw new CliError(`${TOOL}: the turn ended ${String(run.result.outcome)} before its first request`);
-  // The rebuilt request beside the reports, private as they are, for a reader who must see the difference.
+  const planned = run.requests.find((request) => request.purpose === 'diary-planner');
+  // The rebuilt requests beside the reports, private as they are, for a reader who must see the difference.
   writePrivate(path.join(outDir, turnId, 'first-request.json'), {
-    messages: first.messages,
-    tools: first.tools,
+    ...(planned === undefined ? {} : { planner: { messages: planned.messages } }),
+    messages: first?.messages ?? null,
+    tools: first?.tools ?? null,
     memoryReads: run.carried,
   });
-  return compareText(partsOf(first.messages, first.tools), archivedOf(oracle, turnId));
+  const lines: Array<string> = [];
+  if (planner !== null) {
+    if (planned === undefined) throw new CliError(`${TOOL}: the turn ended before its planner request`);
+    lines.push('diary-planner:', compareText(partsOf(planned.messages, planned.tools), planner.parts));
+  }
+  if (first === undefined)
+    throw new CliError(`${TOOL}: the turn ended ${String(run.result.outcome)} before its first request`);
+  const writer = compareText(partsOf(first.messages, first.tools), archivedOf(oracle, turnId, 'reply').parts);
+  lines.push(...(planner === null ? [writer] : ['reply:', writer]));
+  return lines.join('\n');
+}
+
+/** The planner request the live diary turn archived in `oracle`, null for a turn of the copy that is no diary turn. */
+function archivedPlanner(input: RunInput, oracle: string): { parts: RequestParts; text: string | null } | null {
+  const copy = new DatabaseSync(path.join(input.dataDir, 'memory.db'), { readOnly: true });
+  const turn = (() => {
+    try {
+      return storedTurn(copy, input.turnId);
+    } finally {
+      copy.close();
+    }
+  })();
+  return turn.mode === 'diary' ? archivedOf(oracle, turn.turnId, 'diary-planner') : null;
 }
 
 /** The turn run whole `samples` times, one private report file each. */
@@ -370,6 +413,7 @@ async function main(argv: Array<string>): Promise<string> {
     embed: client.embed,
     stopAt: null,
     calibration: asked.calibration,
+    kind: asked.kind,
   };
   try {
     const text = asked.compare

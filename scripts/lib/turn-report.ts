@@ -3,7 +3,8 @@
 // `stopAt` the first request of that purpose is kept and refused, so a run builds one request and stops. `turnReport`
 // lays a run out per step: the request's size, the call's milliseconds, her `<think>`, each tool call with its
 // arguments, each result's status and size, whether the calls of the step ran together. Then come her reply, the writes,
-// the total time from the first request to the reply, the counts and the reason the loop ended. `reportTable` is the
+// the total time from the first request to the reply, the counts and the reason the loop ended. A diary turn's report
+// adds the planner's answer and the messages of the post the turn recorded. `reportTable` is the
 // short table for stderr: counts, sizes and names only, never her words.
 
 import { effectsOf } from '../../src/tools/definitions.ts';
@@ -146,7 +147,36 @@ export type TurnReport = {
   outcome: string | null;
   endedBecause: string | null;
   helperRequests: Array<{ purpose: string | null; ms: number | null }>;
+  /** A diary turn's plan and post; null for any other turn. */
+  diary: { plan: { kind: unknown; brief: unknown; seed: unknown } | null; messages: Array<string> } | null;
 };
+
+/** The planner's answer of a diary turn as its JSON names it, or null when it sent none or none that parses. */
+function planOf(requests: ReadonlyArray<KeptRequest>): { kind: unknown; brief: unknown; seed: unknown } | null {
+  const text = requests.find((request) => request.purpose === 'diary-planner')?.text;
+  if (typeof text !== 'string') return null;
+  try {
+    const answer = JSON.parse(text) as Rec | null;
+    return answer === null || typeof answer !== 'object'
+      ? null
+      : { kind: answer.kind, brief: answer.brief, seed: answer.seed };
+  } catch {
+    // A planner answer that is no JSON is one the diary falls back from: the report shows no plan.
+    return null;
+  }
+}
+
+/** The diary part of a report (see `TurnReport.diary`). */
+function diaryOf(requests: ReadonlyArray<KeptRequest>, result: Rec | null): TurnReport['diary'] {
+  const made = result?.diary as { entry?: { messages?: unknown } } | undefined;
+  const planned = requests.some((request) => request.purpose === 'diary-planner');
+  if (made === undefined && !planned) return null;
+  const messages = made?.entry?.messages;
+  return {
+    plan: planOf(requests),
+    messages: Array.isArray(messages) ? messages.filter((one): one is string => typeof one === 'string') : [],
+  };
+}
 
 /** The report of one sample (see the head of this file). `estimate` turns a request's characters into tokens. */
 export function turnReport({
@@ -216,6 +246,7 @@ export function turnReport({
     helperRequests: requests
       .filter((request) => request.purpose !== 'reply')
       .map((request) => ({ purpose: request.purpose, ms: request.ms })),
+    diary: diaryOf(requests, result),
   };
 }
 
@@ -244,7 +275,11 @@ export function reportTable(report: TurnReport): string {
       }`
     );
   }
-  const { reply } = report;
+  const { reply, diary } = report;
+  if (diary !== null)
+    lines.push(
+      `  diary: kind ${shown(diary.plan?.kind)}, seed ${shown(diary.plan?.seed)}, ${diary.messages.length} messages`
+    );
   lines.push(
     `  reply: ${reply.messages.length} messages, ${reply.reactions.length} reactions${
       reply.skipped ? ', skipped' : ''

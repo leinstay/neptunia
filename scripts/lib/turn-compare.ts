@@ -3,9 +3,39 @@
 // of the user message by tag. A part is equal, or has its two sizes and the character offset of the first difference.
 // Nothing here carries a part's content out. `foldRepeats` reads a `<chat>` block with consecutive repeated lines
 // folded into one and the `#N` numbers counted again, so a block that differs only by repeats can be shown equal.
+// `archivedRequest` reads the first archived request of one purpose, with its parts and the answer it got.
+
+import type { Db } from '../../src/memory/db/types.ts';
+import { contentOf } from './turn-report.ts';
 
 /** The request parts compared, as one request holds them. */
 export type RequestParts = { system: string; user: string; tools: ReadonlyArray<unknown> };
+
+type Rec = Record<string, unknown>;
+
+/** The parts of a request as the compare reads them: its system text, its user text and its tools. */
+export function partsOf(messages: ReadonlyArray<Rec>, tools: ReadonlyArray<unknown>): RequestParts {
+  const system = messages.filter((one) => one.role === 'system').map((one) => contentOf(one.content));
+  const user = messages.find((one) => one.role === 'user');
+  return { system: system.join('\n\n'), user: contentOf(user?.content), tools };
+}
+
+/** The first request of `purpose` the turn archived, its parts and its answer's text; null when it archived none. */
+export function archivedRequest(
+  db: Db,
+  turnId: string,
+  purpose: string
+): { parts: RequestParts; text: string | null } | null {
+  const row = db
+    .prepare(
+      'SELECT messages, tools, response_text FROM model_requests WHERE turn_id = ? AND purpose = ? ORDER BY step, started_at LIMIT 1'
+    )
+    .get(turnId, purpose);
+  if (!row) return null;
+  const messages = JSON.parse(String(row.messages)) as Array<Rec>;
+  const tools = typeof row.tools === 'string' ? (JSON.parse(row.tools) as Array<unknown>) : [];
+  return { parts: partsOf(messages, tools), text: typeof row.response_text === 'string' ? row.response_text : null };
+}
 
 /** One compared part: equal, or the sizes and the first offset where they differ. */
 export type PartRow = {

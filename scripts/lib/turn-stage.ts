@@ -3,7 +3,9 @@
 // `runTurn` is called with, as the core's pipeline calls it (src/pipeline/answer.ts, follow-up.ts, private-gate.ts).
 // The command line chat is the core's own construction with no client open (src/core.ts: `withStoredHistory` over
 // `createCliChat`), its lines cut after the trigger. Any other place is the fake adapter of its interface seeded with
-// the place, its root's chats and its lines (scripts/lib/turn-port.ts). Either is wrapped by `recordingPort`.
+// the place, its root's chats and its lines (scripts/lib/turn-port.ts). Either is wrapped by `recordingPort`. A diary
+// turn names no place and no trigger: its interface is the caller's, every place of it served from the copy, and
+// `diaryParamsOf` passes `runTurn` what the diary service passes it (src/behavior/diary.ts).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,6 +20,7 @@ import type { SourceLine } from '../../src/chat/sessions.ts';
 import { chatLines } from '../../src/memory/db/chat-lines.ts';
 import { ownerConsoleName } from '../../src/memory/db/identity-links.ts';
 import { lineOf } from '../../src/behavior/line-of.ts';
+import { DIARY_KINDS } from '../../src/behavior/diary.ts';
 import type { Db } from '../../src/memory/db/types.ts';
 import type { Adapter, ChatRef, MessageEvent } from '../../src/protocol/adapter.ts';
 import { messageRefsOf } from '../../interfaces/discord/collect.ts';
@@ -32,7 +35,9 @@ const CLI_IFACE = 'cli';
 export type StoredTurn = {
   turnId: string;
   at: number;
-  placeId: string;
+  /** Null for a turn that ran in no place, a diary turn. */
+  placeId: string | null;
+  /** '' for a turn that ran in no place, whose interface the caller names. */
   iface: string;
   mode: string | null;
   triggerKind: string | null;
@@ -61,7 +66,7 @@ export function storedTurn(db: Db, turnId: string): StoredTurn {
     // A start row with unreadable fields names its place and time alone.
   }
   const trigger = (extra.trigger ?? {}) as Record<string, unknown>;
-  const placeId = String(row.place_id);
+  const placeId = textOr(row.place_id);
   return {
     turnId: String(row.turn_id),
     at: Date.parse(String(row.at)),
@@ -149,7 +154,8 @@ function usedEmoji(db: Db, rootPlace: string | null): Map<string, string> {
 export type Stage = {
   port: Adapter;
   writes: Array<RecordedWrite>;
-  chat: ChatRef;
+  /** Null for a turn in no place. */
+  chat: ChatRef | null;
   rootPlace: string | null;
   rootNative: string | null;
   close: () => void;
@@ -181,7 +187,9 @@ export function stageOf({
   now: () => number;
   tmpDir: string;
 }): Stage {
-  if (turn.triggerId === null) throw new Error(`turn-replay: ${turn.turnId} names no trigger message`);
+  const placeId = turn.placeId;
+  if (placeId !== null && turn.triggerId === null)
+    throw new Error(`turn-replay: ${turn.turnId} names no trigger message`);
   // A place of another interface answers its history from the copy, one fake adapter for each interface asked.
   const places = new Map<string, Adapter>();
   const placesOf = (iface: string): Adapter | null => {
@@ -196,8 +204,10 @@ export function stageOf({
     places.set(iface, made);
     return made;
   };
+  if (placeId === null) return placelessStage(db, turn, selfId, now, placesOf);
+  const triggerId = turn.triggerId ?? '';
   if (turn.iface === CLI_IFACE) {
-    const through = triggerLine(db, turn.placeId, turn.triggerId);
+    const through = triggerLine(db, placeId, triggerId);
     const sessionsFile = path.join(tmpDir, 'sessions.json');
     const stored = path.join(dataDir, 'cli', 'sessions.json');
     if (fs.existsSync(stored)) fs.copyFileSync(stored, sessionsFile);
@@ -222,13 +232,13 @@ export function stageOf({
     return {
       port,
       writes,
-      chat: { iface: CLI_IFACE, chatId: turn.placeId },
+      chat: { iface: CLI_IFACE, chatId: placeId },
       rootPlace: null,
       rootNative: null,
       close: () => {},
     };
   }
-  const { chat, others, rootPlace } = chatsOf(db, turn.placeId);
+  const { chat, others, rootPlace } = chatsOf(db, placeId);
   const emoji = usedEmoji(db, rootPlace);
   const reactions = storedReactions(db, {
     iface: turn.iface,
@@ -244,8 +254,8 @@ export function stageOf({
     selfId,
     chat,
     others,
-    placeId: turn.placeId,
-    through: turn.triggerId,
+    placeId,
+    through: triggerId,
     until: turn.at,
     extrasOf: (line) => ({ reactions: reactions.get(line.messageId) ?? [], messageRefs: refsOf(line.text) }),
     now,
@@ -258,19 +268,11 @@ export function stageOf({
     );
   // What the interface declares, which the request reads (its emoji line, its media pick): the Discord adapter's own
   // declaration, read off an adapter with no client. Another interface keeps the fake's.
-  const declared = turn.iface === 'discord' ? createDiscordAdapter({}).capabilities() : null;
-  const { port: storedPort, writes } = recordingPort(
+  const { port, writes } = routedPort(
     withStoredPlaces(served, { db, iface: turn.iface, until: turn.at, held: [chat.id] }),
-    now
-  );
-  const recorded = declared === null ? storedPort : { ...storedPort, capabilities: () => declared };
-  // The command line answers as its own interface, as the core routes it. With no chat open it is the kept chat.
-  const cli = recordingPort(createCliChat({ live: () => null, now, newId: randomUUID }), now);
-  const empty = createFakeAdapter({ iface: 'none' });
-  const port = createIfaceRouter(
-    recorded,
-    (name) => (name === CLI_IFACE ? cli.port : placesOf(name)),
-    () => [recorded, cli.port, empty]
+    turn.iface,
+    now,
+    placesOf
   );
   return {
     port,
@@ -282,8 +284,51 @@ export function stageOf({
   };
 }
 
+/**
+ * The port of a turn on a chat platform: `primary` recorded, with what the interface declares, which the request reads
+ * (its emoji line, its media pick): the Discord adapter's own declaration, read off an adapter with no client. Another
+ * interface keeps the fake's. The command line answers as its own interface, as the core routes it. With no chat open
+ * it is the kept chat.
+ */
+function routedPort(
+  primary: Adapter,
+  iface: string,
+  now: () => number,
+  placesOf: (iface: string) => Adapter | null
+): { port: Adapter; writes: Array<RecordedWrite> } {
+  const declared = iface === 'discord' ? createDiscordAdapter({}).capabilities() : null;
+  const { port: storedPort, writes } = recordingPort(primary, now);
+  const recorded = declared === null ? storedPort : { ...storedPort, capabilities: () => declared };
+  const cli = recordingPort(createCliChat({ live: () => null, now, newId: randomUUID }), now);
+  const empty = createFakeAdapter({ iface: 'none' });
+  const port = createIfaceRouter(
+    recorded,
+    (name) => (name === CLI_IFACE ? cli.port : placesOf(name)),
+    () => [recorded, cli.port, empty]
+  );
+  return { port, writes };
+}
+
+/** The stage of a turn in no place: every stored place of its interface served from the copy, and no chat. */
+function placelessStage(
+  db: Db,
+  turn: StoredTurn,
+  selfId: string,
+  now: () => number,
+  placesOf: (iface: string) => Adapter | null
+): Stage {
+  const primary = withStoredPlaces(createFakeAdapter({ iface: turn.iface, selfId, now }), {
+    db,
+    iface: turn.iface,
+    until: turn.at,
+  });
+  const { port, writes } = routedPort(primary, turn.iface, now, placesOf);
+  return { port, writes, chat: null, rootPlace: null, rootNative: null, close: () => {} };
+}
+
 /** The trigger line the turn answers, as the pipeline normalizes it: the port's own history event of it. */
 export async function triggerOf(stage: Stage, turn: StoredTurn, db: Db): Promise<Record<string, unknown>> {
+  if (stage.chat === null || turn.placeId === null) throw new Error(`turn-replay: ${turn.turnId} ran in no chat`);
   const page = await stage.port.history(stage.chat, { limit: 100 });
   const events: Array<MessageEvent> = page.status === 'ok' ? page.events : [];
   const id = turn.triggerId ?? '';
@@ -308,4 +353,19 @@ export function turnParamsOf(
     triggerKind,
     ...(memoryContext !== null ? { memoryContext } : {}),
   };
+}
+
+/**
+ * The parameters `runTurn` takes for a stored diary turn, as the diary service passes them: `kind` pins the post's kind
+ * as `/nep diary post <kind>` does, but not forced; null draws it as live. Throws for a turn that is no diary turn and
+ * for a kind the diary does not know.
+ */
+export function diaryParamsOf(
+  turn: StoredTurn,
+  kind: string | null
+): { mode: 'diary'; diary: { kind: string | null; forced: false } } {
+  if (turn.mode !== 'diary') throw new Error(`turn-replay: ${turn.turnId} is no diary turn, it takes no --kind`);
+  if (kind !== null && !Object.hasOwn(DIARY_KINDS, kind))
+    throw new Error(`turn-replay: unknown diary kind "${kind}"; use one of ${Object.keys(DIARY_KINDS).join(', ')}`);
+  return { mode: 'diary', diary: { kind, forced: false } };
 }
