@@ -341,7 +341,7 @@ test('native usage that cannot be read automatically is stated with its hand-off
   assert.ok(answer.text.includes('no automatic read for this source'), answer.text);
   assert.ok(answer.text.includes('by hand:'), answer.text);
   assert.deepEqual(spawned, []);
-  for (const call of vendor.calls()) assert.ok(['auth status', '--help', '--version'].includes(call), call);
+  for (const call of vendor.calls()) assert.ok(['auth status', '--version'].includes(call), call);
   assert.deepEqual(one.checks, []);
   assert.deepEqual(digestOf(one), before);
 });

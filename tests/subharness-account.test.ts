@@ -109,7 +109,7 @@ test('opencode is authenticated by an extra key the store still holds, with no p
 
 // login
 
-test('login runs the login the installed help names, under her home, and changes nothing in keys.json', async () => {
+test('login runs auth login under her home, and changes nothing in keys.json', async () => {
   // Catches: a login that moves a role, opens a model wizard, or logs in the installing user's own account.
   const { privateDir, vendor, deps, asked } = rig('claude');
   const before = fs.readFileSync(path.join(privateDir, 'keys.json'), 'utf8');

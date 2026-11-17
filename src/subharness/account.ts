@@ -15,7 +15,7 @@ import { hasKey, readKeys } from '../keys/file.ts';
 import { BackendLocked, backendBusy, withBackendLock } from './activity.ts';
 import { installSubharness } from './install.ts';
 import type { InstallRun } from './install.ts';
-import { helpOfInstalled, isInstalled, loginCommand, subharnessPlace, vendorEnv } from './place.ts';
+import { isInstalled, loginCommand, subharnessPlace, vendorEnv } from './place.ts';
 import { sourceState } from './sources.ts';
 
 export type AccountAction = 'login' | 'status' | 'logout';
@@ -77,15 +77,9 @@ function vendorRun(
 
 /** The vendor's login under the backend's home, then what its own status says; an exit 0 with no login is a failure. */
 async function vendorLogin(deps: AccountDeps, backend: 'codex' | 'claude'): Promise<AccountAnswer> {
-  let args: ReadonlyArray<string> | undefined;
-  try {
-    const help = backend === 'claude' ? await helpOfInstalled(deps.privateDir, backend) : undefined;
-    args = loginCommand(deps.privateDir, backend, help)?.args;
-  } catch (error) {
-    return refused('login-failed', (error as Error).message);
-  }
-  if (args === undefined) return refused('login-failed', `${backend} names no login`);
-  const exit = await vendorRun(deps, backend, args, deps.loginStdio ?? 'inherit');
+  const login = loginCommand(deps.privateDir, backend);
+  if (login === null) return refused('login-failed', `${backend} names no login`);
+  const exit = await vendorRun(deps, backend, login.args, deps.loginStdio ?? 'inherit');
   if (exit.signal === 'SIGINT' || exit.code === INTERRUPTED_CODE)
     return refused('login-cancelled', `the login of ${backend} was cancelled; nothing changed`);
   if (exit.code !== 0) return refused('login-failed', `the login of ${backend} failed (exit ${exit.code ?? 'signal'})`);

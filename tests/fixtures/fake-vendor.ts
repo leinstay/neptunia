@@ -51,10 +51,6 @@ home="\${CLAUDE_CONFIG_DIR:-$CODEX_HOME}"
 printf '%s\\n' "$*" >> "$control/calls"
 printf '%s\\n' "$home" >> "$control/homes"
 case "$*" in
-  --help)
-    printf 'Commands:\\n  auth    Manage authentication\\n  login   Manage login\\n  logout  Log out\\n'
-    exit 0
-    ;;
   'auth login'|'login --device-auth')
     : > "$control/started-login"
     while [ -f "$control/hold-login" ]; do sleep 0.01; done
