@@ -7,6 +7,7 @@
 //   node scripts/stable-names-rewrite.ts --data <folder> --apply    writes the plan through the memory writer
 //   --choose <platformName>=<platformId>                            ties a name two emoji hold to one of them; repeatable
 //   --markup-iface <interface>                                      the interface of raw markup whose id no row holds
+//   --rewritten <file>                                              ids of lines an earlier run rewrote, one per line
 //
 // The core's own start check refuses the run while an engine holds the folder. Output holds counts and names of kinds.
 
@@ -26,6 +27,7 @@ const BATCH_SIZE = 200;
 function print(plan: StableNamesPlan): void {
   const { counts } = plan;
   console.log(`lines to rewrite: ${counts.lines}`);
+  console.log(`lines rewritten before, vectors to evict: ${counts.rewritten}`);
   console.log(`tokens to rewrite: ${counts.tokens}`);
   console.log(`media rows to rename: ${counts.media}`);
   for (const key of Object.keys(counts.issue).sort()) console.log(`names to issue, ${key}: ${counts.issue[key]}`);
@@ -84,11 +86,27 @@ function markupIfaceOf(args: ReadonlyArray<string>): string | null {
   return at < 0 ? null : (args[at + 1] ?? null);
 }
 
+/** The line ids of the `--rewritten <file>` argument, one per line; none when absent. */
+function rewrittenOf(args: ReadonlyArray<string>): Array<string> {
+  const at = args.indexOf('--rewritten');
+  if (at < 0) return [];
+  const file = args[at + 1] ?? '';
+  if (!file || !fs.existsSync(file)) {
+    console.error('usage: --rewritten <file>, a file of line ids, one per line');
+    process.exit(2);
+  }
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .map((id) => id.trim())
+    .filter((id) => id !== '');
+}
+
 const argv = process.argv.slice(2);
 const dataAt = argv.indexOf('--data');
 if (dataAt < 0 || !argv[dataAt + 1]) {
   console.error(
-    'usage: node scripts/stable-names-rewrite.ts --data <folder> [--apply] [--choose <platformName>=<platformId>]... [--markup-iface <interface>]'
+    'usage: node scripts/stable-names-rewrite.ts --data <folder> [--apply] [--choose <platformName>=<platformId>]... [--markup-iface <interface>] [--rewritten <file>]'
   );
   process.exit(2);
 }
@@ -103,7 +121,7 @@ const apply = argv.includes('--apply');
 const handle = openMemoryDb(dbPath, { readOnly: !apply });
 try {
   const options = { choose: choiceOf(argv), markupIface: markupIfaceOf(argv) };
-  const plan = planStableNamesRewrite(dbOf(handle), options);
+  const plan = planStableNamesRewrite(dbOf(handle), { ...options, rewritten: rewrittenOf(argv) });
   print(plan);
   if (apply)
     console.log(
