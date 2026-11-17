@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { readRouting, updateRouting } from '../src/subharness/routing.ts';
 
 import { createKeyStore } from '../src/keys/store.ts';
-import { setAgentModel, setAgentMode } from '../src/subharness/control.ts';
+import { setAgentModel, setUnitMode } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 
 import { SECRET, SECRET_3 } from './fixtures/keys-rig.ts';
@@ -50,13 +50,14 @@ test("an agent's route lands in config.json and keys.json gains nothing", async 
   const { dir, deps } = rig();
   const before = keysText(dir);
   assert.equal((await setAgentModel(deps, 'server', 'claude-sonnet-5-5', 'high', 'claude')).ok, true);
-  assert.equal((await setAgentMode(dir, 'server', 'full')).ok, true);
+  assert.equal((await setUnitMode(dir, 'host', 'full')).ok, true);
   const { models } = configOf(dir);
   assert.deepEqual(models?.agents, {
     via: { server: 'claude' },
     model: { server: 'claude-sonnet-5-5' },
     effort: { server: 'high' },
-    mode: { server: 'full' },
+    // Changed: the mode is the server's unit's, `host`.
+    mode: { host: 'full' },
   });
   assert.equal(keysText(dir), before);
 });

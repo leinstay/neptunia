@@ -11,7 +11,7 @@
 // in, since her agents have no runtime. The owner's word of 2026-11-08: the doctor is a diagnosis he asked for,
 // while a chat launch checks nothing (src/setup/readiness.ts).
 
-import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
+import { BACKEND_NAMES, agentNames } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { checkKey, checkRole } from '../keys/check.ts';
 import type { CheckResult } from '../keys/check.ts';
@@ -21,7 +21,7 @@ import { ignoredEffort } from '../llm/route-text.ts';
 import type { RouteRole } from '../llm/route-text.ts';
 import { roleModel, searchModel } from '../llm/roles.ts';
 import { routeName } from '../subharness/route-names.ts';
-import { readRouting, SUBHARNESS_AGENTS } from '../subharness/routing.ts';
+import { readRouting } from '../subharness/routing.ts';
 import { availableSources, sourceProblem, sourceState } from '../subharness/sources.ts';
 import type { SourceState } from '../subharness/sources.ts';
 
@@ -145,7 +145,7 @@ function searchLines(run: Run): Promise<Array<Line>> {
 async function agentLines(run: Run): Promise<Array<Line>> {
   const lines: Array<Line> = [];
   const { uses, models } = run.sub;
-  for (const agent of SUBHARNESS_AGENTS) {
+  for (const agent of agentNames()) {
     const backend = uses[agent];
     if (backend === undefined) continue;
     lines.push(await onHarness(run, agent, backend, models[agent] ?? null));

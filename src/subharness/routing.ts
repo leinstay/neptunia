@@ -10,7 +10,7 @@
 //   models.agents.model      subharness.models      the model each agent runs on
 //   models.agents.effort     subharness.efforts     the reasoning effort each agent runs at
 //   models.agents.provider   subharness.providers   the OpenRouter provider each opencode agent is pinned to
-//   models.agents.mode       subharness.modes       what each agent may do (src/subharness/control.ts#AGENT_MODES)
+//   models.agents.mode       subharness.modes       what the agents of each unit may do (src/subharness/control.ts#AGENT_MODES)
 //   models.agents.opencodeKey subharness.key        the named key of keys.json opencode runs on
 // An empty map or a null record leaves the file, so a deployment that chose nothing keeps a file with no routing in it.
 
@@ -24,10 +24,6 @@ import { readLocalConfig } from '../tools/operations/shared.ts';
 import { CONFIG_DIR, CONFIG_FILE } from '../config/files.ts';
 import { readKeys } from '../keys/file.ts';
 
-/** The agents that take a subharness route: the two errand agents. */
-export const SUBHARNESS_AGENTS = ['scout', 'server'] as const;
-export type SubharnessAgent = (typeof SUBHARNESS_AGENTS)[number];
-
 /** The backends that can carry the memory writer: one run with no tools and the system prompt replaced. */
 export const MEMORY_BACKENDS = ['codex', 'claude'] as const;
 export type MemoryBackend = (typeof MEMORY_BACKENDS)[number];
@@ -36,6 +32,7 @@ export type MemoryBackend = (typeof MEMORY_BACKENDS)[number];
 export type SubharnessRouting = {
   /** the named key opencode runs on; null while opencode has no login */
   key: string | null;
+  /** the mode of each unit, by unit (`web`, `host`) */
   modes: Record<string, string>;
   /** the model each agent runs on, by agent; an agent with none runs on the backend's own default */
   models: Record<string, string>;

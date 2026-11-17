@@ -57,10 +57,12 @@ async function runOnce(profileProvider: string | null, extra: Record<string, unk
     agentId: 'errand-scout',
     promptFiles: [prompt],
     defaultLimits: { steps: 5, seconds: 30 },
-    defaultSearchProvider: profileProvider,
     sandbox: 'read-only',
     search: false,
-    buildConfig: () => ({ agent: {} }),
+    unit: 'web',
+    // Changed: the search provider follows the `search` ability, so `exa` stands for an agent that searches.
+    abilities: profileProvider === 'exa' ? ['search', 'fetch'] : ['fetch'],
+    returns: 'files',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
@@ -97,7 +99,7 @@ test('an opencode run whose task names exa gets OPENCODE_ENABLE_EXA although the
   assert.equal(Object.hasOwn(child.env, 'EXA_API_KEY'), false);
 });
 
-test('an opencode run with no search provider gets neither OPENCODE_ENABLE_EXA nor EXA_API_KEY', async () => {
+test('an opencode run of an agent without the search ability gets neither OPENCODE_ENABLE_EXA nor EXA_API_KEY', async () => {
   // Catches: the switch is set for every OpenCode run, giving websearch to agents whose profile asked for none.
   const [child] = await runOnce(null, { id: 'e3', route: route('opencode'), secrets: { openrouterKey: KEY } });
   assert.ok(child, 'the child was spawned');

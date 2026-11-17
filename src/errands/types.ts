@@ -227,10 +227,10 @@ export type RunOutcome = {
 };
 
 export type PingAnswer =
-  | { ok: true; profile: string; busy: boolean; queued: number; error?: undefined }
-  | { ok: false; error: string; profile?: undefined; busy?: undefined; queued?: undefined };
+  | { ok: true; unit: string; busy: boolean; queued: number; error?: undefined }
+  | { ok: false; error: string; unit?: undefined; busy?: undefined; queued?: undefined };
 export type ProgressEvent = { agent: string; id: string; step: number; tool: string | null; note: string };
-export type LinkEvent = { agent: string; up: boolean; code?: string };
+export type LinkEvent = { unit: string; up: boolean; code?: string };
 
 /** The core's side of the errand agents' sockets (src/errands/client.ts#createErrandClient). */
 export type ErrandClient = {

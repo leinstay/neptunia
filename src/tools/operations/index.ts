@@ -19,6 +19,7 @@ import './lore.ts';
 import './memory.ts';
 import './message.ts';
 import './errand.ts';
+import './agent.ts';
 import './skill.ts';
 import './intention.ts';
 import './places.ts';

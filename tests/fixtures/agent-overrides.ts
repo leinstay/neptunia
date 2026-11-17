@@ -8,7 +8,7 @@ import {
   loadProfiles,
   profileOf,
 } from '../../src/agent-runner/profiles.ts';
-import type { AgentDefinition, AgentSettings, Profile, WorkerDefinition } from '../../src/agent-runner/profiles.ts';
+import type { AgentDefinition, AgentSettings, Profile } from '../../src/agent-runner/profiles.ts';
 import { tempDir } from './tmp.ts';
 
 export type AgentPaths = {
@@ -31,7 +31,7 @@ export function fixture(): {
   dataDir: string;
   shared: string;
   personal: string;
-  definition: WorkerDefinition;
+  definition: AgentDefinition;
   options: AgentPaths;
   override: (value: unknown) => void;
   writeShared: (name: string, value: unknown) => void;
@@ -42,23 +42,17 @@ export function fixture(): {
   const dataDir = path.join(base, 'persona');
   const shared = path.join(rootDir, 'agents', 'scout');
   const personal = path.join(dataDir, 'agents', 'scout');
-  const definition: WorkerDefinition = {
+  const definition: AgentDefinition = {
     id: 'scout',
-    kind: 'worker',
-    role: 'scout',
+    description: 'A synthetic agent.',
+    unit: 'web',
+    abilities: ['search', 'fetch'],
+    returns: 'text',
+    audience: 'any',
     prompt: 'prompt.md',
-    override: 'agent-scout.md',
-    tools: ['read', 'glob'],
-    shell: 'scout-download',
-    enabled: false,
-    cost: { input: 2, output: 6 },
     limits: { steps: 25, seconds: 300 },
     daily: { tasks: 40 },
-    searchProvider: 'exa',
-    socket: '/run/synthetic-scout/sock',
-    out: '/var/lib/synthetic-scout/out',
-    env: [],
-    description: 'A synthetic worker.',
+    cost: { input: 2, output: 6 },
   };
   fs.mkdirSync(shared, { recursive: true });
   fs.writeFileSync(path.join(shared, 'profile.json'), JSON.stringify(definition));

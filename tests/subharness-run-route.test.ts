@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runAgent } from '../src/subharness/run.ts';
 import type { AgentRun, RunDeps } from '../src/subharness/run.ts';
-import { setAgentMode } from '../src/subharness/control.ts';
+import { setUnitMode } from '../src/subharness/control.ts';
 import type { BackendRunOptions } from '../src/agent-runner/backend.ts';
 import type { TaskRoute } from '../src/agent-runner/protocol.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
@@ -104,7 +104,7 @@ for (const [mode, sandbox, standIn] of [
   test(`a route in mode ${mode} sets the sandbox ${sandbox} and the sudo stand-in by the route's mode`, async () => {
     // Catches: the sandbox follows the route and the PATH still follows keys.json (or the reverse), so sudo opens or stays shut wrongly.
     const { deps, denyDir, seen, privateDir } = rig();
-    await setAgentMode(privateDir, 'scout', mode === 'sudo' ? 'read' : 'sudo');
+    await setUnitMode(privateDir, 'web', mode === 'sudo' ? 'read' : 'sudo');
     await runAgent(request({ route: { ...ROUTE, mode } }), deps);
     assert.equal(seen[0]?.name, 'claude');
     assert.equal(seen[0]?.options.sandbox, sandbox);

@@ -29,22 +29,36 @@ test('the table parses /subharness: a bare line is the status', () => {
   assert.deepEqual(parseCommandLine('/subharness status'), { ok: true, name: 'subharness.status', args: {} });
 });
 
-test('the table parses /agent mode with an agent, an optional mode, and refuses other words', () => {
-  // Bug: a mode outside the four reaches the handler, or an agent outside the four is accepted.
-  // Changed: the execution mode moved from `/subharness mode` to `/agent mode`.
-  assert.deepEqual(parseCommandLine('/agent mode scout sudo'), {
+test('the table parses /agent mode with a unit, an optional mode, and refuses other words', () => {
+  // Bug: a mode outside the four reaches the handler, or a unit outside the two is accepted.
+  // Changed: a mode belongs to a unit, so `/agent mode` names `web` or `host` where it named an agent.
+  assert.deepEqual(parseCommandLine('/agent mode web sudo'), {
     ok: true,
     name: 'agent.mode',
-    args: { agent: 'scout', mode: 'sudo' },
+    args: { unit: 'web', mode: 'sudo' },
   });
-  // Changed: the watcher is gone (maintainer, 2026-11-16), so the agent with no mode given is the server.
-  assert.deepEqual(parseCommandLine('/agent mode server'), {
+  assert.deepEqual(parseCommandLine('/agent mode host'), {
     ok: true,
     name: 'agent.mode',
-    args: { agent: 'server' },
+    args: { unit: 'host' },
   });
-  for (const line of ['/agent mode', '/agent mode scout root', '/agent mode editor read'])
+  for (const line of ['/agent mode', '/agent mode web root', '/agent mode scout read'])
     assert.equal(parseCommandLine(line).ok, false, line);
+});
+
+test('the table parses /agents and /agent enable and disable into their operations', () => {
+  // Bug: the owner has no command to list the agents or switch one on, so a local agent stays off.
+  assert.deepEqual(parseCommandLine('/agents'), { ok: true, name: 'agents', args: {} });
+  assert.deepEqual(parseCommandLine('/agent enable fetch'), {
+    ok: true,
+    name: 'agent.enable',
+    args: { name: 'fetch' },
+  });
+  assert.deepEqual(parseCommandLine('/agent disable fetch'), {
+    ok: true,
+    name: 'agent.disable',
+    args: { name: 'fetch' },
+  });
 });
 
 test('/help has a line for /subharness, and every subcommand of it has a help line', () => {
@@ -77,8 +91,9 @@ test('a mode and the status change and read keys.json and answer ok', async () =
   const { dir, deps } = rig();
   const stored = readKeysFile(dir);
   writeKeysFile(dir, { ...stored, subharness: { ...stored.subharness, key: 'opencode' } });
-  assert.equal((await subharnessCommand(deps, 'agent.mode', { agent: 'scout', mode: 'sudo' })).status, 'ok');
-  assert.equal(readKeysFile(dir).subharness.modes.scout, 'sudo');
+  // Changed: a mode belongs to a unit.
+  assert.equal((await subharnessCommand(deps, 'agent.mode', { unit: 'web', mode: 'sudo' })).status, 'ok');
+  assert.equal(readKeysFile(dir).subharness.modes.web, 'sudo');
   const status = await subharnessCommand(deps, 'subharness.status', {});
   assert.equal(status.status, 'ok');
   assert.ok(status.text.includes('opencode') && status.text.includes('sudo'));
@@ -97,7 +112,8 @@ test('a refused opencode login answers failed, names the key and writes nothing'
 test('a mode line with no mode shows the current one and writes nothing', async () => {
   // Bug: the inspection form writes the default into keys.json.
   const { dir, deps } = rig();
-  const answer = await subharnessCommand(deps, 'agent.mode', { agent: 'scout' });
+  // Changed: a mode belongs to a unit.
+  const answer = await subharnessCommand(deps, 'agent.mode', { unit: 'web' });
   assert.equal(answer.status, 'ok');
   assert.ok(answer.text.includes('write'));
   assert.deepEqual(readKeysFile(dir).subharness.modes, {});
@@ -173,7 +189,7 @@ test("an interface's command to change a mode never reaches the console", async 
   // Changed: the agent principal kind is gone (maintainer, 2026-11-16), so the interface is the client tried.
   const { desk, consoleCalls } = deskOver();
   for (const kind of ['interface'] as const) {
-    const answer = await desk.run(eventOf('agent.mode', { agent: 'scout', mode: 'sudo' }), { kind, name: 'scout' });
+    const answer = await desk.run(eventOf('agent.mode', { unit: 'web', mode: 'sudo' }), { kind, name: 'scout' });
     assert.notEqual(answer.status, 'ok', kind);
   }
   assert.deepEqual(consoleCalls, []);
@@ -182,7 +198,7 @@ test("an interface's command to change a mode never reaches the console", async 
 test('the same command from the owner chat reaches the console', async () => {
   // Bug: the guard is so wide that the owner's own chat cannot change a mode either.
   const { desk, consoleCalls } = deskOver();
-  await desk.run(eventOf('agent.mode', { agent: 'scout', mode: 'sudo' }), { kind: 'cli', name: 'cli' });
+  await desk.run(eventOf('agent.mode', { unit: 'web', mode: 'sudo' }), { kind: 'cli', name: 'cli' });
   assert.deepEqual(consoleCalls, ['agent.mode']);
 });
 
@@ -190,10 +206,11 @@ test('inside the core a mode change is stored and the answer names neptunia setu
   // Catches: the core wires the mode to a sudo re-render that NoNewPrivileges refuses, and the owner reads a failure.
   // Changed: the step word left the public command, and the one flow re-renders the units.
   const { dir, deps } = rig();
-  const inCore: EnableDeps = { ...deps, applyMode: (agent) => Promise.resolve(deferModeToUnit(agent)) };
-  const answer = await subharnessCommand(inCore, 'agent.mode', { agent: 'server', mode: 'sudo' });
+  // Changed: a mode belongs to a unit, the server's being `host`.
+  const inCore: EnableDeps = { ...deps, applyMode: (unit) => Promise.resolve(deferModeToUnit(unit)) };
+  const answer = await subharnessCommand(inCore, 'agent.mode', { unit: 'host', mode: 'sudo' });
   assert.equal(answer.status, 'ok');
-  assert.equal(readKeysFile(dir).subharness.modes.server, 'sudo');
+  assert.equal(readKeysFile(dir).subharness.modes.host, 'sudo');
   assert.ok(answer.text.includes('neptunia setup'));
 });
 

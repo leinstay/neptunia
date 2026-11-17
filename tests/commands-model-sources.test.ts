@@ -193,20 +193,22 @@ test('a logout while the check runs keeps the selection from being saved', async
 
 test('/agent mode stores the mode and re-renders the unit, as subharness mode did', async () => {
   // Catches: the move dropping the unit hook, so a mode only reaches keys.json and the sandbox stays as it was.
+  // Changed: a mode belongs to a unit, so the command names `web` where it named the scout.
   const { desk, privateDir, applied } = rig();
-  const answer = await desk.run('agent.mode', { agent: 'scout', mode: 'read' }, OWNER);
+  const answer = await desk.run('agent.mode', { unit: 'web', mode: 'read' }, OWNER);
   assert.equal(answer.status, 'ok', answer.text);
   assert.ok(answer.text.includes('the unit took it'), answer.text);
-  assert.equal(readKeysFile(privateDir).subharness.modes.scout, 'read');
-  assert.deepEqual(applied, [['scout', 'read']]);
+  assert.equal(readKeysFile(privateDir).subharness.modes.web, 'read');
+  assert.deepEqual(applied, [['web', 'read']]);
 });
 
 test('/agent mode with no mode reports it, writes nothing and touches no unit', async () => {
   // Catches: a read that re-renders and restarts a running agent.
-  const { desk, privateDir, applied } = rig({ modes: { server: 'full' } });
-  const answer = await desk.run('agent.mode', { agent: 'server' }, OWNER);
+  // Changed: a mode belongs to a unit, so the server's `host` unit is read.
+  const { desk, privateDir, applied } = rig({ modes: { host: 'full' } });
+  const answer = await desk.run('agent.mode', { unit: 'host' }, OWNER);
   assert.equal(answer.status, 'ok');
   assert.ok(answer.text.includes('full'), answer.text);
   assert.deepEqual(applied, []);
-  assert.equal(readKeysFile(privateDir).subharness.modes.server, 'full');
+  assert.equal(readKeysFile(privateDir).subharness.modes.host, 'full');
 });

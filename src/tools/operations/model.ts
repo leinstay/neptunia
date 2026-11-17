@@ -9,7 +9,8 @@ import { IMAGE_ROLE } from '../../llm/images.ts';
 import { CORE_ROLE, NON_CORE_ROLES, roleModel } from '../../llm/roles.ts';
 import { routesOf } from '../../llm/route-chain.ts';
 import { isRouteRole } from '../../llm/route-text.ts';
-import { agentRouteOf, SUBHARNESS_AGENTS } from '../../subharness/routing.ts';
+import { agentRouteOf } from '../../subharness/routing.ts';
+import { agentNames } from '../../agent-runner/profiles.ts';
 import { routeName } from '../../subharness/route-names.ts';
 import { reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
@@ -36,7 +37,7 @@ const handlers = perEnv((env) => {
       ...NON_CORE_ROLES.map(lineOf),
       `${IMAGE_ROLE}: ${imageModelLabel(cfg)}`,
       'errands:',
-      ...SUBHARNESS_AGENTS.map(agentLineOf),
+      ...agentNames().map(agentLineOf),
     ];
     return lines.join('\n');
   }

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { createAgentEngine } from '../src/agent-runner/backend.ts';
 import type { BackendRunOptions } from '../src/agent-runner/backend.ts';
 import type { RunDeps } from '../src/subharness/run.ts';
-import { setAgentMode } from '../src/subharness/control.ts';
+import { setUnitMode } from '../src/subharness/control.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -39,7 +39,9 @@ function engineRig(backend: 'codex' | 'claude' | 'opencode' | null, agent: strin
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
     search: false,
-    buildConfig: () => ({ agent: {} }),
+    unit: 'web',
+    abilities: ['search', 'fetch', 'download', 'shell'],
+    returns: 'files',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
@@ -49,7 +51,7 @@ function engineRig(backend: 'codex' | 'claude' | 'opencode' | null, agent: strin
   return { engine, calls, privateDir };
 }
 
-const TASK = { id: 't1', goal: 'look at the disk', context: {} } as unknown as Parameters<
+const TASK = { id: 't1', agent: 'scout', goal: 'look at the disk', context: {} } as unknown as Parameters<
   ReturnType<typeof createAgentEngine>['run']
 >[0];
 
@@ -62,11 +64,12 @@ test('a task while the subharness is off fails with subharness-off and starts no
   assert.equal(calls.length, 0);
 });
 
-test("a task runs in the mode of its profile's agent, not in the profile's own sandbox key", async () => {
-  // Bug: the server profile says read-only, the owner set server to write, and the engine still passes read-only.
+test("a task runs in the mode of its agent's unit", async () => {
+  // Bug: the host unit runs read-only, the owner set it to write, and the engine still passes read-only.
+  // Changed: the mode belongs to the unit (`host` for the server agent), not to the agent.
   const { engine, calls, privateDir } = engineRig('codex', 'server');
   await engine.run(TASK);
-  await setAgentMode(privateDir, 'server', 'write');
+  await setUnitMode(privateDir, 'host', 'write');
   await engine.run({ ...TASK, id: 't2' });
   assert.deepEqual(
     calls.map((one) => one.sandbox),
@@ -86,6 +89,7 @@ test('a running engine reads personal prompts and limits afresh while retaining 
   });
   const task = {
     id: 'first',
+    agent: 'scout',
     goal: 'inspect synthetic files',
     context: {},
     signal: new AbortController().signal,
@@ -134,6 +138,7 @@ test('a running engine refuses an invalid personal definition instead of using i
   });
   const task = {
     id: 'valid',
+    agent: 'scout',
     goal: 'inspect synthetic files',
     context: {},
     signal: new AbortController().signal,
@@ -164,4 +169,48 @@ test("the profile's step limit reaches the run, and a task's own limit wins", as
     calls.map((one) => one.maxSteps),
     [5, 2]
   );
+});
+
+/** The files a run hands back when the agent leaves `picture.png` in its folder and has `abilities` and `returns`. */
+async function filesHandedBack(abilities: Array<string>, returns: string): Promise<number> {
+  const base = tempDir('nep-engine-files-');
+  const prompt = path.join(base, 'agent.md');
+  fs.writeFileSync(prompt, 'You are an errand agent.');
+  const privateDir = path.join(base, 'private');
+  writeKeysFile(privateDir, { subharness: { key: null, modes: {}, uses: { fetch: 'codex' } } });
+  const saveAPicture = (_brief: string, options: BackendRunOptions) => {
+    fs.writeFileSync(path.join(options.cwd, 'picture.png'), 'not really a picture');
+    return Promise.resolve({ ok: true, text: 'answer', exitCode: 0 });
+  };
+  const subharness: RunDeps = {
+    privateDir,
+    denyDir: path.join(base, 'nosudo'),
+    hostEnv: { PATH: '/usr/bin' },
+    backendFactory: (name) => ({ name, run: saveAPicture }),
+  };
+  const profile = {
+    name: 'fetch',
+    unit: 'web',
+    abilities,
+    returns,
+    promptFiles: [prompt],
+    defaultLimits: { steps: 5, seconds: 30 },
+  };
+  const engine = createAgentEngine({
+    profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
+    outDir: path.join(base, 'out'),
+    subharness,
+  });
+  const { result } = await engine.run({ ...TASK, agent: 'fetch' });
+  return result.files.length;
+}
+
+test('an agent that downloads and returns files hands back the file it saved', async () => {
+  assert.equal(await filesHandedBack(['search', 'download'], 'files'), 1);
+});
+
+test('an agent without the download ability, or one that returns text, hands back no file', async () => {
+  // Bug: a search agent leaves a scraped page in its folder and the persona receives it as a deliverable.
+  assert.equal(await filesHandedBack(['search', 'fetch'], 'files'), 0);
+  assert.equal(await filesHandedBack(['search', 'download'], 'text'), 0);
 });

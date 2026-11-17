@@ -54,6 +54,8 @@ const TABLE = [
   'services',
   'usage',
   'errands',
+  // The owner's list of the agents on disk.
+  'agents',
   'intentions',
   'pause',
   // Stage Z: the engine proxy's commands.
@@ -558,8 +560,12 @@ test('/doctor in the chat runs the checks of neptunia doctor and ends as it ends
 
 /** Every line of the table with its required arguments filled: a choice by its first value, anything else by `1`. */
 function everyLine(): Array<string> {
-  const filled = (args: ReadonlyArray<{ required: boolean; choices?: ReadonlyArray<string> }>): Array<string> =>
-    args.filter((one) => one.required).map((one) => one.choices?.[0] ?? '1');
+  // Changed: the role of `/model set` and `/model sources` has no choice list, since the agents on disk are roles too, so
+  // its word is the first model role.
+  const filled = (
+    args: ReadonlyArray<{ name: string; required: boolean; choices?: ReadonlyArray<string> }>
+  ): Array<string> =>
+    args.filter((one) => one.required).map((one) => one.choices?.[0] ?? (one.name === 'role' ? 'core' : '1'));
   return COMMANDS.flatMap((command) => {
     const subs = command.subcommands;
     if (subs.length === 0) return [['/' + command.name, ...filled(command.args)].join(' ')];

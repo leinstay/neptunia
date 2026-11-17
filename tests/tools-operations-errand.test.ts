@@ -55,7 +55,21 @@ function fakeClient({ configured = true } = {}) {
   };
 }
 
-function makeEnv({ errandSettings = {}, agents = {}, configured = true, labels = {} } = {}) {
+/** A web unit's out folder under a fresh state folder of a user unit, and the agent paths that point there. */
+function webOut(): { out: string; agentPaths: { env: Record<string, string> } } {
+  const stateDir = tempDir('nep-ops-task-state-');
+  const out = path.join(stateDir, 'neptunia-agent-web', 'out');
+  fs.mkdirSync(out, { recursive: true });
+  return { out, agentPaths: { env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_STATE_HOME: stateDir } } };
+}
+
+function makeEnv({
+  errandSettings = {},
+  agents = {},
+  configured = true,
+  labels = {},
+  agentPaths = undefined as { env: Record<string, string> } | undefined,
+} = {}) {
   const rootDir = tempDir('nep-ops-task-');
   const hot = {
     config: {
@@ -77,11 +91,13 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true, labels =
   const stores = createErrandStores({
     dataDir: path.join(rootDir, 'data'),
     config: () => hot.config,
+    agentPaths,
   } as unknown as Parameters<typeof createErrandStores>[0]);
   const errands = createErrandService({
     client,
     stores,
     hot,
+    agentPaths,
     isServedRoot: (id: unknown) => id === 'g1',
     onFinished: (task: Untyped) => finished.push(task),
   } as unknown as Parameters<typeof createErrandService>[0]);
@@ -330,8 +346,9 @@ test("errand.list: the open ones, one by id, every one with a limit, a private c
 });
 
 test('errand.list: a finished task whose files the runner deleted says files-expired', async () => {
-  const out = tempDir('nep-ops-task-out-');
-  const { env, client, errands } = makeEnv({ agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } });
+  // Changed: the out folder is the web unit's.
+  const { agentPaths } = webOut();
+  const { env, client, errands } = makeEnv({ agentPaths });
   await withCapturedLogs(async () => {
     const id = asRecord(
       (await runOp('errand.add', { goal: 'a meme' }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).data
@@ -420,11 +437,9 @@ test('errand.list without an id lists the open tasks and the finished ones not r
 });
 
 test('errand.read: pages of errands.resultMaxChars, the last page marks it read; sources, the error and the file manifest come with the first page', async () => {
-  const out = tempDir('nep-ops-task-out-');
-  const fixture = makeEnv({
-    errandSettings: { resultMaxChars: 10 },
-    agents: { scout: { enabled: true, out, daily: { tasks: 10 } } },
-  });
+  // Changed: the out folder is the web unit's.
+  const { out, agentPaths } = webOut();
+  const fixture = makeEnv({ errandSettings: { resultMaxChars: 10 }, agentPaths });
   const { env, stores } = fixture;
   await withCapturedLogs(async () => {
     const id = await finishedTask(fixture, 'long one', {
@@ -462,8 +477,9 @@ test('errand.read: pages of errands.resultMaxChars, the last page marks it read;
 });
 
 test("errand.read: an expired file is marked and has no handle; a failed task shows its error; an open or unknown task, and a private chat's task for another member, are refused", async () => {
-  const out = tempDir('nep-ops-task-out-');
-  const fixture = makeEnv({ agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } });
+  // Changed: the out folder is the web unit's.
+  const { agentPaths } = webOut();
+  const fixture = makeEnv({ agentPaths });
   const { env, client, errands } = fixture;
   await withCapturedLogs(async () => {
     const id = await finishedTask(fixture, 'a meme', {

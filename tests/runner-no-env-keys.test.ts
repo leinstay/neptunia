@@ -11,7 +11,6 @@ import path from 'node:path';
 import type { spawn } from 'node:child_process';
 import { createAgentEngine, createBackend } from '../src/agent-runner/backend.ts';
 import type { TaskRoute } from '../src/agent-runner/protocol.ts';
-import { profileOf } from '../src/agent-runner/profiles.ts';
 import { PROXY_ENV_NAMES } from '../src/net/proxy.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -79,7 +78,9 @@ async function runOnce(extra: Record<string, unknown>) {
       defaultSearchProvider: 'exa',
       sandbox: 'read-only',
       search: false,
-      buildConfig: () => ({ agent: {} }),
+      unit: 'web',
+      abilities: ['search', 'fetch', 'download', 'shell'],
+      returns: 'files',
     };
     const engine = createAgentEngine({
       profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],
@@ -149,9 +150,3 @@ for (const backend of ['claude', 'codex', 'opencode'] as const) {
     assert.deepEqual(leaked(child), []);
   });
 }
-
-test('the scout and server profiles declare no environment names', () => {
-  // Bug: the profile keeps naming OPENROUTER_ERRAND_KEY, OPENCODE_WEBSEARCH_KEY and PROXY_URL as the runner's inputs.
-  assert.deepEqual([...(profileOf('scout')?.envNames ?? ['missing'])], []);
-  assert.deepEqual([...(profileOf('server')?.envNames ?? ['missing'])], []);
-});

@@ -10,7 +10,6 @@ import type { RunRequest } from '../src/errands/types.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 
@@ -151,7 +150,8 @@ test('errands service: a run with no route and no proxy carries no secrets, neve
   try {
     await withCapturedLogs(async () => {
       errands.submit(ask('scout'));
-      errands.submit(ask('server'));
+      // Changed: the server agent's audience is the owner, so the owner asks.
+      errands.submit({ ...ask('server'), requester: { accountId: '7', kind: 'owner' } });
       await errands.idle();
     });
     assert.equal(client.runs.length, 2);
@@ -267,16 +267,25 @@ async function pongRunner(sock: Untyped) {
 
 test('errands service: with the runner socket absent the flag goes down, submit refuses runner-down at once and writes no task; a ping that succeeds flips it back', async () => {
   const rootDir = tempDir('nep-errands-service-');
-  const sock = path.join(os.tmpdir(), `errand-health-${process.pid}-${Math.random().toString(36).slice(2)}.sock`);
+  // Changed: the socket is the web unit's, which a user unit keeps under its runtime folder.
+  const runtime = tempDir('nep-errands-runtime-');
+  fs.mkdirSync(path.join(runtime, 'neptunia-agent-web'));
+  const sock = path.join(runtime, 'neptunia-agent-web', 'sock');
+  const agentPaths = { env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_RUNTIME_DIR: runtime } };
   const hot = {
     config: {
       errands: { maxOpen: 3 },
-      agents: { scout: { enabled: true, socket: sock, daily: { tasks: 10 } }, server: { enabled: false } },
+      agents: { scout: { enabled: true, daily: { tasks: 10 } }, server: { enabled: false } },
     },
   };
   let clock = 1_000_000;
   const log = fakeLog();
-  const client: Untyped = createErrandClient({ hot, log, setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)) });
+  const client: Untyped = createErrandClient({
+    hot,
+    log,
+    agentPaths,
+    setTimer: (fn, ms) => setTimeout(fn, Math.max(ms, 60_000)),
+  });
   const stores = createErrandStores({ memoryDb: memoryOf(path.join(rootDir, 'data')), config: () => hot.config, log });
   const errands = createErrandService({ client, stores, hot, log, now: () => clock });
   let runner = null;
@@ -289,7 +298,8 @@ test('errands service: with the runner socket absent the flag goes down, submit 
     assert.deepEqual(present(errands.store()).recent(10), [], 'no task row');
     const downs = log.calls.filter((c) => c.msg === 'errands: runner down');
     assert.equal(downs.length, 1, 'logged once per change');
-    assert.equal(downs[0].fields.agent, 'scout');
+    // Changed: the flag is the unit's.
+    assert.equal(downs[0].fields.unit, 'web');
 
     // Another refusal within RUNNER_RECHECK_MS sends no recheck and logs nothing new.
     errands.submit(ask('scout'));
@@ -313,6 +323,7 @@ test('errands service: with the runner socket absent the flag goes down, submit 
     await errands.idle();
     if (runner) await runner.close();
     fs.rmSync(rootDir, { recursive: true, force: true });
+    fs.rmSync(runtime, { recursive: true, force: true });
   }
 });
 
@@ -337,12 +348,15 @@ test("errands service: the connect loop's outcomes set the flag; start pings the
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(pinged, ['scout'], 'only the enabled agent');
     assert.equal(errands.runnerUp('scout'), false);
-    linkListener?.({ agent: 'scout', up: true });
-    linkListener?.({ agent: 'scout', up: true });
+    // Changed: a link event names the unit, and every agent of the unit reads its flag.
+    linkListener?.({ unit: 'web', up: true });
+    linkListener?.({ unit: 'web', up: true });
     assert.equal(errands.runnerUp('scout'), true);
+    assert.equal(errands.runnerUp('fetch'), true, 'another agent of the web unit');
+    assert.equal(errands.runnerUp('server'), null, 'the host unit is not known');
     assert.equal(log.calls.filter((c) => c.msg === 'errands: runner up').length, 1, 'once per change');
     assert.equal(errands.submit(ask('scout')).ok, true);
-    linkListener?.({ agent: 'scout', up: false, code: 'ENOENT' });
+    linkListener?.({ unit: 'web', up: false, code: 'ENOENT' });
     assert.equal(errands.submit(ask('scout')).code, 'runner-down');
     assert.equal(
       log.calls.find((c) => c.msg === 'errands: runner down')?.fields.code,
@@ -534,14 +548,16 @@ test('errands service: at start the finished errands whose result turn never ran
 
 test("errands service: the file of an expired task is a marker, not a path; a private chat's only in that chat", () => {
   const rootDir = tempDir('nep-errands-service-');
-  const out = path.join(rootDir, 'out');
-  fs.mkdirSync(out, { recursive: true });
-  const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } } };
+  // Changed: the out folder is the web unit's, which a user unit keeps under its state folder.
+  const agentPaths = { env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_STATE_HOME: path.join(rootDir, 'state') } };
+  fs.mkdirSync(path.join(rootDir, 'state', 'neptunia-agent-web', 'out'), { recursive: true });
+  const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
   try {
     const stores = createErrandStores({
       memoryDb: memoryOf(path.join(rootDir, 'data')),
       config: () => hot.config,
       log: fakeLog(),
+      agentPaths,
     });
     const errands = createErrandService({
       // @ts-expect-error: the stand-in's result carries only the text; the real client adds sources and files
@@ -572,7 +588,7 @@ test("errands service: the file of an expired task is a marker, not a path; a pr
 
 test('the running service forwards fresh personal limits with live config precedence', async () => {
   const rig = consumerRig();
-  rig.override({ enabled: true, limits: { seconds: 17, steps: 7 }, daily: { tasks: 4 } });
+  rig.override({ limits: { seconds: 17, steps: 7 }, daily: { tasks: 4 } });
   const hot = { config: { errands: { maxOpen: 3 }, agents: { scout: { limits: { steps: 2 } } } } };
   const runs: Array<RunRequest> = [];
   const stores = consumers.stores({ agentPaths: rig.options, config: () => hot.config });
@@ -596,7 +612,7 @@ test('the running service forwards fresh personal limits with live config preced
   try {
     assert.equal(service.submit(ask('scout')).ok, true);
     await service.idle();
-    rig.override({ enabled: true, limits: { seconds: 29, steps: 11 }, daily: { tasks: 4 } });
+    rig.override({ limits: { seconds: 29, steps: 11 }, daily: { tasks: 4 } });
     assert.equal(service.submit(ask('scout')).ok, true);
     await service.idle();
     assert.deepEqual(
@@ -614,7 +630,7 @@ test('the running service forwards fresh personal limits with live config preced
 
 test('a profile made invalid after submission closes the deferred errand without calling its client', async () => {
   const rig = consumerRig();
-  rig.override({ enabled: true, limits: { seconds: 17 } });
+  rig.override({ limits: { seconds: 17 } });
   const hot = { config: { errands: { maxOpen: 3 }, agents: {} } };
   const deferred: Array<() => unknown> = [];
   const runs: Array<RunRequest> = [];
@@ -692,7 +708,8 @@ function rig(privateDir: string) {
 const exaKeyAsk = (agent: string) => ({
   agent,
   goal: 'find the changelog',
-  requester: { accountId: '7', kind: 'member' },
+  // Changed: the server agent's audience is the owner, so the owner asks.
+  requester: { accountId: '7', kind: 'owner' },
   origin: { channelId: 'c1', messageId: 'm1' },
   scope: 'group' as const,
 });
@@ -861,5 +878,20 @@ test('errands service: the wait resolves with the cancelled record when the erra
     assert.deepEqual([waited.ended, waited.errand?.state], [true, 'cancelled']);
   } finally {
     rig.cleanup();
+  }
+});
+
+test('an agent whose audience is the owner takes an errand only when the owner asks', async () => {
+  // Bug: a member's errand reaches the server agent, which reads this machine for the owner alone.
+  const { errands, client, cleanup } = makeService();
+  try {
+    await withCapturedLogs(async () => {
+      assert.deepEqual(errands.submit(ask('server')), { ok: false, code: 'owner-only' });
+      assert.equal(errands.submit({ ...ask('server'), requester: { accountId: '7', kind: 'owner' } }).ok, true);
+      await errands.idle();
+    });
+    assert.equal(client.runs.length, 1);
+  } finally {
+    cleanup();
   }
 });

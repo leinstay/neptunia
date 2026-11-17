@@ -73,18 +73,21 @@ function makeStore({
   errands = {},
   agents = {},
   journal = null,
+  stateDir = path.join(os.tmpdir(), 'errands-no-such-state-dir'),
 }: {
   dataDir?: string;
   clock?: { t: number };
   errands?: Record<string, unknown>;
   agents?: Record<string, unknown>;
   journal?: Parameters<typeof createErrandStore>[0]['journal'];
+  /** the state folder of a user unit, whose `neptunia-agent-web/out` is the scout's out folder */
+  stateDir?: string;
 } = {}) {
   const config = {
     errands: { maxOpen: 3, ...errands },
     agents: {
-      scout: { daily: { tasks: 5 }, out: '/var/lib/agent-scout/out' },
-      server: { daily: { tasks: 2 }, out: '/var/lib/agent-server/out' },
+      scout: { daily: { tasks: 5 } },
+      server: { daily: { tasks: 2 } },
       ...agents,
     },
   };
@@ -97,6 +100,7 @@ function makeStore({
     config: () => config,
     journal,
     memoryDb: memoryOf(dataDir),
+    agentPaths: { env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_STATE_HOME: stateDir } },
     uuid: () => `${(n += 1).toString(16).padStart(8, '0')}-aaaa-bbbb-cccc-dddddddddddd`,
   });
   return { store, dataDir, clock, config };
@@ -318,7 +322,8 @@ test('task store: a file handle resolves only to a file the task lists, inside i
     const file = store.fileOf(handle);
     assert.equal(
       loose(file).path,
-      path.resolve('/var/lib/agent-scout/out', idOf(task), 'meme.png'),
+      // Changed: the out folder is the web unit's.
+      path.resolve(os.tmpdir(), 'errands-no-such-state-dir', 'neptunia-agent-web', 'out', idOf(task), 'meme.png'),
       'the out directory, never the path the runner wrote'
     );
     assert.equal(loose(file).contentType, 'image/png');
@@ -356,8 +361,11 @@ test('task store: recent lists newest first; failOpen fails what a restart left 
 // PR 6d: the mark is written to the errand's board task (its metadata), where errands.json held it before.
 test("task store: a finished task's files expire once the runner removed its directory; the handle then names nothing", async () => {
   await withCapturedLogs(async () => {
-    const out = tempDir('errands-out-');
-    const { store, dataDir } = makeStore({ errands: { maxOpen: 5 }, agents: { scout: { daily: { tasks: 5 }, out } } });
+    // Changed: the out folder is the web unit's, under the state folder of a user unit.
+    const stateDir = tempDir('errands-state-');
+    const out = path.join(stateDir, 'neptunia-agent-web', 'out');
+    fs.mkdirSync(out, { recursive: true });
+    const { store, dataDir } = makeStore({ errands: { maxOpen: 5 }, stateDir });
     const files = [{ path: '/elsewhere/meme.png', name: 'meme.png', contentType: 'image/png', bytes: 12 }];
     const kept = store.add(asked).errand;
     const gone = store.add(asked).errand;
@@ -389,9 +397,7 @@ test("task store: a finished task's files expire once the runner removed its dir
 
 test('task store: no out dir at all (no runner on this host) expires nothing', async () => {
   await withCapturedLogs(() => {
-    const { store } = makeStore({
-      agents: { scout: { daily: { tasks: 5 }, out: path.join(os.tmpdir(), 'errands-no-such-out-dir') } },
-    });
+    const { store } = makeStore();
     const { errand: task } = store.add(asked);
     store.finish(idOf(task), {
       status: 'done',
@@ -478,14 +484,14 @@ test("task store: the persona's call keeps its turn and its brief as written; th
 
 test('an existing store reads the personal daily cap again after a profile edit', () => {
   const rig = consumerRig();
-  rig.override({ enabled: true, daily: { tasks: 3 } });
+  rig.override({ daily: { tasks: 3 } });
   const store = consumers.store({
     agentPaths: rig.options,
     now: () => Date.parse('2026-11-03T12:00:00Z'),
   });
   try {
     assert.equal(store.today('scout').caps.tasks, 3);
-    rig.override({ enabled: true, daily: { tasks: 1 } });
+    rig.override({ daily: { tasks: 1 } });
     assert.equal(store.today('scout').caps.tasks, 1);
     assert.equal(
       store.add({

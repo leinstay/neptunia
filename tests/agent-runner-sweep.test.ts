@@ -74,7 +74,7 @@ test('sweeper: sweeps at start with the live hours, one log line of counts, no n
   let hours = 24;
   const { logs } = await withCapturedLogs(async () => {
     const sweeper = startSweeper({
-      profile: 'web',
+      unit: 'web',
       outDir: out,
       keepHours: () => hours,
       liveIds: () => ['tbusy'],

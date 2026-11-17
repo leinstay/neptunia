@@ -29,7 +29,7 @@
       "repeated": 0
     },
     "tests/agent-runner-profiles.test.ts": {
-      "deep": 14,
+      "deep": 1,
       "repeated": 0
     },
     "tests/agent-runner-protocol.test.ts": {
@@ -921,7 +921,7 @@
       "repeated": 0
     },
     "tests/subharness-run.test.ts": {
-      "deep": 6,
+      "deep": 5,
       "repeated": 0
     },
     "tests/subharness-usage-codex.test.ts": {
@@ -1345,15 +1345,15 @@
     },
     "src/errands/client.ts": {
       "createErrandClient": {
-        "function-length": 345
+        "function-length": 336
       },
       "createErrandClient>onEvent": {
-        "complexity": 26
+        "complexity": 21
       }
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 494
+        "function-length": 489
       }
     },
     "src/format.ts": {

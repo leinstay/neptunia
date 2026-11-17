@@ -147,11 +147,12 @@ test('nothing commits before the confirmation, and a double confirmation commits
   ]);
 });
 
-test('Errand offers scout and server', () => {
+test('Errand offers every agent on disk', () => {
   // Catches: an agent missing from Errand, or a role of another group listed there.
   // Changed: the watcher and its utility row are gone (maintainer, 2026-11-16), so Errand holds the two agents alone.
   const rows = pickerRows(play(opened(), choose('errand')).state);
-  assert.deepEqual(rows.map((one) => one.id).sort(), ['scout', 'server']);
+  // Changed: the agents are read from disk, and `code` and `fetch` ship beside `scout` and `server`.
+  assert.deepEqual(rows.map((one) => one.id).sort(), ['code', 'fetch', 'scout', 'server']);
 });
 
 test('the three kinds of evidence are told apart on the rows and in the review', () => {

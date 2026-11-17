@@ -1481,7 +1481,7 @@ async function buildCore(
           const base = objOf(objOf(hot.config).llm).baseUrl;
           return typeof base === 'string' ? base : undefined;
         },
-        applyMode: (agent) => Promise.resolve(deferModeToUnit(agent)),
+        applyMode: (unit) => Promise.resolve(deferModeToUnit(unit)),
       },
     }),
     interfaces: {

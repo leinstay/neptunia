@@ -1,0 +1,20 @@
+{
+  "id": "code",
+  "description": "Writes code on request and returns the files. It is not for searching the web or for questions about this machine.",
+  "unit": "web",
+  "abilities": ["fetch", "shell", "download"],
+  "returns": "files",
+  "audience": "any",
+  "prompt": "prompt.md",
+  "limits": {
+    "steps": 40,
+    "seconds": 600
+  },
+  "daily": {
+    "tasks": 20
+  },
+  "cost": {
+    "input": 2,
+    "output": 6
+  }
+}
