@@ -233,6 +233,20 @@ function fakeNamer(): StableNames {
   };
 }
 
+type Delivery = { chatId: string; content: unknown; parts: ReadonlyArray<MessageRef> };
+
+/** Records every send of `port` as it was delivered: the content asked for and the messages it became (a long text is several). */
+function recordDeliveries(port: Fake, deliveries: Array<Delivery>): void {
+  const adapter = port as unknown as Record<string, (...args: Array<unknown>) => Promise<unknown>>;
+  const send = adapter.send;
+  if (send === undefined) throw new Error('no send');
+  adapter.send = async (...args: Array<unknown>) => {
+    const delivery = (await send.apply(port, args)) as { parts: ReadonlyArray<MessageRef> };
+    deliveries.push({ chatId: (args[0] as { chatId: string }).chatId, content: args[1], parts: delivery.parts });
+    return delivery;
+  };
+}
+
 function create(): World {
   // The clock the messages she sends are stamped by: the one the runner is given, else the real one.
   let clock: () => number = Date.now;
@@ -266,9 +280,8 @@ function create(): World {
   const names = new Map<string, string | null>();
   const failing = new Map<string, Set<string>>();
   const closers = new Map<string, () => void>();
-  const deliveries: Array<{ chatId: string; content: unknown; parts: ReadonlyArray<MessageRef> }> = [];
+  const deliveries: Array<Delivery> = [];
   type Methods = Record<string, (...args: Array<unknown>) => Promise<unknown>>;
-  const adapter = port as unknown as Methods;
 
   type Spy = (args: Array<unknown>) => void | Promise<void>;
   type Interceptor = (args: Array<unknown>, original: () => Promise<unknown>) => unknown;
@@ -321,18 +334,7 @@ function create(): World {
     wrap(op);
   }
 
-  // Every send as it was delivered: the content asked for and the messages it became (a long text is several).
-  const send = adapter.send;
-  if (send === undefined) throw new Error('no send');
-  adapter.send = async (...args: Array<unknown>) => {
-    const delivery = (await send.apply(port, args)) as { parts: ReadonlyArray<MessageRef> };
-    deliveries.push({
-      chatId: (args[0] as { chatId: string }).chatId,
-      content: args[1],
-      parts: delivery.parts,
-    });
-    return delivery;
-  };
+  recordDeliveries(port, deliveries);
 
   /** What the persona posted in a chat, one entry for each message, as the first tests of the turn read them. */
   function sentOf(chatId: string, from: number, to: number): Array<Posted> {
