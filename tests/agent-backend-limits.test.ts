@@ -27,7 +27,6 @@ const OUTPUT = 1200;
 async function runOn(name: BackendName, dir: string) {
   const deps: RunDeps = {
     privateDir: dir,
-    denyDir: path.join(dir, 'deny'),
     hostEnv: { PATH: process.env.PATH },
     backendFactory: (backend) => createBackend(backend, { binary: STUB }),
   };

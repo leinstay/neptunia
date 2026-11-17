@@ -50,7 +50,6 @@ function fakeRig() {
   const calls: Array<{ name: string; options: BackendRunOptions }> = [];
   const engine = engineOver(base, {
     privateDir,
-    denyDir: path.join(base, 'nosudo'),
     hostEnv: { PATH: '/usr/bin' },
     backendFactory: (name) => ({
       name,
@@ -125,7 +124,6 @@ function spawnRig() {
   fs.writeFileSync(binary, script, { mode: 0o755 });
   const engine = engineOver(base, {
     privateDir,
-    denyDir: path.join(base, 'nosudo'),
     hostEnv: { PATH: process.env.PATH },
   });
   const argv = (): Array<string> => fs.readFileSync(path.join(record, 'argv'), 'utf8').trim().split('\n');

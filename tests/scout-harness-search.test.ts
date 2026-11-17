@@ -31,11 +31,9 @@ function rig() {
   const base = tempDir('nep-scout-search-');
   const privateDir = path.join(base, 'private');
   writeKeysFile(privateDir, { subharness: { backends: [], key: null, modes: {} } });
-  const denyDir = path.join(base, 'nosudo');
   const seen: Array<Seen> = [];
   const subharness: RunDeps = {
     privateDir,
-    denyDir,
     hostEnv: { PATH: HOST_PATH },
     backendFactory: (name) => ({
       name,
@@ -48,11 +46,11 @@ function rig() {
       },
     }),
   };
-  return { base, subharness, denyDir, seen };
+  return { base, subharness, seen };
 }
 
 async function runScout(backend: BackendName) {
-  const { base, subharness, denyDir, seen } = rig();
+  const { base, subharness, seen } = rig();
   const real = profileOf('scout');
   assert.ok(real, 'profile scout');
   const prompt = path.join(base, 'scout.md');
@@ -69,7 +67,7 @@ async function runScout(backend: BackendName) {
     route: ROUTES[backend],
     secrets: { openrouterKey: TASK_KEY },
   } as unknown as Parameters<typeof engine.run>[0]);
-  return { outcome, seen: seen[0], denyDir };
+  return { outcome, seen: seen[0] };
 }
 
 for (const backend of ['claude', 'codex'] as const) {
@@ -86,9 +84,10 @@ for (const backend of ['claude', 'codex'] as const) {
 
 test('a scout run on opencode gets the route key as OPENROUTER_API_KEY and no web-search command', async () => {
   // Catches: removing the shell command also removing the key the opencode route needs for its own websearch tool.
-  const { seen, denyDir } = await runScout('opencode');
+  const { seen } = await runScout('opencode');
   assert.ok(seen);
   assert.equal(seen.env.OPENROUTER_API_KEY, TASK_KEY);
   assert.equal(seen.webSearch, '');
-  assert.equal(seen.path, `${denyDir}:${HOST_PATH}`);
+  // Changed: the child gets the host PATH unchanged; the unit, not the engine, stops sudo.
+  assert.equal(seen.path, HOST_PATH);
 });

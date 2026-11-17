@@ -4,7 +4,6 @@
 // so the agent checks use `server`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
 import { checkModel } from '../src/subharness/models.ts';
 import { agentPaths, setAgentModel, statusText, subharnessView } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
@@ -52,7 +51,6 @@ test('the runner passes the stored model of the agent and none for an agent with
   const seen: Array<BackendRunOptions> = [];
   const deps = {
     privateDir: dir,
-    denyDir: path.join(dir, 'nosudo'),
     hostEnv: { PATH: '/usr/bin' },
     backendFactory: (name: 'codex' | 'claude' | 'opencode'): Backend => ({
       name,

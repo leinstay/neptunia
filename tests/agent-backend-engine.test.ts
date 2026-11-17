@@ -22,7 +22,6 @@ function engineRig(backend: 'codex' | 'claude' | 'opencode' | null, agent: strin
   const calls: Array<BackendRunOptions> = [];
   const subharness: RunDeps = {
     privateDir,
-    denyDir: path.join(base, 'nosudo'),
     hostEnv: { PATH: '/usr/bin' },
     backendFactory: (name) => ({
       name,
@@ -180,7 +179,6 @@ test('a run of any agent hands back the file it left in its folder', async () =>
   };
   const subharness: RunDeps = {
     privateDir,
-    denyDir: path.join(base, 'nosudo'),
     hostEnv: { PATH: '/usr/bin' },
     backendFactory: (name) => ({ name, run: saveAPicture }),
   };

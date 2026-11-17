@@ -65,7 +65,6 @@ async function runOnce(extra: Record<string, unknown>): Promise<Array<Seen>> {
     outDir: path.join(base, 'out'),
     subharness: {
       privateDir: path.join(base, 'private'),
-      denyDir: path.join(base, 'nosudo'),
       hostEnv: { PATH: '/usr/bin' },
       backendFactory: (name) => createBackend(name, { binary, spawnImpl: wrongly<typeof spawn>(impl) }),
     },

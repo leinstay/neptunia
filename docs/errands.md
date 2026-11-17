@@ -64,7 +64,7 @@ While the [engine proxy](proxy.md) is in force, the core puts it into every erra
 
 ## Modes
 
-Execution modes govern the agents' access: `read`, `write`, `full` and `sudo`. A mode belongs to a unit, and so to its agent: `read` for `server` and `write` for `scout` and `code` until the owner sets another (`models.agents.mode`, by unit). The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. The table shows what each mode gives each harness.
+Execution modes govern the agents' access: `read`, `write`, `full` and `sudo`. A mode belongs to a unit, and so to its agent: `read` for `server` and `write` for `scout` and `code` until the owner sets another (`models.agents.mode`, by unit). The mode in the route sets the backend's sandbox. The child gets the host's `PATH` in every mode. The unit stops `sudo` in the modes `read`, `write` and `full`, and the mode `sudo` lifts it. The table shows what each mode gives each harness.
 
 | Mode | Claude Code | Codex | OpenCode |
 |---|---|---|---|

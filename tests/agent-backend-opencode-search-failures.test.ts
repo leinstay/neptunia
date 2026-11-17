@@ -138,7 +138,6 @@ test('the engine puts the count on the task result of an opencode run', async ()
     outDir: path.join(base, 'out'),
     subharness: {
       privateDir: path.join(base, 'private'),
-      denyDir: path.join(base, 'nosudo'),
       hostEnv: { PATH: '/usr/bin' },
       backendFactory: (name) => createBackend(name, { binary, spawnImpl: fakeSpawn(EVENTS) }),
     },
@@ -208,7 +207,6 @@ test('the engine puts the dollars and steps of an opencode run on the task usage
     outDir: path.join(base, 'out'),
     subharness: {
       privateDir: path.join(base, 'private'),
-      denyDir: path.join(base, 'nosudo'),
       hostEnv: { PATH: '/usr/bin' },
       backendFactory: (name) => createBackend(name, { binary, spawnImpl: fakeSpawn(STEPS) }),
     },

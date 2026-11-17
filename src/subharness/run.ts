@@ -4,8 +4,8 @@
 //
 // An agent runs through the backend `models.agents.via` names for it. A run is refused with `subharness-off` while it
 // names none, or when opencode is on a key that has left the store, with `bad-route` for a route that is not one, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
-// whose binary every run starts with that folder's home in its environment. Otherwise the agent's mode (src/subharness/control.ts) becomes the backend's sandbox, and the child gets a
-// PATH on which `sudo` refuses unless the mode is `sudo`: a stand-in named `sudo` in a folder of its own comes first.
+// whose binary every run starts with that folder's home in its environment. Otherwise the agent's mode (src/subharness/control.ts) becomes the backend's sandbox. The child gets the host's PATH
+// in every mode: the unit stops `sudo` in `read`, `write` and `full`, and the mode `sudo` lifts that (src/setup/units.ts).
 // OpenCode gets one named key as OPENROUTER_API_KEY and nothing else key-like: the one it logged in with, or with a
 // route the one the task brought (`routeKey`, a run without it fails `route-no-key`); codex and claude bring their own
 // login and get no key. An opencode run that searches with exa gets `OPENCODE_ENABLE_EXA=1` and, when the task brought
@@ -17,9 +17,6 @@
 // the http form, or none at all on the direct path, whatever the caller's `env` or the host held. A step or output cap asked of a backend with no control for it (`backendLimits`: codex) is a gap too, so nobody reads
 // the cap as enforced where only the timeout ends a run.
 
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { backendLimits, createInstalledBackend } from '../agent-runner/backend.ts';
 import type { Backend, BackendResult, BackendRunOptions } from '../agent-runner/backend.ts';
 import { profileOf } from '../agent-runner/profiles.ts';
@@ -55,7 +52,7 @@ export type AgentRun = {
   route?: TaskRoute;
   /** the key an opencode route spends; it comes with the task and is never read from keys.json */
   routeKey?: string;
-  /** more of the child's environment; the PATH with its refusing `sudo`, the key and the proxy the engine sets win over it */
+  /** more of the child's environment; the PATH, the key and the proxy the engine sets win over it */
   env?: Readonly<Record<string, string>>;
   /** the engine proxy in force for this run; absent or null, the child gets no proxy variable */
   proxy?: string | null;
@@ -71,18 +68,11 @@ export type AgentRun = {
 export type RunDeps = {
   /** where config.json and keys.json are */
   privateDir: string;
-  /** the folder that holds the `sudo` stand-in; created at the first run that needs it */
-  denyDir: string;
   /** the environment whose PATH the child inherits; `process.env` by default */
   hostEnv?: Record<string, string | undefined>;
   /** a test's fake backends */
   backendFactory?: (name: BackendName) => Backend;
 };
-
-/** The folder of the `sudo` stand-in by default: one per user, in the temporary folder of the process. */
-export function defaultDenyDir(): string {
-  return path.join(os.tmpdir(), `neptunia-nosudo-${process.getuid?.() ?? 'user'}`);
-}
 
 /** The sandbox a backend gets for `mode`: `none` for the modes without one. */
 export function sandboxOfMode(mode: AgentMode): 'read-only' | 'workspace-write' | 'none' {
@@ -109,36 +99,13 @@ function limitGaps(name: BackendName, run: AgentRun): Array<string> {
 const withGaps = (result: BackendResult, gaps: ReadonlyArray<string>): BackendResult =>
   gaps.length === 0 ? result : { ...result, gaps: [...(result.gaps ?? []), ...gaps] };
 
-const SUDO_STAND_IN =
-  '#!/bin/sh\necho "sudo: refused, this agent runs without sudo (the owner sets it: agent mode)" >&2\nexit 1\n';
-
-/** Writes the `sudo` stand-in into `dir` when it is missing or different. */
-function ensureStandIn(dir: string): void {
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const file = path.join(dir, 'sudo');
-  let current = '';
-  try {
-    current = fs.readFileSync(file, 'utf8');
-  } catch {
-    // not there yet
-  }
-  if (current !== SUDO_STAND_IN) fs.writeFileSync(file, SUDO_STAND_IN, { mode: 0o755 });
-  fs.chmodSync(file, 0o755);
-}
-
 const off = (): BackendResult => ({ ok: false, text: '', exitCode: null, error: 'subharness-off' });
 
-/** The environment of the child: its PATH (a refusing `sudo` first unless the mode is `sudo`) and its key. */
-function envOf(deps: RunDeps, mode: AgentMode, keyValue: string | null): Record<string, string> {
+/** The environment of the child: the host's PATH and its key. */
+function envOf(deps: RunDeps, keyValue: string | null): Record<string, string> {
   const host = deps.hostEnv ?? process.env;
   const env: Record<string, string> = {};
-  const hostPath = host.PATH === undefined || host.PATH === '' ? [] : [host.PATH];
-  if (mode === 'sudo') {
-    if (host.PATH !== undefined) env.PATH = hostPath.join(':');
-  } else {
-    ensureStandIn(deps.denyDir);
-    env.PATH = [deps.denyDir, ...hostPath].join(':');
-  }
+  if (host.PATH !== undefined) env.PATH = host.PATH;
   if (keyValue !== null) env.OPENROUTER_API_KEY = keyValue;
   return env;
 }
@@ -225,7 +192,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
   const settled = run.route === undefined ? pathFromStore(run, deps) : pathFromRoute(run, run.route);
   if ('ok' in settled) return settled;
   const { name, mode, model, effort, keyValue, provider } = settled;
-  const env = runEnvOf(run, envOf(deps, mode, keyValue));
+  const env = runEnvOf(run, envOf(deps, keyValue));
   Object.assign(env, searchEnvOf(name, run));
   if (mode === 'full' || mode === 'sudo') log.info('subharness: run without a sandbox', { agent: run.agent, mode });
   const options: BackendRunOptions = {

@@ -15,7 +15,6 @@ import { alive, reportOf, scratch, STUB } from './fixtures/backend-rig.ts';
 function depsIn(dir: string): RunDeps {
   return {
     privateDir: dir,
-    denyDir: path.join(dir, 'deny'),
     hostEnv: { PATH: process.env.PATH },
     backendFactory: (backend) => createBackend(backend, { binary: STUB }),
   };

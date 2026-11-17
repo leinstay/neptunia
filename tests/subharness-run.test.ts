@@ -1,12 +1,10 @@
 // src/subharness/run.ts: the one seam every agent run goes through (the errands). It reads keys.json at
 // the moment of the run, as Hermes' approval guard reads its mode on each check (hermes_cli/approval_mode.py), refuses
-// with `subharness-off` while the subharness is off, maps the agent's mode to the backend's sandbox, takes `sudo` off
-// the child's PATH unless the mode is `sudo`, gives OpenCode its one key, and logs one line for a run without a sandbox.
-// The backend is a fake that records what it was given; nothing is spawned except the tiny `sudo` stand-in the run
-// writes, which one test executes.
+// with `subharness-off` while the subharness is off, maps the agent's mode to the backend's sandbox, passes the host
+// PATH to the child in every mode, gives OpenCode its one key, and logs one line for a run without a sandbox.
+// The backend is a fake that records what it was given; nothing is spawned.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runAgent, sandboxOfMode } from '../src/subharness/run.ts';
@@ -29,7 +27,6 @@ type Seen = { name: string; brief: string; options: BackendRunOptions };
 
 function rig(subharness: { backend: 'codex' | 'claude' | 'opencode' | null; key?: string | null }) {
   const privateDir = tempDir('nep-run-priv-');
-  const denyDir = path.join(tempDir('nep-run-deny-'), 'nosudo');
   writeKeysFile(privateDir, {
     core: [{ name: 'core-1', value: CORE_SECRET }],
     extra: { opencode: OC_SECRET },
@@ -39,7 +36,6 @@ function rig(subharness: { backend: 'codex' | 'claude' | 'opencode' | null; key?
   const result: BackendResult = { ok: true, text: 'done', exitCode: 0 };
   const deps: RunDeps = {
     privateDir,
-    denyDir,
     hostEnv: { PATH: HOST_PATH, HOME: '/home/x' },
     backendFactory: (name) => ({
       name,
@@ -49,7 +45,7 @@ function rig(subharness: { backend: 'codex' | 'claude' | 'opencode' | null; key?
       },
     }),
   };
-  return { deps, privateDir, denyDir, seen };
+  return { deps, privateDir, seen };
 }
 
 const request = (agent: string, extra: Partial<AgentRun> = {}): AgentRun => ({
@@ -154,35 +150,15 @@ test('the brief, the cwd, the timeout, images and the signal reach the backend u
   assert.equal(options?.signal, signal);
 });
 
-test('in read, write and full the PATH starts with a directory whose sudo refuses, and the rest of the PATH follows', async () => {
-  // Bug: an agent in write mode runs sudo through the host PATH, which the owner never allowed.
-  for (const mode of ['read', 'write', 'full'] as const) {
-    const { deps, privateDir, denyDir, seen } = rig({ backend: 'codex' });
+test('in every mode the child gets the host PATH unchanged', async () => {
+  // Changed: the engine puts no folder of its own before the host PATH; the unit stops sudo in read, write and full.
+  // Bug: a folder of the engine's comes before the host PATH, between the agent and the system.
+  for (const mode of ['read', 'write', 'full', 'sudo'] as const) {
+    const { deps, privateDir, seen } = rig({ backend: 'codex' });
     await setUnitMode(privateDir, 'scout', mode);
     await runAgent(request('scout'), deps);
-    assert.equal(seen[0]?.options.env?.PATH, `${denyDir}:${HOST_PATH}`, mode);
+    assert.equal(seen[0]?.options.env?.PATH, HOST_PATH, mode);
   }
-});
-
-test('the sudo stand-in is an executable that exits non-zero with one line', async () => {
-  // Bug: the stand-in is not executable or exits 0, so the agent believes sudo worked.
-  const { deps, denyDir } = rig({ backend: 'codex' });
-  await runAgent(request('scout'), deps);
-  const shim = path.join(denyDir, 'sudo');
-  assert.ok(fs.statSync(shim).mode & 0o100, 'owner-executable');
-  const run = spawnSync(shim, ['id'], { encoding: 'utf8' });
-  assert.notEqual(run.status, 0);
-  assert.equal(`${run.stdout}${run.stderr}`.trim().split('\n').length, 1);
-});
-
-test('in sudo the host PATH is passed as it is and no stand-in is written', async () => {
-  // Bug: sudo mode still shadows sudo, so the agents the owner gave sudo cannot use it.
-  const { deps, privateDir, denyDir, seen } = rig({ backend: 'codex' });
-  await setUnitMode(privateDir, 'scout', 'sudo');
-  await runAgent(request('scout'), deps);
-  const path = seen[0]?.options.env?.PATH;
-  assert.ok(path === undefined || path === HOST_PATH);
-  assert.equal(fs.existsSync(denyDir), false);
 });
 
 test('a run in full or sudo writes one log line naming the agent and the mode, and none holds the brief', async () => {
@@ -257,8 +233,8 @@ test('opencode enabled on a key that has since left the store is refused instead
 
 /** The rig with the real backend factory and the host PATH of this process, so a shell script can run. */
 function realRig(backend: 'codex' | 'claude') {
-  const { privateDir, denyDir } = rig({ backend });
-  const deps: RunDeps = { privateDir, denyDir, hostEnv: { PATH: process.env.PATH ?? '/usr/bin:/bin' } };
+  const { privateDir } = rig({ backend });
+  const deps: RunDeps = { privateDir, hostEnv: { PATH: process.env.PATH ?? '/usr/bin:/bin' } };
   return { deps, privateDir };
 }
 
@@ -342,7 +318,6 @@ function recording(dir: string): { deps: RunDeps; seen: Array<BackendRunOptions>
     seen,
     deps: {
       privateDir: dir,
-      denyDir: tempDir('nep-oc-model-deny-'),
       backendFactory: (name) => ({
         name,
         run: (_brief, options) => {

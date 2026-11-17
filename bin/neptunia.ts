@@ -102,7 +102,6 @@ import type { InstallRun } from '../src/subharness/install.ts';
 import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { SetupDeps, SetupOptions, SetupReport } from '../src/setup/run.ts';
 import { accountRequest } from '../src/interface/commands/subharness.ts';
-import { defaultDenyDir } from '../src/subharness/run.ts';
 import { ROOT_DIR, deepMerge, readConfig, resolveEnvRefs } from '../src/config.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
 import {
@@ -1285,7 +1284,7 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
       env: process.env,
       opencodePath,
       getConfig: currentConfig,
-      subharness: { privateDir: where.privateDir, denyDir: defaultDenyDir() },
+      subharness: { privateDir: where.privateDir },
     });
   const served = Object.values(loadProfiles(agentPaths)).filter((profile) => profile.unit === unit);
   try {

@@ -74,7 +74,6 @@ function recording(dir: string): { deps: RunDeps; seen: Array<BackendRunOptions>
     seen,
     deps: {
       privateDir: dir,
-      denyDir: tempDir('nep-provider-deny-'),
       backendFactory: (name) => ({
         name,
         run: (_brief, options) => {
