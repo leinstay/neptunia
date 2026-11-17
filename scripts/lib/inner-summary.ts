@@ -43,6 +43,16 @@ export type SampleFacts = {
 /** How the turn runner said the turn ended: its `outcome` and `reason`, and the cut of the loop (`inner.loop.cut`). */
 export type TurnEnd = { outcome: string | null; reason: string | null; cut: string | null };
 
+/** The TurnEnd of a turn runner's result, a turn that threw included (`{ outcome: 'error', reason }`). */
+export function turnEndOf(result: {
+  outcome?: string;
+  reason?: string;
+  inner?: { loop?: { cut: string | null } };
+}): TurnEnd {
+  const loop = result.inner?.loop;
+  return { outcome: result.outcome ?? null, reason: result.reason ?? null, cut: loop?.cut ?? null };
+}
+
 type Request = { usage?: { prompt_tokens?: unknown } | null; blocks?: ReadonlyArray<{ name: string; chars: number }> };
 type Answer = {
   think?: unknown;

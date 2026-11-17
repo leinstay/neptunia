@@ -56,7 +56,7 @@
 //        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat>
 //        [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--seed <text>] [--prompts <dir>] [--out <file>]
-//        [--spend <usd>] [--answers-dir <dir>]
+//        [--spend <usd>] [--answers-dir <dir>] [--errand-answers <file>]
 //
 // `--inner <kind>`: the inner turn the scheduler would run for one wake, against the live data
 // (or `--snapshot`) read only: `--intention <id>` names the intention of an `intention_due` or
@@ -91,7 +91,12 @@
 // as a table; the same report in Markdown
 // goes to stderr and to `--out` whatever its extension, and the JSON is stdout's. `--seed <text>` draws sample i from
 // a random source of the seed and i, so two variants meet the same order; without it the samples draw from
-// Math.random. `--spend` also stops the samples: none starts when the cost reported so far plus the
+// Math.random. No errand is ever started: in shadow her errand call is only proposed and ends the turn, unless
+// `--errand-answers <file>` gives results (scripts/lib/errand-answers.ts: a JSON list of `{ agent, status, text,
+// error? }`, `agent` one of scout, server, code or any, `status` one of done, failed or cancelled), taken in order as
+// her errand calls come, each sample from the first. Her call then runs the errand tool over an errand service that
+// files in process and ends the errand with the next result for its agent, so she reads it as a live heartbeat reads
+// a result it waited for; a call that finds none left answers `errand-wait-ended`. `--spend` also stops the samples: none starts when the cost reported so far plus the
 // last sample's would pass it.
 //
 // `--answers-dir <dir> [--answers-timeout-min 20]` (any mode that sends requests): the offline model. No request of any
@@ -530,7 +535,7 @@ import {
   renderDiaryDayReport,
   seededRng,
 } from './lib/diary-day.ts';
-import { innerSummary, innerSummaryTable, sampleFacts } from './lib/inner-summary.ts';
+import { innerSummary, innerSummaryTable, sampleFacts, turnEndOf } from './lib/inner-summary.ts';
 import { buildTurnRunner, homeIdentity } from './lib/turn-wiring.ts';
 import type { Wired, WiringInput } from './lib/turn-wiring.ts';
 import { recordingPort } from './lib/turn-port.ts';
@@ -539,6 +544,8 @@ import type { Adapter } from '../src/protocol/adapter.ts';
 import type { Reads } from '../src/interface/reads.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import type { InnerSummary } from './lib/inner-summary.ts';
+import { readErrandAnswers } from './lib/errand-answers.ts';
+import type { ErrandAnswer } from './lib/errand-answers.ts';
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.ts';
 import { promptLayersHot, overlayPromptsHot, diaryPromptLayers } from './lib/prompt-layers.ts';
 export { diaryPromptLayers, overlayPromptsHot } from './lib/prompt-layers.ts';
@@ -2521,6 +2528,7 @@ export function innerTurnRunner({
   now,
   turnId,
   wrapReads,
+  errandAnswers = null,
 }: {
   root: string;
   dataDir: string;
@@ -2532,6 +2540,7 @@ export function innerTurnRunner({
   now: () => number;
   turnId: string;
   wrapReads?: (reads: Reads) => Reads;
+  errandAnswers?: ReadonlyArray<ErrandAnswer> | null;
 }): { wired: Wired; writes: Array<RecordedWrite> } {
   const memory = readOnlyMemory(dataDir);
   const db = memory.memoryDb?.database() as Db | null | undefined;
@@ -2556,6 +2565,7 @@ export function innerTurnRunner({
     embed,
     rng,
     ...(wrapReads ? { wrapReads } : {}),
+    errandAnswers,
   });
   return { wired, writes: recorded.writes };
 }
@@ -2595,6 +2605,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
   const outFile = args.outDir !== null ? path.resolve(root, args.outDir) : null;
   if (outFile !== null && [liveData, dataDir].some((dir) => outFile === dir || outFile.startsWith(`${dir}${path.sep}`)))
     throw new CliError('replay-cli: --out may not be under data/');
+  // The errand results, read and checked before anything connects or asks a model.
+  const errandAnswers = readErrandAnswers(args.errandAnswers, root);
   const discordToken = platformToken('discord', { rootDir: root });
 
   let layered = null;
@@ -2741,6 +2753,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         now: Date.now,
         turnId: `t-replay-inner-${n + 1}`,
         wrapReads: (found) => hiddenReads(found, hide),
+        errandAnswers,
       });
       let result: Untyped;
       try {
@@ -2806,11 +2819,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
             requests: calls.filter((call) => call.purpose === 'reply'),
             answers,
             actions,
-            turn: {
-              outcome: result?.outcome ?? null,
-              reason: result?.reason ?? null,
-              cut: result?.inner?.loop?.cut ?? null,
-            },
+            turn: turnEndOf(result),
           },
           { now, timezone, directOf: (place) => direct.get(place) ?? null }
         ),

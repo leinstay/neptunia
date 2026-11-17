@@ -1,7 +1,8 @@
 // The gate of the tools a turn replayed by scripts/turn-replay.ts calls. A tool whose effect class is `read`
 // (src/tools/definitions.ts#effectsOf) runs for real through the operation runner it is given. Every other tool, an
 // unknown one included, is kept in `calls` and answered with a plain success, so the turn goes on as if it had worked
-// and nothing in the world changes. `gatedOps` wraps the three runners a turn takes (`runOp`, `runOwnOp`,
+// and nothing in the world changes. A tool named in `runs` runs too: the errand tools of a replay whose errand service
+// answers from a file and starts nothing (scripts/lib/errand-answers.ts). `gatedOps` wraps the three runners a turn takes (`runOp`, `runOwnOp`,
 // `runInitiativeOp`). `gatedPersonLinks` stands in for the person link tool, which writes, and so never runs.
 
 import { effectsOf } from '../../src/tools/definitions.ts';
@@ -15,17 +16,19 @@ type RunOperation = (op: unknown, args: unknown, context: unknown) => unknown;
 /** The answer of a kept call. */
 const PLAIN_SUCCESS = Object.freeze({ status: 'ok' as const, data: { text: '' } });
 
-/** The three runners with every tool but a read kept in `calls`. */
+/** The three runners with every tool but a read and those of `runs` kept in `calls`. */
 export function gatedOps({
   runOp,
   runOwnOp,
   runInitiativeOp,
   now,
+  runs = [],
 }: {
   runOp: RunOperation;
   runOwnOp: RunOperation;
   runInitiativeOp: RunOperation;
   now: () => number;
+  runs?: ReadonlyArray<string>;
 }): {
   runOp: (op: unknown, args: unknown, context: unknown) => Promise<unknown>;
   runOwnOp: (op: unknown, args: unknown, context: unknown) => Promise<unknown>;
@@ -37,7 +40,7 @@ export function gatedOps({
     (run: RunOperation) =>
     (op: unknown, args: unknown, context: unknown): Promise<unknown> => {
       const name = String(op);
-      if (effectsOf(name) === 'read') return Promise.resolve(run(op, args, context));
+      if (effectsOf(name) === 'read' || runs.includes(name)) return Promise.resolve(run(op, args, context));
       calls.push({ op: name, args, at: now() });
       return Promise.resolve({ ...PLAIN_SUCCESS });
     };

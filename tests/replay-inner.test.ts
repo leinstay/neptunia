@@ -40,6 +40,8 @@ import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { completionOf, toolAnswer } from './fixtures/tool-answers.ts';
+import { sampleFacts, turnEndOf } from '../scripts/lib/inner-summary.ts';
+import { parseErrandAnswers } from '../scripts/lib/errand-answers.ts';
 
 type Rec = Record<string, unknown>;
 
@@ -535,4 +537,122 @@ test('a replayed heartbeat reads her lines, memory and intentions as the core tu
     ['executed:ok', 'executed:ok'],
     JSON.stringify(reads)
   );
+});
+
+test('replay --inner: --errand-answers takes a file and belongs to --inner only', () => {
+  assert.equal(parseArgs(['--inner', 'heartbeat', '--errand-answers', 'a.json']).errandAnswers, 'a.json');
+  assert.equal(parseArgs(['--inner', 'heartbeat']).errandAnswers, undefined);
+  assert.throws(() => parseArgs(['--errand-answers', 'a.json', 'c1', 'm1']), /usage/);
+});
+
+test('parseErrandAnswers: takes an ordered list and stops on the first fault with one line naming it', () => {
+  assert.deepEqual(
+    parseErrandAnswers([
+      { agent: 'scout', status: 'done', text: 'found it' },
+      { agent: 'any', status: 'failed', text: '', error: 'agent-crashed' },
+    ]),
+    [
+      { agent: 'scout', status: 'done', text: 'found it', error: null },
+      { agent: 'any', status: 'failed', text: '', error: 'agent-crashed' },
+    ]
+  );
+  assert.throws(() => parseErrandAnswers({}), /a list/);
+  assert.throws(() => parseErrandAnswers([{ agent: 'scout', status: 'later', text: '' }]), /answer 1: status/);
+  assert.throws(() => parseErrandAnswers([{ agent: 'cook', status: 'done', text: '' }]), /answer 1: agent/);
+  assert.throws(() => parseErrandAnswers([{ agent: 'code', status: 'done' }]), /answer 1: text/);
+});
+
+const ERRAND_MARK = 'ΑΠΟΤΕΛΕΣΜΑ-ΤΗΣ-ΑΝΙΧΝΕΥΣΗΣ';
+
+/** One heartbeat over the fixture data: her first answer hands off a scout errand, her second sets an intention. */
+async function errandHeartbeat(errandAnswers: ReturnType<typeof parseErrandAnswers> | null) {
+  const dataDir = await heartbeatDataDir();
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => TURN_NOW });
+  const requests: Array<string> = [];
+  const llm = {
+    complete: (messages: Array<{ content: unknown }>) => {
+      requests.push(messages.map((message) => userText(message.content)).join('\n'));
+      if (requests.length === 1)
+        return Promise.resolve(toolAnswer('', [toolCall('errand.scout', { goal: 'find the garden show dates' })]));
+      return Promise.resolve(toolAnswer('', [toolCall('intention.set', { text: 'tell about the show', due: '2h' })]));
+    },
+  };
+  const granted = [...HEARTBEAT_GRANTED, 'errand.scout'];
+  const hot = {
+    config: {
+      bot: {
+        timezone: 'UTC',
+        access: Object.fromEntries(granted.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])),
+      },
+      context: SERVICE_CONTEXT,
+      llm: { maxRequestTokens: 60000 },
+      tools: { transport: 'native', resultMaxChars: 2000, callTimeoutMs: 120000 },
+      wakes: { mode: 'shadow', loop: { maxSteps: 3 } },
+      intentions: { expiresDays: 14, maxOpen: 20 },
+    },
+    prompts: PROMPTS,
+  };
+  const { wired } = innerTurnRunner({
+    root: process.cwd(),
+    dataDir,
+    hot,
+    port,
+    llm,
+    embed: (texts: Array<string>) => Promise.resolve(texts.map(() => null)),
+    rng: () => 0.5,
+    now: () => TURN_NOW,
+    turnId: 't-inner-errand',
+    errandAnswers,
+  });
+  type Ended = { outcome?: string; reason?: string; inner?: { actions: Array<Rec>; loop?: { cut: string | null } } };
+  let result: Ended;
+  try {
+    result = await wired.under(() =>
+      wired.runner.runTurn({
+        chat: null,
+        mode: 'inner',
+        triggerKind: 'inner',
+        inner: { wake: serviceWake('heartbeat'), currentChannel: null, shadow: true, mayAct: () => false },
+      })
+    );
+  } finally {
+    wired.close();
+  }
+  const actions = result.inner?.actions ?? [];
+  const facts = sampleFacts(
+    {
+      requests: requests.map(() => ({})),
+      answers: [],
+      actions,
+      turn: turnEndOf(result),
+    },
+    { now: TURN_NOW, timezone: 'UTC', directOf: () => null }
+  );
+  return { requests, actions, facts };
+}
+
+test('a replayed heartbeat whose errand nobody answers ends unresolved, not a skip, and starts no errand', async () => {
+  const { requests, facts } = await errandHeartbeat(null);
+  assert.equal(requests.length, 1, 'the proposed errand ends the turn');
+  assert.deepEqual(facts.end, { kind: 'unresolved', code: 'errand-proposed' });
+  assert.deepEqual(facts.errands, [{ agent: 'scout', answered: false }]);
+});
+
+test('with errand answers a replayed heartbeat reads the result and goes on to set an intention', async () => {
+  const { requests, facts } = await errandHeartbeat(
+    parseErrandAnswers([{ agent: 'scout', status: 'done', text: ERRAND_MARK }])
+  );
+  assert.equal(requests.length, 2);
+  assert.ok(requests[1].includes(ERRAND_MARK), 'the second request carries the result');
+  assert.equal(facts.end.kind, 'intention');
+  assert.deepEqual(facts.errands, [{ agent: 'scout', answered: true }]);
+});
+
+test('an errand call that finds no answer for its agent ends unresolved with errand-unanswered', async () => {
+  const { requests, facts } = await errandHeartbeat(
+    parseErrandAnswers([{ agent: 'code', status: 'done', text: ERRAND_MARK }])
+  );
+  assert.ok(!requests.join('\n').includes(ERRAND_MARK), 'no answer of another agent is read');
+  assert.deepEqual(facts.end, { kind: 'unresolved', code: 'errand-unanswered' });
+  assert.deepEqual(facts.errands, [{ agent: 'scout', answered: false }]);
 });

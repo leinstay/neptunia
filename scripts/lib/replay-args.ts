@@ -17,7 +17,7 @@ export const USAGE =
   '       node scripts/replay.ts --pair-transport (--triggers <file> | <placeId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --loop-triggers (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
-  '       node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat> [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--seed <text>] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
+  '       node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat> [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--seed <text>] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]... [--errand-answers <file>]\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-timeout-min 20]])';
 
 /** The wake kinds `--inner` runs (src/behavior/inner.ts#WAKE_KINDS). */
@@ -90,6 +90,7 @@ export type ReplayArgs = {
   hideMessages: Array<string>;
   answersDir: string | null;
   answersTimeoutMin: number;
+  errandAnswers?: string | null;
   placeId?: string | null;
   triggerId?: string | null;
 };
@@ -116,6 +117,16 @@ export type ReplayArgs = {
  * `fake` by default), `--max-pictures` (`maxPictures`, only with `--draw live`, DEFAULT_LIVE_PICTURES
  * by default there, null with `fake`), `--out` and `--spend`; those four take nothing else.
  */
+/** Whether `out` holds a flag only `--inner` takes: `--intention`, `--hide-channel`, `--hide-message`, `--errand-answers`. */
+function innerOnly(out: ReplayArgs): boolean {
+  return (
+    out.intention !== null ||
+    out.hideChannels.length > 0 ||
+    out.hideMessages.length > 0 ||
+    (out.errandAnswers ?? null) !== null
+  );
+}
+
 export function parseArgs(argv: Array<string>): ReplayArgs {
   const out: ReplayArgs = {
     before: null,
@@ -174,6 +185,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     else if (arg === '--spend') out.spend = pathValue(argv[(i += 1)]);
     else if (arg === '--answers-dir') out.answersDir = pathValue(argv[(i += 1)]);
     else if (arg === '--answers-timeout-min') out.answersTimeoutMin = intFlag(argv[(i += 1)], 1, 1440);
+    else if (arg === '--errand-answers') out.errandAnswers = pathValue(argv[(i += 1)]);
     else if (arg === '--skills') out.skills = pathValue(argv[(i += 1)]);
     else if (arg === '--dry') out.dry = true;
     else if (arg === '--steps') out.steps = true;
@@ -236,8 +248,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
   // --no-cache: the trigger runs send her requests with the prompt-cache marker a live turn has; this one sends none.
   if (out.noCache && !(out.pairTransport || out.loopTriggers)) throw new CliError(USAGE);
   if (out.inner !== null) {
-    // --intention for an intention's wake (the heartbeat takes none); --snapshot, --show-request, --samples, --seed,
-    // --prompts, --out and --spend; no positionals.
+    // --intention for an intention's wake (the heartbeat takes none) and the flags of innerOnly; no positionals.
     if (
       positional.length > 0 ||
       (out.inner === 'heartbeat' ? out.intention !== null : out.intention === null) ||
@@ -268,7 +279,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     }
     return { ...out, samples: out.samples ?? 1, placeId: null, triggerId: null };
   }
-  if (out.intention !== null || out.hideChannels.length > 0 || out.hideMessages.length > 0) throw new CliError(USAGE);
+  if (innerOnly(out)) throw new CliError(USAGE);
   if (out.diaryDay) {
     // The day flags, --out and --spend only; no positionals; --max-pictures with --draw live only.
     if (
