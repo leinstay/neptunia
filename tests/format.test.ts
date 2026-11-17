@@ -22,6 +22,7 @@ import { orderedHistory } from '../src/turn/history.ts';
 import { labels } from './fixtures/labels.ts';
 import { grLabels, msg, triggerScene } from './fixtures/format-rig.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { MediaName } from '../src/memory/store-media-names.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 
 const TZ = 'Europe/Moscow'; // fixed UTC+3, no DST -- safe for exact arithmetic in tests
@@ -1751,4 +1752,38 @@ test('formatTranscript: a Discord link in the text with no reference on the mess
   const base = { timezone: TZ_MESSAGE_REFS, gapMinutes: 20, maxChars: 500, selfName: 'Nept', labels, indexOffset: 6 };
   const on = formatTranscript(messages, { ...base, messageNumbers: true });
   assert.ok(on[1].text.endsWith(`Nick: εδώ ${link}`), on[1].text);
+});
+
+// ---- the legend of a transcript read outside the request's own window ----------------------------------------
+
+const legendLabels = { ...labels, legend: { line: '{name} [{platformName}] {text}', lineNoText: '', unreadable: '' } };
+const blobName: MediaName = {
+  name: 'e7',
+  kind: 'emoji',
+  iface: 'discord',
+  nativeId: 'emo-7',
+  platformName: 'blobwave',
+  animated: false,
+};
+const nameOfBlob = (name: string): MediaName | null => (name === 'e7' ? blobName : null);
+const emojiLine = msg('m1', Date.UTC(2026, 10, 1, 9), {
+  content: 'hi :e7:',
+  emojis: [{ id: 'emo-7', name: 'e7', animated: false, told: { text: 'a waving blob' } }],
+});
+
+test('formatTranscript: with mediaNameOf the first item opens with the legend of its custom emoji', () => {
+  const items = formatTranscript([emojiLine], {
+    timezone: TZ,
+    selfName: 'Nept',
+    labels: legendLabels,
+    mediaNameOf: nameOfBlob,
+  });
+  const text = items[0].text;
+  assert.ok(text.startsWith('<interface>\n<discord><emojis>\n:e7: [blobwave] a waving blob\n'), text);
+  assert.ok(text.slice(text.indexOf('</interface>')).includes('hi :e7:'), text);
+});
+
+test('formatTranscript: without mediaNameOf a transcript holds no legend', () => {
+  const [first] = formatTranscript([emojiLine], { timezone: TZ, selfName: 'Nept', labels: legendLabels });
+  assert.ok(!first.text.includes('<interface>'), first.text);
 });

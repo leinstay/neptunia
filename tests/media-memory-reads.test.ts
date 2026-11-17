@@ -30,8 +30,10 @@ import {
   itemsOf,
   observeDmLine,
   observeLine,
+  outsideLegend,
   recallRig,
 } from './fixtures/media-memory.ts';
+import type { MediaName } from '../src/memory/store-media-names.ts';
 import type { Env, Kind, Presence } from './fixtures/media-memory.ts';
 import type { Row } from '../src/memory/db/types.ts';
 
@@ -190,9 +192,14 @@ const lottie = {
   ...zipFile,
   name: 'sticker with no picture',
   stored: 'sticker',
-  marker: '[sticker: wave',
-  message: () => ({ stickers: [{ id: 's1', name: 'wave', format: 'lottie', url: null }] }),
+  marker: '[sticker s1]',
+  named: { kind: 'sticker', platform: ['wave', 'unused'], tag: 'stickers' },
+  message: (items, _told, names) => ({
+    stickers: [{ id: items[0].id, name: names[0], format: 'lottie', url: null }],
+  }),
 } satisfies Kind;
+// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+const unreadableSticker = `s1 (wave) ${UNREADABLE}`;
 
 test('a file is one standard mark, in the batch and in a quote, and it is unreadable in the browser', () =>
   withLine(zipFile, 'absent', async (env, source) => {
@@ -220,9 +227,10 @@ test('a hostile file name is data: sanitised, cut to 120 characters, opening no 
 test('a sticker with no picture says so plainly, in the batch and in a quote', () =>
   withLine(lottie, 'absent', async (env) => {
     const batch = sessionBatch(env);
-    assert.ok(batch.includes(lottie.marker) && batch.includes(UNREADABLE), batch);
+    assert.ok(outsideLegend(batch).includes(lottie.marker), batch);
+    assert.ok(batch.includes(unreadableSticker), batch);
     const text = await recallRig(env).ask({ when: '2026-11-01' });
-    assert.ok(text.includes(UNREADABLE), text);
+    assert.ok(text.includes(unreadableSticker), text);
   }));
 
 test('a file found by its name: a word of the name finds a line that holds nothing else', () =>
@@ -280,8 +288,18 @@ test('chat: a hostile file name is sanitised there too', () => {
 });
 
 test('chat: a sticker with no picture says so plainly', () => {
-  const text = chatOf({ stickers: [{ id: 's1', name: 'wave', url: null }] });
-  assert.ok(text.includes(`[sticker: wave, ${UNREADABLE}]`), text);
+  const name: MediaName = {
+    name: 's1',
+    kind: 'sticker',
+    iface: 'discord',
+    nativeId: 'st-1',
+    platformName: 'wave',
+    animated: false,
+  };
+  const mediaNameOf = (one: string): MediaName | null => (one === 's1' ? name : null);
+  const text = chatOf({ stickers: [{ id: 'st-1', name: 's1', url: null }] }, { mediaNameOf });
+  assert.ok(text.includes(unreadableSticker), text);
+  assert.ok(outsideLegend(text).includes('[sticker s1]'), text);
 });
 
 for (const [kindName, attachmentKind, name, durationSec] of [
@@ -318,4 +336,13 @@ test('her own line in the session batch is under her self label, the voice with 
     const batch = sessionBatch(env);
     assert.ok(batch.includes(voiceSaid.first.word), batch);
     assert.ok(!batch.includes(HER), 'by her name, never her id');
+  }));
+
+test('session batch: the legend stands right after the cutoff line, before the first numbered line', () =>
+  withLine(KINDS.find((kind) => kind.name === 'emoji') as Kind, 'full', (env) => {
+    const batch = sessionBatch(env);
+    const afterCutoff = batch.slice(batch.indexOf('cutoff: '));
+    const [, second] = afterCutoff.split('\n');
+    assert.equal(second, '<interface>', batch);
+    assert.ok(batch.indexOf('</interface>') < batch.indexOf('#1 ['), batch);
   }));

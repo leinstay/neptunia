@@ -23,6 +23,7 @@ import {
   SETTINGS,
   assertForms as checkForms,
   countOf,
+  outsideLegend,
   fixture,
   group,
   itemsOf,
@@ -124,7 +125,8 @@ for (const kind of KINDS) {
     test(`a line with two of a ${kind.name} shows two markers and one text form when one is told`, () =>
       withLine(kind, 'part', async (env) => {
         const text = await recallRig(env).ask({ when: '2026-11-01' });
-        assert.equal(countOf(text, kind.marker), 2, text);
+        // The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+        assert.equal(countOf(outsideLegend(text), kind.marker), 2, text);
         assert.equal(countOf(text, itemsOf(kind, 'pic')[0].told), 1, text);
       }));
   }

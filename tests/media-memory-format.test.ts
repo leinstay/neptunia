@@ -440,12 +440,16 @@ for (const shape of OTHER_SHAPES) {
           const ours = rowsOf(env, here);
           const theirs = rowsOf(env, there);
           assert.ok(theirs.length > 0);
-          assert.deepEqual(
-            neutralRows(theirs.map((row) => ({ ...row, describedAt: Boolean(row.describedAt) }))),
-            neutralRows(ours.map((row) => ({ ...row, describedAt: Boolean(row.describedAt) })))
-          );
+          // The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+          // Each interface's things get their own numbers, so rows and rendering are the same up to the number of a name.
+          const unnumbered = (text: string): string => text.replace(/\b([es])\d+\b/g, '$1N');
+          const neutral = (rows: ReturnType<typeof rowsOf>): string =>
+            unnumbered(
+              JSON.stringify(neutralRows(rows.map((row) => ({ ...row, describedAt: Boolean(row.describedAt) }))))
+            );
+          assert.equal(neutral(theirs), neutral(ours));
           assert.equal(theirs[0].nativeRef, shape('pic-2-a'), 'its reference, stored as it came');
-          assert.equal(rendered(env, OTHER), rendered(env, 'discord'));
+          assert.equal(unnumbered(rendered(env, OTHER)), unnumbered(rendered(env, 'discord')));
         }));
     }
   }

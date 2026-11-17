@@ -19,6 +19,7 @@ import { mediaStamp } from '../../src/memory/db/media-stems.ts';
 import { loadStemmer } from '../../src/memory/db/stems.ts';
 import { dbOf, transactionOf } from '../../src/memory/db/types.ts';
 import type { MediaOrigin } from '../../src/memory/db/media-store.ts';
+import { applyMediaNamesWrite, mediaNameRows } from '../../src/memory/db/media-names.ts';
 import { runMemorySearch } from '../../src/tools/tools.ts';
 import { fillEnvAudiences } from './memory-db/audiences.ts';
 import { fixture } from './memory-db-recall.ts';
@@ -90,7 +91,12 @@ export const LABELS = {
     file: '<file {name}>',
     filePreview: '<file {name}: {text}>',
     fileUnreadable: `[file: {name}, ${UNREADABLE}]`,
-    emojiDescribed: '<emoji {name}: {text}>',
+    stickerRef: '[sticker {name}]',
+  },
+  legend: {
+    line: '{name} ({platformName}) = {text}',
+    lineNoText: '{name} ({platformName}) undescribed',
+    unreadable: `{name} ({platformName}) ${UNREADABLE}`,
   },
 };
 
@@ -111,8 +117,13 @@ export type Kind = {
   self?: boolean;
   /** The origin of its text form; null for one the interface's event already brings. */
   origin: MediaOrigin | null;
-  /** The message fields of a line, given the two items and whether each is told. */
-  message(items: [Item, Item], told: [boolean, boolean]): Row;
+  /**
+   * A custom emoji or sticker: its kind in `media_names`, the platform names of the two items and the subtag of the
+   * legend `<interface>` it stands under. Its line holds the stable name alone.
+   */
+  named?: { kind: 'emoji' | 'sticker'; platform: [string, string]; tag: string };
+  /** The message fields of a line, given the two items, whether each is told and their stable names. */
+  message(items: [Item, Item], told: [boolean, boolean], names: [string, string]): Row;
 };
 
 const attachment =
@@ -167,14 +178,15 @@ export const KINDS: ReadonlyArray<Kind> = [
   {
     name: 'sticker',
     stored: 'sticker',
-    marker: '<sticker',
+    marker: '[sticker s',
     origin: 'retelling',
     first: { word: 'hedgehog', fragment: 'edgeho', query: 'ёжик' },
     second: { word: 'accordion' },
-    message: (items) => ({
-      stickers: items.map((item) => ({
+    named: { kind: 'sticker', platform: ['wave', 'hello'], tag: 'stickers' },
+    message: (items, _told, names) => ({
+      stickers: items.map((item, i) => ({
         id: item.id,
-        name: 'wave',
+        name: names[i],
         format: 'png',
         url: `https://cdn.example.invalid/${encodeURIComponent(item.id)}.png`,
       })),
@@ -239,15 +251,16 @@ export const KINDS: ReadonlyArray<Kind> = [
   {
     name: 'emoji',
     stored: 'emoji',
-    marker: '<emoji',
+    marker: ':e',
     origin: 'retelling',
     first: { word: 'pelican', fragment: 'elica', query: 'пеликан' },
     second: { word: 'zeppelin' },
-    message: (items) => ({
-      content: 'look <:blob:1> <:wave:2>',
+    named: { kind: 'emoji', platform: ['blob', 'wave'], tag: 'emojis' },
+    message: (items, _told, names) => ({
+      content: `look :${names[0]}: :${names[1]}:`,
       emojis: items.map((item, i) => ({
         id: item.id,
-        name: i === 0 ? 'blob' : 'wave',
+        name: names[i],
         animated: false,
         url: `https://cdn.example.invalid/${encodeURIComponent(item.id)}.webp`,
       })),
@@ -266,6 +279,33 @@ export const itemsOf = (kind: Kind, native: string, shape: Shape = SAME): [Item,
   { id: shape(`${native}-b`), told: `a retelling with a ${kind.second.word} in it` },
 ];
 
+/** The stable names of a line's two items from the number `first` on: `e3` and `e4` for an emoji, none for a plain kind. */
+function namesFrom(kind: Kind, first: number): [string, string] {
+  const prefix = kind.named?.kind === 'sticker' ? 's' : 'e';
+  return kind.named ? [`${prefix}${first}`, `${prefix}${first + 1}`] : ['', ''];
+}
+
+/**
+ * Names a line's custom emoji or stickers as the store does before the line is stored: the next free numbers of the kind,
+ * and their rows in `media_names` through the writer kind `media-names`.
+ */
+function nameItems(env: Env, kind: Kind, items: [Item, Item], iface: string, at: number): [string, string] {
+  const named = kind.named;
+  if (!named) return namesFrom(kind, 1);
+  const taken = mediaNameRows(env.db).filter((row) => row.kind === named.kind).length;
+  const names = namesFrom(kind, taken + 1);
+  const rows = items.map((item, i) => ({
+    name: names[i],
+    kind: named.kind,
+    iface,
+    nativeId: item.id,
+    platformName: named.platform[i],
+    animated: false,
+  }));
+  applyMediaNamesWrite(env.handle, { rows, now: at });
+  return names;
+}
+
 /** The `message.received` event of a line of `kind`. */
 export function eventOf(
   kind: Kind,
@@ -277,7 +317,8 @@ export function eventOf(
     shape = SAME,
     chat = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' },
     author = kind.self ? { id: HER, self: true, name: 'Self' } : { id: ALICE, name: 'Alice' },
-  }: { at?: number; iface?: string; shape?: Shape; chat?: Row; author?: Row } = {}
+    names = namesFrom(kind, 1),
+  }: { at?: number; iface?: string; shape?: Shape; chat?: Row; author?: Row; names?: [string, string] } = {}
 ): Row {
   return {
     iface,
@@ -291,7 +332,7 @@ export function eventOf(
       attachments: [],
       links: [],
       stickers: [],
-      ...kind.message(itemsOf(kind, native, shape), told),
+      ...kind.message(itemsOf(kind, native, shape), told, names),
     },
   };
 }
@@ -335,7 +376,9 @@ export function observeLine(
   }: { native?: string; at?: number; iface?: string; shape?: Shape; chat?: Row; author?: Row } = {}
 ): string {
   const told: [boolean, boolean] = [presence !== 'absent', presence === 'full' && !kind.self];
+  const names = nameItems(env, kind, itemsOf(kind, native, shape), iface, at);
   const event = eventOf(kind, native, told, {
+    names,
     at,
     iface,
     shape,
@@ -391,8 +434,31 @@ export const neutralRows = (rows: ReadonlyArray<Row>): Array<Row> =>
 /** How many times `part` stands in `text`. */
 export const countOf = (text: string, part: string): number => text.split(part).length - 1;
 
+/** `text` without its legend blocks `<interface>`: the lines alone. */
+export const outsideLegend = (text: string): string => text.replace(/<interface>[\s\S]*?<\/interface>/g, '');
+
+/**
+ * A custom emoji's or sticker's forms: the legend `<interface>` holds each item's stable name, platform name and the
+ * description told, a bare mark for one untold; the line holds the stable name and no description.
+ */
+function assertLegendForms(text: string, kind: Kind, named: NonNullable<Kind['named']>, presence: Presence): void {
+  // The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+  const legend = /<interface>[\s\S]*?<\/interface>/.exec(text)?.[0] ?? '';
+  assert.ok(legend.includes(`<discord><${named.tag}>`), `the text opens with the legend: ${text.slice(0, 400)}`);
+  const lines = outsideLegend(text);
+  assert.ok(lines.includes(kind.marker), `the line holds the stable name ${kind.marker}: ${lines.slice(0, 300)}`);
+  assert.ok(!lines.includes(kind.first.word), 'the line holds no description');
+  const [first, second] = itemsOf(kind, 'pic');
+  const told = [presence !== 'absent', presence === 'full'];
+  named.platform.forEach((platform, i) => {
+    const description = told[i] ? `(${platform}) = ${[first, second][i].told}` : `(${platform}) undescribed`;
+    assert.ok(legend.includes(description), `the legend holds ${description}: ${legend}`);
+  });
+}
+
 /** A line says what it is and what it holds: its markers, the text form of what was told, nothing of what was not. */
 export function assertForms(text: string, kind: Kind, presence: Presence): void {
+  if (kind.named) return assertLegendForms(text, kind, kind.named, presence);
   assert.ok(text.includes(kind.marker), `the line shows the kind marker ${kind.marker}: ${text.slice(0, 300)}`);
   if (presence === 'absent') assert.ok(!text.includes(kind.first.word), 'no text form is invented');
   else assert.ok(text.includes(kind.first.word), `the line shows its first text form: ${text.slice(0, 300)}`);
@@ -469,6 +535,8 @@ export function recallRig(
     llm,
     now: () => NOW,
     memoryDb: { database: () => env.db },
+    // The store's read of a stable name, over the rows the fixture wrote.
+    mediaNameOf: (name: string) => mediaNameRows(env.db).find((row) => row.name === name) ?? null,
     ...(embed ? { embed } : {}),
   } as unknown as Parameters<typeof createRecall>[0]);
   const recall = created as unknown as RecallRig['recall'];
