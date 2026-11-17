@@ -2315,11 +2315,16 @@ function assertGifMiss({ imageFetcher, llm, store }: Opts, itemId: string, reaso
 test('describe: with no describe-gif and no describe-video prompt a GIF sends no request and stores nothing', async () => {
   const hot = gifHot({ prompts: { 'describe-video': undefined } });
   const run = gifDescriber({ hot, llm: fakeLlm({ text: 'a sign by a railway crossing' }) });
+  const {
+    videoFetcher: { calls: videoCalls },
+    imageFetcher: { calls: imageCalls },
+    llm: { calls: llmCalls },
+  } = run;
   const result = await run.describer.describe('g1', gifEmbedItem());
   assert.equal(result, null);
-  assert.equal(run.videoFetcher.calls.length, 0);
-  assert.equal(run.imageFetcher.calls.length, 0);
-  assert.equal(run.llm.calls.length, 0);
+  assert.equal(videoCalls.length, 0);
+  assert.equal(imageCalls.length, 0);
+  assert.equal(llmCalls.length, 0);
   assert.deepEqual(Object.keys(cacheView(run.store, 'g1')), []);
 });
 
@@ -2327,10 +2332,13 @@ test('describe: with no describe-gif and no describe-video prompt a GIF sends no
 test('describe: a GIF whose clip cannot be fetched or converted is stored as a miss with its reason, logging codes only', async () => {
   for (const reason of ['download', 'tool', 'size', 'timeout']) {
     const run = gifDescriber({ videoFetcher: gifFetcher({ ok: false, reason }), llm: fakeLlm({ text: 'a still' }) });
+    const {
+      llm: { calls: llmCalls },
+    } = run;
     const { result, logs } = await withCapturedLogs(() => run.describer.describe('g1', gifAttachmentItem()));
     assert.equal(result, null, reason);
     assertGifMiss(run, 'a9', reason);
-    assert.equal(run.llm.calls.length, 0);
+    assert.equal(llmCalls.length, 0);
     const line = logs.find((l) => l.msg === 'describe: gif');
     assert.equal(loose(line).state, 'failed');
     assert.equal(loose(line).reason, reason);
@@ -2344,16 +2352,22 @@ test('describe: a GIF whose watch request fails is stored as a miss, with no pic
   const failing = gifDescriber({
     llm: fakeLlm([Object.assign(new Error('boom'), { statusCode: 502 }), { text: 'a still' }]),
   });
+  const {
+    llm: { calls: llmCalls },
+  } = failing;
   assert.equal(await failing.describer.describe('g1', gifEmbedItem()), null);
-  assert.equal(failing.llm.calls.length, 1);
+  assert.equal(llmCalls.length, 1);
   assertGifMiss(failing, 'm1#e0', 'llm');
 });
 
 // The owner on 2026-11-17: a GIF is never described from one frame.
 test('describe: a GIF whose watch answer is empty is stored as a miss, with no picture request', async () => {
   const empty = gifDescriber({ llm: fakeLlm([{ text: '   ' }, { text: 'a still' }]) });
+  const {
+    llm: { calls: llmCalls },
+  } = empty;
   assert.equal(await empty.describer.describe('g1', gifEmbedItem()), null);
-  assert.equal(empty.llm.calls.length, 1);
+  assert.equal(llmCalls.length, 1);
   assertGifMiss(empty, 'm1#e0', 'empty');
 });
 
@@ -2361,23 +2375,32 @@ test('describe: a GIF whose watch answer is empty is stored as a miss, with no p
 test('describe: a failed GIF is not watched again within media.video.errorRetryMinutes, and is after it', async () => {
   let t = 1_000_000;
   const run = gifDescriber({ videoFetcher: gifFetcher({ ok: false, reason: 'download' }), now: () => t });
+  const {
+    videoFetcher: { calls: videoCalls },
+    imageFetcher: { calls: imageCalls },
+    llm: { calls: llmCalls },
+  } = run;
   assert.equal(await run.describer.describe('g1', gifAttachmentItem()), null);
   t += 59 * 60_000;
   assert.equal(await run.describer.describe('g1', gifAttachmentItem()), null);
-  assert.equal(run.videoFetcher.calls.length, 1, 'inside the hour the miss is served from the cache');
-  assert.equal(run.llm.calls.length, 0);
+  assert.equal(videoCalls.length, 1, 'inside the hour the miss is served from the cache');
+  assert.equal(llmCalls.length, 0);
   t += 2 * 60_000;
   await run.describer.describe('g1', gifAttachmentItem());
-  assert.equal(run.videoFetcher.calls.length, 2, 'after the hour the GIF is watched again');
-  assert.equal(run.imageFetcher.calls.length, 0);
+  assert.equal(videoCalls.length, 2, 'after the hour the GIF is watched again');
+  assert.equal(imageCalls.length, 0);
 });
 
 // The owner on 2026-11-17: a GIF is never described from one frame.
 test('describe: a spent request cap on a GIF watch stores nothing and sends no picture request', async () => {
   const capped = gifDescriber({ llm: fakeLlm([new DailyCapError('cap'), { text: 'a still' }]) });
+  const {
+    imageFetcher: { calls: imageCalls },
+    llm: { calls: llmCalls },
+  } = capped;
   assert.equal(await capped.describer.describe('g1', gifEmbedItem()), null);
-  assert.equal(capped.llm.calls.length, 1);
-  assert.equal(capped.imageFetcher.calls.length, 0);
+  assert.equal(llmCalls.length, 1);
+  assert.equal(imageCalls.length, 0);
   assert.deepEqual(Object.keys(cacheView(capped.store, 'g1')), []);
 });
 
@@ -2399,25 +2422,31 @@ function fakeFreshAddress(answer: string | null) {
 test('describe: an attached GIF asks freshAddress once and fetches the clip from the address it returns', async () => {
   const fresh = fakeFreshAddress(FRESH_GIF_URL);
   const run = gifDescriber({ freshAddress: fresh.freshAddress });
+  const {
+    videoFetcher: { calls: videoCalls },
+  } = run;
   const item = gifAttachmentItem();
   await run.describer.describe('g1', item);
   assert.equal(fresh.calls.length, 1);
   assert.equal(fresh.calls[0].itemId, 'a9');
   assert.deepEqual(
-    run.videoFetcher.calls.map((c) => [c.fn, c.url]),
+    videoCalls.map((c) => [c.fn, c.url]),
     [['fetchGif', FRESH_GIF_URL]]
   );
-  assert.equal(loose(cacheView(run.store, 'g1')).a9.watched, true);
+  assert.equal(cacheView(run.store, 'g1').a9.watched, true);
 });
 
 // The owner on 2026-11-17: a GIF is never described from one frame.
 test('describe: an attached GIF whose freshAddress returns null fetches the stored address', async () => {
   const fresh = fakeFreshAddress(null);
   const run = gifDescriber({ freshAddress: fresh.freshAddress });
+  const {
+    videoFetcher: { calls: videoCalls },
+  } = run;
   await run.describer.describe('g1', gifAttachmentItem());
   assert.equal(fresh.calls.length, 1);
   assert.deepEqual(
-    run.videoFetcher.calls.map((c) => c.url),
+    videoCalls.map((c) => c.url),
     ['https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=secret']
   );
 });
@@ -2426,10 +2455,13 @@ test('describe: an attached GIF whose freshAddress returns null fetches the stor
 test('describe: a GIF embed is fetched by its stored mp4 address with no call of freshAddress', async () => {
   const fresh = fakeFreshAddress(FRESH_GIF_URL);
   const run = gifDescriber({ freshAddress: fresh.freshAddress });
+  const {
+    videoFetcher: { calls: videoCalls },
+  } = run;
   await run.describer.describe('g1', gifEmbedItem());
   assert.equal(fresh.calls.length, 0);
   assert.deepEqual(
-    run.videoFetcher.calls.map((c) => c.url),
+    videoCalls.map((c) => c.url),
     [TENOR_MP4]
   );
 });
