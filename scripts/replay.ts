@@ -954,7 +954,7 @@ const FOUND_LINE_RE = /^(>> )?#\d+ \[/;
  * The engine functions --recall uses, named one by one (no module spread: two
  * modules may export the same name). A missing one is a CliError.
  */
-async function loadRecallMods(load: Untyped) {
+export async function loadRecallMods(load: Untyped) {
   const recall = (await load('behavior/recall.ts')) as Rec;
   const queryBuilder = (await load('behavior/query-builder.ts')) as Rec;
   const summaryBuilder = (await load('behavior/summary-builder.ts')) as Rec;
@@ -987,8 +987,11 @@ async function loadRecallMods(load: Untyped) {
     collectReadableLinks: media.collectReadableLinks,
     checkPull: pull.checkPull,
   };
-  for (const [name, fn] of Object.entries(mods)) {
-    if (typeof fn !== 'function') throw new CliError(`replay-cli: the engine has no ${name} (--recall needs it)`);
+  // QUERY_PLAN_FORMAT is the response format of the query builder, an object: everything else here is a function.
+  for (const [name, part] of Object.entries(mods)) {
+    const present =
+      name === 'QUERY_PLAN_FORMAT' ? typeof part === 'object' && part !== null : typeof part === 'function';
+    if (!present) throw new CliError(`replay-cli: the engine has no ${name} (--recall needs it)`);
   }
   return mods;
 }

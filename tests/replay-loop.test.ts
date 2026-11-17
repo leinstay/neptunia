@@ -46,6 +46,7 @@ import {
   createReplayTools,
   loopCall,
   loopDepsOf,
+  loadRecallMods,
   loopRecord,
   loopRequestEstimate,
   pairAnswerOf,
@@ -1643,4 +1644,14 @@ test('the tool loop of --skills loads what it needs from the engine and asks for
     coreOn: true,
   });
   assert.equal(typeof deps.toolsFor, 'function');
+});
+
+test('loadRecallMods: every engine part --recall names is there, the response format included', async () => {
+  // Bug: the query builder's response format is an object, the loader demands a function of every part, and
+  // --recall stops with "the engine has no QUERY_PLAN_FORMAT" before it reads a message.
+  const src = path.join(import.meta.dirname, '..', 'src');
+  const load = (rel: string) => import(pathToFileURL(path.join(src, rel)).href);
+  const mods = await loadRecallMods(load);
+  assert.equal(typeof mods.QUERY_PLAN_FORMAT, 'object');
+  assert.equal(typeof mods.createRecall, 'function');
 });
