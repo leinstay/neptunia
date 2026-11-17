@@ -431,7 +431,8 @@ function memberOf(
     const wanted = mention[1];
     return list.some((member) => idText(member.id) === wanted) ? { id: wanted } : refused(CODE.UNKNOWN_MEMBER, 'id');
   }
-  const byHandle = handles instanceof Map && given.startsWith('@') ? handles.get(given.slice(1)) : undefined;
+  // A handle of the request names its member with or without its `@`; a bare word that is no handle is a name.
+  const byHandle = handles instanceof Map ? handles.get(given.replace(/^@/, '')) : undefined;
   if (byHandle) return { id: idText(byHandle) };
   const name = folded(given.replace(/^@/, ''));
   if (!name) return refused(CODE.UNKNOWN_MEMBER, 'empty');
