@@ -1,7 +1,7 @@
 // Operations `agent.list`, `agent.enable` and `agent.disable`: the owner's view of the agents on disk
 // (src/agent-runner/profiles.ts) and their switch, `agents.<name>.enabled` in the private settings file. They back the
 // commands `/agents` and `/agent enable|disable` and are no tools of the persona. A row names the agent, its unit, its
-// abilities, its route (src/subharness/routing.ts), whether it is on, whether its folder is tracked or local, and its
+// route (src/subharness/routing.ts), whether it is on, whether its folder is tracked or local, and its
 // description. The agents are read from the engine root and the data folder of the live view at each call.
 
 import { agentSettings, loadProfiles } from '../../agent-runner/profiles.ts';
@@ -27,8 +27,7 @@ const handlers = perEnv((env) => {
       const route = agentRouteOf(config, profile.name);
       const routeText = route === null ? 'no route' : `${routeName(route.backend)} ${route.model ?? 'default'}`;
       const on = agentSettings(profile.name, config, paths())?.enabled === true ? 'on' : 'off';
-      const abilities = profile.abilities.length === 0 ? 'none' : profile.abilities.join(', ');
-      return `${profile.name}  ${profile.unit}  ${abilities}  ${routeText}  ${on}  ${profile.origin}  ${profile.description}`;
+      return `${profile.name}  ${profile.unit}  ${routeText}  ${on}  ${profile.origin}  ${profile.description}`;
     });
     return rows.length === 0 ? 'no agents' : rows.join('\n');
   }

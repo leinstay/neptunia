@@ -2,9 +2,6 @@
   "id": "fetch",
   "description": "Finds media on the web, such as pictures, video, audio or any other file, and brings the files back. It is not for answering questions or researching a topic.",
   "unit": "web",
-  "abilities": ["search", "fetch", "download"],
-  "returns": "files",
-  "audience": "any",
   "prompt": "prompt.md",
   "limits": {
     "steps": 25,

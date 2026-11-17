@@ -36,19 +36,17 @@ test('validateRequest: a full run passes and is normalised', () => {
     goal: '  find a meme  ',
     context: { scope: 'dm', asker: 'Theodora' },
     limits: { steps: 10, seconds: 60 },
-    tools: ['search', 'search', 'fetch'],
     cost: { input: 2, output: 6 },
     searchProvider: 'exa',
   });
   assert.equal(r.ok, true);
   assert.equal(loose(r.message).goal, 'find a meme');
-  assert.deepEqual(loose(r.message).tools, ['search', 'fetch']);
   assert.deepEqual(loose(r.message).cost, { input: 2, output: 6 });
   assert.equal(loose(r.message).context.scope, 'dm');
 });
 
 test('validateRequest: run needs the name of its agent, since one runner serves every agent of its unit', () => {
-  // Bug: a run with no agent reaches a runner that cannot tell which agent's prompt and abilities to use.
+  // Bug: a run with no agent reaches a runner that cannot tell which agent's prompt to use.
   assert.equal(loose(validateRequest({ op: 'run', id: 'a', goal: 'x' })).error, 'bad-agent');
   assert.equal(loose(validateRequest({ op: 'run', agent: '../scout', id: 'a', goal: 'x' })).error, 'bad-agent');
   assert.equal(loose(loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x' })).message).agent, 'scout');

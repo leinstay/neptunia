@@ -112,8 +112,9 @@ test('an errand with no agent is queued, the dispatcher picks from the roster, a
     assert.equal(submitted.ok, true);
     await errands.idle();
     const id = submitted.ok ? submitted.errand.id : '';
-    // A member asked: the owner's agent and the disabled one are off the roster.
-    assert.deepEqual(asked, [{ goal: 'find the changelog', roster: ['fetch', 'scout'] }]);
+    // Changed: a member asked, and the roster holds every enabled agent with a route whoever asks, the server agent
+    // too. Only the disabled one is off it. Bug: a member's errand never reaches an agent the owner keeps for himself.
+    assert.deepEqual(asked, [{ goal: 'find the changelog', roster: ['fetch', 'scout', 'server'] }]);
     assert.deepEqual(
       client.runs.map((run) => run.agent),
       ['fetch']
@@ -123,7 +124,7 @@ test('an errand with no agent is queued, the dispatcher picks from the roster, a
   });
 });
 
-test('the roster holds the owner agent when the owner asked, and drops an agent with no route', async () => {
+test('the roster drops an agent with no route', async () => {
   const { hot, asked, errands } = rig();
   delete hot.config.models.agents.via.fetch;
   await withCapturedLogs(async () => {

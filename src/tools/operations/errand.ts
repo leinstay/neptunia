@@ -3,8 +3,7 @@
 // (src/errands/, src/agent-runner/). Their rules are here, for every caller alike: the owner's command
 // and the persona's own call (her skills: the requester of her turn is the caller).
 // `errand.add` names no agent, and the dispatcher picks one before the errand runs (src/errands/service.ts), unless an
-// owner names the agent (`/errands add <agent> <goal>`): naming an agent is the owner's alone (`owner-only`), and an
-// agent whose profile says `audience: owner` runs an errand only when the owner asks. An errand asked in a private chat is `dm`-scoped,
+// owner names the agent (`/errands add <agent> <goal>`): naming an agent is the owner's alone (`owner-only`). An errand asked in a private chat is `dm`-scoped,
 // else `group`, and the runner withholds more in a filtered scope. `errand.add` answers at once
 // with the id and `queued`: the errand runs in the background (src/errands/service.ts) and its
 // end opens her own turn where it was asked. `errand.cancel` is for the requester of the errand or an

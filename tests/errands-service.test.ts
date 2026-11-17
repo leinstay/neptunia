@@ -150,7 +150,6 @@ test('errands service: a run with no route and no proxy carries no secrets, neve
   try {
     await withCapturedLogs(async () => {
       errands.submit(ask('scout'));
-      // Changed: the server agent's audience is the owner, so the owner asks.
       errands.submit({ ...ask('server'), requester: { accountId: '7', kind: 'owner' } });
       await errands.idle();
     });
@@ -669,9 +668,8 @@ test('a profile made invalid after submission closes the deferred errand without
   }
 });
 
-// src/errands/service.ts: an errand whose agent searches with exa, on an OpenCode route, carries the stored `exa`
-// service key (keys.json `services.exa`) as `secrets.searchKey`. With no stored key, with another search provider, or on
-// a claude or codex route it carries none. The store is real over a temp memory database, the errand client is a fake
+// src/errands/service.ts: an errand of any agent on an OpenCode route carries the stored `exa` service key (keys.json
+// `services.exa`) as `secrets.searchKey`. With no stored key, or on a claude or codex route, it carries none. The store is real over a temp memory database, the errand client is a fake
 // that records each run, and keys.json lives in a temp dir.
 
 const EXA = 'exa-stored-SECRET-0123';
@@ -708,7 +706,6 @@ function rig(privateDir: string) {
 const exaKeyAsk = (agent: string) => ({
   agent,
   goal: 'find the changelog',
-  // Changed: the server agent's audience is the owner, so the owner asks.
   requester: { accountId: '7', kind: 'owner' },
   origin: { channelId: 'c1', messageId: 'm1' },
   scope: 'group' as const,
@@ -754,10 +751,11 @@ test('the scout errand on an opencode route carries no searchKey when no exa key
   assert.equal(run.secrets?.openrouterKey, 'sk-extra-OR');
 });
 
-test('the server errand, whose agent does not search with exa, carries no searchKey although an exa key is stored', async () => {
-  // Catches: the key handed to every errand instead of only the agents that search with exa.
+test('the server errand on an opencode route carries the stored exa key as well', async () => {
+  // Changed: the prompt is an agent's only limit (owner, 2026-11-17), so every opencode run searches with exa.
+  // Catches: an agent's OpenCode search stays keyless and rate limited although a key is stored.
   const run = await dispatch('server', 'opencode', EXA);
-  assert.equal(Object.hasOwn(run.secrets ?? {}, 'searchKey'), false);
+  assert.equal(run.secrets?.searchKey, EXA);
 });
 
 for (const backend of ['claude', 'codex'] as const) {
@@ -878,20 +876,5 @@ test('errands service: the wait resolves with the cancelled record when the erra
     assert.deepEqual([waited.ended, waited.errand?.state], [true, 'cancelled']);
   } finally {
     rig.cleanup();
-  }
-});
-
-test('an agent whose audience is the owner takes an errand only when the owner asks', async () => {
-  // Bug: a member's errand reaches the server agent, which reads this machine for the owner alone.
-  const { errands, client, cleanup } = makeService();
-  try {
-    await withCapturedLogs(async () => {
-      assert.deepEqual(errands.submit(ask('server')), { ok: false, code: 'owner-only' });
-      assert.equal(errands.submit({ ...ask('server'), requester: { accountId: '7', kind: 'owner' } }).ok, true);
-      await errands.idle();
-    });
-    assert.equal(client.runs.length, 1);
-  } finally {
-    cleanup();
   }
 });

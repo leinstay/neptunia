@@ -141,16 +141,15 @@ test('a name that is no agent on disk does not run, whatever its source', async 
   assert.equal(seen.length, 0);
 });
 
-test('the brief, the cwd, the timeout, search, images and the signal reach the backend unchanged', async () => {
-  // Bug: the seam drops an option, so the scout loses live search or a cancel no longer kills the child.
+test('the brief, the cwd, the timeout, images and the signal reach the backend unchanged', async () => {
+  // Bug: the seam drops an option, so the scout loses its pictures or a cancel no longer kills the child.
   const { deps, seen } = rig({ backend: 'codex' });
   const signal = new AbortController().signal;
-  await runAgent(request('scout', { search: true, images: ['/a.png'], signal }), deps);
+  await runAgent(request('scout', { images: ['/a.png'], signal }), deps);
   const options = seen[0]?.options;
   assert.equal(seen[0]?.brief, BRIEF);
   assert.equal(options?.cwd, '/tmp/x');
   assert.equal(options?.timeoutMs, 1000);
-  assert.equal(options?.search, true);
   assert.deepEqual(options?.images, ['/a.png']);
   assert.equal(options?.signal, signal);
 });

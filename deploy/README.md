@@ -6,7 +6,7 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 |---|---|---|
 | `neptunia-core.service` | The core with no interface of its own. The one unit setup starts. | yes |
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`. | yes |
-| `neptunia-agent-web.service`, `neptunia-agent-host.service` | The runners of the errand agents, `neptunia errand-runner --unit web` and `--unit host`, each serving every agent whose profile names its unit. See [Errands](../docs/errands.md#units-and-abilities). | yes |
+| `neptunia-agent-web.service`, `neptunia-agent-host.service` | The runners of the errand agents, `neptunia errand-runner --unit web` and `--unit host`, each serving every agent whose profile names its unit. See [Errands](../docs/errands.md#units-and-tools). | yes |
 
 `neptunia setup` stops, disables and removes `neptunia-agent-scout.service` and `neptunia-agent-server.service` when it finds them in the unit folder, and leaves their state folders in place.
 

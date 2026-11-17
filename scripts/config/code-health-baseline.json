@@ -28,10 +28,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/agent-runner-profiles.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/agent-runner-protocol.test.ts": {
       "deep": 3,
       "repeated": 2
@@ -1241,7 +1237,7 @@
     },
     "src/agent-runner/protocol.ts": {
       "validateRun": {
-        "complexity": 38
+        "complexity": 34
       }
     },
     "src/behavior/around.ts": {

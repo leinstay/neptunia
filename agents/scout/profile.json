@@ -2,9 +2,6 @@
   "id": "scout",
   "description": "A deep search for information: it finds sources, checks one against another and reports what they say with links. It downloads no files.",
   "unit": "web",
-  "abilities": ["search", "fetch"],
-  "returns": "text",
-  "audience": "any",
   "prompt": "prompt.md",
   "limits": {
     "steps": 25,

@@ -92,27 +92,22 @@ function limitsFor(agent: string, config: Untyped, agentPaths?: AgentPaths): Lim
 }
 
 /**
- * The secrets an errand of `agent` carries to its runner: `{ openrouterKey?, proxy?, searchKey? }`, or null when it has
+ * The secrets an errand carries to its runner: `{ openrouterKey?, proxy?, searchKey? }`, or null when it has
  * none. The key is `routeKey`, the named key keys.json holds for the agent's route, and a run with no such key carries
  * none (a claude or codex agent brings its own login, and a key of her model roles is never passed). `proxy` is the engine proxy in force now, null on the direct path. `searchKey` is the
- * stored Exa key in `privateDir`, for a run on `route` that searches with exa (`exaKeyOf`).
+ * stored Exa key in `privateDir`, for a run on an opencode `route` (`exaKeyOf`).
  */
-function secretsFor(
-  agent: string,
-  config: Untyped,
-  { agentPaths, routeKey = null, proxy = null, privateDir, route = null }: SecretsOptions
-): RunSecrets | null {
+function secretsFor({ routeKey = null, proxy = null, privateDir, route = null }: SecretsOptions): RunSecrets | null {
   const secrets: RunSecrets = {};
   if (typeof routeKey === 'string' && routeKey) secrets.openrouterKey = routeKey;
   const form = httpProxyForm(proxy);
   if (form !== null) secrets.proxy = form;
-  const searchKey = exaKeyOf(agent, config, { privateDir, route, agentPaths });
+  const searchKey = exaKeyOf(privateDir, route);
   if (searchKey !== null) secrets.searchKey = searchKey;
   return Object.keys(secrets).length > 0 ? secrets : null;
 }
 
 type SecretsOptions = {
-  agentPaths?: AgentPaths;
   routeKey?: string | null;
   proxy?: string | null;
   privateDir?: string;
@@ -120,17 +115,12 @@ type SecretsOptions = {
 };
 
 /**
- * The Exa key an errand of `agent` carries: keys.json `services.exa`, read now, for an agent with the `search` ability
- * on an opencode route, which searches with Exa. Null otherwise: claude and codex search with their own tools, and with no stored key
- * OpenCode searches Exa's free endpoint.
+ * The Exa key an errand carries: keys.json `services.exa`, read now, on an opencode route, which searches with Exa.
+ * Null otherwise: claude and codex search with their own tools, and with no stored key OpenCode searches Exa's free
+ * endpoint.
  */
-function exaKeyOf(
-  agent: string,
-  config: Untyped,
-  { privateDir, route, agentPaths }: { privateDir?: string; route: TaskRoute | null; agentPaths?: AgentPaths }
-): string | null {
+function exaKeyOf(privateDir: string | undefined, route: TaskRoute | null): string | null {
   if (privateDir === undefined || route?.backend !== 'opencode') return null;
-  if (!profileOf(agent, agentPaths)?.abilities.includes('search')) return null;
   return serviceCredential(privateDir, 'exa');
 }
 
@@ -245,19 +235,17 @@ function runRequestOf(
 
 /**
  * The roster of a dispatch: every agent of `profiles` that has a route in `config`, is `free` (enabled, its runner not
- * known down), has tasks left today in `store` and whose audience fits `requester` (an `owner` agent only for the owner).
+ * known down) and has tasks left today in `store`, whoever asked.
  */
 function rosterOf(
   profiles: ReadonlyArray<Profile>,
   config: unknown,
-  requester: ErrandRecord['requester'],
   free: (agent: string) => boolean,
   store: Pick<ErrandStore, 'today'>
 ): Array<RosterEntry> {
   return profiles
     .filter((profile) => {
       const agent = profile.name;
-      if (profile.audience === 'owner' && requester.kind !== 'owner') return false;
       if (agentRouteOf(config, agent) === null || !free(agent)) return false;
       const { tasks, caps } = store.today(agent);
       return !(typeof caps.tasks === 'number' && Number.isFinite(caps.tasks) && tasks >= caps.tasks);
@@ -432,7 +420,7 @@ export function createErrandService({
     if (errand?.state !== 'queued') return false;
     if (errand.agent !== null) return true;
     const free = (agent: string): boolean => client?.configured?.(agent) !== false && !runnerDown(agent);
-    const roster = rosterOf(Object.values(loadProfiles(agentPaths)), objOf(hot).config, errand.requester, free, store);
+    const roster = rosterOf(Object.values(loadProfiles(agentPaths)), objOf(hot).config, free, store);
     const picked = await pickAgent(dispatch, errand.goal, roster);
     if ('agent' in picked) return store.assign(id, picked.agent) !== null;
     log.info('errands: no agent took the errand', { id, code: picked.code, candidates: roster.length });
@@ -462,13 +450,7 @@ export function createErrandService({
     let outcome: FinishOutcome;
     try {
       const { route, key, error } = dispatchOf(privateDir, agent, log);
-      const secrets = secretsFor(agent, hot.config, {
-        agentPaths,
-        routeKey: key,
-        proxy: proxy(),
-        privateDir,
-        route,
-      });
+      const secrets = secretsFor({ routeKey: key, proxy: proxy(), privateDir, route });
       outcome =
         error !== undefined
           ? { status: 'failed', error }
@@ -496,7 +478,7 @@ export function createErrandService({
   /**
    * A new errand queued and, once the caller has its answer, started in the background:
    * `{ ok: true, errand }` (the errand as queued) or `{ ok: false, code }` (the store's refusal,
-   * `owner-only` for an agent whose audience is the owner when anyone else asks, `not-configured` when the agent is off, `runner-down` while its runner is
+   * `not-configured` when the agent is off, `runner-down` while its runner is
    * known unreachable, `no-place` without a place).
    * An errand the store already holds under the call's `idempotencyKey` is answered as it is
    * (`duplicate: true`), never run again.
@@ -506,9 +488,7 @@ export function createErrandService({
     if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     // An errand with no agent gets one from the dispatcher before it runs (assignAgent).
     if (agent !== null) {
-      const profile = profileOf(agent, agentPaths);
-      if (!profile) return { ok: false, code: CODE.UNKNOWN_AGENT };
-      if (profile.audience === 'owner' && requester?.kind !== 'owner') return { ok: false, code: CODE.OWNER_ONLY };
+      if (!profileOf(agent, agentPaths)) return { ok: false, code: CODE.UNKNOWN_AGENT };
       if (typeof client?.configured === 'function' && !client.configured(agent))
         return { ok: false, code: CODE.NOT_CONFIGURED };
       if (runnerDown(agent)) return { ok: false, code: CODE.RUNNER_DOWN };

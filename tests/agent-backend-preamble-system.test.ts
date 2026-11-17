@@ -159,10 +159,7 @@ function rig(name: BackendName) {
     promptFiles: [promptFile],
     defaultLimits: { steps: 5, seconds: 30 },
     sandbox: 'read-only',
-    search: false,
     unit: 'web',
-    abilities: ['search', 'fetch', 'download', 'shell'],
-    returns: 'files',
   };
   const engine = createAgentEngine({
     profile: profile as unknown as Parameters<typeof createAgentEngine>[0]['profile'],

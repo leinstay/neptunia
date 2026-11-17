@@ -48,10 +48,6 @@ export type AgentRun = {
   maxSteps?: number;
   /** The most output tokens per model answer, where the backend has a control for it. */
   maxOutputTokens?: number;
-  /** codex: live web search */
-  search?: boolean;
-  /** The profile's OpenCode tool names; claude turns them into its own tool list. Absent for an agent with no profile tools. */
-  tools?: ReadonlyArray<string>;
   /** codex: pictures handed to the agent */
   images?: ReadonlyArray<string>;
   signal?: AbortSignal;
@@ -242,8 +238,6 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     ...pinOf(provider),
     ...(run.maxSteps === undefined ? {} : { maxSteps: run.maxSteps }),
     ...(run.maxOutputTokens === undefined ? {} : { maxOutputTokens: run.maxOutputTokens }),
-    ...(run.search === undefined ? {} : { search: run.search }),
-    ...(run.tools === undefined ? {} : { tools: run.tools }),
     ...(run.images === undefined ? {} : { images: run.images }),
     ...(run.signal === undefined ? {} : { signal: run.signal }),
     ...(run.system === undefined ? {} : { system: run.system }),
