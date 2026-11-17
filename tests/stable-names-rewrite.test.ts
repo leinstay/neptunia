@@ -469,3 +469,58 @@ test('removes an unlinked media row whose path and sha1 a linked row holds and c
     ['media:diary:d-2-1', 'media:fake:att-1']
   );
 });
+
+test('leaves a confirmed line with a known emoji name and no link as typed and counts it as plain text', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'typed :pog: by hand');
+  const plan = planStableNamesRewrite(db, { confirmed: new Set(['l1']) });
+  assert.equal(plan.counts.left.plainText, 1);
+  apply(handle, plan);
+  assert.equal(textOf(db, 'l1'), 'typed :pog: by hand');
+  assert.deepEqual(linksOf(db, 'l1'), []);
+});
+
+test('rewrites a confirmed line by its link', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'that was :pog:');
+  link(db, 'l1', 0, 'm1');
+  apply(handle, planStableNamesRewrite(db, { confirmed: new Set(['l1']) }));
+  assert.equal(textOf(db, 'l1'), 'that was :e1:');
+});
+
+test('ties a line outside the confirmed set by name when it holds a known emoji name and no link', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'typed :pog:');
+  line(db, 'l2', 'deleted :pog:');
+  apply(handle, planStableNamesRewrite(db, { confirmed: new Set(['l1']) }));
+  assert.equal(textOf(db, 'l2'), 'deleted :e1:');
+  assert.deepEqual(linksOf(db, 'l2'), ['m1']);
+});
+
+test('leaves the think of a confirmed line with no link as written', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  media(db, 'm2', 'emoji', '902', 'aga');
+  const insert = db.prepare("INSERT INTO sources (id, kind, iface, text, think) VALUES ('a1', 'said', 'fake', ?, ?)");
+  insert.run(':aga:', 'maybe :pog:');
+  link(db, 'a1', 0, 'm2');
+  apply(handle, planStableNamesRewrite(db, { confirmed: new Set(['a1']) }));
+  assert.equal(thinkOf(db, 'a1'), 'maybe :pog:');
+});
+
+test('plans no change after an apply with a confirmed set and still counts the plain text it leaves', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', ':pog:');
+  line(db, 'l2', 'linked :pog:');
+  link(db, 'l2', 0, 'm1');
+  const confirmed = new Set(['l1', 'l2']);
+  apply(handle, planStableNamesRewrite(db, { confirmed }));
+  const again = planStableNamesRewrite(db, { confirmed });
+  assert.deepEqual(again.counts.tables, {});
+  assert.deepEqual(again.issue, []);
+  assert.equal(again.counts.left.plainText, 1);
+});
