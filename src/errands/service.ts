@@ -553,10 +553,10 @@ export function createErrandService({
     if (!store) return 0;
     const failed = store.failOpen('restarted');
     if (failed > 0) log.info('errands: open tasks failed at start', { count: failed });
-    // Finished errands whose result turn never ran (a restart cut it short, or it kept failing):
-    // their turn is opened again, one after another through the turn runner's own cooldown.
+    // Finished errands whose result turn never ran (a restart cut it short, or it kept failing), an errand asked with no
+    // place included: their turn is opened again, one after another through the turn runner's own cooldown.
     if (typeof onFinished === 'function') {
-      const waiting = store.unseen().filter((errand) => errand.origin?.placeId);
+      const waiting = store.unseen();
       if (waiting.length > 0) log.info('errands: result turns reopened at start', { count: waiting.length });
       for (const errand of waiting)
         defer(() =>

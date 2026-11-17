@@ -500,6 +500,7 @@ test('errands service: at start the finished errands whose result turn never ran
   try {
     const before = createErrandStores({ memoryDb: memoryOf(dataDir), config: () => hot.config, log: fakeLog() }).get();
     const unseen = finishedTask(before);
+    const nowhere = finishedTask(before, { placeId: null as unknown as string });
     const seen = finishedTask(before);
     present(before).markSeen(seen);
     const running = loose(present(before).add(ask('scout')).errand).id;
@@ -518,16 +519,14 @@ test('errands service: at start the finished errands whose result turn never ran
     });
     assert.equal(errands.start(), 1);
     await new Promise((resolve) => setImmediate(resolve));
+    // Changed: an unseen end with no place is reopened too, since its result turn runs with no chat.
     assert.deepEqual(
       reopened.map(([id]) => id).sort(),
-      [running, unseen].sort(),
-      'the restart-failed task and the unseen one'
+      [running, unseen, nowhere].sort(),
+      'the restart-failed task, the unseen one and the one with no place'
     );
-    // The callback takes no root since places: each reopened task names the place it was asked in.
-    assert.equal(
-      reopened.every(([, placeId]) => placeId === 'c1'),
-      true
-    );
+    // The callback takes no root since places: each reopened task names the place it was asked in, or none.
+    assert.deepEqual(reopened.map(([, placeId]) => placeId ?? null).sort(), ['c1', 'c1', null].sort());
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }

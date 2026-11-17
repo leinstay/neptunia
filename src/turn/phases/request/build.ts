@@ -82,8 +82,9 @@ const OWN_SERVER_WAKES = new Set(['heartbeat']);
 const DM_WORD = 'private';
 
 /**
- * The stored chain of the turn's place, the place first; a place the tree does not hold yet is a chain of itself. A wake
- * with no chat place (a heartbeat, or a turn that is nowhere) has none.
+ * The stored chain of the turn's place, the place first; a place the tree does not hold yet is a chain of itself. A
+ * heartbeat and any turn that is nowhere (its chat the stand-in of `chat: null`, an inner turn or an errand's result
+ * turn with no place) have none.
  */
 function chainOfTurn(
   store: PhaseContext['store'],
@@ -91,7 +92,7 @@ function chainOfTurn(
   wake: { kind: string | null } | null,
   directPlace: string | null
 ): ReadonlyArray<PlaceLink> {
-  if (wake && (OWN_SERVER_WAKES.has(wake.kind ?? '') || channel.rootId === PERSONA_ID)) return [];
+  if (channel.rootId === PERSONA_ID || OWN_SERVER_WAKES.has(wake?.kind ?? '')) return [];
   // A direct chat is keyed by its partner, so the chat alone does not name its stored place: the turn's place does.
   const placeId = directPlace || placeOfChat(store, channel) || String(channel.id ?? '');
   if (!placeId) return [];
@@ -1030,6 +1031,12 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     wake: wakeWords,
   };
   const framed = framedInputsOf(ctx, frame, draft, channel, facts);
+  // `<errands>` and `<errand_result>`: her errands (none on a diary post); a result shown whole is read once she answers.
+  const errands =
+    finalMode === 'diary'
+      ? null
+      : errandsInputFor({ placeId, channel, isDm, taskResult, wake, config, labels: prompts?.labels, now });
+  draft.errandShown = errands?.whole ?? null;
   const requestInput = turnRequestInput({
     frame,
     config,
@@ -1101,11 +1108,7 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     toolsTokens,
     // `<people_now>`'s live part: the voice and status snapshot (null: none).
     around: aroundInputFor({ config, mode: finalMode, isDm, snapshot }),
-    // `<errands>` and `<errand_result>`: her errands (none on a diary post).
-    errands:
-      finalMode === 'diary'
-        ? null
-        : errandsInputFor({ placeId, channel, isDm, taskResult, config, labels: prompts?.labels, now }),
+    errands,
     // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
     intentions:
       finalMode === 'diary'

@@ -7,7 +7,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMirrors } from '../src/behavior/mirror.ts';
-import { createDiary } from '../src/behavior/diary.ts';
 import { createStore } from '../src/memory/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
@@ -34,8 +33,8 @@ after(async () => {
 
 /**
  * A core with the fake interface (chats `d1` and `d2` of the root), a real store over a memory database
- * holding the mirrors of `mirrors`, the publisher over both, and the diary scheduler that runs a turn and hands its
- * entry to the publisher. `link.connected` is whether an interface is connected (the publisher's port, or none).
+ * holding the mirrors of `mirrors`, the publisher over both, and the diary turn whose entry a test hands to the
+ * publisher. `link.connected` is whether an interface is connected (the publisher's port, or none).
  */
 async function scene({
   mirrors: specs,
@@ -60,14 +59,6 @@ async function scene({
     dataDir: memory.dataDir,
   });
   const turns = sceneRunner(sceneLlm(), store);
-  const diary = createDiary({
-    hot: sceneHot(),
-    store,
-    reads: null,
-    turns,
-    mirrors,
-    now: () => NOW,
-  });
   /** One diary turn as the wake runs it, its entry recorded and its writes landed. */
   async function record() {
     const result = await turns.runTurn({
@@ -83,12 +74,13 @@ async function scene({
     world()
       .port.messagesIn(chatId)
       .map((message) => message.text);
-  return { memory, store, places, link, mirrors, diary, record, texts };
+  return { memory, store, places, link, mirrors, record, texts };
 }
 
-test('a forced post with one enabled mirror publishes the entry once, and a reconnect sends nothing more', async () => {
+// Changed: the entry is handed to the publisher as the diary's post does, since diary.force is gone.
+test('a diary entry with one enabled mirror publishes the entry once, and a reconnect sends nothing more', async () => {
   const core = await scene({ mirrors: [{ chatId: 'd1' }] });
-  await core.diary.force({ kind: 'status' });
+  await core.mirrors.publishEntry(await core.record());
   await core.store.flushSettled({});
   assert.deepEqual(core.texts('d1'), [TEXT]);
   core.link.connected = false;
@@ -112,7 +104,7 @@ test('a forced post with one enabled mirror publishes the entry once, and a reco
 
 test('an entry recorded while no interface is connected stays queued, and the connection sends it once', async () => {
   const core = await scene({ mirrors: [{ chatId: 'd1' }], connected: false });
-  await core.diary.force({ kind: 'status' });
+  await core.mirrors.publishEntry(await core.record());
   await core.store.flushSettled({});
   assert.deepEqual(core.texts('d1'), []);
   assert.deepEqual(

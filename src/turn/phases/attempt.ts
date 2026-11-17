@@ -46,6 +46,9 @@ export async function runAttempt(ctx: AttemptContext, args: TurnParams): Promise
         const acting = answered.ended ? answered : actPhase(ctx, params, draft, answered);
         const rounded = acting.ended ? acting : await toolRoundPhase(ctx, params, draft, acting);
         result = rounded.ended ?? outcomePhase(ctx, draft, rounded);
+        // A request that showed an errand's whole result was answered: it is read, as a result turn's is.
+        if (draft.errandShown && (result.outcome === 'spoke' || result.outcome === 'skip'))
+          ctx.markErrandShown(draft.errandShown);
       } catch (err) {
         result = outcomeOfError(ctx, params, draft, opened, err);
       } finally {

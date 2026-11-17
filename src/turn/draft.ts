@@ -82,4 +82,6 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'>
   folded?: Array<string>;
   /** The bodies of her `<audience>` tags over every answer of a diary turn (src/llm/parse.ts#takeAudience). */
   diaryAudience?: Array<string>;
+  /** The errand an intention's wake showed whole, read once her turn answered (src/turn/phases/outcome.ts). */
+  errandShown?: string | null;
 };

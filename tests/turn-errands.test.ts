@@ -617,6 +617,39 @@ test('task turns: a result turn that spoke or chose silence marks the task seen 
   }
 });
 
+test('task turns: an unread end with no place runs a result turn with no chat and marks it read', async () => {
+  // Bug caught: an errand started in a heartbeat or from a console with no place ends and never reaches her.
+  const errands = fakeErrands();
+  const llm = fakeLlm('<skip/>');
+  const hot = fakeHot();
+  const turns = createTurnRunner({
+    hot,
+    store: fakeStore(),
+    llm,
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+    port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }),
+    errands,
+    now: () => NOW,
+  });
+  const taskTurns = createErrandTurns({
+    hot,
+    reads: world().reads,
+    iface: () => 'fake',
+    turns,
+    // @ts-expect-error: the fake errand service carries the few members a turn reads
+    errands,
+    now: () => NOW,
+  });
+  const nowhere = { ...doneTask, origin: { placeId: null, messageId: null } };
+  const { result } = await withCapturedLogs(() =>
+    taskTurns.onFinished(nowhere as unknown as Parameters<typeof taskTurns.onFinished>[0])
+  );
+  assert.equal(result?.outcome, 'skip');
+  const text = JSON.stringify(llm.calls[0]);
+  assert.deepEqual([text.includes('<errand_result>'), text.includes('<chat>')], [true, false]);
+  assert.deepEqual(errands.read, [{ ids: ['tab02'] }]);
+});
+
 test('task turns: a result turn that ended error or refused marks nothing and is tried again', async () => {
   const outcomes = [{ outcome: 'error' }, { outcome: 'refused' }, { outcome: 'spoke' }];
   const runs = [];
@@ -741,4 +774,47 @@ test("task turns: a result for the command line's chat is tried again while the 
     'the command line is asked for its chat, never the served interface'
   );
   assert.deepEqual(errands.read, [{ ids: ['tab09'] }]);
+});
+
+test('the wake of an intention that waited for an errand shows the result text, and marks the errand read once shown whole', async () => {
+  // Bug caught: the intention's wake says only that the errand ended, and the result she waited for never reaches her.
+  const ended = { ...doneTask, result: { text: 'Δύο γάτες.', sources: [], files: [] }, readAt: null };
+  const errands = { ...fakeErrands(), store: () => ({ get: (id: string) => (id === ended.id ? ended : null) }) };
+  const llm = fakeLlm('<skip/>');
+  const turns = createTurnRunner({
+    hot: fakeHot(),
+    store: fakeStore(),
+    llm,
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+    port: createFakeAdapter({ iface: 'fake', selfId: 'self-id' }),
+    errands,
+    now: () => NOW,
+  });
+  const record = {
+    id: 'i1',
+    status: 'pending',
+    purpose: 'tell them about the meme',
+    dueAt: NOW,
+    outcome: { errandId: ended.id, state: 'done', at: NOW },
+  };
+  const wake = {
+    kind: 'intention_due',
+    items: [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], errandId: null }],
+    intentions: [record],
+    now: NOW,
+    timezone: 'UTC',
+    channels: [],
+    chainId: 'i1',
+  };
+  await withCapturedLogs(() =>
+    turns.runTurn({
+      channel: fakeChannel(),
+      mode: 'inner',
+      triggerKind: 'inner',
+      inner: { wake, shadow: false, mayAct: () => true, currentChannel: 'c1' },
+    })
+  );
+  const text = JSON.stringify(llm.calls[0]);
+  assert.ok(text.includes('<errand_result>') && text.includes('Δύο γάτες.'), text);
+  assert.deepEqual(errands.read, [{ ids: [ended.id] }]);
 });

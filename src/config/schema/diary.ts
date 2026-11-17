@@ -39,13 +39,6 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'text': 'Chance of no posts for the whole day',
   },
   {
-    'key': 'diary.forceWaitMs',
-    'types': ['number'],
-    'reader': 'src/behavior/diary.ts',
-    'default': 120000,
-    'text': 'Milliseconds a forced post waits for a running turn',
-  },
-  {
     'key': 'diary.entries',
     'types': ['number'],
     'reader': 'src/turn/request/diary.ts',
