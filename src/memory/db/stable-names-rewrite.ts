@@ -161,8 +161,10 @@ function knownOf(db: Db, namer: Namer, media: Map<string, Change<'mediaId'>>): K
     const iface = text(row.scope_iface);
     const nativeId = text(row.native_ref);
     const name = text(extra.name);
-    if (!isKind(row.kind) || !iface || !nativeId || !name) continue;
+    if (!isKind(row.kind) || !iface || !nativeId) continue;
+    // A row with no name, a describer's cache row, takes the name `media_names` holds for its id, and none else.
     const platformName = namer.held.get(keyOf(iface, row.kind, nativeId))?.platformName ?? name;
+    if (!platformName) continue;
     const named = namer.nameOf(iface, row.kind, nativeId, platformName, extra.animated === true);
     const mediaId = text(row.id);
     if (name !== named.name) media.set(mediaId, { mediaId, from: name, to: named.name });
@@ -206,19 +208,36 @@ type Rewritten = { to: string; tied: number; loose: boolean; shared: boolean; ti
  * One text of a line with each token rewritten: by the emoji the line links under that name, else by the one known emoji
  * of its interface. `loose` when the line links two emoji of one name, `shared` when two known emoji hold an unlinked one.
  */
-function rewriteText(from: string, emoji: ReadonlyArray<Linked>, lineIface: string, match: Match): Rewritten {
+/**
+ * The emoji a line links under `name`, null when it links none. Two emoji of one name make the
+ * token loose, unless `chosen` is the owner's choice of one of them.
+ */
+function linkedName(matching: ReadonlyArray<Linked>, chosen: string | undefined): Linked | 'loose' | null {
+  const ids = new Set(matching.map((one) => one.nativeId));
+  if (ids.size === 0) return null;
+  if (ids.size === 1) return matching[0];
+  return matching.find((one) => one.nativeId === chosen) ?? 'loose';
+}
+
+/** One text of a line. The choice settles two linked emoji of one name only in her think, where no link tells. */
+function rewriteText(
+  from: string,
+  emoji: ReadonlyArray<Linked>,
+  lineIface: string,
+  match: Match,
+  isThink = false
+): Rewritten {
   // A line of an interface that holds no emoji, or of none, such as a memory note: matched across every interface, unlinked.
   const iface = match.ifaces.has(lineIface) ? lineIface : null;
   const out: Rewritten = { to: from, tied: 0, loose: false, shared: false, ties: [] };
   out.to = replaceNameTokens(from, (name) => {
     const matching = emoji.filter((one) => one.platformName === name);
-    const ids = new Set(matching.map((one) => one.nativeId));
-    if (ids.size > 1) out.loose = true;
-    if (ids.size > 0) {
-      const stable = matching[0].stable;
-      if (ids.size > 1 || stable === name) return null;
+    const linked = linkedName(matching, isThink ? match.choose[name] : undefined);
+    if (linked === 'loose') out.loose = true;
+    if (linked !== null) {
+      if (linked === 'loose' || linked.stable === name) return null;
       out.tied += 1;
-      return `:${stable}:`;
+      return `:${linked.stable}:`;
     }
     const found = pick(match.known, match.choose, name, iface);
     if (found === 'shared') out.shared = true;
@@ -275,7 +294,8 @@ function planLineText(row: Row, linked: ReadonlyArray<Linked>, match: Match, out
 function planThink(row: Row, linked: ReadonlyArray<Linked>, match: Match, out: LinesOut): void {
   const from = text(row.think);
   const emoji = linked.filter((one) => one.kind === 'emoji');
-  const result = rewriteText(from, emoji, text(row.iface), match);
+  const result = rewriteText(from, emoji, text(row.iface), match, true);
+  if (result.shared) out.left.sharedName += 1;
   if (result.loose || result.to === from) return;
   out.tokens += result.tied;
   out.cells.push({ table: 'sources', column: 'think', id: text(row.id), from, to: result.to });
@@ -475,7 +495,7 @@ function checkFresh(db: Db, { lines, media, cells }: Checked): void {
   const lineText = db.prepare('SELECT text FROM sources WHERE id = ?');
   const mediaName = db.prepare("SELECT json_extract(extra, '$.name') AS name FROM media WHERE id = ?");
   if (lines.some((line) => lineText.get(line.id)?.text !== line.from)) throw stale();
-  if (media.some((row) => mediaName.get(row.id)?.name !== row.from)) throw stale();
+  if (media.some((row) => text(mediaName.get(row.id)?.name) !== row.from)) throw stale();
   for (const cell of cells) {
     const held = db.prepare(`SELECT ${cell.column} AS value FROM ${cell.table} WHERE ${cell.where}`).get(cell.id);
     if (held?.value !== cell.from) throw stale();
