@@ -212,14 +212,24 @@ export type MediaItem = {
   source?: string | null;
 };
 
+/** Whether `item` is an animated custom emoji or sticker: watched as a GIF from its `animationUrl`. */
+function isMovingPicture(item: MediaItem): boolean {
+  return (item.kind === 'emoji' || item.kind === 'sticker') && item.animated === true && Boolean(item.animationUrl);
+}
+
+/** Whether `item` takes the GIF watch: a GIF, or an animated custom emoji or sticker. */
+function watchedAsGif(item: MediaItem): boolean {
+  return item.kind === 'gif' || isMovingPicture(item);
+}
+
 /**
  * The file a GIF watch downloads: a gif embed's `animationUrl` (the mp4 of
- * a tenor/giphy embed, or a `.gif` link, see src/media/classify.ts#classifyEmbed),
- * else an attached gif's own file. Null for anything else: a gif embed
+ * a tenor/giphy embed, or a `.gif` link, see src/media/classify.ts#classifyEmbed)
+ * or an animated emoji's or sticker's, else an attached gif's own file. Null for anything else: a gif embed
  * with neither is not watched.
  */
 function gifAnimationSource(item: MediaItem) {
-  if (item?.kind !== 'gif') return null;
+  if (!watchedAsGif(item)) return null;
   if (typeof item.animationUrl === 'string' && item.animationUrl) return item.animationUrl;
   if (item.source === 'attachment' && typeof item.url === 'string' && item.url) return item.url;
   return null;
@@ -607,7 +617,7 @@ function buildDescriber({
     if (cached.miss) {
       if (isRefused(cached)) return FRESH_MISS;
       // A failed GIF watch waits as long as a failed video watch.
-      const ttl = item.kind === 'gif' ? videoErrorTtlMs() : MISS_TTL_MS;
+      const ttl = watchedAsGif(item) ? videoErrorTtlMs() : MISS_TTL_MS;
       return !retryMisses && now() - cached.ts < ttl ? FRESH_MISS : null;
     }
     touchHit(placeId, itemId, cached);
@@ -667,7 +677,7 @@ function buildDescriber({
   async function describeNow(placeId: string, item: MediaItem, previous: Untyped = null) {
     if (isAudioItem(item)) return hearAudio(audioDeps(placeId), item);
     if (item.kind === 'text') return readTextFile(audioDeps(placeId), item);
-    if (item.kind === 'gif') return describeGif(placeId, item, previous);
+    if (watchedAsGif(item)) return describeGif(placeId, item, previous);
     const promptText = hot.prompts?.describe;
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};

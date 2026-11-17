@@ -167,6 +167,37 @@ test('collectGifItems: a gif embed on a Discord CDN host the adapter did not mar
   );
 });
 
+// The owner on 2026-11-17: an animated emoji or sticker is watched as a GIF, yet the library holds GIFs people post.
+test('collectGifItems: an animated emoji and an animated sticker are no library items, beside an attached GIF', () => {
+  const items = collectGifItems(
+    msg({
+      attachments: [gifAttachment('a1')],
+      emojis: [
+        {
+          id: 'e2',
+          name: 'kekw',
+          animated: true,
+          url: 'https://cdn.discordapp.com/emojis/e2.webp?size=96',
+          animationUrl: 'https://cdn.discordapp.com/emojis/e2.gif',
+        },
+      ],
+      stickers: [
+        {
+          id: 's3',
+          name: 'dance',
+          animated: true,
+          url: 'https://media.discordapp.net/stickers/s3.gif?size=160',
+          animationUrl: 'https://media.discordapp.net/stickers/s3.gif?size=160',
+        },
+      ],
+    })
+  );
+  assert.deepEqual(
+    items.map((item) => item.key),
+    ['a1']
+  );
+});
+
 test('collectGifItems: items without a url or an id are skipped; no message -> []', () => {
   assert.deepEqual(
     collectGifItems(

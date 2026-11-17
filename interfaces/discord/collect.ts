@@ -17,7 +17,7 @@ import {
   clipWithEllipsis,
 } from '../../src/media/classify.ts';
 import { classifyEmbed } from './embed.ts';
-import { DISCORD_CDN_SITES, discordCdnVideo, previewAttachments, previewLinks, stickerUrl } from './media.ts';
+import { DISCORD_CDN_SITES, discordCdnVideo, normalSticker, previewAttachments, previewLinks } from './media.ts';
 import { extractVideoUrls, videoSiteFor, videoUrlCacheKey } from '../../src/media/video-sites.ts';
 import { CUSTOM_EMOJI_MARKUP } from '../../src/behavior/emoji.ts';
 import { reactionKey } from '../../src/protocol/reaction-key.ts';
@@ -67,6 +67,11 @@ const EMOJI_SIZE = 96;
 export function emojiUrl(id: string): string {
   return `https://cdn.discordapp.com/emojis/${id}.webp?size=${EMOJI_SIZE}`;
 }
+
+/** An animated custom emoji's animation address: its `.gif`, since ffmpeg cannot read an animated webp. */
+function emojiAnimationUrl(id: string): string {
+  return `https://cdn.discordapp.com/emojis/${id}.gif`;
+}
 const MAX_EMOJIS_PER_MESSAGE = 5;
 // Groups: the animated flag (`a` or empty), the name, the id.
 const CUSTOM_EMOJI_RE = new RegExp(CUSTOM_EMOJI_MARKUP, 'g');
@@ -114,6 +119,9 @@ function cleanEmoji(text: string): string {
   return text.replace(CUSTOM_EMOJI_RE, ':$2:');
 }
 
+/** A custom emoji as the core takes it: `animationUrl` on an animated one. */
+type NormalEmoji = { id: string; name: string; animated: boolean; url: string; animationUrl?: string };
+
 /**
  * Custom emoji `<:name:id>` / `<a:name:id>` written in a message's text (the
  * text itself keeps reading as `:name:`, see cleanEmoji above): de-duplicated
@@ -122,14 +130,21 @@ function cleanEmoji(text: string): string {
  *   rewritten the markup to `:name:`, dropping the id); cleanContent only as a
  *   fallback when the raw content is missing.
  */
-function extractEmojis(text: unknown): Array<{ id: string; name: string; animated: boolean; url: string }> {
-  const seen = new Map<string, { id: string; name: string; animated: boolean; url: string }>();
+function extractEmojis(text: unknown): Array<NormalEmoji> {
+  const seen = new Map<string, NormalEmoji>();
   CUSTOM_EMOJI_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = CUSTOM_EMOJI_RE.exec(scalarText(text ?? '')))) {
     const [, animatedFlag, name, id] = match;
     if (seen.has(id)) continue;
-    seen.set(id, { id, name, animated: Boolean(animatedFlag), url: emojiUrl(id) });
+    const animated = Boolean(animatedFlag);
+    seen.set(id, {
+      id,
+      name,
+      animated,
+      url: emojiUrl(id),
+      ...(animated ? { animationUrl: emojiAnimationUrl(id) } : {}),
+    });
     if (seen.size >= MAX_EMOJIS_PER_MESSAGE) break;
   }
   return [...seen.values()];
@@ -152,14 +167,9 @@ function extractChannelIds(text: unknown): Array<string> {
   return [...seen];
 }
 
-/** Classified stickers of a message/snapshot: `{ id, name, format, url }` (see stickerUrl). */
+/** The stickers of a message or snapshot as the core takes them (see normalSticker). */
 function normalizeStickers(stickers: Collection<StickerLike> | undefined) {
-  return [...(stickers?.values?.() ?? [])].map((sticker) => ({
-    id: sticker.id,
-    name: sticker.name,
-    format: sticker.format,
-    url: stickerUrl(sticker.id, sticker.format),
-  }));
+  return [...(stickers?.values?.() ?? [])].map((sticker) => normalSticker(sticker.id, sticker.name, sticker.format));
 }
 
 /**

@@ -432,11 +432,16 @@ export function ffmpegFitArgs(
  * libx264 would otherwise keep as a 4:4:4 stream many decoders refuse), no
  * audio track, and the same bitrate cap as ffmpegTrimArgs. The height
  * expression is quoted so its comma is not read as a filter separator.
+ * `inputFormat` names the input's format before `-i` (`apng`: ffmpeg reads a PNG as one still otherwise).
  */
 export function ffmpegGifArgs(
   inPath: string,
   outPath: string,
-  { ffmpegPath, maxSeconds }: { ffmpegPath: string; maxSeconds: number }
+  {
+    ffmpegPath,
+    maxSeconds,
+    inputFormat = null,
+  }: { ffmpegPath: string; maxSeconds: number; inputFormat?: string | null }
 ): { command: string; args: Array<string> } {
   return {
     command: ffmpegPath,
@@ -445,6 +450,7 @@ export function ffmpegGifArgs(
       '-hide_banner',
       '-loglevel',
       'error',
+      ...(inputFormat ? ['-f', inputFormat] : []),
       '-i',
       String(inPath),
       '-t',
