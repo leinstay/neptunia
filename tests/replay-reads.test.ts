@@ -56,7 +56,10 @@ test('the read-only store names a root custom emoji without writing: a held name
   };
   writeMediaNames(writable, { rows: [kekw] }, Date.parse('2026-11-17T10:00:00Z'));
   const memory = readOnlyMemory(dir, { iface: 'discord' });
-  const wrapped = readOnlyStore(createStore({ dataDir: dir, memoryDb: memory.memoryDb } as never), SANDBOX_STORE_READS);
+  const wrapped = readOnlyStore(
+    createStore({ dataDir: dir, memoryDb: memory.memoryDb } as never),
+    SANDBOX_STORE_READS
+  ) as unknown as Parameters<typeof customEmojiOf>[2];
   const emoji = [
     { id: '900', name: 'kekw', animated: false },
     { id: '901', name: 'dance', animated: true },

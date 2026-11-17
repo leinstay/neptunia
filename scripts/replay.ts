@@ -954,7 +954,7 @@ const FOUND_LINE_RE = /^(>> )?#\d+ \[/;
  * The engine functions --recall uses, named one by one (no module spread: two
  * modules may export the same name). A missing one is a CliError.
  */
-export async function loadRecallMods(load: Untyped) {
+export async function loadRecallMods(load: Untyped): Promise<Rec> {
   const recall = (await load('behavior/recall.ts')) as Rec;
   const queryBuilder = (await load('behavior/query-builder.ts')) as Rec;
   const summaryBuilder = (await load('behavior/summary-builder.ts')) as Rec;
@@ -6220,7 +6220,7 @@ export async function loopDepsOf({
   turnMod,
   coreOn,
   log = null,
-}: Rec) {
+}: Rec): Promise<Rec> {
   const { createLookup } = await load('web/lookup.ts');
   const { createBraveSearch } = await load('web/brave.ts');
   const { createExaSearch } = await load('web/exa.ts');

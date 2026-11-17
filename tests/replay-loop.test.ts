@@ -1650,7 +1650,7 @@ test('the tool loop of --skills loads what it needs from the engine and asks for
     turnMod: await load('behavior/turn.ts'),
     coreOn: true,
   });
-  assert.equal(typeof deps.toolsFor, 'function');
+  assert.equal(Object.hasOwn(deps, 'preTurnLookup'), false);
 });
 
 test('loadRecallMods: every engine part --recall names is there, the response format included', async () => {
@@ -1659,6 +1659,5 @@ test('loadRecallMods: every engine part --recall names is there, the response fo
   const src = path.join(import.meta.dirname, '..', 'src');
   const load = (rel: string) => import(pathToFileURL(path.join(src, rel)).href);
   const mods = await loadRecallMods(load);
-  assert.equal(typeof mods.QUERY_PLAN_FORMAT, 'object');
-  assert.equal(typeof mods.createRecall, 'function');
+  assert.equal(mods.QUERY_PLAN_FORMAT.name, 'query-plan');
 });
