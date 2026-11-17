@@ -1,13 +1,11 @@
 // The diary keeps what its planner planned and plans from seeds the recent entries did not take. A diary wake of
 // the real turn runner over the scene of tests/fixtures/diary-scene.ts, with a scripted planner that names the
 // combination it built on; the entry it records keeps `plan` (`brief`, the `seeds` offered and the `seed` taken) through
-// the one writer, and the store reads a past entry's first linked picture as `pictureDescription`. Synthetic text only.
+// the one writer. Synthetic text only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { userText } from '../src/behavior/prompt.ts';
 import { createStore } from '../src/memory/store.ts';
-import { insertRows } from '../src/memory/db/rows.ts';
-import { dbOf } from '../src/memory/db/types.ts';
 import { NOW, PLANNER_PURPOSE, sceneHot, sceneMemory, sceneWorld } from './fixtures/diary-scene.ts';
 import type { SceneMemory } from './fixtures/diary-scene.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -163,52 +161,4 @@ test('the plan request leaves out the lines of the combination a recent entry to
   assert.ok(lines.length > 0, user);
   assert.equal(lines.includes('a roof'), false, user);
   assert.equal(lines.includes('rain'), false, user);
-});
-
-test('the store reads an entry with the description of its first linked picture', async () => {
-  // Bug: the store never joins the entry's pictures, so an old row's <diary> line falls back to its drawing prompt.
-  const memory = await openTestMemory({ now: () => NOW, iface: () => 'fake' });
-  const writer = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
-  OPEN.push({ memory, store: writer });
-  const entry: Record<string, unknown> = {
-    at: NOW - DAY,
-    kind: 'picture',
-    gist: 'a long way down',
-    picture: 'a cafe interior, warm light',
-    search: null,
-    itemId: 'diary:described',
-  };
-  writer.appendDiaryPost(entry as Post, { max: 40 });
-  writer.flush();
-  await writer.flushSettled({});
-  const db = dbOf(memory.memoryDb.readHandle() as { db: unknown });
-  const group = { scope_kind: 'group', scope_iface: 'fake', scope_dm: null };
-  const picture = (id: string, description: string) => ({
-    id,
-    kind: 'image',
-    owner: 'diary:described',
-    path: `media/diary/${id}.png`,
-    native_ref: null,
-    description,
-    mime: 'image/png',
-    ...group,
-  });
-  insertRows(
-    db,
-    {
-      media: [
-        picture('media:first', 'a girl rides a red bicycle down a hill'),
-        picture('media:second', 'a dog in the rain'),
-      ],
-      media_links: ['media:first', 'media:second'].map((id, position) => ({
-        owner_kind: 'diary',
-        owner_id: 'diary:described',
-        position,
-        media_id: id,
-      })),
-    },
-    { at: new Date(NOW).toISOString() }
-  );
-  const reader = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
-  assert.equal(newest(reader).pictureDescription, 'a girl rides a red bicycle down a hill');
 });

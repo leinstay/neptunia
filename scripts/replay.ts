@@ -1982,8 +1982,8 @@ export function diaryTurnRunner(
     store,
     llm,
     state,
-    pageFetcher: mods.createPageFetcher({ summarize }),
-    searches: { brave: mods.createBraveSearch(), exa: mods.createExaSearch({ summarize }) },
+    pageFetcher: mods.createPageFetcher(),
+    searches: { brave: mods.createBraveSearch(), exa: mods.createExaSearch() },
     keys: serviceKeys(),
     summarize,
   });

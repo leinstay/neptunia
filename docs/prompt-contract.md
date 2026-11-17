@@ -204,7 +204,7 @@ The same text is the answer of an `errand.add` that a heartbeat or a diary turn 
 
 ### Retold texts
 
-A page `web.read` returns reads `tools.tools.read.source` with `{url}` and `{maxChars}`, `title` with `{title}`, then the page's text. A page text over 4000 characters goes once to the analyzer's `summarize-text` prompt, and `read.retold` follows the retelling on a line of its own. A text file attached to a message reads `transcript.filePreview` with `{name}` and `{text}`. A file over 10000 characters is retold the same way and reads `transcript.filePreviewRetold` with the same placeholders. A link's excerpt over 1000 characters and a search snippet over its bound, 400 in `web.search` and 600 from the Exa engine, are retold with no label, since an excerpt and a snippet are never the page's exact text. A retelling still over its bound stands whole, and a failed request leaves the text whole.
+A page `web.read` returns reads `tools.tools.read.source` with `{url}` and `{maxChars}`, `title` with `{title}`, then the page's text. A page text over 4000 characters goes once to the analyzer's `summarize-text` prompt, and `read.retold` follows the retelling on a line of its own. A text file attached to a message reads `transcript.filePreview` with `{name}` and `{text}`. A file over 10000 characters is retold the same way and reads `transcript.filePreviewRetold` with the same placeholders. A link's excerpt over 1000 characters and a `web.search` snippet over 400 characters are retold with no label, since an excerpt and a snippet are never the page's exact text. A retelling still over its bound stands whole, and a failed request leaves the text whole.
 
 ### Mention handles
 

@@ -24,7 +24,6 @@ import { log } from '../log.ts';
 import { bareContentType, safeLocation } from '../media/video-sites.ts';
 import { objOf } from '../tools/types.ts';
 import { htmlToText, pageTitle } from './readable.ts';
-import type { Summarize } from '../behavior/summarize.ts';
 
 /** What a response body offers to release it unread: a node stream's `destroy` or a fetch body's `cancel`. */
 type Releasable = { destroy?: () => void; cancel?: () => Promise<unknown> | undefined };
@@ -46,7 +45,7 @@ type PageRequest = (
 export type PageFetcher = {
   fetchText: (
     url: string,
-    options?: { maxBytes?: number; timeoutMs?: number; maxChars?: number; acceptLanguage?: string }
+    options?: { maxBytes?: number; timeoutMs?: number; acceptLanguage?: string }
   ) => Promise<PageText | PageFailure>;
 };
 
@@ -286,21 +285,12 @@ export function withoutCredentials(url: string): string {
   }
 }
 
-/** `text` whole when it fits `maxChars` or no summarizer is given, else the summarizer's one retelling of it. */
-function retold(text: string, maxChars: number | undefined, summarize: Summarize | undefined): Promise<string> {
-  if (!summarize || typeof maxChars !== 'number' || Array.from(text).length <= maxChars) return Promise.resolve(text);
-  return summarize(text, { maxChars, kind: 'text' });
-}
-
 export function createPageFetcher({
   requestImpl = nodeRequest,
   lookup = dns.promises.lookup,
-  summarize,
 }: {
   requestImpl?: PageRequest;
   lookup?: (host: string, options: { all: true }) => Promise<Array<{ address: string; family: number }>>;
-  /** Retells a page text over `maxChars` once (src/behavior/summarize.ts); none keeps every text whole. */
-  summarize?: Summarize | undefined;
 } = {}): PageFetcher {
   /** One warn line (reason, status, host/path), then the failure object. */
   function fail(url: string, reason: PageFailure['reason'], status?: number): PageFailure {
@@ -347,7 +337,7 @@ export function createPageFetcher({
   /**
    * Fetch `url` as readable text behind the SSRF guard (see the header
    * comment). HTML goes through `htmlToText` with its title; text/plain comes
-   * back as written. A text over `maxChars` is `summarize`'s one retelling of it, and whole without `summarize`.
+   * back as written, whole: each reader retells it for its own bound.
    * At most 3 redirects are followed. `acceptLanguage` (the caller reads
    * `web.acceptLanguage` at the moment of use) is sent as the Accept-Language
    * header when it is a non-empty printable ASCII string; otherwise the header
@@ -355,12 +345,7 @@ export function createPageFetcher({
    */
   async function fetchText(
     url: string,
-    {
-      maxBytes,
-      timeoutMs,
-      maxChars,
-      acceptLanguage,
-    }: { maxBytes?: number; timeoutMs?: number; maxChars?: number; acceptLanguage?: string } = {}
+    { maxBytes, timeoutMs, acceptLanguage }: { maxBytes?: number; timeoutMs?: number; acceptLanguage?: string } = {}
   ): Promise<PageText | PageFailure> {
     const byteCap = positiveOr(maxBytes, DEFAULT_MAX_BYTES);
     const waitMs = positiveOr(timeoutMs, DEFAULT_TIMEOUT_MS);
@@ -448,7 +433,7 @@ export function createPageFetcher({
         const source = decode(raw, pickCharset(rawType, raw, isHtml));
         return {
           ok: true,
-          text: await retold(isHtml ? htmlToText(source) : source, maxChars, summarize),
+          text: isHtml ? htmlToText(source) : source,
           title: isHtml ? pageTitle(source) : null,
           contentType,
           bytes,

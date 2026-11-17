@@ -179,8 +179,6 @@ const PAGE_CACHE_HOURS_FALLBACK = 6;
 // The reader's and the search's measures. Production values, config cut of 2026-10-31.
 /** The largest page fetched, in bytes. */
 const LINK_MAX_BYTES = 1500000;
-/** The characters of a page's text kept from the fetch. */
-const LINK_TEXT_CHARS = 6000;
 /** The length of a link's excerpt, a preview's; a longer page text is retold. */
 const LINK_EXCERPT_CHARS = 1000;
 /** The length of a page read whole (`web.read`); a longer page text is retold. */
@@ -442,7 +440,6 @@ export function createLookup(deps: LookupDeps): Lookup {
     const page = await pageFetcher.fetchText(link.url, {
       maxBytes: LINK_MAX_BYTES,
       timeoutMs: linksCfg.fetchTimeoutMs,
-      maxChars: LINK_TEXT_CHARS,
       acceptLanguage: config.web?.acceptLanguage,
     });
     if (!page?.ok) return miss(page?.reason ?? 'network', page?.status !== undefined ? { status: page.status } : {});

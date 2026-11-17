@@ -1,7 +1,6 @@
 // Her past entries, read for a request (`readDiary`): the newest entries of her diary a context may
 // read, from the `diary` table alone.
 
-import { entryPictureDescriptions } from './media-store.ts';
 import { whereFor } from './scope.ts';
 import type { Db } from './types.ts';
 
@@ -14,12 +13,11 @@ export type PastEntry = {
   picture: string | null;
   pictures: number | null;
   plan: unknown;
-  pictureDescription: string | null;
 };
 
 /**
  * The newest `limit` entries of her diary that `ctx` may read, oldest first, from the `diary` table
- * alone: no mirror and no message is read. A picture's description comes from the entry's first linked image.
+ * alone: no mirror and no message is read.
  */
 export function readDiary(connection: unknown, ctx: unknown, limit: number): Array<PastEntry> {
   const db = connection as Db; // a node:sqlite connection; the queries below read it
@@ -34,10 +32,6 @@ export function readDiary(connection: unknown, ctx: unknown, limit: number): Arr
     )
     .all(...where.params, count)
     .reverse();
-  const described = entryPictureDescriptions(
-    db,
-    rows.map((row) => text(row.id))
-  );
   return rows.map((row) => {
     const extra = (() => {
       try {
@@ -47,16 +41,14 @@ export function readDiary(connection: unknown, ctx: unknown, limit: number): Arr
         return {};
       }
     })();
-    const id = text(row.id);
     return {
-      id,
+      id: text(row.id),
       at: Number(row.at_ms) || 0,
       kind: text(row.kind) || null,
       gist: text(row.gist),
       picture: typeof row.picture_prompt === 'string' ? row.picture_prompt : null,
       pictures: typeof extra.pictures === 'number' ? extra.pictures : null,
       plan: extra.plan ?? null,
-      pictureDescription: described.get(id) ?? null,
     };
   });
 }

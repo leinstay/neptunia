@@ -1638,7 +1638,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 493
+        "function-length": 492
       }
     },
     "src/web/readable.ts": {

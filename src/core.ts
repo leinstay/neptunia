@@ -596,9 +596,9 @@ async function buildCore(
     store: store as unknown as Parameters<typeof createLookup>[0]['store'],
     llm,
     state: processState,
-    pageFetcher: createPageFetcher({ summarize }),
+    pageFetcher: createPageFetcher(),
     // web.quickSearch.engine picks one of these, and nothing answers in its place.
-    searches: { brave: createBraveSearch(), exa: createExaSearch({ summarize }) },
+    searches: { brave: createBraveSearch(), exa: createExaSearch() },
     keys: { brave: braveApiKey, exa: exaApiKey },
     summarize,
   };

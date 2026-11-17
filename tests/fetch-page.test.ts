@@ -506,8 +506,7 @@ test('fetchText: text/plain comes back as is, without a title', async () => {
   });
 });
 
-// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
-test('fetchText: HTML becomes readable text with its title; with no summarizer a text over maxChars is kept whole', async () => {
+test('fetchText: HTML becomes readable text with its title', async () => {
   const page =
     '<html><head><title>Caf&eacute; news</title></head><body><nav>Menu</nav>' +
     '<article><h1>Headline</h1><p>First paragraph of the story.</p></article></body></html>';
@@ -519,70 +518,6 @@ test('fetchText: HTML becomes readable text with its title; with no summarizer a
   assert.equal(result.title, 'Caf\u00e9 news');
   assert.equal(result.contentType, 'text/html');
   assert.equal(result.bytes, Buffer.byteLength(page));
-
-  const kept = (await run(fetcher, 'https://w.example/story', wrongly({ ...OPTS, maxChars: 20 }))).result;
-  assert.equal(kept.text, 'Headline\n\nFirst paragraph of the story.');
-});
-
-/** A fake summarizer: its calls in order, and `answer` for a text over the bound; a text within it comes back as it is. */
-function fakeSummarize(answer: string) {
-  const calls: Array<{ text: string; options: { maxChars: number; kind: 'text' } }> = [];
-  const summarize = (text: string, options: { maxChars: number; kind: 'text' }): Promise<string> => {
-    calls.push({ text, options });
-    return Promise.resolve(Array.from(text).length > options.maxChars ? answer : text);
-  };
-  return { calls, summarize };
-}
-
-/** The text the story page gives under `maxChars`, '' when the fetch failed. */
-async function textOf(fetcher: ReturnType<typeof createPageFetcher>, maxChars: number): Promise<string> {
-  const page = await fetcher.fetchText('https://w.example/story', { ...OPTS, maxChars });
-  return page.ok ? page.text : '';
-}
-
-const STORY =
-  '<html><head><title>News</title></head><body><article><h1>Headline</h1><p>First paragraph of the story.</p></article></body></html>';
-
-// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
-test('fetchText: a page text over maxChars goes to summarize once and its summary is the text', async () => {
-  // Catches: a page text cut at maxChars with an ellipsis instead of summarized.
-  const { requestImpl } = fakeRequest({ 'https://w.example/story': html(STORY) });
-  const summarizer = fakeSummarize('A headline story.');
-  const fetcher = createPageFetcher({
-    requestImpl: wrongly(requestImpl),
-    lookup: fakeLookup().lookup,
-    summarize: summarizer.summarize,
-  });
-  assert.equal(await textOf(fetcher, 20), 'A headline story.');
-  assert.deepEqual(summarizer.calls, [
-    { text: 'Headline\n\nFirst paragraph of the story.', options: { maxChars: 20, kind: 'text' } },
-  ]);
-});
-
-// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
-test('fetchText: a page text within maxChars is the text as it is', async () => {
-  // Catches: a page that fits rewritten.
-  const { requestImpl } = fakeRequest({ 'https://w.example/story': html(STORY) });
-  const summarizer = fakeSummarize('never shown');
-  const fetcher = createPageFetcher({
-    requestImpl: wrongly(requestImpl),
-    lookup: fakeLookup().lookup,
-    summarize: summarizer.summarize,
-  });
-  assert.equal(await textOf(fetcher, 6000), 'Headline\n\nFirst paragraph of the story.');
-});
-
-// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
-test('fetchText: a summary still over maxChars is the text whole', async () => {
-  // Catches: the summary cut at the bound.
-  const { requestImpl } = fakeRequest({ 'https://w.example/story': html(STORY) });
-  const summarizer = fakeSummarize('A headline story, told at more length than twenty characters.');
-  const fetcher = createPageFetcher({
-    requestImpl: wrongly(requestImpl),
-    lookup: fakeLookup().lookup,
-    summarize: summarizer.summarize,
-  });
-  assert.equal(await textOf(fetcher, 20), 'A headline story, told at more length than twenty characters.');
 });
 
 test('fetchText: multi-chunk bodies decode across chunk boundaries and honour the declared charset', async () => {

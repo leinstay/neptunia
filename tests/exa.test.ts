@@ -241,60 +241,6 @@ test('parseExaText: at most count items; a long snippet is kept whole', () => {
   assert.equal(items[0].snippet, 'word '.repeat(400).trim());
 });
 
-/** One Exa answer of three results whose snippets are given. */
-function threeSnippets(snippets: Array<string>) {
-  return sseAnswer(
-    JSON.stringify({ results: snippets.map((text, i) => ({ title: `t${i}`, url: `https://e.example/${i}`, text })) })
-  );
-}
-
-/** A summarizer whose answers wait until `release` is called, recording each call as it starts. */
-function heldSummarize(answerOf: (text: string) => string) {
-  const calls: Array<{ text: string; options: { maxChars: number; kind: 'text' } }> = [];
-  const waiting: Array<() => void> = [];
-  const summarize = (text: string, options: { maxChars: number; kind: 'text' }): Promise<string> => {
-    calls.push({ text, options });
-    return new Promise((resolve) => waiting.push(() => resolve(answerOf(text))));
-  };
-  const release = () => {
-    for (const go of waiting.splice(0)) go();
-  };
-  return { calls, summarize, release };
-}
-
-const snippetsOf = (result: Record<string, Untyped>): Array<string> =>
-  (result.results as Array<{ snippet: string }>).map(({ snippet }) => snippet);
-
-// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
-test('search: snippets over 600 characters go to summarize side by side, each replaced by its summary', async () => {
-  // Catches: a snippet cut at 600, or the snippets of one search summarized one after another.
-  const long = (n: number) => `${'word '.repeat(150)}${n}`;
-  const held = heldSummarize((text) => `summary ${text.slice(-1)}`);
-  const { fetchImpl } = fakeFetch(threeSnippets([long(1), long(2), long(3)]));
-  const pending = createExaSearch({ fetchImpl, summarize: held.summarize }).search('q', { timeoutMs: 5000 });
-  for (let tick = 0; tick < 5 && held.calls.length === 0; tick += 1) await new Promise((r) => setImmediate(r));
-  assert.equal(held.calls.length, 3, 'all three started before the first was answered');
-  held.release();
-  const result = await pending;
-  assert.deepEqual(snippetsOf(result), ['summary 1', 'summary 2', 'summary 3']);
-  assert.deepEqual(
-    held.calls.map(({ text, options }) => [text, options]),
-    [1, 2, 3].map((n) => [long(n), { maxChars: 600, kind: 'text' }])
-  );
-});
-
-// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
-test('search: a snippet within 600 characters is kept as it is, and a summary still over 600 is kept whole', async () => {
-  // Catches: a short snippet rewritten, or a summary cut at the bound.
-  const short = 'word '.repeat(100).trim();
-  const longer = 'summary '.repeat(100).trim();
-  const summarize = (text: string, options: { maxChars: number; kind: 'text' }): Promise<string> =>
-    Promise.resolve(Array.from(text).length > options.maxChars ? longer : text);
-  const { fetchImpl } = fakeFetch(threeSnippets([short, 'word '.repeat(200).trim()]));
-  const result = await createExaSearch({ fetchImpl, summarize }).search('q', { timeoutMs: 5000 });
-  assert.deepEqual(snippetsOf(result), [short, longer]);
-});
-
 test('search: a 429 fails with rate-limited and the status', async () => {
   const { fetchImpl } = fakeFetch(rawResponse('{}', { status: 429, type: 'application/json' }));
   const { result, logs } = await run(createExaSearch({ fetchImpl }), 'q', { timeoutMs: 5000 });

@@ -16,8 +16,7 @@
 //     else the whole document;
 //   - block-level tags become line breaks, table cells a space, other tags
 //     nothing; entities are decoded; whitespace collapses to single spaces and
-//     at most one blank line; control characters and byte-order marks go;
-//   - `maxChars` cuts on a word boundary with an ellipsis, in code points.
+//     at most one blank line; control characters and byte-order marks go.
 //
 // Every scan adds the characters or tokens it visits to one step counter,
 // which `readerSteps` reads. Linearity is a property of that count, the same
@@ -357,14 +356,10 @@ function scopedText(tokens: Array<Token>): string {
 }
 
 /**
- * Cut `text` to at most `maxChars` code points, the ellipsis included, at the
+ * Cut a page title `value` to at most `limit` code points, the ellipsis included, at the
  * last whitespace inside the window (a hard cut only for one very long word).
- * A non-finite or non-positive `maxChars` means no limit.
  */
-export function truncateText(text: string, maxChars?: number): string {
-  const value = String(text ?? '');
-  const limit = Math.floor(Number(maxChars));
-  if (!Number.isFinite(limit) || limit <= 0) return value;
+function truncateText(value: string, limit: number): string {
   visit(0, value.length);
   const points = Array.from(value);
   if (points.length <= limit) return value;
@@ -384,11 +379,10 @@ export function truncateText(text: string, maxChars?: number): string {
  * The readable text of an HTML page (see the header comment for the rules).
  * Never throws; non-string input reads as an empty page.
  */
-export function htmlToText(html: string, { maxChars }: { maxChars?: number } = {}): string {
+export function htmlToText(html: string): string {
   try {
     const tokens = tokenize(typeof html === 'string' ? html : '');
-    const text = scopedText(dropBoilerplate(tokens)) || scopedText(tokens);
-    return truncateText(text, maxChars);
+    return scopedText(dropBoilerplate(tokens)) || scopedText(tokens);
   } catch {
     return '';
   }

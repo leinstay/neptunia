@@ -5,7 +5,7 @@
 // title.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { htmlToText, pageTitle, readerSteps, truncateText } from '../src/web/readable.ts';
+import { htmlToText, pageTitle, readerSteps } from '../src/web/readable.ts';
 
 test('htmlToText: the article is preferred over the rest of the body', () => {
   const html =
@@ -57,18 +57,6 @@ test('htmlToText: block-level tags become line breaks, inline tags do not', () =
 test('htmlToText: whitespace collapses to single spaces and at most one blank line', () => {
   const html = '<div>  lots\n\n of   \t space  </div>\n\n<div></div><div></div><div></div><p>after</p>';
   assert.equal(htmlToText(html), 'lots of space\n\nafter');
-});
-
-test('htmlToText: a long text is cut on a word boundary with an ellipsis', () => {
-  const html = '<p>alpha beta gamma delta epsilon</p>';
-  const out = htmlToText(html, { maxChars: 20 });
-  assert.equal(out, 'alpha beta gamma\u2026');
-  assert.ok(Array.from(out).length <= 20);
-});
-
-test('htmlToText: a cut never splits a surrogate pair', () => {
-  const out = truncateText('\u{1F600}\u{1F600}\u{1F600}\u{1F600}', 3);
-  assert.equal(out, '\u{1F600}\u{1F600}\u2026');
 });
 
 test('htmlToText: malformed HTML never throws and keeps the readable text', () => {
