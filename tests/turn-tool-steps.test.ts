@@ -15,7 +15,6 @@ import {
   contentText,
   coreTurn,
   errandService,
-  fakeStore,
   journalOverMemory,
   noteText,
   toolResults,
@@ -36,6 +35,15 @@ const called = (run: Untyped) =>
     .filter((entry: Untyped) => entry.msg === 'skills: called')
     .map((entry: Untyped) => `${entry.skill}:${entry.status}${entry.code ? `/${entry.code}` : ''}`);
 
+/** An intention service that keeps each new intention in `written` and answers it stored. */
+function fakeIntentions(written: Array<Record<string, unknown>>) {
+  return {
+    set: (record: Record<string, unknown>) => {
+      written.push(record);
+      return { ok: true, intention: { id: 'i1', status: 'pending', purpose: record.purpose } };
+    },
+  };
+}
 test('a speech-only answer is one request with no tools sent as calls: it posts, no step follows', async () => {
   const run = await coreTurn({ answers: ['<think>t</think><msg>γεια</msg>'] });
   assert.equal(run.llm.calls.length, 1);
@@ -244,23 +252,25 @@ test('ordered reads and writes: read, write, read run in her order -- the two re
     events.push(`end:${key}`);
     return result as unknown;
   };
+  // Changed: the write is `errand.cancel`, which runs through the same operation runner, since `lore.add` is no tool of
+  // hers. With no errand service it fails, which leaves the order of the runs as it was.
   await coreTurn({
     answers: [
       toolAnswer('<think>x</think>', [
         call('lore.list'),
-        call('lore.add', { title: 't', keys: 'k', text: 'x' }),
+        call('errand.cancel', { id: 'e1' }),
         call('memory.server.read'),
       ]),
       '<skip/>',
     ],
-    allowed: ['lore.list', 'lore.add', 'memory.server.read'],
+    allowed: ['lore.list', 'errand.cancel', 'memory.server.read'],
     wrapCommand,
   });
   assert.deepEqual(events, [
     'start:lore.list',
     'end:lore.list',
-    'start:lore.add',
-    'end:lore.add',
+    'start:errand.cancel',
+    'end:errand.cancel',
     'start:memory.server.read',
     'end:memory.server.read',
   ]);
@@ -283,23 +293,22 @@ test('ordered reads and writes: read, write, read run in her order -- the two re
 
 test('revocation mid-turn: a grant removed after her calls were planned, while an earlier one ran, refuses the later one at its run', async () => {
   let live: Untyped = null;
+  // Changed: the write is `intention.set`, since `lore.add` is no tool of hers.
   const run = await coreTurn({
-    answers: [
-      toolAnswer('<think>x</think>', [call('lore.list'), call('lore.add', { title: 't', keys: 'k', text: 'x' })]),
-      '<skip/>',
-    ],
-    allowed: ['lore.list', 'lore.add'],
+    answers: [toolAnswer('<think>x</think>', [call('lore.list'), call('intention.set', { text: 'x' })]), '<skip/>'],
+    allowed: ['lore.list', 'intention.set'],
+    adminExtra: { intentions: fakeIntentions([]) },
     withHot: (hot) => {
       live = hot;
     },
     wrapCommand: (runOp) => async (key: string, args: unknown, context: unknown) => {
-      if (key === 'lore.list') delete live.config.bot.access['lore.add'];
+      if (key === 'lore.list') delete live.config.bot.access['intention.set'];
       return runOp(key, args, context);
     },
   });
   assert.deepEqual(
     called(run),
-    ['lore.list:ok', 'lore.add:denied/not-allowed'],
+    ['lore.list:ok', 'intention.set:denied/not-allowed'],
     'planned while granted, refused when its turn to run came'
   );
   assert.equal(toolResults(run.llm, 1).length, 2);
@@ -453,27 +462,21 @@ test('carried over: draw.create runs on a spontaneous turn with nobody asking, i
 });
 
 test('a spontaneous turn with nobody asking runs a write she holds a grant for', async () => {
-  // The harness store with the one lore write the operation makes, recorded.
-  const written: Array<unknown> = [];
-  const store = {
-    ...fakeStore(),
-    setLore: (_placeId: string, entries: Array<unknown>) => (written.push(...entries), entries.length),
-  };
+  // Changed: the write is `intention.set` over an intention service that records it, since `lore.add` is no tool of hers.
+  const written: Array<Record<string, unknown>> = [];
   const run = await coreTurn({
     spontaneous: 'initiate',
-    allowed: ['lore.add'],
-    store,
+    allowed: ['intention.set'],
+    adminExtra: { intentions: fakeIntentions(written) },
     answers: [
-      toolAnswer('<think>x</think>', [
-        call('lore.add', { title: 'Φάρος', keys: 'φάρος', text: 'ένας φάρος στο λιμάνι' }),
-      ]),
+      toolAnswer('<think>x</think>', [call('intention.set', { text: 'ένας φάρος στο λιμάνι' })]),
       '<think>y</think>',
     ],
   });
-  assert.deepEqual(called(run), ['lore.add:ok']);
+  assert.deepEqual(called(run), ['intention.set:ok']);
   assert.deepEqual(
-    written.map((entry) => asRecord(entry).title),
-    ['Φάρος']
+    written.map((record) => record.purpose),
+    ['ένας φάρος στο λιμάνι']
   );
 });
 

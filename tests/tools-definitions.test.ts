@@ -70,7 +70,7 @@ function samplesOf(definition: Untyped) {
   return samples;
 }
 
-test('the table holds every operation, in the operations registry order', () => {
+test('the table names registered operations, in the operations registry order, and leaves out the console ones', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   // And skill.run of the executable skills, and task.cancel, task.comment and task.answer of her wake.
   // Changed: task.unblock is the 77th tool.
@@ -80,10 +80,18 @@ test('the table holds every operation, in the operations registry order', () => 
   // Changed: 74 since `memory.read` (lookup loop slice 12): one operation, one row; the six reads it replaces for her stay.
   // Changed: 68 since her six board tools left with the selfimprovement wake (the maintainer's decision of 2026-11-16).
   // Changed: 67 since `watcher.read` left with the watcher (2026-11-16).
-  assert.equal(SKILL_DEFINITIONS.length, 67);
+  // Changed: 59 since eight tools left her list and stayed operations of the owner's console (2026-11-17).
+  assert.equal(SKILL_DEFINITIONS.length, 59);
+  const names = SKILL_DEFINITIONS.map((definition) => definition.name);
+  const ops = listOps().map((op) => op.name);
+  // Changed: an operation of the console alone has no entry, so the table is the registry less those, in its order.
   assert.deepEqual(
-    SKILL_DEFINITIONS.map((definition) => definition.name),
-    listOps().map((op) => op.name)
+    names,
+    ops.filter((name) => names.includes(name))
+  );
+  assert.deepEqual(
+    ops.filter((name) => !names.includes(name)),
+    ['status.show', 'model.show', 'route.list', 'rule.list', 'access.list', 'lore.add', 'lore.remove', 'tools.describe']
   );
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS));
   assert.ok(Object.isFrozen(SKILL_DEFINITIONS[0].params));
@@ -176,7 +184,6 @@ test('memory.profile.read reads one person or, with section changes, every perso
 
 test('the quirks of the mapping are kept', () => {
   assert.deepStrictEqual(BY_NAME.get('lore.list')?.toArgs({}), { query: undefined });
-  assert.deepStrictEqual(BY_NAME.get('status.show')?.toArgs({}), { field: null });
   assert.deepStrictEqual(BY_NAME.get('learning.remove')?.toArgs({ number: 3 }), { id: 3 });
   assert.deepStrictEqual(BY_NAME.get('memory.restore')?.toArgs({ id: 'a' }), { itemId: 'a' });
   assert.deepStrictEqual(BY_NAME.get('message.delete')?.toArgs({ message: 'm' }), {
@@ -212,7 +219,7 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 67, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 59, well-formed, unique, a round trip, no longer than 64', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
   // Changed: task.unblock is the 77th tool.
@@ -220,8 +227,9 @@ test('the API names: 67, well-formed, unique, a round trip, no longer than 64', 
   // Changed: 74 since `memory.read` (lookup loop slice 12).
   // Changed: 68 since her six board tools left (2026-11-16).
   // Changed: 67 since `watcher.read` left with the watcher (2026-11-16).
-  assert.equal(apis.length, 67);
-  assert.equal(new Set(apis).size, 67);
+  // Changed: 59 since eight tools left her list for the owner's console (2026-11-17).
+  assert.equal(apis.length, 59);
+  assert.equal(new Set(apis).size, 59);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);
@@ -261,7 +269,8 @@ test('validateDefinitions accepts the table and throws on bad input', () => {
   assert.throws(() => validateDefinitions([copy(first, { body: 'nothing' })]), /body/);
   assert.throws(() => validateDefinitions([copy(BY_NAME.get('rule.remove'), { body: 'number' })]), /body/);
   assert.throws(() => validateDefinitions([copy(first, { refs: { nothing: 'channel' } })]), /ref/);
-  assert.throws(() => validateDefinitions([copy(first, { refs: { field: 'thing' } })]), /kind/);
+  // Changed: the first entry is `config.set`, whose arguments are `path` and `value`.
+  assert.throws(() => validateDefinitions([copy(first, { refs: { path: 'thing' } })]), /kind/);
   assert.throws(() => validateDefinitions([copy(first, { effects: 'loud' })]), /effects/);
   assert.throws(() => validateDefinitions([copy(first, { costClass: 'dear' })]), /costClass/);
   assert.throws(() => validateDefinitions([copy(first, { result: 'maybe' })]), /result/);

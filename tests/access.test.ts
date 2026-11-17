@@ -28,31 +28,31 @@ test('isOwnerId: a bound account passes as a string or a number; no user and no 
 });
 
 test('hasGrant: true exactly when the entry lists the user id, compared as a string', () => {
-  const access = { 'status.show': { users: [7, SELF] } };
-  assert.equal(hasGrant(access, 'status.show', { accountId: '7' }), true);
-  assert.equal(hasGrant(access, 'status.show', { accountId: SELF }), true);
-  assert.equal(hasGrant(access, 'status.show', { accountId: '8' }), false);
+  const access = { 'memory.search': { users: [7, SELF] } };
+  assert.equal(hasGrant(access, 'memory.search', { accountId: '7' }), true);
+  assert.equal(hasGrant(access, 'memory.search', { accountId: SELF }), true);
+  assert.equal(hasGrant(access, 'memory.search', { accountId: '8' }), false);
   assert.equal(hasGrant(access, 'memory.read', { accountId: SELF }), false);
-  assert.equal(hasGrant(undefined, 'status.show', { accountId: SELF }), false);
+  assert.equal(hasGrant(undefined, 'memory.search', { accountId: SELF }), false);
 });
 
 test('hasGrant: a stored everyone or role is no grant of hers', () => {
   // The owner's decision of 2026-11-10: a grant to everyone or a role opened something for members only.
-  const access = { 'status.show': { everyone: true, roles: ['r1'], users: [] } };
-  assert.equal(hasGrant(access, 'status.show', { accountId: SELF }), false);
+  const access = { 'memory.search': { everyone: true, roles: ['r1'], users: [] } };
+  assert.equal(hasGrant(access, 'memory.search', { accountId: SELF }), false);
 });
 
 test('grant: her id on a fresh key stores the users list alone', () => {
-  assert.deepEqual(grant({}, 'status.show', { accountId: SELF }), { 'status.show': { users: [SELF] } });
+  assert.deepEqual(grant({}, 'memory.search', { accountId: SELF }), { 'memory.search': { users: [SELF] } });
 });
 
 test('grant: a numeric id is stored as a string', () => {
-  assert.deepEqual(grant({}, 'status.show', { accountId: 12345 }), { 'status.show': { users: ['12345'] } });
+  assert.deepEqual(grant({}, 'memory.search', { accountId: 12345 }), { 'memory.search': { users: ['12345'] } });
 });
 
 test('grant: granting the same id twice stores it once', () => {
-  const once = grant({}, 'status.show', { accountId: SELF });
-  assert.deepEqual(grant(once, 'status.show', { accountId: SELF }), { 'status.show': { users: [SELF] } });
+  const once = grant({}, 'memory.search', { accountId: SELF });
+  assert.deepEqual(grant(once, 'memory.search', { accountId: SELF }), { 'memory.search': { users: [SELF] } });
 });
 
 test('grant: a grant from a group or * keeps its source, and a direct grant of the same id drops it', () => {
@@ -72,14 +72,14 @@ test('grant: a stored entry that still holds everyone or roles loses them when i
 test('grant: does not mutate its input and leaves other keys untouched', () => {
   const access = { 'lore.list': { users: [SELF] } };
   const snapshot = structuredClone(access);
-  const result = grant(access, 'status.show', { accountId: SELF });
+  const result = grant(access, 'memory.search', { accountId: SELF });
   assert.deepEqual(access, snapshot);
   assert.deepEqual(result['lore.list'], { users: [SELF] });
 });
 
 test('revoke: removes just that id from the entry', () => {
-  const access = { 'status.show': { users: ['u1', SELF] } };
-  assert.deepEqual(revoke(access, 'status.show', { accountId: SELF }), { 'status.show': { users: ['u1'] } });
+  const access = { 'memory.search': { users: ['u1', SELF] } };
+  assert.deepEqual(revoke(access, 'memory.search', { accountId: SELF }), { 'memory.search': { users: ['u1'] } });
 });
 
 test('revoke: the last id deletes the whole entry, even one that still holds everyone or roles', () => {
@@ -96,13 +96,13 @@ test('revoke: the source of a grant from a group goes with the id', () => {
 
 test('revoke: a key with no entry, or an id not listed, changes nothing', () => {
   const access = { 'lore.list': { users: [SELF] } };
-  assert.deepEqual(revoke(access, 'status.show', { accountId: SELF }), access);
+  assert.deepEqual(revoke(access, 'memory.search', { accountId: SELF }), access);
   assert.deepEqual(revoke(access, 'lore.list', { accountId: 'nope' }), access);
 });
 
 test('revoke: does not mutate its input', () => {
-  const access = { 'status.show': { users: [SELF] } };
+  const access = { 'memory.search': { users: [SELF] } };
   const snapshot = structuredClone(access);
-  revoke(access, 'status.show', { accountId: SELF });
+  revoke(access, 'memory.search', { accountId: SELF });
   assert.deepEqual(access, snapshot);
 });

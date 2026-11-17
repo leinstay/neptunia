@@ -15,7 +15,6 @@ export const HEARTBEAT_READ_SKILLS = Object.freeze([
   'memory.journal.read',
   'conversation.read',
   'intention.list',
-  'tools.describe',
 ]);
 type WakeRule = { accepts: ReadonlyArray<string>; decides: ReadonlyArray<string>; refusal: string };
 

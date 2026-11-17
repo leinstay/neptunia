@@ -676,21 +676,22 @@ test('run: pings works while paused, a change included, reading fresh off disk f
 // ---------------------------------------------------------------------------
 
 // The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
+// Changed: the tool is `memory.search`, since `status.show` is an operation of the console and no tool of hers.
 test('run: access.grant stores her id alone under the operation name', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-  await admin.run('access.grant', { command: 'status.show' }, {});
-  assert.deepEqual(readLocal(rootDir), { bot: { access: { 'status.show': { users: ['self-id'] } } } });
+  await admin.run('access.grant', { command: 'memory.search' }, {});
+  assert.deepEqual(readLocal(rootDir), { bot: { access: { 'memory.search': { users: ['self-id'] } } } });
 });
 
 // The owner's decision of 2026-11-10: only he types commands, and a grant names the persona alone.
 test('run: access.grant takes no role or other user: a stray target argument still grants her alone', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-  await admin.run('access.grant', { command: 'status.show', roleId: '123' }, {});
+  await admin.run('access.grant', { command: 'memory.search', roleId: '123' }, {});
   await admin.run('access.grant', { command: 'lore.list', accountId: '456' }, {});
   assert.deepEqual(readLocal(rootDir), {
-    bot: { access: { 'status.show': { users: ['self-id'] }, 'lore.list': { users: ['self-id'] } } },
+    bot: { access: { 'memory.search': { users: ['self-id'] }, 'lore.list': { users: ['self-id'] } } },
   });
 });
 
@@ -698,7 +699,7 @@ test('run: access.grant takes no role or other user: a stray target argument sti
 test('run: access.grant refuses and writes nothing while no interface has said who she is', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { selfId: () => null });
-  await assert.rejects(() => admin.run('access.grant', { command: 'status.show' }, {}));
+  await assert.rejects(() => admin.run('access.grant', { command: 'memory.search' }, {}));
   assert.equal(fs.existsSync(localPath(rootDir)), false);
 });
 
@@ -716,7 +717,7 @@ test('run: access.list names her grants alone; a key held by everyone, a role or
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
   const people = {
-    'status.show': { everyone: true, roles: [], users: [] },
+    'memory.search': { everyone: true, roles: [], users: [] },
     'lore.list': { everyone: false, roles: ['r1'], users: ['u-9'] },
   };
   fs.writeFileSync(
@@ -735,9 +736,9 @@ test('run: access.revoke of her last grant deletes the entry, even one that stil
   const { admin } = makeAdmin(rootDir);
   fs.writeFileSync(
     madeLocalPath(rootDir),
-    JSON.stringify({ bot: { access: { 'status.show': { everyone: true, roles: ['r1'], users: ['self-id'] } } } })
+    JSON.stringify({ bot: { access: { 'memory.search': { everyone: true, roles: ['r1'], users: ['self-id'] } } } })
   );
-  await admin.run('access.revoke', { command: 'status.show' }, {});
+  await admin.run('access.revoke', { command: 'memory.search' }, {});
   assert.deepEqual(readLocal(rootDir), { bot: { access: {} } });
 });
 

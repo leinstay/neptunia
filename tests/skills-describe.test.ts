@@ -1,13 +1,12 @@
-// The `tools.describe` operation (src/tools/operations/skills.ts): one skill in full or a family as lines,
-// from the registry and the skills layer read now, rendered as a core row; a stranger gets the
-// closest names; the skill is a read the persona can be granted.
+// The `tools.describe` operation (src/tools/operations/skills.ts) of the owner's `/tools describe`: one skill in full or
+// a family as lines, from the registry and the skills layer read now, rendered as a core row; a stranger gets the
+// closest names.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { skillRegistry } from '../src/tools/registry.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const LABELS = {
@@ -42,18 +41,11 @@ function envOf(grants: Record<string, unknown> = {}) {
   });
 }
 
+// Changed: the owner's console runs the operation, since `tools.describe` is no tool of hers.
 const call = (env: ReturnType<typeof envOf>, name: string) =>
-  runOp('tools.describe', { name }, { env, placeId: 'g1', accountId: '42', roleIds: [], actor: 'persona' });
+  runOp('tools.describe', { name }, { env, placeId: 'g1', asOwner: true });
 const dataText = (result: { data: unknown }): string => (result.data as { text: string }).text;
 const grant = { everyone: false, roles: [], users: ['self-id'] };
-
-test('tools.describe is a registered read skill with a name argument that the body fills', () => {
-  const skill = skillRegistry().get('tools.describe');
-  assert.ok(skill);
-  assert.equal(skill.kind, 'read');
-  assert.deepEqual(Object.keys(skill.argsSchema?.properties ?? {}), ['name']);
-  assert.equal(skill.dispatch?.body, 'name');
-});
 
 test('tools.describe: an exact name comes back in full with its arguments and whether it is on for her', async () => {
   const env = envOf({ 'memory.search': grant });

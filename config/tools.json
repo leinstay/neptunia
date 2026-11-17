@@ -1,13 +1,4 @@
 {
-  "status.show": {
-    "title": "Runtime state",
-    "whenToUse": "Reads the engine's runtime card: its state and tasks, the models, keys and costs of each role, the limits, memory coverage, your inner life and speed. Choose it when the owner asks how things run or what something costs. part picks a group of fields and field one field. When a member asks, the card leaves out the keys, costs, memory and speed.",
-    "whenNotToUse": "For the model of each role alone, model.show. For the provider routes, route.list.",
-    "args": {
-      "part": "A group of fields: overview, limits, models, memory, inner, errands or all.",
-      "field": "One field of the card, as its choices name it."
-    }
-  },
   "config.set": {
     "title": "Set a config value",
     "whenToUse": "Overrides one config key in the local file. It takes effect on the next reload.",
@@ -87,20 +78,10 @@
       "days": "With pictures: days back, 1 to 60, default 7."
     }
   },
-  "model.show": {
-    "title": "Current models",
-    "whenToUse": "Reads the model of each role.",
-    "whenNotToUse": "For the provider routes, route.list. For the whole runtime card, status.show."
-  },
   "model.set": {
     "title": "Set a model",
     "whenToUse": "Changes the model of one role. It takes effect on the next request.",
     "whenNotToUse": "Administrative, not grantable to you."
-  },
-  "route.list": {
-    "title": "Provider routes",
-    "whenToUse": "Reads which providers serve each model, per role.",
-    "whenNotToUse": "For the model of each role, model.show."
   },
   "route.set": {
     "title": "Set a route",
@@ -117,11 +98,6 @@
     "whenToUse": "Appends one of the owner's corrections to the rules file.",
     "whenNotToUse": "Administrative, not grantable to you."
   },
-  "rule.list": {
-    "title": "List rules",
-    "whenToUse": "Reads the owner's corrections in the rules file, numbered.",
-    "whenNotToUse": "The rules already stand in your prompt. Call it only when the owner asks for their numbers."
-  },
   "rule.remove": {
     "title": "Remove a rule",
     "whenToUse": "Deletes a rule by its number. It cannot be undone.",
@@ -136,10 +112,6 @@
     "title": "Revoke access",
     "whenToUse": "Closes a tool for you, or every tool of a family or of *.",
     "whenNotToUse": "Administrative, not grantable to you. You never change your own grants."
-  },
-  "access.list": {
-    "title": "List grants",
-    "whenToUse": "Reads the tools granted to you, and the family or * behind each one granted through a group."
   },
   "alias.add": {
     "title": "Add an alias",
@@ -175,17 +147,6 @@
       "number": "The lesson's number."
     }
   },
-  "lore.add": {
-    "title": "Add a lore entry",
-    "whenToUse": "Creates a lorebook entry of this community, or overwrites the entry with the same title. It needs a title, at least one key of two characters or more, and a text. It is stored like an entry the owner wrote.",
-    "whenNotToUse": "For a lesson someone taught you, learning.add. For a nickname of a person, alias.add.",
-    "args": {
-      "title": "The entry's title. An entry with the same title is overwritten.",
-      "keys": "Words that bring the entry up when they appear, comma-separated.",
-      "text": "What the entry says.",
-      "always": "true: show it even when no key matches."
-    }
-  },
   "lore.list": {
     "title": "List lore",
     "whenToUse": "Lists the lorebook entries of this community, each with its id, title and keys. query keeps the entries whose title or keys hold it. The entries that bear on this turn are already in your memory block, so call it to find another entry or an entry's id.",
@@ -198,14 +159,6 @@
     "title": "Show a lore entry",
     "whenToUse": "Returns one lorebook entry in full: its title, keys, text and whether it always shows. The entries that bear on this turn are already in your memory block. Choose it for more detail on one entry.",
     "whenNotToUse": "To find an entry's id, lore.list.",
-    "args": {
-      "id": "The entry's id, as lore.list gives it."
-    }
-  },
-  "lore.remove": {
-    "title": "Remove a lore entry",
-    "whenToUse": "Deletes a lorebook entry by its id. It cannot be undone.",
-    "whenNotToUse": "To change an entry, lore.add with the same title overwrites it.",
     "args": {
       "id": "The entry's id, as lore.list gives it."
     }
@@ -554,14 +507,6 @@
       "filter": "Part of a place's name.",
       "sort": "recent (default), name or lines.",
       "page": "The page, from 1."
-    }
-  },
-  "tools.describe": {
-    "title": "Describe a tool",
-    "whenToUse": "Returns one tool in full, with its title, when to use it and when not to, its arguments and whether it is switched on for you, or one line per tool for a family such as memory. A name that is no tool gets the closest names.",
-    "whenNotToUse": "Your tool list carries the same texts. Call it only for a tool you do not see there.",
-    "args": {
-      "name": "A tool (memory.search) or a family (memory)."
     }
   },
   "person.link": {

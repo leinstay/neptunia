@@ -432,7 +432,7 @@ test('executeCall: the result she reads is cut to tools.resultMaxChars; ok is sa
   assert.ok(block.includes(labels.tools.result.ok));
   for (const status of RESULT_STATUSES.filter((s) => s !== 'ok')) {
     assert.ok(
-      !toolResultText({ skill: 'lore.add', status, code: 'x', data: { text: 't' } }, labels).includes(
+      !toolResultText({ skill: 'errand.cancel', status, code: 'x', data: { text: 't' } }, labels).includes(
         labels.tools.result.ok
       ),
       status

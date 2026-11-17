@@ -37,7 +37,7 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
 
 /**
  * The fields of the status card, in order (src/tools/operations/status.ts renders them; the costs,
- * memory and speed ones are the owner's only): the choices of the `field` argument of `status.show`.
+ * memory and speed ones are the owner's only): the `field` argument of `status.show`.
  */
 export const STATUS_FIELDS = Object.freeze([
   'state',
@@ -52,13 +52,6 @@ export const STATUS_FIELDS = Object.freeze([
   'memory',
   'speed',
 ]);
-
-/**
- * The parts of the status card her own `status.show` call may ask for (`part`), each a few of the
- * card's fields (src/tools/operations/status.ts#PART_FIELDS): `overview` (the default of her call), `limits`,
- * `models`, `memory`, `inner`, `errands` and `all` (the whole card).
- */
-export const STATUS_PARTS = Object.freeze(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'all']);
 
 /** The roles a route may name: the `model.set` roles but the OpenCode ones (`scout`, `server`), whose workers never read `llm.providerByModel`, and `speech`, whose one model
  * is routed by its own prefix. */

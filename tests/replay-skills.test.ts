@@ -58,6 +58,8 @@ import { chainsOf } from './fixtures/chains.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
+// Changed: the example tools are `intention.set`, `intention.list` and `person.link`, since `learning.add`, `rule.list` and
+// `lore.add` are no tools of hers.
 const OWNER = '100000000000000042';
 const MEMBER = '100000000000000007';
 const SELF = '100000000000000001';
@@ -103,15 +105,15 @@ test('parseScenarios: the example file loads; omitted fields take their defaults
   const [full] = load([
     raw({
       before: '300000000000000001',
-      grants: [' learning.add ', '*'],
+      grants: [' intention.set ', '*'],
       runs: 3,
       result: 'Règle ajoutée',
-      discovery: ['learning.add'],
+      discovery: ['intention.set'],
     }),
   ]);
   assert.deepEqual(
     [full.before, full.grants, full.runs, full.result, full.discovery],
-    ['300000000000000001', ['learning.add', '*'], 3, 'Règle ajoutée', ['learning.add']]
+    ['300000000000000001', ['intention.set', '*'], 3, 'Règle ajoutée', ['intention.set']]
   );
 });
 
@@ -126,7 +128,7 @@ test('parseScenarios: a malformed file or scenario is refused, naming the scenar
     [raw({ before: 'x' }), /before/],
     [raw({ author: '' }), /author/],
     [raw({ text: '   ' }), /text/],
-    [raw({ grants: 'learning.add' }), /grants/],
+    [raw({ grants: 'intention.set' }), /grants/],
     [raw({ grants: [''] }), /grants/],
     [raw({ runs: 0 }), /runs/],
     [raw({ runs: 11 }), /runs/],
@@ -142,12 +144,12 @@ test('parseScenarios: a malformed file or scenario is refused, naming the scenar
 
 test('scenarioGrants: expanded as /nep access grant expands them for her; a not-grantable name kept; an unknown one refused', () => {
   const names = scenarioGrants(
-    { id: 's', grants: ['learning.add', '*', 'memory.restore', 'learning.add'] },
+    { id: 's', grants: ['intention.set', '*', 'memory.restore', 'intention.set'] },
     expandPersonaGrant
   );
-  assert.equal(names[0], 'learning.add');
-  assert.equal(names.filter((name) => name === 'learning.add').length, 1, 'de-duplicated');
-  assert.ok(names.includes('rule.list'), '`*` is her read skills');
+  assert.equal(names[0], 'intention.set');
+  assert.equal(names.filter((name) => name === 'intention.set').length, 1, 'de-duplicated');
+  assert.ok(names.includes('intention.list'), '`*` is her read skills');
   assert.ok(!names.includes('rule.remove'), '`*` opens no write');
   assert.ok(names.includes('memory.restore'), 'kept, so the gateway refuses it as live');
   assert.throws(
@@ -155,8 +157,8 @@ test('scenarioGrants: expanded as /nep access grant expands them for her; a not-
     /scenario s: grants names no skill: files.wipe/
   );
   const registryNames = [...skillRegistry().keys()];
-  assert.deepEqual(scenarioDiscovery(wrongly<Scenario>({ id: 's', discovery: ['learning.add'] }), registryNames), [
-    'learning.add',
+  assert.deepEqual(scenarioDiscovery(wrongly<Scenario>({ id: 's', discovery: ['intention.set'] }), registryNames), [
+    'intention.set',
   ]);
   assert.equal(scenarioDiscovery(wrongly<Scenario>({ id: 's', discovery: 'none' }), registryNames), 'none');
   assert.throws(
@@ -171,17 +173,17 @@ test("personaGrantsConfig: her grants are exactly the given ones; people's grant
     bot: {
       ownerPerson: OWNER_PERSON,
       access: {
-        'rule.list': { everyone: false, roles: [], users: [SELF, MEMBER] },
-        'lore.add': { everyone: false, roles: [], users: [SELF] },
+        'intention.list': { everyone: false, roles: [], users: [SELF, MEMBER] },
+        'person.link': { everyone: false, roles: [], users: [SELF] },
       },
     },
   };
   const before = structuredClone(live);
-  const copy = personaGrantsConfig(live, SELF, ['learning.add', 'memory.restore']);
+  const copy = personaGrantsConfig(live, SELF, ['intention.set', 'memory.restore']);
   assert.deepEqual(live, before, 'the live config is never written');
-  assert.deepEqual(copy.bot.access['rule.list'].users, [MEMBER]);
-  assert.equal(copy.bot.access['lore.add'], undefined, 'an entry left empty is gone');
-  assert.deepEqual(copy.bot.access['learning.add'].users, [SELF]);
+  assert.deepEqual(copy.bot.access['intention.list'].users, [MEMBER]);
+  assert.equal(copy.bot.access['person.link'], undefined, 'an entry left empty is gone');
+  assert.deepEqual(copy.bot.access['intention.set'].users, [SELF]);
   assert.deepEqual(copy.bot.access['memory.restore'].users, [SELF]);
   assert.equal(copy.bot.ownerPerson, OWNER_PERSON);
   assert.deepEqual(personaGrantsConfig({}, SELF, []).bot.access, {});
@@ -252,14 +254,14 @@ function simulate(
 }
 
 test('simulateCall: a granted skill an owner asks for passes the real gateway and is only recorded, answered ok', () => {
-  const out = simulate({ skill: 'learning.add', args: { text: 'όχι spoilers' } }, { grants: ['learning.add'] });
+  const out = simulate({ skill: 'intention.set', args: { text: 'όχι spoilers' } }, { grants: ['intention.set'] });
   assert.deepEqual(out.verdict, { stage: 'gateway', ok: true });
-  assert.deepEqual(out.executed, { skill: 'learning.add', args: { text: 'όχι spoilers' } });
-  assert.deepEqual(out.result, { skill: 'learning.add', status: 'ok', data: { text: 'RESULT' } });
+  assert.deepEqual(out.executed, { skill: 'intention.set', args: { text: 'όχι spoilers' } });
+  assert.deepEqual(out.result, { skill: 'intention.set', status: 'ok', data: { text: 'RESULT' } });
 });
 
 test('simulateCall: not granted or not grantable is refused as live; a granted call runs whoever asked or with nobody asking', () => {
-  const notGranted = simulate({ skill: 'learning.add', args: { text: 'κανόνας' } });
+  const notGranted = simulate({ skill: 'intention.set', args: { text: 'κανόνας' } });
   assert.deepEqual(
     [notGranted.verdict.stage, notGranted.verdict.code, notGranted.result.status, notGranted.executed],
     ['gateway', 'not-allowed', 'denied', null]
@@ -271,15 +273,15 @@ test('simulateCall: not granted or not grantable is refused as live; a granted c
 
   // Changed: the owner's decision of 2026-11-10, her grant alone decides, so a member without the right has it run.
   const member = simulate(
-    { skill: 'learning.add', args: { text: 'κανόνας' } },
-    { grants: ['learning.add'], author: MEMBER }
+    { skill: 'intention.set', args: { text: 'κανόνας' } },
+    { grants: ['intention.set'], author: MEMBER }
   );
   assert.equal(member.verdict.ok, true, String(member.verdict.code));
 
   // Changed: the same decision, so nobody asking refuses no write.
   const unasked = simulate(
-    { skill: 'learning.add', args: { text: 'κανόνας' } },
-    { grants: ['learning.add'], author: null }
+    { skill: 'intention.set', args: { text: 'κανόνας' } },
+    { grants: ['intention.set'], author: null }
   );
   assert.equal(unasked.verdict.ok, true, String(unasked.verdict.code));
 });
@@ -320,38 +322,39 @@ test('simulateCall: a call the server cannot resolve, a drawing answered canned'
 });
 
 test("scenarioInventory: the requester's catalogue as live discovery lists it: whole, the named ones, or none", () => {
-  const config = scenarioConfig(['learning.add']);
-  const texts = { 'learning.add': { title: 'Add a lesson', whenToUse: 'when asked' } };
+  // Changed: the granted tool is `person.link`, since `learning.add` is no tool of hers.
+  const config = scenarioConfig(['person.link']);
+  const texts = { 'person.link': { title: 'Link a person', whenToUse: 'when asked' } };
   const input = { config, selfId: SELF, texts, chatId: HERE, registry: skillRegistry() };
   const whole = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] } });
   // PR 7d: no skill sits behind a feature switch any more, so every skill has a row.
   assert.equal(whole?.length, skillRegistry().size);
   assert.deepEqual(
-    whole?.find((row) => row.name === 'learning.add'),
+    whole?.find((row) => row.name === 'person.link'),
     {
-      name: 'learning.add',
-      title: 'Add a lesson',
+      name: 'person.link',
+      title: 'Link a person',
       whenToUse: 'when asked',
       allowed: true,
       reason: 'allowed',
-      args: [{ name: 'text', required: true }],
+      args: [{ name: 'person', required: true }],
     }
   );
   // Changed: the owner's decision of 2026-11-10, her grant alone decides, so a member's row is open.
   assert.equal(
-    scenarioInventory({ ...input, requester: { id: MEMBER, roleIds: [] } })?.find((row) => row.name === 'learning.add')
+    scenarioInventory({ ...input, requester: { id: MEMBER, roleIds: [] } })?.find((row) => row.name === 'person.link')
       ?.reason,
     'allowed'
   );
   const named = scenarioInventory({
     ...input,
     requester: { id: OWNER, roleIds: [] },
-    discovery: ['learning.add', 'rule.remove'],
+    discovery: ['person.link', 'rule.remove'],
   });
   assert.deepEqual(
     named?.map((row) => [row.name, row.allowed, row.proposed]),
     [
-      ['learning.add', true, true],
+      ['person.link', true, true],
       ['rule.remove', false, true],
     ]
   );
@@ -393,14 +396,14 @@ test('replay --skills: the flags it takes; the invented message; a run as its JS
   });
   const called = runRecord('s', 0, {
     answer: answer('μια στιγμή'),
-    call: { skill: 'learning.add', args: {}, body: 'κανόνας' },
+    call: { skill: 'intention.set', args: {}, body: 'κανόνας' },
     callError: null,
     extraCalls: 0,
     usage: { prompt_tokens: 100, completion_tokens: 10, cost: 0.01 },
     outcome: {
-      verdict: { stage: 'gateway', ok: false, code: 'not-allowed', reason: 'learning.add' },
+      verdict: { stage: 'gateway', ok: false, code: 'not-allowed', reason: 'intention.set' },
       executed: null,
-      result: { skill: 'learning.add', status: 'denied', code: 'not-allowed' },
+      result: { skill: 'intention.set', status: 'denied', code: 'not-allowed' },
     },
     followUp: {
       answer: answer('δεν μπορώ'),
@@ -410,7 +413,7 @@ test('replay --skills: the flags it takes; the invented message; a run as its JS
   });
   assert.deepEqual(
     [asRecord(called).decision, asRecord(called).skill, asRecord(called).args, asRecord(called).result],
-    ['call', 'learning.add', { body: 'κανόνας' }, { status: 'denied', code: 'not-allowed' }]
+    ['call', 'intention.set', { body: 'κανόνας' }, { status: 'denied', code: 'not-allowed' }]
   );
   assert.deepEqual(
     [asRecord(called).first.messages, asRecord(called).followUp.messages, asRecord(called).tokens],
@@ -503,7 +506,7 @@ function userOf(call: Untyped) {
 async function playSequence(
   rawSteps: unknown,
   texts: unknown,
-  { grants = ['message.create', 'learning.add', 'rule.list'], history = [] }: Record<string, Untyped> = {}
+  { grants = ['message.create', 'intention.set', 'intention.list'], history = [] }: Record<string, Untyped> = {}
 ) {
   const [scenario] = load([{ id: 'seq', placeId: HERE, steps: rawSteps, grants: [], result: 'SCENARIO_RESULT' }]);
   const config = sequenceConfig(grants);
@@ -709,7 +712,7 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
       toolAnswer('<think>θα το στείλω</think><msg>μια στιγμή</msg>', [
         call('message.create', { place: '#νέα', text: 'καλημέρα' }),
       ]),
-      toolAnswer('<think>t</think><msg>εντάξει</msg>', [call('rule.list', {})]),
+      toolAnswer('<think>t</think><msg>εντάξει</msg>', [call('intention.list', {})]),
       '<think>t</think><msg>έγινε</msg>',
       '<think>t</think><msg>όχι</msg>',
     ]
@@ -752,14 +755,16 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   assert.ok(followUp[3].content.includes('RULE_RESULT'));
   assert.ok(followUp[4].content[0].text.includes(labels.task.step.held), 'her step-2 speech was held, and she is told');
 
-  // Step 3 reads both turns: every line of hers that was posted, and the rule.list mark at its time.
+  // Step 3 reads both turns: every line of hers that was posted, and the intention.list mark at its time.
   const third = userOf(llm.calls[3]);
   for (const text of ['μια στιγμή', 'έγινε', 'δεύτερο']) assert.ok(third.includes(text), text);
   assert.ok(!third.includes('εντάξει'), 'a held speech is not in the channel');
   const thirdLines: Array<string> = String(third).split('\n');
   // Slice 2 (a): the mark is its own line at the call's time, which is before the follow-up posted έγινε, not on it.
   assert.ok(
-    thirdLines[thirdLines.findIndex((line) => line.includes('έγινε')) - 1]?.endsWith(marked('rule.list', 'γενικά')),
+    thirdLines[thirdLines.findIndex((line) => line.includes('έγινε')) - 1]?.endsWith(
+      marked('intention.list', 'γενικά')
+    ),
     third
   );
   assert.equal(steps[2].callMarks.length, 2);
@@ -783,7 +788,7 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
     records.map((r) => [r.run, r.step, r.decision, r.skill]),
     [
       [1, 1, 'call', 'message.create'],
-      [1, 2, 'call', 'rule.list'],
+      [1, 2, 'call', 'intention.list'],
       [1, 3, 'no-call', null],
     ]
   );
@@ -807,8 +812,8 @@ test('replay --skills steps: a burst of two tagged calls gets two turns in arriv
       },
     ],
     [
-      toolAnswer('<think>t</think><msg>έγινε</msg>', [call('learning.add', { text: 'όχι spoilers' })]),
-      toolAnswer('<think>t</think>', [call('learning.add', { text: 'κι άλλος' })]),
+      toolAnswer('<think>t</think><msg>έγινε</msg>', [call('intention.set', { text: 'όχι spoilers' })]),
+      toolAnswer('<think>t</think>', [call('intention.set', { text: 'κι άλλος' })]),
     ]
   );
   assert.equal(played.stopped, false);
@@ -854,7 +859,7 @@ test('replay --skills steps: a burst of two tagged calls gets two turns in arriv
   // An accepted write is recorded as executed and asks for no follow-up request.
   assert.deepEqual(
     [records[1].executed, records[1].followUp],
-    [{ skill: 'learning.add', args: { text: 'κι άλλος' } }, null]
+    [{ skill: 'intention.set', args: { text: 'κι άλλος' } }, null]
   );
   assert.equal(llm.calls.length, 2, 'one request per turn');
   assert.deepEqual(records[0].queue, {
@@ -1324,7 +1329,7 @@ test("sequenceSummary: each run's calls per step as letters, its first decline, 
     run,
     step: n,
     decision,
-    skill: decision === 'call' ? 'learning.add' : null,
+    skill: decision === 'call' ? 'intention.set' : null,
     args: null,
     extraCalls: 0,
     verdict: decision === 'call' ? { stage: 'gateway', ok: true } : null,
@@ -1355,7 +1360,7 @@ test("sequenceSummary: each run's calls per step as letters, its first decline, 
     discovery: 'inventory',
   };
   const report = renderSkillsReport([
-    { scenario: wrongly<Scenario>(scenario), grantNames: ['learning.add'], summary, records },
+    { scenario: wrongly<Scenario>(scenario), grantNames: ['intention.set'], summary, records },
   ]);
   assert.ok(report.includes('| seq | 4 | 3 | `CCCN NCMN C` (cut short) | 4 1 - | 1/2 |'), report);
   assert.ok(report.includes('### run 2: NCMN') && report.includes('#### step 3: malformed-call'));
@@ -1548,7 +1553,7 @@ test("renderPairReport: per scenario the decisions of A and B side by side, the 
     run,
     step,
     decision,
-    skill: decision === 'call' ? 'learning.add' : null,
+    skill: decision === 'call' ? 'intention.set' : null,
     args: decision === 'call' ? { body: 'κανόνας' } : null,
     extraCalls: 0,
     verdict: decision === 'call' ? { stage: 'gateway', ok: true } : null,
@@ -1590,7 +1595,7 @@ test("renderPairReport: per scenario the decisions of A and B side by side, the 
     [
       {
         scenario: wrongly<Scenario>({ id: 'seq', steps, discovery: 'inventory' }),
-        grantNames: ['learning.add'],
+        grantNames: ['intention.set'],
         sides: { A: { records: a, summary: sequenceSummary(a, 3) }, B: { records: b, summary: sequenceSummary(b, 3) } },
       },
       {
@@ -1609,7 +1614,7 @@ test("renderPairReport: per scenario the decisions of A and B side by side, the 
   assert.ok(report.includes('| seq | 1 | `CCN` | `CNN` | 3 | 2 | 0.0300 | 0.0300 |'), report);
   assert.ok(report.includes('| one | 2 | `C N` | failed: boom | - 1 | - | 0.0200 | - |'), report);
   assert.ok(report.includes('#### step 2'), report);
-  assert.ok(report.includes('| decision | call `learning.add` {"body":"κανόνας"} (passed) | no call |'), report);
+  assert.ok(report.includes('| decision | call `intention.set` {"body":"κανόνας"} (passed) | no call |'), report);
   assert.ok(report.includes('| messages | α2 | β2 |'), report);
   assert.ok(report.includes('| after the result | έγινε | - |'), report);
   const think = report.split('\n').find((line) => line.startsWith('| think | A '));

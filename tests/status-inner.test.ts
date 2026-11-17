@@ -52,7 +52,7 @@ const STATUS = {
 function envOf({ status = STATUS, usage = null }: { status?: typeof STATUS; usage?: unknown } = {}) {
   const hot = {
     config: {
-      bot: { ownerPerson: OWNER_PERSON, access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } } },
+      bot: { ownerPerson: OWNER_PERSON },
       llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 },
     },
     prompts: { labels: { status: { inner: LABELS } } },
@@ -193,59 +193,6 @@ test('status inner: the next heartbeat has its own line; off says so; a status w
   assert.ok(lines(null).includes('heartbeat off'));
   assert.ok(!lines({ nextAt: null, lastAt: null }).some((line) => line.startsWith('heartbeat')));
   assert.ok(!innerLines(STATUS, labels).some((line) => line.startsWith('heartbeat')));
-});
-
-// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
-test('status.show part: her call defaults to the overview, a part holds its fields, models are named and never probed, a member sees only what a member may', async () => {
-  const { env } = envOf();
-  const persona = async (args: Record<string, unknown>, accountId = '42') =>
-    fieldsOf(
-      await runOp('status.show', args, {
-        env,
-        placeId: 'g1',
-        accountId,
-        roleIds: accountId === '42' ? [] : ['staff'],
-        actor: 'persona',
-      })
-    );
-  assert.deepEqual(
-    (await persona({})).map((f) => f.name),
-    ['state', 'limits'],
-    'no part: the short overview'
-  );
-  assert.deepEqual(
-    (await persona({ part: 'limits' })).map((f) => f.name),
-    ['limits', 'costs.base']
-  );
-  assert.deepEqual(
-    (await persona({ part: 'models' })).map((f) => f.name),
-    // Changed: the development fields left the card (maintainer, 2026-11-16).
-    ['models.base', 'models.errands']
-  );
-  assert.deepEqual(
-    (await persona({ part: 'errands' })).map((f) => f.name),
-    ['tasks', 'costs.errands']
-  );
-  assert.deepEqual(
-    (await persona({ part: 'inner' })).map((f) => f.name),
-    ['inner']
-  );
-  assert.deepEqual(
-    (await persona({ part: 'memory' })).map((f) => f.name),
-    ['memory']
-  );
-  assert.ok((await persona({ part: 'all' })).length > 8, 'all is the whole card');
-  const owner = fieldsOf(await runOp('status.show', {}, { env, placeId: 'g1', accountId: '42', roleIds: [] }));
-  assert.ok(owner.length > 8, 'the owner command without a part keeps the whole card');
-  assert.deepEqual(
-    (await persona({ part: 'inner' }, '7')).map((f) => [f.name, f.value]),
-    [['inner', '-']],
-    'a member gets nothing of the owner parts'
-  );
-  assert.deepEqual(
-    (await persona({}, '7')).map((f) => f.name),
-    ['state', 'limits']
-  );
 });
 
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.

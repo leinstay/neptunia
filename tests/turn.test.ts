@@ -4809,7 +4809,7 @@ function discoveryRegistry() {
     'message.react.add',
     'message.react.remove',
     'lore.list',
-    'access.list',
+    'errand.list',
   ];
   const owner = Object.freeze({
     name: 'x.owner',

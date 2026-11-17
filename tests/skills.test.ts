@@ -132,17 +132,13 @@ function def(over?: Record<string, unknown>) {
 // ---- the catalogue: one skill per operation -------------------------------------------
 
 // The owner's decision of 2026-11-10 cut the member rights layer, and the ownerOnly a skill copied from it.
-test('skills registry: one skill per operation, of the same name and kind inherited; no other skill exists', () => {
+test('skills registry: one skill per table entry, of the name and kind of its operation; no other skill exists', () => {
   const registry = skillRegistry();
-  assert.deepEqual(
-    [...registry.keys()],
-    listOps().map((op) => op.name)
-  );
-  assert.deepEqual(
-    skillNames(),
-    listOps().map((op) => op.name)
-  );
-  for (const op of listOps()) {
+  // Changed: the operations of the owner's console alone have no entry in her table, so no skill.
+  const tools = SKILL_DEFINITIONS.map((definition) => definition.name);
+  assert.deepEqual([...registry.keys()], tools);
+  assert.deepEqual(skillNames(), tools);
+  for (const op of listOps().filter((one) => tools.includes(one.name))) {
     const skill = registry.get(op.name);
     assert.equal(skill?.opBacked, true, op.name);
     assert.equal(skill?.op, op.name, op.name);
@@ -162,24 +158,25 @@ test('skills registry: one skill per operation, of the same name and kind inheri
     'message.react.remove',
     'draw.create',
     'memory.profile.read',
-    'status.show',
   ])
     assert.ok(registry.has(name), name);
+  // Changed: a console operation runs for the owner and is no skill of hers.
+  for (const name of ['status.show', 'tools.describe', 'lore.add']) assert.equal(registry.has(name), false, name);
   assert.equal(registry.get('draw.create')?.costClass, 'paid');
 });
 
 test('skills effects: one effect class per operation, by its actual effect, in one table', () => {
   // Changed: the effect class is read from each tool's definition, the one place it is declared; the classes are the same.
   const effectOf = (name: string) => SKILL_DEFINITIONS.find((definition) => definition.name === name)?.effects;
-  for (const op of listOps()) {
+  // Changed: the operations of the console alone have no row and no effect class.
+  const tools = listOps().filter((op) => effectOf(op.name) !== undefined);
+  for (const op of tools) {
     const effect = effectOf(op.name);
     assert.ok(effect !== undefined && EFFECT_CLASSES.includes(effect), `${op.name} has no effect class`);
   }
   assert.deepEqual(
     SKILL_DEFINITIONS.map((definition) => definition.name).sort(),
-    listOps()
-      .map((op) => op.name)
-      .sort(),
+    tools.map((op) => op.name).sort(),
     'no row for an operation that does not exist'
   );
   const of = (effect: string) =>
@@ -189,7 +186,6 @@ test('skills effects: one effect class per operation, by its actual effect, in o
   assert.deepEqual(of('destructive'), [
     'alias.remove',
     'learning.remove',
-    'lore.remove',
     'memory.restore',
     'message.delete',
     'rule.remove',
@@ -207,7 +203,7 @@ test('skills effects: one effect class per operation, by its actual effect, in o
   ])
     assert.equal(effectOf(name), 'administrative', name);
   assert.deepEqual(of('paid'), ['draw.create', 'errand.run', 'voice.say']);
-  for (const op of listOps()) if (op.rights.kind === 'read') assert.equal(effectOf(op.name), 'read', op.name);
+  for (const op of tools) if (op.rights.kind === 'read') assert.equal(effectOf(op.name), 'read', op.name);
   // a skill carries its operation's class
   assert.equal(skillRegistry().get('memory.restore')?.effects, 'destructive');
 });
@@ -275,10 +271,11 @@ test('skills registry: missingDefinitions names the table entries with no regist
   assert.deepEqual(missingDefinitions(partial).sort(), ['errand.run', 'lore.list']);
 });
 
-test('skills registry: config/tools.json has the title and when-to-use of every operation (when-not-to-use optional), and no key that is not one', () => {
+test('skills registry: config/tools.json has the title and when-to-use of every tool (when-not-to-use optional), and no key that is not one', () => {
   const file = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'config', 'tools.json');
   const texts: Record<string, Untyped> = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const ops = listOps().map((op) => op.name);
+  // Changed: the texts are the model's, so an operation of the console alone has none.
+  const ops = SKILL_DEFINITIONS.map((definition) => definition.name);
   for (const name of ops) {
     for (const key of ['title', 'whenToUse']) {
       assert.equal(typeof texts[name]?.[key], 'string', `${name}.${key}`);
@@ -291,7 +288,7 @@ test('skills registry: config/tools.json has the title and when-to-use of every 
   assert.deepEqual(
     Object.keys(texts).filter((name) => !ops.includes(name)),
     [],
-    'a key that is no operation'
+    'a key that is no tool'
   );
   assert.equal(Object.hasOwn(texts, 'memory.affinity.set'), false);
 });
@@ -316,17 +313,10 @@ test('skills schemas: her own table gives each skill its arguments', () => {
   assert.equal(create?.dispatch?.body, 'text');
   assert.ok(Object.hasOwn(skillRegistry().get('draw.create')?.argsSchema.properties ?? {}, 'place'));
   assert.deepEqual(skillRegistry().get('draw.create')?.argsSchema.properties?.self, { type: 'boolean' });
-  assert.deepEqual(skillRegistry().get('lore.add')?.argsSchema.properties?.always, { type: 'boolean' });
   assert.deepEqual(skillRegistry().get('route.set')?.argsSchema.properties?.fallbacks, { type: 'boolean' });
-  assert.equal(
-    skillRegistry().get('lore.add')?.dispatch?.toOp({ title: 't', keys: 'k', text: 'x', always: true }).args?.always,
-    true
-  );
-  assert.equal(
-    skillRegistry().get('lore.add')?.dispatch?.toOp({ title: 't', keys: 'k', text: 'x', always: false }).args?.always,
-    false
-  );
-  assert.deepEqual(props('status.show'), ['field', 'part']);
+  // Changed: the boolean argument is `draw.create`'s `self`, since `lore.add` is no tool of hers.
+  assert.equal(skillRegistry().get('draw.create')?.dispatch?.toOp({ text: 't', self: true }).args?.self, true);
+  assert.equal(skillRegistry().get('draw.create')?.dispatch?.toOp({ text: 't', self: false }).args?.self, false);
 });
 
 test('skills memory.search: the window arguments of her call reach the operation', () => {
@@ -619,11 +609,12 @@ test('skills gateway: a member who may not run an owner-only operation has it ru
 });
 
 test('skills gateway: a write she holds runs when nobody asked and the turn is not her own initiative', () => {
+  // Changed: the write is `errand.cancel`, since `lore.add` is no tool of hers.
   assert.deepEqual(
     check({
-      skill: 'lore.add',
-      args: { title: 'Ά', keys: 'α', text: 'κείμενο' },
-      granted: ['lore.add'],
+      skill: 'errand.cancel',
+      args: { id: 'e1' },
+      granted: ['errand.cancel'],
       requester: null,
     }),
     { ok: true }
@@ -642,16 +633,29 @@ test('skills gateway: an ungrantable operation stays refused for her whoever ask
 });
 
 test('skills gateway: a call she holds no grant for stays refused not-allowed whoever asked', () => {
-  const add = (requester: unknown) =>
-    check({ skill: 'lore.add', args: { title: 'Ά', keys: 'α', text: 'κείμενο' }, requester });
+  // Changed: the call is `errand.cancel`, since `lore.add` is no tool of hers.
+  const cancel = (requester: unknown) => check({ skill: 'errand.cancel', args: { id: 'e1' }, requester });
   for (const requester of [{ id: OWNER }, { id: MEMBER }, null])
-    assert.deepEqual(add(requester), { ok: false, code: 'not-allowed', reason: 'lore.add' }, JSON.stringify(requester));
+    assert.deepEqual(
+      cancel(requester),
+      { ok: false, code: 'not-allowed', reason: 'errand.cancel' },
+      JSON.stringify(requester)
+    );
 });
 
 // The refusal carries the minutes left and the window (`values`) since the cooldown refusal says how long is left.
 test('skills gateway: a destructive skill waits out its cooldown in a channel (tools.destructiveCooldownMinutes)', () => {
+  // Changed: the destructive skill is `message.delete` and the write `errand.cancel`, since `lore.remove` and
+  // `lore.add` are no tools of hers.
   const remove = (lastRunAt: null | number, cfg = config({ tools: { destructiveCooldownMinutes: 10 } })) =>
-    check({ skill: 'lore.remove', args: { id: 'l1' }, granted: ['lore.remove'], lastRunAt, now: 1_000_000, cfg });
+    check({
+      skill: 'message.delete',
+      args: { message: 'm1' },
+      granted: ['message.delete'],
+      lastRunAt,
+      now: 1_000_000,
+      cfg,
+    });
   assert.deepEqual(remove(null), { ok: true });
   assert.deepEqual(remove(1_000_000 - 5 * 60_000), {
     ok: false,
@@ -663,9 +667,9 @@ test('skills gateway: a destructive skill waits out its cooldown in a channel (t
   // a write is no destructive call
   assert.deepEqual(
     check({
-      skill: 'lore.add',
-      args: { title: 'Ά', keys: 'α', text: 'κ' },
-      granted: ['lore.add'],
+      skill: 'errand.cancel',
+      args: { id: 'e1' },
+      granted: ['errand.cancel'],
       lastRunAt: 999_999,
       now: 1_000_000,
     }),
@@ -673,13 +677,14 @@ test('skills gateway: a destructive skill waits out its cooldown in a channel (t
   );
 });
 
-/** The `values` of a `lore.remove` refused by its cooldown: the last run `agoMs` before `now` under `window` minutes. */
+/** The `values` of a `message.delete` refused by its cooldown: the last run `agoMs` before `now` under `window` minutes. */
 function cooldownValues(agoMs: number, window: number): unknown {
   const NOW_MS = 1_000_000;
+  // Changed: the destructive skill is `message.delete`, since `lore.remove` is no tool of hers.
   const verdict = check({
-    skill: 'lore.remove',
-    args: { id: 'l1' },
-    granted: ['lore.remove'],
+    skill: 'message.delete',
+    args: { message: 'm1' },
+    granted: ['message.delete'],
     lastRunAt: NOW_MS - agoMs,
     now: NOW_MS,
     cfg: config({ tools: { destructiveCooldownMinutes: window } }),
@@ -1044,12 +1049,13 @@ test('persona grants: a grant opens a skill to her by name, owner-only ones incl
   const t = makeEnv();
   const owner = { env: t.env, placeId: 'g1', asOwner: true };
   try {
-    for (const name of ['memory.private.read', 'message.edit', 'lore.add']) {
+    // Changed: the write granted by name is `errand.cancel`, since `lore.add` is no tool of hers.
+    for (const name of ['memory.private.read', 'message.edit', 'errand.cancel']) {
       const result = await runOp('access.grant', { command: name }, owner);
       assert.equal(result.status, 'ok', `${name}: ${result.summary}`);
     }
     const access = t.stored();
-    for (const name of ['memory.private.read', 'message.edit', 'lore.add'])
+    for (const name of ['memory.private.read', 'message.edit', 'errand.cancel'])
       assert.deepEqual(access[name], { users: [SELF] }, name);
     const privateRead = skillRegistry().get('memory.private.read');
     assert.deepEqual(
@@ -1059,7 +1065,7 @@ test('persona grants: a grant opens a skill to her by name, owner-only ones incl
       { allowed: true, reason: 'allowed' }
     );
     const list = (await runOp('access.list', {}, owner)).summary.split('\n');
-    for (const name of ['memory.private.read', 'message.edit', 'lore.add'])
+    for (const name of ['memory.private.read', 'message.edit', 'errand.cancel'])
       assert.ok(list.includes(`${name}: user id:${SELF}`), name);
     assert.equal((await runOp('access.revoke', { command: 'memory.private.read' }, owner)).status, 'ok');
     assert.equal(
@@ -1068,8 +1074,11 @@ test('persona grants: a grant opens a skill to her by name, owner-only ones incl
       >[0]).allowed,
       false
     );
-    const unknown = await runOp('access.grant', { command: 'message.pin' }, owner);
-    assert.deepEqual([unknown.status, unknown.code], ['invalid', 'unknown-skill']);
+    // Changed: an operation of the owner's console alone is no skill to grant, like a name nothing has.
+    for (const name of ['message.pin', 'status.show', 'lore.add']) {
+      const unknown = await runOp('access.grant', { command: name }, owner);
+      assert.deepEqual([unknown.status, unknown.code], ['invalid', 'unknown-skill'], name);
+    }
   } finally {
     t.cleanup();
   }
@@ -1102,9 +1111,10 @@ test('persona grants: a group or * opens her read skills under it, owner-only re
       .filter((skill) => skill.kind === 'read' && !NOT_GRANTABLE_TO_PERSONA.includes(skill.name))
       .map((skill) => skill.name);
     assert.deepEqual(Object.keys(access).sort(), [...reads].sort());
-    for (const name of ['status.show', 'lore.list', 'memory.profile.read', 'memory.private.read', 'intention.list'])
+    // Changed: `status.show` and `lore.add` are operations of the console and no skill of hers, so `*` leaves them out.
+    for (const name of ['lore.list', 'memory.profile.read', 'memory.private.read', 'intention.list'])
       assert.ok(access[name], name);
-    for (const name of ['message.edit', 'lore.add', 'memory.restore', 'draw.create'])
+    for (const name of ['message.edit', 'lore.add', 'status.show', 'memory.restore', 'draw.create'])
       assert.equal(access[name], undefined, name);
     assert.deepEqual(access['lore.list'], { users: [SELF], via: { [`user:${SELF}`]: '*' } });
     const t2 = makeEnv();
@@ -1127,7 +1137,7 @@ test('persona grants: she never changes her effective authority, neither a grant
   const asPersona = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [], actor: 'persona' };
   try {
     for (const name of ['access.grant', 'access.revoke'] as const) {
-      const result = await runOp(name, { command: 'lore.add' }, asPersona);
+      const result = await runOp(name, { command: 'lore.list' }, asPersona);
       assert.deepEqual([result.status, result.code], ['denied', 'self-grant'], name);
     }
     assert.deepEqual(t.stored(), {}, 'nothing was written');

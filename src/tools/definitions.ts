@@ -1,6 +1,7 @@
-// The persona's skills, defined by a table of their own: one entry per operation of the ops
-// registry (src/tools/operations/registry.ts), in the registry's order (that order drives the skills index,
-// the family listing and the expansion of `*` in a grant). An entry holds what she sees (`name`,
+// The persona's skills, defined by a table of their own: one entry per tool of hers, each naming an operation of the
+// ops registry (src/tools/operations/registry.ts), in the registry's order (that order drives the skills index,
+// the family listing and the expansion of `*` in a grant). An operation with no entry here is no tool of hers: only
+// the owner's console runs it, by name (src/interface/commands/table.ts). An entry holds what she sees (`name`,
 // `params`, the JSON Schema of her arguments), how a call reaches the operation (`op`, `body`,
 // `toArgs`), and what the operation costs and changes (`effects`, `costClass`, `result`). Nothing here reads the owner's slash commands; `toArgs` maps her arguments to the
 // operation's arguments by hand. A row also declares the tool's traits once (`traits`), and every list
@@ -282,26 +283,6 @@ const forMember =
 const none = () => ({});
 
 const ENTRIES: Array<Definition> = [
-  def('status.show', {
-    params: obj({
-      field: oneOf([
-        'state',
-        'tasks',
-        'models.base',
-        'keys.base',
-        'costs.base',
-        'models.errands',
-        'costs.errands',
-        'inner',
-        'limits',
-        'memory',
-        'speed',
-      ]),
-      part: oneOf(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'all']),
-    }),
-    effects: 'read',
-    toArgs: (a) => ({ field: val(a, 'field') ?? null, ...(val(a, 'part') ? { part: val(a, 'part') } : {}) }),
-  }),
   def('config.set', {
     traits: ['ungrantable'],
     params: obj({ path: str(), value: str() }, ['path', 'value']),
@@ -362,7 +343,6 @@ const ENTRIES: Array<Definition> = [
     effects: 'write',
     toArgs: mediaArgs('recache'),
   }),
-  def('model.show', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('model.set', {
     traits: ['ungrantable'],
     params: obj(
@@ -375,7 +355,6 @@ const ENTRIES: Array<Definition> = [
     effects: 'administrative',
     toArgs: (a) => ({ role: val(a, 'role'), id: val(a, 'id') }),
   }),
-  def('route.list', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('route.set', {
     traits: ['ungrantable'],
     params: obj({ model: str(), providers: str(), role: oneOf(ROUTE_ROLES), fallbacks: bool(), byok: bool() }, [
@@ -404,7 +383,6 @@ const ENTRIES: Array<Definition> = [
     effects: 'write',
     toArgs: (a) => ({ text: val(a, 'text') }),
   }),
-  def('rule.list', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('rule.remove', {
     traits: ['ungrantable'],
     params: obj({ number: int(1) }, ['number']),
@@ -423,7 +401,6 @@ const ENTRIES: Array<Definition> = [
     effects: 'administrative',
     toArgs: accessArgs,
   }),
-  def('access.list', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('alias.add', {
     params: obj({ user: ref(), name: str() }, ['user', 'name']),
     refs: { user: 'user' },
@@ -447,17 +424,6 @@ const ENTRIES: Array<Definition> = [
     effects: 'destructive',
     toArgs: (a) => ({ id: val(a, 'number') }),
   }),
-  def('lore.add', {
-    params: obj({ title: str(), keys: str(), text: str(), always: bool() }, ['title', 'keys', 'text']),
-    body: 'text',
-    effects: 'write',
-    toArgs: (a) => ({
-      title: val(a, 'title'),
-      keys: val(a, 'keys'),
-      text: val(a, 'text'),
-      always: flag(val(a, 'always')) ?? false,
-    }),
-  }),
   def('lore.list', {
     params: obj({ query: str() }),
     effects: 'read',
@@ -466,11 +432,6 @@ const ENTRIES: Array<Definition> = [
   def('lore.show', {
     params: obj({ id: str() }, ['id']),
     effects: 'read',
-    toArgs: (a) => ({ id: val(a, 'id') }),
-  }),
-  def('lore.remove', {
-    params: obj({ id: str() }, ['id']),
-    effects: 'destructive',
     toArgs: (a) => ({ id: val(a, 'id') }),
   }),
   def('memory.profile.read', {
@@ -702,12 +663,6 @@ const ENTRIES: Array<Definition> = [
       ...(val(a, 'page') == null ? {} : { page: val(a, 'page') }),
     }),
   }),
-  def('tools.describe', {
-    params: obj({ name: str(60) }, ['name']),
-    body: 'name',
-    effects: 'read',
-    toArgs: (a) => ({ name: val(a, 'name') }),
-  }),
   def('web.search', {
     params: obj({ query: str(200), goal: str(300) }, ['query']),
     body: 'query',
@@ -911,7 +866,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-/** Every skill, one per operation, in the operations registry's order. */
+/** Every skill, in the operations registry's order. */
 export const SKILL_DEFINITIONS: ReadonlyArray<Definition> = deepFreeze(validateDefinitions(ENTRIES));
 
 const BY_NAME: ReadonlyMap<string, Definition> = new Map(
@@ -949,7 +904,6 @@ export function hasTrait(name: string, trait: Trait): boolean {
  * out: a stored row of either name may come from an older tool of the board, not from an errand.
  */
 export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({
-  'skills.describe': 'tools.describe',
   'task.run': 'errand.run',
   'task.read': 'errand.read',
   'task.resolve': 'errand.resolve',

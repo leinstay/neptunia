@@ -27,7 +27,8 @@ import { queryAnswer } from './fixtures/query-answer.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 import { chainsOf, chainsOnDefaults } from './fixtures/chains.ts';
 
-const NAMES = ['message.create', 'message.edit', 'draw.create', 'memory.profile.read', 'status.show'];
+// Changed: the fifth name is `memory.search`, since `status.show` is no tool of hers.
+const NAMES = ['message.create', 'message.edit', 'draw.create', 'memory.profile.read', 'memory.search'];
 const NOW = Date.UTC(2026, 9, 14, 12, 0, 0);
 
 // A stand-in skill names no operation with `op: null`, which the loader reads as none; its input type says `undefined`.
@@ -44,7 +45,7 @@ function standInRegistry() {
     'message.react.add',
     'message.react.remove',
     'lore.list',
-    'access.list',
+    'errand.list',
   ];
   return standIns(
     names.map((name) => ({
@@ -101,8 +102,8 @@ test('parseSkillsLines: at most four names, in the order given', () => {
   assert.equal(MAX_PROPOSED, 4);
   assert.deepEqual(picked.names, NAMES.slice().reverse().slice(0, 4));
   // Without a list of names given: the registry's own names.
-  assert.deepEqual(parseSkillsLines(['status.show, x.unknown']).names, ['status.show']);
-  assert.ok(skillNames().includes('status.show'));
+  assert.deepEqual(parseSkillsLines(['memory.search, x.unknown']).names, ['memory.search']);
+  assert.ok(skillNames().includes('memory.search'));
 });
 
 test('takeSkillsLines: splits the skills lines out, the rest unchanged', () => {
@@ -168,7 +169,7 @@ test('skillsIndex: one static line per skill, grouped by family, the name alone 
     'message.react.remove',
     'message.purge',
   ]);
-  assert.deepEqual(lines.slice(6), ['lore.list', 'access.list', 'x.read']);
+  assert.deepEqual(lines.slice(6), ['lore.list', 'errand.list', 'x.read']);
   assert.equal(lines.length, registry.size);
   assert.ok(!/allowed|not-allowed|carried/.test(index), 'no access in the list');
 });
@@ -297,7 +298,7 @@ test("listSkills: each row carries the skill's arguments (skillArgs)", () => {
     registry,
   });
   const byName = new Map(rows.map((row) => [row.name, row]));
-  for (const name of ['memory.journal.read', 'message.edit', 'status.show'])
+  for (const name of ['memory.journal.read', 'message.edit', 'memory.search'])
     assert.deepEqual(byName.get(name)?.args, skillArgs(registry.get(name)), name);
   assert.deepEqual(byName.get('memory.server.read')?.args, []);
 });
