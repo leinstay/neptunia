@@ -937,7 +937,7 @@
       "repeated": 0
     },
     "tests/summary-builder.test.ts": {
-      "deep": 6,
+      "deep": 5,
       "repeated": 0
     },
     "tests/text-preview.test.ts": {
@@ -1288,8 +1288,8 @@
         "complexity": 25
       },
       "createRecall>recallWith": {
-        "complexity": 73,
-        "function-length": 471
+        "complexity": 72,
+        "function-length": 469
       },
       "createRecall>run": {
         "complexity": 26

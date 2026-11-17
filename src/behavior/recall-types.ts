@@ -257,7 +257,7 @@ export type ScanArchiveArg2 = {
  * no memory line fits.
  */
 export type BuildRecallRequestInput = {
-  /** The store's read of a stable name: the found lines and the context open with their legend `<interface>`. */
+  /** The store's read of a stable name: the found lines and the context open with their legend `<media>`. */
   mediaNameOf?: (name: string) => MediaName | null;
   prompt: string | null | undefined;
   selfName: string;

@@ -17,7 +17,8 @@ type Mode = Parameters<typeof turnKindOf>[0];
 type TriggerKind = Parameters<typeof turnKindOf>[1];
 type WakeKind = Parameters<typeof turnKindOf>[2];
 
-// The owner on 2026-11-17: the legend `<interface>` stands right after `<meanwhile>` in every list.
+// The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+// The owner on 2026-11-17: the legend `<media>` stands right after `<meanwhile>` in every list.
 // The owner's decision of 2026-11-11 (cache layout): what repeats between turns first, the turn's own blocks after
 // `<chat>` and `<found>` a root tag of its own (.agents/docs/specs/2026-11-11-cache-layout-contract.md).
 const REPLY_LIST: ReadonlyArray<BlockName> = [
@@ -26,7 +27,7 @@ const REPLY_LIST: ReadonlyArray<BlockName> = [
   'surroundings',
   'memory',
   'meanwhile',
-  'interface',
+  'media',
   'chat',
   'recall',
   'found',
@@ -40,7 +41,7 @@ const SERVICE_LIST: ReadonlyArray<BlockName> = [
   'self',
   'memory',
   'meanwhile',
-  'interface',
+  'media',
   'recall',
   'found',
   'inner',
@@ -53,7 +54,7 @@ const DIARY_LIST: ReadonlyArray<BlockName> = [
   'self',
   'memory',
   'meanwhile',
-  'interface',
+  'media',
   'recall',
   'found',
   'inner',

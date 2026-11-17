@@ -2408,7 +2408,8 @@ test('buildRecallRequest: one legend before <found> holds the custom emoji of th
     mediaNameOf: (name) => rows.get(name) ?? null,
   })?.[1].content;
   assert.ok(user, 'a request');
-  assert.equal(user.split('<interface>').length - 1, 1, user);
-  assert.ok(user.indexOf('</interface>') < user.indexOf('<found>'), user);
+  // The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+  assert.equal(user.split('<media>').length - 1, 1, user);
+  assert.ok(user.indexOf('</media>') < user.indexOf('<found>'), user);
   assert.ok(user.includes('<emojis>\n:e1: blob: a blob\n:e2: cat: a cat\n</emojis>'), user);
 });

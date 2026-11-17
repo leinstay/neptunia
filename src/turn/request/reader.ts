@@ -118,7 +118,7 @@ export type ReaderInput = {
   lookups: ReadonlyArray<Lookup>;
   meanwhileReads: MeanwhileReads | null;
   chatItems: Array<TranscriptItem>;
-  /** The stickers of each line of the chat, by message id, for the legend `<interface>`. */
+  /** The stickers of each line of the chat, by message id, for the legend `<media>`. */
   chatStickers: ReadonlyMap<string, ReadonlyArray<SeenSticker>>;
   /** The store's read of a stable name; null when the turn has no store. */
   mediaNameOf: ((name: string) => MediaName | null) | null;
@@ -748,7 +748,7 @@ type Bodies = { memory: string; found: string; inner: string; meanwhile: string;
 
 /** The blocks that belong to the turn itself: the first of them in the frame's order ends the `memory` segment. */
 const TURN_OWN: ReadonlySet<string> = new Set([
-  'interface',
+  'media',
   'chat',
   'recall',
   'found',
@@ -781,7 +781,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     },
     tail('memory', 'mind', bodies.memory, 'people'),
     tail('meanwhile', 'meanwhile', bodies.meanwhile, 'meanwhile'),
-    tail('interface', 'legend', bodies.legend),
+    tail('media', 'legend', bodies.legend),
     tail('chat', 'kept.chat', bodies.chat, 'chat'),
     tail('recall', 'lookups', kept.recall?.[0] ?? '', 'recall'),
     tail('found', 'mind', bodies.found, 'found'),
@@ -803,7 +803,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
   return [...inList, ...offList];
 }
 
-/** The body of the legend `<interface>`: the custom emoji and stickers of the kept chat and `<meanwhile>` windows. */
+/** The body of the legend `<media>`: the custom emoji and stickers of the kept chat and `<meanwhile>` windows. */
 function legendOf(
   given: ReaderInput,
   keptChat: ReadonlyArray<TranscriptItem>,

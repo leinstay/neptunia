@@ -374,7 +374,7 @@ function openingDate(
  * lines that stayed in the text are registered (`{ n, id, placeId, authorId, self, deleted,
  * message }`); a line cut away never is. Otherwise pure.
  */
-/** The legend `<interface>` of the kept items' messages, as one line, or none without a read of stable names. */
+/** The legend `<media>` of the kept items' messages, as one line, or none without a read of stable names. */
 function keptLegend(
   kept: ReadonlyArray<TranscriptItem>,
   byId: ReadonlyMap<string, ReadMessage>,
