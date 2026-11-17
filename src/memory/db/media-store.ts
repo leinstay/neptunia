@@ -300,14 +300,6 @@ export function lineItemParts(
   );
 }
 
-/** A line's text forms in position order, nothing of a bare item. */
-export function mediaText(rows: ReadonlyArray<MediaRow>): string {
-  return rows
-    .map((row) => row.description ?? '')
-    .filter(Boolean)
-    .join(' ');
-}
-
 /** The kinds and link cards of a line, for what reads a record line's `media` and `links`. */
 export function recordFieldsOf(db: Db, sourceId: string): { media: Array<string>; links: Array<Row> } {
   const rows = db
@@ -1097,9 +1089,10 @@ export function dropMediaEntry(
 }
 
 /**
- * At the engine's start, every cache entry still `pending` from a describer's request the stop cut becomes a miss with
- * the reason `interrupted`, in the caller's transaction: the line then shows that the item could not be looked at, and
- * the describer's handling of a miss applies. Returns how many entries changed.
+ * At the engine's start, every cache entry still `pending` from a describer's request the stop cut is settled, in the
+ * caller's transaction. An entry with no text becomes a miss with the reason `interrupted`: the line then shows that
+ * the item could not be looked at, and the describer's handling of a miss applies. An entry that holds a description
+ * keeps it, loses the mark and is stamped `refreshFailedAt`, as a failed refresh is. Returns how many entries changed.
  */
 export function interruptPendingMediaEntries(db: Db, at: number): number {
   let changed = 0;
@@ -1114,7 +1107,8 @@ export function interruptPendingMediaEntries(db: Db, at: number): number {
     const cache = cacheOf(extra);
     for (const [key, entry] of Object.entries(cache)) {
       if (entry === null || typeof entry !== 'object' || (entry as Row).pending !== true) continue;
-      cache[key] = { miss: true, ts: at, reason: 'interrupted' };
+      const kept = Object.fromEntries(Object.entries(entry).filter(([field]) => field !== 'pending'));
+      cache[key] = filled(kept.text) ? { ...kept, refreshFailedAt: at } : { miss: true, ts: at, reason: 'interrupted' };
       changed += 1;
     }
     db.prepare('UPDATE media SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, cache }), row.id);

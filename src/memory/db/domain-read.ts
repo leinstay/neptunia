@@ -227,6 +227,11 @@ function linksOfRecord(db: Db, family: DomainFamily, id: string): Array<DomainLi
     case 'turns':
       return turnLinks(db, id);
     case 'media':
+      return linksOf(
+        rows("SELECT owner_id AS id FROM media_links WHERE media_id = ? AND owner_kind = 'source' ORDER BY owner_id"),
+        'sources',
+        'source'
+      );
     case 'sessions':
     case 'requests':
       return [];

@@ -6,7 +6,11 @@
 // `<chat>` numbers a line by the same count (placeLineNumbers, src/turn/history.ts). Read only, and with no audience
 // applied: a number tells nothing of a line's text.
 
-import { LINE_HOLDS_MEDIA, lineMedia } from './media-store.ts';
+import { storedMediaTags } from '../../format.ts';
+import { legendBlock } from '../../turn/request/legend.ts';
+import { mediaNameRows } from './media-names.ts';
+import type { MediaNameRow } from './media-names.ts';
+import { LINE_HOLDS_MEDIA, lineMedia, mediaMessageParts } from './media-store.ts';
 import type { MediaRow } from './media-store.ts';
 import { replyMessageSql, routeMessageSql } from './message-locator.ts';
 import { CURRENT_REVISION, LINE_KIND, LINE_MOMENT, LINE_ROWID, SOURCE_DELETED } from './source-current.ts';
@@ -171,10 +175,16 @@ export function recentGroupLines(
   db: Db,
   placeId: string,
   count: number
-): Array<{ kind: string; text: string | null; names: string | null; media?: Array<MediaRow> }> {
+): Array<{
+  kind: string;
+  text: string | null;
+  nativeId: string;
+  names: string | null;
+  media?: Array<MediaRow>;
+}> {
   const rows = db
     .prepare(
-      `SELECT s.id, s.kind, s.text, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
+      `SELECT s.id, s.kind, s.text, s.native_id, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
        WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${HOLDS_SOMETHING}
          AND s.audience_id LIKE 'aud:group:%'
        ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
@@ -188,7 +198,53 @@ export function recentGroupLines(
   return rows.map((row) => ({
     kind: asText(row.kind),
     text: typeof row.text === 'string' ? row.text : null,
+    nativeId: asText(row.native_id),
     names: typeof row.names === 'string' ? row.names : null,
     ...(media.has(asText(row.id)) ? { media: media.get(asText(row.id)) } : {}),
   }));
+}
+
+/** The first name stored for an account, '' for none or for names that are not a list of text. */
+function firstName(names: string | null): string {
+  try {
+    const list: unknown = JSON.parse(names ?? '[]');
+    return Array.isArray(list) && typeof list[0] === 'string' ? list[0] : '';
+  } catch {
+    // A names column that holds no JSON names nobody.
+    return '';
+  }
+}
+
+/**
+ * The newest `count` lines of a group's place as an errand agent is given them, oldest first: her lines under
+ * `selfName`, a member's under the first name the account wrote under. A line's media follow its text as the memory
+ * session renders them, a kind's marker with its text form; a custom emoji or a sticker stands under its stable name,
+ * and the legend `<media>` of those names heads the oldest line's text.
+ */
+export function errandRecentLines(
+  db: Db,
+  placeId: string,
+  count: number,
+  { selfName, labels }: { selfName: string; labels: unknown }
+): Array<{ author: string; text: string }> {
+  const rows = recentGroupLines(db, placeId, count).toReversed();
+  const messages = rows.map((row) => ({
+    row,
+    message: { content: row.text ?? '', ...mediaMessageParts(row.media ?? [], row.nativeId) },
+  }));
+  const lines = messages.map(({ row, message }) => ({
+    author: row.kind === 'said' ? selfName : firstName(row.names),
+    text: [row.text ?? '', ...((row.media ?? []).length > 0 ? storedMediaTags(message, labels) : [])]
+      .filter(Boolean)
+      .join(' '),
+  }));
+  const names = new Map(mediaNameRows(db).map((row): [string, MediaNameRow] => [row.name, row]));
+  const legend = legendBlock(
+    messages.map(({ message }) => message),
+    (name) => names.get(name) ?? null,
+    labels
+  );
+  const [first] = lines;
+  if (legend && first) first.text = `${legend}\n${first.text}`;
+  return lines;
 }

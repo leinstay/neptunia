@@ -259,7 +259,7 @@ A page holds at most `memoryDb.inspection.pageRows` rows, whatever `--limit` ask
 | `/memory places lore add <place> <title> <keys> <text>`, `list <place>`, `show <place> <id>`, `remove <place> <id>` | The lore of a place |
 | `/memory entities list`, `show <entity>`, `names <entity>`, `relations <entity>` | The semantic entities, by `--kind`, `--name` and `--recorded-before`. `show` opens the stored record with its names, its descriptions and `canonicalId`, the entity it is taken to be. `relations` takes `--predicates` and `--mode`, `active` by default or `historical` |
 | `/memory graph kinds`, `nodes`, `edges`, `node`, `neighbors`, `walk`, `path` | The projection, every node and edge once, `--mode active` by default or `--mode historical`. `--valid-at` and `--recorded-before` are two questions. Node kinds and predicates with no typed table are listed as deferred |
-| `/memory sources`, `claims`, `descriptions`, `episodes`, `diary`, `media`, `publications`, `grants`, `sessions`, `requests`, `turns`, each `show <id>` and `list` | One record with every stored field and links to the exact records around it, retired and internal ones included |
+| `/memory sources`, `claims`, `descriptions`, `episodes`, `diary`, `media`, `publications`, `grants`, `sessions`, `requests`, `turns`, each `show <id>` and `list` | One record with every stored field and links to the exact records around it, retired and internal ones included. A media record links each line that shows it |
 | `/memory claims versions <id>`, `version <id>`, `/memory descriptions versions <id>`, `version <id>` | Every version in order, or one |
 | `/memory inspect tables`, `schema`, `rows`, `row`, `value`, `export`, `close` | Every table the database holds, whether or not a menu names it |
 
