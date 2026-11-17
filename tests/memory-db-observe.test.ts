@@ -696,3 +696,68 @@ test('an envelope that still carries a capture writes its line and no bundle', (
     handle.close();
   }
 });
+
+// ---------- media of a line ----------
+
+/** One media item of an envelope with a platform reference and nothing told of it. */
+const item = (kind: string, nativeRef: string) => ({
+  kind,
+  nativeRef,
+  availability: 'unknown',
+  description: null,
+  origin: null,
+  extra: {},
+});
+
+/** The media ids a line links, in position order. */
+const linkedMedia = (db: UntypedDb, sourceId: string): Array<unknown> =>
+  db
+    .prepare("SELECT media_id FROM media_links WHERE owner_kind = 'source' AND owner_id = ? ORDER BY position")
+    .all(sourceId)
+    .map((row: Record<string, unknown>) => row.media_id);
+
+test('stores one link for a media a line names twice', () => {
+  // Bug: five uses of one custom emoji in a message become five links to the same media row.
+  const handle = fresh();
+  const db = sqlOf(handle);
+  const emoji = item('emoji', 'e-501');
+  const done = observed(handle, tweet('9501', { media: [emoji, item('emoji', 'e-502'), emoji] }), opts);
+  assert.deepEqual(linkedMedia(db, done.sourceId), ['media:twitter:e-501', 'media:twitter:e-502']);
+});
+
+test('adds no link when a stored line is observed again with the same items', () => {
+  // Bug: a replay writes the same items again and the line ends up holding each media twice.
+  const handle = fresh();
+  const db = sqlOf(handle);
+  const media = [item('sticker', 's-601'), item('emoji', 'e-601')];
+  const done = observed(handle, tweet('9601', { media }), opts);
+  observe(handle, tweet('9601', { media }), opts);
+  assert.deepEqual(linkedMedia(db, done.sourceId), ['media:twitter:s-601', 'media:twitter:e-601']);
+});
+
+test('a stored line observed again at the same revision gains the emoji and sticker it lacks and keeps its link card', () => {
+  // The owner on 2026-11-17: one link per media of a line, and a line read again only gains what it lacks.
+  // Bug: the replay writes by position, so the new emoji takes the card's place and the card the platform no longer
+  // shows is unlinked.
+  const handle = fresh();
+  const db = sqlOf(handle);
+  const done = observed(handle, tweet('9701', { media: [item('link', 'https://example.org/a')] }), opts);
+  const replay = observe(handle, tweet('9701', { media: [item('emoji', 'e-701'), item('sticker', 's-701')] }), opts);
+  assert.equal(replay.replayed, true);
+  assert.deepEqual(linkedMedia(db, done.sourceId), [
+    'media:twitter:https://example.org/a',
+    'media:twitter:e-701',
+    'media:twitter:s-701',
+  ]);
+  assert.equal(db.prepare('SELECT text FROM sources WHERE id = ?').get(done.sourceId).text, 'tweet 9701');
+});
+
+test('an edit at a higher revision holds only the media of the edited message', () => {
+  // Bug: the only-adds rule of a replay leaks into an edit, so the edited line keeps a card the edit removed.
+  const handle = fresh();
+  const db = sqlOf(handle);
+  observe(handle, tweet('9801', { media: [item('link', 'https://example.org/b'), item('emoji', 'e-801')] }), opts);
+  const edited = tweet('9801', { media: [item('emoji', 'e-801')], text: 'tweet 9801, edited' });
+  const done = observed(handle, { ...edited, native: { kind: 'tweet', key: '9801', revision: 1 } }, opts);
+  assert.deepEqual(linkedMedia(db, done.sourceId), ['media:twitter:e-801']);
+});
