@@ -103,11 +103,14 @@ test('shows a custom emoji reaction and a sticker by their stable names in her r
     assert.equal(await rig.emit(deliver(rig.fake, { id: 'r2', text: 'γεια', at: NOW - 1000, mention: true })), 'ok');
     await until(() => rig.requests.length === 1);
     const text = rig.requestText(0);
-    assert.ok(text.includes(':e1:'), 'the reaction reads by its stable name');
-    assert.ok(text.includes('s1'), 'the sticker reads by its stable name');
+    // The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
+    const chat = text.slice(text.indexOf('<chat>'));
+    assert.ok(chat.includes('[sticker s1] [reactions: :e1: x2]'), 'the line reads both by their stable names');
     assert.ok(
-      !text.includes('kekw') && !text.includes('kymata') && !text.includes('<emoji:'),
+      !chat.includes('kekw') && !chat.includes('kymata') && !text.includes('<emoji:'),
       'no platform name or token'
     );
+    const legend = text.slice(text.lastIndexOf('<interface>', text.indexOf('<chat>')), text.indexOf('<chat>'));
+    assert.ok(legend.includes('kekw') && legend.includes('kymata'), 'the legend gives the platform names');
   });
 });
