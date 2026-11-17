@@ -53,35 +53,45 @@ export function nameEmojiTokens(
 }
 
 /**
+ * `text` with every `:name:` token outside code, markup, timestamps and URLs given to `replace`, which answers its
+ * replacement or null to keep it. A kept token gives back its closing colon, which may open the next token.
+ */
+export function replaceNameTokens(text: string, replace: (name: string) => string | null): string {
+  const re = new RegExp(SCAN_RE.source, 'g');
+  let out = '';
+  let last = 0;
+  let match;
+  while ((match = re.exec(text))) {
+    out += text.slice(last, match.index);
+    if (match[1] !== undefined) {
+      out += match[1];
+      last = re.lastIndex;
+      continue;
+    }
+    const replaced = replace(match[2]);
+    if (replaced !== null) {
+      out += replaced;
+      last = re.lastIndex;
+    } else {
+      out += ':';
+      last = match.index + 1;
+      re.lastIndex = last;
+    }
+  }
+  return out + text.slice(last);
+}
+
+/**
  * Replace every `:stableName:` the lookup knows with its custom emoji markup. Unknown names, code (inline and blocks), markup already well formed,
  * timestamps and URLs are left as they are, so the result is idempotent.
  */
 export function renderCustomEmoji(text: string, lookup: EmojiLookup | null): string {
   const source = String(text ?? '');
   if (typeof lookup !== 'function' || !source.includes(':')) return source;
-  const re = new RegExp(SCAN_RE.source, 'g');
-  let out = '';
-  let last = 0;
-  let match;
-  while ((match = re.exec(source))) {
-    out += source.slice(last, match.index);
-    if (match[1] !== undefined) {
-      out += match[1];
-      last = re.lastIndex;
-      continue;
-    }
-    const emoji = lookup(match[2]);
-    if (emoji) {
-      out += markup(emoji);
-      last = re.lastIndex;
-    } else {
-      // Keep the opening colon only: the closing one may open the next token.
-      out += ':';
-      last = match.index + 1;
-      re.lastIndex = last;
-    }
-  }
-  return out + source.slice(last);
+  return replaceNameTokens(source, (name) => {
+    const emoji = lookup(name);
+    return emoji ? markup(emoji) : null;
+  });
 }
 
 /**
