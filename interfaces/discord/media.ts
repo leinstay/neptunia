@@ -84,8 +84,7 @@ export function discordCdnVideo(url: string): { id: string; name: string } | nul
  * other host is returned unchanged (its own thumbnail is already a plain
  * image, not a video needing frame extraction). `animated` (when
  * given) sets the proxy's `animated` param: `false` asks for one still frame
- * of an animated GIF instead of an animated webp that can exceed the vision
- * download limit. The proxy fills a `width` x `height` box and centre-crops
+ * of an animated picture. The proxy fills a `width` x `height` box and centre-crops
  * to it (a lone `width` or `height` is ignored), so callers pass either a
  * pair of the picture's own aspect (fitBox) or no size at all.
  * Best-effort: an unparsable URL is returned as-is.
@@ -138,22 +137,21 @@ export function isExpiringUrl(url: unknown): boolean {
 
 /**
  * The address a describer downloads for an item: the picture sized to at most `imageSize` on the media proxy (the
- * aspect kept, `fitBox`), as webp; one still `png` frame for a GIF (an animated webp can exceed the vision download
- * limit); a webp poster frame, with no size, for a video. `imageSize` (`media.imageSize`) not given or not positive
+ * aspect kept, `fitBox`), as webp; a webp poster frame, with no size, for a video. A GIF has none: the describer
+ * watches its animation and never downloads it as a picture. `imageSize` (`media.imageSize`) not given or not positive
  * sends no size at all. Hosts other than Discord's come back as they are.
  */
 export function previewUrlOf(
   item: { kind?: string; url?: string | null; width?: number | null; height?: number | null },
   imageSize: number | undefined
 ): string | null {
-  if (typeof item?.url !== 'string' || item.url === '') return null;
+  if (typeof item?.url !== 'string' || item.url === '' || item.kind === 'gif') return null;
   if (item.kind === 'video') return mediaProxyUrl(item.url, { format: 'webp' });
   const sized = fitBox(item.width, item.height, imageSize) ?? {};
-  if (item.kind === 'gif') return mediaProxyUrl(item.url, { ...sized, format: 'png', animated: false });
   return mediaProxyUrl(item.url, { ...sized, format: 'webp' });
 }
 
-const PREVIEW_KINDS = new Set(['image', 'gif', 'video']);
+const PREVIEW_KINDS = new Set(['image', 'video']);
 
 /**
  * Attachments with what the core reads of their address: `expiring` (a signed Discord address that lapses) and
