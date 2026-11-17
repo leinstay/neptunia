@@ -6,7 +6,7 @@
 // happened: `ok`, `failed` (known not to have taken effect), `unknown` (may have taken effect:
 // never retried blindly), `unsupported` (this interface cannot do it), `forbidden` (it may not,
 // e.g. someone else's message). References are opaque strings namespaced by the adapter's
-// `iface`; content is typed with a safe mention default (nobody is notified unless named).
+// `iface`.
 // Moved here from src/interface/port.ts, which re-exports all of it, so the contract lives in
 // one place no platform touches: no platform SDK type, no service, no logging.
 
@@ -30,19 +30,8 @@ export type Attachment = {
   voice?: { durationSecs: number; waveform: string };
 };
 
-/**
- * Whom a message names: the members it mentions, and whether it concerns the author of the message it replies to.
- * Absent means none. An interface decides whether anyone named is notified.
- */
-export type Mentions = {
-  users: Array<string>;
-  repliedUser: boolean;
-};
-
-/**
- * What a message carries: text and/or attachments, the message it replies to, the members it names (default: none).
- */
-export type Content = { text?: string; attachments?: Array<Attachment>; replyTo?: MessageRef; mentions?: Mentions };
+/** What a message carries: text and/or attachments, and the message it replies to. */
+export type Content = { text?: string; attachments?: Array<Attachment>; replyTo?: MessageRef };
 
 /**
  * A normalised error: a kebab-case or `http-<status>` code and whether trying again later could
@@ -175,16 +164,6 @@ export function notOk(
   { retryable = false, cause }: { retryable?: boolean; cause?: unknown } = {}
 ): PortResult {
   return { status, error: { code, retryable, ...(cause !== undefined ? { cause } : {}) } };
-}
-
-/** `content`'s mentions as a fresh, well-formed Mentions: none when absent or malformed. */
-export function mentionsOf(content: { mentions?: Partial<Mentions> | null } | null | undefined): Mentions {
-  const given = content?.mentions;
-  if (!given || typeof given !== 'object') return { users: [], repliedUser: false };
-  const users = Array.isArray(given.users)
-    ? given.users.filter((id): id is string => typeof id === 'string' && id !== '')
-    : [];
-  return { users, repliedUser: given.repliedUser === true };
 }
 
 /** True when `ref` is a reference of `iface` with a non-empty `chatId` (and `messageId` when `needMessage`). */

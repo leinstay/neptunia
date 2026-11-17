@@ -4,7 +4,7 @@
 // `world.channel({ id, name, history })`, whose history is given as discord.js-shaped message stubs (the same stubs the
 // platform's own functions read) and is seeded as the events the Discord interface would report for them. The channel it
 // returns reads back what the persona did there: `sent`, `typingCalls` and `reactCalls`, each from the fake's record of
-// the calls, in the shape the first tests of the turn asserted (`content`, `reply`, `allowedMentions`, `files`).
+// the calls, in the shape the first tests of the turn asserted (`content`, `reply`, `files`).
 //
 // `world()` is the current test's world, created on first use and dropped when the test ends.
 import { afterEach } from 'node:test';
@@ -47,7 +47,6 @@ const quiet = { info() {}, warn() {}, error() {} };
 export type Posted = {
   content: string | undefined;
   reply?: { messageReference: string | undefined; failIfNotExists: boolean };
-  allowedMentions: { parse: Array<string>; users?: Array<string>; repliedUser?: boolean };
   files?: Array<{ attachment: unknown; name: string }>;
 };
 
@@ -161,24 +160,20 @@ const EVERYONE = {
   memberGroups: {} as Record<string, Array<string>>,
 };
 
-/** The send of the fake in the shape of a discord.js payload, its `allowedMentions` the mentions the core handed the port. */
+/** The send of the fake in the shape of a discord.js payload. */
 function payloadOf(given: unknown): Posted {
   const content = (given ?? {}) as {
     text?: string;
     attachments?: Array<{ name: string; data?: unknown; url?: string }>;
     replyTo?: { messageId?: string };
-    mentions?: { users?: Array<string>; repliedUser?: boolean };
   };
-  const payload: Posted = { content: undefined, allowedMentions: { parse: [] } };
+  const payload: Posted = { content: undefined };
   if (typeof content.text === 'string' && content.text !== '') payload.content = content.text;
   if (Array.isArray(content.attachments) && content.attachments.length > 0)
     payload.files = content.attachments.map((file) => ({ attachment: file.data ?? file.url, name: file.name }));
   payload.reply = content.replyTo
     ? { messageReference: content.replyTo.messageId, failIfNotExists: false }
     : undefined;
-  payload.allowedMentions = content.mentions
-    ? { parse: [], users: content.mentions.users ?? [], repliedUser: content.mentions.repliedUser === true }
-    : { parse: [] };
   return payload;
 }
 
@@ -343,7 +338,7 @@ function create(): World {
       entry.parts.forEach((ref, index) => {
         const text = port.messages.get(`${ref.chatId}/${ref.messageId}`)?.text ?? '';
         const whole = payloadOf({ ...(entry.content as object), text });
-        posted.push(index === 0 ? whole : { content: text, allowedMentions: whole.allowedMentions });
+        posted.push(index === 0 ? whole : { content: text });
       });
     }
     return posted;

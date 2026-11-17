@@ -30,7 +30,6 @@ export type StoredMessage = {
   text: string;
   attachments: Array<{ name: string; data?: Uint8Array; url?: string; contentType?: string; size?: number }>;
   replyTo: { messageId?: string } | null;
-  mentions: { users: Array<string>; repliedUser: boolean };
   reactions: Set<string>;
   deleted: boolean;
   event?: MessageEvent;

@@ -469,7 +469,7 @@ function eventLine(chat: ReplyChat, { id, text, at, authorId = '111', authorName
 }
 
 /** One message she sent in a reply run: the chat it went to, its text and the accounts it mentions. */
-export type ReplySend = { iface: string; chatId: string; text: string; mentioned: Array<string> };
+export type ReplySend = { iface: string; chatId: string; text: string };
 
 /** One reaction she put on a line in a reply run: the message id it went to and the emoji. */
 export type ReplyReaction = { messageId: string; emoji: string };
@@ -491,13 +491,12 @@ function sendsOf(adapter: Fake): Array<ReplySend> {
     .map((one) => {
       const [chat, content] = one.args as [
         { iface?: string; chatId?: string },
-        { text?: string; mentions?: { users?: Array<string> } } | undefined,
+        { text?: string } | undefined,
       ];
       return {
         iface: String(chat.iface ?? adapter.iface),
         chatId: String(chat.chatId ?? ''),
         text: content?.text ?? '',
-        mentioned: [...(content?.mentions?.users ?? [])],
       };
     });
 }

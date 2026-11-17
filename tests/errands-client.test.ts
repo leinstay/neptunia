@@ -1,6 +1,6 @@
 // Tests for src/errands/client.ts: the core's client of the agent runners' sockets, against a
 // FAKE runner -- a plain Unix-socket server in the test that reads the client's lines and answers
-// what the test tells it to. A run resolves on its `end`, progress reaches the listeners, cancel
+// what the test tells it to. A run resolves on its `end`, cancel
 // and ping go out as lines, a dropped connection fails its tasks with `disconnected` and is
 // reopened, a profile that is not set up answers `not-configured` without connecting, and each
 // outcome of the connect loop reaches the `onLink` listeners. The deployment's preamble goes out
@@ -113,12 +113,11 @@ test('errands client: a profile that is not enabled answers not-configured witho
   client.close();
 });
 
-test('errands client: a run sends its line, progress reaches the listeners, the end resolves it', async () => {
+// Changed: the client takes no progress listeners and the runner sends no progress event.
+test('errands client: a run sends its line, the end resolves it', async () => {
   const sock = socketPath();
   const runner = await fakeRunner(sock);
   const client = createErrandClient({ hot: hotFor() });
-  const progress: Array<Untyped> = [];
-  client.onProgress((event) => progress.push(event));
   try {
     await withCapturedLogs(async () => {
       const running = client.run({
@@ -139,7 +138,6 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
         context: { scope: 'group' },
         limits: { steps: 3, seconds: 30 },
       });
-      runner.reply({ id: 'task-1', event: 'progress', step: 1, tool: 'search', note: 'looking' });
       runner.reply({
         id: 'task-1',
         event: 'end',
@@ -158,7 +156,6 @@ test('errands client: a run sends its line, progress reaches the listeners, the 
       assert.equal(outcome.result.files[0].name, 'a.png');
       assert.equal(outcome.usage.steps, 2);
       assert.equal(outcome.error, undefined);
-      assert.deepEqual(progress, [{ agent: 'scout', id: 'task-1', step: 1, tool: 'search', note: 'looking' }]);
     });
   } finally {
     client.close();

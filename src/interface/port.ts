@@ -15,22 +15,12 @@ import type {
   Capabilities,
   Content,
   ChatRef,
-  Mentions,
   MessageRef,
   Port,
   PortError,
   PortResult,
 } from '../protocol/index.ts';
 
-export type { ChatRef, MessageRef, Attachment, Mentions, Content, PortError, PortResult, Capabilities, Port, Action };
+export type { ChatRef, MessageRef, Attachment, Content, PortError, PortResult, Capabilities, Port, Action };
 
-export {
-  CAPABILITIES,
-  ok,
-  notOk,
-  mentionsOf,
-  isRefOf,
-  refRefusal,
-  contentRefusal,
-  declaredHooks,
-} from '../protocol/index.ts';
+export { CAPABILITIES, ok, notOk, isRefOf, refRefusal, contentRefusal, declaredHooks } from '../protocol/index.ts';

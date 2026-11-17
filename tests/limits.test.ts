@@ -139,7 +139,7 @@ function noticeChannel({ id = 'c1', name = 'general' } = {}) {
 function noticesIn(
   port: ReturnType<typeof createFakeAdapter>,
   chatId = 'c1'
-): Array<{ text: string; replyTo: unknown; mentions: unknown }> {
+): Array<{ text: string; replyTo: unknown }> {
   return port.messagesIn(chatId);
 }
 
@@ -147,9 +147,7 @@ const LIMIT = { key: 'llm.maxRequestsPerDay', used: 300, cap: 300 };
 // PR 7d: the dry run is gone, so the live config of a notice holds nothing of it.
 const LIVE = {};
 
-const NO_MENTIONS = { users: [], repliedUser: false };
-
-test('postLimitNotice: one send on the adapter, replying to the trigger, mentioning nobody', async () => {
+test('postLimitNotice: one send on the adapter, replying to the trigger', async () => {
   const channel = noticeChannel();
   const port = createFakeAdapter();
   const { result, logs } = await withCapturedLogs(() =>
@@ -171,7 +169,7 @@ test('postLimitNotice: one send on the adapter, replying to the trigger, mention
   const [notice] = noticesIn(port);
   assert.equal(notice.text, 'limit hit: llm.maxRequestsPerDay 300/300');
   assert.deepEqual(notice.replyTo, { iface: 'fake', chatId: 'c1', messageId: 'm1' });
-  assert.deepEqual(notice.mentions, NO_MENTIONS);
+  // Changed: content carries no mentions, so nothing is asserted of them.
   assert.ok(logs.some((l) => l.msg === 'limits: notice sent' && l.key === 'llm.maxRequestsPerDay'));
 });
 
@@ -279,7 +277,7 @@ test('postPauseNotice: one send of the pause label, replying to the trigger, men
   const [notice] = noticesIn(port);
   assert.equal(notice.text, labels.limits.paused);
   assert.deepEqual(notice.replyTo, { iface: 'fake', chatId: 'c1', messageId: 'm1' });
-  assert.deepEqual(notice.mentions, NO_MENTIONS);
+  // Changed: content carries no mentions, so nothing is asserted of them.
   const line = logs.find((l) => l.msg === 'limits: pause notice');
   assert.deepEqual([present(line).channel, present(line).kind], ['c1', 'mention']);
 });

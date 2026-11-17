@@ -231,7 +231,6 @@ export type RunOutcome = {
 export type PingAnswer =
   | { ok: true; unit: string; busy: boolean; queued: number; error?: undefined }
   | { ok: false; error: string; unit?: undefined; busy?: undefined; queued?: undefined };
-export type ProgressEvent = { agent: string; id: string; step: number; tool: string | null; note: string };
 export type LinkEvent = { unit: string; up: boolean; code?: string };
 
 /** The core's side of the errand agents' sockets (src/errands/client.ts#createErrandClient). */
@@ -239,7 +238,6 @@ export type ErrandClient = {
   run: (request: RunRequest) => Promise<RunOutcome>;
   cancel: (request: { agent: string; id: string }) => boolean;
   ping: (agent: string) => Promise<PingAnswer>;
-  onProgress: (fn: (event: ProgressEvent) => void) => () => void;
   onLink: (fn: (event: LinkEvent) => void) => () => void;
   configured: (agent: string) => boolean;
   close: () => void;

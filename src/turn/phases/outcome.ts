@@ -83,8 +83,7 @@ export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds
             plan: diaryPrep.plan,
             held: {
               texts: held.flatMap((one) => one.texts),
-              // The entry keeps the mentions as the act rendered them; its type names them as member ids.
-              rendered: held.flatMap((one) => one.rendered) as Parameters<typeof recordEntry>[0]['held']['rendered'],
+              rendered: held.flatMap((one) => one.rendered),
             },
             staged: held.findLast((one) => one.staged.length > 0)?.staged ?? [],
             set: Boolean(draft.diary?.set),

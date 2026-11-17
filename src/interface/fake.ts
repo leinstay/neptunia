@@ -3,7 +3,7 @@
 // through. It keeps its chats' messages in memory, records every call in order (`calls`),
 // offers the capabilities it is given, and answers the results a test queues (`failNext`) in
 // place of doing the operation. Same rules as every adapter: edit and delete only the self
-// member's messages, mentions default to none, nothing ever throws. Every call is checked as a
+// member's messages, nothing ever throws. Every call is checked as a
 // protocol action first (validateAction over the call's action object): a malformed one is
 // refused as `failed` with the code `invalid-action`, so a test that drives the persona through
 // the fake also proves she only ever asks for well-formed actions. A `send` splits a text longer
@@ -21,7 +21,7 @@
 // answers `unsupported`. Reads are recorded in `calls` under the method's name, like every other call.
 
 import { MESSAGES_FETCH, READ_ACTIONS, deliveryOf, portAction, splitText, validateAction } from '../protocol/index.ts';
-import { CAPABILITIES, contentRefusal, declaredHooks, mentionsOf, notOk, ok, refRefusal } from './port.ts';
+import { CAPABILITIES, contentRefusal, declaredHooks, notOk, ok, refRefusal } from './port.ts';
 import { createFakeReads } from './fake-reads.ts';
 import { CODE } from '../tools/codes.ts';
 
@@ -178,7 +178,6 @@ export function createFakeAdapter({
         ? content.attachments.map((attachment) => ({ ...attachment }))
         : [],
       replyTo: content.replyTo ?? null,
-      mentions: mentionsOf(content),
       reactions: new Set(),
       deleted: false,
       ...extra,
@@ -236,7 +235,7 @@ export function createFakeAdapter({
       // The reply and the files go with the first part; the rest of the text follows as plain messages.
       const texts = splitText(typeof content.text === 'string' ? content.text : '', caps.maxChars);
       const stored = texts.map((text, index) => {
-        const part = index === 0 ? { ...content, text } : { text, mentions: content.mentions };
+        const part = index === 0 ? { ...content, text } : { text };
         const message = store(
           chat.chatId,
           selfId,
@@ -260,7 +259,6 @@ export function createFakeAdapter({
       if (typeof content.text === 'string') message.text = content.text;
       if (Array.isArray(content.attachments))
         message.attachments = content.attachments.map((attachment) => ({ ...attachment }));
-      message.mentions = mentionsOf(content);
       return ok({ ...message.ref }, now());
     },
 

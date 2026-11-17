@@ -1,6 +1,6 @@
 // Tests for src/agent-runner/server.ts: the Unix-socket server with a FAKE
 // task engine. A client sends run/cancel/ping lines; the server answers
-// progress then one end per task, runs one task at a time (a second waits in
+// one end per task, runs one task at a time (a second waits in
 // the queue), cancels a running task, answers a bad line with an error, and
 // on a ping about an unknown id answers end/restarted; a run's secrets and
 // shared preamble reach the engine and no event or log line. No real OpenCode.
@@ -60,22 +60,25 @@ function connect(sock: Untyped) {
   return { client, events, next, send, ready, end: () => client.end() };
 }
 
-/** A fake engine that resolves each task after the test lets it, recording start order. */
+/** A fake engine that resolves each task after the test lets it, recording start order; `whenStarted(id)` waits for a start. */
 function controllableRunner() {
   const started: Array<Untyped> = [];
   const gates = new Map();
+  const waiting = new Map<string, () => void>();
   const runner = {
     run(task: Untyped) {
       started.push(task.id);
+      waiting.get(String(task.id))?.();
       return new Promise<Untyped>((resolve) => {
         gates.set(task.id, (outcome: Untyped) => resolve(outcome));
-        if (task.onProgress) task.onProgress({ step: 1, tool: 'search', note: 'looking' });
       });
     },
   };
   const finish = (id: string, outcome?: Untyped) =>
     gates.get(id)?.(outcome ?? { status: 'done', result: { text: 'ok' }, usage: { steps: 1 } });
-  return { runner, started, finish };
+  const whenStarted = (id: string) =>
+    started.includes(id) ? Promise.resolve() : new Promise<void>((resolve) => waiting.set(id, resolve));
+  return { runner, started, finish, whenStarted };
 }
 
 async function withServer(runner: Untyped, fn: Untyped) {
@@ -90,8 +93,9 @@ async function withServer(runner: Untyped, fn: Untyped) {
   }
 }
 
-test('server: a run gets progress then one end, and the socket is group-accessible', async () => {
-  const { runner, finish } = controllableRunner();
+// Changed: the runner sends no progress event, so the test waits for the engine to start the task instead.
+test('server: a run gets one end, and the socket is group-accessible', async () => {
+  const { runner, finish, whenStarted } = controllableRunner();
   await withCapturedLogs(() =>
     withServer(runner, async (sock: Untyped) => {
       const mode = fs.statSync(sock).mode & 0o777;
@@ -99,8 +103,7 @@ test('server: a run gets progress then one end, and the socket is group-accessib
       const c = connect(sock);
       await c.ready;
       c.send({ op: 'run', agent: 'scout', id: 'task-a', goal: 'find a meme' });
-      const progress = await c.next((e: unknown) => loose(e).event === 'progress');
-      assert.equal(loose(progress).tool, 'search');
+      await whenStarted('task-a');
       finish('task-a', { status: 'done', result: { text: 'found it' }, usage: { steps: 2 } });
       const end = await c.next((e: unknown) => loose(e).event === 'end');
       assert.equal(loose(end).status, 'done');
@@ -172,20 +175,21 @@ test("server: a run's preamble reaches the engine and no event or log line; a ru
   assert.ok(!JSON.stringify(logs).includes('SHARED-PREAMBLE'), 'no preamble in a log line');
 });
 
+// Changed: the runner sends no progress event, so the test waits for the engine to start the task instead.
 test('server: one task per agent at a time, the second of the same agent waits in the queue', async () => {
-  const { runner, started, finish } = controllableRunner();
+  const { runner, started, finish, whenStarted } = controllableRunner();
   await withCapturedLogs(() =>
     withServer(runner, async (sock: Untyped) => {
       const c = connect(sock);
       await c.ready;
       c.send({ op: 'run', agent: 'scout', id: 'one', goal: 'first' });
       c.send({ op: 'run', agent: 'scout', id: 'two', goal: 'second' });
-      await c.next((e: unknown) => loose(e).event === 'progress' && loose(e).id === 'one');
+      await whenStarted('one');
       await new Promise((r) => setTimeout(r, 20));
       assert.deepEqual(started, ['one'], 'the second has not started yet');
       finish('one');
       await c.next((e: unknown) => loose(e).event === 'end' && loose(e).id === 'one');
-      await c.next((e: unknown) => loose(e).event === 'progress' && loose(e).id === 'two');
+      await whenStarted('two');
       assert.deepEqual(started, ['one', 'two']);
       finish('two');
       await c.next((e: unknown) => loose(e).event === 'end' && loose(e).id === 'two');
@@ -196,14 +200,15 @@ test('server: one task per agent at a time, the second of the same agent waits i
 
 test('server: a task of another agent of the unit runs beside a running one', async () => {
   // Bug: one runner serves every agent of its unit, and a slow errand of one agent holds up every other agent.
-  const { runner, started, finish } = controllableRunner();
+  // Changed: the runner sends no progress event, so the test waits for the engine to start the task instead.
+  const { runner, started, finish, whenStarted } = controllableRunner();
   await withCapturedLogs(() =>
     withServer(runner, async (sock: Untyped) => {
       const c = connect(sock);
       await c.ready;
       c.send({ op: 'run', agent: 'scout', id: 'one', goal: 'first' });
       c.send({ op: 'run', agent: 'fetch', id: 'two', goal: 'second' });
-      await c.next((e: unknown) => loose(e).event === 'progress' && loose(e).id === 'two');
+      await whenStarted('two');
       assert.deepEqual(started, ['one', 'two']);
       finish('one');
       finish('two');
@@ -271,8 +276,9 @@ test('server: a ping about an unknown id answers end/restarted', async () => {
   );
 });
 
+// Changed: the runner sends no progress event, so the test waits for the engine to start the task instead.
 test('server: stop ends an open task with restarted', async () => {
-  const { runner } = controllableRunner();
+  const { runner, whenStarted } = controllableRunner();
   const sock = socketPath();
   const server = createRunnerServer({ unit: 'scout', runner, socketPath: sock });
   await withCapturedLogs(async () => {
@@ -280,7 +286,7 @@ test('server: stop ends an open task with restarted', async () => {
     const c = connect(sock);
     await c.ready;
     c.send({ op: 'run', agent: 'scout', id: 'open', goal: 'never finishes' });
-    await c.next((e: unknown) => loose(e).event === 'progress');
+    await whenStarted('open');
     const endPromise = c.next((e: unknown) => loose(e).event === 'end');
     await server.stop();
     const end = await endPromise;
@@ -290,8 +296,9 @@ test('server: stop ends an open task with restarted', async () => {
   if (fs.existsSync(sock)) fs.unlinkSync(sock);
 });
 
+// Changed: the runner sends no progress event, so the test waits for the engine to start the task instead.
 test('server: liveIds names the running task and the queued ones, never a finished one', async () => {
-  const { runner, finish } = controllableRunner();
+  const { runner, finish, whenStarted } = controllableRunner();
   await withCapturedLogs(() =>
     withServer(runner, async (sock: Untyped, server: Untyped) => {
       assert.deepEqual(server.liveIds(), []);
@@ -299,12 +306,12 @@ test('server: liveIds names the running task and the queued ones, never a finish
       await c.ready;
       c.send({ op: 'run', agent: 'scout', id: 'first', goal: 'one' });
       c.send({ op: 'run', agent: 'scout', id: 'second', goal: 'two' });
-      await c.next((e: unknown) => loose(e).event === 'progress' && loose(e).id === 'first');
+      await whenStarted('first');
       await new Promise((resolve) => setTimeout(resolve, 20));
       assert.deepEqual(server.liveIds(), ['first', 'second']);
       finish('first');
       await c.next((e: unknown) => loose(e).event === 'end' && loose(e).id === 'first');
-      await c.next((e: unknown) => loose(e).event === 'progress' && loose(e).id === 'second');
+      await whenStarted('second');
       assert.deepEqual(server.liveIds(), ['second']);
       finish('second');
       await c.next((e: unknown) => loose(e).event === 'end' && loose(e).id === 'second');

@@ -3,7 +3,7 @@
 // cost, search provider, secrets -- never echoed back -- and the shared
 // preamble), the decode of a line
 // (bad JSON, oversize), the http form of a proxy URL, and the shapes of the
-// runner's `progress`, `end`, `pong`, `restarted` and `error` events, including
+// runner's `end`, `pong`, `restarted` and `error` events, including
 // the frozen RESULT_STATUSES. Pure; no I/O.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +11,6 @@ import {
   validateRequest,
   parseRequestLine,
   encodeLine,
-  progressEvent,
   endEvent,
   restartedEvent,
   pongEvent,
@@ -184,15 +183,6 @@ test('parseRequestLine: bad JSON, oversize, and a valid id surfaced on a bad mes
   const r = parseRequestLine(JSON.stringify({ op: 'run', agent: 'scout', id: 'task-5', goal: '' }));
   assert.equal(r.ok, false);
   assert.equal(r.id, 'task-5');
-});
-
-test('progressEvent: shape, note trimmed and cut', () => {
-  const e = progressEvent({ id: 'a', step: 3, tool: 'search', note: `  many   spaces  ${'x'.repeat(300)}` });
-  assert.equal(loose(e).event, 'progress');
-  assert.equal(loose(e).step, 3);
-  assert.equal(loose(e).tool, 'search');
-  assert.ok(loose(e).note.length <= 200);
-  assert.equal(loose(progressEvent({ id: 'a', step: 1 })).tool, null);
 });
 
 test('endEvent: status clamped to a known one, result and usage normalised', () => {

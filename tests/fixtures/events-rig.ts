@@ -222,11 +222,11 @@ export function fakeDescriber(): {
 }
 
 /** The notices a handler's fake adapter holds (`handler.port`). */
-export type Notice = { text: string; replyTo: { messageId: string } | null; mentions: object };
+export type Notice = { text: string; replyTo: { messageId: string } | null };
 type WithPort = { port: { messagesIn(chatId: string): Array<Notice> } };
 export function noticesOf(handler: object, id: string): Array<Notice> {
   return wrongly<WithPort>(handler)
-    .port.messagesIn(id).map(({ text, replyTo, mentions }) => ({ text, replyTo, mentions }));
+    .port.messagesIn(id).map(({ text, replyTo }) => ({ text, replyTo }));
 }
 export function textsOf(handler: object, id: string): Array<string> {
   return noticesOf(handler, id).map((notice) => notice.text);
@@ -235,11 +235,10 @@ export function lineOf(
   text: string,
   chatId = '',
   messageId = ''
-): { text: string; replyTo: { iface: string; chatId: string; messageId: string } | null; mentions: Rec } {
+): { text: string; replyTo: { iface: string; chatId: string; messageId: string } | null } {
   return {
     text,
     replyTo: messageId ? { iface: 'fake', chatId, messageId } : null,
-    mentions: { users: [], repliedUser: false },
   };
 }
 
