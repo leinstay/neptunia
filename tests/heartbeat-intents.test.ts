@@ -150,6 +150,9 @@ const GRANTS = [
   'intention.set',
   'intention.update',
   'intention.cancel',
+  'web.search',
+  'web.read',
+  'media.look',
 ];
 
 /** A real intention service over a temp data dir (guild g1) and a clock fixed at NOW. */
@@ -170,6 +173,7 @@ async function liveTurn({
   intentionsCfg = {},
   transport = 'native',
   lore = [],
+  lookup = null,
 }: Record<string, Untyped>) {
   const history = [rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' })];
   const hot: Record<string, Untyped> = hotWith({
@@ -213,6 +217,7 @@ async function liveTurn({
     runOwnOp: admin.runOwnSkillOp,
     runInitiativeOp: admin.runInitiativeSkillOp,
     intentions,
+    lookup,
   });
   const inner = { wake, shadow: false, mayAct: () => true, currentChannel: null };
   const { result, logs } = await withCapturedLogs(() =>
@@ -225,7 +230,7 @@ async function liveTurn({
 const THINK = '<think>STEP 4. So: write it.</think>';
 const SET = (text: string, extra = {}) => toolAnswer(THINK, [call('intention.set', { due: '0m', text, ...extra })]);
 /** What she read of the calls of request `i`: the content of its tool messages, in order. */
-const readOf = (run: Record<string, Untyped>, i: Untyped) =>
+const readOf = (run: Record<string, Untyped>, i: Untyped): string =>
   run.llm.calls[i]
     .filter((message: Record<string, Untyped>) => message.role === 'tool')
     .map((message: Record<string, Untyped>) =>
@@ -234,7 +239,7 @@ const readOf = (run: Record<string, Untyped>, i: Untyped) =>
         : message.content.map((part: Record<string, Untyped>) => part.text).join('')
     )
     .join('\n');
-const actionsOf = (run: Record<string, Untyped>) =>
+const actionsOf = (run: Record<string, Untyped>): Array<string> =>
   run.result.inner.actions.map((a: Record<string, Untyped>) => `${a.skill}:${a.status}:${a.code ?? a.result}`);
 
 test('heartbeat turn: a post is refused and a memory read succeeds, she reads why, then one intention.set ends the turn with no further request', async () => {
@@ -427,13 +432,47 @@ test('heartbeat: inspecting memory may end in a skip without creating an intenti
   assert.deepEqual(run.sends, []);
 });
 
-test('heartbeat: an external read remains forbidden even though memory reads are allowed', async () => {
+// Changed: a heartbeat takes every call that only looks, a web search and a page among them, so she checks a thing
+// before she decides instead of setting an intention to look it up.
+// Bug caught: a heartbeat refuses web.search or web.read, or a read ends the wake before her decision.
+test('heartbeat: a web search and then a page read both run, and an intention.set ends the turn', async () => {
+  const searched: Array<string> = [];
+  const lookup = {
+    searchResults: (_place: unknown, query: string) => {
+      searched.push(query);
+      return Promise.resolve({
+        query,
+        results: [{ title: 'Release notes', url: 'https://example.com/notes', snippet: 'out today' }],
+      });
+    },
+    readPage: (_place: unknown, url: string) =>
+      Promise.resolve({ ok: true, url, title: 'Release notes', text: 'version two' }),
+  };
   const run = await liveTurn({
-    answers: [toolAnswer(THINK, [call('web.read', { url: 'https://example.com' })]), '<skip/>'],
+    lookup,
+    answers: [
+      toolAnswer(THINK, [call('web.search', { query: 'release notes' })]),
+      toolAnswer(THINK, [call('web.read', { url: 'https://example.com/notes' })]),
+      SET('tell #general that version two is out'),
+    ],
   });
-  assert.deepEqual(actionsOf(run), ['web.read:refused:heartbeat-only']);
-  assert.equal(run.llm.calls.length, 2);
+  assert.deepEqual(actionsOf(run), ['web.search:executed:ok', 'web.read:executed:ok', 'intention.set:executed:ok']);
+  assert.deepEqual(searched, ['release notes']);
+  assert.ok(readOf(run, 2).includes('version two'), 'she reads the page before she decides');
   assert.deepEqual(run.sends, []);
+});
+
+// Bug caught: a heartbeat refuses media.look with heartbeat-only instead of running it.
+test('heartbeat: a media.look runs and answers with its own result', async () => {
+  const run = await liveTurn({
+    answers: [
+      toolAnswer(THINK, [call('media.look', { url: 'https://example.com/a.png', question: 'what is it' })]),
+      '<skip/>',
+    ],
+  });
+  const [look] = actionsOf(run);
+  assert.ok(!look.endsWith(':heartbeat-only'), look);
+  assert.ok(look.startsWith('media.look:executed:'), look);
 });
 
 test('heartbeat: a failed memory read is returned to the model and can end in a skip', async () => {

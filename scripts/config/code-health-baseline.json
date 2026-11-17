@@ -341,7 +341,7 @@
       "repeated": 1
     },
     "tests/heartbeat-intents.test.ts": {
-      "deep": 15,
+      "deep": 14,
       "repeated": 0
     },
     "tests/hot.test.ts": {
