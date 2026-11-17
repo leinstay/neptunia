@@ -26,7 +26,7 @@
 // of its own there.
 
 import { ROUTE_ROLES as CHAIN_ROLES } from '../../llm/route-text.ts';
-import { MEMORY_ROLE } from '../../llm/roles.ts';
+import { DISPATCHER_ROLE, MEMORY_ROLE } from '../../llm/roles.ts';
 import { BACKEND_NAMES, UNITS, agentNames } from '../../agent-runner/profiles.ts';
 import { AGENT_MODES } from '../../subharness/control.ts';
 import { SERVICE_NAMES, setupRefusal } from '../../service/schedule.ts';
@@ -164,7 +164,7 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
  */
 function checkModelRole(name: string, args: Readonly<Record<string, string>>): string | null {
   if (name !== 'model.set' && name !== 'model.sources') return null;
-  const roles = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, ...agentNames()])];
+  const roles = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, DISPATCHER_ROLE, ...agentNames()])];
   const role = args.role ?? '';
   return roles.includes(role) ? null : `/${name.replace('.', ' ')}: role is one of ${roles.join(', ')}, not "${role}"`;
 }

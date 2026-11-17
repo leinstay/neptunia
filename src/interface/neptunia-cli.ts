@@ -301,9 +301,11 @@ export function statusFactsOf(sources: FactSources): StatusFacts {
           },
     errands: {
       open: open.length,
-      latest: errands
-        .slice(0, LATEST_ERRANDS)
-        .map((errand) => ({ id: String(errand.id), state: String(errand.state), agent: String(errand.agent) })),
+      latest: errands.slice(0, LATEST_ERRANDS).map((errand) => ({
+        id: String(errand.id),
+        state: String(errand.state),
+        agent: typeof errand.agent === 'string' ? errand.agent : '-',
+      })),
     },
     slept: numberOf(inner.slept),
   };

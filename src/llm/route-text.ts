@@ -20,6 +20,7 @@ export const ROUTE_ROLES = [
   'speech',
   'drawing',
   'search',
+  'dispatcher',
 ] as const;
 export type RouteRole = (typeof ROUTE_ROLES)[number];
 

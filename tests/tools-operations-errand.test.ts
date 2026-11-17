@@ -76,6 +76,8 @@ function makeEnv({
       bot: { ownerPerson: OWNER_PERSON, access: {} },
       features: {},
       errands: { maxOpen: 3, ...errandSettings },
+      // Changed: the dispatcher's roster takes only an agent with a route.
+      models: { agents: { via: { scout: 'claude', server: 'claude' } } },
       agents: {
         scout: { enabled: true, daily: { tasks: 10 } },
         server: { enabled: true, daily: { tasks: 10 } },
@@ -98,6 +100,9 @@ function makeEnv({
     stores,
     hot,
     agentPaths,
+    // Changed: her errand names no agent; a fake dispatcher picks the scout, as ERRAND_AGENT did.
+    dispatch: (input: { roster: Array<{ name: string }> }) =>
+      Promise.resolve({ ok: true, agent: input.roster.some((entry) => entry.name === 'scout') ? 'scout' : null }),
     isServedRoot: (id: unknown) => id === 'g1',
     onFinished: (task: Untyped) => finished.push(task),
   } as unknown as Parameters<typeof createErrandService>[0]);
@@ -247,13 +252,23 @@ test('errand.add: a cap refuses with its code; a runner that is not set up is no
   });
   const off = makeEnv({ configured: false });
   await withCapturedLogs(async () => {
+    // Changed: her call names no agent and is accepted; the refusal of an agent that is off belongs to a named agent.
     const result = await runOp(
+      'errand.add',
+      { agent: 'scout', goal: 'x' },
+      ctx(off.env, OWNER) as unknown as Parameters<typeof runOp>[2]
+    );
+    assert.equal(result.status, 'failed');
+    assert.equal(result.code, 'not-configured');
+    // Changed: her own errand finds no agent that is on, so it ends no-agent instead of being refused.
+    const hers = await runOp(
       'errand.add',
       { goal: 'x' },
       ctx(off.env, MEMBER) as unknown as Parameters<typeof runOp>[2]
     );
-    assert.equal(result.status, 'failed');
-    assert.equal(result.code, 'not-configured');
+    await off.errands.idle();
+    const id = (hers.data as { task: { id: string } }).task.id;
+    assert.deepEqual([off.stores.get()?.get(id)?.state, off.stores.get()?.get(id)?.error], ['failed', 'no-agent']);
   });
 });
 
@@ -333,6 +348,8 @@ test("errand.list: the open ones, one by id, every one with a limit, a private c
     assert.equal(open.status, 'ok');
     assert.ok(open.summary.includes(group));
     assert.ok(!open.summary.includes(dm), "another member does not see a private chat's task");
+    // Changed: the dispatcher assigns the agent after the answer, so the list is read once it ran.
+    await new Promise((resolve) => setImmediate(resolve));
     const one = await runOp('errand.list', { id: dm }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
     assert.ok(one.summary.startsWith(`${dm} scout`));
     assert.equal(
@@ -353,7 +370,8 @@ test('errand.list: a finished task whose files the runner deleted says files-exp
     const id = asRecord(
       (await runOp('errand.add', { goal: 'a meme' }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).data
     ).task.id;
-    while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
+    // Changed: bounded, so a run that never starts fails at once (her errand waits for the dispatcher first).
+    await firstRun(client);
     client.end(id, {
       status: 'done',
       result: { text: 'ok', files: [{ path: '/x/a.png', name: 'a.png' }] },
@@ -655,6 +673,17 @@ test('errand.list refuses a state, a date or a limit it cannot read', async () =
 
 // ---- A call that waits for its errand (a heartbeat or a diary turn) -------------------------------------------------
 
+/**
+ * Waits until `client` received a run, at most 1000 turns of the event loop: a run that never starts fails the test
+ * instead of spending the file's time budget.
+ */
+async function firstRun(client: { runs: Array<unknown> }): Promise<void> {
+  for (let turn = 0; client.runs.length === 0; turn += 1) {
+    if (turn >= 1000) throw new Error('no run started');
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 /** One `errand.add` of hers that waits up to `waitMs`, started now; `ended` resolves with its answer. */
 function waitingCall(env: unknown, waitMs: number) {
   return runOp(
@@ -669,7 +698,8 @@ test('errand.add: a call that waits answers with the result text once the errand
   const { env, client, stores } = makeEnv({ labels: LABELS });
   await withCapturedLogs(async () => {
     const answer = waitingCall(env, 600_000);
-    while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
+    // Changed: bounded, so a run that never starts fails at once (her errand waits for the dispatcher first).
+    await firstRun(client);
     const id = String(asRecord(client.runs[0]).id);
     client.end(id, { status: 'done', result: { text: 'the changelog is at v3.2' }, usage: { usd: 0.01 } });
     const result = await answer;
@@ -684,7 +714,8 @@ test("errand.add: a waited errand that fails answers failed with the errand's ow
   const { env, client } = makeEnv({ labels: LABELS });
   await withCapturedLogs(async () => {
     const answer = waitingCall(env, 600_000);
-    while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
+    // Changed: bounded, so a run that never starts fails at once (her errand waits for the dispatcher first).
+    await firstRun(client);
     client.end(String(asRecord(client.runs[0]).id), { status: 'failed', error: 'backend-error' } as never);
     const result = await answer;
     assert.deepEqual([result.status, result.code], ['failed', 'backend-error']);

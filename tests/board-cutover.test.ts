@@ -69,6 +69,9 @@ function errandModel(asked: ReadonlyArray<Asked>): Llm {
     complete: (messages: unknown, given?: unknown) => {
       if ((given as { purpose?: unknown } | undefined)?.purpose === 'address')
         return Promise.resolve({ text: 'yes', usage: {}, estimated: 1 });
+      // Changed: her errand names no agent, so the dispatcher is asked; it picks the scout.
+      if ((given as { purpose?: unknown } | undefined)?.purpose === 'dispatch')
+        return Promise.resolve({ text: '<agent>scout</agent>', usage: {}, estimated: 1 });
       requests.push(messages);
       const text = JSON.stringify(messages);
       const due = asked.find((item) => !used.has(item.line) && text.includes(item.line));
@@ -95,6 +98,8 @@ function errandConfig(): Settings {
     // gives the opening turn twenty seconds.
     errands: { maxOpen: 3, resultCooldownSeconds: 0, resultRetrySeconds: 1 },
     agents: { scout: { enabled: true, daily: { tasks: 5 } } },
+    // Changed: the dispatcher's roster takes only an agent with a route.
+    models: { agents: { via: { scout: 'claude' } } },
   };
 }
 

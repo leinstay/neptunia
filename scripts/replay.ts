@@ -571,7 +571,6 @@ import type { RouteRole, ScriptRouting, Variant } from './lib/script-routes.ts';
 import type { Hot } from '../src/hot.ts';
 import { proxySettings } from '../src/net/proxy.ts';
 import { parseArgs, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
-import { ERRAND_AGENT } from '../src/tools/operations/catalog.ts';
 
 /** An object read by key whose values are not typed yet. */
 
@@ -3827,7 +3826,8 @@ export function loopCall({
       return {
         ...outcome,
         errand: {
-          agent: String(executed.args?.agent ?? ERRAND_AGENT),
+          // A replay runs no dispatcher: an errand she asked names no agent.
+          agent: typeof executed.args?.agent === 'string' ? executed.args.agent : null,
           goal: String(executed.args?.goal ?? call?.body ?? ''),
         },
       };

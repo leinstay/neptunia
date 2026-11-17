@@ -33,8 +33,9 @@ import type { Call, Reply } from './fixtures/keys-rig.ts';
 import type { PauseControl, KeysDeps } from '../src/keys/commands.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-const MANDATORY = ['core', 'memory', 'analyzer', 'embedding'];
-const DEFAULTS = Object.fromEntries(MANDATORY.map((role) => [role, `default/${role}`]));
+// Changed: `dispatcher` is a mandatory role with no default model, so the first key asks its model last and needs one.
+const MANDATORY = ['core', 'memory', 'analyzer', 'embedding', 'dispatcher'];
+const DEFAULTS = Object.fromEntries(MANDATORY.slice(0, 4).map((role) => [role, `default/${role}`]));
 
 const api = (key: string, model: string): Route => ({ via: 'api', key, model, effort: null });
 
@@ -68,11 +69,12 @@ function rig(answer: (call: Call) => Reply = healthy, paused: string | null = nu
   return { keys, store, calls, pause, chains, file: path.join(privateDir, KEYS_FILE) };
 }
 
-const BLANKS = ['', '', '', ''];
+// Changed: the dispatcher has no default, so its answer is a model, not a blank.
+const BLANKS = ['', '', '', '', 'x/dispatcher'];
 
-test('the first key asks the value without echo, then the four models with the defaults offered, checks each and writes their chains', async () => {
+test('the first key asks the value without echo, then the mandatory models with the defaults offered, checks each and writes their chains', async () => {
   const { keys, store, calls, chains } = rig();
-  const { dialog, asked } = scriptedDialog([SECRET, 'custom/core', '', '', '']);
+  const { dialog, asked } = scriptedDialog([SECRET, 'custom/core', '', '', '', 'x/dispatcher']);
   const answer = await keys.run('keys.add', { name: 'core-1' }, dialog);
   assert.equal(answer.status, 'ok');
   assert.equal(asked[0]?.secret, true, 'the value is asked as a secret');
@@ -87,6 +89,8 @@ test('the first key asks the value without echo, then the four models with the d
     memory: [api('core-1', 'default/memory')],
     analyzer: [api('core-1', 'default/analyzer')],
     embedding: [api('core-1', 'default/embedding')],
+    // Changed: the dispatcher's chain is written with the other mandatory roles.
+    dispatcher: [api('core-1', 'x/dispatcher')],
   });
   assert.deepEqual(store.names(), ['core-1']);
   assert.deepEqual(calls.map((call) => call.body?.model).sort(), [
@@ -94,12 +98,15 @@ test('the first key asks the value without echo, then the four models with the d
     'default/analyzer',
     'default/embedding',
     'default/memory',
+    // Changed: the dispatcher's model is checked too.
+    'x/dispatcher',
   ]);
   assert.ok(
     calls.every((call) => call.auth === SECRET),
     'every probe goes out on the new key'
   );
-  assert.ok(answer.text.includes('0.03'), 'the cost of the four requests is reported');
+  // Changed: five requests, the dispatcher's included, cost 0.045.
+  assert.ok(answer.text.includes('$0.0450'), 'the cost of the five requests is reported');
   assert.ok(!answer.text.includes('SECRETVALUE'));
 });
 

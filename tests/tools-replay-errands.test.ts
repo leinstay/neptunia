@@ -234,7 +234,8 @@ test('replay --skills: errand.add passes the sandbox gateway under the live erra
   const unbudgeted = runTask({ config, tasks: null });
   assert.deepEqual([unbudgeted.verdict.code, unbudgeted.verdict.reason], ['no-budget', 'unavailable']);
 
-  // The caps are read at the moment of use: a lower scout cap refuses it the next time.
+  // Changed: a spent scout cap no longer refuses her errand at the gateway, since it names no agent; the dispatcher's
+  // roster leaves the scout out instead (tests/errands-dispatch.test.ts, the roster drops a spent agent).
   const lowered = scenarioConfig(['errand.add'], { agents: { scout: { daily: { tasks: 1 } } } });
   const live = sandboxErrandBudget({
     createErrandStore,
@@ -244,10 +245,7 @@ test('replay --skills: errand.add passes the sandbox gateway under the live erra
     now: () => NOW,
   });
   const spent = runTask({ config: lowered, tasks: live });
-  assert.deepEqual(
-    [spent.verdict.stage, spent.verdict.code, spent.verdict.reason, spent.executed],
-    ['gateway', 'cap-tasks', 'agents.scout.daily.tasks', null]
-  );
+  assert.deepEqual(spent.verdict, { stage: 'gateway', ok: true });
 
   // Open tasks count against errands.maxOpen as live.
   const busyDir = scratchData(t, {

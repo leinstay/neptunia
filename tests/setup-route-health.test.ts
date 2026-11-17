@@ -30,6 +30,8 @@ const MODELS = {
   embedding: 'x/embedding',
   speech: false,
   drawing: 'x/drawing',
+  // Changed: a deployment sets a dispatcher route, since the doctor warns while it has none.
+  dispatcher: 'x/dispatcher',
 };
 
 /** A deployment with the key `core-1` and `keys` beside it; fetch refuses the models in `refused`. */
@@ -193,4 +195,12 @@ test('a stored effort level on a role whose model takes no reasoning is reported
   fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ models: { routes } }));
   const health = await run();
   assert.match(health.detail, /^embedding: effort high .*disabled$/m);
+});
+
+test('a dispatcher with no route warns and names the command that sets one', async () => {
+  // Catches: a deployment with no dispatcher route passes the doctor while every errand of hers fails before it runs.
+  const { run } = rig({}, { models: { dispatcher: false } });
+  const health = await run();
+  assert.ok(/dispatcher: no route · \/model set dispatcher/.test(health.detail), health.detail);
+  assert.equal(health.status, 'warn');
 });

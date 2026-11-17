@@ -99,6 +99,8 @@ function makeEnv({
       bot: { ownerPerson: OWNER_PERSON, access: {}, ...wrongly<{ timezone?: string }>({}) },
       errands: { maxOpen: 3, ...errandSettings },
       agents: { scout: { enabled: true, daily: { tasks: 10 } }, ...agents },
+      // Changed: the dispatcher's roster takes only an agent with a route.
+      models: { agents: { via: { scout: 'claude' } } },
       intentions: {
         expiresDays: 14,
         maxOpen: 20,
@@ -137,6 +139,8 @@ function makeEnv({
     stores,
     hot,
     now,
+    // Changed: her errand names no agent; a fake dispatcher picks the scout, as ERRAND_AGENT did.
+    dispatch: () => Promise.resolve({ ok: true as const, agent: 'scout' }),
     onFinished: (task) => door.submit(errandDoneEvent(task, now)),
   });
   intentions = createIntentionService({

@@ -3,11 +3,11 @@
 // check of the route. The console (src/interface/commands/console.ts) routes them here. A key value is never an argument: every add asks
 // for it through the dialog the link gives (a secret prompt, src/interface/commands/dialogs.ts), so the value reaches
 // neither the typed line, the chat's history file nor a refusal. A key is checked before it is saved (the first key with
-// the four mandatory model roles, whose chains it then carries, a later one with `/auth/key`), and a failed check saves
+// the mandatory model roles, whose chains it then carries, a later one with `/auth/key`), and a failed check saves
 // nothing. An answer names keys by name and last four characters and never holds a value; a refusal names the store's
 // code, never the word that was refused.
 
-import { CORE_ROLE, SEARCH_ROLE, directSelectionOf, isModelRole } from '../llm/roles.ts';
+import { CORE_ROLE, DISPATCHER_ROLE, SEARCH_ROLE, directSelectionOf, isModelRole } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
 import type { CheckResult } from './check.ts';
@@ -18,7 +18,7 @@ import type { HarnessRoute, Route, RouteRole } from '../llm/route-text.ts';
 import type { KeyStore } from './store.ts';
 
 /** The model roles the first key must serve before its add finishes, in the order they are asked. */
-export const MANDATORY_ROLES: ReadonlyArray<RouteRole> = ['core', 'memory', 'analyzer', 'embedding'];
+export const MANDATORY_ROLES: ReadonlyArray<RouteRole> = ['core', 'memory', 'analyzer', 'embedding', 'dispatcher'];
 
 /** The pause reason of a core left with no usable route by `keys remove`; the `keys add` that gives it one lifts it. */
 const NO_CORE_ROUTE = 'no-core-route';
@@ -304,7 +304,7 @@ export function createKeysCommands(deps: KeysDeps): {
   }
 
   /**
-   * The first key: the value, the four models, one request per model on the new key, and only then the save of the key
+   * The first key: the value, a model per mandatory role, one request per model on the new key, and only then the save of the key
    * and of each mandatory role's chain, one route on the new key.
    */
   async function firstKey(name: string, key: string, value: string, dialog: Dialog): Promise<Answer> {
@@ -334,13 +334,13 @@ export function createKeysCommands(deps: KeysDeps): {
       text: [
         `${key} is the first key. The models are saved:`,
         ...results.map(checkLine),
-        `The four checks cost ${money(cost)}.${resumed ? ' She is running again.' : ''}`,
+        `The ${results.length} checks cost ${money(cost)}.${resumed ? ' She is running again.' : ''}`,
       ].join('\n'),
       status: 'ok',
     };
   }
 
-  /** `keys add <name>`: the first key of an empty keys.json asks the four models too; any other is checked and named. */
+  /** `keys add <name>`: the first key of an empty keys.json asks the mandatory roles' models too; any other is checked and named. */
   async function addKey(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
     const key = text(args.name);
     const refused = beforeAsking(name, key, dialog);
@@ -399,7 +399,7 @@ export function createKeysCommands(deps: KeysDeps): {
 
   /** `keys check <name|role>`: a role's route in force with one request, or a key with the free read of its record. */
   async function checkTarget(name: string, target: string): Promise<Answer> {
-    if (isModelRole(target) || target === SEARCH_ROLE) return checkOne(name, target);
+    if (isModelRole(target) || target === SEARCH_ROLE || target === DISPATCHER_ROLE) return checkOne(name, target);
     const value = store.valueOf(target);
     if (value === null) return invalid(name, `${target} is no model role and no key of keys.json`, 'unknown-target');
     const info = await checkKey({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value });

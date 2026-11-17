@@ -58,9 +58,6 @@ export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => role !== 'speech');
 /** The `kind` choices of `memory.journal.read` (`all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']);
 
-/** The agent of every `errand.add` of hers; the owner names another in `/errands add`. A dispatcher replaces it later. */
-export const ERRAND_AGENT = 'scout';
-
 /** Every dotted leaf path of a plain config object, depth-first in key order; an empty object or an array is a leaf. */
 export function leafPaths(config: unknown, prefix = ''): Array<string> {
   const out: Array<string> = [];

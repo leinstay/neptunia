@@ -60,7 +60,6 @@ import { answerOf } from '../../src/behavior/turn.ts';
 import { weekReads } from './platform-objects.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { parseFixture, addDays, parseDuration, occurrences, attention, dayKey } from './inner-week-fixture.ts';
-import { ERRAND_AGENT } from '../../src/tools/operations/catalog.ts';
 import type { Fixture, WeekRun } from './inner-week-fixture.ts';
 
 export {
@@ -624,7 +623,7 @@ export async function runWeek({
       const id = `task-${world.taskSeq}`;
       world.tasks.set(id, {
         id,
-        agent: ERRAND_AGENT,
+        agent: null,
         state: 'running',
         origin: { turnId },
         ...(key ? { idempotencyKey: key } : {}),

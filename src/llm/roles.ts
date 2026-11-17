@@ -49,6 +49,17 @@ export function searchModel(config: unknown): string | undefined {
   return chainModel(objOf(config).models, SEARCH_ROLE) ?? undefined;
 }
 
+/**
+ * The role of the dispatcher, which picks the agent of an errand that names none (src/errands/dispatcher.ts). It has a
+ * chain of routes of its own and no default model, and it is not one of BASE_ROLES.
+ */
+export const DISPATCHER_ROLE = 'dispatcher';
+
+/** The dispatcher's model: the first route of its chain, undefined until the owner sets one. */
+export function dispatcherModel(config: unknown): string | undefined {
+  return chainModel(objOf(config).models, DISPATCHER_ROLE);
+}
+
 /** The model roles other than `core` that a turn calls, in display order. */
 export const NON_CORE_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
 

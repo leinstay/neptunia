@@ -169,6 +169,14 @@ function move(db: BoardDb, task: ErrandTaskRow, to: Status, at: string, fields: 
   return moved;
 }
 
+/** `task` with the agent of `errand` as its role: the dispatcher gives an errand its agent while it is queued. */
+function withRole(db: BoardDb, task: ErrandTaskRow, errand: ErrandData): ErrandTaskRow {
+  const role = typeof errand.agent === 'string' ? errand.agent : '';
+  if (task.role === role) return task;
+  db.prepare('UPDATE board_tasks SET role = ? WHERE id = ?').run(role, task.id);
+  return { ...task, role };
+}
+
 /**
  * Brings the board to `save` inside the caller's transaction: the task filed at `approved` when it is new, its fields
  * and status moved to the errand's (through `in_progress` when it started), `onEnd` called right after a move to an
@@ -186,7 +194,7 @@ function saveErrand(db: BoardDb, save: ErrandSave, onEnd: () => void): void {
     }
     const filed = readTask(db, errand.id);
     if (filed === null) throw new Error(`errand task ${errand.id} is missing right after it was filed`);
-    let task = filed;
+    let task = withRole(db, filed, errand);
     const fields: TaskFields = {
       metadata: metadataOf(errand),
       title: typeof errand.goal === 'string' ? errand.goal : task.title,

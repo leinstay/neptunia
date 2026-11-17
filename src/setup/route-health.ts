@@ -19,7 +19,7 @@ import { createKeyStore } from '../keys/store.ts';
 import { routesOf } from '../llm/route-chain.ts';
 import { ignoredEffort } from '../llm/route-text.ts';
 import type { RouteRole } from '../llm/route-text.ts';
-import { roleModel, searchModel } from '../llm/roles.ts';
+import { dispatcherModel, roleModel, searchModel } from '../llm/roles.ts';
 import { routeName } from '../subharness/route-names.ts';
 import { readRouting } from '../subharness/routing.ts';
 import { availableSources, sourceProblem, sourceState } from '../subharness/sources.ts';
@@ -33,7 +33,17 @@ export type RouteHealthDeps = { privateDir: string; config: unknown; fetch: type
 const MANDATORY: ReadonlySet<string> = new Set(['core', 'memory', 'analyzer']);
 
 /** The model roles on the API, in the order the check names them. */
-const API_ROLES = ['core', 'memory', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'] as const;
+const API_ROLES = [
+  'core',
+  'memory',
+  'analyzer',
+  'vision',
+  'video',
+  'embedding',
+  'speech',
+  'drawing',
+  'dispatcher',
+] as const;
 
 type Line = { text: string; bad: 'fail' | 'warn' | null };
 
@@ -99,7 +109,15 @@ async function onKey(run: Run, part: string, role: string, model: string, keyNam
 /** One line per route of the chain of `role`; a role whose every route failed keeps its badness, else it warns. */
 async function chainLines(run: Run, role: RouteRole): Promise<Array<Line>> {
   const chain = routesOf(run.deps.config, role);
-  const model = role === 'search' ? searchModel(run.deps.config) : roleModel(run.deps.config, role);
+  const model =
+    role === 'search'
+      ? searchModel(run.deps.config)
+      : role === 'dispatcher'
+        ? dispatcherModel(run.deps.config)
+        : roleModel(run.deps.config, role);
+  // The dispatcher has no default model: with no route every errand of hers fails before it runs.
+  if (chain.length === 0 && role === 'dispatcher')
+    return [{ text: 'dispatcher: no route · /model set dispatcher <key>/<model>', bad: badOf(role) }];
   if (chain.length === 0)
     return [
       model === undefined || model === ''
