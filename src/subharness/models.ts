@@ -36,10 +36,11 @@ export const FIXED_MODELS: Readonly<Record<'codex' | 'claude', ReadonlyArray<str
 };
 
 /**
- * The effort levels each backend takes, surveyed on 2026-11-17 with one short run per model and level: claude 2.1.317
- * (`--effort`) and codex 0.164.0 (`-c model_reasoning_effort`) answered at every level on every model of FIXED_MODELS.
- * Opencode 1.19.3 passes the level as `--variant`, which each OpenRouter model reads its own way, and no model of it was
- * surveyed, so it takes `low`, `medium` and `high` alone.
+ * The effort levels each backend takes, surveyed on 2026-11-17. Claude 2.1.317 (`--effort`) answered one short run per
+ * model of FIXED_MODELS and level. Codex 0.164.0 (`-c model_reasoning_effort`) answered at every level on one model, and
+ * for each other model of FIXED_MODELS its provider named these five as the levels the model takes. Opencode 1.19.3
+ * passes the level as `--variant`, which each OpenRouter model reads its own way, and no model of it was surveyed, so it
+ * takes `low`, `medium` and `high` alone.
  */
 export const BACKEND_EFFORTS: Readonly<Record<BackendName, ReadonlyArray<EffortLevel>>> = {
   claude: LISTED_EFFORT_LEVELS,
