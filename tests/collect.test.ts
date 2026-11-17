@@ -859,7 +859,8 @@ test('fetchHistory: a preview title and a description of 600 characters reach th
   });
   const channel = fakeOf<Chan>({ messages: { fetch: async () => new Map([[raw.id, raw]]) } });
   const [message] = await fetchHistory(channel, { limit: 10, selfId: 'self' });
-  const [link] = loose(message).links;
+  const preview: { links: Array<{ title: string; text: string }> } = loose(message);
+  const [link] = preview.links;
   assert.deepEqual([link.title, link.text], ['x'.repeat(300), 'y'.repeat(600)]);
 });
 
