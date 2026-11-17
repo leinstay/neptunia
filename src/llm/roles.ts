@@ -49,6 +49,9 @@ export function searchModel(config: unknown): string | undefined {
   return chainModel(objOf(config).models, SEARCH_ROLE) ?? undefined;
 }
 
+/** The humanizer's roles (docs/humanizer.md); like `search` they have no built-in model, only their chains'. */
+export const HUMANIZER_ROLES: ReadonlyArray<string> = Object.freeze(['humanizer.linter', 'humanizer.writer']);
+
 /** The model roles other than `core` that a turn calls, in display order. */
 export const NON_CORE_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
 
@@ -163,6 +166,7 @@ export function roleModel(config: unknown, role: string, purpose?: string): stri
     const pinned = byPurpose[purpose];
     if (typeof pinned === 'string' && pinned) return pinned;
   }
+  if (HUMANIZER_ROLES.includes(role)) return chainModel(models, role);
   if (!isModelRole(role)) return undefined;
   return chainModel(models, role) ?? (role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role]);
 }

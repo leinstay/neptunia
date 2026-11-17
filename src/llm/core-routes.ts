@@ -39,7 +39,9 @@ export function createCoreRoutes(deps: { store: KeyStore; getConfig: () => unkno
     chain: createRouteChainOf(deps.getConfig, deps.now),
     executor: (role) => {
       if (clients === null) throw new Error('core: a model request came before the model clients were built');
-      return role === 'core' ? clients.core : role === 'memory' ? clients.memory : clients.direct;
+      // The humanizer's writer is a one-shot request with a system text, which the memory writer's client runs on a harness.
+      if (role === 'memory' || role === 'humanizer.writer') return clients.memory;
+      return role === 'core' ? clients.core : clients.direct;
     },
   });
   const pathOf = (role: RouteRole): MemoryPath => {
