@@ -51,7 +51,6 @@ export type RunRequest = {
   goal: string;
   context: RunContext;
   limits?: Record<string, number>;
-  cost?: { input: number; output: number };
   searchProvider?: string;
   secrets?: RunSecrets;
   preamble?: string;
@@ -97,7 +96,6 @@ export type TaskUsage = {
   usd: number;
   steps: number;
   seconds: number;
-  costUnknown?: number;
 };
 
 /** The operations the core may send. */
@@ -180,11 +178,6 @@ export function parseRoute(value: unknown): TaskRoute | null {
     : { backend: knownBackend, model, effort: knownEffort, mode: knownMode, ...pin };
 }
 
-/** Whether `value` is a non-negative finite number (a price in USD per million tokens). */
-function isPrice(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
-}
-
 /** Whether `value` may be a secret: a non-empty string without whitespace, at most MAX_SECRET_CHARS. */
 function isSecret(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_SECRET_CHARS && !/\s/.test(value);
@@ -250,10 +243,6 @@ function validateRun(msg: Rec, id: string): Checked {
     }
     out.limits = limits;
   }
-  if (msg.cost !== undefined) {
-    if (!isRec(msg.cost) || !isPrice(msg.cost.input) || !isPrice(msg.cost.output)) return refuse('bad-cost');
-    out.cost = { input: msg.cost.input, output: msg.cost.output };
-  }
   if (msg.searchProvider !== undefined) {
     if (typeof msg.searchProvider !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(msg.searchProvider))
       return refuse('bad-search-provider');
@@ -288,8 +277,7 @@ function validateRun(msg: Rec, id: string): Checked {
  * at most MAX_CONTEXT_CHARS as JSON, whose `scope` is one of SCOPES when
  * present and whose `recent`, when present, is a list of `{ author, text }`
  * strings: the latest MAX_RECENT_ENTRIES kept whole, any
- * other key of a line dropped; a malformed one refuses `bad-recent`), `limits` (only LIMIT_KEYS, each a positive number), `cost`
- * (`{ input, output }` in USD per million tokens), `searchProvider` (an
+ * other key of a line dropped; a malformed one refuses `bad-recent`), `limits` (only LIMIT_KEYS, each a positive number), `searchProvider` (an
  * OpenCode web search provider id) and `secrets` (`{ openrouterKey?, proxy?,
  * searchKey? }`, at least one, each a non-empty string without whitespace, no other key;
  * `proxy` in the http form, see httpProxyForm) and `preamble` (the deployment's
@@ -408,7 +396,7 @@ export function normalizeResult(result: unknown): TaskResult {
   return out;
 }
 
-/** A usage in its protocol shape: `{ input, output, usd, steps, seconds }` plus `costUnknown` when above 0. */
+/** A usage in its protocol shape: `{ input, output, usd, steps, seconds }`. */
 export function normalizeUsage(usage: unknown): TaskUsage {
   const u = objOf(usage);
   const out: TaskUsage = {
@@ -418,7 +406,6 @@ export function normalizeUsage(usage: unknown): TaskUsage {
     steps: count(u.steps),
     seconds: count(u.seconds),
   };
-  if (count(u.costUnknown) > 0) out.costUnknown = count(u.costUnknown);
   return out;
 }
 

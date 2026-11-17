@@ -36,12 +36,10 @@ test('validateRequest: a full run passes and is normalised', () => {
     goal: '  find a meme  ',
     context: { scope: 'dm', asker: 'Theodora' },
     limits: { steps: 10, seconds: 60 },
-    cost: { input: 2, output: 6 },
     searchProvider: 'exa',
   });
   assert.equal(r.ok, true);
   assert.equal(loose(r.message).goal, 'find a meme');
-  assert.deepEqual(loose(r.message).cost, { input: 2, output: 6 });
   assert.equal(loose(r.message).context.scope, 'dm');
 });
 
@@ -71,10 +69,6 @@ test('validateRequest: a bad scope, limit, cost or search provider is refused', 
   assert.equal(
     loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', limits: { nope: 1 } })).error,
     'bad-limits'
-  );
-  assert.equal(
-    loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', cost: { input: -1, output: 2 } })).error,
-    'bad-cost'
   );
   assert.equal(
     loose(validateRequest({ op: 'run', agent: 'scout', id: 'a', goal: 'x', searchProvider: 'Exa!' })).error,
@@ -206,13 +200,12 @@ test('endEvent: status clamped to a known one, result and usage normalised', () 
     id: 'a',
     status: 'weird',
     result: { text: 'ok', sources: ['u', 'u'], files: [{ path: '/p', bytes: 3 }] },
-    usage: { usd: 0.1, costUnknown: 2 },
+    usage: { usd: 0.1 },
   });
   assert.equal(e.status, 'failed');
   assert.deepEqual(e.result.sources, ['u']);
   assert.equal(e.result.files[0].name, '');
   assert.equal(e.usage.usd, 0.1);
-  assert.equal(e.usage.costUnknown, 2);
   const ok = endEvent({ id: 'a', status: 'done', result: { text: 'hi' } });
   assert.equal(ok.status, 'done');
   assert.equal(ok.error, undefined);

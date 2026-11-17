@@ -416,7 +416,7 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `agents` | map | `{}` | Per agent name, `enabled` (the agent is off while it is not `true`, `/agent enable <name>` writes it) and overrides of `cost`, `limits` and `daily` of `agents/<name>/profile.json`, laid over the profile key by key | `src/agent-runner/profiles.ts` |
+| `agents` | map | `{}` | Per agent name, `enabled` (the agent is off while it is not `true`, `/agent enable <name>` writes it) and overrides of `limits` and `daily` of `agents/<name>/profile.json`, laid over the profile key by key | `src/agent-runner/profiles.ts` |
 
 ## intentions
 

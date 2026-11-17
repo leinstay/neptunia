@@ -65,7 +65,6 @@ export type ErrandUsage = {
   usd: number;
   steps: number;
   seconds: number;
-  costUnknown?: number;
 };
 
 /** The limits an errand runs under. */
