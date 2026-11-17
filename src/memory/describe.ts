@@ -472,7 +472,7 @@ type DescriberDeps = {
 /** An attached GIF whose address is read again: the place it is described in and the message it came with. */
 export type AttachedGif = MediaItem & { placeId: string; messageId?: string };
 
-/** A text file's opening, over plain HTTP. */
+/** A text file's whole text, over plain HTTP; `readTextFile` retells one over `TEXT_FORM_CHARS`. */
 async function readTextForm(url: string): Promise<{ ok: boolean; text?: string; reason?: string }> {
   const text = await fetchTextPreview(url, TEXT_FORM_CHARS);
   return text === null ? { ok: false, reason: 'download' } : { ok: true, text };

@@ -28,14 +28,14 @@ export type AudioDeps = {
   complete: (messages: Array<unknown>, options: unknown) => Promise<Completion>;
   requestOptions: (settings: VideoSettings, seconds: number, model: unknown) => object;
   failureReason: (error: unknown) => string;
-  /** Shortens a heard text over `maxChars` (src/behavior/summarize.ts); the text is kept whole by what it returns. */
+  /** Shortens a heard text or a text file over `maxChars` (src/behavior/summarize.ts); the text is kept whole by what it returns. */
   summarize: (text: string, maxChars: number) => Promise<string>;
   keep: (item: Item, entry: Record<string, unknown>) => void;
   miss: (item: Item, reason: unknown) => null;
   now: () => number;
 };
 
-/** The first characters of a text file kept as its text form, a preview's own length. */
+/** The length of a text file's text form: a file over it is kept as the summarizer's retelling. */
 export const TEXT_FORM_CHARS = 2000;
 
 /**
@@ -90,7 +90,7 @@ export async function hearAudio(
   };
 }
 
-/** A text file's text form is the opening of its own words, with no model. */
+/** A text file's text form is its own words, retold once by `summarize` when they run over `TEXT_FORM_CHARS`. */
 export async function readTextFile(
   deps: AudioDeps,
   item: Item
@@ -98,7 +98,7 @@ export async function readTextFile(
   const read = await deps.fetchText(item.url);
   if (!read.ok || !read.text) return deps.miss(item, read.reason ?? 'download');
   const ts = deps.now();
-  const text = read.text.trim().slice(0, TEXT_FORM_CHARS);
+  const text = await deps.summarize(read.text.trim(), TEXT_FORM_CHARS);
   deps.keep(item, { text, ts, describedAt: ts });
   return { text, usage: null, estimated: 0 };
 }

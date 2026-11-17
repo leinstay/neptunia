@@ -277,6 +277,7 @@ export function createTurnRunner({
   describer = undefined,
   describePicture = undefined,
   fetchImpl = fetch,
+  summarize = undefined,
   imageFetcher = createImageFetcher(),
   lookup = undefined,
   recall = null,
@@ -371,6 +372,7 @@ export function createTurnRunner({
     intentions,
     places,
     chatPlaces: () => frameReads?.chatPlaces?.() ?? [],
+    summarize,
   });
   const { turnContextOf, chatOf, messageOf, checkEffect } = inputs;
 
@@ -646,6 +648,7 @@ export function createTurnRunner({
     hot,
     store,
     lookup,
+    summarize,
     describer,
     recall,
     speech,
@@ -684,6 +687,7 @@ export function createTurnRunner({
     schedule,
     describer,
     fetchImpl,
+    summarize,
     lookup,
     images,
     emoji,
