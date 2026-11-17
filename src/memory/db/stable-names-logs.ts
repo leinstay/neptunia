@@ -34,7 +34,7 @@ function batchPlan(db: Db, rows: ReadonlyArray<Row>, table: string, options: Opt
       const to = logCell(target, from, resolver);
       if (to !== from) cells.push({ table, column, id: String(row.key), from, to });
     }
-  const plan = { issue, lines: [], media: [], cells, ties: [] };
+  const plan = { issue, twins: [], lines: [], media: [], cells, ties: [] };
   const counts = { lines: 0, tokens: 0, media: 0, untied: 0, issue: issued, left, tables: tablesOf(plan) };
   return { ...plan, counts };
 }
