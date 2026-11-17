@@ -40,8 +40,9 @@
 //       The owner's configuration of the mirrors, handed to mirror-config.ts#applyMirrorWrite.
 //   { kind: 'entry-media', id, items, dataDir }
 //       A diary entry's pictures and voice file, kept as files and `media` rows (diary-media.ts#applyEntryMedia).
-//   { kind: 'place-address', placeId, address, at }
-//       The chat an interface opened for a place that held no address (observe.ts#applyPlaceAddress). No mode.
+//   { kind: 'place-address', placeId, address, at } | { kind: 'place-address', iface, partner, address, at }
+//       The chat an interface opened for a place that held no address, or for a person with no direct chat stored
+//       (observe.ts#applyPlaceAddress). No mode.
 //   { kind: 'owner-name', personId, name, remove? } | { kind: 'project', sliceUnits?, maxSlices? }
 //       A name the owner gives a person (owner-names.ts#applyOwnerNameWrite) and one tick of the projection job
 //       (projection-job.ts#applyProjectWrite). Every other memory value has its own kind in `WHOLE_WRITES`.

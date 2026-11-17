@@ -131,6 +131,7 @@ import { createRootRoutes } from './core-routing.ts';
 import { accountOf, chatOfPlace, dmPartnerOf, placeOfChat } from './memory/addresses.ts';
 import { personaJournal, personaRecord } from './behavior/inner/persona-sources.ts';
 import { createOwnerAccounts } from './memory/db/person-links.ts';
+import { createDmAhead } from './interface/dm-ahead.ts';
 import { createReads } from './interface/reads.ts';
 import { withStableNames } from './behavior/stable-names.ts';
 import { freshAttachmentUrl } from './media/gif-post.ts';
@@ -862,6 +863,17 @@ async function buildCore(
   // The core's reads of the interface: each answers its body or null, and a block that needs one is left out when it is null.
   const reads = createReads(iface, log, (id) =>
     id === PERSONA_ID ? null : store.nativeRootOf(store.rootPlaceOf(id) ?? id)
+  );
+  // The direct chat opened ahead for each person a memory session came across, in the background: a pass never waits
+  // for it and a failed opening fails no pass (src/interface/dm-ahead.ts).
+  const dmAhead = createDmAhead({ hot, store, reads, memoryDb, now: Date.now });
+  cleanups.push(
+    memoryDb.onSessionAccounts((accounts) => {
+      void Promise.allSettled(accounts.map((one) => dmAhead.open(one.iface, one.native))).then((results) => {
+        const failed = results.filter((one) => one.status === 'rejected').length;
+        if (failed > 0) log.warn('dm ahead: failed', { count: failed });
+      });
+    })
   );
   // The custom emoji of the turn's place, read from the interface and kept 60 seconds: the turn lists them to her
   // by their stable names and turns her `:e23:` into the platform's markup through it.
