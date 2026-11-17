@@ -448,10 +448,10 @@ function counting(db: Db): { db: Db; ran: () => number } {
 
 /**
  * The bound on the statements of a placeless turn's `<meanwhile>` over 3 places, whatever the number of her lines: her
- * lines and their media (2), the path of each place (4 each, 12), and per place one read of every window and one of
- * their media (6).
+ * lines and their media (2), the mirrors of her diary that her lines leave out (2: whether the table is there, and its
+ * places), the path of each place (4 each, 12), and per place one read of every window and one of their media (6).
  */
-const SERVICE_MEANWHILE_STATEMENTS = 20;
+const SERVICE_MEANWHILE_STATEMENTS = 22;
 
 test('a turn with no place reads the windows of her last 100 lines in 3 places in statements that do not grow with her lines', () => {
   // Bug (report 2026-11-17-diary-turn-stall): each of her 100 lines took two window reads and a media read, 300

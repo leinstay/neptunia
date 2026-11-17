@@ -126,7 +126,13 @@ test('a line around a moment carries the id of its source row', () => {
 /** Her line `native` in the place `place`, written by the account `account`, scoped as `scope`. */
 function ownLine(
   world: World,
-  { place, native, account, scope }: { place: string; native: string; account: string | null; scope: 'group' | 'dm' }
+  {
+    place,
+    native,
+    account,
+    scope,
+    at = AT,
+  }: { place: string; native: string; account: string | null; scope: 'group' | 'dm'; at?: string }
 ) {
   insertRows(world.db, {
     sources: [
@@ -140,8 +146,8 @@ function ownLine(
         place_id: place,
         author_account: account,
         author_kind: 'self',
-        occurred_at: AT,
-        recorded_at: AT,
+        occurred_at: at,
+        recorded_at: at,
         text: 'η αυλή',
         scope_kind: scope,
         scope_iface: 'fake',
@@ -589,6 +595,29 @@ test('the windows around and since a moment over edits, retired lines and lines 
       ['rho', 'rho one', 5],
       ['pi', 'pi words', 94],
     ]);
+  } finally {
+    world.close();
+  }
+});
+
+test('her lines in a mirror of her diary stay out of her own lines and the limit fills from other places', () => {
+  // Bug: the copy of a diary entry in a mirror's chat read as a line she wrote there, so the entry reached a request twice.
+  const world = openWorld();
+  try {
+    noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+    const mirror = addRoom(world.db, { iface: 'fake', native: 'c-diary', root: rootId('fake', 'g1'), name: 'diary' });
+    const garden = addRoom(world.db, { iface: 'fake', native: 'c-garden', root: rootId('fake', 'g1'), name: 'garden' });
+    world.db
+      .prepare(
+        "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by) VALUES ('mirror:1', 'diary', ?, 1, ?, 'owner')"
+      )
+      .run(mirror, AT);
+    for (const native of ['m-g1', 'm-g2']) ownLine(world, { place: garden, native, account: null, scope: 'group' });
+    // The mirror's copies are the newest lines, so a read that counts them fills its limit with them.
+    for (const native of ['m-d1', 'm-d2', 'm-d3'])
+      ownLine(world, { place: mirror, native, account: null, scope: 'group', at: '2026-11-01T11:00:00.000Z' });
+    const places = ownLinesOf(world.db, internalContext(), null, 2).map((line) => line.placeId);
+    assert.deepEqual(places, [garden, garden]);
   } finally {
     world.close();
   }
