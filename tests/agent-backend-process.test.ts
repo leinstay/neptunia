@@ -220,8 +220,12 @@ async function argvOf(name: BackendName, effort?: EffortLevel): Promise<Array<st
 test('codex gets the effort as -c model_reasoning_effort, and no -c without one', async () => {
   // Catches: the effort never reaches codex, or "model_reasoning_effort=undefined" on a run without an effort.
   const argv = await argvOf('codex', 'high');
-  assert.equal(argv[argv.indexOf('-c') + 1], 'model_reasoning_effort=high');
-  assert.equal((await argvOf('codex')).includes('-c'), false);
+  // Every codex run carries `-c web_search="live"`, so the effort is found by its own value and not by the first -c.
+  assert.equal(argv[argv.indexOf('model_reasoning_effort=high') - 1], '-c');
+  assert.equal(
+    (await argvOf('codex')).some((arg) => arg.startsWith('model_reasoning_effort')),
+    false
+  );
 });
 
 test('claude gets the effort as --effort, and no --effort without one', async () => {
