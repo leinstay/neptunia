@@ -38,7 +38,7 @@ function rig() {
     { mode: 0o755 }
   );
   writeKeysFile(privateDir, { subharness: { backends: ['claude'], key: null, modes: {} } });
-  const deps: RunDeps = { privateDir, denyDir: path.join(base, 'nosudo'), hostEnv: { PATH: process.env.PATH } };
+  const deps: RunDeps = { privateDir, hostEnv: { PATH: process.env.PATH } };
   const argv = (): Array<string> => fs.readFileSync(record, 'utf8').split('\n').slice(0, -1);
   return { base, privateDir, deps, argv };
 }

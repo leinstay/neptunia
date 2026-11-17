@@ -166,7 +166,6 @@ function rig(name: BackendName) {
     outDir: path.join(base, 'out'),
     subharness: {
       privateDir: path.join(base, 'private'),
-      denyDir: path.join(base, 'nosudo'),
       hostEnv: { PATH: '/usr/bin' },
       backendFactory: (backend) => createBackend(backend, { binary, spawnImpl: fakeSpawn(backend, seen) }),
     },

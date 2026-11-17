@@ -85,7 +85,6 @@ async function runOnce(extra: Record<string, unknown>) {
       env: POISON,
       subharness: {
         privateDir: path.join(base, 'private'),
-        denyDir: path.join(base, 'nosudo'),
         hostEnv: { PATH: '/usr/bin', ...POISON },
         backendFactory: (name) => createBackend(name, { binary, spawnImpl: wrongly<typeof spawn>(impl) }),
       },

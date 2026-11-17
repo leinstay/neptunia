@@ -1,6 +1,6 @@
 // The PATH and key of an agent's child on claude and codex routes. The child is a real disposable shell started by a
 // fake backend with the environment the backend would give it (childEnvOf of the run's options.env). Contract under
-// test: the PATH is the refusing `sudo` folder then the host PATH (the host PATH alone in `sudo` mode), and a claude or
+// test: the PATH is the host PATH in every mode, and a claude or
 // codex child has no OPENROUTER_API_KEY. Stage W removed the scout's own command folder (`pathDirs`); the scout's
 // side of it is tests/scout-harness-search.test.ts.
 import { test } from 'node:test';
@@ -27,18 +27,16 @@ const ROUTES: Record<BackendName, TaskRoute> = {
   opencode: { backend: 'opencode', model: null, effort: null, mode: 'write' },
 };
 
-type Seen = { sudo: string; key: string; path: string };
+type Seen = { key: string; path: string };
 
 /** A fake backend that starts a real `sh` in the run's environment and records what the shell finds. */
 function rig() {
   const base = tempDir('nep-toolpath-');
   const privateDir = path.join(base, 'private');
   writeKeysFile(privateDir, { subharness: { backends: [], key: null, modes: {} } });
-  const denyDir = path.join(base, 'nosudo');
   const seen: Array<Seen> = [];
   const subharness: RunDeps = {
     privateDir,
-    denyDir,
     hostEnv: { PATH: HOST_PATH },
     backendFactory: (name) => ({
       name,
@@ -47,7 +45,6 @@ function rig() {
         const sh = (script: string) =>
           execFileSync('/bin/sh', ['-c', script], { env, cwd: base, encoding: 'utf8' }).trim();
         seen.push({
-          sudo: sh('command -v sudo || true'),
           key: sh('printf %s "${OPENROUTER_API_KEY-}"'),
           path: sh('printf %s "$PATH"'),
         });
@@ -55,7 +52,7 @@ function rig() {
       },
     }),
   };
-  return { base, subharness, denyDir, seen };
+  return { base, subharness, seen };
 }
 
 /** An engine over the real profile of `agent`, with a prompt file that exists. */
@@ -73,19 +70,19 @@ const task = (route: TaskRoute) =>
   >[0];
 
 for (const name of ['claude', 'codex'] as const) {
-  test(`a server run on ${name} has the refusing sudo first on PATH and no key`, async () => {
+  test(`a server run on ${name} has the host PATH and no key`, async () => {
     // Catches: a tool folder or the key leaking to a claude or codex child.
-    const { base, subharness, denyDir, seen } = rig();
+    const { base, subharness, seen } = rig();
     await engineOf('server', base, subharness).run(task(ROUTES[name]));
-    assert.equal(seen[0]?.sudo, path.join(denyDir, 'sudo'));
     assert.equal(seen[0]?.key, '');
-    assert.equal(seen[0]?.path, `${denyDir}:${HOST_PATH}`);
+    // Changed: the child gets the host PATH unchanged; the unit, not the engine, stops sudo.
+    assert.equal(seen[0]?.path, HOST_PATH);
   });
 }
 
 test('a dev run through runAgent on claude has no extra PATH folder and no key', async () => {
   // Catches: an extra PATH folder or the key becoming a default of every run.
-  const { subharness, denyDir, seen } = rig();
+  const { subharness, seen } = rig();
   const done = await runAgent(
     {
       agent: 'dev',
@@ -99,5 +96,6 @@ test('a dev run through runAgent on claude has no extra PATH folder and no key',
   );
   assert.equal(done.ok, true);
   assert.equal(seen[0]?.key, '');
-  assert.equal(seen[0]?.path, `${denyDir}:${HOST_PATH}`);
+  // Changed: the child gets the host PATH unchanged; the unit, not the engine, stops sudo.
+  assert.equal(seen[0]?.path, HOST_PATH);
 });

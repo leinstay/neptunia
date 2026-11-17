@@ -5,7 +5,6 @@
 // so the agent checks use `server`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
 
 import { setAgentModel } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
@@ -159,7 +158,6 @@ test('the runner passes the stored effort of the agent and none for an agent wit
   const seen: Array<BackendRunOptions> = [];
   const deps = {
     privateDir: dir,
-    denyDir: path.join(dir, 'nosudo'),
     hostEnv: { PATH: '/usr/bin' },
     backendFactory: (name: 'codex' | 'claude' | 'opencode'): Backend => ({
       name,

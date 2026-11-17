@@ -40,7 +40,7 @@ export function consumerRig(): ReturnType<typeof fixture> & {
   } });
   const calls: Array<{ name: string; brief: string; options: BackendRunOptions }> = [];
   const subharness: RunDeps = {
-    privateDir, denyDir: path.join(rig.base, 'deny'), hostEnv: { PATH: '/usr/bin' },
+    privateDir, hostEnv: { PATH: '/usr/bin' },
     backendFactory: (name) => ({ name, run: (brief, options) => {
       calls.push({ name, brief, options });
       return Promise.resolve({ ok: true, text: 'done', exitCode: 0 });

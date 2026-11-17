@@ -36,7 +36,6 @@ function recordingDeps(): { deps: RunDeps; seen: Array<BackendRunOptions> } {
   const seen: Array<BackendRunOptions> = [];
   const deps: RunDeps = {
     privateDir,
-    denyDir: path.join(base, 'nosudo'),
     hostEnv: { PATH: '/usr/bin', HTTPS_PROXY: 'http://host-proxy.invalid:9' },
     backendFactory: (name) => ({
       name,

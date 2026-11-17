@@ -54,7 +54,6 @@ test('a harness child started with the proxy gets openrouter.ai in NO_PROXY and 
   const seen: Array<BackendRunOptions> = [];
   const deps: RunDeps = {
     privateDir,
-    denyDir: path.join(base, 'nosudo'),
     hostEnv: { PATH: '/usr/bin' },
     backendFactory: (name) => ({
       name,

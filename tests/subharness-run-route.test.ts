@@ -3,7 +3,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
 import { runAgent } from '../src/subharness/run.ts';
 import type { AgentRun, RunDeps } from '../src/subharness/run.ts';
 import { setUnitMode } from '../src/subharness/control.ts';
@@ -22,7 +21,6 @@ const OPENCODE: TaskRoute = { backend: 'opencode', model: null, effort: null, mo
 /** keys.json says the opposite of ROUTE on every field, so a run that reads it is visible. */
 function rig() {
   const privateDir = tempDir('nep-route-priv-');
-  const denyDir = path.join(tempDir('nep-route-deny-'), 'nosudo');
   writeKeysFile(privateDir, {
     extra: { opencode: STORE_SECRET },
     subharness: {
@@ -36,7 +34,6 @@ function rig() {
   const seen: Array<{ name: string; options: BackendRunOptions }> = [];
   const deps: RunDeps = {
     privateDir,
-    denyDir,
     hostEnv: { PATH: '/usr/bin:/bin' },
     backendFactory: (name) => ({
       name,
@@ -46,7 +43,7 @@ function rig() {
       },
     }),
   };
-  return { deps, privateDir, denyDir, seen };
+  return { deps, privateDir, seen };
 }
 
 const request = (extra: Partial<AgentRun>): AgentRun => ({
@@ -95,20 +92,20 @@ test('a route with no model and no effort passes neither, whatever keys.json nam
   assert.equal(Object.hasOwn(seen[0]?.options ?? {}, 'effort'), false);
 });
 
-for (const [mode, sandbox, standIn] of [
-  ['read', 'read-only', true],
-  ['write', 'workspace-write', true],
-  ['full', 'none', true],
-  ['sudo', 'none', false],
+for (const [mode, sandbox] of [
+  ['read', 'read-only'],
+  ['write', 'workspace-write'],
+  ['full', 'none'],
+  ['sudo', 'none'],
 ] as const) {
-  test(`a route in mode ${mode} sets the sandbox ${sandbox} and the sudo stand-in by the route's mode`, async () => {
-    // Catches: the sandbox follows the route and the PATH still follows keys.json (or the reverse), so sudo opens or stays shut wrongly.
-    const { deps, denyDir, seen, privateDir } = rig();
+  test(`a route in mode ${mode} sets the sandbox ${sandbox} by the route's mode`, async () => {
+    // Changed: the PATH is the host's in every mode, so only the sandbox follows the route's mode.
+    // Catches: the sandbox follows keys.json instead of the route.
+    const { deps, seen, privateDir } = rig();
     await setUnitMode(privateDir, 'scout', mode === 'sudo' ? 'read' : 'sudo');
     await runAgent(request({ route: { ...ROUTE, mode } }), deps);
     assert.equal(seen[0]?.name, 'claude');
     assert.equal(seen[0]?.options.sandbox, sandbox);
-    assert.equal(seen[0]?.options.env?.PATH?.startsWith(`${denyDir}:`) ?? false, standIn);
   });
 }
 
