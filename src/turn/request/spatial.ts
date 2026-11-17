@@ -1,7 +1,7 @@
 // The `<spatial_awareness>` body: where the persona is, with the whole nesting of the place, whether it is a group or a
 // private place, the present moment, and the owner's note on the place from `config.spatial.notes`, inherited down the
-// tree. The owner's command line is a private place with a note of its own, as a direct chat on another interface is. A wake with no chat place is at the command line of her own server, a diary post in her own
-// world (the owner's word of 2026-11-06). `whereaboutsOfFrame` states a turn's whereabouts from its frame, with the
+// tree. The owner's command line is a private place with a note of its own, as a direct chat on another interface is. A wake with no chat place is at the command line of her own server
+// (the owner's word of 2026-11-06). `whereaboutsOfFrame` states a turn's whereabouts from its frame, with the
 // interface's own nouns for its kinds of place; the head of the request (src/turn/request/head.ts) renders the body.
 // Pure.
 
@@ -18,13 +18,12 @@ type SpatialTextLabels = Pick<Labels, 'locale' | 'spatial' | 'places' | 'authors
 export type PlaceLink = PlaceChainLink;
 
 /**
- * Where a turn is: the owner's command line with the chain of its place, her own server (a wake with no chat place), her
- * own world (a diary post), or a place with its chain up to the top.
+ * Where a turn is: the owner's command line with the chain of its place, her own server (a wake with no chat place) or a
+ * place with its chain up to the top.
  */
 export type Whereabouts =
   | { kind: 'cli'; chain?: ReadonlyArray<PlaceLink> }
   | { kind: 'server' }
-  | { kind: 'world' }
   | {
       kind: 'place';
       iface: string;
@@ -132,7 +131,7 @@ function privateLines(chain: ReadonlyArray<PlaceLink>, l: SpatialLabels, notes: 
 
 /**
  * The body of `<spatial_awareness>` (docs/prompt-contract.md): on the command line `labels.spatial.cli` with `{when}`,
- * then `private` and the note of its place; on her own server `server`, in her own world `world`, each with `{when}`;
+ * then `private` and the note of its place; on her own server `server` with `{when}`;
  * in a place `place` with `{path}` (the chain from the place up, each link through
  * `kinds`, joined with `within`), `{iface}` and `{when}`, then `private` or `group`, then `note` with the owner's note
  * when the place or one above it has one. When the top of the chain holds the moment she joined it, `joined` with `{place}`
@@ -159,8 +158,6 @@ export function spatialAwarenessText(input: {
         .join('\n');
     case 'server':
       return fill(l.server ?? '', { when });
-    case 'world':
-      return fill(l.world ?? '', { when });
     case 'place': {
       const path = whereabouts.chain
         .map((link) => linkText(link, l, whereabouts.nouns ?? {}, whereabouts.partner ?? null, keepEmoji))

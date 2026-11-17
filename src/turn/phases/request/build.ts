@@ -836,10 +836,10 @@ function pastEntriesOf(
 export function plannerRequest(
   ctx: PhaseContext,
   draft: Draft,
-  turn: Pick<Prepared, 'channel' | 'isDm' | 'config' | 'selfName' | 'selfId' | 'now'>,
+  turn: Pick<Prepared, 'channel' | 'libraryPlace' | 'isDm' | 'config' | 'selfName' | 'selfId' | 'now'>,
   parts: PlanParts
 ): BuiltRequest {
-  const { channel, isDm, config, selfName, selfId, now } = turn;
+  const { channel, libraryPlace, isDm, config, selfName, selfId, now } = turn;
   const prompts = ctx.hot.prompts;
   const timezone = String(config.bot?.timezone ?? 'UTC');
   const frame = frameOfTurn(ctx.store, {
@@ -887,8 +887,9 @@ export function plannerRequest(
       drawOn: false,
       customEmoji: [],
       mediaPickText: null,
-      mediaCache: null,
-      mediaNameOf: null,
+      // The cached descriptions and the stable names of the custom emoji its blocks name, for the legend `<media>`.
+      mediaCache: (key: string) => ctx.store.mediaEntry(libraryPlace, key),
+      mediaNameOf: ctx.store.mediaNameOf,
       gifs: null,
       tasks: null,
       diaryChannel: null,

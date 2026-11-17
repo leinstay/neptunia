@@ -938,7 +938,6 @@
       "note": "The owner's note on this place: {note}",
       "cli": "You are on the command line, talking with the owner. It is {when}.",
       "server": "You are at the command line of your own physical server, and nobody is around you. It is {when}.",
-      "world": "You are in your own virtual world, created by you. It is {when}.",
       "answers": "You are answering {name}, their message #{n}.",
       "answersOutside": "You are answering {name}, whose message is not in the chat below.",
       "interfaces": "You exist on {interfaces}, in every top-level place of each.",

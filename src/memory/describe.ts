@@ -199,6 +199,9 @@ const FRESH_MISS = Symbol('fresh-miss');
 /** The model a second look is asked of, when it is not the role's own. */
 type Ask = { model?: string | null };
 
+/** The purposes of a request on the `video` role (src/llm/roles.ts#PURPOSE_ROLES): a watch, a GIF, a voice message, a re-watch. */
+type VideoPurpose = 'watch' | 'gif' | 'voice' | 'rewatch';
+
 /** What a second look answers: the question as asked and the text, or null when there is nothing to look at. */
 type Looked = Promise<{ question: string; text: string } | null>;
 
@@ -879,7 +882,11 @@ function buildDescriber({
     summarize: (text, maxChars) => shorten(text, maxChars, 'text'),
     complete: (messages, options) => (llm as Pick<AudioDeps, 'complete'>).complete(messages, options),
     requestOptions: (settings, seconds, model) =>
-      videoRequestOptions(settings, { seconds }, { maxOutputTokens: settings.maxOutputTokens, model: asModel(model) }),
+      videoRequestOptions(
+        settings,
+        { seconds },
+        { maxOutputTokens: settings.maxOutputTokens, purpose: 'voice', model: asModel(model) }
+      ),
     failureReason: (error) => String(requestFailureReason(error)),
     keep: (item, entry) => {
       store.putMediaEntry(placeId, item.itemId, entry);
@@ -948,7 +955,7 @@ function buildDescriber({
 
     const { clip } = fetched;
     const sizes = { seconds: clip.seconds, bytes: fetched.bytes };
-    const options = videoRequestOptions(videoCfg, clip, { maxOutputTokens: videoCfg.maxOutputTokens });
+    const options = videoRequestOptions(videoCfg, clip, { maxOutputTokens: videoCfg.maxOutputTokens, purpose: 'gif' });
     const ask = (): Promise<Answered> =>
       llm.complete(
         [
@@ -1194,11 +1201,16 @@ function buildDescriber({
   function videoRequestOptions(
     videoCfg: Untyped,
     media: Untyped,
-    { maxOutputTokens, model = null }: { maxOutputTokens: number; model?: string | null }
+    {
+      maxOutputTokens,
+      purpose,
+      model = null,
+    }: { maxOutputTokens: number; purpose: VideoPurpose; model?: string | null }
   ) {
     return {
-      model: model ?? roleModel(hot.config, 'video'),
+      model: model ?? roleModel(hot.config, 'video', purpose),
       role: 'video',
+      purpose,
       maxOutputTokens,
       timeoutMs: videoCfg.timeoutMs,
       videoSeconds: media.seconds ?? videoCfg.maxSeconds,
@@ -1385,7 +1397,10 @@ function buildDescriber({
     }
 
     const sizes = { seconds: media.seconds ?? null, bytes: media.bytes ?? null, audio: media.audio?.kind ?? null };
-    const options = videoRequestOptions(videoCfg, media, { maxOutputTokens: videoCfg.maxOutputTokens });
+    const options = videoRequestOptions(videoCfg, media, {
+      maxOutputTokens: videoCfg.maxOutputTokens,
+      purpose: 'watch',
+    });
     const ask = (): Promise<Answered> =>
       llm.complete(
         [
@@ -1631,7 +1646,7 @@ function buildDescriber({
           },
           { role: 'user', content: [{ type: 'text', text: asked }, videoPart(videoCfg, media)] },
         ],
-        videoRequestOptions(videoCfg, media, { maxOutputTokens: rewatchCfg.maxOutputTokens, model })
+        videoRequestOptions(videoCfg, media, { maxOutputTokens: rewatchCfg.maxOutputTokens, purpose: 'rewatch', model })
       );
     } catch (err) {
       report('error', { reason: requestFailureReason(err), seconds: media.seconds ?? null });
@@ -1863,7 +1878,7 @@ function buildDescriber({
           },
           { role: 'user', content: [videoPart(videoCfg, clip)] },
         ],
-        videoRequestOptions(videoCfg, clip, { maxOutputTokens: rewatchCfg.maxOutputTokens, model })
+        videoRequestOptions(videoCfg, clip, { maxOutputTokens: rewatchCfg.maxOutputTokens, purpose: 'rewatch', model })
       );
     } catch (err) {
       report('error', { reason: requestFailureReason(err), seconds: clip.seconds });

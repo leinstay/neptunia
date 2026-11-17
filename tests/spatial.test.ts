@@ -7,7 +7,6 @@
 //   export type Whereabouts =
 //     | { kind: 'cli'; chain?: ReadonlyArray<PlaceLink> }
 //     | { kind: 'server' }
-//     | { kind: 'world' }
 //     | { kind: 'place'; iface: string; private: boolean; chain: ReadonlyArray<PlaceLink> };
 //   export function spatialAwarenessText(input: {
 //     whereabouts: Whereabouts; now: number; timezone: string; labels: Labels; notes: unknown;
@@ -16,7 +15,7 @@
 // `chain` runs from the place itself up to the top of its tree. `notes` is `config.spatial.notes`: stored place id ->
 // the owner's note.
 // Stage AC, the owner's word of 2026-11-06: a wake with no chat place says she is at the command line of her own
-// server, a diary post that she is in her own world; `nowhere` is gone, and these tests follow.
+// server; `nowhere` is gone, and these tests follow. The owner on 2026-11-17 deleted her virtual world.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatNow } from '../src/format.ts';
@@ -116,14 +115,6 @@ test('a turn with no chat place is on her own server, with the time', () => {
   );
 });
 
-test('a diary post is in her own world, with the time', () => {
-  // Bug: the diary names the channel it is published to, and the illusion of her world breaks.
-  assert.equal(
-    spatialAwarenessText({ whereabouts: { kind: 'world' }, now: NOW, timezone: 'UTC', labels, notes: {} }),
-    `SPATIAL-WORLD AT ${WHEN}`
-  );
-});
-
 test("a server's note reaches every channel under it", () => {
   // Bug: the owner writes his note once on the server and no channel shows it.
   const lines = textOf([CHANNEL, SERVER], { 'p-server': 'adults only' }).split('\n');
@@ -155,12 +146,11 @@ test('no notes setting at all gives no note line and no failure', () => {
 });
 
 // The command line left this test with the lead's word of 2026-11-08: its place takes the owner's note (above).
-test('her server and her world carry no note, whatever the notes hold', () => {
-  const notes = { cli: 'x', server: 'y', world: 'z', 'p-server': 'adults only' };
-  for (const whereabouts of [{ kind: 'server' as const }, { kind: 'world' as const }]) {
-    const text = spatialAwarenessText({ whereabouts, now: NOW, timezone: 'UTC', labels, notes });
-    assert.ok(!text.includes('SPATIAL-NOTE'), text);
-  }
+// The owner on 2026-11-17: `world.md` and the virtual world are deleted and get no new home.
+test('her server carries no note, whatever the notes hold', () => {
+  const notes = { cli: 'x', server: 'y', 'p-server': 'adults only' };
+  const text = spatialAwarenessText({ whereabouts: { kind: 'server' }, now: NOW, timezone: 'UTC', labels, notes });
+  assert.ok(!text.includes('SPATIAL-NOTE'), text);
 });
 
 // Slice 7: a native kind the labels do not name reads `spatial.kind` with the kind itself as the noun

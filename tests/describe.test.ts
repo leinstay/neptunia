@@ -32,6 +32,7 @@ import {
   fakeVideoFetcher,
 } from './fixtures/describe-fakes.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { PURPOSE_ROLES } from '../src/llm/roles.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -3472,4 +3473,25 @@ test('describe: a summary of a long picture answer is stored on one line', async
   const summary = fakeSummarize(() => 'A street scene.\n\nThe left hand has six fingers.');
   const { store } = await describeWith(proseLine(400), undefined, summary.summarize);
   assert.equal(loose(cacheView(store, 'g1')).a1.text, 'A street scene. The left hand has six fingers.');
+});
+
+// The owner on 2026-11-17: a `video` request carries its purpose, as a `vision` request does, so its usage row and a
+// `models.byPurpose` pin name it. The purpose is one that goes out on the `video` role.
+const roleOfPurpose = (purpose: unknown): string | null =>
+  Object.entries(PURPOSE_ROLES).find(([name]) => name === purpose)?.[1] ?? null;
+
+test('describeVideo: a watched clip goes out with a purpose of the video role', async () => {
+  // Bug: every `video` usage row has a null purpose, so nothing tells a watch from another request.
+  const { describer, llm } = videoDescriber();
+  await describer.describeVideo('g1', videoAttachment());
+  const [call] = llm.calls;
+  assert.equal(roleOfPurpose(call.options.purpose), 'video');
+});
+
+test('describe: a watched GIF goes out with a purpose of the video role', async () => {
+  // Bug: a GIF watch on the video model carries no purpose in its usage row.
+  const { describer, llm } = gifDescriber();
+  await describer.describe('g1', gifEmbedItem());
+  const [call] = llm.calls;
+  assert.equal(roleOfPurpose(call.options.purpose), 'video');
 });
