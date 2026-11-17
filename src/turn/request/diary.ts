@@ -167,7 +167,6 @@ export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFr
   const shown = renderDiaryBlock(past, labels, {
     timezone: config.bot?.timezone,
     max: kind === 'diary' ? writerEntriesShownOf(config) : past.length,
-    sceneChars: config.diary?.sceneChars,
   });
   const lines = shown ? shown.split('\n') : [];
   const intro = labels.diary?.intro ?? '';

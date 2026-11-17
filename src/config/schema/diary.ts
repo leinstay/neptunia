@@ -67,14 +67,6 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'text': 'How many words of each of those entries `<plan>` shows. 0 shows none',
   },
   {
-    'key': 'diary.sceneChars',
-    'types': ['number'],
-    'reader': 'src/turn/request/diary.ts',
-    'default': 400,
-    'text':
-      "Characters of a past picture post's picture description that `<diary>` shows as its scene when the post has no stored plan, cut at a word boundary",
-  },
-  {
     'key': 'diary.loop.maxSteps',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',

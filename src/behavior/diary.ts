@@ -21,7 +21,7 @@
 import { fill } from '../format.ts';
 import { strictJsonObject } from '../llm/parse.ts';
 import { log } from '../log.ts';
-import { oneLine, clampText, stripUrls } from '../memory/clamp.ts';
+import { oneLine, stripUrls } from '../memory/clamp.ts';
 import { parseSchedule, slotsOfDay } from '../service/schedule.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
 import { DAY_MS, MINUTE_MS, zonedDay, zonedEpoch, utcDay } from '../time.ts';
@@ -135,8 +135,6 @@ const DEFAULT_QUIET_CARRY = 0.25;
 const DEFAULT_HUNGER_BOOST = 0.5;
 const MIN_GAP_MINUTES = 90;
 export const DEFAULT_HISTORY_POSTS = 150;
-/** The characters of a picture description shown as a past post's scene (`diary.sceneChars`' default). */
-export const DEFAULT_SCENE_CHARS = 400;
 /** The weight of each kind of post the planner picks among. */
 export const DIARY_KINDS: Readonly<Record<string, number>> = Object.freeze({
   selfPicture: 3,
@@ -611,29 +609,25 @@ export function planSeed(parsed: unknown, offered: number): number {
 }
 
 /**
- * What a past picture post showed, one line: the brief its planner wrote (`plan.brief`), else the description of its
- * first linked picture (`pictureDescription`) cut at a word boundary to `chars` (diary.sceneChars, 400), else
- * its stored drawing prompt (`picture`). '' when it has none of them.
+ * What a past picture post showed, one line and whole: the brief its planner wrote (`plan.brief`), else its stored
+ * drawing prompt (`picture`). '' when it has neither.
  */
-export function sceneOf(post: unknown, chars?: unknown): string {
+export function sceneOf(post: unknown): string {
   const entry = objOf(post);
   const brief = objOf(entry.plan).brief;
   if (typeof brief === 'string' && brief.trim()) return oneLine(brief);
-  const described = entry.pictureDescription;
-  if (typeof described === 'string' && described.trim())
-    return clampText(oneLine(described), countOf(chars) || DEFAULT_SCENE_CHARS, { tolerance: 1 });
   return typeof entry.picture === 'string' ? oneLine(entry.picture) : '';
 }
 
 /** The picture suffix of one post: its scene (sceneOf), `pictureUnknown` for a picture with no recorded
- * scene (`picture` `true` or '' and no plan or description), nothing for no picture. A set (`pictures` above 1) shows its
+ * scene (`picture` `true` or '' and no plan), nothing for no picture. A set (`pictures` above 1) shows its
  * first scene with the count (`labels.diary.pictureSet`; `picture` when that label is missing). */
-function pictureSuffix(post: Obj, labels: unknown, sceneChars: unknown): string {
+function pictureSuffix(post: Obj, labels: unknown): string {
   const words = diaryWords(labels);
   const { picture } = post;
   const drawn = (typeof picture === 'string' && picture.trim() !== '') || picture === true || picture === '';
   if (!drawn) return '';
-  const scene = sceneOf(post, sceneChars);
+  const scene = sceneOf(post);
   if (!scene) return fill(labelOf(words.picture), { scene: words.pictureUnknown ?? '' });
   const count = countOf(post.pictures);
   if (count > 1 && words.pictureSet) return fill(labelOf(words.pictureSet), { count, scene });
@@ -641,18 +635,18 @@ function pictureSuffix(post: Obj, labels: unknown, sceneChars: unknown): string 
 }
 
 /**
- * The body of the `<diary>` block over `posts` (given oldest first; each `{ at, kind, gist, picture, pictures }`, with `plan` and
- * `pictureDescription` when the store has them): `labels.diary.intro`, then one
+ * The body of the `<diary>` block over `posts` (given oldest first; each `{ at, kind, gist, picture, pictures }`, with `plan` when the
+ * store has it): `labels.diary.intro`, then one
  * `labels.diary.line` per post (`{date}` the post's local date in
  * `timezone`, `{kind}` its kind key or `labels.diary.kindUnknown`, `{gist}`)
- * with `labels.diary.picture` appended when the post had a picture, its scene from sceneOf cut to `sceneChars`
+ * with `labels.diary.picture` appended when the post had a picture, its scene from sceneOf
  * (`labels.diary.pictureSet` with the count for a set: `pictures` above 1). The
  * newest `max` posts, listed newest first. '' when there is no post.
  */
 export function renderDiaryBlock(
   posts: unknown,
   labels: unknown,
-  { timezone, max, sceneChars }: { timezone?: string; max?: unknown; sceneChars?: unknown } = {}
+  { timezone, max }: { timezone?: string; max?: unknown } = {}
 ): string {
   const words = diaryWords(labels);
   const list = listOf(posts);
@@ -664,7 +658,7 @@ export function renderDiaryBlock(
     const date = isFiniteNumber(post.at) ? localDayKey(post.at, timezone) : '';
     const kind = typeof post.kind === 'string' && post.kind ? post.kind : (words.kindUnknown ?? '');
     const line = fill(labelOf(words.line), { date, kind, gist: oneLine(post.gist) });
-    return line + pictureSuffix(post, labels, sceneChars);
+    return line + pictureSuffix(post, labels);
   });
   return [words.intro, ...lines].filter(Boolean).join('\n');
 }
