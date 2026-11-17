@@ -710,3 +710,35 @@ test('a failed observation warns with the kind of the observation and the SQLite
     await memory.close();
   }
 });
+
+test('memoryWrite: a written session tells its listeners the accounts the pass came across', async () => {
+  // Bug: nothing after a pass reaches the code that opens a direct chat ahead, so no chat is ever opened.
+  const db = setup();
+  try {
+    await db.service.tick();
+    const told: Array<unknown> = [];
+    db.service.onSessionAccounts((accounts) => told.push(...accounts));
+    const met = [{ iface: 'discord', native: 'u-ada' }];
+    await db.service.memoryWrite({ kind: 'session', mode: 'shadow', run: null, plan: null, met, now: 1 });
+    assert.deepEqual(told, met);
+  } finally {
+    await db.done();
+  }
+});
+
+test('memoryWrite: a session listener that throws leaves the write done', async () => {
+  // Bug: a failed opening of a direct chat ahead fails the memory pass that came across the person.
+  const db = setup();
+  try {
+    await db.service.tick();
+    db.service.onSessionAccounts(() => {
+      throw new Error('the interface is gone');
+    });
+    const met = [{ iface: 'discord', native: 'u-ada' }];
+    await assert.doesNotReject(() =>
+      db.service.memoryWrite({ kind: 'session', mode: 'shadow', run: null, plan: null, met, now: 1 })
+    );
+  } finally {
+    await db.done();
+  }
+});

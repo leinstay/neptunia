@@ -178,6 +178,7 @@ import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
 import { loreClaimId } from './place-lore.ts';
 import type { Context } from './scope.ts';
+import type { MetAccount } from './session-people.ts';
 
 const DEFAULT_FILE = 'memory.db';
 /**
@@ -541,6 +542,8 @@ export type MemoryDbService = {
   /** How many writes of other writers than the store reached rows a store unit reads, since the open (UNIT_ROW_WRITES). */
   writeGeneration(): number;
   onAffinityMoves(fn: (moves: Array<Row>) => void): () => void;
+  /** Subscribes to the accounts of people a written memory session came across; returns the unsubscribe. */
+  onSessionAccounts(fn: (accounts: Array<MetAccount>) => void): () => void;
   /** A name the owner gives a person, or its removal (owner-names.ts). */
   writeOwnerName(write: { personId: string; name: string; remove?: boolean }): Promise<unknown>;
   /** The engine's own state by kind and subject (operational.ts). */
@@ -1542,6 +1545,25 @@ export function createMemoryDb({
     return () => affinityListeners.delete(fn);
   }
 
+  const accountListeners = new Set<(accounts: Array<MetAccount>) => void>();
+
+  function onSessionAccounts(fn: (accounts: Array<MetAccount>) => void): () => void {
+    accountListeners.add(fn);
+    return () => accountListeners.delete(fn);
+  }
+
+  /** The accounts a written session came across (`update.met`), told to every listener; a listener's throw is a warning. */
+  function tellSessionAccounts(met: unknown) {
+    if (!Array.isArray(met) || met.length === 0) return;
+    for (const fn of accountListeners) {
+      try {
+        fn(met as Array<MetAccount>);
+      } catch (error) {
+        log.warn('memory db: session accounts not told', { code: codeOf(error) });
+      }
+    }
+  }
+
   /** The committed attitude moves of run `runId` not told yet, told to every listener (a failure is a warning, never the write's). */
   function tellAffinityMoves(runId: unknown) {
     if (affinityListeners.size === 0 || typeof runId !== 'string' || !runId || !handle) return;
@@ -1589,8 +1611,11 @@ export function createMemoryDb({
       touchSources(update.reads.filter((row: Row) => row?.row_kind === 'sources').map((row: Row) => row.row_id));
     const applies = update?.kind === 'session' && update.mode === 'apply';
     try {
-      if (engine) return await counted(stamped, engine.call('memoryWrite', { update: stamped }), { other: true });
-      return await counted(stamped, Promise.resolve(applyMemoryWrite(handle, stamped)), { other: true });
+      const written = engine
+        ? await counted(stamped, engine.call('memoryWrite', { update: stamped }), { other: true })
+        : await counted(stamped, Promise.resolve(applyMemoryWrite(handle, stamped)), { other: true });
+      if (update?.kind === 'session') tellSessionAccounts(update.met);
+      return written;
     } finally {
       if (applies) tellAffinityMoves((update.run as { id?: unknown } | undefined)?.id);
     }
@@ -1722,6 +1747,7 @@ export function createMemoryDb({
     searchRecord,
     recordTurnReads,
     onAffinityMoves,
+    onSessionAccounts,
     writeOwnerName: (name: { personId: string; name: string; remove?: boolean }) =>
       write(withLiveIface({ ...name, kind: 'owner-name', now: now() }, iface)),
     writeOperational: (operational: OperationalWrite) => write({ ...operational, kind: 'operational', now: now() }),

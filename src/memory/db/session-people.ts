@@ -145,3 +145,23 @@ export function profileAsOf(db: Db, profile: Row, cutoff: unknown): Row {
   }
   return out;
 }
+
+/** An account of a person a batch touches, by its interface and platform id. */
+export type MetAccount = { iface: string; native: string };
+
+/**
+ * The accounts of people that wrote a batch's lines, by interface and platform id: her own account, a bot's and an
+ * account of no person aside. The core opens a direct chat ahead for these (src/interface/dm-ahead.ts).
+ */
+export function metOf(db: Db, batch: ReadonlyArray<Row>): Array<MetAccount> {
+  const met: Array<MetAccount> = [];
+  for (const id of new Set(batch.map((line) => line.author_account as string).filter(Boolean))) {
+    const row = db
+      .prepare('SELECT iface, COALESCE(native_key, native_id) AS native, kind, person_id FROM accounts WHERE id = ?')
+      .get(id);
+    if (!row || row.person_id == null || (row.kind !== null && row.kind !== 'user')) continue;
+    if (typeof row.iface === 'string' && typeof row.native === 'string')
+      met.push({ iface: row.iface, native: row.native });
+  }
+  return met;
+}

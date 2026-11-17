@@ -409,6 +409,7 @@
         "src/tools/**",
         "src/web/**",
         "src/interface/directory.ts",
+        "src/interface/dm-ahead.ts",
         "src/interface/door.ts",
         "src/interface/cli-chat.ts",
         "src/interface/link.ts",

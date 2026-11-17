@@ -588,7 +588,7 @@ function fillAddress(db: Db, existing: Row, address: unknown, at: string): void 
  * The writer kind `place-address` (session-write.ts): the chat an interface opened for a place that held no address,
  * when the core asked it to open a direct chat (`dm.chat`), stored as the place's `native_id`. A place that holds an
  * address keeps it, since a message's own address is the interface's word on it. A write that names the partner's
- * platform id and its interface (`partner`, `iface`) instead of a place is the direct chat she opens with a person who
+ * platform id and its interface (`partner`, `iface`) instead of a place is the direct chat the core opens ahead with a person who
  * has none stored: the place is made as a person's first direct message makes it (`placeOf`), keyed by the partner,
  * with the chat as its address. Answers how many places took it and, for a partner, the place's id.
  */

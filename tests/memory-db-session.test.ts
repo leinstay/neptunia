@@ -2007,3 +2007,24 @@ test('an episode that names an emoji gives the session request its <media> line'
     env.done();
   }
 });
+
+test('a sweep names in its write the accounts of the people that wrote its batch', async () => {
+  // Bug: the core opens a direct chat ahead only for a person a pass came across, so a pass that names nobody opens none.
+  const env = fixture();
+  try {
+    chat(env);
+    const writes: Array<Record<string, unknown>> = [];
+    const write = (update: unknown) => {
+      writes.push(update as Record<string, unknown>);
+      return Promise.resolve(applyMemoryWrite(env.handle, update));
+    };
+    const llm = fakeLlm(() => memoryBlock({ claims: [], episodes: [], affinity: [], descriptions: [] }));
+    await sweep(ctxOf(env, { llm, write }));
+    const met = writes.flatMap((update) =>
+      Array.isArray(update.met) ? (update.met as Array<{ iface: string; native: string }>) : []
+    );
+    assert.deepEqual(met.map((one) => `${one.iface}:${one.native}`).sort(), [`discord:${ADA}`, `discord:${BOB}`]);
+  } finally {
+    env.done();
+  }
+});

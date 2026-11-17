@@ -69,7 +69,14 @@ import { ASSERTION_HOW } from './semantic-registry.ts';
 import { validateSemanticAnswer } from './semantic-answer.ts';
 import { handleOf } from '../../behavior/handles.ts';
 import { episodeLinesOf, intentionLinesOf, openEpisodeRows, storedIdsOf } from './session-blocks.ts';
-import { peopleOf, profileAsOf, type BatchAccount, type BatchAuthor, type BatchPerson } from './session-people.ts';
+import {
+  metOf,
+  peopleOf,
+  profileAsOf,
+  type BatchAccount,
+  type BatchAuthor,
+  type BatchPerson,
+} from './session-people.ts';
 import { readRetrieved, retrievedLines, sessionEmbedding } from './session-retrieved.ts';
 import { cutByArrival, fewestParts, pageBudgetOf, shareOf, unitsOf } from './session-size.ts';
 import type { MemoryPage } from './semantic-types.ts';
@@ -1784,6 +1791,8 @@ async function runScope(
         advance,
         pending,
         answer: extra.answer ? { text: extra.answer } : null,
+        // The accounts the batch came across, told once by the batch's last write (service.ts#onSessionAccounts).
+        ...(last ? { met: metOf(db, batch) } : {}),
         maxDelta: RELATIONSHIP_LIMITS.maxDeltaPerUpdate,
         now: now(),
         ...(readSet ? { reads: readSet.rows, readStep: String(page), context: readSet.context } : {}),

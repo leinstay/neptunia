@@ -1,7 +1,6 @@
 // Operations: `message.create|edit|delete|react`: the persona's own messages and reactions.
 // `message.create` is hers alone (`context.actor` 'persona', her skills, src/tools/): her own text -- the call's body --
-// is posted through her interface (src/interface/port.ts, `env.port`), replying to a message when one is named, in the
-// place `placeId` names or the direct chat of the person `person` names (src/tools/operations/person-chat.ts). Anyone
+// is posted through her interface (src/interface/port.ts, `env.port`), replying to a message when one is named. Anyone
 // else is refused: a person asks her to write somewhere, and she does or does not. Her text
 // (a post or an edit) arrives rendered as a `<msg>` of hers (src/tools/executors.ts#executeCall). Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
@@ -30,7 +29,6 @@ import fsp from 'node:fs/promises';
 import { bindPublicationPort, publicationRefusal } from '../publication.ts';
 import { messageRefOf, portAnswer, postingChat, postingRef } from './shared.ts';
 import { heldPort } from '../send-hold.ts';
-import { personPlace } from './person-chat.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.ts';
 import { CODE } from '../codes.ts';
@@ -104,17 +102,6 @@ function keyedPort(real: Adapter, context: OpContext): Adapter {
     return real.send(to, content, { ...options, idempotencyKey });
   };
   return keyed;
-}
-
-/**
- * Where a post goes: the place `placeId` names, else the direct chat of the person `person` names
- * (src/tools/operations/person-chat.ts), else null for the chat of the call. Both together are `invalid-args`.
- */
-async function destinationOf(env: Env, args: Obj): Promise<string | null> {
-  const person = textOf(args.person).trim();
-  if (person && args.placeId) throw invalid('a place or a person, not both');
-  if (person) return personPlace(env, person);
-  return args.placeId ? idText(args.placeId) : null;
 }
 
 /** The port of her post: `real` bound to the turn's boundary, held for a wake turn's end (src/tools/send-hold.ts), keyed. */
@@ -266,7 +253,7 @@ const handlers = perEnv((env) => {
     if (!text && !textOf(args.file).trim() && !textOf(args.gif).trim() && !textOf(args.media).trim())
       throw invalid('text is required');
     const reply = args.replyTo ? await messageRefOf(args.replyTo, reads) : null;
-    const given = await destinationOf(env, args);
+    const given = args.placeId ? idText(args.placeId) : null;
     if (given && reply?.placeId && given !== reply.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const to = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
