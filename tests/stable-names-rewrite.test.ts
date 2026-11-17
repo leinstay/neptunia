@@ -15,7 +15,9 @@ import { planStableNamesRewrite } from '../src/memory/db/stable-names-rewrite.ts
 import type { StableNamesPlan } from '../src/memory/db/stable-names-rewrite.ts';
 import { fillStems, loadStemmer, stemsOf, stemsPending } from '../src/memory/db/stems.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
+import type { Config, Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
+import { reembedTouched } from '../src/memory/db/index-policy.ts';
+import { quantize } from '../src/memory/vectors.ts';
 
 const T0 = Date.parse('2026-11-17T10:00:00Z');
 
@@ -468,4 +470,87 @@ test('removes an unlinked media row whose path and sha1 a linked row holds and c
     ids.map((row) => row.id),
     ['media:diary:d-2-1', 'media:fake:att-1']
   );
+});
+
+/** A line vector of `sourceId` as the catch-up writes one: bytes of four dims, made from the line alone. */
+function vector(db: Db, sourceId: string): void {
+  const rowid = db.prepare('SELECT rowid FROM sources WHERE id = ?').get(sourceId)?.rowid;
+  const insert = db.prepare(
+    `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, kind)
+     VALUES (?, ?, ?, 'test/embedder', 4, 1, 1, ?, '{}', 'record')`
+  );
+  insert.run(rowid, sourceId, `record:${sourceId}`, Buffer.from([1, 2, 3, 4]));
+}
+
+/** The bytes and eviction mark of the vector of `sourceId`. */
+function vectorState(db: Db, sourceId: string): { live: boolean; evicted: boolean } {
+  const row = db.prepare('SELECT bytes, evicted_at FROM vectors WHERE chunk_key = ?').get(`record:${sourceId}`);
+  return { live: row?.bytes !== null, evicted: row?.evicted_at !== null };
+}
+
+/** Runs the re-embed job with a fake embedder and returns the texts it was asked to embed. */
+async function reembedInputs(handle: MemoryHandle, db: Db): Promise<Array<string>> {
+  const inputs: Array<string> = [];
+  const embed = (texts: ReadonlyArray<string>): Promise<unknown> => {
+    inputs.push(...texts);
+    return Promise.resolve(texts.map(() => Float32Array.from([1, 0, 0, 0])));
+  };
+  const write = (update: Row): Promise<Row> => Promise.resolve(applyMemoryWrite(handle, update));
+  const config: Config = { recall: { db: { reembed: true } } };
+  await reembedTouched({
+    db,
+    write,
+    embed,
+    config,
+    now: T0 + 1000,
+    quantize,
+    model: 'test/embedder',
+    chunkOf: (line: Row): unknown => line.text,
+  });
+  return inputs;
+}
+
+test('evicts the vector of a line whose text the rewrite changes', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'that was :pog: indeed');
+  link(db, 'l1', 0, 'm1');
+  vector(db, 'l1');
+  apply(handle, planStableNamesRewrite(db));
+  assert.deepEqual(vectorState(db, 'l1'), { live: false, evicted: true });
+});
+
+test('the re-embed job embeds a rewritten line from its present text', async () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'that was :pog: indeed');
+  link(db, 'l1', 0, 'm1');
+  vector(db, 'l1');
+  apply(handle, planStableNamesRewrite(db));
+  assert.deepEqual(await reembedInputs(handle, db), ['that was :e1: indeed']);
+  assert.deepEqual(vectorState(db, 'l1'), { live: true, evicted: false });
+});
+
+test('keeps the vector of a line the rewrite leaves as it is', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'that was :pog: indeed');
+  link(db, 'l1', 0, 'm1');
+  line(db, 'l2', 'plain words only');
+  vector(db, 'l2');
+  apply(handle, planStableNamesRewrite(db));
+  assert.deepEqual(vectorState(db, 'l2'), { live: true, evicted: false });
+});
+
+// The schema cannot tell a line rewritten before this change: `sources` holds no stamp of its text and a line vector
+// holds no hash of the text it was made from. The plan takes the ids of such lines as a one-time input instead.
+test('evicts the vectors of the lines the plan is given as rewritten before', () => {
+  const { handle, db } = openTemp();
+  line(db, 'l9', 'that was :e1: indeed');
+  vector(db, 'l9');
+  line(db, 'l8', 'plain words only');
+  vector(db, 'l8');
+  apply(handle, planStableNamesRewrite(db, { rewritten: ['l9'] }));
+  assert.deepEqual(vectorState(db, 'l9'), { live: false, evicted: true });
+  assert.deepEqual(vectorState(db, 'l8'), { live: true, evicted: false });
 });
