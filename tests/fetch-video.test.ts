@@ -356,6 +356,38 @@ test('fetchGif: a .gif is downloaded and always converted by ffmpeg into a short
   assert.deepEqual(await leftovers(), [], 'both temp files are removed');
 });
 
+/** A PNG chunk: its length, its type, its data and a zeroed checksum the fetcher does not verify. */
+function pngChunk(type: string, data: Buffer) {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  return Buffer.concat([length, Buffer.from(type, 'latin1'), data, Buffer.alloc(4)]);
+}
+
+// An animated PNG: the PNG signature, a header and the acTL chunk that marks the file as animated.
+const APNG_BYTES = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  pngChunk('IHDR', Buffer.alloc(13)),
+  pngChunk('acTL', Buffer.from([0, 0, 0, 12, 0, 0, 0, 0])),
+]);
+
+// The owner on 2026-11-17: an APNG sticker is watched as a GIF. Its address and content type look like a still PNG.
+test('fetchGif: an animated PNG served as image/png is converted by ffmpeg told that the input is an APNG', async () => {
+  const sticker = 'https://media.discordapp.net/stickers/s2.png?size=160';
+  const { fetchImpl } = fakeFetch(fakeResponse({ contentType: 'image/png', chunks: [APNG_BYTES] }));
+  const { spawnImpl, calls } = fakeSpawn(writesOutput(300));
+  const fetcher = makeFetcher({ fetchImpl, spawnImpl, tmpDir });
+
+  const result = await fetcher.fetchGif(sticker, GIF_OPTS);
+
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
+  const { args } = calls[0] as { args: Array<string> };
+  const format = args.indexOf('-f');
+  assert.equal(args[format + 1], 'apng');
+  assert.ok(format < args.indexOf('-i'), 'the format names the input, before -i');
+  assert.deepEqual(await leftovers(), []);
+});
+
 test('fetchGif: a content type that is neither a GIF nor a video -> download, no ffmpeg', async () => {
   const { fetchImpl } = fakeFetch(fakeResponse({ contentType: 'text/html' }));
   const { spawnImpl, calls } = fakeSpawn(() => assert.fail('ffmpeg must not run'));
