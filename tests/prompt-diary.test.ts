@@ -9,7 +9,19 @@ import { labels } from './fixtures/labels.ts';
 import { buildRequest, type Built } from './fixtures/built-request.ts';
 import { framed } from './fixtures/prompt-rig.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
-import { JOURNAL, MARK, PAGES, PLAN, blockOf, frameTurn, inOrderOf, partOf, rootTags } from './fixtures/diary-frame.ts';
+import {
+  EMOJI_NAME,
+  JOURNAL,
+  MARK,
+  PAGES,
+  PLAN,
+  blockOf,
+  frameTurn,
+  inOrderOf,
+  partOf,
+  rootTags,
+} from './fixtures/diary-frame.ts';
+import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
 const MIN = 60_000;
@@ -218,4 +230,30 @@ test('the planner and the writer read <appearance> in the system message, after 
     assert.ok(at > text.indexOf('CARD_TEXT'), `${who}: ${text.slice(0, 300)}`);
     assert.ok(at < text.indexOf('<self>'), `${who}: in the system message, before the user message`);
   }
+});
+
+// The owner on 2026-11-17: `world.md` and the virtual world are deleted and get no new home. The label is the test's.
+test('neither the planner nor the writer request tells her she is in a virtual world of her own', async () => {
+  // Bug: `<spatial_awareness>` of both diary requests says she is in her own virtual world, a removed concept.
+  const labels = { ...shippedLabels, spatial: { ...shippedLabels.spatial, world: 'MARK-OWN-WORLD {when}' } };
+  const run = await frameTurn({ prompts: { labels } });
+  assert.ok(run.planner.length > 0 && run.writer.length > 0, 'both requests ran');
+  for (const text of [...run.planner, ...run.writer]) assert.ok(!text.includes('MARK-OWN-WORLD'), text.slice(-600));
+});
+
+// The owner on 2026-11-17: a custom emoji stands in every text under its stable name, and its description stands once
+// in the block `<media>` of the request that names it.
+test('the planner request whose <meanwhile> names a custom emoji holds <media> with its line', async () => {
+  // Bug: the planner is built with no media names, so `<meanwhile>` shows a bare `:e1:` and no `<media>` block.
+  const run = await frameTurn({ emoji: 'line' });
+  const text = run.planner[0] ?? '';
+  assert.ok(blockOf(text, 'meanwhile').includes(':e1:'), 'the line stands in <meanwhile>');
+  assert.ok(blockOf(text, 'media').includes(`:e1: ${EMOJI_NAME}`), text.slice(-1500));
+});
+
+test('a past entry that names a custom emoji gives the planner and the writer <media> with its line', async () => {
+  // Bug: the legend covers `<chat>` and `<meanwhile>` alone, so an entry in `<diary>` keeps a bare code.
+  const run = await frameTurn({ emoji: 'named', entries: 2, entryGist: (index) => `ΣΕΛΙΔΑ-${index} :e1:` });
+  for (const text of [run.planner[0] ?? '', run.writer[0] ?? ''])
+    assert.ok(blockOf(text, 'media').includes(`:e1: ${EMOJI_NAME}`), text.slice(-1500));
 });

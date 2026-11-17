@@ -148,20 +148,23 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     assert.equal(built.maps.sources.get('#1'), chat_ids(env).a);
     assert.equal(built.maps.sources.size, 5);
     const claimIds = [...built.maps.claims.entries()];
+    // The owner on 2026-11-17: e and s with a number are the stable names of an emoji and a sticker.
     assert.ok(
-      claimIds.some(([label, id]) => label.startsWith('s') && id === 'cl-self'),
-      'her own claim is s1'
+      claimIds.some(([label, id]) => label === 'f1' && id === 'cl-self'),
+      'her own claim is f1'
     );
     assert.ok(claimIds.some(([label, id]) => label.startsWith('c') && id === 'cl-ada'));
     assert.ok(claimIds.some(([label, id]) => label.startsWith('c') && id === 'cl-place'));
     assert.ok(!claimIds.some(([, id]) => id === 'cl-gone'), 'a claim that is not shown has no id in the request');
-    assert.deepEqual([...built.maps.episodes.entries()], [['e1', 'ep-1']]);
+    // The owner on 2026-11-17: e and s with a number are the stable names of an emoji and a sticker.
+    assert.deepEqual([...built.maps.episodes.entries()], [['r1', 'ep-1']]);
     const people = userText.slice(userText.indexOf('<people>'), userText.indexOf('</people>'));
     assert.match(people, /## Ada/);
     assert.match(people, /id: <@u-ada>/);
     assert.match(people, /affinity: 5/);
     assert.match(people, /\[c\d+\] interest: likes café mornings/);
-    assert.match(userText, /\[e1\] 2026-10-10 Ada: Ada helped with the move \(warm\)/);
+    // The owner on 2026-11-17: e and s with a number are the stable names of an emoji and a sticker.
+    assert.match(userText, /\[r1\] 2026-10-10 Ada: Ada helped with the move \(warm\)/);
     assert.match(userText, /open|pending: ask Ada about the move|pending: ask Ada/);
     // The intended request difference of this slice: the top of the tree is named `server:` in `prompts/memory-session.md`.
     assert.match(userText, /<place>\nscope: group\n\[p1\] channel: general - chat\n\[p2\] server: Server/);
@@ -1944,5 +1947,57 @@ test('the memory session reads her edited line once, as hers, at the place it wa
     );
   } finally {
     world.close();
+  }
+});
+
+// The owner on 2026-11-17: a custom emoji or sticker stands in every text under its stable name, and its description
+// stands once in the block `<media>` of the request that names it, whichever block names it.
+const insertEmojiName = (db: Db, name: string, nativeId: string, platformName: string): void => {
+  db.prepare(
+    "INSERT INTO media_names (name, kind, iface, native_id, platform_name, animated, first_seen_at) VALUES (?, 'emoji', 'discord', ?, ?, 0, '2026-10-01T00:00:00.000Z')"
+  ).run(name, nativeId, platformName);
+};
+
+/** The `<media>` blocks of a request's user text. */
+const mediaBlocksOf = (text: string): Array<string> =>
+  [...text.matchAll(/<media>\n([\s\S]*?)\n<\/media>/g)].map((m) => m[1] ?? '');
+
+test('a claim in <people> that names an emoji gives the session request one <media> block with its line', () => {
+  // Bug: the legend covers the batch alone, so a stored claim shows her a bare `:e7:` she cannot read.
+  const env = fixture();
+  try {
+    chat(env);
+    insertEmojiName(env.db, 'e7', '7007', 'λαμπάδα');
+    env.claim({
+      id: 'cl-ada-emoji',
+      subjectId: personOf(ADA),
+      kind: 'interest',
+      text: 'greets with :e7: every morning',
+    });
+    const text = textOf(request(env).messages[1].content);
+    const blocks = mediaBlocksOf(text);
+    assert.equal(blocks.length, 1, text);
+    assert.ok((blocks[0] ?? '').includes(':e7: λαμπάδα'), blocks[0]);
+  } finally {
+    env.done();
+  }
+});
+
+test('an episode that names an emoji gives the session request its <media> line', () => {
+  // Bug: an episode keeps the stable name and no block of the request says what it stands for.
+  const env = fixture();
+  try {
+    chat(env);
+    insertEmojiName(env.db, 'e8', '8008', 'φεγγάρι');
+    env.db
+      .prepare(
+        "INSERT INTO episodes (id, kind, subject_id, date, what, status, scope_kind, scope_iface) VALUES ('ep-moon', 'profile', ?, '2026-10-10', 'Ada sent :e8: at midnight', 'open', 'group', 'discord')"
+      )
+      .run(personOf(ADA));
+    const blocks = mediaBlocksOf(textOf(request(env).messages[1].content));
+    assert.equal(blocks.length, 1);
+    assert.ok((blocks[0] ?? '').includes(':e8: φεγγάρι'), blocks[0]);
+  } finally {
+    env.done();
   }
 });

@@ -108,16 +108,18 @@ for (const wakeKind of ['heartbeat']) {
   });
 }
 
-test('a diary post is in her own world, even when it is published to a channel', () => {
-  // Bug: the diary names the channel it goes to, and the illusion of her own world breaks.
+// The owner on 2026-11-17: `world.md` and the virtual world are deleted and get no new home.
+test('a diary post never tells her she is in a virtual world of her own', () => {
+  // Bug: the diary request says she is in a world of her own making, a concept the owner removed.
+  const worldLabels = { ...labels, spatial: { ...labels.spatial, world: 'MARK-OWN-WORLD {when}' } };
   const request = buildRequest(
     baseInput({
       mode: 'diary',
-      prompts: fakePrompts({ diary: 'DIARY_TASK' }),
+      prompts: fakePrompts({ diary: 'DIARY_TASK', labels: worldLabels }),
       whereabouts: placeIn('general'),
     })
   );
-  assert.equal(spatialOf(request), `SPATIAL-WORLD AT ${WHEN}`);
+  assert.ok(!spatialOf(request).includes('MARK-OWN-WORLD'), spatialOf(request));
 });
 
 test('the clock leaves <now> when the block carries it, so the time appears once', () => {

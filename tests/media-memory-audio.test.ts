@@ -16,6 +16,7 @@ import type { Rec } from './fixtures/describe-fakes.ts';
 import type { Row } from '../src/memory/db/types.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { PURPOSE_ROLES } from '../src/llm/roles.ts';
 
 const AUDIO_CLIP = 'data:video/mp4;base64,YXVkaW8=';
 const VIDEO_PROVIDER = { order: ['test-host'], allow_fallbacks: false };
@@ -269,4 +270,14 @@ test('text quoted in its own language is the standard: one request, no mark', as
   assert.equal(llm.calls.length, 1);
   assert.equal(descriptions.get('p1'), quoted);
   assert.equal(store.mediaEntry('g1', 'p1')?.offScript, undefined);
+});
+
+// The owner on 2026-11-17: a `video` request carries its purpose, as a `vision` request does. The purpose is one that
+// goes out on the `video` role.
+test('a voice message goes out to the describer with a purpose of the video role', async () => {
+  // Bug: the retelling of a voice message leaves a usage row with a null purpose.
+  const { describer, llm } = audioRig();
+  await describer.describeMany('g1', [voiceItem('voice')]);
+  const { options } = llm.calls[0];
+  assert.equal(Object.entries(PURPOSE_ROLES).find(([name]) => name === options.purpose)?.[1], 'video');
 });

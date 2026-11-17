@@ -44,7 +44,12 @@ export const TEXT = {
   /** A line of hers stored in the first mirror's place that no entry names. */
   mirrorOnly: 'ΜΟΝΟ-ΣΤΟΝ-ΚΑΘΡΕΦΤΗ',
   entry: 'ήσυχο βράδυ στο λιμάνι',
+  /** Ελένη's line that holds the custom emoji `e1`. */
+  emojiLine: 'ΚΑΡΑΒΑΚΙ :e1:',
 } as const;
+
+/** The custom emoji `e1` of `FrameTurnSpec.emoji`: its platform name. */
+export const EMOJI_NAME = 'καραβάκι';
 
 /** The plan the planner answers. */
 export const PLAN = { kind: 'status', brief: 'ΗΣΥΧΟ-ΒΡΑΔΥ-ΣΤΟ-ΛΙΜΑΝΙ', search: '', picture: false } as const;
@@ -79,6 +84,11 @@ export type FrameTurnSpec = {
   answer?: string;
   /** Prompt files laid over the turn's own, `appearance` for instance. */
   prompts?: Record<string, unknown>;
+  /**
+   * A custom emoji the store names `e1` before the turn: `named` names it alone, `line` adds Ελένη's line in `c2` that
+   * holds it (`TEXT.emojiLine`).
+   */
+  emoji?: 'named' | 'line';
 };
 
 export type FrameTurnRun = {
@@ -160,7 +170,6 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
       },
       llm: { maxRequestTokens: 100_000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      image: { maxPromptChars: 1000 },
       // Slice 6: the setting is `diary.entries`.
       diary: { entries: 150, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...spec.diary },
     },
@@ -203,6 +212,16 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
   });
   seedEntries(memoryDb, spec.entries ?? 3, { kinds: spec.entryKinds, gist: spec.entryGist });
   const store = createStore({ dataDir, memoryDb });
+  if (spec.emoji) store.nameMedia('fake', 'emoji', [{ nativeId: '7301', platformName: EMOJI_NAME, animated: false }]);
+  if (spec.emoji === 'line')
+    addLine(dbOf(memoryDb), {
+      id: 'g2',
+      iface: 'fake',
+      place: 'fake:channel:c2',
+      author: 'fake:111',
+      text: TEXT.emojiLine,
+      at: iso(FRAME_NOW - 45 * MIN),
+    });
   const writer: Array<string> = [];
   const planner: Array<string> = [];
   const llm = {

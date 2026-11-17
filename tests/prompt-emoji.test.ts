@@ -305,3 +305,78 @@ test('buildRequest: a description of 1,400 characters stands whole in its legend
   const built = buildRequest(legendInput(history, new Map([['emoji:9', long]])));
   assert.deepEqual(kindLines(legendOf(built) ?? '', 'discord', 'emojis'), [`:e23: pogcat: ${long}`]);
 });
+
+// The owner on 2026-11-17: a stable name in any block of her request has its line in the one `<media>` block, not only
+// the names of `<chat>` and `<meanwhile>`. One block per request, one line per thing, none when no block names one.
+const CAT = ':e23: pogcat: a surprised cat face';
+
+function anyBlockInput(overrides: Record<string, unknown>) {
+  return baseInput({
+    prompts: {
+      'system-prompt': 'SYSTEM',
+      'character-card': 'CARD',
+      rules: 'RULES',
+      format: 'FORMAT',
+      reply: 'REPLY_TASK',
+      diary: 'DIARY_TASK',
+      labels: LEGEND_LABELS,
+    },
+    history: [chatLine('1', 'γεια σου', [])],
+    descriptions: new Map([['emoji:9', 'a surprised cat face']]),
+    mediaNameOf: rowOf,
+    ...overrides,
+  });
+}
+
+/** The bodies of every `<media>` block of the request's user text. */
+function mediaBlocks(request: Built): Array<string> {
+  return [...userText(request).matchAll(/<media>\n([\s\S]*?)\n<\/media>/g)].map((match) => match[1] ?? '');
+}
+
+test('buildRequest: a self claim that names an emoji gives <media> its line', () => {
+  // Bug: her stored claim about herself shows a bare `:e23:` with no line that says what it is.
+  const built = buildRequest(anyBlockInput({ placeMemory: { self: ['ends a good day with :e23:'] } }));
+  assert.deepEqual(
+    mediaBlocks(built).map((body) => kindLines(body, 'discord', 'emojis')),
+    [[CAT]]
+  );
+});
+
+test('buildRequest: an intention whose text names an emoji gives <media> its line', () => {
+  // Bug: `<intentions>` holds the stable name she promised to send and no block says what it is.
+  const built = buildRequest(anyBlockInput({ intentions: 'send Zoé :e23: tonight' }));
+  assert.deepEqual(
+    mediaBlocks(built).map((body) => kindLines(body, 'discord', 'emojis')),
+    [[CAT]]
+  );
+});
+
+test('buildRequest: a diary plan that names an emoji gives the diary request <media> its line', () => {
+  // Bug: the plan in `<inner>` keeps the stable name and the writer reads a bare code.
+  const diary = { posts: [], plan: { kind: 'status', brief: 'a calm day :e23:', picture: false }, found: null };
+  const built = buildRequest(anyBlockInput({ mode: 'diary', diary }));
+  assert.deepEqual(
+    mediaBlocks(built).map((body) => kindLines(body, 'discord', 'emojis')),
+    [[CAT]]
+  );
+});
+
+test('buildRequest: an emoji named in <chat> and in a self claim has one <media> block with one line', () => {
+  // Bug: each block that names a thing prints its own legend, or the legend repeats the thing.
+  const built = buildRequest(
+    anyBlockInput({
+      history: [chatLine('1', 'ωραίο :e23:', [{ id: '9', name: 'e23' }])],
+      placeMemory: { self: ['ends a good day with :e23:'] },
+    })
+  );
+  assert.deepEqual(
+    mediaBlocks(built).map((body) => kindLines(body, 'discord', 'emojis')),
+    [[CAT]]
+  );
+});
+
+test('buildRequest: no <media> block when only a self claim with no stable name stands', () => {
+  // Bug: the wider legend prints an empty block on a request that names nothing.
+  const built = buildRequest(anyBlockInput({ placeMemory: { self: ['ends a good day with tea'] } }));
+  assert.deepEqual(mediaBlocks(built), []);
+});
