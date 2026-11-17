@@ -51,7 +51,6 @@ export type RunRequest = {
   goal: string;
   context: RunContext;
   limits?: Record<string, number>;
-  tools?: Array<string>;
   cost?: { input: number; output: number };
   searchProvider?: string;
   secrets?: RunSecrets;
@@ -66,7 +65,7 @@ export type Request = RunRequest | { op: 'cancel'; id: string } | { op: 'ping'; 
 type Checked = { ok: true; message: Request } | { ok: false; error: string; id?: string };
 
 /** What the runner's task engine takes: the validated `run` and the way to stop and follow it. */
-export type RunnerTask = Omit<RunRequest, 'op' | 'tools' | 'limits' | 'searchProvider'> & {
+export type RunnerTask = Omit<RunRequest, 'op' | 'limits' | 'searchProvider'> & {
   limits?: Record<string, unknown>;
   searchProvider?: string | null;
   signal: AbortSignal;
@@ -128,7 +127,6 @@ export const MAX_PING_IDS = 100;
 const MAX_NOTE_CHARS = 200;
 /** The most withheld paths a result lists (each cut to MAX_NOTE_CHARS). */
 const MAX_WITHHELD = 50;
-const MAX_NAME_CHARS = 64;
 /** The secrets a `run` may carry, each when set: a run with a claude or codex route carries no `openrouterKey`. */
 export const SECRET_KEYS = Object.freeze(['openrouterKey', 'proxy', 'searchKey']);
 /** The longest secret value (characters). */
@@ -253,15 +251,6 @@ function validateRun(msg: Rec, id: string): Checked {
     }
     out.limits = limits;
   }
-  if (msg.tools !== undefined) {
-    if (!Array.isArray(msg.tools) || !msg.tools.length) return refuse('bad-tools');
-    const tools: Array<unknown> = msg.tools;
-    if (
-      !tools.every((name): name is string => typeof name === 'string' && name !== '' && name.length <= MAX_NAME_CHARS)
-    )
-      return refuse('bad-tools');
-    out.tools = [...new Set(tools)];
-  }
   if (msg.cost !== undefined) {
     if (!isRec(msg.cost) || !isPrice(msg.cost.input) || !isPrice(msg.cost.output)) return refuse('bad-cost');
     out.cost = { input: msg.cost.input, output: msg.cost.output };
@@ -300,8 +289,7 @@ function validateRun(msg: Rec, id: string): Checked {
  * at most MAX_CONTEXT_CHARS as JSON, whose `scope` is one of SCOPES when
  * present and whose `recent`, when present, is a list of `{ author, text }`
  * strings: the latest MAX_RECENT_ENTRIES kept whole, any
- * other key of a line dropped; a malformed one refuses `bad-recent`), `limits` (only LIMIT_KEYS, each a positive number), `tools` (a
- * non-empty list of names), `cost`
+ * other key of a line dropped; a malformed one refuses `bad-recent`), `limits` (only LIMIT_KEYS, each a positive number), `cost`
  * (`{ input, output }` in USD per million tokens), `searchProvider` (an
  * OpenCode web search provider id) and `secrets` (`{ openrouterKey?, proxy?,
  * searchKey? }`, at least one, each a non-empty string without whitespace, no other key;
