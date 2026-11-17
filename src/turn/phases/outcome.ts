@@ -164,11 +164,11 @@ export function closeAttempt(
   ctx: PhaseContext,
   params: PhaseParams,
   draft: Draft,
-  turn: Pick<Opened, 'channel' | 'prep' | 'life'>
+  turn: Pick<Opened, 'prep' | 'life'>
 ): void {
-  const { busy, notifyIdle } = ctx;
+  const { attention, notifyIdle } = ctx;
   const { owned = false } = params;
-  const { channel, prep, life } = turn;
+  const { prep, life } = turn;
   draft.mode = life.turnMode;
   prep.closeAll();
   life.stopTyping();
@@ -176,8 +176,9 @@ export function closeAttempt(
   life.bar?.close();
   // A turn of a chain, or one that hands its message to a chain, leaves the attention and
   // the notifications to the chain (runChain), which releases them once every part is done.
-  if (!owned && !life.chained) busy.delete(channel.id);
-  if (!owned && !life.chained) notifyIdle();
+  if (owned || life.chained) return;
+  attention[life.attention.lane].delete(life.attention.id);
+  notifyIdle(life.attention.lane);
 }
 
 /** What runTurn hears of an attempt: its result, an inner turn's report, and the journal's ids of the attempt. */

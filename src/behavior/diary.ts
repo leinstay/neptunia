@@ -30,6 +30,7 @@ import type { Obj } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { createStore } from '../memory/store.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
+import type { Lane } from '../turn/triggers.ts';
 import { diaryPlaces, readMirrors } from './mirror.ts';
 
 /** The diary's plan of one local day, as state.json keeps it (`diary[placeId]`). */
@@ -893,8 +894,8 @@ export type DiaryDeps = {
   reads: Reads | null;
   turns: {
     runTurn(params: DiaryTurnParams): Promise<unknown>;
-    isAnyBusy?(): boolean;
-    waitIdle?(): Promise<unknown>;
+    isAnyBusy?(lane?: Lane): boolean;
+    waitIdle?(lane?: Lane): Promise<unknown>;
   };
 
   backfill?: ((args: BackfillArgs) => Promise<number>) | null;
@@ -927,8 +928,8 @@ export type DiaryDeps = {
  * at a time. `force({ kind, topic })` runs one post now, outside the plan and
  * the quiet day, under the same rails; a topic (diaryTopic: one line, 1000
  * characters at most; blank is none) reaches the turn as `diary.topic`, and
- * no topic leaves the field out; while another turn holds the lease
- * (`turns.isAnyBusy()`, or a `busy` outcome) it waits for `turns.waitIdle()`
+ * no topic leaves the field out; while another service turn holds the service lane
+ * (`turns.isAnyBusy('service')`, or a `busy` outcome) it waits for `turns.waitIdle('service')`
  * at most `diary.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
  * turn still runs. Hot values are read at every call.
  * `delay` resolves after `ms` (a timer that never holds the process open); injected by tests.
@@ -1138,9 +1139,9 @@ export function createDiary({
       topic: diaryTopic(topic),
       forced: true,
     };
-    // One turn at a time: a running turn is waited for (diary.forceWaitMs at most), once.
+    // One service turn at a time: a running heartbeat or diary turn is waited for (diary.forceWaitMs at most), once.
     let waited = false;
-    if (turns.isAnyBusy?.() === true) {
+    if (turns.isAnyBusy?.('service') === true) {
       waited = true;
       if (!(await waitIdle(config))) return { outcome: 'busy' };
     }
@@ -1150,12 +1151,12 @@ export function createDiary({
     return post(params);
   }
 
-  /** Whether the turn runner went idle within `diary.forceWaitMs` (read from `config`, the live one). */
+  /** Whether the service lane went idle within `diary.forceWaitMs` (read from `config`, the live one). */
   async function waitIdle(config: unknown) {
     if (typeof turns.waitIdle !== 'function') return false;
     const cap = Number(sectionOf(config, 'diary').forceWaitMs ?? DEFAULT_FORCE_WAIT_MS);
-    const idle = await Promise.race([turns.waitIdle().then(() => true), delay(cap).then(() => false)]);
-    return idle && turns.isAnyBusy?.() !== true;
+    const idle = await Promise.race([turns.waitIdle('service').then(() => true), delay(cap).then(() => false)]);
+    return idle && turns.isAnyBusy?.('service') !== true;
   }
 
   function status(): DiaryStatus {
