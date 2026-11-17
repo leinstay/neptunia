@@ -19,6 +19,8 @@ import { createMemoryUpdater } from '../src/memory/update.ts';
 import type { MessageReceived } from '../src/protocol/events.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
+import { createSendHold } from '../src/tools/send-hold.ts';
+import type { SendHold } from '../src/tools/send-hold.ts';
 import { dbOf, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -76,7 +78,8 @@ type Root = Awaited<ReturnType<typeof root>>;
 
 /**
  * One turn of hers in `here` over `core`, answered with `answers`: an ordinary reply to Alice, or an inner turn for
- * `wake`. Her tools run through a real admin over the same guarded port. Returns the logs of the turn.
+ * `wake`, whose posts wait in `hold` when it is a live wake turn. Her tools run through a real admin over the same
+ * guarded port. Returns the logs of the turn.
  */
 async function turnIn(
   core: Root,
@@ -84,17 +87,26 @@ async function turnIn(
     here,
     answers,
     wake = null,
+    hold = null,
     llm = sequenceLlm(answers),
-  }: { here: string; answers: Array<unknown>; wake?: object | null; llm?: ReturnType<typeof sequenceLlm> }
+  }: {
+    here: string;
+    answers: Array<unknown>;
+    wake?: object | null;
+    hold?: SendHold | null;
+    llm?: ReturnType<typeof sequenceLlm>;
+  }
 ) {
   const hot = hotWith({
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
-    access: personaGrants(['message.create', 'draw.create', 'voice.say']),
+    access: personaGrants(['message.create', 'message.edit', 'draw.create', 'voice.say']),
   });
   Object.assign(hot.prompts, { inner: 'Nobody wrote to you; read the wake block.', draw: 'DRAW {{request}}' });
   const store = Object.assign(fakeStore(), {
     findGif: () => ({ id: 'g1', url: 'https://media.example/g1.gif', file: null }),
     recordOwnGif: () => {},
+    // The memory database the mirror is seeded in, read as the memory store reads it.
+    readMemory: <TResult>(read: (db: unknown) => TResult): TResult => read(dbOf(core.memory.memoryDb)),
   });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const images = {
@@ -149,7 +161,7 @@ async function turnIn(
           placeId: ROOT,
           mode: 'inner',
           triggerKind: 'inner',
-          inner: { wake, shadow: false, mayAct: () => true },
+          inner: { wake, shadow: false, mayAct: () => true, hold },
         })
       : turns.runTurn({
           chat,
@@ -326,10 +338,12 @@ test('a message, a picture and a voice from an ordinary turn elsewhere are refus
     ],
   });
   assert.deepEqual(core.sendsTo(MIRROR), [], 'nothing reaches the interface there');
+  // The posting check refuses a post there before any send or any picture is made
+  // (src/tools/operations/shared.ts#postingRef), a refusal with the status `denied`.
   assert.deepEqual(calledOf(logs), [
-    'message.create:failed/diary-mirror',
-    'draw.create:failed/diary-mirror',
-    'voice.say:failed/diary-mirror',
+    'message.create:denied/diary-mirror',
+    'draw.create:denied/diary-mirror',
+    'voice.say:denied/diary-mirror',
   ]);
 });
 
@@ -342,6 +356,50 @@ test('her message and GIF in an intention turn that runs in a mirror place are r
   });
   assert.deepEqual(core.sendsTo(MIRROR), [], 'nothing reaches the interface there');
   assert.ok(namesTheCode(logs), 'the refusal names diary-mirror');
+});
+
+test('her message in a live intention turn in a mirror place is refused diary-mirror at the call and held nowhere', async () => {
+  const core = await root();
+  const hold = createSendHold();
+  const logs = await turnIn(core, {
+    here: MIRROR,
+    wake: intentionWake,
+    hold,
+    answers: ['<msg>καλημέρα</msg>', '<skip/>'],
+  });
+  assert.deepEqual(calledOf(logs), ['message.create:denied/diary-mirror']);
+  assert.deepEqual(hold.sends, [], 'no delivery waits for the wake to complete');
+});
+
+test('a message aimed at a mirror place from a live intention turn elsewhere is refused diary-mirror and held nowhere', async () => {
+  const core = await root();
+  const hold = createSendHold();
+  const logs = await turnIn(core, {
+    here: 'c1',
+    wake: { ...intentionWake, placeId: 'c1', intentions: [{ ...intentionWake.intentions[0], placeId: 'c1' }] },
+    hold,
+    answers: [toolAnswer('', [call('message.create', { place: '#journal', text: 'από εδώ' })]), '<skip/>'],
+  });
+  assert.deepEqual(calledOf(logs), ['message.create:denied/diary-mirror']);
+  assert.deepEqual(hold.sends, [], 'no delivery waits for the wake to complete');
+});
+
+test('an edit of a message in a mirror place is refused diary-mirror', async () => {
+  const core = await root();
+  const logs = await turnIn(core, {
+    here: 'c1',
+    answers: [
+      toolAnswer('', [call('message.edit', { place: '#journal', message: `m-${MIRROR}`, text: 'αλλιώς' })]),
+      '<skip/>',
+    ],
+  });
+  assert.deepEqual(calledOf(logs), ['message.edit:denied/diary-mirror']);
+  const { adapter } = core;
+  assert.deepEqual(
+    adapter.calls.filter((entry) => entry.op === 'edit'),
+    [],
+    'nothing reaches the interface'
+  );
 });
 
 // ---- the publisher, and a disabled mirror -----------------------------------------------------------------------

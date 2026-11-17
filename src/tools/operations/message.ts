@@ -385,7 +385,7 @@ const handlers = perEnv((env) => {
     const p = requirePort();
     const text = textOf(args.text).trim();
     if (!text) throw invalid('text is required');
-    const { placeId, messageId, ref } = await target(args, context, 'read', { last: true });
+    const { placeId, messageId, ref } = await target(args, context, 'edit', { last: true });
     if (publicationRefusal(context.publicationBoundary, ref)) throw denied('publication-boundary', 'not-allowed');
     return portAnswer('message.edit', await p.edit(ref, { text }), `edited message ${messageId} in ${placeId}`);
   }

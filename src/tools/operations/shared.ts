@@ -5,6 +5,7 @@
 
 import { chatOfPlace, notePlaceAddress, placeRefOf } from '../../memory/addresses.ts';
 import { chatOfStoredPlace } from '../../interface/place-chat.ts';
+import { isMirrorPlace } from '../../memory/db/mirrors.ts';
 import { cliChatRef } from '../../interface/cli-chat.ts';
 import { dmChatsOff } from '../../behavior/core-pause.ts';
 import fs from 'node:fs';
@@ -571,21 +572,25 @@ export function learnedLine(item: Untyped, resolve: (text: unknown) => string): 
 /**
  * What an operation does in a chat other than the one it runs in, and the permissions of the persona it needs
  * there (`info.permissions` of the interface's chat info): `send` a message, `reply` to one (send, and read the
- * history the reply points into), `attach` a picture (send with a file), `read` the history to find a message (an edit,
- * a deletion, a reaction taken back), `react` to one.
+ * history the reply points into), `attach` a picture (send with a file), `edit` one of hers (read the history to find
+ * it), `read` the history to find a message (a deletion, a reaction taken back), `react` to one.
  */
 export const CHANNEL_NEEDS: Readonly<
-  Record<'send' | 'reply' | 'attach' | 'read' | 'react', (permissions: Permissions) => boolean>
+  Record<'send' | 'reply' | 'attach' | 'edit' | 'read' | 'react', (permissions: Permissions) => boolean>
 > = Object.freeze({
   send: (permissions) => permissions.send,
   reply: (permissions) => permissions.send && permissions.read,
   attach: (permissions) => permissions.send && permissions.attach,
+  edit: (permissions) => permissions.read,
   read: (permissions) => permissions.read,
   react: (permissions) => permissions.react,
 });
 
 /** The needs of a post: a closed direct chat refuses them by its own code, every other need by the permission's. */
 const POSTING_NEEDS: ReadonlySet<string> = new Set(['send', 'reply', 'attach']);
+
+/** The needs that write her words into a chat, which a diary mirror's place refuses: a post and an edit. */
+const WRITING_NEEDS: ReadonlySet<string> = new Set([...POSTING_NEEDS, 'edit']);
 
 /** What posting in another chat reads of the call's context: the place it runs in, and the wake it is made in. */
 export type PostingContext = {
@@ -650,7 +655,9 @@ const closedDirectChat = (info: { kind?: unknown; iface?: unknown } | null, cont
  * is false is a `denied` error (`dm-disabled`), any other refusal a `denied` error (`channel-no-permission`), an `invalid` one with no chat at all; nothing was
  * done. On her own initiative (an inner turn: `context.ownInitiative` with `context.wakeKind`) a post or a reaction is
  * also asked of the wake's envelope (src/tools/access.ts#nestedRefusal, the live config through `context.env.hot`): a
- * `denied` error (`not-allowed`) before anything is done.
+ * `denied` error (`not-allowed`) before anything is done. A post or an edit in the place of a diary mirror
+ * (src/memory/db/mirrors.ts#isMirrorPlace, read through `store`) is a `denied` error (`diary-mirror`), the
+ * chat the call runs in included, before a wake's hold keeps anything: only the mirrors' publisher writes there.
  */
 export async function postingRef({
   reads,
@@ -675,6 +682,8 @@ export async function postingRef({
   if (!target) throw invalid('a channel is required');
   if (capability && publicationRefusal(context.publicationBoundary, target))
     throw denied('publication-boundary', 'not-allowed');
+  if (WRITING_NEEDS.has(need) && isMirrorPlace(store, target.iface, target.chatId))
+    throw denied(`a mirror of your diary, ${target.chatId}`, CODE.DIARY_MIRROR);
   if (target.iface === iface && target.chatId === (here ?? '')) return target;
   if (typeof CHANNEL_NEEDS[need] !== 'function') throw new Error(`unknown channel need: ${need}`);
   const info = await chatInfoOf(reads, target);

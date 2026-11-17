@@ -27,8 +27,9 @@
 //
 // The reads of the mirrors (`mirrorPlaces`, `diaryPlaces`, `isMirrorPlace`, `diaryChatIds`) live with the memory
 // database (src/memory/db/mirrors.ts) and are passed on from here to the behaviour modules. A mirror place is not hers
-// to write in (the owner, 2026-10-27): `guardMirrorPort` is the core's outbound port, which refuses every send
-// there with the code `diary-mirror`, and the message handler opens no turn for an event there (src/behavior/
+// to write in (the owner, 2026-10-27): her posts and edits there are refused at the call with the code `diary-mirror`
+// (src/tools/operations/shared.ts#postingRef), `guardMirrorPort` is the core's outbound port, which refuses every
+// other send there with the same code, and the message handler opens no turn for an event there (src/behavior/
 // pipeline.js). The owner's commands read and change the mirrors through src/behavior/mirror-desk.ts. Logs carry counts
 // and codes, never a text.
 
