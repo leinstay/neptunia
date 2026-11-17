@@ -3133,3 +3133,103 @@ test('describe: a blank appearance leaves nothing of describe-self in the system
   assert.ok(!system.includes('look like'), system);
   assert.ok(!system.includes('{{'), system);
 });
+
+// --- Animated custom emoji and stickers ------------------------------------------
+
+// The owner on 2026-11-17: an animated custom emoji or sticker is a GIF, watched as a clip and never from one still.
+const MOVING_PROMPTS = { 'describe-gif': 'Loop of {{seconds}} s, up to {{maxChars}}.' };
+const EMOJI_GIF = 'https://cdn.discordapp.com/emojis/e2.gif';
+const STICKER_GIF = 'https://media.discordapp.net/stickers/s3.gif?size=160';
+
+/** An animated custom emoji's item, as collectEmojiItems lists it. */
+function animatedEmojiItem(overrides = {}) {
+  return {
+    source: 'emoji',
+    messageId: 'm1',
+    itemId: 'emoji:e2',
+    kind: 'emoji',
+    url: 'https://cdn.discordapp.com/emojis/e2.webp?size=96',
+    name: 'kekw',
+    animated: true,
+    animationUrl: EMOJI_GIF,
+    ...overrides,
+  };
+}
+
+/** An animated sticker's item, as collectPictures lists it. */
+function animatedStickerItem(overrides = {}) {
+  return {
+    source: 'sticker',
+    messageId: 'm1',
+    itemId: 'sticker:s3',
+    kind: 'sticker',
+    url: STICKER_GIF,
+    name: 'dance',
+    animated: true,
+    animationUrl: STICKER_GIF,
+    ...overrides,
+  };
+}
+
+/** Asserts one watch of `clip` with describe-gif, no picture fetched or requested, the text stored watched. */
+function assertWatched(run: Rig, itemId: string, clip: string) {
+  const { videoFetcher, imageFetcher, llm, store } = run;
+  assert.deepEqual(
+    videoFetcher.calls.map((c) => [c.fn, c.url]),
+    [['fetchGif', clip]]
+  );
+  assert.equal(imageFetcher.calls.length, 0, 'no still frame is fetched');
+  assert.equal(llm.calls.length, 1);
+  const [{ messages, options }] = llm.calls;
+  assert.equal(options.role, 'video');
+  assert.equal(messages[0].content, 'Loop of 15 s, up to 1500.');
+  const entry = loose(cacheView(store, 'g1'))[itemId];
+  assert.equal(entry.text, 'a man pulls a child back as a train rushes past');
+  assert.equal(entry.watched, true);
+}
+
+test('describe: an animated emoji is watched from its gif address with describe-gif, stored watched under emoji:<id>', async () => {
+  const run = gifDescriber({ hot: gifHot({ prompts: MOVING_PROMPTS }) });
+  await run.describer.describe('g1', animatedEmojiItem());
+  assertWatched(run, 'emoji:e2', EMOJI_GIF);
+});
+
+test('describe: an animated sticker is watched from its animation address with describe-gif, stored watched', async () => {
+  const run = gifDescriber({ hot: gifHot({ prompts: MOVING_PROMPTS }) });
+  await run.describer.describe('g1', animatedStickerItem());
+  assertWatched(run, 'sticker:s3', STICKER_GIF);
+});
+
+test('describe: a still emoji and a still sticker are described as pictures, with no clip fetched', async () => {
+  const run = gifDescriber({ hot: gifHot({ prompts: MOVING_PROMPTS }), llm: fakeLlm({ text: 'a frog' }) });
+  const emoji = animatedEmojiItem({ itemId: 'emoji:e1', animated: false, animationUrl: undefined });
+  const sticker = animatedStickerItem({
+    itemId: 'sticker:s1',
+    url: 'https://media.discordapp.net/stickers/s1.png?size=160',
+    animated: false,
+    animationUrl: undefined,
+  });
+  await run.describer.describe('g1', emoji);
+  await run.describer.describe('g1', sticker);
+  const { videoFetcher, imageFetcher, llm, store } = run;
+  assert.equal(videoFetcher.calls.length, 0);
+  assert.equal(imageFetcher.calls.length, 2);
+  const roles: Array<string> = [];
+  for (const { options } of llm.calls) roles.push(String(options.role));
+  assert.deepEqual(roles, ['vision', 'vision']);
+  const cache = loose(cacheView(store, 'g1'));
+  assert.equal(cache['emoji:e1'].text, 'a frog');
+  assert.equal(cache['emoji:e1'].watched, undefined);
+  assert.equal(cache['sticker:s1'].text, 'a frog');
+});
+
+test('describe: an animated emoji whose clip fetch fails is stored as a miss with its reason, no picture request', async () => {
+  const run = gifDescriber({
+    hot: gifHot({ prompts: MOVING_PROMPTS }),
+    videoFetcher: gifFetcher({ ok: false, reason: 'download' }),
+  });
+  const { describer, llm } = run;
+  await describer.describe('g1', animatedEmojiItem());
+  assert.equal(llm.calls.length, 0);
+  assertGifMiss(run, 'emoji:e2', 'download');
+});
