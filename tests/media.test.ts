@@ -27,6 +27,9 @@ import { discordCdnVideo, mediaProxyUrl, stickerUrl } from '../interfaces/discor
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 
+// The items come back typed without the animation fields; the tests read them through `loose`.
+const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
+
 /** The video state `mediaLabelFor` takes in its second argument. */
 type VideoOf = NonNullable<NonNullable<Parameters<typeof mediaLabelFor>[1]>['video']>;
 
@@ -741,6 +744,48 @@ test('collectEmojiItems: every distinct emoji of a message becomes a describable
     collectPictures(m).map((p) => p.itemId),
     []
   );
+});
+
+// The owner on 2026-11-17: an animated emoji or sticker is watched as a GIF, so its item carries what the watch needs.
+test('collectEmojiItems: an animated emoji item carries animated and its animationUrl, a still one neither', () => {
+  const m = message('m1', {
+    emojis: [
+      { id: 'e1', name: 'pog', animated: false, url: 'https://cdn.discordapp.com/emojis/e1.webp?size=96' },
+      {
+        id: 'e2',
+        name: 'kekw',
+        animated: true,
+        url: 'https://cdn.discordapp.com/emojis/e2.webp?size=96',
+        animationUrl: 'https://cdn.discordapp.com/emojis/e2.gif',
+      },
+    ],
+  });
+  const [still, moving] = collectEmojiItems(m).map((item) => loose(item));
+  assert.equal(still.animated, false);
+  assert.equal(still.animationUrl, undefined);
+  assert.equal(moving.animated, true);
+  assert.equal(moving.animationUrl, 'https://cdn.discordapp.com/emojis/e2.gif');
+  assert.equal(moving.itemId, 'emoji:e2');
+});
+
+test('collectPictures: an animated sticker item carries animated and its animationUrl, a still one neither', () => {
+  const m = stickerMessage('m1', 0, [
+    { id: 's1', name: 'pepe', animated: false, url: 'https://media.discordapp.net/stickers/s1.png?size=160' },
+    {
+      id: 's3',
+      name: 'dance',
+      animated: true,
+      url: 'https://media.discordapp.net/stickers/s3.gif?size=160',
+      animationUrl: 'https://media.discordapp.net/stickers/s3.gif?size=160',
+    },
+  ]);
+  const [still, moving] = collectPictures(m).map((item) => loose(item));
+  assert.equal(still.animated, false);
+  assert.equal(still.animationUrl, undefined);
+  assert.equal(moving.animated, true);
+  assert.equal(moving.animationUrl, 'https://media.discordapp.net/stickers/s3.gif?size=160');
+  assert.equal(moving.kind, 'sticker');
+  assert.equal(moving.itemId, 'sticker:s3');
 });
 
 // --- mediaLabelFor: a second look on a question (videoAnswered) -------------------
