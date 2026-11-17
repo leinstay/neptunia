@@ -16,7 +16,7 @@ A profile holds these keys and no other.
 | Key | Values |
 |---|---|
 | `id` | the folder's name |
-| `description` | what the agent is for and what it is not for, shown by `/agents` |
+| `description` | what the agent is for and what it is not for, shown by `/agents` and read by the dispatcher when it picks the agent of an errand |
 | `unit` | `web` or `host`, the unit whose runner runs the agent |
 | `abilities` | any of `search`, `fetch`, `download` and `shell` |
 | `returns` | `text`, or `files` for an agent that hands back the files it saved |
@@ -41,6 +41,8 @@ A runner serves every agent of its unit and works one errand per agent at a time
 ## Tracked and local agents
 
 The folders here are tracked. A deployment's agents live in `<data>/agents/<name>/`. A local folder with the name of a tracked agent overlays its profile key by key: nested objects merge by their own keys, arrays and scalars replace, and `id` cannot change. A local prompt of that name is read before the tracked one, and needs no local profile. A local folder with any other name is an agent of its own when it holds a whole profile and its prompt, and a folder with no profile is no agent. Symbolic links under `<data>/agents/` are refused. Every call reads the files as they are now, so a runner picks up a changed prompt or limit at its next errand.
+
+The dispatcher picks the agent of every errand she asks for from the agents that are enabled and free now, see [docs/errands.md](../docs/errands.md#the-dispatcher). The owner names one himself with `/errands add <agent> <goal>`.
 
 An agent is off until `/agent enable <name>` writes `agents.<name>.enabled` as `true` in the local config, and `/agent disable <name>` switches it off again. `agents.<name>` also overrides `cost`, `limits` and `daily`. `/agents` lists every agent with its description, unit, abilities, route, state and whether it is tracked or local.
 

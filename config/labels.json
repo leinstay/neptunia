@@ -438,6 +438,8 @@
     "errands": {
       "header": "Your errands (open, or finished and not yet read by you):",
       "line": "{id} · {agent} · {state} {error} · asked {age} min ago · {goal}",
+      "noAgent": "no agent yet",
+      "roster": "{name}: {description}",
       "states": {
         "queued": "waiting",
         "running": "in progress",
@@ -451,6 +453,7 @@
       "resultTurnFailed": "(result turn did not complete)",
       "result": {
         "header": "Your errand {id} for the {agent} agent has ended: {state}. It was: {goal}",
+        "headerNoAgent": "Your errand {id} has ended before any agent took it: {state}. It was: {goal}",
         "text": "What it brought back:",
         "empty": "It brought back no text.",
         "error": "Reason: {error}",
@@ -703,6 +706,8 @@
           "PLACE_NOT_FOUND": "no such place",
           "error": "something went wrong",
           "runner-down": "that agent is not running",
+          "no-agent": "none of your agents fits this errand or is free to take it now",
+          "dispatch-failed": "the request that picks the agent for this errand failed",
           "memory-closed": "the memory database is closed",
           "write-failed": "it could not be saved",
           "skill-tampered": "the files of that skill version changed after it was activated, so nothing ran",

@@ -118,7 +118,8 @@ export function errandOf(row: Record<string, unknown>): ErrandData | null {
   const fields: Record<string, unknown> = {
     ...kept,
     id: row.id,
-    agent: row.role,
+    // A task filed before the dispatcher gave it an agent holds ''.
+    agent: typeof row.role === 'string' && row.role !== '' ? row.role : null,
     goal: row.title,
     state,
     error: typeof row.close_reason === 'string' ? row.close_reason : null,

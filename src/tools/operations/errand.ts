@@ -2,9 +2,9 @@
 // `errand.add|status|cancel|result|resolve`: the persona's errands handed to her agents
 // (src/errands/, src/agent-runner/). Their rules are here, for every caller alike: the owner's command
 // and the persona's own call (her skills: the requester of her turn is the caller).
-// `errand.add` goes to `ERRAND_AGENT` unless an owner names another agent (`/errands add <agent> <goal>`), so naming an
-// agent is the owner's alone (`owner-only`), and an agent whose profile says `audience: owner` runs an errand only when
-// the owner asks (src/errands/service.ts). An errand asked in a private chat is `dm`-scoped,
+// `errand.add` names no agent, and the dispatcher picks one before the errand runs (src/errands/service.ts), unless an
+// owner names the agent (`/errands add <agent> <goal>`): naming an agent is the owner's alone (`owner-only`), and an
+// agent whose profile says `audience: owner` runs an errand only when the owner asks. An errand asked in a private chat is `dm`-scoped,
 // else `group`, and the runner withholds more in a filtered scope. `errand.add` answers at once
 // with the id and `queued`: the errand runs in the background (src/errands/service.ts) and its
 // end opens her own turn where it was asked. `errand.cancel` is for the requester of the errand or an
@@ -21,7 +21,6 @@
 // `errand-wait-ended` with the errand still running and unread.
 
 import { isOwnerCaller } from './grants.ts';
-import { ERRAND_AGENT } from './catalog.ts';
 import { oneLine } from '../../memory/clamp.ts';
 import { MINUTE_MS } from '../../time.ts';
 import { ERRAND_STATES, fileHandle, isOpenState } from '../../errands/store.ts';
@@ -85,7 +84,7 @@ const handlers = perEnv((env) => {
     );
   }
 
-  /** One line of an errand: id, agent, state (with the error code and `files-expired`), age, goal. */
+  /** One line of an errand: id, agent (`-` before it has one), state (with the error code and `files-expired`), age, goal. */
   function errandLine(errand: ErrandRecord): string {
     const minutes = Math.max(0, Math.floor((now() - (errand.createdAt ?? now())) / MINUTE_MS));
     const codes = [
@@ -93,7 +92,7 @@ const handlers = perEnv((env) => {
       ...(errand.filesExpired === true ? ['files-expired'] : []),
     ];
     const state = codes.length > 0 ? `${errand.state} (${codes.join(', ')})` : errand.state;
-    return `${errand.id} ${errand.agent} ${state} ${minutes}m: ${oneLine(errand.goal)}`;
+    return `${errand.id} ${errand.agent ?? '-'} ${state} ${minutes}m: ${oneLine(errand.goal)}`;
   }
 
   /** A refusal of the store or the service as the operation's result. */
@@ -115,7 +114,7 @@ const handlers = perEnv((env) => {
     const current = errand ?? queued;
     const task = { id: current.id, agent: current.agent, state: current.state };
     if (!ended) {
-      const line = `errand ${current.id}: still ${current.state} (${current.agent})`;
+      const line = `errand ${current.id}: still ${current.state} (${current.agent ?? '-'})`;
       return {
         status: 'failed',
         code: CODE.ERRAND_WAIT_ENDED,
@@ -142,7 +141,7 @@ const handlers = perEnv((env) => {
     const requester = requesterOf(context);
     // Her call names no agent; only an owner picks one.
     if (named && requester.kind !== 'owner') throw denied('only an owner may name the agent', CODE.OWNER_ONLY);
-    const agent = named || ERRAND_AGENT;
+    const agent = named || null;
     const scope = inPrivate(context) ? 'dm' : 'group';
     // Her own call carries its turn and its idempotency key (src/tools/executors.ts); a command neither.
     const persona = context?.actor === 'persona';
@@ -169,11 +168,12 @@ const handlers = perEnv((env) => {
     const waitMs = context?.waitMs;
     if (typeof waitMs === 'number' && waitMs > 0)
       return await waitedAnswer(await errands().wait({ id: errand.id, ms: waitMs }), errand);
+    const line = agent === null ? `errand ${errand.id}: queued` : `errand ${errand.id}: queued (${agent})`;
     return {
       status: 'ok',
       code: CODE.OK,
-      summary: `errand ${errand.id}: queued (${agent})`,
-      data: { text: `errand ${errand.id}: queued (${agent})`, task: { id: errand.id, agent, state: errand.state } },
+      summary: line,
+      data: { text: line, task: { id: errand.id, agent, state: errand.state } },
     };
   }
 

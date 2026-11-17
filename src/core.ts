@@ -46,7 +46,16 @@ import type { CompleteResult } from './llm/openrouter.ts';
 import { reportingFailures } from './llm/chain-client.ts';
 import { createCoreRoutes } from './llm/core-routes.ts';
 import { harnessEffort } from './llm/route-text.ts';
-import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
+import {
+  DISPATCHER_ROLE,
+  MEMORY_ROLE,
+  MEMORY_ROLE_DEFAULT,
+  ROLE_DEFAULTS,
+  SEARCH_ROLE,
+  dispatcherModel,
+  roleModel,
+  searchModel,
+} from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands, reasonedPause } from './keys/commands.ts';
 import type { KeyOf } from './keys/ring.ts';
@@ -84,6 +93,7 @@ import { createErrandStores } from './errands/store.ts';
 import { groupsContext } from './memory/db/scope.ts';
 import type { RetrievalInput } from './memory/retrieval-input.ts';
 import { createErrandService } from './errands/service.ts';
+import { createDispatcher } from './errands/dispatcher.ts';
 import { SELF_PERSON, PERSONA_ID } from './memory/db/ids.ts';
 import { createMemberDirectory } from './interface/members.ts';
 import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
@@ -971,6 +981,7 @@ async function buildCore(
       }),
     log,
     onFinished: (task) => submitErrandEnd(task),
+    dispatch: createDispatcher({ llm, hot, log }),
     proxy: () => proxy.current(),
   });
   // The persona's intentions: data/places/<id>/intentions.json, her own `intent.*` calls and the waits on her errands.
@@ -1370,7 +1381,11 @@ async function buildCore(
     baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
     defaults: { ...ROLE_DEFAULTS, memory: MEMORY_ROLE_DEFAULT },
     currentModel: (role) =>
-      role === SEARCH_ROLE ? (searchModel(hot.config) ?? '') : (roleModel(hot.config, role) ?? ''),
+      role === SEARCH_ROLE
+        ? (searchModel(hot.config) ?? '')
+        : role === DISPATCHER_ROLE
+          ? (dispatcherModel(hot.config) ?? '')
+          : (roleModel(hot.config, role) ?? ''),
     speechVoice: () => {
       const voice = objOf(objOf(hot.config).speech).voice;
       return typeof voice === 'string' ? voice : '';

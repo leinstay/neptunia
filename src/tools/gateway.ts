@@ -20,7 +20,6 @@ import { CODE } from './codes.ts';
 import { CORE_ROLE, ROLE_ABILITY, modelAbilities, roleModel } from '../llm/roles.ts';
 import type { RoleDownReason, RoleHealth } from '../llm/role-health.ts';
 import { idText, isObj, objOf, textOf } from './types.ts';
-import { ERRAND_AGENT } from './operations/catalog.ts';
 import type { Skill, SkillMap } from './types.ts';
 import type { WakeAction } from './access.ts';
 import type { PlaceCandidate, PlaceChoices } from './place-names.ts';
@@ -79,10 +78,10 @@ function targetChat(args: unknown, audience: Audience | null): string | null {
 /**
  * The budget of a paid skill that has one: a function of the call's context, requester and arguments answering
  * `{ spent }` (`code` and `key` naming the refusal and the cap that is spent), or null when unavailable. An errand's is
- * its agent's caps (open tasks and tasks a day), `context.tasks`; a drawing and a voice message have no daily budget.
+ * its agent's caps (open tasks and tasks a day), or the open tasks alone for one the dispatcher assigns, `context.tasks`; a drawing and a voice message have no daily budget.
  */
 const taskBudget = (context: GateContext, _requester: Requester | null, args: unknown): unknown =>
-  typeof context.tasks?.budget === 'function' ? context.tasks.budget(textOf(objOf(args).agent) || ERRAND_AGENT) : null;
+  typeof context.tasks?.budget === 'function' ? context.tasks.budget(textOf(objOf(args).agent)) : null;
 const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Requester | null, args: unknown) => unknown>> =
   Object.freeze({ 'errand.add': taskBudget });
 

@@ -8,7 +8,7 @@ import { fill } from '../format.ts';
 import { oneLine } from '../memory/clamp.ts';
 import { MINUTE_MS } from '../time.ts';
 import { fileHandle, isOpenState } from './store.ts';
-import { listOf, objOf } from '../tools/types.ts';
+import { listOf, objOf, textOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ErrandRecord } from './types.ts';
 import type { Summarize } from '../behavior/summarize.ts';
@@ -37,7 +37,8 @@ function errandStateWord(errand: ErrandRecord | null | undefined, labels: Untype
 
 /**
  * The `<errands>` block's body: `labels.errands.header`, then one `labels.errands.line` per errand
- * (`{id}`, `{agent}`, `{goal}` on one line, whole, `{state}` through
+ * (`{id}`, `{agent}` or `labels.errands.noAgent` before the dispatcher assigned one, `{goal}` on one line,
+ * whole, `{state}` through
  * `labels.errands.states`, `states.expired` for an errand whose files have expired, `{error}` the
  * code of an errand that did not end `done` ('' otherwise), `{age}` whole minutes since it was
  * asked). The open ones come first; a finished one is an unread result and its line ends with
@@ -57,10 +58,11 @@ export function errandsBlockText(
   const finished = list.filter((errand) => !isOpenState(errand.state));
   const cap = Number.isInteger(unreadShown) && unreadShown >= 0 ? unreadShown : DEFAULT_UNREAD_SHOWN;
   const shown = [...open, ...finished.slice(0, cap)];
+  const noAgent = textOf(objOf(objOf(labels).errands).noAgent);
   const lineOf = (errand: ErrandRecord): string => {
     const line = fill(l.line, {
       id: errand.id,
-      agent: errand.agent,
+      agent: errand.agent ?? noAgent,
       goal: oneLine(errand.goal),
       state: errandStateWord(errand, labels),
       error: errand.state !== 'done' && errand.error ? errand.error : '',
@@ -107,9 +109,16 @@ function resultTextOf(errand: ErrandRecord | null | undefined): string {
   return typeof resultText === 'string' ? resultText.trim() : '';
 }
 
+/** The header of a result: `result.headerNoAgent` for an errand no agent took, else `result.header`. */
+function headerOf(errand: ErrandRecord, labels: Untyped): string {
+  const result = objOf(objOf(objOf(labels).errands).result);
+  const noAgent = textOf(result.headerNoAgent);
+  return errand.agent === null && noAgent ? noAgent : textOf(result.header);
+}
+
 /**
  * The `<errand_result>` block's body for a finished `errand` whose result text is shown as `shown` (the result's own
- * text unless given): `labels.errands.result.header` (`{id}`,
+ * text unless given): `labels.errands.result.header`, `result.headerNoAgent` for an errand no agent took (`{id}`,
  * `{agent}`, `{goal}` on one line, `{state}` in words), then `shown` under
  * `result.text`, followed by `result.retold` when it differs from the result's own text (`result.empty` when the result
  * has no text), `result.error` (`{error}`:
@@ -131,7 +140,7 @@ export function errandResultBody(
   const r = labels?.errands?.result;
   if (!errand || typeof r?.header !== 'string') return '';
   const parts = [
-    fill(r.header, {
+    fill(headerOf(errand, labels), {
       id: errand.id,
       agent: errand.agent,
       goal: oneLine(errand.goal),

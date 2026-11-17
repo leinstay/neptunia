@@ -33,17 +33,19 @@
 
 import { log as defaultLog } from '../log.ts';
 import { loadProfiles, agentSettings, profileOf } from '../agent-runner/profiles.ts';
-import type { AgentPaths } from '../agent-runner/profiles.ts';
+import type { AgentPaths, Profile } from '../agent-runner/profiles.ts';
 import { serviceCredential } from '../keys/file.ts';
 import { opencodeKey } from '../subharness/routing.ts';
 import { routeOfAgent } from '../subharness/control.ts';
+import { agentRouteOf } from '../subharness/routing.ts';
+import type { Dispatch as AgentDispatch, RosterEntry } from './dispatcher.ts';
 import { MAX_RECENT_ENTRIES } from '../agent-runner/protocol.ts';
 import { httpProxyForm } from '../net/proxy.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { oneLine } from '../memory/clamp.ts';
 import { isOpenState } from './store.ts';
 import { CODE } from '../tools/codes.ts';
-import { errorCode, idText, isPositive } from '../tools/types.ts';
+import { errorCode, idText, isPositive, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
   AddResult,
@@ -229,7 +231,7 @@ function dispatchContext(errand: ErrandRecord, recent: RunContext['recent']): Ru
 
 /** The `run` of one dispatched errand: who it is for, its context and limits, and the secrets and route when it has them. */
 function runRequestOf(
-  errand: ErrandRecord,
+  errand: ErrandRecord & { agent: string },
   recent: RunContext['recent'],
   limits: Limits,
   secrets: RunSecrets | null,
@@ -239,6 +241,55 @@ function runRequestOf(
   const { agent, id, goal } = errand;
   const context = { ...dispatchContext(errand, recent), ...(memory.length > 0 ? { memory } : {}) };
   return { agent, id, goal, context, limits, ...(secrets ? { secrets } : {}), ...(route ? { route } : {}) };
+}
+
+/**
+ * The roster of a dispatch: every agent of `profiles` that has a route in `config`, is `free` (enabled, its runner not
+ * known down), has tasks left today in `store` and whose audience fits `requester` (an `owner` agent only for the owner).
+ */
+function rosterOf(
+  profiles: ReadonlyArray<Profile>,
+  config: unknown,
+  requester: ErrandRecord['requester'],
+  free: (agent: string) => boolean,
+  store: Pick<ErrandStore, 'today'>
+): Array<RosterEntry> {
+  return profiles
+    .filter((profile) => {
+      const agent = profile.name;
+      if (profile.audience === 'owner' && requester.kind !== 'owner') return false;
+      if (agentRouteOf(config, agent) === null || !free(agent)) return false;
+      const { tasks, caps } = store.today(agent);
+      return !(typeof caps.tasks === 'number' && Number.isFinite(caps.tasks) && tasks >= caps.tasks);
+    })
+    .map((profile) => ({ name: profile.name, description: profile.description }));
+}
+
+/**
+ * The agent the dispatcher picks for `goal` over `roster`, or the code the errand fails with: `no-agent` for an empty
+ * roster or an answer with no agent, `dispatch-failed` for a request that gave no answer or no dispatcher at all.
+ */
+async function pickAgent(
+  dispatch: AgentDispatch | null,
+  goal: string,
+  roster: Array<RosterEntry>
+): Promise<{ agent: string } | { code: string }> {
+  if (roster.length === 0) return { code: CODE.NO_AGENT };
+  const answer = dispatch ? await dispatch({ goal, roster }) : { ok: false as const };
+  if (!answer.ok) return { code: CODE.DISPATCH_FAILED };
+  return answer.agent === null ? { code: CODE.NO_AGENT } : { agent: answer.agent };
+}
+
+/** `{ expired: true, errand }` for the expired file `handle` of an errand this chat may see, else null. */
+function expiredFile(store: ErrandStore, handle: string, dmChatId: string | null): ExpiredFileRef | null {
+  const errand = store.get(
+    idText(handle)
+      .replace(/^file:/, '')
+      .split('/')[0]
+  );
+  if (!errand || (errand.scope === 'dm' && (dmChatId === null || errand.origin?.placeId !== String(dmChatId))))
+    return null;
+  return { expired: true, errand };
 }
 
 /**
@@ -302,6 +353,7 @@ export function createErrandService({
   memory = null,
   retrieve = null,
   onFinished = null,
+  dispatch = null,
   log = defaultLog,
   defer = (fn) => setImmediate(fn),
   now = Date.now,
@@ -374,16 +426,43 @@ export function createErrandService({
   const recentOf = (chatId: string | null, scope: ErrandScope): RunContext['recent'] =>
     recentLinesOf({ memory, log }, chatId, scope);
 
-  /** One queued errand sent to its runner and closed with its end. Never throws. */
+  /** The agent of queued errand `id` from the dispatcher, true once assigned; with none the errand fails (pickAgent). */
+  async function assignAgent(store: ErrandStore, id: string): Promise<boolean> {
+    const errand = store.get(id);
+    if (errand?.state !== 'queued') return false;
+    if (errand.agent !== null) return true;
+    const free = (agent: string): boolean => client?.configured?.(agent) !== false && !runnerDown(agent);
+    const roster = rosterOf(Object.values(loadProfiles(agentPaths)), objOf(hot).config, errand.requester, free, store);
+    const picked = await pickAgent(dispatch, errand.goal, roster);
+    if ('agent' in picked) return store.assign(id, picked.agent) !== null;
+    log.info('errands: no agent took the errand', { id, code: picked.code, candidates: roster.length });
+    const finished = store.finish(id, { status: 'failed', error: picked.code });
+    if (finished) await ended(store, finished);
+    return false;
+  }
+
+  /** A finished errand handed on: the wait for it resolved, then its result turn. Never throws. */
+  async function ended(store: ErrandStore, finished: ErrandRecord): Promise<void> {
+    waits.end(store, finished);
+    if (typeof onFinished !== 'function') return;
+    try {
+      await onFinished(finished);
+    } catch (err) {
+      log.warn('errands: onFinished failed', { id: finished.id, error: err });
+    }
+  }
+
+  /** One queued errand given its agent, sent to its runner and closed with its end. Never throws. */
   async function runErrand(store: ErrandStore, id: string): Promise<ErrandRecord | null> {
     const recent = recentById.get(id) ?? [];
     recentById.delete(id);
-    const errand = store.start(id);
-    if (!errand) return null;
+    const errand = (await assignAgent(store, id)) ? store.start(id) : null;
+    const agent = errand?.agent;
+    if (!errand || !agent) return null;
     let outcome: FinishOutcome;
     try {
-      const { route, key, error } = dispatchOf(privateDir, errand.agent, log);
-      const secrets = secretsFor(errand.agent, hot.config, {
+      const { route, key, error } = dispatchOf(privateDir, agent, log);
+      const secrets = secretsFor(agent, hot.config, {
         agentPaths,
         routeKey: key,
         proxy: proxy(),
@@ -396,28 +475,21 @@ export function createErrandService({
           : // `run` is always on the core's client; a fake without it throws into the catch
             await client.run!(
               runRequestOf(
-                errand,
+                { ...errand, agent },
                 recent,
-                limitsOf(errand.agent),
+                limitsOf(agent),
                 secrets,
                 route,
                 await memoryOf(retrieve, errand, log)
               )
             );
     } catch (err) {
-      log.warn('errands: run failed', { id: errand.id, agent: errand.agent, error: err });
+      log.warn('errands: run failed', { id: errand.id, agent, error: err });
       outcome = { status: 'failed', error: 'client-error' };
     }
     const finished = store.finish(errand.id, outcome ?? { status: 'failed', error: 'client-error' });
     if (!finished) return null;
-    waits.end(store, finished);
-    if (typeof onFinished === 'function') {
-      try {
-        await onFinished(finished);
-      } catch (err) {
-        log.warn('errands: onFinished failed', { id: finished.id, error: err });
-      }
-    }
+    await ended(store, finished);
     return finished;
   }
 
@@ -432,12 +504,15 @@ export function createErrandService({
   function submit({ agent, goal, requester, origin, scope, idempotencyKey = null }: SubmitInput): AddResult {
     const store = storeOf();
     if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
-    const profile = profileOf(agent, agentPaths);
-    if (!profile) return { ok: false, code: CODE.UNKNOWN_AGENT };
-    if (profile.audience === 'owner' && requester?.kind !== 'owner') return { ok: false, code: CODE.OWNER_ONLY };
-    if (typeof client?.configured === 'function' && !client.configured(agent))
-      return { ok: false, code: CODE.NOT_CONFIGURED };
-    if (runnerDown(agent)) return { ok: false, code: CODE.RUNNER_DOWN };
+    // An errand with no agent gets one from the dispatcher before it runs (assignAgent).
+    if (agent !== null) {
+      const profile = profileOf(agent, agentPaths);
+      if (!profile) return { ok: false, code: CODE.UNKNOWN_AGENT };
+      if (profile.audience === 'owner' && requester?.kind !== 'owner') return { ok: false, code: CODE.OWNER_ONLY };
+      if (typeof client?.configured === 'function' && !client.configured(agent))
+        return { ok: false, code: CODE.NOT_CONFIGURED };
+      if (runnerDown(agent)) return { ok: false, code: CODE.RUNNER_DOWN };
+    }
     const added = store.add({ agent, goal, requester, origin, scope, idempotencyKey });
     if (!added.ok || added.duplicate) return added;
     const { errand } = added;
@@ -465,7 +540,7 @@ export function createErrandService({
     const wasRunning = errand.state === 'running';
     const closed = store.cancel(id);
     if (closed) waits.end(store, closed);
-    if (wasRunning) client.cancel?.({ agent: errand.agent, id: errand.id });
+    if (wasRunning && errand.agent !== null) client.cancel?.({ agent: errand.agent, id: errand.id });
     return { ok: true, errand: closed };
   }
 
@@ -489,18 +564,6 @@ export function createErrandService({
     return [...store.open(), ...store.unread()].filter(visible);
   }
 
-  /** `{ expired: true, errand }` for the expired file `handle` of an errand this chat may see, else null. */
-  function expiredFile(store: ErrandStore, handle: string, dmChatId: string | null): ExpiredFileRef | null {
-    const errand = store.get(
-      idText(handle)
-        .replace(/^file:/, '')
-        .split('/')[0]
-    );
-    if (!errand || (errand.scope === 'dm' && (dmChatId === null || errand.origin?.placeId !== String(dmChatId))))
-      return null;
-    return { expired: true, errand };
-  }
-
   /**
    * The file a handle `file:<errand id>/<name>` names (src/errands/store.ts#fileOf), for a
    * chat that may see its errand (view's rule: a private chat's errand only in that chat);
@@ -517,32 +580,20 @@ export function createErrandService({
     return file;
   }
 
-  /** The errands `ids` marked as seen by the persona (a turn of hers showed them). */
-  function markSeen({ ids = [] }: IdsInput = {}): number {
-    const store = storeOf();
-    if (!store) return 0;
-    let marked = 0;
-    for (const id of ids) if (store.markSeen(id)) marked += 1;
-    return marked;
-  }
-
-  /** The errands `ids` marked as read by the persona (their result turn completed, or `errand.read` returned them). */
-  function markRead({ ids = [] }: IdsInput = {}): number {
-    const store = storeOf();
-    if (!store) return 0;
-    let marked = 0;
-    for (const id of ids) if (store.markRead(id)) marked += 1;
-    return marked;
-  }
-
-  /** The errands `ids` noted as ones whose result turn never completed (kept unread; the `<errands>` line says so). */
-  function markResultFailed({ ids = [] }: IdsInput = {}): number {
-    const store = storeOf();
-    if (!store) return 0;
-    let marked = 0;
-    for (const id of ids) if (store.markResultFailed(id)) marked += 1;
-    return marked;
-  }
+  /**
+   * The errands `ids` marked through the store's `mark`: `markSeen` (a turn of hers showed them), `markRead` (their
+   * result turn completed, or `errand.read` returned them) or `markResultFailed` (their result turn never completed,
+   * kept unread). Answers how many were marked.
+   */
+  const marking =
+    (mark: 'markSeen' | 'markRead' | 'markResultFailed') =>
+    ({ ids = [] }: IdsInput = {}): number => {
+      const store = storeOf();
+      return store ? ids.filter((id) => store[mark](id) !== null).length : 0;
+    };
+  const markSeen = marking('markSeen');
+  const markRead = marking('markRead');
+  const markResultFailed = marking('markResultFailed');
 
   /**
    * The errands of the served place a restart left open, failed (`restarted`). Each enabled
