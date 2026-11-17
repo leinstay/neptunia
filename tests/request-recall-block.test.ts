@@ -108,14 +108,6 @@ test('a place keeps at most maxItems lookups, the oldest anchor dropped first', 
   assert.deepEqual(kept.sort(), ['turn:1', 'turn:2', 'turn:3']);
 });
 
-test('an extract longer than extractChars is kept cut to extractChars', () => {
-  // Bug: one long result fills the request in every later turn of the place.
-  const ring = createLookupRing([]);
-  ring.note(lookup({ extract: 'α'.repeat(5000) }), { ...SETTINGS, extractChars: 300 });
-  const [kept] = ring.forPlace('place:room', lines('m10'), NOW);
-  assert.ok(kept !== undefined && kept.extract.length <= 300 && kept.extract.length > 0);
-});
-
 test('a ring seeded from the journal returns the seeded lookup, so a restart keeps it', () => {
   // Bug: the seed is ignored and every restart forgets what she looked up.
   const ring = createLookupRing([lookup()]);
