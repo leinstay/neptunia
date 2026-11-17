@@ -46,7 +46,6 @@ function agentProfile(id: string, changes: Record<string, unknown> = {}) {
     prompt: 'prompt.md',
     limits: { steps: 5, seconds: 60 },
     daily: { tasks: 3 },
-    cost: { input: 2, output: 6 },
   };
   const merged = { ...base, ...changes };
   for (const [key, value] of Object.entries(merged)) if (value === undefined) delete loose(merged)[key];
@@ -114,7 +113,6 @@ test('loadProfiles: a missing key or a value of the wrong form is refused, namin
     [{ id: 'other' }, 'id'],
     [{ prompt: '../prompt.md' }, 'prompt'],
     [{ limits: { steps: 5 } }, 'limits.seconds'],
-    [{ cost: { input: -1, output: 6 } }, 'cost.input'],
   ];
   for (const [changes, key] of cases)
     withAgentsTree({ scout: agentProfile('scout', changes) }, (rootDir: string) =>
@@ -313,16 +311,10 @@ test('an agent is off until the config switches it on', () => {
   assert.equal(agentSettings('scout', { agents: { scout: { enabled: true } } }, { env: {} })?.enabled, true);
 });
 
-test('the config lays cost, limits and daily over the profile key by key', () => {
-  const settings = agentSettings(
-    'server',
-    { agents: { server: { limits: { steps: 3 }, cost: { input: 1 } } } },
-    {
-      env: {},
-    }
-  );
+test('the config lays limits and daily over the profile key by key', () => {
+  // The cost overlay left with the profile key `cost`, which no runner read.
+  const settings = agentSettings('server', { agents: { server: { limits: { steps: 3 } } } }, { env: {} });
   assert.deepEqual(settings?.limits, { steps: 3, seconds: 120 });
-  assert.deepEqual(settings?.cost, { input: 1, output: 6 });
   assert.deepEqual(settings?.daily, { tasks: 40 });
 });
 

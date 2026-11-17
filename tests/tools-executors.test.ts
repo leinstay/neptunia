@@ -224,7 +224,6 @@ test('resolveCall: each skill declares the argument its main text fills; an erra
     skill: errand.skill,
     args: errand.args,
     principal: { kind: 'persona' },
-    requester: { id: OWNER, roleIds: [] },
     audience: { chatId: HERE },
     context: { config: cfg, selfId: SELF, tasks: { budget: () => ({ spent: false }) } },
   });
@@ -554,7 +553,6 @@ test('message.create gif=: the GIF follows the text, goes alone without one, and
     skill: 'message.create',
     args: alone.args,
     principal: { kind: 'persona' },
-    requester: { id: OWNER, roleIds: [] },
     audience: { chatId: HERE },
     context: { config: cfg, selfId: SELF },
   });
@@ -1485,7 +1483,6 @@ test("resolveCall: message.create media= takes a #N or a link of her own message
     skill: 'message.create',
     args: resolve('message.create', { media: '#2' }, '', PICS).args,
     principal: { kind: 'persona' },
-    requester: { id: OWNER, roleIds: [] },
     audience: { chatId: HERE },
     context: { config: config(), selfId: SELF },
   });
@@ -1555,7 +1552,6 @@ test("an unknown argument is still refused by the engine although the model's sc
     skill: 'message.create',
     args: { text: 'hi', bogus: 'y' },
     principal: { kind: 'persona' },
-    requester: { id: OWNER, roleIds: [] },
     audience: { chatId: HERE },
     context: { config: cfg, selfId: SELF },
   });

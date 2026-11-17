@@ -48,7 +48,6 @@ export function fixture(): {
     prompt: 'prompt.md',
     limits: { steps: 25, seconds: 300 },
     daily: { tasks: 40 },
-    cost: { input: 2, output: 6 },
   };
   fs.mkdirSync(shared, { recursive: true });
   fs.writeFileSync(path.join(shared, 'profile.json'), JSON.stringify(definition));

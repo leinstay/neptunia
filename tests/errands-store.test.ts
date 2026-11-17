@@ -13,8 +13,8 @@ import { createErrandStore, fileHandle, parseFileHandle } from '../src/errands/s
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemorySync, tempDataDir as deliveryTempDataDir } from './fixtures/memory-db/service.ts';
-import { errandTask } from '../src/board/errands.ts';
-import type { ErrandTaskView } from '../src/board/errands.ts';
+import { boardTaskOf } from './fixtures/board-task.ts';
+import type { BoardTask } from './fixtures/board-task.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { AddInput, ErrandStore } from '../src/errands/types.ts';
 import { T0 as T0_DELIVERY } from './fixtures/errand-archive.ts';
@@ -46,14 +46,10 @@ function memoryOf(dataDir: string) {
 /**
  * Task `id` as the board of `dataDir` shows it, once `store`'s writes landed.
  */
-async function boardTask(
-  store: ReturnType<typeof createErrandStore>,
-  dataDir: string,
-  id: string
-): Promise<ErrandTaskView> {
+async function boardTask(store: ReturnType<typeof createErrandStore>, dataDir: string, id: string): Promise<BoardTask> {
   await store.flush();
   // @ts-expect-error: the read handle is null only after close
-  const view = errandTask(memoryOf(dataDir).readHandle().db, id);
+  const view = boardTaskOf(memoryOf(dataDir).readHandle().db, id);
   if (view === null) throw new Error(`the board holds no task ${id}`);
   return view;
 }
@@ -188,11 +184,12 @@ test('task store: the files the runner held back are kept as names only', async 
         text: 'here',
         filesDropped: [
           { name: 'x.env', reason: 'secret' },
-          { name: 'a.txt', reason: 'withheld' },
+          { name: 'a.txt', reason: 'secret' },
           { name: 'b', reason: 'other' },
         ],
       },
     });
+    // `a.txt` carries `secret`: the runner drops files for that one reason, and the protocol passes no other.
     assert.deepEqual(loose(done).result.filesDropped, ['x.env', 'a.txt']);
   });
 });

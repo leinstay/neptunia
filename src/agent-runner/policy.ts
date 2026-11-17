@@ -1,132 +1,20 @@
 // The scope policy of the agent runners: what an errand may disclose depends
 // on where the persona was asked. The request carries `context.scope`: `core`
-// (the owner's own console) withholds nothing; `dm` and `group` (a
-// private chat or group of a chat interface) withhold the content of sensitive paths and redact
-// secret-looking strings from what leaves the runner. A request without a
-// valid scope is treated as `group`, the narrowest.
-//
-// The agents run on OpenCode, so the cut is the agent config's: the server
-// agent's `bash` is allow-listed to read-only commands, and in `dm` and
-// `group` the config (src/agent-runner/profiles.ts) also denies `read`/`grep`/...
-// of the withheld paths this module lists (`WITHHELD_ROOTS`, `WITHHELD_NAMES`,
-// `WITHHELD_GLOBS`). `redactSecrets(text)` turns key-, token- and
+// (the owner's own console) redacts nothing, and `dm` and `group` (a private
+// chat or group of a chat interface) redact secret-looking strings from the
+// text that leaves the runner. A request without a valid scope is treated as
+// `group`, the narrowest. `redactSecrets(text)` turns key-, token- and
 // password-looking strings, private-key blocks, SSH key material and URL
-// credentials into `[redacted]`. Pure. The withheld roots include the deployment's data directory,
-// resolved once at load from NEPTUNIA_DATA_DIR (src/paths.ts), so the policy
-// follows the layout the unit sets.
-
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { resolvePaths } from '../paths.ts';
-
-/** The engine root (two levels up from this file). */
-const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+// credentials into `[redacted]`. Pure.
 
 /** The scopes a request may carry. */
 export const SCOPES = ['core', 'dm', 'group'] as const;
 /** The scope of a request that names none. */
 export const DEFAULT_SCOPE = 'group';
-/** The scopes in which content is withheld and secrets are redacted. */
+/** The scopes in which secrets are redacted. */
 export const FILTERED_SCOPES = Object.freeze(['dm', 'group']);
 /** The replacement of a redacted string. */
 export const REDACTED = '[redacted]';
-
-/** Absolute paths whose content is withheld in `dm` and `group` whatever the deployment's layout. */
-const FIXED_ROOTS = Object.freeze([
-  '/var/www',
-  '/srv/neptunia-backups',
-  '/etc/shadow',
-  '/etc/gshadow',
-  '/etc/nginx/htpasswd',
-  '/etc/letsencrypt',
-  '/etc/neptunia',
-]);
-
-/**
- * The deployment's own withheld directories: its data directory (the persona's memory about real
- * people) and, when it is apart from the checkout, its private directory (.env, config.local/,
- * prompts.local/). Pure.
- * @param paths src/paths.ts#resolvePaths
- */
-function deploymentRootsOf(paths: { rootDir: string; privateDir: string; dataDir: string }): Array<string> {
-  return paths.privateDir === paths.rootDir ? [paths.dataDir] : [paths.dataDir, paths.privateDir];
-}
-
-/** This checkout's directories, resolved from the process environment. */
-function defaultPaths(): { rootDir: string; privateDir: string; dataDir: string } {
-  return resolvePaths({ rootDir: ROOT_DIR });
-}
-
-/**
- * Absolute paths whose content is withheld in `dm` and `group` (everything under them too): the
- * fixed ones, then the deployment's data and private directories (`paths`, by default this
- * checkout's resolved from the process environment, so the policy follows the layout the unit
- * sets). Pure but for reading the environment when `paths` is not given.
- */
-export function withheldRootsOf({
-  paths = defaultPaths(),
-}: { paths?: { rootDir: string; privateDir: string; dataDir: string } } = {}): ReadonlyArray<string> {
-  return Object.freeze([...new Set([...FIXED_ROOTS, ...deploymentRootsOf(paths)])]);
-}
-
-/** Absolute paths whose content is withheld in `dm` and `group` (everything under them too), for this process. */
-export const WITHHELD_ROOTS = withheldRootsOf();
-/** Path components that withhold the path wherever they appear. */
-export const WITHHELD_NAMES = Object.freeze([
-  '.git',
-  '.local.git',
-  '.secrets',
-  '.ssh',
-  'config.local.json',
-  'config.local',
-  'scratch',
-]);
-
-/** The glob patterns of the fixed roots and the names, before the deployment's directories. */
-const FIXED_GLOBS = Object.freeze([
-  '/var/www',
-  '/var/www/**',
-  '/srv/neptunia-backups',
-  '/srv/neptunia-backups/**',
-  '/etc/shadow',
-  '/etc/gshadow',
-  '/etc/nginx/htpasswd',
-  '/etc/nginx/htpasswd/**',
-  '/etc/letsencrypt',
-  '/etc/letsencrypt/**',
-  '/etc/neptunia',
-  '/etc/neptunia/**',
-  '**/.git',
-  '**/.git/**',
-  '**/.local.git',
-  '**/.local.git/**',
-  '**/.secrets',
-  '**/.secrets/**',
-  '**/.ssh',
-  '**/.ssh/**',
-  '**/config.local.json',
-  '**/config.local',
-  '**/config.local/**',
-  '**/.env',
-  '**/.env.*',
-]);
-/** The glob patterns after the deployment's directories. */
-const TRAILING_GLOBS = Object.freeze(['**/data/places', '**/data/places/**']);
-
-/**
- * The glob patterns a config denies for a path tool in a filtered scope (OpenCode's
- * `read`/`grep`/... resources): the fixed ones, `<dir>` and `<dir>/**` for each of the
- * deployment's directories (`paths` as in `withheldRootsOf`), then the trailing ones.
- */
-export function withheldGlobsOf({
-  paths = defaultPaths(),
-}: { paths?: { rootDir: string; privateDir: string; dataDir: string } } = {}): ReadonlyArray<string> {
-  const deployment = deploymentRootsOf(paths).flatMap((dir) => [dir, `${dir}/**`]);
-  return Object.freeze([...new Set([...FIXED_GLOBS, ...deployment, ...TRAILING_GLOBS])]);
-}
-
-/** The glob patterns a config denies for a path tool in a filtered scope, for this process. */
-export const WITHHELD_GLOBS = withheldGlobsOf();
 
 /**
  * The scope of a request context: its `scope` when it is one of SCOPES,
@@ -137,7 +25,7 @@ export function scopeOf(context?: { scope?: unknown }): 'core' | 'dm' | 'group' 
   return SCOPES.find((known) => known === scope) ?? DEFAULT_SCOPE;
 }
 
-/** Whether `scope` withholds content and redacts secrets. */
+/** Whether `scope` redacts secrets. */
 export function isFiltered(scope: unknown): boolean {
   return FILTERED_SCOPES.some((filtered) => filtered === scope);
 }

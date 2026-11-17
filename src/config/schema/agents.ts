@@ -9,6 +9,6 @@ export const AGENTS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/agent-runner/profiles.ts',
     'default': {},
     'text':
-      'Per agent name, `enabled` (the agent is off while it is not `true`, `/agent enable <name>` writes it) and overrides of `cost`, `limits` and `daily` of `agents/<name>/profile.json`, laid over the profile key by key',
+      'Per agent name, `enabled` (the agent is off while it is not `true`, `/agent enable <name>` writes it) and overrides of `limits` and `daily` of `agents/<name>/profile.json`, laid over the profile key by key',
   },
 ];

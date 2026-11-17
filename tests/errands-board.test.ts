@@ -13,8 +13,8 @@ import { createErrandStore, createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';
 import { createJournal } from '../src/memory/journal.ts';
-import { errandTask } from '../src/board/errands.ts';
-import type { ErrandTaskRow } from '../src/board/errands.ts';
+import { boardTaskOf } from './fixtures/board-task.ts';
+import type { BoardTask } from './fixtures/board-task.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import type { ErrandStore } from '../src/errands/types.ts';
 import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.ts';
@@ -119,8 +119,8 @@ const outboxRows = (memoryDb: MemoryDb, id: string): Array<Record<string, unknow
   readDb(memoryDb).prepare('SELECT * FROM board_outbox WHERE task_id = ? ORDER BY seq').all(id);
 
 /** Errand `id`'s task on the board as the read connection of `memoryDb` shows it. */
-function taskOf(memoryDb: MemoryDb, id: string): ErrandTaskRow {
-  const view = errandTask(readDb(memoryDb), id);
+function taskOf(memoryDb: MemoryDb, id: string): BoardTask['task'] {
+  const view = boardTaskOf(readDb(memoryDb), id);
   if (view === null) throw new Error(`the board holds no task ${id}`);
   return view.task;
 }
