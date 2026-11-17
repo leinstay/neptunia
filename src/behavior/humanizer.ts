@@ -205,11 +205,16 @@ async function humanize({
   }
   // The count is hers (the owner, 2026-11-17): each message keeps its place and its reply target, and only its text
   // changes. A broken think tag leaves parseOutput with no message, so the count refuses it too.
-  const isKept =
-    written.length === messages.length &&
-    written.every((one, i) => one.text.trim() !== '' && one.replyTo === messages[i].replyTo);
-  if (!isKept) {
-    log.warn('humanizer: failed', { channel: place, stage: 'writer', reason: 'refused' });
+  const refused =
+    written.length !== messages.length
+      ? 'count'
+      : written.some((one) => one.text.trim() === '')
+        ? 'empty'
+        : written.some((one, i) => one.replyTo !== messages[i].replyTo)
+          ? 'reply'
+          : null;
+  if (refused !== null) {
+    log.warn('humanizer: failed', { channel: place, stage: 'writer', reason: refused, messages: written.length });
     return messages;
   }
   log.info('humanizer: rewritten', {
