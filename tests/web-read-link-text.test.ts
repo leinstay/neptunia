@@ -49,10 +49,11 @@ test('after web.read the link holds the extracted text', async () => {
 });
 
 // Bug: a preview taken before the read wins, and the fuller text never replaces it.
-test('the extracted text replaces a preview the link already holds', async () => {
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('with no summarizer the read link text stands whole, before and after web.read', async () => {
   const { lookup } = rig();
   const { reads } = await lookup.readLinks(PLACE, [LINK]);
-  assert.ok(String(reads.get(LINK.id)).length < WHOLE.length, 'the preview is the opening');
+  assert.equal(reads.get(LINK.id), WHOLE);
   await lookup.readPage(PLACE, URL_A);
   assert.equal(lookup.cachedReads(PLACE, [LINK]).get(LINK.id), WHOLE);
 });

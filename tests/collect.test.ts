@@ -859,7 +859,7 @@ test('fetchHistory: a preview title and a description of 600 characters reach th
   });
   const channel = fakeOf<Chan>({ messages: { fetch: async () => new Map([[raw.id, raw]]) } });
   const [message] = await fetchHistory(channel, { limit: 10, selfId: 'self' });
-  const preview: { links: Array<{ title: string; text: string }> } = loose(message);
+  const preview = loose(message) as { links: Array<{ title: string; text: string }> };
   const [link] = preview.links;
   assert.deepEqual([link.title, link.text], ['x'.repeat(300), 'y'.repeat(600)]);
 });
@@ -1521,7 +1521,8 @@ test('normalizeMessage: attachment, sticker, emoji and Discord CDN file URLs nev
 // The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
 test('normalizeMessage: a URL of 400 characters arrives whole, in a message and a forward', () => {
   // Catches: a long URL in a message's text cut with an ellipsis.
-  const url = `https://example.com/search?q=${'κ'.repeat(10)}&utm_source=${'x'.repeat(400 - 50)}`;
+  const head = `https://example.com/search?q=${'κ'.repeat(10)}&utm_source=`;
+  const url = head + 'x'.repeat(400 - [...head].length);
   assert.equal([...url].length, 400);
   const raw = rawMessage({
     cleanContent: `δες ${url} ok`,
