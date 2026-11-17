@@ -1682,6 +1682,7 @@ test('scripts/replay.ts: replays through src/behavior/sandbox.ts, every name it 
   // The lead: the list also names the address reads of src/memory/store-addresses.ts since the replay reads a place
   // and an account through them; each reads a row or spells an id (tests/replay-reads.test.ts). It names `nameMedia`
   // since a read chat with a custom emoji asks for its stable name, which writes nothing over the replay's handle.
+  // It names `liveRules` since every reply request reads the owner's rules of the memory table, which writes nothing.
   assert.deepEqual([...sandbox.SANDBOX_STORE_READS].sort(), [
     'accountOf',
     'chatOfPlace',
@@ -1695,6 +1696,7 @@ test('scripts/replay.ts: replays through src/behavior/sandbox.ts, every name it 
     'listChannels',
     'listChildren',
     'listUserProfiles',
+    'liveRules',
     'mediaEntries',
     'nameMedia',
     'nativeRootOf',

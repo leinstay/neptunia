@@ -175,6 +175,8 @@ export const SANDBOX_STORE_READS = Object.freeze([
   'listUserProfiles',
   'listChannels',
   'getLore',
+  // The owner's rules of the memory table, which every reply request reads (src/memory/store-rules.ts).
+  'liveRules',
   'getRecent',
   'getGifs',
   'mediaEntries',
