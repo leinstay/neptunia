@@ -49,6 +49,9 @@ const DRAFT: Array<HumanizerMessage> = [
   { text: LONG_A, replyTo: 3 },
   { text: LONG_B, replyTo: 5 },
 ];
+// The writer's texts: 15 and 14 words, so a rewrite of the draft keeps over half its words.
+const WRITTEN_A = 'πρώτα πήγα στην αγορά το πρωί και πήρα ψάρια, ντομάτες, ελιές και ψωμί του φούρνου';
+const WRITTEN_B = 'μετά μαγείρεψα για όλους και μείναμε στην αυλή ως αργά μιλώντας για το ταξίδι';
 const THINK = 'θέλω να πω για την αγορά και το τραπέζι';
 const LINT_YES = JSON.stringify({
   rewrite: true,
@@ -88,11 +91,11 @@ test('posts the writer messages with their reply targets when the linter asks a 
   // Catches: the writer's reply attributes are dropped, and two answers to two lines lose their targets.
   const llm = fakeLlm({
     lint: LINT_YES,
-    write: '<think>x</think><msg reply="#3">πρώτα η αγορά</msg><msg reply="#5">και το τραπέζι</msg>',
+    write: `<think>x</think><msg reply="#3">${WRITTEN_A}</msg><msg reply="#5">${WRITTEN_B}</msg>`,
   });
   assert.deepEqual(await run(llm), [
-    { text: 'πρώτα η αγορά', replyTo: 3 },
-    { text: 'και το τραπέζι', replyTo: 5 },
+    { text: WRITTEN_A, replyTo: 3 },
+    { text: WRITTEN_B, replyTo: 5 },
   ]);
   assert.deepEqual(
     llm.calls.map((call) => [call.options.purpose, call.options.role]),
@@ -131,7 +134,10 @@ test('the writer request holds her think, the draft and the findings', async () 
 
 test('posts the draft when the writer puts a reply target on another position', async () => {
   // Catches: the writer swaps the two answers, and each reply lands under the other line.
-  const llm = fakeLlm({ lint: LINT_YES, write: '<msg reply="#5">πρώτα</msg><msg reply="#3">μετά</msg>' });
+  const llm = fakeLlm({
+    lint: LINT_YES,
+    write: `<msg reply="#5">${WRITTEN_A}</msg><msg reply="#3">${WRITTEN_B}</msg>`,
+  });
   assert.deepEqual(await run(llm), DRAFT);
 });
 
@@ -169,28 +175,52 @@ test('posts the draft and asks no model when the writer role has no route', asyn
 
 test('posts the draft when the writer returns one message more or one fewer', async () => {
   // Catches: the writer changes how many messages she sends, which is hers to decide.
-  const more = fakeLlm({ lint: LINT_YES, write: '<msg reply="#3">ένα</msg><msg reply="#5">δύο</msg><msg>τρία</msg>' });
+  const more = fakeLlm({
+    lint: LINT_YES,
+    write: `<msg reply="#3">${WRITTEN_A}</msg><msg reply="#5">${WRITTEN_B}</msg><msg>τρία</msg>`,
+  });
   assert.deepEqual(await run(more), DRAFT);
-  const fewer = fakeLlm({ lint: LINT_YES, write: '<msg reply="#3">όλα μαζί</msg>' });
+  const fewer = fakeLlm({ lint: LINT_YES, write: `<msg reply="#3">${WRITTEN_A} ${WRITTEN_B}</msg>` });
   assert.deepEqual(await run(fewer), DRAFT);
+});
+
+test('posts the draft when the writer answer is cut inside a message', async () => {
+  // Catches: an answer that ends at the output cap is read as whole, and half a sentence is posted as her message.
+  const llm = fakeLlm({ lint: LINT_YES, write: `<msg reply="#3">${WRITTEN_A}</msg><msg reply="#5">${WRITTEN_B}` });
+  assert.deepEqual(await run(llm), DRAFT);
+});
+
+test('posts the draft when the writer text holds under half the words of the draft', async () => {
+  // Catches: a refusal the writer puts inside message tags, or a rewrite that dropped most of what she said, is posted.
+  const llm = fakeLlm({
+    lint: LINT_YES,
+    write: '<msg reply="#3">δεν μπορώ να ξαναγράψω αυτό το κείμενο</msg><msg reply="#5">λυπάμαι</msg>',
+  });
+  assert.deepEqual(await run(llm), DRAFT);
 });
 
 test('posts three writer messages for a draft of three', async () => {
   // Catches: a rewrite of more than two messages is refused or cut.
   const three = [...DRAFT, { text: 'τέλος', replyTo: null }];
-  const llm = fakeLlm({ lint: LINT_YES, write: '<msg reply="#3">ένα</msg><msg reply="#5">δύο</msg><msg>τρία</msg>' });
+  const llm = fakeLlm({
+    lint: LINT_YES,
+    write: `<msg reply="#3">${WRITTEN_A}</msg><msg reply="#5">${WRITTEN_B}</msg><msg>τρία</msg>`,
+  });
   assert.deepEqual(await run(llm, hotOf(), three), [
-    { text: 'ένα', replyTo: 3 },
-    { text: 'δύο', replyTo: 5 },
+    { text: WRITTEN_A, replyTo: 3 },
+    { text: WRITTEN_B, replyTo: 5 },
     { text: 'τρία', replyTo: null },
   ]);
 });
 
 test("strips the long dashes of the writer's text as her own text loses them", async () => {
   // Catches: format.stripDashes runs on her answer before the humanizer, so a dash the writer adds reaches the chat.
-  const llm = fakeLlm({ lint: LINT_YES, write: '<msg reply="#3">πρώτο — μέρος</msg><msg reply="#5">δεύτερο</msg>' });
+  const llm = fakeLlm({
+    lint: LINT_YES,
+    write: `<msg reply="#3">πρώτο — μέρος, ${WRITTEN_A}</msg><msg reply="#5">${WRITTEN_B}</msg>`,
+  });
   assert.deepEqual(
     (await run(llm)).map((one) => one.text),
-    ['πρώτο μέρος', 'δεύτερο']
+    [`πρώτο μέρος, ${WRITTEN_A}`, WRITTEN_B]
   );
 });
