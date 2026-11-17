@@ -6,13 +6,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRecord } from '../src/memory/record.ts';
+import { createRecord, toRecordLine } from '../src/memory/record.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { recordLines } from '../src/memory/db/record-lines.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { placeOrPersona } from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import type { Row } from '../src/memory/db/types.ts';
+import type { Db, Row } from '../src/memory/db/types.ts';
 import { addAccount, addChannelPlace } from './fixtures/memory-db/opaque-people.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 
@@ -149,5 +149,44 @@ test('a line names the stored rows of its author and chat when their ids spell n
   } finally {
     handle.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** The emoji and stickers a line links, as `[kind, platform id, name]`, sorted. */
+function linkedOf(db: Db, messageId: string): Array<Array<unknown>> {
+  const rows = db
+    .prepare(
+      `SELECT m.kind AS kind, m.native_ref AS ref, json_extract(m.extra, '$.name') AS name
+       FROM sources s JOIN media_links l ON l.owner_kind = 'source' AND l.owner_id = s.id
+       JOIN media m ON m.id = l.media_id
+       WHERE s.native_id = ? AND m.kind IN ('emoji', 'sticker')`
+    )
+    .all(messageId);
+  return rows.map((row) => [row.kind, row.ref, row.name]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+}
+
+test('a record line of a message with a custom emoji and a sticker links both by platform id and stable name', async () => {
+  const memory = await fresh();
+  try {
+    const line = toRecordLine(
+      {
+        id: 'm40',
+        placeId: 'room-a',
+        authorId: 'member',
+        content: 'look :e4:',
+        ts: Date.parse(DAY2),
+        emojis: [{ id: '901', name: 'e4' }],
+        stickers: [{ id: '801', name: 's2', animated: false, url: null }],
+      },
+      { now: () => NOW }
+    );
+    await createRecord({ ...memory, now: () => NOW }).append(ROOT, [line]);
+    const db = memory.memoryDb.database() as Db;
+    assert.deepEqual(linkedOf(db, 'm40'), [
+      ['emoji', '901', 'e4'],
+      ['sticker', '801', 's2'],
+    ]);
+  } finally {
+    await memory.close();
   }
 });
