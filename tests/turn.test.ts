@@ -671,9 +671,10 @@ test('createTurnRunner: features.mediaDescriptions on describes a picture-format
   assert.equal(describer.calls.length, 1);
   assert.equal(describer.calls[0].items[0].itemId, 'sticker:s1');
   const userMessage = textOf(llm.calls[0][1].content);
+  // The owner on 2026-11-17: a sticker stands in a line under the engine's stable name.
   assert.ok(
     userMessage.includes(
-      labels.transcript.stickerDescribed.replace('{name}', 'pepe').replace('{text}', 'a frog gives a thumbs up')
+      labels.transcript.stickerDescribed.replace('{name}', 's1').replace('{text}', 'a frog gives a thumbs up')
     )
   );
 });
@@ -701,10 +702,11 @@ test('createTurnRunner: features.mediaDescriptions on describes a custom emoji i
   assert.equal(describer.calls.length, 1);
   assert.equal(describer.calls[0].items[0].itemId, 'emoji:111');
   const userMessage = textOf(llm.calls[0][1].content);
-  assert.ok(userMessage.includes('nice :pog: job'));
+  // The owner on 2026-11-17: a custom emoji stands in a line under the engine's stable name.
+  assert.ok(userMessage.includes('nice :e1: job'));
   assert.ok(
     userMessage.includes(
-      labels.transcript.emojiDescribed.replace('{name}', 'pog').replace('{text}', 'a surprised cat face')
+      labels.transcript.emojiDescribed.replace('{name}', 'e1').replace('{text}', 'a surprised cat face')
     )
   );
 });
