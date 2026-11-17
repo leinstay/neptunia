@@ -239,17 +239,16 @@ export function diaryPlaceNotes(
   return mergedNotes(readable.map((place) => (store.getPlace(place) ?? {}) as PlaceNotes));
 }
 
-export function createDiary(ctx: DiaryContext): Diary {
-  const { hot, store, llm, rng, lookup, images, journalOp, diaryFacts = null } = ctx;
-
-  /**
-   * The judge of a brief (prompts/diary-judge.md on the `analyzer` role, purpose `diary-judge`): it reads the brief
-   * against the newest JUDGE_ENTRIES of `posts` of the plan's kind and answers whether it repeats them. On a repeat
-   * `replan` asks the planner again with the brief and the reason, up to JUDGE_BRIEFS briefs; the last brief stays
-   * whatever the judge said. A plan that fell back, or no entry of its kind, is not judged (null). A judge request
-   * that fails ends the step with the brief it was given and leaves no verdict on the plan. A request or token cap throws.
-   */
-  async function judgedAnswer({
+/**
+ * The judge of a brief (prompts/diary-judge.md on the `analyzer` role, purpose `diary-judge`): it reads the brief
+ * against the newest JUDGE_ENTRIES of `posts` of the plan's kind and answers whether it repeats them. On a repeat
+ * `replan` asks the planner again with the brief and the reason, up to JUDGE_BRIEFS briefs; the last brief stays
+ * whatever the judge said. A plan that fell back, or no entry of its kind, is not judged (null). A judge request
+ * that fails ends the step with the brief it was given and leaves no verdict on the plan. A request or token cap throws.
+ */
+async function judgedAnswer(
+  ctx: Pick<DiaryContext, 'hot' | 'llm'>,
+  {
     config,
     channel,
     name,
@@ -267,58 +266,61 @@ export function createDiary(ctx: DiaryContext): Diary {
     first: Record<string, unknown>;
     planOf: (answer: unknown) => ReturnType<typeof validatePlan>;
     replan: (rejected: string) => Promise<Record<string, unknown> | null>;
-  }): Promise<{ answer: Record<string, unknown>; judge: PlanJudge | null }> {
-    const plan = planOf(first);
-    const entries =
-      plan.fallback || !plan.brief || plan.kind === null
-        ? ''
-        : judgeEntriesBody(posts, plan.kind, labels, config.bot?.timezone);
-    if (!entries) return { answer: first, judge: null };
-    const system = fillPromptTemplate(hot.prompts?.['diary-judge'], { name });
-    let answer = first;
-    let brief = plan.brief;
-    for (let briefs = 1; ; briefs += 1) {
-      let verdict: ReturnType<typeof parseJudgeAnswer> = null;
-      let reason = 'unparsed';
-      try {
-        const completion = await llm.complete(
-          [
-            { role: 'system', content: system },
-            { role: 'user', content: [block('brief', brief), block('entries', entries)].join('\n') },
-          ],
-          {
-            model: roleModel(config, 'analyzer', 'diary-judge'),
-            ...roleRequestOptions(config, {
-              role: 'analyzer',
-              maxOutputTokens: JUDGE_MAX_OUTPUT_TOKENS,
-              purpose: 'diary-judge',
-              timeoutMs: config.diary?.planTimeoutMs ?? 60000,
-            }),
-            responseFormat: DIARY_JUDGE_FORMAT,
-          }
-        );
-        verdict = parseJudgeAnswer(textOf(completion));
-      } catch (err) {
-        if (err instanceof DailyCapError || err instanceof TokenLimitError) throw err;
-        reason = railReason(err);
-      }
-      if (!verdict) {
-        log.warn('diary: judge failed', { channel: channel.id, kind: plan.kind, briefs, reason });
-        return { answer, judge: null };
-      }
-      const next =
-        verdict.repeats && briefs < JUDGE_BRIEFS
-          ? await replan(renderRejectedBlock(brief, verdict.what, labels))
-          : null;
-      const nextPlan = next ? planOf(next) : null;
-      if (!next || !nextPlan || nextPlan.fallback || !nextPlan.brief) {
-        log.info('diary: judged', { channel: channel.id, kind: plan.kind, briefs, passed: !verdict.repeats });
-        return { answer, judge: { briefs, passed: !verdict.repeats } };
-      }
-      answer = next;
-      brief = nextPlan.brief;
-    }
   }
+): Promise<{ answer: Record<string, unknown>; judge: PlanJudge | null }> {
+  const { hot, llm } = ctx;
+  const plan = planOf(first);
+  const entries =
+    plan.fallback || !plan.brief || plan.kind === null
+      ? ''
+      : judgeEntriesBody(posts, plan.kind, labels, config.bot?.timezone);
+  if (!entries) return { answer: first, judge: null };
+  const system = fillPromptTemplate(hot.prompts?.['diary-judge'], { name });
+  let answer = first;
+  let brief = plan.brief;
+  for (let briefs = 1; ; briefs += 1) {
+    let verdict: ReturnType<typeof parseJudgeAnswer> = null;
+    let reason = 'unparsed';
+    try {
+      const completion = await llm.complete(
+        [
+          { role: 'system', content: system },
+          { role: 'user', content: [block('brief', brief), block('entries', entries)].join('\n') },
+        ],
+        {
+          model: roleModel(config, 'analyzer', 'diary-judge'),
+          ...roleRequestOptions(config, {
+            role: 'analyzer',
+            maxOutputTokens: JUDGE_MAX_OUTPUT_TOKENS,
+            purpose: 'diary-judge',
+            timeoutMs: config.diary?.planTimeoutMs ?? 60000,
+          }),
+          responseFormat: DIARY_JUDGE_FORMAT,
+        }
+      );
+      verdict = parseJudgeAnswer(textOf(completion));
+    } catch (err) {
+      if (err instanceof DailyCapError || err instanceof TokenLimitError) throw err;
+      reason = railReason(err);
+    }
+    if (!verdict) {
+      log.warn('diary: judge failed', { channel: channel.id, kind: plan.kind, briefs, reason });
+      return { answer, judge: null };
+    }
+    const next =
+      verdict.repeats && briefs < JUDGE_BRIEFS ? await replan(renderRejectedBlock(brief, verdict.what, labels)) : null;
+    const nextPlan = next ? planOf(next) : null;
+    if (!next || !nextPlan || nextPlan.fallback || !nextPlan.brief) {
+      log.info('diary: judged', { channel: channel.id, kind: plan.kind, briefs, passed: !verdict.repeats });
+      return { answer, judge: { briefs, passed: !verdict.repeats } };
+    }
+    answer = next;
+    brief = nextPlan.brief;
+  }
+}
+
+export function createDiary(ctx: DiaryContext): Diary {
+  const { hot, store, llm, rng, lookup, images, journalOp, diaryFacts = null } = ctx;
 
   /**
    * A diary post's first step (mode `diary`), before its request is built:
@@ -458,20 +460,23 @@ export function createDiary(ctx: DiaryContext): Diary {
       const first = await askPlanner(messages);
       const planParts = parts;
       const judged = first
-        ? await judgedAnswer({
-            config,
-            channel,
-            name,
-            posts,
-            labels,
-            first,
-            planOf,
-            // The same request with the same kind and seeds, and the brief turned down with the judge's reason.
-            replan: (rejected) => {
-              const again = planMessages({ ...planParts, rejected });
-              return again ? askPlanner(again) : Promise.resolve(null);
-            },
-          })
+        ? await judgedAnswer(
+            { hot, llm },
+            {
+              config,
+              channel,
+              name,
+              posts,
+              labels,
+              first,
+              planOf,
+              // The same request with the same kind and seeds, and the brief turned down with the judge's reason.
+              replan: (rejected) => {
+                const again = planMessages({ ...planParts, rejected });
+                return again ? askPlanner(again) : Promise.resolve(null);
+              },
+            }
+          )
         : null;
       answer = judged?.answer ?? null;
       judge = judged?.judge ?? null;
