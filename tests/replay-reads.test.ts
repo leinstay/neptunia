@@ -20,6 +20,7 @@ type Reads = {
   accountOf(id: string): string;
   personOfAccount(id: string): string;
   topPlaces(): Array<string>;
+  liveRules(): Array<unknown>;
   setGifDescribed(...args: Array<unknown>): unknown;
 };
 
@@ -36,6 +37,12 @@ test('the read-only store answers the address reads as the real store does, inst
   assert.equal(wrapped.accountOf('user-3'), real.accountOf('user-3'));
   assert.equal(wrapped.personOfAccount('user-3'), real.personOfAccount('user-3'));
   assert.deepEqual(wrapped.topPlaces(), real.topPlaces());
+});
+
+test('the read-only store answers the read of her rules, which every reply request makes', () => {
+  // Catches: a read the request builder makes that the list of reads lacks, so a replayed turn stops before its request.
+  const { real, wrapped } = stores();
+  assert.deepEqual(wrapped.liveRules(), real.liveRules());
 });
 
 test('the read-only store still refuses a write', () => {
