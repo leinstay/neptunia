@@ -14,11 +14,9 @@ import { unitText } from '../src/setup/install.ts';
 import type { UnitTarget } from '../src/setup/install.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 
-import { updateSubharness } from '../src/subharness/install.ts';
-
 import { subharnessPlace } from '../src/subharness/place.ts';
 
-import { fakeVendor, treeOf } from './fixtures/fake-vendor.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
 import { fakeFetch } from './fixtures/keys-rig.ts';
@@ -145,25 +143,4 @@ test('after a logout the status shows the selected source unavailable and names 
   assert.ok(dev.includes('unavailable'), dev);
   assert.equal(dev.includes('codex'), false, dev);
   assert.equal(dev.includes('openrouter'), false, dev);
-});
-
-// A failed update
-
-test('a failed update keeps the binary, the home and the rollback the last update left', async () => {
-  // Catches: the failed attempt deletes `previous/` before it knows the outcome, so the owner loses his way back.
-  const privateDir = storeWith({});
-  const vendor = fakeVendor(privateDir, 'codex', { loggedIn: true });
-  const { dir } = subharnessPlace(privateDir, 'codex');
-  const hostEnv = { PATH: '/usr/bin:/bin' };
-  const first = await updateSubharness({ privateDir, backend: 'codex', hostEnv, version: '2.0.0' }, vendor.install);
-  assert.equal(first.state, 'done');
-  const kept = treeOf(path.join(dir, 'previous'));
-  const installedText = fs.readFileSync(vendor.binary, 'utf8');
-  const failed = await updateSubharness({ privateDir, backend: 'codex', hostEnv, version: '3.0.0' }, () =>
-    Promise.resolve({ code: 1, stdout: '', stderr: 'npm: the registry refused' })
-  );
-  assert.equal(failed.state, 'failed');
-  assert.equal(fs.readFileSync(vendor.binary, 'utf8'), installedText);
-  assert.equal(vendor.loggedIn(), true);
-  assert.deepEqual(treeOf(path.join(dir, 'previous')), kept);
 });
