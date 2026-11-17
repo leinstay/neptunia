@@ -15,6 +15,9 @@ import type { Draft } from '../draft.ts';
 import { journalStartOf } from '../journal.ts';
 import type { JournalStep } from '../lookup.ts';
 import { inRoot } from '../routing.ts';
+import { objOf } from '../../tools/types.ts';
+import { turnKindOf } from '../request/frame.ts';
+import type { TurnKind } from '../request/frame.ts';
 import { takeAttention } from '../triggers.ts';
 import type { Ended, Life, PhaseContext, PhaseParams } from './context.ts';
 
@@ -78,8 +81,14 @@ async function chatNow(
   return reads.chatInfo(chat, { audience: true, viewers: [] });
 }
 
+/** The kind of the turn an attempt runs, by its mode, its trigger and its wake (src/turn/request/frame.ts). */
+function kindOf({ mode, triggerKind = null, inner = null }: PhaseParams): TurnKind {
+  const wakeKind = objOf(objOf(inner).wake).kind;
+  return turnKindOf(mode, triggerKind, typeof wakeKind === 'string' ? wakeKind : null);
+}
+
 export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: Draft): Promise<Ended | Opened> {
-  const { store, busy, ifaceReads, journal, journalOp, journalOn, notifyIdle, settleAuthor, clock } = ctx;
+  const { store, attention, ifaceReads, journal, journalOp, journalOn, notifyIdle, settleAuthor, clock } = ctx;
   const {
     chat,
     mode,
@@ -112,15 +121,17 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   // finish naturally; admin.js's pause handler waits for it via waitIdle() below instead of aborting it here.
   const stateData = store.state.data;
   if (stateData.paused) return { ended: { outcome: 'paused' } };
-  // A chain's turn runs under the attention it holds; taken before anything is awaited, so two turns cannot both take it.
+  // A chain's turn runs under the attention it holds, on the chat lane. The lane follows the turn's kind; it is taken
+  // before anything is awaited, so two turns cannot both take it.
   const attentionId = chat?.chatId ?? PERSONA_ID;
   draft.nowhere = chat === null;
   draft.mode = mode;
-  if (!owned && !takeAttention(busy, attentionId)) return { ended: { outcome: 'busy' } };
+  const lane = owned ? 'chat' : takeAttention(attention, kindOf(params), attentionId);
+  if (lane === null) return { ended: { outcome: 'busy' } };
   const letGo = () => {
     if (owned) return;
-    busy.delete(attentionId);
-    notifyIdle();
+    attention[lane].delete(attentionId);
+    notifyIdle(lane);
   };
   // The chat as the interface describes it now (a wake's own, `standIn`); one it no longer knows ends the turn.
   const found = await chatNow(ifaceReads, chat, standIn);
@@ -167,6 +178,7 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
     chained: false,
     turnStartedAt: clock(),
     turnMode: mode,
+    attention: { lane, id: attentionId },
   };
   return { ended: null, prep, prepStep, channel, placeId, reading, libraryPlace, isDm, settledMs, life };
 }

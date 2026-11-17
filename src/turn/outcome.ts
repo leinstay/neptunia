@@ -16,7 +16,7 @@ import { untoldDiagnostics } from './journal.ts';
 import type { JournalNotes } from './journal-notes.ts';
 import { inRoot } from './routing.ts';
 import { askedFor } from './triggers.ts';
-import type { TriggerKind } from './triggers.ts';
+import type { Attention, Lane, TriggerKind } from './triggers.ts';
 
 /** The chat a turn ran in, as the interface described it: its id, and whether it is in a root. */
 type EndChannel = Pick<Chat, 'id' | 'rootId'>;
@@ -121,7 +121,7 @@ type Chain = {
 export type OutcomeContext = {
   store: { state: { data: { paused?: unknown } } };
   clock: () => number;
-  busy: { size: number; delete: (placeId: string) => unknown };
+  attention: Attention;
   facts: Facts['facts'];
   factsOfKind: JournalNotes['factsOfKind'];
   keepFact: JournalNotes['keepFact'];
@@ -132,7 +132,7 @@ export type OutcomeContext = {
 export type Outcome = {
   runTurn: (params: TurnParams) => Promise<TurnResult>;
   recordTurnFacts: (args: { placeId?: string | null }, draft: FactsDraft) => void;
-  notifyIdle: () => void;
+  notifyIdle: (lane: Lane) => void;
   /**
    * The parts of the chain running in `placeId` not started yet, when its message is
    * `authorId`'s: `{ index, text }` in order (1-based indices). Empty otherwise. Read only.
@@ -145,13 +145,13 @@ export type Outcome = {
    */
   addToPart: (placeId: unknown, authorId: unknown, index: unknown, message: PartMessage) => boolean;
   /**
-   * Resolves once no turn is in flight anywhere -- immediately if that is
+   * Resolves once no turn is in flight on `lane`, or on any lane without one -- immediately if that is
    * already true. Used by admin.js's `/nep pause` to wait out a turn
    * that was already running when the pause was requested, instead of
-   * aborting it.
+   * aborting it, and by the diary's forced post for the service lane.
    */
-  waitIdle: () => Promise<void>;
-  /** Called (never awaited by runTurn) every time a turn finishes anywhere, once the channel is freed. */
+  waitIdle: (lane?: Lane) => Promise<void>;
+  /** Called (never awaited by runTurn) every time a chat turn finishes, once its chat lane is freed. */
   setOnIdle: (fn: (() => unknown) | null) => void;
   /**
    * Called (never awaited, never thrown into the turn) once every runTurn has ended, with how
@@ -162,14 +162,17 @@ export type Outcome = {
 
 // health: allow function-length until 2027-04-01 -- the outcome shares the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createOutcome(ctx: OutcomeContext): Outcome {
-  const { store, clock, busy, facts, factsOfKind, keepFact, writeTurnRecords, runTurnOnce } = ctx;
+  const { store, clock, attention, facts, factsOfKind, keepFact, writeTurnRecords, runTurnOnce } = ctx;
 
   // placeId -> the chain of parts running there (runChain): its author, its parts, the part
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
   const chains = new Map<string, Chain>();
   let onIdle: (() => unknown) | null = null; // set via setOnIdle(); see the finally block of runTurn below
   let onTurnEnd: ((end: TurnEnd) => unknown) | null = null; // set via setOnTurnEnd(); see noteTurnEnd
-  let idleWaiters: Array<() => void> = []; // resolvers for waitIdle() (/nep pause), notified once busy.size hits 0
+  // The waiters of waitIdle() (/nep pause, the diary's forced post): each with its lane, null for every lane.
+  let idleWaiters: Array<{ lane: Lane | null; resolve: () => void }> = [];
+  const isIdle = (lane: Lane | null): boolean =>
+    lane === null ? attention.chat.size === 0 && attention.service.size === 0 : attention[lane].size === 0;
 
   /**
    * @param {object} params
@@ -498,8 +501,8 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       }
     } finally {
       chains.delete(channel.id);
-      busy.delete(channel.id);
-      notifyIdle();
+      attention.chat.delete(channel.id);
+      notifyIdle('chat');
     }
     return chainOutcome(results);
   }
@@ -524,24 +527,22 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
   }
 
   /**
-   * Tell whoever waits that a turn has finished: onIdle (fire-and-forget, same
+   * Tell whoever waits that a turn of `lane` has finished: onIdle for the chat lane only (fire-and-forget, same
    * as the caller of runTurn itself: whatever wants to run next --
    * src/behavior/pipeline.ts's pending-ping drain, wired in src/index.ts -- must
-   * never hold up, or throw into, the turn that just freed the channel), and
-   * the waitIdle() waiters once no turn is in flight anywhere.
+   * never hold up, or throw into, the turn that just freed the channel; a service turn frees nothing it waits for),
+   * and the waitIdle() waiters whose lane is free.
    */
-  function notifyIdle(): void {
-    if (onIdle) {
+  function notifyIdle(lane: Lane): void {
+    if (lane === 'chat' && onIdle) {
       Promise.resolve()
         // Read when the hook runs, as it is set then (setOnIdle).
         .then(() => (onIdle as () => unknown)())
         .catch((err: unknown) => log.warn('turn: onIdle failed', { error: err }));
     }
-    if (busy.size === 0 && idleWaiters.length > 0) {
-      const waiters = idleWaiters;
-      idleWaiters = [];
-      for (const resolve of waiters) resolve();
-    }
+    const ready = idleWaiters.filter((waiter) => isIdle(waiter.lane));
+    idleWaiters = idleWaiters.filter((waiter) => !ready.includes(waiter));
+    for (const waiter of ready) waiter.resolve();
   }
 
   return {
@@ -569,7 +570,10 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       chain.added.set(index, [...(chain.added.get(index) ?? []), message]);
       return true;
     },
-    waitIdle: () => (busy.size === 0 ? Promise.resolve() : new Promise((resolve) => idleWaiters.push(resolve))),
+    waitIdle: (lane) =>
+      isIdle(lane ?? null)
+        ? Promise.resolve()
+        : new Promise((resolve) => idleWaiters.push({ lane: lane ?? null, resolve })),
     setOnIdle: (fn) => {
       onIdle = fn;
     },

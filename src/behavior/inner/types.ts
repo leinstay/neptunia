@@ -10,6 +10,7 @@ import type { Reads } from '../../interface/reads.ts';
 import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
 import type { SendHold } from '../../tools/send-hold.ts';
 import type { Handle, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
+import type { Lane } from '../../turn/triggers.ts';
 import type { WAKE_KINDS } from './settings.ts';
 
 /** A wake kind. */
@@ -327,7 +328,7 @@ export type InnerPort = Pick<Adapter, 'send' | 'capabilities' | 'fetchMessages'>
 /** The turn runner as the inner life calls it. */
 export type InnerTurns = {
   runTurn(params: InnerTurnParams): Promise<unknown>;
-  isAnyBusy?(): boolean;
+  isAnyBusy?(lane?: Lane): boolean;
   isBusy?(chatId: string): boolean;
 };
 

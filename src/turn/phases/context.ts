@@ -25,7 +25,7 @@ import type { Pulls } from '../pulls.ts';
 import type { Rewatch, VideoState } from '../rewatch.ts';
 import type { Sends, SendsConfig } from '../sends.ts';
 import type { StepCompletion, ToolRound, ToolRoundConfig } from '../tool-round.ts';
-import type { TriggerKind } from '../triggers.ts';
+import type { Attention, Lane, TriggerKind } from '../triggers.ts';
 import type { MyDayReader } from '../request/my-day.ts';
 import type { FrameReads } from '../../memory/db/frame-reads.ts';
 import type { LookupRing } from '../calls.ts';
@@ -128,14 +128,15 @@ export type PhaseContext = {
   lookupRing: LookupRing;
   /** What her earlier turns in a place raised, the graph reader's `previous` (src/turn/seed-ring.ts). */
   seedRing: SeedRing;
-  busy: Set<string>;
+  /** Her attention per lane (src/turn/triggers.ts#takeAttention). */
+  attention: Attention;
   selfIdOf: () => string;
   getSelfName: (placeId: string) => string;
   // The channels known to be private chats (a deferred call names only its channel).
   dmChannels: Set<string>;
   // Whether the last turn that wanted prompts['follow-up'] found it missing or blank.
   promptState: { followUpMissing: boolean };
-  notifyIdle: () => void;
+  notifyIdle: (lane: Lane) => void;
   facts: Facts['facts'];
   /** The event loop watch's `track` (src/loop-watch.ts); the stages of the request phase are named operations. */
   track?: Track;
@@ -252,6 +253,8 @@ export type Life = {
   chained: boolean;
   turnMode: string;
   turnStartedAt: number;
+  /** The lane and the id the attempt took its attention under, let go at its end. */
+  attention: { lane: Lane; id: string };
 };
 
 /** The cancellation point at the turn's bar: the work, or TOO_SLOW thrown once the bar is reached. */

@@ -999,8 +999,11 @@ async function buildCore(
     journalDb: () => memoryDb.readHandle()?.db ?? null, // the journal's rows for <my_day>, while the database is open
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec: Untyped) => memoryDb.issueContext({ iface: currentIface() ?? identity.iface, ...spec }),
-    // Her attention, mirrored as leases in the memory database (attention.ts).
-    attention: createLeasedAttention({ memoryDb, hot, holder: `core:${process.pid}`, log }),
+    // Her attention, each lane mirrored as leases in the memory database (attention.ts).
+    attention: {
+      chat: createLeasedAttention({ memoryDb, hot, holder: `core:${process.pid}`, lane: 'chat', log }),
+      service: createLeasedAttention({ memoryDb, hot, holder: `core:${process.pid}`, lane: 'service', log }),
+    },
     llm,
     calibrator,
     describer,

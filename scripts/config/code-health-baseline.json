@@ -1260,7 +1260,7 @@
     },
     "src/behavior/inner/drain.ts": {
       "drain": {
-        "complexity": 79,
+        "complexity": 77,
         "function-length": 344
       }
     },

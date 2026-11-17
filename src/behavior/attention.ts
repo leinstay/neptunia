@@ -1,14 +1,16 @@
-// Her attention as leases in the memory database (src/memory/db/wake-queue.ts): the turn runner's set of the
-// chats a turn runs in (src/behavior/turn.ts, `attention`), each entry mirrored by the lease `attention:*`
-// (one turn anywhere at a time). A lease lasts
+// Her attention as leases in the memory database (src/memory/db/wake-queue.ts): the turn runner's two lanes
+// (src/behavior/turn.ts, `attention`; src/turn/triggers.ts#takeAttention), each a set of the ids a turn runs under, its
+// entries mirrored by the lane's lease: `attention:*` for the chat lane (one chat turn anywhere at a time) and
+// `attention:service` for the service lane (one heartbeat or diary turn at a time). A lease lasts
 // `context.turnLeaseMs` and is renewed while the turn runs, at a third of that; the turn's end lets it go. The set in
 // process stays what decides whether a turn may start, because a turn takes the attention before anything is awaited;
 // the lease is what another process sees, and one a stopped process left is taken over once it expired. The writes
 // go through the memory database's writer and never hold a turn up: a failure is logged with its code. src/core.ts
-// builds it for the turn runner.
+// builds one per lane for the turn runner.
 
 import { errorCode, objOf } from '../tools/types.ts';
 import type { WakeQueueUpdate } from '../memory/db/wake-queue.ts';
+import type { Lane } from '../turn/triggers.ts';
 
 /** How long a lease lasts when `context.turnLeaseMs` is not set (config.json's default). */
 const TURN_LEASE_MS = 300_000;
@@ -22,6 +24,7 @@ export type AttentionOptions = {
   memoryDb: unknown;
   hot: unknown;
   holder: string;
+  lane?: Lane;
   now?: () => number;
   log: unknown;
 };
@@ -37,14 +40,22 @@ function methodOf(target: unknown, name: string): ((...args: Array<unknown>) => 
 /** One held attention: its lease name, the token once granted, and the renewal timer. */
 type Held = { name: string; token: number | null; timer: ReturnType<typeof setInterval> };
 
-/** The turn runner's attention set, its entries mirrored as leases (see the head of this file). */
+/** The lease each lane's entries are mirrored by. */
+const LEASE_NAMES: Readonly<Record<Lane, string>> = Object.freeze({
+  chat: 'attention:*',
+  service: 'attention:service',
+});
+
+/** One lane of the turn runner's attention, its entries mirrored as leases (see the head of this file). */
 class LeasedAttention extends Set<string> {
   readonly #options: AttentionOptions;
+  readonly #name: string;
   readonly #held = new Map<string, Held>();
 
-  constructor(options: AttentionOptions) {
+  constructor(options: AttentionOptions, name: string) {
     super();
     this.#options = options;
+    this.#name = name;
   }
 
   add(chatId: string): this {
@@ -89,8 +100,7 @@ class LeasedAttention extends Set<string> {
 
   #take(chatId: string): void {
     const { ttlMs } = this.#settings();
-    // One turn at a time anywhere: `mention.oneAtATime` was on in production, config cut of 2026-10-31.
-    const name = 'attention:*';
+    const name = this.#name;
     const held: Held = {
       name,
       token: null,
@@ -127,7 +137,7 @@ class LeasedAttention extends Set<string> {
   }
 }
 
-/** The turn runner's attention over the memory database's leases. */
+/** One lane of the turn runner's attention over the memory database's leases: `lane`'s, the chat lane's when absent. */
 export function createLeasedAttention(options: AttentionOptions): Set<string> {
-  return new LeasedAttention(options);
+  return new LeasedAttention(options, LEASE_NAMES[options.lane ?? 'chat']);
 }
