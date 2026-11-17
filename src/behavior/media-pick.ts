@@ -247,10 +247,10 @@ type PickLabels = {
   units?: Parameters<typeof formatDuration>[1];
 } & Record<string, unknown>;
 
-/** A candidate's line of `<gifs>`: its handle and its caption. */
+/** A candidate's line of `<gifs>`: its handle and its description. */
 function gifCandidateLine(entry: GifEntry, labels: PickLabels): string {
   const template = labels.gifs?.entry ?? '{id}: {text}';
-  return fill(template, { id: entry.id, text: entry.caption ?? '' });
+  return fill(template, { id: entry.id, text: entry.description ?? '' });
 }
 
 /** A candidate's line of `<emoji>`: its name, and what it shows when the describer's cache knows. */

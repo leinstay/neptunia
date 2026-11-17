@@ -3,8 +3,9 @@
 // stamps) is the `operational` row of kind `gifs` owned by the persona. A row is the GIF's item too, so its text form,
 // its describer's cache entries and its state stay its own and an entry never holds them.
 //
-// An entry's `file` is the row's `path` when it is a file under `media/`, its `itemId` the `native_ref`; every other
-// field sits in `extra`. An entry that is not an object is kept whole as `{ $raw: value }`. The scope is the group scope
+// An entry's `file` is the row's `path` when it is a file under `media/`, its `itemId` the `native_ref`, and its
+// `description` the row's text form, the GIF's one text, which the describer's cache writes and a library write never
+// does; every other field sits in `extra`. An entry that is not an object is kept whole as `{ $raw: value }`. The scope is the group scope
 // of the interface the write came from, as for the entry's caption vector (gif-vectors.ts).
 //
 // The writer (session-write.ts, write kind `gif-library`) takes the entries a change put and the keys it dropped, never
@@ -35,6 +36,9 @@ export type GifLibraryWrite = {
 
 /** The fields of a row's `extra` that are the item's and never an entry's. */
 const ITEM_FIELDS = ['textOrigin', 'frame', 'watched', 'cache'];
+/** The fields of an entry a row never keeps in `extra`: the one text is the row's `description`, and a caption an older
+ * write left is a second text no reader gets. */
+const TEXT_FIELDS = ['description', 'caption'];
 
 const isPlainObject = (value: unknown): value is Row =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -50,6 +54,7 @@ function parsed(text: unknown): Row {
 function columnsOf(entry: unknown): { path: string | null; native_ref: string | null; extra: Row } {
   if (!isPlainObject(entry)) return { path: null, native_ref: null, extra: { $raw: entry } };
   const extra = { ...entry };
+  for (const field of TEXT_FIELDS) delete extra[field];
   const file = entry.file;
   const path = typeof file === 'string' && file.startsWith('media/') ? file : null;
   if (path !== null) delete extra.file;
@@ -61,7 +66,7 @@ function columnsOf(entry: unknown): { path: string | null; native_ref: string | 
 /** The entry a row holds. */
 function entryOf(row: Row): unknown {
   const extra = parsed(row.extra);
-  for (const field of ITEM_FIELDS) delete extra[field];
+  for (const field of [...ITEM_FIELDS, ...TEXT_FIELDS]) delete extra[field];
   if (Object.hasOwn(extra, '$raw')) return extra.$raw;
   // A row an older write made names its null fields apart.
   const nulls = Array.isArray(extra.$null) ? (extra.$null as Array<unknown>) : [];
@@ -71,6 +76,7 @@ function entryOf(row: Row): unknown {
     ...(typeof row.path === 'string' ? { file: row.path } : {}),
     ...(typeof row.native_ref === 'string' ? { itemId: row.native_ref } : {}),
     ...extra,
+    ...(filled(row.description) ? { description: row.description } : {}),
   };
 }
 
@@ -81,7 +87,7 @@ function entryOf(row: Row): unknown {
 export function gifLibraryValue(db: Db): { found: true; value: Row } | { found: false } {
   const rows = db
     .prepare(
-      "SELECT id, path, native_ref, extra FROM media WHERE writer = 'gifs' AND holder_id = ? AND retired_at IS NULL ORDER BY rowid"
+      "SELECT id, path, native_ref, description, extra FROM media WHERE writer = 'gifs' AND holder_id = ? AND retired_at IS NULL ORDER BY rowid"
     )
     .all(GIF_LIBRARY_HOLDER);
   const rest = db

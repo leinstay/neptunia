@@ -6,6 +6,7 @@
 
 import type { Db, MemoryHandle } from './types.ts';
 import { dbOf } from './types.ts';
+import { interruptPendingMediaEntries } from './media-store.ts';
 
 type Row = Record<string, unknown>;
 
@@ -101,7 +102,9 @@ export function applyRequestArchiveWrite(handle: MemoryHandle, update: Row): { c
       const result = db
         .prepare("UPDATE model_requests SET status = 'unknown', finished_at = ? WHERE status = 'pending'")
         .run(iso(update.at));
-      return { changed: Number(result.changes) };
+      // The describer's entries whose requests the stop cut, from the same moment.
+      const media = interruptPendingMediaEntries(db, Number(update.at));
+      return { changed: Number(result.changes) + media };
     }
     throw Object.assign(new Error('BAD_UPDATE'), { code: 'BAD_UPDATE' });
   });
@@ -112,7 +115,7 @@ export function readRequests(db: Db): Array<Row> {
   return db.prepare('SELECT * FROM model_requests ORDER BY started_at, rowid').all();
 }
 
-/** At open: what a dead process left `pending` becomes `unknown`. */
+/** At open: what a dead process left `pending` becomes `unknown`, and a describer's pending entry a miss. */
 export function recoverRequestArchive(handle: MemoryHandle, { now = Date.now() }: { now?: number } = {}): void {
   applyRequestArchiveWrite(handle, { op: 'interrupt', at: now });
 }

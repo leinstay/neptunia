@@ -9,7 +9,8 @@
 // of the latest use) drives the decay. A history recount of one place sets that place's counter to 0 and counts again
 // (resetGifCounts), so handles survive it; an entry left at 0 everywhere ranks below every used one. The persona's own
 // posts are kept apart (markOwnGif: `ownLast`, `ownUses`, per place and in total), never counted into `count` and never
-// reset. `caption` is the describer's text, which the candidate search (searchGifs) reads with its vector, kept apart;
+// reset. `description` is the GIF's one text, the describer's text form of its row, which the candidate search
+// (searchGifs) reads with its vector, kept apart;
 // `file` is the cached file under the data folder (src/media/gif-files.ts), because an attachment's link expires.
 //
 // Shape: `{ nextId, entries: { [key]: GifEntry }, backfill, backfills }`. `messageId`/`placeId` point at the latest
@@ -83,7 +84,7 @@ export type GifEntry = {
   places: Record<string, GifPlace>;
   hash?: string;
   file?: string;
-  caption?: string;
+  description?: string;
   vector?: Array<number>;
 };
 
@@ -140,7 +141,7 @@ function optionalFields(entry: Record<string, unknown>): Partial<GifEntry> {
     const value = entry[field];
     if (typeof value === 'string' && value) out[field] = value;
   }
-  if (typeof entry.caption === 'string' && entry.caption.trim()) out.caption = entry.caption;
+  if (typeof entry.description === 'string' && entry.description.trim()) out.description = entry.description;
   if (isVector(entry.vector)) out.vector = entry.vector;
   if (isFiniteNumber(entry.ownLast) && entry.ownLast > 0) out.ownLast = entry.ownLast;
   if (isFiniteNumber(entry.ownUses) && entry.ownUses >= 1) out.ownUses = Math.floor(entry.ownUses);
@@ -597,8 +598,8 @@ function joinEntries(one: GifEntry, two: GifEntry): GifEntry {
   const [older, younger] = handleNumber(one) <= handleNumber(two) ? [one, two] : [two, one];
   const newest = older.last >= younger.last ? older : younger;
   const links = [...new Set([...older.links, ...younger.links])];
-  // What only one of them holds comes along: its caption, its vector, its file.
-  const { caption, vector, hash, file } = { ...younger, ...older };
+  // What only one of them holds comes along: its description, its vector, its file.
+  const { description, vector, hash, file } = { ...younger, ...older };
   return withTotals({
     ...older,
     // A link posts again for good, so an entry holding one is a link entry.
@@ -612,7 +613,7 @@ function joinEntries(one: GifEntry, two: GifEntry): GifEntry {
     nativeIds: [...new Set([...older.nativeIds, ...younger.nativeIds])],
     links,
     places: joinPlaces(older.places, younger.places),
-    ...(caption ? { caption } : {}),
+    ...(description ? { description } : {}),
     ...(vector ? { vector } : {}),
     ...(hash ? { hash } : {}),
     ...(file ? { file } : {}),
@@ -636,8 +637,8 @@ export function withGifFile(gifs: unknown, key: string, { hash, file }: { hash: 
 }
 
 /**
- * `gifs` with the entry under `key` (its library key or a native id) described: its caption and the caption's vector
- * (null: none, the search then reads the caption's words alone). An unknown key leaves the library as it is. Never
+ * `gifs` with the entry under `key` (its library key or a native id) described: its description, the text its row holds,
+ * and that text's vector (null: none, the search then reads the words alone). An unknown key leaves the library as it is. Never
  * mutates `gifs`.
  */
 export function withGifCaption(
@@ -645,13 +646,26 @@ export function withGifCaption(
   key: string,
   { caption, vector }: { caption: string; vector: ArrayLike<number> | null }
 ): GifLibrary {
-  const next = normalizeGifs(gifs);
+  const next = withGifDescription(gifs, key, caption) ?? normalizeGifs(gifs);
   const held = keyOfEntry(next.entries, key);
   if (held === null) return next;
-  const entry = { ...next.entries[held], caption };
+  const entry = { ...next.entries[held] };
   if (vector) entry.vector = Array.from(vector);
   else delete entry.vector;
   next.entries[held] = entry;
+  return next;
+}
+
+/**
+ * `gifs` with the entry under `key` (its library key or a native id) holding `description`, the text the describer wrote
+ * on its row, or null when no entry holds `key` or it holds that text already. Never mutates `gifs`.
+ */
+export function withGifDescription(gifs: unknown, key: string, description: string): GifLibrary | null {
+  const next = normalizeGifs(gifs);
+  const held = keyOfEntry(next.entries, key);
+  const entry = held === null ? undefined : next.entries[held];
+  if (held === null || !entry || !description || entry.description === description) return null;
+  next.entries[held] = { ...entry, description };
   return next;
 }
 
@@ -690,8 +704,8 @@ function similarity(
 }
 
 /**
- * The candidates of a query, best score first, at most `cap`: captioned entries scored by the share of the query's words
- * their caption holds plus the similarity of their vector to the query's (a similarity under the floor counts nothing).
+ * The candidates of a query, best score first, at most `cap`: described entries scored by the share of the query's words
+ * their description holds plus the similarity of their vector to the query's (a similarity under the floor counts nothing).
  * An entry that scores nothing is no candidate, and neither is one `accept` refuses. Equal scores go to the GIF used
  * more, then to the one used last. A vector of another dimension counts as no vector. Pure.
  * @param gifs  A stored library (normalised here).
@@ -718,9 +732,9 @@ export function searchGifs(
   if (wanted.length === 0 && !vector) return [];
   const found: Array<{ entry: GifEntry & { key: string }; score: number }> = [];
   for (const [key, entry] of Object.entries(normalizeGifs(gifs).entries)) {
-    if (!entry.caption || !accept({ key, ...entry })) continue;
-    const caption = wordsOf(entry.caption);
-    const shared = wanted.filter((word) => caption.has(word)).length;
+    if (!entry.description || !accept({ key, ...entry })) continue;
+    const text = wordsOf(entry.description);
+    const shared = wanted.filter((word) => text.has(word)).length;
     const wordScore = wanted.length > 0 ? shared / wanted.length : 0;
     const close = similarity(vector, vectors?.get(entry.itemId) ?? entry.vector) ?? 0;
     const score = wordScore + (close >= MIN_SIMILARITY ? close : 0);

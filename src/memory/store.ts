@@ -77,6 +77,8 @@ import {
   mergeGifs,
   stampGifBackfill,
   withGifCaption,
+  withGifDescription,
+  captionOfCached,
   withGifFile,
   normalizeBackfillStamp,
   resetGifCounts,
@@ -2327,6 +2329,9 @@ function buildStore({
     /** The cache's entry under `key` written to its row: a new one, a touched one (`usedAt`) or a changed one. */
     putMediaEntry(placeId: string, key: string, value: unknown): void {
       media.put(placeId, key, value);
+      // The library's entry of the same GIF reads the description its row now holds, as the next load would.
+      const described = withGifDescription(gifs.library(), key, captionOfCached(value));
+      if (described) gifs.set(described);
     },
 
     /** The cache's entry under `key` dropped. */

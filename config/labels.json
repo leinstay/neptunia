@@ -100,7 +100,8 @@
         "timeout": "took too long to load",
         "tool": "could not convert",
         "llm": "the viewer failed",
-        "empty": "the viewer said nothing"
+        "empty": "the viewer said nothing",
+        "interrupted": "the viewing was interrupted"
       },
       "voice": "[voice message, {duration}]",
       "voiceDescribed": "[voice message, {duration}: {text}]",

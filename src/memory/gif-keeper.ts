@@ -1,5 +1,5 @@
-// The keeper of the shared GIF library's search and files: for a GIF the library holds it has the describer caption it,
-// writes the caption and its vector on the entry (the candidate search of src/behavior/media-pick.ts reads them), and
+// The keeper of the shared GIF library's search and files: for a GIF the library holds it has the describer describe it,
+// gives the entry the description its row holds and the description's vector (the candidate search of src/behavior/media-pick.ts reads them), and
 // caches the file (src/media/gif-files.ts), because an attachment's link expires and the file is the record. The memory
 // updater and the edit handler call `keep` for a message that added a GIF, the history backfill for what it read, and the
 // core's start calls `settle` once per served place, which fills what an entry can get without its message. One GIF at
@@ -85,13 +85,13 @@ export function createGifKeeper({
     }
   }
 
-  /** The caption the cache holds written on the entry with its vector, when the entry lacks either. */
+  /** The description the cache holds given to the entry with its vector, when the entry lacks either. */
   async function describeEntry(placeId: string, itemId: string): Promise<void> {
     const entry = entryOf(itemId);
     if (!entry) return;
     const caption = captionOfCached(store.mediaEntry(placeId, itemId));
     const hasVector = store.getGifVectors(embedModel()).has(entry.itemId);
-    if (!caption || (entry.caption === caption && (hasVector || !embed))) return;
+    if (!caption || (entry.description === caption && (hasVector || !embed))) return;
     store.setGifCaption(itemId, { caption, vector: await vectorOf(caption), model: embedModel() });
   }
 
@@ -133,7 +133,7 @@ export function createGifKeeper({
         let worked = 0;
         for (const entry of rankGifs(store.getGifs())) {
           if (paused() || worked >= SETTLE_PER_RUN) break;
-          if (entry.caption && store.getGifVectors(embedModel()).has(entry.itemId) && entry.file) continue;
+          if (entry.description && store.getGifVectors(embedModel()).has(entry.itemId) && entry.file) continue;
           worked += 1;
           await describeEntry(placeId, entry.itemId);
           await fileEntry(entry.itemId, [entry.url]);
