@@ -354,3 +354,35 @@ test('a root.changed event takes a joinedAt number or none, and refuses any othe
   for (const joinedAt of ['2026-10-03', null, Number.NaN, true])
     assert.deepEqual(validateEvent({ ...rootChanged, joinedAt }), refusal('joinedAt:type'), String(joinedAt));
 });
+
+/** A member's message with `content` and the custom emoji of `emojis`. */
+const emojiMessage = (content: string, emojis: Array<Json>): Json => ({
+  kind: 'message.received',
+  iface: 'fake',
+  at: 1000,
+  id: 'fake:message:m1',
+  chat: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' },
+  message: {
+    id: 'm1',
+    author: { id: 'u1', name: 'Eleni', self: false, bot: false },
+    content,
+    at: 1000,
+    replyToId: null,
+    replyPingAccountId: null,
+    forwardedFrom: null,
+    attachments: [],
+    links: [],
+    forwarded: [],
+    stickers: [],
+    emojis,
+    reactions: [],
+  },
+  addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
+});
+const KEKW: Json = { id: '900', name: 'kekw', animated: false, url: 'https://cdn.example.invalid/900.png' };
+
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('refuses a message whose <emoji:ID> token names no entry of its emojis', () => {
+  assert.deepEqual(validateEvent(emojiMessage('ha <emoji:900>', [KEKW])), { ok: true });
+  assert.equal(validateEvent(emojiMessage('ha <emoji:901>', [KEKW])).ok, false);
+});

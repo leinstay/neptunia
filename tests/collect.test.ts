@@ -356,20 +356,29 @@ test('normalizeMessage: a Lottie sticker keeps a null url and carries no animati
 
 const PEPE_ID = '123456789012345678';
 
-test('normalizeMessage: custom emoji are read from the raw content, text from cleanContent', () => {
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('normalizeMessage: two custom emoji that share a name stay two tokens of two ids', () => {
+  const raw = rawMessage({ content: '<:kekw:111> <:kekw:222>', cleanContent: ':kekw: :kekw:' });
+  const m = normalizeMessage(raw, 'self');
+  assert.equal(m.content, '<emoji:111> <emoji:222>');
+});
+
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('normalizeMessage: a custom emoji stands in the content as the protocol token of its id', () => {
   const raw = rawMessage({ content: `hi <:pepe:${PEPE_ID}>`, cleanContent: 'hi :pepe:' });
   const m = normalizeMessage(raw, 'self');
-  assert.equal(m.content, 'hi :pepe:');
+  assert.equal(m.content, `hi <emoji:${PEPE_ID}>`);
   assert.deepEqual(m.emojis, [
     { id: PEPE_ID, name: 'pepe', animated: false, url: `https://cdn.discordapp.com/emojis/${PEPE_ID}.webp?size=96` },
   ]);
 });
 
 // The owner on 2026-11-17: an animated emoji is watched from its gif address, so it carries animationUrl.
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('normalizeMessage: an animated custom emoji is marked animated and carries its gif animationUrl', () => {
   const raw = rawMessage({ content: `hi <a:pepe:${PEPE_ID}>`, cleanContent: 'hi :pepe:' });
   const m = normalizeMessage(raw, 'self');
-  assert.equal(m.content, 'hi :pepe:');
+  assert.equal(m.content, `hi <emoji:${PEPE_ID}>`);
   assert.deepEqual(m.emojis, [
     {
       id: PEPE_ID,
@@ -381,10 +390,11 @@ test('normalizeMessage: an animated custom emoji is marked animated and carries 
   ]);
 });
 
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('normalizeMessage: without a raw content, custom emoji fall back to cleanContent', () => {
   const raw = rawMessage({ content: undefined, cleanContent: `hi <:pepe:${PEPE_ID}>` });
   const m = normalizeMessage(raw, 'self');
-  assert.equal(m.content, 'hi :pepe:');
+  assert.equal(m.content, `hi <emoji:${PEPE_ID}>`);
   assert.deepEqual(
     m.emojis.map((e) => e.name),
     ['pepe']
@@ -428,12 +438,15 @@ test("normalizeMessage: reactions are read with count and the bot's own mark", (
   ]);
 });
 
-test('normalizeMessage: a custom emoji reaction is named :name:', () => {
+// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
+test('normalizeMessage: a custom emoji reaction is the protocol token with its platform name and animation', () => {
   const raw = rawMessage({
-    reactions: { cache: new Map([['123', { emoji: { id: '123', name: 'κάτι' }, count: 1, me: false }]]) },
+    reactions: {
+      cache: new Map([['123', { emoji: { id: '123', name: 'kati', animated: true }, count: 1, me: false }]]),
+    },
   });
   const m = normalizeMessage(raw, 'self');
-  assert.deepEqual(m.reactions, [{ emoji: ':κάτι:', count: 1, mine: false }]);
+  assert.deepEqual(m.reactions, [{ emoji: '<emoji:123>', name: 'kati', animated: true, count: 1, mine: false }]);
 });
 
 test('normalizeMessage: a forwarded snapshot also carries its own stickers and emoji', () => {
