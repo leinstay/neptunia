@@ -1818,7 +1818,10 @@ function buildDescriber({
       return null;
     }
 
-    const fetched = await fetchGifClip(source, maxSeconds);
+    const fetched = await fetchGifClip(
+      item.source === 'attachment' ? (await addressed(placeId, item)).url : source,
+      maxSeconds
+    );
     if (!fetched.ok) {
       report('error', { reason: fetched.reason });
       return null;
