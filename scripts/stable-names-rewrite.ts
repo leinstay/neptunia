@@ -1,8 +1,11 @@
-// Rewrites the lines a deployment stored before stable names to `:e23:` and gives their emoji and stickers their stable
-// names (src/memory/db/stable-names-rewrite.ts). Run once per deployment, with the core stopped, after a backup.
+// Rewrites what a deployment stored before stable names to `:e23:`, gives its emoji and stickers their stable names and
+// links each line to the emoji its text names (src/memory/db/stable-names-rewrite.ts). Run once per deployment, with the
+// core stopped, after a backup.
 //
 //   node scripts/stable-names-rewrite.ts --data <folder>            dry run: counts only, nothing written
 //   node scripts/stable-names-rewrite.ts --data <folder> --apply    writes the plan through the memory writer
+//   --choose <platformName>=<platformId>                            ties a name two emoji hold to one of them; repeatable
+//   --markup-iface <interface>                                      the interface of raw markup whose id no row holds
 //
 // The core's own start check refuses the run while an engine holds the folder. Output holds counts and names of kinds.
 
@@ -21,12 +24,42 @@ function print(plan: StableNamesPlan): void {
   console.log(`media rows to rename: ${counts.media}`);
   for (const key of Object.keys(counts.issue).sort()) console.log(`names to issue, ${key}: ${counts.issue[key]}`);
   console.log(`lines not tied: ${counts.untied}`);
+  for (const table of Object.keys(counts.tables).sort())
+    console.log(`rows to change, ${table}: ${counts.tables[table]}`);
+  console.log(`left, a name two emoji hold: ${counts.left.sharedName}`);
+  console.log(`left, a sticker reference of a line that links no one sticker: ${counts.left.unlinkedSticker}`);
+  console.log(`left, raw markup ids of no known interface: ${counts.left.markupIface}`);
+  if (counts.left.markupIface > 0)
+    console.log('give the interface their markup belongs to with --markup-iface <interface>');
+}
+
+/** The `--choose <platformName>=<platformId>` arguments as one choice. */
+function choiceOf(args: ReadonlyArray<string>): Record<string, string> {
+  const choose: Record<string, string> = {};
+  args.forEach((arg, at) => {
+    if (arg !== '--choose') return;
+    const [name, id] = (args[at + 1] ?? '').split('=');
+    if (!name || !id) {
+      console.error('usage: --choose <platformName>=<platformId>');
+      process.exit(2);
+    }
+    choose[name] = id;
+  });
+  return choose;
+}
+
+/** The `--markup-iface <interface>` argument, null when absent. */
+function markupIfaceOf(args: ReadonlyArray<string>): string | null {
+  const at = args.indexOf('--markup-iface');
+  return at < 0 ? null : (args[at + 1] ?? null);
 }
 
 const argv = process.argv.slice(2);
 const dataAt = argv.indexOf('--data');
 if (dataAt < 0 || !argv[dataAt + 1]) {
-  console.error('usage: node scripts/stable-names-rewrite.ts --data <folder> [--apply]');
+  console.error(
+    'usage: node scripts/stable-names-rewrite.ts --data <folder> [--apply] [--choose <platformName>=<platformId>]... [--markup-iface <interface>]'
+  );
   process.exit(2);
 }
 const dbPath = path.join(argv[dataAt + 1], 'memory.db');
@@ -39,7 +72,7 @@ claimCore(dbPath)();
 const apply = argv.includes('--apply');
 const handle = openMemoryDb(dbPath, { readOnly: !apply });
 try {
-  const plan = planStableNamesRewrite(dbOf(handle));
+  const plan = planStableNamesRewrite(dbOf(handle), { choose: choiceOf(argv), markupIface: markupIfaceOf(argv) });
   print(plan);
   if (!apply) console.log('dry run, nothing written');
   else

@@ -201,15 +201,18 @@ export function envelopeItems(media: ReadonlyArray<unknown> | null | undefined):
   });
 }
 
-/** The items of a record line: its kinds, a link item with what the line's preview card holds. Pure. */
+/**
+ * The items of a record line: its kinds, a link item with what the line's preview card holds, and the sticker and emoji
+ * items `mediaItemsOf` made for it. Pure.
+ */
 function recordItems(line: Row): Array<MediaItem> {
   const cards = [...listOf(line.links)];
   const fromCard = (card: Row): MediaItem =>
     linkItem({ ...card, id: card.id, title: card.title, site: card.site, url: card.url, text: card.description });
-  const kinds = Array.isArray(line.media) ? (line.media as Array<unknown>).filter(filled) : [];
-  const items = kinds.map((kind): MediaItem => {
-    if (kind === 'link' && cards.length > 0) return fromCard(cards.shift()!);
-    return { ...BARE, ...closedKind(kind) };
+  const media: Array<unknown> = Array.isArray(line.media) ? line.media : [];
+  const items = envelopeItems(media).map((item): MediaItem => {
+    if (item.kind === 'link' && item.nativeRef === null && cards.length > 0) return fromCard(cards.shift()!);
+    return item;
   });
   return [...items, ...cards.map(fromCard)];
 }

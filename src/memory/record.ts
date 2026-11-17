@@ -31,6 +31,7 @@ import { log as defaultLog } from '../log.ts';
 import { clampChars, oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
 
+import { mediaItemsOf } from './db/media-store.ts';
 import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/record-lines.ts';
 import { isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
@@ -75,17 +76,20 @@ export function isoOf(value: unknown): string | null {
   return null;
 }
 
-/** The media kinds of a slim message: attachments, links, then one `sticker` per sticker. */
-function mediaKinds(slim: Untyped) {
-  const kinds = [];
+/**
+ * The media of a slim message: the kinds of its attachments and links, then its stickers and custom emoji as the items
+ * an observation makes of them (media-store.ts#mediaItemsOf), with their platform ids and names.
+ */
+function mediaOf(slim: Untyped) {
+  const kinds: Array<string> = [];
   for (const item of [
     ...(Array.isArray(slim.attachments) ? slim.attachments : []),
     ...(Array.isArray(slim.links) ? slim.links : []),
   ]) {
-    if (item && typeof item.kind === 'string' && item.kind) kinds.push(item.kind);
+    const kind: unknown = item?.kind;
+    if (typeof kind === 'string' && kind) kinds.push(kind);
   }
-  for (const sticker of Array.isArray(slim.stickers) ? slim.stickers : []) if (sticker) kinds.push('sticker');
-  return kinds;
+  return [...kinds, ...mediaItemsOf({ stickers: slim.stickers, emojis: slim.emojis })];
 }
 
 /**
@@ -124,7 +128,7 @@ export function recordLinks(
  * One record line from a slim message (src/memory/update.ts#slimMessage; `mentionedAccountIds`
  * and `replyToAuthorId` are read when the slim has them). Only the whitelisted fields are
  * copied: `messageId`, `revision`, `occurredAt` (the slim's `ts`), the channel (as `scope`),
- * `by`, `replyTo`, `text`, `media` (kinds only), `links` (recordLinks of the slim's `linkCards`,
+ * `by`, `replyTo`, `text`, `media` (kinds, and the items of stickers and custom emoji), `links` (recordLinks of the slim's `linkCards`,
  * only when there are some: a line without the key has no link preview), `mentions`, `direct`;
  * `participants` = the author, the mentioned members and the reply target's author when known. A `said` line names
  * no author (it is the persona's) and carries `turnId` / `opId`; a `deleted` line keeps only
@@ -183,7 +187,7 @@ export function toRecordLine(
     ...(kind === 'said' ? {} : { by }),
     replyTo,
     text: typeof source.content === 'string' ? source.content : '',
-    media: mediaKinds(source),
+    media: mediaOf(source),
     ...(links.length > 0 ? { links } : {}),
     ...(typeof source.voiced === 'string' && source.voiced !== '' ? { voiced: source.voiced } : {}),
     mentions,
