@@ -457,8 +457,9 @@ const handlers = perEnv((env) => {
     }
   }
 
-  /** The drawing model's state from the provider's public listing: one free GET, no generation,
-   * no cap counted, no state written. Never rejects. */
+  /** Whether the provider lists the drawing model and how many endpoints serve it, from its public listing: one free
+   * GET, no generation, no cap counted, no state written. Whether the model draws is checked when it is set. Never
+   * rejects. */
   async function imageListing(model: string, timeoutMs: number): Promise<string> {
     if (!(images?.familyOf ?? imageFamilyOf)(model)) return 'unsupported family';
     if (typeof llm?.modelEndpoints !== 'function') return 'not checked (the llm client has no listing)';
@@ -472,11 +473,8 @@ const handlers = perEnv((env) => {
     }
     if (listing.status === 404) return 'not listed (HTTP 404)';
     if (!listing.ok) return `failed: HTTP ${listing.status}`;
-    const listed = objOf(listing.json?.data);
-    const modalities = objOf(listed.architecture).output_modalities;
-    if (!Array.isArray(modalities) || !modalities.includes('image')) return 'listed, but no image output';
-    const endpoints = Array.isArray(listed.endpoints) ? listed.endpoints.length : 0;
-    return `listed, image output, ${endpoints} endpoint(s), ${Date.now() - start} ms`;
+    const endpoints = objOf(listing.json?.data).endpoints;
+    return `listed, ${Array.isArray(endpoints) ? endpoints.length : 0} endpoint(s), ${Date.now() - start} ms`;
   }
 
   /** The drawing model's line (`drawing · no model configured` when none is set). */

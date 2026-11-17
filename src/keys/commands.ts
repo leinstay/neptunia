@@ -131,8 +131,9 @@ export type MemoryCheckProbe = { ok: true; at: number } | { ok: false; code: str
 
 const money = (value: number): string => `$${value.toFixed(4)}`;
 
-/** The answer for a role no request can prove for cents; the key is neither proved nor refused. */
-const unsupportedLine = (role: string): string => `No cheap request can check the ${role} role, so nothing was sent.`;
+/** The answer for a role no free or cheap request could prove now; the key is neither proved nor refused. */
+const unsupportedLine = (role: string): string =>
+  `Nothing could check the ${role} role now, so the key is neither proved nor refused.`;
 
 /** What `checkRole` needs beside the model for `role`: the speech probe takes the live voice. */
 const voiceOf = (deps: KeysDeps, role: string): { voice?: string } =>
