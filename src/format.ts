@@ -33,6 +33,12 @@ export const GAP_MARKER_MINUTES = 20;
 /** Characters of one message's text in a transcript. */
 export const MAX_MESSAGE_CHARS = 2000;
 
+/**
+ * The namer of a rendering whose legend stands elsewhere, as the request's own `<chat>` under its root `<media>`: it
+ * names nothing, so the rendering opens no second legend.
+ */
+export const noLegend: (name: string) => MediaName | null = (): MediaName | null => null;
+
 // A language-neutral marker (memory transcript only) for a message addressed
 // to the persona, so the analyzer can weigh "how people talk TO it" apart
 // from general chatter. See docs/prompt-contract.md, "The analyzer".
@@ -778,7 +784,7 @@ export type TranscriptOptions = {
    * The store's read of a stable name (src/memory/store-media-names.ts): a transcript read outside the request's own
    * window opens with the legend `<media>` of its custom emoji and stickers (src/turn/request/legend.ts).
    */
-  mediaNameOf?: (name: string) => MediaName | null;
+  mediaNameOf: (name: string) => MediaName | null;
 };
 
 /** The media of a transcript the caller already holds: the part of the options `mediaTags` and `replyMarker` read. */
@@ -958,9 +964,9 @@ function contentWithHandles(
  *   item, and a gap marker is measured from the last line that does render: the request builder
  *   shows such lines in another block (src/behavior/prompt.ts, the anchored window). Omitted:
  *   every message renders.
- * @param [options.mediaNameOf]  The store's read of a stable name. With it, the first item opens with the legend
- *   `<media>` of the custom emoji and stickers of the items' messages, before any marker. The request's own `<chat>`
- *   passes none: its legend is the root block of the request.
+ * @param options.mediaNameOf  The store's read of a stable name. The first item opens with the legend `<media>` of the
+ *   custom emoji and stickers it names among the items' messages, before any marker. The request's own `<chat>` passes
+ *   `noLegend`: its legend is the root block of the request.
  * @throws {RangeError} when `indexOffset` is given but is not an integer of at least 0.
  *
  * In `mode: 'memory'`, messages come from possibly several channels (see
@@ -1177,7 +1183,6 @@ function withLegend(
   messages: Array<Record<string, Untyped>>,
   { mediaNameOf, labels, descriptions }: TranscriptOptions
 ): Array<{ id: string; index: number; ts: number; text: string }> {
-  if (!mediaNameOf) return items;
   const shown = new Set(items.map((item) => item.id));
   const legend = legendBlock(
     messages.filter((message) => shown.has(message.id)),

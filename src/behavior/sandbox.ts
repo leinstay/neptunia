@@ -236,8 +236,6 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   mind: 'no graph reader runs in a replay: `<memory>` holds the person she answers alone (a live turn reads src/memory/db/mind-read.ts)',
   lookups: 'no earlier lookup in a replay: no <recall> block (a live turn keeps her lookups, src/turn/calls.ts)',
   meanwhileReads: 'no memory reads in a replay: no <meanwhile> block (a live turn reads her lines elsewhere)',
-  mediaNameOf:
-    'no store of stable names in a replay: no <media> block (a live turn reads src/memory/store-media-names.ts)',
   surroundings: 'no stored fields in a replay: <surroundings> names the place by its path alone',
   lessons:
     'no memory reads in a replay: no <lessons> block (a live turn reads her lessons, src/memory/db/frame-reads.ts)',
@@ -534,6 +532,7 @@ export function momentView(base: SandboxView, cutoff: number): SandboxView {
       getLore: () => loreBefore(base.memory.getLore(), cutoff).list,
       getRecent: () =>
         recentBefore(typeof base.memory.getRecent === 'function' ? base.memory.getRecent() : null, cutoff),
+      mediaNameOf: base.memory.mediaNameOf,
     },
   };
 }
@@ -594,6 +593,7 @@ export function liveView({ hot, store, placeId, calibrator }: LiveViewInput): Li
       // The store's address reads, so a replayed request cuts a person's handle as a live turn does.
       accountOf: (nativeId, iface) => accountOf(store, nativeId, iface),
       personOfAccount: (accountId) => personOfMemberAccount(store, accountId),
+      mediaNameOf: (name) => store.mediaNameOf(name),
     },
   };
 }
@@ -799,8 +799,8 @@ export function sandboxRequestInput({
     mediaPickText: null,
     gifs,
     mediaCache,
-    // No store of stable names (SANDBOX_OMITS): no <media> block.
-    mediaNameOf: null,
+    // The store's read of a stable name, for the <media> block as a live turn has it.
+    mediaNameOf: memory.mediaNameOf,
     elsewhereDestination:
       typeof elsewhereDestination?.name === 'string' && elsewhereDestination.name
         ? { name: elsewhereDestination.name }

@@ -5,6 +5,7 @@ import type { loopSettings } from './turn.ts';
 import type { CallMark, Line } from './lines.ts';
 import type { PlaceChainLink } from '../memory/db/place-tree.ts';
 import type { PendingPing } from './pending.ts';
+import type { MediaName } from '../memory/store-media-names.ts';
 
 export type MomentCutoffInput = {
   history?: Array<Line>;
@@ -60,6 +61,7 @@ export type LiveViewResult = {
     diaryChannelIds: () => Array<string>;
     accountOf: (nativeId: string, iface?: string) => string;
     personOfAccount: (accountId: string) => string | null;
+    mediaNameOf: (name: string) => MediaName | null;
   };
 };
 
@@ -365,6 +367,8 @@ export type SandboxMemory = {
   placeChainOf?: (placeId: string) => ReadonlyArray<PlaceChainLink>;
   accountOf?: (nativeId: string, iface?: string) => string;
   personOfAccount?: (accountId: string) => string | null;
+  /** The store's read of a stable name, for the legend `<media>`; a view over a store (`liveView`) holds it. */
+  mediaNameOf?: (name: string) => MediaName | null;
 };
 
 /** What a sandbox turn reads of the world: the live prompts and config, the calibrator and the memory. */

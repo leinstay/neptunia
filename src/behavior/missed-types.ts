@@ -57,12 +57,12 @@ export type BuildCheckRequestInput = {
   triggerOf?: (id: string) => string | null;
   now: number;
   /** The store's read of a stable name, for the legend of the transcript. */
-  mediaNameOf?: (name: string) => MediaName | null;
+  mediaNameOf: (name: string) => MediaName | null;
 };
 
 export type CreateMissedInput = {
   hot: { config: Untyped; prompts: Untyped };
-  store: { state: { data: Untyped }; mediaNameOf?: (name: string) => MediaName | null };
+  store: { state: { data: Untyped }; mediaNameOf: (name: string) => MediaName | null };
   journal?: Untyped;
   llm?: { complete: (...args: Array<Untyped>) => Untyped } | null;
   turns: Untyped;

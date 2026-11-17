@@ -10,7 +10,7 @@
 // persona reads comes from `labels.tools.tools.conversation.*`; nothing here is wording. A
 // channel the audience rule or her rights hide is refused `channel-not-visible`.
 
-import { fill, formatClock, formatDate, formatTranscript } from '../format.ts';
+import { fill, formatClock, formatDate, formatTranscript, noLegend } from '../format.ts';
 import { parseWhen } from '../intentions/model.ts';
 import { DAY_MS } from '../time.ts';
 import { oneLine } from '../memory/clamp.ts';
@@ -24,7 +24,7 @@ import { legendBlock } from '../turn/request/legend.ts';
 import type { MediaName } from '../memory/store-media-names.ts';
 
 /** The options a read renders its lines with: formatTranscript's, and the store's read of a stable name for the legend. */
-type Render = Obj & { mediaNameOf?: (name: string) => MediaName | null };
+type Render = Obj & { mediaNameOf: (name: string) => MediaName | null };
 import type { Reads } from '../interface/reads.ts';
 import type { ChatRef, HistoryQuery } from '../protocol/adapter.ts';
 
@@ -428,7 +428,7 @@ export function chatText(
   const { mediaNameOf, ...shownOptions } = options;
   const items = formatTranscript(
     slice as Array<ReadMessage>,
-    { ...shownOptions, indexOffset: offset } as Parameters<typeof formatTranscript>[1]
+    { ...shownOptions, mediaNameOf: noLegend, indexOffset: offset } as Parameters<typeof formatTranscript>[1]
   );
   const byId = new Map(slice.map((message) => [idText(message.id), message]));
   // The room: whole items, from the far end of the span (the newest are kept for a read of the newest lines).

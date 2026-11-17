@@ -24,7 +24,7 @@ export type ClassifierTranscriptArg2 = {
   videos?: Map<string, unknown>;
   reads?: Map<string, unknown>;
   /** The store's read of a stable name: the transcript opens with the legend of its custom emoji and stickers. */
-  mediaNameOf?: (name: string) => MediaName | null;
+  mediaNameOf: (name: string) => MediaName | null;
 };
 
 export type BuildDrawPromptInput = {
@@ -70,7 +70,7 @@ export type BuildRequestInput = {
   customEmoji?: Array<{ id: string; name: string; animated?: boolean }>;
   mediaPickText?: string | null;
   mediaCache?: RequestInput['mediaCache'];
-  mediaNameOf?: RequestInput['mediaNameOf'];
+  mediaNameOf: RequestInput['mediaNameOf'];
   gifs?: RequestInput['gifs'];
   tasks?: {
     part: { index: number; total: number; parts: Array<string> } | null;

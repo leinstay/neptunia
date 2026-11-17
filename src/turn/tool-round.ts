@@ -22,7 +22,7 @@ import {
 } from '../behavior/tool-step.ts';
 import { innerSettings } from '../behavior/inner.ts';
 import { diagnosticText } from '../behavior/wake.ts';
-import { callReason, fill, formatTranscript } from '../format.ts';
+import { callReason, fill, formatTranscript, noLegend } from '../format.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { KeepLines } from '../pipeline/keep-lines.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
@@ -394,6 +394,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     const handleOf =
       handles instanceof Map ? new Map([...handles].map(([handle, id]) => [String(id), handle])) : undefined;
     return formatTranscript(lines, {
+      // A step's lines stand in the request, under its root `<media>`.
+      mediaNameOf: noLegend,
       timezone: config.bot?.timezone ?? 'UTC',
       selfName,
       labels: hot.prompts?.labels ?? {},

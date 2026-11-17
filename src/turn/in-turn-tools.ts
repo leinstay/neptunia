@@ -74,7 +74,7 @@ type InTurnStore = NonNullable<Parameters<typeof runMediaFind>[0]['store']> & {
   /** Stores the chat an interface opened for a place as its address (src/memory/store.ts). */
   notePlaceAddress?: (placeId: string, address: string) => Promise<unknown>;
   /** The stable names of custom emoji and stickers (src/memory/store-media-names.ts), for the legend of a read. */
-  mediaNameOf?: (name: string) => MediaName | null;
+  mediaNameOf: (name: string) => MediaName | null;
 };
 
 /** The stored lines a read of a place outside the turn's snapshot takes from the memory, at most (conversation.read's own cap). */
@@ -595,7 +595,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         seeReactions: true,
         handles: authorHandles(draft, ref.iface, slice),
         iface: ref.iface,
-        ...(store.mediaNameOf ? { mediaNameOf: store.mediaNameOf } : {}),
+        mediaNameOf: store.mediaNameOf,
         descriptions: placeReads.mediaTexts?.(
           context,
           placeId,
@@ -767,7 +767,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           labels,
           descriptions,
           seeReactions: true,
-          ...(store.mediaNameOf ? { mediaNameOf: store.mediaNameOf } : {}),
+          mediaNameOf: store.mediaNameOf,
           handles: authorHandles(draft, iface, slice),
           iface,
         };

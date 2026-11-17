@@ -37,19 +37,9 @@ function markup(emoji: { id: string; platformName: string; animated: boolean }):
   return `<${emoji.animated ? 'a' : ''}:${emoji.platformName}:${emoji.id}>`;
 }
 
-/**
- * `text` with every `<emoji:ID>` token as `:stableName:` through `nameOf`. A token with no stable name reads as the
- * platform name `emojis` gives its id, between colons.
- */
-export function nameEmojiTokens(
-  text: string,
-  nameOf: (nativeId: string) => string | null,
-  emojis: ReadonlyArray<{ id: string; name: string }>
-): string {
-  return text.replace(EMOJI_TOKEN_RE, (_token, id: string) => {
-    const name = nameOf(id) ?? emojis.find((emoji) => emoji.id === id)?.name ?? id;
-    return `:${name}:`;
-  });
+/** `text` with every `<emoji:ID>` token as `:stableName:` through `nameOf`. */
+export function nameEmojiTokens(text: string, nameOf: (nativeId: string) => string): string {
+  return text.replace(EMOJI_TOKEN_RE, (_token, id: string) => `:${nameOf(id)}:`);
 }
 
 /**

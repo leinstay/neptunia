@@ -290,7 +290,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     meanwhileReads: given.meanwhileReads ?? null,
     chatItems: base.chatItems,
     chatStickers: chatStickersOf(given.history),
-    mediaNameOf: given.mediaNameOf ?? null,
+    mediaNameOf: given.mediaNameOf,
     describe: describerOf(given),
     tempoText,
     inner: {

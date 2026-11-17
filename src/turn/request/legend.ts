@@ -63,7 +63,7 @@ export function legendText(items: ReadonlyArray<LegendItem>, labels: LegendLabel
 /**
  * The things of the legend: each custom emoji whose stable name stands in `texts`, and each of `stickers`, once, as the
  * store's names know them. `describe` reads a description by its media key, `emoji:<id>` or `sticker:<id>`. A name the
- * store does not hold is left out: a stored line from before stable names holds a platform name.
+ * store does not hold is left out: a person can type `:e99:` for a name nothing holds.
  */
 export function legendItems(
   texts: ReadonlyArray<string>,

@@ -54,6 +54,7 @@ export function createStoreMediaNames({ memoryDb, seam }: { memoryDb: MemoryDb; 
   }
 
   function send(): void {
+    // A read-only handle (scripts/lib/turn-wiring.ts, scripts/recall-eval.ts) has no writer: its names stay unwritten.
     const write = memoryDb.writeMediaNames;
     if (!write || unwritten.size === 0) return;
     const rows = [...unwritten.values()];

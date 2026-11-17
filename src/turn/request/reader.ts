@@ -120,8 +120,8 @@ export type ReaderInput = {
   chatItems: Array<TranscriptItem>;
   /** The stickers of each line of the chat, by message id, for the legend `<media>`. */
   chatStickers: ReadonlyMap<string, ReadonlyArray<SeenSticker>>;
-  /** The store's read of a stable name; null when the turn has no store. */
-  mediaNameOf: ((name: string) => MediaName | null) | null;
+  /** The store's read of a stable name. */
+  mediaNameOf: (name: string) => MediaName | null;
   /** A custom emoji's or a sticker's description by its media key, null when none is known. */
   describe: (key: string) => string | null;
   tempoText: string;
