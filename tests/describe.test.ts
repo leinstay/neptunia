@@ -3233,3 +3233,169 @@ test('describe: an animated emoji whose clip fetch fails is stored as a miss wit
   assert.equal(llm.calls.length, 0);
   assertGifMiss(run, 'emoji:e2', 'download');
 });
+
+// --- A fresh address for every attachment -----------------------------------------
+
+// The owner on 2026-11-17: every attachment is read from a fresh address, as a GIF is. A signed address lapses, so the
+// fakes below answer the stored address as gone (404) and the fresh one as readable.
+const STORED_URL = 'https://cdn.discordapp.com/attachments/7/8/file.bin?ex=lapsed';
+const FRESH_URL = 'https://cdn.discordapp.com/attachments/7/8/file.bin?ex=renewed';
+const FILE_WORDS = 'shopping list: flour, eggs, lemons';
+
+/** One describer for every kind, its fetchers answering a download of STORED_URL as a 404. */
+function lapsedRig(freshAddress?: (item: Untyped) => Promise<string | null>) {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const hot = videoHot({ prompts: { 'describe-audio': 'Retell what is heard in up to {{maxChars}} characters.' } });
+  const llm = fakeLlm({ text: 'a lemon on a table' });
+  const reads: Array<string> = [];
+  const imageFetcher = fakeImageFetcher((url: string) => {
+    reads.push(url);
+    return url === STORED_URL ? null : SUCCESSFUL_DOWNLOAD;
+  });
+  const videoFetcher = {
+    ...fakeVideoFetcher(),
+    fetchAttachment: (url: string): Promise<Record<string, Untyped>> => {
+      reads.push(url);
+      return Promise.resolve(
+        url === STORED_URL
+          ? { ok: false, reason: 'download', status: 404 }
+          : { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 12, bytes: 4 }
+      );
+    },
+    fetchAudio: (url: string): Promise<Record<string, Untyped>> => {
+      reads.push(url);
+      return Promise.resolve(
+        url === STORED_URL
+          ? { ok: false, reason: 'download' }
+          : { ok: true, dataUrl: CLIP_DATA_URL, seconds: 9, bytes: 4 }
+      );
+    },
+  };
+  const fetchText = (url: string): Promise<{ ok: boolean; text?: string; reason?: string }> => {
+    reads.push(url);
+    return Promise.resolve(url === STORED_URL ? { ok: false, reason: 'download' } : { ok: true, text: FILE_WORDS });
+  };
+  const describer = createDescriber({
+    hot,
+    store,
+    llm,
+    imageFetcher,
+    videoFetcher,
+    state: fakeState(),
+    fetchText,
+    ...(freshAddress ? { freshAddress } : {}),
+  });
+  return { describer, store, reads };
+}
+
+/** An attachment of `kind` posted with message m7 at the stored address. */
+function lapsedAttachment(kind: string, overrides = {}) {
+  return {
+    source: 'attachment',
+    messageId: 'm7',
+    itemId: `${kind}-a1`,
+    kind,
+    url: STORED_URL,
+    durationSec: 9,
+    ...overrides,
+  };
+}
+
+test('describe: a picture attachment whose stored address is gone is described from the fresh address of its message', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer, store, reads } = lapsedRig(fresh.freshAddress);
+  const result = await describer.describe('g1', lapsedAttachment('image'));
+  assert.equal(loose(result ?? {}).text, 'a lemon on a table');
+  assert.deepEqual(reads, [FRESH_URL]);
+  assert.equal(fresh.calls.length, 1);
+  assert.equal(fresh.calls[0].messageId, 'm7');
+  assert.equal(store.mediaEntry('g1', 'image-a1')?.text, 'a lemon on a table');
+});
+
+test('describeVideo: a video attachment whose stored address is gone is watched from the fresh address of its message', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer, reads } = lapsedRig(fresh.freshAddress);
+  const result = await describer.describeVideo('g1', lapsedAttachment('video'));
+  assert.equal(loose(result).state, 'watched');
+  assert.deepEqual(reads, [FRESH_URL]);
+  assert.equal(fresh.calls.length, 1);
+});
+
+test('describe: a voice message whose stored address is gone is heard from the fresh address of its message', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer, store, reads } = lapsedRig(fresh.freshAddress);
+  const heard = await describer.describeMany('g1', [lapsedAttachment('voice')]);
+  assert.equal(heard.descriptions.get('voice-a1'), 'a lemon on a table');
+  assert.deepEqual(reads, [FRESH_URL]);
+  assert.equal(fresh.calls.length, 1);
+  assert.equal(store.mediaEntry('g1', 'voice-a1')?.reason, undefined);
+});
+
+test('describe: a text file whose stored address is gone is read from the fresh address of its message', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer, reads } = lapsedRig(fresh.freshAddress);
+  const result = await describer.describe('g1', lapsedAttachment('text'));
+  assert.equal(loose(result ?? {}).text, FILE_WORDS);
+  assert.deepEqual(reads, [FRESH_URL]);
+  assert.equal(fresh.calls.length, 1);
+});
+
+test('describe: an attachment with no message id is read from its stored address and asks for no fresh one', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer, reads } = lapsedRig(fresh.freshAddress);
+  const item = { source: 'attachment', itemId: 'text-a2', kind: 'text', url: 'https://cdn.example.invalid/notes.txt' };
+  const result = await describer.describe('g1', item);
+  assert.equal(loose(result ?? {}).text, FILE_WORDS);
+  assert.deepEqual(reads, ['https://cdn.example.invalid/notes.txt']);
+  assert.equal(fresh.calls.length, 0);
+});
+
+test('describe: a picture attachment whose message is gone fails as a download miss and stores no description', async () => {
+  const fresh = fakeFreshAddress(null);
+  const { describer, store, reads } = lapsedRig(fresh.freshAddress);
+  const result = await describer.describe('g1', lapsedAttachment('image'));
+  assert.equal(result, null);
+  assert.equal(fresh.calls.length, 1);
+  assert.deepEqual(reads, [STORED_URL]);
+  const entry = store.mediaEntry('g1', 'image-a1');
+  assert.equal(entry?.miss, true);
+  assert.equal(entry?.text, undefined);
+});
+
+test('describe: a voice message whose message is gone stays undescribed with the download cause', async () => {
+  const fresh = fakeFreshAddress(null);
+  const { describer, store } = lapsedRig(fresh.freshAddress);
+  const { descriptions } = await describer.describeMany('g1', [lapsedAttachment('voice')]);
+  assert.equal(descriptions.size, 0);
+  assert.equal(fresh.calls.length, 1);
+  assert.equal(store.mediaEntry('g1', 'voice-a1')?.reason, 'download');
+});
+
+test('describeVideo: a video link asks for no fresh address', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer } = lapsedRig(fresh.freshAddress);
+  await describer.describeVideo('g1', videoLink());
+  assert.equal(fresh.calls.length, 0);
+});
+
+test('describe: an embedded picture from a link asks for no fresh address', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer, reads } = lapsedRig(fresh.freshAddress);
+  await describer.describe('g1', pictureItem('m7#e0', { source: 'embed', messageId: 'm7' }));
+  assert.equal(fresh.calls.length, 0);
+  assert.deepEqual(reads, ['https://cdn.discordapp.com/x/pic.png']);
+});
+
+test('describe: a still sticker asks for no fresh address', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer } = lapsedRig(fresh.freshAddress);
+  await describer.describe('g1', animatedStickerItem({ animated: false, animationUrl: undefined, url: STORED_URL }));
+  assert.equal(fresh.calls.length, 0);
+});
+
+test('describe: a custom emoji asks for no fresh address', async () => {
+  const fresh = fakeFreshAddress(FRESH_URL);
+  const { describer } = lapsedRig(fresh.freshAddress);
+  await describer.describe('g1', animatedEmojiItem({ animated: false, animationUrl: undefined }));
+  assert.equal(fresh.calls.length, 0);
+});
