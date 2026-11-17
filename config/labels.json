@@ -95,7 +95,12 @@
         "length": "over length limit",
         "size": "file too large",
         "error": "could not load",
-        "pending": "still loading"
+        "pending": "still loading",
+        "download": "could not download",
+        "timeout": "took too long to load",
+        "tool": "could not convert",
+        "llm": "the viewer failed",
+        "empty": "the viewer said nothing"
       },
       "voice": "[voice message, {duration}]",
       "voiceDescribed": "[voice message, {duration}: {text}]",
