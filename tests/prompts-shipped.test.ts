@@ -99,6 +99,7 @@ const SHIPPED = {
 const LABELS = SHIPPED.prompts.labels as typeof contractLabels;
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
+  rules: 'shipped with an empty list, which reaches no request (src/rules-list.ts#rulesPromptOf)',
   'describe-audio': 'a voice message needs a fetcher of the file: tests/media-memory-audio.test.ts builds it',
   // The voice-message preparation pass (src/speech/prepare.ts) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
   'speech-prepare': 'built by the speech pipeline (src/speech/prepare.ts), checked in tests/speech-prepare.test.js',
@@ -192,7 +193,9 @@ const PENDING_LABELS = {
   'participation.earlierOpen': 'retired',
 };
 
-const SYSTEM = ['system-prompt', 'character-card', 'rules', 'format'];
+// Changed: the shipped rules file holds an empty list, and a rules file reaches a request only while its list holds a
+// rule (src/rules-list.ts), so no request carries it. It is named in NOT_BUILT.
+const SYSTEM = ['system-prompt', 'character-card', 'format'];
 
 /** The prompt files each request below must carry whole, by request. */
 const LOADS = {
