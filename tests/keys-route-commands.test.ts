@@ -212,7 +212,8 @@ test('model set saves the route when an entry for its role routes the model to a
   const { keys, held, calls } = rig({}, pinnedRefusal, llm);
   const answer = await keys.run('model.set', { role: 'analyzer', model: 'helpers/vendor/model-1' }, null);
   assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(calls[0]?.body?.provider, { only: ['liveprov'] });
+  const [check] = calls;
+  assert.deepEqual(check?.body?.provider, { only: ['liveprov'] });
   assert.deepEqual(held.analyzer, [api('helpers', 'vendor/model-1')]);
 });
 
@@ -222,7 +223,8 @@ test('model set refuses a route marked byok whose check the provider bills on it
   const { keys, held, calls } = rig({}, healthy, llm);
   const answer = await keys.run('model.set', { role: 'analyzer', model: 'helpers/vendor/model-1' }, null);
   assert.equal(answer.status, 'failed', answer.text);
-  assert.deepEqual(calls[0]?.body?.provider, { only: ['liveprov'] });
+  const [check] = calls;
+  assert.deepEqual(check?.body?.provider, { only: ['liveprov'] });
   assert.equal(held.analyzer, undefined);
 });
 
@@ -233,5 +235,6 @@ test('keys check of a humanizer role checks its route in force with the routing 
   const answer = await keys.run('keys.check', { target: 'humanizer.linter' }, null);
   assert.equal(answer.status, 'failed', answer.text);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]?.body?.model, 'vendor/model-1');
+  const [check] = calls;
+  assert.equal(check?.body?.model, 'vendor/model-1');
 });

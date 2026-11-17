@@ -10,7 +10,6 @@
 import { assertByok, NotByokError, providerBodyOf, resolveProvider } from '../llm/openrouter.ts';
 import { CORE_ROLE, directSelectionOf } from '../llm/roles.ts';
 import { log } from '../log.ts';
-import { objOf } from '../tools/types.ts';
 import { checkKey, checkRole } from './check.ts';
 import type { CheckResult } from './check.ts';
 import type { KeyRing } from './ring.ts';
@@ -95,7 +94,7 @@ export type KeysDeps = {
   /** The tracked model of each mandatory role, offered by the first add. */
   defaults: Readonly<Record<string, string>>;
   /** The live `llm` section, read at every check for the provider routing a live request of the role sends. */
-  llmConfig?: () => unknown;
+  llmConfig?: () => { providerByModel?: unknown; provider?: unknown };
   /** The live model of a role; '' while the role is off. */
   currentModel(role: string): string;
   /** The live `speech.voice`, which `checkRole` probes the speech role with. */
@@ -174,7 +173,7 @@ async function probeRole(
   deps: KeysDeps,
   input: Omit<Parameters<typeof checkRole>[0], 'fetch' | 'baseUrl' | 'provider'>
 ): Promise<CheckResult> {
-  const llm = objOf(deps.llmConfig?.());
+  const llm = deps.llmConfig?.() ?? {};
   const route = resolveProvider(input.model, {
     byModel: llm.providerByModel,
     fallback: llm.provider,
