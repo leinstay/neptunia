@@ -367,8 +367,8 @@ export type SandboxMemory = {
   placeChainOf?: (placeId: string) => ReadonlyArray<PlaceChainLink>;
   accountOf?: (nativeId: string, iface?: string) => string;
   personOfAccount?: (accountId: string) => string | null;
-  /** The store's read of a stable name, for the legend `<media>`; a view over a store (`liveView`) holds it. */
-  mediaNameOf?: (name: string) => MediaName | null;
+  /** The store's read of a stable name, for the legend `<media>`. */
+  mediaNameOf: (name: string) => MediaName | null;
 };
 
 /** What a sandbox turn reads of the world: the live prompts and config, the calibrator and the memory. */
