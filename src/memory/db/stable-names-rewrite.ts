@@ -411,20 +411,10 @@ function writeTie(db: Db, tie: Tie): void {
   ).run(tie.sourceId, mediaId, tie.sourceId);
 }
 
-/**
- * Writes the plan's cells. A publication's rendered text is fixed by the trigger `publications_content_fixed`, which
- * guards a sent publication against an edit; the rewrite renames what it holds, so the trigger stands aside for this one
- * transaction and is made again from its own stored statement.
- */
+/** Writes the plan's cells. */
 function writeCells(db: Db, cells: ReadonlyArray<CheckedCell>): void {
-  const trigger = db
-    .prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'publications_content_fixed'")
-    .get();
-  const fixed = cells.some((cell) => cell.table === 'publications') ? text(trigger?.sql) : '';
-  if (fixed) db.exec('DROP TRIGGER publications_content_fixed');
   for (const cell of cells)
     db.prepare(`UPDATE ${cell.table} SET ${cell.column} = ? WHERE ${cell.where}`).run(cell.to, cell.id);
-  if (fixed) db.exec(fixed);
 }
 
 type Checked = {

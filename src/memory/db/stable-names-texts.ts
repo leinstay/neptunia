@@ -2,8 +2,9 @@
 // function per kind of column: a free text, where a known emoji name `:pog:` becomes its stable name and raw markup
 // `<:name:id>` or `<a:name:id>` becomes the stable name of its id; a JSON column, where every string field is a free text
 // and an `emoji` field that holds a bare platform name takes the bare stable name; and the `lastUsed` keys of the emoji
-// rails. `TEXT_COLUMNS` lists every table and column the plan reads. The logs of what was sent (`model_requests`, the
-// `recall_trace` rows of `operational`) are records of a request and stay as they are.
+// rails. `TEXT_COLUMNS` lists every table and column the plan reads. What was sent stays as it was sent: the rendered
+// text of a publication, which the trigger `publications_content_fixed` guards, and the logs `model_requests` and the
+// `recall_trace` rows of `operational`.
 
 import { CUSTOM_EMOJI_MARKUP, replaceNameTokens } from '../../behavior/emoji.ts';
 import type { Db, Row } from './types.ts';
@@ -48,7 +49,6 @@ export const TEXT_COLUMNS: ReadonlyArray<TextColumn> = [
   col('decisions', 'extra', 'json', 'NULL'),
   col('day', 'extra', 'json'),
   col('diary', 'text', 'free'),
-  col('publications', 'rendered', 'free', 'NULL'),
   col('places', 'topic', 'free', 'iface'),
   {
     table: 'operational',
