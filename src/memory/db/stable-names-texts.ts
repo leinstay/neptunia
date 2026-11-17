@@ -2,9 +2,10 @@
 // function per kind of column: a free text, where a known emoji name `:pog:` becomes its stable name and raw markup
 // `<:name:id>` or `<a:name:id>` becomes the stable name of its id; a JSON column, where every string field is a free text
 // and an `emoji` field that holds a bare platform name takes the bare stable name; and the `lastUsed` keys of the emoji
-// rails. `TEXT_COLUMNS` lists every table and column the plan reads. What was sent stays as it was sent: the rendered
-// text of a publication, which the trigger `publications_content_fixed` guards, and the logs `model_requests` and the
-// `recall_trace` rows of `operational`.
+// rails. `TEXT_COLUMNS` lists every table and column the plan reads. `LOG_COLUMNS` lists the stored log of requests
+// `model_requests` and the `recall_trace` rows of `operational`, which stable-names-logs.ts reads in batches: each string
+// is a free text after its old inline emoji form `[:name: description]` and its old sticker references take today's
+// form. The rendered text of a publication stays as it was sent, which the trigger `publications_content_fixed` guards.
 
 import { CUSTOM_EMOJI_MARKUP, replaceNameTokens } from '../../behavior/emoji.ts';
 import type { Db, Row } from './types.ts';
@@ -32,6 +33,9 @@ const col = (table: string, column: string, kind: ColumnKind, iface = 'scope_ifa
   where: 'id = ?',
 });
 
+/** The rows of `operational` a cell may change, by rowid: the emoji rails and the recall traces. */
+const OPERATIONAL_WHERE = "kind IN ('emoji_rails', 'recall_trace') AND rowid = ?";
+
 /** Every column outside `sources` the rewrite reads, with the expression of its interface and the key of its row. */
 export const TEXT_COLUMNS: ReadonlyArray<TextColumn> = [
   col('claims', 'text', 'free'),
@@ -50,14 +54,17 @@ export const TEXT_COLUMNS: ReadonlyArray<TextColumn> = [
   col('day', 'extra', 'json'),
   col('diary', 'text', 'free'),
   col('places', 'topic', 'free', 'iface'),
-  {
-    table: 'operational',
-    column: 'value',
-    kind: 'rails',
-    iface: 'NULL',
-    key: 'owner',
-    where: "kind = 'emoji_rails' AND owner = ?",
-  },
+  { table: 'operational', column: 'value', kind: 'rails', iface: 'NULL', key: 'rowid', where: OPERATIONAL_WHERE },
+];
+
+/** The log columns stable-names-logs.ts rewrites, each with the key of its row. */
+export const LOG_COLUMNS: ReadonlyArray<TextColumn> = [
+  col('model_requests', 'system_text', 'free', 'NULL'),
+  col('model_requests', 'messages', 'json', 'NULL'),
+  col('model_requests', 'response_text', 'free', 'NULL'),
+  col('model_requests', 'think', 'free', 'NULL'),
+  col('model_requests', 'tool_calls', 'json', 'NULL'),
+  { table: 'operational', column: 'value', kind: 'json', iface: 'NULL', key: 'rowid', where: OPERATIONAL_WHERE },
 ];
 
 const MARKUP_RE = new RegExp(CUSTOM_EMOJI_MARKUP, 'g');
@@ -75,15 +82,43 @@ export function freeText(text: string, resolver: Resolver, iface: string | null)
   });
 }
 
+/** How the logs find stable names: a resolver that also names the one sticker of a platform name. */
+export type LogResolver = Resolver & {
+  /** The stable name of the one sticker that holds `platformName`, or null when none or two hold it. */
+  sticker: (platformName: string) => string | null;
+};
+
+const INLINE_EMOJI_RE = /\[:([A-Za-z0-9_]{2,32}):[^\]\n]*\]/g;
+const OLD_STICKER_RE = /\[sticker(:?) ([^\]\n]+)\]/g;
+const STABLE_STICKER_RE = /^s\d+$/;
+
+/**
+ * A text of the logs in today's form: an old inline emoji `[:name: description]` becomes the stable name and drops its
+ * description, an old sticker reference `[sticker: name]`, with a description or a note after it, becomes
+ * `[sticker s12]`, and the rest follows `freeText`. A form whose name nothing holds alone stays.
+ */
+function logText(text: string, resolver: LogResolver): string {
+  const inline = text.replace(INLINE_EMOJI_RE, (all: string, name: string) => {
+    const stable = resolver.name(name);
+    return stable === null ? all : `:${stable}:`;
+  });
+  const stickers = inline.replace(OLD_STICKER_RE, (all: string, colon: string, body: string) => {
+    if (colon === '' && STABLE_STICKER_RE.test(body)) return all;
+    const stable = resolver.sticker(body.split(/ — |, /)[0].trim());
+    return stable === null ? all : `[sticker ${stable}]`;
+  });
+  return freeText(stickers, resolver, null);
+}
+
 /** One value of a JSON column with each string rewritten; a bare platform name under `emoji` takes the bare name. */
-function jsonValue(value: unknown, key: string, resolver: Resolver, iface: string | null): unknown {
+function jsonValue(value: unknown, key: string, resolver: Resolver, free: (text: string) => string): unknown {
   if (typeof value === 'string') {
     const bare = key === 'emoji' && BARE_NAME_RE.test(value) ? resolver.name(value) : null;
-    return bare ?? freeText(value, resolver, iface);
+    return bare ?? free(value);
   }
-  if (Array.isArray(value)) return value.map((item: unknown) => jsonValue(item, key, resolver, iface));
+  if (Array.isArray(value)) return value.map((item: unknown) => jsonValue(item, key, resolver, free));
   if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value).map(([name, item]) => [name, jsonValue(item, name, resolver, iface)]);
+    const entries = Object.entries(value).map(([name, item]) => [name, jsonValue(item, name, resolver, free)]);
     return Object.fromEntries(entries);
   }
   return value;
@@ -101,9 +136,13 @@ function parsed(raw: string): unknown {
 
 /** A JSON column with every string field rewritten, the stored text kept when nothing in it changes. */
 export function jsonText(raw: string, resolver: Resolver, iface: string | null): string {
+  return jsonWith(raw, resolver, (text) => freeText(text, resolver, iface));
+}
+
+function jsonWith(raw: string, resolver: Resolver, free: (text: string) => string): string {
   const value = parsed(raw);
   if (value === undefined) return raw;
-  const next = jsonValue(value, '', resolver, iface);
+  const next = jsonValue(value, '', resolver, free);
   return JSON.stringify(next) === JSON.stringify(value) ? raw : JSON.stringify(next);
 }
 
@@ -129,6 +168,11 @@ export function railKeys(raw: string, resolver: Resolver): string {
 function rewriteCell(column: TextColumn, raw: string, resolver: Resolver, iface: string | null): string {
   if (column.kind === 'rails') return railKeys(raw, resolver);
   return column.kind === 'json' ? jsonText(raw, resolver, iface) : freeText(raw, resolver, iface);
+}
+
+/** The rewritten text of one cell of a column of `LOG_COLUMNS`. */
+export function logCell(column: TextColumn, raw: string, resolver: LogResolver): string {
+  return column.kind === 'json' ? jsonWith(raw, resolver, (text) => logText(text, resolver)) : logText(raw, resolver);
 }
 
 /**
