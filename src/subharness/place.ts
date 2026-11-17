@@ -3,16 +3,12 @@
 // `npm install --prefix` puts the binary of `claude` and `codex` under `node_modules/.bin/`, and `opencode` is one
 // executable under `bin/`. The home goes to every run (src/agent-runner/backend.ts, `createInstalledBackend`) and to
 // the owner's login (src/subharness/account.ts), as the variable each CLI reads its home from. The paths are
-// computed; `isInstalled` is the one look at the disk, and `helpOfInstalled` the one run of the binary outside an agent
-// run, which reads its `--help` so the effort flag is offered only to a binary that takes it. `CURL_HOME` points curl
+// computed, and `isInstalled` is the one look at the disk. `CURL_HOME` points curl
 // in every run at the home, where `writeHarnessCurlrc` keeps the `.curlrc` with the user agent `/proxy useragent` set.
 
-import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { isListedEffort } from '../llm/roles.ts';
-import type { EffortLevel } from '../llm/roles.ts';
 
 /** Where one backend lives inside the private layer, and the environment every run of it gets. */
 export type SubharnessPlace = {
@@ -134,88 +130,21 @@ export type LoginCommand = {
 /** The login arguments of each backend that has one; opencode takes a key instead. */
 const LOGIN_ARGS: Readonly<Partial<Record<BackendName, ReadonlyArray<string>>>> = {
   codex: ['login', '--device-auth'],
-  claude: ['login'],
+  // Read from claude 2.1.317 on 2026-11-17: its commands list `auth` and no `login`, and `claude auth` lists `login`.
+  claude: ['auth', 'login'],
 };
 
 /** A word as one shell word: bare when it holds only safe characters, else in single quotes. */
 const shellWord = (word: string): string =>
   /^[\w./:=@%+-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 
-/**
- * The levels a CLI's `--help` lists for its `--effort` flag, in its order, as `--effort <level> ... (low, high)` on the
- * flag's lines, wrapped or not. A flag with no list has no levels, and a word keys.json cannot hold is left out.
- */
-export function effortLevelsOfHelp(help: string): Array<EffortLevel> {
-  const lines = help.split('\n');
-  const at = lines.findIndex((line) => /^\s*--effort\b/.test(line));
-  if (at === -1) return [];
-  const next = lines.slice(at + 1).findIndex((line) => /^\s*-/.test(line) || line.trim() === '');
-  const flag = lines.slice(at, next === -1 ? undefined : at + 1 + next).join(' ');
-  const listed = /\(([a-z]+(?:,\s*[a-z]+)+)\)/.exec(flag)?.[1] ?? '';
-  return listed.split(/,\s*/).filter(isListedEffort);
-}
-
-/**
- * The commands a CLI's `--help` lists under its `Commands:` heading: the first word of each line at the column of the
- * heading's first entry. A deeper line is a wrapped description, whatever word it starts with.
- */
-function commandsOf(help: string): Array<string> {
-  const lines = help.split('\n');
-  const start = lines.findIndex((line) => /^commands:\s*$/i.test(line.trim()));
-  if (start === -1) return [];
-  const words: Array<string> = [];
-  let column = -1;
-  for (const line of lines.slice(start + 1)) {
-    if (line.trim() === '') continue;
-    const indent = line.length - line.trimStart().length;
-    if (column === -1) column = indent;
-    if (indent === 0 || indent < column) break;
-    if (indent > column) continue;
-    const word = /^([a-z][\w-]*)/.exec(line.trimStart())?.[1];
-    if (word !== undefined) words.push(word);
-  }
-  return words;
-}
-
-/** The login arguments of whichever of `auth` and `login` the installed claude's `help` lists first; throws for neither. */
-function claudeLoginArgs(help: string): ReadonlyArray<string> {
-  const listed = commandsOf(help).find((word) => word === 'auth' || word === 'login');
-  if (listed === 'auth') return ['auth', 'login'];
-  if (listed === 'login') return ['login'];
-  // On a release without the command, `claude login` is a prompt to the model: it spends a turn and logs nobody in.
-  throw new Error('claude --help names neither auth nor login; read its help to find how this release logs in');
-}
-
-/**
- * The login of `backend` in `privateDir`, or null for opencode, which takes a key. `help` is the installed claude's
- * `--help`, and the login is the one it lists first: `auth login` or `login`. A help that lists neither throws.
- */
-export function loginCommand(privateDir: string, backend: BackendName, help?: string): LoginCommand | null {
-  const args = backend === 'claude' && help !== undefined ? claudeLoginArgs(help) : LOGIN_ARGS[backend];
+/** The login of `backend` in `privateDir`, or null for opencode, which takes a key. */
+export function loginCommand(privateDir: string, backend: BackendName): LoginCommand | null {
+  const args = LOGIN_ARGS[backend];
   if (args === undefined) return null;
   const place = subharnessPlace(privateDir, backend);
   const env = { ...place.env };
   const assignments = Object.entries(env).map(([name, value]) => `${name}=${shellWord(value)}`);
   const text = [...assignments, shellWord(place.binary), ...args.map(shellWord)].join(' ');
   return { command: place.binary, args: [...args], env, text };
-}
-
-/** How long `--help` may take (ms). */
-const HELP_MS = 10_000;
-
-/** The `--help` output of the installed binary of `backend`, run with its home; rejects when it cannot run. */
-export function helpOfInstalled(privateDir: string, backend: BackendName): Promise<string> {
-  const place = subharnessPlace(privateDir, backend);
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      place.binary,
-      ['--help'],
-      { timeout: HELP_MS, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', ...place.env } },
-      (error, stdout) => {
-        if (error === null) resolve(stdout);
-        else reject(new Error(`${backend} --help did not run`));
-      }
-    );
-    child.stdin?.end();
-  });
 }

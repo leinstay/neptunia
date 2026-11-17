@@ -145,7 +145,6 @@ import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
 import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
 import { createInstalledBackend, runChildProcess } from './agent-runner/backend.ts';
-import { helpOfInstalled } from './subharness/place.ts';
 import { DEFAULT_BASE_URL } from './subharness/models.ts';
 import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usage.ts';
 import { deferModeToUnit } from './setup/install.ts';
@@ -1476,7 +1475,6 @@ async function buildCore(
       // the agent's unit (src/setup/install.ts).
       subharness: {
         runBackend: runSubharnessBackend,
-        helpOf: (backend) => helpOfInstalled(paths.privateDir, backend),
         fetch,
         get baseUrl() {
           const base = objOf(objOf(hot.config).llm).baseUrl;

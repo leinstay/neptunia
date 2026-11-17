@@ -40,7 +40,6 @@ function rig(
       return Promise.resolve(check(one));
     },
     fetch: fakeFetch().fetch,
-    helpOf: () => Promise.resolve('Options:\n  --effort <level>\n'),
     applyMode: (agent, mode) => {
       applied.push([agent, mode]);
       return Promise.resolve('the unit took it');

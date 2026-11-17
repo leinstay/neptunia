@@ -1,7 +1,6 @@
-// What the chooser learns from an installed backend. Effort levels read from its help
-// (src/subharness/place.ts#effortLevelsOfHelp) reach the chooser as observed (src/subharness/model-capabilities.ts) and the
-// setter takes exactly those (src/subharness/control.ts), and an opencode row saves under opencode's own model name. The
-// help text copies the installed Claude's wrapping; the vendor is a fake.
+// What the chooser and the setter take as each backend's effort levels: the survey in src/subharness/models.ts reaches
+// the chooser (src/subharness/model-capabilities.ts) and the setter takes exactly those (src/subharness/control.ts), and
+// an opencode row saves under opencode's own model name. The vendor is a fake.
 // Changed: the agent `dev` is gone with the development agents (maintainer, 2026-11-16),
 // so the agent checks use `server`.
 import { test } from 'node:test';
@@ -11,101 +10,56 @@ import type { EnableDeps } from '../src/subharness/control.ts';
 import { modelRoleRegistry, roleSources } from '../src/subharness/model-capabilities.ts';
 import { openPicker, pickerReduce } from '../interfaces/cli/model-picker.ts';
 import type { PickerEvent, PickerState } from '../interfaces/cli/model-picker.ts';
-import { effortLevelsOfHelp } from '../src/subharness/place.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-const LISTED = `Options:
-  --debug-file <path>       Write debug logs
-  --effort <level>          Effort level for the current session
-                            (low, medium, high, xhigh, max)
-  --environment <id>        Create a new cloud session (one, two)
-`;
-const FLAG_ONLY = 'Options:\n  --effort <level>  reasoning effort\n  --model <model>  (one, two)\n';
-
-function rig(help: string) {
-  const privateDir = tempDir('nep-effort-help-');
+function rig() {
+  const privateDir = tempDir('nep-effort-facts-');
   writeKeysFile(privateDir, { subharness: { key: null, modes: {}, uses: {} } });
   fakeVendor(privateDir, 'claude', { loggedIn: true });
+  const runs: Array<unknown> = [];
   const deps: EnableDeps = {
     privateDir,
-    runBackend: () => Promise.resolve({ ok: true, text: 'ok', exitCode: 0 }),
+    runBackend: (_name, _brief, _model, effort) => {
+      runs.push(effort);
+      return Promise.resolve({ ok: true, text: 'ok', exitCode: 0 });
+    },
     fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
-    helpOf: () => Promise.resolve(help),
   };
-  return { deps, privateDir };
+  return { deps, privateDir, runs };
 }
 
-const claudeOf = async (help: string) => {
-  const { deps } = rig(help);
+test('a logged-in claude offers every level of the survey', async () => {
+  // Catches: xhigh and max unreachable from the chooser, or the global three offered in place of what claude takes.
+  const { deps } = rig();
   const read = await roleSources({ ...deps, baseUrl: 'https://openrouter.test', openRouterKey: null }, 'server');
-  return read.sources.find((one) => one.via === 'claude');
-};
-
-test('the levels a wrapped help lists under --effort are read, and a neighbouring list is not', () => {
-  // Catches: a parser that stops at the line break, or that takes another flag's parenthesis for the levels.
-  assert.deepEqual(effortLevelsOfHelp(LISTED), ['low', 'medium', 'high', 'xhigh', 'max']);
-  assert.deepEqual(effortLevelsOfHelp(FLAG_ONLY), []);
-  assert.deepEqual(effortLevelsOfHelp(''), []);
-});
-
-test('a level no setter could store is left out of what is read', () => {
-  // Catches: a new word in a later release offered and then refused after the owner confirmed it.
-  const help = '  --effort <level>  Effort (low, turbo)\n';
-  assert.deepEqual(effortLevelsOfHelp(help), ['low']);
-});
-
-test('levels listed in help are observed evidence for the source', async () => {
-  // Catches: the installed binary's list discarded, so xhigh and max stay unreachable from the chooser.
-  assert.deepEqual((await claudeOf(LISTED))?.effort, {
-    evidence: 'observed',
-    levels: ['low', 'medium', 'high', 'xhigh', 'max'],
-  });
-});
-
-test('a flag with no list stays unknown', async () => {
-  // Catches: the global low, medium and high offered because the flag exists.
-  assert.deepEqual((await claudeOf(FLAG_ONLY))?.effort, { evidence: 'unknown', levels: [] });
-});
-
-test('a help that cannot run stays unknown and leaves the source usable', async () => {
-  // Catches: a broken help turning a logged-in backend into an error.
-  const { deps } = rig('');
-  const read = await roleSources(
-    {
-      ...deps,
-      baseUrl: 'https://openrouter.test',
-      openRouterKey: null,
-      helpOf: () => Promise.reject(new Error('no help')),
-    },
-    'server'
-  );
   const claude = read.sources.find((one) => one.via === 'claude');
-  assert.equal(claude?.code, 'ok');
-  assert.deepEqual(claude?.effort, { evidence: 'unknown', levels: [] });
+  assert.deepEqual(claude?.effort, ['low', 'medium', 'high', 'xhigh', 'max']);
 });
 
-test('the setter stores a level the binary lists for an agent', async () => {
+test('the setter stores a level claude takes for an agent', async () => {
   // Catches: the chooser offering max and the setter refusing it after the confirmation.
   // Changed: the memory writer's effort is on the route scale of its chain (slice 4), so its half is deleted.
-  const { deps, privateDir } = rig(LISTED);
+  const { deps, privateDir, runs } = rig();
   const agent = await setAgentModel(deps, 'server', 'opus', 'max', 'claude');
   assert.equal(agent.ok, true, agent.message);
+  assert.deepEqual(runs, ['max']);
   assert.equal(readKeysFile(privateDir).subharness.efforts?.server, 'max');
 });
 
-test('the setter refuses a level this binary does not list', async () => {
-  // Catches: xhigh saved for a CLI that fails on it at the next real run.
-  const { deps, privateDir } = rig(FLAG_ONLY);
-  const answer = await setAgentModel(deps, 'server', 'opus', 'xhigh', 'claude');
+test('the setter refuses xhigh on opencode and runs nothing', async () => {
+  // Catches: a level no opencode model was surveyed for saved, so the agent's next real run fails on its variant.
+  const { deps, privateDir, runs } = rig();
+  const answer = await setAgentModel(deps, 'server', 'openrouter/vendor/text-1', 'xhigh', 'opencode');
   assert.equal(answer.code, 'unknown-effort');
+  assert.deepEqual(runs, []);
   assert.equal(readKeysFile(privateDir).subharness.efforts?.server, undefined);
 });
 
 test('the word default clears an agent effort after its reply check', async () => {
   // Catches: the chooser's "model default" leaving the old level in force, because omission keeps it.
-  const { deps, privateDir } = rig(LISTED);
+  const { deps, privateDir } = rig();
   await setAgentModel(deps, 'server', 'opus', 'high', 'claude');
   const answer = await setAgentModel(deps, 'server', 'opus', 'default');
   assert.equal(answer.ok, true, answer.message);
@@ -124,7 +78,7 @@ test('an opencode model from the listing is committed under the name opencode ru
     setup: [],
     listing: 'observed',
     models: [{ id: 'vendor/text-1', evidence: 'observed', saveAs: 'openrouter/vendor/text-1' }],
-    effort: { evidence: 'unknown', levels: [] },
+    effort: ['low', 'medium', 'high'],
     manualModel: true,
   } as const;
   const steps: ReadonlyArray<(state: PickerState) => PickerEvent> = [

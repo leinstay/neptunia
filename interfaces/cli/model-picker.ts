@@ -26,7 +26,7 @@ type SourceDescriptor = {
   setup: ReadonlyArray<{ command: string; masked: boolean }>;
   listing: string;
   models: ReadonlyArray<{ id: string; evidence: 'observed' | 'suggestion'; saveAs?: string }>;
-  effort: { evidence: string; levels: ReadonlyArray<string> };
+  effort: ReadonlyArray<string>;
   manualModel: boolean;
 };
 type RoleSources = {
@@ -193,7 +193,7 @@ function sourceRow(state: PickerState, source: SourceDescriptor): PickerRow {
 
 function effortRows(state: PickerState): Array<PickerRow> {
   const stored = currentOf(state)?.effort ?? null;
-  const levels = sourceOf(state)?.effort.levels ?? [];
+  const levels = sourceOf(state)?.effort ?? [];
   return [
     {
       id: 'keep',
@@ -204,7 +204,7 @@ function effortRows(state: PickerState): Array<PickerRow> {
     ...levels.map((level): PickerRow => ({
       id: level,
       label: level,
-      detail: 'Listed by the help of the installed backend.',
+      detail: 'Taken by this backend.',
     })),
   ];
 }
@@ -288,9 +288,7 @@ const at = (state: PickerState, step: PickerStep): PickerStepResult => ({
 function modelChosen(state: PickerState, model: string, evidence: Evidence): PickerStepResult {
   const saveAs = sourceOf(state)?.models.find((one) => one.id === model)?.saveAs;
   const chosen = { ...state, model: saveAs ?? model, evidence, error: null };
-  return sourceOf(state)?.effort.evidence === 'unsupported'
-    ? at({ ...chosen, effort: null }, 'review')
-    : at(chosen, 'effort');
+  return sourceOf(state)?.effort.length === 0 ? at({ ...chosen, effort: null }, 'review') : at(chosen, 'effort');
 }
 
 function chosen(state: PickerState, id: string): PickerStepResult {
@@ -343,7 +341,7 @@ function backed(state: PickerState): PickerStepResult {
       return at({ ...moved, model: null, evidence: null, effort: null }, 'model');
     case 'review':
     case 'saving':
-      return sourceOf(state)?.effort.evidence === 'unsupported'
+      return sourceOf(state)?.effort.length === 0
         ? at({ ...moved, model: null, evidence: null, effort: null }, 'model')
         : at({ ...moved, effort: null }, 'effort');
   }
@@ -371,13 +369,11 @@ const CHAIN_ROLES: ReadonlyArray<string> = [
 ];
 
 /**
- * A level of a CLI's help on the one scale of a route, `disabled`, `low`, `medium` and `high`: a level past `high`
- * reads as `high`, one below `low` as `disabled`.
+ * A level a backend takes on the one scale of a route, `disabled`, `low`, `medium` and `high`: a level past `high`
+ * reads as `high`.
  */
 function onRouteScale(level: string): string {
-  if (level === 'xhigh' || level === 'max') return 'high';
-  if (level === 'minimal' || level === 'none') return 'disabled';
-  return level;
+  return level === 'xhigh' || level === 'max' ? 'high' : level;
 }
 
 /** The args of the commit: a chain role's one route as text, an agent's model with its route name and effort. */

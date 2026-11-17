@@ -2,7 +2,7 @@
 // the OpenRouter API, `claude-harness`, `codex-harness` and `opencode-harness` for the three CLIs. The owner reads and
 // types these four names; keys.json keeps `backend: "claude"` and the rest. The mapping lives in
 // src/subharness/route-names.ts and is applied at the edge: the status rows, the answers of `/model set` and the
-// `--via` value. keys.json lives in a temp dir; the backend runner, its `--help` and fetch are fakes.
+// `--via` value. keys.json lives in a temp dir; the backend runner and fetch are fakes.
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -22,7 +22,6 @@ import { subharnessPlace } from '../src/subharness/place.ts';
 type Route = 'api' | 'claude' | 'codex' | 'opencode';
 const ROUTES: ReadonlyArray<Route> = ['api', 'claude', 'codex', 'opencode'];
 const FOUR_NAMES = ['direct-api', 'claude-harness', 'codex-harness', 'opencode-harness'];
-const HELP_WITH_EFFORT = 'Usage: claude [options]\n  --model <model>\n  --effort <level>  reasoning effort\n';
 const OWNER = { id: 'owner' };
 
 type Ran = { name: string; model: string | undefined };
@@ -40,7 +39,6 @@ function rig(subharness: Partial<KeysFile['subharness']> = {}) {
       return Promise.resolve({ ok: true, text: 'ok', exitCode: 0 });
     },
     fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
-    helpOf: () => Promise.resolve(HELP_WITH_EFFORT),
   };
   return { dir, deps, ran };
 }
@@ -68,7 +66,6 @@ function consoleOver(dir: string, deps: EnableDeps, keys?: NonNullable<ConsoleDe
     subharness: {
       runBackend: (...args) => deps.runBackend(...args),
       fetch: (...args) => deps.fetch(...args),
-      helpOf: (...args: Parameters<NonNullable<EnableDeps['helpOf']>>) => deps.helpOf!(...args),
     },
   };
   return createConsole(consoleDeps);

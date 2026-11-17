@@ -62,7 +62,6 @@ function consoleOver(dir: string) {
     subharness: {
       runBackend: () => Promise.resolve({ ok: true, text: 'ok', exitCode: 0 }),
       fetch: fakeFetch().fetch,
-      helpOf: () => Promise.resolve('Options:\n  --effort <level>\n'),
     },
   });
 }

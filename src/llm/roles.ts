@@ -200,7 +200,7 @@ export function offRoles(config: unknown): Array<string> {
 /** The reasoning efforts a role or an agent runs at, OpenRouter's `reasoning.effort` levels that every backend takes. */
 export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
 
-/** What keys.json can hold: EFFORT_LEVELS and the levels a CLI takes only when its own `--help` lists them. */
+/** What keys.json can hold: EFFORT_LEVELS and the levels past them that a backend takes (src/subharness/models.ts). */
 export const LISTED_EFFORT_LEVELS = [...EFFORT_LEVELS, 'xhigh', 'max'] as const;
 export type EffortLevel = (typeof LISTED_EFFORT_LEVELS)[number];
 

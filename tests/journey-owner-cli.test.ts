@@ -138,7 +138,6 @@ before(async () => {
         return Promise.resolve({ ok: true, text: 'ok', exitCode: 0 });
       },
       fetch: provider.fetch,
-      helpOf: () => Promise.resolve('Options:\n  --effort <level>\n'),
       applyMode: () => Promise.resolve('the unit took it'),
     },
   });

@@ -227,7 +227,6 @@ function deskWith(backendUsage: () => Promise<ReadonlyArray<BackendUsage>>) {
         return Promise.resolve({ ok: true, text: 'ok', exitCode: 0 });
       },
       fetch: fakeFetch().fetch,
-      helpOf: () => Promise.resolve(''),
       applyMode: () => Promise.resolve(''),
     },
   });

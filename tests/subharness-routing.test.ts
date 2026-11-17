@@ -40,7 +40,6 @@ function rig() {
     privateDir: dir,
     runBackend: () => Promise.resolve({ ok: true, text: 'ok', exitCode: 0 }),
     fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
-    helpOf: () => Promise.resolve('Usage: claude [options]\n  --effort <level>\n'),
   };
   return { dir, store, deps };
 }
