@@ -214,6 +214,7 @@ test("a diary post stores the writer's text as its entry", async () => {
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
     getDiary: () => ({ posts: [], updatedAt: 0 }),
     appendDiaryPost: (post: unknown, opts: unknown) => store.appended.push({ post, opts }),

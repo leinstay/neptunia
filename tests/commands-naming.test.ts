@@ -54,6 +54,8 @@ test('the table holds the plural collections and none of the retired singular or
       'doctor',
       'errands',
       'help',
+      // Changed: `/humanizer` switches the humanizer and shows its two roles.
+      'humanizer',
       'intentions',
       'interfaces',
       'keys',

@@ -75,6 +75,8 @@ const TABLE = [
   'agent',
   // Changed: `/search` holds quick search's targeted settings.
   'search',
+  // Changed: `/humanizer` switches the humanizer and shows its two roles.
+  'humanizer',
   // Changed: `/mirror` is the owner's family over the diary's mirrors.
   'mirror',
   // The owner's `/mnemonic` shows and switches the language of the phrase-code word list.
