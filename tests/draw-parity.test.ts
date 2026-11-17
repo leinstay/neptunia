@@ -345,3 +345,35 @@ test('draw parity: /nep draw with self', async () => {
     },
   ]);
 });
+
+test("the owner's draw command answers the marks of the picture it posted", async () => {
+  // Bug: a picture drawn through the owner's command is stored as anyone's, while the same picture from her call is hers.
+  const admin = createAdmin({
+    mediaNameOf: noMediaNames,
+    reads: world().reads,
+    port: world().port,
+    hot: hot(),
+    store: store(),
+    client: client(),
+    selfId: () => 'self-id',
+    getSelfName: () => 'Bot',
+    spontaneous: {},
+    calibrator: { ratio: 1 },
+    isServedRoot: (id: unknown) => id === 'g1',
+    images: recordingImages(),
+    imageFetcher: imageFetcher(),
+    dataDir: DATA_DIR,
+    now: () => NOW,
+  });
+  channel('c1', 'general');
+  const { result } = await withCapturedLogs(() =>
+    admin.runSkillOp(
+      'draw.create',
+      { text: 'me reading by the window', self: true, people: ['42'], placeId: 'c1' },
+      { placeId: 'g1', accountId: '42' }
+    )
+  );
+  const data = loose(loose(result).data);
+  assert.ok(data.ref, JSON.stringify(result));
+  assert.deepEqual(data.marks, { self: true, accounts: ['42'] });
+});

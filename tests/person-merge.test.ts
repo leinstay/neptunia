@@ -172,6 +172,19 @@ test('a merge moves the person a line and its vector are scoped to', () => {
   });
 });
 
+test('a merge moves the people a picture of hers shows to the person who stays', () => {
+  // Bug: her drawing still names the person who went, so its tag shows a name nobody goes by or none at all.
+  withWorld((handle, db) => {
+    db.prepare(
+      `INSERT INTO media (id, kind, availability, extra) VALUES ('media:fake:drawn', 'image', 'present', ?)`
+    ).run(JSON.stringify({ made: 'self', depicts: [CAROL, BORIS] }));
+    merge(handle, BORIS, ANNA);
+    const stored = db.prepare("SELECT extra FROM media WHERE id = 'media:fake:drawn'").get()?.extra;
+    const extra = JSON.parse(String(stored)) as { depicts?: unknown };
+    assert.deepEqual(extra.depicts, [CAROL, ANNA]);
+  });
+});
+
 test('a merge widens no audience: every row stays in the chat it came from', () => {
   // Bug: the merge rewrites an audience with the person, and a private fact of one DM shows in a group or another DM.
   withWorld((handle, db) => {

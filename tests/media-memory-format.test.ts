@@ -8,9 +8,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { applyEntryMedia } from '../src/memory/db/diary-media.ts';
-import { topPlaceSpelled } from '../src/memory/db/ids.ts';
+import { SELF_PERSON, topPlaceSpelled } from '../src/memory/db/ids.ts';
 import { MEDIA_KINDS, lineMedia, mediaMessageParts } from '../src/memory/db/media-store.ts';
 import { collectEmojiItems } from '../src/media/classify.ts';
+import { storedMediaTags } from '../src/format.ts';
+import { personNamesOf } from '../src/memory/db/frame-reads.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { rootPlaceInDb } from '../src/memory/db/place-tree.ts';
@@ -348,6 +350,178 @@ for (const [order, steps] of [
     }
   });
 }
+
+// ---------- the marks on what she made ----------
+
+const ROOM = { id: 'room-a', kind: 'channel', chatType: 'channel', rootId: 'root' };
+
+/** A line of Alice's in the room, so her account and person exist; answers her person id. */
+async function aliceSpeaks(memory: Memory): Promise<string> {
+  const event = eventOf(named('image'), 'alice-1', [false, false], {
+    at: SENT - 1000,
+    iface: IFACE,
+    chat: ROOM,
+    author: { id: 'u-alice', name: 'Alice' },
+  });
+  const envelope = observationOf(event, { selfId: HER });
+  assert.ok(envelope);
+  await memory.memoryDb.observeMessage(envelope, { placeId: TOP });
+  const db = memory.memoryDb.database() as Db;
+  const person = db.prepare("SELECT person_id FROM accounts WHERE iface = ? AND native_id = 'u-alice'").get(IFACE);
+  return person?.person_id as string;
+}
+
+async function echoDrawing(memory: Memory) {
+  const event = eventOf(named('image'), 'drawn-1', [false, false], {
+    at: SENT,
+    iface: IFACE,
+    chat: ROOM,
+    author: { id: HER, self: true },
+  });
+  (event.message as Row).attachments = [{ id: 'pic-1', kind: 'image', name: 'drawing.png' }];
+  const envelope = observationOf(event, { selfId: HER });
+  assert.ok(envelope);
+  await memory.memoryDb.observeMessage(envelope, { placeId: TOP });
+}
+
+/** The record line of her posted drawing, with the marks of her draw.create call: herself and Alice. */
+async function recordDrawing(memory: Memory) {
+  const line = toRecordLine(
+    {
+      id: 'drawn-1',
+      placeId: 'room-a',
+      content: '',
+      ts: SENT,
+      replyToId: null,
+      mentionedAccountIds: [],
+      attachments: [{ id: 'pic-1', kind: 'image' }],
+      marks: { self: true, accounts: ['u-alice'] },
+    },
+    { kind: 'said', now: () => MEMORY_NOW, turnId: 't-2', opId: 'op-2' }
+  );
+  await createRecord({ ...memory, now: () => MEMORY_NOW }).append(TOP, [line], {});
+}
+
+/** The `extra` of the one media row of her line `drawn-1`. */
+function drawnExtra(memory: Memory): Row {
+  const db = memory.memoryDb.database() as Db;
+  const source = db.prepare("SELECT id FROM sources WHERE kind = 'said'").get();
+  assert.ok(source, 'her line is stored');
+  const media = lineMedia(db, [String(source.id)], internal, 'source').get(String(source.id)) ?? [];
+  assert.equal(media.length, 1);
+  return media[0].extra;
+}
+
+for (const [order, steps] of [
+  ['the echo before the record line', [echoDrawing, recordDrawing]],
+  ['the record line before the echo', [recordDrawing, echoDrawing]],
+  ['the echo, the record line and a second echo', [echoDrawing, recordDrawing, echoDrawing]],
+] as const) {
+  test(`her drawing, ${order}: its row is marked made by her and shows herself and Alice`, async () => {
+    // Bug: the marks of her call are lost between the tool and the row, or a later write of the row drops them.
+    const memory = await openTestMemory({ now: () => MEMORY_NOW, iface: () => IFACE });
+    try {
+      const alice = await aliceSpeaks(memory);
+      for (const step of steps) await step(memory);
+      const extra = drawnExtra(memory);
+      assert.equal(extra.made, 'self');
+      assert.deepEqual(extra.depicts, [SELF_PERSON, alice]);
+    } finally {
+      await memory.close();
+    }
+  });
+}
+
+test('her voice message is marked made by her and shows her own person', async () => {
+  // Bug: a voice clip she spoke reads as anybody's clip in her memory.
+  const memory = await openTestMemory({ now: () => MEMORY_NOW, iface: () => IFACE });
+  try {
+    await echoVoice(memory);
+    const line = toRecordLine(
+      {
+        id: 'sent-1',
+        placeId: 'room-a',
+        content: '',
+        ts: SENT,
+        replyToId: null,
+        mentionedAccountIds: [],
+        attachments: [{ id: 'v1', kind: 'voice' }],
+        voiced: VOICED,
+        marks: { self: true, accounts: [] },
+      },
+      { kind: 'said', now: () => MEMORY_NOW, turnId: 't-1', opId: 'op-1' }
+    );
+    await createRecord({ ...memory, now: () => MEMORY_NOW }).append(TOP, [line], {});
+    const db = memory.memoryDb.database() as Db;
+    const source = db.prepare("SELECT id FROM sources WHERE kind = 'said'").get();
+    const [voice] = lineMedia(db, [String(source?.id)], internal, 'source').get(String(source?.id)) ?? [];
+    assert.deepEqual([voice?.extra.made, voice?.extra.depicts], ['self', [SELF_PERSON]]);
+  } finally {
+    await memory.close();
+  }
+});
+
+const MARK_LABELS = {
+  ...LABELS,
+  transcript: {
+    ...LABELS.transcript,
+    mediaMade: '[MADE]',
+    mediaDepicts: '[SHOWS {names}]',
+    mediaDepictsSelf: 'HERSELF',
+  },
+};
+
+/** The tags of her line `drawn-1` as a request renders a stored line, after its picture was told `a fox`. */
+function drawnTags(memory: Memory): Array<string> {
+  const db = memory.memoryDb.database() as Db;
+  const source = String(db.prepare("SELECT id FROM sources WHERE kind = 'said'").get()?.id);
+  db.prepare("UPDATE media SET description = 'a fox', availability = 'present' WHERE native_ref = 'pic-1'").run();
+  const rows = lineMedia(db, [source], internal, 'source').get(source) ?? [];
+  return storedMediaTags(mediaMessageParts(rows, source), MARK_LABELS);
+}
+
+test('the tag of her drawing is followed by the made mark and the people it shows, herself worded by the label', async () => {
+  // Bug: she reads her own drawing as a stranger's picture and cannot tell who is in it.
+  const memory = await openTestMemory({ now: () => MEMORY_NOW, iface: () => IFACE });
+  try {
+    await aliceSpeaks(memory);
+    await echoDrawing(memory);
+    await recordDrawing(memory);
+    assert.deepEqual(drawnTags(memory), ['<image: a fox>', '[MADE]', '[SHOWS HERSELF, Alice]']);
+  } finally {
+    await memory.close();
+  }
+});
+
+test('the people of her drawing are shown by the name they go by now', async () => {
+  // Bug: the name is written into the row at drawing time and a renamed member keeps the old one forever.
+  const memory = await openTestMemory({ now: () => MEMORY_NOW, iface: () => IFACE });
+  try {
+    const alice = await aliceSpeaks(memory);
+    await echoDrawing(memory);
+    await recordDrawing(memory);
+    const db = memory.memoryDb.database() as Db;
+    // A rename, as memory holds it after the interface reported the new name.
+    db.prepare("UPDATE person_accounts SET display_name = 'Alicia' WHERE person_id = ?").run(alice);
+    db.prepare(`UPDATE accounts SET names = '["Alicia"]' WHERE person_id = ?`).run(alice);
+    const names = personNamesOf(db, [alice]);
+    assert.deepEqual(Object.values(names), ['Alicia'], 'the rename is what memory knows');
+    assert.deepEqual(drawnTags(memory).at(-1), '[SHOWS HERSELF, Alicia]');
+  } finally {
+    await memory.close();
+  }
+});
+
+test('a picture with no marks renders as its description tag alone', async () => {
+  // Bug: the marks leak onto every picture, or their absence leaves an empty tag behind.
+  const memory = await openTestMemory({ now: () => MEMORY_NOW, iface: () => IFACE });
+  try {
+    await echoDrawing(memory);
+    assert.deepEqual(drawnTags(memory), ['<image: a fox>']);
+  } finally {
+    await memory.close();
+  }
+});
 
 // ---------- the diary and the mirror ----------
 

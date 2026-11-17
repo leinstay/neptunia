@@ -42,7 +42,14 @@ test('a message.create the interface kept for a closed chat is ok, and its resul
 
 const VOICED = '[sighs] "собор на закате"';
 
-type SaidLine = { kind?: unknown; messageId?: unknown; text?: unknown; media?: unknown; voiced?: unknown };
+type SaidLine = {
+  kind?: unknown;
+  messageId?: unknown;
+  text?: unknown;
+  media?: unknown;
+  voiced?: unknown;
+  marks?: unknown;
+};
 
 async function voiceTurn(outcome: unknown) {
   const appended: Array<SaidLine> = [];
@@ -78,6 +85,21 @@ test('a sent voice message is one said line, its words empty and its voiced text
   assert.equal(said[0].text, '');
   assert.deepEqual(said[0].media, ['voice']);
   assert.equal(said[0].voiced, VOICED);
+});
+
+test('a sent voice message is marked as made by her, with her own person in it', async () => {
+  // Bug: the clip she spoke reaches memory with no mark and reads later as anybody's voice clip.
+  const said = await voiceTurn({
+    status: 'ok',
+    code: 'ok',
+    summary: 'voice message posted',
+    data: {
+      text: 'voice message posted',
+      ref: { chatId: 'c1', messageId: 'voice-1' },
+      voice: { text: VOICED, durationSecs: 2.5 },
+    },
+  });
+  assert.deepEqual(said[0]?.marks, { self: true, accounts: [] });
 });
 
 test('a voice message that failed leaves no said line', async () => {
