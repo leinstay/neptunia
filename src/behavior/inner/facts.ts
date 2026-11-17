@@ -119,10 +119,12 @@ export function feedbackFacts(
 }
 
 /**
- * Whether `fact` is a call the heartbeat's own limit refused (`heartbeat-only`). Such a fact wakes no feedback turn and
- * is not shown in one: a feedback turn may post, and would carry out what the heartbeat refused.
+ * Whether `fact` is a call the heartbeat's own limit refused (`heartbeat-only`) or held behind its notice
+ * (`intention-notice`). Such a fact wakes no feedback turn and is not shown in one: a feedback turn may post, and would
+ * carry out what the heartbeat refused or held.
  */
-export const heartbeatRefused = (fact: { code?: unknown }): boolean => fact.code === CODE.HEARTBEAT_ONLY;
+export const heartbeatRefused = (fact: { code?: unknown }): boolean =>
+  fact.code === CODE.HEARTBEAT_ONLY || fact.code === CODE.INTENTION_NOTICE;
 
 /** `value` as text (String over a value of any type). */
 export const asText = (value: unknown): string => String(value);

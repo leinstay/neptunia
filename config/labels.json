@@ -343,7 +343,33 @@
       "dmLast": "has a direct chat with you, last line {date}",
       "activity": "lines by people in the last {days} days: {lines}, from {people} people",
       "quiet": "nobody wrote here in the last {days} days",
-      "ownLast": "you last wrote here {date}"
+      "ownLast": "you last wrote here {date}",
+      "notice": {
+        "lead": "{id} lists related past activity, nearest first:",
+        "line": "{date}, in {place}, you wrote: {text}",
+        "linePrivate": "{date}, you wrote in {place}",
+        "answers": "lines that answer it: {answers}, by {names}",
+        "answersUnnamed": "lines that answer it: {answers}",
+        "noAnswer": "no line answers it",
+        "dayLines": "lines by people there within a day after it: {lines}",
+        "dayQuiet": "nobody wrote there within a day after it",
+        "followedDirect": "lines by people there since then: {lines}, from {people} people; lines that answer it: {answers}",
+        "noReplyDirect": "nobody wrote there since then",
+        "intention": "{date}, you set an intention, now {state}: {purpose}",
+        "states": {
+          "pending": "open",
+          "waiting": "waiting for an errand",
+          "done": "done",
+          "cancelled": "cancelled",
+          "expired": "expired",
+          "dropped": "let go"
+        },
+        "run": "the turn that carried it out on {date} sent lines: {sent}, in {places}",
+        "runSilent": "the turn that carried it out on {date} sent nothing",
+        "notRun": "no turn has carried it out yet",
+        "noRunRecorded": "the record holds no turn for it",
+        "ways": "Three ways on: save it unchanged with intention.set and confirm {id}, which needs no reason; change it and call intention.set with the changed intention; or leave it, with <skip/> or with no further call."
+      }
     },
     "memory": {
       "privateChannel": "private chat",
@@ -641,6 +667,7 @@
           "adapter-threw": "the chat interface failed on this request",
           "cap-open": "too many of your errands are open already",
           "cap-tasks": "today's errands for that agent are used up",
+          "intention-notice": "the intention is not saved yet, and what you already did near it follows",
           "heartbeat-only": "heartbeat accepts every read, of memory, chats, the web and pictures, and an errand, then one intention change or a skip. A post, a reaction, a drawing or a voice line needs an intention",
           "heartbeat-cap": "too many of your heartbeat intentions are open already; update or cancel one",
           "heartbeat-recurring-cap": "your recurring heartbeat intention is already open; update or cancel it",

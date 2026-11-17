@@ -165,6 +165,8 @@ export const INTENT_PARAMS = Object.freeze({
     // A desire she considered and let go, recorded as born dropped (the handler takes only `dropped` here).
     state: oneOf(['dropped']),
     reason: str(300),
+    // The notice whose held intention a heartbeat saves unchanged (src/turn/skill-calls.ts#noticeStep); no operation reads it.
+    confirm: str(20),
   }),
   update: obj({
     id: str(20),

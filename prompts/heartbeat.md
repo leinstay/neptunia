@@ -12,4 +12,6 @@ An intention is as large as its purpose needs and no larger. One line to someone
 
 Look at the intentions you already have before you add one. Change one or let it go when that says what you want, and set no second one for the same thing.
 
+An intention near something you already did is not saved at once. The call comes back with a record of what you did then and what followed. The record is no judgement. A return to something you care about can be exactly right, and the same act again with nothing new seldom is. After reading it, save the intention as it is, change it, or leave it.
+
 If a read fails or finds nothing, go on from what you know and invent no memory. If a call is refused, take its answer as it is and do not start the whole decision again.

@@ -49,6 +49,8 @@ import type { RequestRefs } from './request/types.ts';
 import type { Handles } from './handles.ts';
 import { wakeRefusalCode } from '../tools/wake-tools.ts';
 import { INTENT_ID_SKILLS } from './settings.ts';
+import { checkPurpose, noteShown, noticeState, noticeText } from './intention-notice.ts';
+import type { EmbedTexts, NoticeReads, NoticeState } from './intention-notice.ts';
 
 /** The live config, as far as the calls read it; the gateway and the executors read their own sections. */
 export type CallsConfig = { tools?: { callTimeoutMs?: number } | null };
@@ -112,6 +114,8 @@ export type SkillCallsContext = {
   summarize?: Summarize | undefined;
   /** The ring of her lookups per place (src/turn/calls.ts#createLookupRing); absent: none is kept. */
   lookupRing?: LookupRing | null;
+  /** What the notice before a heartbeat's intention is saved embeds with and reads (src/turn/intention-notice.ts); absent: no notice. */
+  notice?: { embed: EmbedTexts; reads: NoticeReads; model: () => string | null } | null;
 };
 
 /** Why a call cannot run: its code, a machine reason and the values its label names. */
@@ -205,6 +209,8 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     offeredSkills?: Map<string, string>;
     /** The skills she read in this turn, each as first read: a second call answers from here. */
     procedures?: Map<string, { text: string; versionId: string }>;
+    /** The notices of a heartbeat's `intention.set` in this turn (src/turn/intention-notice.ts). */
+    intentionNotices?: NoticeState;
   };
 
 /** The turn's registry of the lines a memory.search quoted (src/turn/calls.ts#searchHandles), when it has one. */
@@ -393,7 +399,65 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     journalOp,
     lookupRing = null,
     summarize,
+    notice = null,
   } = ctx;
+
+  /**
+   * A heartbeat's `intention.set` before the gate of an inner turn, so shadow mode reads the notice a live turn reads.
+   * A call that names a notice of this turn in `confirm` takes the call that notice held, unchanged and unchecked. Any
+   * other call with a purpose is checked (src/turn/intention-notice.ts#checkPurpose): acts near it hold the call and
+   * answer the notice, with an id the confirming call names. A check that cannot run lets the call through with a warn.
+   * Every other call, a born-dropped one and a call of any other turn pass as planned.
+   */
+  async function noticeStep(
+    planned: CallPlan,
+    draft: CallsDraft | null
+  ): Promise<{ plan: CallPlan; answer: CallAnswer | null }> {
+    const resolved = planned.resolved;
+    const pass = { plan: planned, answer: null };
+    if (planned.call.skill !== 'intention.set' || planned.refusal || !resolved || !draft || !notice) return pass;
+    if (wakeOf(draft)?.kind !== 'heartbeat') return pass;
+    const state = (draft.intentionNotices ??= noticeState());
+    const held = typeof resolved.args.confirm === 'string' ? state.held.get(resolved.args.confirm) : undefined;
+    if (held) return { plan: { ...planned, resolved: { ...resolved, args: held } }, answer: null };
+    const purpose = resolved.args.text;
+    if (typeof purpose !== 'string' || purpose.trim() === '' || resolved.args.state === 'dropped') return pass;
+    const startedAt = clock();
+    const check = await checkPurpose({
+      purpose,
+      embed: notice.embed,
+      reads: notice.reads,
+      model: notice.model(),
+      state,
+      now: startedAt,
+    });
+    if (check.kind === 'failed') {
+      log.warn('intention notice: check failed, saved without it', { stage: check.stage, reason: check.reason });
+      return pass;
+    }
+    log.info('intention notice: checked', {
+      near: check.kind === 'near' ? check.acts.length : 0,
+      shown: state.shown.size,
+      ms: clock() - startedAt,
+    });
+    if (check.kind === 'clear') return pass;
+    noteShown(state, check.acts);
+    const id = `notice-${state.held.size + 1}`;
+    state.held.set(id, Object.fromEntries(Object.entries(resolved.args).filter(([key]) => key !== 'confirm')));
+    const text = noticeText(check.acts, {
+      id,
+      labels: hot.prompts?.labels,
+      timezone: (hot.config as { bot?: { timezone?: string } }).bot?.timezone ?? 'UTC',
+      placeName: (placeId) => draft.requestRefs?.placeRef(placeId) ?? placeId,
+      // A person the request holds a handle for is named by it; one it does not is counted and not named.
+      personName: (key) => {
+        const refs = draft.requestRefs;
+        const handle = refs ? refs.personHandle(key) : null;
+        return handle !== null && refs?.targets.has(handle) ? `@${handle}` : null;
+      },
+    });
+    return { plan: planned, answer: { status: 'refused', code: CODE.INTENTION_NOTICE, data: { text } } };
+  }
 
   /**
    * The lookup a call of a read tool is, kept in the ring for `<recall>` on the next turns of the place and returned for
@@ -788,7 +852,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function runCall(
-    plan: CallPlan,
+    planned: CallPlan,
     {
       channel,
       trigger,
@@ -808,6 +872,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       inTurn = null,
     }: CallContext
   ): Promise<CallOutcome> {
+    const { plan, answer: noticed } = await noticeStep(planned, draft);
     const { call, op, envelope } = plan;
     const skill = call.skill;
     // The lines a memory.search quoted before this call: those it adds are the stored lines its result returned.
@@ -848,10 +913,13 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     // post past the day's cap is refused too.
     const inner = draft?.inner ?? null;
     const innerGate =
-      inner && !plan.refusal ? innerVerdict(inner, skill, { channel, args: plan.resolved?.args ?? {} }) : null;
+      inner && !plan.refusal && !noticed
+        ? innerVerdict(inner, skill, { channel, args: plan.resolved?.args ?? {} })
+        : null;
     // Whether the call was dispatched (its operation ran, whatever it answered).
     let ran = false;
     if (plan.refusal) result = refusedWith(plan.refusal);
+    else if (noticed) result = noticed;
     else if (innerGate?.proposed) result = { status: 'ok', code: CODE.SHADOW };
     else if (innerGate?.refusal) result = refusedWith(innerGate.refusal);
     else {

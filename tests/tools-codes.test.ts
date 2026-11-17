@@ -96,7 +96,10 @@ test('CODE: a name the catalogue does not have throws, a code is its upper-cased
 });
 
 test('catalogue: every entry has a known status, a group and only the values the families take', () => {
-  const statuses = new Set(['ok', 'denied', 'invalid', 'not_configured', 'failed', 'partial', 'unknown']);
+  // Changed: `refused` joins the set. `intention-notice` is a call held before it ran, which every reader of a result
+  // already words and counts as `refused` (src/tools/tool-calls.ts, src/behavior/inner/facts.ts), without the verdict of
+  // `denied`'s lead.
+  const statuses = new Set(['ok', 'denied', 'refused', 'invalid', 'not_configured', 'failed', 'partial', 'unknown']);
   for (const [code, entry] of Object.entries(CATALOGUE)) {
     assert.ok(statuses.has(entry.status), code);
     assert.ok(['skill', 'wake', 'internal', 'ok'].includes(entry.group), code);

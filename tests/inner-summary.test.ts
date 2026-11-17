@@ -109,6 +109,34 @@ test('sampleFacts: an intention in a direct chat with no due and no recurrence',
   });
 });
 
+test('sampleFacts: an intention saved by confirming a notice takes the place and purpose of the call the notice held', () => {
+  // Bug: the confirming call carries the notice's id alone, so the ending read no place, no due time and no purpose.
+  const facts = sampleFacts(
+    {
+      requests: [request(null)],
+      answers: [
+        answer('', [{ skill: 'intention.set', args: { text: 'ask how it went', place: 'd1', due: '30m' } }]),
+        answer('', [{ skill: 'intention.set', args: { confirm: 'notice-1' } }]),
+      ],
+      actions: [
+        { skill: 'intention.set', status: 'refused', code: 'intention-notice' },
+        { skill: 'intention.set', status: 'proposed', result: 'ok' },
+      ],
+      turn: SPOKE,
+    },
+    at
+  );
+  assert.deepEqual(facts.end, {
+    kind: 'intention',
+    change: 'set',
+    place: 'd1',
+    direct: true,
+    dueInMinutes: 30,
+    recurs: false,
+    purposeWords: 4,
+  });
+});
+
 test('sampleFacts: a refused intention change is no ending; neither a skip nor a change is unresolved', () => {
   const facts = sampleFacts(
     {

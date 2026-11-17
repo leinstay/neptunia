@@ -22,6 +22,7 @@ import '../../src/tools/operations/index.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { withCapturedLogs } from './capture-logs.ts';
+import type { LogEntry } from './capture-logs.ts';
 import { wrongly } from './loose-types.ts';
 import {
   addAttitude,
@@ -251,7 +252,12 @@ export type ServiceRun = {
   cli: Fake;
   journal: ReturnType<typeof createJournal>;
   intentions: ReturnType<typeof createIntentionService>;
+  /** The log lines the turn wrote. */
+  logs: Array<LogEntry>;
 };
+
+/** One embedding request of the turn runner: a vector per text, in order. */
+export type EmbedNotice = (texts: Array<string>) => Promise<Array<ArrayLike<number> | null>>;
 
 export type ServiceTurnSpec = {
   /** The wake as the drain hands it to the turn: `kind`, `items`, `intentions`, `chainId`, and a kind's facts. */
@@ -274,6 +280,10 @@ export type ServiceTurnSpec = {
   currentChannel?: string | null;
   /** The turn runner's random source; Math.random when absent. */
   rng?: () => number;
+  /** The embedder of the notice before a heartbeat's intention is saved; none when absent. */
+  embedNotice?: EmbedNotice;
+  /** Whether the turn runs in shadow mode, as `wakes.mode` `shadow` runs it. */
+  shadow?: boolean;
 };
 
 /** The adapter that answers a call naming one of `others`' interfaces by that one, and every other call by `main`. */
@@ -316,7 +326,7 @@ function cliAdapter(): Fake {
   return cli;
 }
 
-type RigSpec = Pick<ServiceTurnSpec, 'seed' | 'adapters' | 'labels' | 'rng'> & {
+type RigSpec = Pick<ServiceTurnSpec, 'seed' | 'adapters' | 'labels' | 'rng' | 'embedNotice'> & {
   mind: World;
   settings?: Record<string, number>;
   /** Laid over SERVICE_CONTEXT, such as `channelMessages`. */
@@ -457,6 +467,7 @@ function rigOf(spec: RigSpec) {
       runInitiativeOp: admin.runInitiativeSkillOp,
       intentions,
       ...(spec.rng ? { rng: spec.rng } : {}),
+      ...(spec.embedNotice ? { embedNotice: spec.embedNotice } : {}),
     });
   const turns = runner();
   /**
@@ -482,18 +493,23 @@ function rigOf(spec: RigSpec) {
   return { turns, restart, requests, fake, cli, journal, intentions };
 }
 
-/** One inner turn of `wake` answered by `answers`, over the world's memory and the room `c1` of the fake interface. */
+/**
+ * One inner turn of `wake` answered by `answers`, over the world's memory and the room `c1` of the fake interface. An
+ * answer may be a function of the user text of the request it answers, so a test writes back what the request showed.
+ */
 export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
   const mind = spec.world ?? serviceWorld();
   const { answers } = spec;
-  const { turns, requests, fake, cli, journal, intentions } = rigOf({
-    ...spec,
-    mind,
-    answer: (n) => answers[Math.min(n - 1, answers.length - 1)],
-  });
+  const answerOf = (n: number): unknown => {
+    const value: unknown = answers[Math.min(n - 1, answers.length - 1)];
+    if (typeof value !== 'function') return value;
+    const answered: unknown = Reflect.apply(value, undefined, [requests[n - 1] ?? '']);
+    return answered;
+  };
+  const { turns, requests, fake, cli, journal, intentions } = rigOf({ ...spec, mind, answer: answerOf });
   const wake = typeof spec.wake === 'function' ? spec.wake(intentions) : spec.wake;
-  const inner = { wake, currentChannel: spec.currentChannel ?? null, shadow: false, mayAct: () => true };
-  const { result } = await withCapturedLogs(() =>
+  const inner = { wake, currentChannel: spec.currentChannel ?? null, shadow: spec.shadow === true, mayAct: () => true };
+  const { result, logs } = await withCapturedLogs(() =>
     turns.runTurn({ chat: spec.chat, mode: 'inner', triggerKind: 'inner', inner })
   );
   await new Promise((resolve) => setImmediate(resolve));
@@ -509,6 +525,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
       cli,
       journal,
       intentions,
+      logs,
     };
   } finally {
     if (spec.world === undefined) mind.close();
@@ -584,8 +601,16 @@ export type ReplySend = { iface: string; chatId: string; text: string };
 /** One reaction she put on a line in a reply run: the message id it went to and the emoji. */
 export type ReplyReaction = { messageId: string; emoji: string };
 
-/** What a reply run leaves: the user texts of every request, one list per turn, every message she sent and every reaction. */
-export type ReplyRun = { requests: Array<Array<string>>; sends: Array<ReplySend>; reactions: Array<ReplyReaction> };
+/**
+ * What a reply run leaves: the user texts of every request, one list per turn, every message she sent, every reaction
+ * and the intention service of the run.
+ */
+export type ReplyRun = {
+  requests: Array<Array<string>>;
+  sends: Array<ReplySend>;
+  reactions: Array<ReplyReaction>;
+  intentions: ReturnType<typeof createIntentionService>;
+};
 
 /** The person an account of the world belongs to, null for an account no row holds. */
 function personOfAccountIn(mind: World, account: string): string | null {
@@ -638,6 +663,8 @@ export async function replyRun(spec: {
   seed?: ServiceTurnSpec['seed'];
   /** The step that runs on a new turn runner after a restart (rigOf's `restart`), none when absent. */
   restartBefore?: number;
+  /** The embedder of the notice before a heartbeat's intention is saved; none when absent. */
+  embedNotice?: EmbedNotice;
 }): Promise<ReplyRun> {
   const { steps } = spec;
   const chat = spec.chat ?? C1_CHAT;
@@ -658,6 +685,7 @@ export async function replyRun(spec: {
     ...(spec.context === undefined ? {} : { context: spec.context }),
     ...(spec.llm === undefined ? {} : { llm: spec.llm }),
     ...(spec.seed === undefined ? {} : { seed: spec.seed }),
+    ...(spec.embedNotice === undefined ? {} : { embedNotice: spec.embedNotice }),
     store: {
       placeOfChat: (given: { id?: unknown; iface?: unknown; kind?: unknown; partnerId?: unknown }) => {
         const iface = typeof given.iface === 'string' ? given.iface : chat.iface;
@@ -695,6 +723,7 @@ export async function replyRun(spec: {
     requests: out,
     sends: [...sendsOf(fake), ...sendsOf(cli)],
     reactions: [...reactionsOf(fake), ...reactionsOf(cli)],
+    intentions: rig.intentions,
   };
 }
 

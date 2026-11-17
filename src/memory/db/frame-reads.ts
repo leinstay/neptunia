@@ -41,6 +41,8 @@ import type { Db, Row } from './types.ts';
 import { placeLineNumbers } from './chat-lines.ts';
 import { heartbeatListsOf } from './heartbeat-lists.ts';
 import type { HeartbeatLists } from './heartbeat-lists.ts';
+import { ownIntentionsOf, pastActsOf } from './past-acts.ts';
+import type { OwnIntention, PastAct } from './past-acts.ts';
 import { LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND, LINE_MOMENT } from './source-current.ts';
 import type { PlaceLineNumbers } from './chat-lines.ts';
 
@@ -810,6 +812,10 @@ export type FrameReads = {
   placeLines?(placeId: string, newest: number): PlaceLineNumbers;
   /** The people and the places a heartbeat lists (heartbeat-lists.ts#heartbeatListsOf). */
   heartbeatLists?(now: number): HeartbeatLists;
+  /** Her newest intentions, open and archived (past-acts.ts#ownIntentionsOf). */
+  ownIntentions?(limit: number): Array<OwnIntention>;
+  /** Her lines and intentions near a purpose's vector (past-acts.ts#pastActsOf). */
+  pastActs?(input: Parameters<typeof pastActsOf>[1]): Array<PastAct>;
 };
 
 const NO_MIND: Mind = {
@@ -883,5 +889,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     placeLines: (placeId, newest) =>
       over<PlaceLineNumbers>({ count: 0, numbers: new Map() }, (db) => placeLineNumbers(db, placeId, newest)),
     heartbeatLists: (now) => over({ people: [], places: [] }, (db) => heartbeatListsOf(db, now)),
+    ownIntentions: (limit) => over([], (db) => ownIntentionsOf(db, limit)),
+    pastActs: (input) => over([], (db) => pastActsOf(db, input)),
   };
 }

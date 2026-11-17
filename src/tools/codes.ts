@@ -10,7 +10,8 @@
 // the labels and the contract's list. This module imports only the leaf `types.ts`, so any module may import it.
 //
 // Fields of an entry: `status` the result status the code is reported under by default (`ok`,
-// `denied`, `invalid`, `not_configured`, `failed`, `partial`, `unknown`); `group` where the wording
+// `denied`, `refused` (a call held before it ran, worded as one that did not run), `invalid`, `not_configured`, `failed`,
+// `partial`, `unknown`); `group` where the wording
 // lives (`skill`, `wake`, `internal`, `ok`); `params` the values the label may name (`{status}`:
 // an HTTP status, `{what}`: what timed out or ran out, `{feature}`: what is not set up, `{ability}` and `{why}`: the
 // ability a down model role serves and why it is down). A value of any but `status` is a key of
@@ -19,7 +20,7 @@
 import { idText, objOf } from './types.ts';
 
 /** The result status a code is reported under by default. */
-export type CodeStatus = 'ok' | 'denied' | 'invalid' | 'not_configured' | 'failed' | 'partial' | 'unknown';
+export type CodeStatus = 'ok' | 'denied' | 'refused' | 'invalid' | 'not_configured' | 'failed' | 'partial' | 'unknown';
 /** Where the wording of a code lives. */
 export type CodeGroup = 'skill' | 'wake' | 'internal' | 'ok';
 /** One code of the catalogue: its default status, where its wording lives and the values its label may name. */
@@ -67,6 +68,8 @@ export const CATALOGUE = Object.freeze({
   'heartbeat-only': skill('denied'),
   'heartbeat-cap': skill('denied'),
   'heartbeat-recurring-cap': skill('denied'),
+  // A heartbeat's intention held until she confirms, changes or leaves it, with what she did near it (src/turn/intention-notice.ts).
+  'intention-notice': skill('refused'),
   paused: skill('denied'),
   'diary-draw-only': skill('denied'),
 

@@ -400,7 +400,8 @@
       "settle": "Seconds of quiet before waking.",
       "perday": "How many wakes a day at most.",
       "state": "dropped: a desire you let go.",
-      "reason": "Why. Required with dropped."
+      "reason": "Why. Required with dropped.",
+      "confirm": "The id of a notice: saves the intention it held, unchanged, with no other argument needed."
     }
   },
   "intention.update": {
