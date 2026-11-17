@@ -161,7 +161,18 @@ export function addLine(
     text,
     at = AT,
     audience = { group: iface },
-  }: { id: string; iface: string; place: string; author: string; text: string; at?: string; audience?: Audience }
+    turn = null,
+  }: {
+    id: string;
+    iface: string;
+    place: string;
+    author: string;
+    text: string;
+    at?: string;
+    audience?: Audience;
+    /** The turn of hers that wrote the line, as a line she posted keeps it. */
+    turn?: string | null;
+  }
 ): string {
   const self = author === 'self';
   insertRows(db, {
@@ -178,6 +189,7 @@ export function addLine(
         occurred_at: at,
         recorded_at: at,
         text,
+        ...(turn === null ? {} : { turn_id: turn }),
         ...scopeOf(audience),
       },
     ],
