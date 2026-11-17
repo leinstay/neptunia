@@ -149,9 +149,8 @@ export function formatDuration(
  * One rendered tag per attachment/embed/sticker of `message`, most
  * informative form available (see docs/prompt-contract.md, "Media in
  * a transcript line" and src/media/classify.js#mediaLabelFor/stickerLabelFor):
- * described > blind, plus one extra tag per distinct described custom emoji
- * unless `context.emojiInline` is false (the request describes them once
- * elsewhere). `context.descriptions` is an optional `Map` keyed by the item's id (an
+ * described > blind. A sticker reads its stable name and a custom emoji stays its
+ * `:name:` in the text, both described once in the legend (src/turn/request/legend.ts). `context.descriptions` is an optional `Map` keyed by the item's id (an
  * attachment's platform id, a link's synthesized id, `sticker:<id>` or
  * `emoji:<id>` — see normalizeMessage). `context.videos` is an optional
  * `Map` of the same ids to a video state (see mediaLabelFor); it only takes
@@ -182,7 +181,6 @@ const PLAIN_FORM: Record<string, string> = {
   voiceDescribed: 'voice',
   audioDescribed: 'audio',
   fileUnreadable: 'file',
-  stickerUnreadable: 'sticker',
 };
 
 /** A tag in its plain form when its label is blank, or null for a form that has its label or no plain form. */
@@ -205,9 +203,6 @@ function storedWatch(item: unknown, videosOn: boolean): { state: 'watched'; text
   const isVideo = (item as { kind?: unknown } | null)?.kind === 'video';
   return videosOn && isVideo && told?.origin === 'retelling' ? { state: 'watched', text: told.text } : null;
 }
-
-/** Whether an emoji comes from a stored line: it shows that the line holds it even before its text form. */
-const isStoredEmoji = (emoji: unknown): boolean => (emoji as { stored?: unknown } | null)?.stored === true;
 
 /** A link's read text as a line of chat shows it, on one line and whole: the lookup has already retold a long one. */
 function excerptOf(whole: string | undefined): string | null {
@@ -247,7 +242,7 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
     const { answer, ...rest } = video;
     return rest;
   };
-  const tags = [];
+  const tags: Array<string> = [];
   // A video tag's `reason` is a code (media.js is label-free): swap it for
   // its label before filling -- a part-watched video's from videoPartReason.
   // A blank videoWatchedPart / linkWatchedPart falls back to the whole-video
@@ -321,24 +316,7 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
       )
     );
   }
-  for (const sticker of message.stickers ?? []) {
-    const description = labels.transcript.stickerDescribed
-      ? (context.descriptions?.get(`sticker:${sticker.id}`) ?? toldOf(sticker)?.text ?? null)
-      : null;
-    // `url` is null for a sticker with no picture. A slim message keeps `url` too (src/memory/update.js#slimMessage), so a
-    // memory transcript tells a picture sticker from one without exactly like a live chat transcript does.
-    pushLabel(stickerLabelFor(sticker, { description }));
-  }
-  // `context.emojiInline === false`: the caller lists the emoji with their descriptions elsewhere, so the line keeps the
-  // bare `:name:`.
-  if (labels.transcript.emojiDescribed && context.emojiInline !== false) {
-    for (const emoji of message.emojis ?? []) {
-      const description = context.descriptions?.get(`emoji:${emoji.id}`) ?? toldOf(emoji)?.text ?? null;
-      // A stored line shows that it holds the emoji even before its text form: a read has no message to look at.
-      if (!description && !isStoredEmoji(emoji)) continue;
-      tags.push(fill(labels.transcript.emojiDescribed, { name: emoji.name, text: description }));
-    }
-  }
+  for (const sticker of message.stickers ?? []) pushLabel(stickerLabelFor(sticker));
   // A key blanked in prompts.local/labels.json (fill() returns '' for it)
   // must not leave a stray double space where that tag would have sat.
   return tags.filter(Boolean);
@@ -784,7 +762,6 @@ export type TranscriptOptions = {
   reactionsPerMessage?: number;
   reactionNames?: boolean;
   reactionNamesMax?: number;
-  emojiInline?: boolean;
   indexOffset?: number;
   now?: number;
   handles?: Map<string, string>;
@@ -798,10 +775,7 @@ export type TranscriptOptions = {
 };
 
 /** The media of a transcript the caller already holds: the part of the options `mediaTags` and `replyMarker` read. */
-type MediaContext = Pick<
-  TranscriptOptions,
-  'descriptions' | 'videos' | 'reads' | 'gifHandles' | 'imageAnswers' | 'emojiInline'
->;
+type MediaContext = Pick<TranscriptOptions, 'descriptions' | 'videos' | 'reads' | 'gifHandles' | 'imageAnswers'>;
 
 /** The handles two or more author ids of `messages` share: one person writing from several accounts. */
 function sharedHandles(messages: ReadonlyArray<Record<string, Untyped>>, handles: Map<string, string>): Set<string> {
@@ -927,8 +901,6 @@ function contentWithHandles(
  *   at most `reactionNamesMax` (5 when omitted) of them, the rest as `transcript.reactionMore`.
  *   Off, without the label or on anyone else's line: the counts as before.
  * @param [options.reactionNamesMax]  5 when omitted.
- * @param [options.emojiInline]  Default true; false leaves out the `emojiDescribed` tag of a
- *   custom emoji (the caller lists the emoji with their descriptions elsewhere).
  * @param [options.indexOffset]  Default 0 (when undefined or null): the first message
  *   is numbered `indexOffset + 1`, and every index (the `#index`, a reply target inside the
  *   list, `item.index`) shifts by it, so a second block (another channel's lines) continues
@@ -1014,7 +986,6 @@ export function formatTranscript(
     reads,
     gifHandles,
     imageAnswers,
-    emojiInline: options.emojiInline !== false,
   };
   const locale = labels.locale;
   const selfLabel = fill(labels.self, { name: selfName });

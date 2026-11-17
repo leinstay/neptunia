@@ -41,6 +41,7 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'customEmoji',
   'mediaPickText',
   'mediaCache',
+  'mediaNameOf',
   'gifs',
   'tasks',
   'diaryChannel',

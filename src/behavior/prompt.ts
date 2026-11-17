@@ -149,6 +149,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     customEmoji: input.customEmoji,
     mediaPickText: input.mediaPickText,
     mediaCache: input.mediaCache,
+    mediaNameOf: input.mediaNameOf,
     gifs: input.gifs,
     tasks: input.tasks,
     elsewhereDestination: input.elsewhereDestination,

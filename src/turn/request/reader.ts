@@ -46,6 +46,10 @@ import type { InterfaceNames } from '../../protocol/serve.ts';
 import type { HandleBook } from '../../behavior/handles.ts';
 import type { EntryRefs } from './memory-block.ts';
 import type { MeanwhileRefs } from './meanwhile.ts';
+import { legendItems, legendText } from './legend.ts';
+import type { SeenSticker } from './legend.ts';
+import type { MediaName } from '../../memory/store-media-names.ts';
+import type { LineMediaItem } from '../../memory/db/media-store.ts';
 import {
   block,
   escapeStored,
@@ -114,6 +118,12 @@ export type ReaderInput = {
   lookups: ReadonlyArray<Lookup>;
   meanwhileReads: MeanwhileReads | null;
   chatItems: Array<TranscriptItem>;
+  /** The stickers of each line of the chat, by message id, for the legend `<interface>`. */
+  chatStickers: ReadonlyMap<string, ReadonlyArray<SeenSticker>>;
+  /** The store's read of a stable name; null when the turn has no store. */
+  mediaNameOf: ((name: string) => MediaName | null) | null;
+  /** A custom emoji's or a sticker's description by its media key, null when none is known. */
+  describe: (key: string) => string | null;
   tempoText: string;
   inner: InnerParts;
   /** A diary request's past entries and own parts of `<inner>`; null on any other kind. */
@@ -734,10 +744,18 @@ const selfTextOf = (given: ReaderInput, fit: Fit): string =>
     .filter(Boolean)
     .join('\n');
 
-type Bodies = { memory: string; found: string; inner: string; meanwhile: string; chat: string };
+type Bodies = { memory: string; found: string; inner: string; meanwhile: string; legend: string; chat: string };
 
 /** The blocks that belong to the turn itself: the first of them in the frame's order ends the `memory` segment. */
-const TURN_OWN: ReadonlySet<string> = new Set(['chat', 'recall', 'found', 'inner', 'spatial_awareness', 'task']);
+const TURN_OWN: ReadonlySet<string> = new Set([
+  'interface',
+  'chat',
+  'recall',
+  'found',
+  'inner',
+  'spatial_awareness',
+  'task',
+]);
 
 /**
  * Every block of the request, the ones the frame lists in the frame's order, then the others empty: the frame's list
@@ -763,6 +781,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     },
     tail('memory', 'mind', bodies.memory, 'people'),
     tail('meanwhile', 'meanwhile', bodies.meanwhile, 'meanwhile'),
+    tail('interface', 'legend', bodies.legend),
     tail('chat', 'kept.chat', bodies.chat, 'chat'),
     tail('recall', 'lookups', kept.recall?.[0] ?? '', 'recall'),
     tail('found', 'mind', bodies.found, 'found'),
@@ -783,6 +802,31 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
   const offList = listed.filter((one) => !order.includes(one.name)).map((one) => ({ ...one, text: '', offKind: true }));
   return [...inList, ...offList];
 }
+
+/** The body of the legend `<interface>`: the custom emoji and stickers of the kept chat and `<meanwhile>` windows. */
+function legendOf(
+  given: ReaderInput,
+  keptChat: ReadonlyArray<TranscriptItem>,
+  keptWindows: ReadonlyArray<MeanwhileWindow>,
+  offered: Offered
+): string {
+  if (!given.mediaNameOf) return '';
+  const texts = [
+    ...keptChat.map((item) => item.text),
+    ...keptWindows.map((window) => offered.windowTexts[offered.windows.indexOf(window)]),
+  ];
+  const stickers = [
+    ...keptChat.flatMap((item) => given.chatStickers.get(item.id) ?? []),
+    ...keptWindows.flatMap((window) => window.lines.flatMap((line) => windowStickers(line.media ?? []))),
+  ];
+  return legendText(legendItems(texts, stickers, given.mediaNameOf, given.describe), given.labels);
+}
+
+/** The stickers of a stored line's media: the ones that carry their stable name. */
+const windowStickers = (media: ReadonlyArray<LineMediaItem>): Array<SeenSticker> =>
+  media.flatMap((item) =>
+    item.kind === 'sticker' && item.name ? [{ name: item.name, text: item.text, readable: !item.unreadable }] : []
+  );
 
 /** The user message of a request on the frame. */
 export function readerRequest(given: ReaderInput): ReaderResult {
@@ -826,6 +870,7 @@ export function readerRequest(given: ReaderInput): ReaderResult {
       named ? names.meanwhileRefs : null,
       keepsEmoji(given.config)
     ),
+    legend: legendOf(given, keptChat, keptWindows, offered),
     chat: renderTranscript(keptChat, timezone, labels, given.tempoText),
   });
   const memberNames = new Map<string, Array<string>>();

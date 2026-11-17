@@ -14,8 +14,8 @@ import { rulesPromptOf } from '../../rules-list.ts';
 import { cacheTtlMs } from '../../llm/openrouter.ts';
 import { gifHandleMap, normalizeGifs } from '../../memory/index.ts';
 import { accountIdOf } from '../../memory/recent.ts';
-import { freezePerBucket, mediaLookupOf } from './emoji-gifs.ts';
-import type { Held, MediaLookup } from './emoji-gifs.ts';
+import { freezePerBucket } from './emoji-gifs.ts';
+import type { Held } from './emoji-gifs.ts';
 import { orderedHistory } from '../history.ts';
 import { spatialAwarenessText } from './spatial.ts';
 import { nowBlock } from './tail.ts';
@@ -71,32 +71,6 @@ export type Base = {
 
 /** The room the request's sections share, its caps and the price of a text. */
 export type Room = { caps: Caps; cost: Cost; limit: number };
-
-/**
- * `descriptions` with the cached caption of every custom emoji of `history` it lacks: the turn describes what it gathers,
- * and the cache knows an emoji the turn did not ask about.
- */
-function withEmojiCaptions(
-  descriptions: Map<string, string> | undefined,
-  history: ReadonlyArray<Message>,
-  mediaCache: unknown
-): Map<string, string> | undefined {
-  const cached = mediaLookupOf(mediaCache as MediaLookup | object | null | undefined);
-  if (!cached) return descriptions;
-  const known = new Map(descriptions ?? []);
-  for (const message of history) {
-    for (const emoji of [
-      ...(message.emojis ?? []),
-      ...(message.forwarded ?? []).flatMap((part) => part?.emojis ?? []),
-    ]) {
-      const key = `emoji:${emoji?.id}`;
-      const entry = cached(key);
-      if (!known.has(key) && entry && !entry.miss && typeof entry.text === 'string' && entry.text.trim())
-        known.set(key, entry.text.trim());
-    }
-  }
-  return known;
-}
 
 /** The members who wrote a line of `history`, reacted to one of hers or are mentioned in one, she aside. */
 function authorsOf(history: ReadonlyArray<Message>, selfId: string | null): Array<string> {
@@ -216,8 +190,6 @@ export function requestHead(given: RequestInput): Base {
     ? // The emoji index's list as the turn hands it (src/behavior/emoji-index.ts).
       (given.customEmoji as Array<EmojiRef>)
     : [];
-  // A custom emoji of the transcript carries its description in the line: the persona's turn lists no emoji.
-  const described = withEmojiCaptions(descriptions, history, given.mediaCache);
   const formatOptions = {
     timezone,
     selfName,
@@ -227,7 +199,7 @@ export function requestHead(given: RequestInput): Base {
     seeReactions: true,
     // Who reacted to the persona's own lines, named like authors.
     reactionNames: true,
-    descriptions: described,
+    descriptions,
     videos,
     reads,
     // A picture's second look on a question renders under its tag.

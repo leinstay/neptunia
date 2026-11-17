@@ -894,6 +894,7 @@ export function plannerRequest(
       customEmoji: [],
       mediaPickText: null,
       mediaCache: null,
+      mediaNameOf: null,
       gifs: null,
       tasks: null,
       diaryChannel: null,
@@ -1088,6 +1089,9 @@ export async function buildTurnRequest(
     // The cached captions of a custom emoji and of a library GIF in the transcript.
     mediaCache:
       emoji || typeof store.getGifs === 'function' ? (key: string) => store.mediaEntry(libraryPlace, key) : null,
+    // The stable names of the custom emoji and stickers in the lines, for the legend `<interface>`; a store with no
+    // names (a turn run on a bare store) gives none.
+    mediaNameOf: store.mediaNameOf ?? null,
     elsewhereDestination: null,
     tasks: tasks.input,
     // `<senses>`: where the persona keeps its diary, when one is set.

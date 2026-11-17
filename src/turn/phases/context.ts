@@ -4,6 +4,7 @@
 // createTurnRunner (src/behavior/turn.ts) builds the context once; runAttempt (src/turn/phases/attempt.ts) hands it
 // to every phase.
 
+import type { MediaName } from '../../memory/store-media-names.ts';
 import type { Track } from '../../loop-watch.ts';
 import type { SkillUse } from '../../memory/db/skills.ts';
 import type { ActiveSkill } from '../../skills/index-block.ts';
@@ -86,6 +87,8 @@ export type PhaseStore = Parameters<typeof recordEntry>[0]['store'] & {
   getLore: (placeId: string) => unknown;
   getGifs?: () => unknown;
   mediaEntry: (placeId: string, key: string) => object | undefined;
+  /** The stable name of a custom emoji or sticker (src/memory/store-media-names.ts), for the legend. */
+  mediaNameOf?: (name: string) => MediaName | null;
   getParticipation: (placeId: string) => unknown;
 };
 

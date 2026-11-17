@@ -67,6 +67,7 @@ export type BuildRequestInput = {
   customEmoji?: Array<{ id: string; name: string; animated?: boolean }>;
   mediaPickText?: string | null;
   mediaCache?: RequestInput['mediaCache'];
+  mediaNameOf?: RequestInput['mediaNameOf'];
   gifs?: RequestInput['gifs'];
   tasks?: {
     part: { index: number; total: number; parts: Array<string> } | null;

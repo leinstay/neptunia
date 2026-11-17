@@ -66,7 +66,6 @@ export function emojiUrl(id: string): string {
 function emojiAnimationUrl(id: string): string {
   return `https://cdn.discordapp.com/emojis/${id}.gif`;
 }
-const MAX_EMOJIS_PER_MESSAGE = 5;
 // Groups: the animated flag (`a` or empty), the name, the id.
 const CUSTOM_EMOJI_RE = new RegExp(CUSTOM_EMOJI_MARKUP, 'g');
 const MAX_CHANNEL_MENTIONS = 5;
@@ -104,7 +103,7 @@ export function messageRefsOf(
 /**
  * `cleanText` with each custom emoji of `emojis` as the protocol token `<emoji:ID>`. discord.js's cleanContent writes
  * the markup `<:name:id>` as `:name:`, dropping the id, so the markup of the raw `content` gives the ids in the order
- * they stand. Markup cleanContent leaves behind takes its own id. An emoji past the list's cap stays `:name:`.
+ * they stand. Markup cleanContent leaves behind takes its own id.
  */
 function tokenEmoji(cleanText: string, raw: unknown, emojis: ReadonlyArray<NormalEmoji>): string {
   const listed = new Set(emojis.map((emoji) => emoji.id));
@@ -129,7 +128,7 @@ type NormalEmoji = { id: string; name: string; animated: boolean; url: string; a
 /**
  * Custom emoji `<:name:id>` / `<a:name:id>` written in a message's text (the
  * text reads each as `<emoji:ID>`, see tokenEmoji above): de-duplicated
- * by id, in first-appearance order, capped at MAX_EMOJIS_PER_MESSAGE.
+ * by id, in first-appearance order.
  * @param text The RAW `content` (discord.js's cleanContent has already
  *   rewritten the markup to `:name:`, dropping the id); cleanContent only as a
  *   fallback when the raw content is missing.
@@ -149,7 +148,6 @@ function extractEmojis(text: unknown): Array<NormalEmoji> {
       url: emojiUrl(id),
       ...(animated ? { animationUrl: emojiAnimationUrl(id) } : {}),
     });
-    if (seen.size >= MAX_EMOJIS_PER_MESSAGE) break;
   }
   return [...seen.values()];
 }

@@ -2,6 +2,7 @@
 // stored profiles, the normalized messages, the transcript items and the budget's sections. Types only: the block
 // builders of src/turn/request/ and src/behavior/prompt.ts#buildRequest share them.
 
+import type { MediaName } from '../../memory/store-media-names.ts';
 import type { Frame } from './frame.ts';
 import type { Mind } from '../../memory/db/mind-read.ts';
 import type { Lesson, StrongAttitude } from '../../memory/db/frame-reads.ts';
@@ -79,6 +80,8 @@ export type Labels = {
   readonly affinity?: { readonly bands?: LabelGroup };
   /** `<attitudes>` of `<self>`: `header`, and `line` with `{who}` and `{band}` (src/turn/request/attitudes.ts). */
   readonly attitudes?: LabelGroup;
+  /** The legend `<interface>`: `line`, `lineNoText` and `unreadable` (src/turn/request/legend.ts). */
+  readonly legend?: LabelGroup;
   readonly aboutChat: LabelGroup;
   readonly lore?: LabelGroup;
   /** `<lessons>` of `<self>`: `header`, and `line` with `{text}` and `{from}` (src/turn/request/lessons.ts). */
@@ -240,6 +243,7 @@ export type Message = {
     readonly content?: string;
     readonly emojis?: Array<EmojiRef>;
     readonly attachments?: Array<{ readonly id?: unknown }>;
+    readonly stickers?: Array<{ readonly id?: unknown; readonly url?: unknown; readonly name?: unknown }>;
   }>;
   readonly attachments?: Array<{ readonly id?: unknown; readonly url?: unknown; readonly name?: unknown }>;
   readonly links?: Array<{ readonly url?: unknown; readonly name?: unknown }>;
@@ -374,6 +378,8 @@ export type RequestInput = {
   readonly customEmoji?: unknown;
   readonly mediaPickText?: string | null;
   readonly mediaCache?: MediaLookup | MediaCache | null;
+  /** The store's read of a stable name, for the legend `<interface>` (src/memory/store-media-names.ts). */
+  readonly mediaNameOf?: ((name: string) => MediaName | null) | null;
   readonly gifs?: unknown;
   readonly tasks?: Tasks | null;
   readonly elsewhereDestination?: { readonly name?: string } | null;
