@@ -292,6 +292,7 @@ export const labels = {
     dm: 'dm',
     dmLast: 'dm, last {date}',
     activity: '{days}d: {lines} lines, {people} people',
+    quiet: 'quiet {days}d',
     ownLast: 'you {date}',
   },
   memory: {

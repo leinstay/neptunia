@@ -341,6 +341,7 @@
       "dm": "has a direct chat with you",
       "dmLast": "has a direct chat with you, last line {date}",
       "activity": "lines by people in the last {days} days: {lines}, from {people} people",
+      "quiet": "nobody wrote here in the last {days} days",
       "ownLast": "you last wrote here {date}"
     },
     "memory": {

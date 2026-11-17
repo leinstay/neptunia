@@ -584,7 +584,8 @@ const firstSentence = (value: string): string =>
  * the relationship, `heartbeat.attitude` with the band, `heartbeat.lastSeen` or `heartbeat.lastSeenIn` with the day
  * and the place's handle, and `heartbeat.dm` or `heartbeat.dmLast` with the day of the direct chat's newest line. A
  * place's line is its reference, then `surroundings.field` with the first sentence of its purpose,
- * `heartbeat.activity` with the counts of `days` and `heartbeat.ownLast` with the day of her newest line there.
+ * `heartbeat.activity` with the counts of `days`, or `heartbeat.quiet` when nobody wrote there in them, and
+ * `heartbeat.ownLast` with the day of her newest line there.
  * `placeHandle` gives a place's channel handle with `#`, null for a place with none.
  */
 export function heartbeatItemsOf(
@@ -639,7 +640,9 @@ export function heartbeatItemsOf(
     text: line([
       refs.place(place.placeId),
       place.purpose === null ? '' : fieldLine(w, 'purpose', storedText(w, firstSentence(place.purpose))),
-      fill(h.activity ?? '', { days, lines: place.lines, people: place.people }),
+      place.lines === 0
+        ? fill(h.quiet ?? '', { days })
+        : fill(h.activity ?? '', { days, lines: place.lines, people: place.people }),
       place.ownLastAt === null ? '' : fill(h.ownLast ?? '', { date: day(place.ownLastAt) }),
     ]),
     counterpart: false,

@@ -36,7 +36,6 @@ import type { Prepared } from '../request.ts';
 import type { Handles } from '../../handles.ts';
 import { shuffled } from '../../../behavior/random.ts';
 import { drawFragments } from '../../../behavior/seeds.ts';
-import type { HeartbeatLists } from '../../../memory/db/heartbeat-lists.ts';
 import type { HeartbeatInput } from '../../request/types.ts';
 import { messageSourceId, PERSONA_ID } from '../../../memory/db/ids.ts';
 import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
@@ -765,8 +764,8 @@ function drawnOf<T>(items: ReadonlyArray<T>, cap: number, rng: () => number): { 
 /**
  * The inputs of a heartbeat: the people and the places memory holds as `<memory>` (heartbeat-lists.ts), each list in an
  * order drawn with the turn's `rng` and cut to its cap, and its fragments drawn from `prompts['heartbeat-seeds']`, read
- * as herself. No `<meanwhile>`, no mind of the graph reader and no lookups. A failed read of the lists is logged and
- * leaves them empty.
+ * as herself. No `<meanwhile>`, no mind of the graph reader and no lookups. A failed read of the lists fails the turn,
+ * as any broken read does.
  */
 function heartbeatInputsOf(
   ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf' | 'hot' | 'rng' | 'calibrator'>,
@@ -779,12 +778,7 @@ function heartbeatInputsOf(
   const { prompts } = ctx.hot;
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
   if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups: [] };
-  let lists: HeartbeatLists = { people: [], places: [] };
-  try {
-    lists = reads.heartbeatLists?.(memoryContext, now) ?? lists;
-  } catch (error) {
-    log.warn('turn: heartbeat lists not read', { error });
-  }
+  const lists = reads.heartbeatLists?.(now) ?? { people: [], places: [] };
   const people = drawnOf(lists.people, HEARTBEAT_PEOPLE, ctx.rng);
   const places = drawnOf(lists.places, HEARTBEAT_PLACES, ctx.rng);
   const refLineOf: LineOf = (key) => {

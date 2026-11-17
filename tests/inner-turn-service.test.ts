@@ -262,6 +262,10 @@ test("a heartbeat counts people's lines of the last seven days in a place and no
   assert.ok(garden.includes(fill(HB.activity ?? '', { days: 7, lines: 1, people: 1 })), garden);
   const yard = lineWith(text, 'places', 'αυλή');
   assert.ok(yard.includes(fill(HB.activity ?? '', { days: 7, lines: 3, people: 2 })), yard);
+  // A place nobody wrote in says so, with no count of zero: Ζωή's direct chat holds her own line alone.
+  const quiet = lineWith(text, 'places', `@${handleOf(ZOE)}`);
+  assert.ok(quiet.includes(fill(HB.quiet ?? '', { days: 7 })), quiet);
+  assert.ok(!quiet.includes(fill(HB.activity ?? '', { days: 7, lines: 0, people: 0 })), quiet);
 });
 
 test('a heartbeat draws its lists and fragments with the turn rng: one seed one order, no family name', async () => {

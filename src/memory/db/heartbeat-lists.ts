@@ -1,15 +1,15 @@
 // The people and the places a heartbeat lists in `<memory>` (src/turn/phases/request/build.ts): every person memory
 // holds something about who has an account, and every live chat she can write in that is no mirror of her diary, each
 // with what its line says. A place's activity counts people's lines of the last `ACTIVITY_DAYS` days, one statement per
-// place over the range of `sources_place_time`, so no read walks a place. Read only, under the turn's context; it makes
-// no model request.
+// place over the range of `sources_place_time`, so no read walks a place. A heartbeat runs nowhere and reads as herself
+// (`internal`, src/turn/inputs.ts#turnContextOf), so these reads apply no scope: every row is hers to read. Read only;
+// it makes no model request.
 
 import { strongestAttitudesOf, personNamesOf } from './frame-reads.ts';
 import { dmOfAccount, profileAccountsOf } from './meta-person.ts';
 import { mirrorPlaces } from './mirrors.ts';
 import { PERSONA_ID } from './ids.ts';
-import { audienceWhere, whereFor } from './scope.ts';
-import type { Context } from './scope.ts';
+import { internalContext } from './scope.ts';
 import type { Db } from './types.ts';
 
 /** How many days back a place's activity counts. */
@@ -56,15 +56,14 @@ const momentOf = (value: unknown): number | null => {
 };
 
 /** The current text of one field of every subject of a kind, a direct chat's version before a group's. */
-function fieldTexts(db: Db, ctx: Context, kind: string, field: string): Map<string, string> {
-  const where = whereFor(ctx, 'd');
+function fieldTexts(db: Db, kind: string, field: string): Map<string, string> {
   const rows = db
     .prepare(
       `SELECT d.subject_id, v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
-       WHERE d.subject_kind = ? AND d.field = ? AND d.retired_at IS NULL AND ${where.sql}
+       WHERE d.subject_kind = ? AND d.field = ? AND d.retired_at IS NULL
        ORDER BY d.subject_id, d.scope_kind = 'dm' DESC, d.id`
     )
-    .all(kind, field, ...where.params);
+    .all(kind, field);
   const out = new Map<string, string>();
   for (const row of rows) {
     const value = text(row.text);
@@ -78,18 +77,17 @@ function fieldTexts(db: Db, ctx: Context, kind: string, field: string): Map<stri
 type Writer = { key: string; lines: number; lastAt: number | null };
 
 /** The writers of people's lines in a place since `since` (ISO), bots and her own lines aside. */
-function writersOf(db: Db, ctx: Context, placeId: string, since: string): Array<Writer> {
-  const where = whereFor(ctx, 's');
+function writersOf(db: Db, placeId: string, since: string): Array<Writer> {
   return db
     .prepare(
       `SELECT COALESCE(s.author_person, s.author_account) AS who, COUNT(DISTINCT s.native_id) AS n,
          MAX(s.occurred_at) AS last
        FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
        WHERE s.place_id = ? AND s.occurred_at >= ? AND s.kind = 'seen' AND s.retired_at IS NULL
-         AND COALESCE(a.kind, 'user') <> 'bot' AND ${where.sql}
+         AND COALESCE(a.kind, 'user') <> 'bot'
        GROUP BY who`
     )
-    .all(placeId, since, ...where.params)
+    .all(placeId, since)
     .flatMap((row) => {
       const key = text(row.who);
       return key === null ? [] : [{ key, lines: Number(row.n ?? 0), lastAt: momentOf(row.last) }];
@@ -97,16 +95,15 @@ function writersOf(db: Db, ctx: Context, placeId: string, since: string): Array<
 }
 
 /** The moment of her newest line in each place, read over `sources_turn`: the lines her turns wrote. */
-function ownLastByPlace(db: Db, ctx: Context): Map<string, number> {
-  const where = whereFor(ctx, 's');
+function ownLastByPlace(db: Db): Map<string, number> {
   const out = new Map<string, number>();
   for (const row of db
     .prepare(
       `SELECT s.place_id, MAX(s.occurred_at) AS last FROM sources s INDEXED BY sources_turn
-       WHERE s.turn_id > '' AND s.kind = 'said' AND s.retired_at IS NULL AND ${where.sql}
+       WHERE s.turn_id > '' AND s.kind = 'said' AND s.retired_at IS NULL
        GROUP BY s.place_id`
     )
-    .all(...where.params)) {
+    .all()) {
     const place = text(row.place_id);
     const at = momentOf(row.last);
     if (place !== null && at !== null) out.set(place, at);
@@ -125,37 +122,33 @@ function newestLineAt(db: Db, placeId: string): number | null {
   return momentOf(row?.occurred_at);
 }
 
-/** The live chats the context reads, mirrors of her diary aside, by id. */
-function chatIdsOf(db: Db, ctx: Context): Array<string> {
+/** The live chats, mirrors of her diary aside, by id. */
+function chatIdsOf(db: Db): Array<string> {
   const mirrors = new Set(mirrorPlaces(db).map((one) => one.placeId));
-  const where = whereFor(ctx, 'p');
   return db
     .prepare(
       `SELECT p.id FROM places p
-       WHERE p.chat IN ('group', 'dm') AND p.retired_at IS NULL AND p.gone_at IS NULL AND ${where.sql}
+       WHERE p.chat IN ('group', 'dm') AND p.retired_at IS NULL AND p.gone_at IS NULL
        ORDER BY p.id`
     )
-    .all(...where.params)
+    .all()
     .flatMap((row) => {
       const id = text(row.id);
       return id === null || mirrors.has(id) ? [] : [id];
     });
 }
 
-/** The people memory holds a description, a claim or an attitude change of under the context, she aside. */
-function knownPersonIds(db: Db, ctx: Context): Array<string> {
-  const d = whereFor(ctx, 'd');
-  const c = whereFor(ctx, 'c');
-  const e = audienceWhere(ctx, 'e');
+/** The people memory holds a description, a claim or an attitude change of, she aside. */
+function knownPersonIds(db: Db): Array<string> {
   return db
     .prepare(
       `SELECT d.subject_id AS id FROM descriptions d
-         WHERE d.subject_kind = 'person' AND d.retired_at IS NULL AND d.current_version IS NOT NULL AND ${d.sql}
-       UNION SELECT c.subject_id FROM claims c WHERE c.subject_kind = 'person' AND c.retired_at IS NULL AND ${c.sql}
-       UNION SELECT e.person_id FROM affinity_events e WHERE e.person_id IS NOT NULL AND e.retired_at IS NULL AND ${e.sql}
+         WHERE d.subject_kind = 'person' AND d.retired_at IS NULL AND d.current_version IS NOT NULL
+       UNION SELECT c.subject_id FROM claims c WHERE c.subject_kind = 'person' AND c.retired_at IS NULL
+       UNION SELECT e.person_id FROM affinity_events e WHERE e.person_id IS NOT NULL AND e.retired_at IS NULL
        ORDER BY id`
     )
-    .all(...d.params, ...c.params, ...e.params)
+    .all()
     .flatMap((row) => {
       const id = text(row.id);
       return id === null || id === PERSONA_ID ? [] : [id];
@@ -180,14 +173,14 @@ function userAccount(db: Db, accountId: string): boolean {
 }
 
 /** The people and the places of a heartbeat at `now`, in id order. */
-export function heartbeatListsOf(db: Db, ctx: Context, now: number): HeartbeatLists {
+export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
   const since = new Date(now - ACTIVITY_DAYS * DAY_MS).toISOString();
-  const purposes = fieldTexts(db, ctx, 'place', 'purpose');
-  const own = ownLastByPlace(db, ctx);
+  const purposes = fieldTexts(db, 'place', 'purpose');
+  const own = ownLastByPlace(db);
   // Each person's newest line of the window and its place, from the same reads that count the places.
   const newest = new Map<string, { at: number; placeId: string }>();
-  const places = chatIdsOf(db, ctx).map((placeId): ListedPlace => {
-    const writers = writersOf(db, ctx, placeId, since);
+  const places = chatIdsOf(db).map((placeId): ListedPlace => {
+    const writers = writersOf(db, placeId, since);
     for (const one of writers) {
       const known = newest.get(one.key);
       if (one.lastAt !== null && (known === undefined || one.lastAt > known.at))
@@ -201,9 +194,9 @@ export function heartbeatListsOf(db: Db, ctx: Context, now: number): HeartbeatLi
       ownLastAt: own.get(placeId) ?? null,
     };
   });
-  const relations = fieldTexts(db, ctx, 'person', 'relationship');
-  const ids = knownPersonIds(db, ctx);
-  const scores = new Map(strongestAttitudesOf(db, ctx, ids.length).map((one) => [one.person, one.score]));
+  const relations = fieldTexts(db, 'person', 'relationship');
+  const ids = knownPersonIds(db);
+  const scores = new Map(strongestAttitudesOf(db, internalContext(), ids.length).map((one) => [one.person, one.score]));
   const names = personNamesOf(db, ids);
   const people = ids.flatMap((personId): Array<ListedPerson> => {
     const person = livePerson(db, personId);

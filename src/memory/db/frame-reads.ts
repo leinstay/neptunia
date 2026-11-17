@@ -804,7 +804,7 @@ export type FrameReads = {
   /** A place's count of lines and the numbers of its newest `newest` lines (chat-lines.ts#placeLineNumbers). */
   placeLines?(placeId: string, newest: number): PlaceLineNumbers;
   /** The people and the places a heartbeat lists (heartbeat-lists.ts#heartbeatListsOf). */
-  heartbeatLists?(ctx: Context, now: number): HeartbeatLists;
+  heartbeatLists?(now: number): HeartbeatLists;
 };
 
 const NO_MIND: Mind = {
@@ -877,6 +877,6 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     affinityChanges: (ctx, personId, limit) => over([], (db) => affinityChangesOf(db, ctx, { personId, limit })),
     placeLines: (placeId, newest) =>
       over<PlaceLineNumbers>({ count: 0, numbers: new Map() }, (db) => placeLineNumbers(db, placeId, newest)),
-    heartbeatLists: (ctx, now) => over({ people: [], places: [] }, (db) => heartbeatListsOf(db, ctx, now)),
+    heartbeatLists: (now) => over({ people: [], places: [] }, (db) => heartbeatListsOf(db, now)),
   };
 }
