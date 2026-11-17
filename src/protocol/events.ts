@@ -139,6 +139,10 @@ export type Author = { id: string; name: string | null; self: boolean; bot: bool
  * absent): the platform's own message (a member joined, a pin, a boost), which no author writes. `at`: when it was written. `replyToId`: the message it
  * replies to (a forward replies to nothing); `replyPingAccountId`: the replied-to author when only
  * the reply notified them; `forwardedFrom`: the name of the chat a forward came from.
+ * A custom emoji stands in `content` as the token `<emoji:ID>`, with `ID` the platform id of an entry of `emojis`; the
+ * core turns each token into the emoji's stable name before it stores or shows the line. A reaction with a custom
+ * emoji is `{ emoji: '<emoji:ID>', name, animated, count, mine }`, `name` its platform name; one with a unicode emoji
+ * is `{ emoji, count, mine }`.
  * `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` keep the shapes the
  * core's media module reads (src/media/classify.ts). `messageRefs` (optional): the messages the text links to, as
  * `MessageReference`s, in the order they are written.
