@@ -3,14 +3,20 @@
 // are pure. The facts carry sizes, names, codes and the place a call gave, never her words or a chat line.
 
 import { parseWhen } from '../../src/intentions/model.ts';
+import { ERRAND_TOOLS } from '../../src/tools/definitions.ts';
 
 /** One call of hers as the turn's gate recorded it. */
 export type InnerCall = { name: string; status: string; code: string | null };
 
-/** How a sample ended: a skip, one intention change, or anything else. */
+/**
+ * How a sample ended: her own skip, one intention change, or unresolved with a short code. `code` is `errand-proposed`
+ * (an errand call only proposed in shadow), `errand-unanswered` (an errand call that found no answer in
+ * `--errand-answers`), `step-cap`, `time-budget` or `token-cap` (the loop cut her calls), the turn's outcome when it
+ * neither spoke nor skipped (`error`, `refused`, `cancelled`, `not-now`), or `no-decision` (no change and no skip).
+ */
 export type InnerEnd =
   | { kind: 'skip' }
-  | { kind: 'other' }
+  | { kind: 'unresolved'; code: string }
   | {
       kind: 'intention';
       change: 'set' | 'update' | 'cancel';
@@ -29,8 +35,13 @@ export type SampleFacts = {
   requests: Array<{ promptTokens: number | null; thinkChars: number }>;
   thinkChars: number;
   calls: Array<InnerCall>;
+  /** Each errand call that was not refused, with the agent it went to and whether a result answered it. */
+  errands: Array<{ agent: string; answered: boolean }>;
   end: InnerEnd;
 };
+
+/** How the turn runner said the turn ended: its `outcome` and `reason`, and the cut of the loop (`inner.loop.cut`). */
+export type TurnEnd = { outcome: string | null; reason: string | null; cut: string | null };
 
 type Request = { usage?: { prompt_tokens?: unknown } | null; blocks?: ReadonlyArray<{ name: string; chars: number }> };
 type Answer = {
@@ -47,6 +58,10 @@ type Action = Record<string, unknown> & {
 
 const CHANGES = { 'intention.set': 'set', 'intention.update': 'update', 'intention.cancel': 'cancel' } as const;
 const SIX_HOURS_MIN = 6 * 60;
+/** The cuts of the loop that end a turn before she decided, by their code. */
+const CUTS: Readonly<Record<string, string>> = { steps: 'step-cap', time: 'time-budget', tokens: 'token-cap' };
+/** The answer of an errand call whose wait ended with no result (src/tools/operations/errand.ts). */
+const WAIT_ENDED = 'errand-wait-ended';
 
 const tokensOf = (request: Request | undefined): number | null => {
   const n = Number(request?.usage?.prompt_tokens);
@@ -56,17 +71,37 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
 
 /**
  * The facts of one sample. `requests` are her reply requests in order, `answers` her parsed answers to them, `actions`
- * the turn's inner actions. The ending is the last intention change that was proposed or ran; a sample without one is
- * a skip when her last answer skipped. `directOf` says whether a place is a direct chat, null when unknown.
+ * the turn's inner actions, `turn` what the runner said of its end. The ending, first match wins: a turn that neither
+ * spoke nor skipped is unresolved with its outcome; an errand call left without a result is unresolved; the last
+ * intention change that was proposed or ran is the ending; a loop cut is unresolved; the runner's `skip`, or her last
+ * answer's skip, is a skip; anything else is unresolved `no-decision`. `directOf` says whether a place is a direct
+ * chat, null when unknown.
  */
 export function sampleFacts(
-  { requests, answers, actions }: { requests: Array<Request>; answers: Array<Answer>; actions: Array<Action> },
+  {
+    requests,
+    answers,
+    actions,
+    turn,
+  }: { requests: Array<Request>; answers: Array<Answer>; actions: Array<Action>; turn: TurnEnd },
   { now, timezone, directOf }: { now: number; timezone: string; directOf: (place: string) => boolean | null }
 ): SampleFacts {
   const thinks = answers.map((answer) => text(answer.think).length);
   const change = actions.findLast((action) => text(action.skill) in CHANGES && action.status !== 'refused');
-  let end: InnerEnd = answers.at(-1)?.skip === true ? { kind: 'skip' } : { kind: 'other' };
-  if (change) {
+  const errandCalls = actions.filter(
+    (action) => Object.hasOwn(ERRAND_TOOLS, text(action.skill)) && action.status !== 'refused'
+  );
+  const errands = errandCalls.map((action) => ({
+    agent: ERRAND_TOOLS[text(action.skill)] ?? '',
+    answered: action.status === 'executed' && action.code !== WAIT_ENDED,
+  }));
+  const proposed = errandCalls.some((action) => action.status === 'proposed');
+  const cut = turn.cut === null ? null : (CUTS[turn.cut] ?? null);
+  let end: InnerEnd;
+  if (turn.outcome !== 'skip' && turn.outcome !== 'spoke') end = { kind: 'unresolved', code: turn.outcome ?? 'error' };
+  else if (proposed) end = { kind: 'unresolved', code: 'errand-proposed' };
+  else if (errands.some((errand) => !errand.answered)) end = { kind: 'unresolved', code: 'errand-unanswered' };
+  else if (change) {
     const skill = text(change.skill) as keyof typeof CHANGES;
     const args = answers.flatMap((answer) => answer.calls ?? []).findLast((call) => call.skill === skill)?.args ?? {};
     const place = text(args.place) || null;
@@ -82,7 +117,9 @@ export function sampleFacts(
       recurs: every !== '' && every !== 'none',
       purposeWords: text(args.text).split(/\s+/).filter(Boolean).length,
     };
-  }
+  } else if (cut !== null) end = { kind: 'unresolved', code: cut };
+  else if (turn.outcome === 'skip' || answers.at(-1)?.skip === true) end = { kind: 'skip' };
+  else end = { kind: 'unresolved', code: 'no-decision' };
   return {
     promptTokens: tokensOf(requests[0]),
     blocks: (requests[0]?.blocks ?? []).map(({ name, chars }) => ({ name, chars })),
@@ -93,6 +130,7 @@ export function sampleFacts(
       status: text(action.status),
       code: action.status === 'refused' ? text(action.code) || null : null,
     })),
+    errands,
     end,
   };
 }
@@ -101,7 +139,10 @@ type Share = { count: number; share: number | null };
 
 export type InnerSummary = {
   samples: number;
-  /** Shares of the samples. */
+  /** A share of the samples, and its codes from most to least. */
+  unresolved: Share;
+  unresolvedCodes: Array<{ code: string; count: number }>;
+  /** Shares of the samples that ended resolved. */
   skips: Share;
   intentions: Share;
   /** Shares of the intentions. */
@@ -134,15 +175,22 @@ function counted(keys: Array<string>): Array<[string, number]> {
   return [...counts].sort((a, b) => b[1] - a[1]);
 }
 
-/** The counts over the samples of one variant: skips and intentions of the samples, the rest of the intentions. */
+/**
+ * The counts over the samples of one variant: the unresolved of the samples, skips and intentions of the samples that
+ * ended resolved, the rest of the intentions.
+ */
 export function innerSummary(samples: Array<SampleFacts>): InnerSummary {
   const ends = samples.map((sample) => sample.end);
   const changes = ends.filter((end) => end.kind === 'intention');
   const placed = changes.flatMap((end) => (end.place === null ? [] : [end.place]));
+  const unresolved = ends.flatMap((end) => (end.kind === 'unresolved' ? [end.code] : []));
+  const resolved = samples.length - unresolved.length;
   return {
     samples: samples.length,
-    skips: share(ends.filter((end) => end.kind === 'skip').length, samples.length),
-    intentions: share(changes.length, samples.length),
+    unresolved: share(unresolved.length, samples.length),
+    unresolvedCodes: counted(unresolved).map(([code, count]) => ({ code, count })),
+    skips: share(ends.filter((end) => end.kind === 'skip').length, resolved),
+    intentions: share(changes.length, resolved),
     withPlace: share(placed.length, changes.length),
     direct: share(changes.filter((end) => end.direct === true).length, changes.length),
     dueOverSixHours: share(
@@ -166,8 +214,10 @@ export function innerSummaryTable(summary: InnerSummary): Array<string> {
     '| Measure | Value |',
     '|---|---|',
     `| samples | ${summary.samples} |`,
-    `| skips, of samples | ${pct(summary.skips)} |`,
-    `| intentions, of samples | ${pct(summary.intentions)} |`,
+    `| unresolved, of samples | ${pct(summary.unresolved)} |`,
+    ...summary.unresolvedCodes.map((entry) => `| unresolved \`${entry.code}\` | ${entry.count} |`),
+    `| skips, of resolved samples | ${pct(summary.skips)} |`,
+    `| intentions, of resolved samples | ${pct(summary.intentions)} |`,
     `| with a place, of intentions | ${pct(summary.withPlace)} |`,
     `| in a direct chat, of intentions | ${pct(summary.direct)} |`,
     `| due over six hours away, of intentions | ${pct(summary.dueOverSixHours)} |`,

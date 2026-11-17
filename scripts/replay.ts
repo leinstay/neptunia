@@ -82,9 +82,13 @@
 // sample: the `<wake>` block, her `<think>`, her messages and calls with their arguments,
 // the actions (proposed, executed, refused), the cost, and `facts` (scripts/lib/inner-summary.ts#sampleFacts: the
 // first request's prompt tokens and block sizes, each request's tokens and think size, every call's name, status and
-// refusal code, and how the sample ended: a skip, or one intention change with its kind, place as the call gave it,
-// whether that place is a direct chat, minutes to its due time, recurrence and purpose length in words). `summary`
-// counts them over the samples (innerSummary) and heads the Markdown report as a table; the same report in Markdown
+// refusal code, each errand call with its agent and whether a result answered it, and how the sample ended: one
+// intention change with its kind, place as the call gave it, whether that place is a direct chat, minutes to its due
+// time, recurrence and purpose length in words; a skip of her own, with no call of hers left unanswered; or
+// unresolved with a short code: an errand call only proposed or not answered, a loop cut by the step cap, the time
+// budget or the token cap, an error, or no decision at all). `summary` counts the three endings over the samples
+// (innerSummary), takes the shares of skips and intentions over the resolved samples, and heads the Markdown report
+// as a table; the same report in Markdown
 // goes to stderr and to `--out` whatever its extension, and the JSON is stdout's. `--seed <text>` draws sample i from
 // a random source of the seed and i, so two variants meet the same order; without it the samples draw from
 // Math.random. `--spend` also stops the samples: none starts when the cost reported so far plus the
@@ -2798,7 +2802,16 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         posted: writes.filter((write) => write.op === 'send').length,
         usage,
         facts: sampleFacts(
-          { requests: calls.filter((call) => call.purpose === 'reply'), answers, actions },
+          {
+            requests: calls.filter((call) => call.purpose === 'reply'),
+            answers,
+            actions,
+            turn: {
+              outcome: result?.outcome ?? null,
+              reason: result?.reason ?? null,
+              cut: result?.inner?.loop?.cut ?? null,
+            },
+          },
           { now, timezone, directOf: (place) => direct.get(place) ?? null }
         ),
       });
