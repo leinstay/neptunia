@@ -523,6 +523,7 @@ test('answerReply: reads everything through the view, so another view of the sam
       listUserProfiles: () => [],
       listChannels: () => [],
       getLore: () => [],
+      mediaNameOf: noMediaNames,
     },
   };
   const llm = fakeLlm('<skip/>');
@@ -806,8 +807,9 @@ test('answerReply: a replayed line naming a custom emoji carries the <media> blo
     samples: 1,
     at: NOW,
   });
-  assert.ok(result.request.user.includes('<media>'), result.request.user);
-  assert.ok(result.request.user.includes(':e1:'), result.request.user);
+  const user = result.request.user;
+  assert.ok(user.includes('<media>'), user);
+  assert.ok(user.includes(':e1:'), user);
 });
 
 test('sandboxRequestInput: names every input buildRequest reads; what it leaves out is SANDBOX_OMITS, passed as absent', () => {
@@ -1236,6 +1238,7 @@ function baseView() {
         listUserProfiles: () => Object.values(asRecord(data).users),
         listChannels: () => asRecord(data).channels,
         getLore: () => asRecord(data).lore,
+        mediaNameOf: noMediaNames,
       },
     },
   };
@@ -1449,6 +1452,7 @@ test('hiddenLater: counts what the cutoff hides, by kind; nothing for undated me
       listUserProfiles: () => [bare],
       listChannels: () => [],
       getLore: () => null,
+      mediaNameOf: noMediaNames,
     },
   };
   assert.deepEqual(

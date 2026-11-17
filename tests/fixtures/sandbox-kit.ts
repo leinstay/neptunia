@@ -1,4 +1,6 @@
 // The scenes of the sandbox tests: a moment as normalized messages, and the fake config, hot, store and llm they run over.
+import { noMediaNames } from './media-namer.ts';
+import type { MediaName } from '../../src/memory/store-media-names.ts';
 import { labels } from './labels.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { chainsOnDefaults } from './chains.ts';
@@ -112,6 +114,7 @@ export function fakeStore({
   listChannels: () => Array<unknown>;
   listUserProfiles: () => Array<unknown>;
   getLore: () => Array<unknown>;
+  mediaNameOf: (name: string) => MediaName | null;
   updatePlace: () => number;
   state: { data: Record<string, unknown>; markDirty: () => number };
 } {
@@ -127,6 +130,7 @@ export function fakeStore({
     listChannels: () => channels,
     listUserProfiles: () => Object.values(userProfiles),
     getLore: () => loreEntries,
+    mediaNameOf: noMediaNames,
     updatePlace: writer('updatePlace'),
     state: { data: {}, markDirty: writer('markDirty') },
   };
