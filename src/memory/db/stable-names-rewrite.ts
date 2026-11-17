@@ -5,7 +5,8 @@
 // name of the emoji the line links under that name; a line that links no emoji of that name is tied by name, when exactly
 // one known emoji of its interface holds it or `choose` names one, and gets the link and the media row it misses. A
 // sticker reference of a line that links one sticker takes the current form with its stable name. The other stored texts
-// follow stable-names-texts.ts. A token in code stays, as `renderCustomEmoji` leaves it. The write kind
+// follow stable-names-texts.ts. An unlinked media row of a file a linked row holds, by path and `sha1`, goes; the file
+// stays. A token in code stays, as `renderCustomEmoji` leaves it. The write kind
 // `stable-names-rewrite` (session-write.ts) applies a plan in one transaction and refuses a plan whose rows changed
 // since it was read.
 
@@ -31,9 +32,13 @@ export type Tie = {
   animated: boolean;
 };
 
-/** What a rewrite would do: the names to issue, the texts, media names and links to change, and counts of each. */
+/**
+ * What a rewrite would do: the names to issue, the texts, media names and links to change, the unlinked media rows of a file
+ * a linked row holds, and counts of each.
+ */
 export type StableNamesPlan = {
   issue: Array<MediaNameRow>;
+  twins: Array<string>;
   lines: Array<Change<'sourceId'>>;
   media: Array<Change<'mediaId'>>;
   cells: Array<Cell>;
@@ -372,9 +377,23 @@ function tablesOf(plan: Omit<StableNamesPlan, 'counts'>): Record<string, number>
   for (const row of plan.media) add('media', row.mediaId);
   for (const tie of plan.ties) add('media', tie.mediaId ?? keyOf(tie.iface, 'emoji', tie.nativeId));
   plan.ties.forEach((tie, at) => add('media_links', `${tie.sourceId} ${at}`));
+  for (const id of plan.twins) add('media', id);
   plan.issue.forEach((row) => add('media_names', keyOf(row.iface, row.kind, row.nativeId)));
   return Object.fromEntries([...ids].map(([table, set]) => [table, set.size]));
 }
+
+/** A media row's twin: a linked row that holds the same file, its path and `sha1`. */
+const TWIN = `m.path IS NOT NULL AND m.sha1 IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = m.id)
+  AND EXISTS (SELECT 1 FROM media o JOIN media_links l ON l.media_id = o.id
+    WHERE o.id <> m.id AND o.path = m.path AND o.sha1 = m.sha1)`;
+
+/** The unlinked media rows of a file a linked row holds: a diary picture left behind by its relink to her post. */
+const twinsOf = (db: Db): Array<string> =>
+  db
+    .prepare(`SELECT m.id AS id FROM media m WHERE ${TWIN} ORDER BY m.rowid`)
+    .all()
+    .map((row) => text(row.id));
 
 /**
  * What a rewrite of `db` would do, read from its rows alone. `choose` ties a platform name two emoji hold, and
@@ -393,7 +412,14 @@ export function planStableNamesRewrite(
   const match = matchOf(knownOf(db, namer, renames), choose);
   const planned = planLines(db, byLine, match, left);
   const cells = [...planned.cells, ...textCells(db, resolverOf(markup, match, left))];
-  const plan = { issue: namer.issue, lines: planned.lines, media: [...renames.values()], cells, ties: planned.ties };
+  const plan = {
+    issue: namer.issue,
+    twins: twinsOf(db),
+    lines: planned.lines,
+    media: [...renames.values()],
+    cells,
+    ties: planned.ties,
+  };
   const counts = {
     lines: planned.lines.length,
     tokens: planned.tokens,
@@ -473,7 +499,8 @@ function writeTie(db: Db, tie: Tie): void {
      VALUES (?, 'emoji', ?, 'unknown', ?, ?)`
   ).run(mediaId, tie.nativeId, JSON.stringify({ name: tie.name, animated: tie.animated }), tie.iface);
   db.prepare(
-    `INSERT INTO media_links (owner_kind, owner_id, position, media_id)
+    // A line that links the emoji under another platform name holds its one link already.
+    `INSERT OR IGNORE INTO media_links (owner_kind, owner_id, position, media_id)
      SELECT 'source', ?, COALESCE(MAX(position) + 1, 0), ? FROM media_links WHERE owner_kind = 'source' AND owner_id = ?`
   ).run(tie.sourceId, mediaId, tie.sourceId);
 }
@@ -504,7 +531,8 @@ function checkFresh(db: Db, { lines, media, cells }: Checked): void {
 
 /**
  * The write kind `stable-names-rewrite` on the writer connection: issues the plan's names, rewrites its lines and other
- * texts, renames its media rows and makes the links its lines miss, in one transaction. A rewritten line loses its stems,
+ * texts, renames its media rows, makes the links its lines miss and deletes the unlinked rows of a file a linked row
+ * holds, in one transaction. A rewritten line loses its stems,
  * as an upsert of a changed text does, and the stems job stems it again. A row that no longer holds what the plan read
  * refuses the whole write.
  */
@@ -518,11 +546,21 @@ export function applyStableNamesRewrite(
     cells: cellsOf(update.cells),
   };
   const ties = tiesListOf(update.ties);
+  const twins = listOf(update.twins).map((id) => {
+    if (typeof id !== 'string') throw malformed();
+    return id;
+  });
   const names = mediaNamesWriteOf({ rows: update.issue });
   const at = isFiniteNumber(update.now) ? update.now : Date.now();
   return handle.transaction(() => {
     const db = dbOf(handle);
     checkFresh(db, checked);
+    const twin = db.prepare(`SELECT 1 AS ok FROM media m WHERE m.id = ? AND ${TWIN}`);
+    if (twins.some((id) => twin.get(id) === undefined)) throw stale();
+    for (const id of twins) {
+      db.prepare('DELETE FROM media WHERE id = ?').run(id);
+      db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(`media:${id}`);
+    }
     const { written } = writeMediaNames(db, names, at);
     const rewrite = db.prepare('UPDATE sources SET text = ?, stems = NULL WHERE id = ?');
     for (const line of checked.lines) rewrite.run(line.to, line.id);

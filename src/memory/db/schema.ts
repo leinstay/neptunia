@@ -438,6 +438,21 @@ const MEDIA_NAMES = `CREATE TABLE IF NOT EXISTS media_names (
     UNIQUE (iface, kind, native_id)
   );`;
 
+/**
+ * Version 64: one link per media of an owner. The first link of each owner and media stays and the later ones go, the
+ * owner's remaining positions close up in their old order, and a unique key on `(owner_kind, owner_id, media_id)`
+ * refuses a second link from then on.
+ */
+const UNIQUE_MEDIA_LINKS = `DELETE FROM media_links WHERE EXISTS (SELECT 1 FROM media_links f
+    WHERE f.owner_kind = media_links.owner_kind AND f.owner_id = media_links.owner_id
+      AND f.media_id = media_links.media_id AND f.position < media_links.position);
+  CREATE TEMP TABLE media_links_order AS SELECT rowid AS link,
+    ROW_NUMBER() OVER (PARTITION BY owner_kind, owner_id ORDER BY position) - 1 AS position FROM media_links;
+  UPDATE media_links SET position = -1 - (SELECT o.position FROM media_links_order o WHERE o.link = media_links.rowid);
+  UPDATE media_links SET position = -1 - position;
+  DROP TABLE media_links_order;
+  CREATE UNIQUE INDEX IF NOT EXISTS media_links_owner_media ON media_links(owner_kind, owner_id, media_id);`;
+
 /** The steps above the baseline, version 57 first. */
 export const MIGRATIONS: Array<Migration> = [
   rowLinks,
@@ -447,6 +462,7 @@ export const MIGRATIONS: Array<Migration> = [
   diaryNames,
   noPings,
   MEDIA_NAMES,
+  UNIQUE_MEDIA_LINKS,
 ];
 
 /** The tables that carry a scope and its `audience_id`. */
