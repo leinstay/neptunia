@@ -684,7 +684,6 @@ function generalRaws() {
 const normalize = (raws: Array<ReturnType<typeof rawMessage>>) =>
   raws.map((raw) => {
     const line = normalizeMessage(raw, SELF_ID, {
-      embedTextChars: 200,
       videoSites: SHIPPED.config.media.video.sites,
     });
     // The interface's line names its channel natively; the core reads the same line under its place.

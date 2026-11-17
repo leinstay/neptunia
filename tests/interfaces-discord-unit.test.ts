@@ -110,8 +110,7 @@ function unitHost(dirs: Dirs, client: unknown): InterfaceHost {
   const config = {
     bot: { guildId: 'g1', dryRunChannelId: '', owners: [OWNER_ID] },
     discord: { intents: { presences: false, members: false } },
-    media: { embedTextChars: 200, video: { sites: [] as Array<string> } },
-    context: { maxUrlChars: 200 },
+    media: { video: { sites: [] as Array<string> } },
   };
   return {
     connect: () => connectSocket({ path: join(dirs.dataDir, 'run', 'core.sock'), maxFrameBytes: MAX_FRAME_BYTES }),

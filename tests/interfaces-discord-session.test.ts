@@ -163,8 +163,7 @@ function harness(
     ...(options.servers === undefined ? {} : { servers: options.servers }),
     bot: { guildId: options.botGuildId ?? '', dryRunChannelId: '' },
     discord: { intents: { presences: false, members: false } },
-    media: { embedTextChars: 200, video: { sites: [] as Array<string> } },
-    context: { maxUrlChars: 200 },
+    media: { video: { sites: [] as Array<string> } },
   };
 
   const loop = createLoopback();

@@ -1552,7 +1552,6 @@ test('replayMedia: a stored watched length and total pass through, so a part-wat
       anchorId: sf(3),
       limit: 30,
       selfId: SELF_ID,
-      embedTextChars: 300,
       videoSites: SITES,
     }
   );
@@ -1580,7 +1579,6 @@ test('replayMedia: the describer cache as it stood when she answered renders as 
       anchorId: sf(3),
       limit: 30,
       selfId: SELF_ID,
-      embedTextChars: 300,
       videoSites: SITES,
     }
   );

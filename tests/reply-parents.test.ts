@@ -42,7 +42,7 @@ const OPTIONS = { recent: 3, max: 4 };
 async function scene(stored: ReadonlyArray<Raw>, window: ReadonlyArray<Raw>) {
   const w = world();
   w.channel({ id: 'c1' });
-  w.renormalize({ media: { embedTextChars: 200, video: { sites: ['youtube.com'] } } });
+  w.renormalize({ media: { video: { sites: ['youtube.com'] } } });
   const asked: Array<string> = [];
   w.tap('fetchMessages', ([, ids]) => {
     asked.push(...(ids as Array<string>));
