@@ -1705,7 +1705,7 @@ test('humanizeSpeech: the linter and the writer requests fill humanizer-linter.m
   const text = Array.from({ length: 40 }, (_, i) => `λέξη${i}`).join(' ');
   const { result } = await withCapturedLogs(() =>
     humanizeSpeech({
-      parsed: { messages: [{ text, replyTo: null }] },
+      parsed: { messages: [{ text, replyTo: null }], think: 'σκέψη' },
       loweredCalls: [],
       llm,
       hot,
@@ -1717,5 +1717,9 @@ test('humanizeSpeech: the linter and the writer requests fill humanizer-linter.m
   const linter = calls.find((call) => call.purpose === 'humanizer-linter');
   const writer = calls.find((call) => call.purpose === 'humanizer-writer');
   assertFilled(linter?.messages, { files: ['humanizer-linter'] }, 'humanizer linter');
-  assertFilled(writer?.messages, { files: ['humanizer-writer'], blocks: ['draft', 'findings'] }, 'humanizer writer');
+  assertFilled(
+    writer?.messages,
+    { files: ['humanizer-writer'], blocks: ['thoughts', 'draft', 'findings'] },
+    'humanizer writer'
+  );
 });

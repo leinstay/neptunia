@@ -120,14 +120,14 @@ test('an addressed turn posts the writer messages, each on the line it answers',
   );
 });
 
-test('her think stays out of both humanizer requests', async () => {
-  // Catches: her reasoning sent on with the draft, which a provider's filter answers by stopping the writer's answer.
-  const { requests } = await turnOf({
-    answers: [`<think>κρυφή σκέψη</think><msg reply="#1">${LONG_A}</msg><msg reply="#2">${LONG_B}</msg>`],
-    write: '<msg reply="#1">ένα</msg><msg reply="#2">δύο</msg>',
-  });
-  assert.equal(requests.length, 2);
-  assert.ok(requests.every((request) => !userOf(request).includes('κρυφή σκέψη')));
+const THOUGHT = [`<think>κρυφή σκέψη</think><msg reply="#1">${LONG_A}</msg><msg reply="#2">${LONG_B}</msg>`, '<skip/>'];
+
+test('the writer request of an addressed turn holds her think', async () => {
+  // Catches: the turn hands the humanizer her messages without her think, and the writer rewrites without what she meant.
+  const { requests } = await turnOf({ answers: THOUGHT, write: '<msg reply="#1">ένα</msg><msg reply="#2">δύο</msg>' });
+  const [linter, writer] = requests.map(userOf);
+  assert.ok(writer.includes('κρυφή σκέψη'));
+  assert.ok(!linter.includes('κρυφή σκέψη'));
 });
 
 test('an inner turn posts the writer messages in place of her lowered message.create calls', async () => {

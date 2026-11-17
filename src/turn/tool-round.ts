@@ -198,6 +198,7 @@ export type StepParsed = ActArgs['parsed'] &
   HoldArgs['parsed'] & {
     loweredCalls?: Array<PlannedCall>;
     skip?: unknown;
+    think?: unknown;
     thinkOpen?: unknown;
     untagged?: unknown;
   };
@@ -706,7 +707,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           const args = coercion.args as Obj;
           // A post of her own goes through the humanizer as one message, one call at a time (docs/humanizer.md).
           if (record.name === 'message.create' && typeof args.text === 'string') {
-            const speech = { messages: [{ text: args.text }] };
+            const speech = { messages: [{ text: args.text }], think: answer.parsed.think };
             const own = await humanizeSpeech({
               parsed: speech,
               loweredCalls: [],
