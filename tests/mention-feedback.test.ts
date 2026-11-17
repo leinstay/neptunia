@@ -12,6 +12,7 @@ import { untaggedNote } from '../src/behavior/turn.ts';
 import { labels as fixtureLabels } from './fixtures/labels.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { appended, contentText, coreTurn } from './fixtures/turn-harness.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The owner's decision of 2026-11-10: one handle per person, a line's author is the handle alone (authors.line).
 const labels = {
@@ -98,6 +99,7 @@ test('memberNameMap: directory names and aliases, authors and mentioned members,
 
 const SELF = '900000000000000001';
 const base = {
+  mediaNameOf: noMediaNames,
   timezone: 'UTC',
   gapMinutes: 20,
   maxChars: 800,

@@ -24,6 +24,7 @@ import type { World } from './fixtures/memory-db/mind-world.ts';
 import { rig, channel, message } from './fixtures/reads-rig.ts';
 import type { Rig } from './fixtures/reads-rig.ts';
 import { labels } from './fixtures/labels.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const NOW = Date.parse('2026-11-02T10:00:00.000Z');
 const quiet = { info() {}, warn() {}, error() {} };
@@ -130,6 +131,7 @@ async function readPlace(world: World, io: Rig, place: string): Promise<ReadAnsw
   const tools = createInTurnTools({
     hot,
     store: {
+      mediaNameOf: noMediaNames,
       listUserProfiles: () => [],
       notePlaceAddress: (placeId: string, address: string) =>
         Promise.resolve(applyMemoryWrite(world.db, { kind: 'place-address', placeId, address })),

@@ -21,6 +21,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -314,6 +315,7 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
 test('draw parity: /nep draw with self', async () => {
   const images = recordingImages();
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     reads: world().reads,
     port: world().port,
     hot: hot(),

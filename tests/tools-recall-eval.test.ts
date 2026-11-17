@@ -40,6 +40,7 @@ import { webSearchKeys, webSearchReady } from '../scripts/recall-eval.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -333,6 +334,7 @@ test('recall-eval: the local root runs the record stage of the real recall, surf
   };
   const channelNameOf = (cid: unknown) => (cid === C1 ? 'garden' : null);
   const recall = createRecall({
+    mediaNameOf: noMediaNames,
     iface: 'discord',
     reads: localReads({ placeId: 'g1', channelNameOf }),
     hot: { config, prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels } },

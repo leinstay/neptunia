@@ -17,6 +17,7 @@ import { catalogueProblems, renderCodesTable } from '../scripts/lib/labels-catal
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { LabelsFile } from '../src/config/labels.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -268,6 +269,7 @@ const markText = (labels: unknown, mark: unknown) => {
   };
   // Slice 2 (a): a mark is its own line among the lines by time, made by orderedHistory, not withCalls.
   return formatTranscript(orderedHistory(lines, callMarksFor([call]), T0 + 3_600_000), {
+    mediaNameOf: noMediaNames,
     timezone: 'UTC',
     gapMinutes: 20,
     maxChars: 100,

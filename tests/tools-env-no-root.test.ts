@@ -17,6 +17,7 @@ import { createStore } from '../src/memory/store.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { runOp } from '../src/tools/operations/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const opened: Array<MemoryDbService> = [];
 after(async () => {
@@ -46,7 +47,7 @@ function rig(): ReturnType<typeof createOpsEnv> {
     reloadConfig: () => true,
     reloadPrompts: () => true,
   };
-  return createOpsEnv({ hot, store: createStore({ dataDir, memoryDb }), memoryDb, dataDir });
+  return createOpsEnv({ mediaNameOf: noMediaNames, hot, store: createStore({ dataDir, memoryDb }), memoryDb, dataDir });
 }
 
 const owner = (env: ReturnType<typeof createOpsEnv>, placeId?: string) => ({

@@ -7,6 +7,7 @@ import { orderedHistory } from '../src/turn/history.ts';
 import { callMarksOf } from '../src/memory/journal.ts';
 import { labels } from './fixtures/labels.ts';
 import { msg } from './fixtures/format-rig.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const MIN = 60_000;
 const T0 = Date.UTC(2026, 8, 20, 10, 0, 0);
@@ -41,6 +42,7 @@ test('a past result of a retired plugin tool still reads as it was stored', () =
     T0 + 60 * MIN
   );
   const items = formatTranscript(out, {
+    mediaNameOf: noMediaNames,
     timezone: 'UTC',
     gapMinutes: 20,
     maxChars: 200,

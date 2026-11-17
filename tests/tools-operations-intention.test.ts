@@ -19,6 +19,7 @@ import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { seedMirror } from './fixtures/diary-mirror.ts';
 import { OWNER_PERSON } from './fixtures/owner-accounts.ts';
 import { wrongly } from './fixtures/loose-types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 useIface('fake');
 const OWNER = '42';
@@ -59,6 +60,7 @@ function makeEnv() {
     now,
   });
   const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: createDiscordInterface().capabilities,
     hot,
     store: { state: { data: {}, markDirty() {} } },

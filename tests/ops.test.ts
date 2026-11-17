@@ -13,6 +13,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 /** The fields of a status card answer: `status.show` carries them in its data. */
 const fieldsOf = (result: { data: unknown }) =>
@@ -114,6 +115,7 @@ function makeEnv({
     getPlace: () => ({ emojiUsage: {} }),
   };
   return createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,
@@ -252,6 +254,7 @@ test('createOpsEnv: the management key and the extra role keys reach the owner s
   };
   const activity: Array<Array<string>> = [];
   const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,
@@ -349,6 +352,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   });
   const errands = { store: () => tasks };
   const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,
@@ -385,6 +389,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   );
 
   const noErrands = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

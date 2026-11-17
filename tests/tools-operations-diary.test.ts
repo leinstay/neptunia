@@ -22,6 +22,7 @@ import { DISCORD, rawMessage, sequenceLlm } from './fixtures/turn-harness.ts';
 import { diaryToolHot } from './fixtures/diary-tool.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import '../src/tools/operations/index.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const NOW = Date.parse('2026-10-27T12:00:00Z');
 const ROOT = 'g1';
@@ -125,6 +126,7 @@ async function turnOf(
   const hot = diaryToolHot({ maxPerDay: MAX_PER_DAY });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store: core.store,

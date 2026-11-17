@@ -37,6 +37,7 @@ import { formatTranscript } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 import { validateEvent } from '../src/protocol/index.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -1488,7 +1489,14 @@ test('normalizeMessage: a reaction whose emoji getter throws (a REST-only client
 function lineOf(messages: Parameters<typeof formatTranscript>[0]): string {
   return String(
     loose(
-      formatTranscript(messages, { timezone: 'UTC', gapMinutes: 20, maxChars: 2000, selfName: 'Bot', labels }).at(-1)
+      formatTranscript(messages, {
+        mediaNameOf: noMediaNames,
+        timezone: 'UTC',
+        gapMinutes: 20,
+        maxChars: 2000,
+        selfName: 'Bot',
+        labels,
+      }).at(-1)
     ).text
   );
 }

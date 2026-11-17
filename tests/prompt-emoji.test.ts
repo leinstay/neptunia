@@ -74,10 +74,10 @@ function baseInput(overrides = {}) {
 }
 
 const INDEX = [
-  { id: '1', name: 'alpha', animated: false },
-  { id: '2', name: 'beta', animated: true },
-  { id: '3', name: 'gamma', animated: false },
-  { id: '4', name: 'delta', animated: false },
+  { id: '1', name: 'alpha', platformName: 'alpha', animated: false },
+  { id: '2', name: 'beta', platformName: 'beta', animated: true },
+  { id: '3', name: 'gamma', platformName: 'gamma', animated: false },
+  { id: '4', name: 'delta', platformName: 'delta', animated: false },
 ];
 
 function userText(request: Built) {

@@ -11,6 +11,7 @@ import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { innerLines } from '../src/tools/operations/status.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 const AT = Date.parse('2026-10-19T12:30:00Z');
@@ -64,6 +65,7 @@ function envOf({ status = STATUS, usage = null }: { status?: typeof STATUS; usag
   const inner = { status: (placeId: string) => (seen.push(placeId), status) };
   return {
     env: createOpsEnv({
+      mediaNameOf: noMediaNames,
       discord: DISCORD,
       hot,
       store,

@@ -71,6 +71,7 @@ import {
 import type { FakeHot, RawMessage } from './fixtures/turn-kit.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 import { chainsOnDefaults } from './fixtures/chains.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 /** What she did through a port: its calls but the reads a turn makes of it. */
 function effectsOf(port: Untyped) {
@@ -5205,6 +5206,7 @@ async function callTurn({
   }
   const client = fakeClient();
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,
@@ -5820,6 +5822,7 @@ function callMarkScene({
   const store = fakeStore();
   const client = fakeClient();
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

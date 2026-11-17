@@ -29,6 +29,7 @@ import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 import { OWNER_PERSON } from './fixtures/owner-accounts.ts';
 import { chainsOnDefaults } from './fixtures/chains.ts';
 import { SERVICE_CONTEXT, TURN_NOW, blockOf, serviceWorld } from './fixtures/service-turn.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 useIface('fake');
 
@@ -128,6 +129,7 @@ async function replyLives(spec: {
     placeChainOf: (placeId: string) => placeChainInDb(mind.db, placeId),
   };
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     hot,
     store,
     client: { user: { id: 'self-id', username: 'Bot' } },

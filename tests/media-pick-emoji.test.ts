@@ -14,6 +14,7 @@ import {
 import { userText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
 const MINUTE = 60_000;
@@ -182,6 +183,7 @@ function rig({ answer = '{"pick":"none","name":null}', pickConfig = {}, gifs = {
       prompts: { labels, 'media-pick': 'Pick for {{name}}.' },
     },
     store: {
+      mediaNameOf: noMediaNames,
       getGifs: () => ({ nextId: 9, backfill: null, entries: gifs }),
       getEmojiRails: (placeId: string) => held.get(placeId) ?? null,
       setEmojiRails: (placeId: string, state: unknown) => {

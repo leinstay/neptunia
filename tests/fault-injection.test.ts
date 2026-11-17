@@ -40,6 +40,7 @@ import { wrongly, present } from './fixtures/loose-types.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 /** The memory database of each data directory used here (a restart opens the same one); closed when the file is done. */
 const MEMORY = new Map<string, ReturnType<typeof openTestMemorySync>>();
@@ -468,6 +469,7 @@ function boot(
   chat.permit(unwritable);
   const reads = createReads(port, SILENT);
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,
@@ -982,6 +984,7 @@ test("row 3: the process dies after an errand's result was stored and before its
 
   // errand.read pages through the whole text.
   const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot: after.hot,
     store: after.store,
@@ -1336,6 +1339,7 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
     line
   );
   const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot: run.hot,
     store: run.store,

@@ -14,6 +14,7 @@ import { formatTranscript, reactorIdsOf } from '../src/format.ts';
 import { labels as fixtureLabels } from './fixtures/labels.ts';
 import { buildRequest, type Built, type Part } from './fixtures/built-request.ts';
 import { framed } from './fixtures/prompt-rig.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const SELF = '100';
 const ROOT = '900';
@@ -313,7 +314,7 @@ test('formatTranscript: her line names its reactors instead of counting them', (
     { id: '7', name: 'Zoé', bot: false },
     { id: '8', name: 'Helper', bot: true },
   ];
-  const [item] = formatTranscript([reacted(users)], { ...base, reactionNames: true });
+  const [item] = formatTranscript([reacted(users)], { mediaNameOf: noMediaNames, ...base, reactionNames: true });
   assert.ok(item.text.endsWith('[reactions: 😂 by Zoé, Helper]'), item.text);
 });
 
@@ -324,7 +325,12 @@ test('formatTranscript: a reactor reads exactly like an author with the same id,
   ]);
   const author = { ...line('1', { self: false, authorId: '7', authorName: 'Zoé' }) };
   const users = [{ id: '7', name: 'Zoé', bot: false }];
-  const items = formatTranscript([author, reacted(users)], { ...base, handles, reactionNames: true });
+  const items = formatTranscript([author, reacted(users)], {
+    mediaNameOf: noMediaNames,
+    ...base,
+    handles,
+    reactionNames: true,
+  });
   const authorForm = items[0].text.match(/\] (.+): text$/)![1];
   assert.equal(authorForm, '@u1abc');
   assert.ok(items[1].text.endsWith(`[reactions: 😂 by ${authorForm}]`), items[1].text);
@@ -334,7 +340,7 @@ test('formatTranscript: a reactor reads exactly like an author with the same id,
       { ...line('1', { self: false, authorId: '8', authorName: 'Helper', bot: true }) },
       reacted([{ id: '8', name: 'Helper', bot: true }]),
     ],
-    { ...base, handles, reactionNames: true }
+    { mediaNameOf: noMediaNames, ...base, handles, reactionNames: true }
   );
   assert.ok(botItems[0].text.includes('] @u2def: text'), botItems[0].text);
   assert.ok(botItems[1].text.endsWith('[reactions: 😂 by @u2def]'), botItems[1].text);
@@ -343,12 +349,14 @@ test('formatTranscript: a reactor reads exactly like an author with the same id,
 test('formatTranscript: past reactionNamesMax the rest is counted, and unknown reactors too', () => {
   const users = ['Ana', 'Bé', 'Cé', 'Dé'].map((name, i) => ({ id: String(i + 10), name, bot: false }));
   const [capped] = formatTranscript([reacted(users, { count: 4 })], {
+    mediaNameOf: noMediaNames,
     ...base,
     reactionNames: true,
     reactionNamesMax: 2,
   });
   assert.ok(capped.text.endsWith('[reactions: 😂 by Ana, Bé and 2 more]'), capped.text);
   const [partly] = formatTranscript([reacted(users.slice(0, 1), { count: 4, mine: true })], {
+    mediaNameOf: noMediaNames,
     ...base,
     reactionNames: true,
   });
@@ -358,19 +366,29 @@ test('formatTranscript: past reactionNamesMax the rest is counted, and unknown r
 test("formatTranscript: counts stay on others' lines, for unknown reactors and with the switch off", () => {
   const users = [{ id: '7', name: 'Zoé', bot: false }];
   const theirs = { ...line('1', { self: false }), reactions: [{ emoji: '😂', count: 1, mine: false, users }] };
-  const [other] = formatTranscript([theirs], { ...base, reactionNames: true });
+  const [other] = formatTranscript([theirs], { mediaNameOf: noMediaNames, ...base, reactionNames: true });
   assert.ok(other.text.endsWith('[reactions: 😂 x1]'), other.text);
-  const [unknown] = formatTranscript([reacted([], { count: 2 })], { ...base, reactionNames: true });
+  const [unknown] = formatTranscript([reacted([], { count: 2 })], {
+    mediaNameOf: noMediaNames,
+    ...base,
+    reactionNames: true,
+  });
   assert.ok(unknown.text.endsWith('[reactions: 😂 x2]'), unknown.text);
-  const [off] = formatTranscript([reacted(users)], { ...base, reactionNames: false });
+  const [off] = formatTranscript([reacted(users)], { mediaNameOf: noMediaNames, ...base, reactionNames: false });
   assert.ok(off.text.endsWith('[reactions: 😂 x1]'), off.text);
   const [noLabel] = formatTranscript([reacted(users)], {
+    mediaNameOf: noMediaNames,
     ...base,
     reactionNames: true,
     labels: { ...labels, transcript: { ...labels.transcript, reactionNames: '' } },
   });
   assert.ok(noLabel.text.endsWith('[reactions: 😂 x1]'), noLabel.text);
-  const [memory] = formatTranscript([reacted(users)], { ...base, mode: 'memory', reactionNames: true });
+  const [memory] = formatTranscript([reacted(users)], {
+    mediaNameOf: noMediaNames,
+    ...base,
+    mode: 'memory',
+    reactionNames: true,
+  });
   assert.ok(memory.text.endsWith('[reactions: 😂 x1]'), memory.text);
 });
 

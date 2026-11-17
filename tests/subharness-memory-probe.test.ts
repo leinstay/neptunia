@@ -18,6 +18,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { createAdmin } from '../src/admin.ts';
 import { reasonedPause } from '../src/keys/commands.ts';
 import { makeStore } from './fixtures/admin-store.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 /** One probe of the writer's path as config.json names it now, as the route watch runs it for the memory role. */
 const memoryProbe = (deps: MemoryProbeDeps, now: number) =>
@@ -283,7 +284,11 @@ test('an owner pause given over memory-down stays when the next probe passes', a
   // Catches: the owner's /pause while she sleeps as memory-down keeps that reason, so a passing probe wakes her against
   // his word while he edits data/.
   const store = makeStore();
-  const admin = createAdmin({ hot: { config: { bot: { owners: [] } }, prompts: {} }, store });
+  const admin = createAdmin({
+    mediaNameOf: noMediaNames,
+    hot: { config: { bot: { owners: [] } }, prompts: {} },
+    store,
+  });
   const pause = reasonedPause({ run: (op, args) => admin.run(op, args, {}), store });
   let clock = T0;
   const results = [false, true];

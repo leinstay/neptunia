@@ -16,6 +16,7 @@ import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { runOp } from '../src/tools/operations/index.ts';
 import { addAccount, addAuthority, addDmPlace } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const SERVER = 'place:server-1';
 const CHANNEL = 'place:channel-1';
@@ -70,7 +71,7 @@ function rig(): { env: ReturnType<typeof createOpsEnv>; store: ReturnType<typeof
     reloadPrompts: () => true,
   };
   const store = createStore({ dataDir, memoryDb });
-  return { env: createOpsEnv({ hot, store, memoryDb, dataDir }), store };
+  return { env: createOpsEnv({ mediaNameOf: noMediaNames, hot, store, memoryDb, dataDir }), store };
 }
 
 const at = (env: ReturnType<typeof createOpsEnv>, placeId: string) => ({ env, asOwner: true, placeId });

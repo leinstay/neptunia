@@ -13,6 +13,7 @@ import { makeStore } from './admin-store.ts';
 import type { StoreFake } from './admin-store.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 import { chainsOf } from './chains.ts';
+import { noMediaNames } from './media-namer.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 
@@ -115,7 +116,7 @@ export function makeAdmin(
     calibrator: { ratio: 1 },
   };
   for (const key of PASSED) passed[key] = (extra[key] as unknown) ?? passed[key];
-  const admin = createAdmin({ discord: DISCORD, hot, store, ...passed });
+  const admin = createAdmin({ mediaNameOf: noMediaNames,  discord: DISCORD, hot, store, ...passed });
   return { admin, hot, store };
 }
 

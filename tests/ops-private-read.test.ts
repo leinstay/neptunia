@@ -18,6 +18,7 @@ import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { runOp } from '../src/tools/operations/index.ts';
 import { ANNA, seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const opened: Array<MemoryDbService> = [];
 after(async () => {
@@ -50,7 +51,13 @@ function rig(): { env: ReturnType<typeof createOpsEnv>; memoryDb: MemoryDbServic
     reloadConfig: () => true,
     reloadPrompts: () => true,
   };
-  const env = createOpsEnv({ hot, store: createStore({ dataDir, memoryDb }), memoryDb, dataDir });
+  const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
+    hot,
+    store: createStore({ dataDir, memoryDb }),
+    memoryDb,
+    dataDir,
+  });
   return { env, memoryDb };
 }
 

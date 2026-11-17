@@ -41,6 +41,7 @@ import { createRecall } from '../src/behavior/recall-run.ts';
 import { quantize } from '../src/memory/vectors.ts';
 import { countOf } from './fixtures/media-memory.ts';
 import { formatDate } from '../src/format.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -93,7 +94,7 @@ function message(id: string, hoursAgo: number, text: string, extra: Record<strin
 const CHAT = Array.from({ length: 30 }, (_, i) => message(`m${i}`, 30 - i, `γραμμή ${i}`));
 
 function render() {
-  return { timezone: 'UTC', gapMinutes: 24 * 60, maxChars: 800, selfName: 'Bot', labels: L };
+  return { mediaNameOf: noMediaNames, timezone: 'UTC', gapMinutes: 24 * 60, maxChars: 800, selfName: 'Bot', labels: L };
 }
 
 function registry() {
@@ -569,7 +570,7 @@ function placeScene(world: World) {
   const hot = { config: { bot: { timezone: 'UTC' }, features: { coreTools: true } }, prompts: { labels } };
   const tools = createInTurnTools({
     hot,
-    store: { listUserProfiles: () => [] },
+    store: { mediaNameOf: noMediaNames, listUserProfiles: () => [] },
     recall: null,
     speech: null,
     record: null,
@@ -807,6 +808,7 @@ function findScene(world: World) {
       markDirty() {},
     },
     listUserProfiles: () => [],
+    mediaNameOf: noMediaNames,
   };
   const recall = createRecall({
     iface: 'discord',

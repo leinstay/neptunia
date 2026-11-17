@@ -18,6 +18,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The chats are held by a fake interface named `fake`.
 useIface('fake');
@@ -285,6 +286,7 @@ async function turn({
   const client = { user: { id: 'self-id', username: 'Bot' } };
   const store = fakeStore();
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     hot,
     store,
     client,

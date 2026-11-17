@@ -25,6 +25,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { LogEntry } from './fixtures/capture-logs.ts';
 import { createSkillsPort, skillText } from './fixtures/skills-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NAME = 'echoer';
@@ -74,6 +75,7 @@ function activated(t: { after: (fn: () => void) => void }) {
 async function runOf(port: SkillsPort, dataDir: string): Promise<{ result: Result; logs: Array<LogEntry> }> {
   const env = {
     ...createOpsEnv({
+      mediaNameOf: noMediaNames,
       discord: createDiscordInterface().capabilities,
       hot: {
         config: { bot: { owners: ['42'], access: {} }, features: {} },

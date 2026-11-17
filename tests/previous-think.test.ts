@@ -11,6 +11,7 @@ import { orderedHistory } from '../src/turn/history.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildRequest } from './fixtures/built-request.ts';
 import { frameOfInput } from './fixtures/prompt-rig.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // A selection without a think answers why; the picks that carry one have no `why`.
 const whyOf = (picked: object) => (picked as { why?: string }).why;
@@ -340,6 +341,7 @@ test('callMarksFor: a call mark carries its arguments into the line through labe
   const lineOf = (status: string, args: unknown) =>
     // Slice 2 (a): a mark is its own line among the lines by time, made by orderedHistory, not withCalls.
     formatTranscript(orderedHistory(lines, callMarksFor([call(status, args)]), T0 + 60 * MIN), {
+      mediaNameOf: noMediaNames,
       timezone: 'UTC',
       gapMinutes: 20,
       maxChars: 100,

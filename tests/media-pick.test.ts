@@ -16,6 +16,7 @@ import { chainsOf } from './fixtures/chains.ts';
 import fs from 'node:fs';
 import { captionOfCached } from '../src/memory/gifs.ts';
 import { wrongly } from './fixtures/loose-types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
 const HOUR = 3_600_000;
@@ -133,6 +134,7 @@ function rig({
   const pick = createMediaPick({
     hot,
     store: {
+      mediaNameOf: noMediaNames,
       getGifs: () => library,
       getEmojiRails: (placeId: string) => rails.get(placeId) ?? null,
       setEmojiRails: (placeId: string, state: unknown) => {

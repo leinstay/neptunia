@@ -691,18 +691,9 @@ test('linkThumbnailCacheKey: an unparsable URL never throws, still deterministic
 
 // --- stickerLabelFor -------------------------------------------------------------
 
-function sticker(name: Untyped, url: Untyped) {
-  return { name, url };
-}
-
 // The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
-test('stickerLabelFor: a Lottie sticker (url null) is the stickerRef form of its stable name, ignoring a description', () => {
-  assert.deepEqual(stickerLabelFor(sticker('s13', null)), { key: 'stickerRef', values: { name: 's13' } });
-});
-
-// The owner on 2026-11-17: an emoji's and a sticker's description stands in the legend, the line holds the stable name.
-test('stickerLabelFor: a picture-format sticker is the stickerRef form, blind or described', () => {
-  assert.deepEqual(stickerLabelFor(sticker('s12', 'https://x')), { key: 'stickerRef', values: { name: 's12' } });
+test('stickerLabelFor: a sticker is the stickerRef form of its stable name', () => {
+  assert.deepEqual(stickerLabelFor({ name: 's13' }), { key: 'stickerRef', values: { name: 's13' } });
 });
 
 // --- collectPictures / collectEmojiItems: stickers and emoji --------------

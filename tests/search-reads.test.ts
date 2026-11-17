@@ -20,6 +20,7 @@ import { ROOT, SELF_ID, channel, member, message, privateChannel, rig } from './
 import { createRecall } from '../src/behavior/recall-run.ts';
 import * as recall from '../src/behavior/recall.ts';
 import { searchPlan } from '../src/behavior/recall.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 type Line = {
   id: string;
@@ -130,6 +131,7 @@ async function scene(options: Scene = {}) {
   const prompts: Array<Array<{ content: string }>> = [];
   const data: Record<string, unknown> = {};
   const recaller = createRecall({
+    mediaNameOf: noMediaNames,
     iface: 'discord',
     hot: {
       config: {

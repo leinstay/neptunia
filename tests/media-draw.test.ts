@@ -25,6 +25,7 @@ import { objectMediaCache } from '../src/memory/store-media.ts';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -271,6 +272,7 @@ test('/nep draw: one picture for the owner', async () => {
   const hotValue = hot();
   const admin = (value: Record<string, Untyped>) =>
     createAdmin({
+      mediaNameOf: noMediaNames,
       reads: world().reads,
       port: world().port,
       hot: value,
@@ -318,6 +320,7 @@ test("draw.create from a member's mention: the picture is charged to the member"
     now: () => NOW,
     skills: skillRegistry(),
     runOp: createAdmin({
+      mediaNameOf: noMediaNames,
       reads: world().reads,
       port: world().port,
       hot: hotCase,
@@ -347,6 +350,7 @@ test("draw.create operation quotes the message it replies to, in that message's 
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   port.seed('c1', { authorId: 'u1', messageId: 'm9', text: 'a lighthouse?' });
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     reads: world().adopt(port, { sendsInHistory: true }),
     hot: hotValue,
     store: store(),
