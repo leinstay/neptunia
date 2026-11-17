@@ -134,7 +134,7 @@ import { personaJournal, personaRecord } from './behavior/inner/persona-sources.
 import { createOwnerAccounts } from './memory/db/person-links.ts';
 import { createReads } from './interface/reads.ts';
 import { freshAttachmentUrl } from './media/gif-post.ts';
-import type { MediaItem } from './memory/describe.ts';
+import type { AttachedGif } from './memory/describe.ts';
 import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
@@ -574,7 +574,7 @@ async function buildCore(
     summarize: createSummarizer({ hot, llm }).summarize,
     // An attached GIF's address may lapse: its message is read again for a fresh one before the clip is fetched.
     // `reads` is defined below and read at each call.
-    freshAddress: (item: MediaItem) =>
+    freshAddress: (item: AttachedGif) =>
       freshAttachmentUrl({
         reads,
         channel: { iface: currentIface() ?? identity.iface, chatId: chatOfPlace(store, item.placeId) ?? item.placeId },

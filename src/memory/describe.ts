@@ -456,8 +456,11 @@ type DescriberDeps = {
    * A fresh address of an attached GIF, read from its message again (`item.placeId` the place it is described in);
    * null, or no dependency, fetches the stored address.
    */
-  freshAddress?: (item: MediaItem) => Promise<string | null>;
+  freshAddress?: (item: AttachedGif) => Promise<string | null>;
 };
+
+/** An attached GIF whose address is read again: the place it is described in and the message it came with. */
+export type AttachedGif = MediaItem & { placeId: string; messageId?: string };
 
 /** A text file's opening, over plain HTTP. */
 async function readTextForm(url: string): Promise<{ ok: boolean; text?: string; reason?: string }> {
@@ -1673,7 +1676,7 @@ function buildDescriber({
    * @param items  collectPictures items; only `gif` ones count.
    */
   function failedGifs(placeId: string, items: Array<MediaItem>): Map<string, { state: 'error'; reason: string }> {
-    const failed = new Map();
+    const failed = new Map<string, { state: 'error'; reason: string }>();
     for (const item of items ?? []) {
       if (item?.kind !== 'gif' || !item.itemId) continue;
       const cached = videoStateFromCache(readEntry(placeId, item.itemId), hot.config, item);

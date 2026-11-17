@@ -2410,7 +2410,7 @@ const FRESH_GIF_URL = 'https://cdn.discordapp.com/attachments/1/2/anim.gif?ex=fr
 
 /** A freshAddress fake that records its items and answers `answer`. */
 function fakeFreshAddress(answer: string | null) {
-  const calls: Untyped[] = [];
+  const calls: Array<Untyped> = [];
   const freshAddress = (item: Untyped) => {
     calls.push(item);
     return Promise.resolve(answer);
