@@ -126,14 +126,14 @@ test('web.read of a message stores the text form of the link it found', async ()
   assert.equal(lookup.cachedReads(PLACE, [LINK]).get(LINK.id), WHOLE);
 });
 
-// Bug: a read page of 4000 characters rides on every later render of its line and crowds the chat out of the budget.
-test('a line of chat shows a read link cut at what a preview shows', () => {
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('a line of chat shows a read link whole, never cut at what a preview shows', () => {
+  // Catches: the transcript cutting silently the page text a web.read stored for the link.
   const [line] = formatTranscript(
     [{ id: 'm1', ts: NOW, authorId: 'u1', authorName: 'Zoë', content: URL_A, links: [LINK] }],
     { labels, timezone: 'UTC', selfName: 'Bot', now: NOW, reads: new Map([[LINK.id, WHOLE]]) }
   );
-  const shown = line.text.match(/mot/g)?.length ?? 0;
-  assert.ok(shown > 100 && shown <= 700 / 4, `${shown} words of the page`);
+  assert.ok(line.text.includes(WHOLE), 'every word of the stored page text');
 });
 
 // `web.read` from the tool down to the wire: `runWebRead` over the real `createLookup` and the real `createPageFetcher`,

@@ -36,7 +36,7 @@ function fakeState() {
 }
 
 // PR 7d: the switches are code, the daily web cap is gone and the page and search measures are constants of
-// src/web/lookup.ts (a page of 1 500 000 bytes and 6000 characters, a 700-character opening, 4000 read whole, five
+// src/web/lookup.ts (a page of 1 500 000 bytes and 6000 characters, a 1000-character excerpt, 4000 read whole, five
 // results, a 900-character summary, the media hosts skipped), so only the settings stay.
 function fakeHot({
   web = {},
@@ -140,6 +140,7 @@ function setup(overrides: Record<string, Untyped> = {}) {
     searches: { brave: fakeBrave(overrides.brave), exa: fakeBrave(overrides.exa ?? EXA_RESULTS) },
     keys: { brave: 'braveApiKey' in overrides ? overrides.braveApiKey : 'test-key', exa: overrides.exaApiKey ?? null },
     now: overrides.now ?? (() => NOW),
+    ...(overrides.summarize ? { summarize: overrides.summarize } : {}),
   };
   return {
     ...deps,
@@ -147,6 +148,16 @@ function setup(overrides: Record<string, Untyped> = {}) {
     exaSearch: deps.searches.exa,
     lookup: createLookup(wrongly(deps)),
   };
+}
+
+/** A fake summarizer: its calls in order, and `answer` for a text over the bound; a text within it comes back as it is. */
+function fakeSummarize(answer: string) {
+  const calls: Array<{ text: string; options: { maxChars: number; kind: 'text' } }> = [];
+  const summarize = (text: string, options: { maxChars: number; kind: 'text' }): Promise<string> => {
+    calls.push({ text, options });
+    return Promise.resolve(Array.from(text).length > options.maxChars ? answer : text);
+  };
+  return { calls, summarize };
 }
 
 const LINK = { id: 'm1#e0', url: 'https://example.org/a', site: 'example.org', title: 'Ricetta' };
@@ -786,9 +797,12 @@ test('searchResults: engine openrouter -- one analyzer request (purpose quick-se
   );
 });
 
-test('readPage: the page text as extracted, cut at web.links.readChars, with its title and final url; no model request; cached', async () => {
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('readPage: a page text over 4000 characters goes to summarize once and its summary is the read, marked retold; title, final url, cached', async () => {
   const long = 'mot '.repeat(1100).trim();
+  const summarizer = fakeSummarize('A short French page about words.');
   const { lookup, pageFetcher, llm, store } = setup({
+    summarize: summarizer.summarize,
     hotOptions: { web: { links: { readCacheHours: 2 } } },
     page: {
       ok: true,
@@ -799,13 +813,18 @@ test('readPage: the page text as extracted, cut at web.links.readChars, with its
       finalUrl: 'https://example.org/final',
     },
   });
-  const { result: page, logs } = await withCapturedLogs(() => lookup.readPage('g1', ' https://example.org/a?x=1 '));
+  const { result, logs } = await withCapturedLogs(() => lookup.readPage('g1', ' https://example.org/a?x=1 '));
+  const page: Record<string, Untyped> = result;
   assert.equal(page.ok, true);
   assert.equal(page.url, 'https://example.org/final');
   assert.equal(page.title, 'Une page');
-  assert.equal(page.cut, true);
-  assert.ok(page.text.length <= 4000 && page.text.endsWith('…'), page.text);
-  assert.equal(llm.calls.length, 0, 'no model request');
+  assert.equal(page.retold, true);
+  assert.equal(page.text, 'A short French page about words.');
+  assert.equal(summarizer.calls.length, 1);
+  const [call] = summarizer.calls;
+  assert.equal(call.text, long, 'the whole page text goes to the summarizer');
+  assert.deepEqual(call.options, { maxChars: 4000, kind: 'text' });
+  assert.equal(llm.calls.length, 0, 'no request of its own beside the summarizer');
   assert.equal(pageFetcher.calls[0].url, 'https://example.org/a?x=1');
   assert.deepEqual(pageFetcher.calls[0].options, {
     maxBytes: 1_500_000,
@@ -820,13 +839,48 @@ test('readPage: the page text as extracted, cut at web.links.readChars, with its
 
   const again: Record<string, Untyped> = await lookup.readPage('g1', 'https://example.org/a?x=1');
   assert.equal(again.cached, true);
+  assert.equal(again.retold, true, 'a cached retelling is still told as one');
   assert.equal(pageFetcher.calls.length, 1);
+  assert.equal(summarizer.calls.length, 1, 'a cached read is not summarized again');
 });
 
-test('readPage: a short page is not cut; failures say why and are not cached', async () => {
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('readPage: a page text within 4000 characters is read as it is, not marked retold', async () => {
+  // Catches: a page that fits rewritten, or told as a retelling.
+  const text = 'mot '.repeat(900).trim();
+  const summarizer = fakeSummarize('never shown');
+  const run = setup({
+    summarize: summarizer.summarize,
+    page: { ok: true, text, title: 'T', finalUrl: 'https://e.example/' },
+  });
+  const page: Record<string, Untyped> = await run.lookup.readPage('g1', 'https://e.example/');
+  assert.deepEqual([page.text, page.retold === true], [text, false]);
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('readPage: a summary still over 4000 characters is the read whole; with no summarizer the page is kept whole', async () => {
+  // Catches: a summary cut at the bound, or a page cut when no summarizer is wired.
+  const long = 'mot '.repeat(1100).trim();
+  const longer = 'résumé '.repeat(700).trim();
+  const summarizer = fakeSummarize(longer);
+  const page = { ok: true, text: long, title: 'T', finalUrl: 'https://e.example/' };
+  const retold: Record<string, Untyped> = await setup({ summarize: summarizer.summarize, page }).lookup.readPage(
+    'g1',
+    'https://e.example/'
+  );
+  assert.equal(retold.text, longer);
+  const kept: Record<string, Untyped> = await setup({ page }).lookup.readPage('g1', 'https://e.example/');
+  assert.equal(kept.text, long);
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('readPage: a short page is not retold; failures say why and are not cached', async () => {
   const short = setup();
   const page: Record<string, Untyped> = await short.lookup.readPage('g1', 'https://example.org/a');
-  assert.deepEqual([page.ok, page.cut, page.text], [true, false, 'Una ricetta semplice con tre uova e farina.']);
+  assert.deepEqual(
+    [page.ok, page.retold === true, page.text],
+    [true, false, 'Una ricetta semplice con tre uova e farina.']
+  );
 
   const blocked = setup({ page: { ok: false, reason: 'private' } });
   assert.deepEqual(await blocked.lookup.readPage('g1', 'http://10.0.0.1/'), { ok: false, reason: 'private' });
@@ -844,15 +898,16 @@ test('readPage: a short page is not cut; failures say why and are not cached', a
   );
 });
 
-// PR 7d: her own tools are code, so a link is always read as its opening, the constant 700 characters.
-test('readLinks: the preview is the opening of the page text, no helper request', async () => {
+// PR 7d: her own tools are code, so a link is read from its page text with no helper request of its own.
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('readLinks: the preview is the page text, kept whole without a summarizer, no helper request', async () => {
   const text = `Una ricetta semplice. ${'Poi altro testo. '.repeat(60)}`;
   const run = setup({
     hotOptions: { prompts: { 'read-link': '' } },
     page: { ok: true, text, title: 'Ricetta', finalUrl: 'https://example.org/a' },
   });
   const preview = present(await readOne(run.lookup, LINK));
-  assert.ok(preview.startsWith('Una ricetta semplice.') && preview.length <= 700, preview);
+  assert.equal(preview, text.trim(), 'over 1000 characters and no summarizer: kept whole');
   assert.equal(run.llm.calls.length, 0, 'no condensing request (and no read-link prompt needed)');
   const cache = run.store.cacheOf(placeOfRoot(run.store, 'g1'));
   assert.equal(cache['preview:m1#e0'].text, preview);
@@ -865,6 +920,48 @@ test('readLinks: the preview is the opening of the page text, no helper request'
   run.llm.capLeft = () => 0;
   const other = await readOne(run.lookup, { ...LINK, id: 'm2#e0', url: 'https://example.org/b' });
   assert.ok(other, 'a preview sends no model request: the request cap does not stop it');
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('readLinks: a page text over 1000 characters goes to summarize once, and its summary is the preview and the cache', async () => {
+  // Catches: a link's excerpt cut at its bound instead of summarized.
+  const text = `Una ricetta semplice. ${'Poi altro testo. '.repeat(70)}La fine.`;
+  const summarizer = fakeSummarize('A simple recipe.');
+  const run = setup({
+    summarize: summarizer.summarize,
+    page: { ok: true, text, title: 'R', finalUrl: 'https://example.org/a' },
+  });
+  assert.equal(await readOne(run.lookup, LINK), 'A simple recipe.');
+  assert.equal(summarizer.calls.length, 1);
+  const [call] = summarizer.calls;
+  assert.ok(call.text.endsWith('La fine.'), 'the whole page text goes to the summarizer');
+  assert.deepEqual(call.options, { maxChars: 1000, kind: 'text' });
+  assert.equal(run.store.cacheOf(placeOfRoot(run.store, 'g1'))['preview:m1#e0'].text, 'A simple recipe.');
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('readLinks: a page text within 1000 characters is the preview as it is', async () => {
+  // Catches: a short page cut at the old 700 characters, or rewritten.
+  const text = `Una ricetta semplice. ${'Poi altro testo. '.repeat(50)}`.trim();
+  const summarizer = fakeSummarize('never shown');
+  const run = setup({
+    summarize: summarizer.summarize,
+    page: { ok: true, text, title: 'R', finalUrl: 'https://example.org/a' },
+  });
+  assert.equal(await readOne(run.lookup, LINK), text);
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('readLinks: a summary still over 1000 characters is the preview whole', async () => {
+  // Catches: the summary cut at the bound.
+  const longer = 'Una sintesi lunga. '.repeat(70).trim();
+  const summarizer = fakeSummarize(longer);
+  const text = 'Poi altro testo. '.repeat(80).trim();
+  const run = setup({
+    summarize: summarizer.summarize,
+    page: { ok: true, text, title: 'R', finalUrl: 'https://example.org/a' },
+  });
+  assert.equal(await readOne(run.lookup, LINK), longer);
 });
 
 test('urlCitations keeps http(s) urls once, collapses title and snippet to one line', () => {
