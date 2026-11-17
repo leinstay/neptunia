@@ -44,11 +44,11 @@ Keep the language of the draft and the way she speaks of herself. Keep names and
 
 # Answer format
 
-First a `<think>` block of two lines: the items of the draft, a few words each, and what you changed in the build. Then the messages, and nothing after them.
+First a `<plan>` block of two lines: the items of the draft, a few words each, and what you changed in the build. Then the messages, and nothing after them.
 
-<think>
+<plan>
 items: ...
 form: ...
-</think>
+</plan>
 <msg reply="#12">...</msg>
 <msg>...</msg>

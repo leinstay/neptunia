@@ -174,8 +174,7 @@ async function humanize({
         { role: 'system', content: fillPromptTemplate(prompts['humanizer-writer'], { name }) },
         {
           role: 'user',
-          // Her think stays out of the request: a provider's filter stops the answer to a request that carries a model's
-          // reasoning (measured 2026-11-17, docs/humanizer.md).
+          // Her think stays out of the request (the owner, 2026-11-17).
           content: [block('draft', draft), block('findings', findings.map(findingLine).join('\n'))].join('\n\n'),
         },
       ],
