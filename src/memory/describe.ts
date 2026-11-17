@@ -667,12 +667,12 @@ function buildDescriber({
 
   /**
    * `item` with the address to download it from: an attachment with a message to ask gets the address `freshAddress`
-   * reads from it, else keeps its stored one. A link, an embed, a sticker and an emoji ask nothing.
+   * reads from it in place of its stored url and preview address, else keeps its stored ones. A link, an embed, a sticker and an emoji ask nothing.
    */
   async function addressed(placeId: string, item: MediaItem): Promise<MediaItem> {
     if (item.source !== 'attachment' || !item.messageId || !freshAddress) return item;
     const fresh = await freshAddress({ ...item, placeId });
-    return fresh ? { ...item, url: fresh } : item;
+    return fresh ? { ...item, url: fresh, previewUrl: null } : item;
   }
 
   /**
