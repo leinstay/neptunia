@@ -67,7 +67,9 @@ test('a counted GIF gets its caption, its vector and its file, and the search th
   assert.deepEqual(described, ['att-1']);
   assert.deepEqual(embedded, ['μια γάτα χορεύει']);
   const [entry] = Object.values(store.getGifs().entries);
-  assert.equal(entry.caption, 'μια γάτα χορεύει');
+  // The owner on 2026-11-17: a GIF is stored as one text.
+  assert.equal(entry.description, 'μια γάτα χορεύει');
+  assert.equal(entry.caption, undefined);
   const vector = store.getGifVectors().get(entry.itemId);
   assert.ok(vector && Math.abs(vector[0] - 0.6) < 0.01);
   assert.ok(fs.existsSync(path.join(dir, String(entry.file))));
@@ -85,7 +87,8 @@ test('a failed download and a failed embedding leave the caption the search can 
   store.recordGifs(PLACE, [message]);
   await keeper.keep(PLACE, message);
   const [entry] = Object.values(store.getGifs().entries);
-  assert.equal(entry.caption, 'μια γάτα χορεύει');
+  // The owner on 2026-11-17: a GIF is stored as one text.
+  assert.equal(entry.description, 'μια γάτα χορεύει');
   assert.equal(entry.file, undefined);
 });
 
@@ -96,7 +99,8 @@ test('settle fills an entry from the cache with no message and no second descrip
   await keeper.settle(PLACE);
   assert.deepEqual(described, []);
   assert.deepEqual(embedded, ['μια γάτα']);
-  assert.equal(Object.values(store.getGifs().entries)[0].caption, 'μια γάτα');
+  // The owner on 2026-11-17: a GIF is stored as one text.
+  assert.equal(Object.values(store.getGifs().entries)[0].description, 'μια γάτα');
 });
 
 test('nothing runs while paused', async () => {

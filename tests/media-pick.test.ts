@@ -65,8 +65,8 @@ test('`none` and everything that is not the protocol read as none', () => {
 
 // The pick over a fake model and a fake store.
 
-/** A library entry: `caption` is what the search reads. */
-function gifEntry(id: string, caption: string | undefined, fields: object = {}) {
+/** A library entry: `text` is its description, what the search reads. */
+function gifEntry(id: string, text: string | undefined, fields: object = {}) {
   return {
     id,
     kind: 'link',
@@ -80,7 +80,8 @@ function gifEntry(id: string, caption: string | undefined, fields: object = {}) 
     nativeIds: [`item-${id}`],
     links: [`https://tenor.com/view/${id}`],
     places: { [PLACE]: { count: 2, last: NOW - HOUR } },
-    ...(caption === undefined ? {} : { caption }),
+    // The owner on 2026-11-17: a GIF is stored as one text.
+    ...(text === undefined ? {} : { description: text }),
     ...fields,
   };
 }

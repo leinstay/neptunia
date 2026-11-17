@@ -3446,3 +3446,30 @@ test('relookImage: looks again at a picture from its fresh address when its stor
   await describer.relookImage('g1', lapsedAttachment('image', { previewUrl: STALE_PREVIEW }), 'What colour?');
   assert.deepEqual(reads, [FRESH_URL]);
 });
+
+// Bug (audit row 7): a description whose request is out when the engine stops leaves no trace on its item, so the start
+// cannot tell it from an item never tried. The item's entry says `pending` while the request is out.
+test('describe: while the vision request is out the item holds a pending entry', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const asked: Array<unknown> = [];
+  const llm = {
+    complete: (messages: unknown) => {
+      asked.push(messages);
+      return new Promise<never>(() => {});
+    },
+  };
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
+  void describer.describe('g1', pictureItem('a-out'));
+  for (let tick = 0; tick < 20 && asked.length === 0; tick += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(asked.length, 1, 'the request went out');
+  assert.equal(cacheView(store, 'g1')['a-out']?.pending, true);
+});
+
+// Bug (audit row 21, production 2026-11-17): two picture descriptions hold a line break. The describer joins every
+// line of the vision answer into one (src/memory/describe.ts, "the whole answer on one line"), but the summary of a
+// long answer is stored as the summarizer returns it, breaks and all.
+test('describe: a summary of a long picture answer is stored on one line', async () => {
+  const summary = fakeSummarize(() => 'A street scene.\n\nThe left hand has six fingers.');
+  const { store } = await describeWith(proseLine(400), undefined, summary.summarize);
+  assert.equal(loose(cacheView(store, 'g1')).a1.text, 'A street scene. The left hand has six fingers.');
+});

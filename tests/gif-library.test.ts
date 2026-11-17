@@ -205,7 +205,7 @@ test('past storeMax the lowest global rank is evicted and its handle is never re
 
 // The candidate search.
 
-/** A library of entries with these captions and vectors; `g1` is the most used. */
+/** A library of entries with these texts, held as each entry's `description`, and vectors; `g1` is the most used. */
 function captioned(items: Array<{ caption?: string; vector?: Array<number> | null }>) {
   const entries: Record<string, object> = {};
   items.forEach((item, index) => {
@@ -216,7 +216,9 @@ function captioned(items: Array<{ caption?: string; vector?: Array<number> | nul
       count: items.length - index,
       last: T0,
       firstSeen: T0,
-      ...item,
+      // The owner on 2026-11-17: a GIF is stored as one text.
+      ...(item.vector === undefined ? {} : { vector: item.vector }),
+      ...(item.caption === undefined ? {} : { description: item.caption }),
     };
   });
   return { nextId: items.length + 1, entries };
