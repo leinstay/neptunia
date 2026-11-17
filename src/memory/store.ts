@@ -47,6 +47,7 @@ import type { MediaDescriptionEntry } from './db/media-store.ts';
 import { createStoreMedia } from './store-media.ts';
 import { createStoreGifs } from './store-gifs.ts';
 import { createStoreMediaNames } from './store-media-names.ts';
+import { createStoreRules } from './store-rules.ts';
 import type { InterfaceNames } from './db/roots.ts';
 
 import { linkedProfileUnit } from './db/person-links.ts';
@@ -1049,6 +1050,8 @@ function buildStore({
   const gifs = createStoreGifs({ memoryDb, seam });
   // The stable names of custom emoji and stickers, one row of `media_names` each (src/memory/store-media-names.ts).
   const mediaNames = createStoreMediaNames({ memoryDb, seam });
+  // The owner's rules, one row of `rules` each (src/memory/store-rules.ts).
+  const rules = createStoreRules({ memoryDb, seam, newId });
 
   // ---- The archive (src/memory/archive.ts): nothing leaves a hot list without a copy ----
   //
@@ -1411,6 +1414,7 @@ function buildStore({
     media.flush();
     gifs.flush();
     mediaNames.flush();
+    rules.flush();
     return track('store.flushAll', () => writes.flushAll({ force }));
   }
 
@@ -2353,6 +2357,10 @@ function buildStore({
     nameMedia: mediaNames.nameMedia,
     mediaNameOf: mediaNames.mediaNameOf,
     mediaNameFor: mediaNames.mediaNameFor,
+    /** The owner's rules (src/memory/store-rules.ts). */
+    liveRules: rules.liveRules,
+    addRule: rules.addRule,
+    removeRule: rules.removeRule,
 
     getGifs(): GifLibrary {
       return gifs.library();
@@ -2794,6 +2802,8 @@ function buildStore({
       if (lostGifs > 0) counts.waiting = Number(counts.waiting ?? 0) + lostGifs;
       const lostNames = await mediaNames.settle({ final, ...(isFiniteNumber(timeoutMs) ? { timeoutMs } : {}) });
       if (lostNames > 0) counts.waiting = Number(counts.waiting ?? 0) + lostNames;
+      const lostRules = await rules.settle({ final, ...(isFiniteNumber(timeoutMs) ? { timeoutMs } : {}) });
+      if (lostRules > 0) counts.waiting = Number(counts.waiting ?? 0) + lostRules;
       return counts;
     },
 

@@ -199,7 +199,7 @@ export async function mirrorScene({
     const extra: Record<string, unknown> = {};
     if (legacy !== true) extra.publicationAudience = audience ?? { kind: 'unrestricted' };
     if (boundary !== undefined) extra.publicationBoundary = boundary;
-    if (messages) extra.send = { messages, mentions: messages.map(() => []), maxMessageBytes: 8_000_000 };
+    if (messages) extra.send = { messages, maxMessageBytes: 8_000_000 };
     insertRows(
       db,
       {

@@ -72,6 +72,7 @@
 //   - `writeGifLibrary(write)` (gif-library.ts): the entries of the GIF library a change put and dropped, and its rest;
 //     `writeGifVector(write)` (gif-vectors.ts): the description vector of one entry.
 //   - `writeMediaNames(write)` (media-names.ts): the stable names of custom emoji and stickers a store issued or saw renamed.
+//   - `writeRules(write)` (rules.ts): the owner's rules a store added and removed.
 //   - `writeErrand(write)` (errand-write.ts): an errand on the task board, with the closing journal line of its end.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
@@ -123,6 +124,7 @@ import type { PlaceLoreWrite } from './place-lore.ts';
 import type { MediaEntryWrite } from './media-store.ts';
 import type { GifLibraryWrite } from './gif-library.ts';
 import type { MediaNamesWrite } from './media-names.ts';
+import type { RulesWrite } from './rules.ts';
 import type { GifVectorWrite } from './gif-vectors.ts';
 import type { ErrandWrite } from './errand-write.ts';
 import type { ParticipationWrite } from './participation-episodes.ts';
@@ -579,6 +581,8 @@ export type MemoryDbService = {
   writeGifVector(write: GifVectorWrite): Promise<unknown>;
   /** The stable names of custom emoji and stickers a store issued or saw renamed (media-names.ts). */
   writeMediaNames(write: MediaNamesWrite): Promise<unknown>;
+  /** The owner's rules a store added and removed (rules.ts). */
+  writeRules(write: RulesWrite): Promise<unknown>;
   /** An errand on the task board with the closing journal line of its end (errand-write.ts): resolves whether it ended. */
   writeErrand(write: ErrandWrite): Promise<unknown>;
   recordWake(update: unknown): Promise<unknown> | null;
@@ -1753,6 +1757,7 @@ export function createMemoryDb({
     writeGifVector: (vector: GifVectorWrite) =>
       write(withLiveIface({ ...vector, kind: 'gif-vector', now: now() }, iface)),
     writeMediaNames: (names: MediaNamesWrite) => write({ ...names, kind: 'media-names', now: now() }),
+    writeRules: (rules: RulesWrite) => write({ ...rules, kind: 'rules', now: now() }),
     writeErrand: (errand: ErrandWrite) => write(withLiveIface({ ...errand, kind: 'errand', now: now() }, iface)),
     recordWake,
     issueContext,

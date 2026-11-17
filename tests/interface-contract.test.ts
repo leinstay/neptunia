@@ -39,7 +39,6 @@ function fakeHarness({ operations = null }: { operations?: Untyped } = {}) {
       return {
         text: present(message).text,
         replyToId: present(message).replyTo?.messageId ?? null,
-        mentions: present(message).mentions,
         attachments: present(message).attachments.map((attachment) => attachment.name),
       };
     },
@@ -125,11 +124,9 @@ function discordHarness({ operations = null }: { operations?: Untyped } = {}) {
     },
     lastSent() {
       const payload = payloads.at(-1);
-      const allowed = payload.allowedMentions;
       return {
         text: payload.content ?? '',
         replyToId: payload.reply?.messageReference ?? null,
-        mentions: { users: allowed.users ?? [], repliedUser: allowed.repliedUser === true },
         attachments: (payload.files ?? []).map((file: Record<string, Untyped>) => file.name),
       };
     },
@@ -147,7 +144,7 @@ type Harness = {
   port: Adapter;
   foreign(): MessageRef;
   view(ref: MessageRef): { text: string; authorId: string; reactions: Array<string> } | null;
-  lastSent(): { text: string; replyToId: string | null; mentions: unknown; attachments: Array<string> };
+  lastSent(): { text: string; replyToId: string | null; attachments: Array<string> };
   timeoutNextSend(): void;
   effects(): number;
 };
@@ -172,29 +169,13 @@ for (const [name, makeAny] of table([
     assert.deepEqual(harness.view(present(result.ref)), { text: 'γεια σας', authorId: SELF, reactions: [] });
   });
 
-  test(`port contract (${name}): a reply carries its target and the mentions it names`, async () => {
+  // Changed: content carries no mentions, so the reply is checked for its text and target alone.
+  test(`port contract (${name}): a reply carries its target`, async () => {
     const h = make();
     const target = h.foreign();
-    const result = await h.port.send(room(h.port), {
-      text: 'ναι',
-      replyTo: target,
-      mentions: { users: [OTHER], repliedUser: true },
-    });
+    const result = await h.port.send(room(h.port), { text: 'ναι', replyTo: target });
     assert.equal(result.status, 'ok');
-    assert.deepEqual(h.lastSent(), {
-      text: 'ναι',
-      replyToId: target.messageId,
-      // Changed: the Discord port notifies nobody, so its payload names no member and no replied author (2026-11-17).
-      mentions: name === 'discord' ? { users: [], repliedUser: false } : { users: [OTHER], repliedUser: true },
-      attachments: [],
-    });
-  });
-
-  test(`port contract (${name}): mentions default to none`, async () => {
-    const h = make();
-    const target = h.foreign();
-    await h.port.send(room(h.port), { text: 'ναι', replyTo: target });
-    assert.deepEqual(h.lastSent().mentions, { users: [], repliedUser: false });
+    assert.deepEqual(h.lastSent(), { text: 'ναι', replyToId: target.messageId, attachments: [] });
   });
 
   test(`port contract (${name}): an attachment is sent by name`, async () => {
@@ -331,14 +312,12 @@ for (const [name, makeAny] of table([
 // ---------------------------------------------------------------------------
 // The Discord adapter's own translation.
 
-// Changed: the Discord port notifies nobody, so absent and given mentions give the same allowedMentions (2026-11-17).
-test('discord adapter: absent and given mentions alike are allowedMentions that name nobody', async () => {
+// Changed: content carries no mentions, so only the plain send's payload is checked.
+test('discord adapter: a send is a payload whose allowedMentions name nobody', async () => {
   const h = discordHarness();
   const nobody = { parse: [], users: [], repliedUser: false };
   await h.port.send({ iface: 'discord', chatId: ROOM }, { text: 'α' });
   assert.deepEqual(h.payloads[0], { content: 'α', reply: undefined, allowedMentions: nobody });
-  await h.port.send({ iface: 'discord', chatId: ROOM }, { text: 'β', mentions: { users: ['u1'], repliedUser: false } });
-  assert.deepEqual(h.payloads[1].allowedMentions, nobody);
 });
 
 test('discord adapter: a channel the caller holds is used before the client', async () => {

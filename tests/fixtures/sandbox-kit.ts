@@ -114,6 +114,7 @@ export function fakeStore({
   listChannels: () => Array<unknown>;
   listUserProfiles: () => Array<unknown>;
   getLore: () => Array<unknown>;
+  liveRules: () => Array<{ id: string; text: string }>;
   mediaNameOf: (name: string) => MediaName | null;
   updatePlace: () => number;
   state: { data: Record<string, unknown>; markDirty: () => number };
@@ -130,6 +131,7 @@ export function fakeStore({
     listChannels: () => channels,
     listUserProfiles: () => Object.values(userProfiles),
     getLore: () => loreEntries,
+    liveRules: () => [],
     mediaNameOf: noMediaNames,
     updatePlace: writer('updatePlace'),
     state: { data: {}, markDirty: writer('markDirty') },

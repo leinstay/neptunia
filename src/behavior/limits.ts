@@ -172,7 +172,6 @@ async function sendNotice({
     const delivery = await port.send(chat, {
       text,
       ...(replyId ? { replyTo: { ...chat, messageId: replyId } } : {}),
-      mentions: { users: [], repliedUser: false },
     });
     if (delivery.status !== 'ok') {
       log.warn('limits: notice failed', { channel: channel.id, status: delivery.status, code: delivery.error?.code });

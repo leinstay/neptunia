@@ -64,7 +64,7 @@ export type HeldVoice = Partial<EntryVoice> & { text: string; durationSecs: numb
 /** What a diary turn holds instead of sending: her messages as written and as they would be sent. */
 export type HeldSpeech = {
   texts: Array<string>;
-  rendered: Array<{ text: string; accountIds: Array<string> }>;
+  rendered: Array<string>;
 };
 
 /**
@@ -147,15 +147,14 @@ function diaryPostOf({
   id: string;
 }): {
   post: Record<string, unknown>;
-  rendered: { messages: Array<string>; mentions: Array<Array<string>> };
+  rendered: { messages: Array<string> };
   maxMessageBytes: number;
 } {
   const diaryCfg = sectionOf(config, 'diary');
   const first = staged[0];
   const maxMessageBytes = setSettings(diaryCfg).maxMessageBytes;
   const rendered = {
-    messages: held.rendered.map((part) => part.text),
-    mentions: held.rendered.map((part) => part.accountIds),
+    messages: [...held.rendered],
   };
   const post = {
     at,
@@ -181,8 +180,8 @@ const publicationAudienceOf = (choice: AudienceChoice) =>
 /**
  * A diary post recorded before anything is sent: one post in the place's diary (`store.appendDiaryPost`, the newest
  * `diary.historyPosts` (150) kept) with its gist and its first picture's scene on one line, her
- * full text, the entry's id as its `itemId`, its search query, how it is sent (`send`: her messages as sent, their
- * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
+ * full text, the entry's id as its `itemId`, its search query, how it is sent (`send`: her messages as sent and the
+ * set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
  * counted. Every picture was counted when it was generated. `audience` is what her `<audience>` tags came to: the post
  * keeps it as `publicationAudience`, and a failed choice is kept as a value that publishes nowhere
  * (src/memory/db/diary-audience.ts). `turnId`, the turn that wrote it, is kept as the post's `turnId`. Returns

@@ -159,7 +159,7 @@ const ACTION_SAMPLES = {
   'message.send': {
     action: 'message.send',
     chat: ref,
-    content: { text: 'γεια', replyTo: messageRef, mentions: { users: ['u1'], repliedUser: true } },
+    content: { text: 'γεια', replyTo: messageRef },
   },
   'message.edit': { action: 'message.edit', message: messageRef, content: { text: 'άλλο' } },
   'message.delete': { action: 'message.delete', message: messageRef },
@@ -386,7 +386,7 @@ test("validateAction: what the content holds and whose the target is stay the ad
     validateAction({
       action: 'message.send',
       chat: ref,
-      content: { text: 'x', replyTo: null, mentions: null, attachments: null },
+      content: { text: 'x', replyTo: null, attachments: null },
     }).ok,
     true
   );

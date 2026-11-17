@@ -179,6 +179,7 @@ async function loopRun(
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     state: { data: {} },
   };
   const view = liveView({ hot, store, placeId: 'g1' });
@@ -396,6 +397,7 @@ test('the step engine: the first request leaves the step reserve under the promp
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     state: { data: {} },
   };
   const view = liveView({ hot, store, placeId: 'g1' });
@@ -466,6 +468,7 @@ test('the step engine: with the production limits (50000 cap, 0.9 margin, 10000 
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     state: { data: {} },
   };
   const view = liveView({ hot, store, placeId: 'g1' });
@@ -859,6 +862,7 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
     state: { data },
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     getPlace: () => ({}),
     getRecent: () => null,
   };
@@ -1193,6 +1197,7 @@ async function triggerRun({ single, transport = null, answers, config = toolConf
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     state: { data: {} },
   };
   const llm = scriptedLlm(answers);
@@ -1468,6 +1473,7 @@ test('createReplayTools: media.look looks again through the describer over the m
     state: { data: {} },
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     getPlace: () => ({}),
     getGifs: () => [],
   };
@@ -1555,6 +1561,7 @@ test('createReplayTools: media.look with a url looks at the video link through t
     state: { data: {} },
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     getPlace: () => ({}),
     getGifs: () => [],
   };

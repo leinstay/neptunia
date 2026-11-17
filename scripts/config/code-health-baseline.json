@@ -337,7 +337,7 @@
       "repeated": 0
     },
     "tests/gifs.test.ts": {
-      "deep": 62,
+      "deep": 61,
       "repeated": 1
     },
     "tests/heartbeat-intents.test.ts": {
@@ -401,7 +401,7 @@
       "repeated": 0
     },
     "tests/interface-contract.test.ts": {
-      "deep": 5,
+      "deep": 4,
       "repeated": 0
     },
     "tests/interface-link-clients.test.ts": {
@@ -828,10 +828,6 @@
       "deep": 33,
       "repeated": 0
     },
-    "tests/rules-list.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "tests/sandbox.test.ts": {
       "deep": 75,
       "repeated": 0
@@ -1073,7 +1069,7 @@
       "repeated": 0
     },
     "tests/turn.test.ts": {
-      "deep": 204,
+      "deep": 200,
       "repeated": 8
     },
     "tests/usage.test.ts": {
@@ -1329,10 +1325,7 @@
     },
     "src/errands/client.ts": {
       "createErrandClient": {
-        "function-length": 334
-      },
-      "createErrandClient>onEvent": {
-        "complexity": 21
+        "function-length": 320
       }
     },
     "src/errands/store.ts": {

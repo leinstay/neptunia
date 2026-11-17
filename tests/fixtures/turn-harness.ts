@@ -123,6 +123,7 @@ type FakeStore = MediaCachePort & {
   listUserProfiles: () => Array<Profile>;
   countUsers: () => number;
   getLore: () => Array<unknown>;
+  liveRules: () => Array<{ id: string; text: string }>;
   state: { data: object; markDirty(): void };
 };
 
@@ -136,6 +137,7 @@ export function fakeStore({ profiles = [] }: { profiles?: Array<Profile> } = {})
     listUserProfiles: () => profiles,
     countUsers: () => profiles.length,
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };

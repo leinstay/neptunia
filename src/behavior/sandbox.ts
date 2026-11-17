@@ -51,6 +51,7 @@
 // as a live turn does; the gateway reads an errand's budget through `tasks`
 // (simulateCall).
 
+import type { StoreRules } from '../memory/store-rules.ts';
 import { accountOf } from '../memory/addresses.ts';
 import { buildRequest, skillsInventoryText, userText as userTextOf } from './prompt.ts';
 import { detectTrigger, isTaggedCall } from './mention.ts';
@@ -536,6 +537,7 @@ export function momentView(base: SandboxView, cutoff: number): SandboxView {
       getRecent: () =>
         recentBefore(typeof base.memory.getRecent === 'function' ? base.memory.getRecent() : null, cutoff),
       mediaNameOf: base.memory.mediaNameOf,
+      liveRules: base.memory.liveRules,
     },
   };
 }
@@ -597,6 +599,7 @@ export function liveView({ hot, store, placeId, calibrator }: LiveViewInput): Li
       accountOf: (nativeId, iface) => accountOf(store, nativeId, iface),
       personOfAccount: (accountId) => personOfMemberAccount(store, accountId),
       mediaNameOf: (name) => store.mediaNameOf(name),
+      liveRules: () => (store as Pick<StoreRules, 'liveRules'>).liveRules(),
     },
   };
 }
@@ -842,6 +845,8 @@ export function sandboxRequestInput({
     myDay: null,
     // A skill scenario's earlier calls, put among the chat's lines by time; none otherwise (SANDBOX_OMITS).
     callMarks,
+    // The owner's rules in the store the scenario runs on, as a live turn reads them.
+    rules: memory.liveRules(),
     // No cache bucket to hold (SANDBOX_OMITS): the stable part renders from memory as it stands.
     stableFreeze: null,
     // The frame a live reply carries and the whereabouts it states.

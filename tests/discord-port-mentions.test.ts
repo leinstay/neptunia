@@ -1,6 +1,5 @@
 // What a message she sends through the Discord port notifies (interfaces/discord/port.ts): nobody. Its
-// `allowedMentions` parse nothing, name no member and leave the replied author unpinged, whatever mentions the content
-// carries, so a mention she writes shows as one and pings no one. No send carries the SuppressNotifications flag, so a
+// `allowedMentions` parse nothing, name no member and leave the replied author unpinged, so a mention she writes shows as one and pings no one. No send carries the SuppressNotifications flag, so a
 // message still lights the channel up as unread, and a voice message keeps its voice flag.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -51,18 +50,19 @@ test('send: a plain message adds no suppress flag and pings nobody', async () =>
   assert.deepEqual(sent[0]?.allowedMentions, NOBODY);
 });
 
-test('send: a reply keeps its reference and pings nobody, though its mentions name the replied author', async () => {
-  // Bug: the content's `repliedUser` reaches Discord, so the author she answers gets a notification.
+// Changed: the content carries no mentions, so the reply alone is sent; the expectation stays the same.
+test('send: a reply keeps its reference and pings nobody', async () => {
+  // Bug: the port lets Discord ping the replied author, so the author she answers gets a notification.
   const sent: Array<Payload> = [];
-  await portOver(sent).send(chat, { text: 'yes', replyTo, mentions: { users: [], repliedUser: true } });
+  await portOver(sent).send(chat, { text: 'yes', replyTo });
   assert.deepEqual(sent[0]?.reply, { messageReference: 'm0', failIfNotExists: false });
   assert.deepEqual(sent[0]?.allowedMentions, NOBODY);
 });
 
 test('send: a member her text names is not pinged and the mention text stays as written', async () => {
-  // Bug: the content's `users` reach Discord, so a member she names gets a notification.
+  // Bug: the port lets Discord parse the text, so a member she names gets a notification.
   const sent: Array<Payload> = [];
-  await portOver(sent).send(chat, { text: 'hey <@42>', mentions: { users: ['42'], repliedUser: false } });
+  await portOver(sent).send(chat, { text: 'hey <@42>' });
   assert.equal(sent[0]?.content, 'hey <@42>');
   assert.deepEqual(sent[0]?.allowedMentions, NOBODY);
 });
@@ -72,7 +72,6 @@ test('send: a file message adds no flag, keeps its text and file and pings nobod
   await portOver(sent).send(chat, {
     text: 'look <@42>',
     attachments: [{ name: 'a.png', data: Buffer.from('x') }],
-    mentions: { users: ['42'], repliedUser: false },
   });
   assert.equal(sent[0]?.content, 'look <@42>');
   assert.equal(flagsOf(sent[0]) & SUPPRESS, 0);
@@ -91,7 +90,6 @@ test('send: a voice message carries the voice flag alone and pings nobody', asyn
       },
     ],
     replyTo,
-    mentions: { users: [], repliedUser: true },
   });
   assert.equal(sent[0]?.flags, VOICE);
   assert.equal(sent[0]?.content, undefined);
@@ -100,10 +98,7 @@ test('send: a voice message carries the voice flag alone and pings nobody', asyn
 
 test('send: every part of a text split into several messages pings nobody and carries no flag', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent).send(chat, {
-    text: `<@42> ${'word '.repeat(600)}`.trim(),
-    mentions: { users: ['42'], repliedUser: false },
-  });
+  await portOver(sent).send(chat, { text: `<@42> ${'word '.repeat(600)}`.trim() });
   assert.ok(sent.length > 1);
   for (const payload of sent) {
     assert.equal(flagsOf(payload) & SUPPRESS, 0);

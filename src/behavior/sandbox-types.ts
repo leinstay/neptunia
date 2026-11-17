@@ -62,6 +62,8 @@ export type LiveViewResult = {
     accountOf: (nativeId: string, iface?: string) => string;
     personOfAccount: (accountId: string) => string | null;
     mediaNameOf: (name: string) => MediaName | null;
+    /** The owner's live rules (src/memory/store-rules.ts). */
+    liveRules: () => Array<{ text: string }>;
   };
 };
 
@@ -369,6 +371,8 @@ export type SandboxMemory = {
   personOfAccount?: (accountId: string) => string | null;
   /** The store's read of a stable name, for the legend `<media>`. */
   mediaNameOf: (name: string) => MediaName | null;
+  /** The owner's live rules (src/memory/store-rules.ts). */
+  liveRules: () => Array<{ text: string }>;
 };
 
 /** What a sandbox turn reads of the world: the live prompts and config, the calibrator and the memory. */

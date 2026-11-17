@@ -393,6 +393,9 @@
     "elsewhere": {
       "link": "{text}\n{link}"
     },
+    "rules": {
+      "line": "- {text}"
+    },
     "legend": {
       "line": "{name} {platformName}: {text}",
       "lineNoText": "{name} {platformName}, no description yet",

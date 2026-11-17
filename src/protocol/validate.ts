@@ -407,7 +407,6 @@ function checkContent(given: unknown): void {
   need(content.attachments, 'content.attachments', (value) => value === null || Array.isArray(value), {
     required: false,
   });
-  need(content.mentions, 'content.mentions', (value) => value === null || isObject(value), { required: false });
   need(content.replyTo, 'content.replyTo', (value) => value === null || isObject(value), { required: false });
 }
 

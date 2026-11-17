@@ -76,6 +76,7 @@ function fakeStore() {
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     state: { data: {}, markDirty() {} },
   };
 }

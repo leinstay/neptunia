@@ -226,7 +226,7 @@ export function requestHead(given: RequestInput): Base {
     nameFill(prompts['character-card']),
     // Her appearance stands beside the card in the cached system message; a blank file gives no block.
     block('appearance', nameFill(prompts.appearance).trim()),
-    nameFill(rulesPromptOf(prompts.rules)),
+    nameFill(rulesPromptOf(prompts.rules, given.rules ?? [], labels)),
     formatFill(prompts.format),
   ]
     .filter(Boolean)

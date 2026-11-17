@@ -397,7 +397,7 @@ export function createDiscordAdapter({
       // The files the platform posted, each by its attachment id with the message that carries it.
       const files = [];
       for (const [index, text] of texts.entries()) {
-        const part = index === 0 ? { ...content, text } : { text, mentions: content.mentions };
+        const part = index === 0 ? { ...content, text } : { text };
         const nonce = given === null ? null : nonces.issue(given, index);
         try {
           const sent = await channel.send(

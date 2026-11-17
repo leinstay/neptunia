@@ -29,6 +29,7 @@ function fakeStore() {
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
     getDiary: () => ({ posts: [], updatedAt: 0 }),
     appendDiaryPost: (post: Record<string, unknown>, opts: unknown) => appended.push({ post, opts }),

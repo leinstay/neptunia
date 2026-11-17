@@ -61,6 +61,7 @@ function fakeStore() {
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
+    liveRules: () => [],
     ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
@@ -151,6 +152,6 @@ test('runTurn: an @handle of a known member who wrote nothing in the chat is sti
   });
   assert.equal(result.outcome, 'spoke');
   const [sent] = channel.sent;
+  // Changed: content carries no mentions, so the resolved `<@u7>` in the text is what is checked.
   assert.equal(sent.content, '<@u7> έτοιμο');
-  assert.deepEqual(sent.allowedMentions, { parse: [], users: ['u7'], repliedUser: true });
 });

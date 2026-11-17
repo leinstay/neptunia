@@ -442,7 +442,7 @@ test('executeCall: the result she reads is cut to tools.resultMaxChars; ok is sa
   );
 });
 
-test('executeCall: message.create posts her own text where she may, the reply naming its author', async () => {
+test('executeCall: message.create posts her own text where she may, as a reply to the message named', async () => {
   const { admin, port } = makeAdmin();
   port.seed(NEWS, { authorId: MEMBER, messageId: '1003', text: 'ερώτηση' });
   const resolved = resolve('message.create', { reply: '#3' }, 'απάντηση');
@@ -451,8 +451,8 @@ test('executeCall: message.create posts her own text where she may, the reply na
   assert.equal(asRecord(result.ref).chatId, NEWS);
   const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
   assert.equal(posted.text, 'απάντηση');
-  // Changed: the mentions name the members alone, since the ping states left (2026-11-17).
-  assert.deepEqual(posted.mentions, { users: [], repliedUser: true });
+  // Changed: content carries no mentions, so the reply is checked by its target.
+  assert.equal(posted.replyTo?.messageId, '1003');
   // a channel the bot may see but not send in: refused before anything is sent
   const away = await executeCall(resolve('message.create', { place: '#αλλού' }, 'γεια'), deps(admin, port));
   assert.deepEqual([away.status, away.code], ['denied', 'channel-no-permission']);
@@ -716,7 +716,7 @@ test("resolveCall: an errand's file goes to the channel the errand was asked in,
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('executeCall: her written text goes out as rendered; only the members the rendering resolved are named', async () => {
+test('executeCall: her written text goes out as rendered, on a post and on an edit', async () => {
   const { admin, port } = makeAdmin();
   // The turn's rendering: two names it knows become mentions; @everyone is no name of anyone.
   const renderText = (text: string) => {
@@ -735,9 +735,8 @@ test('executeCall: her written text goes out as rendered; only the members the r
   assert.equal(created.status, 'ok');
   const posted = port.messagesIn(HERE).at(-1);
   assert.equal(posted?.text, `<@${MEMBER}> <@8> @everyone`);
-  // Changed: both resolved members are named, since the ping state that left Élodie (8) out is gone (2026-11-17).
-  assert.deepEqual(posted?.mentions, { users: [MEMBER, '8'], repliedUser: false });
-  // The edit: the same text and mentions.
+  // Changed: content carries no mentions, so the rendered text alone is checked.
+  // The edit: the same rendered text.
   port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'λάθος' });
   const edited = await executeCall(
     resolve('message.edit', { message: '#4' }, '@Zoë'),
@@ -746,17 +745,13 @@ test('executeCall: her written text goes out as rendered; only the members the r
   assert.equal(edited.status, 'ok');
   assert.deepEqual(port.calls.filter((call) => call.op === 'edit').at(-1)?.args[1], {
     text: `<@${MEMBER}>`,
-    mentions: { users: [MEMBER], repliedUser: false },
   });
-  // A rendering that is a plain string: the text as rendered, nobody notified.
+  // A rendering that is a plain string: the text as rendered.
   await executeCall(
     resolve('message.create', {}, '@Zoë'),
     deps(admin, port, { renderText: (text: string) => text.toUpperCase() })
   );
-  assert.deepEqual(
-    [port.messagesIn(HERE).at(-1)?.text, port.messagesIn(HERE).at(-1)?.mentions],
-    ['@ZOË', { users: [], repliedUser: false }]
-  );
+  assert.equal(port.messagesIn(HERE).at(-1)?.text, '@ZOË');
 });
 
 // Slice 5: the forced turn is deleted, so a person who runs message.create is refused owner-only and nothing runs or
