@@ -173,7 +173,7 @@ test('each backend offers the levels of its survey, and opencode none past high'
   fakeVendor(privateDir, 'claude', { loggedIn: true });
   fakeVendor(privateDir, 'codex', { loggedIn: true });
   const read = await roleSources(deps, 'server');
-  const levels = Object.fromEntries(read.sources.map((one) => [one.via, one.effort]));
+  const levels = Object.fromEntries(read.sources.map((one) => [String(one.via), one.effort] as const));
   assert.deepEqual(levels, {
     claude: ['low', 'medium', 'high', 'xhigh', 'max'],
     codex: ['low', 'medium', 'high', 'xhigh', 'max'],
