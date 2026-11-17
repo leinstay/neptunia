@@ -65,7 +65,8 @@ import { turnReadRows } from './service.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { ASSERTION_HOW } from './semantic-registry.ts';
 import { validateSemanticAnswer } from './semantic-answer.ts';
-import { episodeLinesOf, intentionLinesOf } from './session-blocks.ts';
+import { handleOf } from '../../behavior/handles.ts';
+import { episodeLinesOf, intentionLinesOf, openEpisodeRows, storedIdsOf } from './session-blocks.ts';
 import { peopleOf, profileAsOf, type BatchAccount, type BatchAuthor, type BatchPerson } from './session-people.ts';
 import { readRetrieved, retrievedLines, sessionEmbedding } from './session-retrieved.ts';
 import { cutByArrival, fewestParts, pageBudgetOf, shareOf, unitsOf } from './session-size.ts';
@@ -571,10 +572,31 @@ function batchBodyOf(
   return [`cutoff: ${parts.cutoff}`, ...(legend ? [legend] : []), ...parts.rendered].join('\n');
 }
 
+/** The shown current claims of `subjectIds` as of the cutoff, newest seen first, at most `max`. */
+function shownClaimsOf(
+  db: Db,
+  ctx: Context,
+  given: { subjectKind: string; subjectIds: ReadonlyArray<string>; cutoffIso: string; max: number }
+): Array<Row> {
+  if (given.subjectIds.length === 0) return [];
+  const scope = scopeWhere(ctx, 'c');
+  return db
+    .prepare(
+      `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = ? AND c.subject_id IN (${given.subjectIds.map(() => '?').join(', ')})
+       AND c.retired_at IS NULL AND c.shown = 1 AND c.truth IN ('current', 'disputed') AND ${scope.sql}
+       AND (c.created_at IS NULL OR c.created_at <= ?) AND (c.last_seen_at IS NULL OR c.last_seen_at <= ?) ORDER BY c.last_seen_at DESC, c.id LIMIT ?`
+    )
+    .all(given.subjectKind, ...given.subjectIds, ...scope.params, given.cutoffIso, given.cutoffIso, given.max);
+}
+
+/** The engine's hash of a stored row's id for the session request's ids: twelve base-36 digits of its SHA-256. */
+const storedHash = (rowId: string): string => handleOf(rowId, 12, '');
+
 /**
  * The request of one batch (one page of its people). Returns `{ messages, maps, lines, people, places, pages, cutoff }`:
- * `maps` carries what the answer's local ids stand for (`sources`: `#n` -> source id, `claims`: `cN` / `sN` -> claim id,
- * `episodes`: `eN` -> episode id, `places`: `pN` -> place id, `authors`: `aN` -> an account or participant of the batch,
+ * `maps` carries what the answer's local ids stand for (`sources`: `#n` -> source id, `claims`: a stored id -> claim id,
+ * `episodes`: a stored id -> episode id, where a stored id is `k` and a hash of the row's id (`storedIdsOf`), the same
+ * for the same row in every request, `places`: `pN` -> place id, `authors`: `aN` -> an account or participant of the batch,
  * not rendered yet); `people` are the page's people (the answer's subjects);
  * `pages` is how many requests the batch takes. The context (profiles, claims, episodes) is as of the batch's
  * cutoff, the newest line: what was created or seen after it is left out.
@@ -592,6 +614,7 @@ export function buildSessionRequest({
   part = 0,
   parts = 1,
   retrieved = null,
+  hash = storedHash,
 }: {
   db: Db;
   scope: Pick<SweepScope, 'scope' | 'ctx'>;
@@ -606,6 +629,8 @@ export function buildSessionRequest({
   parts?: number;
   /** What the retrieval service found for this batch: rendered as `<retrieved>`, each item with its own handle. */
   retrieved?: MemoryPage | null;
+  /** Row id -> base-36 text, the source of the stored items' ids (`storedIdsOf`). */
+  hash?: (rowId: string) => string;
 }): SessionRequest {
   const settings = sessionSettings(config);
   const labels = (prompts?.labels ?? {}) as Labels & Row;
@@ -714,10 +739,25 @@ export function buildSessionRequest({
        AND ${selfScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`
     )
     .all(...selfScope.params, cutoffIso, cutoffIso, settings.selfMax);
-  const selfLines = selfClaims.map((row, index) => {
-    maps.claims.set(`s${index + 1}`, row.id as string);
+  const claimsOf = (subjectKind: string, subjectIds: ReadonlyArray<string>) =>
+    shownClaimsOf(db, ctx, { subjectKind, subjectIds, cutoffIso, max: settings.claimsPerPerson });
+  const placeClaims = claimsOf('place', [...parents, ...placeIds]);
+  // This page's people (every person of the batch is on some page), or this part's share of them.
+  const shown = shareOf(touched.people.slice(page * settings.maxPeople, (page + 1) * settings.maxPeople), part, parts);
+  const personClaims = new Map(
+    shown.map((person): [string, Array<Row>] => [person.id, claimsOf('person', [person.id])])
+  );
+  const episodeRows = openEpisodeRows(db, ctx, shown, { max: settings.episodesMax, cutoffIso });
+  // One issue of ids for the three kinds, so a collision anywhere in the request lengthens every id.
+  const issued = storedIdsOf(
+    [...selfClaims, ...placeClaims, ...[...personClaims.values()].flat(), ...episodeRows].map((row) => String(row.id)),
+    hash
+  );
+  const idOf = (rowId: unknown): string => issued(String(rowId));
+  const selfLines = selfClaims.map((row) => {
+    maps.claims.set(idOf(row.id), row.id as string);
     read('claim', row.id, 'self');
-    return claimLine(`s${index + 1}`, row);
+    return claimLine(idOf(row.id), row);
   });
 
   // <place>
@@ -746,27 +786,13 @@ export function buildSessionRequest({
     if (missing)
       placeLines.push(unwritten.replace('{handle}', String(handleOf.get(row.id))).replace('{fields}', missing));
   }
-  const placeScope = scopeWhere(ctx, 'c');
-  const placeSubjects = [...parents, ...placeIds];
-  const placeClaims =
-    placeSubjects.length === 0
-      ? []
-      : db
-          .prepare(
-            `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'place' AND c.subject_id IN (${placeSubjects.map(() => '?').join(', ')}) AND c.retired_at IS NULL
-       AND c.shown = 1 AND c.truth IN ('current', 'disputed') AND ${placeScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`
-          )
-          .all(...placeSubjects, ...placeScope.params, cutoffIso, cutoffIso, settings.claimsPerPerson);
-  let claimNumber = 0;
   for (const row of placeClaims) {
-    claimNumber += 1;
-    maps.claims.set(`c${claimNumber}`, row.id as string);
+    maps.claims.set(idOf(row.id), row.id as string);
     read('claim', row.id, 'place');
-    placeLines.push(claimLine(`c${claimNumber}`, row));
+    placeLines.push(claimLine(idOf(row.id), row));
   }
 
-  // <people>: this page's people (every person of the batch is on some page), or this part's share of them
-  const shown = shareOf(touched.people.slice(page * settings.maxPeople, (page + 1) * settings.maxPeople), part, parts);
+  // <people>
   const profileOptions = {
     interlocutor: true,
     relationships: true,
@@ -784,7 +810,6 @@ export function buildSessionRequest({
     nameOf,
   };
   const peopleBodies = [];
-  const personScope = scopeWhere(ctx, 'c');
   for (const person of shown) {
     const account = db
       .prepare(
@@ -810,19 +835,13 @@ export function buildSessionRequest({
       text = '';
     }
     const row = db.prepare('SELECT affinity FROM people WHERE id = ?').get(person.id);
-    const claims = db
-      .prepare(
-        `SELECT c.id, c.kind, c.text FROM claims c WHERE c.subject_kind = 'person' AND c.subject_id = ? AND c.retired_at IS NULL AND c.shown = 1
-         AND c.truth IN ('current', 'disputed') AND ${personScope.sql} AND ${early('c')} ORDER BY c.last_seen_at DESC, c.id LIMIT ?`
-      )
-      .all(person.id, ...personScope.params, cutoffIso, cutoffIso, settings.claimsPerPerson);
+    const claims = personClaims.get(person.id) ?? [];
     const lines = [text || `## ${person.name}`, `id: <@${person.native}>`];
     if (row && Number.isFinite(row.affinity)) lines.push(`affinity: ${asText(row.affinity)}`);
     for (const claim of claims) {
-      claimNumber += 1;
-      maps.claims.set(`c${claimNumber}`, claim.id as string);
+      maps.claims.set(idOf(claim.id), claim.id as string);
       read('claim', claim.id, 'people');
-      lines.push(claimLine(`c${claimNumber}`, claim));
+      lines.push(claimLine(idOf(claim.id), claim));
     }
     peopleBodies.push(lines.join('\n'));
   }
@@ -831,6 +850,7 @@ export function buildSessionRequest({
     max: settings.episodesMax,
     cutoffIso,
     episodes: maps.episodes,
+    idOf,
     read,
   });
   const intentionLines = intentionLinesOf(db, ctx, shown, placeIds, read);
@@ -880,7 +900,7 @@ export function buildSessionRequest({
 
 /**
  * The read-set of an assembled request, resolved now (service.ts#turnReadRows: the claim version, the description version
- * and the source revision each read showed), and `maps.versions`: the version each `cN` / `sN` showed (null for a claim
+ * and the source revision each read showed), and `maps.versions`: the version each claim's stored id showed (null for a claim
  * with no version), the `base` of an op on it. Mutates `request.maps`; returns the rows. `iface` names the interface
  * of the scope the request reads.
  */

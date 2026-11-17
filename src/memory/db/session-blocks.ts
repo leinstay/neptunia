@@ -21,17 +21,17 @@ const parse = (text: unknown): unknown => {
   }
 };
 
-/** The open episodes of the page's people as of the cutoff, each under the handle it gets in `episodes`. */
-export function episodeLinesOf(
+/** The open episodes of the page's people as of the cutoff, newest first, at most `max`. */
+export function openEpisodeRows(
   db: Db,
   ctx: Context,
   shown: ReadonlyArray<Person>,
-  given: { max: number; cutoffIso: string; episodes: Map<string, string>; read: Read }
-): Array<string> {
+  given: { max: number; cutoffIso: string }
+): Array<Row> {
   if (shown.length === 0) return [];
   const episodeScope = scopeWhere(ctx, 'e');
   const ids = shown.map((person) => person.id);
-  const rows = db
+  return db
     .prepare(
       `SELECT e.id, e.subject_id, e.date, e.what, e.feeling FROM episodes e
         WHERE e.retired_at IS NULL AND (e.status IS NULL OR e.status != 'closed') AND e.subject_id IN (${ids.map(() => '?').join(', ')}) AND ${episodeScope.sql}
@@ -39,13 +39,47 @@ export function episodeLinesOf(
         ORDER BY COALESCE(e.last_ms, 0) DESC, e.date DESC, e.id LIMIT ?`
     )
     .all(...ids, ...episodeScope.params, given.cutoffIso, given.max);
-  return rows.map((row: Row, index: number) => {
-    given.episodes.set(`e${index + 1}`, row.id as string);
+}
+
+/** The open episodes of the page's people as of the cutoff, each under the id `idOf` gives its row, kept in `episodes`. */
+export function episodeLinesOf(
+  db: Db,
+  ctx: Context,
+  shown: ReadonlyArray<Person>,
+  given: {
+    max: number;
+    cutoffIso: string;
+    episodes: Map<string, string>;
+    idOf: (rowId: string) => string;
+    read: Read;
+  }
+): Array<string> {
+  return openEpisodeRows(db, ctx, shown, given).map((row: Row) => {
+    const id = given.idOf(row.id as string);
+    given.episodes.set(id, row.id as string);
     given.read('episode', row.id, 'episodes');
     const who = shown.find((person) => person.id === row.subject_id)?.name ?? row.subject_id;
     const feeling = row.feeling ? ` (${asText(row.feeling)})` : '';
-    return `[e${index + 1}] ${[row.date, who].filter(Boolean).join(' ')}: ${asText(row.what)}${feeling}`;
+    return `[${id}] ${[row.date, who].filter(Boolean).join(' ')}: ${asText(row.what)}${feeling}`;
   });
+}
+
+/**
+ * The id of each stored item of one memory session's request, row id -> id: `k` and the first four characters of
+ * `hash` of the row's id, the first character turned into a letter when all four are digits, so no id reads as a
+ * numbered one. When two of `rowIds` share an id, every id grows by one character until all differ. Pure.
+ */
+export function storedIdsOf(rowIds: Iterable<string>, hash: (rowId: string) => string): (rowId: string) => string {
+  const idAt = (length: number) => (rowId: string) => {
+    const body = hash(rowId).slice(0, length);
+    return `k${/^\d+$/.test(body) ? `${String.fromCharCode(97 + Number(body[0]))}${body.slice(1)}` : body}`;
+  };
+  const rows = [...new Set(rowIds)];
+  const longest = Math.max(0, ...rows.map((rowId) => hash(rowId).length));
+  let length = 4;
+  // A hash shorter than the ids it must tell apart ends the growth: two rows with the same whole hash keep one id.
+  while (new Set(rows.map(idAt(length))).size < rows.length && length < longest) length += 1;
+  return idAt(length);
 }
 
 /** Her open intentions that concern the page's people or the batch's places. */

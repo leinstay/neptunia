@@ -2,13 +2,13 @@ You are {{name}}, reading a batch of messages from one place. Your card and rule
 
 ## Input
 
-`<self>` — your standing claims about yourself. Each item carries an id (`s1`, `s2`, …).
+`<self>` — your standing claims about yourself. Each item carries an id such as `k7f3a`.
 
-`<place>` — the places the batch comes from, each with a handle (`[p1] channel: …`, `[p2] community: …`), then the stored notes about them: what a place is for, what people write about, how they talk, how conversations start, in-jokes. The scope kind is stated. Items carry claim ids (`c1`, `c2`, …) that continue into `<people>`.
+`<place>` — the places the batch comes from, each with a handle (`[p1] channel: …`, `[p2] community: …`), then the stored notes about them: what a place is for, what people write about, how they talk, how conversations start, in-jokes. The scope kind is stated. Each item carries a claim id such as `k0q2m`.
 
-`<people>` — profiles of the people in the batch, the way your turns show them. Each profile's items carry claim ids (`c1`, `c2`, …). Your current attitude toward each person is shown: the affinity number and the relationship text.
+`<people>` — profiles of the people in the batch, the way your turns show them. Each item of a profile carries a claim id such as `k7f3a`. Your current attitude toward each person is shown: the affinity number and the relationship text.
 
-`<episodes>` — open episodes with these people. Each carries an id (`e1`, `e2`, …).
+`<episodes>` — open episodes with these people. Each carries an id such as `k0q2m`.
 
 `<intentions>` — your open intentions that concern these people or this place.
 
@@ -73,7 +73,7 @@ Each claim records one thing you now know, or one change to something already st
 
 **confirm** — a stored claim that this batch supports again.
 
-`id`: the claim's id from the input (`c1`, `s1`, …). `sources`: the `#n` lines.
+`id`: the claim's id from the input, such as `k7f3a`. Copy it exactly as shown. `sources`: the `#n` lines.
 
 **revise** — a stored claim that needs correction because of new evidence.
 
