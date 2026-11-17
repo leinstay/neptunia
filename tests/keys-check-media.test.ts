@@ -1,6 +1,6 @@
 // Speech and drawing behind `/keys check` and `model set`. Speech has a probe of its own: one short synthesis on its
 // endpoint, as a real voice message goes out. A drawing request bills a whole picture, so the drawing check reads the
-// provider's free listing of models instead and asks whether it holds the model with image output. A listing that
+// provider's free listing of that one model instead and asks whether it has image output. A listing that
 // cannot be read leaves the role unchecked, `unsupported`, and is never worded as a refused key. The provider is a fake fetch; a key never appears in an answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -72,17 +72,23 @@ test('a provider that refuses the speech probe is a failed check with its status
   assert.ok(!JSON.stringify(result).includes(SECRET));
 });
 
-/** A listing of `/models` with one drawing model and one text model, and a probe answer for anything else. */
+/**
+ * The provider as it lists models: each model's own listing under `/models/<id>/endpoints`, a drawing model and a text
+ * model, 404 for any other id, and the list of all models, which holds the text model alone as the real one leaves out
+ * a model that only makes pictures. A probe answer for anything else.
+ */
 function listing(call: Call): Reply {
+  const own = (output: string): Reply => ({
+    status: 200,
+    body: { data: { architecture: { input_modalities: ['text'], output_modalities: [output] }, endpoints: [{}] } },
+  });
+  if (call.url.endsWith('/models/x/draw/endpoints')) return own('image');
+  if (call.url.endsWith('/models/x/text/endpoints')) return own('text');
+  if (call.url.endsWith('/endpoints')) return { status: 404, body: { error: { message: 'no such model' } } };
   if (call.url.endsWith('/models'))
     return {
       status: 200,
-      body: {
-        data: [
-          { id: 'x/draw', architecture: { input_modalities: ['text'], output_modalities: ['image'] } },
-          { id: 'x/text', architecture: { input_modalities: ['text'], output_modalities: ['text'] } },
-        ],
-      },
+      body: { data: [{ id: 'x/text', architecture: { input_modalities: ['text'], output_modalities: ['text'] } }] },
     };
   return healthy(call);
 }
@@ -93,10 +99,21 @@ test('a drawing check passes on a model the listing holds with image output and 
   const result = await checkRole({ ...input, fetch, role: 'drawing', model: 'x/draw' });
   assert.equal(result.ok, true);
   assert.equal(result.capability, undefined);
+  // Changed: the list of all models leaves out a model that only makes pictures, so the check reads the model's own
+  // listing. On a live deployment the check of a working drawing model failed against the list of all models.
   assert.deepEqual(
     calls.map((call) => [call.method, call.url.slice(BASE_URL.length)]),
-    [['GET', '/models']]
+    [['GET', '/models/x/draw/endpoints']]
   );
+});
+
+test('a drawing check fails with the reason on a model the provider does not list', async () => {
+  // Bug: a mistyped model id is saved as the drawing model and every drawing fails later.
+  const { fetch } = fakeFetch(listing);
+  const result = await checkRole({ ...input, fetch, role: 'drawing', model: 'x/none' });
+  assert.equal(result.ok, false);
+  assert.equal(result.capability, undefined);
+  assert.match(result.error ?? '', /does not list/);
 });
 
 test('a drawing check fails with the reason on a model the listing holds with text output only', async () => {
@@ -105,7 +122,7 @@ test('a drawing check fails with the reason on a model the listing holds with te
   const result = await checkRole({ ...input, fetch, role: 'drawing', model: 'x/text' });
   assert.equal(result.ok, false);
   assert.equal(result.capability, undefined);
-  assert.match(result.error ?? '', /not listed|no image output/);
+  assert.match(result.error ?? '', /no image output/);
 });
 
 for (const [name, answer] of [
@@ -176,8 +193,9 @@ test('model set drawing writes the route unchecked when the listing cannot be re
   const answer = await keys.run('model.set', { role: 'drawing', model: 'core-1/x/draw' }, null);
   assert.equal(answer.status, 'ok', answer.text);
   assert.deepEqual(chains.drawing, [{ via: 'api', key: 'core-1', model: 'x/draw', effort: null }]);
+  // Changed: the request is the model's own listing (see the passing check above).
   assert.deepEqual(
     calls.map((call) => call.url.slice(BASE_URL.length)),
-    ['/models']
+    ['/models/x/draw/endpoints']
   );
 });

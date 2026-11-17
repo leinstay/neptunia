@@ -2,8 +2,8 @@
 // key (a few tokens or characters, so a check costs cents) and reports what answered, and `checkKey` reads the key's own
 // record (`GET /auth/key`). Neither throws and neither lets the key into what it returns: a provider that echoes the
 // value back has it replaced with `***`, and the provider's words are cut. A drawing request bills a whole picture, so
-// the check of `drawing` reads the provider's free listing of models instead (`roleModelListing`) and passes when it
-// holds the model with image output. A role with no probe, or a drawing listing that cannot be read, answers
+// the check of `drawing` reads the provider's free listing of that one model instead (`models/<id>/endpoints`) and
+// passes when it names image output. A role with no probe, or a drawing listing that cannot be read, answers
 // `capability: 'unsupported'`: `ok: false` with that capability says nothing about the key, while `ok: false` without it
 // means the provider or the network said no.
 // Called by src/keys/commands.ts.
@@ -11,7 +11,6 @@
 import { apiUrl, openRouterHeaders } from '../llm/openrouter.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { TEXT_ROLES } from '../llm/route-text.ts';
-import { roleModelListing } from './models.ts';
 
 export type CheckResult = {
   ok: boolean;
@@ -93,6 +92,24 @@ function wordsOf(body: unknown, text: string): string {
 
 type Answer = { status: number; text: string };
 
+/**
+ * The output modalities a model's own listing names (`data.architecture.output_modalities`), null for a body that is
+ * no listing.
+ */
+function outputsOf(text: string): Array<unknown> | null {
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // A 200 whose body is no JSON, as a proxy's error page.
+    return null;
+  }
+  const data: unknown = isRecord(body) ? body.data : null;
+  const architecture: unknown = isRecord(data) ? data.architecture : null;
+  const outputs: unknown = isRecord(architecture) ? architecture.output_modalities : null;
+  return Array.isArray(outputs) ? outputs : null;
+}
+
 /** One request that never throws: the answer, or why none came (the key replaced in the reason). */
 async function send(
   fetchImpl: typeof fetch,
@@ -110,6 +127,34 @@ async function send(
   } catch (err) {
     return `no answer: ${safe(err instanceof Error ? err.message : String(err), init.value)}`;
   }
+}
+
+/**
+ * The check of `drawing`: the model's own listing, since the provider's list of all models leaves out a model that
+ * only makes pictures. It passes when the listing names image output, fails for a model the provider does not list or
+ * lists with no image output, and is unchecked when the listing cannot be read.
+ */
+async function drawingCheck(
+  input: { fetch: typeof fetch; baseUrl: string; model: string; value: string; timeoutMs?: number },
+  answers: {
+    nothingSent: Omit<CheckResult, 'ok'>;
+    unchecked: CheckResult;
+    failed: (status: number | null, error: string) => CheckResult;
+  }
+): Promise<CheckResult> {
+  const { model } = input;
+  const listing = await send(input.fetch, apiUrl(input.baseUrl, `models/${model}/endpoints`), {
+    method: 'GET',
+    value: input.value,
+    timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  });
+  if (typeof listing === 'string') return answers.unchecked;
+  if (listing.status === 404) return answers.failed(404, `the provider does not list ${model}`);
+  const outputs = listing.status === 200 ? outputsOf(listing.text) : null;
+  if (outputs === null) return answers.unchecked;
+  return outputs.includes('image')
+    ? { ...answers.nothingSent, ok: true }
+    : answers.failed(null, `the provider lists ${model} with no image output`);
 }
 
 export async function checkRole(input: {
@@ -140,12 +185,7 @@ export async function checkRole(input: {
   });
   const nothingSent = { role, model, keyName, isByok: null, status: null, cost: 0, error: null };
   const unchecked: CheckResult = { ...nothingSent, ok: false, capability: 'unsupported' };
-  if (role === 'drawing') {
-    const listing = await roleModelListing({ fetch: input.fetch, baseUrl: input.baseUrl, value }, role);
-    if (!listing.ok) return unchecked;
-    if (listing.models.includes(model)) return { ...nothingSent, ok: true };
-    return failed(null, `the provider does not list ${model}, or lists it with no image output`);
-  }
+  if (role === 'drawing') return drawingCheck(input, { nothingSent, unchecked, failed });
   const probe = probeOf(role, input.voice);
   if (probe === null) return unchecked;
   const answer = await send(input.fetch, apiUrl(input.baseUrl, probe.endpoint), {
