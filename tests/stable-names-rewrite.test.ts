@@ -1,0 +1,176 @@
+// The rewrite of stored lines to stable names (src/memory/db/stable-names-rewrite.ts) and its write kind
+// `stable-names-rewrite` (session-write.ts): a line tied to its emoji by its own media links gets `:eN:` in its text, the
+// linked media rows get their stable names, and nothing is guessed by name. Synthetic ids and names over a temp database.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
+import { applyMediaNamesWrite, mediaNameRows } from '../src/memory/db/media-names.ts';
+import { planStableNamesRewrite } from '../src/memory/db/stable-names-rewrite.ts';
+import type { StableNamesPlan } from '../src/memory/db/stable-names-rewrite.ts';
+import { fillStems, loadStemmer, stemsOf, stemsPending } from '../src/memory/db/stems.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
+
+const T0 = Date.parse('2026-11-17T10:00:00Z');
+
+function openTemp(): { handle: MemoryHandle; db: Db } {
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'stable-names-'));
+  const handle = openMemoryDb(path.join(root, 'memory.db'));
+  return { handle, db: dbOf(handle) };
+}
+
+function line(db: Db, id: string, text: string): void {
+  db.prepare("INSERT INTO sources (id, kind, iface, text) VALUES (?, 'seen', 'fake', ?)").run(id, text);
+}
+
+function media(db: Db, id: string, kind: 'emoji' | 'sticker', nativeId: string, name: string): void {
+  const extra = JSON.stringify({ name, animated: false });
+  db.prepare('INSERT INTO media (id, kind, native_ref, extra) VALUES (?, ?, ?, ?)').run(id, kind, nativeId, extra);
+}
+
+function link(db: Db, sourceId: string, position: number, mediaId: string): void {
+  const insert = db.prepare(
+    "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('source', ?, ?, ?)"
+  );
+  insert.run(sourceId, position, mediaId);
+}
+
+function textOf(db: Db, id: string): unknown {
+  return db.prepare('SELECT text FROM sources WHERE id = ?').get(id)?.text;
+}
+
+function mediaName(db: Db, id: string): unknown {
+  return db.prepare("SELECT json_extract(extra, '$.name') AS name FROM media WHERE id = ?").get(id)?.name;
+}
+
+function apply(handle: MemoryHandle, plan: StableNamesPlan): unknown {
+  return applyMemoryWrite(handle, { kind: 'stable-names-rewrite', ...plan, now: T0 });
+}
+
+test('rewrites a linked emoji token to its issued stable name and binds the name to the platform id', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'that was :pog: indeed');
+  link(db, 'l1', 0, 'm1');
+  apply(handle, planStableNamesRewrite(db));
+  assert.equal(textOf(db, 'l1'), 'that was :e1: indeed');
+  assert.equal(mediaName(db, 'm1'), 'e1');
+  const bound = mediaNameRows(db).map((row) => [row.name, row.kind, row.iface, row.nativeId, row.platformName]);
+  assert.deepEqual(bound, [['e1', 'emoji', 'fake', '901', 'pog']]);
+});
+
+test('keeps the stable name an emoji already holds and issues no second row', () => {
+  const { handle, db } = openTemp();
+  const held = { name: 'e7', kind: 'emoji', iface: 'fake', nativeId: '901', platformName: 'pog', animated: false };
+  applyMediaNamesWrite(handle, { rows: [held], now: T0 });
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', ':pog:');
+  link(db, 'l1', 0, 'm1');
+  const plan = planStableNamesRewrite(db);
+  assert.deepEqual(plan.issue, []);
+  apply(handle, plan);
+  assert.equal(textOf(db, 'l1'), ':e7:');
+  assert.deepEqual(
+    mediaNameRows(db).map((row) => row.name),
+    ['e7']
+  );
+});
+
+test('leaves the text of a line that links two emoji of one platform name and counts it as not tied', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  media(db, 'm2', 'emoji', '902', 'pog');
+  const text = ':pog: then :pog:';
+  line(db, 'l1', text);
+  link(db, 'l1', 0, 'm1');
+  link(db, 'l1', 1, 'm2');
+  const plan = planStableNamesRewrite(db);
+  assert.equal(plan.counts.untied, 1);
+  assert.equal(plan.counts.tokens, 0);
+  apply(handle, plan);
+  assert.equal(textOf(db, 'l1'), text);
+});
+
+test('leaves a line that holds a known emoji name with no link byte for byte and counts it as not tied', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', ':pog:');
+  link(db, 'l1', 0, 'm1');
+  const unlinked = 'no link here :pog: ok';
+  line(db, 'l2', unlinked);
+  const plan = planStableNamesRewrite(db);
+  assert.equal(plan.counts.untied, 1);
+  apply(handle, plan);
+  assert.equal(textOf(db, 'l2'), unlinked);
+});
+
+test('renames a linked sticker media row to its stable name', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'sticker', '801', 'wave_hello');
+  line(db, 'l1', '');
+  link(db, 'l1', 0, 'm1');
+  apply(handle, planStableNamesRewrite(db));
+  assert.equal(mediaName(db, 'm1'), 's1');
+});
+
+test('leaves a token inside a code span and rewrites the one outside it', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'type `:pog:` to get :pog:');
+  link(db, 'l1', 0, 'm1');
+  apply(handle, planStableNamesRewrite(db));
+  assert.equal(textOf(db, 'l1'), 'type `:pog:` to get :e1:');
+});
+
+test('plans nothing and changes nothing when applied a second time', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  media(db, 'm2', 'sticker', '801', 'wave_hello');
+  line(db, 'l1', ':pog:');
+  link(db, 'l1', 0, 'm1');
+  link(db, 'l1', 1, 'm2');
+  apply(handle, planStableNamesRewrite(db));
+  const again = planStableNamesRewrite(db);
+  assert.deepEqual([again.issue, again.lines, again.media], [[], [], []]);
+  apply(handle, again);
+  assert.equal(textOf(db, 'l1'), ':e1:');
+  assert.equal(mediaNameRows(db).length, 2);
+});
+
+test('writes nothing when one line of the plan no longer holds the text it was planned from', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', ':pog: first');
+  line(db, 'l2', ':pog: second');
+  link(db, 'l1', 0, 'm1');
+  link(db, 'l2', 0, 'm1');
+  const plan = planStableNamesRewrite(db);
+  db.prepare("UPDATE sources SET text = ':pog: changed' WHERE id = 'l2'").run();
+  assert.throws(() => apply(handle, plan), { code: 'STABLE_NAMES_STALE' });
+  assert.equal(textOf(db, 'l1'), ':pog: first');
+  assert.equal(mediaName(db, 'm1'), 'pog');
+  assert.deepEqual(mediaNameRows(db), []);
+});
+
+test('marks the rewritten line for stems so the word search finds it under its new text', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'pog');
+  line(db, 'l1', 'bananas are :pog:');
+  link(db, 'l1', 0, 'm1');
+  fillStems(db);
+  apply(handle, planStableNamesRewrite(db));
+  assert.equal(stemsPending(db), true);
+  fillStems(db);
+  const { stem } = loadStemmer(db);
+  const stored = db.prepare("SELECT stems FROM sources WHERE id = 'l1'").get()?.stems;
+  assert.equal(stored, stemsOf(stem, 'bananas are :e1:'));
+  const found = db
+    .prepare('SELECT s.id FROM sources_fts f JOIN sources s ON s.rowid = f.rowid WHERE sources_fts MATCH ?')
+    .all('text:e1')
+    .map((row) => row.id);
+  assert.deepEqual(found, ['l1']);
+});
