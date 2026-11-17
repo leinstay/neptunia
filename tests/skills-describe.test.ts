@@ -8,6 +8,7 @@ import { runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const LABELS = {
   tools: {
@@ -33,6 +34,7 @@ function envOf(grants: Record<string, unknown> = {}) {
   };
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   return createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: createDiscordInterface().capabilities,
     hot,
     store,

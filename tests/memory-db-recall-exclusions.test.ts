@@ -19,6 +19,7 @@ import { channel as channelInfo, privateChannel, rig } from './fixtures/reads-ri
 import { lineEvent } from './fixtures/core-over-fake.ts';
 import { labels } from './fixtures/labels.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -106,6 +107,7 @@ function runner(env: ReturnType<typeof fixture>) {
     },
   };
   const recaller = createRecall({
+    mediaNameOf: noMediaNames,
     iface: 'discord',
     reads: rig().reads,
     hot,
@@ -556,7 +558,7 @@ test('the in-turn memory tool derives CLI history scope from its trusted chat re
     const memoryContext = issuedContext({ kind: 'internal', newId: () => 'ctx:handler-exclusion', now: () => NOW });
     const tools = createInTurnTools({
       hot: s.hot,
-      store: { listUserProfiles: () => [] },
+      store: { mediaNameOf: noMediaNames, listUserProfiles: () => [] },
       recall: s.recaller,
       lookup: undefined,
       describer: undefined,

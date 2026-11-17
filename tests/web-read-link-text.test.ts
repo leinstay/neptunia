@@ -11,6 +11,7 @@ import type { LookupDeps } from '../src/web/lookup.ts';
 import { labels } from './fixtures/labels.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
 import { createPageFetcher } from '../src/web/fetch-page.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const PLACE = 'g1';
 const URL_A = 'https://example.org/a';
@@ -132,7 +133,14 @@ test('a line of chat shows a read link whole, never cut at what a preview shows'
   // Catches: the transcript cutting silently the page text a web.read stored for the link.
   const [line] = formatTranscript(
     [{ id: 'm1', ts: NOW, authorId: 'u1', authorName: 'Zoë', content: URL_A, links: [LINK] }],
-    { labels, timezone: 'UTC', selfName: 'Bot', now: NOW, reads: new Map([[LINK.id, WHOLE]]) }
+    {
+      mediaNameOf: noMediaNames,
+      labels,
+      timezone: 'UTC',
+      selfName: 'Bot',
+      now: NOW,
+      reads: new Map([[LINK.id, WHOLE]]),
+    }
   );
   assert.ok(line.text.includes(WHOLE), 'every word of the stored page text');
 });

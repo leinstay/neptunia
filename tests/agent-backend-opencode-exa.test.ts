@@ -123,5 +123,6 @@ test('an opencode run with exa does not deny websearch in the permissions writte
   const [child] = await runOnce({ id: 'e4', route: route('opencode'), secrets: { openrouterKey: KEY } });
   assert.ok(child, 'the child was spawned');
   const permission = child.config.permission;
-  if (isJson(permission)) assert.equal(permission.websearch, 'allow');
+  // The block may allow websearch through `"*"` (every permission), which OpenCode applies when no later key names it.
+  if (isJson(permission)) assert.equal(permission.websearch ?? permission['*'], 'allow');
 });

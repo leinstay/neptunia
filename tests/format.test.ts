@@ -24,6 +24,7 @@ import { grLabels, msg, triggerScene } from './fixtures/format-rig.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { MediaName } from '../src/memory/store-media-names.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const TZ = 'Europe/Moscow'; // fixed UTC+3, no DST -- safe for exact arithmetic in tests
 const MIN = 60_000;
@@ -111,7 +112,14 @@ test('formatDuration: rounding at 23 h 59.5 min rolls over to the day form, not 
 test('formatTranscript: no marker for a gap under the threshold, same day', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0), msg('b', t0 + 5 * MIN)];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(!items[1].text.includes('passed'));
 });
 
@@ -127,7 +135,14 @@ test('formatTranscript: a gap exactly at the threshold also gets a marker (inclu
   ];
   for (const { label, gap, expected } of rows) {
     const messages = [msg('a', t0), msg('b', t0 + gap)];
-    const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+    const items = formatTranscript(messages, {
+      mediaNameOf: noMediaNames,
+      timezone: TZ,
+      gapMinutes: 20,
+      maxChars: 100,
+      selfName: 'Nept',
+      labels,
+    });
     assert.ok(items[1].text.startsWith(expected), `${label}: ${JSON.stringify(items[1].text)}`);
   }
 });
@@ -136,7 +151,14 @@ test('formatTranscript: a date change under the gap threshold gets a plain date 
   const before = Date.UTC(2026, 8, 19, 20, 55, 0);
   const after = Date.UTC(2026, 8, 19, 21, 4, 0);
   const messages = [msg('a', before), msg('b', after)];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   const expectedDate = formatDate(after, TZ, labels.locale);
   assert.ok(items[1].text.startsWith(`--- ${expectedDate} ---`));
 });
@@ -145,7 +167,14 @@ test('formatTranscript: a gap over the threshold AND a date change combines both
   const before = Date.UTC(2026, 8, 19, 20, 0, 0);
   const after = Date.UTC(2026, 8, 19, 23, 12, 0); // gap 3h12m, day changes
   const messages = [msg('a', before), msg('b', after)];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   const expectedDate = formatDate(after, TZ, labels.locale);
   assert.ok(items[1].text.startsWith(`--- 3 h 12 min passed · ${expectedDate} ---`));
 });
@@ -154,6 +183,7 @@ test('formatTranscript: labels drive the wording even for non-English deployment
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0), msg('b', t0 + 25 * MIN)];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -172,7 +202,11 @@ test('formatTranscript: the date marker and the date header still render with a 
   const before = Date.UTC(2026, 8, 19, 20, 55, 0); // 23:55 Moscow
   const after = Date.UTC(2026, 8, 19, 21, 4, 0); // 00:04 Moscow, the next day
   const now = Date.UTC(2026, 8, 20, 9, 4, 0);
-  const items = formatTranscript([msg('a', before), msg('b', after)], { ...ageOptions, now });
+  const items = formatTranscript([msg('a', before), msg('b', after)], {
+    mediaNameOf: noMediaNames,
+    ...ageOptions,
+    now,
+  });
   // Slice 2 (b): a line shows one clock and no age, so the heads carry no `· 12 h ago`.
   assert.equal(items[0].text, '#1 [23:55] Nick: text');
   // Slice 2 (b): a line shows one clock and no age, so the heads carry no `· 12 h ago`.
@@ -184,7 +218,11 @@ test('formatTranscript: the date marker and the date header still render with a 
 test('formatTranscript: a gap marker with a date change renders with a request clock', () => {
   const before = Date.UTC(2026, 8, 19, 20, 0, 0); // 23:00 Moscow
   const after = Date.UTC(2026, 8, 19, 23, 12, 0); // 02:12 Moscow, the next day
-  const items = formatTranscript([msg('a', before), msg('b', after)], { ...ageOptions, now: after + 2 * HOUR });
+  const items = formatTranscript([msg('a', before), msg('b', after)], {
+    mediaNameOf: noMediaNames,
+    ...ageOptions,
+    now: after + 2 * HOUR,
+  });
   // Slice 2 (b): a line shows one clock and no age, so the head carries no `· 2 h ago`.
   assert.equal(
     items[1].text,
@@ -204,7 +242,14 @@ function offsetMessages() {
   ];
 }
 
-const offsetOptions = { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels };
+const offsetOptions = {
+  mediaNameOf: noMediaNames,
+  timezone: TZ,
+  gapMinutes: 20,
+  maxChars: 100,
+  selfName: 'Nept',
+  labels,
+};
 
 test('formatTranscript: indexOffset shifts every index and reply target', () => {
   const items = formatTranscript(offsetMessages(), { ...offsetOptions, indexOffset: 7 });
@@ -329,7 +374,14 @@ test('formatTranscript: attachments and stickers get tagged', () => {
       stickers: [{ id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' }],
     }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(items[0].text.includes('[image]'));
   assert.ok(items[0].text.includes('[file: report.pdf]'));
   assert.ok(items[0].text.includes('[sticker pepe]'));
@@ -347,6 +399,7 @@ test('formatTranscript: a media tag rendering empty (missing label key) never le
     }),
   ];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -368,6 +421,7 @@ test('formatTranscript: a forward with an empty-rendering media tag never leaves
     }),
   ];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -381,6 +435,7 @@ test('formatTranscript: a forward with an empty-rendering media tag never leaves
 test('formatTranscript: content longer than maxChars is truncated with an ellipsis', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const items = formatTranscript([msg('a', t0, { content: 'a'.repeat(10) })], {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 5,
@@ -395,6 +450,7 @@ test('formatTranscript: mode "memory" drops the #index and adds the user id, a r
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0, { authorName: 'Nick', authorId: '42', content: 'hello', replyToId: 'ghost' })];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -456,6 +512,7 @@ test('formatTranscript: the memory reply marker leaves chat mode output unchange
 test('formatTranscript: mode "memory" marks a message addressed to the persona with a leading arrow', () => {
   const t0 = Date.UTC(2026, 8, 20, 14, 32, 0);
   const items = formatTranscript([msg('a', t0, { authorName: 'nick', authorId: '1', content: 'text', direct: true })], {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -471,14 +528,7 @@ test('formatTranscript: mode "memory" leaves a non-direct message unmarked', () 
   const t0 = Date.UTC(2026, 8, 20, 14, 32, 0);
   const items = formatTranscript(
     [msg('a', t0, { authorName: 'nick', authorId: '1', content: 'text', direct: false })],
-    {
-      timezone: TZ,
-      gapMinutes: 20,
-      maxChars: 100,
-      selfName: 'Nept',
-      labels,
-      mode: 'memory',
-    }
+    { mediaNameOf: noMediaNames, timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, mode: 'memory' }
   );
   const lines = items[0].text.split('\n');
   assert.equal(lines.at(-1), '[17:32] nick (id:1): text');
@@ -488,6 +538,7 @@ test('formatTranscript: mode "memory" leaves a non-direct message unmarked', () 
 test('formatTranscript: "direct" has no effect in chat mode', () => {
   const t0 = Date.UTC(2026, 8, 20, 14, 32, 0);
   const items = formatTranscript([msg('a', t0, { content: 'text', direct: true })], {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -500,6 +551,7 @@ test('formatTranscript: "direct" has no effect in chat mode', () => {
 test('formatTranscript: mode "memory" for the persona\'s own line omits the id', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const items = formatTranscript([msg('a', t0, { self: true, content: 'hi' })], {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -521,6 +573,7 @@ test('formatTranscript: mode "memory" does not repeat the heading while the chan
     msg('b', t0 + MIN, { placeId: 'c1', channelName: 'general' }),
   ];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -538,6 +591,7 @@ test('formatTranscript: mode "memory" opens a new heading when the channel chang
     msg('b', t0 + MIN, { placeId: 'c2', channelName: 'random' }),
   ];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -557,6 +611,7 @@ test('formatTranscript: mode "memory" re-opens a heading when returning to a pre
     msg('c', t0 + 2 * MIN, { placeId: 'c1', channelName: 'general' }),
   ];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -575,6 +630,7 @@ test('formatTranscript: mode "memory" gap markers are computed within a channel 
     msg('b', t0 + 5 * HOUR, { placeId: 'c2', channelName: 'random' }),
   ];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -593,6 +649,7 @@ test('formatTranscript: mode "memory" still marks a gap within the same channel 
     msg('b', t0 + 25 * MIN, { placeId: 'c1', channelName: 'general' }),
   ];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -606,7 +663,14 @@ test('formatTranscript: mode "memory" still marks a gap within the same channel 
 test('formatTranscript: chat mode never adds a channel heading, even across a placeId change', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0, { placeId: 'c1' }), msg('b', t0 + MIN, { placeId: 'c2' })];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(!items[0].text.includes('##'));
   assert.ok(!items[1].text.includes('##'));
 });
@@ -633,11 +697,19 @@ test('formatTranscript: a link thumbnail description appends thumbnailDescribed,
       ],
     }),
   ];
-  const blind = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const blind = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(blind[0].text.includes('[link: YouTube — Cool video]'));
   assert.ok(!blind[0].text.includes('thumbnail'));
 
   const described = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -652,6 +724,7 @@ test('formatTranscript: a link thumbnail description appends thumbnailDescribed,
 
 function videoTranscript(messages: Array<Record<string, Untyped>>, extra = {}) {
   return formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -766,6 +839,7 @@ test('formatTranscript: a described sticker reads its stable name in stickerRef 
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0, { content: '', stickers: [stickerItem('951', 's12', 'https://x/951.png')] })];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -782,7 +856,14 @@ test('formatTranscript: a described sticker reads its stable name in stickerRef 
 test('formatTranscript: a sticker with no picture (Lottie) reads stickerRef like any other', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0, { content: '', stickers: [stickerItem('952', 's13', null)] })];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   const [item] = items;
   assert.ok(item.text.endsWith('Nick: [sticker s13]'), item.text);
 });
@@ -794,6 +875,7 @@ test('formatTranscript: a described custom emoji reads its bare stable name with
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0, { content: 'nice :e23:', emojis: [{ id: '901', name: 'e23' }] })];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -808,7 +890,14 @@ test('formatTranscript: a described custom emoji reads its bare stable name with
 test('formatTranscript: an undescribed custom emoji renders no extra tag at all', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const messages = [msg('a', t0, { content: 'nice :pog:', emojis: [{ id: 'e1', name: 'pog' }] })];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(items[0].text.endsWith('nice :pog:'));
   assert.ok(!items[0].text.includes('[:pog:'));
 });
@@ -821,6 +910,7 @@ test('formatTranscript: a described custom emoji of a forwarded snapshot carries
   ];
   const messages = [msg('a', t0, { content: '', forwarded })];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 200,
@@ -843,7 +933,14 @@ test('formatTranscript: a forwarded message-snapshot wraps its content and media
       ],
     }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(items[0].text.includes('[forwarded: look at this [image]]'));
 });
 
@@ -856,7 +953,14 @@ test('formatTranscript: a forward with a resolved source channel name uses label
       forwarded: [{ content: 'big news', attachments: [], links: [], stickers: [] }],
     }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(items[0].text.includes('[forwarded from #announcements: big news]'));
   assert.ok(!items[0].text.includes('[forwarded: big news]'));
 });
@@ -870,7 +974,14 @@ test('formatTranscript: a forward whose source channel is unresolved (forwardedF
       forwarded: [{ content: 'big news', attachments: [], links: [], stickers: [] }],
     }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(items[0].text.includes('[forwarded: big news]'));
 });
 
@@ -883,7 +994,14 @@ test('formatTranscript: a media-only forwarded snapshot (no text) still renders 
       forwarded: [{ content: '', attachments: [{ id: 'f1', kind: 'image', name: 'x.png' }], links: [], stickers: [] }],
     }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(items[0].text.includes('[forwarded from #media-dump: [image]]'));
 });
 
@@ -892,6 +1010,7 @@ test('formatTranscript: a media-only forwarded snapshot (no text) still renders 
 test('renderTranscript: prefixes a date header taken from the first item', () => {
   const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
   const items = formatTranscript([msg('a', t0, { content: 'hi' })], {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -1147,6 +1266,7 @@ test('formatTranscript: reads appends linkRead after the link tag and its other 
     }),
   ];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -1175,6 +1295,7 @@ test('formatTranscript: a read excerpt longer than the excerpt bound renders who
     }),
   ];
   const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100_000,
@@ -1190,6 +1311,7 @@ test('formatTranscript: a read excerpt longer than the excerpt bound renders who
 
 function reactionTranscript(messages: Array<Record<string, Untyped>>, extra = {}) {
   return formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 100,
@@ -1318,6 +1440,7 @@ const GIF_TEXT = `un chat lève le menton ${'et regarde la caméra '.repeat(13)}
 function gifLines(handles: boolean) {
   const message = msg('m1', GIF_T, { links: [GIF_LINK] });
   return formatTranscript([message], {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 800,
@@ -1348,6 +1471,7 @@ test('formatTranscript: a GIF whose watch failed renders transcript.gifNotWatche
   const standIn = { ...labels, transcript: { ...labels.transcript, gifNotWatched: '<gif {name} missed: {reason}>' } };
   const message = msg('m1', GIF_T, { content: '', attachments: [{ id: 'a9', kind: 'gif', name: 'anim.gif' }] });
   const [{ text }] = formatTranscript([message], {
+    mediaNameOf: noMediaNames,
     timezone: TZ,
     gapMinutes: 20,
     maxChars: 800,
@@ -1663,7 +1787,14 @@ test('formatTranscript: an edited line ends with the edited mark; a deleted plac
     msg('b', t0 + MIN, { deleted: true, content: 'must not show', authorName: 'Zoë' }),
     msg('c', t0 + 2 * MIN, { replyToId: 'b' }),
   ];
-  const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
+  const items = formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 100,
+    selfName: 'Nept',
+    labels,
+  });
   assert.ok(items[0].text.endsWith(` ${labels.transcript.edited}`), items[0].text);
   assert.ok(items[1].text.startsWith('#2 '), items[1].text);
   assert.ok(items[1].text.endsWith(`Zoë: ${labels.transcript.deleted}`), items[1].text);
@@ -1721,7 +1852,15 @@ test('formatTranscript: messageNumbers maps a reference to a line of the list to
       messageRefs: [refTo('101', link('101')), refTo('555', link('555'))],
     }),
   ];
-  const base = { timezone: TZ_MESSAGE_REFS, gapMinutes: 20, maxChars: 500, selfName: 'Nept', labels, indexOffset: 6 };
+  const base = {
+    mediaNameOf: noMediaNames,
+    timezone: TZ_MESSAGE_REFS,
+    gapMinutes: 20,
+    maxChars: 500,
+    selfName: 'Nept',
+    labels,
+    indexOffset: 6,
+  };
   const on = formatTranscript(messages, { ...base, messageNumbers: true });
   assert.ok(on[1].text.endsWith(`Nick: εδώ #7 και ${link('555')}`), on[1].text);
   const off = formatTranscript(messages, base);
@@ -1737,7 +1876,15 @@ test('formatTranscript: a reference written in angle brackets turns the whole sp
     messageRefsMsg('101', t0, { content: 'γεια' }),
     messageRefsMsg('102', t0 + MIN, { content: `voilà ${written}.`, messageRefs: [refTo('101', written)] }),
   ];
-  const base = { timezone: TZ_MESSAGE_REFS, gapMinutes: 20, maxChars: 500, selfName: 'Nept', labels, indexOffset: 6 };
+  const base = {
+    mediaNameOf: noMediaNames,
+    timezone: TZ_MESSAGE_REFS,
+    gapMinutes: 20,
+    maxChars: 500,
+    selfName: 'Nept',
+    labels,
+    indexOffset: 6,
+  };
   const on = formatTranscript(messages, { ...base, messageNumbers: true });
   assert.ok(on[1].text.endsWith('Nick: voilà #7.'), on[1].text);
 });
@@ -1749,7 +1896,15 @@ test('formatTranscript: a Discord link in the text with no reference on the mess
     messageRefsMsg('101', t0, { content: 'γεια' }),
     messageRefsMsg('102', t0 + MIN, { content: `εδώ ${link}` }),
   ];
-  const base = { timezone: TZ_MESSAGE_REFS, gapMinutes: 20, maxChars: 500, selfName: 'Nept', labels, indexOffset: 6 };
+  const base = {
+    mediaNameOf: noMediaNames,
+    timezone: TZ_MESSAGE_REFS,
+    gapMinutes: 20,
+    maxChars: 500,
+    selfName: 'Nept',
+    labels,
+    indexOffset: 6,
+  };
   const on = formatTranscript(messages, { ...base, messageNumbers: true });
   assert.ok(on[1].text.endsWith(`Nick: εδώ ${link}`), on[1].text);
 });
@@ -1784,8 +1939,15 @@ test('formatTranscript: with mediaNameOf the first item opens with the legend of
   assert.ok(text.slice(text.indexOf('</media>')).includes('hi :e7:'), text);
 });
 
-test('formatTranscript: without mediaNameOf a transcript holds no legend', () => {
-  const [first] = formatTranscript([emojiLine], { timezone: TZ, selfName: 'Nept', labels: legendLabels });
-  // The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+// A person may type a stable name the store never issued: the line keeps it, the legend has nothing to say of it.
+test('formatTranscript: a typed :e99: the store holds no row for opens no legend', () => {
+  const typed = msg('m2', Date.UTC(2026, 10, 1, 9), { content: 'try :e99:' });
+  const [first] = formatTranscript([typed], {
+    timezone: TZ,
+    selfName: 'Nept',
+    labels: legendLabels,
+    mediaNameOf: nameOfBlob,
+  });
   assert.ok(!first.text.includes('<media>'), first.text);
+  assert.ok(first.text.endsWith('try :e99:'), first.text);
 });

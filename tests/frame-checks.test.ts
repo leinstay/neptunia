@@ -18,6 +18,7 @@ import { labels } from './fixtures/labels.ts';
 import { frameInput } from './fixtures/frame-input.ts';
 import { mindOfEntries, personEntry } from './fixtures/mind-entries.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 /** The body of `<memory>` with every entry of `mind`, as the request renders it. */
 const memoryBlockOf = (
@@ -54,7 +55,11 @@ function chatText(): string {
     line('c', MIDNIGHT + 5 * MIN),
     line('d', MIDNIGHT + 15 * MIN),
   ];
-  return renderTranscript(formatTranscript(lines, { timezone: TZ, selfName: 'Nept', labels }), TZ, labels);
+  return renderTranscript(
+    formatTranscript(lines, { mediaNameOf: noMediaNames, timezone: TZ, selfName: 'Nept', labels }),
+    TZ,
+    labels
+  );
 }
 
 /** `<spatial_awareness>` of a turn in the channel `café` of the server `Ágora`. */

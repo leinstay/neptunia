@@ -13,6 +13,7 @@ import { usageTap, createUsage } from '../src/tools/operations/usage.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 const NOW = Date.parse('2026-10-18T12:00:00Z');
@@ -72,6 +73,7 @@ function setup() {
   const errands = { store: (placeId: string) => (placeId === 'g1' ? tasks : null) };
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

@@ -45,7 +45,14 @@
 import { isPlainObject } from '../config.ts';
 import { estimateTokens } from '../llm/tokens.ts';
 import { block, fillPromptTemplate } from './prompt.ts';
-import { fill, formatTranscript, GAP_MARKER_MINUTES, MAX_MESSAGE_CHARS, renderTranscript } from '../format.ts';
+import {
+  fill,
+  formatTranscript,
+  GAP_MARKER_MINUTES,
+  MAX_MESSAGE_CHARS,
+  noLegend,
+  renderTranscript,
+} from '../format.ts';
 import { oneLine } from '../memory/clamp.ts';
 import { episodeDate } from '../memory/index.ts';
 import {
@@ -1163,6 +1170,8 @@ export function renderRecallWindows(
     if (messages.length === 0) continue;
     const hits = new Set(window.hitIds ?? []);
     const items = formatTranscript(indexed ? messages : messages.map(unnumbered), {
+      // The windows' legend is the root `<media>` of the request (stretchText, buildRecallRequest).
+      mediaNameOf: noLegend,
       timezone,
       gapMinutes,
       maxChars,
@@ -1683,8 +1692,7 @@ export function buildRecallRequest({
   reactionsPerMessage,
   memoryTokens,
   timeCue = null,
-  // A summary built with no store of stable names, as from src/behavior/summary-builder.ts, shows no legend.
-  mediaNameOf = () => null,
+  mediaNameOf,
 }: BuildRecallRequestInput): Array<{ role: string; content: string }> | null {
   if (typeof prompt !== 'string' || !prompt.trim()) return null;
   const rendered = renderRecallWindows(windows, {
@@ -1736,6 +1744,8 @@ export function buildRecallRequest({
   let contextText = '';
   if (chat.length > 0) {
     const items = formatTranscript(chat, {
+      // The chat's legend is the root `<media>` of the request.
+      mediaNameOf: noLegend,
       timezone,
       gapMinutes,
       maxChars,

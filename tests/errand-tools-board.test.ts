@@ -19,6 +19,7 @@ import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const OWNER = '42';
 const MEMBER = '7';
@@ -73,6 +74,7 @@ function makeEnv(memoryDb: MemoryDb | null): Rig {
   const stores = createErrandStores({ config: () => hot.config, now: () => NOW, log: SILENT, memoryDb });
   const errands = createErrandService({ client, stores, hot, now: () => NOW, log: SILENT });
   const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: createDiscordInterface().capabilities,
     hot,
     store: { state: { data: {}, markDirty() {} } },

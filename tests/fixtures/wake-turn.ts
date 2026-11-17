@@ -19,6 +19,7 @@ import { onWorld, useIface, world } from './turn-world.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 import { chainsOnDefaults } from './chains.ts';
 import { objectMediaCache } from '../../src/memory/store-media.ts';
+import { noMediaNames } from './media-namer.ts';
 
 useIface('fake');
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
@@ -185,7 +186,7 @@ export async function wakeTurn({
     ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
-  const admin = createAdmin({
+  const admin = createAdmin({ mediaNameOf: noMediaNames, 
     discord: createDiscordInterface().capabilities,
     hot,
     store,

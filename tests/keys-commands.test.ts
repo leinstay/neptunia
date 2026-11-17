@@ -32,6 +32,7 @@ import {
 import type { Call, Reply } from './fixtures/keys-rig.ts';
 import type { PauseControl, KeysDeps } from '../src/keys/commands.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // Changed: the dispatcher role is gone, so the first key asks four models.
 const MANDATORY = ['core', 'memory', 'analyzer', 'embedding'];
@@ -199,7 +200,11 @@ test('an owner pause given over no-core-route stays when the next key is added',
   // Catches: the owner's /pause after the last key's removal keeps the reason no-core-route, so the next add wakes her
   // while he edits data/.
   const state = makeStore();
-  const admin = createAdmin({ hot: { config: { bot: { owners: [] } }, prompts: {} }, store: state });
+  const admin = createAdmin({
+    mediaNameOf: noMediaNames,
+    hot: { config: { bot: { owners: [] } }, prompts: {} },
+    store: state,
+  });
   const store = createKeyStore({ privateDir: tempDir('keys-commands-') });
   const pause = reasonedPause({ run: (op, args) => admin.run(op, args, {}), store: state });
   const { keys, chains } = commandsOver(store, pause, fakeFetch().fetch);

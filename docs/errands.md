@@ -32,7 +32,7 @@ Claude Code, Codex and OpenCode are supported execution backends. Install and au
 
 Each agent has a unit of its name: `neptunia-agent-server.service`, `neptunia-agent-scout.service` and `neptunia-agent-code.service` run `neptunia errand-runner --unit <agent>`. A runner serves its one agent and works one errand at a time. Its socket is `/run/neptunia-agent-<unit>/sock` and its out folder `/var/lib/neptunia-agent-<unit>/out`, or the same names under the user's runtime and state folders in a user unit. The core keeps one connection per unit and a health flag per unit, logged as `errands: runner up` or `errands: runner down`.
 
-An agent's prompt is its only limit, and the runner checks nothing per agent. Every run gets the tools of its harness. Codex runs with live web search. Claude Code gets `Read`, `Grep`, `Glob`, `Bash`, `WebFetch` and `WebSearch`, and adds `Edit` and `Write` in the modes `write`, `full` and `sudo`. OpenCode has its whole tool set and searches Exa unless the task names another search provider. Every run hands back the files the agent left in its folder. Only the sandbox of the mode and the unit holds a tool back.
+An agent's prompt is its only limit, and the runner checks nothing per agent. Every run gets the tools of its harness. Codex runs with live web search. Claude Code gets `Read`, `Grep`, `Glob`, `Bash`, `WebFetch` and `WebSearch`, and adds `Edit` and `Write` in the modes `write`, `full` and `sudo`. OpenCode has its whole tool set, with the permissions of the mode, and searches Exa unless the task names another search provider. Every run hands back the files the agent left in its folder. Only the sandbox of the mode and the unit holds a tool back.
 
 Each run has a time limit. Claude receives a model-turn limit. OpenCode and Codex get no step cap and only the timeout bounds them: at the cap OpenCode appends an assistant turn that Gemini and Anthropic refuse, so a capped run died with exit 1 instead of ending. Choose the backend with this distinction in mind.
 
@@ -64,7 +64,15 @@ While the [engine proxy](proxy.md) is in force, the core puts it into every erra
 
 ## Modes
 
-Execution modes govern the agents' access: `read`, `write`, `full` and `sudo`. A mode belongs to a unit, and so to its agent: `read` for `server` and `write` for `scout` and `code` until the owner sets another (`models.agents.mode`, by unit). The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. Use `/agent mode <unit> <mode>` to select one. Rerender units with `neptunia setup` and restart the affected unit to apply systemd restrictions. A mode stored in the key store alone does not change an already running service.
+Execution modes govern the agents' access: `read`, `write`, `full` and `sudo`. A mode belongs to a unit, and so to its agent: `read` for `server` and `write` for `scout` and `code` until the owner sets another (`models.agents.mode`, by unit). The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. The table shows what each mode gives each harness.
+
+| Mode | Claude Code | Codex | OpenCode |
+|---|---|---|---|
+| `read` | `Read`, `Grep`, `Glob`, `Bash`, `WebFetch` and `WebSearch`, approved with `--allowedTools` | `-s read-only` | `permission` of `"*": "allow"` and `"edit": "deny"` |
+| `write` | the same plus `Edit` and `Write` | `-s workspace-write` | `permission` of `"*": "allow"` |
+| `full`, `sudo` | the same tools with `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `permission` of `"*": "allow"` |
+
+OpenCode reads its `permission` block from the run's `OPENCODE_CONFIG` file. `"*"` covers every permission, `external_directory` among them, so a path outside the run's folder is read in every mode and written outside `read`. No permission is left on `ask`, because a headless run has nobody to answer and OpenCode ends the session on a refused call. Use `/agent mode <unit> <mode>` to select one. Rerender units with `neptunia setup` and restart the affected unit to apply systemd restrictions. A mode stored in the key store alone does not change an already running service.
 
 The server unit hides every client's token and every interface's `credentials.json` with `InaccessiblePaths=-<path>`, because it runs as the core's user and reads the host. It connects as no client, so it keeps no token. The modes `full` and `sudo` drop these entries with the rest of the mount sandbox. `keys.json` stays readable to it, and a client made after the unit was rendered stays visible until `neptunia setup` renders the unit again. The scout and code units hide the whole persona folder instead.
 

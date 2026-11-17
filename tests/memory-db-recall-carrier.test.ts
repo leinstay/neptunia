@@ -11,6 +11,7 @@ import { fixture } from './fixtures/memory-db-recall.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { channel as channelInfo, rig } from './fixtures/reads-rig.ts';
 import { labels } from './fixtures/labels.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -47,6 +48,7 @@ function runner(env: ReturnType<typeof fixture>) {
     prompts: { 'recall-summary': 'Summarize the stored evidence.', labels },
   };
   const recaller = createRecall({
+    mediaNameOf: noMediaNames,
     iface: 'discord',
     reads: rig().reads,
     hot,

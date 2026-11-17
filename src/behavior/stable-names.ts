@@ -27,6 +27,14 @@ const itemOf = (value: object): MediaNameItem => {
   return { nativeId: String(id), platformName: String(name), animated: animated === true };
 };
 
+/** The stable name of the token `<emoji:ID>`. The protocol lists every token's id in `emojis`, so a miss is a broken
+ * interface. */
+function stableNameOf(byId: ReadonlyMap<string, string>, id: string): string {
+  const name = byId.get(id);
+  if (name === undefined) throw new Error(`emoji token ${id} has no entry in emojis`);
+  return name;
+}
+
 /** `part` with its emoji tokens and its emoji and stickers under their stable names. */
 function namePart<TPart extends Part>(part: TPart, iface: string, names: MediaNamer): TPart {
   const emojis = part.emojis ?? [];
@@ -34,11 +42,10 @@ function namePart<TPart extends Part>(part: TPart, iface: string, names: MediaNa
   const named = names.nameMedia(iface, 'emoji', emojis.map(itemOf));
   const stuck = names.nameMedia(iface, 'sticker', stickers.map(itemOf));
   const byId = new Map(named.map((row) => [row.nativeId, row.name]));
-  const listed = emojis.map((emoji) => ({ id: String(looseOf(emoji).id), name: String(looseOf(emoji).name) }));
   return {
     ...part,
     ...(typeof part.content === 'string'
-      ? { content: nameEmojiTokens(part.content, (id) => byId.get(id) ?? null, listed) }
+      ? { content: nameEmojiTokens(part.content, (id) => stableNameOf(byId, id)) }
       : {}),
     ...(part.emojis ? { emojis: emojis.map((emoji, at) => ({ ...emoji, name: named[at].name })) } : {}),
     ...(part.stickers ? { stickers: stickers.map((sticker, at) => ({ ...sticker, name: stuck[at].name })) } : {}),

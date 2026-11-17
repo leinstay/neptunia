@@ -25,6 +25,7 @@ import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 useIface('fake');
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
@@ -135,6 +136,7 @@ async function innerTurn({
       })
     : null;
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

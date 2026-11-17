@@ -19,6 +19,7 @@ import type { JournalLinesWrite } from '../src/memory/db/journal-lines.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const OWNER = '42';
 const SELF = 'self-1';
@@ -195,6 +196,7 @@ function makeAdmin(journal: Record<string, Untyped>) {
       }),
   };
   return createAdmin({
+    mediaNameOf: noMediaNames,
     hot,
     store,
     reads: wrongly(reads),

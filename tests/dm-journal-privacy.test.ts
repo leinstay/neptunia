@@ -5,6 +5,7 @@
 // partner's private turn, the persona's own wake. Where the answer could be empty for want of a row, an internal context
 // checks first that the row exists, so an empty answer means refused and never means unwritten. The last group asserts
 // the converse: the partner's own private turn still reads their own lines.
+import { noMediaNames } from './fixtures/media-namer.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -445,6 +446,7 @@ function recaller(w: World) {
   const none = () => Promise.resolve(null);
   const recall = createRecall(
     wrongly({
+      mediaNameOf: noMediaNames,
       reads: { searchMessages: none, searchMembers: none, history: none },
       hot,
       store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },

@@ -1673,13 +1673,12 @@ export function quotesOf(
     render,
     stretchChars,
     handleOf = null,
-    // A caller with no store of stable names shows no legend.
-    mediaNameOf = () => null,
+    mediaNameOf,
   }: {
     render: Row;
     stretchChars: number;
     handleOf?: ((message: RecallMessage) => string | null) | null;
-    mediaNameOf?: (name: string) => MediaName | null;
+    mediaNameOf: (name: string) => MediaName | null;
   }
 ): Array<RecallQuote> {
   const out: Array<RecallQuote> = [];

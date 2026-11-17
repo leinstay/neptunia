@@ -9,6 +9,7 @@ import { createMissed, MISSED_FORMAT, MISSED_VERDICTS, parseMissedAnswer, UNCHEC
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The chats are held by a fake interface named `fake`.
 useIface('fake');
@@ -80,7 +81,7 @@ async function sweep(text: string) {
       config: { bot: { timezone: 'UTC' }, missed: {}, models: {}, llm: {} },
       prompts: { missed: 'Check for {{name}}.', labels },
     },
-    store: { state: { data: {} } },
+    store: { mediaNameOf: noMediaNames, state: { data: {} } },
     llm: {
       complete: (_messages: unknown, options: Sent['options']) => {
         sent.push({ options });

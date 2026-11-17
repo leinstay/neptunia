@@ -24,6 +24,7 @@ import {
 } from './fixtures/turn-harness.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import '../src/tools/operations/index.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const ROOT = 'g1';
@@ -57,6 +58,7 @@ test('a second attempt of a turn whose first attempt failed before its send carr
   const store = fakeStore();
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

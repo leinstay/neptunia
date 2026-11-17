@@ -19,6 +19,7 @@ import type { SkillsPort } from '../src/skills/port.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { skillText, skillsRig } from './fixtures/skills-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 const LOOK = skillText('look-it-up', 'I check the web first', ['web.search'], 'Search, then read the best hit.');
 
 type Result = { status: string; code?: string | null; summary?: string; data?: unknown };
@@ -31,6 +32,7 @@ function envOf(skills: SkillsPort | null) {
     reloadConfig: () => true,
   };
   return createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: createDiscordInterface().capabilities,
     hot,
     store: { state: { data: {}, markDirty() {} } },

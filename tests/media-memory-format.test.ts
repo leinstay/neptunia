@@ -35,6 +35,7 @@ import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Env, Kind, Presence, Shape } from './fixtures/media-memory.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const internal = internalContext();
 const rowsOf = (env: Env, source: string, ownerKind: 'source' | 'diary' = 'source') =>
@@ -418,6 +419,7 @@ const rendered = (env: Env, iface: string) => {
     sampleTime: true,
   });
   return quotesOf(found.windows, {
+    mediaNameOf: noMediaNames,
     render: { labels: LABELS, timezone: 'UTC', selfName: 'Self', seeReactions: true },
     stretchChars: 4000,
   })

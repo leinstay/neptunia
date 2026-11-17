@@ -101,18 +101,17 @@ export function messageRefsOf(
 }
 
 /**
- * `cleanText` with each custom emoji of `emojis` as the protocol token `<emoji:ID>`. discord.js's cleanContent writes
+ * `cleanText` with each custom emoji as the protocol token `<emoji:ID>`. discord.js's cleanContent writes
  * the markup `<:name:id>` as `:name:`, dropping the id, so the markup of the raw `content` gives the ids in the order
  * they stand. Markup cleanContent leaves behind takes its own id.
  */
-function tokenEmoji(cleanText: string, raw: unknown, emojis: ReadonlyArray<NormalEmoji>): string {
-  const listed = new Set(emojis.map((emoji) => emoji.id));
-  let text = cleanText.replace(CUSTOM_EMOJI_RE, (markup: string, _animated: string, _name: string, id: string) =>
-    listed.has(id) ? `<emoji:${id}>` : markup
+function tokenEmoji(cleanText: string, raw: unknown): string {
+  let text = cleanText.replace(
+    CUSTOM_EMOJI_RE,
+    (_markup: string, _animated: string, _name: string, id: string) => `<emoji:${id}>`
   );
   let from = 0;
   for (const [, , name, id] of scalarText(raw ?? '').matchAll(CUSTOM_EMOJI_RE)) {
-    if (!listed.has(id)) continue;
     const at = text.indexOf(`:${name}:`, from);
     if (at === -1) continue;
     const token = `<emoji:${id}>`;
@@ -419,7 +418,7 @@ function normalizeSnapshot(snapshot: SnapshotLike, videoSites: ReadonlyArray<str
   const isVoice = isVoiceMessageFlag(snapshot);
   const cleanContent = snapshot.cleanContent ?? snapshot.content ?? '';
   const emojis = extractEmojis(snapshot.content ?? cleanContent);
-  const cleanText = tokenEmoji(cleanContent, snapshot.content, emojis).trim();
+  const cleanText = tokenEmoji(cleanContent, snapshot.content).trim();
   const { attachments, links, content } = normalizeMedia(
     snapshot.id ?? 'fwd',
     snapshot,
@@ -510,7 +509,7 @@ export function normalizeMessage(
   const isVoice = isVoiceMessageFlag(message);
   const cleanContent = message.cleanContent ?? '';
   const emojis = extractEmojis(message.content ?? cleanContent);
-  const cleanText = tokenEmoji(cleanContent, message.content, emojis).trim();
+  const cleanText = tokenEmoji(cleanContent, message.content).trim();
   const { attachments, links, content } = normalizeMedia(
     message.id,
     message,

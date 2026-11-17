@@ -6,6 +6,7 @@
 //   messages }` or `{ kind: 'web', query, results }`, and `limits` `{ maxChars, maxOutputTokens, signal?, timeoutMs? }`;
 //   it resolves `{ status: 'note' | 'none' | 'failed' | 'no-prompt', text, stretch, reason? }` and never rejects
 //   history sends its caller's `messages` on the analyzer, web reads `prompts['search-summary']` on the `search` role
+import { noMediaNames } from './fixtures/media-namer.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRecall } from '../src/behavior/recall-run.ts';
@@ -267,6 +268,7 @@ test('a recall whose summary answers none finds nothing', async () => {
   const recaller = createRecall(
     wrongly<Parameters<typeof createRecall>[0]>({
       reads,
+      mediaNameOf: noMediaNames,
       hot: {
         config: recallConfig({ llm: { analyzerTimeoutMs: 30000 } }),
         prompts: { 'recall-summary': PROMPT, labels },

@@ -8,7 +8,7 @@ import { tokenIds } from '../../memory/mentions.ts';
 import type { AroundSnapshot } from '../../behavior/around-store.ts';
 import { mergeProfiles } from '../../behavior/private.ts';
 import { isPlainObject } from '../../config.ts';
-import { formatTranscript, reactorIdsOf } from '../../format.ts';
+import { formatTranscript, noLegend, reactorIdsOf } from '../../format.ts';
 import { requestTokenLimit, sectionCost } from '../../llm/budget.ts';
 import { rulesPromptOf } from '../../rules-list.ts';
 import { cacheTtlMs } from '../../llm/openrouter.ts';
@@ -191,6 +191,8 @@ export function requestHead(given: RequestInput): Base {
       (given.customEmoji as Array<EmojiRef>)
     : [];
   const formatOptions = {
+    // The chat's legend is the root `<media>` of the request.
+    mediaNameOf: noLegend,
     timezone,
     selfName,
     labels,

@@ -28,6 +28,7 @@ import { freshWorld, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import '../src/tools/operations/index.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const ROOT = 'g1';
@@ -106,6 +107,7 @@ async function turnIn(
       Promise.resolve({ ogg: Buffer.from('ogg'), durationSecs: 1, waveform: 'AA', voiced: text, chars: 4, cost: 0 }),
   };
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

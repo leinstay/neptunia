@@ -30,6 +30,7 @@ import type { World } from './fixtures/memory-db/mind-world.ts';
 import { channel, rig } from './fixtures/reads-rig.ts';
 import { labels } from './fixtures/labels.ts';
 import type { Db } from '../src/memory/db/types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const ROOT = rootId('fake', 'g1');
 const ELENI = 'person:eleni';
@@ -149,7 +150,7 @@ function scene(
   };
   const tools = createInTurnTools({
     hot,
-    store: { listUserProfiles: () => [] },
+    store: { mediaNameOf: noMediaNames, listUserProfiles: () => [] },
     recall: null,
     speech: null,
     record: null,

@@ -11,6 +11,7 @@ import { observationOf } from '../src/memory/db/observe-event.ts';
 import { recordSourceRow } from '../src/memory/db/record-lines.ts';
 import type { Row, Rows } from '../src/memory/db/types.ts';
 import { lineEvent } from './fixtures/core-over-fake.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 /**
  * A record row as an older release stored it, with its writer as version step 46 stamped it, and for a private layer
@@ -118,7 +119,11 @@ for (const secondIface of ['other', 'foreign']) {
         messages.map((message) => message.stored?.sourceId).sort(),
         [first.sourceId, second.sourceId].sort()
       );
-      const quotes = quotesOf(found.windows, { render: { labels, timezone: 'UTC' }, stretchChars: 1500 });
+      const quotes = quotesOf(found.windows, {
+        mediaNameOf: noMediaNames,
+        render: { labels, timezone: 'UTC' },
+        stretchChars: 1500,
+      });
       assert.deepEqual(
         quotes
           .flatMap((quote) => quote.entries)

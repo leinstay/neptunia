@@ -41,6 +41,8 @@ import {
   moment,
 } from './fixtures/sandbox-kit.ts';
 import { answerSkillScenario, personaGrantsConfig } from '../src/behavior/sandbox.ts';
+import { mediaNamesOf, noMediaNames } from './fixtures/media-namer.ts';
+import type { MediaName } from '../src/memory/store-media-names.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -521,6 +523,7 @@ test('answerReply: reads everything through the view, so another view of the sam
       listUserProfiles: () => [],
       listChannels: () => [],
       getLore: () => [],
+      mediaNameOf: noMediaNames,
     },
   };
   const llm = fakeLlm('<skip/>');
@@ -778,6 +781,36 @@ function buildRequestInputs() {
   for (const match of body.matchAll(/\binput\.(\w+)/g)) keys.push(match[1]);
   return new Set(keys);
 }
+
+// The store a replay opens holds the stable names, so a replayed line with a custom emoji carries its legend as live.
+test('answerReply: a replayed line naming a custom emoji carries the <media> block from the store of stable names', async () => {
+  const wave: MediaName = {
+    name: 'e1',
+    kind: 'emoji',
+    iface: 'discord',
+    nativeId: '600000000000000001',
+    platformName: 'wave',
+    animated: false,
+  };
+  const store = { ...fakeStore(), mediaNameOf: mediaNamesOf([wave]) };
+  const view = liveView({ hot: fakeHot(), store, placeId: 'g1' });
+  const moment = storedMoment();
+  const [first, trigger] = moment.history;
+  const named = { ...trigger, content: 'hello :e1:', emojis: [{ id: wave.nativeId, name: 'e1', animated: false }] };
+  const result = await answerReply({
+    view,
+    situation: { history: [first, named] },
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: fakeLlm('<msg>ok</msg>'),
+    samples: 1,
+    at: NOW,
+  });
+  const user = result.request.user;
+  assert.ok(user.includes('<media>'), user);
+  assert.ok(user.includes(':e1:'), user);
+});
 
 test('sandboxRequestInput: names every input buildRequest reads; what it leaves out is SANDBOX_OMITS, passed as absent', () => {
   const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
@@ -1205,6 +1238,7 @@ function baseView() {
         listUserProfiles: () => Object.values(asRecord(data).users),
         listChannels: () => asRecord(data).channels,
         getLore: () => asRecord(data).lore,
+        mediaNameOf: noMediaNames,
       },
     },
   };
@@ -1418,6 +1452,7 @@ test('hiddenLater: counts what the cutoff hides, by kind; nothing for undated me
       listUserProfiles: () => [bare],
       listChannels: () => [],
       getLore: () => null,
+      mediaNameOf: noMediaNames,
     },
   };
   assert.deepEqual(
@@ -1533,6 +1568,7 @@ function mediaCache() {
 
 function rendered(history: Untyped, { descriptions, videos }: Record<string, Untyped> = {}) {
   return formatTranscript(history, {
+    mediaNameOf: noMediaNames,
     timezone: 'UTC',
     gapMinutes: 60,
     maxChars: 2000,

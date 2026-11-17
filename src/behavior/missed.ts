@@ -586,7 +586,7 @@ export function buildCheckRequest({
     labels,
     seeReactions: false,
     now,
-    ...(mediaNameOf ? { mediaNameOf } : {}),
+    mediaNameOf,
   });
   const indexOf = new Map(items.map((item) => [item.id, item.index]));
   const numbered = candidates.filter((candidate) => indexOf.has(candidate.messageId));
@@ -1142,7 +1142,7 @@ export function createMissed({
       candidates: list,
       triggerOf: typeof turns?.triggerOf === 'function' ? (id: string) => turns.triggerOf(id) : undefined,
       now: now(),
-      ...(store.mediaNameOf ? { mediaNameOf: store.mediaNameOf } : {}),
+      mediaNameOf: store.mediaNameOf,
     });
     if (!request) {
       if (!promptMissingLogged && !(typeof prompts?.missed === 'string' && prompts.missed.trim())) {

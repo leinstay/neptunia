@@ -23,6 +23,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The chat is held by a fake interface named `fake`.
 useIface('fake');
@@ -185,6 +186,7 @@ async function liveTurn({
   const store = fakeStore();
   store.getLore = () => lore;
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

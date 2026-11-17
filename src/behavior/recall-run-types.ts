@@ -48,7 +48,7 @@ export type CreateRecallInput = {
   /** `state` (`data`, `markDirty`) and `listUserProfiles` (src/memory/store.js); read only, when present: `getLore`, `getPlace` (its `learned`), `getRecent`. Never `getPrivate`. */
   store: Untyped;
   /** The store's read of a stable name (src/memory/store-media-names.ts), for the legend of a stretch. */
-  mediaNameOf?: (name: string) => MediaName | null;
+  mediaNameOf: (name: string) => MediaName | null;
   /** From createLlm(): `complete`, `capLeft`. */
   llm: Untyped;
   /** The core's reads of the interface: the message and member searches and the history windows around a hit. */
