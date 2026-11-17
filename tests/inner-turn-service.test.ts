@@ -9,7 +9,6 @@
 //   The persona's journal is read at `journal.read(PERSONA_ID, { day, kind: 'turn' })`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DESTINATION_REQUIRED } from '../src/behavior/inner-output.ts';
 import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
@@ -111,15 +110,18 @@ test('a tool that takes a place is refused in a heartbeat with no chat when she 
   assert.ok(code !== undefined && code !== '' && code !== 'ok', action);
 });
 
-test('a <msg> in a heartbeat carries destination-required', async () => {
+test('a <msg> in a heartbeat carries heartbeat-only', async () => {
   // Bug: a message with no destination goes to a stand-in or to the room the wake rode on.
+  // Changed: the expectation was destination-required. The heartbeat's own limit answers before a tag's refusal, so a
+  // <msg> of a heartbeat is refused as any post of a heartbeat is, and its refusal wakes no feedback turn that could
+  // post it. The bug above stays caught: nothing is sent.
   const run = await serviceTurn({
     wake: serviceWake('heartbeat'),
     answers: [`${THINK}<msg>γεια σας</msg>`, '<skip/>'],
     chat: null,
   });
   const post = run.actions.find((action) => action.startsWith('message.create:')) ?? '';
-  assert.equal(post.split(':')[2], DESTINATION_REQUIRED.code, post);
+  assert.equal(post.split(':')[2], 'heartbeat-only', post);
   const { port } = run;
   assert.equal(port.calls.filter((one: { op: string }) => one.op === 'send').length, 0);
 });

@@ -33,7 +33,7 @@
 // (`turnFailed`). A non-empty list is kept as facts and queues ONE `feedback` wake
 // (`inner.wake:feedback:<turnId>`) in the turn's chain and chat, due at the next tick,
 // carrying them -- unless the turn's own wakes come back for a retry, which carries them. A call refused
-// `heartbeat-only` stays a kept fact and wakes no feedback turn, which could post what the heartbeat refused. The
+// `heartbeat-only` stays a kept fact, wakes no feedback turn and is not shown in one, since that turn could post it. The
 // feedback wake is never held by a cap, never coalesced with another wake and does not count
 // against the chain; a feedback turn's own misses are facts but queue no second wake (no loops).
 //

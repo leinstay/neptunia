@@ -19,7 +19,15 @@ import { WAKE_POLICY_VERSION } from '../../tools/access.ts';
 import { errorCode as codeOf, isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
 import type { ChatInfo } from '../../protocol/adapter.ts';
 import { deliveriesOf, holdFor, sendDeliveries } from './deliveries.ts';
-import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
+import {
+  asText,
+  factPayload,
+  feedbackFacts,
+  heartbeatRefused,
+  idOrNull,
+  markFactsTold,
+  pendingFactsOf,
+} from './facts.ts';
 import { logHeartbeatOutcome } from './heartbeat.ts';
 import { attendFactsOf } from './places.ts';
 import {
@@ -707,7 +715,8 @@ async function runGroup(life: InnerContext, group: Array<Wake>, step: DrainStep)
   const hold = holdFor(life, shadow);
   const current = currentChannelOf(group, records);
   // The facts a feedback wake carries, and the other facts this chat may be shown (not told yet). A fact the turn on the
-  // other lane carries now is left to it, so the heartbeat and an intention's turn never tell one fact twice.
+  // other lane carries now is left to it, so the heartbeat and an intention's turn never tell one fact twice. A feedback
+  // turn is shown no refusal of the heartbeat's limit (heartbeatRefused), which stays for a later turn.
   const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => listOf(wake.factIds)));
   const shownFacts = pendingFactsOf(state, {
     ...contextOf(life, where),
@@ -716,6 +725,7 @@ async function runGroup(life: InnerContext, group: Array<Wake>, step: DrainStep)
     anywhere: true,
   })
     .filter((fact) => !ownFactIds.has(fact.id) && !life.showing.has(fact.id))
+    .filter((fact) => anchor.kind !== 'feedback' || !heartbeatRefused(fact))
     .slice(0, FACTS_SHOWN_MAX);
   for (const fact of shownFacts) life.showing.add(fact.id);
   const shown = () => {
@@ -897,11 +907,8 @@ async function runGroup(life: InnerContext, group: Array<Wake>, step: DrainStep)
   save(life);
   const recorded = await finishWakes(life, group, deliveriesOf(hold, { turnId: turnKey, chainId }));
   await sendDeliveries(life, recorded);
-  // A call refused with the heartbeat's own code asks for nothing a later turn may do: the refusal stays a fact,
-  // which the next turn that carries kept facts tells her, and wakes no feedback turn that could post what it refused.
-  const woken = feedback.flatMap((fact, i) =>
-    fact.code === CODE.HEARTBEAT_ONLY ? [] : [{ fact, kept: keptFacts[i] }]
-  );
+  // A refusal of the heartbeat's limit stays a kept fact for a later turn and wakes no feedback turn (heartbeatRefused).
+  const woken = feedback.flatMap((fact, i) => (heartbeatRefused(fact) ? [] : [{ fact, kept: keptFacts[i] }]));
   let feedbackWakeId: string | null = null;
   if (woken.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;
