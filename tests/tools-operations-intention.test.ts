@@ -106,6 +106,19 @@ test('intention.set refuses the place of her diary mirror with diary-mirror and 
   });
 });
 
+test('intention.set with no place, called in her diary mirror, is refused diary-mirror and stores nothing', async () => {
+  const { env, intentions } = makeEnv();
+  await withCapturedLogs(async () => {
+    const result = await runOp(
+      'intention.set',
+      { text: 'say good morning', due: '1h' },
+      wrongly({ ...hers(env), placeId: MIRROR_CHAT })
+    );
+    assert.equal(result.code, 'diary-mirror', result.summary);
+    assert.deepEqual(destinations(intentions), [], 'no intention was stored');
+  });
+});
+
 test('intention.set stores an intention aimed at another place she may write in', async () => {
   const { env, intentions } = makeEnv();
   await withCapturedLogs(async () => {
