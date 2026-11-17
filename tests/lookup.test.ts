@@ -632,6 +632,54 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
   assert.equal(bare.llm.calls[0].options.plugins[0].max_results, 5);
 });
 
+const LONG_NOTE = 'Η ομάδα κέρδισε τον τελικό στα πέναλτι μετά από ένα σφιχτό παιχνίδι. '.repeat(20).trim();
+
+/** The openrouter engine answering every search with `text` as its summary note. */
+function openrouterNote(
+  text: string,
+  summarize: (t: string, o: { maxChars: number; kind: 'text' }) => Promise<string>
+) {
+  const run = engineSetup({ engine: 'openrouter' }, { braveApiKey: null, summarize });
+  const { llm } = run;
+  llm.complete = (messages, options) => {
+    llm.calls.push({ messages, options });
+    return Promise.resolve({ text, usage: {}, estimated: 5, annotations: [] });
+  };
+  return run;
+}
+
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('search: engine openrouter -- a summary note over 900 characters goes to summarize once and its answer is the text', async () => {
+  const summarizer = fakeSummarize('Η ομάδα κέρδισε στα πέναλτι.');
+  const { lookup } = openrouterNote(LONG_NOTE, summarizer.summarize);
+  const result = await lookup.search('g1', 'ποιος κέρδισε τον τελικό');
+  assert.deepEqual(
+    summarizer.calls.map((one) => one.options),
+    [{ maxChars: 900, kind: 'text' }]
+  );
+  assert.equal(present(result).text, 'Η ομάδα κέρδισε στα πέναλτι.');
+});
+
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('search: engine openrouter -- a summary of the note that is still over 900 characters is the text whole', async () => {
+  const still = `${LONG_NOTE} Ακόμη μακρύτερο.`;
+  const { lookup } = openrouterNote(LONG_NOTE, () => Promise.resolve(still));
+  const result = await lookup.search('g1', 'ποιος κέρδισε τον τελικό');
+  assert.equal(present(result).text, still);
+});
+
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('search: engine brave -- a summary note over 900 characters goes to summarize once and its answer is the text', async () => {
+  const summarizer = fakeSummarize('Δύο πηγές συμφωνούν.');
+  const { lookup } = setup({ llmText: LONG_NOTE, summarize: summarizer.summarize });
+  const result = await lookup.search('g1', 'ποιος κέρδισε τον τελικό');
+  assert.deepEqual(
+    summarizer.calls.map((one) => one.options),
+    [{ maxChars: 900, kind: 'text' }]
+  );
+  assert.equal(present(result).text, 'Δύο πηγές συμφωνούν.');
+});
+
 test('search: hasSearch follows the chosen engine; an unknown engine is off', async () => {
   const cases = [
     [{ engine: 'brave' }, 'k', true, 'brave'],

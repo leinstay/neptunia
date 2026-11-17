@@ -52,6 +52,15 @@ test('a lookup of one turn renders in <recall> of the next with where from, what
   assert.notEqual(text, failed, 'the status is rendered');
 });
 
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('the ring keeps an extract longer than extractChars whole, with no ellipsis', () => {
+  const extract = 'ΑΠΟΣΠΑΣΜΑ-ΚΗΠΟΥ με τριαντάφυλλα και λεμονιές. '.repeat(40).trim();
+  const ring = createLookupRing([]);
+  ring.note(lookup({ extract }), SETTINGS);
+  const [kept] = ring.forPlace('place:room', lines('m10'), NOW);
+  assert.equal(kept?.extract, extract);
+});
+
 test('a lookup leaves the ring when its anchor leaves the window', () => {
   // Bug: lookups pile up for ever, a hundred turns giving a hundred extracts.
   const ring = createLookupRing([]);
@@ -97,14 +106,6 @@ test('a place keeps at most maxItems lookups, the oldest anchor dropped first', 
   }
   const kept = ring.forPlace('place:room', lines(...ids), NOW).map((one) => one.turnId);
   assert.deepEqual(kept.sort(), ['turn:1', 'turn:2', 'turn:3']);
-});
-
-test('an extract longer than extractChars is kept cut to extractChars', () => {
-  // Bug: one long result fills the request in every later turn of the place.
-  const ring = createLookupRing([]);
-  ring.note(lookup({ extract: 'α'.repeat(5000) }), { ...SETTINGS, extractChars: 300 });
-  const [kept] = ring.forPlace('place:room', lines('m10'), NOW);
-  assert.ok(kept !== undefined && kept.extract.length <= 300 && kept.extract.length > 0);
 });
 
 test('a ring seeded from the journal returns the seeded lookup, so a restart keeps it', () => {

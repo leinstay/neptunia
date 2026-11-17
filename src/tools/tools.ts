@@ -140,9 +140,6 @@ function toolLabels(labels: unknown, kind: string): ToolLabels {
   return objOf(objOf(objOf(objOf(labels).tools).tools)[kind]) as ToolLabels;
 }
 
-/** How long a title or a link in a web.search result may be. */
-const RESULT_TITLE_MAX = 120;
-const RESULT_URL_MAX = 300;
 // The web tools' measures. Production values, config cut of 2026-10-31.
 /** The length of one web.search result's snippet; a longer one is retold. */
 const SNIPPET_CHARS = 400;
@@ -155,7 +152,7 @@ const TRACKING_PARAM = /^(utm_\w+|fbclid|gclid|yclid|mc_cid|mc_eid|ref_src)$/i;
 
 /**
  * A result's link as she may hand it on: http(s) only, the fragment and tracking parameters
- * dropped; longer than RESULT_URL_MAX it loses its query string, then is cut with an ellipsis.
+ * dropped, the rest kept whole.
  * `{ href, key }` (`key`: host without `www.`, path without a trailing slash, query -- one page
  * once), or null for anything that is not an http(s) URL. Pure.
  */
@@ -169,10 +166,8 @@ function cleanLink(raw: unknown): { href: string; key: string } | null {
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
   url.hash = '';
   for (const name of [...url.searchParams.keys()]) if (TRACKING_PARAM.test(name)) url.searchParams.delete(name);
-  if (url.href.length > RESULT_URL_MAX) url.search = '';
   const key = `${url.hostname.replace(/^www\./i, '').toLowerCase()}${url.pathname.replace(/\/+$/, '')}${url.search}`;
-  const href = url.href.length > RESULT_URL_MAX ? `${url.href.slice(0, RESULT_URL_MAX - 1)}…` : url.href;
-  return { href, key };
+  return { href: url.href, key };
 }
 
 /**
@@ -181,7 +176,7 @@ function cleanLink(raw: unknown): { href: string; key: string } | null {
  * she named what she needs to establish, then each result as the engine gave it -- `<n>. <title>`,
  * its link (cleanLink; a result without an http(s) link and a page listed twice are left out),
  * `<site> · <date>` (the date only when the engine gave one), its snippet -- while the whole stays
- * within `maxChars` (the first result always shows, its snippet cut to fit), then `.more` (`{count}`) for the results left out for room; `.none` when nothing came back. Numbers, links, sites, dates and snippets are data; a
+ * within `maxChars` (the first result always shows whole; a title, a link and a snippet are never cut, the snippet being retold upstream), then `.more` (`{count}`) for the results left out for room; `.none` when nothing came back. Numbers, links, sites, dates and snippets are data; a
  * missing label adds nothing. Pure.
  * `found` is `{ query, results }` of the search.
  */
@@ -203,15 +198,13 @@ export function webSearchText(
     const link = cleanLink(result.url);
     if (!link || seen.has(link.key)) continue;
     seen.add(link.key);
-    const head: Array<string> = [
-      `${blocks.length + 1}. ${clampWithEllipsis(oneLine(result.title), RESULT_TITLE_MAX)}`.trimEnd(),
-      link.href,
-    ];
+    const head: Array<string> = [`${blocks.length + 1}. ${oneLine(result.title)}`.trimEnd(), link.href];
     const where = [oneLine(result.site), oneLine(result.age)].filter(Boolean).join(' · ');
     if (where) head.push(where);
-    const headText = head.join('\n');
-    const room = maxChars - used - headText.length - 2;
-    if (blocks.length > 0 && room < 0) {
+    const snippet = oneLine(result.snippet);
+    if (snippet) head.push(snippet);
+    const block = head.join('\n');
+    if (blocks.length > 0 && used + block.length + 1 > maxChars) {
       // This result and every one listed after it, left out for room.
       left =
         1 +
@@ -223,8 +216,6 @@ export function webSearchText(
         }).length;
       break;
     }
-    const snippet = room > 0 ? clampWithEllipsis(oneLine(result.snippet), room) : '';
-    const block: string = snippet ? `${headText}\n${snippet}` : headText;
     blocks.push(block);
     used += block.length + 1;
   }

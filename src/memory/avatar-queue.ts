@@ -16,7 +16,7 @@ import { accountOf } from './addresses.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
-import { clampText, oneLine } from './clamp.ts';
+import { oneLine } from './clamp.ts';
 import { DAY_MS } from '../time.ts';
 import { log as defaultLog } from '../log.ts';
 import { hashOrNull, isAvatarDue } from './avatars.ts';
@@ -45,6 +45,7 @@ function buildAvatarQueue({
   selfId,
   reads,
   paused = () => false,
+  summarize,
   now = Date.now,
   log = defaultLog,
 }: {
@@ -59,6 +60,8 @@ function buildAvatarQueue({
   selfId: () => string | null;
   reads: Reads;
   paused?: () => boolean;
+  /** Retells a description over its bound once as a picture's (src/behavior/summarize.ts); none keeps it whole. */
+  summarize?: (text: string, options: { maxChars: number; kind: 'picture' }) => Promise<string>;
   now?: () => number;
   log?: Log;
 }) {
@@ -220,10 +223,9 @@ function buildAvatarQueue({
     } catch (err) {
       return fail(railReason(err, 'llm-error'), { status: propOf(err, 'statusCode') ?? null });
     }
-    const firstLine = String(completion?.text ?? '')
-      .trim()
-      .split('\n')[0];
-    const text = clampText(oneLine(firstLine), descriptionChars, { tolerance: 1 });
+    const answer = oneLine(completion?.text ?? '');
+    const over = summarize && Array.from(answer).length > descriptionChars;
+    const text = over ? oneLine(await summarize(answer, { maxChars: descriptionChars, kind: 'picture' })) : answer;
     if (!text) return fail('empty');
     const written = store.setAvatar(accountOf(store, item.accountId), {
       hash: item.hash,

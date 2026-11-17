@@ -92,33 +92,40 @@ test('webSearchText: her query and the evidence type first, what she wanted to e
 });
 
 // The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
-test('webSearchText results: duplicates and trackers dropped, titles and links cut, the whole within its cap', () => {
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('webSearchText results: duplicates and trackers dropped, titles and links whole, the whole within its cap', () => {
   const long = `https://example.com/${'p'.repeat(400)}`;
+  const query = `https://example.net/c?q=${'z'.repeat(400)}`;
+  const title = 'Β'.repeat(300);
   const results = [
     { title: 'Α', url: 'https://www.example.com/a/?utm_source=x&id=7#top', snippet: 'α'.repeat(50) },
     { title: 'Α again', url: 'https://example.com/a?id=7', snippet: 'again' },
-    { title: 'Β'.repeat(300), url: 'https://example.org/b', snippet: 'β' },
-    { title: 'Γ', url: `https://example.net/c?q=${'z'.repeat(400)}`, snippet: 'γ' },
+    { title, url: 'https://example.org/b', snippet: 'β' },
+    { title: 'Γ', url: query, snippet: 'γ' },
     { title: 'Δ', url: long, snippet: 'δ' },
   ];
   const lines = webSearchText({ query: 'q', results }, { labels, maxChars: 5000 }).split('\n');
   assert.ok(lines.includes('https://www.example.com/a/?id=7'), 'tracking parameters and the fragment go');
   assert.ok(!lines.some((line) => line === 'again'), 'the same page once');
-  assert.ok(
-    lines.some((line) => line.startsWith('2. ') && line.length < 130),
-    'a long title is cut'
-  );
-  assert.ok(lines.includes('https://example.net/c'), 'an over-long query string is dropped, the page stays');
-  assert.ok(
-    lines.some((line) => line.startsWith('https://example.com/') && line.endsWith('…') && line.length <= 300),
-    'a still too long link is cut visibly'
-  );
+  assert.ok(lines.includes(`2. ${title}`), 'a long title is whole');
+  assert.ok(lines.includes(query), 'a long query string is whole');
+  assert.ok(lines.includes(long), 'a long link is whole');
   const capped = webSearchText(
     { query: 'q', results: results.map((r, i) => ({ ...r, url: `https://e${i}.example/`, snippet: 'σ'.repeat(300) })) },
     { labels, maxChars: 500 }
   );
   assert.ok(capped.length <= 500, String(capped.length));
   assert.ok(capped.includes('1. Α') && !capped.includes('5. Δ'), 'the first result shows, the rest stop at the cap');
+});
+
+// The owner on 2026-11-16: no text she reads is cut silently.
+test('webSearchText: a first result whose snippet runs past the room shows its snippet whole, with no ellipsis', () => {
+  const snippet = 'ένα μακρύ απόσπασμα για τον κήπο '.repeat(20).trim();
+  const out = webSearchText(
+    { query: 'κήπος', results: [{ title: 'Κήπος', url: 'https://garden.example/', snippet }] },
+    { labels, maxChars: 200 }
+  );
+  assert.ok(out.split('\n').includes(snippet), out);
 });
 
 // The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.

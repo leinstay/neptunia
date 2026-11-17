@@ -42,7 +42,7 @@ import { lessonsBudgetOf, lessonsCut, teachersOf } from '../../request/lessons.t
 import type { Context } from '../../../memory/db/scope.ts';
 import { fill } from '../../../format.ts';
 import type { Lookup } from '../../calls.ts';
-import { meanwhileSettingsOf, meanwhileWindows } from '../../request/meanwhile.ts';
+import { meanwhileReadsOf, meanwhileSettingsOf, meanwhileWindows } from '../../request/meanwhile.ts';
 import type { MeanwhileLine, MeanwhileReads, MeanwhileWindow, OwnMessage } from '../../request/meanwhile.ts';
 import { seedRefsOf } from '../../seed-ring.ts';
 import type { SurroundingsInput } from '../../request/reader.ts';
@@ -568,10 +568,7 @@ function framedInputsOf(
     const surroundings = names === undefined ? null : { interfaceText: '', names, root: null, place: null };
     return { ...NO_FRAMED, lookups, surroundings };
   }
-  const meanwhileReads = readOnce({
-    ownMessages: (limit) => reads.ownLines(memoryContext, place.id, limit),
-    around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
-  });
+  const meanwhileReads = readOnce(meanwhileReadsOf(reads, memoryContext, place.id));
   const taught = lessonsOfTurn(ctx, reads, frame, memoryContext);
   let mind: Mind | null = null;
   try {
@@ -714,10 +711,7 @@ function serviceInputsOf(
   const reads = ctx.frameReads;
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
   if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups: [] };
-  const meanwhileReads = readOnce({
-    ownMessages: (limit) => reads.ownLines(memoryContext, null, limit),
-    around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
-  });
+  const meanwhileReads = readOnce(meanwhileReadsOf(reads, memoryContext, null));
   const taught = lessonsOfTurn(ctx, reads, frame, memoryContext);
   let mind: Mind | null = null;
   try {

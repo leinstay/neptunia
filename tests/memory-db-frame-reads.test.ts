@@ -24,7 +24,8 @@ import {
   rootId,
 } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
-import { minute, storeProductionEdit } from './fixtures/memory-db/edited-line.ts';
+import { EDIT_DELAY_MS, minute, storeProductionEdit, storeRevision } from './fixtures/memory-db/edited-line.ts';
+import type { Db, Statement } from '../src/memory/db/types.ts';
 
 const AT = '2026-11-01T10:00:00.000Z';
 
@@ -429,6 +430,165 @@ test('a line by its identity is dated by the moment it was said once it is edite
     editedRoom(world);
     const line = lineOfIdentity(world.db, internalContext(), 'src:fake:hers-1');
     assert.deepEqual([line?.at, line?.text, line?.self, line?.revision], [minute(1), 'the kettle is on', true, 2]);
+  } finally {
+    world.close();
+  }
+});
+
+/** `db` with every statement it runs kept as its SQL and parameters, in the order they ran. */
+function recording(db: Db): { db: Db; ran: Array<{ sql: string; params: Array<unknown> }> } {
+  const ran: Array<{ sql: string; params: Array<unknown> }> = [];
+  const prepare = (sql: string): Statement => {
+    const statement = db.prepare(sql);
+    const note = (params: Array<unknown>): void => {
+      ran.push({ sql, params });
+    };
+    return {
+      get: (...params) => (note(params), statement.get(...params)),
+      all: (...params) => (note(params), statement.all(...params)),
+      run: (...params) => (note(params), statement.run(...params)),
+      iterate: (...params) => (note(params), statement.iterate(...params)),
+    };
+  };
+  return { db: { prepare, exec: (sql) => db.exec(sql) }, ran };
+}
+
+/** The plan lines SQLite gives for each statement that ran. */
+const plansOf = (db: Db, ran: ReadonlyArray<{ sql: string; params: Array<unknown> }>): Array<Array<string>> =>
+  ran.map(({ sql, params }) =>
+    db
+      .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+      .all(...params)
+      .map((row) => String(row.detail))
+  );
+
+/** A search of a place's rows that `sources_place_time` bounds by a range of `occurred_at`. */
+const PLACE_TIME_RANGE = /^SEARCH s USING (COVERING )?INDEX sources_place_time \(place_id=\? AND occurred_at[<>]/;
+/** A walk of every row of a place, or of every row of `sources`. */
+const WHOLE_PLACE = /^SEARCH s USING (COVERING )?INDEX sources_place_time \(place_id=\?\)$|^SCAN (s|t|sources)\b/;
+
+test('the lines around a moment are read on a range of the place-and-time index, never a walk of the whole place', () => {
+  // Bug (report 2026-11-17-diary-turn-stall): the window filtered and sorted on the first revision's moment, an
+  // expression the index cannot serve, so each read walked every row of the place: 7.4 s of a diary turn's build.
+  const world = openWorld();
+  try {
+    const room = editedRoom(world);
+    const { db, ran } = recording(world.db);
+    linesAroundOf(db, internalContext(), room, minute(1), 2);
+    const plans = plansOf(world.db, ran);
+    assert.equal(plans.filter((plan) => plan.some((line) => PLACE_TIME_RANGE.test(line))).length > 0, true);
+    assert.deepEqual(
+      plans.flat().filter((line) => WHOLE_PLACE.test(line)),
+      []
+    );
+  } finally {
+    world.close();
+  }
+});
+
+test('the lines since a moment are read on a range of the place-and-time index, never a walk of the whole place', () => {
+  // Bug (report 2026-11-17-diary-turn-stall): the same expression in the read from a moment walks the whole place.
+  const world = openWorld();
+  try {
+    const room = editedRoom(world);
+    const { db, ran } = recording(world.db);
+    linesSinceOf(db, internalContext(), room, minute(1), 2);
+    const plans = plansOf(world.db, ran);
+    assert.equal(plans.filter((plan) => plan.some((line) => PLACE_TIME_RANGE.test(line))).length > 0, true);
+    assert.deepEqual(
+      plans.flat().filter((line) => WHOLE_PLACE.test(line)),
+      []
+    );
+  } finally {
+    world.close();
+  }
+});
+
+/**
+ * A room of edits, retired lines and lines of one moment: `kappa` edited twice, the later rows at the moments of the
+ * edits; `lambda` retired; `mu`, `nu` and `xi` written at one moment; `omicron` edited at its own moment; `pi` written
+ * at the moment of `kappa`'s first edit; `rho` retired in its edit, so its first revision stands.
+ */
+function revisedRoom(world: World): string {
+  noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+  const room = addRoom(world.db, { iface: 'fake', native: 'c9', root: rootId('fake', 'g1'), name: 'orchard' });
+  const where = { iface: 'fake', place: room };
+  storeRevision(world.db, where, { native: 'iota', text: 'iota words', at: minute(0), kind: 'seen', by: 'someone' });
+  storeRevision(world.db, where, { native: 'kappa', text: 'kappa one', at: minute(1), kind: 'said', by: 'her' });
+  storeRevision(world.db, where, { native: 'lambda', text: 'lambda gone', at: minute(2), kind: 'seen', by: 'someone' });
+  for (const native of ['mu', 'nu', 'xi'])
+    storeRevision(world.db, where, { native, text: `${native} words`, at: minute(3), kind: 'seen', by: 'someone' });
+  storeRevision(world.db, where, { native: 'omicron', text: 'omicron one', at: minute(4), kind: 'said', by: 'her' });
+  storeRevision(world.db, where, { native: 'rho', text: 'rho one', at: minute(5), kind: 'seen', by: 'someone' });
+  const later = { kind: 'seen', by: 'her' } as const;
+  storeRevision(world.db, where, {
+    native: 'kappa',
+    text: 'kappa two',
+    at: minute(1) + EDIT_DELAY_MS,
+    revision: 2,
+    ...later,
+  });
+  storeRevision(world.db, where, {
+    native: 'pi',
+    text: 'pi words',
+    at: minute(1) + EDIT_DELAY_MS,
+    kind: 'seen',
+    by: 'someone',
+  });
+  storeRevision(world.db, where, { native: 'kappa', text: 'kappa three', at: minute(150), revision: 3, ...later });
+  storeRevision(world.db, where, { native: 'omicron', text: 'omicron two', at: minute(4), revision: 2, ...later });
+  storeRevision(world.db, where, {
+    native: 'rho',
+    text: 'rho two',
+    at: minute(160),
+    revision: 2,
+    kind: 'seen',
+    by: 'someone',
+  });
+  world.db.exec(
+    `UPDATE sources SET retired_at = '2026-11-12T05:00:00.000Z' WHERE id IN ('source:lambda:1', 'source:rho:2')`
+  );
+  return room;
+}
+
+/** Each line as its id, text and minute from the scene's start, lines of one moment in the order of their ids. */
+const answered = (lines: ReadonlyArray<{ id: string; text: string; at: number }>) =>
+  [...lines]
+    .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+    .map((line) => [line.id, line.text, (line.at - minute(0)) / 60_000]);
+
+test('the windows around and since a moment over edits, retired lines and lines of one moment stay as they are', () => {
+  // Bug: a read of the window on the indexed column changes which lines it answers: an edit read at the moment of the
+  // edit, a retired row read, a line of a shared moment lost. These are the answers of the read before that change.
+  const world = openWorld();
+  try {
+    const room = revisedRoom(world);
+    const ctx = internalContext();
+    assert.deepEqual(answered(linesAroundOf(world.db, ctx, room, minute(3), 2)), [
+      ['mu', 'mu words', 3],
+      ['nu', 'nu words', 3],
+      ['xi', 'xi words', 3],
+      ['omicron', 'omicron two', 4],
+    ]);
+    assert.deepEqual(answered(linesAroundOf(world.db, ctx, room, minute(1) + EDIT_DELAY_MS, 2)), [
+      ['omicron', 'omicron two', 4],
+      ['rho', 'rho one', 5],
+      ['pi', 'pi words', 94],
+    ]);
+    assert.deepEqual(answered(linesSinceOf(world.db, ctx, room, minute(0), 4)), [
+      ['iota', 'iota words', 0],
+      ['kappa', 'kappa three', 1],
+      ['mu', 'mu words', 3],
+      ['nu', 'nu words', 3],
+    ]);
+    assert.deepEqual(answered(linesSinceOf(world.db, ctx, room, minute(3), 10)), [
+      ['mu', 'mu words', 3],
+      ['nu', 'nu words', 3],
+      ['xi', 'xi words', 3],
+      ['omicron', 'omicron two', 4],
+      ['rho', 'rho one', 5],
+      ['pi', 'pi words', 94],
+    ]);
   } finally {
     world.close();
   }

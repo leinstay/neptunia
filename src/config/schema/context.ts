@@ -137,9 +137,9 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'context.recall.extractChars',
     'types': ['number'],
-    'reader': 'src/turn/calls.ts',
+    'reader': 'src/turn/skill-calls.ts',
     'default': 1200,
-    'text': "How long the extract of one lookup's result is that `<recall>` keeps (characters)",
+    'text': 'The length past which the extract of one lookup is retold once before `<recall>` keeps it (characters)',
   },
   {
     'key': 'context.recall.maxItems',
