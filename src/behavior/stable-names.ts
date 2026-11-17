@@ -126,9 +126,18 @@ export function withStableNames<TPort extends Adapter>(adapter: TPort, names: Me
   };
   const fetchMessages: Adapter['fetchMessages'] = async (chat, messageIds, options) => {
     const answer = await adapter.fetchMessages(chat, messageIds, options);
-    return answer.status === 'ok'
-      ? { ...answer, messages: answer.messages.map((found) => nameFetched(found, names)) }
-      : answer;
+    if (answer.status !== 'ok') return answer;
+    // By the rule of history above, a fetched message whose token names no entry is answered as missing.
+    const unlisted = (found: FetchedMessage): boolean =>
+      found.event !== undefined && !emojiTokensListed(found.event.message);
+    const dropped = answer.messages.filter(unlisted).length;
+    if (dropped > 0) log.warn('fetch: messages left out for an unlisted emoji token', { iface: chat.iface, dropped });
+    return {
+      ...answer,
+      messages: answer.messages.map((found) =>
+        unlisted(found) ? { messageId: found.messageId, missing: true } : nameFetched(found, names)
+      ),
+    };
   };
   return new Proxy(adapter, {
     get(target, key) {
