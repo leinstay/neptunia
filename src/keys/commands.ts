@@ -131,8 +131,9 @@ export type MemoryCheckProbe = { ok: true; at: number } | { ok: false; code: str
 
 const money = (value: number): string => `$${value.toFixed(4)}`;
 
-/** The answer for a role no request can prove for cents; the key is neither proved nor refused. */
-const unsupportedLine = (role: string): string => `No cheap request can check the ${role} role, so nothing was sent.`;
+/** The answer for a role no free or cheap request could prove now; the key is neither proved nor refused. */
+const unsupportedLine = (role: string): string =>
+  `Nothing could check the ${role} role now, so the key is neither proved nor refused.`;
 
 /** What `checkRole` needs beside the model for `role`: the speech probe takes the live voice. */
 const voiceOf = (deps: KeysDeps, role: string): { voice?: string } =>
@@ -200,6 +201,8 @@ async function probeRole(
 function checkLine(result: CheckResult): string {
   const byok = result.isByok === null ? 'is_byok not reported' : `is_byok ${String(result.isByok)}`;
   const head = `${result.role} on ${result.model} with key ${result.keyName}`;
+  // A passed check of `drawing` read the provider's listing and sent no request: it has no cost and no `is_byok`.
+  if (result.ok && result.role === 'drawing') return `${head}: the provider lists it with image output`;
   return result.ok
     ? `${head}: answered, ${byok}, ${money(result.cost)}`
     : `${head}: failed${result.status === null ? '' : ` (HTTP ${result.status})`}: ${result.error ?? 'no reason given'}`;

@@ -1,7 +1,7 @@
 // Speech and drawing behind `/keys check` and `model set`. Speech has a probe of its own: one short synthesis on its
-// endpoint, as a real voice message goes out. A drawing cannot be probed for cents, because a request bills a whole
-// picture, so its check answers an explicit `unsupported` and sends nothing. Neither is ever worded as a refused key:
-// `failed` means the provider or the network said no. The provider is a fake fetch; a key never appears in an answer.
+// endpoint, as a real voice message goes out. A drawing request bills a whole picture, so the drawing check reads the
+// provider's free listing of models instead and asks whether it holds the model with image output. A listing that
+// cannot be read leaves the role unchecked, `unsupported`, and is never worded as a refused key. The provider is a fake fetch; a key never appears in an answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkRole } from '../src/keys/check.ts';
@@ -72,16 +72,60 @@ test('a provider that refuses the speech probe is a failed check with its status
   assert.ok(!JSON.stringify(result).includes(SECRET));
 });
 
-test('a drawing check sends nothing and says the capability is unsupported, never that the key failed', async () => {
-  // Bug: `no probe for the drawing role` prints as a failed check, and the owner replaces a working key.
-  const { fetch, calls } = fakeFetch();
+/** A listing of `/models` with one drawing model and one text model, and a probe answer for anything else. */
+function listing(call: Call): Reply {
+  if (call.url.endsWith('/models'))
+    return {
+      status: 200,
+      body: {
+        data: [
+          { id: 'x/draw', architecture: { input_modalities: ['text'], output_modalities: ['image'] } },
+          { id: 'x/text', architecture: { input_modalities: ['text'], output_modalities: ['text'] } },
+        ],
+      },
+    };
+  return healthy(call);
+}
+
+test('a drawing check passes on a model the listing holds with image output and requests no picture', async () => {
+  // Bug: the check sends a generation and bills a whole picture, or refuses a model that draws.
+  const { fetch, calls } = fakeFetch(listing);
   const result = await checkRole({ ...input, fetch, role: 'drawing', model: 'x/draw' });
-  assert.deepEqual(calls, []);
-  assert.equal(result.ok, false);
-  assert.equal(result.capability, 'unsupported');
-  assert.equal(result.status, null);
-  assert.equal(result.error, null);
+  assert.equal(result.ok, true);
+  assert.equal(result.capability, undefined);
+  assert.deepEqual(
+    calls.map((call) => [call.method, call.url.slice(BASE_URL.length)]),
+    [['GET', '/models']]
+  );
 });
+
+test('a drawing check fails with the reason on a model the listing holds with text output only', async () => {
+  // Bug: a text model is saved as the drawing model and every drawing fails later.
+  const { fetch } = fakeFetch(listing);
+  const result = await checkRole({ ...input, fetch, role: 'drawing', model: 'x/text' });
+  assert.equal(result.ok, false);
+  assert.equal(result.capability, undefined);
+  assert.match(result.error ?? '', /not listed|no image output/);
+});
+
+for (const [name, answer] of [
+  ['answers 401', () => ({ status: 401, body: { error: { message: 'no' } } })],
+  [
+    'throws',
+    () => {
+      throw new Error('offline');
+    },
+  ],
+] as const) {
+  test(`a drawing check leaves the role unchecked when the listing ${name}`, async () => {
+    // Bug: a listing the provider did not give refuses a working drawing model.
+    const { fetch } = fakeFetch(answer);
+    const result = await checkRole({ ...input, fetch, role: 'drawing', model: 'x/draw' });
+    assert.equal(result.ok, false);
+    assert.equal(result.capability, 'unsupported');
+    assert.equal(result.error, null);
+  });
+}
 
 test('a role with no probe at all is unsupported as well', async () => {
   // Bug: the fallthrough of the check labels every unimplemented role as a failure of its credentials.
@@ -100,12 +144,11 @@ test('/keys check speech goes out on the role key with the configured voice and 
   assert.equal(calls[0]?.body?.voice, 'voice-1');
 });
 
-test('/keys check drawing answers unsupported, which is not a failure', async () => {
-  // Bug: the console turns the unimplemented check into exit 1 and the setup flow stops on it.
-  const { keys, calls } = rig();
+test('/keys check drawing answers ok on a model the listing holds with image output', async () => {
+  // Changed: the drawing check reads the free listing, so a drawing model is checked like any role.
+  const { keys } = rig({ answer: listing, model: 'x/draw' });
   const answer = await keys.run('keys.check', { role: 'drawing' }, null);
-  assert.equal(answer.status, 'unsupported');
-  assert.deepEqual(calls, []);
+  assert.equal(answer.status, 'ok', answer.text);
 });
 
 for (const role of ['speech', 'drawing']) {
@@ -118,12 +161,23 @@ for (const role of ['speech', 'drawing']) {
   });
 }
 
-test('model set drawing saves the model unverified, since nothing can check it for cents', async () => {
-  // Bug: the unimplemented check refuses every drawing model, so the role cannot be set from the chat at all.
-  // Changed: a model role is set as one route of its chain (slice 4), so the drawing route names its key.
-  const { keys, calls, chains } = rig();
+test('model set drawing changes nothing and says why on a model with no image output', async () => {
+  // Bug: a text model is written as the drawing route and every drawing fails later.
+  const { keys, chains } = rig({ answer: listing });
+  const answer = await keys.run('model.set', { role: 'drawing', model: 'core-1/x/text' }, null);
+  assert.equal(answer.status, 'failed');
+  assert.match(answer.text, /no image output/);
+  assert.equal(chains.drawing, undefined);
+});
+
+test('model set drawing writes the route unchecked when the listing cannot be read', async () => {
+  // Changed: the check reads the listing; a listing that is refused leaves the role as unchecked as before.
+  const { keys, calls, chains } = rig({ answer: () => ({ status: 401, body: {} }) });
   const answer = await keys.run('model.set', { role: 'drawing', model: 'core-1/x/draw' }, null);
   assert.equal(answer.status, 'ok', answer.text);
   assert.deepEqual(chains.drawing, [{ via: 'api', key: 'core-1', model: 'x/draw', effort: null }]);
-  assert.deepEqual(calls, []);
+  assert.deepEqual(
+    calls.map((call) => call.url.slice(BASE_URL.length)),
+    ['/models']
+  );
 });

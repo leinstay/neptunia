@@ -1,14 +1,17 @@
 // The two probes that prove a key before it is saved: `checkRole` sends one minimal request for a model role on a given
 // key (a few tokens or characters, so a check costs cents) and reports what answered, and `checkKey` reads the key's own
 // record (`GET /auth/key`). Neither throws and neither lets the key into what it returns: a provider that echoes the
-// value back has it replaced with `***`, and the provider's words are cut. A role no cheap request can prove, such as
-// `drawing`, whose request bills a whole picture, answers `capability: 'unsupported'` and sends nothing: `ok: false` with
-// that capability says nothing about the key, while `ok: false` without it means the provider or the network said no.
+// value back has it replaced with `***`, and the provider's words are cut. A drawing request bills a whole picture, so
+// the check of `drawing` reads the provider's free listing of models instead (`roleModelListing`) and passes when it
+// holds the model with image output. A role with no probe, or a drawing listing that cannot be read, answers
+// `capability: 'unsupported'`: `ok: false` with that capability says nothing about the key, while `ok: false` without it
+// means the provider or the network said no.
 // Called by src/keys/commands.ts.
 
 import { apiUrl, openRouterHeaders } from '../llm/openrouter.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { TEXT_ROLES } from '../llm/route-text.ts';
+import { roleModelListing } from './models.ts';
 
 export type CheckResult = {
   ok: boolean;
@@ -135,19 +138,16 @@ export async function checkRole(input: {
     cost: 0,
     error: safe(error, value),
   });
+  const nothingSent = { role, model, keyName, isByok: null, status: null, cost: 0, error: null };
+  const unchecked: CheckResult = { ...nothingSent, ok: false, capability: 'unsupported' };
+  if (role === 'drawing') {
+    const listing = await roleModelListing({ fetch: input.fetch, baseUrl: input.baseUrl, value }, role);
+    if (!listing.ok) return unchecked;
+    if (listing.models.includes(model)) return { ...nothingSent, ok: true };
+    return failed(null, `the provider does not list ${model}, or lists it with no image output`);
+  }
   const probe = probeOf(role, input.voice);
-  if (probe === null)
-    return {
-      ok: false,
-      role,
-      model,
-      keyName,
-      isByok: null,
-      status: null,
-      cost: 0,
-      error: null,
-      capability: 'unsupported',
-    };
+  if (probe === null) return unchecked;
   const answer = await send(input.fetch, apiUrl(input.baseUrl, probe.endpoint), {
     method: 'POST',
     value,

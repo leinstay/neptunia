@@ -1637,7 +1637,9 @@ test("status: the owner card probes every role's model and shows its provider an
     ['code · no model configured', 'scout · no model configured', 'server · no model configured'],
     'just role and model'
   );
-  assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, image output, 2 endpoint\(s\), \d+ ms$/);
+  // Changed: whether the model draws is checked once when it is set (`/model set drawing`), so status reads only
+  // what changes between runs, whether the provider lists the model and how many endpoints serve it.
+  assert.match(lines.at(-1), /^drawing · openai\/gpt-image-1 · listed, 2 endpoint\(s\), \d+ ms$/);
   assert.ok(
     !llm.calls.some((call) => ['scout', 'server'].includes(call.options.role)),
     'no request goes out on an OpenCode role'
