@@ -2,8 +2,6 @@
 // `video` role through `describe-audio`, the third from its own words with no model. What it comes to is a transcript, in the
 // language spoken: quoted speech, so the script check of a picture's description does not apply.
 
-import { clampText } from './clamp.ts';
-
 /** A voice message or an audio file, or a text file, as the collectors list them. */
 type Item = { itemId: string; kind: string; url: string; durationSec?: number | null };
 /** The live `media.video` section with its fixed fields. */
@@ -30,6 +28,8 @@ export type AudioDeps = {
   complete: (messages: Array<unknown>, options: unknown) => Promise<Completion>;
   requestOptions: (settings: VideoSettings, seconds: number, model: unknown) => object;
   failureReason: (error: unknown) => string;
+  /** Shortens a heard text over `maxChars` (src/behavior/summarize.ts); the text is kept whole by what it returns. */
+  summarize: (text: string, maxChars: number) => Promise<string>;
   keep: (item: Item, entry: Record<string, unknown>) => void;
   miss: (item: Item, reason: unknown) => null;
   now: () => number;
@@ -79,8 +79,8 @@ export async function hearAudio(
     return reason === 'daily-cap' ? null : deps.miss(item, reason);
   }
   const heard = typeof completion.text === 'string' ? completion.text : '';
-  const text = clampText(heard.trim(), maxChars, { tolerance: 1 });
-  if (!text) return deps.miss(item, 'empty');
+  if (!heard.trim()) return deps.miss(item, 'empty');
+  const text = await deps.summarize(heard.trim(), maxChars);
   const ts = deps.now();
   deps.keep(item, { text, ts, describedAt: ts, model });
   return {

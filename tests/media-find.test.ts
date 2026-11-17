@@ -14,15 +14,15 @@ import { objectMediaCache } from '../src/memory/store-media.ts';
 type GifEntryLine = Parameters<typeof gifLine>[0];
 
 const labels = {
-  gifs: { entry: '{id}: {text}', entryNoText: '{id}', entryFields: '{id}: {reaction} / {action} / {text}' },
+  gifs: { entry: '{id}: {text}', entryNoText: '{id}' },
   tools: { tools: { find: { source: 'Source: media.find "{query}", {count} found.', none: 'Nothing matched.' } } },
 };
 
-/** A library of entries g1.. with these descriptions (cache fields), the first used most. */
-function fixture(descriptions: Record<string, Untyped>) {
+/** A library of entries g1.. with these descriptions, the first used most. */
+function fixture(descriptions: Array<string>) {
   const entries: Record<string, Untyped> = {};
   const cache: Record<string, Untyped> = {};
-  descriptions.forEach((fields: Record<string, Untyped>, index: Untyped) => {
+  descriptions.forEach((text, index) => {
     const key = `k${index + 1}`;
     entries[key] = {
       id: `g${index + 1}`,
@@ -34,15 +34,16 @@ function fixture(descriptions: Record<string, Untyped>) {
       count: 10 - index,
       last: 1000,
     };
-    cache[key] = typeof fields === 'string' ? { text: fields } : { text: fields.action ?? '', ...fields };
+    cache[key] = { text };
   });
   return { gifs: normalizeGifs({ nextId: descriptions.length + 1, entries }), cache };
 }
 
+// The owner on 2026-11-17: a GIF is one text, so the library holds texts and no fields.
 const LIBRARY = [
-  { reaction: 'γάτα που χορεύει', action: 'a cat dances on a table', screen: '' },
-  { reaction: 'Élodie rit', action: 'a woman laughs out loud', screen: 'haha' },
-  { reaction: 'κλάμα', action: 'crying rain window', screen: '' },
+  'γάτα που χορεύει, a cat dances on a table',
+  'Élodie rit, a woman laughs out loud, haha',
+  'κλάμα, crying rain window',
   'a dog runs in the park',
 ];
 
@@ -79,7 +80,7 @@ test('findGifs ranks by words in either language, accents and case ignored, ties
     ['g1', 'g4'],
     'equal scores keep the library order'
   );
-  // a reaction word counts double, a near form (shared stem) less than an exact one
+  // a near form (shared stem) counts less than an exact word
   assert.deepEqual(
     findGifs(lib.gifs, lib.cache, 'cry').map((e) => e.id),
     [],
@@ -132,6 +133,7 @@ test('findGifs: n defaults to 5, is capped at 10 and floored at 1', () => {
   assert.equal(findGifs(lib.gifs, lib.cache, 'cat', { n: 0 }).length, 5);
 });
 
+// The owner on 2026-11-17: gifLine takes no field lengths.
 test('runMediaFind: handles in the result are the library handles message.create gif= and <gif> resolve, written as a library line', () => {
   const lib = fixture(LIBRARY);
   const store = storeOf(lib);
@@ -144,9 +146,19 @@ test('runMediaFind: handles in the result are the library handles message.create
   for (const handle of handles) assert.ok(store.findGif(handle), `${handle} resolves in the library`);
   // B7: the `<gifs>` block left the turn; the line of an entry is gifLine's, which media.find keeps writing.
   const block = Object.values<Untyped>(lib.gifs.entries).map((entry) =>
-    gifLine(entry as GifEntryLine, lib.cache, labels, { now: 0, ownMarkHours: 0, reactionChars: 40, actionChars: 70 })
+    gifLine(entry as GifEntryLine, lib.cache, labels, { now: 0, ownMarkHours: 0 })
   );
   for (const line of lines.slice(1)) assert.ok(block.includes(line), 'the same line the entry always had');
+});
+
+// The owner on 2026-11-17: a GIF is shown whole in the answer of media.find; the cut at 70 characters goes.
+test('runMediaFind: the line of a GIF holds its 300-character text whole', () => {
+  const text = `a cat dances on a table ${'and spins around '.repeat(16)}end`;
+  assert.equal(text.length, 299);
+  const store = storeOf(fixture([text]));
+  const result = runMediaFind({ store, config: {}, labels, placeId: 'G', args: { query: 'cat' } });
+  const lines = present(result.data).text.split('\n');
+  assert.equal(lines[1], `g1: ${text}`);
 });
 
 test('runMediaFind: nothing found is an ok with the none label; bad arguments and no library are refused', () => {

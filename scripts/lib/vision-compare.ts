@@ -11,6 +11,7 @@ import { CliError, parseFlags } from './cli.ts';
 import { escapeHtml } from './pair.ts';
 import { costOf, percentile } from './recall-eval.ts';
 import { createDescriber } from '../../src/memory/index.ts';
+import { createSummarizer } from '../../src/behavior/summarize.ts';
 import { classifyAttachment } from '../../src/media/classify.ts';
 import { videoSiteFor } from '../../src/media/video-sites.ts';
 import { PURPOSE_ROLES } from '../../src/llm/roles.ts';
@@ -420,7 +421,9 @@ export async function describeOne({
       }
     },
   };
-  const deps: Untyped = { hot, store, llm: toolLlm, state, now, youtubeApiKey, proxy };
+  // An answer over its length is shortened as live, its request counted with the item's.
+  const summarize = createSummarizer({ hot, llm: toolLlm }).summarize;
+  const deps: Untyped = { hot, store, llm: toolLlm, state, now, youtubeApiKey, proxy, summarize };
   if (imageFetcher) {
     deps.imageFetcher = {
       async fetchAsDataUrl(url: string, options: Untyped) {

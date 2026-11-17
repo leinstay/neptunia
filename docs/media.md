@@ -8,9 +8,11 @@ A saved description is reused after a restart or after the cache's cap retired i
 
 ## How a picture is described
 
-`describe` in `src/memory/describe.ts` sends the picture to the `vision` role as a data URL under the system message of `prompts.describe`. The caption is the whole answer: every line joined into one line with single spaces, cut on a word boundary at `DESCRIPTION_CHARS`, 3000 characters. Stickers and emoji take the same path. The prompt asks for what the picture shows, each figure and what it wears, the legible words, what could not work as drawn, and the place and the light.
+`describe` in `src/memory/describe.ts` sends the picture to the `vision` role as a data URL under the system message of `prompts.describe`. The caption is the whole answer, every line joined into one line with single spaces. Its length is `DESCRIPTION_CHARS`, 1500 characters. Stickers and emoji take the same path. The prompt asks for what the picture shows, each figure and what it wears, the legible words, what could not work as drawn, and the place and the light.
 
-Every description reads that one limit: a picture's caption, each field of a GIF's description, a video summary, an audio summary and the answer of a second look.
+A GIF's description takes the same 1500 characters, a video summary `VIDEO_DESCRIPTION_CHARS`, 6000, and an audio summary `AUDIO_DESCRIPTION_CHARS`, 3000. A second look takes the length of its media. Each prompt learns its length through `{{maxChars}}`. The describer cuts no answer. An answer over its length goes once to the summarizer in `src/behavior/summarize.ts`, one `analyzer` request with the purpose `summarize`, and its result is stored whole, even when it is still longer. A failed summary keeps the answer whole.
+
+A GIF is watched as a short clip through the prompt `describe-gif`, else `describe-video`. Its answer is prose, stored as one text on one line. The transcript, the answer of `media.find` and the candidate list of the media pick show that text whole, through `labels.gifs.entry` in the two lists.
 
 The vision model learns who she is through `{{self}}` in the prompt. When `prompts.appearance` is not blank and the core knows her name in the place (`selfName`, given to `createDescriber` and read from `getSelfName` in `src/core.ts`), `{{self}}` is the prompt `describe-self` with `{{name}}` and `{{appearance}}`. A figure that matches the appearance is named by her name. Otherwise `{{self}}` is empty and leaves no blank paragraph. The GIF and video prompts carry no `{{self}}`.
 

@@ -61,38 +61,6 @@ export function fill(template: string, values: Record<string, Untyped> = {}): st
   return template.replace(/\{(\w+)\}/g, (all, key: string) => (Object.hasOwn(values, key) ? String(values[key]) : all));
 }
 
-// A field slot of a GIF's three-field label (labels.gifs.entryFields,
-// transcript.gifKnownFields): the placeholder with the quote or bracket that
-// hugs it in the label, if any (`"{text}"`, `({reaction})`).
-const GIF_FIELD_SLOT = /(["'«“„‘([]?)\{(reaction|action|text|screen)\}(["'»”“’)\]]?)/g;
-
-/**
- * `template` (labels.gifs.entryFields in the `<gifs>` list,
- * transcript.gifKnownFields in the transcript) filled with `id` and the
- * non-empty `fields`: an empty or absent field leaves out its slot (the
- * placeholder with any quote or bracket hugging it) together with the label
- * text that separates it from the previous kept field -- the first kept field
- * takes no separator -- so no dangling separator or empty quotes remain. The
- * text before the first slot and after the last one is kept as written. Field
- * values are inserted as they are (a brace in a caption is never read as a
- * placeholder). The one copy for both labels. Pure.
- */
-export function fillGifFields(template: string, id: string, fields: Record<string, string | undefined>): string {
-  const slots = [...template.matchAll(GIF_FIELD_SLOT)];
-  if (slots.length === 0) return fill(template, { id });
-  const endOf = (slot: Untyped) => slot.index + slot[0].length;
-  let out = fill(template.slice(0, slots[0].index), { id });
-  let kept = 0;
-  for (const [i, slot] of slots.entries()) {
-    const value = Object.hasOwn(fields, slot[2]) ? fields[slot[2]] : '';
-    if (!value) continue;
-    if (kept > 0) out += fill(template.slice(endOf(slots[i - 1]), slot.index), { id });
-    out += `${slot[1]}${value}${slot[3]}`;
-    kept += 1;
-  }
-  return out + fill(template.slice(endOf(slots.at(-1))), { id });
-}
-
 /**
  * Wall-clock time of `ts` in `timezone`, 24-hour `HH:MM` as `locale` writes it.
  * @param ts  epoch milliseconds
@@ -205,12 +173,7 @@ export function formatDuration(
  * `context.gifHandles` is an optional `Map` from src/memory/gifs.js#gifHandleMap:
  * a GIF (attachment or embed) the library knows renders `transcript.gifKnown` /
  * `gifKnownNoText` with its handle; with the key in question blanked it
- * renders `gifDescribed` / `gif` instead. `context.gifFields` is an optional
- * read by GIF id of their three caption fields (`{ reaction, action, screen }`,
- * cut for display, src/turn/request/emoji-gifs.ts#gifFieldsLookup): such a GIF with a
- * handle and a non-empty reaction or on-screen text renders
- * `transcript.gifKnownFields` (fillGifFields: an empty field leaves out its
- * separator); with that key blanked it renders `gifKnown` instead.
+ * renders `gifDescribed` / `gif` instead.
  */
 // The part-watched forms: their reason code reads labels.transcript.videoPartReason.
 const PART_KEYS = new Set(['videoWatchedPart', 'linkWatchedPart']);
@@ -296,12 +259,6 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
       values && Object.hasOwn(values as object, 'reason')
         ? { ...values, reason: reasons?.[values.reason] ?? '' }
         : values;
-    // A library GIF's three caption fields drop an empty field with its separator.
-    if (key === 'gifKnownFields') {
-      const { id, reaction, action, screen } = values;
-      tags.push(fillGifFields(labels.transcript.gifKnownFields, id, { reaction, action, screen }));
-      return;
-    }
     tags.push(fill(labels.transcript[key], filled));
   };
   const pushLabel = ({ key, values, extra }: { key: Untyped; values: Untyped; extra?: Untyped }) => {
@@ -312,13 +269,7 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
   // chosen switches it off, the plain GIF form renders instead.
   const handleOf = (item: Untyped, kind: Untyped) =>
     item.kind === 'gif' ? gifHandleOf(context.gifHandles, item, kind) : null;
-  const gifFieldsOf = (item: Untyped) => (item.kind === 'gif' ? (context.gifFields?.get(item.id) ?? null) : null);
-  const withGifFallback = (given: Untyped) => {
-    // The three fields blanked: the one-line gifKnown, itself falling back below.
-    const label =
-      given.key === 'gifKnownFields' && !labels.transcript.gifKnownFields
-        ? { ...given, key: 'gifKnown', values: { id: given.values.id, text: given.values.text } }
-        : given;
+  const withGifFallback = (label: Untyped) => {
     if (label.key === 'gifKnown' && !labels.transcript.gifKnown) {
       return { ...label, key: 'gifDescribed', values: { text: label.values.text } };
     }
@@ -339,7 +290,6 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
           unknownDuration,
           video,
           gifHandle,
-          gifFields: gifFieldsOf(attachment),
           answer,
         })
       )
@@ -364,7 +314,6 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
           video: videoOf(link.id),
           read,
           gifHandle,
-          gifFields: gifFieldsOf(link),
           answer,
         })
       )
@@ -823,7 +772,6 @@ export type TranscriptOptions = {
   videos?: Map<string, VideoState>;
   reads?: Map<string, string>;
   gifHandles?: Map<string, string>;
-  gifFields?: { get: (id: string) => { reaction: string; action: string; screen: string } | undefined };
   imageAnswers?: Map<string, { question: string; text: string }> | null;
   seeReactions?: boolean;
   reactionsPerMessage?: number;
@@ -845,7 +793,7 @@ export type TranscriptOptions = {
 /** The media of a transcript the caller already holds: the part of the options `mediaTags` and `replyMarker` read. */
 type MediaContext = Pick<
   TranscriptOptions,
-  'descriptions' | 'videos' | 'reads' | 'gifHandles' | 'gifFields' | 'imageAnswers' | 'emojiInline'
+  'descriptions' | 'videos' | 'reads' | 'gifHandles' | 'imageAnswers' | 'emojiInline'
 >;
 
 /** The handles two or more author ids of `messages` share: one person writing from several accounts. */
@@ -958,9 +906,6 @@ function contentWithHandles(
  *   (src/memory/gifs.js#gifHandleMap); a GIF it knows renders `transcript.gifKnown` /
  *   `transcript.gifKnownNoText` with its handle, falling back to `gifDescribed` / `gif`
  *   when the labels lack that key.
- *   GIF id -> its three caption fields, cut for display (src/turn/request/emoji-gifs.ts#gifFieldsLookup);
- *   a GIF with a handle, a caption and a non-empty reaction or on-screen text renders
- *   `transcript.gifKnownFields`, falling back to `gifKnown` when the labels lack that key.
  * @param [options.imageAnswers]  Picture id -> a
  *   second look on a question (src/memory/describe.js#relookImage); renders `transcript.imageAnswered`
  *   after the picture's tag. Ignored when the labels have no `transcript.imageAnswered` key.
@@ -1051,7 +996,6 @@ export function formatTranscript(
     videos,
     reads,
     gifHandles,
-    gifFields,
     imageAnswers,
   } = options;
   const skip = typeof options.skip === 'function' ? options.skip : null;
@@ -1062,7 +1006,6 @@ export function formatTranscript(
     videos,
     reads,
     gifHandles,
-    gifFields,
     imageAnswers,
     emojiInline: options.emojiInline !== false,
   };

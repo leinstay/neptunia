@@ -1808,6 +1808,8 @@ export function unflushedStore(store: Untyped): { store: Rec; state: { data: Unt
 export async function loadDiaryMods(load: Untyped): Promise<Rec> {
   return {
     ...(await load('behavior/diary.ts')),
+    // The summarizer (absent from an older engine, whose describer cuts an answer itself).
+    ...(await load('behavior/summarize.ts').catch(() => ({}))),
     ...(await load('memory/store.ts')),
     ...(await load('llm/tokens.ts')),
     ...(await load('llm/openrouter.ts')),
@@ -1971,8 +1973,8 @@ export function diaryTurnRunner(
     state,
     youtubeApiKey: serviceKey('youtube'),
     proxy: () => (proxySettings(hot.config).enabled ? serviceKey('proxy') : null),
-
     selfName: () => String(self.name),
+    summarize: mods.createSummarizer?.({ hot, llm }).summarize,
   });
   const lookup = mods.createLookup({
     hot,
@@ -4121,7 +4123,12 @@ export function createReplayTools({
       // the metered client (the vision helper, on the routing every replay helper runs on), its second look downloading
       // the attachment itself; the message `#N` named is looked up in the request's history. At most lookPerTurn per tools' life.
       if (skill === 'media.look' && mediaTools?.createDescriber && mediaTools.runMediaLook) {
-        const lookDescriber = mediaTools.createDescriber({ hot, store: webStore, llm: client });
+        const lookDescriber = mediaTools.createDescriber({
+          hot,
+          store: webStore,
+          llm: client,
+          summarize: mediaTools.createSummarizer?.({ hot, llm: client }).summarize,
+        });
         const cap = typeof mediaTools.lookPerTurn === 'function' ? mediaTools.lookPerTurn() : Infinity;
         const result = await mediaTools.runMediaLook({
           describer: lookDescriber,
@@ -6412,6 +6419,8 @@ async function loopDepsOf({
   const { createExaSearch } = await load('web/exa.ts');
   const { createRecall } = await load('behavior/recall-run.ts');
   const { createDescriber } = await load('memory/describe.ts');
+  // The summarizer (absent from an older engine, whose describer cuts an answer itself).
+  const { createSummarizer = null } = await load('behavior/summarize.ts').catch(() => ({}));
   const { createDiscordInterface } = await load('../interfaces/discord/index.ts');
   const {
     runWebSearch,
@@ -6425,7 +6434,9 @@ async function loopDepsOf({
   } = await load('tools/tools.ts');
   // media.look and media.find (absent from an older engine: refused honestly).
   const mediaTools =
-    typeof runMediaLook === 'function' ? { createDescriber, runMediaLook, runMediaFind, lookPerTurn } : null;
+    typeof runMediaLook === 'function'
+      ? { createDescriber, createSummarizer, runMediaLook, runMediaFind, lookPerTurn }
+      : null;
   // web.read (absent from an older engine: its calls fail as an unknown tool's).
   const { createPageFetcher = null } = await load('web/fetch-page.ts').catch(() => ({}));
   const { collectReadableLinks = null } = await load('media/classify.ts').catch(() => ({}));

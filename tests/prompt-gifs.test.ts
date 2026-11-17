@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { gifFieldChars, gifLine, userText as contentText } from '../src/behavior/prompt.ts';
+import { gifLine, userText as contentText } from '../src/behavior/prompt.ts';
 import { rankGifs } from '../src/memory/gifs.ts';
 import { labels } from './fixtures/labels.ts';
 import { frameOfInput } from './fixtures/prompt-rig.ts';
@@ -31,7 +31,7 @@ function fakeConfig(overrides: { caps?: object } = {}) {
         ...overrides.caps,
       },
     },
-    // PR 7d: the GIF list's measures are constants (25 entries, 40 and 70 characters a field, 24 hours of own posts).
+    // PR 7d: the GIF list's measures are constants (25 entries, 24 hours of own posts).
     llm: { maxRequestTokens: 50000 },
     lore: { scanMessages: 30 },
     memory: {},
@@ -105,9 +105,7 @@ function userText(request: Built) {
 
 /** B7: the lines media.find writes, in rank order: the same line a GIF's entry always had. */
 function findLines(gifs: unknown, mediaCache: object | undefined, given: Record<string, unknown> = labels) {
-  return rankGifs(gifs, 30).map((entry) =>
-    gifLine(entry, mediaCache, given, { ...gifFieldChars(), ownMarkHours: 0, now: 0 })
-  );
+  return rankGifs(gifs, 30).map((entry) => gifLine(entry, mediaCache, given, { ownMarkHours: 0, now: 0 }));
 }
 
 const THREE = library([linkEntry(1, 2), linkEntry(2, 9), linkEntry(3, 5)]);
@@ -127,102 +125,12 @@ function longCaption(n: number) {
   return `Un chat roux numéro ${n} danse sur une table de cuisine en agitant les pattes, puis il glisse lentement et tombe sur le dos pendant que quelqu'un rit derrière la caméra du téléphone.`;
 }
 
-test('gifLine: cuts an older one-line caption to gifs.actionChars at a word boundary with an ellipsis; the stored caption is untouched', () => {
+// The owner on 2026-11-17: a GIF is shown whole in its line; the cut at 70 characters goes.
+test('gifLine: a 190-character caption is shown whole, with no ellipsis', () => {
   const caption = longCaption(2);
-  const mediaCache = { k2: { text: caption, ts: NOW } };
-  // PR 7d: `gifs.actionChars` is the constant 70.
+  const mediaCache = { k2: { text: caption, ts: NOW, watched: true, gif: true } };
   const lines = findLines(THREE, mediaCache);
-  const line = lines[0];
-  assert.ok(line.startsWith('g2 -- '), line);
-  const shown = line.slice('g2 -- '.length);
-  assert.ok([...shown].length <= 70, shown);
-  assert.ok(shown.endsWith('…'), 'the cut is marked');
-  const kept = shown.slice(0, -1);
-  assert.ok(caption.startsWith(kept), 'a prefix of the caption');
-  assert.equal(caption[kept.length], ' ', 'cut where a word ends');
-  assert.equal(mediaCache.k2.text, caption);
-
-  const short = { k2: { text: 'a cat', ts: NOW } };
-  assert.equal(findLines(THREE, short)[0], 'g2 -- a cat');
-});
-
-test('gifLine: renders a three-field caption through labels.gifs.entryFields', () => {
-  const mediaCache = {
-    k2: {
-      text: 'a cat lifts its chin',
-      reaction: 'firm agreement',
-      action: 'a cat lifts its chin',
-      screen: 'ναί.',
-      ts: NOW,
-      watched: true,
-      gif: true,
-    },
-    k3: { text: 'a man runs', ts: NOW, watched: true, gif: true },
-  };
-  const lines = findLines(THREE, mediaCache);
-  assert.deepEqual(
-    lines,
-    ['g2 -- firm agreement; a cat lifts its chin; "ναί."', 'g3 -- a man runs', 'g1'],
-    'an older caption keeps labels.gifs.entry'
-  );
-});
-
-test('gifLine: empty fields leave no dangling separator or empty quotes', () => {
-  const entryOf = (fields: Record<string, string>) => {
-    const mediaCache = {
-      k2: { text: fields.action || fields.reaction || fields.screen, ...fields, ts: NOW, watched: true, gif: true },
-    };
-    return findLines(library([linkEntry(2, 9)]), mediaCache)[0];
-  };
-  assert.equal(
-    entryOf({ reaction: '', action: 'a caracal stares', screen: "j'attends" }),
-    'g2 -- a caracal stares; "j\'attends"',
-    'no reaction'
-  );
-  assert.equal(
-    entryOf({ reaction: 'waiting', action: 'a caracal stares', screen: '' }),
-    'g2 -- waiting; a caracal stares',
-    'no on-screen text'
-  );
-  assert.equal(
-    entryOf({ reaction: 'waiting', action: '', screen: "j'attends" }),
-    'g2 -- waiting; "j\'attends"',
-    'no action'
-  );
-  assert.equal(
-    entryOf({ reaction: '', action: 'a caracal stares', screen: '' }),
-    'g2 -- a caracal stares',
-    'the action alone'
-  );
-});
-
-test('gifLine: entryFields keeps the label as written around the fields; a brace in a caption stays text', () => {
-  const custom = { ...labels, gifs: { ...labels.gifs, entryFields: '[{id}] {action} ({reaction}) «{text}» end' } };
-  const mediaCache = {
-    k2: { text: 'a {id} sign', reaction: '', action: 'a {id} sign', screen: 'όχι', ts: NOW, watched: true, gif: true },
-  };
-  assert.equal(findLines(library([linkEntry(2, 9)]), mediaCache, custom)[0], '[g2] a {id} sign «όχι» end');
-});
-
-test('gifLine: gifs.reactionChars and gifs.actionChars cut a three-field caption at render time, the cache untouched', () => {
-  // PR 7d: `gifs.reactionChars` and `gifs.actionChars` are the constants 40 and 70, so the fields are longer than that.
-  const reaction = 'quiet firm agreement with a slow nod and a small smile that says yes';
-  const mediaCache = {
-    k2: {
-      text: 'a cat lifts its chin',
-      reaction,
-      action: 'a cat lifts its chin slowly, looks at the camera, blinks twice and turns away from the window light',
-      screen: 'yes yes yes yes yes yes yes yes yes yes yes yes yes yes',
-      ts: NOW,
-      watched: true,
-      gif: true,
-    },
-  };
-  assert.equal(
-    findLines(library([linkEntry(2, 9)]), mediaCache)[0],
-    'g2 -- quiet firm agreement with a slow nod…; a cat lifts its chin slowly, looks at the camera, blinks twice and…; "yes yes yes yes yes yes yes yes yes yes…"'
-  );
-  assert.equal(mediaCache.k2.reaction, reaction);
+  assert.equal(lines[0], `g2 -- ${caption}`);
 });
 
 test('buildRequest: a library gif in the chat carries its handle; a reposted link is matched by its url', () => {
@@ -243,35 +151,19 @@ test('buildRequest: a library gif in the chat carries its handle; a reposted lin
   assert.ok(text.includes('[gif g3: Danse 3]'));
 });
 
-// A 60-character on-screen text, stored whole by the describer.
-const WHOLE_SCREEN = 'Ἐν ἀρχῇ ἦν ὁ λόγος καὶ ὁ λόγος ἦν πρὸς τὸν θεόν, καὶ θεὸς ἦν';
-
-test('buildRequest: a whole stored on-screen text is still cut per field in the line and in the chat', () => {
-  const mediaCache = {
-    k2: {
-      text: 'a cat lifts its chin',
-      reaction: 'firm agreement',
-      action: 'a cat lifts its chin',
-      screen: WHOLE_SCREEN,
-      ts: NOW,
-      watched: true,
-      gif: true,
-    },
-  };
+// The owner on 2026-11-17: a GIF tag in the chat holds the whole description; the per-field cut goes.
+test('buildRequest: a GIF tag in the chat holds its whole 300-character description', () => {
+  const description = `${longCaption(2)} ${longCaption(3)}`.slice(0, 300);
+  const mediaCache = { k2: { text: description, ts: NOW, watched: true, gif: true } };
   const history = [
     {
       ...baseInput().history[0],
       links: [{ id: 'k2', kind: 'gif', url: 'https://tenor.com/view/gif-2', site: 'Tenor', title: 'Danse 2' }],
     },
   ];
-  const descriptions = new Map([['k2', 'a cat lifts its chin']]);
+  const descriptions = new Map([['k2', description]]);
   const request = buildRequest(baseInput({ gifs: library([linkEntry(2, 9)]), mediaCache, history, descriptions }));
-  const line = findLines(library([linkEntry(2, 9)]), mediaCache)[0];
-  const screen = line.match(/"(.*)"$/)![1];
-  assert.ok([...screen].length <= 40 && screen.endsWith('…'), `the library cuts the on-screen text: ${screen}`);
-  assert.ok(
-    userText(request).includes(`[gif g2 -- firm agreement; a cat lifts its chin; "${screen}"]`),
-    'the chat cuts it the same way'
-  );
-  assert.equal(mediaCache.k2.screen, WHOLE_SCREEN, 'the cache untouched');
+  const text = userText(request);
+  assert.ok(text.includes(`[gif g2: ${description}]`), text);
+  assert.ok(!text.includes('…'));
 });

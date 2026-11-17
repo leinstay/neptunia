@@ -103,8 +103,9 @@ test('a description that quotes other scripts is on standard', async () => {
 });
 
 // Bug: only the picture path checks, and a watched GIF, the 46 of the plan, goes on being stored off script.
+// The owner on 2026-11-17: a GIF's answer is prose, stored whole as one text.
 test('a watched GIF in another script is described again once', async () => {
-  const run = rig([`reaction: ${GREEK}\naction: ${GREEK}`, `reaction: ${ENGLISH}\naction: ${ENGLISH}`]);
+  const run = rig([`${GREEK}, ήσυχη και ζεστή.`, ENGLISH]);
   await run.describer.describe('g1', GIF);
   assert.equal(run.llm.calls.length, 2);
   assert.equal(run.entryOf(GIF.itemId)?.text, ENGLISH);

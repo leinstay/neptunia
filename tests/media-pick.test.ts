@@ -224,6 +224,16 @@ test('the classifier sees the candidates, never the whole library', async () => 
   assert.equal(listed.split('\n').length, 3);
 });
 
+// The owner on 2026-11-17: a candidate's caption is shown whole; the cut at 180 characters goes.
+test('a candidate line holds a 300-character caption whole', async () => {
+  const caption = `ναι φυσικά ${'γνέφει αργά '.repeat(24)}τέλος`;
+  assert.equal(caption.length, 304);
+  const { pick: picker, calls } = rig({ library: libraryOf(gifEntry('g1', caption)) });
+  await picker.pick(args());
+  const listed = blockOf(requestText(calls[0]), 'gifs');
+  assert.equal(listed, `g1 -- ${caption}`);
+});
+
 test('the cap is read at the moment of the pick', async () => {
   const many = Array.from({ length: 9 }, (_, index) => gifEntry(`g${index + 1}`, `ναι φυσικά ${index + 1}`));
   const { pick, calls, hot } = rig({ library: libraryOf(...many), pickConfig: { candidates: 3 } });
@@ -409,10 +419,11 @@ test('pickContext: an unknown answered line, none, or 0 context lines mark nothi
   });
 });
 
-test('captionOfCached: the three fields of a watched GIF joined, an older caption as it is, a miss or nothing empty', () => {
-  const watched = { text: 'a cat lifts', reaction: 'firm agreement', action: 'a cat lifts', screen: 'ναί.' };
-  assert.equal(captionOfCached(watched), 'firm agreement; a cat lifts; ναί.');
-  assert.equal(captionOfCached({ text: ' a man runs ' }), 'a man runs');
+// The owner on 2026-11-17: a GIF is one text, read whole; the join of three fields goes.
+test('captionOfCached: the text of a GIF whole and trimmed, a miss or nothing empty', () => {
+  const long = `a cat lifts its chin ${'and looks on '.repeat(22)}end`;
+  assert.equal(long.length, 310);
+  assert.equal(captionOfCached({ text: ` ${long} `, watched: true, gif: true }), long);
   assert.equal(captionOfCached({ miss: 'error', text: 'x' }), '');
   assert.equal(captionOfCached(undefined), '');
 });
