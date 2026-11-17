@@ -235,3 +235,75 @@ test('an emoji used only in a <meanwhile> window still stands in <interface>', (
   assert.ok(legend.includes(':e24: wavey: a cat waving a paw'), legend);
   assert.ok(!legend.includes(':e23:'), 'only what occurs');
 });
+
+// ---- her appearance ------------------------------------------------------------------------------------------------
+
+// The owner on 2026-11-17: she reads her appearance in every turn of hers, in the stable cached part beside the
+// character card, and an empty or missing appearance gives no block. The appearance sentence is the test's own.
+const LOOKS = 'ΕΜΦΑΝΙΣΗ a tall figure in a mustard raincoat with a crooked umbrella';
+
+/** A request of `frame` whose prompts hold `appearance` (absent when undefined). */
+function appearanceRequest(frame: ReturnType<typeof frameOf>, appearance?: string): Built {
+  const extra = appearance === undefined ? {} : { appearance };
+  return buildRequest(
+    baseInput({
+      config: fakeConfig({ context: { meanwhile: { messages: 8, around: 2 } } }),
+      prompts: fakePrompts({ labels: shippedLabels, ...extra }),
+      frame,
+      whereabouts: { kind: 'place', iface: 'fake', private: false, chain: ROOM_CHAIN },
+      history: HISTORY,
+      trigger: HISTORY[0],
+      triggerKind: 'mention',
+      nameOf,
+      mind: mindOfEntries({ people: [ELENI] }),
+    })
+  );
+}
+
+/** The text of the first cache-marked part of a request as it is sent. */
+function firstMarkedOf(built: Built): string {
+  const sent = withCacheMarker(built.messages, '1h');
+  const [system] = sent;
+  const parts = Array.isArray(system.content)
+    ? (system.content as Array<{ text?: string; cache_control?: unknown }>)
+    : [{ text: String(system.content) }];
+  const marked = parts.filter((part) => Object.hasOwn(part, 'cache_control'));
+  return marked.map((part) => String(part.text ?? '')).join('');
+}
+
+const HEARTBEAT = frameOf(
+  frameInput({
+    now: NOW,
+    mode: 'inner',
+    triggerKind: 'inner',
+    wakeKind: 'heartbeat',
+    chain: [],
+    trigger: null,
+    author: null,
+  })
+);
+
+for (const [kind, frame] of [
+  ['a reply', FRAME],
+  ['a heartbeat', HEARTBEAT],
+] as const) {
+  test(`<appearance> follows the card in the cached system message of ${kind}`, () => {
+    // Bug: the appearance reaches only the drawing prompt, so she does not know how she looks; or it lands in the user
+    // message's per-turn part and rewrites the cache on every turn.
+    const built = appearanceRequest(frame, LOOKS);
+    const marked = firstMarkedOf(built);
+    const block = `<appearance>\n${LOOKS}\n</appearance>`;
+    assert.ok(marked.includes(block), marked);
+    assert.ok(marked.indexOf('CARD_TEXT') < marked.indexOf(block), 'after the card');
+    assert.ok(!userOf(built).includes(LOOKS), 'not in the user message');
+  });
+}
+
+test('an empty or missing appearance gives no <appearance> block', () => {
+  // Bug: an empty tag pair goes out, or a blank file prints a block of whitespace.
+  for (const appearance of [undefined, '', '  \n ']) {
+    const built = appearanceRequest(FRAME, appearance);
+    const system = String(built.messages[0].content);
+    assert.ok(!system.includes('<appearance>'), JSON.stringify(appearance));
+  }
+});

@@ -77,6 +77,8 @@ export type FrameTurnSpec = {
   diary?: Record<string, unknown>;
   /** The writer's answer. */
   answer?: string;
+  /** Prompt files laid over the turn's own, `appearance` for instance. */
+  prompts?: Record<string, unknown>;
 };
 
 export type FrameTurnRun = {
@@ -173,6 +175,7 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
       labels: spec.labels
         ? { ...shippedLabels, diary: { ...shippedLabels.diary, ...spec.labels } }
         : shippedLabels,
+      ...spec.prompts,
     },
   };
 }

@@ -1,5 +1,5 @@
 // Drawing, the core's built-in ability (src/media/draw.ts): the prompt builder, the direct
-// generation (her scene verbatim, the avatar reference, the failure left as the image client threw
+// generation (her scene verbatim, the appearance.png reference, the failure left as the image client threw
 // it) and the call sites: the turn's draw.create call, a diary set and `/nep draw`. The image
 // client stays the injected boundary: its calls are asserted byte for byte in
 // tests/draw-parity.test.js. Fake clock, prompts, labels, avatar and channel; no network.
@@ -22,6 +22,9 @@ import { planAnswerText } from './fixtures/plan-answer.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -30,6 +33,23 @@ const NOW = Date.UTC(2026, 9, 6, 19, 30, 0);
 const TZ = 'Europe/Athens';
 const WHEN = 'At Tuesday, October 6, 2026, 22:30 (Europe/Athens).';
 const AVATAR = 'data:image/png;base64,QVZBVEFS';
+
+// The owner on 2026-11-17: a picture of herself is drawn with `appearance.png` of the data folder as its reference, and
+// the avatar is no reference. The bytes are the test's own.
+const LOOK_BYTES = Buffer.from('LOOK-PNG-BYTES');
+const LOOK = `data:image/png;base64,${LOOK_BYTES.toString('base64')}`;
+const FOLDERS: Array<string> = [];
+after(() => {
+  for (const folder of FOLDERS.splice(0)) rmSync(folder, { recursive: true, force: true });
+});
+
+/** A fresh data folder under TMPDIR, holding `appearance.png` when `withLook`. */
+function dataFolder(withLook: boolean): string {
+  const folder = mkdtempSync(path.join(tmpdir(), 'appearance-'));
+  FOLDERS.push(folder);
+  if (withLook) writeFileSync(path.join(folder, 'appearance.png'), LOOK_BYTES);
+  return folder;
+}
 
 const LABELS = { ...baseLabels, draw: { ...baseLabels.draw, when: 'At {when}.' } };
 
@@ -61,7 +81,7 @@ function hot() {
       llm: { maxRequestTokens: 50000 },
       models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      image: { reference: 'avatar', referenceMaxBytes: 4_000_000 },
+      image: { referenceMaxBytes: 4_000_000 },
       diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },
@@ -172,10 +192,11 @@ function llm(post: Untyped, plan = null) {
   };
 }
 
-function runner({ answer, plan = null, images, hotValue = hot() }: Record<string, Untyped>) {
+function runner({ answer, plan = null, images, hotValue = hot(), dataDir = null }: Record<string, Untyped>) {
   client();
   return createTurnRunner({
     hot: hotValue,
+    dataDir,
     store: store(),
     llm: llm(answer, plan),
     calibrator: { ratio: 1, apply: (n: Record<string, Untyped>) => n, observe: () => {} },
@@ -212,7 +233,8 @@ function memberTrigger() {
 }
 
 // PR 7d: the daily image cap that ended the set is gone, so the set posts every picture it drew.
-test('diary set: the avatar is fetched once and goes with the first picture; the set is posted', async () => {
+// The owner on 2026-11-17: the reference of the picture she is in is `appearance.png` of the data folder, not the avatar.
+test('diary set: appearance.png goes with the picture she is in, none with the others; the set is posted', async () => {
   // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = recordingImages();
   const hotValue = hot();
@@ -226,7 +248,7 @@ test('diary set: the avatar is fetched once and goes with the first picture; the
   ];
   const target = channel('d1', 'journal');
   const { result }: Record<string, Untyped> = await withCapturedLogs(() =>
-    runner({ answer, plan, images, hotValue }).runTurn({
+    runner({ answer, plan, images, hotValue, dataDir: dataFolder(true) }).runTurn({
       channel: target,
       mode: 'diary',
       diary: { kind: 'photoset', forced: false },
@@ -235,7 +257,7 @@ test('diary set: the avatar is fetched once and goes with the first picture; the
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(
     images.calls.map((call) => call.reference),
-    [AVATAR, null, null]
+    [LOOK, null, null]
   );
   // Stage 3 design, section 3 item 4: the turn records the entry and sends nothing; the mirror's publication of the
   // entry posts what came out.
@@ -366,7 +388,7 @@ function plainHot(extra = {}) {
   return {
     config: {
       bot: { timezone: TZ },
-      image: { reference: 'avatar', referenceMaxBytes: 4_000_000 },
+      image: { referenceMaxBytes: 4_000_000 },
       ...extra,
     },
     prompts: {
@@ -391,29 +413,29 @@ function fakeImages(answers: Array<Untyped> = []) {
   };
 }
 
-const deps = (images: Untyped, hotValue = plainHot(), fetcher = imageFetcher()) => ({
+// The owner on 2026-11-17: the drawing reference is `appearance.png` of the data folder (`dataDir`); the avatar fetch
+// for drawing is gone.
+const deps = (images: Untyped, hotValue = plainHot(), dataDir = dataFolder(true)) => ({
   images,
   hot: hotValue,
-  avatarUrl: async () => 'https://cdn.example/avatar.png',
-  imageFetcher: fetcher,
+  dataDir,
   now: () => NOW,
 });
 
-test('drawPicture: her scene goes into the draw prompt verbatim, with the appearance and the time, and the avatar as reference', async () => {
+test('drawPicture: her scene goes into the draw prompt verbatim, with the appearance and the time, and appearance.png as reference', async () => {
   const images = fakeImages();
-  const { picture, referenceMissing } = await drawPicture({
+  const { picture } = await drawPicture({
     ...deps(images),
     input: { scene: SCENE, selfName: 'Bot', self: true, withTime: true, accountId: 'u1' },
   });
   assert.deepEqual(images.calls, [
     {
       prompt: `DRAW by Bot.\n\nBot has a green scarf.\n\n${WHEN}\n\nScene: ${SCENE}`,
-      reference: AVATAR,
+      reference: LOOK,
       accountId: 'u1',
     },
   ]);
   assert.equal(picture.model, 'm/img');
-  assert.equal(referenceMissing, false);
 });
 
 // The owner on 2026-11-16: the drawing scene is kept whole; the limit of 1600 is gone.
@@ -435,36 +457,39 @@ test("drawPicture: no time for the owner's command, no appearance and no referen
   );
 });
 
-test('drawPicture: the avatar is fetched once into a shared holder; a missing avatar is reported once and the picture still goes', async () => {
+// The owner on 2026-11-17: the setting `image.reference` and the fetch of the avatar for drawing are removed, so the
+// test of the avatar fetched once into a shared holder and of `image.reference: 'none'` is deleted.
+
+test('drawPicture: a picture of herself has no reference when the data folder holds no appearance.png', async () => {
+  // Bug: the avatar stands in for the missing file, or the draw fails instead of drawing without a reference.
   const images = fakeImages();
-  let fetched = 0;
-  const fetcher = {
-    fetchAsDataUrl: async () => {
-      fetched += 1;
-      throw new Error('down');
-    },
+  // The removed setting and an avatar at hand: neither stands in for the file.
+  const legacy = plainHot({ image: { reference: 'avatar' } });
+  const avatarAtHand = {
+    avatarUrl: () => Promise.resolve('https://cdn.example/avatar.png'),
+    imageFetcher: imageFetcher(),
   };
-  const avatar = {};
-  const first = await drawPicture({
-    ...deps(images, plainHot(), fetcher),
-    input: { scene: 'a', selfName: 'Bot', self: true, avatar },
+  await drawPicture({
+    ...deps(images, legacy, dataFolder(false)),
+    ...avatarAtHand,
+    input: { scene: 'a', selfName: 'Bot', self: true },
   });
-  const second = await drawPicture({
-    ...deps(images, plainHot(), fetcher),
-    input: { scene: 'b', selfName: 'Bot', self: true, avatar },
+  const [sent] = images.calls;
+  assert.equal(sent?.reference, null);
+});
+
+test('drawPicture: a picture without self has no reference even when appearance.png exists', async () => {
+  // Bug: the file goes with every picture, and a lighthouse comes out with her face.
+  const images = fakeImages();
+  await drawPicture({ ...deps(images, plainHot(), dataFolder(true)), input: { scene: 'a', selfName: 'Bot' } });
+  await drawPicture({
+    ...deps(images, plainHot(), dataFolder(true)),
+    input: { scene: 'b', selfName: 'Bot', self: false },
   });
-  assert.equal(fetched, 1);
-  assert.equal(first.referenceMissing, true);
-  assert.equal(second.referenceMissing, false, 'told once per set');
   assert.deepEqual(
-    images.calls.map((call) => call.reference),
+    images.calls.map((sent) => sent.reference),
     [null, null]
   );
-  const off = plainHot();
-  off.config.image.reference = 'none';
-  const plain = fakeImages();
-  await drawPicture({ ...deps(plain, off), input: { scene: 'c', selfName: 'Bot', self: true } });
-  assert.equal(plain.calls[0].reference, null);
 });
 
 test("drawPicture: a failure is the image client's own error, unwrapped", async () => {

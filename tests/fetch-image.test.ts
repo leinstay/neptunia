@@ -3,7 +3,7 @@
 // query-string-free logging.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { avatarReference, createImageFetcher } from '../src/media/fetch-image.ts';
+import { createImageFetcher } from '../src/media/fetch-image.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly } from './fixtures/loose-types.ts';
@@ -235,42 +235,4 @@ test('fetchAsDataUrl: an error without a code logs its class name; a body-read f
   assert.ok(!JSON.stringify(line).includes('stream error'));
 });
 
-// --- avatarReference: the bot's avatar as a drawing's reference -----------------
-
-const AVATAR_CONFIG = { image: { referenceMaxBytes: 4_000_000 }, context: { vision: { fetchTimeoutMs: 10_000 } } };
-
-// Changed with the contract: the caller hands over the address the interface gave (`memberInfo(self).avatar.largeUrl`)
-// where it handed over the discord.js client; the size and the static form are the interface's, tested in
-// tests/discord-reads.test.ts.
-test('avatarReference: the large avatar address fetched under the reference limits, as a data: URL', async () => {
-  const url = 'https://cdn.example.com/avatar.png';
-  const calls: Array<Untyped> = [];
-  const imageFetcher = {
-    fetchAsDataUrl: async (url: Untyped, options: Record<string, Untyped>) => {
-      calls.push({ url, options });
-      return { dataUrl: 'data:image/png;base64,YXZhdGFy', bytes: 6, contentType: 'image/png' };
-    },
-  };
-  assert.equal(await avatarReference({ url, imageFetcher, config: AVATAR_CONFIG }), 'data:image/png;base64,YXZhdGFy');
-  assert.deepEqual(calls, [
-    { url: 'https://cdn.example.com/avatar.png', options: { maxBytes: 4_000_000, timeoutMs: 10_000 } },
-  ]);
-});
-
-test('avatarReference: null without a fetcher, an avatar URL or a download; a throw is swallowed', async () => {
-  const url = 'https://cdn.example.com/avatar.png';
-  const ok = { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,eA==' }) };
-  assert.equal(await avatarReference({ url, imageFetcher: null, config: AVATAR_CONFIG }), null);
-  assert.equal(await avatarReference({ url: undefined, imageFetcher: wrongly(ok), config: AVATAR_CONFIG }), null);
-  assert.equal(await avatarReference({ url: '', imageFetcher: wrongly(ok), config: AVATAR_CONFIG }), null);
-  assert.equal(
-    await avatarReference({ url, imageFetcher: { fetchAsDataUrl: async () => null }, config: AVATAR_CONFIG }),
-    null
-  );
-  const throwing = {
-    fetchAsDataUrl: async () => {
-      throw new Error('boom');
-    },
-  };
-  assert.equal(await avatarReference({ url, imageFetcher: throwing, config: AVATAR_CONFIG }), null);
-});
+// The owner on 2026-11-17: the fetch of the avatar for drawing is removed, so the tests of `avatarReference` are deleted.
