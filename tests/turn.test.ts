@@ -1841,6 +1841,39 @@ test('runTurn: format.stripDashes false posts the dashes as written, no log', as
   );
 });
 
+test('skill call: format.stripDashes on posts her own message.create without em dashes and guillemets', async () => {
+  const { sends, logs } = await callTurn({
+    answers: [toolAnswer('', [call('message.create', { text: 'ναι — «αύριο»' })]), '<skip/>'],
+    configExtra: { format: { stripDashes: true } },
+  });
+  assert.deepEqual(
+    sends.map((send) => send.text),
+    ['ναι "αύριο"']
+  );
+  assert.equal(logs.find((entry) => entry.msg === 'turn: dashes stripped')?.count, 1);
+});
+
+test('skill call: format.stripDashes false posts her own message.create as she wrote it', async () => {
+  const { sends } = await callTurn({
+    answers: [toolAnswer('', [call('message.create', { text: 'ναι — «αύριο»' })]), '<skip/>'],
+    configExtra: { format: { stripDashes: false } },
+  });
+  assert.deepEqual(
+    sends.map((send) => send.text),
+    ['ναι — «αύριο»']
+  );
+});
+
+test('skill call: format.stripDashes on edits her own message without em dashes', async () => {
+  const { port } = await callTurn({
+    answers: [toolAnswer('', [call('message.edit', { message: '#1', text: 'πρώτη — δεύτερη' })]), '<skip/>'],
+    allowed: ['message.edit'],
+    configExtra: { format: { stripDashes: true } },
+  });
+  const edits = port.calls.filter((entry) => entry.op === 'edit').map((entry) => asRecord(entry.args[1]).text);
+  assert.deepEqual(edits, ['πρώτη δεύτερη']);
+});
+
 // ---------------------------------------------------------------------------
 // An overheard turn (triggerKind 'overheard'): a line about the persona, said
 // to someone else or to the room. It posts plain like a follow-up, runs no
