@@ -108,6 +108,11 @@ const NOT_BUILT = {
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
   // tests/memory-db-session.test.ts and tests/memory-db-describe.test.ts check what they load.
+  // The summarizer builds its request from a text and a limit, with no turn around it: tests/summarize.test.ts checks which
+  // of the two prompts it takes and what it fills.
+  'summarize-media':
+    'built by src/behavior/summarize.ts from a text over its limit, checked in tests/summarize.test.ts',
+  'summarize-text': 'built by src/behavior/summarize.ts from a text over its limit, checked in tests/summarize.test.ts',
   'memory-session': 'built over the memory database (src/memory/db/session.ts)',
   'description-draft': 'built over the memory database (src/memory/db/describe.ts)',
   'description-check': 'built over the memory database (src/memory/db/describe.ts)',
