@@ -460,7 +460,8 @@ test('removes an unlinked media row whose path and sha1 a linked row holds and c
   line(db, 'l1', 'a picture');
   link(db, 'l1', 0, 'media:fake:att-1');
   const plan = planStableNamesRewrite(db);
-  assert.equal(plan.counts.tables.media, 1);
+  const { tables } = plan.counts;
+  assert.equal(tables.media, 1);
   apply(handle, plan);
   const ids = db.prepare('SELECT id FROM media ORDER BY id').all();
   assert.deepEqual(
