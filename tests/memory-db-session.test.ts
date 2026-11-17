@@ -1946,3 +1946,55 @@ test('the memory session reads her edited line once, as hers, at the place it wa
     world.close();
   }
 });
+
+// The owner on 2026-11-17: a custom emoji or sticker stands in every text under its stable name, and its description
+// stands once in the block `<media>` of the request that names it, whichever block names it.
+const insertEmojiName = (db: Db, name: string, nativeId: string, platformName: string): void => {
+  db.prepare(
+    "INSERT INTO media_names (name, kind, iface, native_id, platform_name, animated, first_seen_at) VALUES (?, 'emoji', 'discord', ?, ?, 0, '2026-10-01T00:00:00.000Z')"
+  ).run(name, nativeId, platformName);
+};
+
+/** The `<media>` blocks of a request's user text. */
+const mediaBlocksOf = (text: string): Array<string> =>
+  [...text.matchAll(/<media>\n([\s\S]*?)\n<\/media>/g)].map((m) => m[1] ?? '');
+
+test('a claim in <people> that names an emoji gives the session request one <media> block with its line', () => {
+  // Bug: the legend covers the batch alone, so a stored claim shows her a bare `:e7:` she cannot read.
+  const env = fixture();
+  try {
+    chat(env);
+    insertEmojiName(env.db, 'e7', '7007', 'λαμπάδα');
+    env.claim({
+      id: 'cl-ada-emoji',
+      subjectId: personOf(ADA),
+      kind: 'interest',
+      text: 'greets with :e7: every morning',
+    });
+    const text = textOf(request(env).messages[1].content);
+    const blocks = mediaBlocksOf(text);
+    assert.equal(blocks.length, 1, text);
+    assert.ok((blocks[0] ?? '').includes(':e7: λαμπάδα'), blocks[0]);
+  } finally {
+    env.done();
+  }
+});
+
+test('an episode that names an emoji gives the session request its <media> line', () => {
+  // Bug: an episode keeps the stable name and no block of the request says what it stands for.
+  const env = fixture();
+  try {
+    chat(env);
+    insertEmojiName(env.db, 'e8', '8008', 'φεγγάρι');
+    env.db
+      .prepare(
+        "INSERT INTO episodes (id, kind, subject_id, date, what, status, scope_kind, scope_iface) VALUES ('ep-moon', 'profile', ?, '2026-10-10', 'Ada sent :e8: at midnight', 'open', 'group', 'discord')"
+      )
+      .run(personOf(ADA));
+    const blocks = mediaBlocksOf(textOf(request(env).messages[1].content));
+    assert.equal(blocks.length, 1);
+    assert.ok((blocks[0] ?? '').includes(':e8: φεγγάρι'), blocks[0]);
+  } finally {
+    env.done();
+  }
+});

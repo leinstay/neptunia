@@ -32,6 +32,7 @@ import {
   fakeVideoFetcher,
 } from './fixtures/describe-fakes.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { PURPOSE_ROLES } from '../src/llm/roles.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -3445,4 +3446,25 @@ test('relookImage: looks again at a picture from its fresh address when its stor
   const { describer, reads } = lapsedRig(fresh.freshAddress, hot);
   await describer.relookImage('g1', lapsedAttachment('image', { previewUrl: STALE_PREVIEW }), 'What colour?');
   assert.deepEqual(reads, [FRESH_URL]);
+});
+
+// The owner on 2026-11-17: a `video` request carries its purpose, as a `vision` request does, so its usage row and a
+// `models.byPurpose` pin name it. The purpose is one that goes out on the `video` role.
+const roleOfPurpose = (purpose: unknown): string | null =>
+  Object.entries(PURPOSE_ROLES).find(([name]) => name === purpose)?.[1] ?? null;
+
+test('describeVideo: a watched clip goes out with a purpose of the video role', async () => {
+  // Bug: every `video` usage row has a null purpose, so nothing tells a watch from another request.
+  const { describer, llm } = videoDescriber();
+  await describer.describeVideo('g1', videoAttachment());
+  const [call] = llm.calls;
+  assert.equal(roleOfPurpose(call.options.purpose), 'video');
+});
+
+test('describe: a watched GIF goes out with a purpose of the video role', async () => {
+  // Bug: a GIF watch on the video model carries no purpose in its usage row.
+  const { describer, llm } = gifDescriber();
+  await describer.describe('g1', gifEmbedItem());
+  const [call] = llm.calls;
+  assert.equal(roleOfPurpose(call.options.purpose), 'video');
 });

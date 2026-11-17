@@ -461,10 +461,8 @@ export const labels = {
     private: 'SPATIAL-PRIVATE',
     note: 'SPATIAL-NOTE {note}',
     cli: 'SPATIAL-CLI AT {when}',
-    // Stage AC, the owner's word of 2026-11-06: a wake with no chat place is on her own server, a
-    // diary post in her own world; no turn is "nowhere".
+    // Stage AC, the owner's word of 2026-11-06: a wake with no chat place is on her own server; no turn is "nowhere".
     server: 'SPATIAL-SERVER AT {when}',
-    world: 'SPATIAL-WORLD AT {when}',
     // The day she joined the root (the top of the chain), when the store knows it: `{place}` is the root's own link in
     // words as `places.link` gives it, `{day}` the date as YYYY-MM-DD in the turn's zone.
     joined: 'SPATIAL-JOINED {place} {day}',

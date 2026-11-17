@@ -551,6 +551,27 @@ export type SessionRequest = {
 };
 
 /**
+ * The body of `<batch>`: the `cutoff` line, one legend `<media>` for the request (the custom emoji and stickers of the
+ * batch's lines and every stable name the `stored` blocks name, a claim in `<people>` or an episode among them), then
+ * the lines.
+ */
+function batchBodyOf(
+  db: Db,
+  labels: unknown,
+  parts: {
+    cutoff: string;
+    shownMessages: ReadonlyArray<Row>;
+    stored: ReadonlyArray<string>;
+    rendered: ReadonlyArray<string>;
+  }
+): string {
+  const names = new Map(mediaNameRows(db).map((row): [string, MediaNameRow] => [row.name, row]));
+  const texts = parts.stored.map((content) => ({ content }));
+  const legend = legendBlock([...parts.shownMessages, ...texts], (name) => names.get(name) ?? null, labels);
+  return [`cutoff: ${parts.cutoff}`, ...(legend ? [legend] : []), ...parts.rendered].join('\n');
+}
+
+/**
  * The request of one batch (one page of its people). Returns `{ messages, maps, lines, people, places, pages, cutoff }`:
  * `maps` carries what the answer's local ids stand for (`sources`: `#n` -> source id, `claims`: `cN` / `sN` -> claim id,
  * `episodes`: `eN` -> episode id, `places`: `pN` -> place id, `authors`: `aN` -> an account or participant of the batch,
@@ -665,9 +686,6 @@ export function buildSessionRequest({
       })
     );
   }
-  const names = new Map(mediaNameRows(db).map((row): [string, MediaNameRow] => [row.name, row]));
-  const legend = legendBlock(shownMessages, (name) => names.get(name) ?? null, labels);
-  const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...(legend ? [legend] : []), ...rendered].join('\n');
 
   // <retrieved>
   let shownRetrieved: Array<string> = [];
@@ -829,6 +847,8 @@ export function buildSessionRequest({
   ]
     .filter(Boolean)
     .join('\n\n');
+  const stored = [stable, ...shownRetrieved];
+  const batchBody = batchBodyOf(db, labels, { cutoff: stamp(cutoff, timezone), shownMessages, stored, rendered });
   const user = [
     // `<place>` always has its scope line, so the stable part is never empty.
     { type: 'text' as const, text: `${stable}\n\n`, cacheSegment: 'stable' as const },

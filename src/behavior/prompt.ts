@@ -94,7 +94,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
 /**
  * The request of one turn on its frame (`input.frame`, required: without one it throws). A heartbeat's
  * request reads no chat, since her own time is in no place; its whereabouts are her own server,
- * and a diary's are her own world, whatever place the turn rode in on. The result carries the messages, the
+ * whatever place the turn rode in on, and a diary's request states none. The result carries the messages, the
  * budget's line (`stats`), the cache segments, the archive's blocks, the transcript's numbers (`idByIndex`), the
  * handles of her `@` and `#` tags, the people shown and what of memory and of the chat window went in.
  */
@@ -108,15 +108,11 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   });
   const ownTime = turnKind === 'heartbeat';
   if (ownTime) input = { ...input, history: [], currentChannelId: null };
-  // Her own time is at the command line of her own server, a diary post in her own world (the owner's word of
-  // 2026-11-06), whatever place the turn rode in on.
+  // Her own time is at the command line of her own server (the owner's word of 2026-11-06), whatever place the turn rode
+  // in on. A diary post states no place: its block holds the bare clock.
   const turnPlace = input.whereabouts ?? null;
-  const ownPlace = ownTime
-    ? { kind: 'server' as const }
-    : turnKind === 'diary' || turnKind === 'diary_plan'
-      ? { kind: 'world' as const }
-      : null;
-  const whereabouts = turnPlace && ownPlace ? ownPlace : turnPlace;
+  const diaryTurn = turnKind === 'diary' || turnKind === 'diary_plan';
+  const whereabouts = diaryTurn ? null : turnPlace && ownTime ? { kind: 'server' as const } : turnPlace;
   const { currentChannelId = null } = input;
   // Every input, named once: the block builders of src/turn/request/ read theirs from it.
   const given = {

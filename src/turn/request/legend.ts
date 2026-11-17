@@ -1,5 +1,5 @@
-// The body of the root block `<media>`, the legend: each custom emoji and sticker the lines of `<chat>` and
-// `<meanwhile>` use stands once, under its interface and its kind, with its stable name, its platform name and its whole
+// The body of the root block `<media>`, the legend: each custom emoji a block of the request names and each sticker the
+// lines of `<chat>` and `<meanwhile>` show stands once, under its interface and its kind, with its stable name, its platform name and its whole
 // description. A line of chat holds the stable name alone. The reader (src/turn/request/reader.ts) gathers the items
 // after the cuts and prints the block between `<meanwhile>` and `<chat>`.
 import { fill } from '../../format.ts';
@@ -151,3 +151,12 @@ export function legendBlock(
   const legend = messagesLegend(messages, nameOf, legendLabelsOf(labels), descriptions);
   return legend ? `<media>\n${legend}\n</media>` : '';
 }
+
+// A legend `<media>` that `legendBlock` put at the head of a stretch, with the line break after it.
+const LEGEND_BLOCK_RE = /^<media>\n[\s\S]*?\n<\/media>(?:\n|$)/gm;
+
+/**
+ * `text` with every legend `<media>` that `legendBlock` wrote into it removed: a stored tool result in `<recall>` keeps
+ * its bare stable names, and their lines stand in the request's one root `<media>`.
+ */
+export const withoutLegends = (text: string): string => text.replace(LEGEND_BLOCK_RE, '');

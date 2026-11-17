@@ -125,6 +125,10 @@ export const PURPOSE_ROLES = Object.freeze({
   describe: 'vision',
   relook: 'vision',
   avatar: 'vision',
+  watch: 'video',
+  gif: 'video',
+  voice: 'video',
+  rewatch: 'video',
   'recall-query': 'embedding',
   probe: 'embedding',
 });

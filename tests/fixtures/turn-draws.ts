@@ -4,7 +4,7 @@ import { coreTurn } from './turn-harness.ts';
 import { chainsOnDefaults } from './chains.ts';
 
 export const DRAW_PROMPTS = { draw: 'A drawing by {{name}}.\n\n{{appearance}}\n\n{{when}}\n\nScene: {{request}}', appearance: '{{name}} has silver hair.' };
-export const DRAW_CONFIG = { image: { maxPromptChars: 1000, reference: 'none' }, models: { routes: chainsOnDefaults({ analyzer: 'x/text', drawing: 'openai/image-model' }) } };
+export const DRAW_CONFIG = { models: { routes: chainsOnDefaults({ analyzer: 'x/text', drawing: 'openai/image-model' }) } };
 
 /** The fake image client: every call it got and the three methods the runner uses. */
 type FakeImages = {

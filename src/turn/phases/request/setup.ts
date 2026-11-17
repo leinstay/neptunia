@@ -298,7 +298,7 @@ export async function setupRequest(
           memoryOn,
           // The planner's request on the turn frame, built when the plan has what it chooses from.
           planMessages: (parts) =>
-            plannerRequest(ctx, draft, { channel, isDm, config, selfName, selfId, now }, parts).messages,
+            plannerRequest(ctx, draft, { channel, libraryPlace, isDm, config, selfName, selfId, now }, parts).messages,
           draft,
         }).then(
           (value) => ({ value }),
