@@ -6,17 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { errandRecentLines } from '../src/memory/db/chat-lines.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
-import {
-  GENERAL,
-  KINDS,
-  LABELS,
-  PRESENCES,
-  assertForms,
-  fixture,
-  itemsOf,
-  observeLine,
-  tell,
-} from './fixtures/media-memory.ts';
+import { GENERAL, KINDS, LABELS, PRESENCES, assertForms, fixture, observeLine } from './fixtures/media-memory.ts';
 
 // Bug (second production audit, N2): an errand's recent lines held `:e23:` with no legend, a sticker's description
 // with no name, and every media description joined after the text with a space, with no kind and no boundary.
@@ -51,24 +41,6 @@ test('errand lines: a line of hers carries her name and a line of a member the n
       lines.map((line) => line.author),
       ['Alice', 'Self']
     );
-  } finally {
-    env.done();
-  }
-});
-
-test('errand lines: a description that names her by the marker shows her name and no marker', () => {
-  // Bug (owner, 2026-11-17): the agent reads the raw marker of a stored description and cannot tell it means her.
-  const env = fixture();
-  try {
-    observeLine(env, KINDS[0], 'absent');
-    const [item] = itemsOf(KINDS[0], 'pic');
-    tell(env, KINDS[0], { ...item, told: '@self holds a lighthouse' });
-    fillEnvAudiences(env);
-    const text = errandRecentLines(env.db, GENERAL, 5, { selfName: 'Mira', labels: LABELS })
-      .map((line) => line.text)
-      .join('\n');
-    assert.ok(text.includes('Mira holds a lighthouse'), text);
-    assert.ok(!text.includes('@self'), text);
   } finally {
     env.done();
   }

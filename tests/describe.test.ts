@@ -162,19 +162,19 @@ async function describeWith(text: string, prompt?: string, summarize?: Summarize
   return { result, llm, store };
 }
 
-// The owner on 2026-11-17: a picture's answer over 1,500 characters is shortened by the summarizer, never cut.
-test('describe: a picture answer over 1500 characters goes to summarize once and its result is stored', async () => {
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+test('describe: a picture answer over 750 characters goes to summarize once and its result is stored', async () => {
   const answer = `${proseLine(300)} The left hand is drawn with six fingers.`;
   const summary = fakeSummarize(() => 'A street scene. The left hand is drawn with six fingers.');
   const { result, store } = await describeWith(answer, undefined, summary.summarize);
-  assert.deepEqual(summary.calls, [{ text: answer, options: { maxChars: 1500, kind: 'picture' } }]);
+  assert.deepEqual(summary.calls, [{ text: answer, options: { maxChars: 750, kind: 'picture' } }]);
   assert.equal(loose(result).text, 'A street scene. The left hand is drawn with six fingers.');
   const cache = loose(cacheView(store, 'g1'));
   assert.equal(cache.a1.text, 'A street scene. The left hand is drawn with six fingers.');
 });
 
 // The owner on 2026-11-17: what the summarizer returns is kept whole, even over the length.
-test('describe: a summary still over 1500 characters is stored whole', async () => {
+test('describe: a summary still over 750 characters is stored whole', async () => {
   const long = `${proseLine(320)} END`;
   const summary = fakeSummarize(() => long);
   const { store } = await describeWith(proseLine(400), undefined, summary.summarize);
@@ -190,11 +190,11 @@ test('describe: without summarize a 4000-character answer is stored whole', asyn
   assert.equal(cache.a1.text, answer);
 });
 
-// The owner on 2026-11-17: a picture is described under 1,500 characters.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
 test('describe: {{maxChars}} in the describe prompt is filled with the description length', async () => {
   const { llm } = await describeWith('Une chatte grise.', 'Say it in at most {{maxChars}} characters. Keep {{other}}.');
   const [{ messages }] = llm.calls;
-  assert.equal(messages[0].content, 'Say it in at most 1500 characters. Keep {{other}}.');
+  assert.equal(messages[0].content, 'Say it in at most 750 characters. Keep {{other}}.');
 });
 
 test('describe: a cache hit is free -- no download, no LLM request, marked cached', async () => {
@@ -1218,8 +1218,8 @@ test('describeVideo: a missing prompt or a non-video item -> null without any re
   }
 });
 
-// The owner on 2026-11-17: a video's summary takes 6,000 characters and goes to the summarizer flattened, never cut.
-test('describeVideo: a 7000-character answer goes to summarize on one line with 6000 and kind video', async () => {
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+test('describeVideo: a 7000-character answer goes to summarize on one line with 5000 and kind video', async () => {
   const long = `  Première   scène\n\nκάποιος χορεύει\t${'mot '.repeat(1745)}fin`;
   const flat = `Première scène κάποιος χορεύει ${'mot '.repeat(1745)}fin`;
   assert.equal(flat.length, 7014);
@@ -1227,7 +1227,7 @@ test('describeVideo: a 7000-character answer goes to summarize on one line with 
   const { describer } = videoDescriber({ llm: fakeLlm({ text: long }), summarize: summary.summarize });
   const text = String(loose(await describer.describeVideo('g1', videoAttachment())).text);
 
-  assert.deepEqual(summary.calls, [{ text: flat, options: { maxChars: 6000, kind: 'video' } }]);
+  assert.deepEqual(summary.calls, [{ text: flat, options: { maxChars: 5000, kind: 'video' } }]);
   assert.equal(text, 'Première scène, puis une danse.');
 });
 
@@ -1796,13 +1796,13 @@ test('rewatchVideo: a pinned agentic link passes directUrlTokensPerSecond like a
 
 // --- account length: media.video.summaryChars ------------------------------
 
-// The owner on 2026-11-17: a video's summary is asked for in 6,000 characters.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
 test('describeVideo: {{maxChars}} of describe-video is filled with the video length', async () => {
   const hot = videoHot({ prompts: { 'describe-video': 'Summarise in at most {{maxChars}} characters.' } });
   const { describer, llm } = videoDescriber({ hot, llm: fakeLlm({ text: 'Première scène.' }) });
   await describer.describeVideo('g1', videoAttachment());
   const [{ messages }] = llm.calls;
-  assert.equal(messages[0].content, 'Summarise in at most 6000 characters.');
+  assert.equal(messages[0].content, 'Summarise in at most 5000 characters.');
 });
 
 // --- rewatchVideo: the second look on a question ---------------------------------
@@ -1827,7 +1827,7 @@ function clock(start = Date.parse('2026-09-23T12:00:00Z')) {
   return now;
 }
 
-// The owner on 2026-11-17: the second look at a video takes the video length, 6,000.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
 test('rewatchVideo: one fetch and one video request with the question and answerChars filled', async () => {
   const now = clock();
   const { describer, llm, videoFetcher, store } = videoDescriber({
@@ -1843,7 +1843,7 @@ test('rewatchVideo: one fetch and one video request with the question and answer
   assert.equal(videoFetcher.calls[0].fn, 'fetchAttachment');
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
-  assert.equal(system.content, 'Question: De quelle couleur est la voiture ?. At most 6000 characters.');
+  assert.equal(system.content, 'Question: De quelle couleur est la voiture ?. At most 5000 characters.');
   assert.deepEqual(user.content, [
     { type: 'text', text: 'De quelle couleur est la voiture ?' },
     { type: 'video_url', video_url: { url: CLIP_DATA_URL } },
@@ -1953,7 +1953,7 @@ function relookDescriber({
   return { describer, store, llm, imageFetcher, state };
 }
 
-// The owner on 2026-11-17: the second look at a picture takes the picture length, 1,500.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
 test('relookImage: one download and one vision request with the question; the answer is not the picture caption', async () => {
   const { describer, store, llm, imageFetcher } = relookDescriber({ now: clock() });
   const item = pictureItem('a1', { previewUrl: 'https://previews.example/a1.webp' });
@@ -1966,7 +1966,7 @@ test('relookImage: one download and one vision request with the question; the an
   assert.equal(imageFetcher.calls[0].url, 'https://previews.example/a1.webp', 'the preview address as given');
   assert.equal(llm.calls.length, 1);
   const [system, user] = llm.calls[0].messages;
-  assert.equal(system.content, 'Question: Y a-t-il un chargeur dans la pupille ?. At most 1500 characters.');
+  assert.equal(system.content, 'Question: Y a-t-il un chargeur dans la pupille ?. At most 750 characters.');
   assert.deepEqual(user.content, [
     { type: 'text', text: 'Y a-t-il un chargeur dans la pupille ?' },
     { type: 'image_url', image_url: { url: SUCCESSFUL_DOWNLOAD.dataUrl } },
@@ -1984,7 +1984,7 @@ test('relookImage: one download and one vision request with the question; the an
   assert.equal(loose(cache)[keys[0]].answer, 'pas de chargeur, juste un reflet');
 });
 
-// The owner on 2026-11-17: the second look at a picture takes the picture length, 1,500.
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
 test('relookImage: with no {{question}} in the prompt the question goes only as the user text part, next to the image', async () => {
   const hot = relookHot({ prompts: { 'rewatch-answer': 'Answer in at most {{maxChars}} characters.' } });
   const { describer, llm, imageFetcher } = relookDescriber({ hot, now: clock() });
@@ -1992,7 +1992,7 @@ test('relookImage: with no {{question}} in the prompt the question goes only as 
   await describer.relookImage('g1', item, 'Quelle couleur ?');
 
   const [system, user] = llm.calls[0].messages;
-  assert.equal(system.content, 'Answer in at most 1500 characters.');
+  assert.equal(system.content, 'Answer in at most 750 characters.');
   assert.ok(!system.content.includes('{{question}}'));
   assert.ok(!system.content.includes('Quelle couleur'));
   assert.deepEqual(user.content, [
@@ -2067,9 +2067,9 @@ test('describe: {{today}} in the describe prompt is filled with the date of the 
   const llm = fakeLlm({ text: 'Une affiche datée.' });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => TODAY_NOW });
   await describer.describe('g1', pictureItem('a1'));
-  // The owner on 2026-11-17: a picture is described under 1,500 characters.
+  // The owner on 2026-11-17 (later the same day): a picture is described under 750 characters.
   const [{ messages }] = llm.calls;
-  assert.equal(messages[0].content, 'Today is 2026-09-30; at most 1500 characters.');
+  assert.equal(messages[0].content, 'Today is 2026-09-30; at most 750 characters.');
 });
 
 // cachedDescriptions / cachedVideos: the cache-only accessors the address
@@ -3044,40 +3044,11 @@ test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pi
   assert.equal(pinned.llm.calls[0].messages[0].content, VIDEO_PROMPT);
 });
 
-// --- A picture's caption is the whole answer; her own picture is captioned under her name ---------------
+// --- A picture's caption is the whole answer ---------------
 
 /** `count` words of five characters each, so a text of known length is built without sentence marks. */
 function fiveCharWords(count: number) {
   return Array.from({ length: count }, (_, i) => `mot${i % 10}é`).join(' ');
-}
-
-const SELF_PROMPT = 'The picture may show you, {{name}}. You look like this: {{appearance}}.';
-
-function selfHot(appearance: string) {
-  return fakeHot({
-    prompts: { describe: 'Caption the picture. {{self}}', 'describe-self': SELF_PROMPT, appearance },
-  });
-}
-
-async function systemMessageFor(appearance: string) {
-  const store = createStore(memoryAt(tmpDataDir()));
-  const llm = fakeLlm({ text: 'A woman with silver hair.' });
-  const placeIds: Array<string> = [];
-  const selfName = (placeId: string) => {
-    placeIds.push(placeId);
-    return 'Mira';
-  };
-  const describer = createDescriber({
-    hot: selfHot(appearance),
-    store,
-    llm,
-    imageFetcher: fakeImageFetcher(),
-    selfName,
-  });
-  await describer.describe('g1', pictureItem('a1'));
-  const [call] = llm.calls;
-  const [system] = call.messages;
-  return { system: String(system.content), placeIds };
 }
 
 test('describe: a picture keeps every paragraph of the answer, joined into one line', async () => {
@@ -3090,9 +3061,9 @@ test('describe: a picture keeps every paragraph of the answer, joined into one l
   );
 });
 
-// The owner on 2026-11-17: the length of a picture is 1,500, so a caption under it is stored as it is.
-test('describe: a caption of 1400 characters is stored as it is', async () => {
-  const answer = fiveCharWords(233); // 233 words and 232 spaces: 1397 characters
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500, a video 5,000.
+test('describe: a caption of 700 characters is stored as it is', async () => {
+  const answer = fiveCharWords(117); // 117 words and 116 spaces: 701 characters
   const summary = fakeSummarize((text) => text);
   const { store } = await describeWith(answer, undefined, summary.summarize);
   const cache = loose(cacheView(store, 'g1'));
@@ -3100,7 +3071,7 @@ test('describe: a caption of 1400 characters is stored as it is', async () => {
 });
 
 // The owner on 2026-11-17: the answer of a second look goes to the summarizer as text, with its media's length.
-test('relookImage: the answer goes to summarize with 1500 and kind text, and its result is returned', async () => {
+test('relookImage: the answer goes to summarize with 750 and kind text, and its result is returned', async () => {
   const summary = fakeSummarize(() => 'no charger');
   const store = createStore(memoryAt(tmpDataDir()));
   const describer = createDescriber({
@@ -3114,94 +3085,9 @@ test('relookImage: the answer goes to summarize with 1500 and kind text, and its
   });
   const result = await describer.relookImage('g1', pictureItem('a1'), 'Un chargeur ?');
   assert.deepEqual(summary.calls, [
-    { text: 'pas de chargeur, juste un reflet', options: { maxChars: 1500, kind: 'text' } },
+    { text: 'pas de chargeur, juste un reflet', options: { maxChars: 750, kind: 'text' } },
   ]);
   assert.equal(loose(result).text, 'no charger');
-});
-
-test('describe: the system message of a picture holds her name and her appearance, with no placeholder left', async () => {
-  const { system, placeIds } = await systemMessageFor('tall, silver hair, a green scarf');
-  assert.ok(system.includes('Mira'), system);
-  assert.ok(system.includes('tall, silver hair, a green scarf'), system);
-  assert.ok(!system.includes('{{'), system);
-  assert.deepEqual(placeIds, ['g1']);
-});
-
-test('describe: a blank appearance leaves nothing of describe-self in the system message', async () => {
-  const { system } = await systemMessageFor('   ');
-  assert.ok(system.includes('Caption the picture.'), system);
-  assert.ok(!system.includes('Mira'), system);
-  assert.ok(!system.includes('look like'), system);
-  assert.ok(!system.includes('{{'), system);
-});
-
-// The owner on 2026-11-17: the vision model reads her name, and the describer stores `@self` in its place, because one
-// description is kept per file while her name differs per root and can change.
-async function storedCaption(
-  answer: string,
-  item: ReturnType<typeof pictureItem>,
-  name: string | null = 'Mira'
-): Promise<{ returned: string; stored: string }> {
-  const store = createStore(memoryAt(tmpDataDir()));
-  const describer = createDescriber({
-    hot: selfHot('tall, silver hair'),
-    store,
-    llm: fakeLlm({ text: answer }),
-    imageFetcher: fakeImageFetcher(),
-    selfName: () => name ?? '',
-  });
-  const result = await describer.describe('g1', item);
-  const itemId = String(item.itemId);
-  const entry = loose(cacheView(store, 'g1'))[itemId] as { text: string };
-  return { returned: String(loose(result).text), stored: entry.text };
-}
-
-test('describe: her name in a caption is returned and stored as @self', async () => {
-  // Bug: the cache keeps the name of one root, and another root or a rename reads the wrong name.
-  const { returned, stored } = await storedCaption(
-    'Mira waves at the camera, and behind Mira a cat sleeps.',
-    pictureItem('a1')
-  );
-  assert.equal(stored, '@self waves at the camera, and behind @self a cat sleeps.');
-  assert.equal(returned, stored);
-});
-
-test('describe: a longer word that contains her name stays in the stored caption', async () => {
-  // Bug: a substring replace turns `Miranda` into `@selfnda`.
-  const { stored } = await storedCaption('Miranda holds a sign that reads Mira.', pictureItem('a1'));
-  assert.equal(stored, 'Miranda holds a sign that reads @self.');
-});
-
-test('describe: a caption in a place where no name is known is stored unchanged', async () => {
-  // Bug: an empty name matches everywhere and scatters the marker through the caption.
-  const { stored } = await storedCaption('A woman with silver hair waves.', pictureItem('a1'), null);
-  assert.equal(stored, 'A woman with silver hair waves.');
-});
-
-test('describe: a caption without her name is stored unchanged', async () => {
-  const { stored } = await storedCaption('A street at night, a man in a red coat.', pictureItem('a1'));
-  assert.equal(stored, 'A street at night, a man in a red coat.');
-});
-
-test('describe: her name in a still sticker caption is stored as @self', async () => {
-  // Bug: the replacement runs on attachments only, and a sticker of her keeps the name.
-  const { stored } = await storedCaption(
-    'Mira gives a thumbs up.',
-    pictureItem('sticker:s1', { kind: 'sticker', url: 'https://media.discordapp.net/stickers/s1.png?size=160' })
-  );
-  assert.equal(stored, '@self gives a thumbs up.');
-});
-
-test('describe: her name in a still custom emoji caption is stored as @self', async () => {
-  const { stored } = await storedCaption(
-    'Mira laughing.',
-    pictureItem('emoji:e1', {
-      source: 'emoji',
-      kind: 'emoji',
-      url: 'https://cdn.discordapp.com/emojis/e1.webp?size=96',
-    })
-  );
-  assert.equal(stored, '@self laughing.');
 });
 
 // --- Animated custom emoji and stickers ------------------------------------------
@@ -3585,4 +3471,147 @@ test('describe: a watched GIF goes out with a purpose of the video role', async 
   await describer.describe('g1', gifEmbedItem());
   const [call] = llm.calls;
   assert.equal(roleOfPurpose(call.options.purpose), 'video');
+});
+
+// --- Every final description is plain text -----------------------------------------
+
+// The owner on 2026-11-17: the describer stores and returns a description with no markdown and no em dash, whatever
+// the model wrote, so the persona never reads layout marks as part of what was seen.
+const MARKED_ANSWER = 'A **grey** cat \u2014 *asleep* on `the` couch.';
+const PLAIN_ANSWER = 'A grey cat, asleep on the couch.';
+
+const stillSticker = (): ReturnType<typeof pictureItem> =>
+  pictureItem('sticker:s1', { kind: 'sticker', url: 'https://media.discordapp.net/stickers/s1.png?size=160' });
+const stillEmoji = (): ReturnType<typeof pictureItem> =>
+  pictureItem('emoji:e1', { source: 'emoji', kind: 'emoji', url: 'https://cdn.discordapp.com/emojis/e1.webp?size=96' });
+
+async function storedStill(item: ReturnType<typeof pictureItem>): Promise<{ returned: string; stored: string }> {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const describer = createDescriber({
+    hot: fakeHot(),
+    store,
+    llm: fakeLlm({ text: MARKED_ANSWER }),
+    imageFetcher: fakeImageFetcher(),
+  });
+  const result = await describer.describe('g1', item);
+  const entry = loose(cacheView(store, 'g1'))[String(item.itemId)] as { text: string };
+  return { returned: String(loose(result).text), stored: entry.text };
+}
+
+test('describe: a picture answer with emphasis and an em dash is stored and returned plain', async () => {
+  // Bug: the caption keeps `**` and the em dash, and she reads them as part of the picture.
+  assert.deepEqual(await storedStill(pictureItem('a1')), { returned: PLAIN_ANSWER, stored: PLAIN_ANSWER });
+});
+
+test('describe: a still sticker answer with emphasis and an em dash is stored and returned plain', async () => {
+  assert.deepEqual(await storedStill(stillSticker()), { returned: PLAIN_ANSWER, stored: PLAIN_ANSWER });
+});
+
+test('describe: a still emoji answer with emphasis and an em dash is stored and returned plain', async () => {
+  assert.deepEqual(await storedStill(stillEmoji()), { returned: PLAIN_ANSWER, stored: PLAIN_ANSWER });
+});
+
+test('describe: a watched GIF answer with emphasis and an em dash is stored and returned plain', async () => {
+  const { describer, store } = gifDescriber({ llm: fakeLlm({ text: MARKED_ANSWER }) });
+  const result = await describer.describe('g1', gifEmbedItem());
+  assert.equal(loose(result).text, PLAIN_ANSWER);
+  assert.equal(loose(cacheView(store, 'g1'))['m1#e0'].text, PLAIN_ANSWER);
+});
+
+test('describeVideo: a video answer with emphasis and an em dash is stored and returned plain', async () => {
+  const { describer, store } = videoDescriber({ llm: fakeLlm({ text: MARKED_ANSWER }) });
+  const result = await describer.describeVideo('g1', videoAttachment());
+  assert.equal(loose(result).text, PLAIN_ANSWER);
+  assert.equal(loose(cacheView(store, 'g1'))['video:v1'].text, PLAIN_ANSWER);
+});
+
+test('describe: a summary of an over-long picture answer is stored plain', async () => {
+  // Bug: the cleanup runs before the summary, and the summarizer's own emphasis is kept.
+  const summary = fakeSummarize(() => MARKED_ANSWER);
+  const { store } = await describeWith(proseLine(200), undefined, summary.summarize);
+  assert.equal(loose(cacheView(store, 'g1')).a1.text, PLAIN_ANSWER);
+});
+
+test('relookImage: a second-look answer with emphasis and an em dash is returned plain', async () => {
+  const { describer } = relookDescriber({ llm: fakeLlm({ text: MARKED_ANSWER }), now: clock() });
+  const result = await describer.relookImage('g1', pictureItem('a1'), 'Le chat dort ?');
+  assert.equal(loose(result).text, PLAIN_ANSWER);
+});
+
+test('rewatchVideo: a second-look answer with emphasis and an em dash is returned plain', async () => {
+  const { describer } = videoDescriber({ hot: rewatchHot(), llm: fakeLlm({ text: MARKED_ANSWER }), now: clock() });
+  const result = await describer.rewatchVideo('g1', videoAttachment(), 'Le chat dort ?');
+  assert.equal(loose(result).text, PLAIN_ANSWER);
+});
+
+test('rewatchGif: a second-look answer with emphasis and an em dash is returned plain', async () => {
+  const run = gifDescriber({ hot: gifRewatchHot(), llm: fakeLlm({ text: MARKED_ANSWER }) });
+  const result = await run.describer.rewatchGif('g1', gifEmbedItem(), 'Le chat dort ?');
+  assert.equal(loose(result).text, PLAIN_ANSWER);
+});
+
+// --- The length of each kind -------------------------------------------------------
+
+// The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,500.
+async function promptOfStill(item: ReturnType<typeof pictureItem>): Promise<string> {
+  const llm = fakeLlm({ text: 'a cat' });
+  const describer = createDescriber({
+    hot: fakeHot({ prompts: { describe: 'At most {{maxChars}}.' } }),
+    store: createStore(memoryAt(tmpDataDir())),
+    llm,
+    imageFetcher: fakeImageFetcher(),
+  });
+  await describer.describe('g1', item);
+  return String(llm.calls[0].messages[0].content);
+}
+
+test('describe: a still sticker is asked for the picture length in {{maxChars}}', async () => {
+  // Bug: a sticker takes the GIF length, and its legend line grows past what a sticker needs.
+  assert.equal(await promptOfStill(stillSticker()), 'At most 750.');
+});
+
+test('describe: a still emoji is asked for the picture length in {{maxChars}}', async () => {
+  assert.equal(await promptOfStill(stillEmoji()), 'At most 750.');
+});
+
+// --- The real length of a GIF ------------------------------------------------------
+
+// The owner on 2026-11-17: `{{seconds}}` is the length of the clip the model watches, and a GIF longer than the
+// watching limit is told that it sees only its first part. The fetcher reports the clip's `seconds` and the whole
+// GIF's `totalSeconds`.
+function gifClipOf(seconds: number, totalSeconds: number): Rig {
+  const hot = gifHot({
+    prompts: { 'describe-gif': 'Loop of {{seconds}} s.', labels: { gifCut: 'CUT {seconds} OF {total}' } },
+  });
+  return gifDescriber({
+    hot,
+    videoFetcher: gifFetcher({
+      ok: true,
+      dataUrl: GIF_CLIP_URL,
+      mimeType: 'video/mp4',
+      seconds,
+      totalSeconds,
+      bytes: 9,
+    }),
+  });
+}
+
+test('describe: a GIF of 3.24 s is told its length to one decimal and nothing of a cut', async () => {
+  // Bug: the prompt says 15 s for every GIF, and the model invents motion for the seconds that do not exist.
+  const run = gifClipOf(3.24, 3.24);
+  await run.describer.describe('g1', gifEmbedItem());
+  assert.equal(run.llm.calls[0].messages[0].content, 'Loop of 3.2 s.');
+});
+
+test('describe: a GIF of 4 s is told 4, with no decimal', async () => {
+  const run = gifClipOf(4, 4);
+  await run.describer.describe('g1', gifEmbedItem());
+  assert.equal(run.llm.calls[0].messages[0].content, 'Loop of 4 s.');
+});
+
+test('describe: a GIF longer than the watching limit is told the clip length and the gifCut line with both lengths', async () => {
+  // Bug: the model is not told it sees only the start, and describes the clip as the whole GIF.
+  const run = gifClipOf(15, 42.46);
+  await run.describer.describe('g1', gifEmbedItem());
+  assert.equal(run.llm.calls[0].messages[0].content, 'Loop of 15 s.\n\nCUT 15 OF 42.5');
 });

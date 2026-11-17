@@ -742,7 +742,7 @@ const LANTERN_NAMES = mediaNamesOf([LANTERN]);
 const LANTERN_STRETCH = stretchText(
   [{ id: 'm50', text: '[10:00] Ελένη: ΦΑΝΟΣ :e5:' }],
   [{ id: 'm50', content: 'ΦΑΝΟΣ :e5:', emojis: [{ id: '505', name: 'e5' }] }],
-  { labels: shippedLabels },
+  shippedLabels,
   LANTERN_NAMES
 );
 

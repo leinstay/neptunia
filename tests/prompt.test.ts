@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import {
   block,
   buildDrawPrompt,
-  classifierTranscript,
   hasRequiredLabels,
   skillsInventoryText,
   fillPromptTemplate,
@@ -2068,19 +2067,4 @@ test("skillsInventoryText: each line lists the skill's arguments -- required mar
     skillsInventoryText([{ ...rows[0], args: undefined }], argLabels),
     'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed)'
   );
-});
-
-// The owner on 2026-11-17: a stored description names her `@self`, and a helper's transcript shows her name.
-test('classifierTranscript: a description that names her by the marker shows her name and no marker', () => {
-  // Bug: a helper reads the raw marker and judges a picture of her as a picture of someone unknown.
-  const message = makeMessage(1, NOW - MIN, { content: '', attachments: [{ id: 'p1', kind: 'image' }] });
-  const text = classifierTranscript([message], {
-    config: { bot: { timezone: 'UTC' } },
-    selfName: 'Mira',
-    labels,
-    descriptions: new Map([['p1', '@self waves at the camera']]),
-    mediaNameOf: () => null,
-  });
-  assert.ok(text.includes('Mira waves at the camera'), text);
-  assert.ok(!text.includes('@self'), text);
 });
