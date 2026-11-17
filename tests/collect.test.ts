@@ -307,33 +307,46 @@ function sticker(id: string, name: string, format: Untyped) {
   return { id, name, format };
 }
 
-test('normalizeMessage: stickers become { id, name, format, url }, PNG/APNG/GIF sized via media.discordapp.net', () => {
-  const raw = rawMessage({
-    stickers: new Map([
-      ['s1', sticker('s1', 'pepe', 1)],
-      ['s2', sticker('s2', 'wave', 2)],
-      ['s3', sticker('s3', 'dance', 4)],
-    ]),
-  });
-  const m = normalizeMessage(raw, 'self');
-  assert.deepEqual(m.stickers[0], {
-    id: 's1',
-    name: 'pepe',
-    format: 1,
-    url: 'https://media.discordapp.net/stickers/s1.png?size=160',
-  });
-  assert.deepEqual(m.stickers[1], {
-    id: 's2',
-    name: 'wave',
-    format: 2,
-    url: 'https://media.discordapp.net/stickers/s2.png?size=160',
-  });
-  assert.deepEqual(m.stickers[2], {
-    id: 's3',
-    name: 'dance',
-    format: 4,
-    url: 'https://media.discordapp.net/stickers/s3.gif?size=160',
-  });
+// The owner on 2026-11-17: a sticker says whether it moves, and Discord's format number stays inside the interface.
+// The expectations of `format` on the normalized sticker were the old shape.
+test('normalizeMessage: a PNG sticker is still and carries no animationUrl', () => {
+  const m = normalizeMessage(rawMessage({ stickers: new Map([['s1', sticker('s1', 'pepe', 1)]]) }), 'self');
+  assert.deepEqual(m.stickers, [
+    { id: 's1', name: 'pepe', animated: false, url: 'https://media.discordapp.net/stickers/s1.png?size=160' },
+  ]);
+});
+
+test('normalizeMessage: an APNG sticker is animated and its animationUrl is its own png address', () => {
+  const m = normalizeMessage(rawMessage({ stickers: new Map([['s2', sticker('s2', 'wave', 2)]]) }), 'self');
+  assert.deepEqual(m.stickers, [
+    {
+      id: 's2',
+      name: 'wave',
+      animated: true,
+      url: 'https://media.discordapp.net/stickers/s2.png?size=160',
+      animationUrl: 'https://media.discordapp.net/stickers/s2.png?size=160',
+    },
+  ]);
+});
+
+test('normalizeMessage: a GIF sticker is animated and its animationUrl is its own gif address', () => {
+  const m = normalizeMessage(rawMessage({ stickers: new Map([['s3', sticker('s3', 'dance', 4)]]) }), 'self');
+  assert.deepEqual(m.stickers, [
+    {
+      id: 's3',
+      name: 'dance',
+      animated: true,
+      url: 'https://media.discordapp.net/stickers/s3.gif?size=160',
+      animationUrl: 'https://media.discordapp.net/stickers/s3.gif?size=160',
+    },
+  ]);
+});
+
+test('normalizeMessage: a Lottie sticker keeps a null url and carries no animationUrl', () => {
+  const m = normalizeMessage(rawMessage({ stickers: new Map([['s4', sticker('s4', 'spin', 3)]]) }), 'self');
+  const [lottie] = m.stickers;
+  assert.equal(lottie.url, null);
+  assert.equal(loose(lottie).animationUrl, undefined);
 });
 
 // --- normalizeMessage: custom emoji extraction -------------------------
@@ -352,12 +365,19 @@ test('normalizeMessage: custom emoji are read from the raw content, text from cl
   ]);
 });
 
-test('normalizeMessage: an animated custom emoji in the raw content is marked animated', () => {
+// The owner on 2026-11-17: an animated emoji is watched from its gif address, so it carries animationUrl.
+test('normalizeMessage: an animated custom emoji is marked animated and carries its gif animationUrl', () => {
   const raw = rawMessage({ content: `hi <a:pepe:${PEPE_ID}>`, cleanContent: 'hi :pepe:' });
   const m = normalizeMessage(raw, 'self');
   assert.equal(m.content, 'hi :pepe:');
   assert.deepEqual(m.emojis, [
-    { id: PEPE_ID, name: 'pepe', animated: true, url: `https://cdn.discordapp.com/emojis/${PEPE_ID}.webp?size=96` },
+    {
+      id: PEPE_ID,
+      name: 'pepe',
+      animated: true,
+      url: `https://cdn.discordapp.com/emojis/${PEPE_ID}.webp?size=96`,
+      animationUrl: `https://cdn.discordapp.com/emojis/${PEPE_ID}.gif`,
+    },
   ]);
 });
 
@@ -440,7 +460,7 @@ test('normalizeMessage: a forwarded snapshot also carries its own stickers and e
     { id: '111', name: 'pog', animated: false, url: 'https://cdn.discordapp.com/emojis/111.webp?size=96' },
   ]);
   assert.deepEqual(m.forwarded[0].stickers, [
-    { id: 's1', name: 'pepe', format: 1, url: 'https://media.discordapp.net/stickers/s1.png?size=160' },
+    { id: 's1', name: 'pepe', animated: false, url: 'https://media.discordapp.net/stickers/s1.png?size=160' },
   ]);
 });
 
