@@ -420,7 +420,7 @@ test('inner turn: with no current channel a <msg> or a draw.create without a cha
   const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
   const run = await innerTurn({
     answers: [
-      toolAnswer('<msg>γεια σας</msg><gif>g1</gif>', [call('draw.create', { text: 'ένας φάρος' })]),
+      toolAnswer('<msg>γεια σας</msg><gif>g1</gif>', [call('draw.create', { people: [], text: 'ένας φάρος' })]),
       toolAnswer('', [call('message.create', { place: '#general', text: 'καλημέρα' })]),
       '<skip/>',
     ],

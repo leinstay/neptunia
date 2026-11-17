@@ -763,7 +763,7 @@ const calledLogs = (run: Untyped) =>
 test('draw.create in the loop: the turn makes the picture from her scene and posts it as a file in this channel, the member who asked charged', async () => {
   const images = fakeImages();
   const run = await drawTurn({
-    answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος το σούρουπο' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], text: 'ένας φάρος το σούρουπο' })]), '<skip/>'],
     images,
   });
   assert.equal(images.calls.length, 1);
@@ -790,7 +790,7 @@ test('draw.create: the generation failures come back as results with their own c
   ];
   for (const [failure, code] of cases) {
     const run = await drawTurn({
-      answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'],
+      answers: [toolAnswer('', [call('draw.create', { people: [], text: 'ένας φάρος' })]), '<skip/>'],
       images: fakeImages([failure]),
     });
     assert.deepEqual(
@@ -812,7 +812,7 @@ test('draw.create: an upload the port could not confirm is unknown, one it refus
   for (const status of ['unknown', 'failed']) {
     const images = fakeImages();
     const run = await drawTurn({
-      answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'],
+      answers: [toolAnswer('', [call('draw.create', { people: [], text: 'ένας φάρος' })]), '<skip/>'],
       images,
       setup: (port) =>
         port.failNext('send', { status, error: { code: 'timeout' } } as unknown as Parameters<typeof port.failNext>[1]),
@@ -838,7 +838,7 @@ test('draw.create: reply quotes that message here; a channel she names is where 
     permissionsFor: () => ({ has: () => true }),
   };
   const here = await drawTurn({
-    answers: [toolAnswer('', [call('draw.create', { reply: '#2', text: 'ένας φάρος' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], reply: '#2', text: 'ένας φάρος' })]), '<skip/>'],
   });
   const quoted = here.sends.find((send) => asRecord(send.attachments)?.length === 1);
   assert.deepEqual(
@@ -846,7 +846,7 @@ test('draw.create: reply quotes that message here; a channel she names is where 
     ['c1', 'c1', 'm1']
   );
   const there = await drawTurn({
-    answers: [toolAnswer('', [call('draw.create', { place: '#jardin', text: 'ένας φάρος' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], place: '#jardin', text: 'ένας φάρος' })]), '<skip/>'],
     neighbours: [jardin],
   });
   assert.deepEqual(
@@ -887,7 +887,7 @@ test('draw.create: a reply to a message of another channel (a quoted line of a s
   const run = await drawTurn({
     answers: [
       toolAnswer('', [call('memory.search', { question: 'κουνέλι' })]),
-      toolAnswer(``, [call('draw.create', { reply: `#${handle}`, text: `ένα κουνέλι` })]),
+      toolAnswer(``, [call('draw.create', { people: [], reply: `#${handle}`, text: `ένα κουνέλι` })]),
       '<skip/>',
     ],
     allowed: ['memory.search', 'draw.create'],
@@ -917,7 +917,7 @@ test('draw.create on a turn nobody asked (her own initiative): the picture is ch
   };
   const images = fakeImages();
   const run = await drawTurn({
-    answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], text: 'ένας φάρος' })]), '<skip/>'],
     images,
     inner: wake,
     config: { ...DRAW_CONFIG, wakes: { mode: 'live', chatMessages: 2 } },

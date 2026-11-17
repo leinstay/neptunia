@@ -6,7 +6,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { errandRecentLines } from '../src/memory/db/chat-lines.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
-import { GENERAL, KINDS, LABELS, PRESENCES, assertForms, fixture, observeLine } from './fixtures/media-memory.ts';
+import {
+  ALICE,
+  GENERAL,
+  KINDS,
+  LABELS,
+  PRESENCES,
+  assertForms,
+  fixture,
+  itemsOf,
+  observeLine,
+} from './fixtures/media-memory.ts';
 
 // Bug (second production audit, N2): an errand's recent lines held `:e23:` with no legend, a sticker's description
 // with no name, and every media description joined after the text with a space, with no kind and no boundary.
@@ -41,6 +51,35 @@ test('errand lines: a line of hers carries her name and a line of a member the n
       lines.map((line) => line.author),
       ['Alice', 'Self']
     );
+  } finally {
+    env.done();
+  }
+});
+
+test('errand lines: a picture she made shows the made mark and the people it shows by current name', () => {
+  // Bug: the agent reads her drawing as anyone's picture and cannot tell who is in it.
+  const env = fixture();
+  try {
+    observeLine(env, KINDS[0], 'full');
+    const alice = String(env.db.prepare('SELECT person_id FROM accounts WHERE native_id = ?').get(ALICE)?.person_id);
+    env.db
+      .prepare("UPDATE media SET extra = json_set(extra, '$.made', 'self', '$.depicts', json(?)) WHERE native_ref = ?")
+      .run(JSON.stringify(['person:self', alice]), itemsOf(KINDS[0], 'pic')[0].id);
+    fillEnvAudiences(env);
+    const labels = {
+      ...LABELS,
+      transcript: {
+        ...LABELS.transcript,
+        mediaMade: '[MADE]',
+        mediaDepicts: '[SHOWS {names}]',
+        mediaDepictsSelf: 'HERSELF',
+      },
+    };
+    const text = errandRecentLines(env.db, GENERAL, 5, { selfName: 'Self', labels })
+      .map((line) => line.text)
+      .join('\n');
+    assert.ok(text.includes('[MADE]'), text);
+    assert.ok(text.includes('[SHOWS HERSELF, Alice]'), text);
   } finally {
     env.done();
   }

@@ -210,8 +210,8 @@ function setAndVoiceLlm() {
       return Promise.resolve(
         written === 1
           ? toolAnswer(`<msg>${WALK}</msg>`, [
-              call('draw.create', { text: 'scene 1' }),
-              call('draw.create', { text: 'scene 2' }),
+              call('draw.create', { people: [], text: 'scene 1' }),
+              call('draw.create', { people: [], text: 'scene 2' }),
               call('voice.say', { text: WALK }),
             ])
           : { text: `<msg>${WALK}</msg>`, usage: {}, estimated: 5 }

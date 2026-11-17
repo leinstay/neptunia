@@ -26,6 +26,7 @@
     "args": {
       "text": "The scene in English.",
       "self": "true when you appear. Leave out your appearance. Think first: where, time, clothes, where the camera stands and which way you face, expression as features rather than mood (several, pick one new), pose, action. Write all of it into the scene.",
+      "people": "Handles of the people this picture shows besides you. An empty list when it shows nobody else. When someone asks you to draw them or another member, that member goes here.",
       "place": "#handle of the place to post in. Default this chat.",
       "reply": "#N or link of the message to reply to."
     }

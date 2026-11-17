@@ -7,6 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { SELF_PERSON } from '../src/memory/db/ids.ts';
+import type { Db } from '../src/memory/db/types.ts';
 import { diaryRows, seedMirror } from './fixtures/diary-mirror.ts';
 import { FOUR_HOURS, LEASE, T0, mirrorScene, restoreFile, settle } from './fixtures/mirror-scene.ts';
 
@@ -526,4 +528,24 @@ test('an entry a crash left with no publication is queued as new after a restart
   assert.equal(await restarted.drainQueued(), 0);
   assert.deepEqual(transport.posted('d1'), ['one', 'text of e2']);
   assert.equal(restarted.publicationState('e2', place)?.status, 'sent');
+});
+
+test("the marks of a diary picture she drew reach the entry's row and its posted attachment", async () => {
+  // Bug: the staged picture's people are dropped when the entry's files are kept, so her diary drawing reads as anyone's.
+  const { scene } = await oneMirror();
+  const mirrors = scene.publisher();
+  await mirrors.publishEntry({
+    ...ONE,
+    pictures: [{ ...PICTURE, made: 'self', depicts: [SELF_PERSON, 'person:m1ra-synthetic'] }],
+  });
+  const { memoryDb } = scene.memory;
+  const db = memoryDb.database() as Db;
+  const entryPicture = db.prepare(
+    `SELECT m.native_ref AS native_ref, m.extra AS extra FROM media_links l JOIN media m ON m.id = l.media_id
+     WHERE l.owner_kind = 'diary' AND l.owner_id = 'e1' AND m.kind = 'image'`
+  );
+  const row = entryPicture.get();
+  assert.ok(row?.native_ref, 'the row is the one the posted attachment names');
+  const extra = JSON.parse(String(row.extra)) as Record<string, unknown>;
+  assert.deepEqual([extra.made, extra.depicts], ['self', [SELF_PERSON, 'person:m1ra-synthetic']]);
 });

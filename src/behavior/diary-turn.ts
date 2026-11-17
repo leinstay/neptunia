@@ -255,7 +255,11 @@ export function recordEntry({
     id,
     ...(publicationBoundary !== undefined ? { publicationBoundary } : {}),
     ...rendered,
-    pictures: staged.map((item) => ({ buffer: item.buffer, mediaType: item.mediaType })),
+    pictures: staged.map((item) => ({
+      buffer: item.buffer,
+      mediaType: item.mediaType,
+      ...(item.made === 'self' ? { made: item.made, depicts: item.depicts ?? [] } : {}),
+    })),
     voice: voice?.ogg ? { ogg: voice.ogg, durationSecs: voice.durationSecs, waveform: voice.waveform ?? '' } : null,
     maxMessageBytes,
   };

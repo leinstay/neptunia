@@ -15,6 +15,10 @@ import { idText, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
 import type { Adapter } from '../../protocol/adapter.ts';
 
+/** The account ids of the members a picture shows besides her: `people` as the command or her call gave it. */
+const accountsOf = (people: unknown): Array<string> =>
+  Array.isArray(people) ? (people as Array<unknown>).map(idText).filter(Boolean) : [];
+
 const handlers = perEnv((env) => {
   const { hot, images, dataDir, assertNotPaused, resolvedPlaceId } = env;
   const { reads } = env;
@@ -30,7 +34,8 @@ const handlers = perEnv((env) => {
    * interface (`env.port`), the channel being the one the command runs in or a text channel of
    * the served place where the bot may send files (src/tools/operations/shared.ts#postingChat, checked
    * before anything is generated); the answer is then the line alone, or a `failed` result when the post did not go
-   * through (`data.unknown` when it may have: never generated again).
+   * through (`data.unknown` when it may have: never generated again). A posted picture answers its `marks`: `self` and the
+   * account ids of `people`, the members it shows besides her.
    */
   async function cmdDraw(args: Obj, context: OpContext): Promise<unknown> {
     if (!images) return { status: 'failed', code: CODE.NOT_CONFIGURED, summary: 'image generation is not available' };
@@ -108,8 +113,15 @@ const handlers = perEnv((env) => {
         ...(reply ? { replyTo: { iface: port.iface, chatId: postTo, messageId: reply.messageId } } : {}),
       }
     );
+    // The marks of her own picture: memory writes them on the posted item (src/turn/skill-calls.ts).
+    const accounts = accountsOf(args.people);
     if (sent?.status === 'ok')
-      return { text: `${parts.join(' · ')} · posted in ${postTo}`, ref: sent.ref ?? null, at: sent.at };
+      return {
+        text: `${parts.join(' · ')} · posted in ${postTo}`,
+        ref: sent.ref ?? null,
+        at: sent.at,
+        marks: { self, accounts },
+      };
     const code = String(sent?.error?.code ?? sent?.status ?? CODE.ERROR);
     const unknown = sent?.status === 'unknown';
     return {

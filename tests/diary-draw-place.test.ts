@@ -96,7 +96,9 @@ test('a diary draw.create that names another place is staged for the entry and p
   const other = world().channel({ id: 'c2', name: 'elsewhere', placeId: 'g1', permissions: { attach: true } });
   const store = fakeStore();
   const llm = fakeLlm(
-    toolAnswer('<msg>un quai</msg>', [call('draw.create', { text: 'a pier at night', place: '#elsewhere' })])
+    toolAnswer('<msg>un quai</msg>', [
+      call('draw.create', { people: [], text: 'a pier at night', place: '#elsewhere' }),
+    ])
   );
   const runner = worldTurnRunner({
     hot,

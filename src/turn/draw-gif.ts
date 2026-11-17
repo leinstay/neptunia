@@ -2,7 +2,8 @@
 // (src/behavior/media-pick.ts) and the grace its answer gets. createTurnRunner (src/behavior/turn.ts) builds it once per
 // runner with createDrawGif; the act and her calls call its functions.
 
-import { placeOfChat } from '../memory/addresses.ts';
+import { accountOf, personOfMember, placeOfChat } from '../memory/addresses.ts';
+import { SELF_PERSON } from '../memory/db/ids.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PublicationBoundary } from '../tools/publication.ts';
@@ -56,6 +57,7 @@ export type ResolvedGif = { replyTo?: number | null; entry: GifEntry };
 /** The memory store, as the pictures and GIFs read and write it. */
 export type DrawGifStore = {
   state: { data: object; markDirty: () => void };
+  getUser?: (accountId: string) => { names?: Array<string | null> } | null | undefined;
   recordOwnGif?: (placeId: string, key: string, at: number) => unknown;
 };
 
@@ -82,7 +84,16 @@ type DrawResult = {
   ref?: unknown;
   at?: number;
   error?: unknown;
-  data: { text: string; description?: string; descriptionFailed?: true };
+  data: {
+    text: string;
+    description?: string;
+    descriptionFailed?: true;
+    /** The marks of her picture as she reads them back (src/format.ts#mediaMarkTags). */
+    made?: 'self';
+    depicted?: Array<{ self: boolean; name: string }>;
+  };
+  /** The marks of a posted picture, for her `said` line (src/turn/skill-calls.ts). */
+  marks?: { self: boolean; accounts: Array<string> };
 };
 
 /** A picture her eyes are asked to look at, in the place of its chat: the posted attachment (`messageId`, `itemId`, `url`) or a staged picture's bytes. */
@@ -98,14 +109,17 @@ export type PictureToDescribe = {
 /** Her eyes on a picture she drew: the description, null when they saw nothing. */
 export type DescribePicture = (picture: PictureToDescribe) => Promise<string | null>;
 
+/** A member id she named, as resolved. */
+const isId = (value: unknown): value is string => typeof value === 'string' && value !== '';
+
 /** The message and attachment id of the one file a send posted, when the interface said. */
 function postedFile(result: PortResult): { messageId?: string; itemId?: string } {
   const file = result?.attachments?.[0];
   return file ? { messageId: file.messageId, itemId: file.attachmentId } : {};
 }
 
-/** A diary post's staged picture. */
-type Staged = { picture: Picture; self: boolean; text: string };
+/** A diary post's staged picture, with its marks: made by her, and the person ids it shows. */
+type Staged = { picture: Picture; self: boolean; text: string; made: 'self'; depicts: Array<string> };
 
 /** What an attempt's draft holds that a picture reads and writes. */
 type DrawDraft = {
@@ -139,7 +153,7 @@ type DrawTrigger = { id?: string; authorId?: string | null } | null;
 
 export type DrawGif = {
   drawTool: (
-    args: { self?: unknown; text?: unknown; placeId?: unknown; replyTo?: unknown } | null | undefined,
+    args: { self?: unknown; text?: unknown; people?: unknown; placeId?: unknown; replyTo?: unknown } | null | undefined,
     at: {
       channel: ChatInfo;
       trigger?: DrawTrigger;
@@ -188,6 +202,20 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     diaryPictureGate,
     describePicture,
   } = ctx;
+
+  /** The marks of her picture as she reads them back: made by her, and whom it shows by the names they go by. */
+  function marksShown(
+    self: boolean,
+    accounts: ReadonlyArray<string>,
+    selfName: string
+  ): { made: 'self'; depicted: Array<{ self: boolean; name: string }> } {
+    const nameOf = (id: string): string | null => store.getUser?.(accountOf(store, id))?.names?.[0] ?? null;
+    const others = accounts.flatMap((id) => {
+      const name = nameOf(id);
+      return name === null ? [] : [{ self: false, name }];
+    });
+    return { made: 'self', depicted: [...(self ? [{ self: true, name: selfName }] : []), ...others] };
+  }
 
   /**
    * What her eyes saw of `picture`, as the data of a draw.create result: `description`, or `descriptionFailed` when
@@ -276,6 +304,9 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     });
     if (!images) return failed('not_configured', CODE.NOT_CONFIGURED);
     const self = args?.self === true;
+    // The members the picture shows besides her: account ids, resolved from her handles (src/tools/executors.ts#resolveCall).
+    const accounts = Array.isArray(args?.people) ? (args.people as Array<unknown>).filter(isId) : [];
+    const shown = marksShown(self, accounts, selfName);
     // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's argument may be any JSON value, read as text
     const scene = String(args?.text ?? '');
     const asked = askedFor(trigger, triggerKind);
@@ -344,13 +375,14 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       // src/media/draw.ts#drawPicture hands on the image client's picture (src/llm/images.ts, generate).
       const picture = made.picture as Picture;
       if (staging) {
-        (draft ? (draft.staged ??= []) : []).push({ picture, self, text: scene });
-        const data = await seenData({
+        const depicts = [...(self ? [SELF_PERSON] : []), ...accounts.flatMap((id) => personOfMember(store, id) ?? [])];
+        (draft ? (draft.staged ??= []) : []).push({ picture, self, text: scene, made: 'self', depicts });
+        const seen = await seenData({
           placeId: placeOfChat(store, channel),
           ...(picture.buffer ? { buffer: picture.buffer } : {}),
           mediaType: picture.mediaType,
         });
-        return { status: 'ok', code: CODE.STAGED, data };
+        return { status: 'ok', code: CODE.STAGED, data: { ...seen, ...shown } };
       }
       const name = imageFileName(picture.mediaType);
       // Checked again right before the publication: generated or not, a refused picture is not posted.
@@ -377,16 +409,18 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         self,
         bytes: picture.buffer?.length ?? 0,
       });
+      const seen = await seenData({
+        placeId: placeOfChat(store, { iface: channel.iface, ...target }),
+        ...postedFile(result),
+        ...(picture.buffer ? { buffer: picture.buffer } : {}),
+        mediaType: picture.mediaType,
+      });
       return {
         status: 'ok',
         ref: result.ref ?? null,
         ...(Number.isFinite(result.at) ? { at: result.at as number } : {}),
-        data: await seenData({
-          placeId: placeOfChat(store, { iface: channel.iface, ...target }),
-          ...postedFile(result),
-          ...(picture.buffer ? { buffer: picture.buffer } : {}),
-          mediaType: picture.mediaType,
-        }),
+        data: { ...seen, ...shown },
+        marks: { self, accounts },
       };
     } catch (err) {
       // A thrown value is anything; an operation's refusal (src/tools/operations/shared.ts, OpError) carries its result.

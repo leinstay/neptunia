@@ -137,8 +137,8 @@ test('coerceArgs: "true" and "5" are read as a boolean and an integer, and each 
 
 test('coerceArgs: "yes", "1", null, a number for a boolean and a decimal for an integer are left for the schema to refuse', () => {
   for (const value of ['yes', '1', 'maybe', null, 1, 0, '']) {
-    const out = coerceArgs({ text: 't', self: value }, schema);
-    assert.deepEqual(out.args, { text: 't', self: value }, String(value));
+    const out = coerceArgs({ text: 't', people: [], self: value }, schema);
+    assert.deepEqual(out.args, { text: 't', people: [], self: value }, String(value));
     assert.deepEqual(out.coerced, []);
     assert.equal(schemaError(out.args, schema), 'args.self:type', String(value));
   }
@@ -147,8 +147,8 @@ test('coerceArgs: "yes", "1", null, a number for a boolean and a decimal for an 
 });
 
 test('coerceArgs: top level only, unknown keys and strings for string arguments are untouched', () => {
-  const out = coerceArgs({ text: 'true', extra: 'true', nested: { self: 'true' } }, schema);
-  assert.deepEqual(out.args, { text: 'true', extra: 'true', nested: { self: 'true' } });
+  const out = coerceArgs({ text: 'true', people: [], extra: 'true', nested: { self: 'true' } }, schema);
+  assert.deepEqual(out.args, { text: 'true', people: [], extra: 'true', nested: { self: 'true' } });
   assert.deepEqual(out.coerced, []);
   assert.equal(schemaError(out.args, schema), 'args.extra:unknown');
 });

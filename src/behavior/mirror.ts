@@ -54,8 +54,11 @@ import type { Context } from '../memory/db/scope.ts';
 import type { Db, Row } from '../memory/db/types.ts';
 import type { StoredDelivery } from '../memory/db/publication-delivery.ts';
 
-/** One picture of an entry: its bytes and its media type. */
-export type EntryPicture = { buffer: Uint8Array; mediaType: string };
+/**
+ * One picture of an entry: its bytes and its media type, and for a picture she drew its marks: `made` and `depicts`,
+ * the person ids it shows.
+ */
+export type EntryPicture = { buffer: Uint8Array; mediaType: string; made?: 'self'; depicts?: ReadonlyArray<string> };
 
 /** The voice message of an entry: the ogg file, its length and its waveform. */
 export type EntryVoice = { ogg: Uint8Array; durationSecs: number; waveform: string };
@@ -390,10 +393,21 @@ type MediaItem = {
   ref?: { messageId: string; attachmentId: string | null };
 };
 
+/** What the `media` row of a picture she drew keeps of its marks (src/memory/db/media-store.ts#marksOf), or null. */
+function marksExtra(picture: EntryPicture): Row | null {
+  if (picture.made !== 'self') return null;
+  const depicts = [...(picture.depicts ?? [])];
+  return { made: picture.made, ...(depicts.length > 0 ? { depicts } : {}) };
+}
+
 /** The entry's files in the order memory numbers them: the pictures, the voice file, then her messages' files. */
 function mediaItems(entry: DiaryEntry): Array<MediaItem> {
   return [
-    ...(entry.pictures ?? []).map((picture) => ({ data: picture.buffer, mime: picture.mediaType, extra: null })),
+    ...(entry.pictures ?? []).map((picture) => ({
+      data: picture.buffer,
+      mime: picture.mediaType,
+      extra: marksExtra(picture),
+    })),
     ...(entry.voice
       ? [{ data: entry.voice.ogg, mime: 'audio/ogg', extra: { voice: true, ...voiceExtra(entry.voice) } }]
       : []),

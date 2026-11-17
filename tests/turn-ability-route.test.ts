@@ -132,7 +132,7 @@ test('with the drawing key revoked and a core that cannot draw, draw.create answ
   const revoked = new ImageGenError('error', 'OpenRouter images HTTP 401', { statusCode: 401, body: '{}' });
   const images = fakeImages([revoked]);
   const run = await coreTurn({
-    answers: [toolAnswer('', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], text: 'ένας φάρος' })]), '<skip/>'],
     allowed: ['draw.create'],
     config: {
       image: { reference: 'none' },
@@ -235,10 +235,10 @@ test('a text-only core loses vision, video, drawing and speech, and she is told 
   const run = await coreTurn({
     answers: [
       toolAnswer('', [
-        call('draw.create', { text: 'ένας φάρος' }),
+        call('draw.create', { people: [], text: 'ένας φάρος' }),
         call('media.look', { message: '#1', question: 'τι είναι;' }),
       ]),
-      toolAnswer('', [call('voice.say', { text: 'γεια σας' }), call('draw.create', { text: 'μια βάρκα' })]),
+      toolAnswer('', [call('voice.say', { text: 'γεια σας' }), call('draw.create', { people: [], text: 'μια βάρκα' })]),
       '<skip/>',
     ],
     allowed: ['draw.create', 'media.look', 'voice.say'],

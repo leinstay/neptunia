@@ -1153,7 +1153,9 @@ function userTextOf(messages: Untyped): string {
 test('runTurn: a draw.create call goes out before her messages, as a file; the messages follow', async () => {
   const { result, channel, images, llm } = await runDrawTurn({
     answers: [
-      toolAnswer('<msg>one sec</msg><msg>here</msg>', [call('draw.create', { reply: '#1', text: 'a cat on a roof' })]),
+      toolAnswer('<msg>one sec</msg><msg>here</msg>', [
+        call('draw.create', { people: [], reply: '#1', text: 'a cat on a roof' }),
+      ]),
       '<skip/>',
     ],
   });
@@ -1180,7 +1182,7 @@ test('runTurn: a draw.create call goes out before her messages, as a file; the m
 
 test('runTurn: the file name follows the media type (image/jpeg -> .jpg)', async () => {
   const { channel } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })])],
+    answers: [toolAnswer('', [call('draw.create', { people: [], text: 'a cat' })])],
     images: fakeImages({ mediaType: 'image/jpeg' }),
   });
   assert.equal(channel.sent[0].files?.[0].name, 'image.jpg');
@@ -1190,7 +1192,7 @@ test('runTurn: the file name follows the media type (image/jpeg -> .jpg)', async
 test('runTurn: the draw request reaches the image model whole', async () => {
   const text = 'abcdefghij '.repeat(300).trim();
   const { images } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { text })])],
+    answers: [toolAnswer('', [call('draw.create', { people: [], text })])],
     hot: drawHot({}),
   });
   assert.ok(images.generateCalls[0].prompt.endsWith(`\n\n${text}`));
@@ -1215,7 +1217,7 @@ test('runTurn: a self <draw> passes appearance.png of the data folder as referen
   const { images } = await runDrawTurn({
     // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to
     // her in one step; she stays silent there.
-    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], self: true, text: 'me waving' })]), '<skip/>'],
     client: fakeClient(),
     imageFetcher,
     dataDir: drawDataDir(true),
@@ -1237,7 +1239,7 @@ test('runTurn: a self <draw> with no appearance.png is drawn without a reference
     avatar: { hash: null, url: null, largeUrl: 'https://cdn.example.com/avatar.png' },
   });
   const { images, channel, imageFetcher } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], self: true, text: 'me' })]), '<skip/>'],
     hot: drawHot({}, { reference: 'avatar' }),
     client: fakeClient(),
     imageFetcher: fakeImageFetcher({ dataUrl: 'data:image/png;base64,YXZhdGFy', bytes: 6, contentType: 'image/png' }),
@@ -1252,7 +1254,7 @@ test('runTurn: a self <draw> with no appearance.png is drawn without a reference
 
 test('runTurn: a channel without Attach Files offers no drawing and a call of it never generates', async () => {
   const { result, channel, images, llm } = await runDrawTurn({
-    answers: [toolAnswer('<msg>hi</msg>', [call('draw.create', { text: 'a cat' })]), '<msg>ok</msg>'],
+    answers: [toolAnswer('<msg>hi</msg>', [call('draw.create', { people: [], text: 'a cat' })]), '<msg>ok</msg>'],
     attachFiles: false,
   });
 
@@ -1274,7 +1276,7 @@ test('runTurn: a draw.create alone without an image client posts nothing', async
     createPort: createDiscordAdapter,
     hot: drawHot(),
     store: fakeStore(),
-    llm: sequenceLlm([toolAnswer('', [call('draw.create', { text: 'a cat' })]), '<skip/>']),
+    llm: sequenceLlm([toolAnswer('', [call('draw.create', { people: [], text: 'a cat' })]), '<skip/>']),
     calibrator: identityCalibrator(),
     client: fakeClient(),
   });
@@ -1295,7 +1297,7 @@ test('runTurn: a turn whose reaction the platform refused or whose picture moder
 
   const refused = await runDrawTurn({
     images: fakeImages({ error: new ImageGenError('moderation', 'image refused by moderation (HTTP 400)') }),
-    answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a blue wall' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], reply: '#1', text: 'a blue wall' })]), '<skip/>'],
   });
   assert.deepEqual([refused.result.outcome, refused.result.delivered], ['spoke', false]);
   assert.equal(refused.channel.sent.length, 0);
@@ -1303,7 +1305,7 @@ test('runTurn: a turn whose reaction the platform refused or whose picture moder
 
 test('runTurn: a draw.create alone is a spoken turn', async () => {
   const { result, channel, llm, logs } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], text: 'a cat' })]), '<skip/>'],
   });
 
   assert.equal(result.outcome, 'spoke');
@@ -1337,7 +1339,7 @@ test('runTurn: a follow-up turn posts the picture without a Discord reply', asyn
     store: fakeStore(),
     // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to
     // her in one step; she stays silent there.
-    llm: sequenceLlm([toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })]), '<skip/>']),
+    llm: sequenceLlm([toolAnswer('', [call('draw.create', { people: [], reply: '#1', text: 'a cat' })]), '<skip/>']),
     calibrator: identityCalibrator(),
     client: fakeClient(),
     images: fakeImages(),
@@ -1357,7 +1359,7 @@ test('runTurn: a failed drawing without a trigger fires onIdle once, right away'
     createPort: createDiscordAdapter,
     hot: drawHot(),
     store: fakeStore(),
-    llm: sequenceLlm([toolAnswer('', [call('draw.create', { text: 'a sunset' })])]),
+    llm: sequenceLlm([toolAnswer('', [call('draw.create', { people: [], text: 'a sunset' })])]),
     calibrator: identityCalibrator(),
     client: fakeClient(),
     images: fakeImages({ error: new ImageGenError('timeout') }),
@@ -1514,7 +1516,7 @@ test('runTurn: a failing typing indicator does not stop the message', async () =
 
 test('runTurn: a private turn may draw (no Attach Files check in a DM), counted for the DM partner', async () => {
   const { result, channel, images, llm } = await runPrivateTurn({
-    answers: [toolAnswer('<msg>sure</msg>', [call('draw.create', { text: 'a cat' })]), '<skip/>'],
+    answers: [toolAnswer('<msg>sure</msg>', [call('draw.create', { people: [], text: 'a cat' })]), '<skip/>'],
   });
 
   assert.equal(result.outcome, 'spoke');
@@ -1939,7 +1941,7 @@ test('runTurn: an overheard turn posts its GIF plain', async () => {
 
 test('runTurn: an overheard turn draws unasked: a plain post charged to no member', async () => {
   const { result, channel, images } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])],
+    answers: [toolAnswer('', [call('draw.create', { people: [], reply: '#1', text: 'a cat' })])],
     triggerKind: 'overheard',
   });
 
@@ -4182,7 +4184,9 @@ test('runTurn: a private chat records no participation and shows no block', asyn
 });
 
 test('runTurn: the model answered log line carries the user message segments, hashes only', async () => {
-  const { logs } = await runDrawTurn({ answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })])] });
+  const { logs } = await runDrawTurn({
+    answers: [toolAnswer('', [call('draw.create', { people: [], text: 'a cat' })])],
+  });
   const answered = logs.find((l) => l.msg === 'turn: model answered');
   assert.ok(Array.isArray(answered?.segments) && answered?.segments.length >= 1);
   assert.equal(answered?.segments.at(-1).segment, 'tail');
@@ -4435,7 +4439,8 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   // A budget that drops chat lines: the drop is named in budget.dropped and in limits.
   // 500 for the request itself, and what her carried-over tools cost beside it (about 800 with the provider's tool preamble).
   // PR 7d: voice.say is carried over too (features.speech is code), so the cap is 200 tokens above the earlier 1300.
-  hot.config.llm = { maxRequestTokens: 1500, safetyMargin: 1, maxOutputTokens: 4000 };
+  // draw.create's required `people` list adds to the carried-over tools, so the cap is 50 tokens above the earlier 1500.
+  hot.config.llm = { maxRequestTokens: 1550, safetyMargin: 1, maxOutputTokens: 4000 };
   const crowded = [];
   for (let i = 0; i < 12; i += 1)
     crowded.push(rawMessage({ id: `k${i}`, authorId: 'u2', ts: NOW - 60_000 + i * 1000, content: 'λέξη '.repeat(30) }));
@@ -5126,7 +5131,7 @@ test('skills gateway: the GIF and the drawing are published through the port', a
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const images = fakeImages();
   const gatewayLlm = sequenceLlm([
-    toolAnswer('<msg>χα</msg>', [call('draw.create', { reply: '#1', text: 'a cat on a roof' })]),
+    toolAnswer('<msg>χα</msg>', [call('draw.create', { people: [], reply: '#1', text: 'a cat on a roof' })]),
     '<skip/>',
   ]);
   const turns = createTurnRunner({
@@ -5714,7 +5719,7 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
     answers: [
-      toolAnswer('', [call('draw.create', { place: '#νέα', text: 'a lighthouse at dusk' })]),
+      toolAnswer('', [call('draw.create', { people: [], place: '#νέα', text: 'a lighthouse at dusk' })]),
       '<msg>δεν ξέρω αν βγήκε</msg>',
     ],
     allowed: ['draw.create'],
@@ -5728,7 +5733,7 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
   assert.ok(followUpTool(run.llm, 1).startsWith(labels.tools.result.unknown.split(':')[0]), followUpTool(run.llm, 1));
 
   const delivered = await callTurn({
-    answers: [toolAnswer('', [call('draw.create', { place: '#νέα', text: 'a lighthouse' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { people: [], place: '#νέα', text: 'a lighthouse' })]), '<skip/>'],
     allowed: ['draw.create'],
     images: withFamily(fakeImages()),
   });

@@ -235,7 +235,7 @@ test("draw parity: a reply turn's draw.create call asked by a member", async () 
     // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step. She stays silent there.
     answer: [
       toolAnswer('<msg>one sec</msg>', [
-        call('draw.create', { reply: '#1', text: 'a lighthouse at dusk, waves below' }),
+        call('draw.create', { people: [], reply: '#1', text: 'a lighthouse at dusk, waves below' }),
       ]),
       '<skip/>',
     ],
@@ -259,7 +259,7 @@ test("draw parity: a diary post's single self picture", async () => {
   const plan = { kind: 'selfPicture', brief: 'a pier at dawn', search: '', picture: true };
   const turns = runner({
     answer: toolAnswer('<msg>early start</msg>', [
-      call('draw.create', { text: 'me on a pier at dawn, fog', self: true }),
+      call('draw.create', { people: [], text: 'me on a pier at dawn, fog', self: true }),
     ]),
     plan,
     images,
@@ -286,10 +286,10 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
   const images = recordingImages();
   const plan = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
   const answer = toolAnswer('<msg>a walk</msg>', [
-    call('draw.create', { text: 'me at the harbour gate', self: true }),
-    call('draw.create', { text: 'boats in the harbour' }),
-    call('draw.create', { text: 'a café terrace' }),
-    call('draw.create', { text: 'nets on the quay' }),
+    call('draw.create', { people: [], text: 'me at the harbour gate', self: true }),
+    call('draw.create', { people: [], text: 'boats in the harbour' }),
+    call('draw.create', { people: [], text: 'a café terrace' }),
+    call('draw.create', { people: [], text: 'nets on the quay' }),
   ]);
   const turns = runner({ answer, plan, images });
   const { result } = await withCapturedLogs(() =>
@@ -344,4 +344,36 @@ test('draw parity: /nep draw with self', async () => {
       accountId: null,
     },
   ]);
+});
+
+test("the owner's draw command answers the marks of the picture it posted", async () => {
+  // Bug: a picture drawn through the owner's command is stored as anyone's, while the same picture from her call is hers.
+  const admin = createAdmin({
+    mediaNameOf: noMediaNames,
+    reads: world().reads,
+    port: world().port,
+    hot: hot(),
+    store: store(),
+    client: client(),
+    selfId: () => 'self-id',
+    getSelfName: () => 'Bot',
+    spontaneous: {},
+    calibrator: { ratio: 1 },
+    isServedRoot: (id: unknown) => id === 'g1',
+    images: recordingImages(),
+    imageFetcher: imageFetcher(),
+    dataDir: DATA_DIR,
+    now: () => NOW,
+  });
+  channel('c1', 'general');
+  const { result } = await withCapturedLogs(() =>
+    admin.runSkillOp(
+      'draw.create',
+      { text: 'me reading by the window', self: true, people: ['42'], placeId: 'c1' },
+      { placeId: 'g1', accountId: '42' }
+    )
+  );
+  const data = loose(loose(result).data);
+  assert.ok(data.ref, JSON.stringify(result));
+  assert.deepEqual(data.marks, { self: true, accounts: ['42'] });
 });

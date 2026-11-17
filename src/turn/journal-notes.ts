@@ -122,7 +122,21 @@ type SaidArgs = {
   accountIds: unknown;
   /** What she voiced, when the post is a voice message. */
   voiced?: string;
+  /** The kind of the one item a post of hers with no words carries: her picture. A voice message names `voiced` instead. */
+  item?: 'image';
+  /** The marks of what she made: whether she is in it, and the account ids of the members it shows besides her. */
+  marks?: { self: boolean; accounts: ReadonlyArray<string> };
 };
+
+/** The fields of a `said` line that carries what she made: her voice message or picture, and its marks. */
+function madeFields({ voiced, item, marks }: Pick<SaidArgs, 'voiced' | 'item' | 'marks'>): object {
+  const kind = voiced ? 'voice' : (item ?? null);
+  return {
+    ...(kind ? { attachments: [{ kind }] } : {}),
+    ...(voiced ? { voiced } : {}),
+    ...(marks ? { marks } : {}),
+  };
+}
 
 /** What createJournalNotes reads: the dependencies and the runner's state the notes keep. */
 export type JournalNotesContext = {
@@ -449,6 +463,8 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     repliedAuthorId,
     accountIds,
     voiced,
+    item,
+    marks,
   }: SaidArgs): void {
     if (!record) return;
     if (typeof posted?.id !== 'string' || !posted.id) return;
@@ -467,7 +483,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
         replyToId: replyId ?? null,
         replyToAuthorId: repliedAuthorId ?? null,
         mentionedAccountIds: accountIds,
-        ...(voiced ? { attachments: [{ kind: 'voice' }], voiced } : {}),
+        ...madeFields({ voiced, item, marks }),
       },
       { kind: 'said', now: clock, turnId: draft?.started?.turnId ?? null, opId: op?.opId ?? null }
     );

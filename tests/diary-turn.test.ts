@@ -161,6 +161,7 @@ const drawAnswer = (text: string, n = 1, self = false) =>
     text,
     Array.from({ length: n }, (_, i) =>
       call('draw.create', {
+        people: [],
         text: n === 1 ? 'a pier at night' : `scene ${i + 1}`,
         ...(self && i === 0 ? { self: true } : {}),
       })
@@ -659,7 +660,7 @@ test('diary turn: records the post with gists and message ids', async () => {
   const llm = fakeLlm(
     { kind: 'selfPicture', brief: 'a pier', search: '', picture: true },
     toolAnswer('<msg>un quai dans la brume, très calme ce soir</msg>', [
-      call('draw.create', { text: 'the persona on a foggy pier at night, lanterns', self: true }),
+      call('draw.create', { people: [], text: 'the persona on a foggy pier at night, lanterns', self: true }),
     ])
   );
   const store = fakeStore();
@@ -808,7 +809,7 @@ test('diary turn: the drawing prompt carries the local time', async () => {
 test("diary turn: an ordinary turn's draw.create carries the local time too", async () => {
   const hot = fakeHot();
   loose(hot.prompts).reply = 'REPLY for {{author}}';
-  const llm = fakeLlm(null, toolAnswer('', [call('draw.create', { text: 'a pier' })]));
+  const llm = fakeLlm(null, toolAnswer('', [call('draw.create', { people: [], text: 'a pier' })]));
   const images = fakeImages();
   const raw = ownRaw('m1', NOW - 60_000, 'draw a pier');
   raw.author = { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' };
@@ -1180,7 +1181,10 @@ test('diary: a call other than draw.create is refused diary-draw-only and never 
   const images = fakeSetImages([10]);
   const channel = diaryChannel();
   const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, [
-    toolAnswer('<msg>x</msg>', [call('message.create', { text: 'hello' }), call('draw.create', { text: 'a pier' })]),
+    toolAnswer('<msg>x</msg>', [
+      call('message.create', { text: 'hello' }),
+      call('draw.create', { people: [], text: 'a pier' }),
+    ]),
     '<msg>y</msg>',
   ]);
   const { result, logs } = await withCapturedLogs(() =>
