@@ -82,7 +82,7 @@ async function chatNow(
 }
 
 /** The kind of the turn an attempt runs, by its mode, its trigger and its wake (src/turn/request/frame.ts). */
-function kindOf({ mode, triggerKind = null, inner = null }: PhaseParams): TurnKind {
+export function kindOf({ mode, triggerKind = null, inner = null }: PhaseParams): TurnKind {
   const wakeKind = objOf(objOf(inner).wake).kind;
   return turnKindOf(mode, triggerKind, typeof wakeKind === 'string' ? wakeKind : null);
 }

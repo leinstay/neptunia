@@ -213,7 +213,7 @@ const STORE_VALUE_KINDS = new Set([
 ]);
 const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
 /** The inner turn's time budget when `wakes.loop.timeBudgetMs` is not set (config.json's value). */
-const DEFAULT_TURN_BUDGET_MS = 180_000;
+const DEFAULT_TURN_BUDGET_MS = 1_000_000;
 /** The least time between two runs of the re-embed job. */
 const REEMBED_EVERY_MS = 60_000;
 const ENGINE_ROOT = fileURLToPath(new URL('../../../', import.meta.url));

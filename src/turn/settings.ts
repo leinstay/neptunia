@@ -8,6 +8,8 @@ import { innerSettings } from '../behavior/inner/settings.ts';
 import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.ts';
 import { isPositive, objOf } from '../tools/types.ts';
 import { HEARTBEAT_INTENT_SKILLS } from '../tools/wake-tools.ts';
+import { waitsForErrand } from './request/frame.ts';
+import type { TurnKind } from './request/frame.ts';
 
 /** `pace` when a key is missing: config.json's values. */
 const PACE_FALLBACK = Object.freeze({
@@ -83,7 +85,7 @@ const LOOP_FALLBACK = Object.freeze({
   remindAfterSteps: 2,
 });
 /** `diary.loop`'s values when a key is missing (config.json's). */
-const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
+const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 50, timeBudgetMs: 1000000 });
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
 export const LOOP_MIN_CALL_MS = 2000;
 /**
@@ -162,6 +164,16 @@ export function loopSettings(
     stepReserveTokens: whole(loop.stepReserveTokens, LOOP_FALLBACK.stepReserveTokens),
     remindAfterSteps: isWholeOrZero(loop.remindAfterSteps) ? loop.remindAfterSteps : LOOP_FALLBACK.remindAfterSteps,
   };
+}
+
+/**
+ * The hold of a harness session between two requests of a turn of `kind` (src/subharness/subscription-client.ts): a
+ * heartbeat's or a diary turn's whole time budget, since one of its calls may wait that long for an errand, and none
+ * for any other kind, which keeps `llm.subscription.holdMs`.
+ */
+export function holdOf(config: unknown, kind: TurnKind): { holdMs?: number } {
+  if (!waitsForErrand(kind)) return {};
+  return { holdMs: loopSettings(config, { inner: kind === 'heartbeat', diary: kind === 'diary' }).timeBudgetMs };
 }
 
 /** The parts of the live config resultCharsFor reads. */

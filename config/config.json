@@ -406,8 +406,8 @@
     "openingWords": 4,
     "sceneChars": 400,
     "loop": {
-      "maxSteps": 2,
-      "timeBudgetMs": 600000
+      "maxSteps": 50,
+      "timeBudgetMs": 1000000
     },
     "planMaxOutputTokens": 2000,
     "planTimeoutMs": 60000
@@ -444,8 +444,8 @@
       "perChain": 3
     },
     "loop": {
-      "maxSteps": 4,
-      "timeBudgetMs": 180000,
+      "maxSteps": 50,
+      "timeBudgetMs": 1000000,
       "maxCallsPerStep": 4,
       "callTimeoutMs": 60000
     },

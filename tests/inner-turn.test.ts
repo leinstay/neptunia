@@ -786,9 +786,10 @@ test("loopSettings: an inner turn's bounds are wakes.loop's (config.json's when 
   // PR 7c: the shipped settings live in config/config.json.
   const tracked = JSON.parse(fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8'));
   assert.deepEqual(loopSettings({}, { inner: true }), tracked.wakes.loop);
+  // Changed: an inner turn waits for its errands, 50 steps and 1000 seconds (the owner's decision of 2026-11-17).
   assert.deepEqual(tracked.wakes.loop, {
-    maxSteps: 4,
-    timeBudgetMs: 180000,
+    maxSteps: 50,
+    timeBudgetMs: 1000000,
     maxCallsPerStep: 4,
     callTimeoutMs: 60000,
   });
@@ -866,6 +867,7 @@ test("inner turn, budget: a slow call past tools.loop's 20 s completes inside wa
     ['lore.list:executed:unknown:timeout', 'lore.list:executed:unknown:timeout']
   );
   // The inner budget spent: the next request is her last, as on every turn.
+  // Changed: the budget is set here, since the shipped one is 1000 s (the owner's decision of 2026-11-17).
   let at = NOW;
   const spent = await innerTurn({
     answers: [toolAnswer('', [call('lore.list')]), toolAnswer('', [call('lore.list')]), '<skip/>'],
@@ -873,6 +875,7 @@ test("inner turn, budget: a slow call past tools.loop's 20 s completes inside wa
     onCall: (n: number) => {
       if (n === 2) at += 181_000;
     },
+    loop: { maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 },
   });
   assert.equal(spent.llm.calls.length, 3);
   assert.ok(noteOf(spent, 2).includes(LAST), noteOf(spent, 2));

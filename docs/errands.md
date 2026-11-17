@@ -2,6 +2,8 @@
 
 An errand is work the persona delegates through `errand.add`, such as researching a question. The persona receives the result and decides what to say or do next.
 
+In a conversation her `errand.add` answers at once, and the result comes in a turn of its own. In a heartbeat or a diary turn the call waits for the errand's end and answers with the result as a result turn shows it, a failure with the errand's own code, or `errand-wait-ended` when the turn's time ran out first. A waited end is marked seen and read before the core hears of it, so it opens no result turn. With `core` on a harness route, a turn that waits keeps its session held for its whole time budget in place of `llm.subscription.holdMs`.
+
 Her `errand.add` names only the goal, and the core hands every one to the scout (`ERRAND_AGENT` in `src/tools/operations/catalog.ts`). The owner reaches any agent with `/errands add <agent> <goal>`, and an operation that names an agent for anyone else is refused `owner-only`. A journal row written under `errand.run` or `task.run` reads as `errand.add`. The core submits the work to an errand runner. The result is associated with the original work and can wake the persona. Starting an errand is different from executing a quick in-turn tool.
 
 ## The board

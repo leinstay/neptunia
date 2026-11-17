@@ -211,7 +211,7 @@
   },
   "errand.add": {
     "title": "Hand off an errand",
-    "whenToUse": "Hands a job to a background agent and answers at once with its id. The result arrives later in a turn of its own, and files it brings back are posted with message.create. The agent does research of several steps, finds and downloads files and pictures, and works through sites that need navigation. It costs money, has daily limits, and each agent takes one errand at a time. Form the whole goal first, because the agent sees only the goal.",
+    "whenToUse": "Hands a job to a background agent. In a conversation it answers at once with its id, and the result arrives later in a turn of its own. In a heartbeat or a diary turn the call waits for the errand to end and its answer carries the result. Files it brings back are posted with message.create. The agent does research of several steps, finds and downloads files and pictures, and works through sites that need navigation. It costs money, has daily limits, and each agent takes one errand at a time. Form the whole goal first, because the agent sees only the goal.",
     "whenNotToUse": "For what you can answer yourself or look up in one step, web.search or web.read. For an errand already handed off, errand.list.",
     "args": {
       "goal": "What to do, in full. The agent sees only this."

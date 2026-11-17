@@ -375,11 +375,16 @@ export async function claimWakes(
   return { turnId: claim.turnId, attempt: Number(claim.attempt) || 1 };
 }
 
-/** The turn of a claimed group is over: its wakes are no longer running in process and its in-flight mark goes. */
+/**
+ * The turn of a claimed group is over: its wakes are no longer running in process and its in-flight mark goes, unless
+ * the mark is a later turn's, since a heartbeat's turn and a chat-lane turn run side by side.
+ */
 export function endRun(life: InnerContext, group: ReadonlyArray<Wake>): void {
   const { running } = life.wakes;
   for (const wake of group) running.delete(wake.id);
-  stateOf(life).inflight = null;
+  const state = stateOf(life);
+  const mark = state.inflight;
+  if (group.some((wake) => mark?.wakeIds.includes(wake.id))) state.inflight = null;
 }
 
 /**
@@ -628,6 +633,15 @@ function renewClaims(life: InnerContext): void {
 }
 
 /**
+ * The leases of the running turns and `core:alive` renewed. Every tick does it, the one that finds an earlier tick still
+ * running its turn included, so a turn longer than `context.turnLeaseMs` keeps its wakes.
+ */
+export function renewLeases(life: InnerContext): void {
+  renewClaims(life);
+  renewAlive(life, life.now());
+}
+
+/**
  * The clean stop's end of `core:alive`: the lease this life holds expires now, so the next start goes ahead at once.
  * Nothing renews it after. Waits for the queue's writes; a lease another holder took over is left alone.
  */
@@ -654,8 +668,7 @@ export async function releaseAlive(life: InnerContext): Promise<void> {
 export async function beforeTick(life: InnerContext): Promise<boolean> {
   await startUp(life);
   const at = life.now();
-  renewClaims(life);
-  renewAlive(life, at);
+  renewLeases(life);
   const { sleep } = life.wakes;
   if (paused(life)) {
     if (sleep.pausedFrom === null) {

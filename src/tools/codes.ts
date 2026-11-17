@@ -138,6 +138,8 @@ export const CATALOGUE = Object.freeze({
   // It ran and did not work, or may have.
   error: skill('failed'),
   timeout: skill('unknown', ['what']),
+  // A heartbeat or a diary turn spent its time waiting for an errand that still runs (src/tools/operations/errand.ts).
+  'errand-wait-ended': skill('unknown'),
   cap: skill('failed', ['what']),
   provider: skill('failed', ['status']),
   http: skill('failed', ['status']),

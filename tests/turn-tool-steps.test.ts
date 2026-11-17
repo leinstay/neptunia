@@ -212,6 +212,8 @@ test('an accepted background job covers the speech: errand.add ok, the speech go
   assert.equal(run.llm.calls.length, 2, 'the accepted job came back to her, where she stayed silent');
   assert.deepEqual(texts(run), ['το στέλνω να ψάξει']);
   assert.equal(runs.length, 1);
+  // A reply turn waits for no errand: the call answers queued at once, while the errand still runs.
+  assert.deepEqual(called(run), ['errand.add:ok']);
   assert.equal(asRecord(run.result).delivered, true);
 });
 

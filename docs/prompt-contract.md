@@ -200,6 +200,8 @@ A name that fits more than one place is refused `target-ambiguous`, and one that
 
 `errandResultText` in `src/errands/blocks.ts` writes the finished errand she reads from `labels.errands.result`. When the runner counted failed web searches (`result.searchFailures`, OpenCode's `websearch` calls that ended in an error), it adds `searchFailed` with `{count}` after the reason line, on a done errand and on a failed one alike. A run with no failed search adds nothing.
 
+The same text is the answer of an `errand.add` that a heartbeat or a diary turn waited for: its status is `ok` for a done errand, `failed` with the errand's own code for a failed one and `failed` with `cancelled` for a cancelled one. A wait that outlasts the turn's time answers `unknown` with `errand-wait-ended`, and the errand reaches her later in a result turn. Every other turn's call answers `queued` at once. `heartbeat-only` names what a heartbeat accepts, its reads, `errand.add` and `errand.read` among them, and `diary-draw-only` names the four tools a diary turn runs.
+
 ### Mention handles
 
 People, channels and messages in the request have handles supplied by the formatters. The model must reuse these handles rather than inventing native IDs. The interface resolves outgoing references for its platform.
@@ -353,6 +355,7 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `PLACE_NOT_FOUND` | invalid | - | `tools.result.reasons.PLACE_NOT_FOUND` |
 | `error` | failed | - | `tools.result.reasons.error` |
 | `timeout` | unknown | {what} | `tools.result.reasons.timeout` |
+| `errand-wait-ended` | unknown | - | `tools.result.reasons.errand-wait-ended` |
 | `cap` | failed | {what} | `tools.result.reasons.cap` |
 | `provider` | failed | {status} | `tools.result.reasons.provider` |
 | `http` | failed | {status} | `tools.result.reasons.http` |

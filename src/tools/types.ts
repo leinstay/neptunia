@@ -113,6 +113,8 @@ export type OpContext = {
   mentionAccountIds?: ReadonlyArray<string>;
   ownInitiative?: boolean;
   wakeKind?: string;
+  /** How long an errand her call starts waits for its end: the time left in a heartbeat or a diary turn. */
+  waitMs?: number;
   [key: string]: unknown;
 };
 

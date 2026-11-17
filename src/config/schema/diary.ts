@@ -85,14 +85,14 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'key': 'diary.loop.maxSteps',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
-    'default': 2,
+    'default': 50,
     'text': 'Further requests one diary post makes',
   },
   {
     'key': 'diary.loop.timeBudgetMs',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
-    'default': 600000,
+    'default': 1000000,
     'text': 'How long calls and follow-ups may run',
   },
   {

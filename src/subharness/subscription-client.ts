@@ -128,6 +128,8 @@ type Session = {
   texts: Array<string>;
   stepIds: Array<string>;
   hold: unknown;
+  /** The hold the last step's request asked for (`holdMs`), 0 when it asked for none. */
+  holdMs: number;
   idle: unknown;
   timeoutMs: number;
   isOver: boolean;
@@ -347,7 +349,10 @@ function armIdle(session: Session): void {
   );
 }
 
-/** A session that ended on calls waits `holdMs` for its next step, then its process is killed. */
+/**
+ * A session that ended on calls waits `holdMs` for its next step, then its process is killed: the longer of the setting
+ * and what the step's request asked for, since a heartbeat's call may wait for its errand longer than the setting.
+ */
 function armHold(session: Session): void {
   stopTimer(session, 'hold');
   session.hold = session.deps.setTimer(
@@ -355,7 +360,7 @@ function armHold(session: Session): void {
       log.info('subscription: hold passed', { backend: session.route.backend });
       end(session, true);
     },
-    settingsOf(llmOf(session.deps)).holdMs
+    Math.max(settingsOf(llmOf(session.deps)).holdMs, session.holdMs)
   );
 }
 
@@ -575,6 +580,7 @@ function nextStep(session: Session, options: Rec): Promise<StepAnswer> {
   const pending = new Promise<StepAnswer>((resolve, reject) => {
     session.step = { resolve, reject };
   });
+  session.holdMs = num(options.holdMs);
   const signal = options.signal;
   if (signal instanceof AbortSignal) {
     if (signal.aborted) fail(session, 'subscription-timeout', 'the request was aborted');
@@ -743,6 +749,7 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
       texts: [],
       stepIds: [],
       hold: null,
+      holdMs: 0,
       idle: null,
       timeoutMs: timeout > 0 ? timeout : HOLD_MS_DEFAULT,
       isOver: false,

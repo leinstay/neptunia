@@ -114,7 +114,8 @@ const argText = (value: unknown): string =>
 /**
  * What an operation's result carries for her turn beside its text: the values its code's label names, the route
  * of a model role's call that went to the core model or did not happen (src/tools/gateway.ts#callOnRoute), read off
- * the result or, for an `ok` reply, its data, and `deferred` for a post kept for a chat that is not open.
+ * the result or, for an `ok` reply, its data, `deferred` for a post kept for a chat that is not open, and `waited` for
+ * the result of an errand her turn waited for.
  */
 function carriedOf(result: Obj): Obj {
   const route = result.route ?? objOf(result.data).route;
@@ -125,6 +126,8 @@ function carriedOf(result: Obj): Obj {
     ...(route === 'core' || route === 'unavailable' ? { route } : {}),
     // A post the interface kept for a chat that is not open (src/interface/cli-chat.ts).
     ...(objOf(result.data).deferred === true ? { deferred: true } : {}),
+    // An errand her turn waited for brings its result: something to read (src/behavior/tool-step.ts#stepVerdict).
+    ...(objOf(result.data).waited === true ? { waited: true } : {}),
   };
 }
 /** The options whose value may be a transcript number `#N`: a message she can see. */

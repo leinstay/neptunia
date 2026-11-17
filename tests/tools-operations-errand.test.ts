@@ -18,6 +18,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { asRecord } from './fixtures/records.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { labels as LABELS } from './fixtures/labels.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -54,7 +55,7 @@ function fakeClient({ configured = true } = {}) {
   };
 }
 
-function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
+function makeEnv({ errandSettings = {}, agents = {}, configured = true, labels = {} } = {}) {
   const rootDir = tempDir('nep-ops-task-');
   const hot = {
     config: {
@@ -67,7 +68,7 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
         ...agents,
       },
     },
-    prompts: { labels: {} },
+    prompts: { labels },
     rootDir,
     reloadConfig: () => true,
   };
@@ -633,5 +634,54 @@ test('errand.list refuses a state, a date or a limit it cannot read', async () =
     assert.equal((await status(env, { state: 'sleeping' })).status, 'invalid');
     assert.equal((await status(env, { since: 'soon' })).status, 'invalid');
     assert.equal((await status(env, { limit: 0 })).status, 'invalid');
+  });
+});
+
+// ---- A call that waits for its errand (a heartbeat or a diary turn) -------------------------------------------------
+
+/** One `errand.add` of hers that waits up to `waitMs`, started now; `ended` resolves with its answer. */
+function waitingCall(env: unknown, waitMs: number) {
+  return runOp(
+    'errand.add',
+    { goal: 'find the changelog' },
+    ctx(env, null, { actor: 'persona', waitMs }) as unknown as Parameters<typeof runOp>[2]
+  );
+}
+
+test('errand.add: a call that waits answers with the result text once the errand is done', async () => {
+  // Catches: the waiting call answers `queued` and she never reads the result in the turn that asked for it.
+  const { env, client, stores } = makeEnv({ labels: LABELS });
+  await withCapturedLogs(async () => {
+    const answer = waitingCall(env, 600_000);
+    while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
+    const id = String(asRecord(client.runs[0]).id);
+    client.end(id, { status: 'done', result: { text: 'the changelog is at v3.2' }, usage: { usd: 0.01 } });
+    const result = await answer;
+    assert.deepEqual([result.status, result.code], ['ok', 'ok']);
+    assert.match(String(asRecord(result.data).text), /the changelog is at v3\.2/);
+    assert.equal(Boolean(stores.get()?.get(id)?.readAt), true, 'shown to her whole, so read');
+  });
+});
+
+test("errand.add: a waited errand that fails answers failed with the errand's own code", async () => {
+  // Catches: a failed errand reads as a success, or as a bare error without the errand's own code.
+  const { env, client } = makeEnv({ labels: LABELS });
+  await withCapturedLogs(async () => {
+    const answer = waitingCall(env, 600_000);
+    while (client.runs.length === 0) await new Promise((resolve) => setImmediate(resolve));
+    client.end(String(asRecord(client.runs[0]).id), { status: 'failed', error: 'backend-error' } as never);
+    const result = await answer;
+    assert.deepEqual([result.status, result.code], ['failed', 'backend-error']);
+  });
+});
+
+test('errand.add: a wait that outlasts its time answers errand-wait-ended and the errand runs on unread', async () => {
+  // Catches: a wait past the turn's budget hangs the turn, or reads as a failed errand that never comes back.
+  const { env, client, stores } = makeEnv({ labels: LABELS });
+  await withCapturedLogs(async () => {
+    const result = await waitingCall(env, 5);
+    assert.deepEqual([result.code, asRecord(result.data).unknown], ['errand-wait-ended', true]);
+    const id = String(asRecord(client.runs[0]).id);
+    assert.deepEqual([stores.get()?.get(id)?.state, Boolean(stores.get()?.get(id)?.readAt)], ['running', false]);
   });
 });

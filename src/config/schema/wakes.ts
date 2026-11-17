@@ -28,14 +28,14 @@ export const WAKES: ReadonlyArray<SchemaEntry> = [
     'key': 'wakes.loop.maxSteps',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
-    'default': 4,
+    'default': 50,
     'text': 'Tool loop bounds of an inner turn',
   },
   {
     'key': 'wakes.loop.timeBudgetMs',
     'types': ['number'],
     'reader': 'src/memory/db/service.ts',
-    'default': 180000,
+    'default': 1000000,
     'text': "Time budget of an inner turn's calls",
   },
   {

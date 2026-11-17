@@ -38,7 +38,7 @@ import { coerceArgs, coversSpeech, toolResultText } from '../tools/tool-calls.ts
 import type { TurnCall } from '../skills/uses.ts';
 import type { NormalCall } from '../tools/tool-calls.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
-import { endsWake, oneDecisionCode } from '../tools/wake-tools.ts';
+import { SERVICE_ERRAND_SKILLS, endsWake, oneDecisionCode } from '../tools/wake-tools.ts';
 import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
 import {
   CALL_STATUS_NAMES,
@@ -55,7 +55,7 @@ import { cutOffOf, untoldDiagnostics } from './journal.ts';
 import { chatFetchCount, chatHeadStepOf } from './history.ts';
 import { TURN_CANCELLED } from './timers.ts';
 import { snapshotOfDraft } from './routing.ts';
-import { INNER_TERMINAL_SKILLS, LOOP_MIN_CALL_MS, LOOP_WHY, loopSettings } from './settings.ts';
+import { INNER_TERMINAL_SKILLS, LOOP_MIN_CALL_MS, LOOP_WHY, holdOf, loopSettings } from './settings.ts';
 import { resultCharsFor } from './settings.ts';
 import type {
   CallContext,
@@ -67,8 +67,12 @@ import type {
   SkillCalls,
 } from './skill-calls.ts';
 import { askedFor } from './triggers.ts';
+import { turnKindOf, waitsForErrand } from './request/frame.ts';
 import type { TriggerKind } from './triggers.ts';
 import type { Typing } from './typing.ts';
+
+/** What a diary post may call: its pictures, its voice message and an errand. */
+const DIARY_SKILLS: ReadonlyArray<string> = Object.freeze(['draw.create', 'voice.say', ...SERVICE_ERRAND_SKILLS]);
 
 /** Reactors read per reaction of her lines. Production value, config cut of 2026-10-31. */
 const REACTION_FETCH_USERS = 10;
@@ -153,6 +157,8 @@ type FormatCounts = {
 /** What an attempt's draft holds that the steps read and write. */
 export type ToolRoundDraft = CallsDraft & {
   info?: { iface?: string } | null;
+  /** The turn's mode, which with its trigger and its wake gives its kind (src/turn/request/frame.ts#turnKindOf). */
+  mode?: string;
   nowhere?: boolean;
   inner?: {
     wake?: {
@@ -477,6 +483,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     let quietShown = false;
     const quietSkill = (skill: string): boolean => ['effect', 'job'].includes(definitionOf(skill)?.result ?? '');
     const settings = loopSettings(hot.config, { inner, diary });
+    // A heartbeat or a diary turn waits for the errand it starts, for as long as its time budget lasts, and keeps a
+    // harness session held that long, so the session outlives the wait.
+    const kind = turnKindOf(draft.mode ?? '', triggerKind, wakeKind);
+    const waits = waitsForErrand(kind);
+    const held = holdOf(hot.config, kind);
     // The pictures staged so far as the set the post carries (a single picture is a set of one), or null.
     const stagedSet = () =>
       diary && (draft.staged?.length ?? 0) > 0
@@ -606,6 +617,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
               ...(draft.started ? { limits: draft.limits } : {}),
               ...ifaceOption(draft),
               ...toolsOf(final),
+              ...held,
               ...(cancel === null ? {} : { signal: cancel }),
             }),
           (given) => answerLeaked(given as Parameters<typeof answerLeaked>[0], { transport, step: step + 2, registry }),
@@ -707,12 +719,12 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           if (preRefuse?.code === CODE.THINK_IN_TEXT) draft.format.tagInOutgoing += 1;
         }
         for (const plan of plans) noteStep({ name: plan.record.name, detail: 'started' });
-        const leftMs = settings.timeBudgetMs - (clock() - loopStartedAt);
+        const leftMs = Math.max(LOOP_MIN_CALL_MS, settings.timeBudgetMs - (clock() - loopStartedAt));
         const actionsBefore = draft.innerActions?.length ?? 0;
-        results = await runCalls(
-          plans,
-          contextOf(routed, Math.min(callTimeoutCap, Math.max(LOOP_MIN_CALL_MS, leftMs)))
-        );
+        results = await runCalls(plans, {
+          ...contextOf(routed, Math.min(callTimeoutCap, leftMs)),
+          ...(waits ? { waitMs: leftMs } : {}),
+        });
         for (const result of results) noteStep({ name: result.skill, detail: result.status });
         ranActions = draft.innerActions?.slice(actionsBefore) ?? [];
         made += results.length;
@@ -1076,7 +1088,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * Why a call of a step cannot run, decided before it is planned: `{ code, reason, values? }`, or null when it can. A
    * call the transport could not read or no skill has is refused with its own code (`malformed-call`, `truncated-call`,
    * `unknown-skill`); a call past what the step allows (the final request's, the time's, the step's cap of calls) is
-   * `loop-cap` with `what` saying which; in a diary post anything but `draw.create` is `diary-draw-only`. An inner turn's last answer still makes its one terminal call (`terminalAt`).
+   * `loop-cap` with `what` saying which; in a diary post anything but `draw.create`, `voice.say` and an errand is
+   * `diary-draw-only`. An inner turn's last answer still makes its one terminal call (`terminalAt`).
    */
   function preRefusalOf(
     record: NormalCall,
@@ -1098,9 +1111,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
   ): CallRefusal | null {
     if (record.problem)
       return { code: record.problem, reason: record.problem === CODE.UNKNOWN_SKILL ? record.name : '' };
-    // A diary post makes pictures, and may say one thing aloud; nothing else.
-    if (diary && record.name !== 'draw.create' && record.name !== 'voice.say')
-      return { code: CODE.DIARY_DRAW_ONLY, reason: record.name };
+    // A diary post makes pictures, may say one thing aloud and may hand off an errand and read it; nothing else.
+    if (diary && !DIARY_SKILLS.includes(record.name)) return { code: CODE.DIARY_DRAW_ONLY, reason: record.name };
     // A think tag never goes out, and nothing edits her words: the call is refused whole.
     if (record.name === 'message.create' && hasThinkTag(JSON.stringify(record.args?.text ?? '')))
       return { code: CODE.THINK_IN_TEXT, reason: '' };

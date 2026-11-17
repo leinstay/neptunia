@@ -752,3 +752,115 @@ for (const backend of ['claude', 'codex'] as const) {
     assert.equal(Object.hasOwn(run.secrets ?? {}, 'searchKey'), false);
   });
 }
+
+// ---- Waiting for an errand inside a service turn ------------------------------------------------------------------
+
+/**
+ * A service over a client whose runs wait until the test ends them, with the wait's timers held by the test: `fire()`
+ * runs every timer armed so far. `finished` records, for each end the service reports, whether the store already
+ * held the errand as read.
+ */
+function waitingService() {
+  const rootDir = tempDir('nep-errands-wait-');
+  const hot = { config: { errands: { maxOpen: 3 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };
+  const gates = new Map<string, (outcome: Untyped) => void>();
+  const client = {
+    configured: () => true,
+    run: (task: { id: string }) => new Promise((resolve) => gates.set(task.id, resolve)),
+    cancel: (task: { id: string }) => {
+      gates.get(task.id)?.({ status: 'cancelled', error: 'cancelled' });
+      return true;
+    },
+  };
+  const timers: Array<() => void> = [];
+  const finished: Array<{ id: string; read: boolean }> = [];
+  const stores = createErrandStores({
+    memoryDb: memoryOf(path.join(rootDir, 'data')),
+    config: () => hot.config,
+    log: fakeLog(),
+  });
+  const errands = createErrandService({
+    // @ts-expect-error: the stand-in's result carries only the text; the real client adds sources and files
+    client,
+    stores,
+    hot,
+    log: fakeLog(),
+    defer: (fn) => fn(),
+    setTimer: (fn: () => void) => {
+      timers.push(fn);
+      return setTimeout(() => {}, 0);
+    },
+    onFinished: (task) => {
+      finished.push({ id: task.id, read: Boolean(stores.get()?.get(task.id)?.readAt) });
+    },
+  });
+  const end = (id: string) => gates.get(id)?.({ status: 'done', result: { text: 'found it' }, usage: { usd: 0.01 } });
+  const fire = () => {
+    for (const fn of timers.splice(0)) fn();
+  };
+  const queued = () => String(loose(loose(errands.submit(ask('scout'))).errand).id);
+  const cleanup = () => fs.rmSync(rootDir, { recursive: true, force: true });
+  return { errands, stores, finished, end, fire, queued, gates, cleanup };
+}
+
+/** Lets the deferred run reach the client. */
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+/** `promise`, or a rejection when it has not settled within two seconds: a wait that never ends fails the test. */
+function within<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const hung = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('the wait never ended')), 2000);
+  });
+  return Promise.race([promise, hung]).finally(() => clearTimeout(timer));
+}
+
+test('errands service: a waited end is marked read before the finished hook runs, and the wait resolves with it', async () => {
+  // Bug caught: the end of an errand she waited for opens a second, separate result turn.
+  const rig = waitingService();
+  try {
+    const id = rig.queued();
+    const waiting = rig.errands.wait({ id, ms: 600_000 });
+    await settle();
+    rig.end(id);
+    const waited = await within(waiting);
+    await rig.errands.idle();
+    assert.deepEqual([waited.ended, waited.errand?.state], [true, 'done']);
+    assert.deepEqual(rig.finished, [{ id, read: true }]);
+  } finally {
+    rig.cleanup();
+  }
+});
+
+test('errands service: the wait answers not ended and leaves the errand unread when its timer fires first', async () => {
+  // Bug caught: a wait cut by the turn's budget marks the errand read, so its result never reaches her.
+  const rig = waitingService();
+  try {
+    const id = rig.queued();
+    const waiting = rig.errands.wait({ id, ms: 600_000 });
+    await settle();
+    rig.fire();
+    const waited = await within(waiting);
+    assert.deepEqual([waited.ended, waited.errand?.state], [false, 'running']);
+    rig.end(id);
+    await rig.errands.idle();
+    assert.deepEqual(rig.finished, [{ id, read: false }]);
+  } finally {
+    rig.cleanup();
+  }
+});
+
+test('errands service: the wait resolves with the cancelled record when the errand is cancelled', async () => {
+  // Bug caught: a cancelled errand leaves the waiting call hanging until the turn's budget is spent.
+  const rig = waitingService();
+  try {
+    const id = rig.queued();
+    const waiting = rig.errands.wait({ id, ms: 600_000 });
+    await settle();
+    rig.errands.cancel({ id, by: 'owner' });
+    const waited = await within(waiting);
+    assert.deepEqual([waited.ended, waited.errand?.state], [true, 'cancelled']);
+  } finally {
+    rig.cleanup();
+  }
+});

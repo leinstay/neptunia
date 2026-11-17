@@ -381,7 +381,7 @@
       "repeated": 0
     },
     "tests/inner.test.ts": {
-      "deep": 142,
+      "deep": 141,
       "repeated": 1
     },
     "tests/intention-due-jitter.test.ts": {
@@ -1258,12 +1258,6 @@
         "complexity": 34
       }
     },
-    "src/behavior/inner/drain.ts": {
-      "drain": {
-        "complexity": 77,
-        "function-length": 344
-      }
-    },
     "src/behavior/inner/facts.ts": {
       "feedbackFacts": {
         "complexity": 36
@@ -1572,7 +1566,7 @@
     },
     "src/tools/operations/errand.ts": {
       "<anonymous>>cmdRead": {
-        "complexity": 26
+        "complexity": 24
       }
     },
     "src/tools/operations/memory.ts": {

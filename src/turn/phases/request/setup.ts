@@ -20,11 +20,12 @@ import type { Draft } from '../../draft.ts';
 import { chatHead, chatHeadStepOf, numberLines, withReplyParents } from '../../history.ts';
 import type { StoredNumbers } from '../../history.ts';
 import type { Lookup } from '../../lookup.ts';
-import { paceSettings } from '../../settings.ts';
+import { holdOf, paceSettings } from '../../settings.ts';
 import type { PaceSettings } from '../../settings.ts';
 import { TOO_SLOW, TURN_CANCELLED } from '../../timers.ts';
 import { askedFor, unhurried } from '../../triggers.ts';
 import type { BeforeBar, Ended, HistoryLine, PhaseConfig, PhaseContext, PhaseParams, TurnTrigger } from '../context.ts';
+import { kindOf } from '../preflight.ts';
 import type { Opened } from '../preflight.ts';
 import { plannerRequest } from './build.ts';
 
@@ -168,8 +169,11 @@ export async function setupRequest(
     { once: true }
   );
   const beforeBar = beforeBarOf(bar, cancel);
+  // A turn that waits for its errands keeps a harness session held for its whole budget (settings.ts#holdOf).
+  const held = holdOf(config, kindOf(params));
   const replyOptions = () => ({
     ...replyOptionsOf(hot.config, { draft, bar, barAbort }),
+    ...held,
     // A turn without a bar has no signal of its own, and a cancel still has to reach its request.
     ...(cancel === null ? {} : { signal: barAbort.signal }),
   });

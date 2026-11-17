@@ -153,7 +153,7 @@ export function fakeIntentions(records: Array<FakeIntention>): FakeIntentions {
 export type FakeTurns = {
   busy: boolean;
   calls: Array<InnerTurnParams>;
-  isAnyBusy(): boolean;
+  isAnyBusy(lane?: string): boolean;
   runTurn(params: InnerTurnParams): Promise<unknown>;
 };
 

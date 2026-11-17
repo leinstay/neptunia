@@ -37,7 +37,7 @@ export const INNER_DEFAULTS = Object.freeze({
   }),
   caps: Object.freeze({ perChain: 3 }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
-  loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
+  loop: Object.freeze({ maxSteps: 50, timeBudgetMs: 1000000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
   retry: Object.freeze({ delaysMinutes: Object.freeze([1, 5, 15, 60]), maxHours: 6 }),
   factsKeepDays: 7,
 });
