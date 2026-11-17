@@ -375,3 +375,68 @@ test('leaves a token that differs from a known emoji name only in letter case', 
   assert.equal(textOf(db, 'l1'), 'loud :POG:');
   assert.deepEqual(linksOf(db, 'l1'), []);
 });
+
+test('names an emoji media row with no name by the stable name media_names holds for its id', () => {
+  const { handle, db } = openTemp();
+  held(handle, 'e5', '905', 'pog');
+  db.prepare(
+    "INSERT INTO media (id, kind, native_ref, extra, scope_iface) VALUES ('m1', 'emoji', '905', '{}', 'fake')"
+  ).run();
+  apply(handle, planStableNamesRewrite(db));
+  assert.equal(mediaName(db, 'm1'), 'e5');
+});
+
+test('leaves an emoji media row with no name when media_names holds nothing for its id', () => {
+  const { handle, db } = openTemp();
+  db.prepare(
+    "INSERT INTO media (id, kind, native_ref, extra, scope_iface) VALUES ('m1', 'emoji', '905', '{}', 'fake')"
+  ).run();
+  apply(handle, planStableNamesRewrite(db));
+  const extra = db.prepare("SELECT extra FROM media WHERE id = 'm1'").get()?.extra;
+  assert.equal(extra, '{}');
+});
+
+/** An answer row whose text holds no token and whose think holds `think`. */
+function answer(db: Db, id: string, think: string): void {
+  db.prepare("INSERT INTO sources (id, kind, iface, text, think) VALUES (?, 'answer', 'fake', '', ?)").run(id, think);
+}
+
+function thinkOf(db: Db, id: string): unknown {
+  return db.prepare('SELECT think FROM sources WHERE id = ?').get(id)?.think;
+}
+
+test('rewrites a think whose name two emoji hold to the emoji the choice names when its text holds no token', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'aga');
+  media(db, 'm2', 'emoji', '902', 'aga');
+  answer(db, 'a1', 'send :aga: now');
+  apply(handle, planStableNamesRewrite(db, { choose: { aga: '902' } }));
+  const [chosen] = boundOf(db, '902');
+  assert.equal(thinkOf(db, 'a1'), `send :${String(chosen)}: now`);
+});
+
+test('rewrites a think by the choice when its line links both emoji of that name and its text stays', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'aga');
+  media(db, 'm2', 'emoji', '902', 'aga');
+  const insert = db.prepare("INSERT INTO sources (id, kind, iface, text, think) VALUES ('a1', 'said', 'fake', ?, ?)");
+  insert.run(':aga: :aga:', 'maybe :aga:');
+  link(db, 'a1', 0, 'm1');
+  link(db, 'a1', 1, 'm2');
+  apply(handle, planStableNamesRewrite(db, { choose: { aga: '902' } }));
+  const [chosen] = boundOf(db, '902');
+  assert.equal(thinkOf(db, 'a1'), `maybe :${String(chosen)}:`);
+  assert.equal(textOf(db, 'a1'), ':aga: :aga:');
+});
+
+test('leaves a think whose name two emoji hold with no choice and counts it as a shared name', () => {
+  const { handle, db } = openTemp();
+  media(db, 'm1', 'emoji', '901', 'aga');
+  media(db, 'm2', 'emoji', '902', 'aga');
+  answer(db, 'a1', 'send :aga: now');
+  const plan = planStableNamesRewrite(db);
+  const { left } = plan.counts;
+  assert.equal(left.sharedName, 1);
+  apply(handle, plan);
+  assert.equal(thinkOf(db, 'a1'), 'send :aga: now');
+});
