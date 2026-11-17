@@ -23,16 +23,17 @@
 // Items are `{ title, url, snippet, age? }` exactly as Brave's: `age` is Exa's
 // published date as it comes (an ISO date string), left out when absent,
 // empty or `N/A` (any case);
-// snippets are cut to SNIPPET_MAX_CHARS, since Exa returns page text where
-// Brave returns a one-line description, and the summary prompt reads them all.
+// a snippet over SNIPPET_MAX_CHARS is retold by the summarizer, all of one search side by side, since Exa returns page
+// text where Brave returns a one-line description, and the summary prompt reads them all. With no summarizer, and for a
+// summary still over the bound, the snippet stays whole.
 //
 // Every call resolves to a result object and never rejects. One warn line per
 // failure (`web: exa failed`), carrying the reason and an HTTP status only --
 // never the query (it is chat content), never the key, never the URL.
 
 import { log } from '../log.ts';
-import { clampText } from '../memory/clamp.ts';
 import { objOf } from '../tools/types.ts';
+import type { Summarize } from '../behavior/summarize.ts';
 import type { SearchClient, SearchFailure, SearchOptions, SearchOutcome, SearchResult } from './search-types.ts';
 
 const ENDPOINT = 'https://mcp.exa.ai/mcp';
@@ -113,7 +114,7 @@ function itemOf({
   const item: SearchResult = {
     title: inlineText(title),
     url: link,
-    snippet: clampText(inlineText(snippet), SNIPPET_MAX_CHARS, { tolerance: 1 }),
+    snippet: inlineText(snippet),
   };
   const date = inlineText(age);
   if (date && !NO_DATE.test(date)) item.age = date;
@@ -210,12 +211,20 @@ function firstMessage(body: string): Record<string, unknown> | null {
   return null;
 }
 
-/** @param deps.endpoint Exa's MCP endpoint. */
+/** @param deps.endpoint Exa's MCP endpoint. `deps.summarize` retells a snippet over SNIPPET_MAX_CHARS; none keeps it whole. */
 export function createExaSearch({
   fetchImpl = fetch,
   endpoint = ENDPOINT,
-}: { fetchImpl?: typeof fetch; endpoint?: string } = {}): SearchClient {
+  summarize,
+}: { fetchImpl?: typeof fetch; endpoint?: string; summarize?: Summarize | undefined } = {}): SearchClient {
   let nextId = 1;
+
+  /** `result` with its snippet retold when it runs over SNIPPET_MAX_CHARS and a summarizer is wired. */
+  async function retold(result: SearchResult): Promise<SearchResult> {
+    const { snippet } = result;
+    if (!summarize || Array.from(snippet).length <= SNIPPET_MAX_CHARS) return result;
+    return { ...result, snippet: await summarize(snippet, { maxChars: SNIPPET_MAX_CHARS, kind: 'text' }) };
+  }
 
   /** One warn line (reason, status), then the failure object. */
   function fail(reason: SearchFailure['reason'], status?: number): SearchFailure {
@@ -275,7 +284,7 @@ export function createExaSearch({
       const results = parseExaText(text, n);
       // Nothing found is an answer, not a failure: the caller renders it (src/web/lookup.ts).
       if (!results.length) return { ok: false, reason: 'empty' };
-      return { ok: true, results };
+      return { ok: true, results: await Promise.all(results.map(retold)) };
     } catch {
       return fail(timedOut ? 'timeout' : 'network');
     } finally {

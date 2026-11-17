@@ -18,10 +18,9 @@ import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classi
 import { gifHandleOf } from './memory/index.ts';
 import type { CallMark } from './behavior/lines.ts';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.ts';
-import { clampText, oneLine } from './memory/clamp.ts';
+import { oneLine } from './memory/clamp.ts';
 import { isWordChar, outsideUrls } from './memory/mentions.ts';
 import { untaggedNames, withUserHandles } from './handles-text.ts';
-import { LINK_EXCERPT_CHARS } from './web/cache.ts';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
 // imports nothing from src/tools/ (src/memory/ reaches it).
 type Untyped = ReturnType<typeof JSON.parse>;
@@ -210,9 +209,9 @@ function storedWatch(item: unknown, videosOn: boolean): { state: 'watched'; text
 /** Whether an emoji comes from a stored line: it shows that the line holds it even before its text form. */
 const isStoredEmoji = (emoji: unknown): boolean => (emoji as { stored?: unknown } | null)?.stored === true;
 
-/** A link's read text as a line of chat shows it: a link she read with web.read holds up to a whole page, and a line shows what a preview shows. */
+/** A link's read text as a line of chat shows it, on one line and whole: the lookup has already retold a long one. */
 function excerptOf(whole: string | undefined): string | null {
-  return whole === undefined ? null : clampText(oneLine(whole), LINK_EXCERPT_CHARS, { tolerance: 1 });
+  return whole === undefined ? null : oneLine(whole);
 }
 
 /** A part-watched tag whose label is blank, as its whole-video form; any other tag as it is. */

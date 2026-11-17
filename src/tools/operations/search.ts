@@ -69,6 +69,7 @@ const handlers = perEnv((env) => {
       labels: hot.prompts?.labels ?? {},
       placeId: resolvedPlaceId(context),
       args,
+      summarize: env.summarize,
     });
     return asOpResult(result);
   }
