@@ -44,17 +44,18 @@ export type StableNamesPlan = {
     media: number;
     untied: number;
     issue: Record<string, number>;
-    left: { sharedName: number; unlinkedSticker: number };
+    left: Left;
     tables: Record<string, number>;
   };
 };
+
+/** What a plan leaves: lines with a name two emoji hold, old sticker references, and markup ids of no known interface. */
+export type Left = { sharedName: number; unlinkedSticker: number; markupIface: number };
 
 /** The platform id to tie a platform name two emoji hold to, given by the owner. */
 export type Choice = Record<string, string>;
 
 const PREFIX = { emoji: 'e', sticker: 's' } as const;
-// The interface whose markup `<:name:id>` is, for a text that names no interface of its own; the baseline seeds it.
-const MARKUP_IFACE = 'discord';
 const STICKER_RE = /\[sticker(:?) ([^\]\n]+)\]/g;
 const STABLE_STICKER_RE = /^s\d+$/;
 const keyOf = (iface: string, kind: string, nativeId: string): string => JSON.stringify([iface, kind, nativeId]);
@@ -248,7 +249,7 @@ function rewriteStickers(from: string, linked: ReadonlyArray<Linked>): { to: str
 type LinesOut = Pick<StableNamesPlan, 'lines' | 'cells' | 'ties'> & {
   tokens: number;
   untied: number;
-  left: StableNamesPlan['counts']['left'];
+  left: Left;
 };
 
 /** One line's text: its tokens, its sticker references and the links it misses. */
@@ -281,14 +282,14 @@ function planThink(row: Row, linked: ReadonlyArray<Linked>, match: Match, out: L
 }
 
 /** The lines and thinks the rewrite changes, and the links their texts tie. */
-function planLines(db: Db, byLine: Map<string, Array<Linked>>, match: Match): LinesOut {
+function planLines(db: Db, byLine: Map<string, Array<Linked>>, match: Match, left: Left): LinesOut {
   const out: LinesOut = {
     lines: [],
     cells: [],
     ties: [],
     tokens: 0,
     untied: 0,
-    left: { sharedName: 0, unlinkedSticker: 0 },
+    left,
   };
   const rows = db
     .prepare(
@@ -303,22 +304,33 @@ function planLines(db: Db, byLine: Map<string, Array<Linked>>, match: Match): Li
   return out;
 }
 
-/** How raw markup is named: by its id, under the row's interface, else the interface that holds or stored that id. */
-function markupOf(db: Db, namer: Namer): Resolver['markup'] {
+/**
+ * How raw markup is named: by its id, under the interface a `media_names` or `media` row of that id holds, else the
+ * row's own interface, else `markupIface` from the caller. An id with none of them stays and is counted.
+ */
+function markupOf(db: Db, namer: Namer, markupIface: string | null, left: Left): Resolver['markup'] {
   const stored = db.prepare(
     "SELECT scope_iface FROM media WHERE kind = 'emoji' AND native_ref = ? AND scope_iface IS NOT NULL"
   );
-  const ifaceOfId = (nativeId: string): string | undefined => {
+  const ifaceOfId = (nativeId: string): string | null => {
     const held = [...namer.held.values()].find((row) => row.kind === 'emoji' && row.nativeId === nativeId)?.iface;
     const iface = held ?? stored.get(nativeId)?.scope_iface;
-    return typeof iface === 'string' ? iface : undefined;
+    return typeof iface === 'string' ? iface : null;
   };
-  return (iface, nativeId, platformName, animated) =>
-    namer.nameOf(iface ?? ifaceOfId(nativeId) ?? MARKUP_IFACE, 'emoji', nativeId, platformName, animated).name;
+  const unheld = new Set<string>();
+  return (iface, nativeId, platformName, animated) => {
+    const named = ifaceOfId(nativeId) ?? iface ?? markupIface;
+    if (named === null) {
+      if (!unheld.has(nativeId)) left.markupIface += 1;
+      unheld.add(nativeId);
+      return null;
+    }
+    return namer.nameOf(named, 'emoji', nativeId, platformName, animated).name;
+  };
 }
 
 /** How the texts outside `sources` find names: a name held once in any interface, markup by its id. */
-function resolverOf(markup: Resolver['markup'], match: Match, left: LinesOut['left']): Resolver {
+function resolverOf(markup: Resolver['markup'], match: Match, left: Left): Resolver {
   return {
     name: (platformName) => {
       const found = pick(match.known, match.choose, platformName, null);
@@ -344,16 +356,23 @@ function tablesOf(plan: Omit<StableNamesPlan, 'counts'>): Record<string, number>
   return Object.fromEntries([...ids].map(([table, set]) => [table, set.size]));
 }
 
-/** What a rewrite of `db` would do, read from its rows alone; `choose` ties a platform name two emoji hold. */
-export function planStableNamesRewrite(db: Db, { choose = {} }: { choose?: Choice } = {}): StableNamesPlan {
+/**
+ * What a rewrite of `db` would do, read from its rows alone. `choose` ties a platform name two emoji hold, and
+ * `markupIface` names the interface of raw markup whose id no row holds.
+ */
+export function planStableNamesRewrite(
+  db: Db,
+  { choose = {}, markupIface = null }: { choose?: Choice; markupIface?: string | null } = {}
+): StableNamesPlan {
   const namer = namerOf(db);
   const renames = new Map<string, Change<'mediaId'>>();
   const byLine = tiesOf(db, namer, renames);
-  const markup = markupOf(db, namer);
+  const left: Left = { sharedName: 0, unlinkedSticker: 0, markupIface: 0 };
+  const markup = markupOf(db, namer, markupIface, left);
   markupNames(db, markup);
   const match = matchOf(knownOf(db, namer, renames), choose);
-  const planned = planLines(db, byLine, match);
-  const cells = [...planned.cells, ...textCells(db, resolverOf(markup, match, planned.left))];
+  const planned = planLines(db, byLine, match, left);
+  const cells = [...planned.cells, ...textCells(db, resolverOf(markup, match, left))];
   const plan = { issue: namer.issue, lines: planned.lines, media: [...renames.values()], cells, ties: planned.ties };
   const counts = {
     lines: planned.lines.length,

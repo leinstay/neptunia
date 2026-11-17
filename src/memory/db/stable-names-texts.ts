@@ -13,8 +13,8 @@ import type { Db, Row } from './types.ts';
 export type Resolver = {
   /** The stable name of the one emoji that holds `platformName`, or null when none or two hold it. */
   name: (platformName: string) => string | null;
-  /** The stable name of the emoji of a platform id, issued when nothing holds it. */
-  markup: (iface: string | null, nativeId: string, platformName: string, animated: boolean) => string;
+  /** The stable name of the emoji of a platform id, issued when nothing holds it; null when no interface is known for it. */
+  markup: (iface: string | null, nativeId: string, platformName: string, animated: boolean) => string | null;
 };
 
 /** One stored cell the plan changes, named by its table, column and the key of its row. */
@@ -65,8 +65,9 @@ const BARE_NAME_RE = /^[A-Za-z0-9_]{2,32}$/;
 
 /** A free text with its raw markup named by id and its known emoji names by the one emoji that holds each. */
 export function freeText(text: string, resolver: Resolver, iface: string | null): string {
-  const named = text.replace(MARKUP_RE, (_all, animated: string, name: string, id: string) => {
-    return `:${resolver.markup(iface, id, name, animated === 'a')}:`;
+  const named = text.replace(MARKUP_RE, (all: string, animated: string, name: string, id: string) => {
+    const stable = resolver.markup(iface, id, name, animated === 'a');
+    return stable === null ? all : `:${stable}:`;
   });
   return replaceNameTokens(named, (name) => {
     const stable = resolver.name(name);

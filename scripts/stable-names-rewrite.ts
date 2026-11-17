@@ -5,6 +5,7 @@
 //   node scripts/stable-names-rewrite.ts --data <folder>            dry run: counts only, nothing written
 //   node scripts/stable-names-rewrite.ts --data <folder> --apply    writes the plan through the memory writer
 //   --choose <platformName>=<platformId>                            ties a name two emoji hold to one of them; repeatable
+//   --markup-iface <interface>                                      the interface of raw markup whose id no row holds
 //
 // The core's own start check refuses the run while an engine holds the folder. Output holds counts and names of kinds.
 
@@ -27,6 +28,9 @@ function print(plan: StableNamesPlan): void {
     console.log(`rows to change, ${table}: ${counts.tables[table]}`);
   console.log(`left, a name two emoji hold: ${counts.left.sharedName}`);
   console.log(`left, a sticker reference of a line that links no one sticker: ${counts.left.unlinkedSticker}`);
+  console.log(`left, raw markup ids of no known interface: ${counts.left.markupIface}`);
+  if (counts.left.markupIface > 0)
+    console.log('give the interface their markup belongs to with --markup-iface <interface>');
 }
 
 /** The `--choose <platformName>=<platformId>` arguments as one choice. */
@@ -44,11 +48,17 @@ function choiceOf(args: ReadonlyArray<string>): Record<string, string> {
   return choose;
 }
 
+/** The `--markup-iface <interface>` argument, null when absent. */
+function markupIfaceOf(args: ReadonlyArray<string>): string | null {
+  const at = args.indexOf('--markup-iface');
+  return at < 0 ? null : (args[at + 1] ?? null);
+}
+
 const argv = process.argv.slice(2);
 const dataAt = argv.indexOf('--data');
 if (dataAt < 0 || !argv[dataAt + 1]) {
   console.error(
-    'usage: node scripts/stable-names-rewrite.ts --data <folder> [--apply] [--choose <platformName>=<platformId>]...'
+    'usage: node scripts/stable-names-rewrite.ts --data <folder> [--apply] [--choose <platformName>=<platformId>]... [--markup-iface <interface>]'
   );
   process.exit(2);
 }
@@ -62,7 +72,7 @@ claimCore(dbPath)();
 const apply = argv.includes('--apply');
 const handle = openMemoryDb(dbPath, { readOnly: !apply });
 try {
-  const plan = planStableNamesRewrite(dbOf(handle), { choose: choiceOf(argv) });
+  const plan = planStableNamesRewrite(dbOf(handle), { choose: choiceOf(argv), markupIface: markupIfaceOf(argv) });
   print(plan);
   if (!apply) console.log('dry run, nothing written');
   else
