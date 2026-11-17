@@ -275,6 +275,7 @@ export function createTurnRunner({
   calibrator,
   rng = Math.random,
   describer = undefined,
+  describePicture = undefined,
   fetchImpl = fetch,
   imageFetcher = createImageFetcher(),
   lookup = undefined,
@@ -519,6 +520,7 @@ export function createTurnRunner({
     lastPostAt,
     diaryPictureGate: (config, channel, now) =>
       diaryPictureGate(config as Parameters<typeof diaryPictureGate>[0], channel, now),
+    ...(describePicture ? { describePicture } : {}),
   });
   const { emojiLookup, renderPost, settleAuthor, settles, diaryChannelName } = createSends({
     hot,
