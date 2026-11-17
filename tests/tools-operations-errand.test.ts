@@ -19,6 +19,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import { asRecord } from './fixtures/records.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 import { labels as LABELS } from './fixtures/labels.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -108,6 +109,7 @@ function makeEnv({
   } as unknown as Parameters<typeof createErrandService>[0]);
   const store = { state: { data: {}, markDirty() {} } };
   const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

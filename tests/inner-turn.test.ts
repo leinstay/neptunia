@@ -49,6 +49,7 @@ import type { JournalLinesWrite } from '../src/memory/db/journal-lines.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 import { chainsOnDefaults } from './fixtures/chains.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 /** What an inner turn reports, the fields these tests read. */
 type InnerResult = {
@@ -285,6 +286,7 @@ async function innerTurn({
     errands = errandRefused ? { ...service, submit: () => ({ ok: false as const, code: 'runner-down' }) } : service;
   }
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

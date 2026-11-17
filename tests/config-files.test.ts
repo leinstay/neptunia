@@ -16,6 +16,7 @@ import { createKeyStore } from '../src/keys/store.ts';
 import { profileOf } from '../src/agent-runner/profiles.ts';
 import { fixture as agentFixture } from './fixtures/agent-overrides.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 type Tree = Record<string, unknown>;
 
@@ -132,6 +133,7 @@ test('writes a setting into config/config.json in a canonical layer, and the liv
   const hot = createHot({ rootDir: checkout(), privateDir });
   try {
     const env = createOpsEnv({
+      mediaNameOf: noMediaNames,
       discord: createDiscordInterface().capabilities,
       hot,
       store: { state: { data: {}, markDirty() {} } },
@@ -266,7 +268,7 @@ test('targeted writes and prompt watchers update the same canonical data directo
   const fake = fakeWatch();
   const hot = createHot({ rootDir, privateDir: paths.privateDir, watchImpl: fake.watch }).watch();
   try {
-    const env = createOpsEnv({ hot, store: { state: { data: {}, markDirty() {} } } });
+    const env = createOpsEnv({ mediaNameOf: noMediaNames, hot, store: { state: { data: {}, markDirty() {} } } });
     assert.equal(env.writeLocalPath('llm.retries', 5), true);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'config/config.json'), 'utf8')), {
       pace: { settleMs: 900 },

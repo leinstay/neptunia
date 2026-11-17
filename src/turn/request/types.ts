@@ -379,7 +379,7 @@ export type RequestInput = {
   readonly mediaPickText?: string | null;
   readonly mediaCache?: MediaLookup | MediaCache | null;
   /** The store's read of a stable name, for the legend `<media>` (src/memory/store-media-names.ts). */
-  readonly mediaNameOf?: ((name: string) => MediaName | null) | null;
+  readonly mediaNameOf: (name: string) => MediaName | null;
   readonly gifs?: unknown;
   readonly tasks?: Tasks | null;
   readonly elsewhereDestination?: { readonly name?: string } | null;

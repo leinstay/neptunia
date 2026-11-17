@@ -10,6 +10,7 @@ import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { config } from './fixtures/recall-run-kit.ts';
 import { labels } from './fixtures/labels.ts';
 import { channel, rig } from './fixtures/reads-rig.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const PLACE = channelPlaceId('discord', 'main');
@@ -41,6 +42,7 @@ function scene(env: ReturnType<typeof fixture>, store: object = {}) {
   env.stem();
   fillEnvAudiences(env);
   return createRecall({
+    mediaNameOf: noMediaNames,
     iface: 'discord',
     reads: rig().reads,
     hot,
@@ -109,6 +111,7 @@ for (const scope of ['dm', 'internal']) {
 
 test('prefetch returns stored lore when the database is unavailable for a valid root', async () => {
   const recall = createRecall({
+    mediaNameOf: noMediaNames,
     iface: 'discord',
     reads: rig().reads,
     hot,
@@ -168,6 +171,7 @@ test('an internal summary request without a root performs no legacy reads when t
   let loreReads = 0;
   let requests = 0;
   const recall = createRecall({
+    mediaNameOf: noMediaNames,
     iface: 'discord',
     reads: rig().reads,
     hot,

@@ -489,13 +489,9 @@ export function createRecall({
   now = Date.now,
   timers = DEFAULT_TIMERS,
   track = untracked,
-  // A recall built with no store of stable names, as in a replay, shows no legend.
-  mediaNameOf = () => null,
+  mediaNameOf,
 }: CreateRecallInput): CreateRecallResult {
   const buildSummary = createSummaryBuilder({ hot, llm, now });
-  /** The summary's request, its lines with the legend of their custom emoji and stickers. */
-  const recallRequest = (input: Parameters<typeof buildRecallRequest>[0]) =>
-    buildRecallRequest({ mediaNameOf, ...input });
 
   /** One search of the database: on the reader thread, or synchronously over a memory that offers only `database()`. */
   function searchDb(db: Untyped, input: Untyped, signal: AbortSignal): Promise<Untyped> {
@@ -1693,16 +1689,15 @@ export function createRecall({
         entries,
       };
     };
-    // Stored memory alone is enough to ask the summary.
+    // Stored memory alone is enough to ask the summary, its lines with the legend of their emoji and stickers.
     const messages =
       windows.length > 0 || memory.items.length > 0
-        ? recallRequest({
+        ? buildRecallRequest({
             prompt,
             question: candidate ?? {},
             people,
             windows,
             memory: memory.items,
-            // The chat lines before the question: what the question refers to.
             context: recallContext(Array.isArray(context) ? context : history, candidate, settings.contextMessages),
             contextDescriptions,
             nameOf: memory.nameOf,
@@ -1712,6 +1707,7 @@ export function createRecall({
             timeCue: locator ? { from: locator.from, to: locator.to } : null,
             now: now(),
             ...render,
+            mediaNameOf,
           })
         : null;
     if (!messages) {

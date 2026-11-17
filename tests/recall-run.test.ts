@@ -1,6 +1,7 @@
 // Tests for src/behavior/recall-run.js: the recall runner over the interface's reads (a fake root whose search and
 // history answer the way Discord's REST does, read into the neutral hits and events the runner takes), a fake store, a fake
 // LLM and a fake describer. No network, no real data.
+import { noMediaNames } from './fixtures/media-namer.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -178,6 +179,7 @@ function scene({
   };
   const recaller = createRecall({
     iface: 'discord',
+    mediaNameOf: noMediaNames,
     reads,
     hot,
     store,

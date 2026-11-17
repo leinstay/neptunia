@@ -21,6 +21,7 @@ import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 import { createStore } from '../src/memory/store.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
 import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The fakes hold only the part of the real object that the code under test reads, so each is cast once, here.
 const fakeOf = <T>(value: object): T => value as T;
@@ -335,7 +336,13 @@ describe('an adapter that claims the owner', () => {
     const store = Object.assign(fakeStore(), { flush: () => Promise.resolve() });
     const hot = hotWith({ config: { bot: { timezone: 'UTC', owners: [OWNER], access: {} } } });
     const client = { user: { id: 'self-id' }, channels: { cache: new Map() } };
-    const admin = createAdmin({ hot, store, client, isServedRoot: (id: unknown) => id === GUILD });
+    const admin = createAdmin({
+      mediaNameOf: noMediaNames,
+      hot,
+      store,
+      client,
+      isServedRoot: (id: unknown) => id === GUILD,
+    });
     const ran: Array<string> = [];
     const door = createEventDoor({
       handlers: {

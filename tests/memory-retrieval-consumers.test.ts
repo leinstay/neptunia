@@ -3,6 +3,7 @@
 // tokens. Recall's prefetch and search read the same service. The deciding turn's outcome, the publisher and the executor stay
 // outside: these tests check that retrieval moves nothing there and never yields a destination. Fake model, real temporary
 // databases, synthetic content.
+import { noMediaNames } from './fixtures/media-namer.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRecall } from '../src/behavior/recall-run.ts';
@@ -366,6 +367,7 @@ function recaller(world: World, change: Record<string, Record<string, unknown>> 
   const asked: Array<unknown> = [];
   const recall = createRecall(
     wrongly({
+      mediaNameOf: noMediaNames,
       reads: { searchMessages: none, searchMembers: none, history: none },
       hot: {
         config: recallConfig({

@@ -4,6 +4,7 @@
 //   keeps it, so its sweep reads its chat there and its recovery turn runs there
 //   `start(placeId)` adds the stored registry of that place to the ones already started; `save()` writes each candidate
 //   under the unit `missed` of its own place
+import { noMediaNames } from './fixtures/media-namer.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMissed } from '../src/behavior/missed.ts';
@@ -122,7 +123,7 @@ function scene({
         config: { bot: { timezone: 'UTC' }, missed: {}, models: {}, llm: {} },
         prompts: { missed: 'Check {{name}}.', labels },
       },
-      store: { state: { data: { paused: false } } },
+      store: { state: { data: { paused: false } }, mediaNameOf: noMediaNames },
       journal: null,
       llm: {
         complete: (messages: Array<{ content: unknown }>, options: LlmCall['options']) => {

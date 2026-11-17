@@ -9,6 +9,7 @@ import { personId } from './fixtures/memory-db/spelled-ids.ts';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
 import { fixture } from './fixtures/memory-db-recall.ts';
 import { labels } from './fixtures/labels.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -46,7 +47,11 @@ test('search names a foreign author from its exact account despite a primary nat
     assert.equal(found.windows.length, 1);
     assert.equal(found.windows[0].messages[0].authorName, 'Foreign stored author');
     assert.equal(found.windows[0].messages[0].authorId, '42');
-    const quotes = quotesOf(found.windows, { render: { labels, timezone: 'UTC' }, stretchChars: 1500 });
+    const quotes = quotesOf(found.windows, {
+      mediaNameOf: noMediaNames,
+      render: { labels, timezone: 'UTC' },
+      stretchChars: 1500,
+    });
     assert.ok(quotes[0].lines.includes('Foreign stored author'));
     assert.equal(quotes[0].lines.includes('Primary profile author'), false);
   } finally {
@@ -121,7 +126,11 @@ for (const iface of ['other', 'discord']) {
       const found = run(env, ['κουνέλι'], { channelNameOf: () => 'Primary snapshot group' });
       assert.equal(found.windows.length, 1);
       assert.equal(found.windows[0].channelName, iface === 'discord' ? 'Primary snapshot group' : 'Stored group name');
-      const quotes = quotesOf(found.windows, { render: { labels, timezone: 'UTC' }, stretchChars: 1500 });
+      const quotes = quotesOf(found.windows, {
+        mediaNameOf: noMediaNames,
+        render: { labels, timezone: 'UTC' },
+        stretchChars: 1500,
+      });
       assert.equal(quotes[0].channelName, iface === 'discord' ? 'Primary snapshot group' : 'Stored group name');
     } finally {
       env.done();
@@ -313,6 +322,7 @@ test("quotesOf names each line's author by the handle `handleOf` gives its store
     const found = run(env, ['κουνέλι']);
     const authors = { line: '{handle}', lineAccount: '{handle} ({iface} {id})', unknown: 'someone' };
     const quotes = quotesOf(found.windows, {
+      mediaNameOf: noMediaNames,
       render: { labels: { ...labels, authors }, timezone: 'UTC' },
       stretchChars: 1500,
       handleOf: (message: RecallMessage) =>

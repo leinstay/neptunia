@@ -27,6 +27,7 @@ import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The chats are held by a fake interface named `fake`.
 useIface('fake');
@@ -276,7 +277,7 @@ function scene({
   const clock = handClock();
   const timers = handTimers(clock);
   const log = fakeLog();
-  const store = { state: { data: { paused } } };
+  const store = { state: { data: { paused } }, mediaNameOf: noMediaNames };
   // #general (c1) of the root, and the other chats the test names (a private chat: `recipientId`).
   const channel = world().channel({ id: 'c1', placeId: 'g1', permissions: { send: canSend({ id: 'c1' }) } });
   const partners = new Map<string, string>();
@@ -585,6 +586,7 @@ test('buildCheckRequest: the transcript from a few lines before the earliest can
   history.push(msg({ id: 's1', self: true, content: 'εδώ', ts: T0 + 10_000 }));
   history.push(msg({ id: 'm2', authorId: 'u2', authorName: 'Zoë', content: 'και εγώ', ts: T0 + 11_000 }));
   const request = buildCheckRequest({
+    mediaNameOf: noMediaNames,
     prompt: 'Check for {{name}}.',
     labels,
     config: baseConfig(),

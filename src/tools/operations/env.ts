@@ -37,7 +37,7 @@ export type OpsDeps = {
   /** A member's name in the member directory. */
   memberNameOf?: (placeId: string, accountId: string) => string | null;
   /** The store's read of a stable name (src/memory/store-media-names.ts), for the legend of a read's lines. */
-  mediaNameOf?: (name: string) => MediaName | null;
+  mediaNameOf: (name: string) => MediaName | null;
   /** The chats the interface reported. */
   directory?: {
     isDm: (chatId: string) => boolean;
@@ -68,8 +68,7 @@ function buildEnv({
   selfId = () => null,
   getSelfName = () => '',
   memberNameOf = () => null,
-  // An environment with no store of stable names, as in a replay, reads lines with no legend.
-  mediaNameOf = () => null,
+  mediaNameOf,
   directory = { isDm: () => false },
   connection = { lastReconnectAt: null },
   calibrator,

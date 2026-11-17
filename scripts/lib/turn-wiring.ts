@@ -447,6 +447,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
   const admin = createAdmin({
     hot,
     store,
+    mediaNameOf: namesStore.mediaNameOf,
     reads,
     selfId: () => identity.selfId,
     getSelfName: () => identity.selfName,

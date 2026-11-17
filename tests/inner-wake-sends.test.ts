@@ -32,6 +32,7 @@ import { DISCORD, coreTurn, fakeStore, hotWith, personaGrants, rawMessage } from
 import { useIface, world } from './fixtures/turn-world.ts';
 import type { Fake } from './fixtures/turn-world.ts';
 import { worldTurnRunner } from './fixtures/world-runner.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 useIface('fake');
 const ROOT = 'g1';
@@ -222,6 +223,7 @@ async function core(
     const llm = scriptedModel(answers, port, died);
     const store = fakeStore();
     const admin = createAdmin({
+      mediaNameOf: noMediaNames,
       discord: DISCORD,
       hot,
       store,

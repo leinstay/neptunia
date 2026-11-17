@@ -14,6 +14,7 @@ import { resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { labels as fixtureLabels } from './fixtures/labels.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -99,7 +100,14 @@ test('formatTranscript: a mentioned channel carries its handle, as `#name` or a 
     content: `look at #💖νέα, #💖νέας, https://x.test/#💖νέα and <#${GENERAL}>`,
     mentionedChannelIds: [NEWS],
   };
-  const options = { timezone: 'UTC', gapMinutes: 20, maxChars: 800, selfName: 'Nept', labels };
+  const options = {
+    mediaNameOf: noMediaNames,
+    timezone: 'UTC',
+    gapMinutes: 20,
+    maxChars: 800,
+    selfName: 'Nept',
+    labels,
+  };
   const [item] = formatTranscript([message], { ...options, channels });
   assert.ok(
     item.text.endsWith('look at #💖νέα [#c1a2b], #💖νέας, https://x.test/#💖νέα and #γενικά [#c3c4d]'),

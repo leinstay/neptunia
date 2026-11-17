@@ -10,6 +10,7 @@ import { mediaLabelFor } from '../src/media/classify.ts';
 import { formatTranscript } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const T0 = Date.UTC(2026, 8, 1);
 const TENOR = 'https://tenor.com/view/cat-dance-123';
@@ -82,6 +83,7 @@ test('mediaLabelFor: a gif with a handle -> gifKnown with a caption, gifKnownNoT
 
 function render(messages: Untyped, extra = {}, labelSet = labels) {
   return formatTranscript(messages, {
+    mediaNameOf: noMediaNames,
     timezone: 'UTC',
     gapMinutes: 20,
     maxChars: 800,

@@ -18,6 +18,7 @@ import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -251,6 +252,7 @@ function opsEnv(store: ReturnType<typeof tmpStore>) {
     reloadPrompts: () => true,
   };
   return createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

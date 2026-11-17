@@ -9,12 +9,13 @@ import { createMediaPick, mediaPickFormat, parseMediaPick } from '../src/behavio
 import type { MediaPickArgs } from '../src/behavior/media-pick.ts';
 import { labels } from './fixtures/labels.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
 const PLACE = 'place:room-1';
 const RENDER = { still: '[[{name}|{id}]]' };
-const WAVE = { id: '1', name: 'wave', animated: false };
-const CLAP = { id: '2', name: 'clap', animated: false };
+const WAVE = { id: '1', name: 'wave', platformName: 'wave', animated: false };
+const CLAP = { id: '2', name: 'clap', platformName: 'clap', animated: false };
 const USAGE = { '1': { name: 'wave', count: 3, last: NOW }, '2': { name: 'clap', count: 9, last: NOW } };
 
 /** One GIF the search finds for the reply below. */
@@ -51,6 +52,7 @@ async function pickWith(text: string, capability: Capability = BOTH) {
       prompts: { labels, 'media-pick': 'Pick for {{name}}.' },
     },
     store: {
+      mediaNameOf: noMediaNames,
       getGifs: () => ({ nextId: 9, backfill: null, entries: ONE_GIF }),
       getEmojiRails: () => null,
       setEmojiRails: () => {},

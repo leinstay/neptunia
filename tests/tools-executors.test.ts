@@ -49,6 +49,7 @@ import { freshWorld, seedExisting, syncStub, useIface, useSelf, world } from './
 import type { Obj, Untyped } from '../src/tools/types.ts';
 import { asRecord } from './fixtures/records.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The chats are held by a fake interface named `fake`, where the persona is `self-1`.
 useIface('fake');
@@ -340,6 +341,7 @@ function makeAdmin({
       attachments: asRecord(message).attachments,
     });
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,
@@ -1595,10 +1597,13 @@ test('stored memory handles carry exact source identity through execution into t
     const found = dbSearch(db, { ctx: groupContext('fake'), plan: { forms: ['rabbit'] }, now });
     const draft: { searchRefs?: SearchRefs; handleFloor?: number } = { handleFloor: 10 };
     const refs = searchHandles(draft);
-    memorySearchText(quotesOf(found.windows, { render: { labels, timezone: 'UTC' }, stretchChars: 1500 }), {
-      labels,
-      refs,
-    });
+    memorySearchText(
+      quotesOf(found.windows, { mediaNameOf: noMediaNames, render: { labels, timezone: 'UTC' }, stretchChars: 1500 }),
+      {
+        labels,
+        refs,
+      }
+    );
     const callView = callViewOf({
       channel: { id: HERE, rootId: 'g1' },
       currentIface: 'fake',
@@ -1611,6 +1616,7 @@ test('stored memory handles carry exact source identity through execution into t
       prompts: { labels, 'recall-summary': 'Summarize the stored evidence.' },
     };
     const recaller = createRecall({
+      mediaNameOf: noMediaNames,
       reads: readsRig().reads,
       hot,
       store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
@@ -1937,6 +1943,7 @@ function fromCommandLine(enabled: boolean) {
     };
   const placeRef = (id: string) => rows[id] ?? null;
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     hot: { config: cfg, prompts: { labels: {} } },
     store: {
       state: { data: {}, markDirty() {} },

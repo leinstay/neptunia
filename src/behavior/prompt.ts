@@ -67,7 +67,7 @@ export function classifierTranscript(
     descriptions: descriptions as Map<string, string> | undefined,
     videos: videos as Map<string, VideoState> | undefined,
     reads: reads as Map<string, string> | undefined,
-    ...(mediaNameOf ? { mediaNameOf } : {}),
+    mediaNameOf,
   });
   return renderTranscript(items, config.bot?.timezone, labels);
 }

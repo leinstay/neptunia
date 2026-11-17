@@ -65,6 +65,7 @@ import {
   rec,
   sevenClusters,
 } from './fixtures/recall-kit.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -648,6 +649,7 @@ test('buildRecallRequest: system prompt filled; people, numbered found sections,
     },
   ];
   const messages = buildRecallRequest({
+    mediaNameOf: noMediaNames,
     prompt: 'You are {{name}}. At most {{answerChars}} characters. Today {{today}}.',
     selfName: 'Zoë',
     question: { authorName: 'Nikos', content: 'ποιος σκότωσε το κουνέλι;' },
@@ -681,7 +683,13 @@ test('buildRecallRequest: system prompt filled; people, numbered found sections,
 });
 
 test('buildRecallRequest: no prompt or no window line gives null; no people leaves the block out', () => {
-  const base = { selfName: 'Zoë', question: { authorName: 'A', content: 'q' }, labels, answerChars: 100 };
+  const base = {
+    mediaNameOf: noMediaNames,
+    selfName: 'Zoë',
+    question: { authorName: 'A', content: 'q' },
+    labels,
+    answerChars: 100,
+  };
   const windows = [{ placeId: 'c1', channelName: 'general', messages: [msg('m1', NOW)], hitIds: [] }];
   assert.equal(buildRecallRequest({ ...base, prompt: ' ', windows }), null);
   assert.equal(buildRecallRequest({ ...base, prompt: 'p', windows: [] }), null);
@@ -898,6 +906,7 @@ test('buildRecallRequest: the memory block comes before found, one structural li
   const names: Record<string, string> = { [ANA]: 'Ana', [KITE]: 'Kitezu' };
   const base = {
     prompt: 'p',
+    mediaNameOf: noMediaNames,
     selfName: 'Zoë',
     question: { authorName: 'Nikos', content: 'q' },
     labels,
@@ -1079,6 +1088,7 @@ test('buildRecallRequest: the context block sits right before the question, own 
     msg('h2', t + MINUTE, { self: true, authorId: 'self', content: 'ποιο κουνέλι;' }),
   ];
   const user = buildRecallRequest({
+    mediaNameOf: noMediaNames,
     prompt: 'p',
     selfName: 'Zoë',
     question: { authorName: 'Nikos', content: 'αυτό που είπες πριν' },
@@ -1106,6 +1116,7 @@ test('buildRecallRequest: the context block sits right before the question, own 
     '</question>',
   ]);
   const none = buildRecallRequest({
+    mediaNameOf: noMediaNames,
     prompt: 'p',
     selfName: 'Zoë',
     question: { authorName: 'A', content: 'q' },
@@ -1144,6 +1155,7 @@ test('buildRecallRequest: a stretch header carries the self flag, then the curre
   ];
   const base = {
     prompt: 'p',
+    mediaNameOf: noMediaNames,
     selfName: 'Zoë',
     question: { authorName: 'A', content: 'q' },
     windows,
@@ -1248,6 +1260,7 @@ test('recall: archive hits render as archived <kind> with the date and dedupe ag
     'the hot copy wins its itemId, the newest revision of an archived item stands for it, a time is dated in the zone'
   );
   const user = buildRecallRequest({
+    mediaNameOf: noMediaNames,
     prompt: 'p',
     selfName: 'Zoë',
     question: { authorName: 'Nikos', content: 'q' },
@@ -1375,6 +1388,7 @@ test('recall: the memory block stops at memoryTokens', () => {
   ];
   const base = {
     prompt: 'p',
+    mediaNameOf: noMediaNames,
     selfName: 'Zoë',
     question: { authorName: 'Nikos', content: 'q' },
     windows: [],
@@ -2301,6 +2315,7 @@ test('buildRecallRequest: a time cue goes in <time_cue> right before <question> 
     },
   ];
   const base = {
+    mediaNameOf: noMediaNames,
     prompt: 'p',
     selfName: 'Zoë',
     question: { authorName: 'Nikos', content: 'tu te souviens ?' },

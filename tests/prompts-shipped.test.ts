@@ -9,6 +9,7 @@
 // a label key missing from labels.json fails here instead of reaching the model as literal text.
 // The switches a request needs (the web lookup, video vision) are
 // turned on per test; every number comes from the shipped config.json.
+import { noMediaNames } from './fixtures/media-namer.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -1353,7 +1354,16 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
     keys: { brave: 'test-key' },
     now: () => NOW,
   });
-  const recall = createRecall({ iface: 'discord', reads: world().reads, hot, store, llm, describer, now: () => NOW });
+  const recall = createRecall({
+    iface: 'discord',
+    mediaNameOf: noMediaNames,
+    reads: world().reads,
+    hot,
+    store,
+    llm,
+    describer,
+    now: () => NOW,
+  });
   const turns = createTurnRunner({
     hot,
     store,
@@ -1538,7 +1548,7 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
   const dataDir = tempDir('nep-shipped-missed-');
   const missed = createMissed({
     hot: shippedHot(),
-    store: { state: { data: {} } },
+    store: { state: { data: {} }, mediaNameOf: noMediaNames },
     llm,
     turns: { triggerOf: () => null },
     reads: world().reads,

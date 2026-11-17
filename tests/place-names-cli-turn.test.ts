@@ -22,6 +22,7 @@ import {
   sequenceLlm,
 } from './fixtures/turn-harness.ts';
 import { freshWorld, useIface, world } from './fixtures/turn-world.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The world's interface is the command line's: the chat of the owner's chat answers `cli` as its interface.
 useIface('cli');
@@ -81,6 +82,7 @@ async function readFromCli(channel: string): Promise<string> {
   const store = fakeStore();
   const port = world().port;
   const admin = createAdmin({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

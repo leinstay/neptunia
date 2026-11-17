@@ -32,6 +32,7 @@ import { createIntention } from '../src/intentions/model.ts';
 import { intentionsValue } from '../src/memory/db/readers/intentions.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { hotWith } from './fixtures/inner-rig.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 /** The answer of an operation with its `data` read by field name, as these tests do. */
 type OpAnswer = Omit<OpResult, 'data'> & {
@@ -162,6 +163,7 @@ function makeEnv({
   door = createEventDoor({ handlers: { 'errand.done': (event) => taskTurns.onEvent(event) } });
   const store = { state: { data: {}, markDirty() {} } };
   const env = createOpsEnv({
+    mediaNameOf: noMediaNames,
     discord: DISCORD,
     hot,
     store,

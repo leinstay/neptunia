@@ -29,21 +29,9 @@ test('CUSTOM_EMOJI_MARKUP: groups are the animated flag, the name and the id; Di
 // The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
 test('nameEmojiTokens maps two emoji that share a platform name each to its own stable name', () => {
   const names: Record<string, string> = { '900': 'e1', '901': 'e2' };
-  const listed = [
-    { id: '900', name: 'kekw' },
-    { id: '901', name: 'kekw' },
-  ];
   assert.equal(
-    emoji.nameEmojiTokens('ha <emoji:900> <emoji:901>', (id) => names[id] ?? null, listed),
+    emoji.nameEmojiTokens('ha <emoji:900> <emoji:901>', (id: string): string => names[id]),
     'ha :e1: :e2:'
-  );
-});
-
-// The owner on 2026-11-17: an emoji and a sticker go by a stable name of the engine.
-test('nameEmojiTokens leaves a token with no stable name as its platform name between colons', () => {
-  assert.equal(
-    emoji.nameEmojiTokens('ha <emoji:900>', () => null, [{ id: '900', name: 'kekw' }]),
-    'ha :kekw:'
   );
 });
 

@@ -177,7 +177,7 @@ export function pickContext<Line extends { id?: unknown }>(
 }
 
 /** A custom emoji as the index lists it (src/behavior/emoji-index.ts): its stable name and its current platform name. */
-export type EmojiRef = { id: string; name: string; platformName?: string; animated?: boolean };
+export type EmojiRef = { id: string; name: string; platformName: string; animated?: boolean };
 
 /**
  * The emoji of `inventory` to offer, at most `cap`: the most used of this place first (`usage`, the place's
@@ -292,7 +292,7 @@ type PickStore = {
   getGifVectors?: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
   getEmojiRails?: (placeId: string) => unknown;
   setEmojiRails?: (placeId: string, state: EmojiRails) => unknown;
-  mediaNameOf?: (name: string) => MediaName | null;
+  mediaNameOf: (name: string) => MediaName | null;
 };
 
 /** The describer's cache of the emoji's captions, when the turn has it. */
@@ -404,7 +404,7 @@ export function createMediaPick({
             config: hot.config,
             selfName,
             labels,
-            ...(store.mediaNameOf ? { mediaNameOf: store.mediaNameOf } : {}),
+            mediaNameOf: store.mediaNameOf,
           })
         : '';
     // The reply is marked as a transcript line replying to that line would be: its #n, author and a quote.

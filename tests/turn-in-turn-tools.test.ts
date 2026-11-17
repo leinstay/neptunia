@@ -28,6 +28,7 @@ import { labels } from './fixtures/labels.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import type { LinkAsk } from '../src/interface/person-link.ts';
 import type { Context } from '../src/memory/db/scope.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00Z');
 
@@ -45,7 +46,7 @@ function cacheScene() {
   const draft: InTurnDraft = { handleFloor: 2 };
   const tools = createInTurnTools({
     hot,
-    store: { listUserProfiles: () => [] },
+    store: { mediaNameOf: noMediaNames, listUserProfiles: () => [] },
     recall: null,
     speech: null,
     record: null,
@@ -272,7 +273,7 @@ function crossReadScene(
   const hot = { config: { bot: { timezone: 'UTC' }, features: { coreTools: true } }, prompts: { labels } };
   const tools = createInTurnTools({
     hot,
-    store: { listUserProfiles: () => [] },
+    store: { mediaNameOf: noMediaNames, listUserProfiles: () => [] },
     recall: null,
     speech: null,
     record: null,
@@ -487,7 +488,7 @@ function handlersFor(trigger: { id: string; authorId: string } | null): {
   const hot = { config: {}, prompts: { labels } };
   const tools = createInTurnTools({
     hot,
-    store: { listUserProfiles: () => [] },
+    store: { mediaNameOf: noMediaNames, listUserProfiles: () => [] },
     recall: null,
     speech: null,
     record: null,
@@ -586,7 +587,7 @@ async function readPerson(
   const hot = { config: { bot: { timezone: 'UTC' }, features: { coreTools: true } }, prompts: { labels } };
   const tools = createInTurnTools({
     hot,
-    store: { listUserProfiles: () => [] },
+    store: { mediaNameOf: noMediaNames, listUserProfiles: () => [] },
     recall: null,
     speech: null,
     record: null,

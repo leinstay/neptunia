@@ -23,13 +23,14 @@ import { dmOfMember, dmSpecOf, fixture, personId, storedDmOf, storedPersonOf } f
 import { labels } from './fixtures/labels.ts';
 import { buildDataDir, guildDir, MEMBER, CHANNEL } from './fixtures/memory-db/datadir.ts';
 import { dbOf, type Db, type Statement } from '../src/memory/db/types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 // The runner answers more than its types name (the quotes, the hidden marker and the outcome the tests read), so it is
 // read through the shape the tests use; the fake reads of the interface carry only the calls a search makes.
 type RecallInput = Parameters<typeof createRecall>[0];
 const asReads = (reads: object) => reads as RecallInput['reads'];
 const asRecall = (input: (Omit<RecallInput, 'reads'> & { reads: RecallInput['reads'] }) | object) =>
-  createRecall({ iface: 'discord', ...input } as RecallInput) as unknown as {
+  createRecall({ iface: 'discord', mediaNameOf: noMediaNames, ...input } as RecallInput) as unknown as {
     run(args: Record<string, unknown>): Promise<Found>;
     window(args: Record<string, unknown>): Promise<Found>;
     prefetch(args: Record<string, unknown>): Promise<{ status?: string } | null>;
@@ -559,7 +560,11 @@ test('quotes: windows become the stretches recall returns, with entries per line
     env.say({ native: 'q2', at: Date.parse('2026-10-20T10:01:00.000Z'), text: 'ναι ακριβως', author: BOB });
     env.stem();
     const found = run(env, ['σπιτι']);
-    const quotes = quotesOf(found.windows, { render: { labels, timezone: 'UTC', selfName: 'Ζ' }, stretchChars: 1500 });
+    const quotes = quotesOf(found.windows, {
+      mediaNameOf: noMediaNames,
+      render: { labels, timezone: 'UTC', selfName: 'Ζ' },
+      stretchChars: 1500,
+    });
     assert.equal(quotes.length, 1);
     assert.equal(quotes[0].placeId, 'main');
     assert.equal(quotes[0].startTs, Date.parse('2026-10-20T10:00:00.000Z'));
@@ -568,7 +573,7 @@ test('quotes: windows become the stretches recall returns, with entries per line
       ['q1', 'q2']
     );
     assert.ok(quotes[0].lines.includes('Αλίκη') && quotes[0].lines.includes('το σπιτι του δασκαλου'));
-    assert.deepEqual(quotesOf([], { render: {}, stretchChars: 1500 }), []);
+    assert.deepEqual(quotesOf([], { mediaNameOf: noMediaNames, render: {}, stretchChars: 1500 }), []);
   } finally {
     env.done();
   }
@@ -1634,6 +1639,7 @@ test('search, window and prefetch retain one issued internal context rather than
     const s = runner(env);
     const issued: Array<Parameters<typeof issueContext>[0]> = [];
     const recaller = createRecall({
+      mediaNameOf: noMediaNames,
       iface: 'discord',
       reads: rig().reads,
       hot: s.hot,
@@ -1810,6 +1816,7 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
         throw new Error(`unexpected legacy guild read: ${name}`);
       };
       const recaller = createRecall({
+        mediaNameOf: noMediaNames,
         iface: 'discord',
         reads: rig().reads,
         hot: s.hot,

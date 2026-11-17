@@ -566,7 +566,7 @@ export function mediaLabelFor(
  * The `labels.transcript.*` key that renders one sticker item: `stickerRef` with its stable name. Its description
  * stands in the legend (src/turn/request/legend.ts).
  */
-export function stickerLabelFor(sticker: { name: string; url: string | null }): LabelTag {
+export function stickerLabelFor(sticker: { name: string }): LabelTag {
   return { key: 'stickerRef', values: { name: sticker.name } };
 }
 

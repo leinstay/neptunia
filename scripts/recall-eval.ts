@@ -132,7 +132,7 @@ import {
   traceAgreement,
 } from './lib/recall-eval.ts';
 import type { Question } from './lib/recall-eval.ts';
-import { MAX_MESSAGE_CHARS } from '../src/format.ts';
+import { MAX_MESSAGE_CHARS, noLegend } from '../src/format.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { Reads } from '../src/interface/reads.ts';
 
@@ -537,6 +537,7 @@ async function traces(flags: Flags, { dataDir, placeId, now, cwd, routes }: RunC
         const parts = await recallParts(guild, channel, placeId, () => hot.config);
         const recall = createRecall({
           hot: evalHot,
+          mediaNameOf: store.mediaNameOf,
           store: {
             state: { data: {}, markDirty() {} },
             listUserProfiles: () => store.listUserProfiles(),
@@ -833,7 +834,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     const transcript =
       context.length === 0
         ? ''
-        : `<transcript>\n${classifierTranscript(context, { config: hot.config, selfName, labels: hot.prompts.labels })}\n</transcript>\n`;
+        : `<transcript>\n${classifierTranscript(context, { config: hot.config, selfName, labels: hot.prompts.labels, mediaNameOf: noLegend })}\n</transcript>\n`;
     // A dry run has no classifier: the fallback plan always stands in for its answer.
     const fallback = (reason: Untyped) => {
       if (!dry && !settings.fallbackOnClassifierFailure) return { server: null, how: 'failed', reason };
@@ -937,6 +938,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       const parts = await recallParts(guild, channel, placeId, () => hot.config);
       const recall = createRecall({
         hot: evalHot,
+        mediaNameOf: store.mediaNameOf,
         store: readStore(),
         llm,
         reads: parts.reads,
@@ -1048,6 +1050,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       const parts = await recallParts(guild, channel, placeId, () => hot.config);
       const recall: Untyped = createRecall({
         hot: evalHot,
+        mediaNameOf: store.mediaNameOf,
         store: recallStore,
         llm,
         reads: parts.reads,

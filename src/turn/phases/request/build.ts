@@ -1089,9 +1089,8 @@ export async function buildTurnRequest(
     // The cached captions of a custom emoji and of a library GIF in the transcript.
     mediaCache:
       emoji || typeof store.getGifs === 'function' ? (key: string) => store.mediaEntry(libraryPlace, key) : null,
-    // The stable names of the custom emoji and stickers in the lines, for the legend `<media>`; a store with no
-    // names (a turn run on a bare store) gives none.
-    mediaNameOf: store.mediaNameOf ?? null,
+    // The stable names of the custom emoji and stickers in the lines, for the legend `<media>`.
+    mediaNameOf: store.mediaNameOf,
     elsewhereDestination: null,
     tasks: tasks.input,
     // `<senses>`: where the persona keeps its diary, when one is set.

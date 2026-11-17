@@ -29,6 +29,7 @@ import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 import { chainsOnDefaults } from './chains.ts';
 import { objectMediaCache } from '../../src/memory/store-media.ts';
 import type { MediaCachePort } from '../../src/memory/store-media.ts';
+import { noMediaNames } from './media-namer.ts';
 
 // The turn's chats are held by a fake interface of the world of the test, named `fake`.
 useIface('fake');
@@ -347,7 +348,7 @@ export async function coreTurn({
   for (const seed of seeds) port.seed(seed.chatId, seed);
   if (setup) setup(port);
   const client = { user: { id: 'self-id', username: 'Bot' }, ...clientExtra };
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, isServedRoot: (id: unknown) => id === 'g1', reads: world().adopt(port), port, ...adminExtra });
+  const admin = createAdmin({ mediaNameOf: noMediaNames,  discord: DISCORD, hot, store, client, isServedRoot: (id: unknown) => id === 'g1', reads: world().adopt(port), port, ...adminExtra });
   const runOp = wrapCommand ? wrapCommand(admin.runSkillOp) : admin.runSkillOp;
   const llm = sequenceLlm(answers, classifier, onAnswer ? (n) => onAnswer(n, history, port) : null);
   const calibrator = { ratio: 1, apply: (value: number) => value, observe: () => {} };

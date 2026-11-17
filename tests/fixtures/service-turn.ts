@@ -34,6 +34,7 @@ import type { Fake } from './turn-world.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 import { chainsOnDefaults } from './chains.ts';
 import { objectMediaCache } from '../../src/memory/store-media.ts';
+import { noMediaNames } from './media-namer.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -301,7 +302,7 @@ function rigOf(spec: RigSpec) {
     placeRefOf: (id: string) => placeRefOf(mind.db, id),
     ...spec.store,
   };
-  const admin = createAdmin({
+  const admin = createAdmin({ mediaNameOf: noMediaNames, 
     hot,
     store,
     client: { user: { id: 'self-id', username: 'Bot' } },

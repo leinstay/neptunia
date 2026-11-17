@@ -258,7 +258,7 @@ export type ScanArchiveArg2 = {
  */
 export type BuildRecallRequestInput = {
   /** The store's read of a stable name: the found lines and the context open with their legend `<media>`. */
-  mediaNameOf?: (name: string) => MediaName | null;
+  mediaNameOf: (name: string) => MediaName | null;
   prompt: string | null | undefined;
   selfName: string;
   question: { authorName?: string; content?: string };

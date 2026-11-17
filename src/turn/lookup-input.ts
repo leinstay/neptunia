@@ -3,7 +3,7 @@
 // through the re-export in src/behavior/turn.ts.
 
 import { classifierTranscript } from '../behavior/prompt.ts';
-import { MAX_MESSAGE_CHARS } from '../format.ts';
+import { MAX_MESSAGE_CHARS, noLegend } from '../format.ts';
 
 /** The live config, handed on to the transcript. */
 type LookupConfig = Record<string, unknown>;
@@ -50,7 +50,16 @@ export function renderClassifierContext({
   const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');
   const context = contextMessages > 0 ? history.filter((m) => m.id !== trigger.id).slice(-contextMessages) : [];
   if (context.length === 0) return { triggerText, transcriptBlock: '' };
-  const body = classifierTranscript(context, { config, selfName, labels, descriptions, videos, reads });
+  // A search classifier reads the lines for what is asked, with no legend of their custom emoji and stickers.
+  const body = classifierTranscript(context, {
+    config,
+    selfName,
+    labels,
+    descriptions,
+    videos,
+    reads,
+    mediaNameOf: noLegend,
+  });
   return { triggerText, transcriptBlock: `<transcript>\n${body}\n</transcript>\n` };
 }
 

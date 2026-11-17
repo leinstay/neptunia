@@ -36,6 +36,7 @@ import {
 import type { MediaName } from '../src/memory/store-media-names.ts';
 import type { Env, Kind, Presence } from './fixtures/media-memory.ts';
 import type { Row } from '../src/memory/db/types.ts';
+import { noMediaNames } from './fixtures/media-namer.ts';
 
 const voiceSaid = KINDS.find((kind) => kind.self) as Kind;
 
@@ -255,7 +256,13 @@ const chatLine = (message: Row) => ({
   ...message,
 });
 const chatOf = (message: Row, options: Row = {}) =>
-  formatTranscript([chatLine(message)], { timezone: 'UTC', selfName: 'Self', labels: LABELS, ...options })
+  formatTranscript([chatLine(message)], {
+    mediaNameOf: noMediaNames,
+    timezone: 'UTC',
+    selfName: 'Self',
+    labels: LABELS,
+    ...options,
+  })
     .map((line) => line.text)
     .join('\n');
 
