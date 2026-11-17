@@ -489,7 +489,7 @@ async function answering(name: string, read: () => Answer | Promise<Answer> | nu
 /** The prefixes of the commands this module answers. */
 const BROWSER_NAME = new RegExp(`^memory\\.(users|places|entities|graph|inspect|${FAMILY_WORDS.join('|')})\\.`);
 
-/** Whether this module answers `name`: the writes that stay operations are the console's. */
+/** Whether this module answers `name`: the writes of lore and names are the console's. */
 export const isMemoryBrowserCommand = (name: string): boolean =>
   BROWSER_NAME.test(name) && !name.startsWith('memory.places.lore.') && !name.startsWith('memory.users.names.');
 

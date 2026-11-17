@@ -183,13 +183,8 @@ test('skills effects: one effect class per operation, by its actual effect, in o
     SKILL_DEFINITIONS.filter((definition) => definition.effects === effect)
       .map((definition) => definition.name)
       .sort();
-  assert.deepEqual(of('destructive'), [
-    'alias.remove',
-    'learning.remove',
-    'memory.restore',
-    'message.delete',
-    'rule.remove',
-  ]);
+  // Changed: `alias.remove`, `learning.remove` and `lore.remove` are no tools of hers.
+  assert.deepEqual(of('destructive'), ['memory.restore', 'message.delete', 'rule.remove']);
   for (const name of [
     'config.set',
     'config.unset',

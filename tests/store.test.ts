@@ -113,16 +113,8 @@ test('updateUser: cannot set interests or details via raw LLM fields', () => {
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { interests: { add: [{ topic: 'chess', note: '' }] }, details: { add: ['likes tea'] } },
-    {
-      maxInterests: 12,
-      maxDetails: 15,
-      now: 1000,
-    }
-  );
 
+  // Changed: the profile starts with no interest and no detail, since the store's item writer left with `alias.add`.
   store.updateUser(accountOf(store, 'u1'), {
     character: 'chatty',
     interests: [{ topic: 'sneaky', note: '', weight: 99, firstSeen: 'x', lastSeen: 'x' }],
@@ -131,21 +123,11 @@ test('updateUser: cannot set interests or details via raw LLM fields', () => {
 
   const profile = store.getUser(accountOf(store, 'u1'));
   assert.equal(asRecord(profile).character, 'chatty');
-  assert.equal(asRecord(profile).interests.length, 1);
-  assert.equal(asRecord(profile).interests[0].topic, 'chess');
-  assert.equal(asRecord(profile).details.length, 1);
-  assert.equal(asRecord(profile).details[0].text, 'likes tea');
+  assert.deepEqual(asRecord(profile).interests, []);
+  assert.deepEqual(asRecord(profile).details, []);
 });
 
 // ---- guild.learned: things people taught the persona --------------------------
-
-const LEARNED_CFG = {
-  maxLearned: 20,
-  maxLearnedStored: 60,
-  learnedHalfLifeDays: 720,
-  confirmGapHours: 12,
-};
-const TEACH_AT = Date.UTC(2026, 8, 21, 12, 0, 0);
 
 test('getPlace: a hand-edited learned list is validated, ids assigned off learnedNextId', async () => {
   const { dir, memoryDb } = memDataDir();
@@ -206,130 +188,14 @@ test('pings: a hand-broken field reads as {}, junk entries dropped, a junk pings
   }
 });
 
-test('applyLearnedOps: adds items with per-guild ids, from kept, returns the new list, persists across a restart', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const store = createStore({ dataDir: dir, memoryDb, newId: counterIds() });
-  const learned = store.applyLearnedOps(
-    placeOfRoot(store, 'g1'),
-    { add: [{ text: 'Café closes at nine', from: '<@322222222222222222>' }, 'Friday is τυρόπιτα day'] },
-    { ...LEARNED_CFG, seenAt: TEACH_AT }
-  );
-  assert.deepEqual(learned, [
-    {
-      id: 1,
-      text: 'Café closes at nine',
-      weight: 1,
-      firstSeen: new Date(TEACH_AT).toISOString(),
-      lastSeen: new Date(TEACH_AT).toISOString(),
-      from: '<@322222222222222222>',
-      itemId: 'ln-u1',
-    },
-    {
-      id: 2,
-      text: 'Friday is τυρόπιτα day',
-      weight: 1,
-      firstSeen: new Date(TEACH_AT).toISOString(),
-      lastSeen: new Date(TEACH_AT).toISOString(),
-      itemId: 'ln-u2',
-    },
-  ]);
-  assert.equal(asRecord(store.getPlace(placeOfRoot(store, 'g1'))).learnedNextId, 3);
-  store.flush();
-  await store.flushSettled({});
-
-  const again = createStore({ dataDir: dir, memoryDb }).getPlace('discord:server:g1');
-  assert.deepEqual(asRecord(again).learned, learned);
-  assert.equal(asRecord(again).learnedNextId, 3);
-});
-
-test('applyLearnedOps: ids are never reused after a remove; seen bumps past the gap; sure:false starts at 0', () => {
-  const store = createStore(memoryAt(tmpDataDir()));
-  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['a fact', 'b fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
-  store.applyLearnedOps(
-    placeOfRoot(store, 'g1'),
-    { remove: [2], seen: [1] },
-    { ...LEARNED_CFG, seenAt: TEACH_AT + 24 * 3_600_000 }
-  );
-  const learned = store.applyLearnedOps(
-    placeOfRoot(store, 'g1'),
-    { add: [{ text: 'c fact', sure: false }] },
-    { ...LEARNED_CFG, seenAt: TEACH_AT }
-  );
-  assert.deepEqual(
-    learned.map((i) => [asRecord(i).id, asRecord(i).text, asRecord(i).weight]),
-    [
-      [1, 'a fact', 2],
-      [3, 'c fact', 0],
-    ]
-  );
-});
-
-// The owner on 2026-11-16: a lesson is kept whole; the limit of 160 is gone.
-test('applyLearnedOps: a long text is kept whole, storage capped at max(maxLearnedStored, maxLearned)', () => {
-  const store = createStore(memoryAt(tmpDataDir()));
-  const long = 'ω'.repeat(400);
-  const cfg = { ...LEARNED_CFG, maxLearned: 2, maxLearnedStored: 3 };
-  const learned = store.applyLearnedOps(
-    placeOfRoot(store, 'g1'),
-    { add: ['f1', 'f2', 'f3', 'f4', long] },
-    { ...cfg, seenAt: TEACH_AT }
-  );
-  assert.equal(learned.length, 3);
-  assert.ok(
-    learned.some((i) => asRecord(i).text === long),
-    'the long lesson is stored whole'
-  );
-});
-
-test('applyLearnedOps: garbage ops never throw and change nothing', () => {
-  const store = createStore(memoryAt(tmpDataDir()));
-  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['kept fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
-  for (const garbage of [
-    null,
-    undefined,
-    'nope',
-    42,
-    [1],
-    { add: 'x' },
-    { add: [null, 42, {}] },
-    { seen: [{}] },
-    { remove: [{}] },
-  ]) {
-    const learned = store.applyLearnedOps(
-      placeOfRoot(store, 'g1'),
-      garbage as unknown as Parameters<typeof store.applyLearnedOps>[1],
-      {
-        ...LEARNED_CFG,
-        seenAt: TEACH_AT,
-      }
-    );
-    assert.deepEqual(
-      learned.map((i) => asRecord(i).text),
-      ['kept fact'],
-      `garbage ${JSON.stringify(garbage)}`
-    );
-  }
-});
-
-test('applyLearnedOps: leaves every other guild field alone', () => {
-  const store = createStore(memoryAt(tmpDataDir()));
-  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια', injokes: ['ο βράχος'] });
-  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['a fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
-  const guild = store.getPlace(placeOfRoot(store, 'g1'));
-  assert.equal(asRecord(guild).patterns, 'μιμίδια');
-  assert.deepEqual(asRecord(guild).injokes, ['ο βράχος']);
-});
-
 test('updatePlace: can never overwrite learned or learnedNextId wholesale', () => {
   const store = createStore(memoryAt(tmpDataDir()));
-  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['a fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
-  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'p', learned: [], learnedNextId: 99 });
+  // Changed: the place starts with no lesson, since the store's writer of lessons left with `/memory lessons add`.
+  const before = asRecord(store.getPlace(placeOfRoot(store, 'g1'))).learnedNextId;
+  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'p', learned: [{ text: 'a fact' }], learnedNextId: 99 });
   const guild = store.getPlace(placeOfRoot(store, 'g1'));
-  assert.deepEqual(
-    asRecord(guild).learned.map((i: Untyped) => i.text),
-    ['a fact']
-  );
-  assert.equal(asRecord(guild).learnedNextId, 2);
+  assert.deepEqual(asRecord(guild).learned, []);
+  assert.equal(asRecord(guild).learnedNextId, before);
   assert.equal(asRecord(guild).patterns, 'p');
 });
 
@@ -442,24 +308,6 @@ test('updatePlace: the notes stamps can never be set through the fields', () => 
     [asRecord(guild).updatedAt, asRecord(guild).notesUpdatedAt, asRecord(guild).notesCheckedAt],
     [NOTES_EARLIER, NOTES_EARLIER, null]
   );
-});
-
-test('applyLearnedOps: a lesson never moves notesUpdatedAt', () => {
-  const store = createStore(memoryAt(tmpDataDir()));
-  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια' });
-  Object.assign(store.getPlace(placeOfRoot(store, 'g1')), {
-    updatedAt: NOTES_EARLIER,
-    notesUpdatedAt: NOTES_EARLIER,
-  });
-
-  store.applyLearnedOps(
-    placeOfRoot(store, 'g1'),
-    { add: ['Café closes at nine'] },
-    { ...LEARNED_CFG, seenAt: TEACH_AT }
-  );
-  const guild = store.getPlace(placeOfRoot(store, 'g1'));
-  assert.notEqual(asRecord(guild).updatedAt, NOTES_EARLIER);
-  assert.equal(asRecord(guild).notesUpdatedAt, NOTES_EARLIER);
 });
 
 test('markNotesFlagged: stamps notesFlaggedAt on existing channels and the guild only', () => {
@@ -930,7 +778,7 @@ test('updateUser: never overwrites episodes even if the field is present in fiel
   assert.deepEqual(asRecord(profile).episodes, []);
 });
 
-// --- interests / details (applyProfileOps) ----------------------------------
+// --- interests / details ------------------------------------------------------
 
 test('getUser: a hand-edited details array missing valid ids gets fresh ones assigned, advancing detailsSeq', async () => {
   const { dir, memoryDb } = memDataDir();
@@ -949,282 +797,6 @@ test('getUser: a hand-edited details array missing valid ids gets fresh ones ass
     { id: 2, text: 'Plays guitar', weight: 1, firstSeen: null, lastSeen: null },
   ]);
   assert.equal(asRecord(profile).detailsSeq, 3);
-});
-
-test('applyProfileOps: a detail id is never reused after a remove', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  store.applyProfileOps(accountOf(store, 'u1'), { details: { add: ['a', 'b'] } }, { maxDetails: 15, now: 1000 });
-  store.applyProfileOps(accountOf(store, 'u1'), { details: { remove: [1] } }, { maxDetails: 15, now: 2000 });
-  const profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { add: ['c'] } },
-    { maxDetails: 15, now: 3000 }
-  );
-  assert.deepEqual(
-    asRecord(profile).details.map((d: Untyped) => d.id),
-    [2, 3]
-  );
-});
-
-test('applyProfileOps: opts.seenAt (not opts.now) dates interests/details, and drives the confirmGapHours bump', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  const seenAt1 = Date.UTC(2020, 0, 1);
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { interests: { add: [{ topic: 'Chess', note: '' }] } },
-    {
-      maxInterests: 12,
-      confirmGapHours: 12,
-      now: 999_999_999_999, // a very different wall-clock "now"
-      seenAt: seenAt1,
-    }
-  );
-  let profile = store.getUser(accountOf(store, 'u1'));
-  assert.equal(asRecord(profile).interests[0].firstSeen, new Date(seenAt1).toISOString(), 'dated by seenAt, not now');
-
-  const seenAt2 = seenAt1 + 13 * 3_600_000; // past the 12h gap
-  profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { interests: { seen: ['Chess'] } },
-    {
-      maxInterests: 12,
-      confirmGapHours: 12,
-      now: 1,
-      seenAt: seenAt2,
-    }
-  );
-  assert.equal(asRecord(profile).interests[0].weight, 2);
-  assert.equal(asRecord(profile).interests[0].lastSeen, new Date(seenAt2).toISOString());
-});
-
-test('applyProfileOps: sets character/style/relationship only when given as non-empty strings', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  store.applyProfileOps(accountOf(store, 'u1'), { character: 'chatty', style: 'blunt' }, { now: 1000 });
-
-  const profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { style: '', relationship: 'trusts you' },
-    { now: 2000 }
-  );
-  assert.equal(asRecord(profile).character, 'chatty', 'untouched: absent from this call');
-  assert.equal(asRecord(profile).style, 'blunt', 'untouched: empty string never blanks it');
-  assert.equal(asRecord(profile).relationship, 'trusts you');
-});
-
-// The owner on 2026-11-16: a profile field is kept whole on a first write too; the limit of 1000 is gone.
-test('applyProfileOps: a long first write of a prose field is kept whole, and so is a rewrite', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  const first = `  ${'0123456789'.repeat(300)}  `;
-  const profile = store.applyProfileOps(accountOf(store, 'u1'), { character: first }, { now: 1000 });
-  assert.equal(asRecord(profile).character, first.trim());
-  const second = '0123456789abcdef'.repeat(300);
-  const rewritten = store.applyProfileOps(accountOf(store, 'u1'), { character: second }, { now: 2000 });
-  assert.equal(asRecord(rewritten).character, second);
-});
-
-test('applyProfileOps: normalizes a hand-edited interests array before applying ops', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const guildDir = path.join(dir, 'guilds', 'g1', 'users');
-  fs.mkdirSync(guildDir, { recursive: true });
-  writeRaw(path.join(guildDir, 'u1.json'), {
-    id: 'u1',
-    names: ['Alice'],
-    interests: [{ topic: 'Chess' }, { topic: 'Anime' }],
-  });
-
-  const store = createStore({ dataDir: dir, memoryDb });
-  const profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { interests: { add: [{ topic: 'Cooking', note: '' }] } },
-    {
-      maxInterests: 12,
-      now: 1000,
-    }
-  );
-  assert.deepEqual(
-    asRecord(profile).interests.map((i: Untyped) => i.topic),
-    ['Chess', 'Anime', 'Cooking']
-  );
-});
-
-test('applyProfileOps: details add is de-duplicated case-insensitively (a sighting on the existing item), remove is exact-text', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { add: ['Owns a cat', 'Plays guitar'] } },
-    { maxDetails: 15, now: 1000 }
-  );
-  const profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { add: ['owns a cat', 'Reads sci-fi'], remove: ['Plays guitar'] } },
-    {
-      maxDetails: 15,
-      now: 2000,
-    }
-  );
-  assert.deepEqual(
-    asRecord(profile).details.map((d: Untyped) => d.text),
-    ['Owns a cat', 'Reads sci-fi']
-  );
-  assert.equal(asRecord(profile).details[0].weight, 1, 'the re-add landed inside the default confirmGapHours, no bump');
-});
-
-test('applyProfileOps: details are capped at maxDetails, evicting the lowest weight (then oldest) first', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  const profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { add: ['a', 'b', 'c'] } },
-    { maxDetails: 2, now: 1000 }
-  );
-  assert.deepEqual(
-    asRecord(profile).details.map((d: Untyped) => d.text),
-    ['b', 'c']
-  );
-});
-
-test('applyProfileOps: threads interestHalfLifeDays into applyInterestOps -- decay lets a recent light interest survive eviction over an ancient heavier one', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  const ancientMs = Date.parse('2021-01-01T00:00:00.000Z');
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { interests: { add: [{ topic: 'Ancient favorite' }] } },
-    {
-      maxInterests: 5,
-      maxInterestsStored: 5,
-      seenAt: ancientMs,
-      now: ancientMs,
-    }
-  );
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { interests: { seen: ['Ancient favorite'] } },
-    {
-      maxInterests: 5,
-      maxInterestsStored: 5,
-      seenAt: ancientMs + 13 * 3_600_000,
-      now: ancientMs,
-    }
-  );
-
-  const recentMs = Date.parse('2026-09-20T00:00:00.000Z');
-  const profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { interests: { add: [{ topic: 'Fresh interest' }] } },
-    {
-      maxInterests: 1,
-      maxInterestsStored: 1, // force an eviction down to a single stored interest
-      interestHalfLifeDays: 30,
-      seenAt: recentMs,
-      now: recentMs,
-    }
-  );
-  assert.deepEqual(
-    asRecord(profile).interests.map((i: Untyped) => i.topic),
-    ['Fresh interest'],
-    'years of silence outrank the ancient item, higher weight or not'
-  );
-});
-
-test('applyProfileOps: threads detailHalfLifeDays into applyDetailOps -- decay lets a recent light detail survive eviction over an ancient heavier one', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  const ancientMs = Date.parse('2021-01-01T00:00:00.000Z');
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { add: [{ text: 'Ancient favorite fact' }] } },
-    { maxDetails: 5, maxDetailsStored: 5, seenAt: ancientMs, now: ancientMs }
-  );
-  // Bump the ancient detail's weight a bit, well past confirmGapHours, so it
-  // starts heavier than the newcomer added below.
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { seen: ['Ancient favorite fact'] } },
-    { maxDetails: 5, maxDetailsStored: 5, seenAt: ancientMs + 13 * 3_600_000, now: ancientMs }
-  );
-
-  const recentMs = Date.parse('2026-09-20T00:00:00.000Z');
-  const profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { add: [{ text: 'Fresh detail' }] } },
-    {
-      maxDetails: 1,
-      maxDetailsStored: 1, // force an eviction down to a single stored detail
-      detailHalfLifeDays: 30,
-      seenAt: recentMs,
-      now: recentMs,
-    }
-  );
-  assert.deepEqual(
-    asRecord(profile).details.map((d: Untyped) => d.text),
-    ['Fresh detail'],
-    'years of silence outrank the ancient item, higher weight or not'
-  );
-});
-
-test('applyProfileOps: tolerates garbage ops without throwing, leaves the profile unchanged', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  for (const garbage of [null, undefined, 'not an object', 42, { interests: 'nope', details: 5 }]) {
-    assert.doesNotThrow(() =>
-      store.applyProfileOps(accountOf(store, 'u1'), garbage as unknown as Parameters<typeof store.applyProfileOps>[1], {
-        now: 1000,
-      })
-    );
-  }
-  const profile = store.getUser(accountOf(store, 'u1'));
-  assert.deepEqual(asRecord(profile).interests, []);
-  assert.deepEqual(asRecord(profile).details, []);
-});
-
-test('applyProfileOps: persists across store instances', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const guildDir = path.join(dir, 'guilds', 'g1', 'users');
-  fs.mkdirSync(guildDir, { recursive: true });
-  writeRaw(path.join(guildDir, 'u1.json'), {
-    id: 'u1',
-    names: ['Alice'],
-    interests: [{ topic: 'Chess', note: 'weekly club', weight: 1, firstSeen: null, lastSeen: null }],
-  });
-
-  const storeA = createStore({ dataDir: dir, memoryDb });
-  storeA.applyProfileOps(
-    accountOf(storeA, 'u1'),
-    { interests: { add: [{ topic: 'Anime', note: '' }] }, details: { add: ['owns a cat'] } },
-    {
-      maxInterests: 12,
-      maxDetails: 15,
-      now: 1000,
-    }
-  );
-  storeA.flush();
-  await storeA.flushSettled({});
-
-  const storeB = createStore({ dataDir: dir, memoryDb });
-  const profile = storeB.getUser(accountOf(storeB, 'u1'));
-  assert.deepEqual(
-    asRecord(profile).interests.map((i: Untyped) => i.topic),
-    ['Chess', 'Anime']
-  );
-  assert.deepEqual(
-    asRecord(profile).details.map((d: Untyped) => d.text),
-    ['owns a cat']
-  );
 });
 
 // --- lore -----------------------------------------------------------------
@@ -1288,71 +860,6 @@ test('lore: persists across store instances', async () => {
   const entries = storeB.getLore(placeOfRoot(storeB, 'g1'));
   assert.equal(entries.length, 1);
   assert.equal(asRecord(entries[0]).title, 'The Flood');
-});
-
-test('applyProfileOps: routes users.aliases ops through applyAliasOps, threading maxAliases/maxAliasesStored/aliasHalfLifeDays', () => {
-  const freshStore = () => {
-    const store = createStore(memoryAt(tmpDataDir()));
-    store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-    return store;
-  };
-  const addAliases = (store: Untyped, names: unknown, opts: unknown) =>
-    store.applyProfileOps(accountOf(store, 'u1'), { aliases: { add: names } }, opts);
-
-  const profile = addAliases(freshStore(), ['Ali'], {
-    maxAliases: 5,
-    maxAliasesStored: 15,
-    aliasHalfLifeDays: 365,
-    now: 1000,
-  });
-  assert.equal(profile.aliases.length, 1);
-  assert.equal(profile.aliases[0].name, 'Ali');
-  assert.equal(profile.aliases[0].weight, 1);
-
-  // maxAliasesStored: a stored cap above the shown cap is the one enforced.
-  const stored = addAliases(freshStore(), ['Ali', 'Λίζα', 'Zoé', 'Élise'], {
-    maxAliases: 1,
-    maxAliasesStored: 3,
-    now: 1000,
-  });
-  assert.equal(stored.aliases.length, 3, 'maxAliasesStored (3) reached the eviction, not only maxAliases (1)');
-
-  // maxAliases: a stored cap below the shown cap is floored at the shown cap.
-  const shown = addAliases(freshStore(), ['Ali', 'Λίζα', 'Zoé'], { maxAliases: 3, maxAliasesStored: 1, now: 1000 });
-  assert.equal(shown.aliases.length, 3, 'maxAliases (3) reached the eviction and floors the stored cap (1)');
-
-  // aliasHalfLifeDays: decay lets a recent light alias outlive an ancient heavier one.
-  const decaying = freshStore();
-  const ancientMs = Date.parse('2021-01-01T00:00:00.000Z');
-  addAliases(decaying, ['Λίζα'], { confirmGapHours: 12, seenAt: ancientMs, now: ancientMs });
-  const before = addAliases(decaying, ['Λίζα'], {
-    confirmGapHours: 12,
-    seenAt: ancientMs + 13 * 3_600_000,
-    now: ancientMs,
-  });
-  assert.equal(before.aliases[0].weight, 2, 'the ancient alias starts heavier than the newcomer');
-  const recentMs = Date.parse('2026-09-20T00:00:00.000Z');
-  const decayed = addAliases(decaying, ['Zoé'], {
-    maxAliases: 1,
-    maxAliasesStored: 1,
-    aliasHalfLifeDays: 30,
-    seenAt: recentMs,
-    now: recentMs,
-  });
-  assert.deepEqual(
-    decayed.aliases.map((a: Untyped) => a.name),
-    ['Zoé'],
-    'years of silence outrank the ancient alias, higher weight or not'
-  );
-});
-
-test("applyProfileOps: an alias equal (case-insensitively) to the member's OWN stored display name is never added", () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-
-  const profile = store.applyProfileOps(accountOf(store, 'u1'), { aliases: { add: ['alice'] } }, { now: 1000 });
-  assert.deepEqual(asRecord(profile).aliases, []);
 });
 
 // --- listUserProfiles -----------------------------------------------------------
@@ -1751,33 +1258,6 @@ test('normalisation on read keeps decayedAt and relationshipScore, public and pr
   assert.equal(asRecord(store.getPrivate(accountOf(store, 'u1'))).affinity.decayedAt, stamp);
 });
 
-test('applyProfileOps: stamps relationshipScore when the relationship text is written, not otherwise', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
-  store.adjustAffinity(accountOf(store, 'u1'), 30, 'x', { maxDelta: 30, historySize: 10, now: 1000 });
-
-  store.applyProfileOps(accountOf(store, 'u1'), { character: 'calm', relationship: '  ' }, {});
-  assert.equal(
-    asRecord(store.getUser(accountOf(store, 'u1'))).relationshipScore,
-    undefined,
-    'a blank relationship writes nothing'
-  );
-
-  store.applyProfileOps(accountOf(store, 'u1'), { relationship: 'Close friends' }, {});
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipScore, 30, 'falls back to the stored score');
-
-  store.applyProfileOps(accountOf(store, 'u1'), { relationship: 'Closer still' }, { relationshipScore: 44.5 });
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipScore, 44.5, 'opts.relationshipScore wins');
-
-  store.applyProfileOps(accountOf(store, 'u1'), { details: { add: ['owns a cat'] } }, { relationshipScore: 99 });
-  assert.equal(
-    asRecord(store.getUser(accountOf(store, 'u1'))).relationshipScore,
-    44.5,
-    'no relationship text -> untouched'
-  );
-});
-
 test('applyPrivateOps: stamps relationshipScore when the private relationship text is written, not otherwise', () => {
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
@@ -1801,48 +1281,6 @@ const WRITTEN_NOW = Date.UTC(2026, 9, 5, 9, 30, 0);
 // Three sentences of about 40 characters each, longer in all than any old limit of the relationship text.
 const LONG_RELATIONSHIP =
   'Μιλάμε συχνά για βιβλία και για ταξίδια. Μου λέει πάντα την αλήθεια χωρίς φόβο. Γελάμε με τα ίδια αστεία κάθε βράδυ μαζί.';
-
-// The owner on 2026-11-16: a relationship text is kept whole; the limit of 600 is gone.
-test('applyProfileOps: a written relationship is stamped relationshipWrittenAt and kept whole', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
-
-  store.applyProfileOps(accountOf(store, 'u1'), { details: { add: ['owns a cat'] } }, { now: WRITTEN_NOW - 1000 });
-  assert.equal(
-    asRecord(store.getUser(accountOf(store, 'u1'))).relationshipWrittenAt,
-    undefined,
-    'no relationship text -> no stamp'
-  );
-
-  const profile = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { character: LONG_RELATIONSHIP, relationship: LONG_RELATIONSHIP },
-    {
-      relationshipScore: 12.5,
-      now: WRITTEN_NOW,
-    }
-  );
-  assert.equal(asRecord(profile).relationship, LONG_RELATIONSHIP);
-  assert.equal(asRecord(profile).character, LONG_RELATIONSHIP);
-  assert.equal(asRecord(profile).relationshipWrittenAt, new Date(WRITTEN_NOW).toISOString());
-  assert.equal(asRecord(profile).relationshipScore, 12.5);
-
-  store.applyProfileOps(accountOf(store, 'u1'), { relationship: '   ' }, { now: WRITTEN_NOW + 5000 });
-  assert.equal(
-    asRecord(store.getUser(accountOf(store, 'u1'))).relationshipWrittenAt,
-    new Date(WRITTEN_NOW).toISOString(),
-    'a blank text stamps nothing'
-  );
-
-  // A rewrite is stored whole as well.
-  const rewritten = store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { relationship: LONG_RELATIONSHIP },
-    { now: WRITTEN_NOW + 6000 }
-  );
-  assert.equal(asRecord(rewritten).relationship, LONG_RELATIONSHIP);
-});
 
 // The owner on 2026-11-16: a relationship text is kept whole; the limit of 600 is gone.
 test('applyPrivateOps: a written private relationship is stamped relationshipWrittenAt and kept whole', () => {
@@ -1870,15 +1308,11 @@ test('applyPrivateOps: a written private relationship is stamped relationshipWri
   assert.equal(asRecord(rewritten).relationship, LONG_RELATIONSHIP);
 });
 
-test('store: relationshipWrittenAt and relationshipScore survive a restart, public and private', async () => {
+// Changed: the private layer alone, since the profile's writer of the stamps left with `alias.add`.
+test('store: relationshipWrittenAt and relationshipScore survive a restart in the private layer', async () => {
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
   store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { relationship: 'Παλιοί φίλοι.' },
-    { relationshipScore: 31, now: WRITTEN_NOW }
-  );
   store.applyPrivateOps(
     accountOf(store, 'u1'),
     { relationship: 'Μου εμπιστεύεται μυστικά.' },
@@ -1888,11 +1322,6 @@ test('store: relationshipWrittenAt and relationshipScore survive a restart, publ
   await store.flushSettled({});
 
   const restarted = createStore({ dataDir: dir, memoryDb });
-  assert.equal(
-    asRecord(restarted.getUser(accountOf(restarted, 'u1'))).relationshipWrittenAt,
-    new Date(WRITTEN_NOW).toISOString()
-  );
-  assert.equal(asRecord(restarted.getUser(accountOf(restarted, 'u1'))).relationshipScore, 31);
   assert.equal(
     asRecord(restarted.getPrivate(accountOf(restarted, 'u1'))).relationshipWrittenAt,
     new Date(WRITTEN_NOW + 60_000).toISOString()
@@ -2085,15 +1514,16 @@ test('store: versions are capped per field at versions.kept, oldest dropped; a c
     assert.equal(v[0].by, 'unknown');
   }));
 
-test('store: applyProfileOps and setLore record user and lore versions; versions off records nothing', () =>
+// Changed: the profile texts are written by updateUser, since applyProfileOps left with `alias.add`.
+test('store: updateUser and setLore record user and lore versions; versions off records nothing', () =>
   withStore(async (store: Untyped, dir: Untyped, memoryDb: Untyped) => {
-    store.applyProfileOps(
+    store.updateUser(
       accountOf(store, 'u1'),
       { character: 'Calme. Précis.', relationship: 'Amical.' },
       { by: 'analyzer' }
     );
     assert.deepEqual(store.listVersions(placeOfRoot(store, 'g1'), 'users', accountOf(store, 'u1')), {}, 'first write');
-    store.applyProfileOps(
+    store.updateUser(
       accountOf(store, 'u1'),
       { character: 'Calme. Bavard.', relationship: 'Très amical.' },
       { by: 'voice' }
@@ -2130,8 +1560,8 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
     );
 
     const off = { enabled: false, kept: 20 };
-    store.applyProfileOps(accountOf(store, 'u1'), { style: 'Bref.' }, {});
-    store.applyProfileOps(
+    store.updateUser(accountOf(store, 'u1'), { style: 'Bref.' }, {});
+    store.updateUser(
       accountOf(store, 'u1'),
       { character: 'Autre.', style: 'Long.', relationship: 'Froid.' },
       { versions: off }
@@ -2168,7 +1598,7 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
 test('store: version files are not mistaken for channel or user ids', () =>
   withStore(async (store: Untyped, dir: Untyped, memoryDb: Untyped) => {
     for (const text of ['Un.', 'Deux.']) {
-      store.applyProfileOps(accountOf(store, 'u1'), { character: text }, {});
+      store.updateUser(accountOf(store, 'u1'), { character: text }, {});
       store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: text });
       store.updatePlace(placeOfRoot(store, 'g1'), { patterns: text });
       store.setLore(placeOfRoot(store, 'g1'), [{ title: 'T', keys: ['tt'], text }], { source: 'owner' });
@@ -2310,7 +1740,8 @@ test('markRelationshipRewrite: sets and clears the flag on a profile with a text
   assert.equal(store.markRelationshipRewrite(accountOf(store, 'u1')), false, 'a profile without a relationship text');
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipRewrite, undefined);
 
-  store.applyProfileOps(accountOf(store, 'u1'), { relationship: 'Παλιοί φίλοι.' }, { now: WRITTEN_NOW });
+  // Changed: the relationship text is written by updateUser, since applyProfileOps left with `alias.add`.
+  store.updateUser(accountOf(store, 'u1'), { relationship: 'Παλιοί φίλοι.' });
   assert.equal(store.markRelationshipRewrite(accountOf(store, 'u1')), true);
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipRewrite, true);
   store.flush();
@@ -2323,32 +1754,6 @@ test('markRelationshipRewrite: sets and clears the flag on a profile with a text
 
   assert.equal(store.markRelationshipRewrite(accountOf(store, 'u1'), false), true);
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipRewrite, undefined, 'cleared');
-});
-
-test('applyProfileOps: writing a relationship text clears the rewrite flag, any other write keeps it', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
-  store.applyProfileOps(accountOf(store, 'u1'), { relationship: 'Παλιοί φίλοι.' }, { now: WRITTEN_NOW });
-  store.markRelationshipRewrite(accountOf(store, 'u1'));
-
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { details: { add: ['owns a cat'] }, relationship: '  ' },
-    { now: WRITTEN_NOW + 1000 }
-  );
-  assert.equal(
-    asRecord(store.getUser(accountOf(store, 'u1'))).relationshipRewrite,
-    true,
-    'no text written -> the flag stays'
-  );
-
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { relationship: 'Φίλοι που μιλούν κάθε μέρα.' },
-    { now: WRITTEN_NOW + 2000 }
-  );
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipRewrite, undefined);
 });
 
 // ---- itemId and what every write drops ----------------------------------------------------
@@ -2399,14 +1804,7 @@ test('store: eviction returns the dropped items with their itemId', () => {
   );
   assert.ok(firstPostId.startsWith('dy-u'));
 
-  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['πρώτο', 'δεύτερο'] }, { seenAt: ID_NOW });
-  const firstLessonId = asRecord(store.getPlace(placeOfRoot(store, 'g1'))).learned[0].itemId;
-  const learned = store.applyLearnedOps(placeOfRoot(store, 'g1'), { remove: [1] }, { seenAt: ID_NOW });
-  assert.deepEqual(
-    asRecord(learned).dropped.map((l: Untyped) => [l.text, l.itemId]),
-    [['πρώτο', firstLessonId]]
-  );
-
+  // Changed: no lesson is dropped here, since the store's writer of lessons left with `/memory lessons add`.
   store.applyRecentOps(
     placeOfRoot(store, 'g1'),
     [{ text: 'παλιό', at: ID_NOW - 1000, placeId: '900000000000000001' }],
@@ -2585,17 +1983,18 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
   assert.equal(JSON.parse(readRaw(file)).affinity.history.length, 3);
 });
 
+// Changed: through the private layer, since the profile's item writer left with `alias.add`.
 test('store: a replace op archives the previous version with event replaced', async () => {
   const archive = fakeArchive();
   const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds(), archive });
-  store.applyProfileOps(
+  store.applyPrivateOps(
     accountOf(store, 'u1'),
     { interests: { add: [{ topic: 'σκάκι', note: 'παίζει τα βράδια' }] } },
     { now: ID_NOW }
   );
-  const [stored] = asRecord(store.getUser(accountOf(store, 'u1'))).interests;
+  const [stored] = asRecord(store.getPrivate(accountOf(store, 'u1'))).interests;
 
-  store.applyProfileOps(
+  store.applyPrivateOps(
     accountOf(store, 'u1'),
     { interests: { update: [{ topic: 'σκάκι', note: 'παίζει online' }] } },
     { now: ID_NOW + 1000 }
@@ -2605,29 +2004,30 @@ test('store: a replace op archives the previous version with event replaced', as
   assert.deepEqual([entry.itemKind, entry.event, entry.itemId], ['interest', 'replaced', stored.itemId]);
   assert.deepEqual(entry.text, { topic: 'σκάκι', note: 'παίζει τα βράδια' }, 'the previous version');
   assert.equal(
-    asRecord(store.getUser(accountOf(store, 'u1'))).interests[0].note,
+    asRecord(store.getPrivate(accountOf(store, 'u1'))).interests[0].note,
     'παίζει online',
     'the new version stays hot'
   );
 
   // A remove is a replace too: held until confirmed, then gone.
-  store.applyProfileOps(accountOf(store, 'u1'), { interests: { remove: ['σκάκι'] } }, { now: ID_NOW + 2000 });
+  store.applyPrivateOps(accountOf(store, 'u1'), { interests: { remove: ['σκάκι'] } }, { now: ID_NOW + 2000 });
   const settled = await store.settleArchive();
   assert.deepEqual(
     settled.archived.map((item) => [item.itemKind, item.event, item.itemId]),
     [['interest', 'replaced', stored.itemId]]
   );
   assert.equal(asRecord(archive.appended.at(-1))?.entries[0].text.note, 'παίζει online');
-  assert.deepEqual(asRecord(store.getUser(accountOf(store, 'u1'))).interests, []);
+  assert.deepEqual(asRecord(store.getPrivate(accountOf(store, 'u1'))).interests, []);
 });
 
+// Changed: through the private layer, since the profile's item writer left with `alias.add`.
 test('store: a replaced note is not flushed to disk before its old version is archived', async () => {
   const { dir, memoryDb } = memDataDir();
   const archive = fakeArchive({ manual: true });
   const store = createStore({ dataDir: dir, memoryDb, newId: counterIds(), archive });
-  const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
+  const file = privateFile(dir, 'g1', 'u1');
   const noteOnDisk = () => JSON.parse(readRaw(file)).interests[0].note;
-  store.applyProfileOps(
+  store.applyPrivateOps(
     accountOf(store, 'u1'),
     { interests: { add: [{ topic: 'σκάκι', note: 'παίζει τα βράδια' }] } },
     { now: ID_NOW }
@@ -2636,12 +2036,12 @@ test('store: a replaced note is not flushed to disk before its old version is ar
   await settle();
   assert.equal(noteOnDisk(), 'παίζει τα βράδια');
 
-  store.applyProfileOps(
+  store.applyPrivateOps(
     accountOf(store, 'u1'),
     { interests: { update: [{ topic: 'σκάκι', note: 'παίζει online' }] } },
     { now: ID_NOW + 1000 }
   );
-  assert.equal(store.flush().held, 1, 'the member file waits for the archive');
+  assert.equal(store.flush().held, 1, 'the private file waits for the archive');
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(store.flush().held, 1, 'still waiting while the append is in flight');
   await settle();
@@ -2654,7 +2054,7 @@ test('store: a replaced note is not flushed to disk before its old version is ar
   assert.equal(noteOnDisk(), 'παίζει online');
 
   // A hold that never clears: the shutdown flush waits holdMaxMs, then writes anyway and logs it.
-  store.applyProfileOps(
+  store.applyPrivateOps(
     accountOf(store, 'u1'),
     { interests: { update: [{ topic: 'σκάκι', note: 'παίζει σπάνια' }] } },
     { now: ID_NOW + 2000 }
@@ -2669,24 +2069,25 @@ test('store: a replaced note is not flushed to disk before its old version is ar
   );
 });
 
+// Changed: through the private layer, since the profile's item writer left with `alias.add`.
 test('store: closed items are capped and archived as replaced', async () => {
   const archive = fakeArchive();
   const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds(), archive });
   const opts = (n: number) => ({ now: ID_NOW + n * 1000, maxClosedStored: 2 });
-  store.applyProfileOps(accountOf(store, 'u1'), { interests: { add: [{ topic: 'α', note: '' }] } }, opts(0));
+  store.applyPrivateOps(accountOf(store, 'u1'), { interests: { add: [{ topic: 'α', note: '' }] } }, opts(0));
   for (const [n, topic] of [
     [1, 'β'],
     [2, 'γ'],
     [3, 'δ'],
   ]) {
-    const [open] = asRecord(store.getUser(accountOf(store, 'u1'))).interests;
-    store.applyProfileOps(
+    const [open] = asRecord(store.getPrivate(accountOf(store, 'u1'))).interests;
+    store.applyPrivateOps(
       accountOf(store, 'u1'),
       { interests: { add: [{ topic, note: '', supersedes: open.itemId }] } },
       opts(Number(n))
     );
   }
-  const profile = store.getUser(accountOf(store, 'u1'));
+  const profile = store.getPrivate(accountOf(store, 'u1'));
   assert.deepEqual(
     asRecord(profile).interests.map((item: Untyped) => item.topic),
     ['δ']
@@ -2705,96 +2106,19 @@ test('store: closed items are capped and archived as replaced', async () => {
   const [entry] = archive.appended.flatMap((call) => asRecord(call).entries);
   assert.equal(entry.text.topic, 'α');
   assert.deepEqual(
-    asRecord(store.getUser(accountOf(store, 'u1'))).closed.map((item: Untyped) => [item.kind, item.topic]),
+    asRecord(store.getPrivate(accountOf(store, 'u1'))).closed.map((item: Untyped) => [item.kind, item.topic]),
     [
       ['interest', 'β'],
       ['interest', 'γ'],
     ]
   );
   assert.equal(
-    asRecord(store.getUser(accountOf(store, 'u1'))).closed[1].supersededBy,
+    asRecord(store.getPrivate(accountOf(store, 'u1'))).closed[1].supersededBy,
     asRecord(profile).interests[0].itemId
   );
 });
 
 // ---- the real name and the names people use (src/memory/addressed.ts) ----
-
-test('applyProfileOps: a realName is set, an equal one is a sighting, a different string changes nothing', () => {
-  const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds() });
-  store.applyProfileOps(accountOf(store, 'u1'), { realName: '  Théo  ' }, { now: ID_NOW, seenAt: ID_NOW });
-  const set = asRecord(store.getUser(accountOf(store, 'u1'))).realName;
-  assert.equal(set.name, 'Théo');
-  assert.equal(set.from, '2026-10-05');
-  assert.equal(set.to, null);
-  assert.match(set.itemId, /^rn-/);
-
-  store.applyProfileOps(accountOf(store, 'u1'), { realName: { name: 'THÉO' } }, { now: ID_NOW + 1000 });
-  assert.deepEqual(asRecord(store.getUser(accountOf(store, 'u1'))).realName, set, 'an equal name is a sighting');
-  store.applyProfileOps(accountOf(store, 'u1'), { realName: 'Léon' }, { now: ID_NOW + 2000 });
-  assert.deepEqual(
-    asRecord(store.getUser(accountOf(store, 'u1'))).realName,
-    set,
-    'a different name without supersedes changes nothing'
-  );
-  store.applyProfileOps(accountOf(store, 'u1'), { realName: '' }, { now: ID_NOW + 3000 });
-  assert.deepEqual(asRecord(store.getUser(accountOf(store, 'u1'))).realName, set);
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).closed, undefined);
-});
-
-test('applyProfileOps: a realName is clamped to 60 characters', () => {
-  const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds() });
-  store.applyProfileOps(accountOf(store, 'u1'), { realName: 'α'.repeat(80) }, { now: ID_NOW });
-  assert.ok([...asRecord(store.getUser(accountOf(store, 'u1'))).realName.name].length <= 60);
-});
-
-test('applyProfileOps: a realName that supersedes the stored one closes it into the closed list, archived once evicted', async () => {
-  const archive = fakeArchive();
-  const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds(), archive });
-  store.applyProfileOps(accountOf(store, 'u1'), { realName: 'Léon' }, {
-    now: ID_NOW,
-    maxClosedStored: 1,
-  } as unknown as Parameters<typeof store.applyProfileOps>[2]);
-  const old = asRecord(store.getUser(accountOf(store, 'u1'))).realName;
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { realName: { name: 'Théo', supersedes: old.itemId, validFrom: '2026-10-06' } },
-    {
-      now: ID_NOW + 1000,
-      maxClosedStored: 1,
-    } as unknown as Parameters<typeof store.applyProfileOps>[2]
-  );
-  const profile = store.getUser(accountOf(store, 'u1'));
-  assert.equal(asRecord(profile).realName.name, 'Théo');
-  assert.equal(asRecord(profile).realName.from, '2026-10-06');
-  assert.deepEqual(
-    asRecord(profile).closed.map((item: Untyped) => [
-      item.kind,
-      item.name,
-      item.validTo,
-      item.supersededBy,
-      item.itemId,
-    ]),
-    [['realName', 'Léon', '2026-10-06', asRecord(profile).realName.itemId, old.itemId]]
-  );
-
-  // By name works too; the second closing pushes the first out of a one-item closed list.
-  store.applyProfileOps(accountOf(store, 'u1'), { realName: { name: 'Ilias', supersedes: 'théo' } }, {
-    now: ID_NOW + 2000,
-    maxClosedStored: 1,
-  } as unknown as Parameters<typeof store.applyProfileOps>[2]);
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).realName.name, 'Ilias');
-  const settled = await store.settleArchive();
-  assert.deepEqual(
-    settled.archived.map((item) => [item.itemKind, item.event]),
-    [['realName', 'replaced']]
-  );
-  const [entry] = archive.appended.flatMap((call) => asRecord(call).entries);
-  assert.equal(entry.text.name, 'Léon');
-  assert.deepEqual(
-    asRecord(store.getUser(accountOf(store, 'u1'))).closed.map((item: Untyped) => [item.kind, item.name]),
-    [['realName', 'Théo']]
-  );
-});
 
 test('getUser: addressedAs and realName are normalised on read, absent stays absent', async () => {
   const { dir, memoryDb } = memDataDir();

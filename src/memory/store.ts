@@ -60,7 +60,6 @@ import { loreVersionKey, upsertLore } from './lore.ts';
 import { sentenceDiff } from './prose.ts';
 import {
   applyInterestOps,
-  applyValidity,
   attachDropped,
   normalizeInterests,
   normalizeTopic,
@@ -68,9 +67,8 @@ import {
   validDay,
 } from './interests.ts';
 import { applyDetailOps, normalizeDetails } from './details.ts';
-import { applyAliasOps } from './aliases.ts';
 import { applyAddressUses, normalizeAddressedAs } from './addressed.ts';
-import { clampText, stripUrls } from './clamp.ts';
+import { stripUrls } from './clamp.ts';
 import { sortRanked } from './ranking.ts';
 import { mergeEmojiUsage, normalizeEmojiUsage } from './emoji-usage.ts';
 import { normalizePings, pingStateOf, withPingState } from './pings.ts';
@@ -121,8 +119,6 @@ const DEFAULT_MAX_CLOSED_STORED = 40;
 const DEFAULT_HOLD_MAX_MS = 5000;
 /** The kinds a profile's `closed` list holds (src/memory/interests.ts#applyValidity). */
 const CLOSED_KINDS = ['interest', 'detail', 'alias', 'realName'];
-/** How long a stored real name may be. */
-const REAL_NAME_CHARS = 60;
 
 /** The diary of a place with no post yet (the persona's diary unit). */
 const emptyDiary = () => ({ posts: [], updatedAt: 0 });
@@ -392,7 +388,7 @@ export { SNAPSHOTS_DIR };
 
 /**
  * A member profile nobody has written to yet: what every write starts from (`touchUser`,
- * `applyProfileOps`, ...) and what `getUser` heals a hand-edited file towards. `id` is the account's native id, null
+ * `updateUser`, ...) and what `getUser` heals a hand-edited file towards. `id` is the account's native id, null
  * when no row or name of the store holds one.
  */
 export function emptyProfile(id: string | null): object {
@@ -423,7 +419,7 @@ function emptyPlace() {
     starters: '',
     injokes: [],
     self: [],
-    learned: [], // things people taught the persona: detail-shaped items plus an optional `from` -- see applyLearnedOps
+    learned: [], // things people taught the persona: detail-shaped items plus an optional `from` (src/memory/details.ts)
     learnedNextId: 1, // the next id a learned item gets -- never reused, even after a remove
     emojiUsage: {}, // { [emojiId]: { name, count, last } } -- members' custom emoji uses, see recordEmojiUsage
     emojiBackfill: null, // { at, channels, messages } once src/memory/emoji-backfill.ts has read the history
@@ -500,7 +496,7 @@ export function emptyChannel(id: string | null): ChannelEntry {
  * src/memory/details.ts#normalizeDetails (assigning fresh ids off the
  * profile's own `detailsSeq` counter when needed), `aliases` becomes `[]`
  * when it is not already an array. Never marks anything dirty -- the caller
- * (`getUser`/`applyProfileOps`) decides whether this is persisted. */
+ * (`getUser`) decides whether this is persisted. */
 function normalizeProfile(profile: Untyped) {
   profile.interests = normalizeInterests(profile.interests);
 
@@ -537,63 +533,6 @@ function normalizeRealName(value: Untyped) {
   if (typeof value.itemId === 'string' && value.itemId) out.itemId = value.itemId;
   if (typeof value.recordedAt === 'string' && value.recordedAt) out.recordedAt = value.recordedAt;
   return out;
-}
-
-/**
- * Apply one batch's `realName` answer to a profile's stored real name. `raw` is a string or
- * `{ name, supersedes?, validFrom? }`; the name is trimmed and clamped to 60 characters. Nothing
- * changes for a missing or empty name, nor for one equal to the stored one (case-insensitive: a
- * sighting). With nothing stored, the name is set. A different name replaces the stored one only
- * when `supersedes` names it (its `itemId` or its name, src/memory/interests.ts#applyValidity):
- * the stored one is closed (`validTo` = `validFrom` when given, else the batch day; `supersededBy`
- * = the new `itemId`) and returned for the profile's `closed` list; without that the stored name
- * stays. The new value is `{ name, from, to: null, itemId, recordedAt }`, `from` = `validFrom`
- * when it is a real day, else the batch day.
- * @param stored  The profile's `realName`.
- * @returns null when nothing changes.
- */
-function applyRealName(
-  stored: StoredRecord,
-  raw: unknown,
-  { seenAt, now, mintId }: { seenAt: number; now?: number; mintId: () => string }
-): { realName: Untyped; closed: Array<Untyped> } | null {
-  const op = isRecord(raw) ? raw : { name: raw };
-  if (typeof op.name !== 'string') return null;
-  const name = clampText(stripUrls(op.name), REAL_NAME_CHARS, { tolerance: 1 });
-  if (!name) return null;
-  const batchDay = new Date(seenAt).toISOString().slice(0, 10);
-  const recordedAt = new Date(isFiniteNumber(now) ? now : seenAt).toISOString();
-  const fresh = () => ({ name, from: validDay(op.validFrom) ?? batchDay, to: null, itemId: mintId(), recordedAt });
-  if (!stored) return { realName: fresh(), closed: [] };
-  if (normalizeTopic(stored.name) === normalizeTopic(name)) return null;
-  // The stored name as a ranked-item claim, so the shared validity rules close it.
-  const current = {
-    name: stored.name,
-    validFrom: stored.from ?? undefined,
-    itemId: stored.itemId,
-    recordedAt: stored.recordedAt,
-  };
-  if (current.validFrom === undefined) delete current.validFrom;
-  const next: Record<string, Untyped> = { name };
-  const items = [current, next];
-  const closed = applyValidity(items, [{ item: next, supersedes: op.supersedes, validFrom: op.validFrom }], {
-    batchDay,
-    recordedAt,
-    mintId,
-    findOther: (ref) =>
-      typeof ref === 'string' && normalizeTopic(ref) === normalizeTopic(current.name) ? current : undefined,
-  });
-  if (closed.length === 0) return null;
-  return {
-    realName: { name, from: next.validFrom ?? batchDay, to: null, itemId: next.itemId ?? mintId(), recordedAt },
-    closed: closed.map((item) => {
-      const out = { ...item };
-      // The archive knows a closed claim by its itemId: a hand-edited name without one gets one.
-      if (!out.itemId) out.itemId = mintId();
-      if (!out.recordedAt) delete out.recordedAt;
-      return out;
-    }),
-  };
 }
 
 /** A profile's or private layer's `closed` list (the claims a `supersedes` closed, see
@@ -707,7 +646,7 @@ function relationshipScoreOf(opts: Untyped, affinity: Untyped) {
 
 /**
  * Write a `relationship` text onto a public profile or a private layer, in place, with its two
- * stamps -- the one writer of that field for `applyProfileOps` and `applyPrivateOps`. The text
+ * stamps -- the one writer of that field for `applyPrivateOps`. The text
  * loses its links first (`stripUrls`); only a non-empty string is written (an absent or blank one,
  * or one that was only links, never blanks the stored text). A first write
  * and a rewrite alike are stored whole, trimmed. Stamped next to
@@ -717,7 +656,7 @@ function relationshipScoreOf(opts: Untyped, affinity: Untyped) {
  * until its next text. A written text removes the forced-rewrite flag (`relationshipRewrite`,
  * see `markRelationshipRewrite`): the rewrite it asked for has happened.
  * @param target  A normalised profile or private layer.
- * @param opts    As for `applyProfileOps`.
+ * @param opts    As for `applyPrivateOps`.
  * @param [onWrite]  Called with the stored text and the
  *   one replacing it, before the write (the public profile records a version through it).
  */
@@ -777,12 +716,11 @@ type ItemDrops = {
 /**
  * Apply `ops.interests` (src/memory/interests.ts#applyInterestOps) and `ops.details`
  * (src/memory/details.ts#applyDetailOps, advancing `target.detailsSeq`) to a public profile
- * or a private layer, in place -- the item blocks `applyProfileOps` and `applyPrivateOps`
- * share. Only the ops-object shape is taken; anything else changes nothing. Every item of a list
+ * or a private layer, in place -- the item blocks of `applyPrivateOps`. Only the ops-object shape is taken; anything else changes nothing. Every item of a list
  * the ops changed gets an `itemId` when it has none (`changedWithItemIds`), and so does every
  * item that left.
  * @param target  A normalised profile or private layer.
- * @param opts    As for `applyProfileOps`.
+ * @param opts    As for `applyPrivateOps`.
  *   The stored items that left (removed, folded into another, evicted); `closed`: the claims a
  *   `supersedes` closed, for `storeClosed`.
  */
@@ -1039,16 +977,6 @@ type StoreDeps = {
   track?: Track;
 };
 
-type ProfileOpsOptions = {
-  character?: string;
-  style?: string;
-  relationship?: string;
-  interests?: { add?: Array<Untyped>; update?: Array<Untyped>; seen?: Array<string>; remove?: Array<string> };
-  details?: { add?: Array<unknown>; seen?: Array<unknown>; remove?: Array<unknown> };
-  aliases?: { add?: Array<string>; remove?: Array<string> };
-  realName?: string | { name: string; supersedes?: string; validFrom?: string };
-};
-
 type PrivateOpsOptions = {
   relationship?: string;
   interests?: { add?: Array<Untyped>; update?: Array<Untyped>; seen?: Array<string>; remove?: Array<string> };
@@ -1059,14 +987,6 @@ type UpdatePlaceOptions = {
   by?: string;
   versions?: { enabled?: boolean; kept?: number };
   onDropped?: (dropped: { injokes: Array<Untyped>; self: Array<Untyped> }) => void;
-};
-
-type LearnedOpsOptions = {
-  seenAt?: number;
-  maxLearned?: number;
-  maxLearnedStored?: number;
-  learnedHalfLifeDays?: number;
-  confirmGapHours?: number;
 };
 
 type SetLoreOptions = {
@@ -1857,9 +1777,7 @@ function buildStore({
      * Merge LLM-extracted fields into a profile. `affinity` is never taken
      * from here — it only ever changes through `adjustAffinity`, which keeps
      * its clamping and history bookkeeping in one place. `episodes` is never
-     * taken from here either. `interests`/`details`
-     * likewise only ever change through `applyProfileOps` below, which merges
-     * incrementally instead of overwriting wholesale. A changed `character`/`style`/
+     * taken from here either, and neither are `interests` and `details`. A changed `character`/`style`/
      * `relationship` keeps its previous text (`recordVersion`; `opts.by`, `opts.versions`), and
      * loses its links first (`withoutLinks`: one that was only links is not written).
      */
@@ -1877,125 +1795,6 @@ function buildStore({
       Object.assign(item.value, safeFields, { updatedAt: new Date().toISOString() });
       item.dirty = true;
       return item.value;
-    },
-
-    /**
-     * Apply one analyzer batch's INCREMENTAL profile update (see
-     * docs/prompt-contract.md, "The analyzer"): `character`/`style`/
-     * `relationship` replace the stored text only when given as a non-empty
-     * string, stored whole -- an absent or empty field never
-     * blanks what is already stored. Every text of the batch (prose, items, aliases, the real
-     * name) loses its links first (`stripUrls`); one that was only links counts as
-     * empty. `ops.interests` (`{ add, update, seen,
-     * remove }`) merges via src/memory/interests.ts#applyInterestOps;
-     * `ops.details` (`{ add, seen, remove }`) merges via
-     * src/memory/details.ts#applyDetailOps, which also advances the
-     * profile's own `detailsSeq` id counter. `opts.seenAt` is the time of the
-     * PERSON'S message that produced this sighting (falls back to `opts.now`,
-     * then the wall clock) -- see the two modules' header comments for the
-     * confirmation/date rules `opts.confirmGapHours` feeds. Stored JSON is
-     * normalised first (see `normalizeProfile`). Tolerates garbage `ops`, never throws.
-     *   `realName`: see `applyRealName` -- set when none is stored, a sighting when equal, a
-     *   replacement only through `supersedes`, the replaced one going to the `closed` list (kind
-     *   `realName`).
-     *   `by`/`versions`: a replaced `character`/`style`/`relationship` keeps its previous text
-     *   (`recordVersion`).
-     *   `relationshipScore`: stamped as `profile.relationshipScore` whenever a `relationship` text
-     *   is written (falls back to the stored score), and `profile.relationshipWrittenAt` = the ISO
-     *   time of `opts.now` (else the wall clock) next to it -- the score and the moment the text
-     *   was written.
-     *   `maxInterestsStored`/`maxDetailsStored`/`interestHalfLifeDays`/`detailHalfLifeDays` drive the
-     *   storage-cap-vs-shown-cap split and the rank decay -- see
-     *   docs/prompt-contract.md, "More is stored than shown, and rank decays with age".
-     * @returns The updated profile.
-     */
-    applyProfileOps(
-      accountId: string,
-      ops: ProfileOpsOptions,
-      opts: {
-        maxInterests?: number;
-        maxInterestsStored?: number;
-        interestHalfLifeDays?: number;
-        maxDetails?: number;
-        maxDetailsStored?: number;
-        detailHalfLifeDays?: number;
-        maxAliases?: number;
-        maxAliasesStored?: number;
-        aliasHalfLifeDays?: number;
-        confirmGapHours?: number;
-        seenAt?: number;
-        now?: number;
-        relationshipScore?: number;
-        by?: string;
-        versions?: { enabled?: boolean; kept?: number };
-      } = {}
-    ): object {
-      const item = entry(userFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
-      const profile = item.value;
-      normalizeProfile(profile);
-
-      const seenAt = seenAtOf(opts);
-
-      for (const key of ['character', 'style'] as const) {
-        const value = typeof ops?.[key] === 'string' ? stripUrls(ops[key]) : undefined;
-        if (typeof value === 'string' && value.trim()) {
-          const next = value.trim();
-          recordVersion(null, 'users', accountId, key, profile[key], next, opts);
-          profile[key] = next;
-        }
-      }
-      writeRelationship(profile, ops?.relationship, opts, (previous, next) =>
-        recordVersion(null, 'users', accountId, 'relationship', previous, next, opts)
-      );
-
-      // What left the profile (removed, folded, evicted), each with its itemId: the archive's input.
-      const previous: Record<string, Untyped> = {
-        interests: profile.interests,
-        details: profile.details,
-        aliases: profile.aliases,
-      };
-      const dropped: ItemDrops & { aliases: Array<Untyped> } = {
-        ...applyItemOps(profile, ops, opts, seenAt, newId),
-        aliases: [],
-      };
-
-      if (ops?.aliases && typeof ops.aliases === 'object' && !Array.isArray(ops.aliases)) {
-        const aliases = applyAliasOps(profile.aliases, ops.aliases, profile.names, {
-          maxAliases: opts.maxAliases,
-          maxAliasesStored: opts.maxAliasesStored,
-          confirmGapHours: opts.confirmGapHours,
-          halfLifeDays: opts.aliasHalfLifeDays,
-          seenAt,
-          mintId: () => `${ITEM_ID_PREFIX.alias}${newId()}`,
-          now: opts.now,
-        });
-        profile.aliases = changedWithItemIds(profile.aliases, aliases, ITEM_ID_PREFIX.alias, newId);
-        dropped.aliases = withItemIds(aliases.dropped, ITEM_ID_PREFIX.alias, newId);
-        dropped.closed.alias = withItemIds(aliases.closed, ITEM_ID_PREFIX.alias, newId);
-      }
-      if (ops?.realName !== undefined && ops?.realName !== null) {
-        const real = applyRealName(profile.realName, ops.realName, {
-          seenAt,
-          now: opts.now,
-          mintId: () => `${ITEM_ID_PREFIX.realName}${newId()}`,
-        });
-        if (real) {
-          profile.realName = real.realName;
-          dropped.closed.realName = real.closed;
-        }
-      }
-      archiveProfileItems(accountId, { item, file: userFile(accountId), previous, dropped, ops });
-      storeClosed(accountId, {
-        item,
-        file: userFile(accountId),
-        target: profile,
-        closed: dropped.closed,
-        opts,
-      });
-
-      profile.updatedAt = new Date(opts.now ?? Date.now()).toISOString();
-      item.dirty = true;
-      return profile;
     },
 
     /**
@@ -2126,12 +1925,11 @@ function buildStore({
 
     /**
      * Apply one private analyzer batch to a member's private layer: the same
-     * `relationship`/`interests`/`details` op shapes and `opts` as
-     * `applyProfileOps` (an absent or empty `relationship` never blanks the
+     * `relationship`/`interests`/`details` op shapes (an absent or empty `relationship` never blanks the
      * stored one). `character`, `style`, `aliases` and `portrait` are public
      * only and ignored here. Creates the file. Tolerates garbage `ops`, never throws.
-     * @param [opts]  As for `applyProfileOps` (a text stamped `relationshipScore` and `relationshipWrittenAt` in this
-     *   layer); `relationshipScore` falls back to this layer's own score (the analyzer passes the
+     * @param [opts]  The limits of `config.memory`, `seenAt`, `now` and `relationshipScore` (a text stamped
+     *   `relationshipScore` and `relationshipWrittenAt` in this layer); `relationshipScore` falls back to this layer's own score (the analyzer passes the
      *   effective one it showed the model).
      * @returns The updated private layer.
      */
@@ -2243,14 +2041,11 @@ function buildStore({
     /**
      * Merge fields into the place's memory and stamp `updatedAt` -- only when
      * something stored actually changes: an identical re-send is left alone. `learned`/
-     * `learnedNextId` are never taken from here -- they only ever change
-     * through `applyLearnedOps`, which merges incrementally instead of
-     * overwriting wholesale (mirrors `updateUser`); `emojiUsage` likewise
+     * `learnedNextId` are never taken from here (mirrors `updateUser`); `emojiUsage`
      * only through `recordEmojiUsage`/`clearEmojiUsage`, `emojiBackfill` only
      * through `setEmojiBackfill`, `pings` (and the earlier `pingsOff`) only through `setPings`. `notesUpdatedAt` gets the
      * same stamp when one of the server notes (`patterns`, `starters`,
-     * `injokes`) really changes; `self` alone never moves it, and neither does
-     * `applyLearnedOps`, so it tells how old the notes are. A changed `patterns`/`starters` keeps its previous
+     * `injokes`) really changes; `self` alone never moves it, so it tells how old the notes are. A changed `patterns`/`starters` keeps its previous
      * text (`recordVersion`; `opts.by`, `opts.versions`). The return stays the stored place, so what
      * a write of `injokes` or `self` takes out of the stored list (by
      * src/memory/interests.ts#normalizeTopic) is handed to `opts.onDropped` instead, as
@@ -2465,67 +2260,6 @@ function buildStore({
       item.value.emojiBackfill = normalizeBackfillStamp(stamp);
       item.dirty = true;
       return item.value.emojiBackfill;
-    },
-
-    /**
-     * Apply one batch of `learned` ops (`{ add, seen, remove }`, add items a
-     * bare string or `{ text, from?, sure? }`) to the place's list of things
-     * people taught the persona, via src/memory/details.ts#applyDetailOps --
-     * the same confirmation/ranking/eviction mechanics as a member's
-     * details, with the place's own `learnedNextId` id counter. Used by the
-     * owner commands (src/tools/operations/learning.ts). The limits are the `config.memory` keys of the same name, so
-     * a caller can pass `{ ...config.memory, seenAt }` as-is; `seenAt` falls
-     * back to the wall clock. Garbage `ops` change nothing and never throw.
-     * The place is marked dirty (and `updatedAt` stamped) only when the list
-     * or the counter actually changed.
-     * @returns The place's `learned` list after the ops (a written list gives every item
-     *   an `itemId` when it has none, `ln-`), with the non-enumerable `dropped`: the lessons that
-     *   left (removed, evicted), each with one; `[]` when the list did not change.
-     */
-    applyLearnedOps(
-      placeId: string,
-      ops: { add?: Array<unknown>; seen?: Array<unknown>; remove?: Array<unknown> },
-      opts: LearnedOpsOptions = {}
-    ): Array<object> {
-      const item = entry(placeFile(placeId), emptyPlace);
-      const place = item.value;
-      normalizePlace(place);
-      if (!ops || typeof ops !== 'object' || Array.isArray(ops)) return place.learned;
-
-      const before = JSON.stringify([place.learned, place.learnedNextId]);
-      const previous = place.learned;
-      const { items, nextId, dropped } = applyDetailOps(place.learned, ops, {
-        maxDetails: opts.maxLearned,
-        maxDetailsStored: opts.maxLearnedStored,
-        halfLifeDays: opts.learnedHalfLifeDays,
-        confirmGapHours: opts.confirmGapHours,
-        seenAt: isFiniteNumber(opts.seenAt) ? opts.seenAt : Date.now(),
-        nextId: place.learnedNextId,
-        // A lesson carries no validity fields.
-        validity: false,
-      });
-      // Compared before the ids are stamped: a call that changes nothing still writes nothing.
-      if (JSON.stringify([items, nextId]) !== before) {
-        place.learned = withItemIds(items, ITEM_ID_PREFIX.lesson, newId);
-        place.learnedNextId = nextId;
-        place.updatedAt = new Date().toISOString();
-        item.dirty = true;
-      }
-      const victims = withItemIds(dropped, ITEM_ID_PREFIX.lesson, newId);
-      const removing = removeKeysOf(ops.remove);
-      const kept = place.learned;
-      archiveReplaced({ previous, current: kept, itemKind: 'lesson', scope: { place: placeId }, item });
-      holdVictims({
-        item,
-        file: placeFile(placeId),
-        path: ['learned'],
-        previous,
-        victims,
-        itemKind: 'lesson',
-        scope: { place: placeId },
-        eventOf: (victim) => rankedEvent(victim, 'text', removing, kept, false),
-      });
-      return attachDropped(place.learned, 'dropped', victims);
     },
 
     /**

@@ -237,7 +237,7 @@ async function modules(
 }
 
 /**
- * The scripted day: counters, a private touch, a decay tick, lore and learning ops, a channel touch, an intention added
+ * The scripted day: counters, a private touch, a decay tick, lore, a channel touch, an intention added
  * and updated, a task added and finished.
  */
 async function day(m: Awaited<ReturnType<typeof modules>>) {
@@ -269,17 +269,6 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
     {
       source: 'owner',
       now: NOW,
-    }
-  );
-  m.store.applyLearnedOps(
-    placeOfRoot(m.store, GUILD),
-    { add: ['the café opens at nine'] },
-    {
-      maxLearned: 20,
-      maxLearnedStored: 60,
-      learnedHalfLifeDays: 720,
-      confirmGapHours: 12,
-      seenAt: NOW,
     }
   );
   m.store.touchChannel(placeOfChat(m.store, { id: CHANNEL }), { name: 'γενικά', topic: 'café' }, at(6), MEMBER, {});
@@ -368,10 +357,7 @@ test('a day of writes with the memory files gone writes every kind of unit to th
         JSON.stringify(valueOf(dbOf(right), `guilds/${GUILD}/lore.json`)).includes('The square by the sea.'),
         'the lore'
       );
-      assert.ok(
-        JSON.stringify(valueOf(dbOf(right), `guilds/${GUILD}/guild.json`)).includes('the café opens at nine'),
-        'the learned facts'
-      );
+      // Changed: the day writes no lesson, since the store's writer of lessons left with `/memory lessons add`.
     } finally {
       right.close();
     }

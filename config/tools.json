@@ -113,40 +113,6 @@
     "whenToUse": "Closes a tool for you, or every tool of a family or of *.",
     "whenNotToUse": "Administrative, not grantable to you. You never change your own grants."
   },
-  "alias.add": {
-    "title": "Add an alias",
-    "whenToUse": "Records a nickname of a person in their profile, confirmed at once. A name equal to one of their display names is dropped, and an alias is cut at 40 characters.",
-    "whenNotToUse": "Only names people actually use for them in conversation. To remove one, alias.remove.",
-    "args": {
-      "user": "@handle of the person.",
-      "name": "The nickname to store."
-    }
-  },
-  "alias.remove": {
-    "title": "Remove an alias",
-    "whenToUse": "Removes a stored nickname of a person, matched in any letter case. It cannot be undone.",
-    "whenNotToUse": "To add one, alias.add.",
-    "args": {
-      "user": "@handle of the person.",
-      "name": "The nickname to remove."
-    }
-  },
-  "learning.add": {
-    "title": "Add a lesson",
-    "whenToUse": "Records a lesson someone taught you directly, confirmed at once, in what you keep for this community. Returns the lesson's line with its number.",
-    "whenNotToUse": "Only what someone taught you. For a fact about the community, lore.add.",
-    "args": {
-      "text": "The lesson, in your own words."
-    }
-  },
-  "learning.remove": {
-    "title": "Remove a lesson",
-    "whenToUse": "Deletes a lesson by the number its line shows. It cannot be undone.",
-    "whenNotToUse": "To record one, learning.add.",
-    "args": {
-      "number": "The lesson's number."
-    }
-  },
   "lore.list": {
     "title": "List lore",
     "whenToUse": "Lists the lorebook entries of this community, each with its id, title and keys. query keeps the entries whose title or keys hold it. The entries that bear on this turn are already in your memory block, so call it to find another entry or an entry's id.",

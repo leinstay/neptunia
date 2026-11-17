@@ -40,10 +40,6 @@
       "deep": 0,
       "repeated": 2
     },
-    "tests/aliases.test.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
     "tests/audience-warm.test.ts": {
       "deep": 1,
       "repeated": 0
@@ -905,7 +901,7 @@
       "repeated": 0
     },
     "tests/store.test.ts": {
-      "deep": 33,
+      "deep": 30,
       "repeated": 0
     },
     "tests/subharness-control.test.ts": {
@@ -1730,7 +1726,6 @@
       "src/speech/synth.ts",
       "src/tools/call-args.ts",
       "src/tools/gateway.ts",
-      "src/tools/operations/alias.ts",
       "src/tools/operations/catalog.ts",
       "src/tools/operations/draw.ts",
       "src/tools/operations/env.ts",

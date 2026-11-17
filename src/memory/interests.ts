@@ -3,7 +3,7 @@
 // (add/update/seen/remove) instead of a prose blob rewritten batch after
 // batch -- see docs/prompt-contract.md ("Interests are atomic items",
 // "Confirmation (the "(?)" mechanism)" and "Dates come from the messages", in
-// "The analyzer"); src/memory/store.ts#applyProfileOps routes a member's
+// "The analyzer"); src/memory/store.ts#applyPrivateOps routes a member's
 // interest ops through this module. `normalizeInterests` validates
 // whatever a profile's `interests` field currently holds on disk.
 //

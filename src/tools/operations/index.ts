@@ -17,8 +17,6 @@ import './model.ts';
 import './route.ts';
 import './rule.ts';
 import './access.ts';
-import './alias.ts';
-import './learning.ts';
 import './lore.ts';
 import './memory.ts';
 import './message.ts';

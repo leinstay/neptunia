@@ -1,5 +1,5 @@
 // The notes of a place: what the store keeps about a root or a direct chat (src/memory/store.ts, `getPlace`,
-// `updatePlace`, `applyLearnedOps`), owned by the unit `placeCollection('place', <place id>)`. The store writes them
+// `updatePlace`), owned by the unit `placeCollection('place', <place id>)`. The store writes them
 // through the write kind `place-notes` (session-write.ts) and reads them back through `placeNotesValue` below.
 //
 //   places        the place, only when no row holds it yet: what the interface reported stays as stored

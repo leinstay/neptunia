@@ -398,12 +398,13 @@ test('/memory places lore add stores an entry that /memory places lore list then
 });
 
 // Open point 1 of the brief: no operation lists the lessons today.
-test('/memory lessons add stores a lesson that /memory lessons list then shows', async () => {
+// Changed: the list alone, since `/memory lessons add` left and her memory session writes the lessons.
+test('/memory lessons list answers for a place with no lesson', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const added = await p(dirs, '/memory lessons add zeta71 is spelled with a z --place g1');
-    assert.equal(added.code, 0, added.stdout + added.stderr.slice(-2000));
-    assert.ok((await p(dirs, '/memory lessons list --place g1')).stdout.includes('zeta71 is spelled with a z'));
+    const listed = await p(dirs, '/memory lessons list --place g1');
+    assert.equal(listed.code, 0, listed.stdout + listed.stderr.slice(-2000));
+    assert.ok(listed.stdout.includes('(none)'), listed.stdout);
   });
 });
 
@@ -623,7 +624,8 @@ test('a command names its place with --place, the words before it kept', async (
   const { run, seen } = placeConsole(['place:a', 'place:b']);
   assert.equal((await run('/memory recent --place place:b')).status, 'ok');
   assert.deepEqual(seen, ['place:b']);
-  const parsed = parseCommandLine('/memory lessons add one -- two --place place:a');
+  // Changed: the text is a rule's, since `/memory lessons add` left.
+  const parsed = parseCommandLine('/rules add one -- two --place place:a');
   assert.ok(parsed.ok);
   assert.equal(parsed.args.place, 'place:a');
   assert.equal(parsed.args.text, 'one -- two');

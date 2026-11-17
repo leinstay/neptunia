@@ -26,11 +26,9 @@ import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { makeAdmin, makeHot, makeHotWithMedia, makeRoot, mayRun, readLocal } from './fixtures/admin-rig.ts';
-import type { AdminExtra } from './fixtures/admin-rig.ts';
 import { world } from './fixtures/turn-world.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { makeStore } from './fixtures/admin-store.ts';
-import { memoryAt } from './fixtures/store-kit.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
@@ -761,11 +759,11 @@ test('run: access grant, list and revoke of a group: her reads under it, named w
   assert.equal(await admin.run('access.revoke', { command: 'memory' }, {}), 'Nothing to revoke');
 });
 
-test('memory.profile.read affinity / alias.add / alias.remove: a member with no profile is refused and none is created', async () => {
+// Changed: the alias writes left with `alias.add` and `alias.remove`, so the affinity read is the one write path left.
+test('memory.profile.read affinity: a member with no profile is refused and none is created', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
   const writes: Array<Array<unknown>> = [];
-  store.applyProfileOps = (...call: Array<unknown>) => writes.push(call);
   const adjustAffinity = store.adjustAffinity.bind(store);
   store.adjustAffinity = (...call: Parameters<typeof adjustAffinity>) => {
     writes.push(call);
@@ -774,14 +772,6 @@ test('memory.profile.read affinity / alias.add / alias.remove: a member with no 
 
   await assert.rejects(
     () => admin.run('memory.profile.read', { accountId: '555', section: 'affinity', score: 10 }, { placeId: 'g1' }),
-    /^Error: no profile for 555$/
-  );
-  await assert.rejects(
-    () => admin.run('alias.add', { accountId: '555', name: 'Ari' }, { placeId: 'g1' }),
-    /^Error: no profile for 555$/
-  );
-  await assert.rejects(
-    () => admin.run('alias.remove', { accountId: '555', name: 'Ari' }, { placeId: 'g1' }),
     /^Error: no profile for 555$/
   );
   assert.deepEqual(writes, []);
@@ -1024,226 +1014,6 @@ test('run: memory.show respects a custom limit, capping a list section', async (
     { placeId: 'g1' }
   );
   assert.equal(result.split('\n').length, 2);
-});
-
-// ---------------------------------------------------------------------------
-// alias.add / alias.remove -- real store.js/aliases.js,
-// so these prove the actual store integration, not a re-implementation.
-// ---------------------------------------------------------------------------
-
-// The real store hands its records back as plain objects; these read their fields through Untyped.
-const userOf = (store: { getUser: (accountId: string) => object | null }, accountId: string): Untyped =>
-  store.getUser(accountOf(store, accountId));
-const guildOf = (store: { getPlace: (placeId: string) => object }): Untyped => store.getPlace('g1');
-
-function makeRealStoreAdmin(rootDir: string, extra: AdminExtra = {}) {
-  const dataDir = tempDir('nep-admin-alias-');
-  const realStore = createStore(memoryAt(dataDir));
-  const hot = extra.hot ?? makeHot(rootDir);
-  const { admin } = makeAdmin(rootDir, { ...extra, hot, store: realStore });
-  return { admin, store: realStore, hot, dataDir };
-}
-
-// PR 7d: `memory.confirmAfter` is the constant MEMORY_LIMITS.confirmAfter, so the weight is the constant's.
-test('run: alias.add creates a new alias already confirmed, firstSeen == lastSeen == now', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    const before = Date.now();
-    await admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' });
-    const after = Date.now();
-
-    const alias = userOf(store, '123').aliases.find((a: Untyped) => a.name === 'Ari');
-    assert.ok(alias, 'the alias was stored');
-    assert.ok(alias.weight >= MEMORY_LIMITS.confirmAfter, 'confirmed at once');
-    assert.equal(alias.firstSeen, alias.lastSeen, 'firstSeen and lastSeen land on the same instant');
-    const seenMs = Date.parse(alias.lastSeen);
-    assert.ok(seenMs >= before && seenMs <= after, 'that instant is "now"');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: alias.add is idempotent -- a second call does not keep bumping the weight', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    await admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' });
-    const weightAfterFirst = userOf(store, '123').aliases.find((a: Untyped) => a.name === 'Ari').weight;
-
-    await admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' });
-    const weightAfterSecond = userOf(store, '123').aliases.find((a: Untyped) => a.name === 'Ari').weight;
-
-    assert.equal(weightAfterSecond, weightAfterFirst, 'already-confirmed alias is left alone by a repeat add');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: alias.add leaves the 40-character clamp to the store, boundary-safe, and stays idempotent', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    const longName = 'x'.repeat(60);
-    await admin.run('alias.add', { accountId: '123', name: longName }, { placeId: 'g1' });
-    const [alias] = userOf(store, '123').aliases;
-    assert.equal(alias.name.length, 40);
-    assert.equal(alias.name, 'x'.repeat(40));
-    const weight = alias.weight;
-    await admin.run('alias.add', { accountId: '123', name: longName }, { placeId: 'g1' });
-    assert.equal(userOf(store, '123').aliases[0].weight, weight, 'a repeat add of the long name is left alone');
-
-    // 39 letters, then a mathematical Greek omega (two UTF-16 units) right at the 40th position.
-    const astral = `${'y'.repeat(39)}\u{1D6C0}tail`;
-    await admin.run('alias.add', { accountId: '123', name: astral }, { placeId: 'g1' });
-    const stored = userOf(store, '123').aliases.find((a: Untyped) => a.name.startsWith('y'));
-    assert.ok(stored, 'the long name was stored');
-    assert.ok(!/[\uD800-\uDBFF]$/.test(stored.name), 'never cut inside a surrogate pair');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test("run: alias.add ignores a name equal, case-insensitively, to one of the member's display names", async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    const result = await admin.run('alias.add', { accountId: '123', name: 'bob' }, { placeId: 'g1' });
-    assert.deepEqual(userOf(store, '123').aliases, []);
-    assert.equal(result, '(none)');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: alias.remove removes an alias case-insensitively and reports the resulting list', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
-    await admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' });
-    const result = await admin.run('alias.remove', { accountId: '123', name: 'ARI' }, { placeId: 'g1' });
-
-    assert.deepEqual(userOf(store, '123').aliases, []);
-    assert.equal(result, '(none)');
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: alias.add/alias.remove are refused while paused', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-
-  await admin.run('bot.pause', {}, {});
-
-  await assert.rejects(
-    () => admin.run('alias.add', { accountId: '123', name: 'Ari' }, { placeId: 'g1' }),
-    /paused.*resume/i
-  );
-  await assert.rejects(
-    () => admin.run('alias.remove', { accountId: '123', name: 'Ari' }, { placeId: 'g1' }),
-    /paused.*resume/i
-  );
-});
-
-// ---------------------------------------------------------------------------
-// learned.list / learned.add / learned.remove -- real store.js/details.js,
-// the guild's list of things people taught the persona.
-// ---------------------------------------------------------------------------
-
-const LEARNED_DAY = (iso: string) => Date.parse(`${iso}T12:00:00.000Z`);
-
-// PR 7d: `memory.confirmAfter` is the constant MEMORY_LIMITS.confirmAfter, so the weight is the constant's.
-test('run: learned.add stores a new item without from, confirmed at once, firstSeen == lastSeen == now', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    const before = Date.now();
-    await admin.run('learning.add', { text: '  ο φάρος ανάβει στις εννιά  ' }, { placeId: 'g1' });
-    const after = Date.now();
-    const learned = guildOf(store).learned;
-    assert.equal(learned.length, 1);
-    const [item] = learned;
-    assert.equal(item.text, 'ο φάρος ανάβει στις εννιά');
-    assert.equal(item.weight, MEMORY_LIMITS.confirmAfter, 'confirmed at once, and no further');
-    assert.equal('from' in item, false);
-    assert.equal(item.firstSeen, item.lastSeen, 'every sighting lands on the same instant');
-    const seenMs = Date.parse(item.lastSeen);
-    assert.ok(seenMs >= before && seenMs <= after);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: learned.add confirms an existing unconfirmed item in place (same id and text)', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.applyLearnedOps('g1', { add: ['Ο Φάρος'] }, { seenAt: LEARNED_DAY('2026-09-01') });
-    await admin.run('learning.add', { text: 'ο φάρος' }, { placeId: 'g1' });
-    const learned = guildOf(store).learned;
-    assert.equal(learned.length, 1);
-    assert.equal(learned[0].id, 1);
-    assert.equal(learned[0].weight, MEMORY_LIMITS.confirmAfter);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-// PR 7d: `memory.confirmAfter` and `memory.confirmGapHours` are constants (2 and 12 h), so the confirmed item is seeded
-// by two sightings a day apart and the sighting past the gap is the next call, weeks later.
-test('run: a repeat learned.add of a confirmed item is one ordinary sighting, never more', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.applyLearnedOps('g1', { add: ['première'] }, { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-01') });
-    store.applyLearnedOps('g1', { add: ['première'] }, { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-02') });
-    assert.equal(guildOf(store).learned[0].weight, 2);
-
-    // Past confirmGapHours a sighting bumps by exactly one, and so does the repeat.
-    await admin.run('learning.add', { text: 'Première' }, { placeId: 'g1' });
-    assert.equal(guildOf(store).learned[0].weight, 3);
-
-    // Within confirmGapHours: a sighting would not bump it, so neither does the repeat.
-    await admin.run('learning.add', { text: 'première' }, { placeId: 'g1' });
-    const learned = guildOf(store).learned;
-    assert.equal(learned.length, 1);
-    assert.equal(learned[0].weight, 3);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: learned.remove deletes the item by id and reports it', async () => {
-  const rootDir = makeRoot();
-  const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
-  try {
-    store.applyLearnedOps('g1', { add: ['première', 'δεύτερο'] }, { seenAt: LEARNED_DAY('2026-09-01') });
-    const result = await admin.run('learning.remove', { id: 1 }, { placeId: 'g1' });
-    assert.deepEqual(
-      guildOf(store).learned.map((i: Untyped) => i.id),
-      [2]
-    );
-    assert.match(result, /#1/);
-    assert.match(result, /première/);
-  } finally {
-    fs.rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('run: learned.add/learned.remove are refused while paused', async () => {
-  const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
-
-  await admin.run('bot.pause', {}, {});
-
-  await assert.rejects(() => admin.run('learning.add', { text: 'première' }, { placeId: 'g1' }), /paused.*resume/i);
-  await assert.rejects(() => admin.run('learning.remove', { id: 1 }, { placeId: 'g1' }), /paused.*resume/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -2818,6 +2588,10 @@ test('run: memory.recent works while paused and writes nothing', async (t) => {
 // ---------------------------------------------------------------------------
 // memory.archive / memory.restore
 // ---------------------------------------------------------------------------
+
+// The real store hands its records back as plain objects; these read their fields through Untyped.
+const userOf = (store: { getUser: (accountId: string) => object | null }, accountId: string): Untyped =>
+  store.getUser(accountOf(store, accountId));
 
 test('admin: memory restore re-inserts an episode and writes a restored event, idempotent', async () => {
   const rootDir = makeRoot();

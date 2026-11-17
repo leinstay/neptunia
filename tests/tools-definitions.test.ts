@@ -81,7 +81,8 @@ test('the table names registered operations, in the operations registry order, a
   // Changed: 68 since her six board tools left with the selfimprovement wake (the maintainer's decision of 2026-11-16).
   // Changed: 67 since `watcher.read` left with the watcher (2026-11-16).
   // Changed: 59 since eight tools left her list and stayed operations of the owner's console (2026-11-17).
-  assert.equal(SKILL_DEFINITIONS.length, 59);
+  // Changed: 55 since `alias.add`, `alias.remove`, `learning.add` and `learning.remove` left with their commands.
+  assert.equal(SKILL_DEFINITIONS.length, 55);
   const names = SKILL_DEFINITIONS.map((definition) => definition.name);
   const ops = listOps().map((op) => op.name);
   // Changed: an operation of the console alone has no entry, so the table is the registry less those, in its order.
@@ -160,7 +161,8 @@ test('the intent skills carry only what their operation reads', () => {
 });
 
 test('the members a leaf needs are required: without one the arguments are null', () => {
-  for (const name of ['memory.profile.read', 'alias.add', 'alias.remove', 'memory.private.read']) {
+  // Changed: `alias.add` and `alias.remove` left with their commands.
+  for (const name of ['memory.profile.read', 'memory.private.read']) {
     assert.equal(BY_NAME.get(name)?.toArgs({ name: 'x' }), null, name);
     assert.equal(BY_NAME.get(name)?.toArgs({ user: ID, name: 'x' })?.accountId, ID, name);
   }
@@ -184,7 +186,6 @@ test('memory.profile.read reads one person or, with section changes, every perso
 
 test('the quirks of the mapping are kept', () => {
   assert.deepStrictEqual(BY_NAME.get('lore.list')?.toArgs({}), { query: undefined });
-  assert.deepStrictEqual(BY_NAME.get('learning.remove')?.toArgs({ number: 3 }), { id: 3 });
   assert.deepStrictEqual(BY_NAME.get('memory.restore')?.toArgs({ id: 'a' }), { itemId: 'a' });
   assert.deepStrictEqual(BY_NAME.get('message.delete')?.toArgs({ message: 'm' }), {
     messageId: 'm',
@@ -219,7 +220,7 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 59, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 55, well-formed, unique, a round trip, no longer than 64', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
   // Changed: task.unblock is the 77th tool.
@@ -228,8 +229,9 @@ test('the API names: 59, well-formed, unique, a round trip, no longer than 64', 
   // Changed: 68 since her six board tools left (2026-11-16).
   // Changed: 67 since `watcher.read` left with the watcher (2026-11-16).
   // Changed: 59 since eight tools left her list for the owner's console (2026-11-17).
-  assert.equal(apis.length, 59);
-  assert.equal(new Set(apis).size, 59);
+  // Changed: 55 since the alias and lesson writes left with their commands.
+  assert.equal(apis.length, 55);
+  assert.equal(new Set(apis).size, 55);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);

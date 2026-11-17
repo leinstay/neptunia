@@ -401,29 +401,6 @@ const ENTRIES: Array<Definition> = [
     effects: 'administrative',
     toArgs: accessArgs,
   }),
-  def('alias.add', {
-    params: obj({ user: ref(), name: str() }, ['user', 'name']),
-    refs: { user: 'user' },
-    effects: 'write',
-    toArgs: forMember((accountId, a) => ({ accountId, name: val(a, 'name') })),
-  }),
-  def('alias.remove', {
-    params: obj({ user: ref(), name: str() }, ['user', 'name']),
-    refs: { user: 'user' },
-    effects: 'destructive',
-    toArgs: forMember((accountId, a) => ({ accountId, name: val(a, 'name') })),
-  }),
-  def('learning.add', {
-    params: obj({ text: str() }, ['text']),
-    body: 'text',
-    effects: 'write',
-    toArgs: (a) => ({ text: val(a, 'text') }),
-  }),
-  def('learning.remove', {
-    params: obj({ number: int(1) }, ['number']),
-    effects: 'destructive',
-    toArgs: (a) => ({ id: val(a, 'number') }),
-  }),
   def('lore.list', {
     params: obj({ query: str() }),
     effects: 'read',

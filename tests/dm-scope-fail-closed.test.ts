@@ -41,7 +41,8 @@ test('a real channel and a real place stay the group', () => {
   assert.deepEqual(scopeColumns({ place: 'discord:server:g1' }, { iface: 'discord' }), groupScope('discord'));
 });
 
-function closing(apply: 'applyPrivateOps' | 'applyProfileOps') {
+// Changed: the private layer alone, since the profile's item writer left with `alias.add`.
+function closing() {
   const entries: Array<Scoped> = [];
   const archive = {
     append(_home: string | null, lines: Array<Scoped>) {
@@ -54,33 +55,24 @@ function closing(apply: 'applyPrivateOps' | 'applyProfileOps') {
     (...args: Array<unknown>) => unknown
   >;
   const opts = (n: number) => ({ now: 1_790_000_000_000 + n * 1000, maxClosedStored: 0 });
-  const held = () =>
-    (store[apply === 'applyPrivateOps' ? 'getPrivate' : 'getUser']('a1') as { interests: Array<{ itemId: string }> })
-      .interests[0];
-  store[apply]('a1', { interests: { add: [{ topic: 'first', note: '' }] } }, opts(0));
-  store[apply]('a1', { interests: { add: [{ topic: 'second', note: '', supersedes: held().itemId }] } }, opts(1));
+  const held = () => (store.getPrivate('a1') as { interests: Array<{ itemId: string }> }).interests[0];
+  store.applyPrivateOps('a1', { interests: { add: [{ topic: 'first', note: '' }] } }, opts(0));
+  store.applyPrivateOps(
+    'a1',
+    { interests: { add: [{ topic: 'second', note: '', supersedes: held().itemId }] } },
+    opts(1)
+  );
   return { store, entries };
 }
 
 test('a private claim closed out of the private layer is archived as private', async () => {
   // Bug: `storeClosed` scopes every closed claim `{ user }`, so a private one passes the group's archive read.
-  const { store, entries } = closing('applyPrivateOps');
+  const { store, entries } = closing();
   await store.settleArchive();
   assert.notEqual(entries.length, 0);
   assert.deepEqual(
     entries.map((entry) => entry.scope.private),
     entries.map(() => true)
-  );
-});
-
-test('a public claim closed out of a profile stays public', async () => {
-  // Bug: the private mark on every closed claim hides a member's public history.
-  const { store, entries } = closing('applyProfileOps');
-  await store.settleArchive();
-  assert.notEqual(entries.length, 0);
-  assert.equal(
-    entries.some((entry) => entry.scope.private === true),
-    false
   );
 });
 

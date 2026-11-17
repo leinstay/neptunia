@@ -208,14 +208,6 @@ export function reloadNote(ok: unknown): string {
   return `(reload ${ok ? 'ok' : 'FAILED'})`;
 }
 
-/** The weight an item reaches when the owner confirms it at once (`alias.add`,
- * `learning.add`): `memory.confirmAfter` rounded up, at least 1 (default 2). */
-export function confirmTarget(memoryCfg: unknown): number {
-  const given = objOf(memoryCfg).confirmAfter;
-  const confirmAfter = typeof given === 'number' && Number.isFinite(given) && given > 0 ? Math.ceil(given) : 2;
-  return Math.max(1, confirmAfter);
-}
-
 /** The history-backfill stamp of `media.status` for emoji and for GIFs, or `never`. */
 export function backfillText(stamp: Untyped): string {
   return stamp?.at ? `${stamp.at}, ${stamp.channels} channels, ${stamp.messages} messages` : 'never';
@@ -438,20 +430,9 @@ export function episodeLine(ep: Untyped, resolve: (text: unknown) => string): st
 }
 
 /** `[weight N, last DATE] name`, or just `[weight N] name`, used by
- * both the `raw` view (via `rawMemoryShowView`) and the `aliases` section, and by the
- * "resulting alias list" reply of `alias.add` and `alias.remove`. */
+ * both the `raw` view (via `rawMemoryShowView`) and the `aliases` section. */
 export function aliasLine(alias: Untyped): string {
   return `[weight ${alias.weight}${lastDateSuffix(alias.lastSeen)}] ${alias.name}`;
-}
-
-/** The member's stored aliases, rank-ordered, one per line — the reply
- * `alias.add` and `alias.remove` give after writing. */
-export function formatAliasList(profile: Untyped, memoryCfg: Untyped): string {
-  const aliases = profile?.aliases ?? [];
-  if (!aliases.length) return NONE;
-  return (topByRank(aliases, undefined, memoryCfg?.aliasHalfLifeDays) as Array<Untyped>)
-    .map((alias) => aliasLine(alias))
-    .join('\n');
 }
 
 /**

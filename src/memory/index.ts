@@ -41,7 +41,6 @@ export { ARCHIVE_EVENTS, ARCHIVE_KINDS, archiveEntry } from './archive.ts';
 export { appendRevision, toRecordLine } from './record.ts';
 export { slimMessage } from './update.ts';
 export { recordFollowing, recordOwnLine } from './participation.ts';
-export { applyAliasOps } from './aliases.ts';
 export { writeJsonAtomic } from './store.ts';
 
 // The folder of the snapshots of data/.
