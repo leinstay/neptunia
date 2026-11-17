@@ -3,9 +3,9 @@
 // Contract, plan 2026-11-04-cli-and-memory B4 and B9, module src/behavior/summary-builder.ts:
 //   `parseSummaryNote(raw, { maxChars, count })` resolves `{ text, stretch }`; the single word `none` is no note
 //   `createSummaryBuilder({ hot, llm, now })(evidence, limits)` takes `{ kind: 'history', selfName, question, windows,
-//   people?, memory? }` or `{ kind: 'web', query, results }`, and `limits` `{ maxChars, maxOutputTokens, signal?, timeoutMs? }`;
+//   messages }` or `{ kind: 'web', query, results }`, and `limits` `{ maxChars, maxOutputTokens, signal?, timeoutMs? }`;
 //   it resolves `{ status: 'note' | 'none' | 'failed' | 'no-prompt', text, stretch, reason? }` and never rejects
-//   history reads `prompts['recall-summary']` on the analyzer, web reads `prompts['search-summary']` on the `search` role
+//   history sends its caller's `messages` on the analyzer, web reads `prompts['search-summary']` on the `search` role
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRecall } from '../src/behavior/recall-run.ts';
@@ -61,6 +61,11 @@ const HISTORY = {
       ],
     },
   ],
+  // The one history caller, the recall run, always hands in the request it built.
+  messages: [
+    { role: 'system', content: 'BUILT-SYSTEM' },
+    { role: 'user', content: 'BUILT-USER' },
+  ],
 };
 
 const WEB = {
@@ -101,13 +106,12 @@ function builder(options: { answer?: string | Error; prompts?: Record<string, un
   return { build, calls };
 }
 
-test('chat evidence reads its own prompt on the analyzer', async () => {
-  // Bug: one prompt for both, so a web note is written under the rules of chat stretches.
+test('chat evidence sends the request its caller built, on the analyzer', async () => {
+  // Bug: the builder sends a request of its own instead of the recall run's, or puts it on the search role.
   const { build, calls } = builder();
   const note = await build(HISTORY, LIMITS);
-  assert.equal(calls[0]?.system, 'History for Nova, at most 100.');
+  assert.deepEqual([calls[0]?.system, calls[0]?.user], ['BUILT-SYSTEM', 'BUILT-USER']);
   assert.equal(calls[0]?.options.role, 'analyzer');
-  assert.ok(calls[0]?.user.includes('το είπα εγώ'));
   assert.deepEqual([note.status, note.text], ['note', 'She said it on Monday.']);
 });
 
@@ -156,13 +160,6 @@ for (const evidence of [HISTORY, WEB]) {
     assert.equal(note.text, null);
   });
 
-  test(`a ${evidence.kind} note with no prompt costs no request`, async () => {
-    // Bug: a blank system message goes out and the model improvises a finding.
-    const { build, calls } = builder({ prompts: null });
-    assert.equal((await build(evidence, LIMITS)).status, 'no-prompt');
-    assert.equal(calls.length, 0);
-  });
-
   test(`a ${evidence.kind} note leaves its text out of the logs`, async () => {
     // Bug: a search over private history writes what it found to the journal.
     const { build } = builder({ answer: 'μυστικό εύρημα' });
@@ -176,6 +173,13 @@ test('a stretch line names one stretch of the chat evidence and leaves the note'
   const { build } = builder({ answer: 'stretch: 1\nAna said it.' });
   const note = await build(HISTORY, LIMITS);
   assert.deepEqual([note.text, note.stretch], ['Ana said it.', 1]);
+});
+
+test('a web note with no prompt costs no request', async () => {
+  // Bug: a blank system message goes out and the model improvises a finding.
+  const { build, calls } = builder({ prompts: null });
+  assert.equal((await build(WEB, LIMITS)).status, 'no-prompt');
+  assert.equal(calls.length, 0);
 });
 
 test('a web note names no stretch', async () => {

@@ -120,9 +120,10 @@ test("the root tags of a reply are the frame's list in its order, the stable seg
     meanwhile: 'memory',
   };
   // The owner's decision of 2026-11-11 (cache layout) makes `<found>` a root tag of the frame; this request finds nothing.
-  // The owner on 2026-11-17: the <interface> block is absent when the window holds no custom emoji and no sticker.
+  // The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+  // The owner on 2026-11-17: the <media> block is absent when the window holds no custom emoji and no sticker.
   const expected = FRAME.blocks
-    .filter((name) => name !== 'persona' && name !== 'found' && name !== 'interface')
+    .filter((name) => name !== 'persona' && name !== 'found' && name !== 'media')
     .map((name) => `${cached[name] ?? 'tail'} ${name}`);
   assert.deepEqual(emittedBlocks(built), expected);
 });

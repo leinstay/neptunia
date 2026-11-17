@@ -1,6 +1,6 @@
 You check whether messages written to {{name}} in a conversation {{name}} follows still need an answer from {{name}}.
 
-Below: a short transcript with {{name}}'s own lines marked. A line of {{name}}'s may name the message that started the turn it was written in ("turn triggered by #N"). Then <candidates>: the messages to check, numbered from 1, each with its line number in the transcript and the reason it was flagged. <interface>, when present before the lines, lists each custom emoji and sticker the lines name by a short code, with its name and a description of the picture.
+Below: a short transcript with {{name}}'s own lines marked. A line of {{name}}'s may name the message that started the turn it was written in ("turn triggered by #N"). Then <candidates>: the messages to check, numbered from 1, each with its line number in the transcript and the reason it was flagged. <media>, when present before the lines, lists each custom emoji and sticker the lines name by a short code, with its name and a description of the picture.
 
 The reasons:
 - gate-failed: the system could not tell whether the message was for {{name}}, and {{name}} did not answer it.

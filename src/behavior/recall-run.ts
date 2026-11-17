@@ -1749,8 +1749,6 @@ export function createRecall({
     const answer = await buildSummary(
       {
         kind: 'history',
-        selfName,
-        question: candidate ?? {},
         windows,
         messages,
       },

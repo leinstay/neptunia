@@ -80,7 +80,7 @@ export type Labels = {
   readonly affinity?: { readonly bands?: LabelGroup };
   /** `<attitudes>` of `<self>`: `header`, and `line` with `{who}` and `{band}` (src/turn/request/attitudes.ts). */
   readonly attitudes?: LabelGroup;
-  /** The legend `<interface>`: `line`, `lineNoText` and `unreadable` (src/turn/request/legend.ts). */
+  /** The legend `<media>`: `line`, `lineNoText` and `unreadable` (src/turn/request/legend.ts). */
   readonly legend?: LabelGroup;
   readonly aboutChat: LabelGroup;
   readonly lore?: LabelGroup;
@@ -378,7 +378,7 @@ export type RequestInput = {
   readonly customEmoji?: unknown;
   readonly mediaPickText?: string | null;
   readonly mediaCache?: MediaLookup | MediaCache | null;
-  /** The store's read of a stable name, for the legend `<interface>` (src/memory/store-media-names.ts). */
+  /** The store's read of a stable name, for the legend `<media>` (src/memory/store-media-names.ts). */
   readonly mediaNameOf?: ((name: string) => MediaName | null) | null;
   readonly gifs?: unknown;
   readonly tasks?: Tasks | null;

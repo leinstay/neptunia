@@ -1,4 +1,4 @@
-// The body of the root block `<interface>`, the legend: each custom emoji and sticker the lines of `<chat>` and
+// The body of the root block `<media>`, the legend: each custom emoji and sticker the lines of `<chat>` and
 // `<meanwhile>` use stands once, under its interface and its kind, with its stable name, its platform name and its whole
 // description. A line of chat holds the stable name alone. The reader (src/turn/request/reader.ts) gathers the items
 // after the cuts and prints the block between `<meanwhile>` and `<chat>`.
@@ -141,7 +141,7 @@ export function messagesLegend(
   );
 }
 
-/** The legend of `messages` as the root block `<interface>` that stands before their lines, or '' for none. */
+/** The legend of `messages` as the root block `<media>` that stands before their lines, or '' for none. */
 export function legendBlock(
   messages: ReadonlyArray<unknown>,
   nameOf: (name: string) => MediaName | null,
@@ -149,5 +149,5 @@ export function legendBlock(
   descriptions: ReadonlyMap<string, string> | null = null
 ): string {
   const legend = messagesLegend(messages, nameOf, legendLabelsOf(labels), descriptions);
-  return legend ? `<interface>\n${legend}\n</interface>` : '';
+  return legend ? `<media>\n${legend}\n</media>` : '';
 }

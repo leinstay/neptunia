@@ -17,7 +17,7 @@ export type BlockName =
   | 'surroundings'
   | 'memory'
   | 'meanwhile'
-  | 'interface'
+  | 'media'
   | 'chat'
   | 'recall'
   | 'found'
@@ -131,7 +131,7 @@ export function kindOfRequest(given: {
 
 // Each list is the printed order, laid out for the prompt cache: what repeats between two turns of one place first,
 // the turn's own blocks after `<chat>`, and `<task>` last (the owner's decision of 2026-11-11). `<recall>` stands
-// below `<chat>` because its numbers are counted past the chat's and its lookups leave by age. `<interface>`, the
+// below `<chat>` because its numbers are counted past the chat's and its lookups leave by age. `<media>`, the
 // legend of the custom emoji and stickers of `<meanwhile>` and `<chat>`, opens the turn's own blocks.
 const ORDINARY: ReadonlyArray<BlockName> = Object.freeze([
   'persona',
@@ -139,7 +139,7 @@ const ORDINARY: ReadonlyArray<BlockName> = Object.freeze([
   'surroundings',
   'memory',
   'meanwhile',
-  'interface',
+  'media',
   'chat',
   'recall',
   'found',
@@ -153,7 +153,7 @@ const SERVICE: ReadonlyArray<BlockName> = Object.freeze([
   'self',
   'memory',
   'meanwhile',
-  'interface',
+  'media',
   'recall',
   'found',
   'inner',
@@ -166,7 +166,7 @@ const DIARY: ReadonlyArray<BlockName> = Object.freeze([
   'self',
   'memory',
   'meanwhile',
-  'interface',
+  'media',
   'recall',
   'found',
   'inner',

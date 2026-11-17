@@ -1,6 +1,6 @@
 You classify whether a new message in a group conversation is addressed to {{name}}.
 
-Below: <aliases> when {{name}} goes by other names, one per line. A candidate may reach you only because it holds one of them; a name is a clue, not an address, and the same name can belong to someone or something else. A short transcript, {{name}}'s own lines marked. Then, when the author has known nicknames, <author> with the candidate's display name and aliases. Then <candidate> with one new message. <interface>, when present before the lines, lists each custom emoji and sticker the lines name by a short code, with its name and a description of the picture.
+Below: <aliases> when {{name}} goes by other names, one per line. A candidate may reach you only because it holds one of them; a name is a clue, not an address, and the same name can belong to someone or something else. A short transcript, {{name}}'s own lines marked. Then, when the author has known nicknames, <author> with the candidate's display name and aliases. Then <candidate> with one new message. <media>, when present before the lines, lists each custom emoji and sticker the lines name by a short code, with its name and a description of the picture.
 
 Answer with a JSON object that has one field, answer, set to yes, overheard or no.
 

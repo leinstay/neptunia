@@ -1779,11 +1779,13 @@ test('formatTranscript: with mediaNameOf the first item opens with the legend of
     mediaNameOf: nameOfBlob,
   });
   const text = items[0].text;
-  assert.ok(text.startsWith('<interface>\n<discord><emojis>\n:e7: [blobwave] a waving blob\n'), text);
-  assert.ok(text.slice(text.indexOf('</interface>')).includes('hi :e7:'), text);
+  // The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+  assert.ok(text.startsWith('<media>\n<discord><emojis>\n:e7: [blobwave] a waving blob\n'), text);
+  assert.ok(text.slice(text.indexOf('</media>')).includes('hi :e7:'), text);
 });
 
 test('formatTranscript: without mediaNameOf a transcript holds no legend', () => {
   const [first] = formatTranscript([emojiLine], { timezone: TZ, selfName: 'Nept', labels: legendLabels });
-  assert.ok(!first.text.includes('<interface>'), first.text);
+  // The owner on 2026-11-17: the block of custom emoji and stickers is <media>.
+  assert.ok(!first.text.includes('<media>'), first.text);
 });
