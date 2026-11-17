@@ -1,5 +1,6 @@
 // The types of the signatures in ./turn.ts: the inputs and results that are too long to read inline.
 
+import type { EmbedTexts } from '../turn/intention-notice.ts';
 import type { KeepLines } from '../pipeline/keep-lines.ts';
 import type { Track } from '../loop-watch.ts';
 import type { Summarize } from './summarize.ts';
@@ -48,6 +49,8 @@ export type CreateTurnRunnerInput = {
   embedQuery?: ((text: string) => Promise<ArrayLike<number> | null>) | null;
   /** The embedder of the finder and media.find, purpose `recall-query`; null: they read words only. */
   embedFind?: ((text: string) => Promise<ArrayLike<number> | null>) | null;
+  /** One embedding request of the notice before a heartbeat's intention is saved (src/turn/intention-notice.ts); null: no notice. */
+  embedNotice?: EmbedTexts | null;
   dataDir?: string | null;
   getSelfName?: (placeId: string | null) => string;
   selfId?: () => string;

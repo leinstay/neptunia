@@ -501,6 +501,8 @@ export function buildTurnRunner(input: WiringInput): Wired {
     summarize,
     embedQuery: embedOne('media-pick'),
     embedFind: embedOne('recall-query'),
+    embedNotice: (texts: Array<string>) =>
+      input.embed(texts, { config: hot.config as unknown, purpose: 'recall-query' }),
     hot,
     store,
     roleHealth: createRoleHealth({ now, hasKey: () => true }),

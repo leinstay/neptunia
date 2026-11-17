@@ -67,6 +67,8 @@ export const CATALOGUE = Object.freeze({
   'heartbeat-only': skill('denied'),
   'heartbeat-cap': skill('denied'),
   'heartbeat-recurring-cap': skill('denied'),
+  // A heartbeat's intention held until she confirms, changes or leaves it, with what she did near it (src/turn/intention-notice.ts).
+  'intention-notice': skill('denied'),
   paused: skill('denied'),
   'diary-draw-only': skill('denied'),
 

@@ -343,7 +343,27 @@
       "dmLast": "has a direct chat with you, last line {date}",
       "activity": "lines by people in the last {days} days: {lines}, from {people} people",
       "quiet": "nobody wrote here in the last {days} days",
-      "ownLast": "you last wrote here {date}"
+      "ownLast": "you last wrote here {date}",
+      "notice": {
+        "lead": "{id} lists related past activity, nearest first:",
+        "line": "{date}, in {place}, you wrote: {text}",
+        "linePrivate": "{date}, you wrote in {place}",
+        "followed": "lines by people there within a day after it: {lines}, from {people} people",
+        "noReply": "no reply is recorded there within a day after it",
+        "intention": "{date}, you set an intention, now {state}: {purpose}",
+        "states": {
+          "pending": "open",
+          "waiting": "waiting for an errand",
+          "done": "done",
+          "cancelled": "cancelled",
+          "expired": "expired",
+          "dropped": "let go"
+        },
+        "run": "the turn that carried it out on {date} sent lines: {sent}, in {places}",
+        "runSilent": "the turn that carried it out on {date} sent nothing",
+        "notRun": "no turn has carried it out",
+        "ways": "Three ways on: save it unchanged with intention.set and confirm {id}, which needs no reason; change it and call intention.set with the changed intention; or leave it, with <skip/> or with no further call."
+      }
     },
     "memory": {
       "privateChannel": "private chat",
@@ -641,6 +661,7 @@
           "adapter-threw": "the chat interface failed on this request",
           "cap-open": "too many of your errands are open already",
           "cap-tasks": "today's errands for that agent are used up",
+          "intention-notice": "the intention is not saved yet, and what you already did near it follows",
           "heartbeat-only": "heartbeat accepts every read, of memory, chats, the web and pictures, and an errand, then one intention change or a skip. A post, a reaction, a drawing or a voice line needs an intention",
           "heartbeat-cap": "too many of your heartbeat intentions are open already; update or cancel one",
           "heartbeat-recurring-cap": "your recurring heartbeat intention is already open; update or cancel it",

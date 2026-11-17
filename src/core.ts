@@ -1013,6 +1013,8 @@ async function buildCore(
     summarize,
     embedQuery: embedOne('media-pick'),
     embedFind: embedOne('recall-query'),
+    // The notice before a heartbeat's intention is saved: the purpose and her intentions in one request, the model of a query.
+    embedNotice: (texts: Array<string>) => embedder.embed(texts, { config: hot.config, purpose: 'recall-query' }),
     // A cancel and the steps of a turn over a line of the owner's chat (src/interface/chat-turns.ts).
     cancelOf: (triggerId: string | null) => intake.cancelOf(triggerId),
     noteProgress: (triggerId: string | null, step: { name: string; detail: string }) =>

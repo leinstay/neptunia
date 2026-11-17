@@ -63,6 +63,7 @@ import { createSeedRing } from '../turn/seed-ring.ts';
 import type { Lookup } from '../turn/calls.ts';
 import { frameReadsOver } from '../memory/db/frame-reads.ts';
 import { createFindMeaning, findSettingsOf } from '../memory/db/graph-find.ts';
+import { roleModel } from '../llm/roles.ts';
 import type { FindMeaning, FindMeaningSource, FindMemoEntry } from '../memory/db/graph-find.ts';
 import { lookupsOfRecords, seedsOfRecords } from '../memory/journal.ts';
 import type { FrameReads } from '../memory/db/frame-reads.ts';
@@ -286,6 +287,8 @@ export function createTurnRunner({
   embedQuery = null,
   // The embedder of the finder and media.find (graph-find.ts#createFindMeaning); null: they read words only.
   embedFind = null,
+  // The embedder of the notice before a heartbeat's intention is saved (src/turn/intention-notice.ts); null: no notice.
+  embedNotice = null,
   // The data folder a library GIF's cached file and `appearance.png` are read from; null: neither.
   dataDir = null,
   getSelfName = () => 'bot',
@@ -597,6 +600,19 @@ export function createTurnRunner({
         : null;
     },
     findMeaningFor,
+    // The notice before a heartbeat's intention is saved: her past acts read as herself, the purpose embedded with the
+    // embedding role's model of a query.
+    notice:
+      embedNotice && frameReads
+        ? {
+            embed: embedNotice,
+            reads: {
+              ownIntentions: (limit) => frameReads.ownIntentions?.(limit) ?? [],
+              pastActs: (input) => frameReads.pastActs?.(input) ?? [],
+            },
+            model: () => roleModel(hot.config, 'embedding', 'recall-query') ?? null,
+          }
+        : null,
     // A #handle she carries names a channel of any interface the memory holds.
     knownPlaces: () => frameReads?.chatPlaces?.() ?? [],
     placeRef: (placeId) => frameReads?.placeRef?.(placeId) ?? null,
