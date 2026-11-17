@@ -4,7 +4,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareRequests, foldRepeats } from '../scripts/lib/turn-compare.ts';
+import type { DatabaseSync } from 'node:sqlite';
+import { archivedRequest, compareRequests, foldRepeats } from '../scripts/lib/turn-compare.ts';
+import { freshMemoryDb } from './fixtures/memory-db-copy.ts';
 
 const tool = (name: string, description: string) => ({
   type: 'function',
@@ -55,4 +57,24 @@ test('folds a line repeated right after itself and counts the numbers again', ()
 test('keeps a line said twice with another line between them', () => {
   const lines = ['#1 Ελένη: Γεια', '#2 Νίκος: Καλησπέρα', '#3 Ελένη: Γεια'].join('\n');
   assert.equal(foldRepeats(lines), lines);
+});
+
+test('reads the archived request of the purpose asked, the first step of it', () => {
+  const handle = freshMemoryDb();
+  const db = handle.db as InstanceType<typeof DatabaseSync>;
+  const row = db.prepare(
+    `INSERT INTO model_requests (id, schema_version, turn_id, step, purpose, status, started_at, messages, tools, response_text)
+     VALUES (?, 1, 't-1', ?, ?, 'ok', ?, ?, NULL, ?)`
+  );
+  const messages = (text: string) => JSON.stringify([{ role: 'user', content: text }]);
+  row.run('r1', 0, 'diary-planner', '2026-03-04T10:00:00.000Z', messages('Σχέδιο'), '{"kind":"status"}');
+  row.run('r2', 1, 'reply', '2026-03-04T10:00:05.000Z', messages('Γράψε'), '<msg>Γεια</msg>');
+  row.run('r3', 2, 'reply', '2026-03-04T10:00:09.000Z', messages('Ξανά'), '<msg>Αντίο</msg>');
+  const planner = archivedRequest(db, 't-1', 'diary-planner');
+  const writer = archivedRequest(db, 't-1', 'reply');
+  assert.deepEqual(
+    [planner?.parts.user, planner?.text, writer?.parts.user, archivedRequest(db, 't-1', 'summarize')],
+    ['Σχέδιο', '{"kind":"status"}', 'Γράψε', null]
+  );
+  handle.close();
 });

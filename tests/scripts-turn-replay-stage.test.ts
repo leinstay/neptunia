@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { DatabaseSync } from 'node:sqlite';
-import { stageOf, storedTurn, triggerOf } from '../scripts/lib/turn-stage.ts';
+import { diaryParamsOf, stageOf, storedTurn, triggerOf } from '../scripts/lib/turn-stage.ts';
 import { freshMemoryDb } from './fixtures/memory-db-copy.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -74,7 +74,7 @@ test('serves the command line chat up to its trigger and makes the trigger line 
     now: () => START,
     tmpDir: tempDir('nep-stage-tmp-'),
   });
-  const page = await stage.port.history(stage.chat, { limit: 10 });
+  const page = await stage.port.history(stage.chat ?? assert.fail('a reply turn has a chat'), { limit: 10 });
   const texts = page.status === 'ok' ? page.events.map((event) => event.message.content) : [];
   assert.deepEqual(texts, ['Γεια', 'Τι νέα;']);
   const trigger = await triggerOf(stage, turn, db);
@@ -112,5 +112,70 @@ test('serves a place of another interface from its stored lines written before t
   assert.equal(page.status, 'ok');
   const texts = page.status === 'ok' ? page.events.map(({ message }) => message.content) : [];
   assert.deepEqual(texts, ['Πρώτο', 'Δεύτερο']);
+  handle.close();
+});
+
+/** A diary turn's start row: no place, no interface, no trigger. */
+function seedDiary(db: Db): void {
+  db.prepare(
+    `INSERT INTO day (id, at, what, place_id, turn_id, scope_iface, extra) VALUES ('day:3', ?, 'turn.start', NULL, 't-dddd-3333', NULL, ?)`
+  ).run(new Date(START).toISOString(), JSON.stringify({ mode: 'diary', trigger: null }));
+}
+
+test('reads a diary turn that names no place and no trigger', () => {
+  const handle = freshMemoryDb();
+  seedDiary(handle.db as Db);
+  const turn = storedTurn(handle.db as Db, 't-dddd-3333');
+  assert.deepEqual([turn.mode, turn.placeId, turn.triggerId], ['diary', null, null]);
+  handle.close();
+});
+
+test('stages a diary turn with no chat and serves the stored places of its interface', async () => {
+  const handle = freshMemoryDb();
+  const db = handle.db as Db;
+  seedDiary(db);
+  db.prepare(
+    `INSERT INTO places (id, iface, kind, native_id, scope_kind, chat) VALUES ('discord:channel:900', 'discord', 'channel', '900', 'group', 'group')`
+  ).run();
+  const at = '2026-03-04T09:00:00.000Z';
+  db.prepare(
+    `INSERT INTO sources (id, kind, iface, native_id, place_id, text, occurred_at, recorded_at, observed_at)
+     VALUES ('source:d1', 'said', 'discord', '9001', 'discord:channel:900', 'Πρώτο', ?, ?, ?)`
+  ).run(at, at, at);
+  const turn = { ...storedTurn(db, 't-dddd-3333'), iface: 'discord' };
+  const stage = stageOf({
+    db,
+    dataDir: tempDir('nep-stage-'),
+    turn,
+    selfId: 'self',
+    now: () => START,
+    tmpDir: tempDir('nep-stage-tmp-'),
+  });
+  assert.equal(stage.chat, null);
+  const page = await stage.port.history({ iface: 'discord', chatId: '900' }, { limit: 10 });
+  const texts = page.status === 'ok' ? page.events.map(({ message }) => message.content) : [];
+  assert.deepEqual(texts, ['Πρώτο']);
+  handle.close();
+});
+
+test('runs a diary turn with the pinned kind and forced off', () => {
+  const handle = freshMemoryDb();
+  seedDiary(handle.db as Db);
+  const params = diaryParamsOf(storedTurn(handle.db as Db, 't-dddd-3333'), 'status');
+  assert.deepEqual(params, { mode: 'diary', diary: { kind: 'status', forced: false } });
+  handle.close();
+});
+
+test('refuses a pinned kind for a turn that is no diary turn', () => {
+  const handle = freshMemoryDb();
+  seed(handle.db as Db);
+  assert.throws(() => diaryParamsOf(storedTurn(handle.db as Db, 't-aaaa-1111'), 'status'), /no diary turn/);
+  handle.close();
+});
+
+test('refuses a pinned kind the diary does not know', () => {
+  const handle = freshMemoryDb();
+  seedDiary(handle.db as Db);
+  assert.throws(() => diaryParamsOf(storedTurn(handle.db as Db, 't-dddd-3333'), 'poem'), /unknown diary kind/);
   handle.close();
 });

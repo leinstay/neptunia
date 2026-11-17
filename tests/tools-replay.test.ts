@@ -1,13 +1,12 @@
-// Tests for the pure parts of scripts/replay.ts's diary mode (the arguments, the turn it runs,
-// the dry-run view of hot), of its diary-day mode (the arguments, the seeded plan, the spend
+// Tests for the pure parts of scripts/replay.ts's diary-day mode (the arguments, the seeded plan, the spend
 // gate, the recording image client of scripts/lib/diary-day.ts, the key) and for
-// scripts/lib/prompt-layers.ts, the one prompt layering both --pair and --diary use.
+// scripts/lib/prompt-layers.ts, the one prompt layering of every mode that takes a prompt directory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHot } from '../src/hot.ts';
-import { diaryTopic, localDayKey, planDay } from '../src/behavior/diary.ts';
+import { localDayKey, planDay } from '../src/behavior/diary.ts';
 import { zonedEpoch } from '../src/time.ts';
 import { createImageGen } from '../src/llm/images.ts';
 import { createLookup } from '../src/web/lookup.ts';
@@ -16,7 +15,6 @@ import { createExaSearch } from '../src/web/exa.ts';
 import {
   parseArgs,
   storedDumps,
-  diaryTurnParams,
   diaryPromptLayers,
   searchAvailableOf,
   diaryDayGate,
@@ -68,52 +66,7 @@ function scratchRoot() {
   return root;
 }
 
-test('replay: the diary mode builds a diary turn request with the kind forced', () => {
-  const args = parseArgs([
-    '--diary',
-    'picture',
-    '--count',
-    '3',
-    '--topic',
-    '  a walk by the séa  ',
-    '--prompts',
-    'candidate',
-    '--out',
-    '/tmp/briefs.json',
-    '--spend',
-    '1',
-  ]);
-  assert.equal(args.diary, 'picture');
-  assert.equal(args.count, 3);
-  assert.equal(args.prompts, 'candidate');
-  assert.equal(args.outDir, '/tmp/briefs.json');
-  assert.deepEqual(
-    diaryTurnParams(args as unknown as Parameters<typeof diaryTurnParams>[0], {
-      diaryTopic,
-    }),
-    {
-      mode: 'diary',
-      diary: { kind: 'picture', topic: 'a walk by the séa', forced: false },
-    }
-  );
-  // A blank topic is none, as /nep diary post takes it; the count defaults to one brief.
-  const bare = parseArgs(['--diary', 'selfPicture', '--topic', '   ']);
-  assert.equal(bare.count, 1);
-  assert.deepEqual(
-    diaryTurnParams(bare as unknown as Parameters<typeof diaryTurnParams>[0], {
-      diaryTopic,
-    }),
-    {
-      mode: 'diary',
-      diary: { kind: 'selfPicture', forced: false },
-    }
-  );
-  // Only the diary flags go with it; an unknown kind, a reply flag or a positional is refused.
-  assert.throws(() => parseArgs(['--diary', 'poem']), /usage/);
-  assert.throws(() => parseArgs(['--diary', 'picture', '--split']), /usage/);
-  assert.throws(() => parseArgs(['--diary', 'picture', '123456789012345678', '223456789012345678']), /usage/);
-  assert.throws(() => parseArgs(['--diary', 'picture', '--count', '51']), /usage/);
-  assert.throws(() => parseArgs(['123456789012345678', '223456789012345678', '--topic', 'x']), /usage/);
+test('replay: a pair run refuses --prompts', () => {
   assert.throws(
     () => parseArgs(['--pair', 'a', 'b', '--prompts', 'c', '123456789012345678', '223456789012345678']),
     /usage/

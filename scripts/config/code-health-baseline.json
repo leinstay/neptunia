@@ -1139,8 +1139,7 @@
     },
     "scripts/lib/replay-args.ts": {
       "parseArgs": {
-        "complexity": 246,
-        "function-length": 330
+        "complexity": 212
       }
     },
     "scripts/lib/vision-compare.ts": {
@@ -1180,9 +1179,6 @@
       "parseSteps><anonymous>": {
         "complexity": 27
       },
-      "runDiary": {
-        "complexity": 51
-      },
       "runDiaryDay": {
         "complexity": 31
       },
@@ -1190,7 +1186,7 @@
         "complexity": 54
       },
       "runMain": {
-        "complexity": 152
+        "complexity": 149
       },
       "runRecall": {
         "complexity": 64

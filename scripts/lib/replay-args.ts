@@ -13,7 +13,6 @@ export const USAGE =
   '       node scripts/replay.ts <placeId> <triggerMessageId> --recall [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]\n' +
   '       node scripts/replay.ts --pair <promptsDirA> <promptsDirB> (--triggers <file> | <placeId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
-  '       node scripts/replay.ts --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--diary-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]\n' +
   '       node scripts/replay.ts --pair-transport (--triggers <file> | <placeId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --loop-triggers (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
@@ -26,11 +25,6 @@ export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'h
 
 /** An intention id (src/intentions/model.ts#newIntentionId). */
 export const INTENTION_ID = /^[A-Za-z0-9_-]{1,20}$/;
-
-/** The diary kinds a brief is asked of: the ones that draw. */
-export const DIARY_KINDS = Object.freeze(['selfPicture', 'picture']);
-
-export const MAX_DIARY_COUNT = 50;
 
 /** The longest `--seed` of a `--diary-day` or `--inner` run. */
 export const MAX_SEED_CHARS = 200;
@@ -75,9 +69,6 @@ export type ReplayArgs = {
   outDir: string | null;
   spend: string | undefined;
   showRequestTurn: string | null;
-  diary: string | null;
-  count: number | null;
-  topic: string | null;
   prompts: string | null;
   skills: string | null;
   dry: boolean;
@@ -101,7 +92,6 @@ export type ReplayArgs = {
   answersTimeoutMin: number;
   placeId?: string | null;
   triggerId?: string | null;
-  diaryOwnHistory?: boolean;
 };
 
 /**
@@ -117,10 +107,7 @@ export type ReplayArgs = {
  * `--pair` only), `spend` (the raw `--spend` value, undefined when absent) and
  * `showRequestTurn` (`--show-request <turnId>`: no positionals, no mode flag; `--steps`
  * sets `steps` and goes only with it).
- * `--diary <kind>` sets `diary` (one of DIARY_KINDS) and takes only `--count`
- * (`count`, 1 by default), `--topic` (`topic`, raw), `--prompts` (`prompts`),
- * `--out` (`outDir`: the briefs file) and `--spend`; those three take nothing
- * else. `--skills <file>` sets `skills` (the scenario file) and takes only
+ * `--skills <file>` sets `skills` (the scenario file) and takes only
  * `--out`, `--before`, `--as-of-moment`, `--snapshot`, `--spend`, `--dry`
  * (`dry`, only with it), and one of `--prompts <dir>` (`prompts`) and
  * `--pair-prompts <dirA> <dirB>` (`pairPrompts`, [dirA, dirB], only with it;
@@ -147,9 +134,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     outDir: null,
     spend: undefined,
     showRequestTurn: null,
-    diary: null,
-    count: null,
-    topic: null,
     prompts: null,
     skills: null,
     dry: false,
@@ -232,18 +216,9 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       if (!DRAW_MODES.includes(draw)) throw new CliError(USAGE);
       out.draw = draw;
     } else if (arg === '--max-pictures') out.maxPictures = intFlag(argv[(i += 1)], 1, MAX_PICTURES);
-    else if (arg === '--diary') {
-      const kind = argv[(i += 1)];
-      if (!DIARY_KINDS.includes(kind)) throw new CliError(USAGE);
-      out.diary = kind;
-    } else if (arg === '--count') out.count = intFlag(argv[(i += 1)], 1, MAX_DIARY_COUNT);
     else if (arg === '--prompts') out.prompts = pathValue(argv[(i += 1)]);
     else if (arg === '--pair-prompts') out.pairPrompts = [pathValue(argv[(i += 1)]), pathValue(argv[(i += 1)])];
-    else if (arg === '--topic') {
-      const topic = argv[(i += 1)];
-      if (typeof topic !== 'string') throw new CliError(USAGE);
-      out.topic = topic;
-    } else if (arg === '--text') {
+    else if (arg === '--text') {
       const text = argv[(i += 1)];
       if (typeof text !== 'string' || text.trim() === '') throw new CliError(USAGE);
       out.text = text;
@@ -267,7 +242,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       positional.length > 0 ||
       (out.inner === 'heartbeat' ? out.intention !== null : out.intention === null) ||
       out.diaryDay ||
-      out.diary !== null ||
       out.skills !== null ||
       out.showRequestTurn !== null ||
       out.pair ||
@@ -280,8 +254,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       out.hideSelf.length > 0 ||
       out.asOfMoment ||
       out.before !== null ||
-      out.count !== null ||
-      out.topic !== null ||
       out.dry ||
       out.pairPrompts !== null ||
       out.coreTools ||
@@ -301,7 +273,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     // The day flags, --out and --spend only; no positionals; --max-pictures with --draw live only.
     if (
       positional.length > 0 ||
-      out.diary !== null ||
       out.skills !== null ||
       out.showRequestTurn !== null ||
       out.showRequest ||
@@ -317,8 +288,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       out.asOfMoment ||
       out.before !== null ||
       out.snapshot !== null ||
-      out.count !== null ||
-      out.topic !== null ||
       out.prompts !== null ||
       out.dry ||
       out.pairPrompts !== null ||
@@ -346,7 +315,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     // The scenario file with the memory, output and prompt-layer flags, --spend and --dry only; no positionals.
     if (
       positional.length > 0 ||
-      out.diary !== null ||
       out.showRequestTurn !== null ||
       out.showRequest ||
       out.pair ||
@@ -358,8 +326,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       out.budget !== null ||
       out.hideSelfAll ||
       out.hideSelf.length > 0 ||
-      out.count !== null ||
-      out.topic !== null ||
       (out.prompts !== null && out.pairPrompts !== null) ||
       out.pairTransport ||
       out.loopTriggers
@@ -371,34 +337,11 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
   if (out.dry || out.pairPrompts !== null || out.coreTools) throw new CliError(USAGE);
   if (
     (out.pairTransport || out.loopTriggers) &&
-    (out.pair || out.diary !== null || out.showRequestTurn !== null || (out.pairTransport && out.loopTriggers))
+    (out.pair || out.showRequestTurn !== null || (out.pairTransport && out.loopTriggers))
   )
     throw new CliError(USAGE);
   if (out.transport !== null && !out.loopTriggers) throw new CliError(USAGE);
-  if (out.diary !== null) {
-    // The diary flags, --out and --spend only; no positionals.
-    if (
-      positional.length > 0 ||
-      out.showRequestTurn !== null ||
-      out.showRequest ||
-      out.pair ||
-      out.triggers !== null ||
-      out.split ||
-      out.recall ||
-      out.samples !== null ||
-      out.text !== null ||
-      out.budget !== null ||
-      out.hideSelfAll ||
-      out.hideSelf.length > 0 ||
-      out.asOfMoment ||
-      out.before !== null ||
-      out.snapshot !== null
-    ) {
-      throw new CliError(USAGE);
-    }
-    return { ...out, count: out.count ?? 1, samples: 1, placeId: null, triggerId: null };
-  }
-  if (out.count !== null || out.topic !== null || out.prompts !== null) throw new CliError(USAGE);
+  if (out.prompts !== null) throw new CliError(USAGE);
   if (out.showRequestTurn !== null) {
     // Only the memory and history flags go with it; no model request is made.
     if (

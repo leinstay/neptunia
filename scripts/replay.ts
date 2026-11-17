@@ -8,8 +8,6 @@
 //   search, or the request a journal turn sent);
 // - a pair of prompt layers (`--pair`): the same triggers answered with two
 //   prompt directories, on a blind sheet;
-// - a diary brief (`--diary`): the diary's scheduled turn run in the diary
-//   channel, its plan and drawing brief reported;
 // - a diary day (`--diary-day`): a whole seeded day plan of the diary, each
 //   slot's turn run to the end with nothing posted, every drawing call recorded;
 // - skill scenarios (`--skills`): an invented request put to the persona
@@ -45,8 +43,6 @@
 //        (--triggers <file> | <placeId> <triggerMessageId>) [--before 40] [--as-of-moment]
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]
-//   cd /opt/neptunia/app && node scripts/replay.ts --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
-//        [--diary-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --skills <scenarios.json>
 //        [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]
@@ -80,7 +76,7 @@
 // heartbeat would carry now, and like the live one it runs nowhere (no chat). Takes no
 // `--intention`. Every `--inner` kind takes `--samples n` (n independent runs of
 // the same request, one after another, default 1), `--prompts <dir>` (a prompt layer laid over
-// the live prompts.local/ as `--diary --prompts` does: a directory holding only heartbeat.md
+// the live prompts.local/ as `--skills --prompts` does: a directory holding only heartbeat.md
 // replaces only that file, so a variant of the task text is tried without a deploy) and
 // `--out <file>` (the report as Markdown; not under data/). The JSON on stdout holds every
 // sample: the `<wake>` block, her `<think>`, her messages and calls with their arguments,
@@ -293,34 +289,13 @@
 // for every mode that takes a prompt directory): a scratch copy of the config
 // files and the tracked prompts/, with directories copied into prompts.local/
 // in order and read by src/hot.js as the bot reads its own. `--pair` gives
-// each side its directory alone as prompts.local/; `--diary --prompts <dir>`
-// lays the directory over the live prompts.local/ (a file of the same name
-// replaces it whole, labels.json included); `--skills --prompts` and
-// `--pair-prompts` lay it the same way but merge labels.json and tools.json
-// (overlayPromptsHot). The live config.local.json and prompts.local/ are the
+// each side its directory alone as prompts.local/; `--skills --prompts` and
+// `--pair-prompts` lay the directory over the live prompts.local/ and merge
+// labels.json and tools.json (overlayPromptsHot). The live config.local.json and prompts.local/ are the
 // data folder's (NEPTUNIA_DATA_DIR, else data/ of the checkout; privateDirOf).
 // Nothing in the checkout changes. A prompts.local/ (or a
 // directory given) that is a link -- a separate checkout linking to the live
 // layer -- is read through it and copied as files, never linked to or written.
-//
-// `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one `runTurn({ placeId, mode: 'diary', diary: {
-// kind, [topic], forced: false } })` of the real turn runner (src/behavior/turn.js, wired as src/index.js wires it)
-// with no chat, as the live diary runs it: the plan request on the classifier model with the given kind the
-// only one offered (as `/nep diary post <kind>` does; `forced: false` keeps the compose request a scheduled post's),
-// then the compose request on the voice model. `--diary-own-history` keeps only her own messages in the history of a
-// channel her diary posted in, as the data directory's memory names it: the code before the diary wake read
-// its diary history from the channel, and so compares with her diary. Not the sandbox: the sandbox never
-// builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS). `--topic`: the owner's topic as `/nep diary post <kind>
-// <topic>` threads it (trimmed, blank is none, then src/behavior/diary.ts#diaryTopic). What keeps the bot and its
-// memory untouched here: every Discord REST call but GET is refused (`refuseDiscordWrites`: nothing is posted, edited or
-// typed, whatever the turn or her tools try); the memory database is opened read only; the store is
-// the real one with an in-memory copy of its state that is never flushed (flush, forget, wipe and reload methods
-// throw); the image client keeps its quota and refuses to generate; in that in-memory state only, today's diary picture
-// and image counts read 0 so the picture gate opens. Requests carry `origin: 'replay'` and never count against
-// `llm.maxRequestsPerDay`. Output: the briefs `[{ kind, plan, self, request, messages, outcome }]` (request = the first
-// `<draw>` scene text, self its self flag, messages the post's `<msg>` texts after the diary's filters) to `--out
-// <file>` (rewritten after each brief; refused under data/) with a summary on stdout, else on stdout. Exit code 1 when
-// no brief drew.
 //
 // `--diary-day`: one day of the diary as the live diary runs it (src/behavior/diary.ts#createDiary's tick), for the
 // record of what it would draw. The day plan: planDay for the local date `--date` (default today in `bot.timezone`) at
@@ -572,7 +547,6 @@ import {
   guildListing,
   hiddenReads,
   lazyRecallScope,
-  ownHistoryReads,
   recallScope,
   requesterOfChannel,
 } from './lib/platform-objects.ts';
@@ -1751,24 +1725,6 @@ export function storedDumps(
 }
 
 /**
- * The turn a `--diary` brief runs: `{ mode: 'diary', diary: { kind, [topic],
- * forced: false } }`. The topic as `/nep diary post` threads it: trimmed,
- * blank is none, then `diaryTopic` (src/behavior/diary.ts), on the params
- * only when present.
- * @param args From parseArgs.
- */
-export function diaryTurnParams(
-  args: { diary: string; topic: string | null },
-  { diaryTopic }: { diaryTopic: (text: string | null) => string | null }
-): { mode: string; diary: { forced: boolean; topic?: string | undefined; kind: string } } {
-  const topic = diaryTopic(String(args.topic ?? '').trim() || null);
-  return {
-    mode: 'diary',
-    diary: { kind: args.diary, ...(topic ? { topic } : {}), forced: false },
-  };
-}
-
-/**
  * Whether a live turn's web search could run (`<senses>`'s search line): the
  * lookup's own `hasSearch()` for the configured `web.quickSearch.engine`, wired as
  * src/index.js wires it (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and
@@ -1801,7 +1757,7 @@ export function searchAvailableOf({
 }
 
 /**
- * The real store for a `--diary` run: reads pass through; `state` is an
+ * The real store for a replay run: reads pass through; `state` is an
  * in-memory deep copy whose markDirty does nothing; flush, forget, wipe and
  * reload methods throw; the recall trace is a no-op. Other mutations touch
  * only this process's cache, which is never flushed.
@@ -1834,12 +1790,7 @@ export function unflushedStore(store: Untyped): { store: Rec; state: { data: Unt
   return { store: proxy, state };
 }
 
-/**
- * The `--diary` mode (see the header): `args.count` briefs of one kind from
- * the real turn runner in the diary channel, nothing acted on. Returns
- * `{ code, result }`.
- */
-/** The engine modules a diary run (`--diary`, `--diary-day`) wires, from the checkout at `load`. */
+/** The engine modules a diary run (`--diary-day`) wires, from the checkout at `load`. */
 export async function loadDiaryMods(load: Untyped): Promise<Rec> {
   return {
     ...(await load('behavior/diary.ts')),
@@ -1958,10 +1909,6 @@ export function refuseDiscordWrites(given: unknown): void {
     return queueRequest(request);
   };
 }
-
-/** `--diary-own-history`: reads keeping only her diary's messages in the history of its channel (ownHistoryReads). */
-const ownReadsOf = (args: ReplayArgs, dataDir: string) =>
-  args.diaryOwnHistory ? ownHistoryReads(memoryFor(dataDir)) : null;
 
 /**
  * What a diary turn's entry would send (the turn itself sends nothing; its publication does): her messages, and how many
@@ -2082,196 +2029,6 @@ async function replayRouting(
   });
   process.stderr.write(routesText('replay-cli', routing.said));
   return routing;
-}
-
-async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal, rng, answers, routes }: ModeCtx) {
-  const mods = await loadDiaryMods(load);
-  const { DIARY_KINDS, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
-  const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
-  const { parseJsonObject, parseOutput, stripDashes, countToday } = mods;
-
-  const params = diaryTurnParams({ diary: args.diary!, topic: args.topic }, { diaryTopic }); // `--diary` set this mode;
-  const { kind } = params.diary;
-  const topic = params.diary.topic ?? null;
-  const liveData = defaultDataDir(root);
-  if (!fs.existsSync(liveData)) throw new CliError(`replay-cli: no data directory at ${liveData}`);
-  const outFile = args.outDir !== null ? path.resolve(root, args.outDir) : null;
-  if (outFile !== null && (outFile === liveData || outFile.startsWith(`${liveData}${path.sep}`)))
-    throw new CliError('replay-cli: --out may not be under data/');
-  const discordToken = platformToken('discord', { rootDir: root });
-
-  let layered = null;
-  let client = null;
-  try {
-    if (args.prompts !== null) {
-      layered = overlayPromptsHot(createHot, root, args.prompts);
-      log.info('replay-cli: diary prompt layers', {
-        layers: diaryPromptLayers(root, args.prompts).length,
-      });
-    }
-    const hot = layered?.hot ?? liveHot;
-    const config = hot.config;
-    const weight = DIARY_KINDS[kind];
-    if (!(Number.isFinite(weight) && weight > 0))
-      log.warn('replay-cli: the kind has no positive weight in DIARY_KINDS', { kind, weight: weight ?? null });
-    if (!isPictureKind(kind, undefined))
-      log.warn('replay-cli: the kind is not a picture kind; it draws only when the plan says picture', { kind });
-    if (isSetKind(kind, undefined))
-      log.warn('replay-cli: the kind is a set kind; only the first <draw> is reported', { kind });
-
-    // The store and the counters: an in-memory copy; the picture gate opened there only.
-    const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: storeMemoryFor(liveData) }));
-    const nowMs = Date.now();
-    const were = { images: countToday(state.data, { dayKey: 'imageDay', countKey: 'imageCount' }, nowMs) };
-    state.data.imageCount = 0;
-    log.info('replay-cli: diary gates opened', {
-      imagesWere: were.images,
-      paused: Boolean(state.data.paused),
-    });
-
-    // The model clients: every request the tool's own, recorded with its purpose.
-    const calibrator = createCalibrator(state.data.calibration);
-    const routing = await replayRouting(createLlm, hot, calibrator, state, { root, answers, routes });
-    const calls: Array<Untyped> = [];
-    const llm = recordingLlm(routing.llm, calls, { noCache: args.count === 1 });
-    // No key: only quota and familyOf are used below, and generate, the one call that sends, is replaced.
-    const realImages = createImageGen({ apiKey: '', getConfig: () => hot.config, state });
-    const images = {
-      quota: (...a: Array<Untyped>) => realImages.quota(...a),
-      familyOf: (...a: Array<Untyped>) => realImages.familyOf(...a),
-      generate: async () => {
-        throw new Error('replay-cli: picture generation is disabled in this tool');
-      },
-    };
-
-    // Discord over REST, every write refused.
-    const discord = createRequire(path.join(root, 'package.json'))('discord.js');
-    const connection = await connectDiscord({
-      discord,
-      token: discordToken,
-      configuredGuildId: config.bot?.placeId || '',
-      resolveGuild,
-      log,
-    });
-    client = connection.client;
-    refuseDiscordWrites(client);
-    const { placeId, self } = connection;
-
-    // The engine, wired as src/index.js wires it.
-    const wrapReads = ownReadsOf(args, liveData);
-    const runner = { hot, store, llm, calibrator, client, placeId, self, images, state, wrapReads };
-    const turns = diaryTurnRunner(mods, runner);
-    log.info('replay-cli: diary ready', {
-      placeId,
-      kind,
-      count: args.count,
-      topicChars: topic ? topic.length : 0,
-    });
-
-    const briefs = [];
-    let usage = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };
-    for (let n = 1; n <= args.count!; n += 1) {
-      if (signal?.aborted) break;
-      const from = calls.length;
-      let result;
-      try {
-        result = await turns.runTurn({ placeId, ...params });
-      } catch (err: Untyped) {
-        result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
-      }
-      const mine = calls.slice(from);
-      usage = addUsage(usage, mine);
-      const planCall = mine.filter((c) => c.purpose === 'diary-planner').pop() ?? null;
-      const composeCall = mine.filter((c) => c.purpose === 'reply' && c.text !== null).pop() ?? null;
-
-      // The plan as the turn built it: the planner's JSON with the kind forced, validated against the one kind offered.
-      let answer = null;
-      if (planCall?.text) {
-        try {
-          answer = parseJsonObject(planCall.text);
-        } catch {
-          answer = null;
-        }
-      }
-      if (answer && typeof answer === 'object' && !Array.isArray(answer)) answer = { ...answer, kind };
-      const pictureAllowed = result?.outcome !== 'refused' || result?.reason !== 'pictures';
-      const validated = validatePlan(answer, { [kind]: 1 }, { pictureAllowed }, rng);
-      const plan = topic ? { ...validated, topic } : validated;
-
-      // The compose answer as runTurn reads it for a diary post.
-      let draw = null;
-      let messages = [];
-      if (composeCall?.text) {
-        // The post's picture is her draw.create call (a tool call of the native transport, a block of the text one).
-        const split = mods.answerOf(
-          { text: composeCall.text, toolCalls: composeCall.toolCalls ?? [], finishReason: composeCall.finishReason },
-          { transport: mods.transportOf(hot.config) }
-        );
-        // Text outside every tag is no message of the post (parseOutput `bare`), as in a live turn.
-        const parsed = parseOutput(split.speechText);
-        const live = hot.config;
-        messages = parsed.messages.map((m: Rec) => m.text);
-        if (live.format?.stripDashes !== false) messages = messages.map(stripDashes).filter((t: Untyped) => t !== '');
-        messages = messages
-          .map(stripUrls)
-          .filter((t: Untyped) => t !== '')
-          .slice(0, Math.max(0, live.diary?.maxMessages ?? 3));
-        const drawCall = split.calls.find((call: Rec) => call.name === 'draw.create' && !call.problem);
-        draw = drawCall
-          ? {
-              text: String(drawCall.args.text ?? ''),
-              self: drawCall.args.self === true || drawCall.args.self === 'true',
-            }
-          : null;
-      }
-      const brief = {
-        kind,
-        plan,
-        self: draw ? draw.self === true : null,
-        request: draw ? draw.text : null,
-        messages,
-        outcome: result?.outcome ?? null,
-        ...(result?.reason ? { reason: result.reason } : {}),
-        ...(planCall?.error ? { planError: planCall.error } : {}),
-      };
-      briefs.push(brief);
-      if (outFile !== null) {
-        fs.mkdirSync(path.dirname(outFile), { recursive: true });
-        fs.writeFileSync(outFile, `${JSON.stringify(briefs, null, 1)}\n`);
-      }
-      log.info('replay-cli: diary brief', {
-        n,
-        outcome: brief.outcome,
-        planFallback: plan.fallback ?? null,
-        self: brief.self,
-        requestChars: brief.request ? brief.request.length : 0,
-        requests: mine.length,
-      });
-    }
-    const withDraw = briefs.filter((b) => b.request).length;
-    const stopped = Boolean(signal?.aborted);
-    const code = withDraw === 0 || stopped ? 1 : 0;
-    if (outFile === null) return { code, result: briefs };
-    return {
-      code,
-      result: {
-        out: outFile,
-        kind,
-        topic: Boolean(topic),
-        prompts: args.prompts !== null,
-        briefs: briefs.length,
-        withDraw,
-        stopped,
-        usage,
-      },
-    };
-  } finally {
-    if (layered) {
-      layered.hot.close();
-      fs.rmSync(layered.dir, { recursive: true, force: true });
-    }
-    if (client && typeof client.destroy === 'function') await Promise.resolve(client.destroy()).catch(() => {});
-  }
 }
 
 // ---- an inner turn (--inner) ----------------------------------------------------
@@ -6469,9 +6226,7 @@ export async function main(
   { root = process.cwd(), signal, rng = Math.random }: { root?: string; signal?: AbortSignal; rng?: () => number } = {}
 ): Promise<{ result: Untyped; code: Untyped }> {
   const taken = takeRouteFlags('replay-cli', argv, { variants: true });
-  const own = taken.argv.includes('--diary-own-history');
-  const flags = taken.argv.filter((arg) => arg !== '--diary-own-history');
-  const args: ReplayArgs = { ...parseArgs(flags), diaryOwnHistory: own };
+  const args: ReplayArgs = parseArgs(taken.argv);
   const runs: Array<{ result: Untyped; code: Untyped }> = [];
   for (const variant of taken.variants) runs.push(await runVariant(args, variant.routes, { root, signal, rng }));
   if (runs.length === 1) return runs[0];
@@ -6572,25 +6327,23 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers, routes }:
       ? 0
       : args.inner
         ? INNER_REQUESTS * args.samples!
-        : args.diary
-          ? DIARY_REQUESTS_PER_BRIEF * args.count!
-          : args.pairTransport
-            ? ((coreOn ? 0 : PRE_TURN_REQUESTS) + 2 * perDecision) * pairTriggers.length
-            : args.loopTriggers
-              ? ((coreOn ? 0 : PRE_TURN_REQUESTS) + perDecision) * pairTriggers.length
-              : args.pair
-                ? 2 * pairTriggers.length
-                : args.recall
-                  ? RECALL_REQUESTS
-                  : scenarios
-                    ? skillRequestEstimate(scenarios, { perDecision }) * (args.pairPrompts ? PAIR_SIDES.length : 1)
-                    : args.samples!;
+        : args.pairTransport
+          ? ((coreOn ? 0 : PRE_TURN_REQUESTS) + 2 * perDecision) * pairTriggers.length
+          : args.loopTriggers
+            ? ((coreOn ? 0 : PRE_TURN_REQUESTS) + perDecision) * pairTriggers.length
+            : args.pair
+              ? 2 * pairTriggers.length
+              : args.recall
+                ? RECALL_REQUESTS
+                : scenarios
+                  ? skillRequestEstimate(scenarios, { perDecision }) * (args.pairPrompts ? PAIR_SIDES.length : 1)
+                  : args.samples!;
     const loopDetail = loopBounds
       ? `~${perDecision} expected per turn (her reply, a follow-up step, a web search's summary; the run stops at --spend on reported cost)`
       : `up to ${SKILL_REQUESTS_PER_RUN}`;
     const skillDetail = `, ${loopDetail} per decision (a run, or each turn of each step of a run)${args.pairPrompts ? ', under both prompt layers' : ''}`;
     const triggerDetail = `, per trigger${coreOn ? '' : ` ~${PRE_TURN_REQUESTS} before her reply (the search classifier, a search's summary) and`} ${loopDetail}${args.pairTransport ? ' on each of the two transports' : ''}`;
-    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? skillDetail : ''}${args.pairTransport || args.loopTriggers ? triggerDetail : ''}`;
+    const detail = `~${USD_PER_ANSWER} USD per request${scenarios ? skillDetail : ''}${args.pairTransport || args.loopTriggers ? triggerDetail : ''}`;
     let gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
     // Every request answers from the files and bills nothing: without --spend the run goes on.
     if (!gate.ok && answers && args.spend === undefined)
@@ -6605,13 +6358,6 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers, routes }:
     }
     spendBudget = gate.budget;
     process.stderr.write(`replay-cli: ${gate.text}\n`);
-  }
-  if (args.diary) {
-    try {
-      return await runDiary({ args, root, load, hot, createHot, log, signal, rng, answers, routes });
-    } finally {
-      hot.close();
-    }
   }
   if (args.diaryDay) {
     try {
