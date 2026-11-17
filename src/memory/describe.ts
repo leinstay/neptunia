@@ -20,8 +20,8 @@
 // `VIDEO_DESCRIPTION_CHARS` (6,000) and a sound's `AUDIO_DESCRIPTION_CHARS`
 // (3,000). A second look takes the length of its media. Nothing is cut: an
 // answer over its length goes once through the `summarize` dependency
-// (src/behavior/summarize.ts), and what it returns is stored whole, even
-// when it is still longer. The picture prompt's `{{self}}`
+// (src/behavior/summarize.ts), and what it returns is stored whole on one
+// line, as the answer is, even when it is still longer. The picture prompt's `{{self}}`
 // is the `describe-self` paragraph, her name and her appearance, filled when
 // the appearance prompt is not blank and `selfName` knows her name there.
 //
@@ -97,7 +97,7 @@
 // first `media.gif.maxSeconds`) and summarised by the video model under the
 // video request rails. Every attachment with a message, a GIF included, is
 // downloaded from the address the `freshAddress` dependency reads from its
-// message again, else from its stored address. The caption is cached under the GIF's own item id like a
+// message again, else from its stored address. The description is cached under the GIF's own item id like a
 // picture's (so the transcript, the analyzer and the GIF library read it
 // unchanged), marked `watched: true`. The answer is prose, kept as one text on
 // one line and shown whole. A failed fetch, conversion or request, or an
@@ -564,9 +564,9 @@ function buildDescriber({
   summarize,
   freshAddress,
 }: DescriberDeps) {
-  /** `text` through the summarizer at `maxChars`, kept whole as it returns it; `text` itself without one. */
-  function shorten(text: string, maxChars: number, kind: SummaryKind): Promise<string> {
-    return summarize ? summarize(text, { maxChars, kind }) : Promise.resolve(text);
+  /** `text` through the summarizer at `maxChars`, kept whole on one line as the answers are; `text` itself without one. */
+  async function shorten(text: string, maxChars: number, kind: SummaryKind): Promise<string> {
+    return summarize ? oneLine(await summarize(text, { maxChars, kind })) : text;
   }
 
   /** Today's UTC date as `YYYY-MM-DD` from the injected clock: the daily counters and the prompts' `{{today}}`. */
@@ -623,9 +623,32 @@ function buildDescriber({
       const ttl = watchedAsGif(item) ? videoErrorTtlMs() : MISS_TTL_MS;
       return !retryMisses && now() - cached.ts < ttl ? FRESH_MISS : null;
     }
+    // A request out now, or one a stop cut that the start has not turned into a miss yet: looked at again.
+    if (cached.pending === true) return null;
     touchHit(placeId, itemId, cached);
     const result = { text: cached.text, usage: null, estimated: 0, cached: true };
     return { result, stale: dueForRecache(cached, MISS_TTL_MS), entry: cached };
+  }
+
+  /**
+   * `run`, the request of the item under `key`, with the entry marked `pending` while it is out, so a stop that cuts it
+   * leaves a mark the start turns into a miss (src/memory/db/media-store.ts#interruptPendingMediaEntries). A stale
+   * entry described again (`previous`) stays as it is. A run that cached nothing, such as one the daily cap refused,
+   * takes its mark away.
+   */
+  async function whilePending<TResult>(
+    placeId: string,
+    key: string,
+    previous: unknown,
+    run: () => Promise<TResult>
+  ): Promise<TResult> {
+    if (previous) return run();
+    store.putMediaEntry(placeId, key, { pending: true, ts: now() });
+    try {
+      return await run();
+    } finally {
+      if (store.mediaEntry(placeId, key)?.pending === true) store.dropMediaEntry(placeId, key);
+    }
   }
 
   // One in-flight description per place + picture: a message prefill and a
@@ -648,7 +671,9 @@ function buildDescriber({
     const running = pictureFlights.get(flightKey);
     if (running) return { result: (await running) ?? kept, joined: true };
     if (capSpent()) return { result: kept, joined: false };
-    const promise = describeNow(placeId, item, hit?.entry ?? null).finally(() => pictureFlights.delete(flightKey));
+    const promise = whilePending(placeId, item.itemId, hit?.entry ?? null, () =>
+      describeNow(placeId, item, hit?.entry ?? null)
+    ).finally(() => pictureFlights.delete(flightKey));
     pictureFlights.set(flightKey, promise);
     return { result: await promise, joined: false };
   }
@@ -830,8 +855,8 @@ function buildDescriber({
   }
 
   /**
-   * A GIF's caption from its watch (watchGifShared). A failed watch caches a miss with its reason, or keeps `previous`
-   * (a stale caption described again) stamped. With GIFs not watched now, no animation or a spent daily rail nothing
+   * A GIF's description from its watch (watchGifShared). A failed watch caches a miss with its reason, or keeps `previous`
+   * (a stale description described again) stamped. With GIFs not watched now, no animation or a spent daily rail nothing
    * is cached: `previous` is served, else nothing.
    */
   async function describeGif(placeId: string, item: MediaItem, previous: Untyped) {
@@ -1478,9 +1503,9 @@ function buildDescriber({
       const { result } = await running;
       return { result: result ?? previous?.result ?? null, sent: false, attempted: true };
     }
-    const promise = watchVideo(placeId, item, key, promptText, force, previous).finally(() =>
-      inFlight.delete(flightKey)
-    );
+    const promise = whilePending(placeId, key, previous?.entry ?? null, () =>
+      watchVideo(placeId, item, key, promptText, force, previous)
+    ).finally(() => inFlight.delete(flightKey));
     inFlight.set(flightKey, promise);
     return promise;
   }

@@ -166,7 +166,7 @@ const HIDDEN_KINDS = ['episodes', 'affinity', 'reasons', 'details', 'interests',
  * Every memory store method a sandbox turn calls (`liveView`, the GIF library
  * and the describer cache). A read-only store (a tool's) allows exactly these.
  * `getRecent`, `getGifs` and `mediaEntries` may be missing: the turn then goes
- * on without the recent lines, the GIF library or the captions.
+ * on without the recent lines, the GIF library or its descriptions.
  */
 export const SANDBOX_STORE_READS = Object.freeze([
   'getPlace',

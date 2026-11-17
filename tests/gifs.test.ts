@@ -679,9 +679,10 @@ function seedLibrary(store: Record<string, Untyped>) {
     msg({ id: 'm-old', placeId: 'c1', ts: NOW - DAY, links: [gifLink('m-old#e0')] }),
     msg({ id: 'm-att', placeId: 'c2', ts: NOW - DAY, attachments: [gifAttachment('att1')] }),
   ]);
-  // B7: the pick's search reads the caption on the entry; `ha` is the word of the replies below.
-  store.setGifCaption('m-old#e0', { caption: 'ha a cat dancing', vector: null });
-  store.setGifCaption('att1', { caption: 'ha an attached gif', vector: null });
+  // The owner on 2026-11-17: a GIF is stored as one text, its description, written by the describer's cache entry.
+  // `ha` is the word of the replies below.
+  store.putMediaEntry(placeOfRoot(store, 'g1'), 'm-old#e0', { text: 'ha a cat dancing', ts: NOW - DAY });
+  store.putMediaEntry(placeOfRoot(store, 'g1'), 'att1', { text: 'ha an attached gif', ts: NOW - DAY });
 }
 
 /**

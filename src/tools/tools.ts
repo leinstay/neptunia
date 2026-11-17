@@ -1130,7 +1130,7 @@ function wordScore(q: string, d: string): number {
   return 0;
 }
 
-/** A query's embedding and the captions' vectors of the same model, by item id (src/memory/db/gif-vectors.ts). */
+/** A query's embedding and the GIF descriptions' vectors of the same model, by item id (src/memory/db/gif-vectors.ts). */
 export type GifMeaning = { vector: ArrayLike<number>; vectors: ReadonlyMap<string, ArrayLike<number>> };
 
 /** The cosine of two vectors of one length; null for another length or a zero vector. */
@@ -1201,7 +1201,7 @@ function gifMatches(
  * describer cache) scored word by word against the query's words (folded: case and accents ignored,
  * so descriptions in either language match; the best match of each query word counts); entries scoring nothing are left
  * out, ties keep the library's own rank (most used and most recent first). At most `n` (1..FIND_MAX,
- * FIND_DEFAULT when not a number). With `meaning`, the captions' vectors rank a second list (gifMatches). Pure.
+ * FIND_DEFAULT when not a number). With `meaning`, the GIF descriptions' vectors rank a second list (gifMatches). Pure.
  * `gifs` is the stored library (store.getGifs) and `mediaCache` the describer cache's entries of its GIFs (store.mediaEntries), read only.
  * The entries come back best first, `id` the handle.
  */
@@ -1275,7 +1275,7 @@ function mediaFindArgs({
   )
     return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
   const gifs = store.getGifs();
-  // The captions of the library's GIFs, read by their item ids in one query.
+  // The descriptions of the library's GIFs, read by their item ids in one query.
   const cache = typeof store.mediaEntries === 'function' ? store.mediaEntries(placeId, gifItemIds(gifs)) : null;
   return { query, given, gifs, mediaCache: isObj(cache) ? cache : null };
 }

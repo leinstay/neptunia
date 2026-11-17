@@ -983,7 +983,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['diary-entries', applyDiaryWrite],
   // One entry of the describer's cache, put on its row or dropped (media-store.ts).
   ['media-entry', applyMediaEntryWrite],
-  // The entries of the GIF library and their caption vectors (gif-library.ts, gif-vectors.ts).
+  // The entries of the GIF library and their description vectors (gif-library.ts, gif-vectors.ts).
   ['gif-library', applyGifLibraryWrite],
   ['gif-vector', applyGifVectorWrite],
   // The stable names of custom emoji and stickers (media-names.ts).

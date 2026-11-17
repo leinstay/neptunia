@@ -3392,8 +3392,8 @@ function pickLibrary() {
     entries[`k${i}`] = {
       id: `g${i}`,
       kind: 'link',
-      // B7: the search reads the caption on the entry, and these words are the replies' below.
-      caption: `ναι χα λεζάντα ${i}`,
+      // The owner on 2026-11-17: a GIF is stored as one text. The search reads it, and these words are the replies' below.
+      description: `ναι χα λεζάντα ${i}`,
       url: `https://tenor.com/view/gif-${i}`,
       itemId: `item-${i}`,
       messageId: `m-${i}`,
@@ -3548,7 +3548,8 @@ test('runTurn: a short reply is shown with its candidates; a picked handle posts
 
 test('runTurn: the pick leaves out uncaptioned GIFs and acts only on a listed handle', async () => {
   const library = pickLibrary();
-  delete library.gifs.entries.k7.caption;
+  // The owner on 2026-11-17: a GIF is stored as one text.
+  delete library.gifs.entries.k7.description;
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   const { picks, sent, logs } = await runPickTurn({
     store: pickStore({ library }),

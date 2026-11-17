@@ -67,16 +67,19 @@ export function freezePerBucket<T>(
 }
 
 /**
- * The caption of a GIF library entry: the text cached under its `itemId` (the describer's cache; a `miss` entry has
+ * The description of a GIF library entry: the text cached under its `itemId` (the describer's cache; a `miss` entry has
  * none), whole; '' when there is none.
  */
-function gifCaption(entry: { readonly itemId: string }, mediaCache: MediaLookup | object | null | undefined): string {
+function gifDescription(
+  entry: { readonly itemId: string },
+  mediaCache: MediaLookup | object | null | undefined
+): string {
   const cached = cachedOf(mediaCache, entry?.itemId);
   return cached && !cached.miss && typeof cached.text === 'string' ? cached.text : '';
 }
 
 /**
- * One line of a GIF library entry, as media.find lists it: its whole caption (gifCaption) through
+ * One line of a GIF library entry, as media.find lists it: its whole description (gifDescription) through
  * `labels.gifs.entry` (`{id}`, `{text}`), else `labels.gifs.entryNoText` (`{id}`). A GIF the persona itself posted
  * (`ownLast`) no longer than `ownMarkHours` (0 = never) before `now` gets ` ` + `labels.gifs.ownMark` appended,
  * `{ago}` = that time through formatDuration (`labels.units`); no mark without that label. The caller checks that
@@ -91,7 +94,7 @@ export function gifLine(
   const labels = labelsGiven as Labels;
   // The caller checks that `labels.gifs` carries `entryNoText`.
   const g = labels.gifs!;
-  const text = gifCaption(entry, mediaCache);
+  const text = gifDescription(entry, mediaCache);
   const line = text && g.entry ? fill(g.entry, { id: entry.id, text }) : fill(g.entryNoText, { id: entry.id });
   const age = g.ownMark && labels.units ? ownPostAge(entry, { ownMarkHours, now }) : null;
   if (age === null) return line;

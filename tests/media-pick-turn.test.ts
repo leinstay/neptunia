@@ -27,8 +27,9 @@ beforeEach(() => {
   freshWorld();
 });
 
-/** One captioned link GIF in the shared library. */
-function sharedLibrary() {
+/** One described link GIF in the shared library. */
+// The owner on 2026-11-17: a GIF is stored as one text.
+function sharedLibrary(texts: object = { description: 'ναι φυσικά γνέφει' }) {
   return {
     nextId: 2,
     backfill: null,
@@ -43,7 +44,7 @@ function sharedLibrary() {
         count: 3,
         last: NOW - 3_600_000,
         firstSeen: NOW - 7_200_000,
-        caption: 'ναι φυσικά γνέφει',
+        ...texts,
         nativeIds: ['item-1'],
         links: [URL_G1],
         places: { c1: { count: 3, last: NOW - 3_600_000 } },
@@ -65,7 +66,8 @@ async function runScene({
   pick = '{"pick":"none","name":null}',
   mediaPick = null,
   failLink = false,
-}: { reply?: string; pick?: string; mediaPick?: object | null; failLink?: boolean } = {}) {
+  texts,
+}: { reply?: string; pick?: string; mediaPick?: object | null; failLink?: boolean; texts?: object } = {}) {
   if (mediaPick) declare(mediaPick);
   if (failLink) world().failSends((text) => String(text).startsWith('https://tenor.com/'));
   const raws = [
@@ -85,7 +87,7 @@ async function runScene({
   // The old prompt stays beside the new one: a picker that still reads it, or that runs on an interface without the
   // capability, shows up as a pick request.
   Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.', 'gif-pick': 'Pick for {{name}}.', labels });
-  const library = sharedLibrary();
+  const library = sharedLibrary(texts);
   const known = { key: 'k1', ...library.entries.k1 };
   const store = Object.assign(fakeStore({ mediaCache: { 'item-1': { text: 'ναι φυσικά γνέφει' } } }), {
     getGifs: () => library,
@@ -168,4 +170,18 @@ test('her request carries no GIF library, and no recent GIF lines, with a librar
   assert.ok(!text.includes('<gifs>'), 'no <gifs>');
   assert.ok(!text.includes('<gifs_recent>'), 'no <gifs_recent>');
   assert.ok(!text.includes('ναι φυσικά γνέφει'), 'no caption of the library');
+});
+
+// Bug (audit row 8, production 2026-11-17): the pick showed a GIF's `caption`, a second text that differs from the
+// description in 304 rows. The owner on 2026-11-17: a GIF is stored as one text, and the pick shows its description.
+test('the pick offers a GIF by its description, and a caption it still holds is shown nowhere', async () => {
+  const { picks } = await runScene({
+    mediaPick: { gifForms: ['file', 'link'] },
+    texts: { description: 'ναι φυσικά γνέφει', caption: 'ένας σκύλος τρέχει' },
+  });
+  const text = (picks[0]?.messages ?? [])
+    .map((message) => userText(message.content) || String(message.content))
+    .join('\n');
+  assert.ok(text.includes('ναι φυσικά γνέφει'), 'the description is offered');
+  assert.ok(!text.includes('σκύλος'), 'the caption is not');
 });

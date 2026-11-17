@@ -410,12 +410,12 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  * link/embed item (src/protocol/events.ts#Message): `{ kind, name?, site?,
  * title?, text?, durationSec?, previewText? }`.
  *
- * A plain image renders as `imageDescribed` when a caption exists, else the
+ * A plain image renders as `imageDescribed` when a description exists, else the
  * blind `image`; a video or gif as `video`/`videoDescribed`/`gif`/`gifDescribed`
  * (so the persona still knows it WAS a video, its name, its duration). A `link`
  * (a video-site embed, e.g. YouTube) never swaps its own tag: the plain
  * `link`/`linkText` form always stays, and ONE extra tag follows it —
- * `thumbnailDescribed` when a caption exists, else nothing.
+ * `thumbnailDescribed` when a description exists, else nothing.
  *
  * `context.video` is the item's video state (see collectVideos and the video
  * describer): `{ state: 'watched', text }`, `{ state: 'limit', reason:
@@ -441,7 +441,7 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  *
  * `context.gifHandle` is the library handle (`g12`, see
  * src/memory/gifs.ts#gifHandleOf) of a `gif` item the persona can post
- * back: it renders `gifKnown` (`{ id, text }`) when a caption exists, else
+ * back: it renders `gifKnown` (`{ id, text }`) when a description exists, else
  * `gifKnownNoText` (`{ id, name }`), in place of `gifDescribed`/`gif` (with
  * those keys blanked in prompts.local/labels.json, src/format.ts
  * falls back to them). Every other kind ignores it.
