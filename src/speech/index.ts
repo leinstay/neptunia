@@ -91,7 +91,7 @@ export function createSpeech({
     const pass = await prepareSpeech({
       text: original,
       complete: llm.complete,
-      prompt: objOf(getPrompts())['speech-prepare'],
+      prompt: objOf(getPrompts())['speech'],
       model: roleModel(config, 'analyzer', 'speech'),
       maxOutputTokens: objOf(objOf(config).speech).prepareMaxOutputTokens,
       timeoutMs: objOf(objOf(config).llm).analyzerTimeoutMs,

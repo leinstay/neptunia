@@ -478,7 +478,7 @@ function recaller(w: World, { openPrivate = false }: { openPrivate?: boolean } =
       recall: { archiveMonths: 6 },
       ...(openPrivate ? { context: { memory: { openPrivate: true } } } : {}),
     }),
-    prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels },
+    prompts: { 'summarize/recall': 'You are {{name}}; {{answerChars}}.', labels },
   };
   const none = () => Promise.resolve(null);
   const recall = createRecall(

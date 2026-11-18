@@ -106,7 +106,7 @@ export async function linesOf(
 
 /** The summary prompt, or null when it is missing or blank. */
 export function summaryPrompt(prompts: unknown): string | null {
-  const prompt = objOf(prompts)['recall-summary'];
+  const prompt = objOf(prompts)['summarize/recall'];
   return typeof prompt === 'string' && prompt.trim() ? prompt : null;
 }
 

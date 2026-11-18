@@ -132,11 +132,11 @@ function input(overrides: Record<string, unknown> = {}) {
   const base = {
     config: fakeConfig(),
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       rules: 'RULES',
       format: 'FORMAT',
-      reply: 'REPLY to {{author}}',
+      'turn/reply': 'REPLY to {{author}}',
       interject: 'INTERJECT',
       labels,
     },

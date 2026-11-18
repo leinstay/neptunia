@@ -11,7 +11,7 @@ import { fakeClient } from './fixtures/turn-kit.ts';
 const shipped = (name: string): string => fs.readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
 
 test('the pick prompt names the emoji block and the answers of the emoji forms', () => {
-  const prompt = shipped('media-pick');
+  const prompt = shipped('classify/pick');
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   for (const word of ['<emoji>', '`emoji`', '`replace`']) assert.ok(prompt.includes(word), word);
 });

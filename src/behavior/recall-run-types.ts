@@ -356,7 +356,7 @@ export type RecallWithInput = {
  * partner, the member of `place` it talks to, keeping the
  * hits of channels that member can view and not bounded by its own chat),
  * `no-query` (no form, name form or range), `no-prompt` (no
- * `prompts['recall-summary']`) or `daily-cap` (`llm.capLeft()` spent), each before any request; later
+ * `prompts['summarize/recall']`) or `daily-cap` (`llm.capLeft()` spent), each before any request; later
  * `no-query` (nothing to search: no query planned) or `no-hits`
  * (nothing left to read), either only when no stored memory matched
  * either (storedMemory; `stats.memory` its items, `stats.archived` those

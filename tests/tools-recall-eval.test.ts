@@ -337,7 +337,7 @@ test('recall-eval: the local root runs the record stage of the real recall, surf
     mediaNameOf: noMediaNames,
     iface: 'discord',
     reads: localReads({ placeId: 'g1', channelNameOf }),
-    hot: { config, prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels } },
+    hot: { config, prompts: { 'summarize/recall': 'You are {{name}}; {{answerChars}}.', labels } },
     store,
     llm,
     record,

@@ -47,7 +47,7 @@ function hotFixture() {
         },
       },
     },
-    prompts: { 'search-summary': 'Q: {{query}}\nT: {{today}}\nM: {{maxChars}}' },
+    prompts: { 'summarize/search': 'Q: {{query}}\nT: {{today}}\nM: {{maxChars}}' },
   };
 }
 

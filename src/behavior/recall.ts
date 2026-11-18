@@ -1,5 +1,5 @@
 // The pure core of recall: the server's own history searched beside the web.
-// The query builder (prompts/query-builder.md) answers `none` or up to five
+// The query builder (prompts/classify/query.md) answers `none` or up to five
 // labelled lines -- `web:` a web query, `history:` word forms to look for in
 // the server's messages, `who:` forms of a person's name, `when:` a date
 // range in the bot's time zone, `recent:` whether the question is a vague
@@ -12,7 +12,7 @@
 // along its chat until it settles (followChat: at most
 // `recall.followMessages` more lines, up to the first silence longer than
 // `recall.followGapMinutes`), and one analyzer request
-// (prompts/recall-summary.md) reads the windows and says what the history
+// (prompts/summarize/recall.md) reads the windows and says what the history
 // answers, optionally singling out one stretch the persona then gets
 // verbatim. The same word and name forms are also matched against the
 // persona's own stored memory (matchMemory: members' moments, lore, learned
@@ -223,7 +223,7 @@ const FORM_MIN_CHARS = 2;
 const FORM_MAX_CHARS = 40;
 const FORM_MAX_WORDS = 3;
 
-// Protocol tokens of the query builder (prompts/query-builder.md), not wording.
+// Protocol tokens of the query builder (prompts/classify/query.md), not wording.
 const NONE_RE = /^none\b/i;
 const LABEL_RE = /^(?:[-*•>]\s*)*\**\s*(web|agent|history|who|when[-_ ]?role|when|recent)\s*\**\s*:\s*\**\s*(.*)$/i;
 const YES_RE = /^yes\b/i;
@@ -232,7 +232,7 @@ const LOCATOR_RE = /^locator\b/i;
 const DATE_RE = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/;
 const RANGE_SPLIT_RE = /\s*\.{2,}\s*/;
 const FORM_SPLIT_RE = /[,;，、]/;
-// Protocol tokens of the summary request (prompts/recall-summary.md).
+// Protocol tokens of the summary request (prompts/summarize/recall.md).
 const STRETCH_RE = /^\**\s*stretch\s*\**\s*:\s*\**\s*(.*)$/i;
 // Quotes and backticks a model may wrap a line in (straight, curly, guillemets).
 const QUOTES = new Set(['"', "'", '`', '“', '”', '‘', '’', '«', '»']);
@@ -586,7 +586,7 @@ function parseRange(value: Untyped, timezone: Untyped, now: number | undefined) 
 }
 
 /**
- * The query builder's answer (prompts/query-builder.md). Labelled lines `web:`,
+ * The query builder's answer (prompts/classify/query.md). Labelled lines `web:`,
  * `history:`, `who:`, `when:` in any order and any letter case (a leading
  * list bullet or bold marks around the label are tolerated); a line without
  * a label is ignored once any line has one. Without any labelled line the

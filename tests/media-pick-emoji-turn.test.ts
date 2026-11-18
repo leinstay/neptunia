@@ -88,7 +88,7 @@ async function runScene({
       models: { routes: chainsOf({ analyzer: 'cheap/classifier' }) },
     }
   );
-  Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.', labels });
+  Object.assign(hot.prompts, { 'classify/pick': 'Pick for {{name}}.', labels });
   const library = sharedLibrary();
   const known = { key: 'k1', ...library.entries.k1 };
   const rails: Array<{ placeId: string; state: { lastUsed?: Record<string, number> } }> = [];

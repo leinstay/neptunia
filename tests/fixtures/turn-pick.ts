@@ -36,7 +36,7 @@ export function declarePick(mediaPick: object = { gifForms: ['file', 'link'] }):
 /** A hot config that runs the media pick, on an interface that declares it. */
 export function withPick(hot: FakeHot): FakeHot {
   declarePick();
-  Object.assign(hot.prompts, { 'media-pick': 'Pick a GIF for what {{name}} wrote.' });
+  Object.assign(hot.prompts, { 'classify/pick': 'Pick a GIF for what {{name}} wrote.' });
   Object.assign(hot.config, { models: { routes: chainsOnDefaults({ analyzer: 'cheap/classifier' }) } });
   return hot;
 }

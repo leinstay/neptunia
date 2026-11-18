@@ -15,7 +15,7 @@ test('keeps only the generic README of the persona root trackable', () => {
     'data/memory.db',
     'data/keys.json',
     'data/config/config.json',
-    'data/prompts/character-card.md',
+    'data/prompts/persona.md',
     'data/prompts/README.md',
     'data/interfaces/discord/credentials.json',
     'data/skills/any/SKILL.md',

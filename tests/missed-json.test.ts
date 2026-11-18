@@ -79,7 +79,7 @@ async function sweep(text: string) {
   const missed = createMissed({
     hot: {
       config: { bot: { timezone: 'UTC' }, missed: {}, models: {}, llm: {} },
-      prompts: { missed: 'Check for {{name}}.', labels },
+      prompts: { 'classify/missed': 'Check for {{name}}.', labels },
     },
     store: { mediaNameOf: noMediaNames, state: { data: {} } },
     llm: {

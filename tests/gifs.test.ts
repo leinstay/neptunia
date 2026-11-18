@@ -702,10 +702,10 @@ function fakeHot() {
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 1, betweenMessagesMs: [0, 0] },
     },
     prompts: {
-      'system-prompt': 'You are a regular member of this chat.',
-      'character-card': 'Terse.',
+      main: 'You are a regular member of this chat.',
+      persona: 'Terse.',
       format: 'Use tags.',
-      reply: 'Someone called you: {{author}}.',
+      'turn/reply': 'Someone called you: {{author}}.',
       interject: 'Jump in.',
       initiate: 'Start a topic.',
       labels,
@@ -763,7 +763,7 @@ async function runGifTurn({
     const declared = port.capabilities.bind(port);
     port.capabilities = () => ({ ...declared(), mediaPick: { gifForms: ['file', 'link'] } });
     const hot: Untyped = fakeHot();
-    Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.' });
+    Object.assign(hot.prompts, { 'classify/pick': 'Pick for {{name}}.' });
     hot.config.models = { routes: chainsOf({ analyzer: 'cheap/classifier' }) };
     const llm = {
       complete: (_messages: Untyped, options: Untyped) =>

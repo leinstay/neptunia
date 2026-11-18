@@ -102,12 +102,12 @@ const LABELS = SHIPPED.prompts.labels as typeof contractLabels;
 const NOT_BUILT = {
   rules:
     'the prompt of the rules block, which a request carries only with a rule in memory: tests/rules-list.test.ts builds it',
-  'describe-audio': 'a voice message needs a fetcher of the file: tests/media-memory-audio.test.ts builds it',
+  'describe/audio': 'a voice message needs a fetcher of the file: tests/media-memory-audio.test.ts builds it',
   // The voice-message preparation pass (src/speech/prepare.ts) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
-  'speech-prepare': 'built by the speech pipeline (src/speech/prepare.ts), checked in tests/speech-prepare.test.js',
+  speech: 'built by the speech pipeline (src/speech/prepare.ts), checked in tests/speech-prepare.test.js',
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
-  address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
+  'classify/address': 'built inside the src/behavior/pipeline.ts closure (O-9)',
   // Split into families and drawn from line by line (src/behavior/seeds.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
   'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/seeds.ts#pickSeeds), never sent whole',
   // A heartbeat draws four lines of two families into <fragments> (src/behavior/seeds.ts#drawFragments), never the file whole.
@@ -116,20 +116,20 @@ const NOT_BUILT = {
   // tests/memory-db-session.test.ts and tests/memory-db-describe.test.ts check what they load.
   // The summarizer builds its request from a text and a limit, with no turn around it: tests/summarize.test.ts checks which
   // of the two prompts it takes and what it fills.
-  'summarize-media':
+  'summarize/media':
     'built by src/behavior/summarize.ts from a text over its limit, checked in tests/summarize.test.ts',
-  'summarize-text': 'built by src/behavior/summarize.ts from a text over its limit, checked in tests/summarize.test.ts',
-  'memory-session': 'built over the memory database (src/memory/db/session.ts)',
-  'description-draft': 'built over the memory database (src/memory/db/describe.ts)',
-  'description-check': 'built over the memory database (src/memory/db/describe.ts)',
+  'summarize/text': 'built by src/behavior/summarize.ts from a text over its limit, checked in tests/summarize.test.ts',
+  'memory/session': 'built over the memory database (src/memory/db/session.ts)',
+  'memory/draft': 'built over the memory database (src/memory/db/describe.ts)',
+  'memory/check': 'built over the memory database (src/memory/db/describe.ts)',
   // The owner's `/memory bind` builds it over the memory database when two people merge: tests/memory-db-person-bind.test.ts.
-  'description-merge': 'built over the memory database by a bind (src/memory/db/person-bind.ts)',
+  'memory/merge': 'built over the memory database by a bind (src/memory/db/person-bind.ts)',
   // PR 7d: her own tools are code, so these load only behind a call of hers (web.search, web.read, memory.search,
   // media.look), which no request built here makes; the tests of those tools check what they send.
-  'rewatch-answer': 'loaded behind her media.look call (src/memory/describe.ts), which no turn here makes',
-  'query-builder': 'loaded by the replay and the evaluation scripts; a live turn runs no planner (plan B4)',
-  'search-summary': 'loaded behind her web.search call (src/web/lookup.ts), which no turn here makes',
-  'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.ts), which no turn here makes',
+  'describe/rewatch': 'loaded behind her media.look call (src/memory/describe.ts), which no turn here makes',
+  'classify/query': 'loaded by the replay and the evaluation scripts; a live turn runs no planner (plan B4)',
+  'summarize/search': 'loaded behind her web.search call (src/web/lookup.ts), which no turn here makes',
+  'summarize/recall': 'loaded behind her memory.search call (src/behavior/recall-run.ts), which no turn here makes',
   // Slice 7: the planner's request is built on the turn frame inside the diary turn, which no builder here
   // reaches; tests/diary-turn.test.ts and tests/diary-planner.test.ts check what it loads.
   'diary-planner':
@@ -200,34 +200,34 @@ const PENDING_LABELS = {
 // The rules prompt reaches a request only while the memory table `rules` holds a rule (src/rules-list.ts). The requests
 // here are built with no memory, the way a deployment starts, so it stays in NOT_BUILT: putting it in SYSTEM would mean
 // a rule in every fixture, and tests/rules-list.test.ts already checks the block with and without one.
-const SYSTEM = ['system-prompt', 'character-card', 'format'];
+const SYSTEM = ['main', 'persona', 'format'];
 
 /** The prompt files each request below must carry whole, by request. */
 const LOADS = {
-  reply: [...SYSTEM, 'reply'],
-  followUp: [...SYSTEM, 'follow-up'],
-  overheard: [...SYSTEM, 'overheard'],
-  errandResult: [...SYSTEM, 'errand-result'],
-  private: [...SYSTEM, 'reply', 'private'],
-  privateOpen: [...SYSTEM, 'reply', 'private-open'],
+  reply: [...SYSTEM, 'turn/reply'],
+  followUp: [...SYSTEM, 'turn/follow'],
+  overheard: [...SYSTEM, 'turn/overheard'],
+  errandResult: [...SYSTEM, 'turn/errand'],
+  private: [...SYSTEM, 'turn/reply', 'turn/private'],
+  privateOpen: [...SYSTEM, 'turn/reply', 'private-open'],
   draw: ['draw', 'appearance'],
   diary: [...SYSTEM, 'diary'],
-  inner: [...SYSTEM, 'inner'],
+  inner: [...SYSTEM, 'turn/inner'],
   heartbeat: [...SYSTEM, 'heartbeat'],
-  describe: ['describe'],
-  avatar: ['avatar'],
-  describeGif: ['describe-gif'],
-  describeVideo: ['describe-video'],
-  rewatchAnswer: ['rewatch-answer'],
-  lookup: ['query-builder'],
-  searchSummary: ['search-summary'],
-  recallSummary: ['recall-summary'],
-  split: ['split'],
-  merge: ['merge'],
-  missed: ['missed'],
-  mediaPick: ['media-pick'],
-  humanizer: ['humanizer-linter', 'humanizer-writer'],
-  turn: [...SYSTEM, 'reply'],
+  describe: ['describe/picture'],
+  avatar: ['describe/avatar'],
+  describeGif: ['describe/gif'],
+  describeVideo: ['describe/video'],
+  rewatchAnswer: ['describe/rewatch'],
+  lookup: ['classify/query'],
+  searchSummary: ['summarize/search'],
+  recallSummary: ['summarize/recall'],
+  split: ['classify/split'],
+  merge: ['classify/merge'],
+  missed: ['classify/missed'],
+  mediaPick: ['classify/pick'],
+  humanizer: ['humanizer/linter', 'humanizer/editor'],
+  turn: [...SYSTEM, 'turn/reply'],
 };
 
 /** The shipped config.json with `overrides` deep-merged over a fresh copy. */
@@ -866,29 +866,33 @@ test('labels: every code of the catalogue has its words in the tracked labels.js
 
 // ---- the chat turn ----------------------------------------------------------------
 
-test('buildRequest: a reply fills system-prompt, character-card, rules, format and reply for every trigger kind', async () => {
+test('buildRequest: a reply fills main, persona, rules, format and turn/reply for every trigger kind', async () => {
   for (const triggerKind of ['mention', 'reply', 'followUp']) {
     const request = buildRequest(await turnInput({ triggerKind }));
-    // A follow-up takes the follow-up task instead of reply.md; a reply with no tagged state stays on reply.md.
+    // A follow-up takes the follow-up task instead of turn/reply.md; a reply with no tagged state stays on turn/reply.md.
     const files = triggerKind === 'followUp' ? LOADS.followUp : LOADS.reply;
     const text = assertFilled(request.messages, { files, blocks: TURN_BLOCKS }, `reply (${triggerKind})`);
-    assert.equal(carries(text, 'reply'), triggerKind !== 'followUp', `${triggerKind}: which task file frames the turn`);
+    assert.equal(
+      carries(text, 'turn/reply'),
+      triggerKind !== 'followUp',
+      `${triggerKind}: which task file frames the turn`
+    );
     assert.ok(
       text.includes((LABELS.triggers as Record<string, string>)[triggerKind]),
       `${triggerKind}: the trigger label fills {{trigger}}`
     );
   }
-  // A Discord reply to the persona: untagged takes the follow-up task, tagged keeps reply.md.
+  // A Discord reply to the persona: untagged takes the follow-up task, tagged keeps turn/reply.md.
   const untagged = buildRequest(await turnInput({ triggerKind: 'reply', taggedCall: false }));
   const untaggedText = assertFilled(
     untagged.messages,
     { files: LOADS.followUp, blocks: TURN_BLOCKS },
     'reply (untagged reply)'
   );
-  assert.ok(!carries(untaggedText, 'reply'), 'an untagged reply: reply.md is not sent as well');
+  assert.ok(!carries(untaggedText, 'turn/reply'), 'an untagged reply: turn/reply.md is not sent as well');
   const tagged = buildRequest(await turnInput({ triggerKind: 'reply', taggedCall: true }));
   const taggedText = assertFilled(tagged.messages, { files: LOADS.reply, blocks: TURN_BLOCKS }, 'reply (tagged reply)');
-  assert.ok(!carries(taggedText, 'follow-up'), 'a tagged reply: the follow-up task is not sent');
+  assert.ok(!carries(taggedText, 'turn/follow'), 'a tagged reply: the follow-up task is not sent');
 });
 
 test('buildRequest: the text transport describes her tools in <tools> in the stable part, the same for another requester', async () => {
@@ -907,13 +911,13 @@ test('buildRequest: the text transport describes her tools in <tools> in the sta
   assert.ok(!buildRequest(await turnInput({})).messages[1].content[0].text.includes('<tools>'));
 });
 
-test('buildRequest: an overheard line fills overheard.md in place of the reply task', async () => {
+test('buildRequest: an overheard line fills turn/overheard.md in place of the reply task', async () => {
   const request = buildRequest(await turnInput({ triggerKind: 'overheard' }));
   const text = assertFilled(request.messages, { files: LOADS.overheard, blocks: TURN_BLOCKS }, 'overheard');
-  assert.ok(!carries(text, 'reply'), 'the reply task is not sent as well');
+  assert.ok(!carries(text, 'turn/reply'), 'the reply task is not sent as well');
 });
 
-test('buildRequest: the turn a finished errand opens without an origin message fills errand-result.md in place of interject.md', async () => {
+test('buildRequest: the turn a finished errand opens without an origin message fills turn/errand.md in place of interject.md', async () => {
   const history = await generalHistory();
   const request = buildRequest(
     await turnInput({
@@ -933,7 +937,7 @@ test('buildRequest: the turn a finished errand opens without an origin message f
   assert.ok(text.includes('<task>\n'));
 });
 
-test('buildRequest: a private chat fills private.md after the reply task', async () => {
+test('buildRequest: a private chat fills turn/private.md after the reply task', async () => {
   const dm = { id: 'dm1', name: null, category: null, topic: null };
   const at = (minutes: number) => NOW - minutes * MINUTE_MS;
   const history = normalize([
@@ -1105,7 +1109,7 @@ test('shipped labels: every kind of fact she can be told is worded, with no plac
   );
 });
 
-test('buildRequest: an inner turn fills system-prompt, character-card, rules, format, inner.md and every labels.wake line', async () => {
+test('buildRequest: an inner turn fills main, persona, rules, format, turn/inner.md and every labels.wake line', async () => {
   const wake = {
     kind: 'intention_due',
     items: [
@@ -1160,8 +1164,8 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
 const wakeInput = (wakeKind: string) =>
   turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind });
 
-// Slice 5: the review is gone; a due intention is the inner turn that keeps inner.md.
-test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in place of inner.md; a due intention keeps inner.md', async () => {
+// Slice 5: the review is gone; a due intention is the inner turn that keeps turn/inner.md.
+test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in place of turn/inner.md; a due intention keeps turn/inner.md', async () => {
   const beat = await wakeInput('heartbeat');
   const beatRequest = buildRequest(beat);
   const beatText = assertFilled(beatRequest.messages, { files: LOADS.heartbeat, blocks: ['task'] }, 'heartbeat turn');
@@ -1176,7 +1180,7 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
       .some((line) => line.startsWith(labelHead(LABELS.tempo.verdict))),
     'silence in an anchor channel is not heartbeat tempo'
   );
-  assert.ok(!carries(beatText, 'inner'), 'inner.md is not sent as well');
+  assert.ok(!carries(beatText, 'turn/inner'), 'turn/inner.md is not sent as well');
   const due = await wakeInput('intention_due');
   const dueText = assertFilled(
     buildRequest(due).messages,
@@ -1189,7 +1193,7 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
   assertFilled(buildRequest(missing).messages, { files: LOADS.inner }, 'heartbeat with no heartbeat.md');
 });
 
-test('buildRequest: a diary post fills system-prompt, character-card, rules, format, and diary.md', async () => {
+test('buildRequest: a diary post fills main, persona, rules, format, and diary.md', async () => {
   const input = await turnInput({
     mode: 'diary',
     trigger: null,
@@ -1330,25 +1334,25 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
   };
   // Which prompt a request was built from, by the text of its system message.
   const kinds = [
-    'describe-gif',
-    'describe-video',
-    'rewatch-answer',
-    'describe',
-    'query-builder',
-    'search-summary',
-    'recall-summary',
-    'system-prompt',
+    'describe/gif',
+    'describe/video',
+    'describe/rewatch',
+    'describe/picture',
+    'classify/query',
+    'summarize/search',
+    'summarize/recall',
+    'main',
   ];
   const answers = {
-    'describe-gif': 'a cat waves at the camera',
-    'describe-video': 'a person juggles three oranges in a kitchen',
-    'rewatch-answer': 'all three oranges are bright orange',
-    describe: 'a tomato plant covered in frost',
+    'describe/gif': 'a cat waves at the camera',
+    'describe/video': 'a person juggles three oranges in a kitchen',
+    'describe/rewatch': 'all three oranges are bright orange',
+    'describe/picture': 'a tomato plant covered in frost',
     rewatch: '1 | what colour are the oranges?',
     lookup: 'web: tomato frost date\nhistory: tomate, gelé',
-    'search-summary': 'Tomatoes die below zero degrees [1].',
-    'recall-summary': 'stretch: 1\nNikos said in #jardin four days ago that the tomato froze.',
-    'system-prompt': '<skip/>',
+    'summarize/search': 'Tomatoes die below zero degrees [1].',
+    'summarize/recall': 'stretch: 1\nNikos said in #jardin four days ago that the tomato froze.',
+    main: '<skip/>',
   };
   const kindOf = (messages: Array<{ content: unknown }>) =>
     kinds.find((name) => carries(contentText(messages[0].content), name)) ?? null;
@@ -1421,16 +1425,16 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
   assert.equal((result as { outcome: string }).outcome, 'skip', 'the turn ran to its answer');
 
   const expected: Array<[string, Array<string>]> = [
-    ['describe', LOADS.describe],
-    ['describe-gif', LOADS.describeGif],
-    ['describe-video', LOADS.describeVideo],
+    ['describe/picture', LOADS.describe],
+    ['describe/gif', LOADS.describeGif],
+    ['describe/video', LOADS.describeVideo],
   ];
   for (const [kind, files] of expected) {
     const calls = llm.calls.filter((call) => kindOf(call.messages) === kind);
     assert.ok(calls.length > 0, `no ${kind} request was sent`);
     for (const call of calls) assertFilled(call.messages, { files }, kind);
   }
-  const [turn] = llm.calls.filter((call) => kindOf(call.messages) === 'system-prompt');
+  const [turn] = llm.calls.filter((call) => kindOf(call.messages) === 'main');
   assertFilled(
     turn?.messages,
     // Slice 4: a reply is built on the frame, so `<about_chat>`, `<server>` and `<lore>` leave it (a root's fields go to
@@ -1464,7 +1468,7 @@ function bareStore() {
 }
 
 // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
-test('createTurnRunner: the splitter fills split.md; each part, its queued calls and a folded message fill labels.task', async () => {
+test('createTurnRunner: the splitter fills classify/split.md; each part, its queued calls and a folded message fill labels.task', async () => {
   const hot = shippedHot();
   const line = rawMessage(GENERAL_INFO, {
     ts: NOW - MINUTE_MS,
@@ -1530,7 +1534,7 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
 
 // ---- the GIF picker ---------------------------------------------------------------------
 
-test('createTurnRunner: the media pick fills media-pick.md', async () => {
+test('createTurnRunner: the media pick fills classify/pick.md', async () => {
   const hot = shippedHot();
   const line = rawMessage(GENERAL_INFO, {
     ts: NOW - MINUTE_MS,
@@ -1577,7 +1581,7 @@ test('createTurnRunner: the media pick fills media-pick.md', async () => {
 });
 
 // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
-test('createMissed: the missed-answer check fills missed.md', async () => {
+test('createMissed: the missed-answer check fills classify/missed.md', async () => {
   const history = await generalHistory();
   const candidate = history.findLast((message) => !message.self);
   const llm = recordingLlm(() => '{"verdicts":[{"n":1,"verdict":"stale"}]}');
@@ -1623,7 +1627,7 @@ test('buildRequest: a recovery turn names its messages under labels.task.missed 
 });
 
 // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
-test('createMessageHandler: the merge classifier fills merge.md', async () => {
+test('createMessageHandler: the merge classifier fills classify/merge.md', async () => {
   const hot = shippedHot();
   worldChannelsOf([[GENERAL_INFO, generalRaws()]]);
   const line = rawMessage(GENERAL_INFO, {
@@ -1675,7 +1679,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
   assert.equal(folded.length, 1, 'folded into the waiting part');
 });
 
-test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
+test('createAvatarQueue: the avatar describer fills describe/avatar.md', async () => {
   const hot = shippedHot();
   const profile: { id: string; names: Array<string>; avatar?: { text: string } } = { id: 'u1', names: ['Ελένη'] };
   const store = {
@@ -1719,7 +1723,7 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
   assert.equal(profile.avatar!.text, 'an illustrated fox in a scarf');
 });
 
-test('humanizeSpeech: the linter and the writer requests fill humanizer-linter.md and humanizer-writer.md', async () => {
+test('humanizeSpeech: the linter and the writer requests fill humanizer/linter.md and humanizer/editor.md', async () => {
   const hot = shippedHot({
     humanizer: { enabled: true },
     models: { routes: chainsOf({ 'linter': 'x/linter', 'editor': 'x/writer' }) },
@@ -1749,10 +1753,10 @@ test('humanizeSpeech: the linter and the writer requests fill humanizer-linter.m
   assert.deepEqual(result.messages, [{ text: written, replyTo: null }]);
   const linter = calls.find((call) => call.purpose === 'humanizer-linter');
   const writer = calls.find((call) => call.purpose === 'humanizer-writer');
-  assertFilled(linter?.messages, { files: ['humanizer-linter'] }, 'humanizer linter');
+  assertFilled(linter?.messages, { files: ['humanizer/linter'] }, 'humanizer linter');
   assertFilled(
     writer?.messages,
-    { files: ['humanizer-writer'], blocks: ['thoughts', 'draft', 'findings'] },
+    { files: ['humanizer/editor'], blocks: ['thoughts', 'draft', 'findings'] },
     'humanizer writer'
   );
 });

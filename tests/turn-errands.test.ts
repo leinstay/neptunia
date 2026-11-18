@@ -118,10 +118,10 @@ function fakeHot() {
       errands: { resultMaxChars: 40, resultCooldownSeconds: 60, resultRetrySeconds: 30 },
     },
     prompts: {
-      'system-prompt': 'You are a regular member of this chat, not an assistant.',
-      'character-card': 'You are friendly and terse.',
+      main: 'You are a regular member of this chat, not an assistant.',
+      persona: 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
-      reply: 'Someone called you: {{author}}.',
+      'turn/reply': 'Someone called you: {{author}}.',
       interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       labels,

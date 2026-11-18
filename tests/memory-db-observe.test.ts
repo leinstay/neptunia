@@ -506,7 +506,7 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
         scope,
         batch,
         config: {},
-        prompts: { 'memory-session': 'x', labels: {} },
+        prompts: { 'memory/session': 'x', labels: {} },
         selfName: 'Nep',
         now: NOW,
       })

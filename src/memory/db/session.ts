@@ -23,7 +23,7 @@
 //   skipped, the cursor moves and a `decisions` row records why.
 //
 // The request (buildSessionRequest): the system text her turns get (system prompt, card, rules, format), then
-// prompts/memory-session.md; the user content in blocks, stable first: <self> <place> <people> <episodes> <intentions>
+// prompts/memory/session.md; the user content in blocks, stable first: <self> <place> <people> <episodes> <intentions>
 // <batch>. People are rendered by the renderer her turns use (behavior/prompt.js#renderProfile) from the profile the
 // database rebuilds (account-profile.ts#accountProfileValue), then the attitude (the affinity number) and the claims
 // shown with their ids. Ids in the request are short and local: `#n` for lines, `cN` / `sN` for claims, `eN` for
@@ -262,7 +262,7 @@ export function refusalOf(
   const { mode } = sessionSettings(config);
   if (mode === 'off') return CODES.OFF;
   if (!memoryKeyState(config, env, ring, path).ok) return CODES.NOT_CONFIGURED;
-  const prompt = prompts?.['memory-session'];
+  const prompt = prompts?.['memory/session'];
   if (typeof prompt !== 'string' || !prompt.trim()) return CODES.NO_PROMPT;
   return null;
 }
@@ -279,8 +279,8 @@ export function systemTextOf(
 ): string {
   const fill = (text: string) => fillPromptTemplate(text, { name: selfName });
   return [
-    prompts?.['system-prompt'],
-    prompts?.['character-card'],
+    prompts?.['main'],
+    prompts?.['persona'],
     rulesPromptOf(prompts?.rules, rules, prompts?.labels),
     prompts?.format,
     extra,
@@ -514,7 +514,7 @@ function lineText(
       '?');
   const lead = !own && line.direct ? '→ ' : '';
   const place = handle ? `[${handle}] ` : '';
-  // An author who is not a person yet carries the handle `people:add` names (prompts/memory-session.md, "People").
+  // An author who is not a person yet carries the handle `people:add` names (prompts/memory/session.md, "People").
   const who = !own && authorHandle ? `[${authorHandle}] ` : '';
   const words = asText(line.text ?? '').replace(/\s*\n\s*/g, ' ⏎ ');
   const body = [words, ...tags].filter(Boolean).join(' ');
@@ -903,7 +903,7 @@ export function buildSessionRequest({
   const listed = stretchBlockOf(db, ctx, page + part === 0 ? numbered : [], { words, placeHandle, clock, read });
   maps.stretches = listed.stretches;
 
-  const system = systemTextOf(prompts, selfName, prompts?.['memory-session'], liveRules(db));
+  const system = systemTextOf(prompts, selfName, prompts?.['memory/session'], liveRules(db));
   // The stable blocks first (the cache marker covers them and the system text), the lines last: the stable part holds
   // no clock and no line of the batch, so it repeats byte for byte while the stored memory does.
   const stable = [

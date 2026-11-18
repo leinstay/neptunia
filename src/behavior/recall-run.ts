@@ -3,7 +3,7 @@
 // names word forms, name forms or a date range (src/behavior/recall.ts
 // parseQueryPlan), this module searches the server's own history through
 // the interface's message search (reads.searchMessages) and has one analyzer request
-// (prompts/recall-summary.md) say what that history answers, optionally
+// (prompts/summarize/recall.md) say what that history answers, optionally
 // singling out one stretch the persona gets verbatim. Steps: the people the
 // name forms point at (stored profiles, the interface's member search for a Latin
 // form), the queries one after another (the interface may serialise its search

@@ -169,7 +169,7 @@ test('isProseFile: picks the root, docs, interface, tools and github documents a
   ])
     assert.equal(isProseFile(p), true, p);
   for (const p of [
-    'prompts/system-prompt.md',
+    'prompts/main.md',
     'agents/dev/prompt.md',
     'tests/fixtures/x.md',
     'scripts/fixtures/x.md',

@@ -176,7 +176,7 @@ function hotOf(mode: 'live' | 'shadow', heartbeat: boolean) {
   });
   Object.assign(hot.config.context, { turnLeaseMs: LEASE_MS });
   Object.assign(hot.config, { intentions: { expiresDays: 14, maxOpen: 20 } });
-  Object.assign(hot.prompts, { inner: INNER_TASK });
+  Object.assign(hot.prompts, { 'turn/inner': INNER_TASK });
   return hot;
 }
 

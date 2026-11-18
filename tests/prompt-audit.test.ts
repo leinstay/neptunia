@@ -15,7 +15,7 @@ const read = (name: string): string => fs.readFileSync(path.join(PROMPTS, `${nam
 // The platform and the server are named by the interface's own text. These files are read in a chat on any
 // interface, so they speak of the chat, the chat and the places the persona follows. Slice 5: interject.md and
 // initiate.md are deleted with the forced turn.
-const PLATFORM_FREE = ['avatar', 'private', 'follow-up'];
+const PLATFORM_FREE = ['describe/avatar', 'turn/private', 'turn/follow'];
 
 for (const name of PLATFORM_FREE) {
   test(`${name}.md names no platform and no server`, () => {

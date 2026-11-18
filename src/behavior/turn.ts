@@ -167,7 +167,7 @@ export { fallbackLookupPlan };
  * default: the client's cached place member, else the bot user's name.
  *
  * A call whose text passes the splitter's pre-filter (src/behavior/split.ts)
- * asks the splitter (prompts/split.md) beside the turn's preparation, under
+ * asks the splitter (prompts/classify/split.md) beside the turn's preparation, under
  * its deadline. `one`, a late, failed or unparsable answer, a missing prompt
  * or a labels file without `labels.task.part`: the turn goes on as if it had
  * never been asked. Parts in time: the turn sets its preparation aside and
@@ -385,7 +385,7 @@ export function createTurnRunner({
   // placeId -> ids of the messages in the history of the last turn that spoke there (noteSpokeSaw).
   // The pending-ping drain (src/behavior/pipeline.ts) skips a ping such a turn already had in view.
   const spokeSaw = new Map<string, Set<string>>();
-  // Whether the last turn that wanted prompts['follow-up'] found it missing: warned once each time (falls back to reply.md).
+  // Whether the last turn that wanted prompts['turn/follow'] found it missing: warned once each time (falls back to turn/reply.md).
   const promptState = { followUpMissing: false };
   // Posted message id -> the id of the message that started the turn which posted it, in
   // process (noteTrigger at each post, seedTriggerLinks at start from the journal); the oldest

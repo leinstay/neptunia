@@ -20,7 +20,7 @@
 // scripts/lib/recall-eval.ts#parseQuestions; `none` means the answer is not in memory.
 //
 // Each question is asked as a live turn asks it (src/behavior/turn.ts#maybeLookup): the search
-// classifier (prompts['query-builder'], purpose `query-builder`) reads the channel's last lines and the question
+// classifier (prompts['classify/query'], purpose `query-builder`) reads the channel's last lines and the question
 // as a new message of `askerId` in `placeId`, now; its server part goes to the real recall
 // runner (src/behavior/recall-run.ts#createRecall `run`) as the persona's own memory.search does
 // (`quotes`: the stretches of src/memory/db/recall.ts, no summary request, so no `confident`
@@ -35,7 +35,7 @@
 //
 // `--web`: the classifier's `web:` query, when it gives one, goes to the live web lookup
 // (src/web/lookup.ts#createLookup `search`, on the configured web.quickSearch.engine: `brave` with
-// BRAVE_SEARCH_API_KEY from .env and `exa` condensed through prompts.search-summary, `openrouter`
+// BRAVE_SEARCH_API_KEY from .env and `exa` condensed through prompts["summarize/search"], `openrouter`
 // through its web plugin; `--web` refuses to start when that engine cannot run), as the live turn runs it
 // beside the server part, with features.webLookup switched on for this process only; its daily
 // counter is a throwaway copy per question and its media cache an in-memory copy of the stored
@@ -684,8 +684,9 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   };
   const config = hot.config;
   const settings = await recallSettingsOf(config);
-  if (!dry && !hot.prompts?.['query-builder']) throw new CliError('recall-eval: prompts.query-builder is missing');
-  if (useWeb && !hot.prompts?.['search-summary']) throw new CliError('recall-eval: --web needs prompts.search-summary');
+  if (!dry && !hot.prompts?.['classify/query']) throw new CliError('recall-eval: prompts["classify/query"] is missing');
+  if (useWeb && !hot.prompts?.['summarize/search'])
+    throw new CliError('recall-eval: --web needs prompts["summarize/search"]');
   const meaningOn = !dry;
   const stages = { classifier: !dry, database: true, meaning: meaningOn, discord: useDiscord, web: useWeb };
   const asking = Math.min(limit, questions.length);
@@ -854,7 +855,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
         [
           {
             role: 'system',
-            content: fillPromptTemplate(hot.prompts['query-builder'], {
+            content: fillPromptTemplate(hot.prompts['classify/query'], {
               today: zonedDay(now(), hot.config.bot?.timezone),
               name: selfName,
               skills: '',

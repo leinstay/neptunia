@@ -116,7 +116,7 @@ export function renderTasks(
 }
 
 /**
- * Whether a turn's task text is `prompts['follow-up']` instead of `prompts.reply`: a reply-mode
+ * Whether a turn's task text is `prompts['turn/follow']` instead of `prompts['turn/reply']`: a reply-mode
  * turn answering a follow-up (`followUp`: an untagged line the address classifier marked as said
  * to the persona) or an untagged `reply` (a platform reply to the persona's line with no typed tag,
  * `taggedCall` exactly false -- src/behavior/mention.ts#isTaggedCall, as decideMention reads it).
@@ -137,6 +137,9 @@ export function usesFollowUpTask({
   if (mode !== 'reply' || dmChat) return false;
   return triggerKind === 'followUp' || (triggerKind === 'reply' && taggedCall === false);
 }
+
+/** The prompt file of a mode's task under `turn/`; any other mode reads the file of its own name (`diary`). */
+const MODE_TASKS: Readonly<Record<string, string>> = { reply: 'turn/reply', inner: 'turn/inner' };
 
 /** A request's task: whether the trigger was overheard, and the task text. */
 export type Task = {
@@ -162,24 +165,26 @@ export function taskOf(given: RequestInput & Base): Task {
     : triggerKind === 'followUp'
       ? (labels.triggers?.followUp ?? labels.triggers?.reply ?? '')
       : (labels.triggers?.[String(triggerKind)] ?? '');
-  // An overheard turn has its own task text (prompts.overheard) INSTEAD of the mode's; without
+  // An overheard turn has its own task text (prompts['turn/overheard']) INSTEAD of the mode's; without
   // it (missing or blank) the mode's text frames the line as said to the persona: degraded.
   const overheardTask =
-    overheard && typeof prompts.overheard === 'string' && prompts.overheard.trim() ? prompts.overheard : null;
-  // A heartbeat's inner turn has its own task text (prompts.heartbeat) INSTEAD of inner.md; without it (missing or
-  // blank) inner.md applies (degraded).
+    overheard && typeof prompts['turn/overheard'] === 'string' && prompts['turn/overheard'].trim()
+      ? prompts['turn/overheard']
+      : null;
+  // A heartbeat's inner turn has its own task text (prompts.heartbeat) INSTEAD of turn/inner.md; without it (missing or
+  // blank) turn/inner.md applies (degraded).
   const turnKind = kindOfRequest(given);
   const ownWakeMd = turnKind === 'heartbeat' ? prompts.heartbeat : null;
   const ownWakeTask = typeof ownWakeMd === 'string' && ownWakeMd.trim() ? ownWakeMd : null;
   // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
-  // the message is gone) has its own task text (prompts['errand-result']) instead of the mode's. Missing or blank, the
+  // the message is gone) has its own task text (prompts['turn/errand']) instead of the mode's. Missing or blank, the
   // mode's text applies.
-  const errandMd = prompts['errand-result'];
+  const errandMd = prompts['turn/errand'];
   const errandTask =
     turnKind === 'errand_result' && !trigger && typeof errandMd === 'string' && errandMd.trim() ? errandMd : null;
-  // A follow-up or an untagged reply has its own task text (prompts['follow-up']) INSTEAD of
-  // reply.md; without it (missing or blank) reply.md frames it, as before the file existed.
-  const followUpPrompt = prompts['follow-up'];
+  // A follow-up or an untagged reply has its own task text (prompts['turn/follow']) INSTEAD of
+  // turn/reply.md; without it (missing or blank) turn/reply.md frames it, as before the file existed.
+  const followUpPrompt = prompts['turn/follow'];
   const followUpTask =
     usesFollowUpTask({ mode, triggerKind, taggedCall: given.taggedCall, dmChat }) &&
     typeof followUpPrompt === 'string' &&
@@ -196,12 +201,12 @@ export function taskOf(given: RequestInput & Base): Task {
     target: chatTrigger ? `#${chatTrigger.index}` : '',
   };
   const baseTask = fillPromptTemplate(
-    overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[mode] ?? '',
+    overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[MODE_TASKS[mode] ?? mode] ?? '',
     taskValues
   );
-  // Private chat: prompts.private follows the mode prompt, `private-open` with `context.memory.openPrivate`; a missing
+  // Private chat: prompts['turn/private'] follows the mode prompt, `private-open` with `context.memory.openPrivate`; a missing
   // file adds nothing.
-  const privatePrompt = opensPrivate(given.config) ? prompts['private-open'] : prompts.private;
+  const privatePrompt = opensPrivate(given.config) ? prompts['private-open'] : prompts['turn/private'];
   const privateText =
     dmChat && typeof privatePrompt === 'string' && privatePrompt.trim()
       ? fillPromptTemplate(privatePrompt, taskValues)

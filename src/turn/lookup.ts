@@ -326,7 +326,7 @@ export function createLookup(ctx: LookupContext): Lookup {
 
   /**
    * The splitter (src/behavior/split.ts): whether the call `trigger` holds
-   * several requests. One cheap classifier call (`prompt`, prompts/split.md,
+   * several requests. One cheap classifier call (`prompt`, prompts/classify/split.md,
    * `{{name}}` = the persona's display name, `{{maxTasks}}` = split.maxTasks;
    * on the `analyzer` model role (roleModel), its answer capped at split.maxOutputTokens, a
    * `analyzer` request: roleRequestOptions, purpose `split`) reads the last

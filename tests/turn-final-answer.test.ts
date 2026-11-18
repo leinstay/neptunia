@@ -106,7 +106,7 @@ test('keeps tool choice auto on the final request of an inner turn', async () =>
       wakes: { mode: 'live', chatMessages: 2, loop: { maxSteps: 1, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
       llm: { maxRequestTokens: 50000 },
     },
-    prompts: { inner: 'Do what the wake says.' },
+    prompts: { 'turn/inner': 'Do what the wake says.' },
     withHot: native,
   });
   const { options } = run.llm;

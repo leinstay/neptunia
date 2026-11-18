@@ -131,7 +131,7 @@ function rig({
       models: { routes: chainsOf({ analyzer: 'cheap/classifier' }) },
       media: { pick: { maxOutputTokens: 17, candidates: 5, ...pickConfig } },
     },
-    prompts: { labels, ...(prompt === null ? {} : { 'media-pick': prompt }) },
+    prompts: { labels, ...(prompt === null ? {} : { 'classify/pick': prompt }) },
   };
   const rails = new Map<string, unknown>();
   const pick = createMediaPick({
@@ -367,7 +367,7 @@ test('the analyzer schemas name a nullable choice as an enum holding null, never
 const shipped = (name: string): string => fs.readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
 
 test('the pick prompt names its blocks and its answers', () => {
-  const prompt = shipped('media-pick');
+  const prompt = shipped('classify/pick');
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   for (const word of ['<context>', '<reply>', '<gifs>', '`none`', '`gif`']) {
     assert.ok(prompt.includes(word), word);
@@ -375,7 +375,7 @@ test('the pick prompt names its blocks and its answers', () => {
 });
 
 test('the pick prompt never hands the classifier the word of her turn or of a platform', () => {
-  const prompt = shipped('media-pick');
+  const prompt = shipped('classify/pick');
   assert.ok(!prompt.includes('<skip'), '<skip/> is only hers');
   assert.doesNotMatch(prompt, /\bdiscord\b|\bserver\b/i);
 });

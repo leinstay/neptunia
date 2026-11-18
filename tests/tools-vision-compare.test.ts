@@ -43,9 +43,9 @@ function liveHot() {
   return {
     config,
     prompts: {
-      describe: 'Describe within {{maxChars}}.',
-      'describe-gif': 'Watch {{seconds}} s within {{maxChars}}.',
-      'describe-video': 'Summarise within {{maxChars}}.',
+      'describe/picture': 'Describe within {{maxChars}}.',
+      'describe/gif': 'Watch {{seconds}} s within {{maxChars}}.',
+      'describe/video': 'Summarise within {{maxChars}}.',
     },
   };
 }

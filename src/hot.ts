@@ -139,7 +139,7 @@ function retiredKeysOf(
  */
 export type Hot = EventEmitter & {
   config: Untyped;
-  prompts: Record<string, Untyped> & { labels: Untyped; 'search-summary'?: string };
+  prompts: Record<string, Untyped> & { labels: Untyped; 'summarize/search'?: string };
   promptSources: Record<string, string>;
   promptsDir: string;
   localPromptsDir: string;

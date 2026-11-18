@@ -22,7 +22,11 @@ const HOT = {
     media: { maxOutputTokens: 120, gif: { maxSeconds: 15 }, video: { sites: [], maxOutputTokens: 120 } },
     context: { vision: { fetchTimeoutMs: 10_000 } },
   },
-  prompts: { describe: 'Describe this picture.', 'describe-gif': 'Describe this loop.', 'describe-video': 'Watch it.' },
+  prompts: {
+    'describe/picture': 'Describe this picture.',
+    'describe/gif': 'Describe this loop.',
+    'describe/video': 'Watch it.',
+  },
 };
 
 function rig(answers: ReadonlyArray<string>) {

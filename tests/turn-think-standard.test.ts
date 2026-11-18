@@ -51,7 +51,7 @@ const INNER = {
     channels: [],
   },
   config: { wakes: { mode: 'live', chatMessages: 2 } },
-  prompts: { inner: 'Do what the wake says.' },
+  prompts: { 'turn/inner': 'Do what the wake says.' },
   allowed: ['message.create'],
 };
 

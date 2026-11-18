@@ -52,10 +52,10 @@ import type { MediaName } from '../src/memory/store-media-names.ts';
 test('liveView: reads prompts at call time', () => {
   const hot = fakeHot();
   const view = liveView({ hot, store: fakeStore(), placeId: 'g1' });
-  assert.equal(view.prompts.reply, 'Someone called you: {{author}}.');
-  hot.prompts = { ...hot.prompts, reply: 'EDITED' };
+  assert.equal(view.prompts['turn/reply'], 'Someone called you: {{author}}.');
+  hot.prompts = { ...hot.prompts, 'turn/reply': 'EDITED' };
   hot.config = { ...hot.config, marker: 1 };
-  assert.equal(view.prompts.reply, 'EDITED');
+  assert.equal(view.prompts['turn/reply'], 'EDITED');
   assert.equal(view.config.marker, 1);
 });
 
@@ -515,7 +515,7 @@ test('answerReply: an llm error other than an abort is thrown to the caller', as
 test('answerReply: reads everything through the view, so another view of the same shape needs no hot or store', async () => {
   const hot = fakeHot();
   const overlay = {
-    prompts: { ...hot.prompts, 'system-prompt': 'OVERLAY_SYSTEM' },
+    prompts: { ...hot.prompts, main: 'OVERLAY_SYSTEM' },
     config: hot.config,
     memory: {
       getPlace: () => ({}),
@@ -643,9 +643,9 @@ test("answerReply: a follow-up keeps its trigger label; a spontaneous moment tak
   assert.ok(odd.request.user.includes('REPLY_TASK'));
 });
 
-test('answerReply: a follow-up and an untagged reply are replayed with the follow-up task; a tagged reply keeps reply.md', async () => {
+test('answerReply: a follow-up and an untagged reply are replayed with the follow-up task; a tagged reply keeps turn/reply.md', async () => {
   const hot = kindHot();
-  hot.prompts = { ...hot.prompts, 'follow-up': 'FOLLOW_UP_TASK {{author}}: {{trigger}}' };
+  hot.prompts = { ...hot.prompts, 'turn/follow': 'FOLLOW_UP_TASK {{author}}: {{trigger}}' };
   const followUp = await replay({ ...storedMoment(), mode: 'reply', kind: 'followUp', triggerId: TRIGGER_ID }, { hot });
   assert.ok(followUp.request.user.includes(`FOLLOW_UP_TASK Alice: ${labels.triggers.followUp}`), followUp.request.user);
   assert.ok(!followUp.request.user.includes('REPLY_TASK'));

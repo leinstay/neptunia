@@ -414,7 +414,7 @@
 //
 // `--split`: no reply at all. Sends instead, `--samples` times (default 3:
 // the classifier is not deterministic), the very request a live turn's
-// splitter sends (src/behavior/turn.js#maybeSplit): system = prompts.split
+// splitter sends (src/behavior/turn.js#maybeSplit): system = prompts['classify/split']
 // (the live layers, prompts.local/ first) with `{{name}}` and `{{maxTasks}}`
 // filled; user = the `<transcript>` of the last `split.contextMessages`
 // fetched messages before the trigger (src/behavior/prompt.js#classifierTranscript,
@@ -433,7 +433,7 @@
 // `--recall`: no reply either. Reproduces the server search of a live turn
 // (src/behavior/turn.js#maybeLookup) for the trigger, or for `--text` in its
 // place (same author, time and lines before it, as with --split):
-// 1. the search classifier's request, once: system = prompts['query-builder'] with
+// 1. the search classifier's request, once: system = prompts['classify/query'] with
 //    `{{name}}` and `{{today}}` (the trigger's day in `bot.timezone`); user =
 //    the `<transcript>` of the last `web.quickSearch.contextMessages` fetched
 //    messages before the trigger (cached captions with
@@ -450,7 +450,7 @@
 //    fetched lines, `candidate` = the trigger, `server` = the parsed part),
 //    over REST: the member and message searches (interfaces/discord/search.ts), the
 //    pull rail toward this channel, the windows, the summary request
-//    (prompts/recall-summary.md, purpose `recall-summary`). Its clock starts
+//    (prompts/summarize/recall.md, purpose `recall-summary`). Its clock starts
 //    at the trigger's moment (the summary's `{{today}}`, the recent-lines
 //    window and the pull rail's age read as the live turn read them);
 //    `recall.timeoutMs` is its budget, `--budget <ms>` overrides it. Memory:
@@ -857,8 +857,11 @@ async function runSplit({
     railReason,
   } = mods;
   const config = hot.config;
-  const prompt = hot.prompts?.split;
-  if (!prompt) throw new CliError('replay-cli: prompts.split is missing (prompts/split.md or prompts.local/split.md)');
+  const prompt = hot.prompts?.['classify/split'];
+  if (!prompt)
+    throw new CliError(
+      'replay-cli: prompts["classify/split"] is missing (prompts/classify/split.md or prompts.local/classify/split.md)'
+    );
   const labels = hot.prompts?.labels;
   const settings = splitSettings(config);
 
@@ -1131,10 +1134,10 @@ async function runRecall({
     checkPull,
   } = mods;
   const config = hot.config;
-  const prompt = hot.prompts?.['query-builder'];
+  const prompt = hot.prompts?.['classify/query'];
   if (!prompt)
     throw new CliError(
-      'replay-cli: prompts.query-builder is missing (prompts/query-builder.md or data/prompts/query-builder.md)'
+      'replay-cli: prompts["classify/query"] is missing (prompts/classify/query.md or data/prompts/classify/query.md)'
     );
   const labels = hot.prompts?.labels;
   const timezone = config.bot?.timezone;
@@ -6555,11 +6558,13 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers, routes }:
       : args.recall
         ? Math.min(MAX_BEFORE, Math.max(0, Math.floor(Number(hot.config.context?.channelMessages) || 1) - 1))
         : DEFAULT_BEFORE);
-  if (args.split && !hot.prompts?.split)
-    throw new CliError('replay-cli: prompts.split is missing (prompts/split.md or prompts.local/split.md)');
-  if (args.recall && !hot.prompts?.['query-builder'])
+  if (args.split && !hot.prompts?.['classify/split'])
     throw new CliError(
-      'replay-cli: prompts.query-builder is missing (prompts/query-builder.md or data/prompts/query-builder.md)'
+      'replay-cli: prompts["classify/split"] is missing (prompts/classify/split.md or prompts.local/classify/split.md)'
+    );
+  if (args.recall && !hot.prompts?.['classify/query'])
+    throw new CliError(
+      'replay-cli: prompts["classify/query"] is missing (prompts/classify/query.md or data/prompts/classify/query.md)'
     );
 
   let client: Untyped = null;

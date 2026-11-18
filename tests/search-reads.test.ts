@@ -140,7 +140,7 @@ async function scene(options: Scene = {}) {
         recall: RECALL,
         llm: { analyzerTimeoutMs: 30000 },
       },
-      prompts: { 'recall-summary': PROMPT, labels },
+      prompts: { 'summarize/recall': PROMPT, labels },
     },
     store: { state: { data, markDirty() {} }, listUserProfiles: () => options.profiles ?? [] },
     llm: {

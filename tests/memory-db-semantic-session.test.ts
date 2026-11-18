@@ -1,5 +1,5 @@
 // The memory session's answer carrying structured facts, stage S3: the two new groups of the `<memory>` object (`entities`
-// and `assertions`, documented in docs/prompt-contract.md and prompts/memory-session.md), the fake model's answer through
+// and `assertions`, documented in docs/prompt-contract.md and prompts/memory/session.md), the fake model's answer through
 // a real sweep, and the meeting of the writers (a session write, a unit flush, a legacy upsert) on one sealed version.
 // The persona's words stay as she wrote them. Fake model, synthetic text.
 import { test } from 'node:test';

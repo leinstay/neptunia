@@ -65,7 +65,7 @@ function fakeHot({
     },
     prompts: {
       'read-link': 'Condense this page, up to {{maxChars}} characters.',
-      'search-summary': 'The query: {{query}}. Up to {{maxChars}} characters.',
+      'summarize/search': 'The query: {{query}}. Up to {{maxChars}} characters.',
       ...prompts,
     },
   };
@@ -426,7 +426,7 @@ test("search: {{today}} in the summary prompt is the injected clock's UTC date",
   const { lookup, llm } = setup({
     now: () => Date.UTC(2031, 11, 31, 23, 30, 0),
     hotOptions: {
-      prompts: { 'search-summary': 'Today is {{today}}. The query: {{query}}. Up to {{maxChars}} characters.' },
+      prompts: { 'summarize/search': 'Today is {{today}}. The query: {{query}}. Up to {{maxChars}} characters.' },
     },
   });
   await lookup.search('g1', 'la finale');
@@ -522,7 +522,7 @@ test('search: a Brave failure or an LLM failure -> null, nothing cached', async 
 });
 
 test('search: search.enabled off, no prompt or a blank query -> null, zero calls', async () => {
-  const cases = [fakeHot({ web: { search: { enabled: false } } }), fakeHot({ prompts: { 'search-summary': '' } })];
+  const cases = [fakeHot({ web: { search: { enabled: false } } }), fakeHot({ prompts: { 'summarize/search': '' } })];
   for (const hot of cases) {
     const braveSearch = fakeBrave();
     const llm = fakeLlm();

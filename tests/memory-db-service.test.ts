@@ -603,7 +603,7 @@ test('a failed run of a DM is told with its kind, interface and place, and no pa
         models: { routes: chainsOf({ memory: 'x/memory' }) },
         memoryDb: { ...live.memoryDb, session },
       },
-      prompts: { 'memory-session': 'SESSION', 'system-prompt': 'S', 'character-card': 'C', rules: '- R', format: 'F' },
+      prompts: { 'memory/session': 'SESSION', main: 'S', persona: 'C', rules: '- R', format: 'F' },
     });
     await env.service.tick();
     const dms = () => failures.filter((one) => one.scopeKind === 'dm');

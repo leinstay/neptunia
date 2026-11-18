@@ -120,7 +120,7 @@ const PICTURE = new Map([
 ]);
 const LOOK_PROMPTS = {
   rewatch: 'Pick a second look for {{name}}.',
-  'rewatch-answer': 'Answer {{question}} in {{maxChars}}.',
+  'describe/rewatch': 'Answer {{question}} in {{maxChars}}.',
 };
 const fakePictures = {
   fetchAsDataUrl: () =>
@@ -339,8 +339,8 @@ const CLIP = new Map([
   ],
 ]);
 const DESCRIBE_PROMPTS = {
-  describe: 'Describe it in {{maxChars}}.',
-  'describe-video': 'Watch it in {{maxChars}}.',
+  'describe/picture': 'Describe it in {{maxChars}}.',
+  'describe/video': 'Watch it in {{maxChars}}.',
 };
 
 /** A turn whose first message carries `attachments`, with the real describer over a recording model and fetchers. */

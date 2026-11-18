@@ -19,7 +19,7 @@ test('speech.say: a hundred and one voice messages in one day all reach the synt
       speech: { voice: 'voice-1', timeoutMs: 1000, maxChars: 1500, maxPerDay: 2 },
       llm: { baseUrl: 'https://openrouter.ai/api/v1' },
     }),
-    getPrompts: () => ({ 'speech-prepare': 'prepare it' }),
+    getPrompts: () => ({ speech: 'prepare it' }),
     apiKey: 'k',
     llm: {
       complete: (messages: Array<{ role: string; content: string }>) =>

@@ -1,4 +1,4 @@
-// How a call that cannot be answered now is held: queued, or folded by the merge classifier (prompts/merge.md) into an
+// How a call that cannot be answered now is held: queued, or folded by the merge classifier (prompts/classify/merge.md) into an
 // item its author already waits for in that channel, the parts of their message a chain has not reached yet
 // (turns.waitingParts) and their queued calls. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createMerge; the live path and a private message hold through holdCall.
@@ -160,7 +160,7 @@ export function createMerge({
 
   /**
    * One merge classifier call: is `trigger` (a call of an author with `items`
-   * waiting) about one of them? System = prompts.merge with `{{name}}`; user
+   * waiting) about one of them? System = prompts['classify/merge'] with `{{name}}`; user
    * = `<waiting>` (the items as `<n>. <text>` lines from 1) then
    * `<candidate>` (`<author>: <text>`). An `analyzer` request (
    * mention.followUpMaxOutputTokens, purpose `merge`) that answers the object
@@ -172,7 +172,7 @@ export function createMerge({
    */
   async function classifyMerge(channel: Conv, trigger: Line, items: Array<WaitingItem>): Promise<number | null> {
     const chatId = channel.id;
-    const prompt = hot.prompts?.merge;
+    const prompt = hot.prompts?.['classify/merge'];
     if (!prompt || !llm) {
       log.info('merge: failed', { channel: chatId, reason: 'no-prompt', status: null });
       return null;

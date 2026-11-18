@@ -1,5 +1,5 @@
 // Stage P and the standard of stage U: a voice message and an audio file reach the describer (src/memory/describe.ts) on the
-// existing `video` role through `describe-audio`, from the prefill (src/pipeline/media-prefill.ts); a failure leaves the item
+// existing `video` role through `describe/audio`, from the prefill (src/pipeline/media-prefill.ts); a failure leaves the item
 // undescribed with its cause, and a refused file is not retried forever. A text file keeps its preview with no model. A stored
 // text form is English with speech and on-screen text quoted in their language: one that is mostly another script is described
 // again once, then kept and marked. A fake model and fake fetchers; no provider is added.
@@ -47,7 +47,10 @@ function audioRig({
       media: { maxOutputTokens: 120, video: { provider: VIDEO_PROVIDER } },
       context: { vision: { fetchTimeoutMs: 10_000 } },
     },
-    prompts: { describe: 'Describe.', 'describe-audio': 'Retell what is heard in up to {{maxChars}} characters.' },
+    prompts: {
+      'describe/picture': 'Describe.',
+      'describe/audio': 'Retell what is heard in up to {{maxChars}} characters.',
+    },
   };
   const describer = createDescriber({
     hot,
@@ -163,7 +166,10 @@ test('a text file is kept as its text form from its own words, with no model', a
   const store = createStore(memoryAt(tempDir('nep-media-memory-')));
   const llm = fakeLlm({ text: 'never asked' });
   const describer = createDescriber({
-    hot: { config: { models: { routes: chainsOf({ vision: 'x/vision' }) } }, prompts: { describe: 'Describe.' } },
+    hot: {
+      config: { models: { routes: chainsOf({ vision: 'x/vision' }) } },
+      prompts: { 'describe/picture': 'Describe.' },
+    },
     store,
     llm,
     fetchText: () => Promise.resolve({ ok: true, text: 'marzipan recipes' }),
@@ -182,7 +188,10 @@ function textFileRig(body: string, answer: string) {
     return Promise.resolve(Array.from(text).length > options.maxChars ? answer : text);
   };
   const describer = createDescriber({
-    hot: { config: { models: { routes: chainsOf({ vision: 'x/vision' }) } }, prompts: { describe: 'Describe.' } },
+    hot: {
+      config: { models: { routes: chainsOf({ vision: 'x/vision' }) } },
+      prompts: { 'describe/picture': 'Describe.' },
+    },
     store: createStore(memoryAt(tempDir('nep-media-memory-'))),
     llm: fakeLlm({ text: 'never asked' }),
     fetchText: () => Promise.resolve({ ok: true, text: body }),
@@ -254,7 +263,7 @@ function pictureRig(answers: Array<Rec>) {
   const describer = createDescriber({
     hot: {
       config: { models: { routes: chainsOf({ vision: 'x/vision' }) }, media: { maxOutputTokens: 120 } },
-      prompts: { describe: 'Describe.' },
+      prompts: { 'describe/picture': 'Describe.' },
     },
     store,
     llm,

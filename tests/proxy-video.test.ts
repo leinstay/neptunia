@@ -37,7 +37,7 @@ const hot = {
     media: { maxOutputTokens: 120, video: VIDEO },
     context: { vision: { fetchTimeoutMs: 10_000 } },
   },
-  prompts: { describe: 'Describe this picture.', 'describe-video': 'Watch this clip and say what happens.' },
+  prompts: { 'describe/picture': 'Describe this picture.', 'describe/video': 'Watch this clip and say what happens.' },
 };
 
 let count = 0;

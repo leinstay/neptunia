@@ -1625,7 +1625,7 @@ test('stored memory handles carry exact source identity through execution into t
     const current = chatInfo(HERE);
     const hot = {
       config: { ...config(), features: { recall: true }, bot: { timezone: 'UTC' } },
-      prompts: { labels, 'recall-summary': 'Summarize the stored evidence.' },
+      prompts: { labels, 'summarize/recall': 'Summarize the stored evidence.' },
     };
     const recaller = createRecall({
       mediaNameOf: noMediaNames,

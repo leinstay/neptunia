@@ -63,7 +63,7 @@ function fakeHot(overrides = {}) {
       context: { vision: { fetchTimeoutMs: 10_000 } },
       ...loose(overrides).config,
     },
-    prompts: { describe: 'Describe this picture in one plain line.', ...loose(overrides).prompts },
+    prompts: { 'describe/picture': 'Describe this picture in one plain line.', ...loose(overrides).prompts },
   };
 }
 
@@ -84,10 +84,10 @@ function pictureItem(itemId: Untyped, overrides = {}) {
   return { itemId, kind: 'image', url: 'https://cdn.discordapp.com/x/pic.png', ...overrides };
 }
 
-test('describe: missing prompts.describe returns null without any request', async () => {
+test('describe: missing prompts["describe/picture"] returns null without any request', async () => {
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
-  const hot = fakeHot({ prompts: { describe: undefined } });
+  const hot = fakeHot({ prompts: { 'describe/picture': undefined } });
   const llm = fakeLlm({ text: 'a cat' });
   const imageFetcher = fakeImageFetcher();
   const describer = createDescriber({ hot, store, llm, imageFetcher });
@@ -150,7 +150,7 @@ type Summarize = ReturnType<typeof fakeSummarize>['summarize'];
 
 async function describeWith(text: string, prompt?: string, summarize?: Summarize) {
   const store = createStore(memoryAt(tmpDataDir()));
-  const hot = fakeHot(prompt === undefined ? {} : { prompts: { describe: prompt } });
+  const hot = fakeHot(prompt === undefined ? {} : { prompts: { 'describe/picture': prompt } });
   const llm = fakeLlm({ text });
   const describer = createDescriber({
     hot,
@@ -739,7 +739,7 @@ function videoHot({ video = {}, prompts = {} }: Opts = {}) {
       media: { maxOutputTokens: 120, video: { ...VIDEO_CFG, ...video } },
       context: { vision: { fetchTimeoutMs: 10_000 } },
     },
-    prompts: { describe: 'Describe this picture.', 'describe-video': VIDEO_PROMPT, ...prompts },
+    prompts: { 'describe/picture': 'Describe this picture.', 'describe/video': VIDEO_PROMPT, ...prompts },
   };
 }
 
@@ -1093,7 +1093,7 @@ test('describeVideo: a forced retry and a re-watch pass media.video.reasoning to
   const videoFetcher = fakeVideoFetcher();
   videoFetcher.fetchAttachment = async () => attachment;
   const hot = videoHot({ video: { reasoning: { effort: 'low' } } });
-  loose(hot.prompts)['rewatch-answer'] = 'Answer {{question}} in {{maxChars}}.';
+  loose(hot.prompts)['describe/rewatch'] = 'Answer {{question}} in {{maxChars}}.';
   const { describer, llm } = videoDescriber({ hot, videoFetcher, now: () => t });
   await describer.describeVideo('g1', videoAttachment());
   attachment = { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 12, bytes: 4 };
@@ -1208,7 +1208,7 @@ test('videoStateFromCache: watched, a permanent limit, or null -- a length miss 
 
 test('describeVideo: a missing prompt or a non-video item -> null without any request', async () => {
   const cases = [
-    { hot: videoHot({ prompts: { 'describe-video': undefined } }), item: videoAttachment() },
+    { hot: videoHot({ prompts: { 'describe/video': undefined } }), item: videoAttachment() },
     { hot: videoHot(), item: pictureItem('a1') },
   ];
   for (const { hot, item } of cases) {
@@ -1719,9 +1719,9 @@ test('describeVideo: the direct-URL cap at the agentic rate stays within the max
   const shipped = JSON.parse(
     fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')
   ) as ShippedConfig;
-  const prompt = fs.readFileSync(new URL('../prompts/describe-video.md', import.meta.url), 'utf8');
+  const prompt = fs.readFileSync(new URL('../prompts/describe/video.md', import.meta.url), 'utf8');
   const { maxRequestTokens } = shipped.media.video;
-  const hot = videoHot({ video: { maxRequestTokens }, prompts: { 'describe-video': prompt } });
+  const hot = videoHot({ video: { maxRequestTokens }, prompts: { 'describe/video': prompt } });
   const { llm: client, bodies } = realVideoLlm(hot);
   const options: Array<Untyped> = [];
   const llm = {
@@ -1754,9 +1754,9 @@ test('describeVideo: a clip of the longest length at its rate plus the shipped p
   const shipped = JSON.parse(
     fs.readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')
   ) as ShippedConfig;
-  const prompt = fs.readFileSync(new URL('../prompts/describe-video.md', import.meta.url), 'utf8');
+  const prompt = fs.readFileSync(new URL('../prompts/describe/video.md', import.meta.url), 'utf8');
   const { maxRequestTokens } = shipped.media.video;
-  const hot = videoHot({ video: { maxRequestTokens }, prompts: { 'describe-video': prompt } });
+  const hot = videoHot({ video: { maxRequestTokens }, prompts: { 'describe/video': prompt } });
   const { llm, bodies } = realVideoLlm(hot);
   const videoFetcher = fakeVideoFetcher({
     attachment: { ok: true, dataUrl: CLIP_DATA_URL, mimeType: 'video/mp4', seconds: 300, bytes: 4 },
@@ -1799,7 +1799,7 @@ test('rewatchVideo: a pinned agentic link passes directUrlTokensPerSecond like a
 
 // The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('describeVideo: {{maxChars}} of describe-video is filled with the video length', async () => {
-  const hot = videoHot({ prompts: { 'describe-video': 'Summarise in at most {{maxChars}} characters.' } });
+  const hot = videoHot({ prompts: { 'describe/video': 'Summarise in at most {{maxChars}} characters.' } });
   const { describer, llm } = videoDescriber({ hot, llm: fakeLlm({ text: 'Première scène.' }) });
   await describer.describeVideo('g1', videoAttachment());
   const [{ messages }] = llm.calls;
@@ -1815,7 +1815,7 @@ const REWATCH_CFG = { maxOutputTokens: 600 };
 function rewatchHot({ video = {}, rewatch = {}, prompts = {} }: Opts = {}) {
   return videoHot({
     video: { rewatch: { ...REWATCH_CFG, ...rewatch }, ...video },
-    prompts: { 'rewatch-answer': REWATCH_PROMPT, ...prompts },
+    prompts: { 'describe/rewatch': REWATCH_PROMPT, ...prompts },
   });
 }
 
@@ -1904,7 +1904,7 @@ test('rewatchVideo: a failure is not cached -- the next call fetches again', asy
 
 test('rewatchVideo: a missing prompt, a non-video item or an empty question -> null, no fetch', async () => {
   const cases = [
-    { hot: rewatchHot({ prompts: { 'rewatch-answer': undefined } }), item: videoAttachment(), question: 'q?' },
+    { hot: rewatchHot({ prompts: { 'describe/rewatch': undefined } }), item: videoAttachment(), question: 'q?' },
     { hot: rewatchHot(), item: pictureItem('a1'), question: 'q?' },
     { hot: rewatchHot(), item: videoAttachment(), question: '   ' },
   ];
@@ -1987,7 +1987,7 @@ test('relookImage: one download and one vision request with the question; the an
 
 // The owner on 2026-11-17 (later the same day): a picture, a sticker and an emoji take 750 characters, a GIF 1,000, a video 5,000.
 test('relookImage: with no {{question}} in the prompt the question goes only as the user text part, next to the image', async () => {
-  const hot = relookHot({ prompts: { 'rewatch-answer': 'Answer in at most {{maxChars}} characters.' } });
+  const hot = relookHot({ prompts: { 'describe/rewatch': 'Answer in at most {{maxChars}} characters.' } });
   const { describer, llm, imageFetcher } = relookDescriber({ hot, now: clock() });
   const item = pictureItem('a1', { width: 1306, height: 988, previewUrl: 'https://previews.example/a1.webp' });
   await describer.relookImage('g1', item, 'Quelle couleur ?');
@@ -2036,7 +2036,7 @@ test('relookImage: a spent llm.maxRequestsPerDay downloads nothing; a failed dow
 
 test('relookImage: no rewatch-answer prompt, a non-picture or an empty question -> null, no download', async () => {
   const cases = [
-    { hot: relookHot({ prompts: { 'rewatch-answer': undefined } }), item: pictureItem('a1'), question: 'q?' },
+    { hot: relookHot({ prompts: { 'describe/rewatch': undefined } }), item: pictureItem('a1'), question: 'q?' },
     { hot: relookHot(), item: pictureItem('a1', { kind: 'gif' }), question: 'q?' },
     { hot: relookHot(), item: videoAttachment(), question: 'q?' },
     { hot: relookHot(), item: pictureItem('a1'), question: '   ' },
@@ -2064,7 +2064,7 @@ const TODAY_NOW = Date.parse('2026-09-30T23:30:00Z');
 
 test('describe: {{today}} in the describe prompt is filled with the date of the injected now', async () => {
   const store = createStore(memoryAt(tmpDataDir()));
-  const hot = fakeHot({ prompts: { describe: 'Today is {{today}}; at most {{maxChars}} characters.' } });
+  const hot = fakeHot({ prompts: { 'describe/picture': 'Today is {{today}}; at most {{maxChars}} characters.' } });
   const llm = fakeLlm({ text: 'Une affiche datée.' });
   const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => TODAY_NOW });
   await describer.describe('g1', pictureItem('a1'));
@@ -2127,7 +2127,7 @@ const GIF_VIDEO_PROMPT = 'Account of this clip, up to {{maxChars}} characters.';
 // PR 7d: GIF watching is code, its length (15 s) and the caption length (1,000 since the owner's word of 2026-11-17) are the describer's constants, and the
 // daily GIF cap is gone.
 function gifHot({ video = {}, media = {}, prompts = {} }: Opts = {}) {
-  const hot = videoHot({ video, prompts: { 'describe-video': GIF_VIDEO_PROMPT, ...prompts } });
+  const hot = videoHot({ video, prompts: { 'describe/video': GIF_VIDEO_PROMPT, ...prompts } });
   hot.config.media = { ...hot.config.media, ...media };
   return hot;
 }
@@ -2315,7 +2315,7 @@ function assertGifMiss({ imageFetcher, llm, store }: Opts, itemId: string, reaso
 
 // The owner on 2026-11-17: a GIF is never described from one frame.
 test('describe: with no describe-gif and no describe-video prompt a GIF sends no request and stores nothing', async () => {
-  const hot = gifHot({ prompts: { 'describe-video': undefined } });
+  const hot = gifHot({ prompts: { 'describe/video': undefined } });
   const run = gifDescriber({ hot, llm: fakeLlm({ text: 'a sign by a railway crossing' }) });
   const {
     videoFetcher: { calls: videoCalls },
@@ -2526,7 +2526,7 @@ test('describe: pictures and videos are untouched by the GIF watch', async () =>
 // The owner on 2026-11-17: a GIF is described under 1,000 characters.
 test('describe: a GIF watch uses describe-gif when present, with {{maxChars}} and {{seconds}}', async () => {
   const hot = gifHot({
-    prompts: { 'describe-gif': 'Silent loop of {{seconds}} s, caption up to {{maxChars}}, {{today}}.' },
+    prompts: { 'describe/gif': 'Silent loop of {{seconds}} s, caption up to {{maxChars}}, {{today}}.' },
   });
   const run = gifDescriber({ hot, now: () => Date.parse('2026-10-01T12:00:00Z') });
   await run.describer.describe('g1', gifEmbedItem());
@@ -2540,7 +2540,7 @@ test('describe: a GIF watch uses describe-gif when present, with {{maxChars}} an
 // The owner on 2026-11-17: a GIF is described under 1,000 characters.
 test('describe: describe-gif alone (no describe-video) is enough to watch GIFs', async () => {
   const run = gifDescriber({
-    hot: gifHot({ prompts: { 'describe-video': undefined, 'describe-gif': 'Loop, {{maxChars}}.' } }),
+    hot: gifHot({ prompts: { 'describe/video': undefined, 'describe/gif': 'Loop, {{maxChars}}.' } }),
   });
   assert.equal(run.describer.gifWatchBlocker(), null);
   await run.describer.describe('g1', gifEmbedItem());
@@ -2591,7 +2591,7 @@ test('describe: a cached watched GIF entry that holds only text is served with n
 function gifRewatchHot({ rewatch = {} }: Opts = {}) {
   return gifHot({
     video: { rewatch: { ...REWATCH_CFG, ...rewatch } },
-    prompts: { 'rewatch-answer': REWATCH_PROMPT },
+    prompts: { 'describe/rewatch': REWATCH_PROMPT },
   });
 }
 
@@ -2657,7 +2657,7 @@ test('rewatchGif: a failed fetch caches nothing', async () => {
 
 test('rewatchGif: no prompt, no animation or an empty question -> null, no fetch', async () => {
   const noPrompt = gifRewatchHot();
-  delete loose(noPrompt.prompts)['rewatch-answer'];
+  delete loose(noPrompt.prompts)['describe/rewatch'];
   const cases: Array<[Untyped, Untyped, string]> = [
     [noPrompt, gifEmbedItem(), 'q ?'],
     [gifRewatchHot(), gifEmbedItem('m1#e0', { animationUrl: undefined }), 'q ?'],
@@ -3094,7 +3094,7 @@ test('relookImage: the answer goes to summarize with 750 and kind text, and its 
 // --- Animated custom emoji and stickers ------------------------------------------
 
 // The owner on 2026-11-17: an animated custom emoji or sticker is a GIF, watched as a clip and never from one still.
-const MOVING_PROMPTS = { 'describe-gif': 'Loop of {{seconds}} s, up to {{maxChars}}.' };
+const MOVING_PROMPTS = { 'describe/gif': 'Loop of {{seconds}} s, up to {{maxChars}}.' };
 const EMOJI_GIF = 'https://cdn.discordapp.com/emojis/e2.gif';
 const STICKER_GIF = 'https://media.discordapp.net/stickers/s3.gif?size=160';
 
@@ -3202,7 +3202,7 @@ const FILE_WORDS = 'shopping list: flour, eggs, lemons';
 /** One describer for every kind, its fetchers answering a download of STORED_URL as a 404. */
 function lapsedRig(
   freshAddress?: (item: Untyped) => Promise<string | null>,
-  hot: Untyped = videoHot({ prompts: { 'describe-audio': 'Retell what is heard in up to {{maxChars}} characters.' } })
+  hot: Untyped = videoHot({ prompts: { 'describe/audio': 'Retell what is heard in up to {{maxChars}} characters.' } })
 ) {
   const store = createStore(memoryAt(tmpDataDir()));
   const llm = fakeLlm({ text: 'a lemon on a table' });
@@ -3398,7 +3398,7 @@ test('describe: downloads a picture from its fresh address when its stored previ
 
 test('relookImage: looks again at a picture from its fresh address when its stored preview address has lapsed', async () => {
   const fresh = fakeFreshAddress(FRESH_URL);
-  const hot = videoHot({ prompts: { 'rewatch-answer': REWATCH_PROMPT } });
+  const hot = videoHot({ prompts: { 'describe/rewatch': REWATCH_PROMPT } });
   const { describer, reads } = lapsedRig(fresh.freshAddress, hot);
   await describer.relookImage('g1', lapsedAttachment('image', { previewUrl: STALE_PREVIEW }), 'What colour?');
   assert.deepEqual(reads, [FRESH_URL]);
@@ -3564,7 +3564,7 @@ function systemOf(llm: Rig['llm']): string {
 async function promptOfStill(item: ReturnType<typeof pictureItem>): Promise<string> {
   const llm = fakeLlm({ text: 'a cat' });
   const describer = createDescriber({
-    hot: fakeHot({ prompts: { describe: 'At most {{maxChars}}.' } }),
+    hot: fakeHot({ prompts: { 'describe/picture': 'At most {{maxChars}}.' } }),
     store: createStore(memoryAt(tmpDataDir())),
     llm,
     imageFetcher: fakeImageFetcher(),
@@ -3589,7 +3589,7 @@ test('describe: a still emoji is asked for the picture length in {{maxChars}}', 
 // GIF's `totalSeconds`.
 function gifClipOf(seconds: number, totalSeconds: number): Rig {
   const hot = gifHot({
-    prompts: { 'describe-gif': 'Loop of {{seconds}} s.', labels: { gifCut: 'CUT {seconds} OF {total}' } },
+    prompts: { 'describe/gif': 'Loop of {{seconds}} s.', labels: { gifCut: 'CUT {seconds} OF {total}' } },
   });
   return gifDescriber({
     hot,

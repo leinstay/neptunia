@@ -121,7 +121,7 @@ function scene({
     wrongly<Parameters<typeof createMissed>[0]>({
       hot: {
         config: { bot: { timezone: 'UTC' }, missed: {}, models: {}, llm: {} },
-        prompts: { missed: 'Check {{name}}.', labels },
+        prompts: { 'classify/missed': 'Check {{name}}.', labels },
       },
       store: { state: { data: { paused: false } }, mediaNameOf: noMediaNames },
       journal: null,

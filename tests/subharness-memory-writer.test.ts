@@ -608,7 +608,7 @@ test('a request on the direct path reports nothing about a harness', async () =>
 // the description review and the bind merge: every request of the memory role takes the writer's path
 
 const MEMORY_RECORD = { backend: 'claude' as const, model: 'claude-opus-4-6', effort: null };
-const REVIEW_PROMPTS = { ...prompts, 'description-draft': 'DRAFT PROMPT', 'description-check': 'CHECK PROMPT' };
+const REVIEW_PROMPTS = { ...prompts, 'memory/draft': 'DRAFT PROMPT', 'memory/check': 'CHECK PROMPT' };
 /** A session config with no key named for the memory role. */
 const keylessConfig = (): Record<string, unknown> => ({ ...baseConfig(), llm: {} });
 const described = (text: string): string => `<think>t</think><description>${text}</description><reason>r</reason>`;

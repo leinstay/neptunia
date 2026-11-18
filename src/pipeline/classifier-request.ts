@@ -62,7 +62,7 @@ export function createClassifierRequest({
 } {
   /**
    * The request of the address classifier about one new message: system =
-   * `prompt` (address.md, `{{name}}` filled), user = an `<aliases>` block with her aliases, the names the owner gave her person record
+   * `prompt` (classify/address.md, `{{name}}` filled), user = an `<aliases>` block with her aliases, the names the owner gave her person record
    * (they change only with that record, so they go first), the last FOLLOW_UP_CONTEXT
    * lines of the place, then an `<author>` block when the new message's
    * author has stored aliases (followUpAuthorLine), then the new message

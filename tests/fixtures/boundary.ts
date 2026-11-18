@@ -96,7 +96,7 @@ export async function innerRig({
       heartbeat,
     },
   });
-  Object.assign(hot.prompts, { inner: 'Nobody wrote to you; read the wake block.' });
+  Object.assign(hot.prompts, { 'turn/inner': 'Nobody wrote to you; read the wake block.' });
   const calibrator = { ratio: 1, apply: (value: number) => value, observe: () => {} };
   const turns = createTurnRunner({
     hot,
