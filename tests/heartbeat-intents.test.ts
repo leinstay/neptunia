@@ -1,6 +1,6 @@
 // Tests for what a heartbeat turn may do (docs/inner-life.md "What a heartbeat may do"): memory inspection, an
-// intention change and a skip are accepted (other calls are refused heartbeat-only and she reads why), the turn ends
-// after the first change that goes through with no further request, the engine stamps origin `heartbeat` on what the
+// intention changes and a skip are accepted (other calls are refused heartbeat-only and she reads why), every change
+// is saved when it is made and the turn goes on until an answer makes no call, the engine stamps origin `heartbeat` on what the
 // turn creates and the updates keep it, and the caps (maxOpen, maxRecurring) refuse naming the open ones. Over a real admin, a real intention service on a temp data dir and the fake interface
 // adapter; no network.
 import { test } from 'node:test';
@@ -242,7 +242,7 @@ const readOf = (run: Record<string, Untyped>, i: Untyped): string =>
 const actionsOf = (run: Record<string, Untyped>): Array<string> =>
   run.result.inner.actions.map((a: Record<string, Untyped>) => `${a.skill}:${a.status}:${a.code ?? a.result}`);
 
-test('heartbeat turn: a post is refused and a memory read succeeds, she reads why, then one intention.set ends the turn with no further request', async () => {
+test('heartbeat turn: a post is refused and a memory read succeeds, she reads why, then an intention.set and a skip end the turn', async () => {
   // Changed: lore.list is no heartbeat read since memory.read took the narrow reads (lookup loop slice 12), so the read
   // here is conversation.read, a granted read the heartbeat accepts.
   const run = await liveTurn({
@@ -252,6 +252,7 @@ test('heartbeat turn: a post is refused and a memory read succeeds, she reads wh
         call('conversation.read', { place: '#general', last: 1 }),
       ]),
       SET('check the thread in #general and answer if it is still open'),
+      '<skip/>',
     ],
   });
   assert.deepEqual(actionsOf(run), [
@@ -260,7 +261,8 @@ test('heartbeat turn: a post is refused and a memory read succeeds, she reads wh
     'intention.set:executed:ok',
   ]);
   assert.deepEqual(run.sends, [], 'nothing was posted');
-  assert.equal(run.llm.calls.length, 2, 'the refusal step, and no request after the change');
+  // Changed: a heartbeat takes several intention changes, so the change is read back and her skip ends the turn.
+  assert.equal(run.llm.calls.length, 3, 'the refusal step, the change, and the skip after it');
   assert.ok(readOf(run, 1).includes(labels.tools.result.reasons['heartbeat-only']), 'she reads the refusal');
   assert.equal(run.list().length, 1);
   assert.ok(
@@ -269,17 +271,27 @@ test('heartbeat turn: a post is refused and a memory read succeeds, she reads wh
   );
 });
 
-test('heartbeat turn: the first change that goes through ends the turn at once; a skip is one request', async () => {
+// Changed: a heartbeat takes several intention changes, so a change does not end the turn and her skip does.
+// Bug caught: a change ends the turn before a second wish, or a turn that changed an intention ends as a skip.
+test('heartbeat turn: a change is followed by a request whose skip ends the turn as a change; a skip alone is one request', async () => {
   const set = await liveTurn({ answers: [SET('look at the diary draft'), '<skip/>'] });
-  assert.equal(set.llm.calls.length, 1, 'no acknowledgement step');
+  assert.equal(set.llm.calls.length, 2, 'the change, then the request her skip answers');
   assert.deepEqual(actionsOf(set), ['intention.set:executed:ok']);
+  // The rig's turn runner is loosely typed, and its result carries the turn's outcome.
+  assert.equal(
+    (set.result as { outcome?: unknown }).outcome,
+    'spoke',
+    'a heartbeat with a change does not end as a skip'
+  );
   const skip: Record<string, Untyped> = await liveTurn({ answers: [`${THINK}<skip/>`] });
   assert.equal(skip.llm.calls.length, 1);
   assert.equal(skip.result.outcome, 'skip');
   assert.deepEqual(skip.list(), []);
 });
 
-test('heartbeat turn: a second intention call in the same step is refused, and a refused change does not end the turn', async () => {
+// Changed: a heartbeat takes several intention changes, so the second call of one step is made too.
+// Bug caught: the second wish of a step is refused, or displaces the first.
+test('heartbeat turn: two intention calls in the same step are both saved, and a refused change does not end the turn', async () => {
   const two = await liveTurn({
     answers: [
       toolAnswer(`${THINK}`, [
@@ -289,14 +301,24 @@ test('heartbeat turn: a second intention call in the same step is refused, and a
       '<skip/>',
     ],
   });
-  assert.deepEqual(actionsOf(two), ['intention.set:executed:ok', 'intention.set:refused:heartbeat-only']);
-  assert.equal(two.list().length, 1);
-  assert.equal(two.llm.calls.length, 1);
+  assert.deepEqual(actionsOf(two), ['intention.set:executed:ok', 'intention.set:executed:ok']);
+  assert.deepEqual(
+    two
+      .list()
+      .map((intention) => String(intention.purpose))
+      .sort(),
+    ['first thing', 'second thing']
+  );
+  assert.equal(two.llm.calls.length, 2);
   const bad = await liveTurn({
-    answers: [toolAnswer(`${THINK}`, [call('intention.set', { due: `soon`, text: `a thing` })]), SET('a thing')],
+    answers: [
+      toolAnswer(`${THINK}`, [call('intention.set', { due: `soon`, text: `a thing` })]),
+      SET('a thing'),
+      '<skip/>',
+    ],
   });
   assert.deepEqual(actionsOf(bad), ['intention.set:executed:bad-time', 'intention.set:executed:ok']);
-  assert.equal(bad.llm.calls.length, 2, 'she saw the failure and corrected the call');
+  assert.equal(bad.llm.calls.length, 3, 'she saw the failure, corrected the call and ended with a skip');
 });
 
 test('heartbeat turn: the engine stamps origin heartbeat on what it creates; an update keeps it, a heartbeat updating another one does not relabel it', async () => {
@@ -305,6 +327,7 @@ test('heartbeat turn: the engine stamps origin heartbeat on what it creates; an 
       toolAnswer(`${THINK}`, [
         call('intention.update', { id: `${service.list({ all: true })[0].id}`, text: `new words` }),
       ]),
+      '<skip/>',
     ],
     seed: (service: ReturnType<typeof intentionService>) =>
       service.set({ purpose: 'her own earlier one', dueAt: NOW + 3_600_000 }),
@@ -312,7 +335,7 @@ test('heartbeat turn: the engine stamps origin heartbeat on what it creates; an 
   assert.deepEqual(actionsOf(run), ['intention.update:executed:ok']);
   assert.equal(run.list()[0].purpose, 'new words');
   assert.equal(run.list()[0].origin, undefined, 'not relabelled');
-  const made = await liveTurn({ answers: [SET('made by a heartbeat')] });
+  const made = await liveTurn({ answers: [SET('made by a heartbeat'), '<skip/>'] });
   assert.equal(made.list()[0].origin, 'heartbeat', 'stamped by the engine');
   const id = made.list()[0].id;
   assert.equal(
@@ -348,7 +371,7 @@ test('heartbeat caps: at maxOpen intention.set is refused heartbeat-cap and the 
   for (const id of ids) assert.ok(shown.includes(id), `the result names ${id}`);
   assert.ok(shown.includes('heartbeat thing 2'));
   const freed = await liveTurn({
-    answers: [SET('a fourth')],
+    answers: [SET('a fourth'), '<skip/>'],
     seed: (service: ReturnType<typeof intentionService>) => {
       seed(service);
       const first = service.list({ all: true })[0];
@@ -370,7 +393,7 @@ test('heartbeat caps: one recurring at most, for a new one and for a one-off mad
   };
   const fresh = await liveTurn({ answers: [SET('another regular', { every: 'day' }), '<skip/>'], seed });
   assert.deepEqual(actionsOf(fresh), ['intention.set:executed:heartbeat-recurring-cap']);
-  const plain = await liveTurn({ answers: [SET('plain one')], seed });
+  const plain = await liveTurn({ answers: [SET('plain one'), '<skip/>'], seed });
   assert.deepEqual(actionsOf(plain), ['intention.set:executed:ok']);
   const made = await liveTurn({
     answers: (service: ReturnType<typeof intentionService>) => [
@@ -397,7 +420,7 @@ test('an intention_due turn is not limited to intention changes', async () => {
 });
 
 for (const transport of ['native', 'text']) {
-  test(`heartbeat ${transport}: a read result is inspected before one intention ends the turn`, async () => {
+  test(`heartbeat ${transport}: a read result is inspected before an intention, and an answer with no call ends the turn`, async () => {
     const answer = transport === 'native' ? toolAnswer : textAnswer;
     // Changed: lore.list is no heartbeat read since memory.read took the narrow reads (lookup loop slice 12), so the read
     // here is conversation.read, a granted read the heartbeat accepts.
@@ -406,11 +429,12 @@ for (const transport of ['native', 'text']) {
       answers: [
         answer(THINK, [call('conversation.read', { place: '#general', last: 1 })]),
         answer(THINK, [call('intention.set', { due: '1h', text: 'ask about the remembered chat' })]),
-        answer(THINK, [call('conversation.read', { place: '#general', last: 1 })]),
+        '<skip/>',
       ],
     });
     assert.deepEqual(actionsOf(run), ['conversation.read:executed:ok', 'intention.set:executed:ok']);
-    assert.equal(run.llm.calls.length, 2);
+    // Changed: a heartbeat takes several intention changes, so her skip after the change ends the turn.
+    assert.equal(run.llm.calls.length, 3);
     assert.equal(run.list().length, 1);
     assert.deepEqual(run.sends, []);
     assert.ok(
@@ -435,7 +459,7 @@ test('heartbeat: inspecting memory may end in a skip without creating an intenti
 // Changed: a heartbeat takes every call that only looks, a web search and a page among them, so she checks a thing
 // before she decides instead of setting an intention to look it up.
 // Bug caught: a heartbeat refuses web.search or web.read, or a read ends the wake before her decision.
-test('heartbeat: a web search and then a page read both run, and an intention.set ends the turn', async () => {
+test('heartbeat: a web search and then a page read both run, then an intention.set and a skip', async () => {
   const searched: Array<string> = [];
   const lookup = {
     searchResults: (_place: unknown, query: string) => {
@@ -454,6 +478,7 @@ test('heartbeat: a web search and then a page read both run, and an intention.se
       toolAnswer(THINK, [call('web.search', { query: 'release notes' })]),
       toolAnswer(THINK, [call('web.read', { url: 'https://example.com/notes' })]),
       SET('tell #general that version two is out'),
+      '<skip/>',
     ],
   });
   assert.deepEqual(actionsOf(run), ['web.search:executed:ok', 'web.read:executed:ok', 'intention.set:executed:ok']);
@@ -493,10 +518,12 @@ test('heartbeat: chat inspection returns real lines before creating a targeted i
     answers: [
       toolAnswer(THINK, [call('conversation.read', { place: '#general', last: 1 })]),
       SET('reply to the remembered message in general'),
+      '<skip/>',
     ],
   });
   assert.deepEqual(actionsOf(run), ['conversation.read:executed:ok', 'intention.set:executed:ok']);
   assert.ok(readOf(run, 1).includes('πρώτο'), 'the continuation sees the actual chat line');
-  assert.equal(run.llm.calls.length, 2);
+  // Changed: a heartbeat takes several intention changes, so her skip after the change ends the turn.
+  assert.equal(run.llm.calls.length, 3);
   assert.deepEqual(run.sends, []);
 });

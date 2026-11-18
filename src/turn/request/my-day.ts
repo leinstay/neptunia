@@ -16,7 +16,7 @@
 // `intention_due` with each intention its view carried and the places of the lines its turn wrote (src/memory/db/past-acts.ts). Her
 // lines of such a run are told by its event and by no conversation. Her own time is an ended wake run of the kind
 // `heartbeat` with the places its calls read, the text of its search calls from the archive of requests and the
-// intention its end set. A diary entry is a row of `diary`. A conversation and her own time carry the memory session's
+// intentions it set. A diary entry is a row of `diary`. A conversation and her own time carry the memory session's
 // sentence of their stretch when one is stored: of the same place and overlapping its time, or of the same run.
 
 import { handleOf } from '../../behavior/handles.ts';
@@ -93,8 +93,8 @@ type DayEvent =
       placeIds: Array<string>;
       searched: Array<string>;
       recalled: Array<string>;
-      /** The intention its end set, its purpose null where the context may not read it; null when it set none. */
-      set: { purpose: string | null } | null;
+      /** The intentions it set in their order, each purpose null where the context may not read it; empty for none. */
+      set: Array<{ purpose: string | null }>;
     }
   | { kind: 'diary'; at: number; entry: string | null; made: Made };
 
@@ -423,19 +423,24 @@ const count = (made: Made, skill: string): void => {
   made[skill] = (made[skill] ?? 0) + 1;
 };
 
-/** The intention the end of the inner turn `turnId` set, from its `inner` row: its id, else null. */
-function setBy(rows: ReadonlyArray<Record<string, unknown>>, turnId: string): string | null {
+/** The intentions the inner turn `turnId` set, from its `inner` row: their ids in order. */
+function setBy(rows: ReadonlyArray<Record<string, unknown>>, turnId: string): Array<string> {
+  const ids: Array<string> = [];
   for (const row of rows) {
     if (row.what !== 'inner' || row.turn_id !== turnId) continue;
     for (const action of Array.isArray(extraOf(row.extra).actions)
       ? (extraOf(row.extra).actions as Array<unknown>)
       : []) {
       const one = objectOf(action);
-      if (one.skill === 'intention.set' && one.status === 'executed' && one.result === 'ok')
-        return textOf(one.createdId);
+      const id =
+        one.skill === 'intention.set' && one.status === 'executed' && one.result === 'ok'
+          ? textOf(one.createdId)
+          : null;
+      // An action whose result named no intention carries no id (src/turn/skill-calls.ts).
+      if (id !== null) ids.push(id);
     }
   }
-  return null;
+  return ids;
 }
 
 /** The ended wake runs of `heartbeat` and `intention_due` that started in the window, over `wake_runs_status`. */
@@ -492,7 +497,6 @@ function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { d
   for (const run of runs) {
     if (run.kind === 'heartbeat') {
       const places = own.filter((one) => one.turnId === run.id).map((one) => placeOf(db, ctx, ifaces, one));
-      const set = setBy(all, run.id);
       events.push({
         kind: 'heartbeat',
         runId: run.id,
@@ -500,7 +504,7 @@ function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { d
         at: run.at,
         placeIds: [...new Set(places.filter((id): id is string => id !== null && visible(db, ctx, id)))],
         ...queriesOf(db, run.id),
-        set: set ? { purpose: purposeOf(db, set, where) } : null,
+        set: setBy(all, run.id).map((id) => ({ purpose: purposeOf(db, id, where) })),
       });
       continue;
     }
@@ -677,11 +681,15 @@ function eventLine(
           : '',
         queriesPart(event.recalled, 'heartbeatRecalled'),
         queriesPart(event.searched, 'heartbeatSearched'),
-        event.set === null
+        event.set.length === 0
           ? wordOf(labels, 'heartbeatNothing')
-          : event.set.purpose === null
-            ? wordOf(labels, 'heartbeatSetHidden')
-            : fill(wordOf(labels, 'heartbeatSet'), { purpose: event.set.purpose }),
+          : list(
+              event.set.map((one) =>
+                one.purpose === null
+                  ? wordOf(labels, 'heartbeatSetHidden')
+                  : fill(wordOf(labels, 'heartbeatSet'), { purpose: one.purpose })
+              )
+            ),
       ];
       const what = parts.filter(Boolean).join(wordOf(labels, 'partsJoin'));
       return fill(wordOf(labels, 'heartbeat'), { time, what }) + aboutTail(event.what, labels);

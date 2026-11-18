@@ -682,24 +682,26 @@ test("a heartbeat's refusal beside another miss is left out of the feedback turn
   }
 });
 
-test('a post a heartbeat refused beside the change that ended it wakes no feedback turn and is told by the next heartbeat', async () => {
+// Changed: the change ended the heartbeat and the next heartbeat told the refusals. A heartbeat takes several intention
+// changes, so the turn goes on after the change and she reads the refusals in it; the next heartbeat tells them no more.
+// Bug caught: the refused posts wake a feedback turn that could post them, or a refusal she read is told again.
+test('a post a heartbeat refused beside a change is read in the same turn, wakes no feedback turn and is not told again', async () => {
   const post = toolAnswer('', [
     call('message.create', { place: '#chan-c1', text: 'καλημέρα' }),
     call('message.create', { place: '#chan-c1', text: 'τι κάνετε;' }),
     call('intention.set', { due: '6h', text: 'ask how the trip went' }),
   ]);
-  const run = await core({ answers: [post] }, { heartbeat: true });
+  const run = await core({ answers: [post, '<skip/>'] }, { heartbeat: true });
   try {
     await run.life.tick();
     run.clock.t = T + HOUR + MINUTE;
     await run.life.tick();
     const { requests } = run.llm;
-    assert.equal(requests.length, 1, 'the change ended the heartbeat');
-    // She did not read the refusals in that turn, so the next heartbeat tells her of them.
+    assert.equal(requests.length, 2, 'the change, then the request that reads the refusals');
     await tickUntil(run, T + HOUR + 2 * MINUTE, 2);
     assert.deepEqual(kindsOf(run), ['heartbeat', 'heartbeat'], 'no feedback turn ran between the two heartbeats');
     assert.deepEqual(sendsOf(run.port), [], 'nothing was posted');
-    assert.deepEqual(factCodesOf(run.calls[1]), ['callFailed:heartbeat-only', 'callFailed:heartbeat-only']);
+    assert.deepEqual(factCodesOf(run.calls[1]), []);
   } finally {
     await run.close();
   }

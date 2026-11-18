@@ -96,8 +96,8 @@ export function heartbeatDue(life: InnerContext, settings: InnerSettings, at: nu
 }
 
 /**
- * The heartbeat turn's outcome, logged (ids and codes, never text): what it did (`change`: the intention call that
- * went through, `skip`: none did), the intention's id, how many of the open intentions are from heartbeats
+ * The heartbeat turn's outcome, logged (ids and codes, never text): what it did (`change`: an intention call went
+ * through, `skip`: none did), each change that went through with its skill and the intention's id, how many of the open intentions are from heartbeats
  * (the cap's occupancy) and the refusals it met. Never throws.
  */
 export function logHeartbeatOutcome(
@@ -107,7 +107,7 @@ export function logHeartbeatOutcome(
   const { intentions, log } = life;
   try {
     const calls = actions.filter((a) => typeof a.skill === 'string' && a.skill.startsWith('intention.'));
-    const changed = calls.find((action) => action.status === 'executed' && action.result === 'ok') ?? null;
+    const changed = calls.filter((action) => action.status === 'executed' && action.result === 'ok');
     const refused = actions
       .filter((action) => action.status === 'refused' || (action.status === 'executed' && action.result !== 'ok'))
       .map((action) => `${String(action.skill)}:${String(action.code ?? action.result)}`);
@@ -117,8 +117,11 @@ export function logHeartbeatOutcome(
         : null;
     log.info('inner: heartbeat outcome', {
       turn: outcome,
-      result: changed ? 'change' : 'skip',
-      ...(changed ? { skill: changed.skill, intentionId: changed.createdId ?? changed.intentionId ?? null } : {}),
+      result: changed.length > 0 ? 'change' : 'skip',
+      changes: changed.map((action) => ({
+        skill: action.skill,
+        intentionId: action.createdId ?? action.intentionId ?? null,
+      })),
       openFromHeartbeat: open,
       refused,
     });

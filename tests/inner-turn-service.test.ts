@@ -216,8 +216,9 @@ test('a <msg> in a heartbeat carries heartbeat-only', async () => {
   assert.equal(port.calls.filter((one: { op: string }) => one.op === 'send').length, 0);
 });
 
-test('a second deciding call in one step of a heartbeat with no chat is still refused', async () => {
-  // Bug: the one-change rule is keyed on a chat, so a heartbeat nowhere files two intentions in one step.
+test('two intention calls in one step of a heartbeat with no chat are both saved', async () => {
+  // Changed: the second call was refused heartbeat-only. A heartbeat takes several intention changes, so both are made.
+  // Bug: a heartbeat nowhere plans its calls by a chat it has not, and the second wish of a step is lost.
   const run = await serviceTurn({
     wake: serviceWake('heartbeat'),
     answers: [
@@ -229,8 +230,8 @@ test('a second deciding call in one step of a heartbeat with no chat is still re
     ],
     chat: null,
   });
-  assert.deepEqual(run.actions, ['intention.set:executed:ok', 'intention.set:refused:heartbeat-only']);
-  assert.equal(run.intentions.list({ all: true }).length, 1);
+  assert.deepEqual(run.actions, ['intention.set:executed:ok', 'intention.set:executed:ok']);
+  assert.equal(run.intentions.list({ all: true }).length, 2);
 });
 
 test("a heartbeat orders its blocks with what repeats first and the turn's own last: <memory> before <inner>", async () => {

@@ -529,7 +529,7 @@ export const labels = {
         cap: 'search limit used up',
         'target-required': 'name the message to react to',
         'destination-required': 'no current channel; name one',
-        'heartbeat-only': 'a heartbeat accepts one intention change or a skip',
+        'heartbeat-only': 'a heartbeat accepts intention changes and ends with a skip',
         'heartbeat-cap': 'too many open intentions from heartbeats',
         'heartbeat-recurring-cap': 'a recurring one from a heartbeat is open',
         'loop-cap': 'call not run: step limit',

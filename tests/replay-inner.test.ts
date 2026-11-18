@@ -643,7 +643,10 @@ async function errandHeartbeat(errandAnswers: ReturnType<typeof parseErrandAnswe
       requests.push(messages.map((message) => userText(message.content)).join('\n'));
       if (requests.length === 1)
         return Promise.resolve(toolAnswer('', [toolCall('errand.scout', { goal: 'find the garden show dates' })]));
-      return Promise.resolve(toolAnswer('', [toolCall('intention.set', { text: 'tell about the show', due: '2h' })]));
+      // A heartbeat goes on after an intention change, so the third answer ends the turn with a skip.
+      if (requests.length === 2)
+        return Promise.resolve(toolAnswer('', [toolCall('intention.set', { text: 'tell about the show', due: '2h' })]));
+      return Promise.resolve(toolAnswer('<skip/>', []));
     },
   };
   const granted = [...HEARTBEAT_GRANTED, 'errand.scout'];
@@ -711,7 +714,8 @@ test('with errand answers a replayed heartbeat reads the result and goes on to s
   const { requests, facts } = await errandHeartbeat(
     parseErrandAnswers([{ agent: 'scout', status: 'done', text: ERRAND_MARK }])
   );
-  assert.equal(requests.length, 2);
+  // Changed: a heartbeat takes several intention changes, so the request after the change is the one her skip ends.
+  assert.equal(requests.length, 3);
   assert.ok(requests[1].includes(ERRAND_MARK), 'the second request carries the result');
   assert.equal(facts.end.kind, 'intention');
   assert.deepEqual(facts.errands, [{ agent: 'scout', answered: true }]);

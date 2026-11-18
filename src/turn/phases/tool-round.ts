@@ -74,11 +74,14 @@ export async function toolRoundPhase<TTurn extends RoundNeeds>(
   // with no attempt in it, so a later attempt of the turn carries the key a first one would have carried.
   const turnKey = (draft.turnKey ??= { turnId: draft.started?.turnId ?? randomUUID() });
   let callCount = 0;
+  // The intention.set calls of the attempt so far: a wake's call key counts them (wakeCallKey).
+  let setCount = 0;
   const envelopeOf = (call: { skill?: string; args?: Record<string, unknown> }) => {
     const index = callCount;
     callCount = index + 1;
     const target = typeof call?.args?.placeId === 'string' ? call.args.placeId || channel.id : channel.id;
     const wake = draft.inner?.wake;
+    if (call.skill === 'intention.set') setCount += 1;
     return callEnvelope({
       trigger,
       channel,
@@ -86,9 +89,10 @@ export async function toolRoundPhase<TTurn extends RoundNeeds>(
       missed,
       requester: requesterParam,
       turnId: turnKey.turnId,
-      // A wake's one decision is keyed by its chain, so a restarted turn of the wake answers with what it already did.
+      // A wake's intention.set is keyed by its chain and its count, so a restarted turn of the wake answers with what it
+      // already did.
       idempotencyKey:
-        wakeCallKey(wake?.kind, wake?.chainId, call.skill ?? '') ?? `${turnKey.turnId}:${index}:${target}`,
+        wakeCallKey(wake?.kind, wake?.chainId, call.skill ?? '', setCount) ?? `${turnKey.turnId}:${index}:${target}`,
       ownInitiative: Boolean(draft.inner) || draft.ownInitiative === true,
       chainId: wake?.chainId ?? null,
       wakeKind: wake?.kind ?? null,

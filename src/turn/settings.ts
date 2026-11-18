@@ -89,9 +89,9 @@ const DIARY_LOOP_FALLBACK = Object.freeze({ maxSteps: 50, timeBudgetMs: 1000000 
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
 export const LOOP_MIN_CALL_MS = 2000;
 /**
- * The terminal actions of an inner turn (docs/inner-life.md): the one call its last loop step
- * still runs -- a post, or a change of an intention of hers. A read or any other skill on the
- * last step is dropped as on every turn.
+ * The terminal actions of an inner turn (docs/inner-life.md): the first of them its last loop step still runs, a post
+ * or a change of an intention of hers, and a heartbeat's last step runs every intention change. A read or any other
+ * skill on the last step is dropped as on every turn.
  */
 export const INNER_TERMINAL_SKILLS = Object.freeze(['message.create', ...HEARTBEAT_INTENT_SKILLS]);
 /** An inner turn's loop end state when no tool loop ran (`inner.loop`). */

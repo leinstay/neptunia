@@ -1966,10 +1966,19 @@ test('heartbeat: an intention it makes due now is not run inside the heartbeat; 
           destination: 'c1',
           origin: 'heartbeat',
         });
+        const later: Record<string, Untyped> = service.set({
+          purpose: 'share the find',
+          dueAt: clock.t + 86_400_000,
+          destination: 'c1',
+          origin: 'heartbeat',
+        });
         return {
           outcome: 'spoke',
           inner: {
-            actions: [{ skill: 'intention.set', status: 'executed', result: 'ok', createdId: made.intention.id }],
+            actions: [
+              { skill: 'intention.set', status: 'executed', result: 'ok', createdId: made.intention.id },
+              { skill: 'intention.set', status: 'executed', result: 'ok', createdId: later.intention.id },
+            ],
             intentIds: [],
             turnId: 't-beat',
           },
@@ -1988,11 +1997,14 @@ test('heartbeat: an intention it makes due now is not run inside the heartbeat; 
     'the heartbeat turn ran alone'
   );
   const outcome = lines.find((line) => line.msg === 'inner: heartbeat outcome');
+  // Changed: the line named one change. A heartbeat takes several intention changes, and the line names each.
+  // Bug caught: the line names the first change alone, so the second intention of a heartbeat leaves no trace.
+  assert.deepEqual([outcome.result, outcome.openFromHeartbeat, outcome.refused], ['change', 2, []]);
+  const ids = service.list({ all: true }).map((intention: Record<string, Untyped>) => intention.id);
   assert.deepEqual(
-    [outcome.result, outcome.skill, outcome.openFromHeartbeat, outcome.refused],
-    ['change', 'intention.set', 1, []]
+    outcome.changes,
+    ids.map((intentionId: string) => ({ skill: 'intention.set', intentionId }))
   );
-  assert.equal(outcome.intentionId, service.list({ all: true })[0].id);
   await run.inner.tick();
   assert.deepEqual(
     turns.calls.map((call) => call.inner.wake.kind),
@@ -2000,7 +2012,7 @@ test('heartbeat: an intention it makes due now is not run inside the heartbeat; 
   );
   assert.equal(turns.calls[1].inner.wake.intentions[0].origin, 'heartbeat');
   const due = lines.find((line) => line.msg === 'inner: heartbeat intention due');
-  assert.deepEqual([due.intentionId, due.result, due.recurring], [outcome.intentionId, 'no-op', false]);
+  assert.deepEqual([due.intentionId, due.result, due.recurring], [ids[0], 'no-op', false]);
 });
 
 test('heartbeat: a running turn holds it to the next tick, due time kept; its chain cap is its own, so a chain of another kind at its cap does not touch it', async () => {
