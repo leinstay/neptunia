@@ -1226,8 +1226,11 @@ export async function buildTurnRequest(
   }
   // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).
   const allReads = request.memoryReads ?? [];
-  // The people this request shows, so a read of the turn tells only of others (src/turn/in-turn-tools.ts).
-  draft.memoryPeople = new Set(allReads.filter((read) => read.kind === 'people').map((read) => read.id));
+  // The people this request shows, so a read of the turn tells only of others (src/turn/in-turn-tools.ts). A
+  // heartbeat's list shows each person by one line, so its first read of their lines tells what memory holds of them.
+  draft.memoryPeople = new Set(
+    frame.kind === 'heartbeat' ? [] : allReads.filter((read) => read.kind === 'people').map((read) => read.id)
+  );
   if (memoryReads && draft.started?.turnId && allReads.length > 0) {
     // One step: the steps of her tool loop add tool results to this request, never memory reads of their own.
     try {
