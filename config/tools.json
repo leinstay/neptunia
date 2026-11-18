@@ -94,7 +94,7 @@
   },
   "memory.profile.read": {
     "title": "Read a profile",
-    "whenToUse": "Reads what memory keeps about one person, by section. The sections are a summary, their character, style and relationship with you, your attitude toward them with its latest moves, their aliases, interests, details and episodes, and the raw record. Section changes lists the attitude changes of every person, newest first.\nUSE FOR: more detail on one person than your memory block shows.\nRULES:\n- What memory holds for the people of this turn is already in your memory block.\n- It leaves out what you keep from a private chat with them.",
+    "whenToUse": "Reads what memory keeps about one person, by section. The sections are a summary, their character, style and relationship with you, your attitude toward them with its latest moves, their aliases, interests, details and episodes, and the raw record. Section changes lists the attitude changes of every person, newest first.\nUSE FOR: more detail on one person than your memory block shows.\nRULES:\n- What memory holds for the people of this turn is already in your memory block, at the detail shown there.\n- It leaves out what you keep from a private chat with them.",
     "whenNotToUse": "DO NOT USE FOR (use these instead):\n- What someone said and when -> memory.search",
     "args": {
       "section": "summary (default), character, style, relationship, affinity, aliases, interests, details, episodes, raw or changes.",
@@ -151,7 +151,7 @@
   },
   "memory.private.read": {
     "title": "Read private memory",
-    "whenToUse": "Reads what you keep from one person's private chat with you. It returns your private and effective attitude toward them, when you first and last saw them, the relationship, their interests, details and episodes. It also returns today's private replies against their limit.\nUSE FOR: how things stand with one person in private, when your answer depends on it.\nRULES:\n- It runs only when the owner asks, or in a turn of your own.",
+    "whenToUse": "Reads what you keep from one person's private chat with you. It returns your private and effective attitude toward them, when you first and last saw them, the relationship, their interests, details and episodes. It also returns today's private replies against their limit.\nUSE FOR: how things stand with one person in private. Read when an answer or an act depends on it, and when you want to recall what the two of you share.\nRULES:\n- It runs only when the owner asks, or in a turn of your own.",
     "whenNotToUse": "DO NOT USE FOR (use these instead):\n- What memory keeps about them from shared places -> memory.read",
     "args": {
       "user": "@handle of the person."
@@ -373,7 +373,7 @@
   },
   "memory.read": {
     "title": "Read what memory holds",
-    "whenToUse": "Reads what your memory keeps about one subject, under the same rule of who may know what as the memory shown to you each turn. For a person it returns what they are like, how things stand between you, the facts you keep about them and the episodes you share. For a place it returns what the place is for, its topics, tone, lore and episodes. community gives the same for the community you are in. A lore entry comes back whole.\nUSE FOR: someone or something your memory names briefly, or not at all, when your answer depends on more.\nRULES:\n- The answer is the entry as your memory shows it.\n- Section episodes keeps only the episodes. Section changes lists how your attitude toward a person moved, newest first.\n- A subject your memory holds nothing about says so. A name that fits several people lists them, so call again with one.\n- The people and places of this turn are already in your memory at the detail shown. Read more only when that falls short.",
+    "whenToUse": "Reads what your memory keeps about one subject, under the same rule of who may know what as the memory shown to you each turn. For a person it returns what they are like, how things stand between you, the facts you keep about them and the episodes you share. For a place it returns what the place is for, its topics, tone, lore and episodes. community gives the same for the community you are in. A lore entry comes back whole.\nUSE FOR: someone or something your memory names briefly, or not at all. Read when an answer or an act depends on more, and when you want to know a person or a place better.\nRULES:\n- The answer is the entry as your memory shows it.\n- Section episodes keeps only the episodes. Section changes lists how your attitude toward a person moved, newest first.\n- A subject your memory holds nothing about says so. A name that fits several people lists them, so call again with one.\n- The people and places of this turn are already in your memory at the detail shown. Where that is one line, the whole entry is here.",
     "whenNotToUse": "DO NOT USE FOR (use these instead):\n- What someone said and when -> memory.search\n- The lines of a chat -> conversation.read",
     "args": {
       "subject": "An @handle, a person's name, a #handle, a place's name, community, or the title of a lore entry.",
