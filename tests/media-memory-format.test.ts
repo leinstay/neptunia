@@ -13,6 +13,7 @@ import { MEDIA_KINDS, lineMedia, mediaMessageParts } from '../src/memory/db/medi
 import { collectEmojiItems } from '../src/media/classify.ts';
 import { storedMediaTags } from '../src/format.ts';
 import { personNamesOf } from '../src/memory/db/frame-reads.ts';
+import { handleOfPerson, peopleOfHandle } from '../src/memory/db/direct-chats.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { rootPlaceInDb } from '../src/memory/db/place-tree.ts';
@@ -484,17 +485,19 @@ test('the tag of her drawing is followed by the made mark and the people it show
   // Bug: she reads her own drawing as a stranger's picture and cannot tell who is in it.
   const memory = await openTestMemory({ now: () => MEMORY_NOW, iface: () => IFACE });
   try {
-    await aliceSpeaks(memory);
+    // The owner's ruling (2026-11-18): a person is written by the handle she can pass to a tool, never by a name.
+    const alice = await aliceSpeaks(memory);
     await echoDrawing(memory);
     await recordDrawing(memory);
-    assert.deepEqual(drawnTags(memory), ['<image: a fox>', '[MADE]', '[SHOWS HERSELF, Alice]']);
+    assert.deepEqual(drawnTags(memory), ['<image: a fox>', '[MADE]', `[SHOWS HERSELF, @${handleOfPerson(alice)}]`]);
   } finally {
     await memory.close();
   }
 });
 
-test('the people of her drawing are shown by the name they go by now', async () => {
-  // Bug: the name is written into the row at drawing time and a renamed member keeps the old one forever.
+test('the people of her drawing keep their handle when they rename', async () => {
+  // Bug: the mark is cut from a display name, so a rename changes what she reads and what she can pass to a tool.
+  // The owner's ruling (2026-11-18): a person is written by handle everywhere, so the expectation is the handle.
   const memory = await openTestMemory({ now: () => MEMORY_NOW, iface: () => IFACE });
   try {
     const alice = await aliceSpeaks(memory);
@@ -506,7 +509,21 @@ test('the people of her drawing are shown by the name they go by now', async () 
     db.prepare(`UPDATE accounts SET names = '["Alicia"]' WHERE person_id = ?`).run(alice);
     const names = personNamesOf(db, [alice]);
     assert.deepEqual(Object.values(names), ['Alicia'], 'the rename is what memory knows');
-    assert.deepEqual(drawnTags(memory).at(-1), '[SHOWS HERSELF, Alicia]');
+    assert.deepEqual(drawnTags(memory).at(-1), `[SHOWS HERSELF, @${handleOfPerson(alice)}]`);
+  } finally {
+    await memory.close();
+  }
+});
+
+test('the handle a mark shows resolves to the person it depicts, with no chat window at hand', async () => {
+  // Bug: the mark shows a name or a handle of one request only, which a person argument read elsewhere cannot resolve.
+  const memory = await openTestMemory({ now: () => MEMORY_NOW, iface: () => IFACE });
+  try {
+    const alice = await aliceSpeaks(memory);
+    await echoDrawing(memory);
+    await recordDrawing(memory);
+    const shown = /\[SHOWS HERSELF, @(\S+)\]/u.exec(drawnTags(memory).at(-1) ?? '')?.[1] ?? '';
+    assert.deepEqual([...peopleOfHandle(memory.memoryDb.database() as Db, shown)], [alice]);
   } finally {
     await memory.close();
   }

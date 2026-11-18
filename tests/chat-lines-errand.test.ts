@@ -4,6 +4,7 @@
 // is. Every other media item carries its kind's marker with its text form. Synthetic lines on a temp database.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { handleOfPerson } from '../src/memory/db/direct-chats.ts';
 import { errandRecentLines } from '../src/memory/db/chat-lines.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import {
@@ -56,7 +57,7 @@ test('errand lines: a line of hers carries her name and a line of a member the n
   }
 });
 
-test('errand lines: a picture she made shows the made mark and the people it shows by current name', () => {
+test('errand lines: a picture she made shows the made mark and the people it shows by handle', () => {
   // Bug: the agent reads her drawing as anyone's picture and cannot tell who is in it.
   const env = fixture();
   try {
@@ -79,7 +80,8 @@ test('errand lines: a picture she made shows the made mark and the people it sho
       .map((line) => line.text)
       .join('\n');
     assert.ok(text.includes('[MADE]'), text);
-    assert.ok(text.includes('[SHOWS HERSELF, Alice]'), text);
+    // The owner's ruling (2026-11-18): a person is written by the handle she can pass to a tool, never by a name.
+    assert.ok(text.includes(`[SHOWS HERSELF, @${handleOfPerson(alice)}]`), text);
   } finally {
     env.done();
   }

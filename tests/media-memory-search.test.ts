@@ -5,6 +5,7 @@
 // a person's story, a picture-only day, a re-uploaded file, bounded query plans. Synthetic content; a fake embedder; no model.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { handleOfPerson } from '../src/memory/db/direct-chats.ts';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { search } from '../src/memory/db/recall.ts';
 import { dmContext } from '../src/memory/db/scope.ts';
@@ -622,5 +623,6 @@ test('a memory search that finds a picture she made shows the made mark and the 
     const text = await recallRig(env, { labels }).ask({ terms: IMAGE.first.word });
     assert.ok(text.includes(IMAGE.first.word), text);
     assert.ok(text.includes('[MADE]'), text);
-    assert.ok(text.includes('[SHOWS HERSELF, Alice]'), text);
+    // The owner's ruling (2026-11-18): a person is written by the handle she can pass to a tool, never by a name.
+    assert.ok(text.includes(`[SHOWS HERSELF, @${handleOfPerson(alice)}]`), text);
   }));
