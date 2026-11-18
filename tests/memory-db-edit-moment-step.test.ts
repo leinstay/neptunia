@@ -1,4 +1,4 @@
-// The schema step that gives a stored edit the moment of its line's first revision, on a database written at the newest
+// Schema step 67 (src/memory/db/schema.ts), which gives a stored edit the moment of its line's first revision, on a database written at the newest
 // version before it, where an edit row carries the moment the edit arrived. After the step a read that orders lines
 // stands the edited line where it was written, with the newest text, and the neighbours read of recall is bounded by
 // `sources_place_time`. Each test builds the old file with the steps up to that version, fills it with raw SQL as the
@@ -118,6 +118,36 @@ test('after the step every edited line reads where it was written, with its newe
     ['l3', 'line three, fixed again', T0 + 3 * MINUTE],
     ['l4', 'line four', T0 + 4 * MINUTE],
     ['l5', 'line five', T0 + 5 * MINUTE],
+  ]);
+});
+
+test('after the step each edit stands at its first revision and keeps the moment it arrived', () => {
+  // Bug: the step dates an edit by a later revision, or overwrites the moment the edit arrived along with its place.
+  const file = oldFile(ROWS);
+  const edits = opened(file, (db) =>
+    db
+      .prepare('SELECT id, occurred_at, recorded_at FROM sources WHERE revision > 1 ORDER BY id')
+      .all()
+      .map((row) => [row.id, row.occurred_at, row.recorded_at])
+  );
+  assert.deepEqual(edits, [
+    ['src:l1:2', iso(1), iso(94)],
+    ['src:l3:2', iso(3), iso(43)],
+    ['src:l3:3', iso(3), iso(53)],
+  ]);
+});
+
+test('after the step an edited line is marked edited at the moment its newest edit arrived', () => {
+  // Bug: the edited mark follows the corrected moment, so an old edit reads as made when the line was written.
+  const file = oldFile(ROWS);
+  const marks = opened(file, (db) => chatLines(db, PLACE).map((one) => [one.nativeId, one.editedAt ?? null]));
+  assert.deepEqual(marks, [
+    ['l0', null],
+    ['l1', T0 + 94 * MINUTE],
+    ['l2', null],
+    ['l3', T0 + 53 * MINUTE],
+    ['l4', null],
+    ['l5', null],
   ]);
 });
 
