@@ -77,8 +77,24 @@ export function claimEntry(claimId: string, subjectId: string, text: string): Cl
   return { ...base(), nodeId: claimId, claimId, subjectId, kind: 'lore', text };
 }
 
-export function episodeEntry(episodeId: string, placeId: string, what: string): EpisodeEntry {
-  return { ...base(), nodeId: episodeId, episodeId, placeId, date: '2026-11-06', what };
+/** An episode of `placeId` about nobody in particular unless `over` names its person. */
+export function episodeEntry(
+  episodeId: string,
+  placeId: string,
+  what: string,
+  over: Partial<EpisodeEntry> = {}
+): EpisodeEntry {
+  return {
+    ...base(),
+    nodeId: episodeId,
+    episodeId,
+    placeId,
+    subjectId: null,
+    subjectName: null,
+    date: '2026-11-06',
+    what,
+    ...over,
+  };
 }
 
 export function excerptEntry(sourceId: string, placeId: string, text: string): ExcerptEntry {

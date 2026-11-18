@@ -589,13 +589,20 @@ function factLines(found: Obj, labels: unknown): Array<string> {
   return lines;
 }
 
-/** The episodes a search found by meaning as lines: one `.episode` each (`{date}`, `{text}`). Nothing without one. Pure. */
+/**
+ * The episodes a search found by meaning as lines: one `.episode` each (`{date}`, `{text}`), or `.episodeWith` with
+ * `{who}`, the person an episode is about, since the found moments of several people stand together. Nothing without
+ * one. Pure.
+ */
 function episodeLines(found: Obj, labels: unknown): Array<string> {
-  const line = toolLabels(labels, 'memory').episode;
-  if (!line) return [];
+  const l = toolLabels(labels, 'memory');
   return listOf(found.episodes)
     .filter(isObj)
-    .map((one) => fill(line, { date: plain(one.date), text: plain(one.text) }));
+    .flatMap((one) => {
+      const who = typeof one.who === 'string' ? one.who : null;
+      const line = who === null ? l.episode : l.episodeWith;
+      return line ? [fill(line, { date: plain(one.date), who: who ?? '', text: plain(one.text) })] : [];
+    });
 }
 
 /**

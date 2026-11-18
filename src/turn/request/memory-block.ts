@@ -85,6 +85,8 @@ export type EntryRefs = {
   place: (placeId: string, fallback?: PlaceWords) => string;
   /** The handle a one-to-one chat's partner goes by, `@` included. */
   partnerOf: (placeId: string) => string;
+  /** The handle of a person by what it is cut from, `@` included; absent where the request names people by name. */
+  person?: (key: string) => string;
   /** What the handle of the person she answers is cut from, the key of the account she answers; null: the frame's ids. */
   counterpartKey?: string | null;
 };
@@ -364,8 +366,21 @@ const interfaceText = (w: Words, entry: InterfaceEntry): string =>
 const loreText = (w: Words, claim: ClaimEntry): string =>
   fill(w.l.lore ?? '{subject}: {text}', { subject: w.refs.place(claim.subjectId), text: storedText(w, claim.text) });
 
-const episodeText = (w: Words, episode: EpisodeEntry): string =>
-  fill(w.l.episode ?? '{date}: {what}', { date: episode.date ?? '', what: storedText(w, episode.what) });
+/**
+ * A remembered moment as `memory.episode`, or as `memory.episodeWith` naming the person it is about as `<people>`
+ * names them: by the handle cut from the key of their entry (the answered person by the key of the lines in `<chat>`),
+ * else by the stored name. `<recent>` mixes the moments of several people, and their texts carry no name.
+ */
+function episodeText(w: Words, episode: EpisodeEntry, counterpartId: string | null): string {
+  const what = storedText(w, episode.what);
+  const date = episode.date ?? '';
+  if (episode.subjectId === null) return fill(w.l.episode ?? '{date}: {what}', { date, what });
+  const key = episode.subjectId === counterpartId ? (w.refs.counterpartKey ?? counterpartId) : episode.subjectId;
+  const who = w.refs.person
+    ? w.refs.person(key)
+    : escapeStored(shownName(episode.subjectName ?? w.unknown, w.keepEmoji));
+  return fill(w.l.episodeWith ?? '{date}, {who}: {what}', { date, who, what });
+}
 
 function excerptText(w: Words, excerpt: ExcerptEntry): string {
   const at = excerpt.at ? Date.parse(excerpt.at) : NaN;
@@ -544,6 +559,8 @@ export function memoryItemsOf(
 ): Array<MemoryItem> {
   const mine = (place: PlaceEntry): boolean => diaryIds.has(place.kind === 'dm' ? '' : (chatIdOf(place.placeId) ?? ''));
   const w = wordsOf(labels, frame, nameOf, refs, keepEmoji);
+  const counterpartId =
+    mind.people.find((person) => answers(frame, person))?.personId ?? frame.counterpart?.personId ?? null;
   const plain = (subtag: MemorySubtag, text: string, reads: Array<MemoryRead>): MemoryItem => ({
     subtag,
     text,
@@ -569,7 +586,7 @@ export function memoryItemsOf(
       ...plain('lore', loreText(w, claim), readsOf(claim)),
       printKey: [claim.subjectId, claim.claimId],
     })),
-    ...mind.recent.map((episode) => plain('recent', episodeText(w, episode), readsOf(episode))),
+    ...mind.recent.map((episode) => plain('recent', episodeText(w, episode, counterpartId), readsOf(episode))),
     ...mind.found.map((excerpt) => plain('found', excerptText(w, excerpt), readsOf(excerpt))),
   ];
 }
