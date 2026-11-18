@@ -52,9 +52,6 @@ export const STATUS_FIELDS = Object.freeze([
   'speed',
 ]);
 
-/** The roles a route may name: the `model.set` roles but `speech`, whose one model is routed by its own prefix. */
-export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => role !== 'speech');
-
 /** The `kind` choices of `memory.journal.read` (`all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']);
 

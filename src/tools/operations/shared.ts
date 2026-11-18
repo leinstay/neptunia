@@ -15,9 +15,8 @@ import type { PublicationBoundary } from '../publication.ts';
 import { emptyAffinity, affinityBand, roundScore } from '../../memory/index.ts';
 import { topByRank } from '../../memory/ranking.ts';
 import { fromTokens } from '../../memory/mentions.ts';
-import { MODEL_ROLES } from './catalog.ts';
-import { roleModel } from '../../llm/roles.ts';
-import { IMAGE_ROLE } from '../../llm/images.ts';
+import { roleModel, searchModel, SEARCH_ROLE } from '../../llm/roles.ts';
+import { isRouteRole, ROUTE_ROLES } from '../../llm/route-text.ts';
 import { oneLine } from '../../memory/clamp.ts';
 import { DAY_MS, utcDay } from '../../time.ts';
 import { denied, invalid } from './registry.ts';
@@ -442,17 +441,15 @@ export function writeLocalConfig(localPath: string, value: unknown): void {
 
 export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
 
-/** Every role a route may name: the chat and embedding roles, then the drawing model's. */
-export const ROUTE_ROLES: ReadonlyArray<string> = [...MODEL_ROLES, IMAGE_ROLE];
-
 /** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */
 export const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
 
 /** The model id one role resolves to right now (`model.show`, `route.*`, the status
  * card): the first route of its chain, else the role's own default
- * (src/llm/roles.ts#roleModel; no purpose, so no `models.byPurpose` entry). */
+ * (src/llm/roles.ts#roleModel; no purpose, so no `models.byPurpose` entry). `search` has no default and is no
+ * model role of `roleModel`, so its model is its chain's (src/llm/roles.ts#searchModel). */
 export function modelForRole(role: string, cfg: object): string | undefined {
-  return roleModel(cfg, role);
+  return role === SEARCH_ROLE ? searchModel(cfg) : roleModel(cfg, role);
 }
 
 /** The providers part of a routing object: its `only`/`order`/`ignore` lists, or the object as
@@ -502,7 +499,7 @@ export function routeRoleArg(args: unknown): string | null {
   const role = objOf(args).role;
   if (role === undefined || role === null || role === '') return null;
   const name = typeof role === 'string' ? role : '';
-  if (!ROUTE_ROLES.includes(name)) throw invalid(`unknown role: ${name} (${ROUTE_ROLES.join(', ')})`);
+  if (!isRouteRole(name)) throw invalid(`unknown role: ${name} (${ROUTE_ROLES.join(', ')})`);
   return name;
 }
 

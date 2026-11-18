@@ -3,13 +3,13 @@
 // the operation's `ctx` as the command context.
 
 import { IMAGE_ROLE } from '../../llm/images.ts';
+import { ROUTE_ROLES } from '../../llm/route-text.ts';
 import { matchRoute } from '../../llm/openrouter.ts';
 import {
   NONE,
   onOff,
   reloadNote,
   readLocalConfig,
-  ROUTE_ROLES,
   PROVIDER_SLUG_RE,
   modelForRole,
   describeProviders,
@@ -80,8 +80,11 @@ const handlers = perEnv((env) => {
   function cmdRouteList(): string {
     const cfg = hot.config;
     const byModel = effectiveRoutes();
-    const roleRank = (role: string | null): number =>
-      role === null ? -1 : ROUTE_ROLES.includes(role) ? ROUTE_ROLES.indexOf(role) : ROUTE_ROLES.length;
+    const roleRank = (role: string | null): number => {
+      if (role === null) return -1;
+      const rank = ROUTE_ROLES.findIndex((one) => one === role);
+      return rank === -1 ? ROUTE_ROLES.length : rank;
+    };
     const routes = Object.entries(byModel)
       .flatMap(([key, value]) => (isObj(value) ? [[key, value] as const] : []))
       .map(([key, value]): { prefix: string; role: string | null; value: Obj } => {

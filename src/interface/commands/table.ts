@@ -30,7 +30,7 @@ import { MEMORY_ROLE } from '../../llm/roles.ts';
 import { BACKEND_NAMES, UNITS, agentNames } from '../../agent-runner/profiles.ts';
 import { AGENT_MODES } from '../../subharness/control.ts';
 import { SERVICE_NAMES, setupRefusal } from '../../service/schedule.ts';
-import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/operations/catalog.ts';
+import { MODEL_SET_ROLES } from '../../tools/operations/catalog.ts';
 
 /** One argument of a command, in the order the line gives them. */
 export type CommandArg = {
@@ -92,8 +92,8 @@ export type Parsed =
 /** The code of the answer to a `nameFirst` line whose name is no interface the core or the data folder knows. */
 export const UNKNOWN_INTERFACE = 'unknown-interface';
 
-/** The roles a route names, and `any` for a route of every role. */
-const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...ROUTE_ROLES];
+/** The roles a provider route names, the routing's own (src/llm/route-text.ts), and `any` for a route of every role. */
+const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...CHAIN_ROLES];
 
 /** A yes or no argument. */
 const FLAGS: ReadonlyArray<string> = ['true', 'false'];
