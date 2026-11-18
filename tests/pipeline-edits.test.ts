@@ -16,6 +16,9 @@ import { rig } from './fixtures/reads-rig.ts';
 import { chatLines } from '../src/memory/db/chat-lines.ts';
 import { linesAroundOf, linesSinceOf } from '../src/memory/db/frame-reads.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
+import { createMediaPrefill } from '../src/pipeline/media-prefill.ts';
+import { createStore } from '../src/memory/store.ts';
+import type { GifBytes } from '../src/media/gif-files.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 const ROOT = 'root';
@@ -126,6 +129,53 @@ test("an update that brings a GIF embed later links it to the line's current rev
     assert.deepEqual(stored(memory, '9001'), [{ revision: 1, refs: [] }], 'the line arrived without the embed');
     await edits.onMessageUpdate(eventOf('update-1', unfurled('9001'), created('9001')));
     assert.deepEqual(stored(memory, '9001'), [{ revision: 1, refs: ['9001#e0'] }]);
+  } finally {
+    await memory.close();
+  }
+});
+
+// Spec 2026-11-18, the library without the keeper: an edit that adds a GIF does what a new message does, through the
+// media prefill: the file is downloaded once from the embed's animation address, never from the page link.
+test('an update that brings a GIF embed later downloads its file from the animation address', async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
+    const asked: Array<string> = [];
+    const fetchBytes = (url: string): Promise<GifBytes> => {
+      asked.push(url);
+      return Promise.resolve({ bytes: new Uint8Array([71, 73, 70, 56, 57, 97]), contentType: 'image/gif' });
+    };
+    const prefill = createMediaPrefill({
+      hot: memory.hot,
+      describer: null,
+      lookup: null,
+      now: () => NOW,
+      store,
+      dataDir: memory.dataDir,
+      fetchBytes,
+    } as unknown as Parameters<typeof createMediaPrefill>[0]);
+    const observed = createObserve({
+      hot: memory.hot,
+      selfIdOf: () => 'self',
+      timers: { set: () => null, clear() {} },
+      memoryDb: memory.memoryDb,
+    });
+    const edits = createEdits({
+      hot: memory.hot,
+      store: store as unknown as Parameters<typeof createEdits>[0]['store'],
+      reads: rig().reads,
+      isServedRoot: (id) => id === ROOT,
+      selfIdOf: () => 'self',
+      record: { append: (_placeId, lines) => Promise.resolve({ written: lines.length, duplicates: 0 }) },
+      now: () => NOW,
+      warmMediaCache: prefill.warmMediaCache,
+      observeLine: observed.observeLine,
+      deleteLine: observed.deleteLine,
+    });
+    await observed.observeLine(eventOf('create-1', created('9001')), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-1', unfurled('9001'), created('9001')));
+    for (let i = 0; i < 400 && asked.length === 0; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(asked, ['https://media.example.invalid/9001.mp4']);
   } finally {
     await memory.close();
   }

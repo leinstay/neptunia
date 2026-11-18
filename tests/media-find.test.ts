@@ -194,7 +194,7 @@ test('runMediaFind: nothing found is an ok with the none label; bad arguments an
   assert.equal(mediaFindText([], { query: 'x', labels }), 'Source: media.find "x", 0 found.\nNothing matched.');
 });
 
-test('media.find finds a GIF by the vector of its description when its words find no full match', async () => {
+test('media.find finds a GIF by the media vector of its row when its words find no full match', async () => {
   // Bug: media.find reads words only, so a query in another language than the descriptions finds nothing.
   const lib = fixture(LIBRARY);
   const vectors = new Map([
@@ -202,7 +202,7 @@ test('media.find finds a GIF by the vector of its description when its words fin
     ['k1', [0, 1, 0]],
   ]);
   let asked = 0;
-  const store = { ...storeOf(lib), getGifVectors: () => vectors };
+  const store = { ...storeOf(lib), gifMediaVectors: () => vectors };
   const findMeaning = createFindMeaning({
     embed: () => {
       asked += 1;

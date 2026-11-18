@@ -12,8 +12,9 @@ test('an interface that posts files gets the cached file', () => {
   assert.equal(gifPostForm(ATTACHED, ['file']), 'file');
 });
 
-test('an interface that declares links gets the native link of a link GIF', () => {
+test('an interface that declares links gets the native link of a link GIF, whether or not a file is stored', () => {
   assert.equal(gifPostForm(LINKED, ['file', 'link']), 'link');
+  assert.equal(gifPostForm({ kind: 'link' }, ['file', 'link']), 'link');
 });
 
 test('an attached GIF goes as its file when the file is cached, since its link expires', () => {

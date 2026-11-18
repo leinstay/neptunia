@@ -112,6 +112,7 @@ type RigOptions = {
   embedQuery?: (text: string) => Promise<ArrayLike<number> | null>;
   pickConfig?: object;
   prompt?: string | null;
+  gifMediaVectors?: ReadonlyMap<string, ArrayLike<number>>;
 };
 
 function rig({
@@ -121,6 +122,7 @@ function rig({
   embedQuery,
   pickConfig = {},
   prompt = 'Pick for {{name}}.',
+  gifMediaVectors,
 }: RigOptions = {}) {
   const calls: Array<{ messages: Array<{ role: string; content: unknown }>; options: Record<string, unknown> }> = [];
   const hot = {
@@ -137,6 +139,7 @@ function rig({
     store: {
       mediaNameOf: noMediaNames,
       getGifs: () => library,
+      ...(gifMediaVectors ? { gifMediaVectors: () => gifMediaVectors } : {}),
       getEmojiRails: (placeId: string) => rails.get(placeId) ?? null,
       setEmojiRails: (placeId: string, state: unknown) => {
         rails.set(placeId, state);
@@ -326,6 +329,19 @@ test('the query vector finds a caption that shares no word, asked once', async (
   assert.equal(result.kind, 'gif');
   assert.equal(asked, 1);
   assert.equal(calls.length, 1);
+});
+
+// Spec 2026-11-18, the library without the keeper: the pick reads the ordinary media vector of a library row, by item
+// id. Bug: half the library had no keeper vector, so a GIF that shared no word with the query was never a candidate.
+test('the query vector finds a GIF that shares no word through the media vector of its row', async () => {
+  const { pick: mediaPick } = rig({
+    library: libraryOf(gifEntry('g1', 'γατάκι χορεύει')),
+    gifMediaVectors: new Map([['item-g1', [1, 0]]]),
+    embedQuery: () => Promise.resolve([1, 0]),
+    answer: '{"pick":"gif","name":"g1"}',
+  });
+  const picked = await mediaPick.pick(args());
+  assert.equal(picked.kind, 'gif');
 });
 
 test('a failed embedding leaves the search by words', async () => {
