@@ -13,13 +13,16 @@ import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { useIface } from './fixtures/turn-world.ts';
+import { addLine } from './fixtures/memory-db/mind-world.ts';
 import {
+  ELENI,
   HEARTBEAT_TEXT,
   MARK,
   NIKOS,
   SEED_FAMILIES,
   TEXT,
   TURN_NOW,
+  YARD,
   ZOE,
   blockOf,
   heartbeatWorld,
@@ -36,6 +39,7 @@ import { affinityBand } from '../src/memory/affinity.ts';
 useIface('fake');
 
 const DAY = 86_400_000;
+const HOUR = 3_600_000;
 const THINK = '<think>STEP 4. So: nothing.</think>';
 
 /** The service list without `persona`, which is the system message and no root tag of the user text. */
@@ -277,6 +281,40 @@ test('a heartbeat leaves a diary mirror out of <places> and lists a direct chat 
     places.join('\n')
   );
   assert.ok(!text.includes(TEXT.ownPrivate), 'no line of the direct chat');
+});
+
+test('a heartbeat says how her last approach to a person and her last line in a place ended, and no line of a direct chat', async () => {
+  // Bug: the lists show what is open and nothing of whether anyone answered her, so she approaches a silent person
+  // again; or the approach quotes the direct chat it read.
+  const world = heartbeatWorld();
+  const line = (id: string, place: string, author: string, ago: number, replyTo: string | null = null) => {
+    addLine(world.db, {
+      id,
+      iface: 'fake',
+      place,
+      author,
+      text: `ΓΡΑΜΜΗ-${id}`,
+      at: new Date(TURN_NOW - ago).toISOString(),
+      turn: author === 'self' ? `turn:${id}` : null,
+    });
+    world.db.prepare('UPDATE sources SET reply_to = ? WHERE id = ?').run(replyTo, id);
+  };
+  line('q1', 'fake:dm:111', 'self', 6 * HOUR);
+  line('q2', 'fake:dm:111', 'fake:111', 2 * HOUR);
+  line('q3', YARD, 'self', 20 * HOUR, 'y2');
+  line('q4', YARD, 'fake:111', 10 * HOUR, 'q3');
+  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null, world });
+  const text = run.requests[0] ?? '';
+  const dmLine = lineWith(text, 'places', `@${handleOf(ELENI)}`);
+  const dm = dmLine.slice(0, dmLine.indexOf(':'));
+  const eleni = lineWith(text, 'people', `@${handleOf(ELENI)}`);
+  assert.ok(eleni.includes(fill(HB.approach ?? '', { date: '2026-11-02', place: dm })), eleni);
+  assert.ok(eleni.includes(fill(HB.approachAnswered ?? '', { date: '2026-11-02' })), eleni);
+  const nikos = lineWith(text, 'people', `@${handleOf(NIKOS)}`);
+  assert.ok(nikos.includes(HB.approachNone ?? 'none'), nikos);
+  const yard = lineWith(text, 'places', 'αυλή');
+  assert.ok(yard.includes(fill(HB.ownAnswers ?? '', { count: 1 })), yard);
+  for (const id of ['q1', 'q2']) assert.ok(!text.includes(`ΓΡΑΜΜΗ-${id}`), 'no line of the direct chat');
 });
 
 test("a heartbeat counts people's lines of the last seven days in a place and not her own", async () => {

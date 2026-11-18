@@ -143,7 +143,7 @@ function nearLines(
  * What followed lines of hers (`nativeIds`) in `placeId`, the last of them at `at` (see Follow). Whether the place is a
  * direct chat is read from its row by the primary key, and both counts walk the range of `sources_place_time`.
  */
-function followOf(
+export function followOf(
   db: Db,
   { placeId, at, nativeIds, now }: { placeId: string; at: number; nativeIds: ReadonlyArray<string>; now: number }
 ): Follow {
