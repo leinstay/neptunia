@@ -25,6 +25,15 @@ import { bareContentType, safeLocation } from './video-sites.ts';
 /** A downloaded picture inlined as a `data:` URL. */
 export type FetchedImage = { dataUrl: string; bytes: number; contentType: string };
 
+/**
+ * Why a download failed, by the codes a GIF's and a video's misses use: `download` for a fault, a refused status or
+ * type and a failed body read, `timeout`, `size` for a declared or read body over `maxBytes`.
+ */
+export type ImageMissReason = 'download' | 'timeout' | 'size';
+
+/** A download's limits, and `onMiss`, told the reason when the download fails. */
+type FetchOptions = { maxBytes: number; timeoutMs: number; onMiss?: (reason: ImageMissReason) => void };
+
 /** The code or class name of a thrown error, null when it has neither: never its message. */
 function codeOf(err: unknown): unknown {
   const fields = errorFields(err);
@@ -77,38 +86,39 @@ export function createImageFetcher({
   cacheMaxEntries = DEFAULT_CACHE_MAX_ENTRIES,
   cacheTtlMs = DEFAULT_CACHE_TTL_MS,
 }: { fetchImpl?: typeof fetch; now?: () => number; cacheMaxEntries?: number; cacheTtlMs?: number } = {}): {
-  fetchAsDataUrl: (url: string, options: { maxBytes: number; timeoutMs: number }) => Promise<FetchedImage | null>;
+  fetchAsDataUrl: (url: string, options: FetchOptions) => Promise<FetchedImage | null>;
 } {
   const cache = new Map<string, { value: FetchedImage; ts: number }>(); // cacheKeyFor(url) -> { value, ts }
 
-  async function download(
-    url: string,
-    { maxBytes, timeoutMs }: { maxBytes: number; timeoutMs: number }
-  ): Promise<FetchedImage | null> {
+  async function download(url: string, { maxBytes, timeoutMs, onMiss }: FetchOptions): Promise<FetchedImage | null> {
     const location = safeLocation(url);
+    const miss = (reason: ImageMissReason): null => {
+      onMiss?.(reason);
+      return null;
+    };
     let response;
     try {
       response = await fetchImpl(url, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
     } catch (err) {
       log.warn('fetch-image: download failed', { location, code: codeOf(err) });
-      return null;
+      return miss(err instanceof Error && err.name === 'TimeoutError' ? 'timeout' : 'download');
     }
 
     if (!response.ok) {
       log.warn('fetch-image: non-OK response', { location, status: response.status });
-      return null;
+      return miss('download');
     }
 
     const contentType = bareContentType(response.headers?.get?.('content-type'));
     if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
       log.warn('fetch-image: unsupported content type', { location, contentType });
-      return null;
+      return miss('download');
     }
 
     const declaredSize = Number(response.headers?.get?.('content-length'));
     if (Number.isFinite(declaredSize) && declaredSize > maxBytes) {
       log.warn('fetch-image: declared size exceeds the limit', { location, declaredSize, maxBytes });
-      return null;
+      return miss('size');
     }
 
     let buffer;
@@ -116,12 +126,12 @@ export function createImageFetcher({
       buffer = Buffer.from(await response.arrayBuffer());
     } catch (err) {
       log.warn('fetch-image: reading the body failed', { location, code: codeOf(err) });
-      return null;
+      return miss('download');
     }
 
     if (buffer.byteLength > maxBytes) {
       log.warn('fetch-image: body exceeds the limit', { location, bytes: buffer.byteLength, maxBytes });
-      return null;
+      return miss('size');
     }
 
     return {
@@ -133,15 +143,12 @@ export function createImageFetcher({
 
   /**
    * Download `url` and return it inlined as a `data:` URL, or `null` on any
-   * failure (bad content type, oversized, timeout, network/HTTP error) --
-   * never throws. A repeat call for the same picture (same URL ignoring its
+   * failure (bad content type, oversized, timeout, network/HTTP error), its
+   * reason told to `options.onMiss` -- never throws. A repeat call for the same picture (same URL ignoring its
    * query string) within `cacheTtlMs` of a SUCCESSFUL download is served from
    * cache, no second request.
    */
-  async function fetchAsDataUrl(
-    url: string,
-    { maxBytes, timeoutMs }: { maxBytes: number; timeoutMs: number }
-  ): Promise<FetchedImage | null> {
+  async function fetchAsDataUrl(url: string, options: FetchOptions): Promise<FetchedImage | null> {
     const key = cacheKeyFor(url);
     const cached = cache.get(key);
     if (cached && now() - cached.ts < cacheTtlMs) {
@@ -149,7 +156,7 @@ export function createImageFetcher({
       return cached.value;
     }
 
-    const result = await download(url, { maxBytes, timeoutMs });
+    const result = await download(url, options);
     if (result) {
       touchKey(cache, key, { value: result, ts: now() });
       trimCache(cache, cacheMaxEntries);

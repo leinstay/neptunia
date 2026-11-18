@@ -261,7 +261,7 @@ function mediaRoleOf(item: MediaItem): string {
 /** A voice message or an audio file: the `video` role hears it. */
 const isAudioItem = (item: MediaItem): boolean => item.kind === 'voice' || item.kind === 'audio';
 
-/** A cached failure whose cause a later try cannot change: the file itself is refused. */
+/** A cached failure of a GIF or a video whose cause a later try cannot change: the file itself is refused. */
 const isRefused = (miss: unknown): boolean => PERMANENT_VIDEO_MISSES.has((miss as { reason?: string }).reason ?? '');
 
 /** A model name as the request's options take it. */
@@ -669,9 +669,11 @@ function buildDescriber({
     const cached = readEntry(placeId, itemId);
     if (!cached) return null;
     if (cached.miss) {
-      if (isRefused(cached)) return FRESH_MISS;
+      const gif = watchedAsGif(item);
+      // A GIF whose file is refused stays a miss; a picture's miss of any reason is tried again after MISS_TTL_MS.
+      if (gif && isRefused(cached)) return FRESH_MISS;
       // A failed GIF watch waits as long as a failed video watch.
-      const ttl = watchedAsGif(item) ? videoErrorTtlMs() : MISS_TTL_MS;
+      const ttl = gif ? videoErrorTtlMs() : MISS_TTL_MS;
       return !retryMisses && now() - cached.ts < ttl ? FRESH_MISS : null;
     }
     // A request out now, or one a stop cut that the start has not turned into a miss yet: looked at again.
@@ -778,32 +780,34 @@ function buildDescriber({
     // The interface's preview address when it gave one, else the item's own URL (pictureImageUrl).
     const imageUrl = pictureImageUrl(item);
 
-    // A failure: the previous caption kept, else a miss cached (`mark` false: the daily cap, nothing cached).
-    // A cut answer's miss carries its reason (`filter`, `cut`), which the transcript shows.
-    const fail = (mark = true, reason: string | null = null) => {
-      if (previous) return keepPrevious(mark);
-      if (mark) {
-        store.putMediaEntry(placeId, item.itemId, { miss: true, ts: now(), ...(reason ? { reason } : {}) });
-      }
+    // A failure: the previous caption kept, else a miss cached with its reason, which the transcript shows.
+    const fail = (reason: string) => {
+      if (previous) return keepPrevious(true);
+      store.putMediaEntry(placeId, item.itemId, { miss: true, ts: now(), reason });
       return null;
     };
 
     const visionCfg = hot.config.context?.vision ?? {};
-    // src/media/fetch-image.ts answers the picture as a data URL, null on a failure.
+    // src/media/fetch-image.ts answers the picture as a data URL, null on a failure with its reason told to onMiss.
+    // A fetcher that tells no reason is a failed download.
+    let missReason = 'download';
     const downloaded = (await imageFetcher.fetchAsDataUrl(imageUrl, {
       maxBytes: VISION_MAX_BYTES,
       timeoutMs: visionCfg.fetchTimeoutMs,
+      onMiss: (reason: string) => (missReason = reason),
     })) as { dataUrl: string } | null;
     if (!downloaded) {
-      log.warn('describe: failed', { kind: item.kind, reason: 'download' });
-      return fail();
+      log.warn('describe: failed', { kind: item.kind, reason: missReason });
+      return fail(missReason);
     }
 
     const captioned = await captionPicture(placeId, downloaded.dataUrl, promptText, item.kind);
-    // A refusal by the daily cap says nothing about the picture: described after the reset.
     if ('failed' in captioned) {
       const { failed } = captioned;
-      return fail(failed !== 'daily-cap', CUT_REASONS.has(failed) ? failed : null);
+      // A refusal by the daily cap says nothing about the picture: nothing cached, described after the reset.
+      if (failed === 'daily-cap') return previous ? keepPrevious(false) : null;
+      // A cut answer keeps its reason, an empty one is `empty`, and any failed request (a rail's included) is `llm`.
+      return fail(CUT_REASONS.has(failed) || failed === 'empty' ? failed : 'llm');
     }
     const { text, usage, estimated, model, marks } = captioned;
     const ts = now();
