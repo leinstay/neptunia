@@ -21,7 +21,8 @@ import { mediaStamp } from './media-stems.ts';
 import { preparedPlace } from './place-owner.ts';
 import { loadStemmer } from './stems.ts';
 import { SELF_PERSON } from './ids.ts';
-import { personNamesOf, personOfAccount } from './meta-person.ts';
+import { personOfAccount } from './meta-person.ts';
+import { handleOf } from '../../behavior/handles.ts';
 import { accountOfMember } from './native-rows.ts';
 import { asText, dbOf, isFiniteNumber, transactionOf } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';
@@ -76,10 +77,10 @@ export type MediaRow = {
 };
 
 /**
- * The marks of an item she made, as a reader shows them: that she made it, and the people a picture shows by the
- * names they go by now, her own person as `self`.
+ * The marks of an item she made, as a reader shows them: that she made it, and the people a picture shows, her own
+ * person as `self` and anyone else by `@` and the person's handle.
  */
-export type MediaMarks = { made: 'self' | null; depicted: Array<{ self: boolean; name: string }> };
+export type MediaMarks = { made: 'self' | null; depicted: Array<{ self: boolean; handle?: string }> };
 
 /** One media item as a writer hands it in: what an interface's message or a record line knows of it. */
 export type MediaItem = {
@@ -267,7 +268,7 @@ export function lineMedia(
       sha1: orNull(row.sha1),
       extra: parsedObject(row.extra),
     };
-    item.marks = marksOf(db, item.extra);
+    item.marks = marksOf(item.extra);
     const list = found.get(String(row.owner_id));
     if (list) list.push(item);
     else found.set(String(row.owner_id), [item]);
@@ -276,22 +277,14 @@ export function lineMedia(
 }
 
 /**
- * The marks the `extra` of a media row holds (`made`, `depicts`), with the people's current names; null when it holds
- * none. A person with no name is left out.
+ * The marks the `extra` of a media row holds (`made`, `depicts`), each person but her own written by `@` and the person's
+ * handle; null when it holds none.
  */
-export function marksOf(db: Db, extra: Row): MediaMarks | null {
+export function marksOf(extra: Row): MediaMarks | null {
   const made = extra.made === 'self' ? 'self' : null;
   const ids = Array.isArray(extra.depicts) ? (extra.depicts as Array<unknown>).filter(filled) : [];
   if (made === null && ids.length === 0) return null;
-  const names = personNamesOf(
-    db,
-    ids.filter((id) => id !== SELF_PERSON)
-  );
-  const depicted = ids.flatMap((id) => {
-    if (id === SELF_PERSON) return [{ self: true, name: '' }];
-    const name = names[id];
-    return name === undefined ? [] : [{ self: false, name }];
-  });
+  const depicted = ids.map((id) => (id === SELF_PERSON ? { self: true } : { self: false, handle: `@${handleOf(id)}` }));
   return { made, depicted };
 }
 
