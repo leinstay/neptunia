@@ -124,7 +124,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Every claim carries its evidence: a file and line, a number you measured, a command you ran. No "significantly", "robust", "seamless", "leverage". No claim you did not check.
 - Concrete words. "The turn runner", not "the relevant component". The engine's words from the Glossary, one word per thing, no synonym.
 - Describe the present. No history in docs or comments ("now", "was", "no longer", "moved from"): the git log holds it. No chat context in a file.
-- Call the persona "the persona" or "it", never "she" or "he". Name it once in a paragraph, and do not repeat the word in every sentence.
+- Call the persona "the persona" or "they", never "she", "he" or "it". Name it once in a paragraph, and do not repeat the word in every sentence.
 - No tracked file names or quotes the person behind a decision. A comment gives the reason, and the git log keeps who decided. The word `owner` names the role of the main account and never a person.
 - A document or a comment holds no date and names no plan or spec. It reads as if the code had always been as it is.
 - Sentences carry one thought each and vary in length. Do not start consecutive sentences with the same word. No "Additionally", "Furthermore", "Moreover". Active voice when the actor matters. Positive form: "the variance was small", not "not large".
