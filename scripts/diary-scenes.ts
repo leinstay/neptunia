@@ -3,7 +3,7 @@
 // prints the scenes, so the wording of `prompts/diary-scene.md` is judged on real answers before any turn uses it.
 //
 //   NEPTUNIA_DATA_DIR=<data folder> node scripts/diary-scenes.ts [--kinds status,picture] [--count 3]
-//        [--seed <text>] [--prompts <dir>] [--out <report.md>] [--analyzer <route>]
+//        [--seed <text>] [--prompts <dir>] [--out <report.md>] [--role analyzer|core] [--analyzer <route>]
 //
 // For each kind of `--kinds` (default the five of SCENE_KINDS) and each of `--count` runs (default 3) it draws eight
 // seed sets from `prompts/diary-seeds.md`, leaving out the lines the newest stored entries built on, and calls the
@@ -13,7 +13,8 @@
 //
 // The data folder gives the configuration, the keys and the stored entries, read only: nothing is written there.
 // Requests go out on the `analyzer` route production gives the purpose `diary-scene` (`--analyzer <key>/<model>`
-// replaces it for this run), carry the origin `replay` and never count against `llm.maxRequestsPerDay`. stdout holds
+// replaces it for this run), or with `--role core` on the route of the persona's own model, to compare the two on the
+// sets of one seed. They carry the origin `replay` and never count against `llm.maxRequestsPerDay`. stdout holds
 // the JSON of every result by kind; `--out` writes a Markdown report beside it.
 
 import { randomBytes } from 'node:crypto';
@@ -26,8 +27,8 @@ import { readOnlyMemory } from './lib/memory-read.ts';
 import { overlayPromptsHot } from './lib/prompt-layers.ts';
 import { routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
 import { DEFAULT_HISTORY_POSTS } from '../src/behavior/diary.ts';
-import { SCENE_KINDS, buildScene, drawSceneSets, isSceneKind } from '../src/behavior/diary-scene.ts';
-import type { SceneLlm, SceneResult } from '../src/behavior/diary-scene.ts';
+import { SCENE_KINDS, SCENE_ROLES, buildScene, drawSceneSets, isSceneKind } from '../src/behavior/diary-scene.ts';
+import type { SceneLlm, SceneResult, SceneRole } from '../src/behavior/diary-scene.ts';
 import { readDiary } from '../src/memory/db/diary-past.ts';
 import type { Hot } from '../src/hot.ts';
 import { objOf } from '../src/tools/types.ts';
@@ -35,7 +36,7 @@ import type { Untyped } from '../src/tools/types.ts';
 
 const TOOL = 'diary-scenes';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const USAGE = `usage: node scripts/${TOOL}.ts [--kinds a,b] [--count n] [--seed text] [--prompts dir] [--out file]`;
+const USAGE = `usage: node scripts/${TOOL}.ts [--kinds a,b] [--count n] [--seed text] [--prompts dir] [--out file] [--role analyzer|core]`;
 const DEFAULT_COUNT = 3;
 
 type Env = Record<string, string | undefined>;
@@ -50,8 +51,18 @@ type Printed = {
   tokens: { in: number; out: number };
 };
 
+/** The role `--role` names, the `analyzer` without the flag. */
+function roleOf(given: string | null): SceneRole {
+  const role = SCENE_ROLES.find((one) => one === (given ?? 'analyzer'));
+  if (role === undefined) throw new CliError(`${TOOL}: --role takes one of ${SCENE_ROLES.join(', ')}`);
+  return role;
+}
+
 function parseArgs(argv: Array<string>) {
-  const flags = parseFlags(argv, { values: ['--kinds', '--count', '--seed', '--prompts', '--out'], usage: USAGE });
+  const flags = parseFlags(argv, {
+    values: ['--kinds', '--count', '--seed', '--prompts', '--out', '--role'],
+    usage: USAGE,
+  });
   if (flags._.length > 0) throw new CliError(USAGE);
   const kinds = typeof flags['--kinds'] === 'string' ? flags['--kinds'].split(',').map((kind) => kind.trim()) : [];
   const refused = kinds.filter((kind) => !isSceneKind(kind));
@@ -66,6 +77,7 @@ function parseArgs(argv: Array<string>) {
     seed: text('--seed'),
     prompts: text('--prompts'),
     out: text('--out'),
+    role: roleOf(text('--role')),
   };
 }
 
@@ -99,7 +111,12 @@ function reportOf(results: Record<string, Array<Printed>>, seed: string): string
 }
 
 /** The real client: the `analyzer` route production gives the run, or the one `--analyzer` names. */
-async function routedLlm(hot: Hot, env: Env, routes: ReturnType<typeof takeRoutes>['routes']): Promise<SceneLlm> {
+async function routedLlm(
+  hot: Hot,
+  env: Env,
+  routes: ReturnType<typeof takeRoutes>['routes'],
+  role: SceneRole
+): Promise<SceneLlm> {
   const { createLlm } = await import('../src/llm/openrouter.ts');
   const { createCalibrator } = await import('../src/llm/tokens.ts');
   // Throwaway counters and calibration: the data folder's state is never written.
@@ -107,7 +124,7 @@ async function routedLlm(hot: Hot, env: Env, routes: ReturnType<typeof takeRoute
   const calibrator = createCalibrator(undefined);
   const routing = await scriptRouting(TOOL, {
     privateDir: privateDirOf(ROOT, env),
-    roles: ['analyzer'],
+    roles: [role],
     variant: routes,
     // The live config of the run, untyped as the client reads it.
     getConfig: (): Untyped => hot.config,
@@ -147,7 +164,7 @@ export async function main(
   const layered = args.prompts === null ? null : overlayPromptsHot(createHot, ROOT, args.prompts, { env });
   const hot = layered?.hot ?? createHot({ rootDir: ROOT, privateDir: dataDir });
   try {
-    const real = llmOf ? llmOf(hot) : await routedLlm(hot, env, taken.routes);
+    const real = llmOf ? llmOf(hot) : await routedLlm(hot, env, taken.routes, args.role);
     // The tool's own requests, as a replay's: never counted against the day's cap.
     const llm: SceneLlm = {
       complete: (messages, options) =>
@@ -162,7 +179,7 @@ export async function main(
       results[kind] = [];
       for (let run = 0; run < args.count; run += 1) {
         const sets = drawSceneSets({ seedsText: hot.prompts?.['diary-seeds'], posts, rng });
-        const result = await buildScene({ hot, llm, kind, sets, now: now(), timezone });
+        const result = await buildScene({ hot, llm, kind, sets, now: now(), timezone, role: args.role });
         process.stderr.write(`${TOOL}: ${kind} ${run + 1}/${args.count} ${result.ok ? 'ok' : result.reason}\n`);
         results[kind].push(printedOf(result));
       }

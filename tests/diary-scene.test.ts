@@ -59,6 +59,14 @@ test('sends the prompt file as the system message and only the kind, the sets an
   assert.equal(call.options.model, 'x/scene-model');
 });
 
+test('sends the request on the role it is given, so two models can be compared on one set', async () => {
+  // Bug: the role is fixed, and a run meant for the core model goes to the analyzer.
+  const llm = fakeLlm(JSON.stringify({ set: 1, used: ['a pier'], scene: 'A pier in fog.' }));
+  await buildScene({ hot, llm, kind: 'status', sets: SETS, now: NOW, timezone: 'UTC', role: 'core' });
+  assert.equal(llm.calls[0].options.role, 'core');
+  assert.equal(llm.calls[0].options.purpose, 'diary-scene');
+});
+
 test('returns the set, the kept lines, the scene and the tokens of a valid answer', async () => {
   // Bug: the chosen set or its lines are lost, or the tokens are not read.
   const { result } = run(JSON.stringify({ set: 2, used: ['a roof', 'rain'], scene: ' A wet roof at noon. ' }));

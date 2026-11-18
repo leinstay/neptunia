@@ -120,10 +120,14 @@ function tokensOf(completion: Completion): SceneTokens {
 }
 
 /**
- * One scene for `kind` over `sets` (drawSceneSets) at the moment `now` in `timezone`: the request of the helper on the
- * `analyzer` role, its prompt `prompts['diary-scene']` and its settings read from `hot` at the moment of use. A request
+ * One scene for `kind` over `sets` (drawSceneSets) at the moment `now` in `timezone`: the request of the helper on
+ * `role` (the `analyzer` unless the caller names the `core` to compare the two), its prompt `prompts['diary-scene']` and its settings read from `hot` at the moment of use. A request
  * or token cap throws; any other failure of the request is `request-failed`. Throws for a kind outside SCENE_KINDS.
  */
+/** The model roles a scene request may go out on. */
+export const SCENE_ROLES = ['analyzer', 'core'] as const;
+export type SceneRole = (typeof SCENE_ROLES)[number];
+
 export async function buildScene({
   hot,
   llm,
@@ -131,6 +135,7 @@ export async function buildScene({
   sets,
   now,
   timezone,
+  role = 'analyzer',
 }: {
   hot: { config: unknown; prompts: Record<string, unknown> | null | undefined };
   llm: SceneLlm;
@@ -138,6 +143,7 @@ export async function buildScene({
   sets: Array<Array<string>>;
   now: number;
   timezone: string;
+  role?: SceneRole;
 }): Promise<SceneResult> {
   if (!isSceneKind(kind))
     throw new Error(`diary scene: kind "${kind}" gets no scene; use one of ${SCENE_KINDS.join(', ')}`);
@@ -156,9 +162,9 @@ export async function buildScene({
         { role: 'user', content: user },
       ],
       {
-        model: roleModel(config, 'analyzer', PURPOSE),
+        model: roleModel(config, role, PURPOSE),
         ...roleRequestOptions(config, {
-          role: 'analyzer',
+          role,
           maxOutputTokens: MAX_OUTPUT_TOKENS,
           purpose: PURPOSE,
           timeoutMs: TIMEOUT_MS,
