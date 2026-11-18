@@ -110,19 +110,30 @@ function resultsOf(request: KeptRequest | undefined): Map<string, string> {
 export type KeptLine = { kind: string; record: unknown };
 
 /**
- * Each tool call's status by its call id, from the closing line of its journal operation: `ok` for `succeeded`, the
- * result's status for `failed` (else `failed`), `unknown` for `unknown`.
+ * Each tool call's status and code by its call id, from the lines of its journal operation: the `proposed` line names
+ * the call id, and the closing line gives `ok` for `succeeded`, the result's status for `failed` (else `failed`) with
+ * the line's code, `unknown` for `unknown`.
  */
-function statusesOf(lines: ReadonlyArray<KeptLine>): Map<string, string> {
-  const out = new Map<string, string>();
+export function callOutcomesOf(lines: ReadonlyArray<KeptLine>): Map<string, { status: string; code: string | null }> {
+  type OpLine = { opId?: unknown; phase?: unknown; result?: unknown; code?: unknown; extra?: unknown; input?: unknown };
+  const idOf = (record: OpLine): unknown =>
+    ((record.extra as { input?: { toolCallId?: unknown } } | null)?.input ?? (record.input as { toolCallId?: unknown }))
+      ?.toolCallId;
+  const callOfOp = new Map<unknown, string>();
+  const out = new Map<string, { status: string; code: string | null }>();
   for (const line of lines) {
-    const record = (line.record ?? {}) as { input?: { toolCallId?: unknown }; phase?: unknown; result?: unknown };
-    const id = record.input?.toolCallId;
-    if (line.kind !== 'action' || typeof id !== 'string') continue;
+    if (line.kind !== 'action') continue;
+    const record = (line.record ?? {}) as OpLine;
+    const named = idOf(record);
+    if (typeof named === 'string') callOfOp.set(record.opId ?? named, named);
+    const id = callOfOp.get(record.opId) ?? (typeof named === 'string' ? named : undefined);
+    if (id === undefined) continue;
     const result = (record.result ?? {}) as { status?: unknown };
-    if (record.phase === 'succeeded') out.set(id, 'ok');
-    else if (record.phase === 'failed') out.set(id, typeof result.status === 'string' ? result.status : 'failed');
-    else if (record.phase === 'unknown') out.set(id, 'unknown');
+    const code = typeof record.code === 'string' ? record.code : null;
+    if (record.phase === 'succeeded') out.set(id, { status: 'ok', code: null });
+    else if (record.phase === 'failed')
+      out.set(id, { status: typeof result.status === 'string' ? result.status : 'failed', code });
+    else if (record.phase === 'unknown') out.set(id, { status: 'unknown', code: null });
   }
   return out;
 }
@@ -202,7 +213,7 @@ export function turnReport({
   estimate: (messages: ReadonlyArray<Rec>) => number;
 }): TurnReport {
   const steps = requests.filter((request) => request.purpose === 'reply');
-  const statuses = statusesOf(journal);
+  const outcomes = callOutcomesOf(journal);
   const stepRows = steps.map((request, index) => {
     const results = resultsOf(steps[index + 1]);
     const names = request.toolCalls.map((call) => String(call.name ?? ''));
@@ -217,7 +228,7 @@ export function turnReport({
         return {
           name: call.name ?? null,
           arguments: call.arguments ?? null,
-          status: call.id === undefined ? null : (statuses.get(call.id) ?? null),
+          status: call.id === undefined ? null : (outcomes.get(call.id)?.status ?? null),
           resultChars: answer?.length ?? null,
         };
       }),

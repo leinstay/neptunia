@@ -534,6 +534,7 @@ import {
   privateDirOf,
   resolveGuildId,
   spendGate,
+  writePrivate,
 } from './lib/cli.ts';
 import {
   diaryDayEstimate,
@@ -2545,6 +2546,8 @@ export function innerTurnRunner({
   turnId,
   wrapReads,
   errandAnswers = null,
+  images,
+  describePicture,
 }: {
   root: string;
   dataDir: string;
@@ -2557,6 +2560,8 @@ export function innerTurnRunner({
   turnId: string;
   wrapReads?: (reads: Reads) => Reads;
   errandAnswers?: ReadonlyArray<ErrandAnswer> | null;
+  images?: WiringInput['images'];
+  describePicture?: WiringInput['describePicture'];
 }): { wired: Wired; writes: Array<RecordedWrite> } {
   const memory = readOnlyMemory(dataDir);
   const db = memory.memoryDb?.database() as Db | null | undefined;
@@ -2582,8 +2587,47 @@ export function innerTurnRunner({
     rng,
     ...(wrapReads ? { wrapReads } : {}),
     errandAnswers,
+    ...(images ? { images } : {}),
+    ...(describePicture ? { describePicture } : {}),
   });
   return { wired, writes: recorded.writes };
+}
+
+/**
+ * The runner of the replay's diary modes: the runner an `--inner` sample has (innerTurnRunner), with the memory reads,
+ * the recall, the intentions read only and the place handles of the core, over the data folder read only. `turn(kind)`
+ * runs one diary turn on it, `kind` forced as the owner's command forces it or null to draw it as the live diary does,
+ * and answers the turn's result with the journal lines it kept, whose operations give each call's status. One runner
+ * serves a whole day, so a slot sees the entries of the slots before it.
+ */
+export function diaryReplayRunner(wiring: Omit<Parameters<typeof innerTurnRunner>[0], 'errandAnswers'>): {
+  turn: (kind: string | null) => Promise<{ result: Untyped; journal: Wired['journal']['lines'] }>;
+  close: () => void;
+} {
+  const { wired } = innerTurnRunner(wiring);
+  const { lines } = wired.journal;
+  let seeded: Promise<void> | null = null;
+  return {
+    async turn(kind) {
+      const from = lines.length;
+      let result: Untyped;
+      try {
+        seeded ??= wired.seed();
+        await seeded;
+        result = await wired.under(() =>
+          wired.runner.runTurn({
+            chat: null,
+            mode: 'diary',
+            diary: kind ? { kind, forced: true } : { kind: null, forced: false },
+          })
+        );
+      } catch (err: Untyped) {
+        result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
+      }
+      return { result, journal: lines.slice(from) };
+    },
+    close: () => wired.close(),
+  };
 }
 
 /**
@@ -2893,6 +2937,47 @@ async function runInner({
 
 // ---- a diary day (--diary-day) ---------------------------------------------------
 
+/**
+ * One diary turn of a replay's diary mode on `turns` (diaryReplayRunner), read as the report shows it: the fields of
+ * diaryKindSample over the requests `calls` recorded during it and the journal it kept, and with `request` the
+ * persona's first request of the turn, of those `asked` holds, written to a file under `request.outDir` whose path the
+ * fields name. `asked` is emptied first, so it holds this turn's requests alone.
+ */
+export async function diaryReplaySample({
+  turns,
+  kind,
+  calls,
+  asked,
+  request,
+}: {
+  turns: ReturnType<typeof diaryReplayRunner>;
+  kind: string | null;
+  calls: Array<Rec>;
+  asked: Array<{ purpose: unknown; messages: unknown }>;
+  request: { outDir: string; n: number } | null;
+}): Promise<{ result: Untyped; fields: Rec }> {
+  const from = calls.length;
+  asked.length = 0;
+  const { result, journal } = await turns.turn(kind);
+  // `--show-request`: the persona's first request, which holds message contents, goes to a file and never to stdout.
+  const first = asked.find((one) => one.purpose !== 'diary-scene');
+  const file = request && first ? writeDiaryRequest(request.outDir, request.n, first.messages) : null;
+  return {
+    result,
+    fields: { ...diaryKindSample(result, calls.slice(from), journal), ...(file ? { request: file } : {}) },
+  };
+}
+
+/**
+ * The persona's first request of sample `n` written to `<outDir>/request-<n>.json` for `--show-request`, private as the
+ * report is; answers its path relative to `outDir`, which the report names.
+ */
+function writeDiaryRequest(outDir: string, n: number, messages: unknown): string {
+  const file = path.join(outDir, `request-${n}.json`);
+  writePrivate(file, { messages });
+  return path.relative(outDir, file);
+}
+
 /** The file extension of a picture's media type. */
 function pictureExtension(mediaType: string | null | undefined) {
   const sub = String(mediaType ?? '').split('/')[1] ?? '';
@@ -2972,7 +3057,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, sig
   const mods = await loadDiaryMods(load);
   const { deepMerge } = await load('config.ts');
   const { localDayKey, planDay } = mods;
-  const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild, createFakeAdapter } = mods;
+  const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
   const { zonedEpoch } = mods;
 
   // The day plan, before anything is read from Discord or sent: its slots are the estimate.
@@ -3041,6 +3126,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, sig
 
   let client: Untyped = null;
   let layered: Untyped = null;
+  let dayRunner: ReturnType<typeof diaryReplayRunner> | null = null;
   try {
     // `--prompts <dir>` (with `--diary-kind`): the directory laid over the live prompts, as `--inner` lays it.
     if (args.prompts !== null) {
@@ -3055,7 +3141,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, sig
     const now = () => clock.base + (Date.now() - clock.real);
 
     // The store and the counters: an in-memory copy, today's diary and image counts at 0.
-    const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: storeMemoryFor(liveData) }));
+    const { state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: storeMemoryFor(liveData) }));
     state.data.imageCount = 0;
     if (state.data.paused) log.warn('replay-cli: the bot is paused; every slot will answer paused', {});
 
@@ -3068,7 +3154,20 @@ async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, sig
       drawing: live,
     });
     const calls: Array<Untyped> = [];
-    const llm = recordingLlm(routing.llm, calls);
+    // The persona's requests of the running turn, for `--show-request`.
+    const asked: Array<{ purpose: unknown; messages: unknown }> = [];
+    const recorded = recordingLlm(routing.llm, calls);
+    const llm = {
+      ...recorded,
+      complete: (messages: Untyped, options: Untyped = {}) => {
+        asked.push({ purpose: options?.purpose ?? null, messages });
+        return recorded.complete(messages, options);
+      },
+    };
+    // The embedder of the turn's recall, on the embedding role's key; an offline run embeds nothing.
+    const embedder = answers ? null : mods.createEmbedder({ apiKey: '', keyOf: routing.keyOf, state });
+    const embed = (texts: Array<string>, options?: unknown) =>
+      embedder === null ? Promise.resolve(texts.map(() => null)) : embedder.embed(texts, options);
     const picturesDir = path.join(outDir, 'pictures');
     const realImages = createImageGen({
       apiKey: () => routing.keyOf('drawing') ?? '',
@@ -3101,32 +3200,28 @@ async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, sig
     });
     client = connection.client;
     refuseDiscordWrites(client);
-    const { placeId, self } = connection;
-    const port = createFakeAdapter({
-      iface: 'discord',
-      selfId: self.id,
-      now,
-      capabilities: { maxFileBytes: 64 * 1024 * 1024 },
-    });
-    // `--draw none`: the persona is told the picture was not drawn, and nothing looks at the fixture.
-    const extra = args.draw === 'none' ? { describePicture: notDrawnLook } : {};
+    const { placeId } = connection;
+    // The Discord interface's reads answer the turn; every write is kept in process (innerTurnRunner).
+    const port = mods.createDiscordInterface({ client, config: () => hot.config }).port;
     const runnerOf = (stream: string) =>
-      diaryTurnRunner(mods, {
+      diaryReplayRunner({
+        root,
+        dataDir: liveData,
         hot,
-        store,
-        llm,
-        calibrator,
-        client,
-        self,
-        images,
-        state,
         port,
+        llm,
+        embed,
         rng: seededRng(seed, stream),
         now,
-        extra,
+        turnId: `t-replay-diary-${stream}`,
+        images,
+        // `--draw none`: the persona is told the picture was not drawn.
+        ...(args.draw === 'none' ? { describePicture: notDrawnLook } : {}),
       });
-    // A day draws from one stream; each sample of `--diary-kind` from its own, so sample n is the same on every run.
-    const dayTurns = args.diaryKind ? null : runnerOf('turns');
+    // A day draws from one stream on one runner; each sample of `--diary-kind` from its own, so sample n is the same on
+    // every run.
+    dayRunner = args.diaryKind ? null : runnerOf('turns');
+    const dayTurns = dayRunner;
     log.info('replay-cli: diary day ready', { placeId, date, slots: day.slots.length, draw: args.draw });
 
     const budget = gate.budget;
@@ -3154,19 +3249,18 @@ async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, sig
       };
       const fromCalls = calls.length;
       const fromDraws = images.calls.length;
-      let result;
-      try {
-        // As the live diary runs it: the diary wake, no chat; a named kind is forced as the owner's command forces it.
-        const turns = dayTurns ?? runnerOf(`sample-${index + 1}`);
-        result = await turns.runTurn({
-          placeId,
-          mode: 'diary',
-          diary: args.diaryKind ? { kind: args.diaryKind, forced: true } : { kind: null, forced: false },
-        });
-      } catch (err: Untyped) {
-        result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
-      }
+      // As the live diary runs it: the diary wake, no chat; a named kind is forced as the owner's command forces it.
+      const turns = dayTurns ?? runnerOf(`sample-${index + 1}`);
+      const sample = await diaryReplaySample({
+        turns,
+        kind: args.diaryKind,
+        calls,
+        asked,
+        request: args.showRequest ? { outDir, n: index + 1 } : null,
+      });
+      if (turns !== dayTurns) turns.close();
       const mine = calls.slice(fromCalls);
+      const { result } = sample;
       const draws = images.calls.slice(fromDraws);
       const pictureCost = draws.reduce((sum, d) => sum + (Number.isFinite(d.result?.cost) ? d.result.cost : 0), 0);
       const before = report.usage;
@@ -3177,7 +3271,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, sig
         pictures: before.pictures + draws.filter((d) => d.result && !d.result.error).length,
       };
       Object.assign(slot, {
-        ...diaryKindSample(result, mine),
+        ...sample.fields,
         ...entrySends(result),
         draws,
         requests: mine.length,
@@ -3196,6 +3290,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, sig
     const failed = report.slots.some((slot: Rec) => slot.outcome === 'error');
     return done(failed || report.stopped !== null ? 1 : 0);
   } finally {
+    dayRunner?.close();
     layered?.hot?.close?.();
     if (client && typeof client.destroy === 'function') await Promise.resolve(client.destroy()).catch(() => {});
   }

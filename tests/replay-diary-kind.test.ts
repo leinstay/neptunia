@@ -8,7 +8,14 @@ import { zonedEpoch } from '../src/time.ts';
 import { userText } from '../src/behavior/prompt.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
 import '../src/tools/operations/index.ts';
-import { diaryDayGate, parseArgs, recordingLlm } from '../scripts/replay.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { diaryDayGate, diaryReplayRunner, diaryReplaySample, parseArgs, recordingLlm } from '../scripts/replay.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { SERVICE_CONTEXT, TURN_NOW, blockOf, serviceWorld } from './fixtures/service-turn.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 import { NOT_DRAWN, diaryKindSample, notDrawnLook } from '../scripts/lib/diary-day.ts';
 import { shippedLabels as labels } from './fixtures/shipped-labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
@@ -161,4 +168,110 @@ test('replay: with --draw none the persona is told the picture was not drawn', a
   const last = requests.at(-1) as Array<{ role: string; content: unknown }>;
   const tool = last.find((message) => message.role === 'tool');
   assert.ok(userText(tool?.content).includes(NOT_DRAWN), JSON.stringify(tool?.content));
+});
+
+// ---- the diary modes read memory as the core's turn does ---------------------------
+
+/** A data folder of the service fixture's world, the persona's account named, as the replay reads it. */
+function diaryDataDir(): string {
+  const dataDir = tempDir('nep-replay-diary-');
+  const handle = openMemoryDb(path.join(dataDir, 'memory.db'));
+  serviceWorld({ handle, db: dbOf(handle), close: () => handle.close() });
+  dbOf(handle)
+    .prepare('INSERT INTO accounts (id, iface, native_id, person_id, names, kind) VALUES (?, ?, ?, ?, ?, ?)')
+    .run('fake:self-id', 'fake', 'self-id', 'person:self', '["Αθηνά"]', 'self');
+  handle.close();
+  return dataDir;
+}
+
+const DIARY_GRANTED = ['conversation.read', 'memory.read'];
+
+/** One diary sample of `status` on the replay's runner, the model reading memory and the place `<memory>` lists. */
+async function memorySample(request: { outDir: string; n: number } | null = null) {
+  const dataDir = diaryDataDir();
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => TURN_NOW });
+  let asked = 0;
+  const fake = {
+    complete: (messages: Array<{ content: unknown }>) => {
+      asked += 1;
+      if (asked > 1) return Promise.resolve(completionOf('<skip/>'));
+      const text = messages.map((message) => userText(message.content)).join('\n');
+      const garden = blockOf(text, 'memory')
+        .split('\n')
+        .find((line) => line.includes('κήπος'));
+      const handle = /^(#[A-Za-z0-9_-]+):/.exec(garden ?? '')?.[1] ?? '#none';
+      return Promise.resolve(
+        toolAnswer('', [
+          call('memory.read', { subject: handle }, { id: 'c1' }),
+          call('conversation.read', { place: handle }, { id: 'c2' }),
+        ])
+      );
+    },
+  };
+  const calls: Array<Record<string, Untyped>> = [];
+  const recorded = recordingLlm(fake, calls);
+  const askedRequests: Array<{ purpose: unknown; messages: unknown }> = [];
+  const llm = {
+    complete: (messages: unknown, options: { purpose?: unknown } = {}) => {
+      askedRequests.push({ purpose: options.purpose ?? null, messages });
+      return (recorded.complete as (given: unknown, opts: unknown) => Promise<unknown>)(messages, options);
+    },
+  };
+  const hot = {
+    config: {
+      bot: {
+        timezone: 'UTC',
+        access: Object.fromEntries(
+          DIARY_GRANTED.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])
+        ),
+      },
+      context: SERVICE_CONTEXT,
+      llm: { maxRequestTokens: 60000 },
+      tools: { transport: 'native', resultMaxChars: 2000, callTimeoutMs: 120000 },
+      diary: { loop: { maxSteps: 3 } },
+    },
+    prompts: { main: 'SYSTEM', persona: 'CARD', format: 'FORMAT', 'diary/task': 'DIARY_TASK', labels },
+  };
+  const turns = diaryReplayRunner({
+    root: process.cwd(),
+    dataDir,
+    hot,
+    port,
+    llm,
+    embed: (texts: Array<string>) => Promise.resolve(texts.map(() => null)),
+    rng: () => 0.5,
+    now: () => TURN_NOW,
+    turnId: 't-replay-diary-1',
+  });
+  try {
+    return await diaryReplaySample({ turns, kind: 'status', calls, asked: askedRequests, request });
+  } finally {
+    turns.close();
+  }
+}
+
+test('replay: the diary mode reads memory and a place its <memory> lists, each call with its status', async () => {
+  // Bug: the diary modes had no memory reads and no place handles, so every read answered not-configured or
+  // unknown-channel and the entries of the text kinds were written with no memory at all.
+  const { fields } = await memorySample();
+  const answers = fields.answers as Array<{ calls: Array<{ name: unknown; status: unknown; code: unknown }> }>;
+  const made = answers.flatMap((one) => one.calls).map((one) => `${String(one.name)}:${String(one.status)}`);
+  assert.deepEqual(made, ['memory_read:ok', 'conversation_read:ok'], JSON.stringify(answers));
+});
+
+test('replay: --show-request writes the first request of the sample with its <kind> and <memory> and names the file', async () => {
+  const outDir = tempDir('nep-replay-diary-out-');
+  const { fields } = await memorySample({ outDir, n: 1 });
+  assert.equal(fields.request, 'request-1.json');
+  const written = JSON.parse(fs.readFileSync(path.join(outDir, 'request-1.json'), 'utf8')) as {
+    messages: Array<{ content: unknown }>;
+  };
+  const text = written.messages.map((message) => userText(message.content)).join('\n');
+  assert.ok(text.includes('<kind>\nstatus\n</kind>'), text.slice(0, 400));
+  assert.ok(blockOf(text, 'memory').includes('κήπος'));
+});
+
+test('replay: --show-request goes with --diary-kind alone', () => {
+  assert.equal(parseArgs(['--diary-day', '--diary-kind', 'status', '--show-request']).showRequest, true);
+  assert.throws(() => parseArgs(['--diary-day', '--show-request']), /usage/);
 });

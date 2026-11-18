@@ -315,6 +315,10 @@ export type WiringInput = {
    * shadow only proposes them.
    */
   errandAnswers?: ReadonlyArray<ErrandAnswer> | null;
+  /** The image client in place of the stand-in (scripts/replay.ts `--diary-kind --draw live`); absent: the stand-in. */
+  images?: CreateTurnRunnerInput['images'];
+  /** The look at a picture she drew (scripts/replay.ts `--draw none`); absent: no look, as with no eyes. */
+  describePicture?: CreateTurnRunnerInput['describePicture'];
 };
 
 /**
@@ -533,8 +537,9 @@ export function buildTurnRunner(input: WiringInput): Wired {
     imageFetcher,
     lookup,
     recall,
-    images,
+    images: (input.images as typeof images | undefined) ?? images,
     speech,
+    ...(input.describePicture ? { describePicture: input.describePicture } : {}),
     emoji: createEmojiIndex({ reads, now, iface: identity.iface, names: namesStore }),
     // The live glance at voice channels and statuses (src/core.ts): kept in process only, so a replay starts it empty,
     // as a snapshot that found nobody. The core reads presences off the link's hello, which a chat platform declares.

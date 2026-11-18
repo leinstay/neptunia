@@ -18,7 +18,7 @@ export const USAGE =
   '       node scripts/replay.ts --pair-transport (--triggers <file> | <placeId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --loop-triggers (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
-  '       node scripts/replay.ts --diary-day --diary-kind <kind> [--samples n] [--seed <text>] [--prompts <dir>] [--draw fake|live|none] [--max-pictures <n>] [--out <dir>] [--spend <usd>]\n' +
+  '       node scripts/replay.ts --diary-day --diary-kind <kind> [--samples n] [--seed <text>] [--prompts <dir>] [--draw fake|live|none] [--max-pictures <n>] [--show-request] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat> [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--seed <text>] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]... [--errand-answers <file>]\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-timeout-min 20]])';
 
@@ -137,10 +137,10 @@ function dayFlags(out: ReplayArgs): boolean {
   return out.date !== null || out.draw !== null || out.maxPictures !== null || out.diaryKind !== null;
 }
 
-/** Whether `out` holds a flag of `--diary-kind` without it (`--samples`, `--prompts`, `--draw none`), or `--date` with it. */
+/** Whether `out` holds a flag of `--diary-kind` without it (`--samples`, `--prompts`, `--draw none`, `--show-request`), or `--date` with it. */
 function diaryKindMisused(out: ReplayArgs): boolean {
   if (out.diaryKind !== null) return out.date !== null;
-  return out.samples !== null || out.prompts !== null || out.draw === 'none';
+  return out.samples !== null || out.prompts !== null || out.draw === 'none' || out.showRequest;
 }
 
 export function parseArgs(argv: Array<string>): ReplayArgs {
@@ -305,7 +305,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       positional.length > 0 ||
       out.skills !== null ||
       out.showRequestTurn !== null ||
-      out.showRequest ||
       out.pair ||
       out.triggers !== null ||
       out.split ||
