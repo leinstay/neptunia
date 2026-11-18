@@ -630,6 +630,7 @@ export function heartbeatItemsOf(
         person.approach === null
           ? ''
           : approachText(person.approach, h, day, (id) => placeHandle(id) ?? refs.place(id)),
+        person.interests.length === 0 ? '' : fill(h.interests ?? '', { topics: person.interests.join(', ') }),
       ]),
       counterpart: false,
       name: person.name,
@@ -645,6 +646,7 @@ export function heartbeatItemsOf(
     text: line([
       refs.place(place.placeId),
       place.purpose === null ? '' : fieldLine(w, 'purpose', storedText(w, firstSentence(place.purpose))),
+      place.topics === null ? '' : fieldLine(w, 'topics', storedText(w, place.topics)),
       place.lines === 0
         ? fill(h.quiet ?? '', { days })
         : fill(h.activity ?? '', { days, lines: place.lines, people: place.people }),

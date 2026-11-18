@@ -24,7 +24,9 @@ import {
   TURN_NOW,
   YARD,
   ZOE,
+  addInterest,
   blockOf,
+  describeSubject,
   heartbeatWorld,
   rootTags,
   seedLines,
@@ -318,6 +320,27 @@ test('a heartbeat says how her last approach to a person and her last line in a 
   const yard = lineWith(text, 'places', 'αυλή');
   assert.ok(yard.includes(fill(HB.ownAnswers ?? '', { count: 1 })), yard);
   for (const id of ['q1', 'q2']) assert.ok(!text.includes(`ΓΡΑΜΜΗ-${id}`), 'no line of the direct chat');
+});
+
+test("a heartbeat shows a listed person's interests on their line and a place's topics on its line, and none elsewhere", async () => {
+  // Bug: the lists read the interests and the topics and the request drops them, or puts them on another line.
+  const world = heartbeatWorld();
+  addInterest(world, 'int:n1', NIKOS, 'ΕΝΔΙΑΦΕΡΟΝ-ΕΝΑ', 2, DAY);
+  addInterest(world, 'int:n2', NIKOS, 'ΕΝΔΙΑΦΕΡΟΝ-ΔΥΟ', 1, DAY);
+  describeSubject(world, 'desc:yard-topics', 'place', YARD, 'topics', 'ΘΕΜΑΤΑ-ΤΗΣ-ΑΥΛΗΣ');
+  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null, world });
+  const text = run.requests[0] ?? '';
+  const nikos = lineWith(text, 'people', `@${handleOf(NIKOS)}`);
+  for (const topic of ['ΕΝΔΙΑΦΕΡΟΝ-ΕΝΑ', 'ΕΝΔΙΑΦΕΡΟΝ-ΔΥΟ']) assert.ok(nikos.includes(topic), nikos);
+  const yard = lineWith(text, 'places', 'αυλή');
+  assert.ok(yard.includes('ΘΕΜΑΤΑ-ΤΗΣ-ΑΥΛΗΣ'), yard);
+  const eleni = lineWith(text, 'people', `@${handleOf(ELENI)}`);
+  const garden = lineWith(text, 'places', 'κήπος');
+  for (const other of [eleni, garden]) {
+    assert.ok(!/ΕΝΔΙΑΦΕΡΟΝ|ΘΕΜΑΤΑ/.test(other), other);
+  }
+  assert.equal(eleni, lineWith(await heartbeatRequest(), 'people', `@${handleOf(ELENI)}`));
+  assert.equal(garden, lineWith(await heartbeatRequest(), 'places', 'κήπος'));
 });
 
 test("a heartbeat counts people's lines of the last seven days in a place and not her own", async () => {

@@ -3,7 +3,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { heartbeatListsOf } from '../src/memory/db/heartbeat-lists.ts';
-import { ELENI, MIRROR, NIKOS, TURN_NOW, YARD, heartbeatWorld } from './fixtures/service-turn.ts';
+import {
+  ELENI,
+  MIRROR,
+  NIKOS,
+  TURN_NOW,
+  YARD,
+  addInterest,
+  describeSubject,
+  heartbeatWorld,
+} from './fixtures/service-turn.ts';
 import { addLine } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 
@@ -171,4 +180,42 @@ test('a group place counts the lines that answer her last line there', () => {
   lineOf(world, { id: 'a3', place: YARD, author: 'fake:111', ago: 9 * HOUR, replyTo: 'a0' });
   const yard = listsOf(world).places.find((one) => one.placeId === YARD);
   assert.equal(yard?.ownAnswers, 1);
+});
+
+test('a person with more than five interests lists the five of best rank and no sixth', () => {
+  // Bug: the line lists every interest a person has, or the first five stored instead of the five of best rank.
+  const world = heartbeatWorld();
+  addInterest(world, 'i1', NIKOS, 'ΘΕΜΑ-ΑΣΘΕΝΕΣ', 0.1, 2 * DAY);
+  for (const n of [2, 3, 4, 5, 6]) addInterest(world, `i${n}`, NIKOS, `ΘΕΜΑ-${n}`, n, 2 * DAY);
+  const nikos = personOf(listsOf(world), NIKOS);
+  assert.deepEqual([...(nikos?.interests ?? [])].sort(), ['ΘΕΜΑ-2', 'ΘΕΜΑ-3', 'ΘΕΜΑ-4', 'ΘΕΜΑ-5', 'ΘΕΜΑ-6']);
+});
+
+test('a person with no stored interest lists none', () => {
+  // Bug: a person without interests is given another person's, or the read throws.
+  const world = heartbeatWorld();
+  addInterest(world, 'i1', NIKOS, 'ΘΕΜΑ-ΝΙΚΟΥ', 1, DAY);
+  assert.deepEqual(personOf(listsOf(world), ELENI)?.interests, []);
+});
+
+test('a group place with a line in the window carries its stored topics', () => {
+  // Bug: the topics of a place are never read, so the persona sees only its purpose.
+  const world = heartbeatWorld();
+  describeSubject(world, 'desc:t1', 'place', YARD, 'topics', 'ΘΕΜΑΤΑ-ΤΗΣ-ΑΥΛΗΣ');
+  const yard = listsOf(world).places.find((one) => one.placeId === YARD);
+  assert.equal(yard?.topics, 'ΘΕΜΑΤΑ-ΤΗΣ-ΑΥΛΗΣ');
+});
+
+test('a quiet group place and a direct chat carry no topics', () => {
+  // Bug: a place nobody wrote in during the window, or a private chat, lists what people talk about there.
+  const world = heartbeatWorld();
+  const quiet = 'tele:channel:k1';
+  describeSubject(world, 'desc:t1', 'place', quiet, 'topics', 'ΘΕΜΑΤΑ-ΤΟΥ-ΛΙΜΑΝΙΟΥ');
+  describeSubject(world, 'desc:t2', 'place', ELENI_DM, 'topics', 'ΘΕΜΑΤΑ-ΤΗΣ-ΕΛΕΝΗΣ');
+  lineOf(world, { id: 'd1', place: ELENI_DM, author: 'fake:111', ago: HOUR });
+  const { places } = listsOf(world);
+  assert.equal(places.find((one) => one.placeId === quiet)?.topics, null);
+  const dm = places.find((one) => one.placeId === ELENI_DM);
+  assert.equal(dm?.lines, 1);
+  assert.equal(dm?.topics, null);
 });
