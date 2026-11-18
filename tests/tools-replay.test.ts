@@ -49,8 +49,8 @@ function scratchRoot() {
     path.join(root, 'config', 'config.json'),
     JSON.stringify({ features: { diary: true }, bot: { timezone: '42' } })
   );
-  fs.mkdirSync(path.join(root, 'prompts'));
-  fs.writeFileSync(path.join(root, 'prompts', 'reply.md'), 'tracked reply');
+  fs.mkdirSync(path.join(root, 'prompts', 'turn'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'prompts', 'turn', 'reply.md'), 'tracked reply');
   fs.writeFileSync(path.join(root, 'prompts', 'diary-planner.md'), 'tracked plan');
   // PR 7c: the tracked labels live in config/labels.json under `model`.
   fs.writeFileSync(
@@ -58,9 +58,9 @@ function scratchRoot() {
     JSON.stringify({ model: { diary: { topic: 'Topic' } }, owner: {} })
   );
   // Replay layers read the prepared persona tree, separate from tracked engine prompts.
-  fs.mkdirSync(path.join(root, 'data', 'prompts'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'data', 'prompts', 'turn'), { recursive: true });
   fs.mkdirSync(path.join(root, 'data', 'config'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'data', 'prompts', 'reply.md'), 'local réply');
+  fs.writeFileSync(path.join(root, 'data', 'prompts', 'turn', 'reply.md'), 'local réply');
   fs.mkdirSync(path.join(root, 'candidate'));
   fs.writeFileSync(path.join(root, 'candidate', 'diary-planner.md'), 'candidate plan');
   return root;
@@ -81,13 +81,13 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
     const layers = diaryPromptLayers(root, 'candidate');
     assert.deepEqual(layers, [path.join(root, 'data', 'prompts'), 'candidate']);
     const diary = promptLayersHot(quietHot, root, layers, { tmpDir });
-    assert.equal(asRecord(diary.hot).prompts.reply, 'local réply');
+    assert.equal(asRecord(diary.hot).prompts['turn/reply'], 'local réply');
     assert.equal(asRecord(diary.hot).prompts['diary-planner'], 'candidate plan');
     assert.equal(asRecord(diary.hot).prompts.labels.diary.topic, 'Topic');
     asRecord(diary.hot).close();
     // --pair: one side's directory is data/prompts/ (the other layers do not show through).
     const side = promptLayersHot(quietHot, root, ['candidate'], { tmpDir });
-    assert.equal(asRecord(side.hot).prompts.reply, 'tracked reply');
+    assert.equal(asRecord(side.hot).prompts['turn/reply'], 'tracked reply');
     assert.equal(asRecord(side.hot).prompts['diary-planner'], 'candidate plan');
     asRecord(side.hot).close();
     // No data/prompts/ in the checkout: the diary layers are the directory alone.
@@ -96,7 +96,8 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
     assert.throws(() => promptLayersHot(quietHot, root, ['missing'], { tmpDir }), /missing is not a directory/);
     // The checkout is untouched.
     // PR 7c: the tracked labels live in config/, beside prompts/.
-    assert.deepEqual(fs.readdirSync(path.join(root, 'prompts')).sort(), ['diary-planner.md', 'reply.md']);
+    // Changed: the reply prompt sits in the folder `turn/`, so the checkout's prompts/ lists the folder.
+    assert.deepEqual(fs.readdirSync(path.join(root, 'prompts')).sort(), ['diary-planner.md', 'turn']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -128,19 +129,19 @@ test('replay: explicit data selection supplies canonical config and prompts to d
     );
     fs.mkdirSync(path.join(privateDir, 'config'));
     fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ bot: { timezone: 'private' } }));
-    fs.mkdirSync(path.join(privateDir, 'prompts'));
-    fs.writeFileSync(path.join(privateDir, 'prompts', 'reply.md'), 'private reply');
+    fs.mkdirSync(path.join(privateDir, 'prompts', 'turn'), { recursive: true });
+    fs.writeFileSync(path.join(privateDir, 'prompts', 'turn', 'reply.md'), 'private reply');
 
     const layers = diaryPromptLayers(root, 'candidate', env);
     assert.deepEqual(layers, [path.join(privateDir, 'prompts'), 'candidate']);
     const diary = promptLayersHot(quietHot, root, layers, { tmpDir, env });
-    assert.equal(asRecord(diary.hot).prompts.reply, 'private reply', 'the checkout data/prompts/ is not read');
+    assert.equal(asRecord(diary.hot).prompts['turn/reply'], 'private reply', 'the checkout data/prompts/ is not read');
     assert.equal(asRecord(diary.hot).prompts['diary-planner'], 'candidate plan');
     assert.equal(asRecord(diary.hot).config.bot.timezone, 'private');
     asRecord(diary.hot).close();
     const side = promptLayersHot(quietHot, root, ['candidate'], { tmpDir, env });
     assert.equal(asRecord(side.hot).config.bot.timezone, 'private');
-    assert.equal(asRecord(side.hot).prompts.reply, 'tracked reply');
+    assert.equal(asRecord(side.hot).prompts['turn/reply'], 'tracked reply');
     asRecord(side.hot).close();
     // No data/prompts/ in the private directory: the checkout's is not taken instead.
     fs.rmSync(path.join(privateDir, 'prompts'), { recursive: true });

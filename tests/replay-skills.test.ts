@@ -1410,24 +1410,24 @@ test('replay --skills --prompts: the directory is laid over a copy of data/promp
   };
   // PR 7c: the tracked settings and labels live in config/, the labels under `model`.
   write('config/config.json', JSON.stringify({ tools: { safeMode: false } }));
-  write('prompts/reply.md', 'tracked reply');
+  write('prompts/turn/reply.md', 'tracked reply');
   write('prompts/format.md', 'tracked format');
   write(
     'config/labels.json',
     JSON.stringify({ model: { transcript: { author: '{name}' }, task: { queued: 'tracked queued' } }, owner: {} })
   );
   const localLabels = JSON.stringify({ task: { queued: 'local queued', queuedOthers: 'local others' } });
-  write('data/prompts/reply.md', 'local réply');
+  write('data/prompts/turn/reply.md', 'local réply');
   write('data/prompts/format.md', 'local format');
   write('data/prompts/labels.json', localLabels);
-  write('side-a/reply.md', 'réply A');
+  write('side-a/turn/reply.md', 'réply A');
   write('side-a/labels.json', JSON.stringify({ task: { queued: 'queued A' } }));
   write('side-b/format.md', 'format B');
   const opened = [];
   try {
     const a = overlayPromptsHot(createHot, root, 'side-a', { mergeJson: deepMerge, tmpDir });
     opened.push(a);
-    assert.equal(asRecord(a.hot).prompts.reply, 'réply A', 'a file of the directory replaces the private one');
+    assert.equal(asRecord(a.hot).prompts['turn/reply'], 'réply A', 'a file of the directory replaces the private one');
     assert.equal(asRecord(a.hot).prompts.format, 'local format', 'a file it lacks stays the private one');
     assert.deepEqual(
       asRecord(a.hot).prompts.labels.task,
@@ -1442,7 +1442,11 @@ test('replay --skills --prompts: the directory is laid over a copy of data/promp
     const b = overlayPromptsHot(createHot, root, 'side-b', { mergeJson: deepMerge, tmpDir });
     opened.push(b);
     assert.deepEqual(
-      [asRecord(b.hot).prompts.reply, asRecord(b.hot).prompts.format, asRecord(b.hot).prompts.labels.task.queued],
+      [
+        asRecord(b.hot).prompts['turn/reply'],
+        asRecord(b.hot).prompts.format,
+        asRecord(b.hot).prompts.labels.task.queued,
+      ],
       ['local réply', 'format B', 'local queued']
     );
     // The diary's --prompts keeps its layering: a labels.json of the directory replaces the private one whole.
@@ -1451,7 +1455,7 @@ test('replay --skills --prompts: the directory is laid over a copy of data/promp
     assert.deepEqual(asRecord(diary.hot).prompts.labels.task, { queued: 'queued A' });
     // The live layer is untouched.
     assert.equal(fs.readFileSync(path.join(root, 'data', 'prompts', 'labels.json'), 'utf8'), localLabels);
-    assert.equal(fs.readFileSync(path.join(root, 'data', 'prompts', 'reply.md'), 'utf8'), 'local réply');
+    assert.equal(fs.readFileSync(path.join(root, 'data', 'prompts', 'turn', 'reply.md'), 'utf8'), 'local réply');
     assert.throws(
       () => overlayPromptsHot(createHot, root, 'missing', { mergeJson: deepMerge, tmpDir }),
       /missing is not a directory/
@@ -1509,10 +1513,10 @@ test('replay --skills --prompts: a data/prompts/ that links to the live layer is
     };
     // PR 7c: the tracked settings and labels live in config/, the labels under `model`.
     write(root, 'config/config.json', JSON.stringify({ tools: { safeMode: false } }));
-    write(root, 'prompts/reply.md', 'tracked reply');
+    write(root, 'prompts/turn/reply.md', 'tracked reply');
     write(root, 'config/labels.json', JSON.stringify({ model: { task: { queued: 'tracked queued' } }, owner: {} }));
     const liveLabels = JSON.stringify({ task: { queued: 'live queued', queuedOthers: 'live others' } });
-    write(live, 'reply.md', 'live réply');
+    write(live, 'turn/reply.md', 'live réply');
     write(live, 'labels.json', liveLabels);
     write(root, 'side-a/labels.json', JSON.stringify({ task: { queued: 'queued A' } }));
     write(root, 'side-a/format.md', 'format A');
@@ -1521,7 +1525,7 @@ test('replay --skills --prompts: a data/prompts/ that links to the live layer is
     for (const mergeJson of [deepMerge, null]) {
       const side = overlayPromptsHot(createHot, root, 'side-a', { mergeJson, tmpDir });
       opened.push(side);
-      assert.equal(asRecord(side.hot).prompts.reply, 'live réply', 'the live layer is read through the link');
+      assert.equal(asRecord(side.hot).prompts['turn/reply'], 'live réply', 'the live layer is read through the link');
       assert.equal(asRecord(side.hot).prompts.format, 'format A');
       assert.deepEqual(
         asRecord(side.hot).prompts.labels.task,
@@ -1534,7 +1538,7 @@ test('replay --skills --prompts: a data/prompts/ that links to the live layer is
     }
     assert.deepEqual(listing(), before, 'nothing is added to the live layer');
     assert.equal(fs.readFileSync(path.join(live, 'labels.json'), 'utf8'), liveLabels);
-    assert.equal(fs.readFileSync(path.join(live, 'reply.md'), 'utf8'), 'live réply');
+    assert.equal(fs.readFileSync(path.join(live, 'turn', 'reply.md'), 'utf8'), 'live réply');
   } finally {
     for (const side of opened) {
       asRecord(side.hot).close();
