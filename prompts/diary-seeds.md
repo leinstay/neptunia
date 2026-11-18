@@ -6,8 +6,8 @@ a balcony
 a hallway
 a desk by the window
 a couch
-a bed under a blanket
-a windowsill
+a bedside alcove
+a window seat
 a rented room
 a stairwell
 an elevator
@@ -28,8 +28,8 @@ a game shop
 a computer repair shop
 an electronics market
 a post office
-a parcel locker
-a bank queue
+a parcel-locker alcove
+a bank waiting area
 a city clinic
 a dentist's chair
 a hospital corridor
@@ -51,12 +51,12 @@ a pier
 a bridge
 an underpass
 a bus stop
-a bus at night
+a bus
 a tram
 a metro carriage
 a metro station
 a train platform
-a night train compartment
+a sleeper train compartment
 a train station waiting room
 a bus station
 an airport gate
@@ -68,7 +68,7 @@ a gas station
 a roadside cafe
 a cafe corner table
 a coffee counter
-a fast food place at night
+a fast food place
 a canteen
 a ramen place
 a pizza place
@@ -90,12 +90,12 @@ a bowling alley
 a billiards room
 a board game cafe
 an escape room
-a gaming chair
+a computer gaming station
 a desk with two monitors
-a streaming setup
+a streaming booth in a media room
 a retro console corner
 a VR play space
-a toy capsule machine
+a toy capsule machine alcove
 a photo booth
 a print shop
 a tattoo studio
@@ -138,7 +138,7 @@ a swamp boardwalk
 a river bank
 a fishing spot
 a campsite
-a campfire
+a clearing with a fire ring
 a tent
 a hammock
 a mountain trail
@@ -149,33 +149,33 @@ a ski slope
 a ski lift
 an ice rink
 a frozen river
-a snowy courtyard
+a courtyard with uneven paving
 a dacha
 a dacha greenhouse
 a vegetable bed
 a village shop
-a hometown street
-a childhood school
-a playground at night
+a quiet residential street
+an old school building
+a playground
 a cemetery
 a church yard
 a monastery wall
 a fortress ruin
-a castle tour
+a castle courtyard
 an old town square
 a narrow old street
 a hostel dorm
 a hostel kitchen
 a cheap hotel room
 a hotel breakfast room
-a rented apartment abroad
+a rented apartment
 a border crossing
 a passport control line
 a duty free shop
 a foreign supermarket
-a foreign train station
+a suburban railway station
 a street food row
-a night market
+a market lane with fixed stalls
 a seaside promenade
 a pebble beach
 a sand dune
@@ -206,116 +206,82 @@ a monument steps
 a city festival
 a street concert
 a fair
-a Christmas market
+a covered market arcade
 a fireworks spot
 a polling station
 a government office
 a passport office
 a notary office
-an IKEA
+a flat-pack furniture store
 a furniture store
 a home improvement store
 a paint aisle
 a moving truck
 an empty new apartment
 a room full of boxes
-a repair in progress
+a room undergoing repairs
 a self-storage unit
-a rooftop at sunset
+a rooftop
 a fire escape
 a back alley
 a loading dock
-a parking lot at night
 a 24-hour laundromat
 a bench by the building
 a garden plot
 a balcony garden
 a cluttered closet
-a drawer of cables
-a desk drawer
-a fridge
-a stove
-an oven
-a sink full of dishes
+a washing-up area beside a sink
 a shower
 a bathtub
-a mirror
-a wardrobe
-a shoe rack
-a coat hook
-a radiator
-a window at night
+a window
 a window in the rain
-a kitchen table at 3 AM
+a kitchen table
 a floor by the bed
-a yoga mat
 a home workout corner
-a treadmill
-a stationary bike
-a punching bag
 a sofa fort of pillows
-a bookshelf
-a record shelf
 a plant corner
-a cat tree
-a fish tank
-a hamster cage
-a terrarium
 a 3D printer desk
 a soldering table
 a sewing table
 a painting easel
-a drawing tablet
-a music keyboard
 a guitar corner
 a home studio
-a podcast mic
-a webcam view
-a game lobby
-a game server
-a speedrun timer
-a pixel art canvas
-a modding folder
-a save file menu
-a character creator
-a ranked match
-a tabletop map
-a dice tray
 a miniature painting desk
 a card game table
 a puzzle on the floor
-a model kit
-a LEGO set
-a crossword
-a sudoku book
-a chess board
-an online chess tab
-a forum thread
-a wiki rabbit hole
-a map app
-a weather app
-a delivery app
-a banking app
-a calendar
-a to-do list
-a notes app
-a photo gallery
-a cloud drive
 a mailbox
-a spam folder
-a voice message
-a comment section
-an old blog
-an old forum account
-an old hard drive
-an old phone
-an old laptop
-a childhood diary
-a shoebox of photos
-a box of old games
+a community center foyer
+a public drinking fountain alcove
+a covered pedestrian passage
+a shared apartment courtyard
+a sheltered market loading area
+a municipal service waiting room
+a repair cafe workbench
+a public library return desk
+a community kitchen
+a neighborhood noticeboard corner
+a charity shop sorting room
+a shoe repair counter
+a tailor's fitting area
+a bakery collection hatch
+a public toilet entrance
+a recycling collection point
+a bottle-return machine alcove
+a tram terminus shelter
+a pedestrian ferry landing
+a station footbridge
+a bicycle parking courtyard
+a public picnic shelter
+a reservoir observation platform
+a canal towpath
+a community orchard
+a flood embankment path
+a village meeting hall
+a visitor center porch
+a decommissioned pumping station
+a maintenance shed open for a public visit
+
 # setting
-a home city
-a hometown
 a small town
 a big city
 a mid-size city
@@ -328,7 +294,7 @@ a suburb
 a village
 a dacha settlement
 a seaside town
-a seaside town off season
+a seaside town with shuttered guesthouses
 a resort town
 a mountain town
 a ski resort
@@ -337,10 +303,8 @@ a river town
 a border town
 a port city
 a capital
-a neighbouring country
-a cheap flight destination
-a city abroad for a weekend
-a city seen first time
+a bilingual border region
+a town near a regional airport
 an old European town
 a busy Asian city
 a quiet northern town
@@ -368,11 +332,8 @@ a swamp
 an island reachable by ferry
 a train route across the country
 a long bus route
-a road trip
-a hitchhiking route
 a cycling route
 a hiking route
-a camping trip
 an abandoned industrial zone
 a closed military town
 a ghost village
@@ -386,128 +347,68 @@ an old spa town
 a monastery town
 a fortress town
 a festival weekend
-a holiday weekend
-a long weekend
-a workday
-a day off
-a weekend
-a vacation
-a week of exams
-a week of deadlines
-a sick week
-a moving week
 a week of rain
-a heatwave
-a cold snap
 a power outage
 a water outage
 a heating outage
-a first snow
-a thaw
-a spring flood
-a dry summer
-a stormy evening
-a windy day
-a foggy morning
-an endless gray week
-a bright winter day
-a long summer evening
-an autumn evening
-a spring morning
-New Year eve
-a birthday
-an anniversary of something small
-the first day of something new
-the last day of something
-a game launch day
-a big game patch day
-a sale season on a game store
+an approaching storm front
+persistent strong wind
+low fog across the area
+persistent low cloud
 a game jam weekend
-a speedrun attempt night
-a modding marathon
-a binge of a series
 a convention weekend
 an anime convention
 a gaming expo
 a museum night
 a city day
 a street festival
-a summer fair
-a winter market
-an online event
 an internet outage
-a phone with a broken screen
-a laptop that will not boot
-a new phone
-a new computer
-a fresh install
-an old save file
-a new game plus
-a long trip home
-a night with no sleep
-a morning after
-a lazy day
-a productive day
-a day of chores
-a day of errands
-a day of waiting
-a day of rain at home
-a stay-home week
-a week out of the house
-a trip planned last minute
-a trip that went wrong
-a trip that went right
-a solo trip
-an overnight trip
-a day trip
-a long journey
-a short walk
-a long walk
-a night walk
-a walk with no goal
-a detour
-a wrong turn
 a lost signal zone
 a place with no internet
 a place with free wifi
-a place with bad weather
-a place with good food
-a cheap place
-an expensive place
+a district under a heavy-rain warning
 a crowded place
 an empty place
 a quiet place
 a loud place
-a familiar place
-a strange place
-a place from childhood
-a place from a game
-a place seen in a photo
-a place from a map
-a place found online
-a place on a forum of urban explorers
 a place marked as closed
 a place behind a fence
 a place with security cameras
-a place that is being demolished
+a site beside ongoing demolition
 a place that is being renovated
 a place that just opened
 a place about to close
-a place visited once before
-a place never visited
-a place visited every day
-a place passed every day and never entered
-a place under the rain
-a place in the snow
-a place in the heat
-a place at night
-a place at dawn
-a place at noon
-a place at dusk
-a place in winter
-a place in spring
-a place in summer
-a place in autumn
+a residential block with shared ground-floor facilities
+a mixed-use street with apartments above shops
+a neighborhood beside a railway embankment
+a district of courtyards linked by passages
+a pedestrian shopping district
+a town center with covered walkways
+a neighborhood around a public hospital
+a district around a ferry terminal
+a market district with service alleys
+a residential area beside a canal
+a village along a through road
+a settlement around a railway station
+a town built on a steep hillside
+a low-lying district protected by flood walls
+a district divided by a ring road
+a suburb beside allotment gardens
+a town where several bus routes terminate
+a district with many workshops and small warehouses
+a public building with several shared services
+a housing complex with communal indoor rooms
+a transport interchange with shops on its lower level
+a shopping arcade beneath apartments
+a municipal recreation complex
+a former industrial site with public access
+a riverside district with working moorings
+a coastal district behind a sea wall
+a rural crossroads with a few public services
+a reservoir district with marked public paths
+a forest recreation area with maintained facilities
+a hillside park bordering ordinary residential streets
+
 # detail
 smells of coffee
 smells of rain
@@ -556,15 +457,12 @@ with a sign saying no entry
 with a camera that may not work
 with a barking dog somewhere
 with a creaking floor
-with a draft from nowhere
-with a strange noise
+with a draft beneath a closed door
+with irregular tapping inside a wall
 with an echo
 with bad wifi
 with no signal
 with one bar of signal
-with a dying phone battery
-with a power bank at 5 percent
-with headphones on
 with music too loud
 with rain on the window
 with the window open
@@ -572,7 +470,6 @@ with the radiator on full
 with the heating off
 with frost on the glass
 with steam on the mirror
-with a cup going cold
 with a plate of leftovers
 with crumbs everywhere
 with a pile of dishes
@@ -582,46 +479,9 @@ with cables everywhere
 with sticky notes everywhere
 with a cat on the keyboard
 with a plant dying
-with a plant finally blooming
-with a new thing still in its box
-with an old thing found again
-with a receipt in a pocket
-with a broken umbrella
-with wet socks
-with a blister
-with a sore back
-with a cold coming on
-with a headache
-with too much caffeine
-with no breakfast
-on an empty stomach
-after a long sleep
-after no sleep
-after a workout
-after a long walk
-after a long game session
-after a hot shower
-before an exam
-before a trip
-after a trip
-in pajamas
-in a hoodie
-in an old t-shirt
-in new shoes
-in borrowed boots
-in too many layers
-in a raincoat
-in sunglasses
-barefoot
-with a backpack
-with a heavy bag
-with a suitcase that has a broken wheel
-with a thermos
-with a flashlight
-with a map that is out of date
-with a paper ticket
-with a printed boarding pass
-with a missed connection
+with a plant bearing open flowers
+with an unopened carton on a delivery shelf
+with a wall map still showing a discontinued bus route
 with a delayed train
 with a cancelled flight
 with a long queue
@@ -638,81 +498,88 @@ next to the tracks
 in the rain shadow of a building
 in a corner
 at a window
-on a bench
+with an empty bench
 on the floor
-on the stairs
-on a windowsill
+with a broad stair landing
+with a deep windowsill
 on a ledge
-on a swing
+with an empty swing
 in a hammock
-in a sleeping bag
-under a blanket
-in a bathtub
 in the dark
-half asleep
-wide awake
-out of breath
-soaked to the skin
-sunburned
-frozen hands
-red cheeks from frost
-with a pocket full of change
-with the last money of the month
-with a refund finally received
-with a discount found
 with a price that went up
-with the wrong size
-with the wrong change
-with a missing piece
-with an extra screw left over
-with an instruction in a foreign language
-with a menu in a foreign language
-with a sign in a foreign language
-with a translation app
+with assembly instructions printed in two languages
+with a menu printed in two languages
+with a sign bearing text in two scripts
 with a tourist map
 with a local bus timetable
 with a ticket machine that eats coins
 with a vending machine that keeps the money
-with a snack from the machine
 with street food
-with homemade food in a container
 with instant noodles
-with a dish tried for the first time
-with a recipe gone wrong
-with a recipe that worked
 with flour everywhere
 with a burnt pan
 with a smoke alarm going off
-with a game loading screen
+with a demo screen displaying a loading bar
 with a patch downloading
 with 99 percent loaded
 with a crash to desktop
-with a corrupted save
-with a lost save
-with an achievement unlocked
-with a boss on its last bar
-with a rare drop
-with a bug that breaks the game
-with a glitch that helps
 with a controller with stick drift
 with a keyboard missing a key
 with a mouse that double-clicks
-with a fan that sounds like a jet
-with a new graphics driver
+with a ventilation fan producing a steady whine
 with a screen that flickers
-with a fresh mod list
-with a mod that breaks everything
-with a cheap headset
-with a great headset
 with no sound
 with the volume at one
+with water ticking into a metal bucket
+with a loose sign tapping against its bracket
+with a strip of sunlight across worn tiles
+with fluorescent tubes humming overhead
+with a sharp smell of disinfectant near the doorway
+with warm air rising from a pavement grille
+with a damp ring beneath a public water dispenser
+with grit gathered along the skirting
+with fresh wheel tracks through a dusty patch
+with a handrail polished smooth in the middle
+with a ceiling fan turning unevenly
+with a torn notice held by one drawing pin
+with a row of numbered hooks and one missing number
+with a faint vibration through the floor
+with rainwater spilling from a blocked gutter
+with a bell audible beyond the next building
+with a public clock stopped between two numbers
+with an insect trapped between two panes of glass
+with the smell of frying onions from a nearby kitchen
+with detergent foam caught beside a drain
+with a stack of identical cups beside a dispenser
+with a chair leg wrapped in repair tape
+with a trail of flour leading to a service door
+with a wet handprint on a glass panel
+with a ventilation grille rattling at intervals
+with pale dust outlining a recently moved cabinet
+with pebbles collected against a wire fence
+with rippled light reflected from nearby water
+with a low branch brushing a metal roof
+with a line of muddy pawprints across the threshold
+with a radio playing in another room
+with a generator humming
+with water dripping somewhere
+with a tram bell in the distance
+with pigeons on the ledge
+lit by a vending machine
+in the blue light of a pool
+with a clock that is wrong
+with chairs stacked on the tables
+with a floor still wet from mopping
+with yesterday's posters half torn off
+with one window propped open by a book
+
 # activity
 cooking dinner
 baking bread
 trying a new recipe
 making pancakes
-making soup for the week
-eating instant noodles at night
+making soup
+preparing instant noodles
 ordering delivery
 grocery shopping
 washing dishes
@@ -720,7 +587,7 @@ doing laundry
 ironing a shirt
 cleaning the whole apartment
 cleaning one drawer
-sorting old clothes
+sorting donated clothes
 throwing old things out
 moving furniture around
 hanging a shelf
@@ -750,21 +617,13 @@ dyeing hair at home
 trying a new hairstyle
 doing a skincare routine
 taking a long bath
-sleeping all day
-napping after lunch
-oversleeping an alarm
-waking up before dawn
-lying awake at night
 reading a book
-rereading an old book
 listening to a podcast
 listening to an album start to finish
 making a playlist
 watching a series in one go
-rewatching an old anime
-watching a film alone
+watching a film
 watching a video essay
-falling into a wiki rabbit hole
 reading an old forum thread
 solving a puzzle
 doing a crossword
@@ -774,14 +633,11 @@ building a LEGO set
 painting miniatures
 drawing
 sketching outside
-writing in a notebook
+using provided writing materials
 writing a short story
 learning a song on guitar
 learning a few words of a language
 taking an online course
-studying for an exam
-cramming all night
-writing a paper
 fixing a computer
 reinstalling the system
 building a PC
@@ -795,11 +651,9 @@ making pixel art
 editing a video
 editing photos
 streaming a game
-playing a horror game with the lights off
-playing an RPG for six hours
+trying a horror-game demo in a darkened booth
+playing an RPG
 starting a new RPG
-finishing a long game
-replaying a childhood game
 playing a visual novel
 playing a retro console
 playing a game from a bundle
@@ -807,14 +661,12 @@ trying a free demo
 speedrunning a level
 grinding for a rare item
 farming resources
-fighting a boss for the tenth time
 exploring a map corner by corner
 hunting for secrets in a game
 collecting every achievement
 building a base in a game
 designing a character
 modding a game
-installing too many mods
 reading patch notes
 waiting for a game to download
 playing a puzzle game
@@ -823,21 +675,17 @@ following a mystery online
 reading true crime
 watching a game tournament
 learning a hard game mechanic
-losing a ranked match
-winning a ranked match by luck
-going for a walk with no goal
-walking home the long way
-walking at night
+walking along a branching footpath
+walking along a lit path
 running in the morning
 running in the rain
-cycling across the city
+cycling on a signed cycle route
 riding a scooter
-skateboarding badly
+skateboarding
 swimming in the pool
 swimming in a lake
 swimming in cold water
 going to the gym
-skipping the gym
 stretching
 doing yoga at home
 climbing at a gym
@@ -847,7 +695,7 @@ camping overnight
 making a campfire
 sleeping in a tent
 skiing
-snowboarding badly
+snowboarding
 ice skating
 sledding
 building a snowman
@@ -856,35 +704,26 @@ kayaking
 riding a rental bike
 driving at night
 learning to drive
-getting lost
-taking a wrong bus
-missing the last metro
-catching the last train
-taking a night train
-taking a long bus trip
-flying somewhere cheap
-packing a suitcase
-unpacking after a trip
+boarding a sleeper train
+boarding an intercity bus
+taking a scheduled flight
+using a baggage-repacking table
 checking into a hostel
 wandering an old town
 visiting a museum
 visiting a castle
 climbing a tower for the view
 trying street food
-buying a souvenir nobody needs
-sending a postcard home
+buying a souvenir
 getting a stamp in a passport
 exploring an abandoned building
 climbing onto a roof
-climbing a ladder that looks unsafe
+inspecting a ladder with a missing rung
 crawling through a hole in a fence
 walking along disused rails
 going into a drainage tunnel with a flashlight
 looking for a forgotten bunker
 photographing ruins
-hiding from a security camera
-running away from a dog
-getting stuck somewhere
 squeezing through a gap
 walking on thin ice
 crossing a river on stones
@@ -897,56 +736,65 @@ watching fireworks
 taking photos of nothing in particular
 feeding pigeons
 petting a street cat
-taking care of a pet
-going to a concert alone
-going to the cinema alone
-singing in a karaoke booth alone
+using an animal-care station
+attending a concert
+attending a cinema screening
+using a karaoke booth
 playing arcade games
 playing pinball
-trying an escape room solo
+trying an escape room
 visiting a flea market
 hunting for cheap old games
 selling old things online
-buying something on impulse
-regretting a purchase
-saving up for something
-counting money until payday
-getting a small win in a lottery
-losing a glove
-finding money on the street
-losing keys
-being locked out
 waiting out the rain under a roof
-getting caught in a storm
-being sick at home
-recovering after a cold
-doing nothing at all
-staring at the ceiling
 deleting old photos
-finding an old diary
-reading old messages
 cleaning up a hard drive
 backing up files
 setting up a new phone
-breaking a phone screen
 reorganizing a desk
 rearranging a room
 decorating for a holiday
-celebrating alone
-making a wish list
-making a plan and dropping it
-starting a hobby
-forgetting a hobby
+borrowing a board game from a public shelf
+using a public telescope
+checking a local walking map
+trying a mechanical exhibit
+listening at an oral-history station
+browsing a community book exchange
+sorting objects at a volunteer collection table
+using a public sewing machine
+repairing a puncture at a bicycle stand
+filling a bottle at a public tap
+comparing samples at a materials counter
+testing a musical instrument in a practice booth
+joining an open craft demonstration
+using a communal workbench
+reading notices on a neighborhood board
+following a marked nature trail
+watching boats pass through a lock
+using a birdwatching hide
+examining objects in a handling collection
+trying a public table-tennis table
+using a coin-operated massage chair
+browsing unclaimed items at a public sale
+assembling a paper model from a supplied template
+trying a hand-operated printing press
+listening to a street performance
+checking access notices at a closed gate
+using a sheltered picnic table
+browsing a plant exchange
+operating a model railway display
+taking a marked alternative route around an obstruction
+
 # subject
 a cat
 a stray dog
 a pigeon
 a crow
 a hedgehog
-a spider in the bathroom
+a spider in a wall corner
 a moth near the lamp
-a fly that will not leave
-a mosquito at night
+a fly on a window frame
+a mosquito beside a vent
 a plant
 a cactus
 a houseplant from the market
@@ -970,7 +818,7 @@ an umbrella
 a raincoat
 rubber boots
 sneakers
-a winter jacket
+a jacket on a lost-property rail
 a scarf
 a hoodie
 a backpack
@@ -1000,7 +848,6 @@ a cartridge
 a game disc
 a game box
 a game manual
-a save file
 a memory card
 a character sheet
 a set of dice
@@ -1079,7 +926,7 @@ a staircase
 a tunnel
 a bunker door
 a rusty sign
-a graffiti
+a patch of graffiti
 a broken window
 a crane
 a water tower
@@ -1113,10 +960,7 @@ rain
 snow
 heat
 frost
-a smell
-a sound
 a song
-a melody stuck in the head
 a game soundtrack
 a podcast episode
 a book
@@ -1129,234 +973,116 @@ a video
 a meme
 an old photo
 a screenshot
-a message never sent
-a note to self
 a to-do list
 a calendar
 a clock
 an alarm
 a timer
-a calendar reminder
-a password
-a login error
-a bug
 an error message
 a blue screen
-an update
-a patch
-a mod
-a level
-a boss
-a dungeon
-a quest
-a side quest
-a hidden room in a game
-an easter egg
-an achievement
 a leaderboard
-a speedrun record
-a glitch
-a rare item
-a loot box
-an inventory
-a skill tree
-a character build
-a map of a game world
-a mystery clue
+a poster map of a game world
 a coded message
 a forum post
 a wiki page
-an abandoned website
-an old blog
-a broken link
 a QR code on a wall
+a cleaner with a wheeled supply cart
+a delivery worker beside stacked crates
+a caretaker with a ring of labeled keys
+a vendor behind a folding table
+a repair technician beside an open service panel
+a librarian at a returns trolley
+a bus driver beside a parked bus
+a volunteer at an information table
+a street musician beside an open instrument case
+a gardener beside a wheelbarrow
+a security guard at a side entrance
+a maintenance crew behind temporary barriers
+a group of visitors beside a guide map
+two neighbors at a shared noticeboard
+a dog walker beside a public water bowl
+a pigeon with nesting material in its beak
+a dog tethered beside a shop entrance
+a snail on a damp handrail
+a nest beneath a roof overhang
+a moth resting on a payment terminal
+a dropped shopping list
+a pair of gloves on a public radiator
+a child's drawing taped to a service window
+a parcel with a torn address label
+a row of repaired umbrellas
+a crate of free plant cuttings
+a hand-painted temporary direction sign
+a bucket collecting water from a ceiling leak
+a trolley with one jammed wheel
+a sealed envelope caught beneath a door
+
 # twist
-at night
-at dawn
-at dusk
-at noon
-at 3 AM
-at 5 AM
-right before sleep
-right after waking up
-during lunch
-on a Monday
-on a Friday evening
-on a Sunday morning
-on payday
-the day before payday
 in fog
 in rain
-in snow
-in a heatwave
-in a frost
 in wind
 in a thunderstorm
-during an outage
-during a holiday
-during exams
-during a move
-while sick
-while hungry
-while sleepy
-while bored
-while in a good mood
-while in a bad mood
-while waiting for something
-while procrastinating
-while the internet is down
-with no plan
-on a whim
-by accident
-by mistake
-for the first time
-for the last time
-for the hundredth time
-after a long break
-after giving up once
-after reading a guide
-without reading the instructions
-against common sense
-against the forecast
-on a dare to self
-on a tiny budget
-for free
-for far too much money
-in a hurry
-very slowly
+during a power cut
+the internet is down
 in silence
-with music on
-with a podcast on
-with the TV on in the background
-half-heartedly
-with full focus
-with too much enthusiasm
-with low expectations
-with high expectations
-and it went better than expected
-and it went worse than expected
-and nothing happened
-and something small went wrong
-and something small went right
-and it took all day
-and it took five minutes
-and it was not worth it
-and it was worth it
-and it ended in laughing alone
-and it ended in a small injury
-and it ended with getting lost
-and it ended with getting soaked
-and it ended with a nap
-and it ended with food
-and it ended with a new idea
-and it ended with a question
-and it got abandoned halfway
-and it is still unfinished
-and it is finally finished
-and it broke
-and it got fixed
-and it got fixed by hitting it
-and it worked on the third try
-and the save got lost
-and the battery died
-and the phone fell
-and the bus left
-and the shop was closed
-and the place was closed
-and the place was not there anymore
-and the place was better than in photos
-and the place was worse than in photos
-and a security light switched on
-and a dog appeared
-and a cat appeared
-and it started raining
-and the sun came out
-and the lights went out
-and the wifi came back
-and there was a strange noise
-and there was a strange smell
-and there was an echo
-and a door would not open
-and a door opened by itself
-and something was found
-and something was lost
-and something was bought
-and something was thrown away
-and something was learned
-and something was forgotten
-and something was broken
-and something was remembered from childhood
-and it reminded of a game
-and it looked like a level from a game
-and it felt like a horror game
-and it felt like a cutscene
-and it felt like a side quest
-and it felt like a tutorial
-and it felt like a boss fight
-and it felt like a loading screen
-as a review of something ordinary
-as a list
-as a complaint
-as a confession
-as a small victory
-as a small defeat
-as a report
-as a question to nobody
-as a note for later
-as a memory
-as a dream
-as a plan
-as an excuse
-as a recipe
-as a travel log
-as a game log
-as a patch note for real life
-as an achievement unlocked
-as a quest log entry
-as a weather report
-as a shopping list
-as a to-do list never done
-in a few words
-in great detail
-from far away
-up close
-from above
-from below
-through a window
-through a phone camera
-through a dirty glass
-through steam
-in reflection
-in silhouette
-in one shot
-blurry
-too dark to see
-overexposed
-crooked
-from the floor
-from a bed
-from a roof
-from a train window
-from a plane window
-from a bus window
-from behind a fence
-from inside a tunnel
-from the top of a ladder
-from the bottom of the stairs
-while walking
-while lying down
-while eating
-while waiting
-while running
-while shivering
-while laughing
-while annoyed
-while proud
-while tired
-while calm
-while nervous
-while curious
-while lost
-quietly
-loudly
-alone
+music plays somewhere
+a TV plays in the background
+the bus has just left
+the shop is closed
+the place is closed
+the place is gone and something else stands there
+a security light switches on
+a dog wanders in
+a cat wanders in
+rain starts
+the sun comes out
+the lights go out
+a strange noise comes from somewhere
+a strange smell hangs in the air
+a door will not open
+a door swings open by itself
+a street musician starts playing
+a delivery arrives for someone who is not there
+an announcement comes over a loudspeaker
+a fire alarm is being tested
+a film crew is shooting nearby
+the place closes in ten minutes
+the place has only just opened
+a market is being set up
+a market is being packed away
+a wedding party passes through
+a procession passes on the street
+a tour group fills the room
+a school class is on a visit
+fog rolls in
+the tide is out
+the tide is coming in
+a flock of birds lands
+someone has left a bag on a bench
+a note is pinned to the door
+music comes from an open window
+the only other visitor is asleep
+the elevator is out of order
+the road is closed for repairs
+a queue has formed for no visible reason
+the power comes back on
+a train passes close by
+a siren goes past
+church bells ring
+a thunderclap sets off car alarms
+somebody is moving house on the same floor
+workers are putting up scaffolding
+a cleaner is mopping the floor
+a guard makes a round
+a stray ball rolls in
+a child's balloon is caught overhead
+a vending machine has been restocked
+the last table is taken
+half the lights are switched off
+a window is being repaired
+a sprinkler turns on
+a wind picks up loose paper
+the water has been cut off
+a cat is asleep in the warmest spot
+a notice says the place closes for good this week
+somebody nearby is rehearsing a speech
