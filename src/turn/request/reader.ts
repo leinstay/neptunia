@@ -26,7 +26,7 @@ import type { MeanwhileReads, MeanwhileWindow } from './meanwhile.ts';
 import {
   MEMORY_SUBTAGS,
   factItemsOf,
-  heartbeatItemsOf,
+  serviceItemsOf,
   memoryItemsOf,
   printOrder,
   renderMemory,
@@ -61,7 +61,7 @@ import {
   shownName,
   withPlaces,
 } from './text.ts';
-import { ACTIVITY_DAYS } from '../../memory/db/heartbeat-lists.ts';
+import { ACTIVITY_DAYS } from '../../memory/db/service-lists.ts';
 import type {
   Fit,
   HandleTarget,
@@ -673,7 +673,7 @@ function offeredOf(given: ReaderInput): Offered {
   const innerParts = innerNamed(given.inner, names.placeNamed);
   const { heartbeat = null } = given;
   const items = heartbeat
-    ? heartbeatItemsOf(
+    ? serviceItemsOf(
         heartbeat,
         frame,
         labels,

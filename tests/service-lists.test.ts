@@ -1,8 +1,8 @@
-// The people and the places a heartbeat lists (src/memory/db/heartbeat-lists.ts), read on a memory database built with
+// The people and the places the service collector lists (src/memory/db/service-lists.ts), read on a memory database built with
 // the real schema (tests/fixtures/memory-db/mind-world.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { heartbeatListsOf } from '../src/memory/db/heartbeat-lists.ts';
+import { serviceListsOf } from '../src/memory/db/service-lists.ts';
 import {
   ELENI,
   MIRROR,
@@ -13,14 +13,14 @@ import {
   describeSubject,
   heartbeatWorld,
 } from './fixtures/service-turn.ts';
-import { addLine } from './fixtures/memory-db/mind-world.ts';
+import { addAttitude, addClaim, addLine } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 
 test('reads every live chat, a group room and a direct chat, on the real schema of places', () => {
   // Bug: a scope clause names columns `places` does not have (`scope_iface`) and the read throws on a real database.
   const world = heartbeatWorld();
   try {
-    const { people, places } = heartbeatListsOf(world.db, TURN_NOW);
+    const { people, places } = serviceListsOf(world.db, TURN_NOW);
     const ids = places.map((one) => one.placeId);
     assert.ok(ids.includes(YARD), ids.join(' '));
     assert.ok(ids.includes('fake:dm:5678'), ids.join(' '));
@@ -66,15 +66,15 @@ type LineSpec = {
 };
 
 /** The lists of `world` at the turn's moment, the world closed after. */
-function listsOf(world: World): ReturnType<typeof heartbeatListsOf> {
+function listsOf(world: World): ReturnType<typeof serviceListsOf> {
   try {
-    return heartbeatListsOf(world.db, TURN_NOW);
+    return serviceListsOf(world.db, TURN_NOW);
   } finally {
     world.close();
   }
 }
 
-const personOf = (lists: ReturnType<typeof heartbeatListsOf>, id: string) =>
+const personOf = (lists: ReturnType<typeof serviceListsOf>, id: string) =>
   lists.people.find((one) => one.personId === id);
 
 test('a person she answered by a reply who answered her back reads as answered with the date', () => {
@@ -218,4 +218,53 @@ test('a quiet group place and a direct chat carry no topics', () => {
   const dm = places.find((one) => one.placeId === ELENI_DM);
   assert.equal(dm?.lines, 1);
   assert.equal(dm?.topics, null);
+});
+
+test('a person carries the real name, the aliases, the account names and the attitude with its two latest changes', () => {
+  // Bug: the service collector reads only the band of the attitude and the first account, so a heartbeat knows less of
+  // a person than a reply turn does and words it differently.
+  const world = heartbeatWorld();
+  world.db.prepare('UPDATE people SET real_name = ? WHERE id = ?').run(JSON.stringify(['Νικόλαος']), NIKOS);
+  addClaim(world.db, { id: 'alias:n1', person: NIKOS, kind: 'alias', text: 'Νικ', audience: { group: 'fake' } });
+  for (const [id, ago, applied, reason] of [
+    ['aff:n2', 3, 5, 'ΛΟΓΟΣ-ΔΥΟ'],
+    ['aff:n3', 1, -2, 'ΛΟΓΟΣ-ΤΡΙΑ'],
+  ] as const)
+    addAttitude(world.db, {
+      id,
+      person: NIKOS,
+      at: iso(ago * DAY),
+      applied,
+      score: 40 + applied,
+      reason,
+      audience: { group: 'fake' },
+    });
+  const nikos = personOf(listsOf(world), NIKOS);
+  assert.equal(nikos?.realName, 'Νικόλαος');
+  assert.deepEqual(
+    nikos?.claims.map((one) => one.text),
+    ['Νικ']
+  );
+  assert.deepEqual(
+    nikos?.profileAccounts.map((one) => one.platformId),
+    ['222']
+  );
+  const attitude = nikos?.attitude;
+  assert.equal(attitude?.reason, 'ΛΟΓΟΣ-ΤΡΙΑ');
+  assert.equal(attitude?.score, 38);
+  assert.deepEqual(
+    attitude?.moves.map((one) => one.reason),
+    ['ΛΟΓΟΣ-ΤΡΙΑ', 'ΛΟΓΟΣ-ΔΥΟ']
+  );
+});
+
+test('a person carries the stored character and manner of speech, and null where none is stored', () => {
+  // Bug: the collector never reads them, so none of the people a heartbeat draws carries them.
+  const world = heartbeatWorld();
+  describeSubject(world, 'desc:n-char', 'person', NIKOS, 'character', 'ΧΑΡΑΚΤΗΡΑΣ-ΝΙΚΟΥ');
+  describeSubject(world, 'desc:n-style', 'person', NIKOS, 'style', 'ΤΡΟΠΟΣ-ΝΙΚΟΥ');
+  const lists = listsOf(world);
+  assert.equal(personOf(lists, NIKOS)?.character, 'ΧΑΡΑΚΤΗΡΑΣ-ΝΙΚΟΥ');
+  assert.equal(personOf(lists, NIKOS)?.style, 'ΤΡΟΠΟΣ-ΝΙΚΟΥ');
+  assert.equal(personOf(lists, ELENI)?.character, null);
 });

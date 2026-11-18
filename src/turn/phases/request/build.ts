@@ -748,9 +748,15 @@ function serviceInputsOf(
   };
 }
 
-/** How many people and how many places a heartbeat lists at most. */
-const HEARTBEAT_PEOPLE = 50;
-const HEARTBEAT_PLACES = 100;
+/** How many people and how many places the service collector lists at most. */
+const SERVICE_PEOPLE = 30;
+const SERVICE_PLACES = 60;
+
+/**
+ * How many of the listed people carry their character and manner of speech. These two descriptions are the longest
+ * texts of a person, so carrying them for everyone listed would take most of the request.
+ */
+const SERVICE_DESCRIBED = 3;
 
 /** `items` in an order drawn with `rng`, cut to `cap`, and how many the cut left out. */
 function drawnOf<T>(items: ReadonlyArray<T>, cap: number, rng: () => number): { kept: Array<T>; leftOut: number } {
@@ -759,8 +765,9 @@ function drawnOf<T>(items: ReadonlyArray<T>, cap: number, rng: () => number): { 
 }
 
 /**
- * The inputs of a heartbeat: the people and the places memory holds as `<memory>` (heartbeat-lists.ts), each list in an
- * order drawn with the turn's `rng` and cut to its cap, and its fragments drawn from `prompts['heartbeat-seeds']`, read
+ * The inputs of a heartbeat: the people and the places of the service collector as `<memory>` (service-lists.ts), each
+ * list in an order drawn with the turn's `rng` and cut to its cap, `SERVICE_DESCRIBED` of the people drawn to carry
+ * their character and manner of speech, and its fragments drawn from `prompts['heartbeat-seeds']`, read
  * as herself. No `<meanwhile>`, no mind of the graph reader and no lookups. A failed read of the lists fails the turn,
  * as any broken read does.
  */
@@ -775,9 +782,17 @@ function heartbeatInputsOf(
   const { prompts } = ctx.hot;
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
   if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups: [] };
-  const lists = reads.heartbeatLists?.(now) ?? { people: [], places: [] };
-  const people = drawnOf(lists.people, HEARTBEAT_PEOPLE, ctx.rng);
-  const places = drawnOf(lists.places, HEARTBEAT_PLACES, ctx.rng);
+  const lists = reads.serviceLists?.(now) ?? { people: [], places: [] };
+  const people = drawnOf(lists.people, SERVICE_PEOPLE, ctx.rng);
+  const places = drawnOf(lists.places, SERVICE_PLACES, ctx.rng);
+  // Drawn among the people who have either description, so a person with neither takes no place of one who has them.
+  const described = new Set(
+    drawnOf(
+      people.kept.filter((one) => one.character !== null || one.style !== null),
+      SERVICE_DESCRIBED,
+      ctx.rng
+    ).kept
+  );
   const refLineOf: LineOf = (key) => {
     const line = reads.line(memoryContext, key);
     return line ? { ...line, messageId: line.id } : null;
@@ -790,7 +805,7 @@ function heartbeatInputsOf(
     refLineOf,
     chatIdOf: chatIdReader(reads),
     heartbeat: {
-      people: people.kept,
+      people: people.kept.map((one) => (described.has(one) ? one : { ...one, character: null, style: null })),
       places: places.kept,
       leftOut: { people: people.leftOut, places: places.leftOut },
       fragments: drawFragments(prompts?.['heartbeat-seeds'], ctx.rng),

@@ -35,7 +35,8 @@ import { indexWords } from '../record-index.ts';
 import { graphNodeId } from './graph.ts';
 import { SELF_PERSON } from './ids.ts';
 import { personNamesOf, profileAccountsOf } from './meta-person.ts';
-import { interestClaimsOf, storedAvatarOf, usualNameOf } from './person-fields.ts';
+import { attitudeOf, interestClaimsOf, storedAvatarOf, usualNameOf } from './person-fields.ts';
+import type { Attitude } from './person-fields.ts';
 import type { PersonAccount, ProfileAccount } from './meta-person.ts';
 import { IS_WRITTEN_ROW, LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND } from './source-current.ts';
 import { loadStemmer } from './stems.ts';
@@ -67,8 +68,6 @@ type EntryBase = {
   anchorMessageId: string | null;
   sources: Array<EntrySource>;
 };
-/** One change of her attitude toward a person: the applied change, when it was stored and why. */
-export type AttitudeMove = { delta: number; at: string; reason: string | null };
 export type PersonEntry = EntryBase & {
   personId: string;
   name: string | null;
@@ -79,7 +78,7 @@ export type PersonEntry = EntryBase & {
    * `affinity_events` (never `people.affinity`) and the newest changes, newest first, at most `attitudeMoves` of them.
    * `delta` is the applied change, `at` the stored ISO string. Null when the context reads no change.
    */
-  attitude: { score: number; reason: string | null; moves: ReadonlyArray<AttitudeMove> } | null;
+  attitude: Attitude | null;
   /** The account row ids she knows the person through. */
   accounts: Array<string>;
   /** Every account of `accounts` that has a row, with its interface and platform id, in id order. */
@@ -959,28 +958,6 @@ type Built = {
   render: (detail: Detail) => string;
 };
 
-/** Her attitude toward a person under the walker's context: the newest change's score and reason, and the newest moves. */
-function attitudeOf(db: Db, walker: Walker, personId: string, settings: MindSettings): PersonEntry['attitude'] {
-  const audience = walker.aud('e');
-  const rows = db
-    .prepare(
-      `SELECT e.at, e.applied, e.score, e.reason FROM affinity_events e
-       WHERE e.person_id = ? AND e.retired_at IS NULL AND ${audience.sql}
-       ORDER BY e.at DESC, e.id DESC LIMIT ?`
-    )
-    .all(personId, ...audience.params, Math.max(1, Math.floor(settings.attitudeMoves)));
-  const [newest] = rows;
-  if (!newest || typeof newest.score !== 'number') return null;
-  const moves = rows
-    .slice(0, Math.floor(settings.attitudeMoves))
-    .flatMap((row) =>
-      typeof row.applied === 'number' && typeof row.at === 'string'
-        ? [{ delta: row.applied, at: row.at, reason: text(row.reason) }]
-        : []
-    );
-  return { score: newest.score, reason: text(newest.reason), moves };
-}
-
 /** The text the budget weighs for a person's entry at `detail`: the heading, then what the detail adds. */
 function personRender(entry: PersonEntry, detail: Detail): string {
   // The facts every detail prints (src/turn/request/memory-block.ts#personText): names, accounts with their avatars,
@@ -1055,7 +1032,7 @@ function personOf(
     name: accountRows.flatMap((row) => namesIn(row.names))[0] ?? null,
     realName: namesIn(person.real_name)[0] ?? null,
     affinity: typeof person.affinity === 'number' ? person.affinity : null,
-    attitude: attitudeOf(db, walker, personId, settings),
+    attitude: attitudeOf(db, walker.aud('e'), personId, settings.attitudeMoves),
     accounts,
     platformAccounts: accountRows.flatMap((row) =>
       typeof row.iface === 'string' && typeof row.native_id === 'string'
