@@ -81,7 +81,7 @@ A `reply` and an `errand_result` are built on the frame by `framedBuild` in `src
 | Block | Producer | What it reads |
 |---|---|---|
 | `<surroundings>` | `surroundingsOf` in `src/turn/request/surroundings.ts` | The frame's place and root, their stored fields and the interface's name and nouns (`placeFieldsOf` and `interfaceNamesOf` in `src/memory/db/frame-reads.ts`) |
-| `<memory>` | `memoryItemsOf`, `printOrder` and `renderMemory` in `src/turn/request/memory-block.ts` | What `mindOf` in `src/memory/db/mind-read.ts` raises from the window, the counterpart, the place and the prefetch's finds. A heartbeat's comes from `heartbeatItemsOf` in the same file over the people and places `heartbeatListsOf` in `src/memory/db/heartbeat-lists.ts` reads |
+| `<memory>` | `memoryItemsOf`, `printOrder` and `renderMemory` in `src/turn/request/memory-block.ts` | What `mindOf` in `src/memory/db/mind-read.ts` raises from the window, the counterpart, the place and the prefetch's finds. A heartbeat's comes from `serviceItemsOf` in the same file over the people and places `serviceListsOf` in `src/memory/db/service-lists.ts` reads |
 | `<found>` | `memoryItemsOf`, `factItemsOf` and `subtagBody` in `src/turn/request/memory-block.ts` | The graph reader's excerpts (`mind.found`) and the stored facts the prefetch found |
 | `<recall>` | `recallBlockOf` in `src/turn/request/recall-block.ts` | The ring of her lookups, `createLookupRing` in `src/turn/calls.ts` |
 | `<inner>` | `innerBlockOf` in `src/turn/request/inner-block.ts` | Her day, intentions, errands, untold facts and previous think |

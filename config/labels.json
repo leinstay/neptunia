@@ -340,9 +340,7 @@
         "audience-malformed": "it held something other than one listed token, or two different ones"
       }
     },
-    "heartbeat": {
-      "fragments": "Loose fragments, drawn at random for this wake. They are examples. They set you no task and they do not list what you may do. A fragment may suggest something, change shape, join another, or be of no use this time. Invent no need of anyone and no debt of your own to fit one.",
-      "attitude": "your attitude: {band}",
+    "service": {
       "lastSeen": "last wrote {date}",
       "lastSeenIn": "last wrote {date} in {place}",
       "dm": "has a direct chat with you",
@@ -355,8 +353,10 @@
       "approachWrote": "they wrote there after it {date}",
       "approachAnswered": "they answered it {date}",
       "approachNone": "no line of theirs there is recorded within a day after it",
-      "approachNoneDirect": "they have not written there since",
-      "interests": "into: {topics}",
+      "approachNoneDirect": "they have not written there since"
+    },
+    "heartbeat": {
+      "fragments": "Loose fragments, drawn at random for this wake. They are examples. They set you no task and they do not list what you may do. A fragment may suggest something, change shape, join another, or be of no use this time. Invent no need of anyone and no debt of your own to fit one.",
       "notice": {
         "lead": "{id} lists related past activity, nearest first:",
         "line": "{date}, in {place}, you wrote: {text}",

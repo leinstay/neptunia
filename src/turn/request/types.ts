@@ -22,7 +22,7 @@ import type { MediaCache, MediaLookup } from './emoji-gifs.ts';
 import type { DiaryInput } from './diary.ts';
 import type { Whereabouts } from './spatial.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
-import type { ListedPerson, ListedPlace } from '../../memory/db/heartbeat-lists.ts';
+import type { ListedPerson, ListedPlace } from '../../memory/db/service-lists.ts';
 
 /**
  * What a heartbeat lists and draws: the people and the places in their drawn order, each cut to its cap, how many of
@@ -120,8 +120,10 @@ export type Labels = {
   readonly draw?: LabelGroup;
   readonly spatial?: SpatialLabels;
   readonly memory?: MemoryLabels;
-  /** A heartbeat's lists and the words above its fragments (src/turn/request/memory-block.ts#heartbeatItemsOf). */
+  /** The words above a heartbeat's fragments and of the notice before its intention. */
   readonly heartbeat?: LabelGroup;
+  /** The words of the service collector's lists (src/turn/request/memory-block.ts#serviceItemsOf). */
+  readonly service?: LabelGroup;
   readonly surroundings?: SurroundingsLabels;
   readonly recall?: LabelGroup;
   readonly meanwhile?: LabelGroup;

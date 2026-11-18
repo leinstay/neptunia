@@ -288,7 +288,8 @@ export const labels = {
   },
   heartbeat: {
     fragments: 'fragments:',
-    attitude: 'attitude: {band}',
+  },
+  service: {
     lastSeen: 'seen {date}',
     lastSeenIn: 'seen {date} in {place}',
     dm: 'dm',

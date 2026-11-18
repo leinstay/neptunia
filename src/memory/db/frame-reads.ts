@@ -39,8 +39,8 @@ import type { PastEntry } from './diary-past.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 import { placeLineNumbers } from './chat-lines.ts';
-import { heartbeatListsOf } from './heartbeat-lists.ts';
-import type { HeartbeatLists } from './heartbeat-lists.ts';
+import { serviceListsOf } from './service-lists.ts';
+import type { ServiceLists } from './service-lists.ts';
 import { ownIntentionsOf, pastActsOf } from './past-acts.ts';
 import { opensPrivate } from '../open-private.ts';
 import type { OwnIntention, PastAct } from './past-acts.ts';
@@ -793,8 +793,8 @@ export type FrameReads = {
   affinityChanges?(ctx: Context, personId: string, limit: number): Array<AffinityChange>;
   /** A place's count of lines and the numbers of its newest `newest` lines (chat-lines.ts#placeLineNumbers). */
   placeLines?(placeId: string, newest: number): PlaceLineNumbers;
-  /** The people and the places a heartbeat lists (heartbeat-lists.ts#heartbeatListsOf). */
-  heartbeatLists?(now: number): HeartbeatLists;
+  /** The people and the places a heartbeat lists (service-lists.ts#serviceListsOf). */
+  serviceLists?(now: number): ServiceLists;
   /** Her newest intentions, open and archived (past-acts.ts#ownIntentionsOf). */
   ownIntentions?(limit: number): Array<OwnIntention>;
   /** Her lines and intentions near a purpose's vector (past-acts.ts#pastActsOf). */
@@ -871,7 +871,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     affinityChanges: (ctx, personId, limit) => over([], (db) => affinityChangesOf(db, ctx, { personId, limit })),
     placeLines: (placeId, newest) =>
       over<PlaceLineNumbers>({ count: 0, numbers: new Map() }, (db) => placeLineNumbers(db, placeId, newest)),
-    heartbeatLists: (now) => over({ people: [], places: [] }, (db) => heartbeatListsOf(db, now)),
+    serviceLists: (now) => over({ people: [], places: [] }, (db) => serviceListsOf(db, now)),
     ownIntentions: (limit) => over([], (db) => ownIntentionsOf(db, limit)),
     pastActs: (input) => over([], (db) => pastActsOf(db, { ...input, openPrivate: opensPrivate(configOf()) })),
   };

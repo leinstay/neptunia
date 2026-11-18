@@ -1,15 +1,18 @@
-// The people and the places a heartbeat lists in `<memory>` (src/turn/phases/request/build.ts): every person memory
-// holds something about who has an account, and every live chat she can write in that is no mirror of her diary, each
-// with what its line says. A place's activity counts people's lines of the last `ACTIVITY_DAYS` days, one statement per
+// The service collector: the people and the places a service turn lists in `<memory>` (src/turn/phases/request/build.ts),
+// every person memory holds something about who has an account, and every live chat the persona can write in that is no
+// mirror of the diary. A person carries the facts every entry of `<people>` prints (src/turn/request/memory-block.ts),
+// their stored character and manner of speech, and what only this collector reads; a place carries what its line says. A place's activity counts people's lines of the last `ACTIVITY_DAYS` days, one statement per
 // place over the range of `sources_place_time`, so no read walks a place. A heartbeat runs nowhere and reads as herself
 // (`internal`, src/turn/inputs.ts#turnContextOf), so these reads apply no scope: every row is hers to read. A person's
 // approach is her last line addressed to them and a place's answers count the lines that answer her last line there,
 // what followed each read as the notice reads it (src/memory/db/past-acts.ts#followOf). Read only; it makes no model
 // request.
 
-import { interestClaimsOf } from './person-fields.ts';
-import { strongestAttitudesOf } from './frame-reads.ts';
+import { aliasClaimsOf, attitudeOf, interestClaimsOf } from './person-fields.ts';
+import type { Attitude } from './person-fields.ts';
 import { dmOfAccount, personNamesOf, profileAccountsOf } from './meta-person.ts';
+import type { ProfileAccount } from './meta-person.ts';
+import { namesIn } from './names.ts';
 import { mirrorPlaces } from './mirrors.ts';
 import { PERSONA_ID } from './ids.ts';
 import { followOf } from './past-acts.ts';
@@ -19,26 +22,33 @@ import type { Db } from './types.ts';
 /** How many days back a place's activity counts. */
 export const ACTIVITY_DAYS = 7;
 
-/** How many interests a person's line names. */
+/** How many interests a person's entry names, and how many attitude changes, as a reply entry does by default. */
 const LISTED_INTERESTS = 5;
+const ATTITUDE_MOVES = 2;
 
 const DAY_MS = 86_400_000;
 
-/** A person as a heartbeat lists them. Every moment is epoch ms; a field memory holds nothing of is null. */
+/** A person as the service collector lists them. Every moment is epoch ms; a field memory holds nothing of is null. */
 export type ListedPerson = {
   personId: string;
   name: string | null;
-  /** Her stored description of what the person is to her (`relationship`). */
+  realName: string | null;
+  /** The open aliases of the person, by claim id. */
+  claims: Array<{ id: string; kind: string; text: string }>;
+  /** Every user account of the person on every interface, with its names. */
+  profileAccounts: Array<ProfileAccount>;
+  /** The persona's stored description of what the person is to them (`relationship`). */
   relation: string | null;
-  /** The score of her newest attitude change, null when it is neutral or there is none. */
-  score: number | null;
+  /** The stored descriptions of the person's character and manner of speech. */
+  character: string | null;
+  style: string | null;
+  /** The newest attitude change with its reason and the latest `ATTITUDE_MOVES` changes. */
+  attitude: Attitude | null;
   lastSeenAt: number | null;
   /** The place of their newest line when it lies inside the activity window, null otherwise. */
   lastPlaceId: string | null;
   /** Their direct chat with her and the moment of its newest line, null when none is stored. */
   dm: { placeId: string; lastAt: number | null } | null;
-  /** Every account of the person by interface and platform id, where a handle may mention them. */
-  accounts: Array<{ iface: string; native: string }>;
   /**
    * Her last line addressed to them in a listed chat, whether it stands in their direct chat, and their first line
    * after it with whether it answers hers by `reply_to` (followedOf), null when none is recorded; null when she never
@@ -50,7 +60,7 @@ export type ListedPerson = {
   interests: Array<string>;
 };
 
-/** A place as a heartbeat lists it. */
+/** A place as the service collector lists it. */
 export type ListedPlace = {
   placeId: string;
   /** Her stored description of what the place is for (`purpose`). */
@@ -66,7 +76,7 @@ export type ListedPlace = {
   ownAnswers: number | null;
 };
 
-export type HeartbeatLists = { people: Array<ListedPerson>; places: Array<ListedPlace> };
+export type ServiceLists = { people: Array<ListedPerson>; places: Array<ListedPlace> };
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null);
 
@@ -231,15 +241,17 @@ function knownPersonIds(db: Db): Array<string> {
     });
 }
 
-/** The person row of an id: its last seen moment, null for a retired or merged person. */
-function livePerson(db: Db, personId: string): { lastSeenAt: number | null } | null {
+/** The person row of an id: its last seen moment and real name, null for a retired or merged person. */
+function livePerson(db: Db, personId: string): { lastSeenAt: number | null; realName: string | null } | null {
   const row = db
     .prepare(
-      `SELECT p.last_seen_at FROM people p WHERE p.id = ? AND p.retired_at IS NULL
+      `SELECT p.last_seen_at, p.real_name FROM people p WHERE p.id = ? AND p.retired_at IS NULL
          AND NOT EXISTS (SELECT 1 FROM people_merges m WHERE m.from_person = p.id)`
     )
     .get(personId);
-  return row === undefined ? null : { lastSeenAt: momentOf(row.last_seen_at) };
+  return row === undefined
+    ? null
+    : { lastSeenAt: momentOf(row.last_seen_at), realName: namesIn(row.real_name)[0] ?? null };
 }
 
 /** Whether an account is a person's own, no bot's and no shared one. */
@@ -289,8 +301,8 @@ function followedOf(
   return out;
 }
 
-/** The people and the places of a heartbeat at `now`, in id order. */
-export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
+/** The people and the places of a service turn at `now`, in id order. */
+export function serviceListsOf(db: Db, now: number): ServiceLists {
   const since = new Date(now - ACTIVITY_DAYS * DAY_MS).toISOString();
   const purposes = fieldTexts(db, 'place', 'purpose');
   const topics = fieldTexts(db, 'place', 'topics');
@@ -320,8 +332,9 @@ export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
     };
   });
   const relations = fieldTexts(db, 'person', 'relationship');
+  const characters = fieldTexts(db, 'person', 'character');
+  const styles = fieldTexts(db, 'person', 'style');
   const ids = knownPersonIds(db);
-  const scores = new Map(strongestAttitudesOf(db, internalContext(), ids.length).map((one) => [one.person, one.score]));
   const names = personNamesOf(db, ids);
   const listed = ids.flatMap((personId) => {
     const person = livePerson(db, personId);
@@ -351,12 +364,16 @@ export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
     return {
       personId,
       name: names[personId] ?? null,
+      realName: person.realName,
+      claims: aliasClaimsOf(db, audienceWhere(internalContext(), 'c'), personId),
+      profileAccounts: accounts,
       relation: relations.get(personId) ?? null,
-      score: scores.get(personId) ?? null,
+      character: characters.get(personId) ?? null,
+      style: styles.get(personId) ?? null,
+      attitude: attitudeOf(db, audienceWhere(internalContext(), 'e'), personId, ATTITUDE_MOVES),
       lastSeenAt: seen?.at ?? person.lastSeenAt,
       lastPlaceId: seen?.placeId ?? null,
       dm: dm === null ? null : { placeId: dm.id, lastAt: newestLineAt(db, dm.id) },
-      accounts: accounts.map((one) => ({ iface: one.iface, native: one.platformId })),
       approach:
         line === null
           ? null

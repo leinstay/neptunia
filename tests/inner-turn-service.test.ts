@@ -13,7 +13,7 @@ import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { seedExisting, useIface } from './fixtures/turn-world.ts';
-import { addLine } from './fixtures/memory-db/mind-world.ts';
+import { addAttitude, addClaim, addLine, addRoom, rootId } from './fixtures/memory-db/mind-world.ts';
 import {
   ELENI,
   HEARTBEAT_TEXT,
@@ -89,8 +89,19 @@ const lineWith = (text: string, tag: string, marker: string): string =>
 /** The words of the bands of her attitude. */
 const BANDS: Record<string, string> = shippedLabels.affinity?.bands ?? {};
 
-/** The words of a heartbeat's labels. */
-const HB = (shippedLabels as unknown as { heartbeat: Record<string, string> }).heartbeat;
+/** The entries of `<people>`, each with all its lines. */
+const peopleEntries = (text: string): Array<string> =>
+  (new RegExp('<people>\\n([\\s\\S]*?)\\n</people>').exec(blockOf(text, 'memory'))?.[1] ?? '').split('\n\n');
+
+/** The entry of `<people>` that opens with `marker`, '' with none. */
+const entryWith = (text: string, marker: string): string =>
+  peopleEntries(text).find((entry) => entry.startsWith(marker)) ?? '';
+
+/** The words of the entry of a reply turn. */
+const MEM = (shippedLabels.memory ?? {}) as Record<string, string>;
+
+/** The words of the service collector's labels. */
+const SV = (shippedLabels as unknown as { service: Record<string, string> }).service;
 
 /** Whether `tags` keep the order of `list` and hold nothing else. */
 function inOrderOf(tags: ReadonlyArray<string>, list: ReadonlyArray<string>): boolean {
@@ -260,11 +271,14 @@ test('a heartbeat lists a person she has no line near and a place she never wrot
   // Bug: the heartbeat still sees only what her own last lines raise, the same few places and people every time.
   const text = await heartbeatRequest();
   assert.ok(!rootTags(text).includes('meanwhile'), rootTags(text).join(' '));
-  const nikos = lineWith(text, 'people', `@${handleOf(NIKOS)}`);
+  // Changed on purpose: a person's entry has the lines of a reply entry, and the attitude reads as it reads there, with
+  // its number; the entry is found by its first line and read whole.
+  const nikos = entryWith(text, `@${handleOf(NIKOS)}`);
   assert.ok(nikos.includes('Νίκος'), nikos);
   assert.ok(nikos.includes(HEARTBEAT_TEXT.nikosRelation), nikos);
   assert.ok(!nikos.includes(HEARTBEAT_TEXT.nikosRelationRest), 'one sentence of the description');
-  assert.ok(nikos.includes(fill(HB.attitude ?? '', { band: BANDS[affinityBand(40)] ?? '' })), nikos);
+  const band = BANDS[affinityBand(40)] ?? '';
+  assert.ok(nikos.split('\n').includes(fill(MEM.attitudeNoReason ?? '', { score: 40, band })), nikos);
   const yard = lineWith(text, 'places', 'αυλή');
   assert.ok(yard.includes(HEARTBEAT_TEXT.yardPurpose), yard);
   assert.ok(!text.includes(HEARTBEAT_TEXT.yardLine), 'no line of a place');
@@ -311,14 +325,15 @@ test('a heartbeat says how her last approach to a person and her last line in a 
   const text = run.requests[0] ?? '';
   const dmLine = lineWith(text, 'places', `@${handleOf(ELENI)}`);
   const dm = dmLine.slice(0, dmLine.indexOf(':'));
-  const eleni = lineWith(text, 'people', `@${handleOf(ELENI)}`);
-  assert.ok(eleni.includes(fill(HB.approach ?? '', { date: '2026-11-02', place: dm })), eleni);
+  // Changed on purpose: a person's entry spans several lines, so it is found by its first line and read whole.
+  const eleni = entryWith(text, `@${handleOf(ELENI)}`);
+  assert.ok(eleni.includes(fill(SV.approach ?? '', { date: '2026-11-02', place: dm })), eleni);
   // Changed: a later line of theirs in their direct chat reads `approachWrote`; `approachAnswered` is for a reply.
-  assert.ok(eleni.includes(fill(HB.approachWrote ?? '', { date: '2026-11-02' })), eleni);
-  const nikos = lineWith(text, 'people', `@${handleOf(NIKOS)}`);
-  assert.ok(nikos.includes(HB.approachNone ?? 'none'), nikos);
+  assert.ok(eleni.includes(fill(SV.approachWrote ?? '', { date: '2026-11-02' })), eleni);
+  const nikos = entryWith(text, `@${handleOf(NIKOS)}`);
+  assert.ok(nikos.includes(SV.approachNone ?? 'none'), nikos);
   const yard = lineWith(text, 'places', 'αυλή');
-  assert.ok(yard.includes(fill(HB.ownAnswers ?? '', { count: 1 })), yard);
+  assert.ok(yard.includes(fill(SV.ownAnswers ?? '', { count: 1 })), yard);
   for (const id of ['q1', 'q2']) assert.ok(!text.includes(`ΓΡΑΜΜΗ-${id}`), 'no line of the direct chat');
 });
 
@@ -330,16 +345,17 @@ test("a heartbeat shows a listed person's interests on their line and a place's 
   describeSubject(world, 'desc:yard-topics', 'place', YARD, 'topics', 'ΘΕΜΑΤΑ-ΤΗΣ-ΑΥΛΗΣ');
   const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null, world });
   const text = run.requests[0] ?? '';
-  const nikos = lineWith(text, 'people', `@${handleOf(NIKOS)}`);
+  // Changed on purpose: a person's entry spans several lines, so it is found by its first line and read whole.
+  const nikos = entryWith(text, `@${handleOf(NIKOS)}`);
   for (const topic of ['ΕΝΔΙΑΦΕΡΟΝ-ΕΝΑ', 'ΕΝΔΙΑΦΕΡΟΝ-ΔΥΟ']) assert.ok(nikos.includes(topic), nikos);
   const yard = lineWith(text, 'places', 'αυλή');
   assert.ok(yard.includes('ΘΕΜΑΤΑ-ΤΗΣ-ΑΥΛΗΣ'), yard);
-  const eleni = lineWith(text, 'people', `@${handleOf(ELENI)}`);
+  const eleni = entryWith(text, `@${handleOf(ELENI)}`);
   const garden = lineWith(text, 'places', 'κήπος');
   for (const other of [eleni, garden]) {
     assert.ok(!/ΕΝΔΙΑΦΕΡΟΝ|ΘΕΜΑΤΑ/.test(other), other);
   }
-  assert.equal(eleni, lineWith(await heartbeatRequest(), 'people', `@${handleOf(ELENI)}`));
+  assert.equal(eleni, entryWith(await heartbeatRequest(), `@${handleOf(ELENI)}`));
   assert.equal(garden, lineWith(await heartbeatRequest(), 'places', 'κήπος'));
 });
 
@@ -347,13 +363,13 @@ test("a heartbeat counts people's lines of the last seven days in a place and no
   // Bug: her own lines count as life in a place, or a line older than the week counts.
   const text = await heartbeatRequest();
   const garden = lineWith(text, 'places', 'κήπος');
-  assert.ok(garden.includes(fill(HB.activity ?? '', { days: 7, lines: 1, people: 1 })), garden);
+  assert.ok(garden.includes(fill(SV.activity ?? '', { days: 7, lines: 1, people: 1 })), garden);
   const yard = lineWith(text, 'places', 'αυλή');
-  assert.ok(yard.includes(fill(HB.activity ?? '', { days: 7, lines: 3, people: 2 })), yard);
+  assert.ok(yard.includes(fill(SV.activity ?? '', { days: 7, lines: 3, people: 2 })), yard);
   // A place nobody wrote in says so, with no count of zero: Ζωή's direct chat holds her own line alone.
   const quiet = lineWith(text, 'places', `@${handleOf(ZOE)}`);
-  assert.ok(quiet.includes(fill(HB.quiet ?? '', { days: 7 })), quiet);
-  assert.ok(!quiet.includes(fill(HB.activity ?? '', { days: 7, lines: 0, people: 0 })), quiet);
+  assert.ok(quiet.includes(fill(SV.quiet ?? '', { days: 7 })), quiet);
+  assert.ok(!quiet.includes(fill(SV.activity ?? '', { days: 7, lines: 0, people: 0 })), quiet);
 });
 
 test('a heartbeat draws its lists and fragments with the turn rng: one seed one order, no family name', async () => {
@@ -376,9 +392,119 @@ test('a heartbeat with more people than the cap lists the cap and says how many 
   // Bug: every person memory holds goes into the request whatever their number.
   const text = await heartbeatRequest({ extraPeople: 55 });
   const people = subtagLines(text, 'people');
-  assert.equal(people.filter((line) => line.startsWith('@')).length, 50);
-  // Ελένη, Νίκος and the 55 more: 57 known, 7 left out.
-  assert.equal(people.at(-1), fill(shippedLabels.memory?.leftOut ?? '', { count: 7 }));
+  // Changed on purpose: the service collector lists at most 30 people, so 27 of the 57 known are left out.
+  assert.equal(people.filter((line) => line.startsWith('@')).length, 30);
+  // Ελένη, Νίκος and the 55 more: 57 known, 27 left out.
+  assert.equal(people.at(-1), fill(shippedLabels.memory?.leftOut ?? '', { count: 27 }));
+});
+
+test('a heartbeat entry carries the attitude, real name, aliases and interests in the words of a reply entry', async () => {
+  // Bug: the service collector renders a person through its own words, the band alone and `into:`, so one fact reads
+  // two ways and the number, the reason and the latest changes of the attitude are missing.
+  const world = heartbeatWorld();
+  world.db.prepare('UPDATE people SET real_name = ? WHERE id = ?').run(JSON.stringify(['Νικόλαος']), NIKOS);
+  addClaim(world.db, { id: 'alias:n1', person: NIKOS, kind: 'alias', text: 'Νικ', audience: { group: 'fake' } });
+  addAttitude(world.db, {
+    id: 'aff:n2',
+    person: NIKOS,
+    at: new Date(TURN_NOW - DAY).toISOString(),
+    applied: 2,
+    score: 42,
+    reason: 'ΛΟΓΟΣ-ΝΕΟΣ',
+    audience: { group: 'fake' },
+  });
+  addInterest(world, 'int:n1', NIKOS, 'ΕΝΔΙΑΦΕΡΟΝ-ΕΝΑ', 2, DAY);
+  addInterest(world, 'int:n2', NIKOS, 'ΕΝΔΙΑΦΕΡΟΝ-ΔΥΟ', 1, DAY);
+  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null, world });
+  const nikos = entryWith(run.requests[0] ?? '', `@${handleOf(NIKOS)}`);
+  const lines = nikos.split('\n');
+  const band = BANDS[affinityBand(42)] ?? '';
+  assert.ok(lines.includes(fill(MEM.attitude ?? '', { score: 42, band, reason: 'ΛΟΓΟΣ-ΝΕΟΣ' })), nikos);
+  assert.ok(nikos.includes('2026-11-01') && nikos.includes('2026-10-28'), `both changes: ${nikos}`);
+  assert.ok(lines.includes(fill(MEM.realName ?? '', { value: 'Νικόλαος' })), nikos);
+  assert.ok(lines.includes(fill(MEM.aliases ?? '', { value: 'Νικ' })), nikos);
+  assert.ok(lines.includes(fill(MEM.interests ?? '', { value: 'ΕΝΔΙΑΦΕΡΟΝ-ΕΝΑ; ΕΝΔΙΑΦΕΡΟΝ-ΔΥΟ' })), nikos);
+  assert.ok(
+    lines.some((line) => line.includes('222') && line.includes('Νίκος')),
+    `the account line: ${nikos}`
+  );
+});
+
+test('a heartbeat entry holds no avatar even when the account stores a described one', async () => {
+  // Bug: the entry goes through the renderer of a reply turn, which prints the avatar of each account, and a heartbeat
+  // runs in no interface where a face is seen.
+  const world = heartbeatWorld();
+  const avatar = JSON.stringify({ hash: 'h1', text: 'ΕΙΚΟΝΑ-ΝΙΚΟΥ', describedAt: null });
+  world.db.prepare('UPDATE accounts SET avatar = ? WHERE id = ?').run(avatar, 'fake:222');
+  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null, world });
+  const nikos = entryWith(run.requests[0] ?? '', `@${handleOf(NIKOS)}`);
+  assert.ok(nikos.includes('Νίκος'), nikos);
+  assert.ok(!nikos.includes('ΕΙΚΟΝΑ-ΝΙΚΟΥ'), nikos);
+});
+
+/** The heartbeat world with `described` of `extra` more people holding a character and a manner of speech. */
+function describedWorld(extra: number, described: number): ReturnType<typeof heartbeatWorld> {
+  const world = heartbeatWorld({ extraPeople: extra });
+  for (let i = 0; i < described; i += 1) {
+    const id = `person:fake:9${String(i).padStart(3, '0')}`;
+    describeSubject(world, `desc:char:${i}`, 'person', id, 'character', `ΧΑΡΑΚΤΗΡΑΣ-${i}`);
+    describeSubject(world, `desc:style:${i}`, 'person', id, 'style', `ΤΡΟΠΟΣ-${i}`);
+  }
+  return world;
+}
+
+const carrying = (text: string, marker: string): Array<string> =>
+  peopleEntries(text).filter((entry) => entry.includes(marker));
+
+test('a heartbeat gives three of the people it lists their character and manner of speech, drawn with the turn rng', async () => {
+  // Bug: every person listed carries them, which costs most of the request, or none does, or the draw is fixed.
+  const draw = async (seed: number): Promise<Array<string>> => {
+    const run = await serviceTurn({
+      wake: serviceWake('heartbeat'),
+      answers: ['<skip/>'],
+      chat: null,
+      world: describedWorld(8, 8),
+      rng: seeded(seed),
+    });
+    const text = run.requests[0] ?? '';
+    const withCharacter = carrying(text, 'ΧΑΡΑΚΤΗΡΑΣ-');
+    assert.equal(withCharacter.length, 3, peopleEntries(text).join('\n\n'));
+    assert.equal(carrying(text, 'ΤΡΟΠΟΣ-').length, 3);
+    return withCharacter.map((entry) => /ΧΑΡΑΚΤΗΡΑΣ-\d+/.exec(entry)?.[0] ?? '').sort();
+  };
+  const seeds = [1, 2, 3, 4, 5];
+  const drawn = new Set<string>();
+  for (const seed of seeds) drawn.add((await draw(seed)).join(' '));
+  assert.ok(drawn.size > 1, 'the draw changes with the seed');
+  assert.deepEqual(await draw(1), await draw(1));
+});
+
+test('a heartbeat draws for character only people who have one while two of them do', async () => {
+  // Bug: the draw takes three of everyone listed, so a person with nothing stored takes the place of one who has it.
+  for (const seed of [1, 2, 3]) {
+    const run = await serviceTurn({
+      wake: serviceWake('heartbeat'),
+      answers: ['<skip/>'],
+      chat: null,
+      world: describedWorld(8, 2),
+      rng: seeded(seed),
+    });
+    assert.equal(carrying(run.requests[0] ?? '', 'ΧΑΡΑΚΤΗΡΑΣ-').length, 2);
+  }
+});
+
+test('a heartbeat with more places than the cap lists sixty and says how many it leaves out', async () => {
+  // Bug: every live chat goes into the request whatever their number.
+  const world = heartbeatWorld();
+  for (let i = 0; i < 70; i += 1)
+    addRoom(world.db, { iface: 'fake', native: `r${i}`, root: rootId('fake', 'g1'), name: `δωμάτιο-${i}` });
+  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null, world });
+  const places = subtagLines(run.requests[0] ?? '', 'places').filter((line) => line !== '');
+  const foot = places.at(-1) ?? '';
+  const left = Number(/\d+/.exec(foot)?.[0] ?? NaN);
+  assert.equal(places.length - 1, 60, places.join('\n'));
+  assert.equal(foot, fill(shippedLabels.memory?.leftOut ?? '', { count: left }));
+  assert.ok(left > 10, foot);
 });
 
 test('a turn with no place that is no heartbeat draws nothing from the rng and lists nothing', async () => {

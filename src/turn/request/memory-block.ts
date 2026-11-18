@@ -23,7 +23,7 @@ import type {
   PlaceEntry,
 } from '../../memory/db/mind-read.ts';
 import type { PersonAccount } from '../../memory/db/meta-person.ts';
-import type { ListedPerson, ListedPlace } from '../../memory/db/heartbeat-lists.ts';
+import type { ListedPerson, ListedPlace } from '../../memory/db/service-lists.ts';
 import type { Frame } from './frame.ts';
 import { block, escapeStored, placeRefText, shownName } from './text.ts';
 import type { PlaceWords } from './text.ts';
@@ -172,11 +172,17 @@ function accountLine(w: Words, iface: string, id: string, names: ReadonlyArray<s
   });
 }
 
-/** The lines of every account of a person, one each, each followed by the avatar stored on that account. */
-function accountLines(w: Words, person: PersonEntry): Array<string> {
+/**
+ * The facts of a person every entry of `<people>` prints at every detail, whichever collector listed the person: the
+ * attitude, the real name, the aliases, the accounts and the interests.
+ */
+type PersonFacts = Pick<PersonEntry, 'attitude' | 'realName' | 'claims' | 'profileAccounts' | 'interests'>;
+
+/** The lines of every account of a person, one each, each followed by its stored avatar when `avatars` holds. */
+function accountLines(w: Words, person: Pick<PersonFacts, 'profileAccounts'>, avatars: boolean): Array<string> {
   return person.profileAccounts.flatMap((one) => [
     accountLine(w, one.iface, one.platformId, one.names ?? [one.displayName ?? '']),
-    avatarLine(w, one.avatar),
+    avatars ? avatarLine(w, one.avatar) : '',
   ]);
 }
 
@@ -184,10 +190,11 @@ function accountLines(w: Words, person: PersonEntry): Array<string> {
 const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** A person's claims by claim id: the reader ranks them by the trigger's words, which change every turn. */
-const claimsById = (person: PersonEntry): PersonEntry['claims'] => [...person.claims].sort((a, b) => byId(a.id, b.id));
+const claimsById = (person: Pick<PersonFacts, 'claims'>): PersonEntry['claims'] =>
+  [...person.claims].sort((a, b) => byId(a.id, b.id));
 
 /** The open aliases of a person the context may see, as `memory.aliases`; '' with none. */
-function aliasLine(w: Words, person: PersonEntry): string {
+function aliasLine(w: Words, person: Pick<PersonFacts, 'claims'>): string {
   const aliases = [
     ...new Set(
       claimsById(person)
@@ -253,7 +260,7 @@ function usualNameLine(w: Words, person: PersonEntry): string {
 }
 
 /** The interests of a person as `memory.interests`, '' with none. */
-function interestsLine(w: Words, person: PersonEntry): string {
+function interestsLine(w: Words, person: Pick<PersonFacts, 'interests'>): string {
   const interests = person.interests.map((one) => storedText(w, one.trim())).filter(Boolean);
   return interests.length > 0 && typeof w.l.interests === 'string'
     ? fill(w.l.interests, { value: interests.join('; ') })
@@ -276,17 +283,26 @@ function lastWroteLine(w: Words, person: PersonEntry): string {
   return fill(w.l.lastWrote, { date: formatDay(person.lastSeenAt, w.frame.timezone) });
 }
 
+/**
+ * The least form of an entry: the persona's attitude toward the person, the real name, the aliases, the accounts, each
+ * with its avatar when `avatars` holds, and the interests. These short facts tell one person from another.
+ */
+function factLines(w: Words, person: PersonFacts, avatars: boolean): Array<string> {
+  return [
+    ...attitudeLines(w, person.attitude),
+    valueLine(w, w.l.realName, person.realName),
+    aliasLine(w, person),
+    ...accountLines(w, person, avatars),
+    interestsLine(w, person),
+  ];
+}
+
 function personText(w: Words, person: PersonEntry, counterpart: boolean, live: string | null): string {
   const origin = counterpart ? (w.l.counterpart ?? '') : (w.origin[person.evidence] ?? '');
   const lines = [heading(w, personName(w, person), origin, person.candidate)];
   const detail = counterpart && person.detail === 'name' ? 'compact' : person.detail;
-  // The least form of every entry: her attitude, the real name, the aliases, the accounts with their avatars and the
-  // interests, short facts that tell one person from another, so the budget cuts only what follows them.
-  lines.push(...attitudeLines(w, person.attitude));
-  lines.push(valueLine(w, w.l.realName, person.realName));
-  lines.push(aliasLine(w, person));
-  lines.push(...accountLines(w, person));
-  lines.push(interestsLine(w, person));
+  // The least form of every entry, with the avatars of a turn inside an interface: the budget cuts only what follows.
+  lines.push(...factLines(w, person, true));
   if (detail !== 'name') lines.push(valueLine(w, w.l.relation, person.relation));
   if (detail !== 'name') lines.push(lastWroteLine(w, person));
   if (detail === 'whole') {
@@ -593,18 +609,19 @@ const firstSentence = (value: string): string =>
   (/^[\s\S]*?[.!?\u2026](?=\s|$)/u.exec(value.trim())?.[0] ?? value).trim();
 
 /**
- * A heartbeat's entries of `<people>` and `<places>`, one line each in the order given, every entry kept whatever the
- * budget. A person's line is the name, then as far as memory holds them `memory.relation` with the first sentence of
- * the relationship, `heartbeat.attitude` with the band, `heartbeat.lastSeen` or `heartbeat.lastSeenIn` with the day
- * and the place's handle, `heartbeat.dm` or `heartbeat.dmLast` with the day of the direct chat's newest line, and
- * `heartbeat.approach` with the day and place of her last line addressed to them and what followed it (approachText).
- * A place's line is its reference, then
- * `surroundings.field` with the first sentence of its purpose, `heartbeat.activity` with the counts of `days`, or
- * `heartbeat.quiet` when nobody wrote there in them, `heartbeat.ownLast` with the day of her newest line there, and
- * `heartbeat.ownAnswers` with how many lines answer that line.
+ * The service collector's entries of `<people>` and `<places>` in the order given, every entry kept whatever the budget.
+ * A person's entry is their name, then the least form of a reply entry (factLines) with no avatar, then as far as memory
+ * holds them `memory.relation` with the first sentence of the relationship, `memory.character` and `memory.style` for
+ * a person the turn drew to carry them, `service.lastSeen` or `service.lastSeenIn` with the day and the place's handle,
+ * `service.dm` or `service.dmLast` with the day of the direct chat's newest line, and `service.approach` with the day
+ * and place of the persona's last line addressed to them and what followed it (approachText), one line each. No entry
+ * holds what is live of a person now, which belongs to a turn inside an interface. A place's line is its reference,
+ * then `surroundings.field` with the first sentence of its purpose, `service.activity` with the counts of `days`, or
+ * `service.quiet` when nobody wrote there in them, `service.ownLast` with the day of the persona's newest line there,
+ * and `service.ownAnswers` with how many lines answer that line, joined with `; `.
  * `placeHandle` gives a place's channel handle with `#`, null for a place with none.
  */
-export function heartbeatItemsOf(
+export function serviceItemsOf(
   given: { readonly people: ReadonlyArray<ListedPerson>; readonly places: ReadonlyArray<ListedPlace> },
   frame: FrameView,
   labels: Labels,
@@ -615,7 +632,7 @@ export function heartbeatItemsOf(
   keepEmoji = false
 ): Array<MemoryItem> {
   const w = wordsOf(labels, frame, nameOf, refs, keepEmoji);
-  const h = labels.heartbeat ?? {};
+  const h = labels.service ?? {};
   const day = (at: number | null): string => (at === null ? '' : formatDay(at, frame.timezone));
   const line = (parts: ReadonlyArray<string>): string => parts.filter(Boolean).join('; ');
   const people = given.people.map((person): MemoryItem => {
@@ -626,7 +643,6 @@ export function heartbeatItemsOf(
         : place === null
           ? fill(h.lastSeen ?? '', { date: day(person.lastSeenAt) })
           : fill(h.lastSeenIn ?? '', { date: day(person.lastSeenAt), place });
-    const band = person.score === null ? '' : (w.affinity[affinityBand(person.score)] ?? '');
     const dm =
       person.dm === null
         ? ''
@@ -635,22 +651,25 @@ export function heartbeatItemsOf(
           : fill(h.dmLast ?? '', { date: day(person.dm.lastAt) });
     return {
       subtag: 'people',
-      text: line([
+      text: [
         storedText(w, shownName(person.name ?? w.unknown, keepEmoji)),
+        ...factLines(w, person, false),
         person.relation === null ? '' : valueLine(w, w.l.relation, firstSentence(person.relation)),
-        band === '' ? '' : fill(h.attitude ?? '', { band }),
+        valueLine(w, w.l.character, person.character),
+        valueLine(w, w.l.style, person.style),
         seen,
         dm,
         person.approach === null
           ? ''
           : approachText(person.approach, h, day, (id) => placeHandle(id) ?? refs.place(id)),
-        person.interests.length === 0 ? '' : fill(h.interests ?? '', { topics: person.interests.join(', ') }),
-      ]),
+      ]
+        .filter(Boolean)
+        .join('\n'),
       counterpart: false,
       name: person.name,
-      handleIds: person.accounts.filter((one) => one.iface === frame.interface).map((one) => one.native),
+      handleIds: nativeIds(person.profileAccounts, frame.interface),
       handleKey: person.personId,
-      accounts: person.accounts,
+      accounts: person.profileAccounts.map((one) => ({ iface: one.iface, native: one.platformId })),
       keep: true,
       reads: [{ kind: 'people', id: person.personId, block: 'memory' }],
     };
@@ -677,9 +696,10 @@ export function heartbeatItemsOf(
 }
 
 /**
- * Her last line addressed to a person as `heartbeat.approach` with its day and place, then their first line after it:
- * `heartbeat.approachAnswered` with its day when it answers hers by reply, else `heartbeat.approachWrote`; with none,
- * `heartbeat.approachNoneDirect` in their direct chat and `heartbeat.approachNone` elsewhere.
+ * The persona's last line addressed to a person as `service.approach` with its day and place, then their first line
+ * after it: `service.approachAnswered` with its day when it answers the persona's line by reply, else
+ * `service.approachWrote`; with none, `service.approachNoneDirect` in their direct chat and `service.approachNone`
+ * elsewhere.
  */
 function approachText(
   approach: NonNullable<ListedPerson['approach']>,
