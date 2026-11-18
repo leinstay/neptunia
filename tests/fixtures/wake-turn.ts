@@ -142,8 +142,8 @@ export async function wakeTurn({
       interject: 'Jump in.',
       initiate: 'Start a topic.',
       inner: PROMPT_MARK.inner,
-      heartbeat: PROMPT_MARK.heartbeat,
-      diary: PROMPT_MARK.diary,
+      'heartbeat/task': PROMPT_MARK.heartbeat,
+      'diary/task': PROMPT_MARK.diary,
       labels,
     },
   };

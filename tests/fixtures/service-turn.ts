@@ -151,9 +151,9 @@ export const SEED_FAMILIES = ['ΟΙΚΟΓΕΝΕΙΑ-Α', 'ΟΙΚΟΓΕΝΕΙΑ-�
 export const seedLines = (family: number): Array<string> =>
   Array.from({ length: 5 }, (_, line) => `θραύσμα-${family}-${line}`);
 
-/** The fixture's `prompts/heartbeat-seeds.md`: a heading line per family, one fragment per line. */
-export const HEARTBEAT_SEEDS = SEED_FAMILIES.map((name, family) => [`# ${name}`, ...seedLines(family)].join('\n')).join(
-  '\n\n'
+/** The fixture's `prompts/heartbeat/seeds/` files by prompt key: one file per family, one fragment per line. */
+export const HEARTBEAT_SEEDS: Record<string, string> = Object.fromEntries(
+  SEED_FAMILIES.map((name, family) => [`heartbeat/seeds/${name}`, seedLines(family).join('\n')])
 );
 
 export const NIKOS = 'person:fake:222';
@@ -382,8 +382,8 @@ function rigOf(spec: RigSpec) {
       reply: 'Someone called you: {{author}}.',
       'errand-result': 'An errand ended.',
       inner: MARK.inner,
-      heartbeat: MARK.heartbeat,
-      'heartbeat-seeds': HEARTBEAT_SEEDS,
+      'heartbeat/task': MARK.heartbeat,
+      ...HEARTBEAT_SEEDS,
       labels: spec.labels ?? shippedLabels,
     },
   };

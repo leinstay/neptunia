@@ -168,10 +168,10 @@ export function taskOf(given: RequestInput & Base): Task {
   // it (missing or blank) the mode's text frames the line as said to the persona: degraded.
   const overheardTask =
     overheard && typeof prompts.overheard === 'string' && prompts.overheard.trim() ? prompts.overheard : null;
-  // A heartbeat's inner turn has its own task text (prompts.heartbeat) INSTEAD of inner.md; without it (missing or
+  // A heartbeat's inner turn has its own task text (prompts['heartbeat/task']) INSTEAD of inner.md; without it (missing or
   // blank) inner.md applies (degraded).
   const turnKind = kindOfRequest(given);
-  const ownWakeMd = turnKind === 'heartbeat' ? prompts.heartbeat : null;
+  const ownWakeMd = turnKind === 'heartbeat' ? prompts['heartbeat/task'] : null;
   const ownWakeTask = typeof ownWakeMd === 'string' && ownWakeMd.trim() ? ownWakeMd : null;
   // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
   // the message is gone) has its own task text (prompts['errand-result']) instead of the mode's. Missing or blank, the

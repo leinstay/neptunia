@@ -244,11 +244,12 @@ function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Unty
       'system-prompt': 'SYSTEM for {{name}}',
       'character-card': 'CARD_TEXT',
       format: 'FORMAT_TEXT',
-      diary: 'DIARY_TASK for {{name}}',
-      'diary-scene': 'SCENE_TASK',
-      'diary-kind-status': 'STATUS_TASK',
-      'diary-kind-story': 'STORY_TASK',
-      'diary-seeds': '# place\na pier\n# light\nfog',
+      'diary/task': 'DIARY_TASK for {{name}}',
+      'diary/scene': 'SCENE_TASK',
+      'diary/kinds/status': 'STATUS_TASK',
+      'diary/kinds/story': 'STORY_TASK',
+      'diary/seeds/place': 'a pier',
+      'diary/seeds/setting': 'fog',
       draw: 'DRAW for {{name}}\n{{when}}\n{{request}}',
       labels,
       ...prompts,
@@ -327,9 +328,9 @@ test('diary turn: a status asks no director and its request holds no <scene>', a
 
 test('diary turn: a randomSet asks for three scenes whose sets share no line', async () => {
   // Bug: the three places of a random set come from one request, or repeat a line, so its pictures look alike.
-  const seeds = ['# place', ...Array.from({ length: 30 }, (_, i) => `place ${i}`)].join('\n');
+  const thirty = (family: string) => Array.from({ length: 30 }, (_, i) => `${family} ${i}`).join('\n');
   const llm = fakeLlm(null, '<msg>trois endroits</msg>');
-  const hot = fakeHot({ prompts: { 'diary-seeds': seeds } });
+  const hot = fakeHot({ prompts: { 'diary/seeds/place': thirty('place'), 'diary/seeds/setting': thirty('setting') } });
   await runner({ hot, llm }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
@@ -1335,7 +1336,9 @@ test('an entry written by a diary wake keeps the id of its turn as extra.turnId'
 test('the diary requests are the same bytes with a heartbeat seeds file beside them', async () => {
   // Bug: the heartbeat's fragments or its lists leak into a diary request, which shares the heartbeat's path nowhere.
   const plain = await frameTurn();
-  const seeded = await frameTurn({ prompts: { 'heartbeat-seeds': '# one\nΘΡΑΥΣΜΑ-ΕΝΑ\n# two\nΘΡΑΥΣΜΑ-ΔΥΟ' } });
+  const seeded = await frameTurn({
+    prompts: { 'heartbeat/seeds/one': 'ΘΡΑΥΣΜΑ-ΕΝΑ', 'heartbeat/seeds/two': 'ΘΡΑΥΣΜΑ-ΔΥΟ' },
+  });
   assert.equal(seeded.writer[0], plain.writer[0]);
   assert.ok(!(seeded.writer[0] ?? '').includes('ΘΡΑΥΣΜΑ'));
 });

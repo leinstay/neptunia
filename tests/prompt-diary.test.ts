@@ -39,7 +39,7 @@ function fakePrompts(overrides: Record<string, unknown> = {}) {
     format: 'FORMAT_TEXT',
     reply: 'REPLY_TASK',
     interject: 'INTERJECT_TASK',
-    diary: 'DIARY_TASK for {{name}}',
+    'diary/task': 'DIARY_TASK for {{name}}',
     labels,
     ...overrides,
   };
@@ -166,7 +166,7 @@ function diaryTask(kind: string, overrides: Record<string, unknown> = {}): strin
   return /<task>\n([\s\S]*?)\n<\/task>/.exec(text)?.[1] ?? '';
 }
 
-const KIND_FILES = { 'diary-kind-story': 'STORY_PART', 'diary-kind-random-set': 'RANDOM_SET_PART' };
+const KIND_FILES = { 'diary/kinds/story': 'STORY_PART', 'diary/kinds/randomSet': 'RANDOM_SET_PART' };
 
 test('the task of a diary entry is the common text and then the file of its kind', () => {
   // Bug: the persona reads every kind's instructions, or another kind's, or none.
@@ -175,17 +175,17 @@ test('the task of a diary entry is the common text and then the file of its kind
 });
 
 test("a deployment's own diary text replaces the common text and keeps the kind's file", () => {
-  assert.equal(diaryTask('story', { ...KIND_FILES, diary: 'OWN_TASK' }), 'OWN_TASK\n\nSTORY_PART');
+  assert.equal(diaryTask('story', { ...KIND_FILES, 'diary/task': 'OWN_TASK' }), 'OWN_TASK\n\nSTORY_PART');
 });
 
 test("a deployment's own kind file replaces only that kind's part", () => {
-  const own = { ...KIND_FILES, 'diary-kind-story': 'OWN_STORY' };
+  const own = { ...KIND_FILES, 'diary/kinds/story': 'OWN_STORY' };
   assert.equal(diaryTask('story', own), 'DIARY_TASK for Nept\n\nOWN_STORY');
   assert.equal(diaryTask('randomSet', own), 'DIARY_TASK for Nept\n\nRANDOM_SET_PART');
 });
 
 test('a kind whose file is emptied gets the common text alone', () => {
-  assert.equal(diaryTask('story', { ...KIND_FILES, 'diary-kind-story': '  ' }), 'DIARY_TASK for Nept');
+  assert.equal(diaryTask('story', { ...KIND_FILES, 'diary/kinds/story': '  ' }), 'DIARY_TASK for Nept');
 });
 
 // The writer on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of 2026-11-07): the turn

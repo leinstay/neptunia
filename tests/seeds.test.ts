@@ -1,8 +1,9 @@
-// The seeds files of the prompts (src/behavior/seeds.ts): their families, the diary's draw of combinations and a
-// heartbeat's draw of fragments.
+// The seeds files of the prompts (src/behavior/seeds.ts): one file per family, one seed per line, the diary's draw
+// of combinations and a heartbeat's draw of fragments.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { drawFragments, parseSeedFamilies, pickSeeds } from '../src/behavior/seeds.ts';
+import { drawFragments, pickSeeds, seedLines } from '../src/behavior/seeds.ts';
+import { promptsInFolder } from '../src/hot.ts';
 import { seeded } from './fixtures/diary-prepare.ts';
 
 const seq = (values: ReadonlyArray<number>) => {
@@ -10,16 +11,11 @@ const seq = (values: ReadonlyArray<number>) => {
   return () => values[i++ % values.length] ?? 0;
 };
 
-test('parseSeedFamilies: splits by # headers and ignores blanks', () => {
-  const text = 'loose line\n\n# place\na pier\n\n  an alley  \n# mood\n\n# twist\nrain\n';
-  assert.deepEqual(parseSeedFamilies(text), {
-    seed: ['loose line'],
-    place: ['a pier', 'an alley'],
-    mood: [],
-    twist: ['rain'],
-  });
-  assert.deepEqual(parseSeedFamilies(''), {});
-  assert.deepEqual(parseSeedFamilies(null), {});
+test('seedLines: every non-blank line, trimmed, is one seed, and nothing else is parsed', () => {
+  // Bug: a heading line of the old files is read as a family, or a blank line becomes a seed.
+  assert.deepEqual(seedLines('a pier\n\n  an alley  \n# not a heading\n'), ['a pier', 'an alley', '# not a heading']);
+  assert.deepEqual(seedLines(''), []);
+  assert.deepEqual(seedLines(undefined), []);
 });
 
 test('pickSeeds: one line per family per set, in header order', () => {
@@ -102,15 +98,25 @@ test('pickSeeds: more combinations than lines still gives every combination a li
   }
 });
 
-test('drawFragments: four different lines of two families, none when the file holds no line', () => {
+test('drawFragments: four different lines of two families, none when no family holds a line', () => {
   // Bug: a heartbeat gets a line of every family, the same line twice, or a block made of nothing.
-  const text = '# a\na1\na2\na3\n# b\nb1\nb2\n# c\nc1\nc2\nc3\n# empty';
+  const files = { a: 'a1\na2\na3', b: 'b1\nb2', c: 'c1\nc2\nc3', empty: '' };
   const rng = seeded(5);
   for (let draw = 0; draw < 200; draw += 1) {
-    const lines = drawFragments(text, rng);
+    const lines = drawFragments(files, rng);
     assert.equal(new Set(lines).size, 4, lines.join(' '));
     assert.equal(new Set(lines.map((line) => line[0])).size, 2, lines.join(' '));
   }
-  assert.deepEqual(drawFragments('# a\n# b', rng), []);
-  assert.deepEqual(drawFragments(undefined, rng), []);
+  assert.deepEqual(drawFragments({ a: '', b: '  ' }, rng), []);
+  assert.deepEqual(drawFragments({}, rng), []);
+});
+
+test("a heartbeat draws from every file of heartbeat/seeds, a deployment's added one included", () => {
+  // Bug: the heartbeat's families are a fixed list, so a family a deployment adds with a file is never drawn.
+  const prompts = { 'heartbeat/seeds/find': 'f1\nf2', 'heartbeat/seeds/zzown': 'OWN1\nOWN2', 'heartbeat/task': 'T' };
+  const rng = seeded(9);
+  const seen = new Set<string>();
+  for (let draw = 0; draw < 50; draw += 1)
+    for (const line of drawFragments(promptsInFolder(prompts, 'heartbeat/seeds'), rng)) seen.add(line);
+  assert.deepEqual([...seen].sort(), ['OWN1', 'OWN2', 'f1', 'f2']);
 });

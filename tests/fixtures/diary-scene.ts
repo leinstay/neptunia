@@ -40,9 +40,10 @@ export function sceneHot(): { config: Record<string, unknown>; prompts: Record<s
       'system-prompt': 'SYSTEM for {{name}}',
       'character-card': 'CARD_TEXT',
       format: 'FORMAT_TEXT',
-      diary: 'DIARY_TASK for {{name}}',
-      'diary-scene': 'SCENE_TASK',
-      'diary-seeds': '# place\na pier\n# light\nfog',
+      'diary/task': 'DIARY_TASK for {{name}}',
+      'diary/scene': 'SCENE_TASK',
+      'diary/seeds/place': 'a pier',
+      'diary/seeds/setting': 'fog',
       labels,
     },
   };

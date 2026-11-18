@@ -36,6 +36,7 @@ import type { Prepared } from '../request.ts';
 import type { Handles } from '../../handles.ts';
 import { shuffled } from '../../../behavior/random.ts';
 import { drawFragments } from '../../../behavior/seeds.ts';
+import { promptsInFolder } from '../../../hot.ts';
 import type { ServiceListsInput } from '../../request/types.ts';
 import { messageSourceId, PERSONA_ID } from '../../../memory/db/ids.ts';
 import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
@@ -769,7 +770,7 @@ function drawnOf<T>(items: ReadonlyArray<T>, cap: number, rng: () => number): { 
  * The inputs of a service turn, a heartbeat or a diary entry: the people and the places of the service collector as
  * `<memory>` (service-lists.ts), read under the turn's context, each list in an order drawn with the turn's `rng` and
  * cut to its cap, `SERVICE_DESCRIBED` of the people drawn to carry their character and manner of speech, and for a
- * heartbeat its fragments drawn from `prompts['heartbeat-seeds']`. A heartbeat reads as the persona; a diary entry reads
+ * heartbeat its fragments drawn from the files of `prompts/heartbeat/seeds/`. A heartbeat reads as the persona; a diary entry reads
  * under the audience of its mirrors unless `context.memory.openPrivate` opens it. No `<meanwhile>`, no mind of the graph
  * reader and no lookups. A failed read of the lists fails the turn, as any broken read does.
  */
@@ -810,7 +811,8 @@ function serviceListsInputsOf(
       people: people.kept.map((one) => (described.has(one) ? one : { ...one, character: null, style: null })),
       places: places.kept,
       leftOut: { people: people.leftOut, places: places.leftOut },
-      fragments: frame.kind === 'heartbeat' ? drawFragments(prompts?.['heartbeat-seeds'], ctx.rng) : [],
+      fragments:
+        frame.kind === 'heartbeat' ? drawFragments(promptsInFolder(prompts ?? {}, 'heartbeat/seeds'), ctx.rng) : [],
     },
   };
 }
@@ -1111,7 +1113,7 @@ export async function buildTurnRequest(
       : factsText || null,
     // Why an inner turn is awake, for `<spatial_awareness>`.
     awake: draft.inner ? awakeTextOf(wakeWords, frame, ctx.frameReads, prompts?.labels) : null,
-    // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
+    // An inner turn's wake kind: a heartbeat takes `prompts['heartbeat/task']` as its task text.
     wakeKind,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
     previousThink: earlierThinkFor({ channel, isDm, draft, mode: finalMode }),

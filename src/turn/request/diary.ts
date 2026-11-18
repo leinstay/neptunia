@@ -125,18 +125,14 @@ export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFr
   };
 }
 
-/** The prompt file of a diary kind: `diary-kind-` and the kind in kebab case, `randomSet` as `diary-kind-random-set`. */
-function kindPromptName(kind: string): string {
-  return `diary-kind-${kind.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
-}
-
 /**
- * The task text of a diary entry of `kind`: the common text `prompts.diary`, then the kind's own file
- * (kindPromptName), each read as the hot prompts hold it.
+ * The task text of a diary entry of `kind`: the common text `prompts['diary/task']`, then the kind's own file
+ * `prompts['diary/kinds/<kind>']`, each read as the hot prompts hold it.
  */
 export function diaryTaskOf(prompts: Readonly<Record<string, unknown>>, kind: unknown): string {
-  const common = typeof prompts.diary === 'string' ? prompts.diary.trim() : '';
-  const own = typeof kind === 'string' ? prompts[kindPromptName(kind)] : undefined;
+  const task = prompts['diary/task'];
+  const common = typeof task === 'string' ? task.trim() : '';
+  const own = typeof kind === 'string' ? prompts[`diary/kinds/${kind}`] : undefined;
   // A kind whose file a deployment emptied or left out gets the common text alone.
   const section = typeof own === 'string' ? own.trim() : '';
   return [common, section].filter(Boolean).join('\n\n');

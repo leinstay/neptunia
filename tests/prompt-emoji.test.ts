@@ -318,7 +318,7 @@ function anyBlockInput(overrides: Record<string, unknown>) {
       rules: 'RULES',
       format: 'FORMAT',
       reply: 'REPLY_TASK',
-      diary: 'DIARY_TASK',
+      'diary/task': 'DIARY_TASK',
       labels: LEGEND_LABELS,
     },
     history: [chatLine('1', 'γεια σου', [])],

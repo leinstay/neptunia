@@ -78,7 +78,7 @@
 // heartbeat would carry now, and like the live one it runs nowhere (no chat). Takes no
 // `--intention`. Every `--inner` kind takes `--samples n` (n independent runs of
 // the same request, one after another, default 1), `--prompts <dir>` (a prompt layer laid over
-// the live prompts.local/ as `--skills --prompts` does: a directory holding only heartbeat.md
+// the live prompts.local/ as `--skills --prompts` does: a directory holding only heartbeat/task.md
 // replaces only that file, so a variant of the task text is tried without a deploy) and
 // `--out <file>` (the report as Markdown; not under data/). The JSON on stdout holds every
 // sample: the `<wake>` block, her `<think>`, her messages and calls with their arguments,

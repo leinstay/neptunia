@@ -158,7 +158,7 @@ export async function skillTurn({
       interject: 'Jump in.',
       initiate: 'Start a topic.',
       inner: 'MARK-INNER-TASK',
-      heartbeat: 'MARK-HEARTBEAT-TASK',
+      'heartbeat/task': 'MARK-HEARTBEAT-TASK',
       labels,
     },
   };

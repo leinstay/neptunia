@@ -4,9 +4,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SCENE_SETS, buildScene, drawSceneSets } from '../src/behavior/diary-scene.ts';
 
-const SEEDS = ['place', 'setting', 'detail', 'activity', 'subject', 'twist']
-  .map((family) => `# ${family}\n${Array.from({ length: SCENE_SETS }, (_, i) => `${family} ${i}`).join('\n')}`)
-  .join('\n');
+const FAMILIES = ['place', 'setting', 'detail', 'activity', 'subject', 'twist', 'where'];
+/** The seven seeds files, `<family> <n>` lines each, as the hot prompts hold them. */
+const SEEDS: Record<string, string> = Object.fromEntries(
+  FAMILIES.map((family) => [
+    `diary/seeds/${family}`,
+    Array.from({ length: SCENE_SETS }, (_, i) => `${family} ${i}`).join('\n'),
+  ])
+);
 
 const SETS = [
   ['a pier', 'fog', 'a rusted bell', 'fishing', 'gulls', 'a power cut'],
@@ -30,7 +35,7 @@ function fakeLlm(text: string) {
 
 const hot = {
   config: { bot: { name: CARD }, models: { byPurpose: { 'diary-scene': 'x/scene-model' } } },
-  prompts: { 'diary-scene': PROMPT, character: CARD },
+  prompts: { 'diary/scene': PROMPT, character: CARD },
 };
 // 2026-11-18 14:00 UTC, a Wednesday.
 const NOW = Date.UTC(2026, 10, 18, 14, 0);
@@ -149,8 +154,25 @@ test('draws eight sets, the same for the same random source, leaving out the lin
     return () => (x = (x * 9301 + 0.49297) % 1);
   };
   const posts = [{ plan: { seeds: [['place 0', 'setting 0']], seed: 1 } }];
-  const first = drawSceneSets({ seedsText: SEEDS, posts, rng: seq() });
+  const first = drawSceneSets({ prompts: SEEDS, posts, rng: seq() });
   assert.equal(first.length, SCENE_SETS);
-  assert.deepEqual(drawSceneSets({ seedsText: SEEDS, posts, rng: seq() }), first);
-  assert.ok(first.every((set) => set.length === 6 && !set.includes('place 0') && !set.includes('setting 0')));
+  assert.deepEqual(drawSceneSets({ prompts: SEEDS, posts, rng: seq() }), first);
+  assert.ok(first.every((set) => set.length === 7 && !set.includes('place 0') && !set.includes('setting 0')));
+});
+
+test('a set takes one line of each of the seven seeds files, in the order the director prompt names them', () => {
+  // Bug: the families come in file order or name order, so the director reads a twist where it expects a place.
+  const [set = []] = drawSceneSets({ prompts: SEEDS, posts: [], rng: () => 0 });
+  assert.deepEqual(
+    set.map((line) => line.split(' ')[0]),
+    FAMILIES
+  );
+});
+
+test("a deployment's own place file replaces that family alone", () => {
+  // Bug: a deployment's file of one family replaces every family, or is not read.
+  const own = { ...SEEDS, 'diary/seeds/place': 'OWN PLACE' };
+  const [set = []] = drawSceneSets({ prompts: own, posts: [], rng: () => 0 });
+  assert.equal(set[0], 'OWN PLACE');
+  assert.equal(set[1], 'setting 0');
 });

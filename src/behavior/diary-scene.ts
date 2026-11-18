@@ -1,11 +1,11 @@
 // The diary's scene helper: one request on the role `director` with the purpose `diary-scene` that builds a scene for one entry
 // from numbered seed sets, a place with its circumstances and nothing of what the persona does or feels. Its system
-// message is the task text `prompts/diary-scene.md`, never the persona, and its one user message holds `<kind>`,
+// message is the task text `prompts/diary/scene.md`, never the persona, and its one user message holds `<kind>`,
 // `<sets>` and `<now>` alone. The diary's turn asks `entryScenes` before the persona's request (src/turn/diary.ts), and
 // scripts/diary-scenes.ts runs `buildScene` alone to calibrate the prompt.
 
 import { DEFAULT_HISTORY_POSTS, usedSeedLines } from './diary.ts';
-import { parseSeedFamilies, pickSeeds } from './seeds.ts';
+import { pickSeeds, seedLines } from './seeds.ts';
 import { formatNow } from '../format.ts';
 import { DailyCapError, TokenLimitError, roleRequestOptions } from '../llm/openrouter.ts';
 import { parseJsonObject } from '../llm/parse.ts';
@@ -55,24 +55,30 @@ export function isSceneKind(kind: unknown): kind is SceneKind {
   return SCENE_KINDS.some((one) => one === kind);
 }
 
+/** The diary's seed families, each a file of `prompts/diary/seeds/`, in the order prompts/diary/scene.md names a set's lines. */
+export const DIARY_SEED_FAMILIES = ['place', 'setting', 'detail', 'activity', 'subject', 'twist', 'where'] as const;
+
 /**
- * `SCENE_SETS` seed sets for each of `requests` requests (1 by default), drawn with `rng` in one draw from the families of
- * `seedsText` (prompts/diary-seeds.md), so no two sets share a line while a family has a line left for each, and leaving
- * out the lines the newest `DEFAULT_HISTORY_POSTS` of `posts` (oldest first) kept.
+ * `SCENE_SETS` seed sets for each of `requests` requests (1 by default), drawn with `rng` in one draw from the files
+ * `prompts['diary/seeds/<family>']` of DIARY_SEED_FAMILIES, so no two sets share a line while a family has a line left
+ * for each, and leaving out the lines the newest `DEFAULT_HISTORY_POSTS` of `posts` (oldest first) kept.
  */
 export function drawSceneSets({
-  seedsText,
+  prompts,
   posts,
   rng,
   requests = 1,
 }: {
-  seedsText: unknown;
+  prompts: Readonly<Record<string, unknown>> | null | undefined;
   posts: unknown;
   rng: () => number;
   requests?: number;
 }): Array<Array<string>> {
   const used = usedSeedLines(posts, DEFAULT_HISTORY_POSTS);
-  return pickSeeds(parseSeedFamilies(seedsText), SCENE_SETS * requests, rng, used).map((set) => set.map(String));
+  const families = Object.fromEntries(
+    DIARY_SEED_FAMILIES.map((family) => [family, seedLines(prompts?.[`diary/seeds/${family}`])])
+  );
+  return pickSeeds(families, SCENE_SETS * requests, rng, used).map((set) => set.map(String));
 }
 
 /** The schema of the answer, sent as the strict `response_format`. */
@@ -142,7 +148,7 @@ function tokensOf(completion: Completion): SceneTokens {
 
 /**
  * One scene for `kind` over `sets` (drawSceneSets) at the moment `now` in `timezone`: the request of the helper on the
- * role `director`, which takes the analyzer's chain while it has no route, its prompt `prompts['diary-scene']` and
+ * role `director`, which takes the analyzer's chain while it has no route, its prompt `prompts['diary/scene']` and
  * its settings read from `hot` at the moment of use. A request or token cap throws; any other failure of the request is
  * `request-failed`. Throws for a kind outside SCENE_KINDS.
  */
@@ -164,7 +170,7 @@ export async function buildScene({
   if (!isSceneKind(kind))
     throw new Error(`diary scene: kind "${kind}" gets no scene; use one of ${SCENE_KINDS.join(', ')}`);
   const none: SceneTokens = { in: 0, out: 0 };
-  const prompt = hot.prompts?.[PURPOSE];
+  const prompt = hot.prompts?.['diary/scene'];
   if (typeof prompt !== 'string' || !prompt.trim()) return { sets, tokens: none, ok: false, reason: 'no-prompt' };
   const numbered = sets.map((set, index) => [`${index + 1}.`, ...set].join('\n')).join('\n\n');
   const user = [block('kind', kind), block('sets', numbered), block('now', formatNow(now, timezone))].join('\n\n');
@@ -218,7 +224,7 @@ export async function entryScenes({
   timezone: string;
 }): Promise<Array<SceneResult>> {
   const requests = kind === 'randomSet' ? RANDOM_SET_SCENES : 1;
-  const sets = drawSceneSets({ seedsText: hot.prompts?.['diary-seeds'], posts, rng, requests });
+  const sets = drawSceneSets({ prompts: hot.prompts, posts, rng, requests });
   const groups = Array.from({ length: requests }, (_, index) =>
     sets.slice(index * SCENE_SETS, (index + 1) * SCENE_SETS)
   );

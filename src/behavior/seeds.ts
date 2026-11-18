@@ -1,45 +1,20 @@
-// The seeds files of the prompts: families of short lines under `# name` headings, and the draw of a few lines from
-// them. The diary's director draws its sets from `prompts/diary-seeds.md` (src/behavior/diary-scene.ts) and a heartbeat
-// draws from `prompts/heartbeat-seeds.md` (src/turn/phases/request/build.ts). Pure: the random source is injected.
+// The seeds files of the prompts: one file per family, one seed per line, and the draw of a few lines from them. The
+// diary's director draws its sets from the files of `prompts/diary/seeds/` (src/behavior/diary-scene.ts) and a heartbeat
+// from those of `prompts/heartbeat/seeds/` (src/turn/phases/request/build.ts). Pure: the random source is injected.
 
 import { shuffled } from './random.ts';
-
-/** The family of the lines a file holds before its first heading. */
-const DEFAULT_FAMILY = 'seed';
 
 /** How many families a heartbeat's fragments come from, and how many lines of each. */
 const FRAGMENT_FAMILIES = 2;
 const FRAGMENT_LINES = 2;
 
-/**
- * The families of a seeds file: a `# name` line starts a family, every other non-blank line (trimmed) is one seed of
- * the current family; lines before the first header belong to the family `seed`. Families keep their header order; a
- * header with no lines is an empty family.
- */
-export function parseSeedFamilies(text: unknown): Record<string, Array<string>> {
-  const families: Record<string, Array<string>> = {};
-  if (typeof text !== 'string') return families;
-  let current: string | null = null;
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    const header = /^#+\s*(.+)$/.exec(line);
-    if (header) {
-      current = header[1].trim();
-      families[current] ??= [];
-      continue;
-    }
-    if (current === null) {
-      current = DEFAULT_FAMILY;
-      families[current] ??= [];
-    }
-    families[current].push(line);
-  }
-  return families;
+/** The seeds of one family's file: every non-blank line, trimmed, is one seed. [] for a missing file. */
+export function seedLines(text: unknown): Array<string> {
+  return typeof text === 'string' ? text.split(/\r?\n/).flatMap((raw) => (raw.trim() ? [raw.trim()] : [])) : [];
 }
 
 /**
- * `sets` seed combinations from `families` (parseSeedFamilies): each one random line of every
+ * `sets` seed combinations from `families` (`{ name: seeds }`): each one random line of every
  * non-empty family, in the families' order. A line in `used` (usedSeedLines) is left out while its family has another
  * line; a family whose every line is used is drawn from whole. The combinations of one draw share no line of a family
  * while the family has a line left for each of them; a family with fewer lines than combinations repeats once its lines
@@ -77,12 +52,15 @@ export function pickSeeds(
 }
 
 /**
- * A heartbeat's fragments from the text of a seeds file: `FRAGMENT_FAMILIES` families drawn with `rng` among those with
- * a line, `FRAGMENT_LINES` different lines of each drawn as pickSeeds draws them, all of them in one shuffled list that
- * names no family. [] for a missing or empty file.
+ * A heartbeat's fragments from the texts of its seeds files by name (`files`, one family each, taken in name order):
+ * `FRAGMENT_FAMILIES` families drawn with `rng` among those with a line, `FRAGMENT_LINES` different lines of each drawn
+ * as pickSeeds draws them, all of them in one shuffled list that names no family. [] when no file holds a line.
  */
-export function drawFragments(text: unknown, rng: () => number): Array<string> {
-  const families = Object.entries(parseSeedFamilies(text)).filter(([, lines]) => lines.length > 0);
+export function drawFragments(files: Readonly<Record<string, unknown>>, rng: () => number): Array<string> {
+  const families = Object.keys(files)
+    .sort()
+    .map((name): [string, Array<string>] => [name, seedLines(files[name])])
+    .filter(([, lines]) => lines.length > 0);
   const chosen = Object.fromEntries(shuffled(families, rng).slice(0, FRAGMENT_FAMILIES));
   const lines = pickSeeds(chosen, FRAGMENT_LINES, rng).flat();
   return shuffled([...new Set(lines.filter((line): line is string => typeof line === 'string'))], rng);

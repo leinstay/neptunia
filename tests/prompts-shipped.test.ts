@@ -108,10 +108,20 @@ const NOT_BUILT = {
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
   // which fetches its own history: no seam reaches it (owner decision O-9).
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
-  // Split into families and drawn from line by line (src/behavior/seeds.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
-  'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/seeds.ts#pickSeeds), never sent whole',
-  // A heartbeat draws four lines of two families into <fragments> (src/behavior/seeds.ts#drawFragments), never the file whole.
-  'heartbeat-seeds': 'drawn from line by line into <fragments> (src/behavior/seeds.ts#drawFragments), never sent whole',
+  // One file per family, drawn from line by line into the director's sets (src/behavior/seeds.ts#pickSeeds), never sent whole.
+  ...Object.fromEntries(
+    ['place', 'setting', 'detail', 'activity', 'subject', 'twist', 'where'].map((family) => [
+      `diary/seeds/${family}`,
+      "drawn from line by line into the director's sets (src/behavior/seeds.ts#pickSeeds), never sent whole",
+    ])
+  ),
+  // A heartbeat draws four lines of two families into <fragments> (src/behavior/seeds.ts#drawFragments), never a file whole.
+  ...Object.fromEntries(
+    ['find', 'try', 'make', 'exchange', 'touch', 'know', 'places'].map((family) => [
+      `heartbeat/seeds/${family}`,
+      'drawn from line by line into <fragments> (src/behavior/seeds.ts#drawFragments), never sent whole',
+    ])
+  ),
   // Her memory session and the description review build their requests over the memory database, not from a turn:
   // tests/memory-db-session.test.ts and tests/memory-db-describe.test.ts check what they load.
   // The summarizer builds its request from a text and a limit, with no turn around it: tests/summarize.test.ts checks which
@@ -132,7 +142,7 @@ const NOT_BUILT = {
   'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.ts), which no turn here makes',
   // The director's request goes before a diary turn of a scene kind, which no builder here reaches;
   // tests/diary-scene.test.ts checks what it sends.
-  'diary-scene': 'built by src/behavior/diary-scene.ts before a diary turn, checked in tests/diary-scene.test.ts',
+  'diary/scene': 'built by src/behavior/diary-scene.ts before a diary turn, checked in tests/diary-scene.test.ts',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
   // agent runner process (src/agent-runner/profiles.ts), never by a bot request.
 };
@@ -201,20 +211,22 @@ const PENDING_LABELS = {
 // a rule in every fixture, and tests/rules-list.test.ts already checks the block with and without one.
 const SYSTEM = ['system-prompt', 'character-card', 'format'];
 
-/** Every kind of diary entry and the prompt file of its own task, which follows the common `diary.md`. */
-const DIARY_KIND_FILES: Record<string, string> = {
-  status: 'diary-kind-status',
-  story: 'diary-kind-story',
-  selfPicture: 'diary-kind-self-picture',
-  picture: 'diary-kind-picture',
-  photoset: 'diary-kind-photoset',
-  randomSet: 'diary-kind-random-set',
-  news: 'diary-kind-news',
-  facts: 'diary-kind-facts',
-  thought: 'diary-kind-thought',
-  people: 'diary-kind-people',
-  meme: 'diary-kind-meme',
-};
+/** Every kind of diary entry and the prompt file of its own task, which follows the common `diary/task.md`. */
+const DIARY_KIND_FILES: Record<string, string> = Object.fromEntries(
+  [
+    'status',
+    'story',
+    'selfPicture',
+    'picture',
+    'photoset',
+    'randomSet',
+    'news',
+    'facts',
+    'thought',
+    'people',
+    'meme',
+  ].map((kind) => [kind, `diary/kinds/${kind}`])
+);
 
 /** The prompt files each request below must carry whole, by request. */
 const LOADS = {
@@ -226,10 +238,10 @@ const LOADS = {
   privateOpen: [...SYSTEM, 'reply', 'private-open'],
   draw: ['draw', 'appearance'],
   ...Object.fromEntries(
-    Object.entries(DIARY_KIND_FILES).map(([kind, file]) => [`diary ${kind}`, [...SYSTEM, 'diary', file]])
+    Object.entries(DIARY_KIND_FILES).map(([kind, file]) => [`diary ${kind}`, [...SYSTEM, 'diary/task', file]])
   ),
   inner: [...SYSTEM, 'inner'],
-  heartbeat: [...SYSTEM, 'heartbeat'],
+  heartbeat: [...SYSTEM, 'heartbeat/task'],
   describe: ['describe'],
   avatar: ['avatar'],
   describeGif: ['describe-gif'],
@@ -1199,13 +1211,13 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
     { files: LOADS.inner, blocks: ['chat', 'task'] },
     'intention turn'
   );
-  assert.ok(!carries(dueText, 'heartbeat'), 'heartbeat.md is not sent on an intention turn');
+  assert.ok(!carries(dueText, 'heartbeat/task'), 'heartbeat/task.md is not sent on an intention turn');
   const missing = await wakeInput('heartbeat');
-  missing.prompts = { ...SHIPPED.prompts, heartbeat: '  ' } as typeof SHIPPED.prompts;
-  assertFilled(buildRequest(missing).messages, { files: LOADS.inner }, 'heartbeat with no heartbeat.md');
+  missing.prompts = { ...SHIPPED.prompts, 'heartbeat/task': '  ' } as typeof SHIPPED.prompts;
+  assertFilled(buildRequest(missing).messages, { files: LOADS.inner }, 'heartbeat with no heartbeat/task.md');
 });
 
-test("buildRequest: a diary entry of each kind fills the system files, diary.md and its kind's own file", async () => {
+test("buildRequest: a diary entry of each kind fills the system files, diary/task.md and its kind's own file", async () => {
   const input = await turnInput({
     mode: 'diary',
     trigger: null,

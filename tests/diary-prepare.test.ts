@@ -86,13 +86,11 @@ test('a scene kind the director gives no scene is skipped as no-scene with the f
   assert.equal(run.prepared, undefined);
 });
 
-/** A seeds file of two families with 24 lines each, so 24 sets share no line. */
-const SEEDS_24 = [
-  '# place',
-  ...Array.from({ length: 24 }, (_, i) => `p${i}`),
-  '# setting',
-  ...Array.from({ length: 24 }, (_, i) => `s${i}`),
-].join('\n');
+/** Two seeds files of 24 lines each, so 24 sets share no line. */
+const SEEDS_24 = {
+  'diary/seeds/place': Array.from({ length: 24 }, (_, i) => `p${i}`).join('\n'),
+  'diary/seeds/setting': Array.from({ length: 24 }, (_, i) => `s${i}`).join('\n'),
+};
 
 test('the lines an entry kept, and those of an entry stored with a plan, stay out of the next sets', async () => {
   // Bug: the next entry is offered the place the last one was built on, so two entries in a row share their scene.

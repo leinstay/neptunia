@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // Calibration tool of the diary's scene helper (src/behavior/diary-scene.ts): runs the helper on fresh seed sets and
-// prints the scenes, so the wording of `prompts/diary-scene.md` is judged on real answers before any turn uses it.
+// prints the scenes, so the wording of `prompts/diary/scene.md` is judged on real answers before any turn uses it.
 //
 //   NEPTUNIA_DATA_DIR=<data folder> node scripts/diary-scenes.ts [--kinds story,picture] [--count 3]
 //        [--seed <text>] [--prompts <dir>] [--out <report.md>] [--director <route>]
 //
 // For each kind of `--kinds` (default the five of SCENE_KINDS) and each of `--count` runs (default 3) it draws eight
-// seed sets from `prompts/diary-seeds.md`, leaving out the lines the newest stored entries built on, and calls the
+// seed sets from the files of `prompts/diary/seeds/`, leaving out the lines the newest stored entries built on, and calls the
 // helper once. `--seed` fixes the random source, so two runs with one seed offer the same sets; without it a fresh
 // seed is drawn and named on stderr. `--prompts <dir>` lays the directory over the data folder's prompts as
-// `scripts/replay.ts --prompts` does, so a variant of `diary-scene.md` is tried without touching the live one.
+// `scripts/replay.ts --prompts` does, so a variant of `diary/scene.md` is tried without touching the live one.
 //
 // The data folder gives the configuration, the keys and the stored entries, read only: nothing is written there.
 // Requests go out on the role `director` as production sends it, on the analyzer's chain while the role has no route.
@@ -168,7 +168,7 @@ export async function main(
     for (const kind of args.kinds) {
       results[kind] = [];
       for (let run = 0; run < args.count; run += 1) {
-        const sets = drawSceneSets({ seedsText: hot.prompts?.['diary-seeds'], posts, rng });
+        const sets = drawSceneSets({ prompts: hot.prompts, posts, rng });
         const result = await buildScene({ hot: asked, llm, kind, sets, now: now(), timezone });
         process.stderr.write(`${TOOL}: ${kind} ${run + 1}/${args.count} ${result.ok ? 'ok' : result.reason}\n`);
         results[kind].push(printedOf(result));

@@ -44,7 +44,7 @@ test('sends the prompt file as the system message and no character text, on the 
   const { llm, run, done } = setup();
   try {
     await run(['--kinds', 'story', '--count', '1', '--seed', 'a']);
-    const tracked = fs.readFileSync(path.join(ROOT, 'prompts', 'diary-scene.md'), 'utf8');
+    const tracked = fs.readFileSync(path.join(ROOT, 'prompts', 'diary', 'scene.md'), 'utf8');
     const [call] = llm.calls;
     const [system] = call.messages;
     assert.equal(system.content, tracked.trim());
@@ -120,8 +120,8 @@ test('lays a variant of the prompt from --prompts over the prompts', async () =>
   const { dir, llm, run, done } = setup();
   try {
     const variant = path.join(dir, 'variant');
-    fs.mkdirSync(variant);
-    fs.writeFileSync(path.join(variant, 'diary-scene.md'), 'A VARIANT OF THE TASK');
+    fs.mkdirSync(path.join(variant, 'diary'), { recursive: true });
+    fs.writeFileSync(path.join(variant, 'diary', 'scene.md'), 'A VARIANT OF THE TASK');
     await run(['--kinds', 'randomSet', '--count', '1', '--prompts', variant]);
     const [{ messages }] = llm.calls;
     assert.equal(messages[0].content, 'A VARIANT OF THE TASK');

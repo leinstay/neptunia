@@ -414,7 +414,7 @@ const PROMPTS = {
   'system-prompt': 'You are a regular member of this chat.',
   'character-card': 'You are friendly and terse.',
   format: 'Use <msg> and <react> tags.',
-  heartbeat: MARK.heartbeat,
+  'heartbeat/task': MARK.heartbeat,
   inner: MARK.inner,
   labels: shippedLabels,
 };

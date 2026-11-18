@@ -120,9 +120,9 @@ describe('inner turns with no interface', () => {
       },
     });
     Object.assign(hot.prompts, {
-      diary: 'Write your diary.',
-      'diary-scene': 'SCENE_TASK',
-      'diary-seeds': '# place\na pier',
+      'diary/task': 'Write your diary.',
+      'diary/scene': 'SCENE_TASK',
+      'diary/seeds/place': 'a pier',
     });
     const llm = {
       complete: (messages: unknown, options: { purpose?: string }) =>

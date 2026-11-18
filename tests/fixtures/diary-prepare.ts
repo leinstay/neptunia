@@ -63,8 +63,8 @@ export type PrepareOptions = {
   pictures?: boolean;
   /** The kind the owner's command forced, or null for none. */
   forcedKind?: string | null;
-  /** The seeds file the director draws from. */
-  seeds?: string;
+  /** The seeds files the director draws from, by prompt key. */
+  seeds?: Record<string, string>;
 };
 
 export type PrepareRun = {
@@ -88,12 +88,12 @@ export async function prepare({
   failing = false,
   pictures = false,
   forcedKind = null,
-  seeds = '# place\na pier\na roof\na field\n# light\nfog\nrain\ndusk',
+  seeds = { 'diary/seeds/place': 'a pier\na roof\na field', 'diary/seeds/setting': 'fog\nrain\ndusk' },
 }: PrepareOptions): Promise<PrepareRun> {
   const requests: Array<string> = [];
   const config = { bot: { timezone: 'UTC' }, llm: { maxRequestTokens: 50000 }, diary: {} };
   const diary = createDiary({
-    hot: { config, prompts: { 'diary-scene': 'SCENE_TASK', 'diary-seeds': seeds, labels } },
+    hot: { config, prompts: { 'diary/scene': 'SCENE_TASK', ...seeds, labels } },
     store: {
       getDiary: () => ({ posts }),
       getPlace: () => null,
