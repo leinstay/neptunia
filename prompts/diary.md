@@ -18,7 +18,7 @@ In a `photoset` the frames differ in moment and angle. Each call uses self true 
 
 In a `randomSet` nothing ties the pictures together. Use self true for a picture you are in, no self for one you are not.
 
-Both captions are short. The message talks about what the scenes show, because you know the scenes you wrote, not the finished pictures. The pictures carry the post. No scene already in <diary>.
+Both captions are short. The message talks about what your eyes saw of the finished pictures, as the result of each drawing call tells you. The pictures carry the post. No scene already in <diary>.
 
 When <plan> ends with what a search turned up, retell the facts or the news in your own words. Never paste a link, never quote the source text.
 

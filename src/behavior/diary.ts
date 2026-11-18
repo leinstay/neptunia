@@ -608,14 +608,14 @@ export function planSeed(parsed: unknown, offered: number): number {
 }
 
 /**
- * What a past picture post showed, one line and whole: the brief its planner wrote (`plan.brief`), else its stored
- * drawing prompt (`picture`). '' when it has neither.
+ * What a past picture post showed, one line and whole: the persona's own drawing prompt (`picture`), else the brief
+ * its planner wrote (`plan.brief`). '' when it has neither.
  */
 export function sceneOf(post: unknown): string {
   const entry = objOf(post);
+  if (typeof entry.picture === 'string' && entry.picture.trim()) return oneLine(entry.picture);
   const brief = objOf(entry.plan).brief;
-  if (typeof brief === 'string' && brief.trim()) return oneLine(brief);
-  return typeof entry.picture === 'string' ? oneLine(entry.picture) : '';
+  return typeof brief === 'string' ? oneLine(brief) : '';
 }
 
 /** The picture suffix of one post: its scene (sceneOf), `pictureUnknown` for a picture with no recorded
