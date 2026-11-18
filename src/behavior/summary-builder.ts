@@ -1,11 +1,11 @@
 // The summary builder: the step after a search. One contract, evidence in and a note out, over two prompt files,
 // because chat stretches with people and notes read differently from web results with a title, a URL and an age. Chat
-// evidence is its caller's request from prompts/recall-summary.md, sent on the analyzer, and web evidence reads
-// prompts/search-summary.md on the `search` role.
+// evidence is its caller's request from prompts/recall-summary.md and web evidence reads prompts/search-summary.md, both
+// sent on the analyzer under a purpose of their own.
 // The single word `none` is no note. Every caller goes through it: src/behavior/recall-run.ts and src/web/lookup.ts.
 
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
-import { SEARCH_ROLE, roleModel, searchModel } from '../llm/roles.ts';
+import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { oneLine } from '../memory/clamp.ts';
 import { utcDay } from '../time.ts';
@@ -121,9 +121,9 @@ export function createSummaryBuilder({
           }),
         }
       : {
-          model: searchModel(config),
+          model: roleModel(config, 'analyzer', 'search-summary'),
           ...roleRequestOptions(config, {
-            role: SEARCH_ROLE,
+            role: 'analyzer',
             maxOutputTokens: limits.maxOutputTokens,
             purpose: 'search-summary',
             long: true,

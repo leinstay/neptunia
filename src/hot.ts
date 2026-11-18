@@ -46,7 +46,7 @@ const valueAtPath = (config: Untyped, path: ReadonlyArray<string>): unknown =>
  * instead: `memory.voiceModel` (the memory wording runs on the core's chain, `models.routes.core`); the settings
  * that routed the model roles before their chains, `models.base`, `models.harness`, `llm.boundKeys`,
  * `llm.subscription.fallback`, `llm.reasoningByRole` and `web.quickSearch.model` (every role runs on its chain in
- * `models.routes`, its default effort in `llm.routeEffort`);
+ * `models.routes`, its default effort in `llm.routeEffort`, and quick search on the analyzer's);
  * `features.vision` and `features.attachedDescriptions` (pictures never go into the persona's own
  * request: she sees through the describer's captions and her second look, both on the `vision` model
  * role); `wakes.loop.strayFollowUps`
@@ -62,6 +62,8 @@ const valueAtPath = (config: Untyped, path: ReadonlyArray<string>): unknown =>
  * `models.routes.humanizer.linter` and `models.routes.humanizer.writer` are chains under role names the routing does
  * not know: the humanizer's linter runs on the role `linter` and its writer on the role `editor`. Their role
  * segment holds a dot, so each entry gives its path.
+ * `models.routes.search` is a chain under a role the routing does not have: quick search condenses and searches on
+ * the analyzer.
  */
 const RETIRED_CONFIG_KEYS = Object.freeze(
   [
@@ -71,7 +73,8 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'llm.boundKeys', use: 'models.routes' },
     { key: 'llm.subscription.fallback', use: 'models.routes.core' },
     { key: 'llm.reasoningByRole', use: 'llm.routeEffort' },
-    { key: 'web.quickSearch.model', use: 'models.routes.search' },
+    { key: 'web.quickSearch.model', use: 'models.routes.analyzer' },
+    { key: 'models.routes.search', use: 'models.routes.analyzer' },
     { key: 'features.vision', use: null },
     { key: 'features.attachedDescriptions', use: null },
     { key: 'wakes.loop.strayFollowUps', use: 'wakes.loop.maxSteps' },

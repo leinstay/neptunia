@@ -73,6 +73,7 @@ test('run: route.set validates the prefix, the providers and the role, writing n
     [{ model: 'google/', providers: 'google-vertex', role: 'web' }, /unknown role: web/],
     // An agent role's OpenCode worker never reads llm.providerByModel: no route may name it.
     [{ model: 'openrouter/', providers: 'openai', role: 'scout' }, /unknown role: scout/],
+    [{ model: 'perplexity/', providers: 'perplexity', role: 'search' }, /unknown role: search/],
     [{ model: 'openrouter/', providers: 'openai', role: 'dev' }, /unknown role: dev/],
     [{ model: 'openrouter/', providers: 'openai', role: 'thinker' }, /unknown role: thinker/],
     [{ model: 'google/', providers: 'google-vertex', byok: 'yes' }, /byok must be true or false/],
@@ -144,7 +145,7 @@ function hotForRoutes(rootDir: string) {
       video: 'google/gemini-3.8-flash',
       embedding: 'openai/text-embedding-x',
       drawing: 'openai/gpt-image-x',
-      search: 'perplexity/sonar-x',
+      editor: 'perplexity/sonar-x',
       'linter': 'google/gemini-3.8-flash',
     }),
   };
@@ -182,27 +183,28 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  embedding: openai/text-embedding-x -> llm.provider (ignore some-provider, fallbacks: on)',
     `  speech: ${ROLE_DEFAULTS.speech} -> llm.provider (ignore some-provider, fallbacks: on)`,
     '  drawing: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
-    '  search: perplexity/sonar-x -> llm.provider (ignore some-provider, fallbacks: on)',
     '  linter: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
-    '  editor: (no model configured)',
-    // Changed: the section lists every role the routing knows (src/llm/route-text.ts#ROUTE_ROLES), so memory, search
-    // and the humanizer's roles get a line, each with its model read the way its requests read it.
+    '  editor: perplexity/sonar-x -> llm.provider (ignore some-provider, fallbacks: on)',
+    // Changed: the role `search` is gone from the routing, and the fixture gives its chain to `editor`.
+    // Changed: the section lists every role the routing knows (src/llm/route-text.ts#ROUTE_ROLES), so memory and
+    // the humanizer's roles get a line, each with its model read the way its requests read it.
     // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16), and the errand agents
     // with `models.errands` (owner, 2026-11-17): their routes are the subharness's, which route.list does not show.
   ]);
 });
 
-test('run: route.set takes the roles search and linter, the by-role line obeys it, route.remove takes it back', async () => {
+test('run: route.set takes the roles editor and linter, the by-role line obeys it, route.remove takes it back', async () => {
   // Catches: a role the routing knows is refused as unknown by route.set, or its by-role line is missing.
+  // Changed: the role `search` is gone from the routing, so the humanizer's two roles stand for the roles beyond the base.
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: hotForRoutes(rootDir) });
 
   await admin.run('route.set', { model: 'google/', providers: 'google-vertex', role: 'linter' }, {});
-  await admin.run('route.set', { model: 'perplexity/', providers: 'perplexity', role: 'search' }, {});
+  await admin.run('route.set', { model: 'perplexity/', providers: 'perplexity', role: 'editor' }, {});
 
   assert.deepEqual(routesOf(rootDir), {
     'google/@linter': { only: ['google-vertex'], allow_fallbacks: false },
-    'perplexity/@search': { only: ['perplexity'], allow_fallbacks: false },
+    'perplexity/@editor': { only: ['perplexity'], allow_fallbacks: false },
   });
   const lines = (await runText(admin, 'route.list', {})).split('\n');
   assert.ok(
@@ -210,12 +212,12 @@ test('run: route.set takes the roles search and linter, the by-role line obeys i
     lines.join('\n')
   );
   assert.ok(
-    lines.includes('  search: perplexity/sonar-x -> perplexity/@search (only perplexity, fallbacks: off)'),
+    lines.includes('  editor: perplexity/sonar-x -> perplexity/@editor (only perplexity, fallbacks: off)'),
     lines.join('\n')
   );
 
   await admin.run('route.remove', { model: 'google/', role: 'linter' }, {});
-  await admin.run('route.remove', { model: 'perplexity/', role: 'search' }, {});
+  await admin.run('route.remove', { model: 'perplexity/', role: 'editor' }, {});
   assert.deepEqual(readLocal(rootDir), {});
 });
 

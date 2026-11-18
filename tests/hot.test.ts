@@ -565,6 +565,28 @@ test('createHot: a chain under a retired humanizer role warns once per role with
   }
 });
 
+test('createHot: a chain under the retired role search warns once with the analyzer as its use', async () => {
+  // Catches: a deployment keeps `models.routes.search`, nothing reads it, and the owner believes quick search runs there.
+  const chain = [{ via: 'api', key: 'k', model: 'x/old-model', effort: null }];
+  const dir = makeRoot(wrongly({ config: { models: { routes: { search: chain } } } }));
+  let hot = wrongly<Hot>(undefined);
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+      hot.reloadConfig();
+    });
+    assert.deepEqual(
+      started.logs
+        .filter((entry: Record<string, Untyped>) => /^config: models\.routes\.search/.test(String(entry.msg)))
+        .map((entry: Record<string, Untyped>) => [entry.msg, entry.use]),
+      [['config: models.routes.search is no longer read', 'models.routes.analyzer']]
+    );
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createHot: an agent entry that still sets its socket warns once, whatever agent it names', async () => {
   // Catches: a deployment keeps `agents.<name>.socket` from the per-agent units, nothing reads it, and the owner believes
   // the runner listens there.

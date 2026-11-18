@@ -648,15 +648,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'search',
-    help: 'Configure quick web search, its engine and model',
+    help: 'Configure quick web search and its engine',
     args: [],
     defaultSubcommand: 'status',
     subcommands: [
-      sub('status', 'Quick search: on or off, its engine, its model and the key it goes out on'),
+      sub('status', 'Quick search: on or off, its engine and the model that condenses it'),
       sub('enable', 'Turn quick search on'),
       sub('disable', 'Turn quick search off; reading a known page stays'),
       sub('engine', 'Choose the engine of quick search', [arg('name', true, ['openrouter', 'brave', 'exa'])]),
-      sub('model', 'Put another model on each route of quick search', [arg('id')]),
     ],
   },
   {

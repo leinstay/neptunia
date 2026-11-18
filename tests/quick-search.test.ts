@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 
 import { createLookup, webSearchPlugins } from '../src/web/lookup.ts';
 import type { LookupDeps } from '../src/web/lookup.ts';
-import { searchModel } from '../src/llm/roles.ts';
 import { runWebSearch } from '../src/tools/tools.ts';
 import { searchCommand } from '../src/interface/commands/search.ts';
 import { labels } from './fixtures/labels.ts';
@@ -39,11 +38,11 @@ function rig({
 } = {}) {
   const searches: Array<SearchCall> = [];
   const requests: Array<Record<string, unknown>> = [];
-  // Changed: quick search's model is its chain's (spec 2026-11-09-model-routes, slice 4), so a `model` of `search`
-  // becomes the `search` chain.
-  const { model, ...quick } = search;
+  // Changed: quick search condenses and searches on the analyzer, so a `model` of `search` becomes the analyzer's chain,
+  // and `routes` and `byPurpose` add chains and pins of their own.
+  const { model, routes = {}, byPurpose = {}, ...quick } = search;
   const config = {
-    models: { routes: chainsOf({ search: model }) },
+    models: { routes: { ...chainsOf({ analyzer: model }), ...(routes as object) }, byPurpose },
     web: { quickSearch: { enabled: true, cacheHours: 24, timeoutMs: 1000, ...quick } },
     llm: { timeoutMs: 1000 },
   };
@@ -55,7 +54,7 @@ function rig({
   });
   const cache = {};
   const deps = {
-    hot: { config, prompts: {} },
+    hot: { config, prompts: { 'search-summary': 'Condense the results for {{query}}.' } },
     store: { ...objectMediaCache(cache) },
     llm: {
       complete: (messages: unknown, options: Record<string, unknown>) => {
@@ -108,15 +107,57 @@ test('an engine outside the three is off as an unset one is', async () => {
   assert.deepEqual(searches, []);
 });
 
-test('the openrouter engine with no model is off with its reason, and no request goes out', async () => {
-  // Bug: the removed default model still answers, spending on a model nobody chose.
+test('the openrouter engine with no chain of its own runs on the analyzer', async () => {
+  // Changed: quick search has no chain of its own, so `openrouter` with no route set is on, on the analyzer's model.
+  // Bug: quick search stays off waiting for a chain the routing no longer has.
   const { lookup, requests } = rig({ search: { engine: 'openrouter' } });
-  assert.equal(searchModel({ web: { quickSearch: {} } }), undefined);
-  assert.equal(lookup.hasSearch(), false);
-  assert.deepEqual(await lookup.searchResults('g1', QUERY), {
-    failed: { code: 'not-configured', reason: 'no-model', engine: 'openrouter' },
+  assert.equal(lookup.hasSearch(), true);
+  await lookup.searchResults('g1', QUERY);
+  assert.equal(requests[0]?.role, 'analyzer');
+  assert.equal(requests[0]?.model, 'openai/gpt-6.1-sol');
+});
+
+test('exa with no chain named search condenses on the analyzer chain', async () => {
+  // Bug: the summary still waits for the retired `search` chain, so Exa finds results and the persona reads none.
+  const { lookup, requests } = rig({
+    search: { engine: 'exa', model: 'x/analyzer' },
+    keys: { exa: 'exa-key' },
+    complete: () => Promise.resolve({ text: 'Open until eight.', usage: {}, estimated: 1 }),
   });
-  assert.deepEqual(requests, []);
+  const found = await lookup.search('g1', QUERY);
+  assert.equal(found?.text, 'Open until eight.');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.role, 'analyzer');
+  assert.equal(requests[0]?.model, 'x/analyzer');
+  assert.equal(requests[0]?.purpose, 'search-summary');
+});
+
+test('a chain under models.routes.search is not read', async () => {
+  // Bug: a deployment's old `search` chain still picks the model of the summary.
+  const { lookup, requests } = rig({
+    search: { engine: 'exa', model: 'x/analyzer', routes: chainsOf({ search: 'x/old-search' }) },
+    keys: { exa: 'exa-key' },
+  });
+  await lookup.search('g1', QUERY);
+  assert.equal(requests[0]?.model, 'x/analyzer');
+});
+
+test('the purpose pins of models.byPurpose decide the model of each search request', async () => {
+  // Bug: the summary or the openrouter search takes the analyzer's model past the pin the owner set for that one job.
+  const exa = rig({
+    search: { engine: 'exa', model: 'x/analyzer', byPurpose: { 'search-summary': 'x/pinned' } },
+    keys: { exa: 'exa-key' },
+  });
+  await exa.lookup.search('g1', QUERY);
+  const [summary] = exa.requests;
+  assert.equal(summary?.model, 'x/pinned');
+  const routed = rig({
+    search: { engine: 'openrouter', model: 'x/analyzer', byPurpose: { 'quick-search': 'x/raw' } },
+  });
+  await routed.lookup.searchResults('g1', QUERY);
+  const [raw] = routed.requests;
+  assert.equal(raw?.model, 'x/raw');
+  assert.equal(raw?.role, 'analyzer');
 });
 
 test('the tool says quick search is off and why, under the name quick-search', async () => {
@@ -152,7 +193,8 @@ test('the openrouter request carries the plugin engine auto under the purpose qu
   // OpenRouter refuses `auto`, measured 2026-11-05
   assert.deepEqual(requests[0]?.plugins, [{ id: 'web', max_results: 5 }]);
   assert.equal(requests[0]?.purpose, 'quick-search');
-  assert.equal(requests[0]?.role, 'search');
+  // Changed: the openrouter engine sends its search on the analyzer's chain.
+  assert.equal(requests[0]?.role, 'analyzer');
   assert.deepEqual(found, {
     query: QUERY,
     results: [

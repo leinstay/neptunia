@@ -44,7 +44,6 @@ import { activitySums, agentCostsLines, keyCostsLines, roleCostsLines, readAccou
 import { withKeyLines } from './key-lines.ts';
 import { fill } from '../../format.ts';
 import { log } from '../../log.ts';
-import { modelForRole } from './shared.ts';
 import { defineOp, perEnv } from './registry.ts';
 import { idText, isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
@@ -434,7 +433,7 @@ const handlers = perEnv((env) => {
   /** The `models.base` field unprobed (a member's card): every role's own model, the drawing model last. */
   function modelsValue(cfg: Untyped): string {
     const image = roleHead(IMAGE_ROLE, roleModel(cfg, 'drawing') ? imageModelLabel(cfg) : 'no model configured');
-    return [groupedModels(cfg, (role) => roleHead(role, modelForRole(role, cfg) ?? 'no model configured')), image].join(
+    return [groupedModels(cfg, (role) => roleHead(role, roleModel(cfg, role) ?? 'no model configured')), image].join(
       '\n'
     );
   }
@@ -497,7 +496,7 @@ const handlers = perEnv((env) => {
   async function probedModelsValue(cfg: Untyped): Promise<string> {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
     const labels = hot.prompts?.labels;
-    const modelOf = new Map<string, string | undefined>(MODEL_ROLES.map((role) => [role, modelForRole(role, cfg)]));
+    const modelOf = new Map<string, string | undefined>(MODEL_ROLES.map((role) => [role, roleModel(cfg, role)]));
     // An embedding probe is another kind of request: never shared with a chat probe of the same model.
     const targetOf = (role: string): string => {
       const model = modelOf.get(role);
@@ -548,7 +547,7 @@ const handlers = perEnv((env) => {
       reason: promptText ? null : 'no-label',
     });
     const lineOf = (role: string): string => {
-      const model = modelOf.has(role) ? modelOf.get(role) : modelForRole(role, cfg);
+      const model = modelOf.has(role) ? modelOf.get(role) : roleModel(cfg, role);
       if (!model) return roleHead(role, 'no model configured');
       const head = roleHead(role, model);
       if (!promptText) return `${head} · skipped: label missing`;

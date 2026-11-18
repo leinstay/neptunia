@@ -24,7 +24,7 @@ import type { KeyRing } from '../../src/keys/ring.ts';
 import { createKeyStore } from '../../src/keys/store.ts';
 import { createChainClient, createRouteChainOf } from '../../src/llm/chain-client.ts';
 import type { CompleteResult } from '../../src/llm/openrouter.ts';
-import { roleModel, searchModel } from '../../src/llm/roles.ts';
+import { roleModel } from '../../src/llm/roles.ts';
 import { harnessEffort, isRefusal, parseRouteText } from '../../src/llm/route-text.ts';
 import type { Route, RouteEffort } from '../../src/llm/route-text.ts';
 import { MAX_FRAME_BYTES, wrapSocket } from '../../src/protocol/wire.ts';
@@ -44,17 +44,7 @@ import { CliError } from './cli-args.ts';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /** The model roles a flag can replace, as the routing knows them. */
-export const ROUTE_ROLES = [
-  'core',
-  'memory',
-  'analyzer',
-  'vision',
-  'video',
-  'speech',
-  'drawing',
-  'embedding',
-  'search',
-] as const;
+export const ROUTE_ROLES = ['core', 'memory', 'analyzer', 'vision', 'video', 'speech', 'drawing', 'embedding'] as const;
 export type RouteRole = (typeof ROUTE_ROLES)[number];
 
 /** One role's route for this run: a key of keys.json with a model, or a connected harness with a model. */
@@ -287,7 +277,7 @@ function saidOf(role: RouteRole, route: Route | null, ctx: { config: unknown; of
   if (route?.via === 'harness')
     return `${role}: harness ${route.backend}, model ${route.model}${effortText(route.effort)}`;
   if (route?.via === 'api') return `${role}: key ${route.key}, model ${route.model}${effortText(route.effort)}`;
-  const model = role === 'search' ? searchModel(ctx.config) : roleModel(ctx.config, role);
+  const model = roleModel(ctx.config, role);
   return model === undefined ? `${role}: off` : `${role}: no key, model ${model}`;
 }
 

@@ -507,9 +507,9 @@ test('recall-eval: a record line becomes a chat message with its link previews, 
 
 test('recall-eval: --web readiness follows web.quickSearch.engine through the lookup, not the Brave key alone', () => {
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
-  // Changed: quick search's model is its chain's, `models.routes.search` (spec 2026-11-09-model-routes, slice 4).
+  // Changed: quick search runs on the analyzer, so its chain stands where the `search` chain stood.
   const hotOf = (engine: string) => ({
-    config: { models: { routes: chainsOf({ search: 'x/quick' }) }, web: { quickSearch: { engine } } },
+    config: { models: { routes: chainsOf({ analyzer: 'x/quick' }) }, web: { quickSearch: { engine } } },
     prompts: {},
   });
   // Readiness reads service credentials from the selected prepared persona, not environment secret values.

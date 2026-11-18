@@ -32,7 +32,7 @@ const ENV = { brave: 'brave-test-key', exa: 'exa-test-key' };
 function hotFixture() {
   return {
     config: {
-      // Changed: quick search's model is its chain's, `models.routes.search` (spec 2026-11-09-model-routes, slice 4).
+      // Changed: quick search runs on the analyzer, so the `search` chain stays here only to show it is not read.
       models: { routes: chainsOf({ analyzer: 'test/analyzer', search: 'test/search' }) },
       llm: { analyzerTimeoutMs: 9000 },
       web: {
@@ -266,9 +266,9 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   assert.equal(asRecord(calls.brave[0]).options.timeoutMs, 7000);
   assert.equal(asRecord(calls.exa[0]).options.apiKey, 'exa-test-key');
   const summaryCall = asRecord(calls.llm[0]).options;
-  // Changed: quick search has its own model setting, apart from the analyzer.
-  assert.equal(summaryCall.model, 'test/search');
-  assert.equal(summaryCall.role, 'search');
+  // Changed: quick search condenses on the analyzer.
+  assert.equal(summaryCall.model, 'test/analyzer');
+  assert.equal(summaryCall.role, 'analyzer');
   assert.equal(summaryCall.purpose, 'search-summary');
   assert.equal(summaryCall.origin, 'search-compare');
   assert.equal(summaryCall.countAgainstDailyCap, false);

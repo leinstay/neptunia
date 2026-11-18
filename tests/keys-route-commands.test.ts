@@ -143,11 +143,11 @@ test('a harness route on a role that runs no CLI chat step and an unknown key ar
   assert.deepEqual(held.analyzer, [api('helpers', 'x/analyzer')]);
 });
 
-test('model set, model add, model remove and keys check refuse a retired humanizer role as an unknown role', async () => {
-  // Catches: a deployment that types the role names `humanizer.linter` or `humanizer.writer` gets a chain written under
-  // a key nothing reads, or a check of a role that has no requests.
+test('model set, model add, model remove and keys check refuse a retired role as an unknown role', async () => {
+  // Catches: a deployment that types the role names `humanizer.linter`, `humanizer.writer` or `search` gets a chain
+  // written under a key nothing reads, or a check of a role that has no requests.
   const { keys, calls, harnessChecks } = rig();
-  for (const role of ['humanizer.linter', 'humanizer.writer']) {
+  for (const role of ['humanizer.linter', 'humanizer.writer', 'search']) {
     for (const name of ['model.set', 'model.add']) {
       const answer = await keys.run(name, { role, model: 'helpers/x/model' }, null);
       assert.equal(answer.status, 'invalid', `${name} ${role}`);
@@ -156,6 +156,8 @@ test('model set, model add, model remove and keys check refuse a retired humaniz
     const removed = await keys.run('model.remove', { role, n: 1 }, null);
     assert.equal(removed.status, 'invalid', `model.remove ${role}`);
   }
+  const checked = await keys.run('keys.check', { target: 'search' }, null);
+  assert.equal(checked.code, 'unknown-target', checked.text);
   assert.equal(calls.length + harnessChecks.length, 0);
 });
 

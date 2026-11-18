@@ -15,7 +15,6 @@ import type { PublicationBoundary } from '../publication.ts';
 import { emptyAffinity, affinityBand, roundScore } from '../../memory/index.ts';
 import { topByRank } from '../../memory/ranking.ts';
 import { fromTokens } from '../../memory/mentions.ts';
-import { roleModel, searchModel, SEARCH_ROLE } from '../../llm/roles.ts';
 import { isRouteRole, ROUTE_ROLES } from '../../llm/route-text.ts';
 import { oneLine } from '../../memory/clamp.ts';
 import { DAY_MS, utcDay } from '../../time.ts';
@@ -443,14 +442,6 @@ export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
 
 /** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */
 export const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
-
-/** The model id one role resolves to right now (`model.show`, `route.*`, the status
- * card): the first route of its chain, else the role's own default
- * (src/llm/roles.ts#roleModel; no purpose, so no `models.byPurpose` entry). `search` has no default and is no
- * model role of `roleModel`, so its model is its chain's (src/llm/roles.ts#searchModel). */
-export function modelForRole(role: string, cfg: object): string | undefined {
-  return role === SEARCH_ROLE ? searchModel(cfg) : roleModel(cfg, role);
-}
 
 /** The providers part of a routing object: its `only`/`order`/`ignore` lists, or the object as
  * JSON (without `allow_fallbacks` and `byok`, shown on their own) when it holds anything else. */

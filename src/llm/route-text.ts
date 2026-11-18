@@ -19,7 +19,6 @@ export const ROUTE_ROLES = [
   'embedding',
   'speech',
   'drawing',
-  'search',
   'linter',
   'editor',
 ] as const;
@@ -37,7 +36,6 @@ export const TEXT_ROLES: ReadonlyArray<RouteRole> = [
   'core',
   'memory',
   'analyzer',
-  'search',
   'vision',
   'video',
   'linter',

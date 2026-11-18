@@ -12,7 +12,7 @@ import { isRouteRole } from '../../llm/route-text.ts';
 import { agentRouteOf } from '../../subharness/routing.ts';
 import { agentNames } from '../../agent-runner/profiles.ts';
 import { routeName } from '../../subharness/route-names.ts';
-import { reloadNote, setPath, MODEL_ID_RE, modelForRole } from './shared.ts';
+import { reloadNote, setPath, MODEL_ID_RE } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { objOf } from '../types.ts';
 
@@ -26,7 +26,7 @@ const handlers = perEnv((env) => {
    * under the group line `errands:` one `<agent>: <harness> <model>` line per agent, `-` for one with no route. */
   function cmdModelShow() {
     const cfg = hot.config;
-    const lineOf = (role: string): string => `${role}: ${modelForRole(role, cfg) ?? '-'}`;
+    const lineOf = (role: string): string => `${role}: ${roleModel(cfg, role) ?? '-'}`;
     const agentLineOf = (agent: string): string => {
       const route = agentRouteOf(cfg, agent);
       return `${agent}: ${route === null ? '-' : `${routeName(route.backend)} ${route.model ?? 'default'}`}`;

@@ -1,7 +1,7 @@
 // Tests for the purposes the analyzer answers (src/llm/roles.ts#PURPOSE_ROLES, as
 // src/memory/db/writer-switch.ts#effectiveModels resolves each purpose to its role and model): a purpose no request sends
-// (`room`, `rewatch`) resolves to no role, and the two search purposes (`search-summary`, `quick-search`, which go out on
-// the role `search`) never resolve to the analyzer. That every purpose a request sends keeps its role is checked over
+// (`room`, `rewatch`) resolves to no role, and the two search purposes (`search-summary`, `quick-search`) resolve to the
+// analyzer they go out on. That every purpose a request sends keeps its role is checked over
 // the call sites in tests/roles.test.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,10 +18,11 @@ function rolesByPurpose(): Map<string, Array<string>> {
   return roles;
 }
 
-test('the search purposes never resolve to the analyzer', () => {
-  // Bug: a search summary is listed on the analyzer's model and key while it goes out on the search model.
+test('the search purposes resolve to the analyzer', () => {
+  // Changed: quick search condenses and searches on the analyzer, so its purposes are listed there.
+  // Bug: a search summary is listed on no model and key, or on another role's, while it goes out on the analyzer.
   const roles = rolesByPurpose();
   for (const purpose of ['search-summary', 'quick-search']) {
-    assert.equal((roles.get(purpose) ?? []).includes('analyzer'), false, purpose);
+    assert.deepEqual(roles.get(purpose), ['analyzer'], purpose);
   }
 });
