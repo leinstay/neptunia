@@ -34,7 +34,7 @@ An entry the planner planned keeps `plan` in its `extra`: the `brief`, the `seed
 
 An entry also keeps `turnId` in its `extra`, the id of the diary turn that wrote it. `recordEntry` takes it from the turn runner. An entry recorded before the field has no `turnId`.
 
-`<diary>` shows a past picture post by its scene, on one line and whole. `sceneOf` takes the scene from the stored `plan.brief`, else from the entry's drawing prompt. A picture she drew follows its scene with the marks of the entry's first picture, read from its `media` row with each person's handle (`readDiary` in `src/memory/db/diary-past.ts`).
+`<diary>` shows a past picture post by its scene, on one line and whole. `sceneOf` takes the scene from the entry's drawing prompt, the persona's own words for the picture, else from the stored `plan.brief`. A set stores the prompt of its first picture and the count of its pictures, and no prompt of the others. A picture she drew follows its scene with the marks of the entry's first picture, read from its `media` row with each person's handle (`readDiary` in `src/memory/db/diary-past.ts`).
 
 ## Scene helper
 
