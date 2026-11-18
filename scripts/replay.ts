@@ -570,6 +570,7 @@ import { routedHot, routesText, scriptRouting, sideBySide, takeRouteFlags } from
 import type { RouteRole, ScriptRouting, Variant } from './lib/script-routes.ts';
 import type { Hot } from '../src/hot.ts';
 import { proxySettings } from '../src/net/proxy.ts';
+import { runSamples } from './lib/inner-samples.ts';
 import { parseArgs, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
 
 /** An object read by key whose values are not typed yet. */
@@ -2401,6 +2402,7 @@ export function innerReportMarkdown(result: Untyped): string {
     `Channel: ${result.placeId ?? '-'}`,
     '',
   ];
+  if (result.cut) lines.push(`Cut short: ${result.cut.finished} of ${result.cut.asked} samples finished`, '');
   const hidden = result.hidden as { channels?: Array<unknown>; messages?: Array<unknown> } | undefined;
   if (hidden && ((hidden.channels?.length ?? 0) > 0 || (hidden.messages?.length ?? 0) > 0))
     lines.push(
@@ -2574,7 +2576,18 @@ export function innerTurnRunner({
  * The `--inner` mode (see the header): one inner turn for one wake (`--samples` times), in shadow, against the
  * live data (or `--snapshot`) read only. Returns `{ code, result }`.
  */
-async function runInner({ args, root, load, hot: liveHot, createHot, log, budget = null, answers, routes }: ModeCtx) {
+async function runInner({
+  args,
+  root,
+  load,
+  hot: liveHot,
+  createHot,
+  log,
+  signal,
+  budget = null,
+  answers,
+  routes,
+}: ModeCtx) {
   const mods = {
     ...(await loadDiaryMods(load)),
     ...(await load('behavior/inner.ts')),
@@ -2727,104 +2740,104 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       samples: args.samples,
     });
 
-    const samples = [];
-    let firstRequest = null;
+    // Set by the first sample's run, which the compiler does not follow into the callback.
+    let firstRequest = null as { text: string; messages: Array<Rec> | null } | null;
     let total = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };
-    let stopped = null;
-    let lastCost = 0;
-    let code = 0;
-    for (let n = 0; n < args.samples!; n += 1) {
-      // The same request again, independent runs; none starts when its expected cost would pass --spend.
-      if (n > 0 && budget !== null && total.cost + lastCost > budget) {
-        stopped = 'spend';
-        break;
-      }
-      requests.length = 0;
-      calls.length = 0;
-      // Each sample on a runner of its own, composed as the core composes it, so no sample carries into the next.
-      const { wired, writes } = innerTurnRunner({
-        root,
-        dataDir,
-        hot,
-        port: discordPort,
-        llm,
-        embed,
-        rng: innerSampleRng(args.seed, n) ?? Math.random,
-        now: Date.now,
-        turnId: `t-replay-inner-${n + 1}`,
-        wrapReads: (found) => hiddenReads(found, hide),
-        errandAnswers,
-      });
-      let result: Untyped;
-      try {
-        await wired.seed();
-        result = await wired.under(() =>
-          wired.runner.runTurn({
-            chat,
-            mode: 'inner',
-            triggerKind: 'inner',
-            inner: {
-              wake: structuredClone(info),
-              currentChannel,
-              shadow: true,
-              mayAct: () => false,
-            },
-          })
-        );
-      } catch (err: Untyped) {
-        result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
-      } finally {
-        wired.close();
-      }
-      const replies = requests.filter((request) => request.purpose === 'reply');
-      const firstReply = replies[0] as { messages: Array<Rec> } | undefined;
-      const firstMessages = firstReply?.messages;
-      if (n === 0)
-        firstRequest = {
-          text: firstReply ? userText(firstMessages?.[1]?.content) : '',
-          messages: firstMessages ?? null,
+    let [lastCost, code] = [0, 0];
+    // The same request again: none starts when its cost would pass --spend; SIGTERM or SIGINT keeps the finished ones.
+    const { samples, stopped, cut } = await runSamples({
+      count: args.samples!,
+      signal: signal ?? new AbortController().signal,
+      stop: (n) => (n > 0 && budget !== null && total.cost + lastCost > budget ? 'spend' : null),
+      runOne: async (n) => {
+        requests.length = 0;
+        calls.length = 0;
+        // Each sample on a runner of its own, composed as the core composes it, so no sample carries into the next.
+        const { wired, writes } = innerTurnRunner({
+          root,
+          dataDir,
+          hot,
+          port: discordPort,
+          llm,
+          embed,
+          rng: innerSampleRng(args.seed, n) ?? Math.random,
+          now: Date.now,
+          turnId: `t-replay-inner-${n + 1}`,
+          wrapReads: (found) => hiddenReads(found, hide),
+          errandAnswers,
+        });
+        let result: Untyped;
+        try {
+          await wired.seed();
+          result = await wired.under(() =>
+            wired.runner.runTurn({
+              chat,
+              mode: 'inner',
+              triggerKind: 'inner',
+              inner: {
+                wake: structuredClone(info),
+                currentChannel,
+                shadow: true,
+                mayAct: () => false,
+              },
+            })
+          );
+        } catch (err: Untyped) {
+          result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
+        } finally {
+          wired.close();
+        }
+        const replies = requests.filter((request) => request.purpose === 'reply');
+        const firstReply = replies[0] as { messages: Array<Rec> } | undefined;
+        const firstMessages = firstReply?.messages;
+        if (n === 0)
+          firstRequest = {
+            text: firstReply ? userText(firstMessages?.[1]?.content) : '',
+            messages: firstMessages ?? null,
+          };
+        const usage = addUsage({ requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 }, calls);
+        total = {
+          requests: total.requests + usage.requests,
+          promptTokens: total.promptTokens + usage.promptTokens,
+          completionTokens: total.completionTokens + usage.completionTokens,
+          cost: total.cost + usage.cost,
         };
-      const usage = addUsage({ requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 }, calls);
-      total = {
-        requests: total.requests + usage.requests,
-        promptTokens: total.promptTokens + usage.promptTokens,
-        completionTokens: total.completionTokens + usage.completionTokens,
-        cost: total.cost + usage.cost,
-      };
-      lastCost = usage.cost;
-      if (result?.outcome === 'error') code = 1;
-      const answers = calls
-        .filter((call) => call.purpose === 'reply')
-        .map((call) =>
-          innerAnswerOf(call.text, mods.parseOutput, call.error ? (call.code ?? 'error') : null, {
-            answerOf: mods.answerOf,
-            transport: mods.transportOf(hot.config),
-            toolCalls: call.toolCalls,
-            finishReason: call.finishReason,
-          })
-        );
-      const actions = result?.inner?.actions ?? [];
-      const direct = await directPlaces(discordPort.iface, reads, actions, answers);
-      samples.push({
-        outcome: result?.outcome ?? null,
-        reason: result?.reason ?? null,
-        failedSteps: answers.filter((answer) => answer.failed).length,
-        ...(answers.at(-1)?.failed ? { endedInError: answers.at(-1)?.failed?.code } : {}),
-        answers,
-        actions,
-        posted: writes.filter((write) => write.op === 'send').length,
-        usage,
-        facts: sampleFacts(
-          {
-            requests: calls.filter((call) => call.purpose === 'reply'),
-            answers,
-            actions,
-            turn: turnEndOf(result),
-          },
-          { now, timezone, directOf: (place) => direct.get(place) ?? null }
-        ),
-      });
-    }
+        lastCost = usage.cost;
+        if (result?.outcome === 'error') code = 1;
+        const answers = calls
+          .filter((call) => call.purpose === 'reply')
+          .map((call) =>
+            innerAnswerOf(call.text, mods.parseOutput, call.error ? (call.code ?? 'error') : null, {
+              answerOf: mods.answerOf,
+              transport: mods.transportOf(hot.config),
+              toolCalls: call.toolCalls,
+              finishReason: call.finishReason,
+            })
+          );
+        const actions = result?.inner?.actions ?? [];
+        const direct = await directPlaces(discordPort.iface, reads, actions, answers);
+        return {
+          outcome: result?.outcome ?? null,
+          reason: result?.reason ?? null,
+          failedSteps: answers.filter((answer) => answer.failed).length,
+          ...(answers.at(-1)?.failed ? { endedInError: answers.at(-1)?.failed?.code } : {}),
+          answers,
+          actions,
+          posted: writes.filter((write) => write.op === 'send').length,
+          usage,
+          facts: sampleFacts(
+            {
+              requests: calls.filter((call) => call.purpose === 'reply'),
+              answers,
+              actions,
+              turn: turnEndOf(result),
+            },
+            { now, timezone, directOf: (place) => direct.get(place) ?? null }
+          ),
+        };
+      },
+    });
+    code = cut ? 1 : code;
     const blocks: Rec = {};
     for (const tag of ['wake', 'intentions', 'errands', 'retrieved', 'task']) {
       const whole = blockOf(firstRequest?.text ?? '', tag);
@@ -2846,6 +2859,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       samples,
       usage: total,
       ...(stopped ? { stopped } : {}),
+      ...(cut ? { cut } : {}),
     };
     const markdown = innerReportMarkdown(report);
     if (outFile !== null) {
@@ -6390,7 +6404,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers, routes }:
   }
   if (args.inner) {
     try {
-      return await runInner({ args, root, load, hot, createHot, log, budget: spendBudget, answers, routes });
+      return await runInner({ args, root, load, hot, createHot, log, signal, budget: spendBudget, answers, routes });
     } finally {
       hot.close();
     }
@@ -7051,6 +7065,9 @@ function isEntryPoint() {
   }
 }
 
+// How long a SIGTERM waits for the run to write what it has before the process ends.
+const TERM_GRACE_MS = 5000;
+
 if (isEntryPoint()) {
   // Every log line, the engine's included, goes to stderr; stdout keeps only the final JSON object.
   const stdoutWrite = process.stdout.write.bind(process.stdout);
@@ -7065,6 +7082,12 @@ if (isEntryPoint()) {
     stdoutWrite(`${JSON.stringify(result)}\n`, () => process.exit(code));
 
   const controller = new AbortController();
+  // `timeout` ends a batch with SIGTERM: the run is aborted as by a first Ctrl-C, so an `--inner` batch writes the
+  // samples it finished. A mode that does not stop on the abort ends after the grace.
+  process.on('SIGTERM', () => {
+    controller.abort();
+    setTimeout(() => process.exit(143), TERM_GRACE_MS).unref();
+  });
   process.on('SIGINT', () => {
     if (!controller.signal.aborted) {
       process.stderr.write('replay-cli: stopping (Ctrl-C again to exit at once)\n');
