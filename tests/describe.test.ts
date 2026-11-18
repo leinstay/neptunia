@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createStore } from '../src/memory/store.ts';
+import { createImageFetcher } from '../src/media/fetch-image.ts';
 import { createDescriber, isStaleDescription, recacheCutoffMs, videoStateFromCache } from '../src/memory/describe.ts';
 import { createHash } from 'node:crypto';
 import { createLlm, roleRequestOptions, TokenLimitError, DailyCapError } from '../src/llm/openrouter.ts';
@@ -3822,4 +3823,123 @@ test('failedMedia: a picture miss and a GIF miss map to their error states, a de
       ['m1#e0', { state: 'error', reason: 'download' }],
     ])
   );
+});
+
+// --- every failed picture description keeps its reason ------------------------------------
+
+// A picture's miss names its cause by the codes a GIF's and a video's misses use: `download` for an address that
+// answers no picture (a fault, a refused status or type), `timeout`, `size`, `llm` for a failed request, `empty`.
+type FetchAnswer = {
+  ok?: boolean;
+  status?: number;
+  contentType?: string;
+  contentLength?: number;
+  fault?: Error;
+};
+
+/** A real image fetcher over a network that answers every request with `answer`. */
+function networkFetcher(answer: FetchAnswer): ReturnType<typeof createImageFetcher> {
+  const body = Buffer.from('invented-png-bytes');
+  const fetchImpl = (): Promise<unknown> => {
+    if (answer.fault) return Promise.reject(answer.fault);
+    const headers: Record<string, string | undefined> = {
+      'content-type': answer.contentType ?? 'image/png',
+      'content-length': answer.contentLength === undefined ? undefined : String(answer.contentLength),
+    };
+    return Promise.resolve({
+      ok: answer.ok ?? true,
+      status: answer.status ?? 200,
+      headers: { get: (name: string): string | null => headers[name.toLowerCase()] ?? null },
+      arrayBuffer: (): Promise<ArrayBuffer> =>
+        Promise.resolve(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)),
+    });
+  };
+  return createImageFetcher({ fetchImpl: fetchImpl as unknown as typeof fetch });
+}
+
+/** The cached entry of `item` after one description over `imageFetcher` and `llm`. */
+async function missAfter(
+  item: { itemId: string; kind: string; url: string },
+  imageFetcher:
+    { fetchAsDataUrl: ReturnType<typeof createImageFetcher>['fetchAsDataUrl'] } | ReturnType<typeof fakeImageFetcher>,
+  llm: ReturnType<typeof fakeLlm> = fakeLlm({ text: 'never asked' })
+): Promise<Record<string, Untyped>> {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher });
+  assert.equal(await describer.describe('g1', item), null);
+  return loose(loose(cacheView(store, 'g1'))[item.itemId]);
+}
+
+test('describe: a picture whose expired address answers 404 is a miss with reason "download"', async () => {
+  const entry = await missAfter(pictureItem('a1'), networkFetcher({ ok: false, status: 404 }));
+  assert.deepEqual([entry.miss, entry.reason], [true, 'download']);
+});
+
+test('describe: a picture whose download meets a network fault is a miss with reason "download"', async () => {
+  const entry = await missAfter(pictureItem('a1'), networkFetcher({ fault: new Error('ECONNRESET') }));
+  assert.deepEqual([entry.miss, entry.reason], [true, 'download']);
+});
+
+test('describe: a picture whose download runs past its timeout is a miss with reason "timeout"', async () => {
+  const fault = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+  const entry = await missAfter(pictureItem('a1'), networkFetcher({ fault }));
+  assert.deepEqual([entry.miss, entry.reason], [true, 'timeout']);
+});
+
+test('describe: a picture served as a refused content type is a miss with reason "download"', async () => {
+  const entry = await missAfter(pictureItem('a1'), networkFetcher({ contentType: 'image/svg+xml' }));
+  assert.deepEqual([entry.miss, entry.reason], [true, 'download']);
+});
+
+test('describe: a picture over the size limit is a miss with reason "size"', async () => {
+  const entry = await missAfter(pictureItem('a1'), networkFetcher({ contentLength: 9_000_000 }));
+  assert.deepEqual([entry.miss, entry.reason], [true, 'size']);
+});
+
+test('describe: a picture whose model request fails is a miss with reason "llm"', async () => {
+  const err = new Error('OpenRouter HTTP 502: bad gateway');
+  loose(err).statusCode = 502;
+  const entry = await missAfter(pictureItem('a1'), fakeImageFetcher(), fakeLlm(err));
+  assert.deepEqual([entry.miss, entry.reason], [true, 'llm']);
+});
+
+test('describe: a picture whose answer is empty is a miss with reason "empty"', async () => {
+  const entry = await missAfter(pictureItem('a1'), fakeImageFetcher(), fakeLlm({ text: '   ' }));
+  assert.deepEqual([entry.miss, entry.reason], [true, 'empty']);
+});
+
+test('describe: a still sticker whose address answers 404 is a miss with reason "download"', async () => {
+  const sticker = pictureItem('sticker:s1', { kind: 'sticker' });
+  const entry = await missAfter(sticker, networkFetcher({ ok: false, status: 404 }));
+  assert.deepEqual([entry.miss, entry.reason], [true, 'download']);
+});
+
+test('describe: a still emoji whose model request fails is a miss with reason "llm"', async () => {
+  const emoji = pictureItem('emoji:e1', { kind: 'emoji' });
+  const entry = await missAfter(emoji, fakeImageFetcher(), fakeLlm(new Error('OpenRouter HTTP 500')));
+  assert.deepEqual([entry.miss, entry.reason], [true, 'llm']);
+});
+
+// A picture's miss waits the miss TTL and is tried again, whatever its reason; `size` is a video's permanent miss only.
+test('describe: a picture miss with reason "size" older than the miss TTL is tried again', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  loose(cacheView(store, 'g1')).a1 = { miss: true, ts: 1, reason: 'size' };
+  const imageFetcher = fakeImageFetcher();
+  const describer = createDescriber({
+    hot: fakeHot(),
+    store,
+    llm: fakeLlm({ text: 'A lighthouse at dusk.' }),
+    imageFetcher,
+    now: () => 1 + 2 * HOUR,
+  });
+  assert.equal(loose(await describer.describe('g1', pictureItem('a1'))).text, 'A lighthouse at dusk.');
+});
+
+test('describe: a picture miss with reason "download" younger than the miss TTL is not tried again', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  loose(cacheView(store, 'g1')).a1 = { miss: true, ts: 1, reason: 'download' };
+  const imageFetcher = fakeImageFetcher();
+  const describer = createDescriber({ hot: fakeHot(), store, llm: fakeLlm({ text: 'x' }), imageFetcher, now: () => 2 });
+  assert.equal(await describer.describe('g1', pictureItem('a1')), null);
+  assert.equal(imageFetcher.calls.length, 0);
 });

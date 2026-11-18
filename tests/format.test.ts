@@ -1505,6 +1505,22 @@ test('formatTranscript: a picture whose description failed renders transcript.im
   assert.ok(text.endsWith('<image unseen: stopped by a filter>'), text);
 });
 
+// A picture's reason that transcript.videoReason does not word renders as its own code, as a failed GIF's does.
+test('formatTranscript: a picture whose failure reason has no wording renders transcript.imageNotSeen with the code', () => {
+  const standIn = { ...labels, transcript: { ...labels.transcript, imageNotSeen: '<image unseen: {reason}>' } };
+  const message = msg('m1', GIF_T, { content: '', attachments: [{ id: 'p1', kind: 'image', name: 'p.png' }] });
+  const [{ text }] = formatTranscript([message], {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 800,
+    selfName: 'Nept',
+    labels: standIn,
+    videos: new Map([['p1', { state: 'error', reason: 'token-limit' }]]),
+  });
+  assert.ok(text.endsWith('<image unseen: token-limit>'), text);
+});
+
 // --- the turn trigger of the persona's own lines -------------------------
 
 test('formatTranscript: a plain line of the persona names the message that started its turn', () => {
