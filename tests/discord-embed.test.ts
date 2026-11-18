@@ -190,7 +190,8 @@ test('classifyEmbed: a gifv embed is a gif whatever its provider: the page to po
   const item = classifyEmbed(pickerEmbed());
   assert.equal(item.kind, 'gif');
   assert.equal(item.url, 'https://gifs.example.net/gifs/dancing-cat');
-  assert.equal(item.animationUrl, 'https://images-ext-1.discordapp.net/external/v/loop.mp4');
+  // The provider's own address first, on the ruling of 2026-11-18 (report gif-direct-address-lifetime).
+  assert.equal(item.animationUrl, 'https://static.gifs.example.net/x/loop.mp4');
   assert.equal(item.thumbnailUrl, 'https://images-ext-1.discordapp.net/external/t/still.webp');
   assert.equal(item.site, 'Gifland');
 });
@@ -199,7 +200,8 @@ test('classifyEmbed: the embed type is read off a discord.js Embed too (its `dat
   const { type, ...fields } = pickerEmbed();
   const item = classifyEmbed({ ...fields, data: { type } });
   assert.equal(item.kind, 'gif');
-  assert.equal(item.animationUrl, 'https://images-ext-1.discordapp.net/external/v/loop.mp4');
+  // The provider's own address first, on the ruling of 2026-11-18 (report gif-direct-address-lifetime).
+  assert.equal(item.animationUrl, 'https://static.gifs.example.net/x/loop.mp4');
 });
 
 test('classifyEmbed: a klipy page is a gif by its host, with or without a type or a provider name', () => {
@@ -211,7 +213,8 @@ test('classifyEmbed: a klipy page is a gif by its host, with or without a type o
   assert.equal(bare.url, 'https://klipy.com/gifs/dancing-cat');
   const picker = classifyEmbed(pickerEmbed({ url: 'https://klipy.com/gifs/dancing-cat', provider: { name: 'Klipy' } }));
   assert.equal(picker.kind, 'gif');
-  assert.equal(picker.animationUrl, 'https://images-ext-1.discordapp.net/external/v/loop.mp4');
+  // The provider's own address first, on the ruling of 2026-11-18 (report gif-direct-address-lifetime).
+  assert.equal(picker.animationUrl, 'https://static.gifs.example.net/x/loop.mp4');
 });
 
 test('classifyEmbed: tenor and giphy stay gifs exactly as before; an embed of another type stays a link', () => {
