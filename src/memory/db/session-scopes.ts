@@ -12,7 +12,15 @@ import type { Db, Row } from './types.ts';
  * A scope as the sweep walks it: its key, the triple, the context that reads it and, with `audienceColumn`, its
  * audience. A DM names its `place`, the stored row the sweep found it by.
  */
-export type SweepScope = { key: string; scope: Scope; ctx: Context; audienceId?: string; place?: string };
+export type SweepScope = {
+  key: string;
+  scope: Scope;
+  ctx: Context;
+  audienceId?: string;
+  place?: string;
+  /** Her own time on the interface (own-time.ts): read under the group's context, its lines her heartbeat turns. */
+  own?: true;
+};
 
 /** What a sweep's run names of its scope, so that a reader of the run never takes it out of the key. */
 export type RunColumns = { scopeKind?: string | null; iface?: string | null; place?: string | null };
@@ -53,6 +61,11 @@ function groupOf(iface: string, audienceColumn: boolean): SweepScope {
   const entry = { key: `group:${asText(iface)}`, scope, ctx: groupContext(iface) };
   if (!audienceColumn) return entry;
   return { ...entry, audienceId: audienceOf(scope).audience_id, ctx: { ...entry.ctx, audienceColumn: true } };
+}
+
+/** The scope of her own time on `iface`: her heartbeat turns, read and written under the interface's group audience. */
+export function ownScopeOf(iface: string): SweepScope {
+  return { ...groupOf(iface, true), key: `own:${iface}`, own: true };
 }
 
 /**

@@ -1453,7 +1453,7 @@
     },
     "src/memory/db/session.ts": {
       "runBatch": {
-        "complexity": 24
+        "complexity": 22
       },
       "validateAnswer": {
         "complexity": 53

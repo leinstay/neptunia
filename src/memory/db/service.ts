@@ -1336,8 +1336,21 @@ export function createMemoryDb({
     const path = sessionPath;
     if (!llm || !handle || refusalOf(config, env, hot.prompts, ring, path())) return;
     const db = dbOf(handle);
-    const ctx = { db, write: memoryWrite, llm, hot, env, ring, path, now, log, selfName: selfName() ?? '', track };
-    const due = track('session.batch', () => dueScopes(db, config, at, { log }));
+    const ctx = {
+      db,
+      write: memoryWrite,
+      llm,
+      hot,
+      env,
+      ring,
+      path,
+      now,
+      log,
+      selfName: selfName() ?? '',
+      track,
+      iface: liveIface(iface),
+    };
+    const due = track('session.batch', () => dueScopes(db, config, at, { log, iface: ctx.iface }));
     if (due.length > 0) {
       const result = await sweep({ ...ctx, embed }, { scopes: new Set(due.map((scope) => scope.key)) });
       sessionState.lastAt = at;
