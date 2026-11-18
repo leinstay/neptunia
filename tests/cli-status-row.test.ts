@@ -33,9 +33,9 @@ test('the status row under the input is always there, blank when nothing is said
     await press(rig, 'x', () => !rig.screen().join('\n').includes('Images are not available'));
     event({ type: 'accepted', turnId: 't1', seq: 1, at: AT });
     event({ type: 'running', turnId: 't1', seq: 2, at: AT, streaming: false });
-    await until(shows(rig, 'Her turn is running'));
+    await until(shows(rig, 'Thinking…'));
     assert.equal(lowerBorder(rig), ROWS - 2, 'her running turn leaves the input where it was');
-    assert.match(rig.screen()[ROWS - 1] ?? '', /Her turn is running/);
+    assert.match(rig.screen()[ROWS - 1] ?? '', /Thinking…/);
   });
 });
 
@@ -55,8 +55,8 @@ test('the calls of her running turn show on the status row and not above the inp
       name: 'conversation.read',
       detail: 'started',
     });
-    await until(shows(rig, 'using conversation.read'));
-    assert.match(rig.screen().at(-1) ?? '', /using conversation\.read/);
+    await until(shows(rig, 'Using conversation.read'));
+    assert.match(rig.screen().at(-1) ?? '', /Using conversation\.read/);
     assert.ok(!aboveInput(rig).includes('using'), 'nothing of the turn above the input');
   });
 });

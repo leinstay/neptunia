@@ -61,10 +61,10 @@ test('the status row shows the think after the call names while the turn runs, a
     event(think(4, 'checking the lore before I answer'));
     await until(shows(rig, 'checking the lore before I answer'));
     const row = rig.screen().join('\n');
-    assert.ok(row.includes('using lore.list'), 'the call names are still there');
-    assert.ok(row.indexOf('using lore.list') < row.indexOf('checking the lore'), 'the think follows the names');
+    assert.ok(row.includes('Using lore.list'), 'the call names are still there');
+    assert.ok(row.indexOf('Using lore.list') < row.indexOf('checking the lore'), 'the think follows the names');
     event({ type: 'committed', turnId: 't1', seq: 5, at: AT, text: 'done' });
     await until(() => !shows(rig, 'checking the lore')());
-    assert.equal(shows(rig, 'using lore.list')(), false);
+    assert.equal(shows(rig, 'Using lore.list')(), false);
   });
 });

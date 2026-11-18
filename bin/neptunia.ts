@@ -474,10 +474,7 @@ async function runPrompt(text: string, images: ReadonlyArray<LineImage>): Promis
   const said: Array<string> = [];
   const link = await requireCliLink((part) => said.push(part));
   const late = new Promise<Answer>((resolve) => {
-    setTimeout(
-      () => resolve({ text: `no end of her turn in ${TURN_WAIT_MS / 60_000} minutes`, status: 'failed' }),
-      TURN_WAIT_MS
-    );
+    setTimeout(() => resolve({ text: '', status: 'failed' }), TURN_WAIT_MS);
   });
   const answer = await Promise.race([link.turn(text, images), late]);
   link.close();

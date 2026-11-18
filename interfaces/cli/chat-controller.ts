@@ -760,7 +760,7 @@ export class ChatController {
 
   /** The core's word about a turn. A failure or a cancel leaves a line, and a streamed text shows until the end of its turn. */
   onTurnEvent(event: ClientTurnEvent): void {
-    // Her turn is over: its lines are on their way to the store, and the lines before it are there.
+    // The turn is over: its lines are on their way to the store, and the lines before it are there.
     if (event.type === 'committed' || event.type === 'failed' || event.type === 'cancelled') this.renumberLive();
     const before = turnOf(this.model.turns, event.turnId);
     const turns = reduceTurns(this.model.turns, event);
@@ -786,13 +786,6 @@ export class ChatController {
     } else if (turn.state !== 'queued' && turn.state !== 'accepted') {
       this.update({ entries: this.entries().filter((one) => one.id !== liveId) });
     }
-    if (event.type === 'failed')
-      this.say(
-        turn.code === 'no-own-turn'
-          ? 'No turn of its own followed this line: she read it with the others, or the core left it.'
-          : `Her turn over this line failed (${turn.code ?? 'unknown'}).`
-      );
-    if (event.type === 'cancelled') this.say('Her turn over this line was cancelled. The line stays said.');
   }
 
   /** The transcript of a resumed or branched chat. The draft stays as it is. */
@@ -826,9 +819,9 @@ export class ChatController {
     const active = activeTurn(this.model.turns);
     const queued = queuedTurns(this.model.turns).length;
     const calls = active === null ? [] : callsInProgress(active);
-    const doing = calls.length === 0 ? 'Her turn is running' : `using ${calls.join(', ')}`;
+    const doing = calls.length === 0 ? 'Thinking…' : `Using ${calls.join(', ')}…`;
     const parts = [
-      ...(active === null ? [] : [active.cancelRequested ? 'Cancelling her turn…' : doing]),
+      ...(active === null ? [] : [active.cancelRequested ? 'Cancelling…' : doing]),
       ...(queued === 0 ? [] : [`${queued} queued`]),
     ];
     return parts.length === 0 ? null : parts.join(' · ');
