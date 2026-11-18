@@ -245,7 +245,15 @@ test('a line of the owner edited with a later moment keeps its place and stays h
   const { db } = rig(t);
   storeRevision(db, CLI, { native: 'a', text: 'before', at: minute(0), kind: 'seen', by: 'someone' });
   storeRevision(db, CLI, { native: 'b', text: 'between', at: minute(1), kind: 'said', by: 'her' });
-  storeRevision(db, CLI, { native: 'a', text: 'after', at: minute(90), revision: 2, kind: 'seen', by: 'someone' });
+  storeRevision(db, CLI, {
+    native: 'a',
+    text: 'after',
+    at: minute(0),
+    recordedAt: minute(90),
+    revision: 2,
+    kind: 'seen',
+    by: 'someone',
+  });
   assert.deepEqual(
     chatLines(db, CLI.place).map((line) => [line.nativeId, line.who, line.text]),
     [

@@ -44,7 +44,7 @@ import type { HeartbeatLists } from './heartbeat-lists.ts';
 import { ownIntentionsOf, pastActsOf } from './past-acts.ts';
 import { opensPrivate } from '../open-private.ts';
 import type { OwnIntention, PastAct } from './past-acts.ts';
-import { LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND, LINE_MOMENT } from './source-current.ts';
+import { LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND } from './source-current.ts';
 import type { PlaceLineNumbers } from './chat-lines.ts';
 
 /**
@@ -130,7 +130,7 @@ const messageIdOf = (row: Row): string => String(text(row.route_message) ?? row.
 
 /**
  * One row per key, the one of the newest revision, at the position of the key's first row. Every revision of a message
- * shares the moment of its first (LINE_MOMENT), so the rows of one message sit together whatever order they came in.
+ * is stored at the moment of its first (observe.ts), so the rows of one message sit together whatever order they came in.
  */
 function newestOf(rows: ReadonlyArray<Row>, keyOf: (row: Row) => string): Array<Row> {
   const newest = new Map<string, Row>();
@@ -178,7 +178,7 @@ const LINE_FROM = `sources s LEFT JOIN accounts aa ON aa.id = ${LINE_AUTHOR_ACCO
 const AUTHOR_PERSON = `COALESCE(
   (SELECT pm.person_id FROM person_accounts pm WHERE pm.id = ${LINE_AUTHOR_ACCOUNT}),
   CASE WHEN aa.link = 'verified' THEN aa.person_id END) AS author_person`;
-const LINE_COLUMNS = `s.id, s.native_id, ${routeMessageSql('s')} AS route_message, s.place_id, ${LINE_MOMENT} AS occurred_at,
+const LINE_COLUMNS = `s.id, s.native_id, ${routeMessageSql('s')} AS route_message, s.place_id, s.occurred_at AS occurred_at,
   ${LINE_AUTHOR_ACCOUNT} AS author_account, ${LINE_AUTHOR_KIND} AS author_kind, s.revision, s.text,
   aa.native_id AS author_native, aa.iface AS author_iface, ${AUTHOR_NAME}, ${AUTHOR_PERSON}`;
 /** A line that says something: its text, or a media item linked to it, as a post of a picture alone. */
@@ -204,7 +204,7 @@ export function ownLinesOf(
       `SELECT ${LINE_COLUMNS} FROM ${LINE_FROM}
        WHERE ${LINE_AUTHOR_KIND} = 'self' AND ${LIVE_LINE} AND s.place_id IS NOT ?
          AND s.place_id NOT IN (SELECT value FROM json_each(?)) AND ${where.sql}
-       ORDER BY ${LINE_MOMENT} DESC, s.revision DESC LIMIT ?`
+       ORDER BY s.occurred_at DESC, s.revision DESC LIMIT ?`
     )
     .all(exceptPlace, mirrors, ...where.params, Math.max(0, limit) * 2);
   const paths = new Map<string, PlacePath>();

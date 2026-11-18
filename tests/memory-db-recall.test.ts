@@ -2012,7 +2012,8 @@ const EDIT_DELAY = 93 * MINUTE;
 
 /**
  * Her line `e` said at minute 1 of a chat of ten lines, `a` before it and `l1` to `l8` after it, and edited 93 minutes
- * later, the edit stored `seen` at that moment. Returns the moment `e` was written.
+ * later, the edit stored `seen` at the line's moment, as the writer and schema step 67 store it. Returns the moment `e`
+ * was written.
  */
 function editedLineChat(env: ReturnType<typeof fixture>): number {
   const at = NOW - DAY;
@@ -2020,7 +2021,7 @@ function editedLineChat(env: ReturnType<typeof fixture>): number {
   env.say({ native: 'e', at: at + MINUTE, text: 'παλιο σπιτι', kind: 'said', author: ALICE });
   for (let n = 1; n <= 8; n += 1)
     env.say({ native: `l${n}`, at: at + (n + 1) * MINUTE, text: `γραμμή ${n}`, author: BOB });
-  env.say({ native: 'e', at: at + MINUTE + EDIT_DELAY, text: 'νεο σπιτι', revision: 2, author: ALICE });
+  env.say({ native: 'e', at: at + MINUTE, text: 'νεο σπιτι', revision: 2, author: ALICE });
   env.stem();
   return at + MINUTE;
 }

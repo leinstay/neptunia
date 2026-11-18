@@ -30,7 +30,7 @@ import { SELF_PERSON } from './ids.ts';
 import { OBJECT_KINDS, objectMeaning } from './object-vectors.ts';
 import { allowedAudience, audienceWhere, ownAudienceFirst, whereFor } from './scope.ts';
 import type { Context } from './scope.ts';
-import { CURRENT_REVISION, LINE_AUTHOR_ACCOUNT, LINE_MOMENT } from './source-current.ts';
+import { CURRENT_REVISION, LINE_AUTHOR_ACCOUNT } from './source-current.ts';
 import { loadStemmer } from './stems.ts';
 import type { Db, Row } from './types.ts';
 
@@ -383,7 +383,7 @@ export function placesFound(
   const recent = db.prepare(
     `SELECT ${LINE_AUTHOR_ACCOUNT} AS author_account, s.text FROM sources s
      WHERE s.place_id = ? AND ${CURRENT_REVISION} AND ${where.sql}
-     ORDER BY ${LINE_MOMENT} DESC LIMIT ?`
+     ORDER BY s.occurred_at DESC LIMIT ?`
   );
   const shown = new Map<string, { name: string; about: string | null }>();
   const names = new Map<string, string | null>();
