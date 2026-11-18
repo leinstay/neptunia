@@ -183,6 +183,9 @@
     "pull": {
       "sameAudience": true
     },
+    "memory": {
+      "openPrivate": false
+    },
     "vision": {
       "fetchTimeoutMs": 10000
     }

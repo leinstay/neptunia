@@ -6,7 +6,7 @@
 import { versionsNaming } from './entities-read.ts';
 import { checkLimit, contextBinding, keysetPage, positionOf } from './read-page.ts';
 import type { Page } from './read-page.ts';
-import { audienceWhere } from './scope.ts';
+import { audienceWhere, readsAll } from './scope.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
@@ -51,7 +51,7 @@ const textOrNull = (value: unknown): string | null => (typeof value === 'string'
 /** The SQL that says a place (`alias`) may be read in `context`: anything but a DM, or a DM among its audiences. */
 export function placeVisibleWhere(context: Context, alias: string): { sql: string; params: Array<string> } {
   const dm = audienceWhere(context, 'seen');
-  if (context.internal === true) return { sql: '1 = 1', params: [] };
+  if (readsAll(context)) return { sql: '1 = 1', params: [] };
   return {
     sql: `((${alias}.kind <> 'dm' AND ${alias}.chat IS NOT 'dm') OR EXISTS
       (SELECT 1 FROM (SELECT 'aud:dm:' || ${alias}.id AS audience_id) seen WHERE ${dm.sql}))`,

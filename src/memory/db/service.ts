@@ -1679,8 +1679,12 @@ export function createMemoryDb({
    * Issues an execution context for one turn, session or wake (scope.ts#issueContext); its row is written deferred.
    */
   function issueContext(spec: Parameters<typeof issuePureContext>[0] = {}): Context {
-    // A spec that names no interface reads in the live one.
-    const ctx = linkedContext(issuePureContext({ ...withLiveIface(spec, iface), now }), handle ? database() : null);
+    // A spec that names no interface reads in the live one; `context.memory.openPrivate` opens every audience to it.
+    const open = hot.config?.context?.memory?.openPrivate === true;
+    const ctx = linkedContext(
+      issuePureContext({ ...withLiveIface(spec, iface), open, now }),
+      handle ? database() : null
+    );
     if (!handle || closing) return ctx;
     const update = { kind: 'context', context: contextRow(ctx) };
     defer(() => {

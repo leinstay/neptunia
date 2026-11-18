@@ -28,7 +28,7 @@ import { indexWords } from '../record-index.ts';
 import { graphNodeId, placeAudience } from './graph.ts';
 import { SELF_PERSON } from './ids.ts';
 import { OBJECT_KINDS, objectMeaning } from './object-vectors.ts';
-import { allowedAudience, audienceWhere, whereFor } from './scope.ts';
+import { allowedAudience, audienceWhere, ownAudienceFirst, whereFor } from './scope.ts';
 import type { Context } from './scope.ts';
 import { CURRENT_REVISION, LINE_AUTHOR_ACCOUNT, LINE_MOMENT } from './source-current.ts';
 import { loadStemmer } from './stems.ts';
@@ -333,13 +333,14 @@ function descriptionsOf(
   subject: string
 ): Array<{ field: string; text: string }> {
   const where = whereFor(ctx, 'd');
+  const first = ownAudienceFirst(ctx, 'd');
   return db
     .prepare(
       `SELECT d.field, v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
        WHERE d.subject_kind = ? AND d.subject_id = ? AND d.retired_at IS NULL AND ${where.sql}
-       ORDER BY d.field, d.scope_kind = 'dm' DESC, d.id`
+       ORDER BY d.field, ${first.sql} DESC, d.id`
     )
-    .all(kind, subject, ...where.params)
+    .all(kind, subject, ...where.params, ...first.params)
     .flatMap((row) => {
       const field = text(row.field);
       const value = text(row.text);

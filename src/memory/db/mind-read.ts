@@ -43,7 +43,7 @@ import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './nam
 import type { NameHitRow, NameMatch, NodeRef } from './names.ts';
 import { placeChainInDb } from './place-tree.ts';
 import { placeStatsOf } from './place-stats.ts';
-import { allowedAudience, audienceWhere, dmAudienceId, groupAudienceId, AUD_INTERNAL } from './scope.ts';
+import { allowedAudience, audienceWhere, dmAudienceId, groupAudienceId, readsAll, AUD_INTERNAL } from './scope.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
@@ -307,7 +307,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
   let nodesRead = 0;
   const aud = (alias: string): Sql => audienceWhere(ctx, alias);
   const nodeOk = (expr: string, alias: string): Sql => {
-    if (ctx.internal === true) return { sql: '1 = 1', params: [] };
+    if (readsAll(ctx)) return { sql: '1 = 1', params: [] };
     const where = audienceWhere(ctx, alias);
     return {
       sql: `EXISTS (SELECT 1 FROM node_access ${alias} WHERE ${alias}.node_id = ${expr} AND ${where.sql})`,
@@ -325,7 +325,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
 
   /** Whether a node may be shown: a place by its own audience, an interface always, anything else by `node_access`. */
   function visible({ nodeId, kind, rowId }: Node): boolean {
-    if (kind === 'interface' || ctx.internal === true) return true;
+    if (kind === 'interface' || readsAll(ctx)) return true;
     if (kind === 'place') {
       const place = db.prepare('SELECT id, iface, kind, chat, retired_at FROM places WHERE id = ?').get(rowId);
       if (!place || place.retired_at !== null) return false;

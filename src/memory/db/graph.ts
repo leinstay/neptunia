@@ -43,7 +43,7 @@ import { createHash } from 'node:crypto';
 import { log as engineLog } from '../../log.ts';
 import { canonicalKey } from './ids.ts';
 import { hasMessageFamilies } from './message-family-catalog.ts';
-import { AUD_INTERNAL, audienceParts, audienceWhere, dmAudienceId, groupAudienceId } from './scope.ts';
+import { AUD_INTERNAL, audienceParts, audienceWhere, dmAudienceId, groupAudienceId, readsAll } from './scope.ts';
 import { NODE_KINDS, RELATION_EDGES, UNIT_OF, UNIT_ORDER } from './graph-manifest.ts';
 import { readPredicate } from './semantic-registry.ts';
 import { touchNames } from './names.ts';
@@ -1036,7 +1036,7 @@ function filterOf(ctx: Context): {
   nodeParams: Array<string>;
 } {
   const edge = audienceWhere(ctx);
-  if (ctx.internal === true) return { edge: () => '1 = 1', node: () => '1 = 1', edgeParams: [], nodeParams: [] };
+  if (readsAll(ctx)) return { edge: () => '1 = 1', node: () => '1 = 1', edgeParams: [], nodeParams: [] };
   const node = audienceWhere(ctx, 'a');
   return {
     edge: (alias) => audienceWhere(ctx, alias).sql,

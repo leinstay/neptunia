@@ -5,9 +5,9 @@
 //
 // Contexts: `{ iface, kind: 'group' }`, `{ iface, kind: 'dm', person, place }`, `{ internal: true }`, and
 // `{ groups: true }` (`groupsContext`, the diary's entry: `none` and the groups of every interface, never a DM or an
-// internal row). A context the core issues (`issueContext`) also carries an `id` and is recorded in
-// `execution_contexts` by the service, and is read through `audience_id` instead of the three columns (its
-// `audienceColumn: true`).
+// internal row). A group or DM context marked `open` reads every audience, as the internal one does. A context the
+// core issues (`issueContext`) also carries an `id` and is recorded in `execution_contexts` by the service, and is read
+// through `audience_id` instead of the three columns (its `audienceColumn: true`).
 //
 // Audiences (schema v7, spec 2026-10-24-memory-schema-v7 sections 2 and 11.2): every scoped row also carries
 // `audience_id`, the normalised twin of its three columns: `aud:none`, `aud:internal`, `aud:group:<iface>` and
@@ -24,6 +24,8 @@ type Partial3 = { scope_kind?: string | null; scope_iface?: string | null; scope
 /** A read context: `internal`, or a group or DM of an interface; an issued one also carries an id and its mode. */
 export type Context = {
   internal?: true;
+  /** A group or DM context that reads every audience, as `issueContext` marks it under `context.memory.openPrivate`. */
+  open?: true;
   groups?: true;
   kind?: 'group' | 'dm';
   iface?: string;
@@ -53,6 +55,24 @@ export function isIssuedInternalContext(value: unknown): value is Context {
     'internal' in value &&
     value.internal === true
   );
+}
+
+/**
+ * Whether a context reads every audience: an `internal` one, or a group or DM context marked `open`. The mark opens
+ * reads only; where a write is stored or sent is decided by `kind`, `mode` and `destination`.
+ */
+export function readsAll(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  const ctx = value as Context;
+  return ctx.internal === true || ctx.open === true;
+}
+
+/** `readsAll` for a context supplied by a trusted caller: an issued internal context, or an issued outward one marked `open`. */
+export function isIssuedReadAllContext(value: unknown): value is Context {
+  if (isIssuedInternalContext(value)) return true;
+  if (value === null || typeof value !== 'object') return false;
+  const ctx = value as Context;
+  return filled(ctx.id) && ctx.mode === 'outward' && ctx.internal !== true && ctx.open === true;
 }
 
 type Row = Record<string, unknown>;
@@ -203,7 +223,7 @@ function check(value: unknown): asserts value is Context {
 /** Whether a row (its three scope columns) may be shown in a context. Throws without a valid context. */
 export function allowed(value: unknown, ctx: unknown): boolean {
   check(ctx);
-  if (ctx.internal === true) return true;
+  if (readsAll(ctx)) return true;
   const row = value as Partial3 | null | undefined;
   const kind = row?.scope_kind;
   if (kind === 'none') return true;
@@ -224,7 +244,7 @@ export function allowed(value: unknown, ctx: unknown): boolean {
  */
 export function whereFor(ctx: unknown, alias = ''): { sql: string; params: Array<string> } {
   check(ctx);
-  if (ctx.internal === true) return { sql: '1 = 1', params: [] };
+  if (readsAll(ctx)) return { sql: '1 = 1', params: [] };
   const p = alias ? `${alias}.` : '';
   let sql = `(${p}scope_kind = 'none' OR (${p}scope_kind = 'group' AND ${p}scope_iface IS NOT NULL AND ${p}scope_iface <> '' AND instr(${p}scope_iface, char(0)) = 0)`;
   const params: Array<string> = [];
@@ -239,6 +259,22 @@ export function whereFor(ctx: unknown, alias = ''): { sql: string; params: Array
     }
   }
   return { sql: `${sql})`, params };
+}
+
+/**
+ * The SQL sort key (descending, on the three columns under `alias`) that puts the context's own audience first among
+ * the versions of one description: a direct chat's before a group's, except under an open group context, where the
+ * group's comes first and a direct chat it also reads follows. Under an open DM context its own direct chat comes first.
+ */
+export function ownAudienceFirst(ctx: Context, alias: string): { sql: string; params: Array<string> } {
+  const p = `${alias}.`;
+  if (ctx.open === true && ctx.kind === 'group') return { sql: `${p}scope_kind = 'group'`, params: [] };
+  if (ctx.open === true && ctx.kind === 'dm' && filled(ctx.person))
+    return {
+      sql: `(${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`,
+      params: [ctx.iface ?? '', ctx.person],
+    };
+  return { sql: `${p}scope_kind = 'dm'`, params: [] };
 }
 
 // ---------- audiences (schema v7) ----------
@@ -340,7 +376,7 @@ function privateAudiences(ctx: Context): Array<string> {
 /** `allowed` on `audience_id`: whether a row may be shown in a context. Throws without a valid context. */
 export function allowedAudience(row: unknown, ctx: unknown): boolean {
   check(ctx);
-  if (ctx.internal === true) return true;
+  if (readsAll(ctx)) return true;
   const id = (row as Row | null | undefined)?.audience_id;
   if (
     id === AUD_NONE ||
@@ -353,7 +389,7 @@ export function allowedAudience(row: unknown, ctx: unknown): boolean {
 /** All valid group audiences, source-free rows and the context's exact DM audience, as SQL and parameters. */
 export function audienceWhere(ctx: unknown, alias = ''): { sql: string; params: Array<string> } {
   check(ctx);
-  if (ctx.internal === true) return { sql: '1 = 1', params: [] };
+  if (readsAll(ctx)) return { sql: '1 = 1', params: [] };
   const p = alias ? `${alias}.` : '';
   let sql = `(${p}audience_id = ? OR (substr(${p}audience_id, 1, ${GROUP_PREFIX.length}) = ? AND length(${p}audience_id) > ${GROUP_PREFIX.length} AND instr(${p}audience_id, char(0)) = 0)`;
   const params = [AUD_NONE, GROUP_PREFIX];
@@ -414,7 +450,8 @@ export const CONTEXT_POLICY_VERSION = 2;
  * A context the core issues for one turn, session or wake: a read context (as `groupContext` / `dmContext` /
  * `internalContext`) with an `id`, its `mode` (`outward` for a group or DM, `internal` otherwise), the destination
  * place, the policy version and the time it was issued, read through `audience_id` (`audienceColumn: true`). Pure: `now` and `newId` are injected; the service records it.
- * A spec that names no interface reads no group's rows; the callers of a live turn name theirs.
+ * A spec that names no interface reads no group's rows; the callers of a live turn name theirs. `open` marks a group or
+ * DM context that reads every audience (`readsAll`).
  */
 export function issueContext({
   kind,
@@ -422,6 +459,7 @@ export function issueContext({
   person = null,
   place = null,
   destination = null,
+  open = false,
   policyVersion = CONTEXT_POLICY_VERSION,
   now = Date.now,
   newId = () => `ctx:${randomUUID()}`,
@@ -431,6 +469,7 @@ export function issueContext({
   person?: string | null;
   place?: string | null;
   destination?: string | null;
+  open?: boolean;
   policyVersion?: number;
   now?: () => number;
   newId?: () => string;
@@ -442,6 +481,7 @@ export function issueContext({
   check(base);
   const ctx: Context = {
     ...base,
+    ...(open && base.internal !== true ? { open: true as const } : {}),
     id: newId(),
     mode: base.internal === true ? 'internal' : 'outward',
     destination: base.kind === 'dm' ? (destination ?? base.place ?? null) : (destination ?? null),

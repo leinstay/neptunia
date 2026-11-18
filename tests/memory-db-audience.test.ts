@@ -193,6 +193,31 @@ test('allowedAudience and audienceWhere give exactly what allowed and whereFor g
   }
 });
 
+test('an open group context reads a direct chat row through audienceWhere and a closed one does not', () => {
+  // Bug: the switch that opens her memory leaves the audience filter closed, so a group turn misses a direct chat.
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  db.exec('CREATE TABLE probe (name TEXT, audience_id TEXT)');
+  db.prepare('INSERT INTO probe VALUES (?, ?)').run('dm', 'aud:dm:place:dm-1');
+  db.prepare('INSERT INTO probe VALUES (?, ?)').run('group', 'aud:group:discord');
+  const read = (ctx: unknown): Array<unknown> => {
+    const where = audienceWhere(ctx, 'p');
+    const rows: Array<Record<string, unknown>> = db
+      .prepare(`SELECT p.name FROM probe p WHERE ${where.sql} ORDER BY p.name`)
+      .all(...where.params);
+    return rows.map((row) => row.name);
+  };
+  try {
+    const context = (open: boolean) => issueContext({ kind: 'group', iface: 'discord', open, now: () => 0 });
+    assert.deepEqual(read(context(true)), ['dm', 'group']);
+    assert.deepEqual(read(context(false)), ['group']);
+    assert.equal(allowedAudience({ audience_id: 'aud:dm:place:dm-1' }, context(true)), true);
+    assert.equal(allowedAudience({ audience_id: 'aud:dm:place:dm-1' }, context(false)), false);
+  } finally {
+    handle.close();
+  }
+});
+
 test('narrowestAudience: the full meet table', () => {
   const N = AUD_NONE;
   const I = AUD_INTERNAL;
@@ -593,6 +618,14 @@ test('equivalence: recall search, the hidden hint and windows read the same unde
       true,
       'the fixture exercises the hidden hint'
     );
+    // Bug: an open group context still reports a better match as hidden, though it reads that match itself.
+    const open = search(env.db, {
+      ctx: { ...contexts.groupAskedByAlice, open: true },
+      plan: { ...plan, forms: ['dmalice'] },
+      now: NOW,
+    });
+    assert.equal(open.hidden, false);
+    assert.notEqual(open.hits.length, 0);
   } finally {
     env.done();
   }

@@ -19,7 +19,7 @@ import {
   publicationOf,
   recheck,
 } from '../src/memory/db/publish.ts';
-import { issueContext } from '../src/memory/db/scope.ts';
+import { contextRow, issueContext } from '../src/memory/db/scope.ts';
 import { CHANNEL, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 
@@ -506,6 +506,34 @@ test('v10: a rewrite of the diary keeps the publication; database rows survive',
     handle.close();
   } finally {
     env.done();
+  }
+});
+
+test('publish: an open group context is bound to its origin chat exactly as a closed one', () => {
+  // Bug: the mark that opens reads to every audience reaches the publication boundary and lets a text go elsewhere.
+  const { handle, db } = fixture();
+  try {
+    const context = (destination: string, open: boolean) =>
+      issueContext({ iface: 'discord', kind: 'group', destination, open, now: () => NOW, newId: () => 'ctx:same' });
+    const open = context(GENERAL, true);
+    assert.equal(open.open, true);
+    assert.deepEqual(contextRow(open), contextRow(context(GENERAL, false)));
+    const attempt = (destination: string, producedIn: string) =>
+      preparePublication(handle, {
+        context: open,
+        rowKind: 'diary',
+        rowId: 'entry-1',
+        rendered: DRAFT,
+        destination,
+        producedIn: context(producedIn, true),
+        now: NOW,
+      });
+    assert.deepEqual(attempt(OTHER, OTHER), { ok: false, code: 'destination-mismatch' });
+    assert.deepEqual(attempt(GENERAL, OTHER), { ok: false, code: 'no-grant' });
+    assert.equal(attempt(GENERAL, GENERAL).ok, true);
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM publications WHERE destination_place_id = ?', OTHER), 0);
+  } finally {
+    handle.close();
   }
 });
 

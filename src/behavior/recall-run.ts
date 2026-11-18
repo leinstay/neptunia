@@ -118,7 +118,7 @@ import { factExcerpts, prefetchFacts, searchEpisodes, searchFacts } from './reca
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import { currentIface } from '../memory/db/current-iface.ts';
-import { isIssuedInternalContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
+import { isIssuedReadAllContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
 import {
   hasRecallContext,
   historyExclusions,
@@ -1004,7 +1004,7 @@ export function createRecall({
   }
 
   /**
-   * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal context spans every audience.
+   * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal or open context spans every audience.
    */
   function readContext({ channel, privateAccountId, asker, memoryContext = null }: ReadContextInput) {
     const spec = readContextSpec({
@@ -1021,7 +1021,7 @@ export function createRecall({
       typeof memoryContext === 'object' &&
       typeof memoryContext.id === 'string' &&
       memoryContext.id.length > 0 &&
-      (isIssuedInternalContext(memoryContext) ||
+      (isIssuedReadAllContext(memoryContext) ||
         (!memoryContext.internal &&
           (privateAccountId
             ? memoryContext.kind === 'dm' && spec.kind === 'dm' && memoryContext.person === spec.person

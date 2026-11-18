@@ -9,7 +9,7 @@ import { diaryRestricted } from '../tools/publication.ts';
 import { fill } from '../format.ts';
 import { personOfMember } from '../memory/addresses.ts';
 import { listOf, objOf } from '../tools/types.ts';
-import { isIssuedInternalContext } from '../memory/db/scope.ts';
+import { isIssuedReadAllContext } from '../memory/db/scope.ts';
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import { factStateWords } from '../memory/retrieval-input.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
@@ -271,7 +271,7 @@ export function createDiary(ctx: DiaryContext): Diary {
     const diaryCfg = config.diary ?? {};
     const stored = typeof store.getDiary === 'function' ? store.getDiary() : null;
     const posts = (Array.isArray(stored?.posts) ? stored.posts : []).filter(
-      (post) => isIssuedInternalContext(draft?.memoryContext) || !diaryRestricted(post)
+      (post) => isIssuedReadAllContext(draft?.memoryContext) || !diaryRestricted(post)
     );
     const forcedKind = typeof params?.kind === 'string' && params.kind ? params.kind : null;
     const topic = diaryTopic(params?.topic);

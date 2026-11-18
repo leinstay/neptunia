@@ -17,6 +17,7 @@ import { addAttitude, addDm, addPerson, noteInterface, openWorld, rootId } from 
 import type { World } from './fixtures/memory-db/mind-world.ts';
 import type { Audience } from './fixtures/memory-db/mind-world.ts';
 import { addPlaceClaim, addSourceLine } from './fixtures/memory-db/place-claims.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
 
 const AGORA = rootId('fake', 'g1');
 const ISLAND = rootId('tele', 't1');
@@ -759,6 +760,31 @@ test('a world with no stored change reads as an empty list', () => {
   try {
     known(world, 'person:fake:1');
     assert.deepEqual(strongestAttitudesOf(world.db, groupContext('fake'), 6), []);
+  } finally {
+    world.close();
+  }
+});
+
+test("a place's description of the turn's own audience comes first, a direct chat's only in that chat", () => {
+  // Bug: the fields put a direct chat's description first, so an open group turn shows what Zoe's chat wrote of the root.
+  const { world, zoeDm } = lessonWorld();
+  try {
+    const describe = (id: string, text: string, scope: Record<string, string>) =>
+      insertRows(world.db, {
+        descriptions: [
+          { id, subject_kind: 'place', subject_id: AGORA, field: 'purpose', current_version: `${id}:v1`, ...scope },
+        ],
+        description_versions: [
+          { id: `${id}:v1`, description_id: id, text, author: 'her', written_at: '2026-11-01T10:00:00.000Z', chars: 1 },
+        ],
+      });
+    describe('d:0', 'from the direct chat', { scope_kind: 'dm', scope_iface: 'fake', scope_dm: ZOE });
+    describe('d:1', 'from the group', { scope_kind: 'group', scope_iface: 'fake' });
+    const purpose = (ctx: Parameters<typeof placeFieldsOf>[1]) => placeFieldsOf(world.db, ctx, AGORA).purpose;
+    assert.equal(purpose({ ...groupContext('fake'), open: true }), 'from the group');
+    assert.equal(purpose(groupContext('fake')), 'from the group');
+    assert.equal(purpose(dmContext(ZOE, 'fake', zoeDm)), 'from the direct chat');
+    assert.equal(purpose({ ...dmContext(ZOE, 'fake', zoeDm), open: true }), 'from the direct chat');
   } finally {
     world.close();
   }

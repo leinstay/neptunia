@@ -287,6 +287,18 @@ test('leaves out a claim kept in the direct chat with the subject when the turn 
   }
 });
 
+test('returns a claim kept in the direct chat with the subject when the turn is in a shared place under an open context', async () => {
+  // Bug: the person read checks only the internal mark, so an open group turn still hides what Eleni said alone.
+  const world = openWorld();
+  try {
+    seed(world);
+    const text = okText(await scene(world, { ...groupContext('fake'), open: true })({ subject: ELENI_HANDLE }));
+    assert.ok(text.includes(SECRET), text);
+  } finally {
+    world.close();
+  }
+});
+
 test('returns the claim kept in the direct chat with the subject when the turn is that chat', async () => {
   // Bug: the read takes the groups' audience whatever the turn, so their own chat loses what she was told there.
   const world = openWorld();

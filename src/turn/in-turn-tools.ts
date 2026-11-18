@@ -14,7 +14,7 @@ import type { Reads } from '../interface/reads.ts';
 import { collectReadableLinks } from '../media/classify.ts';
 import type { ChatInfo, ChatRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
-import { isIssuedInternalContext } from '../memory/db/scope.ts';
+import { isIssuedReadAllContext } from '../memory/db/scope.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { FrameLine, FrameReads } from '../memory/db/frame-reads.ts';
 import type { FindMeaningSource } from '../memory/db/graph-find.ts';
@@ -559,7 +559,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       placeId,
       // The source line names the place as the request does, by its handle and path, on whatever interface it is.
       channelNameOf: (id) => placeNamed(draft, id, placeReads.placeName?.(id) ?? null),
-      allowed: (id) => isIssuedInternalContext(context) || Boolean(placeReads.placeReadable?.(context, id)),
+      allowed: (id) => isIssuedReadAllContext(context) || Boolean(placeReads.placeReadable?.(context, id)),
       readRecord: ({ from, mode }) =>
         Promise.resolve(
           storedLines(from, mode).flatMap((line) => {
@@ -652,7 +652,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     const here = new Set([placeId, String(channel.id)]);
     const others = found.places.filter((id) => !here.has(id));
     const readable = (id: string): boolean =>
-      isIssuedInternalContext(context) || Boolean(placeReads.placeReadable?.(context, id));
+      isIssuedReadAllContext(context) || Boolean(placeReads.placeReadable?.(context, id));
     const chosen = others.find(readable) ?? others[0];
     const ref = chosen === undefined ? null : storedChatOf(chosen);
     if (chosen === undefined || ref === null) return { status: 'invalid', code: CODE.PLACE_NOT_FOUND };
@@ -721,7 +721,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       allowed: (id) => {
         if (String(id) === String(channel.id) && inRoot(channel)) return true;
         // The owner's authenticated command line reads every stored chat; its publication stays restricted.
-        if (isIssuedInternalContext(draft?.memoryContext)) return true;
+        if (isIssuedReadAllContext(draft?.memoryContext)) return true;
         try {
           return (
             checkPull({

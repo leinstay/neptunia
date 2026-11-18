@@ -10,7 +10,7 @@ import { DEFERRED, NODE_KINDS, PREDICATES } from './graph-manifest.ts';
 import type { NodeKindSpec } from './graph-manifest.ts';
 import { checkLimit, coded, contextBinding, cursorOf, keysetPage, positionOf } from './read-page.ts';
 import type { Page } from './read-page.ts';
-import { audienceWhere } from './scope.ts';
+import { audienceWhere, readsAll } from './scope.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
@@ -124,7 +124,7 @@ function edgeWhere(context: Context, request: GraphEdgeRequest): { sql: string; 
 
 /** The condition that a context has a witness for the node `n`. */
 function nodeVisible(context: Context): { sql: string; params: Array<string> } {
-  if (context.internal === true) return { sql: '1 = 1', params: [] };
+  if (readsAll(context)) return { sql: '1 = 1', params: [] };
   const audience = audienceWhere(context, 'w');
   return {
     sql: `EXISTS (SELECT 1 FROM node_access w WHERE w.node_id = n.id AND ${audience.sql})`,
@@ -286,7 +286,7 @@ function backingRow(
     return { row: null, rowState: 'missing' };
   const found = db.prepare(`SELECT * FROM ${spec.table} WHERE ${spec.key} = ?`).get(rowId);
   if (found === undefined) return { row: null, rowState: 'missing' };
-  if (typeof found.audience_id === 'string' && context.internal !== true) {
+  if (typeof found.audience_id === 'string' && !readsAll(context)) {
     const audience = audienceWhere(context, 'seen');
     const readable = db
       .prepare(`SELECT 1 AS ok FROM (SELECT ? AS audience_id) seen WHERE ${audience.sql}`)
