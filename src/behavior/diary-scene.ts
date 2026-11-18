@@ -1,4 +1,4 @@
-// The diary's scene helper: one request on the role `diary.scene` with the purpose `diary-scene` that builds a scene for one entry
+// The diary's scene helper: one request on the role `diary.director` with the purpose `diary-scene` that builds a scene for one entry
 // from numbered seed sets, a place with its circumstances and nothing of what the persona does or feels. Its system
 // message is the task text `prompts/diary-scene.md`, never the persona, and its one user message holds `<kind>`,
 // `<sets>` and `<now>` alone. scripts/diary-scenes.ts runs it to calibrate the prompt; nothing in a turn calls it.
@@ -8,7 +8,7 @@ import { parseSeedFamilies, pickSeeds } from './seeds.ts';
 import { formatNow } from '../format.ts';
 import { DailyCapError, TokenLimitError, roleRequestOptions } from '../llm/openrouter.ts';
 import { parseJsonObject } from '../llm/parse.ts';
-import { DIARY_SCENE_ROLE, roleModel } from '../llm/roles.ts';
+import { DIARY_DIRECTOR_ROLE, roleModel } from '../llm/roles.ts';
 import { block } from '../turn/request/text.ts';
 
 /** The kinds of entry a scene is built for. */
@@ -135,7 +135,7 @@ function tokensOf(completion: Completion): SceneTokens {
 
 /**
  * One scene for `kind` over `sets` (drawSceneSets) at the moment `now` in `timezone`: the request of the helper on the
- * role `diary.scene`, which takes the analyzer's chain while it has no route, its prompt `prompts['diary-scene']` and
+ * role `diary.director`, which takes the analyzer's chain while it has no route, its prompt `prompts['diary-scene']` and
  * its settings read from `hot` at the moment of use. A request or token cap throws; any other failure of the request is
  * `request-failed`. Throws for a kind outside SCENE_KINDS.
  */
@@ -171,9 +171,9 @@ export async function buildScene({
         { role: 'user', content: user },
       ],
       {
-        model: roleModel(config, DIARY_SCENE_ROLE, PURPOSE),
+        model: roleModel(config, DIARY_DIRECTOR_ROLE, PURPOSE),
         ...roleRequestOptions(config, {
-          role: DIARY_SCENE_ROLE,
+          role: DIARY_DIRECTOR_ROLE,
           maxOutputTokens: MAX_OUTPUT_TOKENS,
           purpose: PURPOSE,
           timeoutMs: TIMEOUT_MS,

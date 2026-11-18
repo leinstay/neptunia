@@ -98,7 +98,7 @@ const withKeys = (r: Rig, names: Array<string>): void =>
     JSON.stringify({ keys: Object.fromEntries(names.map((name) => [name, `sk-${name}-0001`])) })
   );
 
-test("with the diary on, the step stores the route of the diary's scene role on a configured key", async () => {
+test("with the diary on, the step stores the route of the diary's director role on a configured key", async () => {
   // Catches: the diary's helper asked for its model and left on the analyzer, or a route stored with no switch.
   const r = rig({ diary: { enabled: false } });
   withKeys(r, ['helpers']);
@@ -108,7 +108,7 @@ test("with the diary on, the step stores the route of the diary's scene role on 
   assert.equal(outcome.state, 'done');
   assert.equal(config.diary?.enabled, true);
   const routes = (config.models as { routes?: Record<string, Array<Record<string, unknown>>> } | undefined)?.routes;
-  assert.deepEqual(routes?.['diary.scene'], [
+  assert.deepEqual(routes?.['diary.director'], [
     { via: 'api', key: 'helpers', model: 'vendor/scene-model', effort: 'low' },
   ]);
   const sceneQuestion = r.asked[3];
@@ -126,7 +126,7 @@ test("the scene role's route is refused on a key keys.json lacks or a harness th
   }
 });
 
-test("with the diary off, the step asks for no route of the diary's scene role", async () => {
+test("with the diary off, the step asks for no route of the diary's director role", async () => {
   // Catches: a model question for a mechanic the owner just switched off.
   const r = rig({ diary: { enabled: true } });
   withKeys(r, ['helpers']);

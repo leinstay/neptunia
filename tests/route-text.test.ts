@@ -139,9 +139,9 @@ test('harnessEffort gives no effort for disabled on claude and low on codex, and
   }
 });
 
-test("the diary's scene role takes a harness route and an effort level like the humanizer's writer", () => {
+test("the diary's director role takes a harness route and an effort level like the humanizer's writer", () => {
   // Catches: the scene role refused a harness, so its model cannot be a subscription model, or refused a level.
-  for (const role of ['humanizer.writer', 'diary.scene']) {
+  for (const role of ['humanizer.writer', 'diary.director']) {
     assert.deepEqual(parseRouteText(role, 'harness:codex/gpt-6:low'), {
       via: 'harness',
       backend: 'codex',

@@ -61,10 +61,10 @@ test('asks for the model of the route a flag names, so two models can be compare
   const { llm, run, done } = setup();
   try {
     // Changed: the helper's own role takes the flag, in place of the analyzer.
-    const flag = ['--diary.scene', 'helpers/vendor/other-model:medium'];
+    const flag = ['--diary.director', 'helpers/vendor/other-model:medium'];
     await run(['--kinds', 'status', '--count', '1', '--seed', 'a', ...flag]);
     const [{ options }] = llm.calls;
-    assert.equal(options.role, 'diary.scene');
+    assert.equal(options.role, 'diary.director');
     assert.equal(options.model, 'vendor/other-model');
   } finally {
     done();
@@ -75,10 +75,19 @@ test("takes a harness route for the helper's role, so a harness model can be com
   // Bug: the role runs on a key only, and the tool refuses the flag of a harness model.
   const { llm, run, done } = setup();
   try {
-    await run(['--kinds', 'status', '--count', '1', '--seed', 'a', '--diary.scene', 'harness:claude/some-model:low']);
+    await run([
+      '--kinds',
+      'status',
+      '--count',
+      '1',
+      '--seed',
+      'a',
+      '--diary.director',
+      'harness:claude/some-model:low',
+    ]);
     assert.equal(llm.calls.length, 1);
     const [{ options }] = llm.calls;
-    assert.equal(options.role, 'diary.scene');
+    assert.equal(options.role, 'diary.director');
   } finally {
     done();
   }

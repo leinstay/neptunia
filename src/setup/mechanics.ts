@@ -1,13 +1,13 @@
 // The mechanics step of `neptunia setup` (src/setup/run.ts, docs/setup.md): her two ticking mechanics, `heartbeat` and
 // `diary`, and the humanizer, each switched on or off at the terminal. Each question offers the value in force, so an empty answer
-// keeps it. With the diary on, the step then offers the route of the diary's scene role `diary.scene` from the named keys
+// keeps it. With the diary on, the step then offers the route of the diary's director role `diary.director` from the named keys
 // of keys.json and the connected harnesses, and an empty answer keeps its chain, the analyzer's while it has none. The
 // answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when no answer
 // changes a value.
 
 import { readConfig } from '../config.ts';
 import { readKeys } from '../keys/file.ts';
-import { DIARY_SCENE_ROLE } from '../llm/roles.ts';
+import { DIARY_DIRECTOR_ROLE } from '../llm/roles.ts';
 import { HARNESS_BACKENDS, isRefusal, parseRouteText, readRoute, routeText } from '../llm/route-text.ts';
 import type { Route } from '../llm/route-text.ts';
 import { availableSources } from '../subharness/sources.ts';
@@ -43,30 +43,30 @@ async function askSwitch(ask: Ask, question: string, current: boolean): Promise<
   return answer.toLowerCase() === 'on';
 }
 
-/** The route of the diary's scene role the stored chain starts with, as text; null with no route of its own. */
+/** The route of the diary's director role the stored chain starts with, as text; null with no route of its own. */
 function sceneRouteInForce(config: unknown): string | null {
-  const chain = objOf(objOf(objOf(config).models).routes)[DIARY_SCENE_ROLE];
+  const chain = objOf(objOf(objOf(config).models).routes)[DIARY_DIRECTOR_ROLE];
   if (!Array.isArray(chain) || chain.length === 0) return null;
-  const route = readRoute(DIARY_SCENE_ROLE, chain[0]);
+  const route = readRoute(DIARY_DIRECTOR_ROLE, chain[0]);
   return isRefusal(route) ? null : routeText(route);
 }
 
 /**
- * Asks for the route of the diary's scene role among the named keys and the connected harnesses. The route read from
+ * Asks for the route of the diary's director role among the named keys and the connected harnesses. The route read from
  * the answer, or null for an empty answer and after three answers that name no usable route.
  */
 async function askSceneRoute(ask: Ask, privateDir: string, inForce: string | null): Promise<Route | null> {
   const keys = Object.keys(readKeys(privateDir).keys);
   const harnesses = (await availableSources(privateDir)).filter((one) => HARNESS_BACKENDS.some((name) => name === one));
   const question = [
-    `diary scene: the model of the diary's scene helper, <key>/<model>[:<effort>] or harness:<claude|codex>/<model>[:<effort>].`,
+    `diary director: the model of the diary's director, the helper that builds its scenes, <key>/<model>[:<effort>] or harness:<claude|codex>/<model>[:<effort>].`,
     `Keys: ${keys.join(', ') || 'none'}. Harnesses: ${harnesses.join(', ') || 'none'}.`,
     `Empty keeps ${inForce ?? "the analyzer's route"}:`,
   ].join(' ');
   for (let tried = 0; tried < TRIES; tried += 1) {
     const answer = (await ask(question, inForce)).trim();
     if (answer === '' || answer === inForce) return null;
-    const route = parseRouteText(DIARY_SCENE_ROLE, answer);
+    const route = parseRouteText(DIARY_DIRECTOR_ROLE, answer);
     if (isRefusal(route)) continue;
     if (route.via === 'api' ? keys.includes(route.key) : harnesses.includes(route.backend)) return route;
   }
@@ -100,12 +100,12 @@ export async function mechanicsStep(
   const changed =
     heartbeat !== inForce.heartbeat || diary !== inForce.diary || humanizer !== inForce.humanizer || scene !== null;
   const sceneText = scene === null ? (sceneInForce ?? "the analyzer's route") : routeText(scene);
-  const summary = `heartbeat ${heartbeat ? 'on' : 'off'}, diary ${diary ? 'on' : 'off'}${diary ? `, diary scene on ${sceneText}` : ''}, humanizer ${humanizer ? 'on' : 'off'}`;
+  const summary = `heartbeat ${heartbeat ? 'on' : 'off'}, diary ${diary ? 'on' : 'off'}${diary ? `, diary director on ${sceneText}` : ''}, humanizer ${humanizer ? 'on' : 'off'}`;
   if (changed)
     updateLocalSettings(options.privateDir, (saved) => {
       let local = saved;
       for (const [name, value] of Object.entries(answers)) local = setPath(local, [name, 'enabled'], value);
-      return scene === null ? local : setPath(local, ['models', 'routes', DIARY_SCENE_ROLE], [scene]);
+      return scene === null ? local : setPath(local, ['models', 'routes', DIARY_DIRECTOR_ROLE], [scene]);
     });
   return changed ? { state: 'done', detail: summary } : { state: 'already', detail: summary };
 }

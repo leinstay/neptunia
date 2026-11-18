@@ -367,13 +367,13 @@ test('a local chain over the tracked config turns that role on and leaves the ot
   assert.deepEqual(offRoles(config), ['vision', 'video', 'speech']);
 });
 
-test("roleModel: the diary's scene role takes the analyzer's model while it has no chain, and its own once it has one", () => {
+test("roleModel: the diary's director role takes the analyzer's model while it has no chain, and its own once it has one", () => {
   // Catches: a scene role with no route left with no model, or kept on the analyzer's after it got its own.
   const analyzer = on('analyzer', 'x/analyzer');
-  assert.equal(roleModel({ models: { routes: analyzer } }, 'diary.scene'), 'x/analyzer');
-  assert.equal(roleModel(undefined, 'diary.scene'), ROLE_DEFAULTS.analyzer);
+  assert.equal(roleModel({ models: { routes: analyzer } }, 'diary.director'), 'x/analyzer');
+  assert.equal(roleModel(undefined, 'diary.director'), ROLE_DEFAULTS.analyzer);
   assert.equal(
-    roleModel({ models: { routes: { ...analyzer, ...on('diary.scene', 'x/scene') } } }, 'diary.scene'),
+    roleModel({ models: { routes: { ...analyzer, ...on('diary.director', 'x/scene') } } }, 'diary.director'),
     'x/scene'
   );
 });

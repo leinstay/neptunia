@@ -58,9 +58,9 @@ export const HUMANIZER_ROLES: ReadonlyArray<string> = Object.freeze([HUMANIZER_L
  * The diary's scene helper (docs/diary.md), a role of its own whose chain is the analyzer's while it has no route of its
  * own, so its model is the analyzer's until one is set.
  */
-export const DIARY_SCENE_ROLE = 'diary.scene';
+export const DIARY_DIRECTOR_ROLE = 'diary.director';
 /** The role whose chain and model the scene role takes while it has no route. */
-export const DIARY_SCENE_FALLBACK = 'analyzer';
+export const DIARY_DIRECTOR_FALLBACK = 'analyzer';
 
 /** The model roles other than `core` that a turn calls, in display order. */
 export const NON_CORE_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
@@ -177,7 +177,7 @@ export function roleModel(config: unknown, role: string, purpose?: string): stri
     if (typeof pinned === 'string' && pinned) return pinned;
   }
   if (HUMANIZER_ROLES.includes(role)) return chainModel(models, role);
-  if (role === DIARY_SCENE_ROLE) return chainModel(models, role) ?? roleModel(config, DIARY_SCENE_FALLBACK);
+  if (role === DIARY_DIRECTOR_ROLE) return chainModel(models, role) ?? roleModel(config, DIARY_DIRECTOR_FALLBACK);
   if (!isModelRole(role)) return undefined;
   return chainModel(models, role) ?? (role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role]);
 }

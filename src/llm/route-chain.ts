@@ -9,7 +9,7 @@
 import { log } from '../log.ts';
 import { MINUTE_MS } from '../time.ts';
 import { SUBSCRIPTION_CODES, isBudgetError } from './openrouter.ts';
-import { DIARY_SCENE_FALLBACK, DIARY_SCENE_ROLE } from './roles.ts';
+import { DIARY_DIRECTOR_FALLBACK, DIARY_DIRECTOR_ROLE } from './roles.ts';
 import { isRefusal, readRoute, routeText } from './route-text.ts';
 import type { Route, RouteRole } from './route-text.ts';
 
@@ -19,14 +19,14 @@ const treeOf = (value: unknown): Tree => (isTree(value) ? value : {});
 
 /**
  * The chain of `role`: `models.routes.<role>`, records the settings check refuses left out; none without an entry. The
- * diary's scene role with no route of its own takes the analyzer's chain.
+ * diary's director role with no route of its own takes the analyzer's chain.
  */
 export function routesOf(config: unknown, role: RouteRole): Array<Route> {
   const own = treeOf(treeOf(treeOf(config).models).routes)[role];
   const routes = Array.isArray(own)
     ? own.map((value) => readRoute(role, value)).filter((route): route is Route => !isRefusal(route))
     : [];
-  return routes.length === 0 && role === DIARY_SCENE_ROLE ? routesOf(config, DIARY_SCENE_FALLBACK) : routes;
+  return routes.length === 0 && role === DIARY_DIRECTOR_ROLE ? routesOf(config, DIARY_DIRECTOR_FALLBACK) : routes;
 }
 
 /** The codes of a harness run that say the harness cannot run now: a missing install, a logout, a run that broke. */
