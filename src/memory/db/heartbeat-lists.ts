@@ -7,16 +7,20 @@
 // what followed each read as the notice reads it (src/memory/db/past-acts.ts#followOf). Read only; it makes no model
 // request.
 
+import { interestClaimsOf } from './person-fields.ts';
 import { strongestAttitudesOf } from './frame-reads.ts';
 import { dmOfAccount, personNamesOf, profileAccountsOf } from './meta-person.ts';
 import { mirrorPlaces } from './mirrors.ts';
 import { PERSONA_ID } from './ids.ts';
 import { followOf } from './past-acts.ts';
-import { internalContext } from './scope.ts';
+import { audienceWhere, internalContext } from './scope.ts';
 import type { Db } from './types.ts';
 
 /** How many days back a place's activity counts. */
 export const ACTIVITY_DAYS = 7;
+
+/** How many interests a person's line names. */
+const LISTED_INTERESTS = 5;
 
 const DAY_MS = 86_400_000;
 
@@ -42,6 +46,8 @@ export type ListedPerson = {
    * accounts, or stands in their direct chat.
    */
   approach: { placeId: string; at: number; direct: boolean; after: { at: number; reply: boolean } | null } | null;
+  /** The topic texts of the person's interests of best rank, at most `LISTED_INTERESTS`. */
+  interests: Array<string>;
 };
 
 /** A place as a heartbeat lists it. */
@@ -49,6 +55,8 @@ export type ListedPlace = {
   placeId: string;
   /** Her stored description of what the place is for (`purpose`). */
   purpose: string | null;
+  /** The stored `topics` of a group chat people wrote in during the window, whole; null for a quiet place or a `dm`. */
+  topics: string | null;
   /** People's lines of the activity window, each message once, and how many people wrote them. */
   lines: number;
   people: number;
@@ -285,6 +293,7 @@ function followedOf(
 export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
   const since = new Date(now - ACTIVITY_DAYS * DAY_MS).toISOString();
   const purposes = fieldTexts(db, 'place', 'purpose');
+  const topics = fieldTexts(db, 'place', 'topics');
   const own = ownLastByPlace(db);
   // Each person's newest line of the window and its place, from the same reads that count the places.
   const newest = new Map<string, { at: number; placeId: string }>();
@@ -300,6 +309,7 @@ export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
     return {
       placeId,
       purpose: purposes.get(placeId) ?? null,
+      topics: group && writers.length > 0 ? (topics.get(placeId) ?? null) : null,
       lines: writers.reduce((sum, one) => sum + one.lines, 0),
       people: writers.length,
       ownLastAt: last?.at ?? null,
@@ -351,6 +361,9 @@ export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
         line === null
           ? null
           : { placeId: line.placeId, at: line.at, direct: line.direct, after: followed.get(personId) ?? null },
+      interests: interestClaimsOf(db, audienceWhere(internalContext(), 'c'), personId, LISTED_INTERESTS).map(
+        (one) => one.text
+      ),
     };
   });
   return { people, places };

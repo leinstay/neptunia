@@ -172,7 +172,7 @@ export const YARD = 'fake:channel:c4';
 export const MIRROR = 'fake:channel:c5';
 
 /** A current description of `subject` holding `text`, readable by the groups of `fake`. */
-function describe(world: World, id: string, subjectKind: 'person' | 'place', subject: string, field: string, text: string) {
+export function describeSubject(world: World, id: string, subjectKind: 'person' | 'place', subject: string, field: string, text: string): void {
   const version = `${id}:v1`;
   world.db
     .prepare(
@@ -186,6 +186,18 @@ function describe(world: World, id: string, subjectKind: 'person' | 'place', sub
        VALUES (?, ?, ?, 'synthetic', ?, ?, 'synthetic')`
     )
     .run(version, id, text, iso(TURN_NOW - 20 * DAY), text.length);
+}
+
+/** An interest of `person` holding `text`, of `weight`, seen `ago` milliseconds before the turn. */
+export function addInterest(world: World, id: string, person: string, text: string, weight: number, ago: number): void {
+  const at = iso(TURN_NOW - ago);
+  world.db
+    .prepare(
+      `INSERT INTO claims (id, subject_kind, subject_id, kind, text, weight, truth, shown, created_at, first_seen_at,
+         last_seen_at, audience_id, scope_kind, scope_iface)
+       VALUES (?, 'person', ?, 'interest', ?, ?, 'current', 1, ?, ?, ?, 'aud:group:fake', 'group', 'fake')`
+    )
+    .run(id, person, text, weight, at, at, at);
 }
 
 /**
@@ -205,15 +217,14 @@ export function heartbeatWorld({ extraPeople = 0 }: { extraPeople?: number } = {
     )
     .run(mirror, iso(TURN_NOW - 30 * DAY));
   addPerson(w.db, { id: NIKOS, accounts: [{ id: 'fake:222', iface: 'fake', native: '222', names: ['Νίκος'] }] });
-  describe(
-    w,
+  describeSubject(w,
     'desc:nikos',
     'person',
     NIKOS,
     'relationship',
     `${HEARTBEAT_TEXT.nikosRelation} ${HEARTBEAT_TEXT.nikosRelationRest}.`
   );
-  describe(w, 'desc:yard', 'place', yard, 'purpose', HEARTBEAT_TEXT.yardPurpose);
+  describeSubject(w, 'desc:yard', 'place', yard, 'purpose', HEARTBEAT_TEXT.yardPurpose);
   addAttitude(w.db, {
     id: 'aff:nikos',
     person: NIKOS,
@@ -236,7 +247,7 @@ export function heartbeatWorld({ extraPeople = 0 }: { extraPeople?: number } = {
       id,
       accounts: [{ id: `fake:9${String(i).padStart(3, '0')}`, iface: 'fake', native: `9${i}`, names: [`Άτομο${i}`] }],
     });
-    describe(w, `desc:extra:${i}`, 'person', id, 'relationship', `ΑΤΟΜΟ-${i}.`);
+    describeSubject(w, `desc:extra:${i}`, 'person', id, 'relationship', `ΑΤΟΜΟ-${i}.`);
   }
   return w;
 }

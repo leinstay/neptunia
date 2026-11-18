@@ -356,6 +356,7 @@
       "approachAnswered": "they answered it {date}",
       "approachNone": "no line of theirs there is recorded within a day after it",
       "approachNoneDirect": "they have not written there since",
+      "interests": "into: {topics}",
       "notice": {
         "lead": "{id} lists related past activity, nearest first:",
         "line": "{date}, in {place}, you wrote: {text}",
