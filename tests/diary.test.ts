@@ -676,17 +676,23 @@ test('usedSeedLines: seed 0, a seed past the list and a post with no plan leave 
   assert.equal(usedSeedLines(posts, 10).size, 0);
 });
 
-// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
-test('sceneOf: the stored brief of a planned picture post comes first, whole', () => {
-  // Bug: the drawing prompt names the room and the light, and the planner cannot see the activity repeat; or a long
-  // brief is cut.
-  const brief = `she learns to skate on a frozen lake, ${'falling and getting up again, '.repeat(16)}at dusk`;
+test('sceneOf: the drawing prompt of a planned picture post comes first, over its brief', () => {
+  // The expectation changed on purpose: the brief is the planner's wording, and the list of past entries remembers
+  // what the persona drew. Bug: the brief shown in place of the drawing prompt.
+  const brief = 'she learns to skate on a frozen lake at dusk';
   const post = {
     picture: 'a cafe interior, warm light',
-    pictureDescription: 'a girl at a window table',
     plan: { brief, seeds: [['a lake', 'skating']], seed: 1 },
   };
-  assert.equal(sceneOf(post), brief);
+  assert.equal(sceneOf(post), 'a cafe interior, warm light');
+});
+
+// The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
+test('sceneOf: the stored brief, whole, when a planned picture post holds no drawing prompt', () => {
+  // Bug: a picture with no stored prompt loses its scene; or a long brief is cut.
+  const brief = `she learns to skate on a frozen lake, ${'falling and getting up again, '.repeat(16)}at dusk`;
+  assert.equal(sceneOf({ picture: true, plan: { brief, seeds: [], seed: 0 } }), brief);
+  assert.equal(sceneOf({ picture: '', plan: { brief, seeds: [], seed: 0 } }), brief);
 });
 
 // The owner on 2026-11-17: a text over its bound is summarized or kept whole, never cut.
