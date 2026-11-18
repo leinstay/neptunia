@@ -1094,7 +1094,7 @@ export async function runMediaLook({
     if (looked.route?.kind === 'unavailable') return abilityUnavailable(looked.route);
     const answer = objOf(looked.value);
     const said = typeof answer.text === 'string' ? answer.text.trim() : '';
-    if (!said) return { status: 'failed', code: CODE.ERROR };
+    if (!said) return failedLook(answer);
     return {
       ...(looked.route?.kind === 'core' ? { route: 'core' } : {}),
       status: 'ok',
@@ -1108,6 +1108,13 @@ export async function runMediaLook({
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }
+}
+
+/** A second look with no answer: the error failure, with why when the provider cut it short twice (`filter`, `cut`). */
+function failedLook(answer: Obj): ToolResult {
+  return typeof answer.failed === 'string'
+    ? { status: 'failed', code: CODE.ERROR, reason: answer.failed }
+    : { status: 'failed', code: CODE.ERROR };
 }
 
 /** `media.find` result count: the default and the most one call returns. */

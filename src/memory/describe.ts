@@ -125,6 +125,9 @@
 // entry says `redescribed`. A second answer that fails the standard too is kept and the entry also says `offScript`, and a
 // first answer is kept the same way, with `offScript`, when the second request fails. Nothing is dropped, cut or edited for
 // this, and a second look's answer is outside it.
+//
+// An answer cut short (askWhole). An answer whose finish reason is not `stop` is never a description: the same request is
+// asked once more, and a second cut is a miss with the reason `filter` (the content filter) or `cut` (anything else).
 
 import { fetchTextPreview } from '../media/text-preview.ts';
 import { TEXT_FORM_CHARS, hearAudio, readTextFile } from './describe-audio.ts';
@@ -204,6 +207,8 @@ const REWATCH_TTL_MS = 60 * MINUTE_MS;
 const PERMANENT_VIDEO_MISSES = new Set(['length', 'size']);
 /** What cachedPicture returns for a picture whose recent failure is still remembered. */
 const FRESH_MISS = Symbol('fresh-miss');
+/** The miss reasons of an answer the provider cut short twice (askWhole). */
+const CUT_REASONS: ReadonlySet<string> = new Set<CutReason>(['filter', 'cut']);
 
 /** The model a second look is asked of, when it is not the role's own. */
 type Ask = { model?: string | null };
@@ -212,7 +217,8 @@ type Ask = { model?: string | null };
 type VideoPurpose = 'watch' | 'gif' | 'voice' | 'rewatch';
 
 /** What a second look answers: the question as asked and the text, or null when there is nothing to look at. */
-type Looked = Promise<{ question: string; text: string } | null>;
+/** A second look's answer, `{ question, failed }` when the provider cut it short twice, null on any other failure. */
+type Looked = Promise<{ question: string; text: string } | { question: string; failed: CutReason } | null>;
 
 /** A picture, GIF or video the describer is asked about: its item id, its kind and where it is fetched from. */
 export type MediaItem = {
@@ -291,7 +297,62 @@ function pictureImageUrl(item: MediaItem) {
 }
 
 /** What the model client answers a description's request. */
-type Answered = { text?: unknown; usage?: unknown; estimated?: number };
+type Answered = {
+  text?: unknown;
+  usage?: unknown;
+  estimated?: number;
+  finishReason?: unknown;
+  nativeFinishReason?: unknown;
+};
+
+/** Why an answer the provider cut short twice is no description: its content filter, or the output cap or any other abnormal finish. */
+type CutReason = 'filter' | 'cut';
+
+/** Whether an answer ended normally: `stop`, or no finish reason at all (a provider that omits it). */
+function endedNormally(answer: Answered): boolean {
+  return answer.finishReason == null || answer.finishReason === 'stop';
+}
+
+/**
+ * One request's answer, asked once more when the provider cut the first short: `{ answer }` for an answer that ended
+ * normally, `{ cut }` when both ended otherwise. One `describe: cut` line per cut answer, its finish reasons and never its
+ * text. A failed request throws as `ask` does. The second request is the same request.
+ */
+async function askWhole<TAnswer extends Answered>(
+  kind: string,
+  ask: () => Promise<TAnswer>
+): Promise<{ answer: TAnswer } | { cut: CutReason }> {
+  let answer = await ask();
+  for (let asked = 1; !endedNormally(answer); asked += 1) {
+    log.warn('describe: cut', {
+      kind,
+      finishReason: String(answer.finishReason),
+      nativeFinishReason: answer.nativeFinishReason ?? null,
+    });
+    if (asked === 2) return { cut: answer.finishReason === 'content_filter' ? 'filter' : 'cut' };
+    answer = await ask();
+  }
+  return { answer };
+}
+
+/** askWhole's answer on one line: `{ answer, text }`, or `{ failed }` for an answer cut short twice or an empty one. */
+async function askText(
+  kind: string,
+  ask: () => Promise<Answered>
+): Promise<{ answer: Answered; text: string } | { failed: CutReason | 'empty' }> {
+  const asked = await askWhole(kind, ask);
+  if ('cut' in asked) return { failed: asked.cut };
+  const text = oneLine(typeof asked.answer.text === 'string' ? asked.answer.text : '');
+  return text ? { answer: asked.answer, text } : { failed: 'empty' };
+}
+
+/** The answer of the English standard's second request (toStandard): null for one cut short twice or empty. */
+async function askAgain(kind: string, ask: () => Promise<Answered>, spent: (estimated: number) => void) {
+  const again = await askText(kind, ask);
+  if ('failed' in again) return null;
+  spent(again.answer.estimated ?? 0);
+  return { text: again.text, usage: again.answer.usage };
+}
 
 /** What an entry says of the English standard (src/memory/text-standard.ts). */
 type StandardMarks = { redescribed?: true; offScript?: true };
@@ -718,10 +779,11 @@ function buildDescriber({
     const imageUrl = pictureImageUrl(item);
 
     // A failure: the previous caption kept, else a miss cached (`mark` false: the daily cap, nothing cached).
-    const fail = (mark = true) => {
+    // A cut answer's miss carries its reason (`filter`, `cut`), which the transcript shows.
+    const fail = (mark = true, reason: string | null = null) => {
       if (previous) return keepPrevious(mark);
       if (mark) {
-        store.putMediaEntry(placeId, item.itemId, { miss: true, ts: now() });
+        store.putMediaEntry(placeId, item.itemId, { miss: true, ts: now(), ...(reason ? { reason } : {}) });
       }
       return null;
     };
@@ -739,7 +801,10 @@ function buildDescriber({
 
     const captioned = await captionPicture(placeId, downloaded.dataUrl, promptText, item.kind);
     // A refusal by the daily cap says nothing about the picture: described after the reset.
-    if ('failed' in captioned) return fail(captioned.failed !== 'daily-cap');
+    if ('failed' in captioned) {
+      const { failed } = captioned;
+      return fail(failed !== 'daily-cap', CUT_REASONS.has(failed) ? failed : null);
+    }
     const { text, usage, estimated, model, marks } = captioned;
     const ts = now();
     store.putMediaEntry(placeId, item.itemId, { text, ts, describedAt: ts, model, ...marks });
@@ -787,9 +852,9 @@ function buildDescriber({
           }),
         }
       ) as Promise<Answered>;
-    let completion: Answered;
+    let asked: Awaited<ReturnType<typeof askText>>;
     try {
-      completion = await ask();
+      asked = await askText(kind, ask);
     } catch (err) {
       const reason = requestFailureReason(err);
       log.warn('describe: failed', {
@@ -800,26 +865,16 @@ function buildDescriber({
       });
       return { failed: reason };
     }
-
-    // The whole answer on one line.
-    const captionOf = (answered: Answered): string => oneLine(typeof answered.text === 'string' ? answered.text : '');
-    const firstCaption = captionOf(completion);
-
-    if (!firstCaption) {
-      log.warn('describe: failed', { kind, reason: 'empty' });
-      return { failed: 'empty' };
+    if ('failed' in asked) {
+      log.warn('describe: failed', { kind, reason: asked.failed });
+      return { failed: asked.failed };
     }
 
-    let estimated = completion.estimated ?? 0;
+    let estimated = asked.answer.estimated ?? 0;
     const standard = await toStandard(
-      { text: firstCaption, usage: completion.usage },
+      { text: asked.text, usage: asked.answer.usage },
       (answer) => answer.text,
-      async () => {
-        const again = await ask();
-        estimated += again.estimated ?? 0;
-        const caption = captionOf(again);
-        return caption ? { text: caption, usage: again.usage } : null;
-      }
+      () => askAgain(kind, ask, (spent) => (estimated += spent))
     );
     const text = plainDescription(await shorten(standard.answer.text, descriptionChars, 'picture'));
 
@@ -869,7 +924,10 @@ function buildDescriber({
     fetchAudio: (url, options) => (videoFetcher as Pick<AudioDeps, 'fetchAudio'>).fetchAudio(url, options),
     fetchText,
     summarize: (text, maxChars) => shorten(text, maxChars, 'text'),
-    complete: (messages, options) => (llm as Pick<AudioDeps, 'complete'>).complete(messages, options),
+    ask: (kind, messages, options) =>
+      askWhole(kind, () =>
+        (llm as { complete: (m: unknown, o: unknown) => Promise<Answered> }).complete(messages, options)
+      ),
     requestOptions: (settings, seconds, model) =>
       videoRequestOptions(
         settings,
@@ -954,27 +1012,21 @@ function buildDescriber({
         ],
         options
       ) as Promise<Answered>;
-    let completion: Answered;
+    let asked: Awaited<ReturnType<typeof askText>>;
     try {
-      completion = await ask();
+      asked = await askText('gif', ask);
     } catch (err) {
       const reason = railReason(err, 'llm');
       if (reason === 'daily-cap') return report({ state: 'unavailable', reason }, sizes);
       return report({ state: 'failed', reason }, { ...sizes, status: propOf(err, 'statusCode') });
     }
+    if ('failed' in asked) return report({ state: 'failed', reason: asked.failed }, sizes);
 
-    const firstText = oneLine(completion.text);
-    if (!firstText) return report({ state: 'failed', reason: 'empty' }, sizes);
-    let estimated = completion.estimated ?? 0;
+    let estimated = asked.answer.estimated ?? 0;
     const standard = await toStandard(
-      { text: firstText, usage: completion.usage },
+      { text: asked.text, usage: asked.answer.usage },
       (answer) => answer.text,
-      async () => {
-        const again = await ask();
-        estimated += again.estimated ?? 0;
-        const answer = oneLine(again.text);
-        return answer ? { text: answer, usage: again.usage } : null;
-      }
+      () => askAgain('gif', ask, (spent) => (estimated += spent))
     );
     const text = plainDescription(await shorten(standard.answer.text, descriptionChars, 'GIF'));
     const ts = now();
@@ -1371,8 +1423,10 @@ function buildDescriber({
         report({ state: 'error' }, { ...extra, reason });
         return keepPrevious();
       }
-      putVideoEntry(placeId, key, { miss: true, ts: now(), reason: 'error' });
-      return report({ state: 'error' }, { ...extra, reason });
+      // A cut answer keeps its reason (`filter`, `cut`) on the miss and the result; any other failure is an `error`.
+      const cut = CUT_REASONS.has(reason);
+      putVideoEntry(placeId, key, { miss: true, ts: now(), reason: cut ? reason : 'error' });
+      return report(cut ? { state: 'error', reason } : { state: 'error' }, { ...extra, reason });
     };
 
     // The request would be refused: no fetch, no slot, no miss.
@@ -1418,9 +1472,9 @@ function buildDescriber({
         ],
         options
       ) as Promise<Answered>;
-    let completion: Answered;
+    let asked: Awaited<ReturnType<typeof askText>>;
     try {
-      completion = await ask();
+      asked = await askText('video', ask);
     } catch (err) {
       const reason = requestFailureReason(err);
       if (reason === 'daily-cap') {
@@ -1434,19 +1488,13 @@ function buildDescriber({
       };
     }
 
-    const firstSummary = oneLine(completion.text);
-    if (!firstSummary) return { result: errorMiss('empty', sizes), sent: true, attempted: true };
+    if ('failed' in asked) return { result: errorMiss(asked.failed, sizes), sent: true, attempted: true };
 
-    let estimated = completion.estimated ?? 0;
+    let estimated = asked.answer.estimated ?? 0;
     const standard = await toStandard(
-      { text: firstSummary, usage: completion.usage },
+      { text: asked.text, usage: asked.answer.usage },
       (answer) => answer.text,
-      async () => {
-        const again = await ask();
-        estimated += again.estimated ?? 0;
-        const summary = oneLine(again.text);
-        return summary ? { text: summary, usage: again.usage } : null;
-      }
+      () => askAgain('video', ask, (spent) => (estimated += spent))
     );
     const text = plainDescription(await shorten(standard.answer.text, summaryChars, 'video'));
     const ts = now();
@@ -1581,6 +1629,38 @@ function buildDescriber({
   }
 
   /**
+   * The end of a second look: the answer of `ask`, a request of `kind`, made plain, shortened at `answerChars` and cached for an hour under `key`, or
+   * `{ question, failed }` for an answer the provider cut short twice, or null for a failed request or an empty answer.
+   * `report` gets the outcome with `extra` and the reason.
+   */
+  async function answerLook(
+    placeId: string,
+    key: string,
+    asked: string,
+    answerChars: number,
+    report: (outcome: string, extra?: Record<string, Untyped>) => void,
+    extra: Record<string, Untyped>,
+    kind: string,
+    ask: () => Promise<Answered>
+  ): Looked {
+    let got: Awaited<ReturnType<typeof askText>>;
+    try {
+      got = await askText(kind, ask);
+    } catch (err) {
+      report('error', { ...extra, reason: requestFailureReason(err) });
+      return null;
+    }
+    if ('failed' in got) {
+      report('error', { ...extra, reason: got.failed });
+      return got.failed === 'empty' ? null : { question: asked, failed: got.failed };
+    }
+    const text = plainDescription(await shorten(got.text, answerChars, 'text'));
+    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
+    report('answered', extra);
+    return { question: asked, text };
+  }
+
+  /**
    * The second look on a question: fetch `item` again exactly like a watch
    * (fetchVideoMedia -- same probe chain, direct-URL rules, caps and pinned
    * provider) and ask the video model `question`: the `rewatch-answer`
@@ -1636,35 +1716,33 @@ function buildDescriber({
       return null;
     }
 
-    let completion;
-    try {
-      completion = await llm.complete(
-        [
-          {
-            role: 'system',
-            content: videoSystemPrompt(
-              fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }),
-              media
-            ),
-          },
-          { role: 'user', content: [{ type: 'text', text: asked }, videoPart(videoCfg, media)] },
-        ],
-        videoRequestOptions(videoCfg, media, { maxOutputTokens: rewatchCfg.maxOutputTokens, purpose: 'rewatch', model })
-      );
-    } catch (err) {
-      report('error', { reason: requestFailureReason(err), seconds: media.seconds ?? null });
-      return null;
-    }
-
-    const answer = oneLine(completion.text);
-    if (!answer) {
-      report('error', { reason: 'empty', seconds: media.seconds ?? null });
-      return null;
-    }
-    const text = plainDescription(await shorten(answer, answerChars, 'text'));
-    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
-    report('answered', { seconds: media.seconds ?? null });
-    return { question: asked, text };
+    return answerLook(
+      placeId,
+      key,
+      asked,
+      answerChars,
+      report,
+      { seconds: media.seconds ?? null },
+      'video',
+      () =>
+        llm.complete(
+          [
+            {
+              role: 'system',
+              content: videoSystemPrompt(
+                fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }),
+                media
+              ),
+            },
+            { role: 'user', content: [{ type: 'text', text: asked }, videoPart(videoCfg, media)] },
+          ],
+          videoRequestOptions(videoCfg, media, {
+            maxOutputTokens: rewatchCfg.maxOutputTokens,
+            purpose: 'rewatch',
+            model,
+          })
+        ) as Promise<Answered>
+    );
   }
 
   /**
@@ -1727,58 +1805,59 @@ function buildDescriber({
       return null;
     }
 
-    let completion;
-    try {
-      completion = await llm.complete(
-        [
+    return answerLook(
+      placeId,
+      key,
+      asked,
+      answerChars,
+      report,
+      {},
+      'image',
+      () =>
+        llm.complete(
+          [
+            {
+              role: 'system',
+              content: fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }),
+            },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: asked },
+                { type: 'image_url', image_url: { url: downloaded.dataUrl } },
+              ],
+            },
+          ],
           {
-            role: 'system',
-            content: fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }),
-          },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: asked },
-              { type: 'image_url', image_url: { url: downloaded.dataUrl } },
-            ],
-          },
-        ],
-        {
-          model: model ?? roleModel(hot.config, 'vision', 'relook'),
-          ...roleRequestOptions(hot.config, {
-            role: 'vision',
-            maxOutputTokens: rewatchCfg.maxOutputTokens,
-            purpose: 'relook',
-          }),
-        }
-      );
-    } catch (err) {
-      report('error', { reason: requestFailureReason(err) });
-      return null;
-    }
-
-    const answer = oneLine(completion.text);
-    if (!answer) {
-      report('error', { reason: 'empty' });
-      return null;
-    }
-    const text = plainDescription(await shorten(answer, answerChars, 'text'));
-    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
-    report('answered');
-    return { question: asked, text };
+            model: model ?? roleModel(hot.config, 'vision', 'relook'),
+            ...roleRequestOptions(hot.config, {
+              role: 'vision',
+              maxOutputTokens: rewatchCfg.maxOutputTokens,
+              purpose: 'relook',
+            }),
+          }
+        ) as Promise<Answered>
+    );
   }
 
   /**
-   * The GIFs of `items` whose watch failed, from the cache alone (videoStateFromCache): `itemId` -> `{ state: 'error',
-   * reason }`, for formatTranscript's `videos` option. Never a download or a request.
-   * @param items  collectPictures items; only `gif` ones count.
+   * The GIFs of `items` whose watch failed (videoStateFromCache) and the pictures whose answer the provider cut short
+   * twice (a miss with a reason), from the cache alone: `itemId` -> `{ state: 'error', reason }`, for formatTranscript's
+   * `videos` option. Never a download or a request.
+   * @param items  collectPictures items; `gif` and `image` ones count.
    */
-  function failedGifs(placeId: string, items: Array<MediaItem>): Map<string, { state: 'error'; reason: string }> {
+  function failedMedia(placeId: string, items: Array<MediaItem>): Map<string, { state: 'error'; reason: string }> {
     const failed = new Map<string, { state: 'error'; reason: string }>();
     for (const item of items ?? []) {
-      if (item?.kind !== 'gif' || !item.itemId) continue;
-      const cached = videoStateFromCache(readEntry(placeId, item.itemId), hot.config, item);
-      if (cached?.state === 'error') failed.set(item.itemId, cached);
+      if (!item?.itemId) continue;
+      if (item.kind === 'gif') {
+        const cached = videoStateFromCache(readEntry(placeId, item.itemId), hot.config, item);
+        if (cached?.state === 'error') failed.set(item.itemId, cached);
+      } else if (item.kind === 'image') {
+        const entry = readEntry(placeId, item.itemId);
+        if (entry?.miss && typeof entry.reason === 'string')
+          failed.set(item.itemId, { state: 'error', reason: entry.reason });
+      }
     }
     return failed;
   }
@@ -1871,32 +1950,30 @@ function buildDescriber({
     }
     const { clip } = fetched;
 
-    let completion;
-    try {
-      completion = await llm.complete(
-        [
-          {
-            role: 'system',
-            content: fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }),
-          },
-          { role: 'user', content: [videoPart(videoCfg, clip)] },
-        ],
-        videoRequestOptions(videoCfg, clip, { maxOutputTokens: rewatchCfg.maxOutputTokens, purpose: 'rewatch', model })
-      );
-    } catch (err) {
-      report('error', { reason: requestFailureReason(err), seconds: clip.seconds });
-      return null;
-    }
-
-    const answer = oneLine(completion.text);
-    if (!answer) {
-      report('error', { reason: 'empty', seconds: clip.seconds });
-      return null;
-    }
-    const text = plainDescription(await shorten(answer, answerChars, 'text'));
-    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() });
-    report('answered', { seconds: clip.seconds });
-    return { question: asked, text };
+    return answerLook(
+      placeId,
+      key,
+      asked,
+      answerChars,
+      report,
+      { seconds: clip.seconds },
+      'gif',
+      () =>
+        llm.complete(
+          [
+            {
+              role: 'system',
+              content: fillPromptTemplate(promptText, { question: asked, maxChars: answerChars, today: todayDate() }),
+            },
+            { role: 'user', content: [videoPart(videoCfg, clip)] },
+          ],
+          videoRequestOptions(videoCfg, clip, {
+            maxOutputTokens: rewatchCfg.maxOutputTokens,
+            purpose: 'rewatch',
+            model,
+          })
+        ) as Promise<Answered>
+    );
   }
 
   // Which link of the YouTube duration chain works on this host (src/memory/youtube-check.ts):
@@ -1916,7 +1993,7 @@ function buildDescriber({
     relookImage,
     rewatchGif,
     watchedGifs,
-    failedGifs,
+    failedMedia,
     gifWatchBlocker,
     checkYoutube,
   };

@@ -258,8 +258,8 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
   const pushTag = (tag: Untyped) => {
     const { key, values } = partFallback(tag, labels);
     const reasons = PART_KEYS.has(key) ? labels.transcript.videoPartReason : labels.transcript.videoReason;
-    // A GIF's failure reads a video's wording where one exists, else its own code (`llm`, `empty`, `download`).
-    const unworded = key === 'gifNotWatched' ? values?.reason : '';
+    // A GIF's or a picture's failure reads a video's wording where one exists, else its own code (`llm`, `empty`, `download`).
+    const unworded = key === 'gifNotWatched' || key === 'imageNotSeen' ? values?.reason : '';
     const filled =
       values && Object.hasOwn(values as object, 'reason')
         ? { ...values, reason: reasons?.[values.reason] ?? unworded }
