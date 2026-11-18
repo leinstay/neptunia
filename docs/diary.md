@@ -36,6 +36,14 @@ An entry also keeps `turnId` in its `extra`, the id of the diary turn that wrote
 
 `<diary>` shows a past picture post by its scene, on one line and whole. `sceneOf` takes the scene from the stored `plan.brief`, else from the entry's drawing prompt. A picture she drew follows its scene with the marks of the entry's first picture, read from its `media` row with each person's handle (`readDiary` in `src/memory/db/diary-past.ts`).
 
+## Scene helper
+
+The scene helper in `src/behavior/diary-scene.ts` builds a scene for one entry, a place at one moment with its circumstances and atmosphere and nothing the persona does or feels. It runs only under `scripts/diary-scenes.ts`, which prints its scenes to calibrate the wording of `prompts/diary-scene.md`, and no turn calls it.
+
+It serves the kinds `status`, `selfPicture`, `picture`, `photoset` and `randomSet` and refuses any other. `drawSceneSets` draws eight seed sets with `pickSeeds` from the families of `prompts/diary-seeds.md` and leaves out the lines the newest 150 entries built on, as the planner's draw does. `buildScene` sends one request on the `analyzer` role with the purpose `diary-scene`, which `models.byPurpose` pins as it pins `diary-planner`. Its system message is the prompt file alone, and its user message holds the kind, the sets and the moment, as the [prompt contract](prompt-contract.md) describes. The result names the sets offered and either the set chosen, the lines kept and the scene, or the reason the answer failed. A failed request is `request-failed` and a blank prompt `no-prompt`.
+
+`scripts/diary-scenes.ts` reads the configuration, the keys and the stored entries of the data folder `NEPTUNIA_DATA_DIR` and writes nothing there. Its requests carry the origin `replay` and count against no daily cap. `--kinds` picks kinds among the five, `--count` the runs per kind (default `3`), `--seed` the random source, `--prompts` a directory laid over the prompts as `scripts/replay.ts --prompts` lays it, and `--out` a Markdown report.
+
 ## Mirrors
 
 The diary is one persona collection (`store.getDiary`, `store.setDiaryPosts`), and an entry needs no server: `createDiary` takes none, and a turn of an entry names none. A mirror is one known place that receives her diary entries, and there may be none or many. The owner manages them with `/mirror` ([commands](cli.md#mirrors)), and `src/behavior/mirror-desk.ts` writes every change through the memory writer (kind `mirror`, `src/memory/db/mirror-config.ts`). Every destination is an interface-qualified place id, or a bare native id that one place alone holds. Two interfaces sharing the native id make it `ambiguous-place`, and a root or a private chat is `unknown-place`. An interface that is not connected delays delivery and changes no configuration.
