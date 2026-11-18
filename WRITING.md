@@ -13,7 +13,7 @@ How prose is written in this repository: documentation, prompts, commit messages
 
 - One thought per sentence. Break a sentence when the reader has to hold more than one open clause; keep a long one when its parts belong together. Vary the length; a text of equal sentences reads like a machine.
 - Active voice when the actor matters. "The door drops a duplicate event", not "duplicate events are dropped". Passive is fine when the actor is unknown or irrelevant.
-- Positive form. "The variance was small", not "the variance was not large". "The persona waits for the errand", not "it does not act before the errand ends".
+- Positive form. "The variance was small", not "the variance was not large". "The persona waits for the errand", not "they do not act before the errand ends".
 - Concrete words where a concrete word exists. "The turn runner", not "the relevant component"; "the 2,000-character limit", not "platform constraints".
 - No needless words. "It is important to note that", "in order to", "the fact that", "serves to", "as a means of" go.
 - Coordinate ideas in the same form: "the pipeline cleans the data, extracts the features and trains the model", not "cleaning, feature extraction, and then it trains".
@@ -146,7 +146,7 @@ Applies to `prompts/` and `config/labels.json`.
 - A model mirrors the tone of its prompt. Write in a living voice, concrete and specific, as to a colleague who has to act on it; no officialese.
 - Every sentence carries an instruction or a fact the model needs. A sentence that only sets a mood goes.
 - A behaviour rule describes the behaviour and gives no sample line: the model repeats a sample until it becomes a tic.
-- Each fact has one home: the system prompt holds the craft, the character card who the persona is and how it talks, a task file the situation, the format file the protocol, the rules file the owner's corrections, `labels.json` the wording of what code inserts.
+- Each fact has one home: the system prompt holds the craft, the character card who the persona is and how they talk, a task file the situation, the format file the protocol, the rules file the owner's corrections, `labels.json` the wording of what code inserts.
 - Tracked prompts are English and character-neutral; a character's own material lives in the local layer and keeps its language.
 
 ## Commit messages and pull requests

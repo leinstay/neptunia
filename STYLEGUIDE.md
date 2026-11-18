@@ -240,7 +240,7 @@ const MESSAGE_LIMIT = 2000;
 ```
 
 - Put JSDoc on an exported function only when its signature does not say enough. Everywhere else, use `//` lines.
-- In comments and logs, write "the persona" or "it", never a character's name, "she" or "her".
+- In comments and logs, write "the persona" or "they", never a character's name, "she", "he" or "it".
 - A comment never names or quotes a person. It says the reason.
 
 ## Tests
