@@ -421,10 +421,11 @@ const PROMPTS = {
 const HEARTBEAT_GRANTED = ['conversation.read', 'memory.search', 'intention.set'];
 const PURPOSE = 'ΠΡΟΘΕΣΗ-ΓΙΑ-ΤΟΝ-ΚΗΠΟ';
 
-async function heartbeatDataDir(): Promise<string> {
+async function heartbeatDataDir(seed: (db: ReturnType<typeof dbOf>) => void = () => {}): Promise<string> {
   const dataDir = tempDir('nep-replay-heartbeat-');
   const handle = openMemoryDb(path.join(dataDir, 'memory.db'));
   serviceWorld({ handle, db: dbOf(handle), close: () => handle.close() });
+  seed(dbOf(handle));
   dbOf(handle)
     .prepare('INSERT INTO accounts (id, iface, native_id, person_id, names, kind) VALUES (?, ?, ?, ?, ?, ?)')
     .run('fake:self-id', 'fake', 'self-id', 'person:self', '["Αθηνά"]', 'self');
@@ -537,6 +538,73 @@ test('a replayed heartbeat reads her lines, memory and intentions as the core tu
     reads.map((action) => `${String(action.status)}:${String(action.result)}`),
     ['executed:ok', 'executed:ok'],
     JSON.stringify(reads)
+  );
+});
+
+test('a replayed heartbeat searches memory when a line it quotes holds a custom emoji', async () => {
+  // Bug: the replay's recall had no reader of emoji names, so the legend of a quoted line threw and the search failed.
+  const dataDir = await heartbeatDataDir((db) => {
+    db.prepare("UPDATE sources SET text = text || ' :e7:' WHERE text = ?").run('ΕΛΕΝΗ-ΣΤΟΝ-ΚΗΠΟ');
+  });
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => TURN_NOW });
+  let asked = 0;
+  const llm = {
+    complete: () => {
+      asked += 1;
+      if (asked > 1) return Promise.resolve(completionOf('<skip/>'));
+      return Promise.resolve(
+        toolAnswer('', [toolCall('memory.search', { question: 'ΕΛΕΝΗ-ΣΤΟΝ-ΚΗΠΟ', terms: 'ΕΛΕΝΗ-ΣΤΟΝ-ΚΗΠΟ' })])
+      );
+    },
+  };
+  const hot = {
+    config: {
+      bot: {
+        timezone: 'UTC',
+        access: Object.fromEntries(
+          HEARTBEAT_GRANTED.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])
+        ),
+      },
+      context: SERVICE_CONTEXT,
+      llm: { maxRequestTokens: 60000 },
+      tools: { transport: 'native', resultMaxChars: 2000, callTimeoutMs: 120000 },
+      wakes: { mode: 'shadow', loop: { maxSteps: 3 } },
+      intentions: { expiresDays: 14, maxOpen: 20 },
+    },
+    // The search runs only with its summary prompt present.
+    prompts: { ...PROMPTS, 'recall-summary': 'Say what the lines answer.' },
+  };
+  const { wired } = innerTurnRunner({
+    root: process.cwd(),
+    dataDir,
+    hot,
+    port,
+    llm,
+    embed: (texts: Array<string>) => Promise.resolve(texts.map(() => null)),
+    rng: () => 0.5,
+    now: () => TURN_NOW,
+    turnId: 't-inner-search',
+  });
+  let result: Untyped;
+  try {
+    result = await wired.under(() =>
+      wired.runner.runTurn({
+        chat: null,
+        mode: 'inner',
+        triggerKind: 'inner',
+        inner: { wake: serviceWake('heartbeat'), currentChannel: null, shadow: true, mayAct: () => false },
+      })
+    );
+  } finally {
+    wired.close();
+  }
+  const searches = ((result as Rec).inner as { actions: Array<Rec> }).actions.filter(
+    (action) => action.skill === 'memory.search'
+  );
+  assert.deepEqual(
+    searches.map((action) => `${String(action.status)}:${String(action.result)}`),
+    ['executed:ok'],
+    JSON.stringify(searches)
   );
 });
 
