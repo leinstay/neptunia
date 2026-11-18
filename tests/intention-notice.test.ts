@@ -98,6 +98,23 @@ test('a heartbeat intention near an earlier post of hers is not saved and she re
   assert.ok(second?.includes(OLD_POST), 'the second request shows the post');
 });
 
+test('the notice names the place of a post by the handle <places> lists, with none of its description', async () => {
+  // Bug: the notice writes the place's full reference, its kind, name, server and interface, which <places> holds.
+  const run = await heartbeat([
+    toolAnswer(THINK, [call('intention.set', { due: '1h', text: `${CONCERT} ξανά` })]),
+    '<skip/>',
+  ]);
+  const second = run.requests[1] ?? '';
+  const line = second.split('\n').find((one) => one.includes(OLD_POST)) ?? '';
+  const handle = /#[\p{L}\p{N}_]+/u.exec(line)?.[0] ?? 'none';
+  const places = /<places>\n([\s\S]*?)\n<\/places>/.exec(second)?.[1] ?? '';
+  assert.ok(
+    places.split('\n').some((entry) => entry.startsWith(`- ${handle}`) || entry.includes(`${handle}:`)),
+    `${handle} in <places>`
+  );
+  for (const part of ['κήπος', 'Αγορά', 'fake']) assert.ok(!line.includes(part), line);
+});
+
 test('the call that confirms a notice saves the held intention and reads no second notice', async () => {
   // Bug: the confirming call is checked again and noticed again, or it saves an intention with no purpose.
   const run = await heartbeat([

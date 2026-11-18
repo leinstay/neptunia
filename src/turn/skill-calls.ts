@@ -450,7 +450,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       id,
       labels: hot.prompts?.labels,
       timezone: (hot.config as { bot?: { timezone?: string } }).bot?.timezone ?? 'UTC',
-      placeName: (placeId) => draft.requestRefs?.placeRef(placeId) ?? placeId,
+      // A place by the handle its entry of `<places>` opens with; one with no handle by its full reference.
+      placeName: (placeId) =>
+        draft.requestRefs?.placeHandle(placeId) ?? draft.requestRefs?.placeRef(placeId) ?? placeId,
       // A person the request holds a handle for is named by it; one it does not is counted and not named.
       personName: (key) => {
         const refs = draft.requestRefs;
@@ -499,9 +501,12 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     return kept;
   }
 
-  /** Whether a resolved call acts in the turn's own place when it names none, and named none. */
+  /**
+   * Whether a resolved call acts in the turn's own place when it names none, and named none. A `person` names a place
+   * too: conversation.read reads that person's direct chat (src/turn/in-turn-tools.ts#readPerson).
+   */
   const placeUnnamed = (resolved: Resolved): boolean =>
-    hasTrait(resolved.skill, 'here') && resolved.args.place === undefined;
+    hasTrait(resolved.skill, 'here') && resolved.args.place === undefined && resolved.args.person === undefined;
 
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers from that channel last
   // answered `ok` (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
