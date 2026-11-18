@@ -126,14 +126,10 @@ test('model set on a claude harness route with a level runs the check at that le
       { ...route, effort: harnessEffort(route.effort, route.backend) }
     );
   const { keys, held } = rig({ core: [api('helpers', 'x/core')] }, healthy, {}, real);
-  const answer = await keys.run(
-    'model.set',
-    { role: 'humanizer.writer', model: 'harness:claude/claude-opus-5-5:low' },
-    null
-  );
+  const answer = await keys.run('model.set', { role: 'editor', model: 'harness:claude/claude-opus-5-5:low' }, null);
   assert.equal(answer.status, 'ok', answer.text);
   assert.deepEqual(levels, ['low']);
-  assert.deepEqual(held['humanizer.writer'], [{ ...harness('claude-opus-5-5'), effort: 'low' }]);
+  assert.deepEqual(held['editor'], [{ ...harness('claude-opus-5-5'), effort: 'low' }]);
 });
 
 test('a harness route on a role that runs no CLI chat step and an unknown key are refused before anything is sent', async () => {
@@ -145,6 +141,22 @@ test('a harness route on a role that runs no CLI chat step and an unknown key ar
   assert.equal(unknown.code, 'key-unknown');
   assert.equal(calls.length + harnessChecks.length, 0);
   assert.deepEqual(held.analyzer, [api('helpers', 'x/analyzer')]);
+});
+
+test('model set, model add, model remove and keys check refuse a retired humanizer role as an unknown role', async () => {
+  // Catches: a deployment that types the role names `humanizer.linter` or `humanizer.writer` gets a chain written under
+  // a key nothing reads, or a check of a role that has no requests.
+  const { keys, calls, harnessChecks } = rig();
+  for (const role of ['humanizer.linter', 'humanizer.writer']) {
+    for (const name of ['model.set', 'model.add']) {
+      const answer = await keys.run(name, { role, model: 'helpers/x/model' }, null);
+      assert.equal(answer.status, 'invalid', `${name} ${role}`);
+      assert.match(answer.text, /the roles are core, .*linter, editor$/);
+    }
+    const removed = await keys.run('model.remove', { role, n: 1 }, null);
+    assert.equal(removed.status, 'invalid', `model.remove ${role}`);
+  }
+  assert.equal(calls.length + harnessChecks.length, 0);
 });
 
 test('model add checks the route and appends it as the fallback, and a route already in the chain is refused', async () => {
@@ -265,8 +277,8 @@ test('model set refuses a route marked byok whose check the provider bills on it
 test('keys check of a humanizer role checks its route in force with the routing of its role', async () => {
   // Catches: a role of the chains that keys check takes for a key name, or checks without its own routing.
   const llm = { providerByModel: { 'vendor/': { only: [DEAD] } } };
-  const { keys, calls } = rig({ 'humanizer.linter': [api('helpers', 'vendor/model-1')] }, pinnedRefusal, llm);
-  const answer = await keys.run('keys.check', { target: 'humanizer.linter' }, null);
+  const { keys, calls } = rig({ 'linter': [api('helpers', 'vendor/model-1')] }, pinnedRefusal, llm);
+  const answer = await keys.run('keys.check', { target: 'linter' }, null);
   assert.equal(answer.status, 'failed', answer.text);
   assert.equal(calls.length, 1);
   const [check] = calls;

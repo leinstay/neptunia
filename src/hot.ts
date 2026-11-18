@@ -37,9 +37,9 @@ const JSON_LAYERS: ReadonlyArray<{
   },
 ]);
 
-/** The value at the dotted `key` of `config`, undefined once a step is missing. */
-const valueAtKey = (config: Untyped, key: string): unknown =>
-  key.split('.').reduce((node: Untyped, step) => node?.[step], config);
+/** The value at the steps of `path` in `config`, undefined once a step is missing. */
+const valueAtPath = (config: Untyped, path: ReadonlyArray<string>): unknown =>
+  path.reduce((node: Untyped, step) => node?.[step], config);
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
@@ -59,6 +59,9 @@ const valueAtKey = (config: Untyped, key: string): unknown =>
  * board's own operations and reaper, so nothing reads them. The diary's settings are `diary.*`, and a
  * `selfreflection` key is not read (an ignored `selfreflection.enabled` leaves the diary on by its default).
  * `context.myDay.people` named the people of the counts of what she made, which no request holds.
+ * `models.routes.humanizer.linter` and `models.routes.humanizer.writer` are chains under role names the routing does
+ * not know: the humanizer's linter runs on the role `linter` and its writer on the role `editor`. Their role
+ * segment holds a dot, so each entry gives its path.
  */
 const RETIRED_CONFIG_KEYS = Object.freeze(
   [
@@ -90,7 +93,21 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'diary.openingsShown', use: null },
     { key: 'diary.openingWords', use: null },
     { key: 'context.myDay.people', use: null },
-  ].map(({ key, use }) => ({ key, use, read: (config: Untyped) => valueAtKey(config, key) }))
+    {
+      key: 'models.routes.humanizer.linter',
+      use: 'models.routes.linter',
+      path: ['models', 'routes', 'humanizer.linter'],
+    },
+    {
+      key: 'models.routes.humanizer.writer',
+      use: 'models.routes.editor',
+      path: ['models', 'routes', 'humanizer.writer'],
+    },
+  ].map(({ key, use, path }: { key: string; use: string | null; path?: Array<string> }) => ({
+    key,
+    use,
+    read: (config: Untyped) => valueAtPath(config, path ?? key.split('.')),
+  }))
 );
 
 /**
@@ -108,7 +125,7 @@ function retiredKeysOf(
   const perAgent = agents.flatMap((agent) =>
     RETIRED_AGENT_KEYS.map((name) => {
       const key = `agents.${agent}.${name}`;
-      return { key, use: null, read: (given: Untyped) => valueAtKey(given, key) };
+      return { key, use: null, read: (given: Untyped) => valueAtPath(given, key.split('.')) };
     })
   );
   return [...RETIRED_CONFIG_KEYS, ...perAgent];

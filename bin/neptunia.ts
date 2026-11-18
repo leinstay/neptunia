@@ -104,6 +104,7 @@ import type { SetupDeps, SetupOptions, SetupReport } from '../src/setup/run.ts';
 import { accountRequest } from '../src/interface/commands/subharness.ts';
 import { ROOT_DIR, deepMerge, readConfig, resolveEnvRefs } from '../src/config.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
+import { unknownRoleKeys } from '../src/llm/openrouter.ts';
 import {
   localConfigPath,
   localFiles,
@@ -1014,8 +1015,8 @@ function checkBinaries(): Check {
 }
 
 /**
- * The private settings file against the schema (src/config/check.ts): `warn` naming each unknown key and each key of
- * the wrong type; `fail` when a file is not JSON or the tracked file is missing.
+ * The private settings file against the schema (src/config/check.ts): `warn` naming each unknown key, each key of
+ * the wrong type and each chain or provider route of a model role that does not exist; `fail` when a file is not JSON or the tracked file is missing.
  */
 function checkConfig(where: { rootDir: string; privateDir: string }): Check {
   let base: Settings | null;
@@ -1036,9 +1037,12 @@ function checkConfig(where: { rootDir: string; privateDir: string }): Check {
       detail: 'no config/config.json in the local layer: the shipped settings apply',
     };
   const file = path.relative(where.privateDir, found.config);
-  const problems = checkSettings(local, CONFIG_SCHEMA).map(({ key, kind }) =>
-    kind === 'unknown' ? `${key} (unknown)` : `${key} (wrong type)`
-  );
+  const problems = [
+    ...checkSettings(local, CONFIG_SCHEMA).map(({ key, kind }) =>
+      kind === 'unknown' ? `${key} (unknown)` : `${key} (wrong type)`
+    ),
+    ...unknownRoleKeys(local).map((key) => `${key} (unknown)`),
+  ];
   if (problems.length > 0) return { name: 'config', status: 'warn', detail: `${file}: ${problems.join(', ')}` };
   return { name: 'config', status: 'ok', detail: `the shipped config/config.json and the local ${file} read` };
 }
