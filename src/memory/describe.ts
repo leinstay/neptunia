@@ -261,7 +261,10 @@ function mediaRoleOf(item: MediaItem): string {
 /** A voice message or an audio file: the `video` role hears it. */
 const isAudioItem = (item: MediaItem): boolean => item.kind === 'voice' || item.kind === 'audio';
 
-/** A cached failure of a GIF or a video whose cause a later try cannot change: the file itself is refused. */
+/** The kinds a still picture has; their misses are tried again whatever the reason. */
+const STILL_PICTURE_KINDS: ReadonlySet<string> = new Set(['image', 'sticker', 'emoji']);
+
+/** A cached failure whose cause a later try cannot change: the file itself is refused. */
 const isRefused = (miss: unknown): boolean => PERMANENT_VIDEO_MISSES.has((miss as { reason?: string }).reason ?? '');
 
 /** A model name as the request's options take it. */
@@ -670,8 +673,9 @@ function buildDescriber({
     if (!cached) return null;
     if (cached.miss) {
       const gif = watchedAsGif(item);
-      // A GIF whose file is refused stays a miss; a picture's miss of any reason is tried again after MISS_TTL_MS.
-      if (gif && isRefused(cached)) return FRESH_MISS;
+      // A refused file stays a miss; a still picture's miss of any reason is tried again after MISS_TTL_MS.
+      const still = !gif && STILL_PICTURE_KINDS.has(item.kind);
+      if (!still && isRefused(cached)) return FRESH_MISS;
       // A failed GIF watch waits as long as a failed video watch.
       const ttl = gif ? videoErrorTtlMs() : MISS_TTL_MS;
       return !retryMisses && now() - cached.ts < ttl ? FRESH_MISS : null;
