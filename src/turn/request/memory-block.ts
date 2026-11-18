@@ -172,11 +172,12 @@ function accountLine(w: Words, iface: string, id: string, names: ReadonlyArray<s
   });
 }
 
-/** The lines of every account of a person, one each. */
+/** The lines of every account of a person, one each, each followed by the avatar stored on that account. */
 function accountLines(w: Words, person: PersonEntry): Array<string> {
-  return person.profileAccounts.map((one) =>
-    accountLine(w, one.iface, one.platformId, one.names ?? [one.displayName ?? ''])
-  );
+  return person.profileAccounts.flatMap((one) => [
+    accountLine(w, one.iface, one.platformId, one.names ?? [one.displayName ?? '']),
+    avatarLine(w, one.avatar),
+  ]);
 }
 
 /** Two ids in code point order, the same on every machine and in every locale. */
@@ -235,17 +236,9 @@ function attitudeLines(w: Words, attitude: PersonEntry['attitude']): Array<strin
   return [head, moves.length > 0 ? fill(w.l.attitudeMoves ?? '', { moves: moves.join('; ') }) : ''];
 }
 
-/** The avatar of the account on the frame's interface, else of the first account with a readable one. */
-function avatarOf(w: Words, person: PersonEntry): ReturnType<typeof storedAvatarOf> {
-  const read = (account: PersonEntry['profileAccounts'][number]): ReturnType<typeof storedAvatarOf> =>
-    storedAvatarOf(account.avatar);
-  const here = person.profileAccounts.filter((one) => one.iface === w.frame.interface).map(read);
-  return [...here, ...person.profileAccounts.map(read)].find((one) => one !== null) ?? null;
-}
-
-/** The avatar line of an entry: the description, the platform's default one, or none. */
-function avatarLine(w: Words, person: PersonEntry): string {
-  const avatar = avatarOf(w, person);
+/** The avatar line of one account's stored avatar: the description, the platform's default one, or none. */
+function avatarLine(w: Words, stored: string | null): string {
+  const avatar = storedAvatarOf(stored);
   if (avatar === null) return '';
   if ('default' in avatar) return w.l.avatarDefault ?? '';
   return valueLine(w, w.l.avatar, avatar.text);
@@ -259,15 +252,18 @@ function usualNameLine(w: Words, person: PersonEntry): string {
   return valueLine(w, w.l.usualName, shown);
 }
 
-/** The lines a whole entry holds beyond the descriptions: interests, avatar, usual name and messages seen. */
-function seenLines(w: Words, person: PersonEntry): Array<string> {
+/** The interests of a person as `memory.interests`, '' with none. */
+function interestsLine(w: Words, person: PersonEntry): string {
   const interests = person.interests.map((one) => storedText(w, one.trim())).filter(Boolean);
+  return interests.length > 0 && typeof w.l.interests === 'string'
+    ? fill(w.l.interests, { value: interests.join('; ') })
+    : '';
+}
+
+/** The lines a whole entry holds beyond the descriptions: usual name and messages seen. */
+function seenLines(w: Words, person: PersonEntry): Array<string> {
   const count = ownLinesShown(person.messagesSeen ?? 0);
   return [
-    interests.length > 0 && typeof w.l.interests === 'string'
-      ? fill(w.l.interests, { value: interests.join('; ') })
-      : '',
-    avatarLine(w, person),
     usualNameLine(w, person),
     count > 0 && typeof w.l.messagesSeen === 'string' ? fill(w.l.messagesSeen, { count }) : '',
   ];
@@ -284,12 +280,13 @@ function personText(w: Words, person: PersonEntry, counterpart: boolean, live: s
   const origin = counterpart ? (w.l.counterpart ?? '') : (w.origin[person.evidence] ?? '');
   const lines = [heading(w, personName(w, person), origin, person.candidate)];
   const detail = counterpart && person.detail === 'name' ? 'compact' : person.detail;
-  // The person she answers and a person the reader keeps carry her attitude at every detail, another at full detail.
-  if (counterpart || person.keep === true || person.detail === 'whole')
-    lines.push(...attitudeLines(w, person.attitude));
-  if (detail === 'whole') lines.push(valueLine(w, w.l.realName, person.realName));
-  if (detail !== 'name') lines.push(aliasLine(w, person));
+  // The least form of every entry: her attitude, the real name, the aliases, the accounts with their avatars and the
+  // interests, short facts that tell one person from another, so the budget cuts only what follows them.
+  lines.push(...attitudeLines(w, person.attitude));
+  lines.push(valueLine(w, w.l.realName, person.realName));
+  lines.push(aliasLine(w, person));
   lines.push(...accountLines(w, person));
+  lines.push(interestsLine(w, person));
   if (detail !== 'name') lines.push(valueLine(w, w.l.relation, person.relation));
   if (detail !== 'name') lines.push(lastWroteLine(w, person));
   if (detail === 'whole') {
@@ -816,7 +813,7 @@ const NO_MIRROR_MARKS: MirrorMarks = { diaryIds: new Set(), chatIdOf: () => null
  * A `<memory>` of what memory.read found for one subject: every entry of `mind` as memoryItemsOf renders it, none marked
  * as the one she answers, each with the read's own origin (`memory.origin.read`) in its heading, and the place of a
  * mirror of her diary (`mirrors`) marked as `<places>` marks it. With `changes` the people of `mind` render as
- * their heading alone followed by those changes, newest first. '' with nothing.
+ * their entry at the detail `name` followed by those changes, newest first. '' with nothing.
  */
 export function subjectMemoryOf(
   mind: Mind,
