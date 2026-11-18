@@ -1663,10 +1663,10 @@
   },
   "src/tools/operations/route.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 5
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 5
@@ -1702,16 +1702,16 @@
   },
   "src/tools/operations/shared.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 17
+      "count": 15
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 15
+      "count": 14
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 7
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 98
+      "count": 91
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1

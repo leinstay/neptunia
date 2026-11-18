@@ -24,6 +24,7 @@ import path from 'node:path';
 import { buildTools } from '../src/tools/tools-json.ts';
 import { buildSkills } from '../src/tools/registry.ts';
 import { ROOT } from './fixtures/source-tree.ts';
+import { ROUTE_ROLES } from '../src/llm/route-text.ts';
 import { POSTING_SKILLS } from '../src/behavior/inner/settings.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
@@ -417,4 +418,12 @@ test('validateDefinitions refuses an unknown trait and a repeated one', () => {
   assert.throws(() => validateDefinitions(withTraits(['postss'])), /unknown trait postss/);
   assert.throws(() => validateDefinitions(withTraits(['posts', 'posts'])), /trait posts twice/);
   assert.throws(() => validateDefinitions([{ ...first, traits: null }]), /traits must be a list/);
+});
+
+test('route.set and route.remove offer every role the routing knows, in its order', () => {
+  // Catches: the schema keeps a list of its own, so a role the routing reads, such as humanizer.linter, cannot be named.
+  for (const name of ['route.set', 'route.remove']) {
+    const properties = BY_NAME.get(name)?.params.properties ?? {};
+    assert.deepEqual(properties.role?.enum, [...ROUTE_ROLES], name);
+  }
 });
