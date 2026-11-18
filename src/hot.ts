@@ -1,6 +1,6 @@
 // Hot configuration and prompt layers combine engine defaults with data/config and data/prompts. Settings and
-// labels merge recursively; nonempty personal prompts replace complete shared files. Preambles live under
-// data/prompts/preambles/. Reloads retain the previous good value after a partial write. Watchers follow both roots.
+// labels merge recursively; a prompt is a `.md` file at any depth, keyed by its relative path, and a nonempty personal
+// file replaces the shared file of the same path. Reloads retain the previous good value after a partial write. Watchers follow both roots.
 // Legacy personal layouts refuse startup with offline migration guidance. Hashes describe the live layers.
 
 import fs from 'node:fs';
@@ -18,8 +18,6 @@ type Untyped = ReturnType<typeof JSON.parse>;
 
 const DEBOUNCE_MS = 250;
 const LOCAL_PROMPTS_DIRNAME = 'prompts';
-/** The subfolder of data/prompts/ holding the errand agents' preambles, loaded as `hot.prompts.preambles`. */
-const PREAMBLES_DIRNAME = 'preambles';
 /**
  * The JSON files of the prompt layers, by name, each with how it is computed from the checkout and the private
  * directory: the labels by `computeLabels`, the tool texts by `computeJsonLayer` over `config/tools.json` and
@@ -37,16 +35,16 @@ const JSON_LAYERS: ReadonlyArray<{
   },
 ]);
 
-/** The value at the dotted `key` of `config`, undefined once a step is missing. */
-const valueAtKey = (config: Untyped, key: string): unknown =>
-  key.split('.').reduce((node: Untyped, step) => node?.[step], config);
+/** The value at the steps of `path` in `config`, undefined once a step is missing. */
+const valueAtPath = (config: Untyped, path: ReadonlyArray<string>): unknown =>
+  path.reduce((node: Untyped, step) => node?.[step], config);
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
  * instead: `memory.voiceModel` (the memory wording runs on the core's chain, `models.routes.core`); the settings
  * that routed the model roles before their chains, `models.base`, `models.harness`, `llm.boundKeys`,
  * `llm.subscription.fallback`, `llm.reasoningByRole` and `web.quickSearch.model` (every role runs on its chain in
- * `models.routes`, its default effort in `llm.routeEffort`);
+ * `models.routes`, its default effort in `llm.routeEffort`, and quick search on the analyzer's);
  * `features.vision` and `features.attachedDescriptions` (pictures never go into the persona's own
  * request: she sees through the describer's captions and her second look, both on the `vision` model
  * role); `wakes.loop.strayFollowUps`
@@ -59,6 +57,11 @@ const valueAtKey = (config: Untyped, key: string): unknown =>
  * board's own operations and reaper, so nothing reads them. The diary's settings are `diary.*`, and a
  * `selfreflection` key is not read (an ignored `selfreflection.enabled` leaves the diary on by its default).
  * `context.myDay.people` named the people of the counts of what she made, which no request holds.
+ * `models.routes.humanizer.linter` and `models.routes.humanizer.writer` are chains under role names the routing does
+ * not know: the humanizer's linter runs on the role `linter` and its writer on the role `editor`. Their role
+ * segment holds a dot, so each entry gives its path.
+ * `models.routes.search` is a chain under a role the routing does not have: quick search condenses and searches on
+ * the analyzer.
  */
 const RETIRED_CONFIG_KEYS = Object.freeze(
   [
@@ -68,7 +71,8 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'llm.boundKeys', use: 'models.routes' },
     { key: 'llm.subscription.fallback', use: 'models.routes.core' },
     { key: 'llm.reasoningByRole', use: 'llm.routeEffort' },
-    { key: 'web.quickSearch.model', use: 'models.routes.search' },
+    { key: 'web.quickSearch.model', use: 'models.routes.analyzer' },
+    { key: 'models.routes.search', use: 'models.routes.analyzer' },
     { key: 'features.vision', use: null },
     { key: 'features.attachedDescriptions', use: null },
     { key: 'wakes.loop.strayFollowUps', use: 'wakes.loop.maxSteps' },
@@ -90,7 +94,21 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'diary.openingsShown', use: null },
     { key: 'diary.openingWords', use: null },
     { key: 'context.myDay.people', use: null },
-  ].map(({ key, use }) => ({ key, use, read: (config: Untyped) => valueAtKey(config, key) }))
+    {
+      key: 'models.routes.humanizer.linter',
+      use: 'models.routes.linter',
+      path: ['models', 'routes', 'humanizer.linter'],
+    },
+    {
+      key: 'models.routes.humanizer.writer',
+      use: 'models.routes.editor',
+      path: ['models', 'routes', 'humanizer.writer'],
+    },
+  ].map(({ key, use, path }: { key: string; use: string | null; path?: Array<string> }) => ({
+    key,
+    use,
+    read: (config: Untyped) => valueAtPath(config, path ?? key.split('.')),
+  }))
 );
 
 /**
@@ -108,7 +126,7 @@ function retiredKeysOf(
   const perAgent = agents.flatMap((agent) =>
     RETIRED_AGENT_KEYS.map((name) => {
       const key = `agents.${agent}.${name}`;
-      return { key, use: null, read: (given: Untyped) => valueAtKey(given, key) };
+      return { key, use: null, read: (given: Untyped) => valueAtPath(given, key.split('.')) };
     })
   );
   return [...RETIRED_CONFIG_KEYS, ...perAgent];
@@ -159,10 +177,34 @@ function stripText(raw: Untyped) {
   return raw.replace(/^﻿/, '').replace(/\r\n/g, '\n').trim();
 }
 
-/** Basenames (with extension) of every `*.md` file directly under `dir`, or `[]` when `dir` is absent. */
-function listMdFiles(dir: Untyped) {
+/**
+ * Paths relative to `dir`, with `/` between the parts, of every `*.md` file at any depth under `dir`, or `[]` when
+ * `dir` is absent.
+ */
+function listPromptFiles(dir: string) {
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter((file) => file.endsWith('.md'));
+  const entries = fs.readdirSync(dir, { recursive: true, withFileTypes: true });
+  const out: Array<string> = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const relative = path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep);
+    out.push(relative.join('/'));
+  }
+  return out;
+}
+
+/**
+ * The prompts directly under the folder key `folder` of `prompts` as `{ <base name>: text }`: for `heartbeat/seeds`
+ * the entries `heartbeat/seeds/<name>`, none deeper.
+ */
+export function promptsInFolder(prompts: Record<string, unknown>, folder: string): Record<string, unknown> {
+  const prefix = `${folder}/`;
+  const out: Record<string, unknown> = {};
+  for (const [key, text] of Object.entries(prompts)) {
+    const name = key.slice(prefix.length);
+    if (key.startsWith(prefix) && !name.includes('/')) out[name] = text;
+  }
+  return out;
 }
 
 /** Text of `<dir>/<file>`, stripped of BOM/CRLF and trimmed, or `null` when the file does not exist. */
@@ -173,8 +215,9 @@ function readMdFile(dir: Untyped, file: Untyped) {
 }
 
 /**
- * Merge the base and local `*.md` layers into `{ prompts, sources, keptPrevious }`.
- * A local file replaces the base file of the same name once it is non-empty
+ * Merge the base and local `*.md` layers into `{ prompts, sources, keptPrevious }`, each file keyed by its path
+ * relative to its layer without the extension (`diary/kinds/status`).
+ * A local file replaces the base file of the same path once it is non-empty
  * after trimming; otherwise the base text is used. When the resulting text is
  * still empty but a previous, non-empty value is known for that name (an
  * editor may truncate a file before writing it), the previous value and its
@@ -188,13 +231,13 @@ function computePromptFiles(
   prevPrompts: Record<string, unknown>,
   prevSources: Record<string, string>
 ) {
-  const files = new Set([...listMdFiles(promptsDir), ...listMdFiles(localPromptsDir)]);
+  const files = new Set([...listPromptFiles(promptsDir), ...listPromptFiles(localPromptsDir)]);
   const prompts: Record<string, unknown> = {};
   const sources: Record<string, string> = {};
   const keptPrevious: Array<string> = [];
 
   for (const file of files) {
-    const name = path.basename(file, '.md');
+    const name = file.slice(0, -'.md'.length);
     const baseText = readMdFile(promptsDir, file);
     const localText = readMdFile(localPromptsDir, file);
     const useLocal = Boolean(localText);
@@ -255,19 +298,6 @@ function computeLabels(rootDir: string, privateDir: string) {
   return { value: deepMerge(base, joinLabels(labelsFileOf(local))), source: 'merged' };
 }
 
-/**
- * The `*.md` files directly under `dir` (data/prompts/preambles/) as `{ <base name>: text }`,
- * `{}` when the folder is absent. An empty or whitespace-only file loads as '' right away (no
- * keep-the-previous-text guard, unlike computePromptFiles): an emptied preamble means none.
- */
-function computePreambles(dir: string) {
-  const out: Record<string, string> = {};
-  for (const file of listMdFiles(dir)) {
-    out[path.basename(file, '.md')] = readMdFile(dir, file) ?? '';
-  }
-  return out;
-}
-
 function loadPromptLayers(
   rootDir: string,
   privateDir: string,
@@ -277,8 +307,6 @@ function loadPromptLayers(
   const promptsDir = path.join(rootDir, 'prompts');
   const localPromptsDir = path.join(privateDir, LOCAL_PROMPTS_DIRNAME);
   const { prompts, sources, keptPrevious } = computePromptFiles(promptsDir, localPromptsDir, prevPrompts, prevSources);
-  prompts.preambles = computePreambles(path.join(localPromptsDir, PREAMBLES_DIRNAME));
-  sources.preambles = 'local';
   for (const layer of JSON_LAYERS) {
     const { value, source } = layer.compute(rootDir, privateDir);
     prompts[layer.name] = value;
@@ -378,7 +406,6 @@ export function createHot({
 }): Hot {
   const promptsDir = path.join(rootDir, 'prompts');
   const localPromptsDir = path.join(privateDir, LOCAL_PROMPTS_DIRNAME);
-  const preamblesDir = path.join(localPromptsDir, PREAMBLES_DIRNAME);
   const toolsDir = path.join(rootDir, CONFIG_DIR);
   const localToolsDir = path.join(privateDir, CONFIG_DIR);
   // The properties of `Hot` are all assigned below, before `hot` leaves this function.
@@ -386,7 +413,6 @@ export function createHot({
   const watchers: Array<Untyped> = [];
   const timers = new Map();
   let localWatcher: fs.FSWatcher | null = null;
-  let preamblesWatcher: fs.FSWatcher | null = null;
   // Whether the private layer sits in a directory of its own, which then needs its own watcher.
   const privateApart = path.resolve(privateDir) !== path.resolve(rootDir);
 
@@ -466,16 +492,13 @@ export function createHot({
         }
       }
 
-      const preambles = computePreambles(preamblesDir);
-
       // `json` holds every layer of JSON_LAYERS, `labels` among them.
-      const next: Record<string, Untyped> = { ...mdPrompts, preambles, ...json };
+      const next: Record<string, Untyped> = { ...mdPrompts, ...json };
       hot.prompts = next as Hot['prompts'];
-      hot.promptSources = { ...mdSources, preambles: 'local', ...jsonSources };
+      hot.promptSources = { ...mdSources, ...jsonSources };
       hot.hashes = { ...hot.hashes, promptsHash: shortHash(hot.prompts) };
       log.info('hot: prompts reloaded', {
         prompts: Object.keys(mdPrompts),
-        preambles: Object.keys(preambles),
         keptPrevious,
       });
       hot.emit('change', { what: 'prompts' });
@@ -497,40 +520,13 @@ export function createHot({
     return name.endsWith('.md') || name.endsWith('.json');
   }
 
-  /** Close and forget the data/prompts/preambles/ watcher, so a folder created again gets a new one. */
-  function stopPreamblesWatch() {
-    const watcher = preamblesWatcher;
-    if (!watcher) return;
-    preamblesWatcher = null;
-    dropWatcher(watchers, watcher);
+  /** An entry of a recursively watched prompts folder: a prompt file, or a folder that may hold some (moved in whole). */
+  function isPromptEntry(dir: string, file: Untyped) {
+    return isPromptFile(file) || fs.statSync(path.join(dir, String(file)), { throwIfNoEntry: false })?.isDirectory();
   }
 
-  function startPreamblesWatch() {
-    if (preamblesWatcher) return;
-    try {
-      const watcher = watchImpl(preamblesDir, (event, file) => {
-        if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
-      });
-      preamblesWatcher = watcher;
-      watchers.push(watcher);
-      attachErrorHandler(watcher, () => {
-        if (preamblesWatcher === watcher) stopPreamblesWatch();
-      });
-    } catch (err) {
-      log.warn('hot: failed to watch data/prompts/preambles', { error: err });
-    }
-  }
-
-  /** data/prompts/preambles/ appeared or went away: start or drop its watcher, then reload. */
-  function onPreamblesEntry() {
-    if (!fs.existsSync(preamblesDir)) stopPreamblesWatch();
-    else startPreamblesWatch();
-    schedule('prompts', hot.reloadPrompts);
-  }
-
-  /** Close and forget the data/prompts/ watcher (and its preambles/ one), so a directory created again gets new ones. */
+  /** Close and forget the data/prompts/ watcher, so a directory created again gets a new one. */
   function stopLocalWatch() {
-    stopPreamblesWatch();
     const watcher = localWatcher;
     if (!watcher) return;
     localWatcher = null;
@@ -540,10 +536,9 @@ export function createHot({
   function startLocalWatch() {
     if (localWatcher) return;
     try {
-      const watcher = watchImpl(localPromptsDir, (event, file) => {
-        // No name (some platforms) may be the folder too: sync its watcher, then reload.
-        if (!file || String(file) === PREAMBLES_DIRNAME) onPreamblesEntry();
-        else if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
+      // Recursive: on Linux Node adds a watch for every folder below, a folder created later included.
+      const watcher = watchImpl(localPromptsDir, { recursive: true }, (event, file) => {
+        if (isPromptEntry(localPromptsDir, file)) schedule('prompts', hot.reloadPrompts);
       });
       localWatcher = watcher;
       watchers.push(watcher);
@@ -551,7 +546,6 @@ export function createHot({
       attachErrorHandler(watcher, () => {
         if (localWatcher === watcher) stopLocalWatch();
       });
-      if (fs.existsSync(preamblesDir)) startPreamblesWatch();
     } catch (err) {
       log.warn('hot: failed to watch prompts.local', { error: err });
     }
@@ -614,8 +608,8 @@ export function createHot({
       attachErrorHandler(privateWatcher);
     }
 
-    const baseWatcher = watchImpl(promptsDir, (event, file) => {
-      if (isPromptFile(file)) schedule('prompts', hot.reloadPrompts);
+    const baseWatcher = watchImpl(promptsDir, { recursive: true }, (event, file) => {
+      if (isPromptEntry(promptsDir, file)) schedule('prompts', hot.reloadPrompts);
     });
     watchers.push(baseWatcher);
     attachErrorHandler(baseWatcher);
@@ -635,7 +629,6 @@ export function createHot({
     watchers.length = 0;
     timers.clear();
     localWatcher = null;
-    preamblesWatcher = null;
     toolsWatch.forget();
     localToolsWatch.forget();
   };

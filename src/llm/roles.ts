@@ -11,8 +11,8 @@
 //                is the core's, and it is not listed by `/nep model`;
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, rewatch, split, media-pick, missed),
-//                plans a search and turns sources into notes (query-builder, recall-summary,
-//                search-summary);
+//                plans a search, searches the web on the `openrouter` engine and turns sources into notes
+//                (query-builder, quick-search, recall-summary, search-summary);
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
@@ -39,19 +39,11 @@ export const MEMORY_ROLE = 'memory';
 export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
 /**
- * Quick search's own request role, with a chain of routes of its own (`/model set search <key>/<model>`), apart from the
- * analyzer's. Its model is the first route's.
+ * The humanizer's roles (docs/humanizer.md): `linter` for its linter and `editor` for its writer. They have no built-in
+ * model, only their chains'.
  */
-export const SEARCH_ROLE = 'search';
-
-/** The model of quick search and of the scout's web search; undefined until the owner sets a chain, as it has no default. */
-export function searchModel(config: unknown): string | undefined {
-  return chainModel(objOf(config).models, SEARCH_ROLE) ?? undefined;
-}
-
-/** The humanizer's roles (docs/humanizer.md); like `search` they have no built-in model, only their chains'. */
-export const HUMANIZER_LINTER_ROLE = 'humanizer.linter';
-export const HUMANIZER_WRITER_ROLE = 'humanizer.writer';
+export const HUMANIZER_LINTER_ROLE = 'linter';
+export const HUMANIZER_WRITER_ROLE = 'editor';
 export const HUMANIZER_ROLES: ReadonlyArray<string> = Object.freeze([HUMANIZER_LINTER_ROLE, HUMANIZER_WRITER_ROLE]);
 
 /**
@@ -131,6 +123,8 @@ export const PURPOSE_ROLES = Object.freeze({
   missed: 'analyzer',
   'query-builder': 'analyzer',
   'recall-summary': 'analyzer',
+  'search-summary': 'analyzer',
+  'quick-search': 'analyzer',
   speech: 'analyzer',
   // Usage rows and `models.byPurpose` pins written before quick search took its own name still read as this.
   'web-search': 'analyzer',

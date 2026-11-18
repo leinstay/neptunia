@@ -2026,15 +2026,7 @@ export function diaryTurnRunner(
 }
 
 /** The roles a replay mode spends, one start line each. */
-const REPLAY_ROLES: ReadonlyArray<RouteRole> = [
-  'core',
-  'analyzer',
-  'vision',
-  'video',
-  'embedding',
-  'search',
-  'director',
-];
+const REPLAY_ROLES: ReadonlyArray<RouteRole> = ['core', 'analyzer', 'vision', 'video', 'embedding', 'director'];
 
 /**
  * The routing of a replay mode (scripts/lib/script-routes.ts) over the live client `createLlm`: production's, with the

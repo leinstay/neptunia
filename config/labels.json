@@ -830,7 +830,6 @@
           "reason": {
             "disabled": "it is switched off",
             "no-engine": "no search engine is chosen",
-            "no-model": "its engine has no model set",
             "no-key": "its engine has no key",
             "timeout": "the search timed out, so a retry may work",
             "rate-limited": "the engine is rate limiting, so wait before trying again",

@@ -18,11 +18,11 @@ The tracked prompts are character-neutral. A deployment overrides them with its 
 
 ## Roles and routes
 
-The linter runs on the role `humanizer.linter` and the writer on `humanizer.writer`. Neither role has a built-in model, and a role with no route makes the humanizer skip every text with no request. `humanizer.linter` runs on a key. `humanizer.writer` runs on a key or on a harness, where the memory writer's client runs it as one request with a system text and no tools and counts its usage under `humanizer.writer`. The requests carry the purposes `humanizer-linter` and `humanizer-writer`.
+The linter runs on the role `linter` and the writer on the role `editor`. Neither role has a built-in model, and a role with no route makes the humanizer skip every text with no request. The role `linter` runs on a key. The role `editor` runs on a key or on a harness, where the memory writer's client runs it as one request with a system text and no tools and counts its usage under `editor`. The requests carry the purposes `humanizer-linter` and `humanizer-writer`.
 
 ```
-/model set humanizer.linter <key>/<model>:low
-/model set humanizer.writer harness:claude/<model>
+/model set linter <key>/<model>:low
+/model set editor harness:claude/<model>
 ```
 
 ## Commands

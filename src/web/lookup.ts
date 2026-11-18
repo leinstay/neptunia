@@ -15,16 +15,15 @@
 //   note over `SEARCH_SUMMARY_CHARS` is retold once by the summarizer, and a retelling still over it is kept whole.
 //   `web.quickSearch.engine` picks the engine, and it has no default: `brave` (src/web/brave.ts) and `exa` (src/web/exa.ts) each
 //   need their service key, and `openrouter` (OpenRouter's web plugin, its engine `auto`: the summary request itself
-//   searches, one request billed to credits, its sources the answer's `url_citation` annotations) needs a chain for `search`
-//   (`models.routes.search`).
-//   Brave and Exa condense on that model too, so they do not summarise without it. An engine outside the three, or one
-//   without what it needs, leaves quick search off, and when the chosen engine fails nothing answers in its place.
+//   searches, one request billed to credits, its sources the answer's `url_citation` annotations) goes out on the
+//   analyzer's chain. Every summary request is the analyzer's, under the purpose `search-summary`. An engine outside the
+//   three, or one without its key, leaves quick search off, and when the chosen engine fails nothing answers in its place.
 // - searchResults: the persona's own web.search (src/tools/tools.ts): the same engine, but the results come back raw --
 //   title, url, site, the engine's snippet and date -- with no summary request. Brave and Exa return them as they are;
-//   `openrouter` sends one request with the web plugin and only the query (purpose `quick-search` on quick search's own
-//   role and model, its answer cut at `web.quickSearch.rawOutputTokens` and never read), the results being its `url_citation`
+//   `openrouter` sends one request with the web plugin and only the query (purpose `quick-search` on the analyzer, its
+//   answer cut at `web.quickSearch.rawOutputTokens` and never read), the results being its `url_citation`
 //   annotations with their content. Cached apart (`results:<sha1 prefix>`), served while younger than
-//   `web.quickSearch.cacheHours`. A failure says why: `not-configured` with `no-engine`, `no-model`, `no-key` or `disabled`, and
+//   `web.quickSearch.cacheHours`. A failure says why: `not-configured` with `no-engine`, `no-key` or `disabled`, and
 //   `provider` with the engine and `timeout`, `rate-limited`, `credentials` or the client's own reason.
 // - readPage: the persona's own web.read: one page by url through the same fetcher, its
 //   extracted main text (src/web/readable.ts), whole up to `PAGE_READ_CHARS` and retold once by the summarizer past it
@@ -46,7 +45,7 @@
 
 import { isGifHostUrl, siteOf } from '../media/classify.ts';
 import { videoSiteFor, safeLocation } from '../media/video-sites.ts';
-import { SEARCH_ROLE, searchModel } from '../llm/roles.ts';
+import { roleModel } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
 import { createSummaryBuilder, parseSummaryNote, renderResults } from '../behavior/summary-builder.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
@@ -526,8 +525,7 @@ export function createLookup(deps: LookupDeps): Lookup {
   /**
    * One web search on `query`, condensed with its sources, through the shared
    * cache. Needs the feature, `web.quickSearch.enabled`, the search-summary prompt,
-   * a chosen engine that can run (hasSearch), the model the summary goes out on and a non-blank
-   * query. No results -> an empty `text` (the caller renders labels.lookup.none). A failure is
+   * a chosen engine that can run (hasSearch) and a non-blank query. No results -> an empty `text` (the caller renders labels.lookup.none). A failure is
    * never cached.
    */
   async function search(placeId: string, query: string): Promise<SearchAnswer> {
@@ -538,7 +536,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     const asked = cleanQuery(query);
     if (!promptText || !asked) return null;
     const engine = engineOf(config);
-    if (engine === null || !hasSearch() || searchModel(config) === undefined) return null;
+    if (engine === null || !hasSearch()) return null;
 
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: search', { state: outcome, reason, ...extra });
@@ -576,10 +574,7 @@ export function createLookup(deps: LookupDeps): Lookup {
   function whyOff(config: LookupConfig): { reason: string; engine?: Engine } | null {
     const engine = engineOf(config);
     if (engine === null) return { reason: 'no-engine' };
-    if (engine === 'openrouter')
-      return typeof llm?.complete === 'function' && searchModel(config) !== undefined
-        ? null
-        : { reason: 'no-model', engine };
+    if (engine === 'openrouter') return null;
     const key = keys[engine];
     return typeof searches[engine]?.search === 'function' && typeof key === 'string' && key.trim() !== ''
       ? null
@@ -594,9 +589,9 @@ export function createLookup(deps: LookupDeps): Lookup {
         content: fillPromptTemplate(promptText, { query: asked, maxChars: chars, today: todayDate() }),
       },
       options: {
-        model: searchModel(config),
+        model: roleModel(config, 'analyzer', 'search-summary'),
         ...roleRequestOptions(config, {
-          role: SEARCH_ROLE,
+          role: 'analyzer',
           maxOutputTokens: cfg.maxOutputTokens,
           purpose: 'search-summary',
           long: true,
@@ -667,7 +662,7 @@ export function createLookup(deps: LookupDeps): Lookup {
    * The persona's own web.search: one search on `query` whose results come back raw (see the
    * header): `{ query, results: [{ title, url, site, snippet, age? }], cached? }`, `results`
    * empty when nothing was found; `{ failed: { code, reason?, engine?, status? } }` when it did
-   * not search: `not-configured` (`disabled` by `web.quickSearch.enabled`, else `no-engine`, `no-model`
+   * not search: `not-configured` (`disabled` by `web.quickSearch.enabled`, else `no-engine`
    * or `no-key`), `empty-query` (the cleaned query is blank), `cap` (the day's web slots are spent,
    * or an `openrouter` request would pass `llm.maxRequestsPerDay`), `provider` (the chosen engine
    * failed: `timeout`, `rate-limited`, `credentials` or its own reason). Never reads the
@@ -739,9 +734,9 @@ export function createLookup(deps: LookupDeps): Lookup {
       let completion;
       try {
         completion = await llm.complete([{ role: 'user', content: asked }], {
-          model: searchModel(config),
+          model: roleModel(config, 'analyzer', 'quick-search'),
           ...roleRequestOptions(config, {
-            role: SEARCH_ROLE,
+            role: 'analyzer',
             maxOutputTokens: positiveOr(searchCfg.rawOutputTokens, RAW_OUTPUT_TOKENS_FALLBACK),
             purpose: 'quick-search',
           }),

@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { checkConfig } from '../../config/check.ts';
+import { unknownRoleKeys } from '../../llm/openrouter.ts';
 import { localConfigPath } from '../../config/files.ts';
 import { CONFIG_SCHEMA } from '../../config/schema.ts';
 import { coreHealth } from '../../health/core.ts';
@@ -442,7 +443,10 @@ function configCheck(privateDir: string): Answer {
   } catch (err) {
     return { text: `${shown} does not parse: ${err instanceof Error ? err.message : String(err)}`, status: 'failed' };
   }
-  const problems = checkConfig(local, CONFIG_SCHEMA);
+  const problems = [
+    ...checkConfig(local, CONFIG_SCHEMA),
+    ...unknownRoleKeys(local).map((key) => ({ key, kind: 'unknown' })),
+  ];
   if (problems.length === 0) return { text: `${shown}: every key is known and of its type`, status: 'ok' };
   const lines = problems.map(({ key, kind }) => (kind === 'unknown' ? `${key}: unknown key` : `${key}: wrong type`));
   return { text: lines.join('\n'), status: 'failed' };

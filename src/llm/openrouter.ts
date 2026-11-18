@@ -32,6 +32,7 @@ import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time
 import { log } from '../log.ts';
 import type { LimitsSink } from './limits.ts';
 import { roleModel } from './roles.ts';
+import { isRouteRole } from './route-text.ts';
 import type { KeyRing, KeyState } from '../keys/ring.ts';
 
 /**
@@ -399,6 +400,25 @@ export function parseRouteKey(key: string): { prefix: string; role: string | nul
   const at = key.lastIndexOf('@');
   if (at === -1) return { prefix: key, role: null };
   return { prefix: key.slice(0, at), role: key.slice(at + 1) };
+}
+
+/**
+ * The keys of `config` that name a model role src/llm/route-text.ts does not list: a chain of `models.routes` and a
+ * provider route `<prefix>@<role>` of `llm.providerByModel`. Both sit in maps the settings schema leaves free, so
+ * `/config check` and the doctor's `config` check add them to what the schema refuses.
+ */
+export function unknownRoleKeys(config: unknown): Array<string> {
+  const cfg = objOf(config);
+  const chains = Object.keys(objOf(objOf(cfg.models).routes))
+    .filter((role) => !isRouteRole(role))
+    .map((role) => `models.routes.${role}`);
+  const routes = Object.keys(objOf(objOf(cfg.llm).providerByModel))
+    .filter((key) => {
+      const { role } = parseRouteKey(key);
+      return role !== null && !isRouteRole(role);
+    })
+    .map((key) => `llm.providerByModel.${key}`);
+  return [...chains, ...routes];
 }
 
 /**

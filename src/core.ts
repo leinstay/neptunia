@@ -45,7 +45,7 @@ import type { CompleteResult } from './llm/openrouter.ts';
 import { reportingFailures } from './llm/chain-client.ts';
 import { createCoreRoutes } from './llm/core-routes.ts';
 import { harnessEffort } from './llm/route-text.ts';
-import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
+import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, roleModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands, reasonedPause } from './keys/commands.ts';
 import type { KeyOf } from './keys/ring.ts';
@@ -1368,8 +1368,7 @@ async function buildCore(
     baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
     llmConfig: () => objOf(objOf(hot.config).llm),
     defaults: { ...ROLE_DEFAULTS, memory: MEMORY_ROLE_DEFAULT },
-    currentModel: (role) =>
-      role === SEARCH_ROLE ? (searchModel(hot.config) ?? '') : (roleModel(hot.config, role) ?? ''),
+    currentModel: (role) => roleModel(hot.config, role) ?? '',
     speechVoice: () => {
       const voice = objOf(objOf(hot.config).speech).voice;
       return typeof voice === 'string' ? voice : '';

@@ -73,11 +73,11 @@ const createLookup = loose(createLookupOf);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROMPTS_DIR = path.join(ROOT, 'prompts');
 
-/** The tracked prompt files, by name (the file name without `.md`). */
+/** The tracked prompt files at any depth, by key: the path relative to prompts/ without `.md`, `/` between the parts. */
 const PROMPT_FILES = fs
-  .readdirSync(PROMPTS_DIR)
+  .readdirSync(PROMPTS_DIR, { recursive: true, encoding: 'utf8' })
   .filter((file) => file.endsWith('.md'))
-  .map((file) => path.basename(file, '.md'))
+  .map((file) => file.slice(0, -'.md'.length).split(path.sep).join('/'))
   .sort();
 
 const BOM = String.fromCharCode(0xfeff);
@@ -1738,7 +1738,7 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
 test('humanizeSpeech: the linter and the writer requests fill humanizer-linter.md and humanizer-writer.md', async () => {
   const hot = shippedHot({
     humanizer: { enabled: true },
-    models: { routes: chainsOf({ 'humanizer.linter': 'x/linter', 'humanizer.writer': 'x/writer' }) },
+    models: { routes: chainsOf({ 'linter': 'x/linter', 'editor': 'x/writer' }) },
   });
   const calls: Array<{ messages: unknown; purpose: unknown }> = [];
   // Twenty words: a rewrite is posted only when it keeps at least half the words of the draft.

@@ -421,7 +421,7 @@ test('validateDefinitions refuses an unknown trait and a repeated one', () => {
 });
 
 test('route.set and route.remove offer every role the routing knows, in its order', () => {
-  // Catches: the schema keeps a list of its own, so a role the routing reads, such as humanizer.linter, cannot be named.
+  // Catches: the schema keeps a list of its own, so a role the routing reads, such as linter, cannot be named.
   for (const name of ['route.set', 'route.remove']) {
     const properties = BY_NAME.get(name)?.params.properties ?? {};
     assert.deepEqual(properties.role?.enum, [...ROUTE_ROLES], name);

@@ -1,6 +1,6 @@
 // B5.1 of the master plan: quick search keeps its own settings under `web.quickSearch.*`, so that no key is spelled
-// `web.search.*` (the name belongs to the tool she calls, `web.search`, which stays). The role `search`, its key binding
-// and its model setting stay as they are; only the section moves. No network and no real settings of a deployment.
+// `web.search.*` (the name belongs to the tool she calls, `web.search`, which stays). No network and no real settings of
+// a deployment.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -53,12 +53,11 @@ test('the lookup runs the engine chosen under web.quickSearch', async () => {
   assert.deepEqual(searched, ['opening hours']);
 });
 
-test('/search writes the engine and the switch under web.quickSearch, and the model on the search chain', () => {
+test('/search writes the engine and the switch under web.quickSearch', () => {
   // Bug: the command still writes the old section, which the loader moves on every start.
   const dataDir = tempDir('nep-quick-keys-command-');
   searchCommand(dataDir, 'search.engine', { name: 'exa' });
-  // Changed: the model goes on each route of the `search` chain, so a command with no chain writes nothing (slice 4).
-  assert.equal(searchCommand(dataDir, 'search.model', { id: 'x/quick' }).status, 'invalid');
+  // Changed: quick search runs on the analyzer, so `/search model` and the chain it wrote are gone.
   searchCommand(dataDir, 'search.disable', {});
   const web = (readLocalConfig(localConfigPath(dataDir)) as { web?: Settings }).web ?? {};
   assert.deepEqual(web.quickSearch, { engine: 'exa', enabled: false });

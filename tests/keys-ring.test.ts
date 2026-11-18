@@ -54,10 +54,11 @@ test('states names the key of a role that switched to a later route on a key, an
 test("bound groups the roles by the key they are on now, leaving out the core and the core's own key", () => {
   // Catches: the core's key listed again as a role key, so its balance is read and shown twice.
   const ring = chainRing(
-    view({}, { core: 'main', analyzer: 'helpers', vision: 'helpers', embedding: 'main', search: 'tools' })
+    view({}, { core: 'main', analyzer: 'helpers', vision: 'helpers', embedding: 'main', linter: 'tools' })
   );
+  // Changed: the role `search` is gone from the routing, so the linter has the key of its own.
   assert.deepEqual(ring.bound(), [
     { name: 'helpers', roles: ['analyzer', 'vision'] },
-    { name: 'tools', roles: ['search'] },
+    { name: 'tools', roles: ['linter'] },
   ]);
 });

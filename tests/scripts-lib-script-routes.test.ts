@@ -472,9 +472,10 @@ test('an offline client answers every role and no key or CLI is used', async () 
     },
   };
   const routing = await scriptRouting('replay-cli', { ...deps({}), offline });
-  for (const role of ['core', 'memory', 'analyzer', 'search'])
+  // Changed: the role `search` is gone from the routing, so three roles are asked.
+  for (const role of ['core', 'memory', 'analyzer'])
     assert.equal((await routing.llm.complete(MESSAGES, { role })).text, 'from the files');
-  assert.equal(answered.length, 4);
+  assert.equal(answered.length, 3);
   assert.equal(sent.length, 0);
   assert.equal(children.length, 0);
   assert.equal(routing.keyOf('embedding'), null);
@@ -482,17 +483,16 @@ test('an offline client answers every role and no key or CLI is used', async () 
 
 test('the routed config replaces the chains of the replaced roles and leaves the live object alone', () => {
   // Catches: an overlay that mutates the hot config, so a later variant inherits the previous one's model.
-  // Changed: a role's model is its chain's (slice 4), so the overlay replaces the chain of each role on a key.
+  // Changed: a role's model is its chain's (slice 4), so the overlay replaces the chain of each role on a key. The role
+  // `search` is gone from the routing, so two roles are replaced.
   const live = structuredClone(LIVE);
   const config = routedConfig(live, {
     analyzer: parseRoute('t', 'analyzer', 'helpers/google/gemini-3.8-flash'),
-    search: parseRoute('t', 'search', 'helpers/perplexity/sonar-pro'),
     vision: parseRoute('t', 'vision', 'helpers/google/gemini-3.8-flash'),
   }) as typeof LIVE & { models: { routes: Record<string, unknown> } };
   const { routes } = config.models;
   assert.deepEqual(routes.analyzer, [onKey('helpers', 'google/gemini-3.8-flash')]);
   assert.deepEqual(routes.vision, [onKey('helpers', 'google/gemini-3.8-flash')]);
-  assert.deepEqual(routes.search, [onKey('helpers', 'perplexity/sonar-pro')]);
   assert.deepEqual(live, LIVE);
 });
 

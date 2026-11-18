@@ -5,7 +5,7 @@
 //   `createSummaryBuilder({ hot, llm, now })(evidence, limits)` takes `{ kind: 'history', selfName, question, windows,
 //   messages }` or `{ kind: 'web', query, results }`, and `limits` `{ maxChars, maxOutputTokens, signal?, timeoutMs? }`;
 //   it resolves `{ status: 'note' | 'none' | 'failed' | 'no-prompt', text, stretch, reason? }` and never rejects
-//   history sends its caller's `messages` on the analyzer, web reads `prompts['search-summary']` on the `search` role
+//   history sends its caller's `messages` on the analyzer, web reads `prompts['search-summary']` on the analyzer
 import { noMediaNames } from './fixtures/media-namer.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -82,7 +82,7 @@ function builder(options: { answer?: string | Error; prompts?: Record<string, un
       config: {
         bot: { timezone: 'UTC' },
         llm: {},
-        // Changed: quick search's model is its chain's, `models.routes.search` (spec 2026-11-09-model-routes, slice 4).
+        // Changed: web evidence condenses on the analyzer, so a `search` chain stays here only to show it is not read.
         models: { routes: chainsOf({ analyzer: 'x/analyzer', search: 'x/search' }) },
       },
       prompts: {
@@ -108,7 +108,7 @@ function builder(options: { answer?: string | Error; prompts?: Record<string, un
 }
 
 test('chat evidence sends the request its caller built, on the analyzer', async () => {
-  // Bug: the builder sends a request of its own instead of the recall run's, or puts it on the search role.
+  // Bug: the builder sends a request of its own instead of the recall run's, or puts it on another role.
   const { build, calls } = builder();
   const note = await build(HISTORY, LIMITS);
   assert.deepEqual([calls[0]?.system, calls[0]?.user], ['BUILT-SYSTEM', 'BUILT-USER']);
@@ -116,13 +116,14 @@ test('chat evidence sends the request its caller built, on the analyzer', async 
   assert.deepEqual([note.status, note.text], ['note', 'She said it on Monday.']);
 });
 
-test('web evidence reads its own prompt on the search role with the search model', async () => {
-  // Bug: the merge puts the web note on the analyzer, past the key the owner bound to quick search.
+test('web evidence reads its own prompt on the analyzer under the purpose search-summary', async () => {
+  // Changed: web evidence condenses on the analyzer, and the retired `search` chain is not read.
+  // Bug: the web note goes out on a chain the routing does not have, or takes the model of a retired setting.
   const { build, calls } = builder();
   await build(WEB, LIMITS);
   assert.equal(calls[0]?.system, 'Web on tomato frost, at most 100.');
-  assert.equal(calls[0]?.options.role, 'search');
-  assert.equal(calls[0]?.options.model, 'x/search');
+  const sent = calls[0]?.options ?? {};
+  assert.deepEqual([sent.role, sent.purpose, sent.model], ['analyzer', 'search-summary', 'x/analyzer']);
   assert.ok(calls[0]?.user.includes('https://example.org/frost'));
   assert.ok(calls[0]?.user.includes('below zero'));
 });

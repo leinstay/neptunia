@@ -2628,20 +2628,17 @@
     }
   },
   "tests/hot.test.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 3
-    },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 12
+      "count": 4
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 26
+      "count": 16
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 48
+      "count": 15
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 11
+      "count": 8
     }
   },
   "tests/images.test.ts": {

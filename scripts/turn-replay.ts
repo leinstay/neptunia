@@ -74,7 +74,7 @@ async function routingOf(hot: Hot, dataDir: string) {
   const { scriptRouting, routesText } = await import('./lib/script-routes.ts');
   const routing = await scriptRouting(TOOL, {
     privateDir: dataDir,
-    roles: ['core', 'analyzer', 'vision', 'video', 'embedding', 'search'],
+    roles: ['core', 'analyzer', 'vision', 'video', 'embedding'],
     variant: {},
     getConfig: (): unknown => hot.config,
     createDirect: (keys, getConfig) =>

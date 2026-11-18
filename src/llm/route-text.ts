@@ -19,9 +19,8 @@ export const ROUTE_ROLES = [
   'embedding',
   'speech',
   'drawing',
-  'search',
-  'humanizer.linter',
-  'humanizer.writer',
+  'linter',
+  'editor',
   'director',
 ] as const;
 export type RouteRole = (typeof ROUTE_ROLES)[number];
@@ -38,19 +37,18 @@ export const TEXT_ROLES: ReadonlyArray<RouteRole> = [
   'core',
   'memory',
   'analyzer',
-  'search',
   'vision',
   'video',
-  'humanizer.linter',
-  'humanizer.writer',
+  'linter',
+  'editor',
   'director',
 ];
 
 /** The effort of a text role whose route and `llm.routeEffort` name none. */
 export const DEFAULT_ROUTE_EFFORT = 'medium';
 
-/** The roles that run as a CLI chat step: her turns, the memory writer, the humanizer's writer and the diary's scene helper. */
-export const HARNESS_ROLES: ReadonlyArray<string> = ['core', 'memory', 'humanizer.writer', 'director'];
+/** The roles that run as a CLI chat step: her turns, the memory writer, the role `editor`, the humanizer's writer, and the diary's director. */
+export const HARNESS_ROLES: ReadonlyArray<string> = ['core', 'memory', 'editor', 'director'];
 
 /** The one effort scale of a route, for every role and route. */
 export const ROUTE_EFFORTS = ['disabled', 'low', 'medium', 'high'] as const;

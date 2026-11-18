@@ -4,7 +4,7 @@ This guide is for people and agents changing model-facing text. Prompt files, la
 
 ## Layers
 
-Engine defaults live in `prompts/`. A nonempty file at the same relative path under `data/prompts/` replaces the default. Personal settings, labels and tool texts live under `data/config/` and merge over the corresponding engine files.
+Engine defaults live in `prompts/`. A prompt is a `.md` file at any depth under `prompts/` or `data/prompts/`, and its key is its path relative to that folder without the extension, with `/` between the parts: `prompts/reply.md` loads as `prompts.reply` and `prompts/diary/kinds/status.md` as `prompts['diary/kinds/status']`. A nonempty file at the same relative path under `data/prompts/` replaces the default, and a file only one side holds loads as it is. A file emptied while the core runs keeps its last text until the next start, because an emptied file and a half-written one look the same. Personal settings, labels and tool texts live under `data/config/` and merge over the corresponding engine files.
 
 Agent prompts use `agents/<name>/` and `data/agents/<name>/`. They are not loaded from the persona conversation prompt directory. See [agents/README.md](../agents/README.md).
 

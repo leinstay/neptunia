@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { createHot } from '../src/hot.ts';
+import { createHot, promptsInFolder } from '../src/hot.ts';
 import type { Hot } from '../src/hot.ts';
 import { composePreamble } from '../src/errands/preambles.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
@@ -398,16 +398,19 @@ test('reloadPrompts: invalid base labels.json on reload keeps the previous merge
 /** A fake fs.watch: every watcher it hands out records its target and listener, emits, and records close(). */
 function fakeWatch() {
   const handed: Array<Untyped> = [];
-  const watch = (target: Record<string, Untyped>, listener: Record<string, Untyped>) => {
+  // fs.watch takes its options before the listener when it is given some.
+  const watch = (target: Record<string, Untyped>, ...rest: Array<unknown>) => {
+    const listener = rest.at(-1);
+    const options = rest.length > 1 ? rest[0] : {};
     const watcher: Record<string, Untyped> = new EventEmitter();
-    Object.assign(watcher, { target, listener, closed: false });
+    Object.assign(watcher, { target, listener, options, closed: false });
     watcher.close = () => {
       watcher.closed = true;
     };
     handed.push(watcher);
     return watcher;
   };
-  watch.of = (target: Untyped) => handed.filter((w) => w.target === target);
+  watch.of = (target: Untyped): Array<Record<string, Untyped>> => handed.filter((w) => w.target === target);
   return watch;
 }
 
@@ -524,6 +527,63 @@ test('createHot: a config that still sets models.errands warns once, naming the 
     assert.equal(retired(started.logs).length, 1);
     assert.equal(retired(started.logs)[0].use, 'models.agents.model');
     assert.ok(!JSON.stringify(started.logs).includes('x/old-agent-model'), 'the key, never its value');
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: a chain under a retired humanizer role warns once per role with the role that replaces it, and the new roles warn nothing', async () => {
+  // Catches: the dotted role names `humanizer.linter` and `humanizer.writer` are looked up segment by segment, so a
+  // deployment that still holds them is never told, or a chain under the new role `linter` is taken for one of them.
+  const chain = [{ via: 'api', key: 'k', model: 'x/old-model', effort: null }];
+  const dir = makeRoot(
+    wrongly({ config: { models: { routes: { 'humanizer.linter': chain, 'humanizer.writer': chain } } } })
+  );
+  const retired = (logs: Record<string, Untyped>) =>
+    logs.filter((entry: Record<string, Untyped>) => /^config: models\.routes\.humanizer/.test(String(entry.msg)));
+  let hot = wrongly<Hot>(undefined);
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+      hot.reloadConfig();
+    });
+    assert.deepEqual(
+      retired(started.logs).map((entry: Record<string, Untyped>) => [entry.msg, entry.use]),
+      [
+        ['config: models.routes.humanizer.linter is no longer read', 'models.routes.linter'],
+        ['config: models.routes.humanizer.writer is no longer read', 'models.routes.editor'],
+      ]
+    );
+    assert.ok(!JSON.stringify(started.logs).includes('x/old-model'), 'the key, never its value');
+
+    const renamed = { models: { routes: { linter: chain, editor: chain } } };
+    const clean = makeRoot(wrongly({ config: renamed }));
+    const quiet = await withCapturedLogs(() => createHot({ rootDir: clean }).close());
+    assert.equal(retired(quiet.logs).length, 0);
+    fs.rmSync(clean, { recursive: true, force: true });
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: a chain under the retired role search warns once with the analyzer as its use', async () => {
+  // Catches: a deployment keeps `models.routes.search`, nothing reads it, and the owner believes quick search runs there.
+  const chain = [{ via: 'api', key: 'k', model: 'x/old-model', effort: null }];
+  const dir = makeRoot(wrongly({ config: { models: { routes: { search: chain } } } }));
+  let hot = wrongly<Hot>(undefined);
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+      hot.reloadConfig();
+    });
+    assert.deepEqual(
+      started.logs
+        .filter((entry: Record<string, Untyped>) => /^config: models\.routes\.search/.test(String(entry.msg)))
+        .map((entry: Record<string, Untyped>) => [entry.msg, entry.use]),
+      [['config: models.routes.search is no longer read', 'models.routes.analyzer']]
+    );
   } finally {
     hot?.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -720,8 +780,8 @@ test('createHot: without a privateDir the persona is root/data and each root is 
 });
 
 // ---------------------------------------------------------------------------
-// data/prompts/preambles/: the errand agents' preambles, a subfolder of the
-// private layer only, loaded by base name into `hot.prompts.preambles`, live.
+// data/prompts/preambles/: the errand agents' preambles, prompt files like any
+// other, keyed `preambles/<name>`, read through promptsInFolder.
 // ---------------------------------------------------------------------------
 
 function writePreamble(dir: string, name: string, text: string) {
@@ -730,132 +790,40 @@ function writePreamble(dir: string, name: string, text: string) {
   fs.writeFileSync(path.join(folder, `${name}.md`), text);
 }
 
-test('createHot: data/prompts/preambles/*.md load by base name into hot.prompts.preambles and reload live', () => {
-  const dir = makeRoot({ prompts: { rules: 'base text' } });
-  const plainDir = makeRoot();
-  const plain = createHot({ rootDir: plainDir });
-  try {
-    assert.deepEqual(plain.prompts.preambles, {}, 'no folder: an empty set');
-  } finally {
-    plain.close();
-    fs.rmSync(plainDir, { recursive: true, force: true });
-  }
-  // A tracked prompts/preambles/ is never read: the files are deployment-only.
-  fs.mkdirSync(path.join(dir, 'prompts', 'preambles'));
-  fs.writeFileSync(path.join(dir, 'prompts', 'preambles', 'all.md'), 'tracked');
-  writePreamble(dir, 'all', '\uFEFFΚοινό.\r\n');
-  writePreamble(dir, '@moonshotai-kimi-k3', 'Για το μοντέλο.');
-  writePreamble(dir, 'scout', '');
-  fs.writeFileSync(path.join(dir, 'data', 'prompts', 'preambles', 'notes.txt'), 'not a prompt');
+/** The preamble of a run of `agent` on `model` as the errand client composes it from `hot`. */
+function preambleOf(hot: Hot, agent: string, model: string | null) {
+  return composePreamble({ preambles: promptsInFolder(hot.prompts, 'preambles'), agent, model }).text;
+}
+
+test('createHot: a preamble file loads under preambles/<name> and reaches its reader through promptsInFolder', () => {
+  const dir = makeRoot();
+  writePreamble(dir, 'all', 'shared');
+  writePreamble(dir, '@claude-sonnet-4.6', 'for the model');
+  writeAt(path.join(dir, 'data', 'prompts'), 'preambles/old/scout', 'one folder deeper');
   const hot = createHot({ rootDir: dir });
   try {
-    assert.deepEqual(hot.prompts.preambles, { all: 'Κοινό.', '@moonshotai-kimi-k3': 'Για το μοντέλο.', scout: '' });
-    assert.equal(hot.prompts.rules, 'base text');
-    const before = hot.hashes.promptsHash;
-
-    writePreamble(dir, 'scout', 'Ιστός.');
-    fs.rmSync(path.join(dir, 'data', 'prompts', 'preambles', '@moonshotai-kimi-k3.md'));
-    writePreamble(dir, 'all', ''); // emptied: '' at once, no keep-the-previous guard
-    assert.equal(hot.reloadPrompts(), true);
-    assert.deepEqual(hot.prompts.preambles, { all: '', scout: 'Ιστός.' });
-    assert.notEqual(hot.hashes.promptsHash, before, 'the preambles count in the prompts hash');
-
-    fs.rmSync(path.join(dir, 'data', 'prompts', 'preambles'), { recursive: true, force: true });
-    hot.reloadPrompts();
-    assert.deepEqual(hot.prompts.preambles, {}, 'the folder removed: none left');
+    assert.equal(hot.prompts['preambles/@claude-sonnet-4.6'], 'for the model');
+    assert.deepEqual(promptsInFolder(hot.prompts, 'preambles'), {
+      all: 'shared',
+      '@claude-sonnet-4.6': 'for the model',
+    });
+    assert.equal(preambleOf(hot, 'scout', 'openrouter/anthropic/claude-sonnet-4.6'), 'shared\n\nfor the model');
   } finally {
     hot.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('watch: data/prompts/preambles/ gets a watcher of its own; created, edited and removed, it reloads', async () => {
+test('reloadPrompts: a deleted preamble file is gone after a reload', () => {
   const dir = makeRoot();
-  writeLocalPrompt(dir, 'rules', 'local text');
-  const localDir = path.join(dir, 'data', 'prompts');
-  const preamblesDir = path.join(localDir, 'preambles');
-  const watch = fakeWatch();
-  const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
-  try {
-    assert.equal(watch.of(preamblesDir).length, 0, 'no folder: no watcher');
-    const [local] = watch.of(localDir);
-
-    writePreamble(dir, 'all', 'first');
-    local.listener('rename', 'preambles');
-    assert.equal(watch.of(preamblesDir).length, 1, 'the new folder is watched');
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.equal(hot.prompts.preambles.all, 'first');
-
-    writePreamble(dir, 'all', 'second');
-    watch.of(preamblesDir)[0].listener('change', 'all.md');
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.equal(hot.prompts.preambles.all, 'second', 'an edit inside the folder reloads');
-
-    fs.rmSync(preamblesDir, { recursive: true, force: true });
-    local.listener('rename', 'preambles');
-    assert.equal(watch.of(preamblesDir)[0].closed, true, "the removed folder's watcher is closed");
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.deepEqual(hot.prompts.preambles, {});
-
-    writePreamble(dir, 'scout', 'again');
-    local.listener('rename', 'preambles');
-    assert.equal(watch.of(preamblesDir).length, 2);
-    hot.close();
-    assert.equal(watch.of(preamblesDir)[1].closed, true, 'close() closes it too');
-  } finally {
-    hot.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('watch: a preambles/ folder present at start is watched; an error frees its watcher', async () => {
-  const dir = makeRoot();
-  writePreamble(dir, 'all', 'text');
-  const preamblesDir = path.join(dir, 'data', 'prompts', 'preambles');
-  const watch = fakeWatch();
-  const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
-  try {
-    const [first] = watch.of(preamblesDir);
-    assert.ok(first);
-    await withCapturedLogs(() => first.emit('error', new Error('EPERM')));
-    assert.equal(first.closed, true);
-    watch.of(path.join(dir, 'data', 'prompts'))[0].listener('rename', 'preambles');
-    assert.equal(watch.of(preamblesDir).length, 2, 'the next event on data/prompts/ starts a new one');
-  } finally {
-    hot.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('createHot: an emptied preamble file composes to nothing at once, while an emptied top-level prompt keeps its text', () => {
-  const dir = makeRoot();
-  writeLocalPrompt(dir, 'rules', 'local rules');
-  writePreamble(dir, 'scout', 'Ιστός.');
+  writePreamble(dir, 'all', 'shared');
+  writePreamble(dir, 'scout', 'for scout');
   const hot = createHot({ rootDir: dir });
-  const scoutPreamble = () => composePreamble({ prompts: wrongly(hot.prompts), agent: 'scout', model: null }).text;
   try {
-    assert.equal(scoutPreamble(), 'Ιστός.');
-    writePreamble(dir, 'scout', 'Ιστός, δεύτερο.');
-    assert.equal(hot.reloadPrompts(), true);
-    assert.equal(scoutPreamble(), 'Ιστός, δεύτερο.');
-
-    writePreamble(dir, 'scout', '');
-    writeLocalPrompt(dir, 'rules', ''); // half-written top-level file: the guard stays
-    assert.equal(hot.reloadPrompts(), true);
-    assert.equal(scoutPreamble(), '', 'an empty preamble file is nothing');
-    assert.equal(hot.prompts.rules, 'local rules');
-
-    writePreamble(dir, 'scout', 'Ιστός.');
-    hot.reloadPrompts();
-    writePreamble(dir, 'scout', '  \n\t\n');
-    hot.reloadPrompts();
-    assert.equal(scoutPreamble(), '', 'whitespace only is nothing');
-
-    writePreamble(dir, 'scout', 'Ιστός.');
-    hot.reloadPrompts();
     fs.rmSync(path.join(dir, 'data', 'prompts', 'preambles', 'scout.md'));
-    hot.reloadPrompts();
-    assert.equal(scoutPreamble(), '', 'a deleted file is nothing');
+    assert.equal(hot.reloadPrompts(), true);
+    assert.equal(preambleOf(hot, 'scout', null), 'shared');
+    assert.equal(Object.hasOwn(hot.prompts, 'preambles/scout'), false);
   } finally {
     hot.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -871,18 +839,121 @@ test('createHot: data/prompts/agents.md is not a preamble and draws no warning',
       hot = createHot({ rootDir: dir });
       hot.reloadPrompts();
     });
-    assert.deepEqual(present(hot).prompts.preambles, {});
-    assert.equal(
-      composePreamble({
-        prompts: wrongly(present(hot).prompts),
-        agent: 'scout',
-        model: null,
-      }).text,
-      ''
-    );
+    assert.deepEqual(promptsInFolder(present(hot).prompts, 'preambles'), {});
+    assert.equal(preambleOf(present(hot), 'scout', null), '');
     assert.ok(!logs.some((entry) => entry.level === 'warn'), 'no warning about it');
   } finally {
     hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Prompt files in folders: a `.md` file at any depth is one prompt keyed by its
+// relative path, `/` between the parts.
+// ---------------------------------------------------------------------------
+
+/** Write `<root>/<key>.md`, making its folders. */
+function writeAt(root: string, key: string, text: string) {
+  const file = path.join(root, `${key}.md`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+}
+
+test('createHot: a tracked file in a nested folder loads under its relative path', () => {
+  const dir = makeRoot({ prompts: { reply: 'root text' } });
+  writeAt(path.join(dir, 'prompts'), 'diary/kinds/status', 'nested text');
+  const hot = createHot({ rootDir: dir });
+  try {
+    assert.equal(hot.prompts['diary/kinds/status'], 'nested text');
+    assert.equal(hot.prompts.reply, 'root text');
+    assert.equal(hot.promptSources['diary/kinds/status'], 'base');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: a deployment file replaces the nested tracked file of the same path and leaves its neighbours', () => {
+  const dir = makeRoot();
+  const tracked = path.join(dir, 'prompts');
+  writeAt(tracked, 'heartbeat/seeds/a', 'tracked a');
+  writeAt(tracked, 'heartbeat/seeds/b', 'tracked b');
+  writeAt(path.join(dir, 'data', 'prompts'), 'heartbeat/seeds/a', 'local a');
+  const hot = createHot({ rootDir: dir });
+  try {
+    assert.equal(hot.prompts['heartbeat/seeds/a'], 'local a');
+    assert.equal(hot.promptSources['heartbeat/seeds/a'], 'local');
+    assert.equal(hot.prompts['heartbeat/seeds/b'], 'tracked b');
+    assert.equal(hot.promptSources['heartbeat/seeds/b'], 'base');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: a nested deployment file with no tracked twin loads', () => {
+  const dir = makeRoot();
+  writeAt(path.join(dir, 'data', 'prompts'), 'diary/kinds/dream', 'local only');
+  const hot = createHot({ rootDir: dir });
+  try {
+    assert.equal(hot.prompts['diary/kinds/dream'], 'local only');
+    assert.equal(hot.promptSources['diary/kinds/dream'], 'local');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: an emptied nested deployment file falls back to the tracked file of the same path', () => {
+  const dir = makeRoot();
+  writeAt(path.join(dir, 'prompts'), 'diary/kinds/status', 'tracked');
+  writeAt(path.join(dir, 'data', 'prompts'), 'diary/kinds/status', '  \n');
+  const hot = createHot({ rootDir: dir });
+  try {
+    assert.equal(hot.prompts['diary/kinds/status'], 'tracked');
+    assert.equal(hot.promptSources['diary/kinds/status'], 'base');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watch: both prompt folders are watched recursively, and a nested file changed after the start reloads', async () => {
+  const dir = makeRoot();
+  writeAt(path.join(dir, 'prompts'), 'diary/kinds/status', 'first');
+  writeLocalPrompt(dir, 'rules', 'local text');
+  const watch = fakeWatch();
+  const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
+  try {
+    const [base] = watch.of(path.join(dir, 'prompts'));
+    const [local] = watch.of(path.join(dir, 'data', 'prompts'));
+    assert.equal(base.options.recursive, true);
+    assert.equal(local.options.recursive, true);
+
+    writeAt(path.join(dir, 'prompts'), 'diary/kinds/status', 'second');
+    base.listener('change', path.join('diary', 'kinds', 'status.md'));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(hot.prompts['diary/kinds/status'], 'second');
+  } finally {
+    hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watch: a folder created after the start reloads on its own event', async () => {
+  const dir = makeRoot();
+  writeLocalPrompt(dir, 'rules', 'local text');
+  const watch = fakeWatch();
+  const hot = createHot({ rootDir: dir, watchImpl: wrongly(watch) }).watch();
+  try {
+    const [local] = watch.of(path.join(dir, 'data', 'prompts'));
+    writeAt(path.join(dir, 'data', 'prompts'), 'heartbeat/seeds/a', 'moved in');
+    local.listener('rename', 'heartbeat');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(hot.prompts['heartbeat/seeds/a'], 'moved in');
+  } finally {
+    hot.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

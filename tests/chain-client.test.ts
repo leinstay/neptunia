@@ -373,9 +373,10 @@ test('a harness route whose effort is a level asks its run for native thinking, 
 });
 
 test('a text role whose route and llm.routeEffort name no effort sends reasoning at medium', async () => {
-  // Catches: a helper that answers in text (the analyzer, vision, video, quick search) left at the provider's own
-  // default when the owner set no effort for it, instead of the engine's medium.
-  for (const role of ['analyzer', 'vision', 'video', 'search']) {
+  // Catches: a helper that answers in text (the analyzer, vision, video, the humanizer's linter) left at the provider's
+  // own default when the owner set no effort for it, instead of the engine's medium.
+  // Changed: the role `search` is gone from the routing, so the linter stands for the roles beyond the base.
+  for (const role of ['analyzer', 'vision', 'video', 'linter']) {
     const config = {
       models: { routes: { [role]: [{ via: 'api', key: 'helpers', model: 'x/helper' }] } },
       llm: { routeEffort: { core: 'disabled' } },

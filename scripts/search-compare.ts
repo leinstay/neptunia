@@ -16,10 +16,10 @@
 // a config view of this process only; `features.webLookup` and `web.quickSearch.enabled` forced on,
 // `web.maxPerDay` forced to 1 over a fresh counter), with the real clients: src/web/brave.ts
 // (the `brave` service key), src/web/exa.ts (the `exa` service key), and the summary on the
-// quick search's own role as production sends it. The cache is bypassed: every search gets a fresh lookup over a
+// analyzer as production sends it. The cache is bypassed: every search gets a fresh lookup over a
 // fresh in-memory state and a store stub whose media cache is a new empty object, so the cache key
 // (`search:<sha1 of the normalized query>`) never hits and nothing is kept. An engine the lookup
-// cannot run (Brave or Exa without its key, any engine without a `search` chain) is `skipped` for every row. The tool never retries beyond
+// cannot run (Brave or Exa without its key) is `skipped` for every row. The tool never retries beyond
 // what the clients do.
 //
 // Timings: the engine's own call (the Brave or Exa client's `search`, or, for `openrouter`, the one
@@ -98,7 +98,7 @@ async function liveClient({
   const calibrator = createCalibrator();
   const routing = await scriptRouting(ORIGIN, {
     privateDir,
-    roles: ['search'],
+    roles: ['analyzer'],
     variant: routes,
     getConfig,
     createDirect: (keys, configOf) => createLlm({ apiKey: '', keys, getConfig: configOf, calibrator, state }),

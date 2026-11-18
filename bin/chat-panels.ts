@@ -174,13 +174,6 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
       {},
       'Search'
     ),
-    {
-      id: 'search:model',
-      label: 'Search model',
-      detail: 'Set the model independently from the analyzer.',
-      group: 'Search',
-      prefill: '/search model ',
-    },
   ];
 }
 

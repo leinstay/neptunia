@@ -83,8 +83,8 @@ async function turnOf({
     withHot: (hot) => {
       Object.assign(hot.config, { humanizer: { enabled } });
       Object.assign((hot.config.models as { routes: object }).routes, {
-        'humanizer.linter': route('l/m'),
-        'humanizer.writer': route('w/m'),
+        'linter': route('l/m'),
+        'editor': route('w/m'),
       });
     },
     runner: { llm },
@@ -155,8 +155,8 @@ test('a turn split into two parts sends the speech of each part to the humanizer
   const hot = splitHot();
   Object.assign(hot.config, { humanizer: { enabled: true } });
   Object.assign((hot.config.models as { routes: object }).routes, {
-    'humanizer.linter': route('l/m'),
-    'humanizer.writer': route('w/m'),
+    'linter': route('l/m'),
+    'editor': route('w/m'),
   });
   Object.assign(hot.prompts, PROMPTS);
   const rest = splitLlm({
@@ -191,7 +191,7 @@ test("a diary post stores the writer's text as its entry", async () => {
       image: {},
       diary: { placeId: 'd1', world: false },
       humanizer: { enabled: true },
-      models: { routes: { 'humanizer.linter': route('l/m'), 'humanizer.writer': route('w/m') } },
+      models: { routes: { 'linter': route('l/m'), 'editor': route('w/m') } },
     },
     prompts: {
       'system-prompt': 'SYSTEM for {{name}}',

@@ -16,9 +16,9 @@ const scripted = (answers: ReadonlyArray<string>) => {
 const searchSettings = (dataDir: string): unknown =>
   (readLocalConfig(localConfigPath(dataDir)) as { web?: { quickSearch?: unknown } }).web?.quickSearch;
 
-/** The `search` chain the settings file holds. */
-const searchChain = (dataDir: string): unknown =>
-  (readLocalConfig(localConfigPath(dataDir)) as { models?: { routes?: { search?: unknown } } }).models?.routes?.search;
+/** The chains of routes the settings file holds. */
+const chains = (dataDir: string): unknown =>
+  (readLocalConfig(localConfigPath(dataDir)) as { models?: { routes?: unknown } }).models?.routes;
 
 test('the step shows the link, takes the key without echo, and an empty answer skips it', async () => {
   // Bug: the owner is asked for a key with no way to learn where it comes from, or the key is echoed.
@@ -45,15 +45,12 @@ test('quick search stays off when the owner answers nothing, and no engine is wr
 
 test('a chosen engine goes in with what it needs, and without it the engine stays out', async () => {
   // Bug: the engine is written with an empty key or model, and quick search looks set up while it refuses every search.
-  // Changed: `openrouter` needs a route on a named key, written as the `search` chain (slice 4).
+  // Changed: `openrouter` searches on the analyzer's routes, so the step asks it nothing more and writes no chain.
   const given = tempDir('nep-setup-search-');
   writeKeys(given, { keys: { main: 'sk-or-v1-main' } });
-  await servicesStep({ dataDir: given }, { ask: scripted(['', 'openrouter', 'main/x/quick']) });
+  await servicesStep({ dataDir: given }, { ask: scripted(['', 'openrouter']) });
   assert.deepEqual(searchSettings(given), { engine: 'openrouter' });
-  assert.deepEqual(searchChain(given), [{ via: 'api', key: 'main', model: 'x/quick', effort: null }]);
-  const unknown = tempDir('nep-setup-search-');
-  await servicesStep({ dataDir: unknown }, { ask: scripted(['', 'openrouter', 'nosuch/x/quick']) });
-  assert.equal(searchSettings(unknown), undefined, 'a route on a key keys.json lacks leaves the engine out');
+  assert.equal(chains(given), undefined);
   const keyed = tempDir('nep-setup-search-');
   await servicesStep({ dataDir: keyed }, { ask: scripted(['', 'exa', 'exa-key']) });
   assert.deepEqual(searchSettings(keyed), { engine: 'exa' });

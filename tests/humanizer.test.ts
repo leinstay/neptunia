@@ -16,8 +16,8 @@ function hotOf({ enabled = true, writer = true }: { enabled?: boolean; writer?: 
       humanizer: { enabled },
       models: {
         routes: {
-          'humanizer.linter': route('lint/model'),
-          ...(writer ? { 'humanizer.writer': route('write/model') } : {}),
+          'linter': route('lint/model'),
+          ...(writer ? { 'editor': route('write/model') } : {}),
         },
       },
     },
@@ -58,7 +58,11 @@ const LINT_YES = JSON.stringify({
   findings: [{ kind: 'shape', quote: '', problem: 'δύο μπλοκ ίδια', fix: 'σπάσε τη συμμετρία' }],
 });
 
-const run = async (llm: ReturnType<typeof fakeLlm>, hot = hotOf(), messages = DRAFT) =>
+const run = async (
+  llm: ReturnType<typeof fakeLlm>,
+  hot: { config: unknown; prompts: unknown } = hotOf(),
+  messages = DRAFT
+) =>
   (await humanizeSpeech({ parsed: { messages, think: THINK }, loweredCalls: [], llm, hot, name: 'Ελένη', place: 'c1' }))
     .messages;
 
@@ -77,13 +81,31 @@ test('posts a text under 40 words unchanged and asks no model', async () => {
   assert.equal(llm.calls.length, 0);
 });
 
+test('sends no request when the chains stand under the retired role names humanizer.linter and humanizer.writer', async () => {
+  // Catches: the old role names read as the new ones, so a deployment that never renamed its chains keeps a humanizer
+  // whose roles no command, status line or doctor check names.
+  const llm = fakeLlm({
+    lint: LINT_YES,
+    write: `<msg reply="#3">${WRITTEN_A}</msg><msg reply="#5">${WRITTEN_B}</msg>`,
+  });
+  const hot = {
+    ...hotOf(),
+    config: {
+      humanizer: { enabled: true },
+      models: { routes: { 'humanizer.linter': route('lint/model'), 'humanizer.writer': route('write/model') } },
+    },
+  };
+  assert.deepEqual(await run(llm, hot), DRAFT);
+  assert.equal(llm.calls.length, 0);
+});
+
 test('posts the draft unchanged after one request when the linter says no', async () => {
   // Catches: the writer runs whatever the linter answered.
   const llm = fakeLlm({ lint: JSON.stringify({ rewrite: false, findings: [] }), write: '<msg>άλλο</msg>' });
   assert.deepEqual(await run(llm), DRAFT);
   assert.deepEqual(
     llm.calls.map((call) => [call.options.purpose, call.options.role]),
-    [['humanizer-linter', 'humanizer.linter']]
+    [['humanizer-linter', 'linter']]
   );
 });
 
@@ -100,8 +122,8 @@ test('posts the writer messages with their reply targets when the linter asks a 
   assert.deepEqual(
     llm.calls.map((call) => [call.options.purpose, call.options.role]),
     [
-      ['humanizer-linter', 'humanizer.linter'],
-      ['humanizer-writer', 'humanizer.writer'],
+      ['humanizer-linter', 'linter'],
+      ['humanizer-writer', 'editor'],
     ]
   );
 });
