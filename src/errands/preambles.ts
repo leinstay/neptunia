@@ -1,6 +1,6 @@
 // The preamble of one errand run, picked by agent and model from the deployment's private
-// prompt layer: the optional files of data/prompts/preambles/ (loaded live by src/hot.ts into
-// `hot.prompts.preambles`, by base name), with no tracked default. One shared text does not fit
+// prompt layer: the optional files of data/prompts/preambles/ (loaded live by src/hot.ts under the keys
+// `preambles/<base name>`), with no tracked default. One shared text does not fit
 // every model, so a run's preamble is the matching files, in this order, joined by a blank line:
 //   all.md                 every run;
 //   <agent>.md             the runs of one agent (`scout.md`, `server.md`, ...);
@@ -48,19 +48,19 @@ function textOf(value: unknown): string {
 
 /**
  * The preamble of one run.
- * `prompts` is the live prompts (`preambles`: base name to text) and `model` the run's model id. `files` are the sent
+ * `preambles` is the live preamble files by base name (src/hot.ts#promptsInFolder of `preambles`) and `model` the run's model id. `files` are the sent
  * files (`preambles/<name>.md`), in order, and `chars` the length of `text`.
  */
 export function composePreamble({
-  prompts,
+  preambles,
   agent,
   model = null,
 }: {
-  prompts?: { preambles?: unknown };
+  preambles?: unknown;
   agent?: string;
   model?: string | null;
 } = {}): { text: string; files: Array<string>; chars: number } {
-  const folder = objOf(prompts?.preambles);
+  const folder = objOf(preambles);
   const parts: Array<{ file: string; text: string }> = [];
   for (const name of preambleNames(agent, model)) {
     const text = Object.hasOwn(folder, name) ? textOf(folder[name]) : '';

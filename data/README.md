@@ -7,7 +7,7 @@ The persona root: everything that makes one deployment's persona, kept apart fro
 | `memory.db` | The memory database: memory, the journal, the request archive, media descriptions, intentions and tasks. |
 | `media/` | The media originals kept for the diary. |
 | `config/` | Personal settings over the defaults of the engine's `config/`. |
-| `prompts/` | Personal prompts, each replacing the engine's file of the same name. |
+| `prompts/` | Personal prompts at any depth, each replacing the engine's file of the same relative path. |
 | `keys.json` | Model keys and service credentials, mode `0600`. |
 | `agents/<name>/` | Personal prompt and profile fields of an agent from the engine's `agents/`. |
 | `skills/<name>/` | Authored skills, their scripts and their state. |

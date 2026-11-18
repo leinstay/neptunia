@@ -13,7 +13,7 @@
 // `agents.<name>` over it (agentSettings), read at the moment of use. Logs carry the profile, ids and codes, never a goal, a result or an errand's `secrets`
 // (sent on the `run` line and nowhere else). A `run` also carries the deployment's preamble when
 // one matches: the files of data/prompts/preambles/ picked by agent and by the model of the run's
-// route (src/errands/preambles.ts; `hot.prompts.preambles`, read live; no tracked default). The
+// route (src/errands/preambles.ts; the `preambles/<name>` keys of `hot.prompts`, read live; no tracked default). The
 // composed preamble goes out whole, however long. The core reads the private layer, the runners never do. Logs carry
 // the model id, the file names and the length, never a text.
 
@@ -23,6 +23,7 @@ import { encodeLine, normalizeResult, normalizeUsage } from '../agent-runner/pro
 import { agentSettings, loadProfiles, profileOf, unitPaths } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { composePreamble } from './preambles.ts';
+import { promptsInFolder } from '../hot.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, textOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
@@ -41,6 +42,9 @@ type Link = {
   timer: TimerHandle | null;
   buffer: string;
 };
+
+/** The folder of data/prompts/ holding the preamble files. */
+const PREAMBLES_FOLDER = 'preambles';
 
 /** The first reconnect delay and its ceiling (ms); the delay doubles after each failed attempt. */
 export const RECONNECT_MIN_MS = 1000;
@@ -79,12 +83,12 @@ function preambleOf(
   runModel: string | null,
   hot: ErrandClientOptions['hot']
 ): ReturnType<typeof composePreamble> {
-  return composePreamble({ prompts: { preambles: hot?.prompts?.preambles }, agent, model: runModel });
+  return composePreamble({ preambles: promptsInFolder(hot?.prompts ?? {}, PREAMBLES_FOLDER), agent, model: runModel });
 }
 
 /**
  * `hot` holds the live config (`agents.<name>.enabled`) and prompts
- * (`preambles`: read at each run). `connect` opens a socket (tests inject one).
+ * (the `preambles/<name>` files: read at each run). `connect` opens a socket (tests inject one).
  */
 export function createErrandClient({
   hot,

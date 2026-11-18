@@ -202,9 +202,9 @@ test("errands client: the preamble goes out on a run's line only when non-empty,
   try {
     const { logs } = await withCapturedLogs(async () => {
       assert.equal(Object.hasOwn(await runOnce('task-none'), 'preamble'), false, 'no prompts at all: none sent');
-      loose(hot).prompts = { preambles: { all: '' } };
+      loose(hot).prompts = { 'preambles/all': '' };
       assert.equal(Object.hasOwn(await runOnce('task-empty'), 'preamble'), false, 'an empty file: none sent');
-      loose(hot).prompts = { preambles: { all: '  SHARED-PREAMBLE for every agent.\n' } };
+      loose(hot).prompts = { 'preambles/all': '  SHARED-PREAMBLE for every agent.\n' };
       assert.equal(loose(await runOnce('task-with')).preamble, 'SHARED-PREAMBLE for every agent.');
       loose(hot).prompts = { agents: 'SHARED-PREAMBLE in the old agents.md' };
       assert.equal(
@@ -237,12 +237,10 @@ test("errands client: the preamble is composed by agent and the route's model, l
   const runner = await fakeRunner(sock);
   const hot = hotFor();
   loose(hot).prompts = {
-    preambles: {
-      all: 'ALL-TEXT',
-      scout: 'SCOUT-TEXT',
-      '@claude-sonnet-4.6': 'SONNET-TEXT',
-      'scout@gpt-6-sol': 'SCOUT-SOL-TEXT',
-    },
+    'preambles/all': 'ALL-TEXT',
+    'preambles/scout': 'SCOUT-TEXT',
+    'preambles/@claude-sonnet-4.6': 'SONNET-TEXT',
+    'preambles/scout@gpt-6-sol': 'SCOUT-SOL-TEXT',
   };
   const client = createErrandClient({ hot });
   const routeOn = (model: string | null): TaskRoute => ({ backend: 'opencode', model, effort: null, mode: 'read' });
@@ -259,7 +257,7 @@ test("errands client: the preamble is composed by agent and the route's model, l
       assert.equal(loose(onSonnet).preamble, 'ALL-TEXT\n\nSCOUT-TEXT\n\nSONNET-TEXT', "the route's model file");
       assert.equal(Object.hasOwn(onSonnet, 'model'), false, 'the route carries the model, the line no second one');
 
-      loose(hot).prompts = { ...loose(hot).prompts, preambles: { ...loose(hot).prompts.preambles, all: '' } };
+      loose(hot).prompts = { ...loose(hot).prompts, 'preambles/all': '' };
       const live = await runOnce('task-live', routeOn('openrouter/openai/gpt-6-sol'));
       assert.equal(
         loose(live).preamble,
@@ -528,7 +526,7 @@ test('errands client: a composed preamble of 110000 characters goes out whole on
     config: {
       agents: { scout: { enabled: true } },
     },
-    prompts: { preambles: { all, scout, '@model': 'MODEL' } },
+    prompts: { 'preambles/all': all, 'preambles/scout': scout, 'preambles/@model': 'MODEL' },
   };
   const client = createErrandClient({ hot });
   try {

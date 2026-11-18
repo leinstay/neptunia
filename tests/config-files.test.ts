@@ -55,11 +55,13 @@ type Watcher = EventEmitter & { target: string; listener: (event: string, file: 
 
 /** A fake fs.watch: every watcher it hands out records its target and listener. */
 function fakeWatch(): {
-  watch: (target: string, listener: (event: string, file: string) => void) => Watcher;
+  watch: (target: string, ...rest: Array<unknown>) => Watcher;
   of: (target: string) => Array<Watcher>;
 } {
   const handed: Array<Watcher> = [];
-  const watch = (target: string, listener: (event: string, file: string) => void): Watcher => {
+  // fs.watch takes its options before the listener when it is given some.
+  const watch = (target: string, ...rest: Array<unknown>): Watcher => {
+    const listener = rest.at(-1) as (event: string, file: string) => void;
     const watcher = Object.assign(new EventEmitter(), { target, listener, close: () => {} });
     handed.push(watcher);
     return watcher;
@@ -276,7 +278,7 @@ test('targeted writes and prompt watchers update the same canonical data directo
     });
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(rootDir, 'config/config.json'), 'utf8')), BASE_CONFIG);
     assert.equal(fs.existsSync(path.join(dataDir, 'config.local')), false);
-    assert.deepEqual(hot.prompts.preambles, { probe: 'personal preamble' });
+    assert.equal(hot.prompts['preambles/probe'], 'personal preamble');
     const configWatch = fake.of(path.join(dataDir, 'config'));
     const promptWatch = fake.of(path.join(dataDir, 'prompts'));
     assert.equal(configWatch.length, 1);

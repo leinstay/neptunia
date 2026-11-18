@@ -35,7 +35,7 @@ test('composePreamble: every matching file goes in whole however long, and no fi
   // agent or model part without anyone deciding it.
   const all = 'a'.repeat(60_000);
   const scout = 's'.repeat(60_000);
-  const out = composePreamble({ prompts: { preambles: { all, scout } }, agent: 'scout' });
+  const out = composePreamble({ preambles: { all, scout }, agent: 'scout' });
   assert.equal(out.text === `${all}\n\n${scout}`, true, 'both files, whole, in order');
   assert.deepEqual(out.files, ['preambles/all.md', 'preambles/scout.md']);
   assert.equal(out.chars, 120_002);
