@@ -225,6 +225,8 @@ type Names = {
   meanwhileRefs: MeanwhileRefs;
   /** A place id by its handle and path, null for a place the memory holds no row of. */
   placeRef: (placeId: string) => string | null;
+  /** A place id by its channel handle with `#`, null for a place with none. */
+  placeHandle: (placeId: string) => string | null;
   /** A stored place as a line of `<my_day>` or `<intentions>` names it: its handle, else its name, else the unnamed word. */
   placeNamed: (placeId: string) => string;
   /** The windows of `<meanwhile>`, every author keyed. */
@@ -491,6 +493,10 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
       keepEmoji,
     });
   };
+  const placeHandle = (placeId: string): string | null => {
+    const chatId = chatIdOf(placeId);
+    return chatId === null ? null : `#${places.handleOf(chatId)}`;
+  };
   const placeNamed = (placeId: string): string => {
     const view = given.placePathOf?.(placeId) ?? null;
     if (view === null) return escapeStored(labels.spatial?.unnamed ?? '');
@@ -521,6 +527,7 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
     },
     meanwhileRefs: { handleOf: (key) => people.handleOf(key), mention },
     placeRef,
+    placeHandle,
     placeNamed,
     windows,
   };
@@ -668,10 +675,7 @@ function offeredOf(given: ReaderInput): Offered {
         labels,
         given.nameOf,
         names.entryRefs,
-        (placeId) => {
-          const chatId = chatIdOfInput(given)(placeId);
-          return chatId === null ? null : `#${names.places.handleOf(chatId)}`;
-        },
+        names.placeHandle,
         ACTIVITY_DAYS,
         keepsEmoji(given.config)
       )
@@ -951,7 +955,14 @@ export function readerRequest(given: ReaderInput): ReaderResult {
     keptChat,
     handles: handleIds,
     channelHandleById: named ? names.places.entries() : new Map<string, string>(),
-    refs: named ? { targets, personHandle: (key) => names.people.handleOf(key), placeRef: names.placeRef } : null,
+    refs: named
+      ? {
+          targets,
+          personHandle: (key) => names.people.handleOf(key),
+          placeRef: names.placeRef,
+          placeHandle: names.placeHandle,
+        }
+      : null,
     memberNames,
     peopleShown: people
       .filter((one) => one.name !== null && one.handleIds.length > 0)

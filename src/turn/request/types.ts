@@ -462,11 +462,12 @@ export type HandleTarget = {
 
 /**
  * What a request hands on for the rest of its turn: each person's handle (without `@`) to where it may mention them,
- * the handle of a person or account key as the request gives it, and a place id named as the request names it (null
- * for a place the memory holds no row of).
+ * the handle of a person or account key as the request gives it, a place id named as the request names it (null
+ * for a place the memory holds no row of), and a place's channel handle with `#` (null for a place with none).
  */
 export type RequestRefs = {
   readonly targets: ReadonlyMap<string, HandleTarget>;
   readonly personHandle: (key: string) => string;
   readonly placeRef: (placeId: string) => string | null;
+  readonly placeHandle: (placeId: string) => string | null;
 };

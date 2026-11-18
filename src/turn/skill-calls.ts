@@ -450,7 +450,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       id,
       labels: hot.prompts?.labels,
       timezone: (hot.config as { bot?: { timezone?: string } }).bot?.timezone ?? 'UTC',
-      placeName: (placeId) => draft.requestRefs?.placeRef(placeId) ?? placeId,
+      // A place by the handle its entry of `<places>` opens with; one with no handle by its full reference.
+      placeName: (placeId) =>
+        draft.requestRefs?.placeHandle(placeId) ?? draft.requestRefs?.placeRef(placeId) ?? placeId,
       // A person the request holds a handle for is named by it; one it does not is counted and not named.
       personName: (key) => {
         const refs = draft.requestRefs;
