@@ -80,6 +80,8 @@ import {
   type BatchPerson,
 } from './session-people.ts';
 import { readRetrieved, retrievedLines, sessionEmbedding } from './session-retrieved.ts';
+import { stretchBlockOf, validStretches } from './session-stretches.ts';
+import type { StretchRef } from './session-stretches.ts';
 import { cutByArrival, fewestParts, pageBudgetOf, shareOf, unitsOf } from './session-size.ts';
 import type { MemoryPage } from './semantic-types.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
@@ -100,6 +102,7 @@ const SESSION_BLOCKS: ReadonlyArray<string> = Object.freeze([
   'intentions',
   'retrieved',
   'batch',
+  'stretches',
 ]);
 export const CLAIM_KINDS: ReadonlyArray<string> = Object.freeze([
   'detail',
@@ -559,6 +562,8 @@ export type RequestMaps = {
   priorVersions?: Map<string, string>;
   /** `xN`: a stored entity the request showed, a `ref` an assertion may name. */
   priorEntities?: Map<string, string>;
+  /** `sN`: a stretch of `<stretches>`, which the answer's group `stretches` names. */
+  stretches?: Map<string, StretchRef>;
 };
 
 /** A request of one batch page: the messages, the maps of its local ids, its counts and the reads it renders. */
@@ -613,6 +618,24 @@ function shownClaimsOf(
     )
     .all(given.subjectKind, ...given.subjectIds, ...scope.params, given.cutoffIso, given.cutoffIso, given.max);
 }
+
+/** How `<people>` renders a profile: the way her turns do, as of `now`, an account's name by `nameOf`. */
+const profileOptionsOf = (now: number, nameOf: (id: string) => string | null) => ({
+  interlocutor: true,
+  relationships: true,
+  maxInterests: MEMORY_LIMITS.maxInterests,
+  maxDetails: MEMORY_LIMITS.maxDetails,
+  maxAliases: MEMORY_LIMITS.maxAliases,
+  aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
+  addressHalfLifeDays: MEMORY_LIMITS.addressHalfLifeDays,
+  interestHalfLifeDays: MEMORY_LIMITS.interestHalfLifeDays,
+  detailHalfLifeDays: MEMORY_LIMITS.detailHalfLifeDays,
+  confirmAfter: MEMORY_LIMITS.confirmAfter,
+  staleDays: MEMORY_LIMITS.interestStaleDays,
+  supersededShownDays: MEMORY_LIMITS.supersededShownDays,
+  now,
+  nameOf,
+});
 
 /** The engine's hash of a stored row's id for the session request's ids: twelve base-36 digits of its SHA-256. */
 const storedHash = (rowId: string): string => handleOf(rowId, 12, '');
@@ -716,9 +739,13 @@ export function buildSessionRequest({
   const ownTimeHead = asText((labels.memory as Row | undefined)?.ownTime ?? '');
   // Each shown line as a normalized message, for the legend of its custom emoji and stickers.
   const shownMessages: Array<Row> = [];
+  // Each line with its number, 0 for a line the batch does not show, for `<stretches>`.
+  const numbered: Array<BatchLine & { n: number }> = [];
   for (const line of batch) {
     const media = mediaOf.get(asText(line.id)) ?? [];
-    if ((typeof line.text !== 'string' || line.text.trim() === '') && media.length === 0) continue;
+    const shown = (typeof line.text === 'string' && line.text.trim() !== '') || media.length > 0;
+    numbered.push({ ...line, n: shown ? n + 1 : 0 });
+    if (!shown) continue;
     const parts = mediaMessageParts(media, line.native_id);
     shownMessages.push({ content: line.text, ...parts });
     n += 1;
@@ -823,22 +850,7 @@ export function buildSessionRequest({
   }
 
   // <people>
-  const profileOptions = {
-    interlocutor: true,
-    relationships: true,
-    maxInterests: MEMORY_LIMITS.maxInterests,
-    maxDetails: MEMORY_LIMITS.maxDetails,
-    maxAliases: MEMORY_LIMITS.maxAliases,
-    aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
-    addressHalfLifeDays: MEMORY_LIMITS.addressHalfLifeDays,
-    interestHalfLifeDays: MEMORY_LIMITS.interestHalfLifeDays,
-    detailHalfLifeDays: MEMORY_LIMITS.detailHalfLifeDays,
-    confirmAfter: MEMORY_LIMITS.confirmAfter,
-    staleDays: MEMORY_LIMITS.interestStaleDays,
-    supersededShownDays: MEMORY_LIMITS.supersededShownDays,
-    now,
-    nameOf,
-  };
+  const profileOptions = profileOptionsOf(now, nameOf);
   const peopleBodies = [];
   for (const person of shown) {
     const account = db
@@ -884,6 +896,12 @@ export function buildSessionRequest({
     read,
   });
   const intentionLines = intentionLinesOf(db, ctx, shown, placeIds, read);
+  // <stretches>: on the batch's first request only, so a stretch gets one sentence however many pages the batch takes.
+  const words = labels.memory ?? {};
+  const clock = (ms: number): string => stamp(ms, timezone);
+  const placeHandle = (id: string): string => handleOf.get(id) ?? id;
+  const listed = stretchBlockOf(db, ctx, page + part === 0 ? numbered : [], { words, placeHandle, clock, read });
+  maps.stretches = listed.stretches;
 
   const system = systemTextOf(prompts, selfName, prompts?.['memory-session'], liveRules(db));
   // The stable blocks first (the cache marker covers them and the system text), the lines last: the stable part holds
@@ -904,7 +922,9 @@ export function buildSessionRequest({
     { type: 'text' as const, text: `${stable}\n\n`, cacheSegment: 'stable' as const },
     {
       type: 'text' as const,
-      text: [block('retrieved', shownRetrieved.join('\n')), block('batch', batchBody)].filter(Boolean).join('\n\n'),
+      text: [block('retrieved', shownRetrieved.join('\n')), block('batch', batchBody), listed.block]
+        .filter(Boolean)
+        .join('\n\n'),
     },
   ];
   // A read's order is its place in the request: the blocks in the order the user content has them, then as built.
@@ -990,6 +1010,7 @@ export type AnswerPlan = {
   people: Array<Row>;
   entities: Array<Row>;
   assertions: Array<Row>;
+  stretches: Array<Row>;
 };
 
 /** A group the contract does not name is counted, so a misspelled one never reads as kept. */
@@ -1018,6 +1039,7 @@ export function validateAnswer(
     people: [],
     entities: [],
     assertions: [],
+    stretches: [],
   };
   const counts: { kept: number; dropped: Record<string, number> } = { kept: 0, dropped: {} };
   const drop = (reason: string): void => {
@@ -1263,6 +1285,8 @@ export function validateAnswer(
     if (!sources) continue;
     keep('people', { op: 'add', subjectKind: author.kind, subjectId: author.id, sources, reason: text(item.reason) });
   }
+  plan.stretches = validStretches(list('stretches'), maps.stretches, drop);
+  counts.kept += plan.stretches.length;
   validateSemanticAnswer({
     priorEntities: maps.priorEntities,
     list,
@@ -1976,6 +2000,7 @@ async function runScope(
     people: plan.people.length,
     entities: plan.entities.length,
     assertions: plan.assertions.length,
+    stretches: plan.stretches.length,
   };
   return finish(counts.kept === 0 && Object.keys(counts.dropped).length > 0 ? 'all_dropped' : 'ok', {
     plan,

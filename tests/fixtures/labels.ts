@@ -300,6 +300,9 @@ export const labels = {
     redaction: 'someone',
     diary: 'her diary',
     placeUnwritten: '[{handle}] UNWRITTEN {fields}',
+    stretch: '[{handle}] {place} {first}-{last} #{from}-#{to}',
+    stretchOwn: '[{handle}] OWN {first} #{from}-#{to}',
+    stretchStored: ' STORED {what}',
     origin: { read: 'looked up' },
     relation: 'relation: {value}',
     character: 'character: {value}',
@@ -631,6 +634,7 @@ export const labels = {
     heartbeatNothing: 'ended with nothing',
     diary: '[{time}] diary entry ({kind})',
     diaryNoKind: '[{time}] diary entry',
+    about: ' ABOUT {what}',
   },
   calls: {
     header: 'calls ({date}):',

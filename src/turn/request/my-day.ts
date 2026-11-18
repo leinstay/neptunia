@@ -9,15 +9,15 @@
 // her inner turns. The place of a call is the chat its `started` line's `target.channel` names when that chat is a
 // stored place the context may read, else the place of the turn that made the call.
 //
-// The events are five kinds. A conversation is her posted lines in one place, cut where she wrote nothing there for
-// SILENCE_MS, with the people she answered: the author of the message that started the turn of a line (the turn's
+// The events are five kinds. A conversation is a stretch of her posted lines (src/memory/db/stretches.ts) with the people she answered: the author of the message that started the turn of a line (the turn's
 // `turn.start` row, `extra.trigger.authorId`) and the author of the line a line of hers replies to (`reply_to`). A
 // thing made is a call of hers that succeeded of a skill in `made`, for the author of the message that started its
 // turn, or of her own accord when no member started it. An intention carried out is an ended wake run of the kind
 // `intention_due` with each intention its view carried and the places of the lines its turn wrote (src/memory/db/past-acts.ts). Her
 // lines of such a run are told by its event and by no conversation. Her own time is an ended wake run of the kind
 // `heartbeat` with the places its calls read, the text of its search calls from the archive of requests and the
-// intention its end set. A diary entry is a row of `diary`.
+// intention its end set. A diary entry is a row of `diary`. A conversation and her own time carry the memory session's
+// sentence of their stretch when one is stored: of the same place and overlapping its time, or of the same run.
 
 import { handleOf } from '../../behavior/handles.ts';
 import { fill, formatClock, formatDate } from '../../format.ts';
@@ -32,9 +32,7 @@ import { accountOfMember, firstChannelOf, mintedAccount, placeOfChannel } from '
 import { carriedIntentions, ownOf, sentLinesOf } from '../../memory/db/past-acts.ts';
 import { mirrorPlaces } from '../../memory/db/mirrors.ts';
 import { placeVisibleWhere } from '../../memory/db/places-read.ts';
-
-/** A silence of hers this long in one place ends a conversation there. */
-const SILENCE_MS = 30 * 60_000;
+import { overlapping, storedStretches, stretchesOf } from '../../memory/db/stretches.ts';
 /** How long before her first line of a window the start row of its turn may lie: the longest turn runs shorter. */
 const TURN_REACH_MS = 60 * 60_000;
 /** How long after a diary entry's moment its turn may still make a thing that no record ties to it. */
@@ -48,11 +46,22 @@ type Call = { at: number; op: string; skill: string | null; placeId: string | nu
 
 /** One event of her day; a person is a person id, or an account id where no person holds the account. */
 type DayEvent =
-  | { kind: 'conversation'; at: number; end: number; placeId: string; lines: number; people: Array<string> }
+  | {
+      kind: 'conversation';
+      at: number;
+      end: number;
+      placeId: string;
+      lines: number;
+      people: Array<string>;
+      what: string | null;
+    }
   | { kind: 'made'; at: number; skill: string; who: string | null }
   | { kind: 'intention'; at: number; purpose: string; placeIds: Array<string>; made: Made }
   | {
       kind: 'heartbeat';
+      /** The run, which holds its stretch's sentence. */
+      runId: string;
+      what: string | null;
       at: number;
       placeIds: Array<string>;
       searched: Array<string>;
@@ -295,28 +304,47 @@ function repliedTo(db: Db, placeId: string, native: string): string | null {
   return person ? survivorOf(db, person) : textOf(row?.author_account);
 }
 
-/** Her lines as conversations: by place, cut at each silence of hers longer than SILENCE_MS. */
+/** Her lines as conversations, one per stretch, each with the people she answered in it. */
 function conversationsOf(
   db: Db,
   lines: ReadonlyArray<Line>,
   starterOf: (turn: string | null) => string | null
-): Array<DayEvent> {
-  const open = new Map<string, Extract<DayEvent, { kind: 'conversation' }>>();
-  const out: Array<DayEvent> = [];
-  for (const line of lines) {
-    let talk = open.get(line.placeId);
-    if (!talk || line.at - talk.end > SILENCE_MS) {
-      talk = { kind: 'conversation', at: line.at, end: line.at, placeId: line.placeId, lines: 0, people: [] };
-      open.set(line.placeId, talk);
-      out.push(talk);
+): Array<Extract<DayEvent, { kind: 'conversation' }>> {
+  return stretchesOf(lines).map((stretch) => {
+    const people: Array<string> = [];
+    for (const line of stretch.lines) {
+      const starter = starterOf(line.turnId);
+      const replied = line.replyTo ? repliedTo(db, line.placeId, line.replyTo) : null;
+      for (const who of [starter, replied]) if (who && !people.includes(who)) people.push(who);
     }
-    talk.end = line.at;
-    talk.lines += 1;
-    const starter = starterOf(line.turnId);
-    const replied = line.replyTo ? repliedTo(db, line.placeId, line.replyTo) : null;
-    for (const who of [starter, replied]) if (who && !talk.people.includes(who)) talk.people.push(who);
-  }
-  return out;
+    const { placeId, at, end } = stretch;
+    return { kind: 'conversation', at, end, placeId, lines: stretch.lines.length, people, what: null };
+  });
+}
+
+/**
+ * Gives each conversation and each own time of `events` the stored sentence of its stretch that `where` lets the turn
+ * read: of the conversation's place overlapping its time, of the heartbeat's run. One read for all of them.
+ */
+function withSentences(db: Db, where: { sql: string; params: Array<string> }, events: ReadonlyArray<DayEvent>): void {
+  type Told = {
+    event: Extract<DayEvent, { kind: 'conversation' | 'heartbeat' }>;
+    holder: string;
+    at: number;
+    end: number;
+  };
+  // A heartbeat's sentence is held by its run, whatever moments the session gave it.
+  const told = events.flatMap((event): Array<Told> => {
+    if (event.kind === 'conversation') return [{ event, holder: event.placeId, at: event.at, end: event.end }];
+    return event.kind === 'heartbeat' ? [{ event, holder: event.runId, at: -Infinity, end: Infinity }] : [];
+  });
+  if (told.length === 0) return;
+  const stored = storedStretches(db, where, {
+    holders: [...new Set(told.map((one) => one.holder))],
+    from: Math.min(...told.map((one) => one.event.at)),
+    to: Math.max(...told.map((one) => (one.event.kind === 'conversation' ? one.event.end : one.event.at))),
+  });
+  for (const one of told) one.event.what = overlapping(stored, one)?.what ?? null;
 }
 
 /**
@@ -435,6 +463,8 @@ function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { d
       const set = setBy(all, run.id);
       events.push({
         kind: 'heartbeat',
+        runId: run.id,
+        what: null,
         at: run.at,
         placeIds: [...new Set(places.filter((id): id is string => id !== null && visible(db, ctx, id)))],
         ...queriesOf(db, run.id),
@@ -478,7 +508,9 @@ function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { d
   }
   events.sort((a, b) => a.at - b.at);
   const dropped = Math.max(0, events.length - window.limit);
-  return { calls, events: events.slice(dropped), dropped };
+  const shown = events.slice(dropped);
+  withSentences(db, whereFor(ctx, 'e'), shown);
+  return { calls, events: shown, dropped };
 }
 
 /** The moment of her newest diary entry `ctx` may read, null before her first. */
@@ -543,6 +575,10 @@ function madeTail(made: Made, labels: DayLabels): string {
   return parts.length > 0 ? fill(wordOf(labels, 'madeTail'), { made: parts.join(wordOf(labels, 'join')) }) : '';
 }
 
+/** What a stretch was about as the tail of its event's line (`about`); '' when no sentence is stored. */
+const aboutTail = (what: string | null, labels: DayLabels): string =>
+  what === null ? '' : fill(wordOf(labels, 'about'), { what });
+
 /** One event as its line in the labels' words. */
 function eventLine(
   event: DayEvent,
@@ -566,7 +602,9 @@ function eventLine(
       const lines =
         event.lines === 1 ? wordOf(labels, 'oneMessage') : fill(wordOf(labels, 'messages'), { count: event.lines });
       const values = { when, place: named(event.placeId), lines, people };
-      return fill(wordOf(labels, people ? 'conversation' : 'conversationAlone'), values);
+      return (
+        fill(wordOf(labels, people ? 'conversation' : 'conversationAlone'), values) + aboutTail(event.what, labels)
+      );
     }
     case 'made': {
       const thing = thingsOf(labels)[event.skill] ?? event.skill;
@@ -595,7 +633,8 @@ function eventLine(
             ? wordOf(labels, 'heartbeatSetHidden')
             : fill(wordOf(labels, 'heartbeatSet'), { purpose: event.set.purpose }),
       ];
-      return fill(wordOf(labels, 'heartbeat'), { time, what: parts.filter(Boolean).join(wordOf(labels, 'partsJoin')) });
+      const what = parts.filter(Boolean).join(wordOf(labels, 'partsJoin'));
+      return fill(wordOf(labels, 'heartbeat'), { time, what }) + aboutTail(event.what, labels);
     }
     case 'diary':
       return (

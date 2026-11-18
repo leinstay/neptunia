@@ -248,6 +248,8 @@ function targetOf(group: unknown, proposal: Row): { kind: unknown; id: unknown }
       return { kind: 'semantic_entity', id: null };
     case 'assertions':
       return { kind: 'claim', id: null };
+    case 'stretches':
+      return { kind: 'episode', id: proposal.prior ?? null };
     default:
       return { kind: 'description', id: `desc:${asText(proposal.subjectId)}:${asText(proposal.field)}` };
   }
@@ -259,6 +261,7 @@ const GROUP_OPS: Record<string, string> = {
   affinity: 'affinity',
   entities: 'entity',
   assertions: 'assertion',
+  stretches: 'stretch',
 };
 const nameOf = (group: unknown, proposal: Row): unknown =>
   group === 'claims' ? proposal.op : group === 'people' ? `people_${asText(proposal.op)}` : GROUP_OPS[asText(group)];
@@ -533,6 +536,7 @@ function version(
 /** The kind of row a decision's action names; every other action names a claim. */
 const DECISION_TARGETS: Record<string, string> = {
   episode: 'episode',
+  stretch: 'episode',
   affinity: 'person',
   entity: 'semantic_entity',
 };
@@ -793,6 +797,53 @@ function applyEpisode(db: Db, op: Row, state: WriteState): void {
   counts.episodes += 1;
 }
 
+/**
+ * One sentence of a stretch (session-stretches.ts) as an `episodes` row of the kind `stretch`: about herself, of its
+ * place, its holder the place or the run of her own time, under the narrowest audience of its lines. A stretch that
+ * continues a stored sentence replaces that row's sentence and widens its moments, under the audience both share.
+ */
+function applyStretch(db: Db, op: Row, state: WriteState): void {
+  const { at, runId, index, counts } = state;
+  const evidence = evidenceOf(db, op.sources);
+  if (!evidence) return reject(db, state, 'stretches', op, 'unknown_source');
+  const prior =
+    typeof op.prior === 'string'
+      ? db
+          .prepare(
+            "SELECT id, start_ms, last_ms, audience_id FROM episodes WHERE id = ? AND kind = 'stretch' AND retired_at IS NULL"
+          )
+          .get(op.prior)
+      : undefined;
+  const { scope, audienceId } = narrowed(db, state, prior ? [...evidence, prior] : evidence);
+  const start = Math.min(Number(op.at), prior ? Number(prior.start_ms) : Infinity);
+  const last = Math.max(Number(op.end), prior ? Number(prior.last_ms) : -Infinity);
+  const id = prior ? String(prior.id) : `stretch:${shortHash(op.holder, op.at)}`;
+  db.prepare(
+    `INSERT OR REPLACE INTO episodes (id, kind, subject_id, place_id, date, what, start_ms, last_ms, extra, scope_kind,
+       scope_iface, scope_dm, created_at, audience_id, writer, holder_id)
+     VALUES (?, 'stretch', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stretch', ?)`
+  ).run(
+    id,
+    SELF_PERSON,
+    op.placeId ?? null,
+    iso(start).slice(0, 10),
+    op.what,
+    start,
+    last,
+    op.turnId ? json({ turn: op.turnId }) : null,
+    scope.scope_kind,
+    scope.scope_iface,
+    scope.scope_dm,
+    at,
+    audienceId,
+    op.holder
+  );
+  addSources(db, 'episode_sources', 'episode_id', id, op.sources as Array<string>);
+  projectRow(db, 'episodes', { id }, { at });
+  insertDecisionFor(db, { runId, index, at, op, action: 'stretch', target: id });
+  counts.stretches += 1;
+}
+
 function applyAffinity(db: Db, op: Row, state: WriteState): void {
   const { at, runId, index, counts } = state;
   const evidence = evidenceOf(db, op.sources);
@@ -972,6 +1023,7 @@ const emptyCounts = (): Counts => ({
   revised: 0,
   retired: 0,
   episodes: 0,
+  stretches: 0,
   affinity: 0,
   flags: 0,
   missing: 0,
@@ -994,6 +1046,14 @@ function linkRequest(db: Db, run: SessionRunRow | null | undefined, applied: boo
   const state = applied ? 'confirmed' : run.outcome === 'ok' ? 'shadow' : 'failed';
   setRequestOutcome(db, sessionRequestId(run.id), { kind: 'memory-write', state, ref: run.id });
 }
+
+/** The writers of the groups of a plan that apply each op alone. */
+const APPLIERS: Record<string, (db: Db, op: Row, state: WriteState) => void> = {
+  claims: applyClaim,
+  episodes: applyEpisode,
+  stretches: applyStretch,
+  affinity: applyAffinity,
+};
 
 /** The writers that take the handle and the whole update, by the update's kind. */
 const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unknown>([
@@ -1140,7 +1200,16 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
     }
     if (plan && run) {
       const state = writeStateOf(db, run, update, counts, at);
-      for (const group of ['claims', 'episodes', 'affinity', 'descriptions', 'people', 'entities', 'assertions']) {
+      for (const group of [
+        'claims',
+        'episodes',
+        'affinity',
+        'descriptions',
+        'people',
+        'entities',
+        'assertions',
+        'stretches',
+      ]) {
         for (const proposal of plan[group] ?? []) {
           state.index += 1;
           if (mode === 'shadow') {
@@ -1153,12 +1222,8 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
               run,
             });
             counts.proposed += 1;
-          } else if (group === 'claims') {
-            applyClaim(db, proposal, state);
-          } else if (group === 'episodes') {
-            applyEpisode(db, proposal, state);
-          } else if (group === 'affinity') {
-            applyAffinity(db, proposal, state);
+          } else if (Object.hasOwn(APPLIERS, group)) {
+            APPLIERS[group](db, proposal, state);
           } else if (group === 'people') {
             if (proposal.op === 'add') applyPeopleAdd(db, proposal, state);
             else reject(db, state, 'people', proposal, 'bad_op');
