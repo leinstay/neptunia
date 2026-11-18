@@ -144,7 +144,7 @@ test('Escape with text clears only the draft, and the running turn goes on', asy
   await withChat(env, async (rig) => {
     event(accepted('t1', 1));
     event(running('t1', 2));
-    await until(shows(rig, 'Her turn is running'));
+    await until(shows(rig, 'Thinking…'));
     await press(rig, 'a typo', shows(rig, '> a typo'));
     await press(rig, KEY.escape, () => !rig.screen().join('\n').includes('a typo'));
     assert.equal(rig.screen().join('\n').includes('a typo'), false);
@@ -158,9 +158,9 @@ test('Escape on an empty draft asks the core once, and the chat shows running un
   await withChat(env, async (rig) => {
     event(accepted('t1', 1));
     event(running('t1', 2));
-    await until(shows(rig, 'Her turn is running'));
+    await until(shows(rig, 'Thinking…'));
     const runningScreen = rig.screen().join('\n');
-    await press(rig, KEY.escape, shows(rig, 'Cancelling her turn'));
+    await press(rig, KEY.escape, shows(rig, 'Cancelling…'));
     rig.type(KEY.escape);
     // The second Escape changes nothing when the guard works, so only a fixed wait lets a second cancel show.
     await pause(60);
@@ -192,7 +192,7 @@ test('leaving the chat does not cancel the running turn', async () => {
   await withChat(env, async (rig) => {
     event(accepted('t1', 1));
     event(running('t1', 2));
-    await until(shows(rig, 'Her turn is running'));
+    await until(shows(rig, 'Thinking…'));
   });
   assert.deepEqual(cancels, []);
 });
@@ -203,7 +203,7 @@ test('a line sent during a turn goes to the core, and shows as queued once the c
   await withChat(env, async (rig) => {
     event(accepted('t1', 1));
     event(running('t1', 2));
-    await until(shows(rig, 'Her turn is running'));
+    await until(shows(rig, 'Thinking…'));
     await press(rig, 'next line', shows(rig, '> next line'));
     await press(rig, KEY.enter, () => sent.length === 1);
     rig.type(KEY.enter);
@@ -269,6 +269,6 @@ test('the row above the input names the calls in progress, never a result status
     assert.ok(screen.includes('memory.recall'), 'the call still in progress stays');
     event({ type: 'committed', turnId: 't1', seq: 6, at: AT, responseId: 'r1' });
     await until(() => !rig.screen().join('\n').includes('memory.recall'));
-    assert.ok(!rig.screen().join('\n').includes('Her turn'), 'nothing of the turn stays once it ended');
+    assert.ok(!rig.screen().join('\n').includes('Thinking…'), 'nothing of the turn stays once it ended');
   });
 });
