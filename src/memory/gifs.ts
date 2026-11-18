@@ -10,8 +10,8 @@
 // (resetGifCounts), so handles survive it; an entry left at 0 everywhere ranks below every used one. The persona's own
 // posts are kept apart (markOwnGif: `ownLast`, `ownUses`, per place and in total), never counted into `count` and never
 // reset. `description` is the GIF's one text, the describer's text form of its row, which the candidate search
-// (searchGifs) reads with its vector, kept apart;
-// `file` is the cached file under the data folder (src/media/gif-files.ts), because an attachment's link expires.
+// (searchGifs) reads with its row's media vector, kept in the database; `fileUrl` is a link GIF's direct media address
+// and `file` the stored file under the data folder (src/media/gif-files.ts), because an attachment's link expires.
 //
 // Shape: `{ nextId, entries: { [key]: GifEntry }, backfill, backfills }`. `messageId`/`placeId` point at the latest
 // message carrying the GIF, so the poster can re-fetch an attachment's fresh URL. `backfills` holds the history
@@ -82,12 +82,11 @@ export type GifEntry = {
   nativeIds: Array<string>;
   links: Array<string>;
   places: Record<string, GifPlace>;
-  /** The direct media address the file is downloaded from: an embed's animation address or an attachment's own. */
+  /** The direct media address of a link GIF's file, its embed's animation address. An attachment's signed address expires and is never kept. */
   fileUrl?: string;
   hash?: string;
   file?: string;
   description?: string;
-  vector?: Array<number>;
 };
 
 /** The library. */
@@ -144,7 +143,6 @@ function optionalFields(entry: Record<string, unknown>): Partial<GifEntry> {
     if (typeof value === 'string' && value) out[field] = value;
   }
   if (typeof entry.description === 'string' && entry.description.trim()) out.description = entry.description;
-  if (isVector(entry.vector)) out.vector = entry.vector;
   if (isFiniteNumber(entry.ownLast) && entry.ownLast > 0) out.ownLast = entry.ownLast;
   if (isFiniteNumber(entry.ownUses) && entry.ownUses >= 1) out.ownUses = Math.floor(entry.ownUses);
   return out;
@@ -182,11 +180,6 @@ function normalizeEntry(key: string, entry: unknown): GifEntry | null {
     places: storedPlaces(entry.places),
     ...optionalFields(entry),
   });
-}
-
-/** A non-empty list of finite numbers. */
-function isVector(value: unknown): value is Array<number> {
-  return Array.isArray(value) && value.length > 0 && value.every((item) => isFiniteNumber(item));
 }
 
 /**
@@ -489,12 +482,12 @@ function libraryIndex(entries: Record<string, GifEntry>): {
 type GifItem = ReturnType<typeof collectGifItems>[number];
 
 /**
- * The direct media address of each GIF of `message` by its key: an attachment's own address, a GIF embed's animation
- * address. An embed without one has none, since its page link answers a page and never the file.
+ * The direct media address of each GIF embed of `message` by its key: its animation address. An embed without one has
+ * none, since its page link answers a page and never the file. An attachment has none, since its signed address expires.
  */
 function gifFileUrls(message: StoredRecord): Map<string, string> {
-  type Item = { kind?: unknown; id?: unknown; url?: unknown; animationUrl?: unknown };
-  type Part = { attachments?: unknown; links?: unknown };
+  type Item = { kind?: unknown; id?: unknown; animationUrl?: unknown };
+  type Part = { links?: unknown };
   const itemsOf = (value: unknown): Array<Item> => (Array.isArray(value) ? (value as Array<Item>) : []);
   const found = new Map<string, string>();
   const keep = (item: Item, address: unknown) => {
@@ -502,7 +495,6 @@ function gifFileUrls(message: StoredRecord): Map<string, string> {
     if (typeof address === 'string' && address) found.set(String(item.id), address);
   };
   for (const part of mediaParts(message) as Array<Part | null>) {
-    for (const attachment of itemsOf(part?.attachments)) keep(attachment, attachment?.url);
     for (const link of itemsOf(part?.links)) keep(link, link?.animationUrl);
   }
   return found;
@@ -639,8 +631,8 @@ function joinEntries(one: GifEntry, two: GifEntry): GifEntry {
   const [older, younger] = handleNumber(one) <= handleNumber(two) ? [one, two] : [two, one];
   const newest = older.last >= younger.last ? older : younger;
   const links = [...new Set([...older.links, ...younger.links])];
-  // What only one of them holds comes along: its description, its vector, its file.
-  const { description, vector, fileUrl, hash, file } = { ...younger, ...older };
+  // What only one of them holds comes along: its description, its media address, its file.
+  const { description, fileUrl, hash, file } = { ...younger, ...older };
   return withTotals({
     ...older,
     // A link posts again for good, so an entry holding one is a link entry.
@@ -655,7 +647,6 @@ function joinEntries(one: GifEntry, two: GifEntry): GifEntry {
     links,
     places: joinPlaces(older.places, younger.places),
     ...(description ? { description } : {}),
-    ...(vector ? { vector } : {}),
     ...(fileUrl ? { fileUrl } : {}),
     ...(hash ? { hash } : {}),
     ...(file ? { file } : {}),
@@ -727,7 +718,7 @@ function similarity(
 
 /**
  * The candidates of a query, best score first, at most `cap`: described entries scored by the share of the query's words
- * their description holds plus the similarity of their vector to the query's (a similarity under the floor counts nothing).
+ * their description holds plus the similarity of their media vector in `vectors` to the query's (a similarity under the floor counts nothing).
  * An entry that scores nothing is no candidate, and neither is one `accept` refuses. Equal scores go to the GIF used
  * more, then to the one used last. A vector of another dimension counts as no vector. Pure.
  * @param gifs  A stored library (normalised here).
@@ -758,7 +749,7 @@ export function searchGifs(
     const text = wordsOf(entry.description);
     const shared = wanted.filter((word) => text.has(word)).length;
     const wordScore = wanted.length > 0 ? shared / wanted.length : 0;
-    const close = similarity(vector, vectors?.get(entry.itemId) ?? entry.vector) ?? 0;
+    const close = similarity(vector, vectors?.get(entry.itemId)) ?? 0;
     const score = wordScore + (close >= MIN_SIMILARITY ? close : 0);
     if (score > 0) found.push({ entry: { key, ...entry }, score });
   }

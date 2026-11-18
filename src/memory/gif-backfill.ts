@@ -155,9 +155,15 @@ function buildGifBackfill({
       if (described > 0) store.flush();
       // Their files in the background: the owner's run does not wait for the downloads.
       if (dataDir && fetchBytes)
-        void fileGifs({ store, dataDir, fetchBytes, itemIds: pictures.keys() }).catch((err: unknown) =>
-          log.warn('gif-backfill: files failed', { error: err })
-        );
+        void fileGifs({
+          store,
+          dataDir,
+          fetchBytes,
+          // An attached GIF's address read now is its file; a link GIF's entry holds its own.
+          items: [...pictures.values()].map((picture) =>
+            picture.source === 'attachment' ? { itemId: picture.itemId, url: picture.url } : { itemId: picture.itemId }
+          ),
+        }).catch((err: unknown) => log.warn('gif-backfill: files failed', { error: err }));
 
       const counts = { channels, messages: members.length, gifs, described };
       log.info('gif-backfill: done', counts);

@@ -1,6 +1,7 @@
 // The stored file of a library GIF: the bytes under `media/gifs/` of the data folder, named by their hash, so the same
-// GIF from another link is one file. Attachment links expire, so the file is the spare copy. `fileGifs` downloads it from
-// the direct media address the entry holds (`fileUrl`) when the GIF appears: the media prefill of a message
+// GIF from another link is one file. Attachment links expire, so the file is the spare copy. `fileGifs` downloads it when
+// the GIF appears, from the direct media address a link GIF's entry holds (`fileUrl`) or an attachment's own address
+// of that sighting: the media prefill of a message
 // (src/pipeline/media-prefill.ts) and the history backfill (src/memory/gif-backfill.ts) call it with `createGifFetcher`'s
 // download. No wording here.
 
@@ -63,27 +64,28 @@ type GifFileStore = {
 };
 
 /**
- * The files of the library GIFs held under `itemIds`, one after another: each entry without a file that holds a direct
- * media address gets the file downloaded from that address, never from its page link. A failed download leaves the entry
- * as it was, so the GIF's next sighting tries the address again.
+ * The files of the library GIFs of one sighting, one after another. An entry without a file gets it downloaded from the
+ * direct media address it holds (a link GIF's `fileUrl`), else from the sighting's own `url` (an attached GIF's fresh
+ * address), never from a page link. A failed download leaves the entry as it was, so the GIF's next sighting tries again.
  */
 export async function fileGifs({
   store,
   dataDir,
   fetchBytes,
-  itemIds,
+  items,
 }: {
   store: GifFileStore;
   dataDir: string;
   fetchBytes: (url: string) => Promise<GifBytes>;
-  itemIds: Iterable<string>;
+  items: Iterable<{ itemId: string; url?: string }>;
 }): Promise<void> {
-  for (const itemId of new Set(itemIds)) {
+  for (const { itemId, url } of items) {
     // Read now: a file filed for an earlier item may have moved or joined this entry.
     const entries = Object.values(normalizeGifs(store.getGifs()).entries);
     const entry = entries.find((held) => held.nativeIds.includes(itemId));
-    if (!entry?.fileUrl || entry.file) continue;
-    const cached = await cacheGifFile({ url: entry.fileUrl, dataDir, fetchBytes });
+    const address = entry?.fileUrl ?? url;
+    if (!entry || entry.file || !address) continue;
+    const cached = await cacheGifFile({ url: address, dataDir, fetchBytes });
     if (cached) store.setGifFile(itemId, cached);
   }
 }

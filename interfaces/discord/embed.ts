@@ -55,11 +55,12 @@ function isGifFileUrl(url: string): boolean {
 /**
  * The animation of a gif embed, for the GIF watch (src/memory/describe.ts):
  * the mp4/webm Discord plays for a `gifv` embed
- * (`video.proxyURL` preferred, like the thumbnail, else `video.url`), else
+ * (the provider's own `video.url` preferred, since it is unsigned and outlives the message, else Discord's
+ * `video.proxyURL`), else
  * the embed's own URL when it is a `.gif` file, else null.
  */
 function gifAnimationUrl(embed: EmbedInput | null | undefined, url: string | null): string | null {
-  const video = embed?.video?.proxyURL || embed?.video?.url;
+  const video = embed?.video?.url || embed?.video?.proxyURL;
   if (typeof video === 'string' && video) return video;
   return url && isGifFileUrl(url) ? url : null;
 }

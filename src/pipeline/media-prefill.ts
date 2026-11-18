@@ -179,10 +179,13 @@ export function createMediaPrefill({
    */
   function warmGifFiles(normalized: MediaLine): void {
     if (!store || !dataDir || !fetchBytes) return;
-    const itemIds = collectGifItems(normalized as Parameters<typeof collectGifItems>[0]).map((item) => item.itemId);
-    if (itemIds.length === 0) return;
+    // An attached GIF's own address is its file; a link GIF's `url` is its page, so its entry's `fileUrl` serves.
+    const items = collectGifItems(normalized as Parameters<typeof collectGifItems>[0]).map((item) =>
+      item.kind === 'attachment' ? { itemId: item.itemId, url: item.url } : { itemId: item.itemId }
+    );
+    if (items.length === 0) return;
     Promise.resolve()
-      .then(() => fileGifs({ store, dataDir, fetchBytes, itemIds }))
+      .then(() => fileGifs({ store, dataDir, fetchBytes, items }))
       .catch((err: unknown) => log.warn('events: gif file prefill failed', { error: err }));
   }
 
