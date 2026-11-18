@@ -84,6 +84,8 @@ export type GifEntry = {
   places: Record<string, GifPlace>;
   hash?: string;
   file?: string;
+  /** When the last download of the file by its stored URL failed (src/memory/gif-keeper.ts waits before the next). */
+  fileFailedAt?: number;
   description?: string;
   vector?: Array<number>;
 };
@@ -144,6 +146,7 @@ function optionalFields(entry: Record<string, unknown>): Partial<GifEntry> {
   if (typeof entry.description === 'string' && entry.description.trim()) out.description = entry.description;
   if (isVector(entry.vector)) out.vector = entry.vector;
   if (isFiniteNumber(entry.ownLast) && entry.ownLast > 0) out.ownLast = entry.ownLast;
+  if (isFiniteNumber(entry.fileFailedAt) && entry.fileFailedAt > 0) out.fileFailedAt = entry.fileFailedAt;
   if (isFiniteNumber(entry.ownUses) && entry.ownUses >= 1) out.ownUses = Math.floor(entry.ownUses);
   return out;
 }
@@ -629,10 +632,20 @@ export function withGifFile(gifs: unknown, key: string, { hash, file }: { hash: 
   const next = normalizeGifs(gifs);
   const held = keyOfEntry(next.entries, key);
   if (held === null) return next;
-  const entry: GifEntry = { ...next.entries[held], hash, file };
+  const { fileFailedAt: _failed, ...cached } = next.entries[held];
+  const entry: GifEntry = { ...cached, hash, file };
   const other = held === hash ? undefined : next.entries[hash];
   delete next.entries[held];
   next.entries[hash] = other ? joinEntries(other, entry) : entry;
+  return next;
+}
+
+/** `gifs` with the entry under `key` (its library key or a native id) stamped with a failed download at `at`. An unknown
+ *  key leaves the library as it is. Never mutates `gifs`. */
+export function withGifFileFailed(gifs: unknown, key: string, at: number): GifLibrary {
+  const next = normalizeGifs(gifs);
+  const held = keyOfEntry(next.entries, key);
+  if (held !== null) next.entries[held] = { ...next.entries[held], fileFailedAt: at };
   return next;
 }
 

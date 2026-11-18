@@ -997,6 +997,7 @@ async function buildCore(
     embed: embedOne('media-pick'),
     embedModel: () => gifVectorModel(hot.config),
     describer,
+    now: clock,
     log,
   });
   // The memory's learned stemmer, read at each use: the alias gate and the places a read call names match with it.

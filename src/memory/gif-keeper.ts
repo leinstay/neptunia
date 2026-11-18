@@ -9,12 +9,16 @@ import { cacheGifFile } from '../media/gif-files.ts';
 import { collectPictures } from '../media/classify.ts';
 import { captionOfCached, normalizeGifs, rankGifs } from './gifs.ts';
 import { log as defaultLog } from '../log.ts';
+import { DAY_MS } from '../time.ts';
 import type { GifBytes } from '../media/gif-files.ts';
 import type { Log, StoredRecord } from './types.ts';
 import type { MediaItem } from './describe.ts';
 
-/** The most GIFs a start's `settle` works on, so a start with a long library spends a little of the day's rails. */
+/** The most GIFs a start's `settle` fetches or embeds, so a start with a long library spends a little of the day's rails. */
 const SETTLE_PER_RUN = 50;
+
+/** How long `settle` leaves an entry whose file failed to download before it fetches the stored URL again. */
+const FILE_RETRY_MS = 7 * DAY_MS;
 
 /** The store as the keeper reads and writes it. */
 type KeeperStore = {
@@ -27,6 +31,7 @@ type KeeperStore = {
     described: { description: string; vector: ArrayLike<number> | null; model?: string | null }
   ) => void;
   setGifFile: (key: string, file: { hash: string; file: string }) => void;
+  setGifFileFailed: (key: string, at: number) => void;
 };
 
 export type GifKeeper = {
@@ -45,6 +50,7 @@ export function createGifKeeper({
   embed = null,
   embedModel = () => null,
   describer = null,
+  now = Date.now,
   log = defaultLog,
 }: {
   store: KeeperStore;
@@ -55,6 +61,7 @@ export function createGifKeeper({
   /** The model `embed` answers with now, which a stored vector must match. */
   embedModel?: () => string | null;
   describer?: { describeMany: (placeId: string, items: Array<MediaItem>, options: object) => Promise<unknown> } | null;
+  now?: () => number;
   log?: Log;
 }): GifKeeper {
   // One after another, whoever asks: a watch converts with ffmpeg and a whole-library write is not small.
@@ -85,26 +92,36 @@ export function createGifKeeper({
     }
   }
 
-  /** The description the cache holds given to the entry with its vector, when the entry lacks either. */
-  async function describeEntry(placeId: string, itemId: string): Promise<void> {
+  /** The description the cache holds for the entry, else the entry's own, when the entry lacks it or its vector under
+   *  the model in force. The cache's cap takes out rows the library still describes. */
+  function descriptionDue(placeId: string, itemId: string): string | null {
     const entry = entryOf(itemId);
-    if (!entry) return;
-    const description = captionOfCached(store.mediaEntry(placeId, itemId));
+    if (!entry) return null;
+    const description = captionOfCached(store.mediaEntry(placeId, itemId)) || entry.description || null;
     const hasVector = store.getGifVectors(embedModel()).has(entry.itemId);
-    if (!description || (entry.description === description && (hasVector || !embed))) return;
-    store.setGifDescribed(itemId, { description, vector: await vectorOf(description), model: embedModel() });
+    if (!description || (entry.description === description && (hasVector || !embed))) return null;
+    return description;
   }
 
-  async function fileEntry(itemId: string, urls: ReadonlyArray<string | undefined>): Promise<void> {
-    if (!entryOf(itemId) || entryOf(itemId)?.file) return;
+  /** The description the cache holds given to the entry with its vector, when the entry lacks either. */
+  async function describeEntry(placeId: string, itemId: string): Promise<void> {
+    const description = descriptionDue(placeId, itemId);
+    if (description)
+      store.setGifDescribed(itemId, { description, vector: await vectorOf(description), model: embedModel() });
+  }
+
+  /** The file of the entry cached from the first of `urls` that gives one; whether one did. */
+  async function fileEntry(itemId: string, urls: ReadonlyArray<string | undefined>): Promise<boolean> {
+    if (!entryOf(itemId) || entryOf(itemId)?.file) return true;
     for (const url of urls) {
       if (!url) continue;
       const cached = await cacheGifFile({ url, dataDir, fetchBytes });
       if (cached) {
         store.setGifFile(itemId, cached);
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   async function keepPicture(placeId: string, picture: MediaItem): Promise<void> {
@@ -130,15 +147,25 @@ export function createGifKeeper({
     },
     settle(placeId) {
       return later(async () => {
-        let worked = 0;
+        // The budget counts the entries fetched or embedded: vectors first, then files, each step by its own need.
+        const worked = new Set<string>();
+        const mayWork = (itemId: string) => !paused() && (worked.has(itemId) || worked.size < SETTLE_PER_RUN);
+        let vectors = 0;
+        let files = 0;
         for (const entry of rankGifs(store.getGifs())) {
-          if (paused() || worked >= SETTLE_PER_RUN) break;
-          if (entry.description && store.getGifVectors(embedModel()).has(entry.itemId) && entry.file) continue;
-          worked += 1;
+          if (!descriptionDue(placeId, entry.itemId) || !mayWork(entry.itemId)) continue;
+          worked.add(entry.itemId);
           await describeEntry(placeId, entry.itemId);
-          await fileEntry(entry.itemId, [entry.url]);
+          vectors += 1;
         }
-        if (worked > 0) log.info('gif-keeper: settled', { placeId, worked });
+        for (const entry of rankGifs(store.getGifs())) {
+          const failedAt = entry.fileFailedAt ?? 0;
+          if (entry.file || now() - failedAt < FILE_RETRY_MS || !mayWork(entry.itemId)) continue;
+          worked.add(entry.itemId);
+          if (await fileEntry(entry.itemId, [entry.url])) files += 1;
+          else store.setGifFileFailed(entry.itemId, now());
+        }
+        if (worked.size > 0) log.info('gif-keeper: settled', { placeId, worked: worked.size, vectors, files });
       });
     },
   };

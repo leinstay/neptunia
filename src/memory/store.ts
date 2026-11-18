@@ -81,6 +81,7 @@ import {
   withGifDescription,
   captionOfCached,
   withGifFile,
+  withGifFileFailed,
   normalizeBackfillStamp,
   resetGifCounts,
 } from './gifs.ts';
@@ -2430,6 +2431,11 @@ function buildStore({
     /** The cached file of the entry under `key` (a library key or a native id), which moves it under the content hash. */
     setGifFile(key: string, file: { hash: string; file: string }) {
       gifs.set(withGifFile(gifs.library(), key, file));
+    },
+
+    /** A failed download of the file of the entry under `key` at `at`, which the GIF keeper waits on before the next. */
+    setGifFileFailed(key: string, at: number) {
+      gifs.set(withGifFileFailed(gifs.library(), key, at));
     },
 
     /**
