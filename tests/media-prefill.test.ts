@@ -83,5 +83,8 @@ test("a message with an attached GIF downloads its file from the attachment's ow
   sighted(r, line({ attachments: [attachment] }));
   await until(() => Object.values(r.store.getGifs().entries).some((entry) => entry.file));
   assert.deepEqual(r.asked, [ATTACHED]);
-  assert.ok(Object.values(r.store.getGifs().entries)[0].file);
+  const [entry] = Object.values(r.store.getGifs().entries);
+  assert.ok(entry.file);
+  // The measurement of 2026-11-18 (report gif-direct-address-lifetime): an attachment's signed address is not stored.
+  assert.equal(entry.fileUrl, undefined);
 });

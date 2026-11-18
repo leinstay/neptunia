@@ -41,7 +41,10 @@ test('classifyEmbed: a video-site embed keeps kind "link" but carries the thumbn
   assert.equal(item.thumbnailUrl, 'https://i.ytimg.com/vi/xyz/hq.jpg');
 });
 
-test('classifyEmbed: a tenor gifv embed carries its video as animationUrl, the proxy URL preferred', () => {
+// The expectation is reversed on the measurement of 2026-11-18 (report gif-direct-address-lifetime): the provider's own
+// `video.url` is unsigned and downloads from messages up to 74 days old, while the lifetime of Discord's `video.proxyURL`
+// is unknown. The animation address is stored as the library GIF's `fileUrl`, so the provider's address comes first.
+test("classifyEmbed: a tenor gifv embed carries its video as animationUrl, the provider's own URL preferred", () => {
   const embed = {
     url: 'https://tenor.com/view/x',
     provider: { name: 'Tenor' },
@@ -54,7 +57,16 @@ test('classifyEmbed: a tenor gifv embed carries its video as animationUrl, the p
       proxyURL: 'https://images-ext-1.discordapp.net/external/v/x.mp4',
     },
   };
-  assert.equal(classifyEmbed(embed).animationUrl, 'https://images-ext-1.discordapp.net/external/v/x.mp4');
+  assert.equal(classifyEmbed(embed).animationUrl, 'https://media.tenor.com/x/AAAPo/x.mp4');
+  const proxied = classifyEmbed({
+    ...embed,
+    video: { proxyURL: 'https://images-ext-1.discordapp.net/external/v/x.mp4' },
+  });
+  assert.equal(
+    proxied.animationUrl,
+    'https://images-ext-1.discordapp.net/external/v/x.mp4',
+    'the proxy only without one'
+  );
   const bare = classifyEmbed({ ...embed, video: { url: 'https://media.tenor.com/x/AAAPo/x.mp4' } });
   assert.equal(bare.animationUrl, 'https://media.tenor.com/x/AAAPo/x.mp4');
   assert.equal(

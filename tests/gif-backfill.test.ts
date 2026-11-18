@@ -309,7 +309,8 @@ test("gif backfill run: the describer gets each GIF's whole picture item, so a l
     const byId: Record<string, Untyped> = new Map(
       describer.calls[0].items.map((item: Record<string, Untyped>) => [item.itemId, item])
     );
-    assert.equal(byId.get('1001#e0').animationUrl, `${TENOR_A}/proxy.mp4`, 'the gifv mp4 travels with the item');
+    // The provider's own address first, on the measurement of 2026-11-18 (report gif-direct-address-lifetime).
+    assert.equal(byId.get('1001#e0').animationUrl, `${TENOR_A}/loop.mp4`, 'the gifv mp4 travels with the item');
     assert.equal(byId.get('1001#e0').source, 'embed');
     assert.equal(byId.get('1001#e0').url, `${TENOR_A}/proxy.png`, 'the still frame stays the fallback');
     assert.equal(byId.get('555').source, 'attachment', 'an attached .gif is its own animation');

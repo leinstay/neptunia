@@ -80,7 +80,7 @@ const onlyEntry = (store: ReturnType<typeof createStore>) => Object.values(store
 
 test('a library GIF is downloaded from its stored media address, never its page link, and gets its file and hash', async () => {
   const { dir, store, asked, answering } = libraryRig();
-  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), itemIds: ['m1#e0'] });
+  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), items: [{ itemId: 'm1#e0' }] });
   assert.deepEqual(asked, [MEDIA]);
   const entry = onlyEntry(store);
   assert.equal(entry.hash, SHA);
@@ -90,7 +90,7 @@ test('a library GIF is downloaded from its stored media address, never its page 
 
 test('a library GIF with no stored media address downloads nothing', async () => {
   const { dir, store, asked, answering } = libraryRig(null);
-  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), itemIds: ['m1#e0'] });
+  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), items: [{ itemId: 'm1#e0' }] });
   assert.deepEqual(asked, []);
   assert.equal(onlyEntry(store).file, undefined);
 });
@@ -101,18 +101,61 @@ test('a failed download leaves the media address and no file, and the next sight
     store,
     dataDir: dir,
     fetchBytes: answering(() => Promise.reject(new Error('http-503'))),
-    itemIds: ['m1#e0'],
+    items: [{ itemId: 'm1#e0' }],
   });
   assert.equal(onlyEntry(store).file, undefined);
   assert.equal(onlyEntry(store).fileUrl, MEDIA);
-  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), itemIds: ['m1#e0'] });
+  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), items: [{ itemId: 'm1#e0' }] });
   assert.deepEqual(asked, [MEDIA, MEDIA]);
   assert.equal(onlyEntry(store).hash, SHA);
 });
 
 test('a sighting of a library GIF that has its file downloads nothing', async () => {
   const { dir, store, asked, answering } = libraryRig();
-  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), itemIds: ['m1#e0'] });
-  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), itemIds: ['m1#e0'] });
+  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), items: [{ itemId: 'm1#e0' }] });
+  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), items: [{ itemId: 'm1#e0' }] });
   assert.deepEqual(asked, [MEDIA]);
+});
+
+// The measurement of 2026-11-18 (report gif-direct-address-lifetime): an attachment's address is signed and expires, so
+// no `fileUrl` is stored for it. The sighting hands its own fresh address to the download step directly.
+
+const ATTACHED_OLD = 'https://cdn.chat.example/attachments/1/a1/wave.gif?ex=1&is=1&hm=old';
+const ATTACHED_NEW = 'https://cdn.chat.example/attachments/1/a1/wave.gif?ex=2&is=2&hm=new';
+
+function attachedRig() {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
+  const attachment = { id: 'a1', kind: 'gif', name: 'wave.gif', url: ATTACHED_OLD, contentType: 'image/gif' };
+  store.recordGifs(PLACE, [{ id: 'm1', placeId: PLACE, ts: 1, attachments: [attachment], links: [] }]);
+  const asked: Array<string> = [];
+  const answering =
+    (answer: () => Promise<GifBytes>) =>
+    (url: string): Promise<GifBytes> => {
+      asked.push(url);
+      return answer();
+    };
+  return { dir, store, asked, answering };
+}
+
+test('an attached GIF is downloaded from the address its sighting hands over, and stores no fileUrl', async () => {
+  const { dir, store, asked, answering } = attachedRig();
+  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), items: [{ itemId: 'a1', url: ATTACHED_OLD }] });
+  assert.deepEqual(asked, [ATTACHED_OLD]);
+  assert.equal(onlyEntry(store).hash, SHA);
+  assert.equal(onlyEntry(store).fileUrl, undefined);
+});
+
+test("a failed download of an attached GIF is tried again from the next sighting's fresh address", async () => {
+  const { dir, store, asked, answering } = attachedRig();
+  await fileGifs({
+    store,
+    dataDir: dir,
+    fetchBytes: answering(() => Promise.resolve(null)),
+    items: [{ itemId: 'a1', url: ATTACHED_OLD }],
+  });
+  assert.equal(onlyEntry(store).file, undefined);
+  await fileGifs({ store, dataDir: dir, fetchBytes: answering(fetched), items: [{ itemId: 'a1', url: ATTACHED_NEW }] });
+  assert.deepEqual(asked, [ATTACHED_OLD, ATTACHED_NEW]);
+  assert.equal(onlyEntry(store).hash, SHA);
 });

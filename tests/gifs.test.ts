@@ -242,9 +242,11 @@ test('mergeGifs: a GIF embed keeps its animation address as fileUrl beside the p
   assert.equal(entry.fileUrl, 'https://media.gifs.example/cat.mp4');
 });
 
-test("mergeGifs: an attached GIF keeps the attachment's own address as fileUrl", () => {
+// The measurement of 2026-11-18 (report gif-direct-address-lifetime): an attachment's address is signed and expired in 9
+// of 9 cases older than a week, so it serves no later retry and is not stored.
+test('mergeGifs: an attached GIF stores no fileUrl', () => {
   const { gifs }: Record<string, Untyped> = mergeGifs(undefined, [msg({ attachments: [gifAttachment('a1')] })]);
-  assert.equal(normalizeGifs(gifs).entries.a1.fileUrl, gifAttachment('a1').url);
+  assert.equal(normalizeGifs(gifs).entries.a1.fileUrl, undefined);
 });
 
 test('mergeGifs: a GIF embed with no animation address keeps no fileUrl, never the page link', () => {

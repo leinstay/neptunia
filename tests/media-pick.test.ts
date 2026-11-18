@@ -315,9 +315,11 @@ test('her recent posts are told by the place they went to', async () => {
 
 test('the query vector finds a caption that shares no word, asked once', async () => {
   let asked = 0;
-  const library = libraryOf(gifEntry('g1', 'γατάκι χορεύει', { vector: [1, 0] }));
+  // The vector is the ordinary media vector of the library row, by item id (spec 2026-11-18).
+  const library = libraryOf(gifEntry('g1', 'γατάκι χορεύει'));
   const { pick, calls } = rig({
     library,
+    gifMediaVectors: new Map([['item-g1', [1, 0]]]),
     embedQuery: () => {
       asked += 1;
       return Promise.resolve([1, 0]);
@@ -329,19 +331,6 @@ test('the query vector finds a caption that shares no word, asked once', async (
   assert.equal(result.kind, 'gif');
   assert.equal(asked, 1);
   assert.equal(calls.length, 1);
-});
-
-// Spec 2026-11-18, the library without the keeper: the pick reads the ordinary media vector of a library row, by item
-// id. Bug: half the library had no keeper vector, so a GIF that shared no word with the query was never a candidate.
-test('the query vector finds a GIF that shares no word through the media vector of its row', async () => {
-  const { pick: mediaPick } = rig({
-    library: libraryOf(gifEntry('g1', 'γατάκι χορεύει')),
-    gifMediaVectors: new Map([['item-g1', [1, 0]]]),
-    embedQuery: () => Promise.resolve([1, 0]),
-    answer: '{"pick":"gif","name":"g1"}',
-  });
-  const picked = await mediaPick.pick(args());
-  assert.equal(picked.kind, 'gif');
 });
 
 test('a failed embedding leaves the search by words', async () => {
