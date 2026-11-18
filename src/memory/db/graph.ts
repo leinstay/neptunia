@@ -372,6 +372,9 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
     const row = one(db, 'SELECT * FROM claims WHERE id = ?', id);
     const audience = row && filled(row.audience_id) ? row.audience_id : AUD_INTERNAL;
     const claimRetired = row?.retired_at ?? null;
+    // An archive entry of an episode stores the episode's id as its claim: its versions are versions of that episode.
+    const versionOf: Ref =
+      !row && one(db, 'SELECT id FROM episodes WHERE id = ?', id) ? ['episode', id] : ['claim', id];
     if (row) {
       out.nodes.push(node('claim', row));
       if (!claimRetired) out.own.push({ node: graphNodeId('claim', id), audience });
@@ -395,7 +398,7 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
       out.nodes.push(node('claim_version', version));
       if (!retired) out.own.push({ node: graphNodeId('claim_version', version.id), audience });
       const recorded = recordedOf(version.recorded_at);
-      out.edges.push(edge('version_of', ['claim_version', version.id], ['claim', id], { audience, recorded, retired }));
+      out.edges.push(edge('version_of', ['claim_version', version.id], versionOf, { audience, recorded, retired }));
       if (!version.retired_at) {
         if (previous)
           out.edges.push(
@@ -791,7 +794,31 @@ function writeUnit(db: Db, table: string, id: string, at: unknown): { nodes: num
     unwitness.run(stale.id);
     retired += 1;
   }
+  dropGoneNode(db, table, id, produced);
   return { nodes: produced.nodes.length, edges: keys.size, retired };
+}
+
+/** The node kind whose row a unit table holds, keyed by the unit table. */
+const KIND_OF_TABLE: ReadonlyMap<string, string> = new Map(
+  Object.entries(NODE_KINDS).flatMap(([kind, spec]) => (spec.table ? [[spec.table, kind] as const] : []))
+);
+
+/**
+ * A unit whose own row is gone loses that row's node and the node's own witness. The node stays as a placeholder while
+ * an edge names it.
+ */
+function dropGoneNode(db: Db, table: string, id: string, produced: Produced): void {
+  const kind = KIND_OF_TABLE.get(table);
+  if (kind === undefined) return;
+  const own = graphNodeId(kind, id);
+  if (produced.nodes.some((n) => n.id === own)) return;
+  prepared(db, 'DELETE FROM node_access WHERE node_id = ? AND evidence_id = ?').run(own, own);
+  prepared(
+    db,
+    `DELETE FROM graph_nodes WHERE id = ?1
+    AND NOT EXISTS (SELECT 1 FROM graph_edges WHERE src = ?1 OR dst = ?1)
+    AND NOT EXISTS (SELECT 1 FROM node_access WHERE node_id = ?1)`
+  ).run(own);
 }
 
 /** The units a written row of `table` belongs to: `[[unit table, id], ...]`. */

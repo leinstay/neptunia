@@ -111,7 +111,7 @@ function profileContext(db: Db, key: UnitKey, holder: ProfileOwner, at: string, 
   const stored = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId);
   const minted =
     typeof owned?.id !== 'string' && stored !== undefined && !filled(stored.person_id)
-      ? ensureAccountPerson(db, accountId, new Date().toISOString())
+      ? ensureAccountPerson(db, accountId, at)
       : null;
   const account = db.prepare('SELECT person_id, link, linked_by, linked_at FROM accounts WHERE id = ?').get(accountId);
   const link = filled(account?.person_id)

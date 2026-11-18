@@ -687,6 +687,10 @@ export function writeLineMedia(
       const id = item.nativeRef === null ? placeholder.id : NEW_ID(iface, item.nativeRef);
       db.prepare('UPDATE media SET id = ? WHERE id = ?').run(id, placeholder.id);
       db.prepare('UPDATE media_links SET media_id = ? WHERE media_id = ?').run(id, placeholder.id);
+      if (id !== placeholder.id) {
+        projectRow(db, 'media', { id: placeholder.id }, { at });
+        projectRow(db, 'media', { id }, { at });
+      }
       row = db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
     } else {
       row = itemRowFor(db, line, item, position);
@@ -698,7 +702,7 @@ export function writeLineMedia(
         writeText(db, row, { text: placeholder.description, origin, at });
         db.prepare('UPDATE media SET description = NULL WHERE id = ?').run(placeholder.id);
       }
-      dropIfBare(db, held.media_id);
+      dropIfBare(db, held.media_id, at);
     }
     told += tellItem(db, db.prepare('SELECT * FROM media WHERE id = ?').get(row.id) as Row, item, at);
   });
@@ -710,15 +714,34 @@ export function writeLineMedia(
  * A row nothing links any more that holds the same file as `id`, by path and `sha1`, leaves the table with its vector: the
  * picture of a diary entry relinked to the attachment her post made of it. The file stays, since `id` holds it.
  */
-function dropTwin(db: Db, mediaId: unknown, id: string): void {
-  const gone = db
-    .prepare(
-      `DELETE FROM media WHERE id = ? AND path IS NOT NULL
-         AND EXISTS (SELECT 1 FROM media o WHERE o.id = ? AND o.path = media.path AND o.sha1 IS media.sha1)
-         AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = media.id)`
-    )
-    .run(mediaId, id);
-  if (Number(gone.changes) > 0) db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(mediaId));
+function dropTwin(db: Db, mediaId: unknown, id: string, at: unknown): void {
+  dropMedia(
+    db,
+    mediaId,
+    `path IS NOT NULL
+       AND EXISTS (SELECT 1 FROM media o WHERE o.id = ? AND o.path = media.path AND o.sha1 IS media.sha1)
+       AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = media.id)`,
+    [id],
+    at
+  );
+}
+
+/**
+ * Deletes the media row `mediaId` when it meets `condition` (SQL over `media`, bound to `params`), with its vector and
+ * its node in the graph. Returns whether the row went.
+ */
+export function dropMedia(
+  db: Db,
+  mediaId: unknown,
+  condition: string,
+  params: ReadonlyArray<unknown>,
+  at: unknown
+): boolean {
+  const gone = db.prepare(`DELETE FROM media WHERE id = ? AND (${condition})`).run(mediaId, ...params);
+  if (Number(gone.changes) === 0) return false;
+  db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(mediaId));
+  projectRow(db, 'media', { id: mediaId }, { at });
+  return true;
 }
 
 /**
@@ -744,7 +767,7 @@ function dropUnheld(
     const gone = one.native_ref === null ? Number(one.position) >= items.length : !refs.has(asText(one.native_ref));
     if (!gone) continue;
     unlink.run(ownerKind, ownerId, one.position);
-    dropIfBare(db, one.media_id);
+    dropIfBare(db, one.media_id, at);
     retireUnlinked(db, one.media_id, at);
   }
 }
@@ -765,11 +788,15 @@ function retireUnlinked(db: Db, mediaId: unknown, at: unknown): void {
 }
 
 /** A placeholder nothing links any more leaves the table. */
-function dropIfBare(db: Db, mediaId: unknown): void {
-  db.prepare(
-    `DELETE FROM media WHERE id = ? AND native_ref IS NULL AND path IS NULL AND description IS NULL
-       AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = media.id)`
-  ).run(mediaId);
+function dropIfBare(db: Db, mediaId: unknown, at: unknown): void {
+  dropMedia(
+    db,
+    mediaId,
+    `native_ref IS NULL AND path IS NULL AND description IS NULL
+       AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = media.id)`,
+    [],
+    at
+  );
 }
 
 const LINE_COLUMNS =
@@ -1273,8 +1300,7 @@ export function adoptSameItem(db: Db, id: string, at: unknown): void {
         row.id,
         vectorKey(other.id)
       );
-    db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(other.id));
-    db.prepare('DELETE FROM media WHERE id = ?').run(other.id);
+    dropMedia(db, other.id, 'TRUE', [], at);
   }
 }
 
@@ -1356,8 +1382,8 @@ export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFi
     }
     link.run('diary', entry.id, position, id);
     if (previous && previous.media_id !== id) {
-      dropIfBare(db, previous.media_id);
-      dropTwin(db, previous.media_id, id);
+      dropIfBare(db, previous.media_id, at);
+      dropTwin(db, previous.media_id, id, at);
     }
     const row = db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
     if (voiced !== null) writeText(db, row, { text: voiced, origin: 'voiced', at });

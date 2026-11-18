@@ -17,6 +17,7 @@ import { LOG_COLUMNS, TEXT_COLUMNS, markupNames, textCells } from './stable-name
 import type { Cell, LogResolver, Resolver } from './stable-names-texts.ts';
 import { touch } from './index-policy.ts';
 import { markStemsPending } from './stems.ts';
+import { dropMedia } from './media-store.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 
@@ -614,10 +615,7 @@ export function applyStableNamesRewrite(
     checkFresh(db, checked);
     const twin = db.prepare(`SELECT 1 AS ok FROM media m WHERE m.id = ? AND ${TWIN}`);
     if (twins.some((id) => twin.get(id) === undefined)) throw stale();
-    for (const id of twins) {
-      db.prepare('DELETE FROM media WHERE id = ?').run(id);
-      db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(`media:${id}`);
-    }
+    for (const id of twins) dropMedia(db, id, 'TRUE', [], at);
     const { written } = writeMediaNames(db, names, at);
     const rewrite = db.prepare('UPDATE sources SET text = ?, stems = NULL WHERE id = ?');
     for (const line of checked.lines) rewrite.run(line.to, line.id);
