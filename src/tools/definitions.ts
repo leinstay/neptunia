@@ -10,6 +10,7 @@
 
 import { idText, isObj, objOf } from './types.ts';
 import type { Obj } from './types.ts';
+import { ROUTE_ROLES } from '../llm/route-text.ts';
 
 const STRING_MAX = 6000;
 const API_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -232,7 +233,6 @@ export const ERRAND_TOOLS: Readonly<Record<string, string>> = Object.freeze({
 });
 /** The names of ERRAND_TOOLS. */
 export const JOBS: ReadonlyArray<string> = Object.freeze(Object.keys(ERRAND_TOOLS));
-const ROUTE_ROLES = ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'];
 const ACCESS_PARAMS = () => obj({ command: str() }, ['command']);
 const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), place: ref() }, ['message', 'emoji']);
 const USER_ONLY = () => obj({ user: ref() }, ['user']);
@@ -352,7 +352,7 @@ const ENTRIES: Array<Definition> = [
   }),
   def('route.set', {
     traits: ['ungrantable'],
-    params: obj({ model: str(), providers: str(), role: oneOf(ROUTE_ROLES), fallbacks: bool(), byok: bool() }, [
+    params: obj({ model: str(), providers: str(), role: oneOf([...ROUTE_ROLES]), fallbacks: bool(), byok: bool() }, [
       'model',
       'providers',
     ]),
@@ -367,7 +367,7 @@ const ENTRIES: Array<Definition> = [
   }),
   def('route.remove', {
     traits: ['ungrantable'],
-    params: obj({ model: str(), role: oneOf(ROUTE_ROLES) }, ['model']),
+    params: obj({ model: str(), role: oneOf([...ROUTE_ROLES]) }, ['model']),
     effects: 'administrative',
     toArgs: (a) => ({ model: val(a, 'model'), role: opt(a, 'role') }),
   }),

@@ -8,6 +8,7 @@ import { createConsole } from '../src/interface/commands/console.ts';
 import { menuCommandsOf } from '../src/interface/commands/table.ts';
 import type { Command, CommandArg } from '../src/interface/commands/table.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { ROUTE_ROLES } from '../src/llm/route-text.ts';
 
 /** The commands of the 4.3 table in PR 7a: `/mirror` and `/plugins` come later; `/skills` joined with PR 7e. */
 const TABLE = [
@@ -408,4 +409,13 @@ test('every interfaces row of the real table but the command itself is a line th
     rows.some((row) => row.name === 'interfaces disable'),
     false
   );
+});
+
+test('/routes set and /routes remove offer any and every role the routing knows', () => {
+  // Catches: the command keeps a list of its own, so `/routes set <model> <providers> search` is refused.
+  const routes = COMMANDS.find((command) => command.name === 'routes');
+  for (const name of ['set', 'remove']) {
+    const role = routes?.subcommands.find((one) => one.name === name)?.args.find((one) => one.name === 'role');
+    assert.deepEqual(role?.choices, ['any', ...ROUTE_ROLES], name);
+  }
 });
