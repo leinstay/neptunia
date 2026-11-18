@@ -7,7 +7,7 @@ import { DEFAULT_HISTORY_POSTS, usedSeedLines } from './diary.ts';
 import { parseSeedFamilies, pickSeeds } from './seeds.ts';
 import { formatNow } from '../format.ts';
 import { DailyCapError, TokenLimitError, roleRequestOptions } from '../llm/openrouter.ts';
-import { strictJsonObject } from '../llm/parse.ts';
+import { parseJsonObject } from '../llm/parse.ts';
 import { roleModel } from '../llm/roles.ts';
 import { block } from '../turn/request/text.ts';
 
@@ -83,12 +83,26 @@ const SCENE_FORMAT = {
   },
 };
 
-/** The answer `text` read strictly against the `sets` offered. */
+/**
+ * The JSON object of an answer, null when it holds none. A route with no strict response format, the core model through
+ * a harness, wraps its JSON in a code fence, so the object is read out of the text around it.
+ */
+function answerObject(text: unknown): Record<string, unknown> | null {
+  try {
+    const parsed = parseJsonObject(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    // No `{...}` span in the answer, or one that is not JSON.
+    return null;
+  }
+}
+
+/** The answer `text` read against the `sets` offered: every field checked, the text around the object left out. */
 function parseSceneAnswer(
   text: unknown,
   sets: ReadonlyArray<ReadonlyArray<string>>
 ): { ok: true; set: number; used: Array<string>; scene: string } | { ok: false; reason: SceneFailure } {
-  const answer = strictJsonObject(text);
+  const answer = answerObject(text);
   if (!answer) return { ok: false, reason: 'not-json' };
   const { set, used, scene } = answer;
   const shaped =

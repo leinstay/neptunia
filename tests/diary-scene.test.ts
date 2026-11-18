@@ -67,6 +67,15 @@ test('sends the request on the role it is given, so two models can be compared o
   assert.equal(llm.calls[0].options.purpose, 'diary-scene');
 });
 
+test('reads the answer of a model that wraps its JSON in a code fence', async () => {
+  // Bug: a route with no strict response format, the core model through a harness, fences its JSON and every scene is lost.
+  const answer = JSON.stringify({ set: 1, used: ['a pier'], scene: 'A pier in fog.' });
+  const { result } = run(['```json', answer, '```'].join('\n'));
+  const got = await result;
+  assert.equal(got.ok, true);
+  assert.equal(got.ok && got.scene, 'A pier in fog.');
+});
+
 test('returns the set, the kept lines, the scene and the tokens of a valid answer', async () => {
   // Bug: the chosen set or its lines are lost, or the tokens are not read.
   const { result } = run(JSON.stringify({ set: 2, used: ['a roof', 'rain'], scene: ' A wet roof at noon. ' }));
