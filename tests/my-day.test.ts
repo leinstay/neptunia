@@ -120,6 +120,7 @@ function world(seed: (s: Seed) => void = () => {}) {
       place
     );
   const source = (row: Record<string, unknown>) => insertRows(db, { sources: [row] });
+  const intentions: Array<Record<string, unknown>> = [];
   seed({
     db,
     handle: opened0,
@@ -187,23 +188,16 @@ function world(seed: (s: Seed) => void = () => {}) {
       });
     },
     intention(id, purpose) {
-      writeIntentions(
-        db,
-        {
-          op: 'value',
-          intentions: [
-            {
-              id,
-              purpose,
-              status: 'done',
-              createdAt: NOW - HOUR * 5,
-              updatedAt: NOW - HOUR * 5,
-              provenance: { kind: 'self', turnId: null, scope: 'group' },
-            },
-          ],
-        },
-        iso(NOW)
-      );
+      // The write holds the whole list, so a second intention is written beside the ones before it.
+      intentions.push({
+        id,
+        purpose,
+        status: 'done',
+        createdAt: NOW - HOUR * 5,
+        updatedAt: NOW - HOUR * 5,
+        provenance: { kind: 'self', turnId: null, scope: 'group' },
+      });
+      writeIntentions(db, { op: 'value', intentions: [...intentions] }, iso(NOW));
     },
     wakeRun(id, kind, when, intentions = []) {
       startRun(opened0, {
@@ -500,6 +494,7 @@ async function heartbeatDay(
   const w = world((s) => {
     s.wakeRun('hb-1', 'heartbeat', at(9, 0));
     s.intention('i-hb', 'ΣΚΟΠΟΣ-ΚΑΡΔΙΑΣ');
+    s.intention('i-hb2', 'ΣΚΟΠΟΣ-ΤΡΑΓΟΥΔΙΟΥ');
     if (privateSet) s.private('i-hb');
     s.request('hb-1', at(9, 1), [['web.search', { query: 'ΑΣΤΕΡΙΑ' }]]);
     s.request('hb-1', at(9, 2), [['memory.search', { question: 'ΚΗΠΟΣ' }]]);
@@ -517,6 +512,14 @@ test('a heartbeat that read two places, searched twice and set an intention is o
   const [line = ''] = lines;
   for (const part of ['09:00', 'café', 'salon', 'ΑΣΤΕΡΙΑ', 'ΚΗΠΟΣ', 'ΣΚΟΠΟΣ-ΚΑΡΔΙΑΣ'])
     assert.ok(line.includes(part), line);
+});
+
+// Bug caught: a heartbeat that set two intentions tells the first alone, so the persona forgets the second wish.
+test('a heartbeat that set two intentions tells both, and never nothing', async () => {
+  const two = [...SET_HB, { ...SET_HB[0], createdId: 'i-hb2' }];
+  const [line = ''] = await heartbeatDay(two);
+  assert.ok(line.includes('ΣΚΟΠΟΣ-ΚΑΡΔΙΑΣ') && line.includes('ΣΚΟΠΟΣ-ΤΡΑΓΟΥΔΙΟΥ'), line);
+  assert.ok(!line.includes(String(labels.myDay.heartbeatNothing)), line);
 });
 
 test('a heartbeat that set nothing says it ended with nothing', async () => {

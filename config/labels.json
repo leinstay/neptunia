@@ -727,7 +727,7 @@
           "cap-open": "too many of your errands are open already",
           "cap-tasks": "today's errands for that agent are used up",
           "intention-notice": "the intention is not saved yet, and what you already did near it follows",
-          "heartbeat-only": "heartbeat accepts every read, of memory, chats, the web and pictures, and an errand, then one intention change or a skip. A post, a reaction, a drawing or a voice line needs an intention",
+          "heartbeat-only": "heartbeat accepts every read, of memory, chats, the web and pictures, an errand and changes to intentions, and ends with a skip. A post, a reaction, a drawing or a voice line needs an intention",
           "heartbeat-cap": "too many of your heartbeat intentions are open already; update or cancel one",
           "heartbeat-recurring-cap": "your recurring heartbeat intention is already open; update or cancel it",
           "not-requester": "only the person who asked for it or an owner can do that",

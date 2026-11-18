@@ -139,16 +139,19 @@ test('a changed purpose near nothing is saved at once after a notice', async () 
 
 test('a purpose near nothing she did is saved with no notice', async () => {
   // Bug: every heartbeat intention gets a notice, whatever lies near it.
-  const run = await heartbeat([toolAnswer(THINK, [call('intention.set', { due: '1h', text: GARDENING })])]);
+  const run = await heartbeat([toolAnswer(THINK, [call('intention.set', { due: '1h', text: GARDENING })]), '<skip/>']);
   assert.deepEqual(run.actions, ['intention.set:executed:ok']);
   assert.deepEqual(purposes(run), [GARDENING]);
 });
 
 test('with the embedder failing the intention is saved and a warn line names the stage', async () => {
   // Bug: a broken check blocks her intention, or it saves silently and nobody learns the check is down.
-  const run = await heartbeat([toolAnswer(THINK, [call('intention.set', { due: '1h', text: `${CONCERT} ξανά` })])], {
-    embedNotice: () => Promise.reject(Object.assign(new Error('down'), { code: 'http' })),
-  });
+  const run = await heartbeat(
+    [toolAnswer(THINK, [call('intention.set', { due: '1h', text: `${CONCERT} ξανά` })]), '<skip/>'],
+    {
+      embedNotice: () => Promise.reject(Object.assign(new Error('down'), { code: 'http' })),
+    }
+  );
   assert.deepEqual(run.actions, ['intention.set:executed:ok']);
   const warned = run.logs.filter((line) => line.level === 'warn' && line.stage === 'embed');
   assert.equal(warned.length, 1, JSON.stringify(run.logs.filter((line) => line.level === 'warn')));

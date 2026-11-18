@@ -1,5 +1,5 @@
 // What ends a heartbeat (plan sections 7 and 8, the owner's word of 2026-11-04): memory reads may come first, and a
-// heartbeat records one intention or a skip. It starts no agent and acts outward in no other way. Over the real turn
+// heartbeat records any number of intention changes and ends on an answer with no call. It starts no agent and acts outward in no other way. Over the real turn
 // runner and operations and a fake model (tests/fixtures/wake-turn.ts). `guard:` names a test of what already works and
 // must keep working.
 import { test } from 'node:test';
@@ -23,12 +23,14 @@ test('heartbeat: the request carries no diary task', async () => {
 
 // Changed: a heartbeat hands off an errand and waits for it (the owner's decision of 2026-11-17), so only the skill run
 // is refused, and the errand does not end the wake.
-test('heartbeat: a skill run is refused, an errand is accepted and does not end the wake, an intention ends it', async () => {
+// Changed: a heartbeat takes several intention changes, so the change is followed by the request her skip ends.
+test('heartbeat: a skill run is refused, an errand is accepted and does not end the wake, an intention does not either', async () => {
   const run = await wakeTurn({
     wake: BEAT,
     answers: [
       toolAnswer(THINK, [call('errand.scout', { goal: 'g' }), call('skill.run', { name: 'x', script: 'y' })]),
       SET,
+      '<skip/>',
     ],
     errands: waitedErrands().service,
   });
@@ -37,7 +39,7 @@ test('heartbeat: a skill run is refused, an errand is accepted and does not end 
     'skill.run:refused:heartbeat-only',
     'intention.set:executed:ok',
   ]);
-  assert.equal(run.requests.length, 2);
+  assert.equal(run.requests.length, 3);
 });
 
 /** An errand service whose waits end at once with a done errand, after `delayMs`; `waits` records each wait's time. */
@@ -75,10 +77,11 @@ test('heartbeat: a waited errand that returns is read in a follow-up request of 
   const { service } = waitedErrands();
   const run = await wakeTurn({
     wake: BEAT,
-    answers: [toolAnswer(THINK, [call('errand.scout', { goal: 'g' })]), SET],
+    answers: [toolAnswer(THINK, [call('errand.scout', { goal: 'g' })]), SET, '<skip/>'],
     errands: service,
   });
-  assert.equal(run.requests.length, 2);
+  // Changed: a heartbeat takes several intention changes, so her skip after the change ends the turn.
+  assert.equal(run.requests.length, 3);
   assert.ok(requestText(run.requests[1] ?? []).includes('ΤΟ ΑΠΟΤΕΛΕΣΜΑ ΤΗΣ ΑΝΑΖΗΤΗΣΗΣ'));
   assert.deepEqual(run.actions, ['errand.scout:executed:ok', 'intention.set:executed:ok']);
 });
@@ -88,7 +91,7 @@ test("heartbeat: the waiting call gets the budget's remaining time when wakes.lo
   const { service, waits } = waitedErrands(1500);
   const run = await wakeTurn({
     wake: BEAT,
-    answers: [toolAnswer(THINK, [call('errand.scout', { goal: 'g' })]), SET],
+    answers: [toolAnswer(THINK, [call('errand.scout', { goal: 'g' })]), SET, '<skip/>'],
     errands: service,
     wakes: { loop: { maxSteps: 4, timeBudgetMs: 500_000, maxCallsPerStep: 4, callTimeoutMs: 1000 } },
   });
@@ -106,8 +109,9 @@ test('guard: heartbeat: a recall first, then a skip, is a completed wake with no
   assert.deepEqual(run.intentions, []);
 });
 
-test('heartbeat: a restarted turn of the same wake records no second intention', async () => {
-  // Bug: a crash after the intention and before the commit reruns the wake, and she wakes twice for one wish.
+test('heartbeat: a restarted turn of the same wake repeats no intention, and its second intention.set makes a second one', async () => {
+  // Bug: a crash after the intention and before the commit reruns the wake, and she wakes twice for one wish; or the
+  // second intention.set of the wake answers with the first one's result and the second wish is lost.
   const hot = { config: { bot: { timezone: 'UTC' }, intentions: { expiresDays: 14, maxOpen: 20 } } };
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir: tempDir('nep-wake-restart-'), now: () => WAKE_NOW }),
@@ -115,12 +119,36 @@ test('heartbeat: a restarted turn of the same wake records no second intention',
     now: () => WAKE_NOW,
     log: { info() {}, warn() {} },
   });
-  await wakeTurn({ wake: BEAT, answers: [SET], service });
+  await wakeTurn({ wake: BEAT, answers: [SET, '<skip/>'], service });
   const again = await wakeTurn({
     wake: BEAT,
-    answers: [toolAnswer(THINK, [call('intention.set', { due: '2h', text: 'ask how the move went, reworded' })])],
+    answers: [
+      toolAnswer(THINK, [call('intention.set', { due: '2h', text: 'ask how the move went, reworded' })]),
+      toolAnswer(THINK, [call('intention.set', { due: '3h', text: 'share the song' })]),
+      '<skip/>',
+    ],
     service,
   });
-  assert.equal(again.requests.length, 1);
-  assert.equal(again.intentions.length, 1);
+  assert.equal(again.requests.length, 3);
+  assert.deepEqual(again.intentions.map((intention) => String(intention.purpose)).sort(), [
+    'ask how the move went',
+    'share the song',
+  ]);
+});
+
+// Bug caught: the final request of a heartbeat makes its first intention change alone and drops the second wish.
+test('heartbeat: the final request makes every intention change it holds', async () => {
+  const run = await wakeTurn({
+    wake: BEAT,
+    answers: [
+      toolAnswer(THINK, [call('lore.list')]),
+      toolAnswer(THINK, [
+        call('intention.set', { due: '1h', text: 'ask how the move went' }),
+        call('intention.set', { due: '3h', text: 'share the song' }),
+      ]),
+    ],
+    wakes: { loop: { maxSteps: 1, timeBudgetMs: 500_000, maxCallsPerStep: 4, callTimeoutMs: 1000 } },
+  });
+  assert.equal(run.requests.length, 2, 'the read, then the final request');
+  assert.deepEqual(run.actions.slice(1), ['intention.set:executed:ok', 'intention.set:executed:ok']);
 });

@@ -1,8 +1,8 @@
 // What a heartbeat accepts (src/tools/wake-tools.ts): every call that only looks, as the tools' own definitions
-// declare it, the errand calls and one intention change; every other call is refused with heartbeat-only.
+// declare it, the errand calls and any number of intention changes; every other call is refused with heartbeat-only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { endsWake, wakeRefusalCode } from '../src/tools/wake-tools.ts';
+import { wakeGoesOn, wakeRefusalCode } from '../src/tools/wake-tools.ts';
 import { JOBS, SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { CODE } from '../src/tools/codes.ts';
 
@@ -16,16 +16,18 @@ test('accepts memory.read in a heartbeat and refuses message.create', () => {
   );
 });
 
-// Bug caught: the heartbeat refuses the errand it is to wait for, or takes the errand for its decision and ends.
-test('accepts errand.scout and errand.read in a heartbeat, and neither ends the wake', () => {
+// Changed: a heartbeat takes several intention changes, so a change is read back and the turn goes on after it.
+// Bug caught: the heartbeat refuses the errand it is to wait for, or an intention change ends the turn before the
+// persona makes a second one.
+test('accepts errand.scout and errand.read in a heartbeat, and the turn goes on after an intention change', () => {
   assert.deepEqual(
     [
       wakeRefusalCode('heartbeat', 'errand.scout'),
       wakeRefusalCode('heartbeat', 'errand.read'),
-      endsWake('heartbeat', 'errand.scout'),
-      endsWake('heartbeat', 'errand.read'),
+      wakeGoesOn('heartbeat', 'errand.read'),
+      wakeGoesOn('heartbeat', 'intention.set'),
     ],
-    [null, null, false, false]
+    [null, null, false, true]
   );
 });
 

@@ -683,7 +683,7 @@
     },
     {
       "path": "src/tools/wake-tools.ts",
-      "purpose": "What a heartbeat accepts and offers, the one decision that ends it, and the key that keeps a restarted wake from repeating it. Tested through the wake completion tests.",
+      "purpose": "What a heartbeat accepts and offers, the intention changes it goes on after, and the key that keeps a restarted wake from repeating them. Tested through the wake completion tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

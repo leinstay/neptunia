@@ -62,14 +62,10 @@ test('sampleFacts: a proposed intention.set ends the sample with its place, due,
     { name: 'memory.search', status: 'executed', code: null },
     { name: 'intention.set', status: 'proposed', code: null },
   ]);
+  // Changed: a heartbeat takes several intention changes, so the ending lists each change under `changes`.
   assert.deepEqual(facts.end, {
     kind: 'intention',
-    change: 'set',
-    place: '#general',
-    direct: false,
-    dueInMinutes: 480,
-    recurs: true,
-    purposeWords: 5,
+    changes: [{ change: 'set', place: '#general', direct: false, dueInMinutes: 480, recurs: true, purposeWords: 5 }],
   });
 });
 
@@ -98,14 +94,10 @@ test('sampleFacts: an intention in a direct chat with no due and no recurrence',
     at
   );
   assert.equal(facts.promptTokens, null);
+  // Changed: a heartbeat takes several intention changes, so the ending lists each change under `changes`.
   assert.deepEqual(facts.end, {
     kind: 'intention',
-    change: 'set',
-    place: 'd1',
-    direct: true,
-    dueInMinutes: null,
-    recurs: false,
-    purposeWords: 3,
+    changes: [{ change: 'set', place: 'd1', direct: true, dueInMinutes: null, recurs: false, purposeWords: 3 }],
   });
 });
 
@@ -126,14 +118,42 @@ test('sampleFacts: an intention saved by confirming a notice takes the place and
     },
     at
   );
+  // Changed: a heartbeat takes several intention changes, so the ending lists each change under `changes`.
   assert.deepEqual(facts.end, {
     kind: 'intention',
-    change: 'set',
-    place: 'd1',
-    direct: true,
-    dueInMinutes: 30,
-    recurs: false,
-    purposeWords: 4,
+    changes: [{ change: 'set', place: 'd1', direct: true, dueInMinutes: 30, recurs: false, purposeWords: 4 }],
+  });
+});
+
+// Bug caught: a sample with two intention changes reports only its last, or pairs a change with another call's
+// arguments, so the comparison of variants miscounts the places and the dues.
+test('sampleFacts: every intention change of a sample is listed in its order, and a refused one is left out', () => {
+  const facts = sampleFacts(
+    {
+      requests: [request(100), request(200)],
+      answers: [
+        answer('', [
+          { skill: 'intention.set', args: { text: 'share the find', place: '#general', due: '1h' } },
+          { skill: 'intention.cancel', args: { id: 'missing' } },
+          { skill: 'intention.set', args: { text: 'answer her question', place: 'd1', due: '10m' } },
+        ]),
+        answer('', [], true),
+      ],
+      actions: [
+        { skill: 'intention.set', status: 'executed', result: 'ok', target: { channel: 'c1' } },
+        { skill: 'intention.cancel', status: 'refused', code: 'not-found' },
+        { skill: 'intention.set', status: 'executed', result: 'ok', target: { channel: 'd1' } },
+      ],
+      turn: SPOKE,
+    },
+    at
+  );
+  assert.deepEqual(facts.end, {
+    kind: 'intention',
+    changes: [
+      { change: 'set', place: '#general', direct: false, dueInMinutes: 60, recurs: false, purposeWords: 3 },
+      { change: 'set', place: 'd1', direct: true, dueInMinutes: 10, recurs: false, purposeWords: 3 },
+    ],
   });
 });
 
@@ -222,12 +242,7 @@ const sample = (end: SampleFacts['end'], extra: Partial<SampleFacts> = {}): Samp
 });
 const intention = (place: string | null, direct: boolean | null, dueInMinutes: number | null): SampleFacts['end'] => ({
   kind: 'intention',
-  change: 'set',
-  place,
-  direct,
-  dueInMinutes,
-  recurs: false,
-  purposeWords: 4,
+  changes: [{ change: 'set', place, direct, dueInMinutes, recurs: false, purposeWords: 4 }],
 });
 
 test('innerSummary: counts and shares of skips, places, direct chats, far dues, refusals, and the sizes', () => {
@@ -296,4 +311,21 @@ test('innerSummary: counts the three endings, unresolved of the samples, skips a
     { code: 'error', count: 1 },
   ]);
   assert.deepEqual(summary.withPlace, { count: 2, share: 0.667 });
+});
+
+// Bug caught: a sample with two intention changes counts once in the shares over intentions, so the second wish of a
+// heartbeat is missing from the places and the dues.
+test('innerSummary: the shares over intentions count every change of a sample', () => {
+  const two: SampleFacts['end'] = {
+    kind: 'intention',
+    changes: [
+      { change: 'set', place: '#general', direct: false, dueInMinutes: 30, recurs: false, purposeWords: 4 },
+      { change: 'set', place: 'd1', direct: true, dueInMinutes: 600, recurs: false, purposeWords: 4 },
+    ],
+  };
+  const summary = innerSummary([sample(two), sample({ kind: 'skip' })]);
+  assert.deepEqual(summary.intentions, { count: 1, share: 0.5 });
+  assert.deepEqual(summary.withPlace, { count: 2, share: 1 });
+  assert.deepEqual(summary.direct, { count: 1, share: 0.5 });
+  assert.deepEqual(summary.dueOverSixHours, { count: 1, share: 0.5 });
 });

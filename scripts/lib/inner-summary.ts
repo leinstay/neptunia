@@ -9,23 +9,23 @@ import { ERRAND_TOOLS } from '../../src/tools/definitions.ts';
 export type InnerCall = { name: string; status: string; code: string | null };
 
 /**
- * How a sample ended: her own skip, one intention change, or unresolved with a short code. `code` is `errand-proposed`
+ * How a sample ended: her own skip, the intention changes she made in their order, or unresolved with a short code. `code` is `errand-proposed`
  * (an errand call only proposed in shadow), `errand-unanswered` (an errand call that found no answer in
  * `--errand-answers`), `step-cap`, `time-budget` or `token-cap` (the loop cut her calls), the turn's outcome when it
  * neither spoke nor skipped (`error`, `refused`, `cancelled`, `not-now`), or `no-decision` (no change and no skip).
  */
 export type InnerEnd =
-  | { kind: 'skip' }
-  | { kind: 'unresolved'; code: string }
-  | {
-      kind: 'intention';
-      change: 'set' | 'update' | 'cancel';
-      place: string | null;
-      direct: boolean | null;
-      dueInMinutes: number | null;
-      recurs: boolean;
-      purposeWords: number;
-    };
+  { kind: 'skip' } | { kind: 'unresolved'; code: string } | { kind: 'intention'; changes: Array<IntentionChange> };
+
+/** One intention change that was proposed or ran, read from the arguments of its call. */
+export type IntentionChange = {
+  change: 'set' | 'update' | 'cancel';
+  place: string | null;
+  direct: boolean | null;
+  dueInMinutes: number | null;
+  recurs: boolean;
+  purposeWords: number;
+};
 
 export type SampleFacts = {
   /** The prompt tokens of the first request, as the provider reported them. */
@@ -82,8 +82,8 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
 /**
  * The facts of one sample. `requests` are her reply requests in order, `answers` her parsed answers to them, `actions`
  * the turn's inner actions, `turn` what the runner said of its end. The ending, first match wins: a turn that neither
- * spoke nor skipped is unresolved with its outcome; an errand call left without a result is unresolved; the last
- * intention change that was proposed or ran is the ending; a loop cut is unresolved; the runner's `skip`, or her last
+ * spoke nor skipped is unresolved with its outcome; an errand call left without a result is unresolved; the intention
+ * changes that were proposed or ran are the ending, each read from the arguments of its own call; a loop cut is unresolved; the runner's `skip`, or her last
  * answer's skip, is a skip; anything else is unresolved `no-decision`. `directOf` says whether a place is a direct
  * chat, null when unknown.
  */
@@ -97,7 +97,12 @@ export function sampleFacts(
   { now, timezone, directOf }: { now: number; timezone: string; directOf: (place: string) => boolean | null }
 ): SampleFacts {
   const thinks = answers.map((answer) => text(answer.think).length);
-  const change = actions.findLast((action) => text(action.skill) in CHANGES && action.status !== 'refused');
+  // The calls of intention changes and their actions, one action per call in the same order.
+  const changeCalls = answers.flatMap((answer) => answer.calls ?? []).filter((call) => call.skill in CHANGES);
+  const changeActions = actions.filter((action) => text(action.skill) in CHANGES);
+  const changes = changeActions.flatMap((action, i) =>
+    action.status === 'refused' ? [] : [changeOf(changeCalls, i, action, { now, timezone, directOf })]
+  );
   const errandCalls = actions.filter(
     (action) => Object.hasOwn(ERRAND_TOOLS, text(action.skill)) && action.status !== 'refused'
   );
@@ -111,27 +116,8 @@ export function sampleFacts(
   if (turn.outcome !== 'skip' && turn.outcome !== 'spoke') end = { kind: 'unresolved', code: turn.outcome ?? 'error' };
   else if (proposed) end = { kind: 'unresolved', code: 'errand-proposed' };
   else if (errands.some((errand) => !errand.answered)) end = { kind: 'unresolved', code: 'errand-unanswered' };
-  else if (change) {
-    const skill = text(change.skill) as keyof typeof CHANGES;
-    // A call that confirms a notice carries the notice's id alone: the arguments are those of the call the notice held.
-    const args =
-      answers
-        .flatMap((answer) => answer.calls ?? [])
-        .findLast((call) => call.skill === skill && text(call.args?.confirm) === '')?.args ?? {};
-    const place = text(args.place) || null;
-    const resolved = text(change.target?.channel) || place;
-    const due = parseWhen(args.due, now, { timezone });
-    const every = text(args.every).trim();
-    end = {
-      kind: 'intention',
-      change: CHANGES[skill],
-      place,
-      direct: resolved === null ? null : directOf(resolved),
-      dueInMinutes: due === null ? null : Math.round((due - now) / 60_000),
-      recurs: every !== '' && every !== 'none',
-      purposeWords: text(args.text).split(/\s+/).filter(Boolean).length,
-    };
-  } else if (cut !== null) end = { kind: 'unresolved', code: cut };
+  else if (changes.length > 0) end = { kind: 'intention', changes };
+  else if (cut !== null) end = { kind: 'unresolved', code: cut };
   else if (turn.outcome === 'skip' || answers.at(-1)?.skip === true) end = { kind: 'skip' };
   else end = { kind: 'unresolved', code: 'no-decision' };
   return {
@@ -149,6 +135,38 @@ export function sampleFacts(
   };
 }
 
+/**
+ * The change of the action at `i` of the change calls, read from its call. A call that confirms a notice carries the
+ * notice's id alone: its arguments are those of the latest call of the same skill before it that the notice held.
+ */
+function changeOf(
+  calls: ReadonlyArray<{ skill: string; args?: Record<string, unknown> }>,
+  i: number,
+  action: Action,
+  { now, timezone, directOf }: { now: number; timezone: string; directOf: (place: string) => boolean | null }
+): IntentionChange {
+  const skill = text(action.skill) as keyof typeof CHANGES;
+  const own = calls[i];
+  const held =
+    own !== undefined && text(own.args?.confirm) !== ''
+      ? calls.slice(0, i).findLast((call) => call.skill === skill && text(call.args?.confirm) === '')
+      : own;
+  // A call the transport could not read leaves an action with no call beside it: its change is read with no arguments.
+  const args = held?.args ?? {};
+  const place = text(args.place) || null;
+  const resolved = text(action.target?.channel) || place;
+  const due = parseWhen(args.due, now, { timezone });
+  const every = text(args.every).trim();
+  return {
+    change: CHANGES[skill],
+    place,
+    direct: resolved === null ? null : directOf(resolved),
+    dueInMinutes: due === null ? null : Math.round((due - now) / 60_000),
+    recurs: every !== '' && every !== 'none',
+    purposeWords: text(args.text).split(/\s+/).filter(Boolean).length,
+  };
+}
+
 type Share = { count: number; share: number | null };
 
 export type InnerSummary = {
@@ -159,7 +177,7 @@ export type InnerSummary = {
   /** Shares of the samples that ended resolved. */
   skips: Share;
   intentions: Share;
-  /** Shares of the intentions. */
+  /** Shares of the intention changes, every change of every sample. */
   withPlace: Share;
   direct: Share;
   dueOverSixHours: Share;
@@ -191,12 +209,13 @@ function counted(keys: Array<string>): Array<[string, number]> {
 
 /**
  * The counts over the samples of one variant: the unresolved of the samples, skips and intentions of the samples that
- * ended resolved, the rest of the intentions.
+ * ended resolved, the rest of every intention change of the samples.
  */
 export function innerSummary(samples: Array<SampleFacts>): InnerSummary {
   const ends = samples.map((sample) => sample.end);
-  const changes = ends.filter((end) => end.kind === 'intention');
-  const placed = changes.flatMap((end) => (end.place === null ? [] : [end.place]));
+  const ended = ends.filter((end) => end.kind === 'intention');
+  const changes = ended.flatMap((end) => end.changes);
+  const placed = changes.flatMap((change) => (change.place === null ? [] : [change.place]));
   const unresolved = ends.flatMap((end) => (end.kind === 'unresolved' ? [end.code] : []));
   const resolved = samples.length - unresolved.length;
   return {
@@ -204,11 +223,11 @@ export function innerSummary(samples: Array<SampleFacts>): InnerSummary {
     unresolved: share(unresolved.length, samples.length),
     unresolvedCodes: counted(unresolved).map(([code, count]) => ({ code, count })),
     skips: share(ends.filter((end) => end.kind === 'skip').length, resolved),
-    intentions: share(changes.length, resolved),
+    intentions: share(ended.length, resolved),
     withPlace: share(placed.length, changes.length),
-    direct: share(changes.filter((end) => end.direct === true).length, changes.length),
+    direct: share(changes.filter((change) => change.direct === true).length, changes.length),
     dueOverSixHours: share(
-      changes.filter((end) => end.dueInMinutes !== null && end.dueInMinutes > SIX_HOURS_MIN).length,
+      changes.filter((change) => change.dueInMinutes !== null && change.dueInMinutes > SIX_HOURS_MIN).length,
       changes.length
     ),
     places: counted(placed).map(([place, count]) => ({ place, ...share(count, changes.length) })),
@@ -231,10 +250,10 @@ export function innerSummaryTable(summary: InnerSummary): Array<string> {
     `| unresolved, of samples | ${pct(summary.unresolved)} |`,
     ...summary.unresolvedCodes.map((entry) => `| unresolved \`${entry.code}\` | ${entry.count} |`),
     `| skips, of resolved samples | ${pct(summary.skips)} |`,
-    `| intentions, of resolved samples | ${pct(summary.intentions)} |`,
-    `| with a place, of intentions | ${pct(summary.withPlace)} |`,
-    `| in a direct chat, of intentions | ${pct(summary.direct)} |`,
-    `| due over six hours away, of intentions | ${pct(summary.dueOverSixHours)} |`,
+    `| ended with intention changes, of resolved samples | ${pct(summary.intentions)} |`,
+    `| with a place, of intention changes | ${pct(summary.withPlace)} |`,
+    `| in a direct chat, of intention changes | ${pct(summary.direct)} |`,
+    `| due over six hours away, of intention changes | ${pct(summary.dueOverSixHours)} |`,
     ...summary.places.map((entry) => `| place \`${entry.place}\` | ${pct(entry)} |`),
     ...summary.refused.map((entry) => `| refused \`${entry.code}\` | ${entry.count} |`),
     `| think characters, median / largest | ${size(summary.thinkChars)} |`,

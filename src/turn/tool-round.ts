@@ -40,7 +40,7 @@ import { coerceArgs, coversSpeech, toolResultText } from '../tools/tool-calls.ts
 import type { TurnCall } from '../skills/uses.ts';
 import type { NormalCall } from '../tools/tool-calls.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
-import { SERVICE_ERRAND_SKILLS, endsWake, oneDecisionCode } from '../tools/wake-tools.ts';
+import { SERVICE_ERRAND_SKILLS, wakeGoesOn } from '../tools/wake-tools.ts';
 import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
 import {
   CALL_STATUS_NAMES,
@@ -430,12 +430,13 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * message is never rebuilt. `tools.loop.maxSteps` (an inner turn's: `wakes.loop`) counts those requests and the
    * last of them is always the final one, which cannot call: it goes with the tool choice `none` (an inner turn's keeps
    * `auto`), its calls get a `loop-cap` result that only the journal keeps, and its speech goes out (an inner turn's
-   * when its one terminal call went through, a diary post's is held). The same goes for a request the time
+   * when its terminal call went through, a diary post's is held). A heartbeat's final answer makes every intention change
+   * it holds. The same goes for a request the time
    * budget (`timeBudgetMs`, from the first call) or the room of the request (the tokens: the results are cut to fit,
    * 400 characters each at least) made the last. When the steps end with no final answer (the next request does not
    * fit even cut, or it throws), a turn that answers someone and delivered nothing makes one rescue request: the first
-   * messages and `labels.task.step.rescue`, with the tool choice `none`, read as a final answer. A heartbeat turn ends
-   * with its one intention change. Logs `skills: loop` (`steps`, `calls`, `ms`).
+   * messages and `labels.task.step.rescue`, with the tool choice `none`, read as a final answer. A heartbeat's intention
+   * change that went through is read back in the next request, so the turn ends on an answer with no call. Logs `skills: loop` (`steps`, `calls`, `ms`).
    *
    * Resolves `{ acts, cutOff, delivered, skipped, leakEnded, bareEnded, rescued }`: act's answers in order, whether a step was cut
    * off with nothing complete, whether anything reached the chat (her speech, a post, a picture, an errand accepted),
@@ -513,7 +514,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     const callTimeoutCap = (inner ? settings.callTimeoutMs : (hot.config.tools?.callTimeoutMs ?? 120000)) as number;
     const tools = transport === 'native' && draft.tools.length > 0 ? { tools: draft.tools, toolChoice: 'auto' } : {};
     // The final request cannot call: the tools stay for the cached prefix, the choice is none. An inner turn's final
-    // request keeps its choice, because its one terminal call still runs.
+    // request keeps its choice, because its terminal calls still run.
     const toolsOf = (final: boolean): object =>
       final && !inner && 'tools' in tools ? { ...tools, toolChoice: 'none' } : tools;
     const acts: Array<ActOutcome | HeldSpeech> = [];
@@ -674,13 +675,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       // 1. Her calls, planned in her order and made.
       const plans: Array<CallPlan & { record: NormalCall; coerced: Array<{ arg: string; to: boolean | number }> }> = [];
       let results: Array<CallOutcome> = [];
-      // Only an inner turn's last answer still makes one call: a post or a change of an intention.
+      // An inner turn's last answer still makes its first terminal call: a post or a change of an intention.
       const terminalAt =
         isFinal && inner
-          ? records.findIndex(
-              (record) =>
-                !record.problem && (INNER_TERMINAL_SKILLS.includes(record.name) || endsWake(wakeKind, record.name))
-            )
+          ? records.findIndex((record) => !record.problem && INNER_TERMINAL_SKILLS.includes(record.name))
           : -1;
       if (records.length > 0) {
         if (loopStartedAt === null) loopStartedAt = clock();
@@ -689,12 +687,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           typing.stop = typingWhileCalls(channel, triggerKind, draft);
         }
         const view = { ...viewOf(routed), links: await linksOfCalls(ifaceReads, records) };
-        // A wake with one decision (src/tools/wake-tools.ts): the first deciding call of a step is planned, a second one is refused.
-        let decisionPlanned = false;
         for (const record of records) {
           const preRefuse = preRefusalOf(record, {
             isFinal,
-            terminalAt,
+            // A heartbeat's final answer makes each of its intention changes (src/tools/wake-tools.ts).
+            isTerminal: record.index === terminalAt || (inner && wakeGoesOn(wakeKind, record.name)),
             room,
             maxCallsPerStep: settings.maxCallsPerStep,
             finalReason,
@@ -703,15 +700,6 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           const coercion = preRefuse
             ? { args: record.args, coerced: [] }
             : coerceArgs(record.args, registry.get(record.name)?.argsSchema);
-          const deciding = !preRefuse && endsWake(wakeKind, record.name);
-          const second = deciding && decisionPlanned;
-          if (second)
-            log.info(`${wakeKind}: call refused`, {
-              skill: record.name,
-              code: oneDecisionCode(wakeKind),
-              reason: 'one-change',
-            });
-          if (deciding) decisionPlanned = true;
           // coerceArgs answers an object for the object a normalized call carries.
           const args = coercion.args as Obj;
           // format.stripDashes holds for the text of her own post or edit as for a <msg> (src/turn/phases/response.ts).
@@ -743,9 +731,6 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
             index: record.index,
             ...(coercion.coerced.length > 0 ? { coerced: coercion.coerced.map((item) => item.arg) } : {}),
             ...(preRefuse ? { preRefuse } : {}),
-            ...(second
-              ? { refuse: { code: String(oneDecisionCode(wakeKind)), reason: `${wakeKind}:one-change` } }
-              : {}),
           };
           const planned = await planToolCall({ call, channel, envelope: envelopeOf(call), draft, view });
           plans.push({ ...planned, record, coerced: coercion.coerced });
@@ -835,10 +820,17 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         answersSomeone && !quietShown && results.some((result) => result.status === 'ok' && quietSkill(result.skill));
       if (seen) quietShown = true;
       // Her text outside every tag is something left to read too: she is told it was not posted.
+      // A heartbeat's intention change that went through is read back, so the persona may make another.
       const fresh =
         bare ||
         (records.length > 0 &&
-          (verdict.fresh || seen || results.some((result) => typeof result.note === 'string' && result.note !== '')));
+          (verdict.fresh ||
+            seen ||
+            results.some(
+              (result) =>
+                (typeof result.note === 'string' && result.note !== '') ||
+                (result.status === 'ok' && wakeGoesOn(wakeKind, result.skill))
+            )));
       const labels = hot.prompts?.labels ?? {};
       // The room the calls left: the time they took counts.
       const left = roomLeft({
@@ -853,8 +845,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       const openAlone = openLine !== '' && !fresh && !openTaken && left.run && left.next !== 'none';
       // Under the full stop (features.tools off) she is silent: nothing more is asked of her.
       const stopped = results.some((result) => result.code === CODE.SKILLS_OFF);
-      const decided = stepResults.some((result) => result.status === 'ok' && endsWake(wakeKind, result.skill));
-      const next: string = isFinal || stopped || decided ? 'none' : fresh || openAlone ? left.next : 'none';
+      const next: string = isFinal || stopped ? 'none' : fresh || openAlone ? left.next : 'none';
       if (next === 'none') {
         typing.stop();
         unseen = stepResults;
@@ -1139,20 +1130,20 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * call the transport could not read or no skill has is refused with its own code (`malformed-call`, `truncated-call`,
    * `unknown-skill`); a call past what the step allows (the final request's, the time's, the step's cap of calls) is
    * `loop-cap` with `what` saying which; in a diary post anything but `draw.create`, `voice.say` and an errand is
-   * `diary-draw-only`. An inner turn's last answer still makes its one terminal call (`terminalAt`).
+   * `diary-draw-only`. An inner turn's last answer still makes its terminal calls (`isTerminal`).
    */
   function preRefusalOf(
     record: NormalCall,
     {
       isFinal,
-      terminalAt,
+      isTerminal,
       room,
       maxCallsPerStep,
       finalReason,
       diary = false,
     }: {
       isFinal: boolean;
-      terminalAt: number;
+      isTerminal: boolean;
       room: { run: boolean; capReason: string | null };
       maxCallsPerStep: number;
       finalReason: string | null;
@@ -1168,7 +1159,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       return { code: CODE.THINK_IN_TEXT, reason: '' };
     // A final step has its reason, and a step out of room its own or the time.
     const capped = (what: string | null | undefined): CallRefusal => ({ code: CODE.LOOP_CAP, reason: what as string });
-    if (isFinal) return record.index === terminalAt ? null : capped(finalReason);
+    if (isFinal) return isTerminal ? null : capped(finalReason);
     if (!room.run) return capped(room.capReason ?? LOOP_WHY.time);
     if (record.index >= maxCallsPerStep) return capped(LOOP_WHY.extraCall);
     return null;

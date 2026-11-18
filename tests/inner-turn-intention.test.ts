@@ -98,7 +98,7 @@ test('intention.set without a place is accepted and stores no place', async () =
   // Bug: a heartbeat nowhere is told a destination is required, so she names a root to get the intention through.
   const run = await serviceTurn({
     wake: serviceWake('heartbeat'),
-    answers: [toolAnswer(THINK, [call('intention.set', { due: '1h', text: 'να ρωτήσω για το βιβλίο' })])],
+    answers: [toolAnswer(THINK, [call('intention.set', { due: '1h', text: 'να ρωτήσω για το βιβλίο' })]), '<skip/>'],
     chat: null,
   });
   assert.deepEqual(run.actions, ['intention.set:executed:ok']);

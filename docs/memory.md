@@ -330,7 +330,7 @@ Every read filters by the context's audience before any limit, and a version's s
 | Memory session | `src/memory/db/session-retrieved.ts` | The batch's words, people and places, and one embedding of its query (purpose `recall-query`) | The scope's | `<retrieved>`, as of the batch's newest line |
 | Errand | `src/errands/service.ts`, `src/core.ts` | The goal | A group context; a `dm` errand reads nothing, or every audience with `context.memory.openPrivate` | `context.memory` |
 
-Retrieval never yields a destination: a query names none, and a page's fields hold no target. A failed read leaves the consumer what else it has. A heartbeat keeps intention-or-skip, and a read consumes no receipt.
+Retrieval never yields a destination: a query names none, and a page's fields hold no target. A failed read leaves the consumer what else it has. A heartbeat keeps its intention changes and its skip, and a read consumes no receipt.
 
 A memory session may name `xN` from `<retrieved>` as a `ref` or a description's `subject`, `vN` as a premise and its older `#n` lines as sources. `reviewDescription` in `src/memory/db/describe.ts` takes an `entity` subject and reads the assertions that name it under the review's own context. `<retrieved>` gives way when a request would pass the page budget, and the batch stays.
 
