@@ -30,6 +30,7 @@ import { readDiary } from '../../memory/db/diary-past.ts';
 import { survivorOf } from '../../memory/db/ids.ts';
 import { accountOfMember, firstChannelOf, mintedAccount, placeOfChannel } from '../../memory/db/native-rows.ts';
 import { carriedIntentions, ownOf, sentLinesOf } from '../../memory/db/past-acts.ts';
+import { mirrorPlaces } from '../../memory/db/mirrors.ts';
 import { placeVisibleWhere } from '../../memory/db/places-read.ts';
 
 /** A silence of hers this long in one place ends a conversation there. */
@@ -47,9 +48,20 @@ type Call = { at: number; op: string; skill: string | null; placeId: string | nu
 type DayEvent =
   | { kind: 'conversation'; at: number; end: number; placeId: string; lines: number; people: Array<string> }
   | { kind: 'made'; at: number; skill: string; who: string | null }
-  | { kind: 'intention'; at: number; purpose: string; placeIds: Array<string> }
-  | { kind: 'heartbeat'; at: number; placeIds: Array<string>; queries: Array<string>; set: string | null }
-  | { kind: 'diary'; at: number; entry: string | null };
+  | { kind: 'intention'; at: number; purpose: string; placeIds: Array<string>; made: Made }
+  | {
+      kind: 'heartbeat';
+      at: number;
+      placeIds: Array<string>;
+      searched: Array<string>;
+      recalled: Array<string>;
+      /** The intention its end set, its purpose null where the context may not read it; null when it set none. */
+      set: { purpose: string | null } | null;
+    }
+  | { kind: 'diary'; at: number; entry: string | null; made: Made };
+
+/** What a turn that is an event of its own made, counted by skill. */
+type Made = Record<string, number>;
 
 /** What the reader is asked: the moments, the skills that make a thing and how many events to read at most. */
 type DayWindow = {
@@ -60,6 +72,8 @@ type DayWindow = {
   now: number;
   made: ReadonlySet<string>;
   limit: number;
+  /** How many of the newest calls are shown. */
+  callLimit: number;
 };
 
 /** The calls of the window and its events, oldest first. */
@@ -73,10 +87,23 @@ type Done = {
   placeId: string | null;
   target: string | null;
   turnId: string | null;
+  /** Whether the turn's context may read the row it came from. */
+  seen: boolean;
 };
 
-/** A row's `extra` as an object, {} when it is not one. */
+/** The statements of a connection, prepared once: a day's read asks the same few for each call, line and turn. */
+const statements = new WeakMap<Db, Map<string, ReturnType<Db['prepare']>>>();
+function prepared(db: Db, sql: string): ReturnType<Db['prepare']> {
+  let cache = statements.get(db);
+  if (!cache) statements.set(db, (cache = new Map<string, ReturnType<Db['prepare']>>()));
+  let statement = cache.get(sql);
+  if (!statement) cache.set(sql, (statement = db.prepare(sql)));
+  return statement;
+}
+
+/** A row's `extra` as an object, {} when it is not one; an `extra` the day's read already parsed comes back as it is. */
 function extraOf(text: unknown): Record<string, unknown> {
+  if (text && typeof text === 'object' && !Array.isArray(text)) return text as Record<string, unknown>;
   if (typeof text !== 'string') return {};
   try {
     const value: unknown = JSON.parse(text);
@@ -96,7 +123,7 @@ const objectOf = (value: unknown): Record<string, unknown> =>
 const channelOf = (target: unknown): string | null => textOf(objectOf(target).channel);
 
 /** Where and when a journal row was written, as each call read from it carries it. */
-type RowBase = Pick<Done, 'at' | 'placeId' | 'turnId'>;
+type RowBase = Pick<Done, 'at' | 'placeId' | 'turnId' | 'seen'>;
 
 /** What an operation's lines said before its closing line: the skill it called and the chat the call acted in. */
 type OpSeen = { skill: string | null; target: string | null };
@@ -131,7 +158,12 @@ function callsOfRows(rows: ReadonlyArray<Record<string, unknown>>): Array<Done> 
   const inner: Array<Done> = [];
   for (const row of rows) {
     const extra = extraOf(row.extra);
-    const base = { at: Date.parse(String(row.at)), placeId: textOf(row.place_id), turnId: textOf(row.turn_id) };
+    const base = {
+      at: Date.parse(String(row.at)),
+      placeId: textOf(row.place_id),
+      turnId: textOf(row.turn_id),
+      seen: row.seen === 1,
+    };
     if (!Number.isFinite(base.at)) continue;
     const closed = row.what === 'action' ? opDone(base, extra, seen) : null;
     if (closed) ops.push(closed);
@@ -146,82 +178,127 @@ function callsOfRows(rows: ReadonlyArray<Record<string, unknown>>): Array<Done> 
 /** Whether `ctx` may read the stored place `id`, over its primary key. */
 function visible(db: Db, ctx: Context, id: string): boolean {
   const where = placeVisibleWhere(ctx, 'p');
-  return db.prepare(`SELECT p.id FROM places p WHERE p.id = ? AND ${where.sql}`).get(id, ...where.params) !== undefined;
+  return (
+    prepared(db, `SELECT p.id FROM places p WHERE p.id = ? AND ${where.sql}`).get(id, ...where.params) !== undefined
+  );
 }
 
 /**
- * The place a call names: the stored place of the chat its call acted in when `ctx` may read it (its newest
- * generation under the interface of the turn's place, else its first), else the turn's place.
+ * The place a call names: the place its target names when `ctx` may read it, else the turn's place. A target is a
+ * place id of the memory, or a chat's native id, read as the newest generation of that chat, else its first, under the
+ * interface of the turn's place, the context's interface, or each interface of `ifaces` in turn.
  */
-function placeOf(db: Db, ctx: Context, one: Done): string | null {
-  if (!one.target) return one.placeId;
-  const home = one.placeId ? db.prepare('SELECT iface FROM places WHERE id = ?').get(one.placeId) : undefined;
-  const iface = textOf(home?.iface) ?? ctx.iface ?? null;
-  if (!iface) return one.placeId;
-  for (const id of [placeOfChannel(db, iface, one.target), firstChannelOf(db, iface, one.target)])
-    if (id && visible(db, ctx, id)) return id;
+function placeOf(db: Db, ctx: Context, ifaces: () => ReadonlyArray<string>, one: Done): string | null {
+  const { target } = one;
+  if (!target) return one.placeId;
+  if (prepared(db, 'SELECT id FROM places WHERE id = ?').get(target))
+    return visible(db, ctx, target) ? target : one.placeId;
+  const home = one.placeId
+    ? textOf(prepared(db, 'SELECT iface FROM places WHERE id = ?').get(one.placeId)?.iface)
+    : null;
+  for (const iface of new Set([home ?? ctx.iface ?? '', ...ifaces()].filter(Boolean)))
+    for (const id of [placeOfChannel(db, iface, target), firstChannelOf(db, iface, target)])
+      if (id && visible(db, ctx, id)) return id;
   return one.placeId;
 }
 
-/** The person of a member of `iface`: the survivor of its account's person, the account, or the id it would take. */
-function memberOf(db: Db, iface: string, native: string): string {
+/** The interfaces of the stored places, read once by the caller's first need: those a heartbeat's native ids name. */
+function interfacesOf(db: Db): () => ReadonlyArray<string> {
+  let known: Array<string> | null = null;
+  return () =>
+    (known ??= prepared(db, 'SELECT DISTINCT iface FROM places WHERE iface IS NOT NULL')
+      .all()
+      .map((row) => String(row.iface)));
+}
+
+/**
+ * The person of a member of `iface`: the survivor of its account's person, the account, or the id it would take; null
+ * for a bot's account.
+ */
+function memberOf(db: Db, iface: string, native: string): string | null {
   const account = accountOfMember(db, iface, native);
   if (!account) return mintedAccount(iface, native);
-  const person = textOf(db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(account)?.person_id);
+  const row = prepared(db, 'SELECT person_id, kind FROM accounts WHERE id = ?').get(account);
+  if (row?.kind === 'bot') return null;
+  const person = textOf(row?.person_id);
   return person ? survivorOf(db, person) : account;
 }
 
-/** The member who started each turn of the rows, by turn id; a turn a wake started is absent. */
-function startersOf(db: Db, rows: ReadonlyArray<Record<string, unknown>>): Map<string, string> {
-  const starters = new Map<string, string>();
+/**
+ * What the turn starts of the rows say: the member who started a turn, resolved at the first ask and null for a turn a
+ * wake or a bot started, and the turns of a diary post.
+ */
+function startsOf(
+  db: Db,
+  rows: ReadonlyArray<Record<string, unknown>>
+): { starterOf: (turn: string | null) => string | null; diary: Set<string> } {
+  const started = new Map<string, { place: string | null; author: string | null }>();
+  const diary = new Set<string>();
   for (const row of rows) {
     const turn = textOf(row.turn_id);
-    if (row.what !== 'turn.start' || !turn || starters.has(turn)) continue;
-    const author = textOf(objectOf(extraOf(row.extra).trigger).authorId);
-    const place = textOf(row.place_id);
-    const iface = place ? textOf(db.prepare('SELECT iface FROM places WHERE id = ?').get(place)?.iface) : null;
-    if (author && iface) starters.set(turn, memberOf(db, iface, author));
+    if (row.what !== 'turn.start' || !turn || started.has(turn)) continue;
+    const extra = extraOf(row.extra);
+    if (extra.mode === 'diary') diary.add(turn);
+    started.set(turn, { place: textOf(row.place_id), author: textOf(objectOf(extra.trigger).authorId) });
   }
-  return starters;
+  const known = new Map<string, string | null>();
+  const starterOf = (turn: string | null): string | null => {
+    const start = turn ? started.get(turn) : undefined;
+    if (!start?.place || !start.author) return null;
+    const key = `${start.place}\u0000${start.author}`;
+    if (!known.has(key)) {
+      const iface = textOf(prepared(db, 'SELECT iface FROM places WHERE id = ?').get(start.place)?.iface);
+      known.set(key, iface ? memberOf(db, iface, start.author) : null);
+    }
+    return known.get(key) ?? null;
+  };
+  return { starterOf, diary };
 }
 
 /** One line of hers in the window. */
 type Line = { placeId: string; at: number; turnId: string | null; replyTo: string | null };
 
 /**
- * Her lines between `from` and `to` that `ctx` may read: every place, then its range of `sources_place_time`.
+ * Her lines between `from` and `to` that `ctx` may read: every place, then its range of `sources_place_time`. A line of
+ * an enabled diary mirror is left out, since the entry's own line tells it, and so is a line of the turns `told`.
  */
-function linesOf(db: Db, ctx: Context, from: number, to: number): Array<Line> {
+function linesOf(db: Db, ctx: Context, told: ReadonlySet<string>, from: number, to: number): Array<Line> {
   const where = whereFor(ctx, 's');
-  return db
-    .prepare(
-      `SELECT s.place_id, s.occurred_at, s.turn_id, s.reply_to FROM places p CROSS JOIN sources s ON s.place_id = p.id
+  const mirrors = new Set(mirrorPlaces(db).map((one) => one.placeId));
+  return prepared(
+    db,
+    `SELECT s.place_id, s.occurred_at, s.turn_id, s.reply_to FROM places p CROSS JOIN sources s ON s.place_id = p.id
        WHERE s.occurred_at >= ? AND s.occurred_at <= ? AND s.kind = 'said' AND s.retired_at IS NULL AND ${where.sql}`
-    )
+  )
     .all(new Date(from).toISOString(), new Date(to).toISOString(), ...where.params)
     .flatMap((row) => {
       const at = Date.parse(String(row.occurred_at));
       const placeId = textOf(row.place_id);
-      if (!placeId || !Number.isFinite(at)) return [];
-      return [{ placeId, at, turnId: textOf(row.turn_id), replyTo: textOf(row.reply_to) }];
+      const turnId = textOf(row.turn_id);
+      if (!placeId || !Number.isFinite(at) || mirrors.has(placeId) || (turnId && told.has(turnId))) return [];
+      return [{ placeId, at, turnId, replyTo: textOf(row.reply_to) }];
     })
     .sort((a, b) => a.at - b.at);
 }
 
-/** The author of the line `native` in `placeId`, over `sources_native`; null for a line no row holds. */
+/** The author of the line `native` in `placeId`, over `sources_native`; null for a line no row holds or a bot's. */
 function repliedTo(db: Db, placeId: string, native: string): string | null {
-  const row = db
-    .prepare(
-      `SELECT author_person, author_account FROM sources
-       WHERE native_id = ? AND place_id = ? AND kind = 'seen' AND retired_at IS NULL LIMIT 1`
-    )
-    .get(native, placeId);
+  const row = prepared(
+    db,
+    `SELECT s.author_person, s.author_account FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
+       WHERE s.native_id = ? AND s.place_id = ? AND s.kind = 'seen' AND s.retired_at IS NULL
+         AND COALESCE(a.kind, 'user') <> 'bot' LIMIT 1`
+  ).get(native, placeId);
   const person = textOf(row?.author_person);
   return person ? survivorOf(db, person) : textOf(row?.author_account);
 }
 
 /** Her lines as conversations: by place, cut at each silence of hers longer than SILENCE_MS. */
-function conversationsOf(db: Db, lines: ReadonlyArray<Line>, starters: ReadonlyMap<string, string>): Array<DayEvent> {
+function conversationsOf(
+  db: Db,
+  lines: ReadonlyArray<Line>,
+  starterOf: (turn: string | null) => string | null
+): Array<DayEvent> {
   const open = new Map<string, Extract<DayEvent, { kind: 'conversation' }>>();
   const out: Array<DayEvent> = [];
   for (const line of lines) {
@@ -233,28 +310,38 @@ function conversationsOf(db: Db, lines: ReadonlyArray<Line>, starters: ReadonlyM
     }
     talk.end = line.at;
     talk.lines += 1;
-    const starter = line.turnId ? starters.get(line.turnId) : undefined;
+    const starter = starterOf(line.turnId);
     const replied = line.replyTo ? repliedTo(db, line.placeId, line.replyTo) : null;
     for (const who of [starter, replied]) if (who && !talk.people.includes(who)) talk.people.push(who);
   }
   return out;
 }
 
-/** The text of the search calls the archive of requests holds for `turnId`, over `model_requests_turn`, each once. */
-function queriesOf(db: Db, turnId: string): Array<string> {
-  const queries: Array<string> = [];
-  for (const row of db
-    .prepare('SELECT tool_calls FROM model_requests WHERE turn_id = ? AND tool_calls IS NOT NULL ORDER BY step')
-    .all(turnId)) {
+/**
+ * The text of the search calls the archive of requests holds for `turnId`, over `model_requests_turn`, each once:
+ * `recalled` of `memory.search`, `searched` of a `.search` tool of the web. Another search tool is left out.
+ */
+function queriesOf(db: Db, turnId: string): { searched: Array<string>; recalled: Array<string> } {
+  const out = { searched: [] as Array<string>, recalled: [] as Array<string> };
+  for (const row of prepared(
+    db,
+    'SELECT tool_calls FROM model_requests WHERE turn_id = ? AND tool_calls IS NOT NULL ORDER BY step'
+  ).all(turnId)) {
     const calls: unknown = JSON.parse(String(row.tool_calls));
     for (const call of Array.isArray(calls) ? calls : []) {
       const skill = skillNameOfApi(objectOf(call).name);
-      const body = skill?.endsWith('.search') ? bodyOf(skill) : null;
+      const list =
+        skill === 'memory.search'
+          ? out.recalled
+          : skill?.startsWith('web.') && skill.endsWith('.search')
+            ? out.searched
+            : null;
+      const body = list && skill ? bodyOf(skill) : null;
       const query = body ? textOf(objectOf(objectOf(call).parsed)[body]) : null;
-      if (query && !queries.includes(query)) queries.push(query);
+      if (list && query && !list.includes(query)) list.push(query);
     }
   }
-  return queries;
+  return out;
 }
 
 /**
@@ -263,13 +350,17 @@ function queriesOf(db: Db, turnId: string): Array<string> {
  * (intentions-write.ts#stringScope), so the scope test passes every row of the scope `group`.
  */
 function purposeOf(db: Db, id: string, where: { sql: string; params: Array<string> }): string | null {
-  const row = db
-    .prepare(
-      `SELECT record FROM intentions WHERE id = ? AND retired_at IS NULL AND (scope_kind = 'group' OR ${where.sql})`
-    )
-    .get(id, ...where.params);
+  const row = prepared(
+    db,
+    `SELECT record FROM intentions WHERE id = ? AND retired_at IS NULL AND (scope_kind = 'group' OR ${where.sql})`
+  ).get(id, ...where.params);
   return row === undefined ? null : (ownOf(row.record)?.purpose ?? null);
 }
+
+/** `made` with one more thing of `skill`. */
+const count = (made: Made, skill: string): void => {
+  made[skill] = (made[skill] ?? 0) + 1;
+};
 
 /** The intention the end of the inner turn `turnId` set, from its `inner` row: its id, else null. */
 function setBy(rows: ReadonlyArray<Record<string, unknown>>, turnId: string): string | null {
@@ -288,12 +379,12 @@ function setBy(rows: ReadonlyArray<Record<string, unknown>>, turnId: string): st
 
 /** The ended wake runs of `heartbeat` and `intention_due` that started in the window, over `wake_runs_status`. */
 function runsOf(db: Db, from: number, to: number): Array<{ id: string; kind: string; at: number; inputs: unknown }> {
-  return db
-    .prepare(
-      `SELECT id, kind, started_at, inputs FROM wake_runs
+  return prepared(
+    db,
+    `SELECT id, kind, started_at, inputs FROM wake_runs
        WHERE status IN ('succeeded', 'failed', 'interrupted') AND started_at >= ? AND started_at <= ?
          AND kind IN ('heartbeat', 'intention_due')`
-    )
+  )
     .all(new Date(from).toISOString(), new Date(to).toISOString())
     .map((row) => ({
       id: String(row.id),
@@ -304,63 +395,78 @@ function runsOf(db: Db, from: number, to: number): Array<{ id: string; kind: str
 }
 
 /**
- * Her calls since `window.callsFrom` and her events since `window.from`, both up to `window.now` and oldest first
- * (see the file's head). The events are her newest `window.limit` and how many older ones the window holds.
+ * Her newest `window.callLimit` calls since `window.callsFrom` and her events since `window.from`, both up to
+ * `window.now` and oldest first (see the file's head). The events are her newest `window.limit` and how many older
+ * ones the window holds. A thing made in a diary post's turn or in an intention's turn is counted on that event.
  */
 function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { dropped: number } {
   const { from, callsFrom, now } = window;
   const where = whereFor(ctx);
-  const rows = db
-    .prepare(
-      `SELECT at, what, place_id, turn_id, extra FROM day
-       WHERE what IN ('action', 'inner', 'turn.start') AND retired_at IS NULL AND at >= ? AND at <= ? AND ${where.sql}
+  const all = prepared(
+    db,
+    `SELECT at, what, place_id, turn_id, extra, (${where.sql}) AS seen FROM day
+       WHERE what IN ('action', 'inner', 'turn.start') AND retired_at IS NULL AND at >= ? AND at <= ?
        ORDER BY at, position`
-    )
-    .all(
-      new Date(Math.min(from, callsFrom) - TURN_REACH_MS).toISOString(),
-      new Date(now).toISOString(),
-      ...where.params
-    );
-  const done = callsOfRows(rows);
+  ).all(
+    ...where.params,
+    new Date(Math.min(from, callsFrom) - TURN_REACH_MS).toISOString(),
+    new Date(now).toISOString()
+  );
+  // Each `extra` is parsed once here; the readers below take the object.
+  for (const row of all) row.extra = extraOf(row.extra);
+  const ifaces = interfacesOf(db);
+  // A heartbeat's rows sit in her own place, which a group context may not read; its places are filtered one by one.
+  const own = callsOfRows(all);
+  const rows = all.filter((row) => row.seen === 1);
+  const done = own.filter((one) => one.seen);
   const calls = done
     .filter((one) => one.at >= callsFrom)
-    .map((one) => ({ at: one.at, op: one.op, skill: one.skill, placeId: placeOf(db, ctx, one) }));
-  const starters = startersOf(db, rows);
+    .slice(-window.callLimit)
+    .map((one) => ({ at: one.at, op: one.op, skill: one.skill, placeId: placeOf(db, ctx, ifaces, one) }));
+  const { starterOf, diary } = startsOf(db, rows);
   const events: Array<DayEvent> = [];
-  const told = new Set<string>();
-  for (const run of runsOf(db, from, now)) {
+  const byRun = new Map<string, Made>();
+  const runs = runsOf(db, from, now);
+  for (const run of runs) {
     if (run.kind === 'heartbeat') {
-      const places = done.filter((one) => one.turnId === run.id).map((one) => placeOf(db, ctx, one));
-      const set = setBy(rows, run.id);
+      const places = own.filter((one) => one.turnId === run.id).map((one) => placeOf(db, ctx, ifaces, one));
+      const set = setBy(all, run.id);
       events.push({
         kind: 'heartbeat',
         at: run.at,
         placeIds: [...new Set(places.filter((id): id is string => id !== null && visible(db, ctx, id)))],
-        queries: queriesOf(db, run.id),
-        set: set ? purposeOf(db, set, { sql: '1 = 1', params: [] }) : null,
+        ...queriesOf(db, run.id),
+        set: set ? { purpose: purposeOf(db, set, where) } : null,
       });
       continue;
     }
     const sent = sentLinesOf(db, run.id, run.at).filter((line) => visible(db, ctx, line.placeId));
+    const made: Made = {};
     for (const id of carriedIntentions(run.inputs)) {
       const purpose = purposeOf(db, id, where);
-      if (purpose === null) continue;
-      told.add(run.id);
-      events.push({ kind: 'intention', at: run.at, purpose, placeIds: [...new Set(sent.map((line) => line.placeId))] });
+      if (purpose === null || byRun.has(run.id)) continue;
+      byRun.set(run.id, made);
+      events.push({
+        kind: 'intention',
+        at: run.at,
+        purpose,
+        placeIds: [...new Set(sent.map((line) => line.placeId))],
+        made,
+      });
     }
   }
-  const lines = linesOf(db, ctx, from, now).filter((line) => !line.turnId || !told.has(line.turnId));
-  events.push(...conversationsOf(db, lines, starters));
-  for (const one of done)
-    if (one.at >= from && one.skill && window.made.has(one.skill))
-      events.push({
-        kind: 'made',
-        at: one.at,
-        skill: one.skill,
-        who: (one.turnId && starters.get(one.turnId)) || null,
-      });
-  for (const entry of readDiary(db, ctx, window.limit))
-    if (entry.at > from && entry.at <= now) events.push({ kind: 'diary', at: entry.at, entry: entry.kind });
+  events.push(...conversationsOf(db, linesOf(db, ctx, new Set(byRun.keys()), from, now), starterOf));
+  const entries = readDiary(db, ctx, window.limit)
+    .filter((entry) => entry.at > from && entry.at <= now)
+    .map((entry) => ({ kind: 'diary' as const, at: entry.at, entry: entry.kind, made: {} }));
+  events.push(...entries);
+  for (const one of done) {
+    if (one.at < from || !one.skill || !window.made.has(one.skill)) continue;
+    const turn = one.turnId ?? '';
+    const into = byRun.get(turn) ?? (diary.has(turn) ? entries.find((entry) => entry.at >= one.at)?.made : undefined);
+    if (into) count(into, one.skill);
+    else events.push({ kind: 'made', at: one.at, skill: one.skill, who: starterOf(one.turnId) });
+  }
   events.sort((a, b) => a.at - b.at);
   const dropped = Math.max(0, events.length - window.limit);
   return { calls, events: events.slice(dropped), dropped };
@@ -417,6 +523,17 @@ function thingsOf(labels: DayLabels | null | undefined): Record<string, string> 
   return things && typeof things === 'object' ? (things as Record<string, string>) : {};
 }
 
+/** What a turn made as the tail of its event's line (`madeTail`), counts by kind; '' when it made nothing. */
+function madeTail(made: Made, labels: DayLabels): string {
+  const one = thingsOf(labels);
+  const many =
+    labels.thingsMany && typeof labels.thingsMany === 'object' ? (labels.thingsMany as Record<string, string>) : {};
+  const parts = Object.entries(made).map(([skill, n]) =>
+    n === 1 ? (one[skill] ?? skill) : fill(wordOf(labels, 'madeCount'), { count: n, things: many[skill] ?? skill })
+  );
+  return parts.length > 0 ? fill(wordOf(labels, 'madeTail'), { made: parts.join(wordOf(labels, 'join')) }) : '';
+}
+
 /** One event as its line in the labels' words. */
 function eventLine(
   event: DayEvent,
@@ -426,12 +543,20 @@ function eventLine(
 ): string {
   const time = clock(event.at);
   const list = (items: ReadonlyArray<string>): string => items.join(wordOf(labels, 'join'));
+  const queriesPart = (queries: ReadonlyArray<string>, key: string): string =>
+    queries.length > 0
+      ? fill(wordOf(labels, key), { queries: list(queries.map((query) => fill(wordOf(labels, 'query'), { query }))) })
+      : '';
   switch (event.kind) {
     case 'conversation': {
       const shown = event.people.slice(0, 3).map((who) => `@${handleOf(who)}`);
       const more = event.people.length - shown.length;
       const people = more > 0 ? fill(wordOf(labels, 'peopleMore'), { people: list(shown), more }) : list(shown);
-      const values = { time, end: clock(event.end), place: named(event.placeId), lines: event.lines, people };
+      const end = clock(event.end);
+      const when = end === time ? time : fill(wordOf(labels, 'span'), { time, end });
+      const lines =
+        event.lines === 1 ? wordOf(labels, 'oneMessage') : fill(wordOf(labels, 'messages'), { count: event.lines });
+      const values = { when, place: named(event.placeId), lines, people };
       return fill(wordOf(labels, people ? 'conversation' : 'conversationAlone'), values);
     }
     case 'made': {
@@ -440,33 +565,37 @@ function eventLine(
       return fill(wordOf(labels, 'madeFor'), { time, thing, who: `@${handleOf(event.who)}` });
     }
     case 'intention': {
-      if (event.placeIds.length === 0) return fill(wordOf(labels, 'intentionSilent'), { time, purpose: event.purpose });
-      return fill(wordOf(labels, 'intention'), {
-        time,
-        purpose: event.purpose,
-        places: list(event.placeIds.map(named)),
-      });
+      const line =
+        event.placeIds.length === 0
+          ? fill(wordOf(labels, 'intentionSilent'), { time, purpose: event.purpose })
+          : fill(wordOf(labels, 'intention'), {
+              time,
+              purpose: event.purpose,
+              places: list(event.placeIds.map(named)),
+            });
+      return line + madeTail(event.made, labels);
     }
     case 'heartbeat': {
       const parts = [
         event.placeIds.length > 0
           ? fill(wordOf(labels, 'heartbeatRead'), { places: list(event.placeIds.map(named)) })
           : '',
-        event.queries.length > 0
-          ? fill(wordOf(labels, 'heartbeatSearched'), {
-              queries: list(event.queries.map((query) => fill(wordOf(labels, 'query'), { query }))),
-            })
-          : '',
+        queriesPart(event.recalled, 'heartbeatRecalled'),
+        queriesPart(event.searched, 'heartbeatSearched'),
         event.set === null
           ? wordOf(labels, 'heartbeatNothing')
-          : fill(wordOf(labels, 'heartbeatSet'), { purpose: event.set }),
+          : event.set.purpose === null
+            ? wordOf(labels, 'heartbeatSetHidden')
+            : fill(wordOf(labels, 'heartbeatSet'), { purpose: event.set.purpose }),
       ];
       return fill(wordOf(labels, 'heartbeat'), { time, what: parts.filter(Boolean).join(wordOf(labels, 'partsJoin')) });
     }
     case 'diary':
-      return event.entry === null
-        ? fill(wordOf(labels, 'diaryNoKind'), { time })
-        : fill(wordOf(labels, 'diary'), { time, kind: event.entry });
+      return (
+        (event.entry === null
+          ? fill(wordOf(labels, 'diaryNoKind'), { time })
+          : fill(wordOf(labels, 'diary'), { time, kind: event.entry })) + madeTail(event.made, labels)
+      );
   }
 }
 
@@ -496,12 +625,13 @@ export function dayOf(
     now,
     made: new Set(Object.keys(thingsOf(myDay))),
     limit: Math.max(eventCap, 1),
+    callLimit: callCap,
   });
   const clock = (at: number): string => formatClock(at, timezone, 'en-GB');
   const date = (at: number): string => formatDate(at, timezone, locale);
-  const callLines = records.calls
-    .slice(-callCap || records.calls.length)
-    .map((one) => callLine(one, one.placeId ? placeNames(one.placeId) : null, clock(one.at), callWords));
+  const callLines = records.calls.map((one) =>
+    callLine(one, one.placeId ? placeNames(one.placeId) : null, clock(one.at), callWords)
+  );
   const named = (id: string): string => placeNames(id) ?? wordOf(myDay, 'unnamed');
   const eventLines = eventCap > 0 && myDay ? records.events.map((one) => eventLine(one, myDay, clock, named)) : [];
   const header =

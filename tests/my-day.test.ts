@@ -10,6 +10,7 @@ import { finishRun, startRun } from '../src/memory/db/wakes.ts';
 import { writeIntentions } from '../src/memory/db/intentions-write.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
+import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { dmContext, groupContext, internalContext } from '../src/memory/db/scope.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import type { MemoryDbService } from '../src/memory/db/service.ts';
@@ -17,6 +18,7 @@ import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createJournal } from '../src/memory/journal.ts';
 import { apiNameOf } from '../src/tools/definitions.ts';
+import { fill } from '../src/format.ts';
 import { dayOf } from '../src/turn/request/my-day.ts';
 import type { Day } from '../src/turn/request/my-day.ts';
 import { labels } from './fixtures/labels.ts';
@@ -38,6 +40,7 @@ const SALON = 'discord:channel:room-2';
 const DM = 'discord:dm:n1';
 const ZOE = 'person:discord:n1';
 const ARIS = 'person:discord:n2';
+const BOT = 'person:discord:n3';
 const NAMES: Record<string, string> = { [CAFE]: 'café', [SALON]: 'salon', [DM]: 'Zoé' };
 const placeNames = (id: string): string | null => NAMES[id] ?? null;
 const handle = (person: string): string => `@${handleOf(person)}`;
@@ -45,6 +48,8 @@ const handle = (person: string): string => `@${handleOf(person)}`;
 /** The native chat id a turn writes its journal lines with. */
 const CHAT: Record<string, string> = { [CAFE]: 'room-1', [SALON]: 'room-2', [DM]: 'dm-chat-n1' };
 
+const { things } = labels.myDay;
+const PICTURE = things['draw.create'];
 const LABELS = { myDay: labels.myDay, calls: labels.calls, locale: labels.locale };
 const OPTIONS = { events: 12, calls: 12, sinceLastEntry: false, labels: LABELS };
 
@@ -69,8 +74,14 @@ type Seed = {
   herLine(place: string, when: number, turn?: string | null, replyTo?: string | null): void;
   /** A line of `account` in `place` with the message id `id`. */
   theirLine(place: string, id: string, account: string, when: number): void;
-  /** The journal's start row of `turn` in `place`, started by the member `author` or by a wake (null). */
-  turnStart(place: string, turn: string, author: string | null, when: number): void;
+  /** The journal's start row of `turn` in `place`, started by the member `author` or by a wake (null), in `mode`. */
+  turnStart(place: string, turn: string, author: string | null, when: number, mode?: string): void;
+  /** Makes the account `id` a bot's. */
+  bot(id: string): void;
+  /** Makes `place` an enabled diary mirror. */
+  mirror(place: string): void;
+  /** Makes the intention `id` one of the direct chat with Zoé. */
+  private(id: string): void;
   /** An intention of hers with `purpose`. */
   intention(id: string, purpose: string): void;
   /** A finished wake run of `kind` at `when` that carried `intentions`. */
@@ -92,6 +103,7 @@ function world(seed: (s: Seed) => void = () => {}) {
   const db = dbOf(opened0);
   addAccount(db, { id: 'discord:n1', iface: 'discord', authority: 'discord/global', native: 'n1', person: ZOE });
   addAccount(db, { id: 'discord:n2', iface: 'discord', authority: 'discord/global', native: 'n2', person: ARIS });
+  addAccount(db, { id: 'discord:n3', iface: 'discord', authority: 'discord/global', native: 'n3', person: BOT });
   addDmPlace(db, { id: DM, iface: 'discord', authority: 'discord/global', account: 'discord:n1', person: ZOE });
   addGroupPlace(db, CAFE, 'discord', 'discord/global');
   addGroupPlace(db, SALON, 'discord', 'discord/global');
@@ -141,7 +153,21 @@ function world(seed: (s: Seed) => void = () => {}) {
         ...scopeOf(place),
       });
     },
-    turnStart(place, turn, author, when) {
+    bot(id) {
+      db.prepare("UPDATE accounts SET kind = 'bot' WHERE id = ?").run(id);
+    },
+    mirror(place) {
+      db.prepare(
+        "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by) VALUES (?, 'diary', ?, 1, ?, 'owner')"
+      ).run(`mirror:${place}`, place, iso(NOW - 24 * HOUR));
+    },
+    private(id) {
+      db.prepare("UPDATE intentions SET scope_kind = 'dm', scope_iface = 'discord', scope_dm = ? WHERE id = ?").run(
+        ZOE,
+        id
+      );
+    },
+    turnStart(place, turn, author, when, mode = 'reply') {
       const trigger = author ? { kind: 'mention', messageId: 'm0', authorId: author } : { kind: 'inner' };
       insertRows(db, {
         day: [
@@ -151,7 +177,7 @@ function world(seed: (s: Seed) => void = () => {}) {
             what: 'turn.start',
             turn_id: turn,
             place_id: place,
-            extra: JSON.stringify({ trigger }),
+            extra: JSON.stringify({ mode, trigger }),
             ...scopeOf(place),
           },
         ],
@@ -427,25 +453,33 @@ test('a picture made in an inner turn names no person', async () => {
   assert.ok(!line.includes('@'), line);
 });
 
-/** A heartbeat at 09:00 that read the café and the salon and searched twice, ended by `actions`. */
-async function heartbeatDay(actions: ReadonlyArray<Record<string, unknown>>): Promise<Array<string>> {
+const SET_HB = [{ skill: 'intention.set', status: 'executed', result: 'ok', createdId: 'i-hb', target: {} }];
+
+/**
+ * A heartbeat at 09:00 whose rows sit in her own place, as a heartbeat's do: it read the café by its chat's native id
+ * and the salon by its place id, looked into her memory once and searched the web once, ended by `actions`, and its
+ * intention `i-hb` is one of the direct chat when `privateSet`. Its day as `ctx` reads it.
+ */
+async function heartbeatDay(
+  actions: ReadonlyArray<Record<string, unknown>>,
+  { ctx = groupContext('discord'), privateSet = false } = {}
+): Promise<Array<string>> {
   const w = world((s) => {
     s.wakeRun('hb-1', 'heartbeat', at(9, 0));
     s.intention('i-hb', 'ΣΚΟΠΟΣ-ΚΑΡΔΙΑΣ');
+    if (privateSet) s.private('i-hb');
     s.request('hb-1', at(9, 1), [['web.search', { query: 'ΑΣΤΕΡΙΑ' }]]);
     s.request('hb-1', at(9, 2), [['memory.search', { question: 'ΚΗΠΟΣ' }]]);
     if (actions.length > 0) s.innerEnd('hb-1', at(9, 5), actions);
   });
-  await w.callInto(CAFE, 'conversation.read', CHAT[CAFE], at(9, 1), 'hb-1');
-  await w.callInto(CAFE, 'conversation.read', CHAT[SALON], at(9, 2), 'hb-1');
-  return events(w.day());
+  await w.callInto(PERSONA_ID, 'conversation.read', CHAT[CAFE], at(9, 1), 'hb-1');
+  await w.callInto(PERSONA_ID, 'conversation.read', SALON, at(9, 2), 'hb-1');
+  return events(w.day(ctx));
 }
 
 test('a heartbeat that read two places, searched twice and set an intention is one line with all of it', async () => {
   // Bug: her own time is left out, told as six calls, or loses what she searched for or what she decided.
-  const lines = await heartbeatDay([
-    { skill: 'intention.set', status: 'executed', result: 'ok', createdId: 'i-hb', target: {} },
-  ]);
+  const lines = await heartbeatDay(SET_HB);
   assert.equal(lines.length, 1, lines.join('\n'));
   const [line = ''] = lines;
   for (const part of ['09:00', 'café', 'salon', 'ΑΣΤΕΡΙΑ', 'ΚΗΠΟΣ', 'ΣΚΟΠΟΣ-ΚΑΡΔΙΑΣ'])
@@ -501,4 +535,85 @@ test('since her last entry the day reaches across midnight to the first event af
   assert.equal(since.length, 1, since.join('\n'));
   assert.ok(since[0]?.includes('21:00'), since[0]);
   assert.deepEqual(events(w.day()), []);
+});
+
+test('a heartbeat whose intention the context may not read says it set one, with no purpose and never nothing', async () => {
+  // Bug: the purpose is filtered by another rule than the intention's own line, and a hidden purpose reads as an
+  // ending with nothing set.
+  const [inside = ''] = await heartbeatDay(SET_HB, { ctx: internalContext(), privateSet: true });
+  assert.ok(inside.includes('ΣΚΟΠΟΣ-ΚΑΡΔΙΑΣ'), inside);
+  const [line = ''] = await heartbeatDay(SET_HB, { privateSet: true });
+  assert.ok(!line.includes('ΣΚΟΠΟΣ-ΚΑΡΔΙΑΣ'), line);
+  assert.ok(line.includes(String(labels.myDay.heartbeatSetHidden)), line);
+  assert.ok(!line.includes(String(labels.myDay.heartbeatNothing)), line);
+});
+
+test('her memory lookups and her web searches are told apart, each under its own words', async () => {
+  // Bug: a question to her own memory reads as a web search.
+  const [line = ''] = await heartbeatDay([]);
+  assert.ok(line.includes(fill(String(labels.myDay.heartbeatSearched), { queries: '"ΑΣΤΕΡΙΑ"' })), line);
+  assert.ok(line.includes(fill(String(labels.myDay.heartbeatRecalled), { queries: '"ΚΗΠΟΣ"' })), line);
+});
+
+test("her lines in an enabled diary mirror are no conversation, since the diary entry's line tells them", () => {
+  // Bug: the mirror's copy of an entry reads as a talk in the mirror's place beside the entry's own line.
+  const w = world((s) => {
+    s.mirror(SALON);
+    s.entry('diary:m', 'status', at(3, 46));
+    s.herLine(SALON, at(3, 46));
+    s.herLine(SALON, at(3, 47));
+  });
+  const lines = events(w.day());
+  assert.equal(lines.length, 1, lines.join('\n'));
+  assert.ok(lines[0]?.includes('status'), lines[0]);
+});
+
+test("what a diary turn made is counted on the entry's line and no line of its own", async () => {
+  // Bug: a photoset entry is followed by one line per picture, each of her own accord.
+  const w = world((s) => {
+    s.turnStart(PERSONA_ID, 't-diary', null, at(8, 0), 'diary');
+    s.entry('diary:p', 'photoset', at(8, 5));
+  });
+  for (const mm of [1, 2, 3]) await w.act(CAFE, 'skill', at(8, mm), 'draw.create', 't-diary');
+  const lines = events(w.day());
+  assert.equal(lines.length, 1, lines.join('\n'));
+  assert.ok(lines[0]?.includes('photoset') && lines[0].includes('3'), lines[0]);
+});
+
+test("what an intention's turn made is counted on the intention's line and no line of its own", async () => {
+  // Bug: the intention carried out stands beside a line of a picture made of her own accord at the same minute.
+  const w = world((s) => {
+    s.intention('i-2', 'ΣΚΟΠΟΣ-ΔΥΟ');
+    s.wakeRun('w-pic', 'intention_due', at(11, 22), ['i-2']);
+    s.herLine(SALON, at(11, 22), 'w-pic');
+  });
+  await w.act(SALON, 'skill', at(11, 22), 'draw.create', 'w-pic');
+  const lines = events(w.day(groupContext('discord')));
+  assert.equal(lines.length, 1, lines.join('\n'));
+  assert.ok(lines[0]?.includes('ΣΚΟΠΟΣ-ΔΥΟ') && lines[0].includes(PICTURE), lines[0]);
+});
+
+test('a heartbeat names the places it read when its rows sit in her own place, by place id and by native id', async () => {
+  // Bug: a heartbeat's rows give no interface, so neither shape of target resolves and "you read" never appears.
+  const [line = ''] = await heartbeatDay([], { ctx: internalContext() });
+  assert.ok(line.includes('café') && line.includes('salon'), line);
+});
+
+test('a bot that started her turn is not among the people she answered', () => {
+  // Bug: a bot's message reads as a person she talked with.
+  const w = world((s) => {
+    s.bot('discord:n3');
+    s.turnStart(CAFE, 't-bot', 'n3', at(9, 0));
+    s.herLine(CAFE, at(9, 0), 't-bot');
+  });
+  const [line = ''] = events(w.day());
+  assert.ok(!line.includes(handle(BOT)), line);
+});
+
+test('a conversation of one message gives one clock and words one message', () => {
+  // Bug: a single line reads as a range from a minute to the same minute and as "1 of your messages".
+  const w = world((s) => s.herLine(CAFE, at(1, 3)));
+  const [line = ''] = events(w.day());
+  assert.equal(line.split('01:03').length, 2, line);
+  assert.ok(line.includes(String(labels.myDay.oneMessage)), line);
 });
