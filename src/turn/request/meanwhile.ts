@@ -1,11 +1,12 @@
 // The body of `<meanwhile>`: her last messages in other places, each with a few lines around it, as background she is
 // not asked about (docs/prompt-contract.md). Never a line of the current place. A one-to-one chat's lines only at the
-// command line and in a chat with the same person; the reads already keep out what the turn's scope may not read. Windows of
-// one place that overlap merge, and each window is headed by its place in words and date. A line names its author by the
+// command line and in a chat with the same person, or everywhere with `context.memory.openPrivate`; the reads already
+// keep out what the turn's scope may not read. Windows of one place that overlap merge, and each window is headed by its place in words and date. A line names its author by the
 // handle of the person behind the account (`authors.line`), and a mention in its text by the handle too. A line's media
 // follow its text as the chat renders stored media, so a post of a picture alone reads as its description. The request
 // builder (src/turn/request/reader.ts) calls it. Pure apart from the reads.
 
+import { opensPrivate } from '../../memory/open-private.ts';
 import { fill, formatClock, formatDate, mentionsNamed, storedMediaTags } from '../../format.ts';
 import type { FrameReads } from '../../memory/db/frame-reads.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
@@ -87,8 +88,11 @@ export function meanwhileReadsOf(reads: FrameReads, ctx: Context, exceptPlace: s
   };
 }
 
-/** `context.meanwhile`: how many of her lines, and how many lines before and after each. */
-export type MeanwhileSettings = { messages: number; around: number };
+/**
+ * `context.meanwhile`: how many of her lines, and how many lines before and after each. `openPrivate` is
+ * `context.memory.openPrivate`: a one-to-one chat's line is shown in every frame.
+ */
+export type MeanwhileSettings = { messages: number; around: number; openPrivate?: boolean };
 
 /** The shipped values of `context.meanwhile` and `context.memory.serviceMessages`, for a key the live settings lack. */
 const SHIPPED = { messages: 8, around: 2, serviceMessages: 100 };
@@ -111,7 +115,7 @@ export function meanwhileSettingsOf(config: unknown, frame: Frame): MeanwhileSet
     frame.place === null
       ? settingOf(section('memory'), 'serviceMessages', SHIPPED.serviceMessages)
       : settingOf(meanwhile, 'messages', SHIPPED.messages);
-  return { messages, around: settingOf(meanwhile, 'around', SHIPPED.around) };
+  return { messages, around: settingOf(meanwhile, 'around', SHIPPED.around), openPrivate: opensPrivate(config) };
 }
 
 /** One window of lines in one place, oldest first. */
@@ -141,10 +145,10 @@ const READ_AHEAD = 4;
 /**
  * Whether the frame may show a line in the background. A group's line always. A one-to-one chat's line at the command
  * line, and in a direct chat when it is a chat with the same person over a linked account. A turn that is nowhere shows
- * none: a service reads the groups only.
+ * none: a service reads the groups only. With `openPrivate` every frame shows every line.
  */
-function shows(frame: Frame, line: OwnMessage): boolean {
-  if (!line.dm || frame.interface === CLI_IFACE) return true;
+function shows(frame: Frame, line: OwnMessage, openPrivate: boolean): boolean {
+  if (!line.dm || openPrivate || frame.interface === CLI_IFACE) return true;
   const partner = frame.counterpart?.personId ?? null;
   return frame.scope === 'dm' && partner !== null && line.partner === partner;
 }
@@ -179,7 +183,7 @@ export function meanwhileWindows(
   const here = frame.place?.id ?? null;
   const own = reads
     .ownMessages(count * READ_AHEAD)
-    .filter((line) => line.placeId !== here && shows(frame, line))
+    .filter((line) => line.placeId !== here && shows(frame, line, settings.openPrivate === true))
     .slice(0, count);
   const around = Math.max(0, Math.floor(settings.around));
   const windows = own.map((line) => {

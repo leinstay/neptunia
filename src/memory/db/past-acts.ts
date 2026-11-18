@@ -7,7 +7,7 @@
 
 import type { Db } from './types.ts';
 
-/** A line of hers near the purpose. `text` is null for a line of a direct chat, whose content a heartbeat never shows. */
+/** A line of hers near the purpose. `text` is null for a line of a direct chat, unless `context.memory.openPrivate` is on. */
 export type PastLine = {
   kind: 'line';
   id: string;
@@ -107,7 +107,12 @@ function cosine(row: Record<string, unknown>, query: ReadonlyArray<number>, quer
  */
 function nearLines(
   db: Db,
-  { vector, model, minScore }: { vector: ReadonlyArray<number>; model: string; minScore: number }
+  {
+    vector,
+    model,
+    minScore,
+    openPrivate,
+  }: { vector: ReadonlyArray<number>; model: string; minScore: number; openPrivate: boolean }
 ): Array<FoundLine> {
   const queryNorm = Math.sqrt(vector.reduce((sum, x) => sum + x * x, 0));
   if (!(queryNorm > 0)) return [];
@@ -133,7 +138,7 @@ function nearLines(
       at,
       placeId: String(row.place_id),
       nativeId: String(row.native_id),
-      text: row.scope_kind === 'dm' || typeof row.text !== 'string' ? null : row.text,
+      text: (row.scope_kind === 'dm' && !openPrivate) || typeof row.text !== 'string' ? null : row.text,
     });
   }
   return [...best.values()];
@@ -268,6 +273,8 @@ export function pastActsOf(
     nearLine: number;
     limit: number;
     now: number;
+    /** `context.memory.openPrivate`: a line of hers in a direct chat keeps its text. */
+    openPrivate?: boolean;
   }
 ): Array<PastAct> {
   const intentions = [...input.intentionScores]
@@ -277,7 +284,7 @@ export function pastActsOf(
       return stored === null ? [] : [{ stored, score }];
     });
   const near = [
-    ...nearLines(db, { ...input, minScore: input.nearLine }).map((line) => ({
+    ...nearLines(db, { ...input, minScore: input.nearLine, openPrivate: input.openPrivate === true }).map((line) => ({
       score: line.score,
       line,
       intention: null,

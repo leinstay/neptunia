@@ -151,6 +151,8 @@ export type StoredMemoryInput = {
   recent: Untyped;
   allowEntry: Untyped;
   privateAccountId: Untyped;
+  /** The direct chat places whose archive `context.memory.openPrivate` opens to this run; none when it is off. */
+  privatePlaces?: ReadonlyArray<string>;
   signal: AbortSignal;
   meaning?: Array<Untyped>;
   locator?: Untyped;

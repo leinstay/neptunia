@@ -202,6 +202,21 @@ test('checkPull checks the rails without a request and gives the chat when they 
   assert.deepEqual(diary.calls(), []);
 });
 
+test('checkPull with context.memory.openPrivate on lets a private chat pass a channel whatever its partner can view', async () => {
+  // Bug: the switch opens her memory but a direct chat still reads no other chat, with or without its partner.
+  const closed = addChannel({ id: '760000000000000052', messages: [{ ts: LAST }], viewers: { [MEMBER.iason]: false } });
+  const snapshot = await listing([MEMBER.iason]);
+  const opened = config();
+  Object.assign(opened.context as object, { memory: { openPrivate: true } });
+  const check = (cfg: Config, partnerId: string | null) =>
+    checkPull({ snapshot, placeId: closed.id, destination: dmChat(MEMBER.iason), partnerId, config: cfg, now: NOW })
+      .skip;
+  assert.equal(check(opened, MEMBER.iason), null);
+  assert.equal(check(opened, null), null);
+  assert.equal(check(config(), MEMBER.iason), 'audience');
+  assert.equal(check(config(), null), 'private-chat');
+});
+
 test('checkPull lets a private chat with its partner pass what the partner can view and refuses the rest as audience', async () => {
   const open = addChannel({
     id: '760000000000000050',

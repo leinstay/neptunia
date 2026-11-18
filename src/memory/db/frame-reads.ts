@@ -42,6 +42,7 @@ import { placeLineNumbers } from './chat-lines.ts';
 import { heartbeatListsOf } from './heartbeat-lists.ts';
 import type { HeartbeatLists } from './heartbeat-lists.ts';
 import { ownIntentionsOf, pastActsOf } from './past-acts.ts';
+import { opensPrivate } from '../open-private.ts';
 import type { OwnIntention, PastAct } from './past-acts.ts';
 import { LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND, LINE_MOMENT } from './source-current.ts';
 import type { PlaceLineNumbers } from './chat-lines.ts';
@@ -872,6 +873,6 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
       over<PlaceLineNumbers>({ count: 0, numbers: new Map() }, (db) => placeLineNumbers(db, placeId, newest)),
     heartbeatLists: (now) => over({ people: [], places: [] }, (db) => heartbeatListsOf(db, now)),
     ownIntentions: (limit) => over([], (db) => ownIntentionsOf(db, limit)),
-    pastActs: (input) => over([], (db) => pastActsOf(db, input)),
+    pastActs: (input) => over([], (db) => pastActsOf(db, { ...input, openPrivate: opensPrivate(configOf()) })),
   };
 }

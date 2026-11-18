@@ -103,6 +103,7 @@
 // everything on the calling thread.
 // Counts and codes only in the logs, never a path, a name or a text.
 
+import { opensPrivate } from '../open-private.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1680,7 +1681,7 @@ export function createMemoryDb({
    */
   function issueContext(spec: Parameters<typeof issuePureContext>[0] = {}): Context {
     // A spec that names no interface reads in the live one; `context.memory.openPrivate` opens every audience to it.
-    const open = hot.config?.context?.memory?.openPrivate === true;
+    const open = opensPrivate(hot.config);
     const ctx = linkedContext(
       issuePureContext({ ...withLiveIface(spec, iface), open, now }),
       handle ? database() : null

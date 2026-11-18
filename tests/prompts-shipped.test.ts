@@ -209,6 +209,7 @@ const LOADS = {
   overheard: [...SYSTEM, 'overheard'],
   errandResult: [...SYSTEM, 'errand-result'],
   private: [...SYSTEM, 'reply', 'private'],
+  privateOpen: [...SYSTEM, 'reply', 'private-open'],
   draw: ['draw', 'appearance'],
   diary: [...SYSTEM, 'diary'],
   inner: [...SYSTEM, 'inner'],
@@ -984,6 +985,34 @@ test('buildRequest: a private chat fills private.md after the reply task', async
     'private'
   );
   assert.ok(text.includes(LABELS.senses.dmChat), 'the private senses line');
+});
+
+test('buildRequest: a private chat with context.memory.openPrivate on fills private-open.md after the reply task', async () => {
+  const dm = { id: 'dm1', name: null, category: null, topic: null };
+  const history = normalize([
+    rawMessage(dm, { ts: NOW - MINUTE_MS, author: PEOPLE[ANA], content: 'je peux te dire un secret ?' }),
+  ]);
+  const request = buildRequest(
+    await turnInput({
+      config: shippedConfig({ dm: { enabled: true }, context: { memory: { openPrivate: true } } }),
+      history,
+      trigger: history.at(-1),
+      triggerKind: 'private',
+      currentChannelId: 'dm1',
+      dmChat: { accountId: ANA },
+      neighbors: [],
+      lookup: null,
+      descriptions: new Map(),
+      videos: new Map(),
+      reads: new Map(),
+    })
+  );
+  const text = assertFilled(
+    request.messages,
+    { files: LOADS.privateOpen, blocks: ['senses', 'chat', 'task'] },
+    'private-open'
+  );
+  assert.ok(text.includes(LABELS.senses.dmChatOpen), 'the open private senses line');
 });
 
 test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the persona is in', () => {

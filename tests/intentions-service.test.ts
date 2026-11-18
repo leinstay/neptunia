@@ -419,6 +419,30 @@ test("private chats: her intention in a DM is the DM's own -- never in a server 
   });
 });
 
+test('with context.memory.openPrivate on, her intention in a DM is seen and moved from a server channel and keeps its DM', async () => {
+  // Bug: the switch opens her memory but a private chat's intention stays hidden, or opening it moves where it lands.
+  const { env, hot, intentions } = makeEnv();
+  Object.assign(hot.config, { context: { memory: { openPrivate: true } } });
+  await withCapturedLogs(async () => {
+    const set = await runOp(
+      'intention.set',
+      { text: 'ρώτα την για τις εξετάσεις' },
+      hers(env, 'T1', { placeId: 'dm1', dmChat: true })
+    );
+    const id = set.data.intention.id;
+    assert.deepEqual(
+      intentions.view().map((r) => r.id),
+      [id]
+    );
+    assert.equal((await runOp('intention.update', { id, due: '2h' }, hers(env, 'T2'))).status, 'ok');
+    const record = present(present(intentions.store()).get(id));
+    assert.equal(record.provenance.scope, 'dm');
+    assert.equal(record.provenance.placeId, 'dm1');
+    Object.assign(hot.config, { context: { memory: { openPrivate: false } } });
+    assert.deepEqual(intentions.view(), []);
+  });
+});
+
 // ---- recurring intentions (`every`) ------------------------------------------------
 
 const DAY = 24 * HOUR;

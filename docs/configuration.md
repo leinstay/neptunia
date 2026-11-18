@@ -163,7 +163,7 @@ The chain of routes each model role runs on, the one place a role's key, harness
 | `context.turnLeaseMs` | number | `300000` | How long an inner turn's claim on its wakes lasts (milliseconds). The inner life renews it at every tick while the turn runs; a start takes over a claim a stopped process left | `src/behavior/attention.ts` |
 | `context.caps.aboutChat` | number | `2500` | Token cap: her facts about herself in `<self>` | `src/turn/request/reader.ts` |
 | `context.caps.intentions` | number | `600` | Token cap: `<intentions>` | `src/intentions/blocks.ts` |
-| `context.memory.openPrivate` | boolean | `false` | Let a turn in any place read what she remembers from every direct chat, as a heartbeat turn does. What she stores keeps the audience of the place it was said in | `src/memory/db/service.ts` |
+| `context.memory.openPrivate` | boolean | `false` | Let a turn in any place read what she remembers from every direct chat, as a heartbeat turn does. What she stores keeps the audience of the place it was said in | `src/memory/open-private.ts` |
 | `context.vision.fetchTimeoutMs` | number | `10000` | Download timeout per picture (ms) | `src/media/fetch-image.ts` |
 
 ## context.pull

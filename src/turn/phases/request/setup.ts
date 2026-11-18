@@ -2,6 +2,7 @@
 // indicator while it prepares, the root's listing, the history with its reply parents, the memory prefetch and a
 // diary post's plan. The request phase (src/turn/phases/request.ts) runs it first; the later steps read what it made.
 
+import { opensPrivate } from '../../../memory/open-private.ts';
 import { accountOf, placeOfChat } from '../../../memory/addresses.ts';
 import { isCliOwner } from '../../../behavior/core-pause.ts';
 import { forcedPictureRefusal } from '../../../behavior/diary-turn.ts';
@@ -257,7 +258,8 @@ export async function setupRequest(
   // A private chat on its partner's behalf: pulls and the server search from the served root (none otherwise).
   const likeServer = isDm && partner !== null;
   if (likeServer && partnerId) draft.readerId = String(partnerId);
-  const servedPlace = isDm && !likeServer ? null : { id: placeId };
+  // `context.memory.openPrivate` serves every private chat from the served root, partner or not.
+  const servedPlace = isDm && !likeServer && !opensPrivate(config) ? null : { id: placeId };
   const servedSnapshot = servedPlace ? snapshot : null;
   // What the analyzer requests judge: the trigger, or on a part of a split message the trigger with
   // that part's text (same id, author and time).

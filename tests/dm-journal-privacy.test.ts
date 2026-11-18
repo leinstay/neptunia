@@ -466,12 +466,16 @@ async function evictedPrivate(w: World, account = PARTNER_ACCOUNT) {
   return entry.itemId;
 }
 
-function recaller(w: World) {
+function recaller(w: World, { openPrivate = false }: { openPrivate?: boolean } = {}) {
   const group = channelInfo('c1', { name: 'general', viewers: { [PARTNER]: true } });
   const snapshot = snapshotOf('g1', { chats: [group], groups: [] });
   const asked: Array<string> = [];
   const hot = {
-    config: recallConfig({ llm: { analyzerTimeoutMs: 30000 }, recall: { archiveMonths: 6 } }),
+    config: recallConfig({
+      llm: { analyzerTimeoutMs: 30000 },
+      recall: { archiveMonths: 6 },
+      ...(openPrivate ? { context: { memory: { openPrivate: true } } } : {}),
+    }),
     prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels },
   };
   const none = () => Promise.resolve(null);
@@ -494,6 +498,7 @@ function recaller(w: World) {
       record: w.record,
       vectors: null,
       embed: null,
+      memoryDb: w.memoryDb,
     })
   );
   const dm = channelInfo(DM_CHAT, {
@@ -535,6 +540,15 @@ test("a group turn's recall reads no archived item of a DM", async () => {
   const r = recaller(w);
   await r.run({ placeId: GROUP, channel: r.group, partnerId: null });
   assert.equal(r.asked.join('\n').includes(SECRET), false);
+});
+
+test("with context.memory.openPrivate on, a group turn's recall reads an archived item of a DM", async () => {
+  // Bug: the switch opens her memory but the archive of a direct chat stays out of a group's recall.
+  const w = world();
+  await evictedPrivate(w);
+  const r = recaller(w, { openPrivate: true });
+  await r.run({ placeId: GROUP, channel: r.group, partnerId: null });
+  assert.equal(r.asked.join('\n').includes(SECRET), true);
 });
 
 test('a restored private item leaves its archive line under its DM, away from the persona', async () => {

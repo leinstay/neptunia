@@ -43,7 +43,15 @@ import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './nam
 import type { NameHitRow, NameMatch, NodeRef } from './names.ts';
 import { placeChainInDb } from './place-tree.ts';
 import { placeStatsOf } from './place-stats.ts';
-import { allowedAudience, audienceWhere, dmAudienceId, groupAudienceId, readsAll, AUD_INTERNAL } from './scope.ts';
+import {
+  allowedAudience,
+  audienceWhere,
+  dmAudienceId,
+  groupAudienceId,
+  ownAudienceFirst,
+  readsAll,
+  AUD_INTERNAL,
+} from './scope.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
@@ -568,6 +576,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     repliesInto,
     about,
     aud,
+    ctx,
     exhausted: (): boolean => nodesRead >= settings.maxNodesRead,
     reads: (): Array<MemoryRead> => [...reads].map(([path, rows]) => ({ path, rows })),
   };
@@ -888,7 +897,7 @@ function walkAll(db: Db, walker: Walker, settings: MindSettings): void {
   }
 }
 
-/** The current descriptions of a subject under the context, one per field, a direct chat's before a group's. */
+/** The current descriptions of a subject under the context, one per field, the context's own audience first. */
 function descriptionsOf(
   db: Db,
   walker: Walker,
@@ -896,13 +905,14 @@ function descriptionsOf(
   id: string
 ): Map<string, { text: string; source: EntrySource }> {
   const where = walker.aud('d');
+  const first = ownAudienceFirst(walker.ctx, 'd');
   const rows = db
     .prepare(
       `SELECT d.id, d.field, d.current_version, v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
        WHERE d.subject_kind = ? AND d.subject_id = ? AND d.retired_at IS NULL AND ${where.sql}
-       ORDER BY d.field, d.scope_kind = 'dm' DESC, d.id`
+       ORDER BY d.field, ${first.sql} DESC, d.id`
     )
-    .all(kind, id, ...where.params);
+    .all(kind, id, ...where.params, ...first.params);
   const out = new Map<string, { text: string; source: EntrySource }>();
   for (const row of rows) {
     const value = text(row.text);

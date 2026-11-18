@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { frameOf } from '../src/turn/request/frame.ts';
 import type { Frame } from '../src/turn/request/frame.ts';
-import { meanwhileText, meanwhileWindows } from '../src/turn/request/meanwhile.ts';
+import { meanwhileSettingsOf, meanwhileText, meanwhileWindows } from '../src/turn/request/meanwhile.ts';
 // A namespace import, so the file loads while `meanwhileReadsOf` is still missing and only its test fails.
 import * as meanwhileModule from '../src/turn/request/meanwhile.ts';
 import { formatDate } from '../src/format.ts';
@@ -85,6 +85,17 @@ test('a one-to-one chat shows the lines of groups and none of another one-to-one
   const text = render([room('place:club', 'λέσχη', 'ΓΡΑΜΜΗ-ΛΕΣΧΗ'), dm('fake:dm:5678', 'ΓΡΑΜΜΗ-ΙΔΙΩΤΙΚΗ')], DM_FRAME);
   assert.ok(text.includes('ΓΡΑΜΜΗ-ΛΕΣΧΗ'));
   assert.ok(!text.includes('ΓΡΑΜΜΗ-ΙΔΙΩΤΙΚΗ'));
+});
+
+test("with context.memory.openPrivate on, a group, another person's chat and a heartbeat show one-to-one lines", () => {
+  // Bug: the background keeps splitting her lines by place after the owner opened her memory in every place.
+  const places = [room('place:club', 'λέσχη', 'ΓΡΑΜΜΗ-ΛΕΣΧΗ'), dm('fake:dm:5678', 'ΓΡΑΜΜΗ-ΙΔΙΩΤΙΚΗ')];
+  const heartbeat = frameOf(wakeInput('heartbeat'));
+  for (const frame of [GROUP_FRAME, DM_FRAME, heartbeat]) {
+    const config = (open: boolean) => ({ context: { meanwhile: SETTINGS, memory: { openPrivate: open } } });
+    assert.ok(render(places, frame, meanwhileSettingsOf(config(true), frame)).includes('ΓΡΑΜΜΗ-ΙΔΙΩΤΙΚΗ'));
+    assert.ok(!render(places, frame, meanwhileSettingsOf(config(false), frame)).includes('ΓΡΑΜΜΗ-ΙΔΙΩΤΙΚΗ'));
+  }
 });
 
 test('the command line shows the lines of one-to-one chats too', () => {

@@ -181,7 +181,7 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'context.memory.openPrivate',
     'types': ['boolean'],
-    'reader': 'src/memory/db/service.ts',
+    'reader': 'src/memory/open-private.ts',
     'default': false,
     'text':
       'Let a turn in any place read what she remembers from every direct chat, as a heartbeat turn does. What she stores keeps the audience of the place it was said in',

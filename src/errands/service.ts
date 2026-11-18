@@ -32,6 +32,7 @@
 // it. A cancel resolves the wait with the cancelled errand. A wait whose time runs out first resolves with the errand
 // still open and unread, and its end reaches her as any other end does.
 
+import { opensPrivate } from '../memory/open-private.ts';
 import { log as defaultLog } from '../log.ts';
 import { agentSettings, engineRoot, loadProfiles, profileOf } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
@@ -154,14 +155,15 @@ function dispatchOf(privateDir: string | undefined, agent: string, log: Logger):
  * The last `errands.recentLines` lines (read now; at most MAX_RECENT_ENTRIES) of channel
  * `placeId` in the memory's buffer of `placeId`, oldest first, as `{ author, text }` (the
  * display name and the text on one line; a line without text left
- * out). [] for a `dm` scope, without a channel or a buffer.
+ * out). [] for a `dm` scope unless `openPrivate` (`context.memory.openPrivate`), without a channel or a buffer.
  */
 function recentLinesOf(
   { memory, log }: { memory: ErrandServiceOptions['memory']; log: Logger },
   chatId: string | null,
-  scope: ErrandScope
+  scope: ErrandScope,
+  openPrivate: boolean
 ): RunContext['recent'] {
-  if (scope === 'dm' || !chatId || typeof memory?.recentLines !== 'function') return [];
+  if ((scope === 'dm' && !openPrivate) || !chatId || typeof memory?.recentLines !== 'function') return [];
   const count = Math.min(MAX_RECENT_ENTRIES, DEFAULT_RECENT_LINES);
   let lines: Array<{ author?: unknown; text?: unknown }>;
   try {
@@ -184,14 +186,15 @@ const MEMORY_CONTEXT_CHARS = 8000;
 
 /**
  * The stored facts of one errand's goal, through the one retrieval service. A private errand reads none, as it sends no
- * recent line, and a failed read leaves the errand its goal.
+ * recent line, unless `openPrivate` (`context.memory.openPrivate`); a failed read leaves the errand its goal.
  */
 async function memoryOf(
   retrieve: RetrieveForErrand | null | undefined,
   errand: ErrandRecord,
-  log: Logger
+  log: Logger,
+  openPrivate: boolean
 ): Promise<NonNullable<RunContext['memory']>> {
-  if (typeof retrieve !== 'function' || errand.scope === 'dm') return [];
+  if (typeof retrieve !== 'function' || (errand.scope === 'dm' && !openPrivate)) return [];
   try {
     const page = await retrieve({ purpose: 'task', goal: errand.goal, refs: [] });
     const out: NonNullable<RunContext['memory']> = [];
@@ -219,7 +222,7 @@ function dispatchContext(errand: ErrandRecord, recent: RunContext['recent'], at:
     scope: errand.scope,
     channel: errand.origin?.placeId ?? null,
     asker: errand.requester?.accountId ?? null,
-    recent: errand.scope === 'dm' ? [] : recent,
+    recent,
   };
 }
 
@@ -241,15 +244,23 @@ function runRequestOf(
   return { agent, id, goal, context, limits, ...(secrets ? { secrets } : {}), ...(route ? { route } : {}) };
 }
 
+/** Whether a chat (`dmChatId`, null for a server channel) sees `errand`: a group one anywhere, a private one in its own chat. */
+const inChat = (errand: ErrandRecord, dmChatId: string | null): boolean =>
+  errand.scope !== 'dm' || (dmChatId !== null && errand.origin?.placeId === String(dmChatId));
+
 /** `{ expired: true, errand }` for the expired file `handle` of an errand this chat may see, else null. */
-function expiredFile(store: ErrandStore, handle: string, dmChatId: string | null): ExpiredFileRef | null {
+function expiredFile(
+  store: ErrandStore,
+  handle: string,
+  dmChatId: string | null,
+  openPrivate: boolean
+): ExpiredFileRef | null {
   const errand = store.get(
     idText(handle)
       .replace(/^file:/, '')
       .split('/')[0]
   );
-  if (!errand || (errand.scope === 'dm' && (dmChatId === null || errand.origin?.placeId !== String(dmChatId))))
-    return null;
+  if (!errand || (!openPrivate && !inChat(errand, dmChatId))) return null;
   return { expired: true, errand };
 }
 
@@ -385,7 +396,7 @@ export function createErrandService({
 
   const limitsOf = (agent: string): Limits => limitsFor(agent, hot.config, agentPaths);
   const recentOf = (chatId: string | null, scope: ErrandScope): RunContext['recent'] =>
-    recentLinesOf({ memory, log }, chatId, scope);
+    recentLinesOf({ memory, log }, chatId, scope, opensPrivate(hot.config));
 
   /** A finished errand handed on: the wait for it resolved, then its result turn. Never throws. */
   async function ended(store: ErrandStore, finished: ErrandRecord): Promise<void> {
@@ -421,7 +432,7 @@ export function createErrandService({
                 limitsOf(agent),
                 secrets,
                 route,
-                await memoryOf(retrieve, errand, log)
+                await memoryOf(retrieve, errand, log, opensPrivate(hot.config))
               )
             );
     } catch (err) {
@@ -490,14 +501,13 @@ export function createErrandService({
    * The errands the persona sees in a turn's `<errands>` block: the open ones, then the finished ones
    * she has not read nor closed (`readAt`, `resolvedAt`; whether a result turn ran does not hide
    * one), oldest first. In a server channel only the `group` ones; in a private
-   * chat (`dmChatId`) also the `dm` ones asked in that chat.
+   * chat (`dmChatId`) also the `dm` ones asked in that chat; every one with `context.memory.openPrivate`.
    */
   function view({ dmChatId = null }: { dmChatId?: string | null } = {}): Array<ErrandRecord> {
     const store = storeOf();
     if (!store) return [];
-    const visible = (errand: ErrandRecord): boolean =>
-      errand.scope !== 'dm' || (dmChatId !== null && errand.origin?.placeId === String(dmChatId));
-    return [...store.open(), ...store.unread()].filter(visible);
+    const open = opensPrivate(hot.config);
+    return [...store.open(), ...store.unread()].filter((errand) => open || inChat(errand, dmChatId));
   }
 
   /**
@@ -510,9 +520,9 @@ export function createErrandService({
     const store = storeOf();
     const file = store ? store.fileOf(handle) : null;
     // Files the runner has deleted: a marker the callers refuse as `file-expired`, never a path.
-    if (!file) return store?.fileExpired?.(handle) === true ? expiredFile(store, idText(handle), dmChatId) : null;
-    const { errand } = file;
-    if (errand.scope === 'dm' && (dmChatId === null || errand.origin?.placeId !== String(dmChatId))) return null;
+    const open = opensPrivate(hot.config);
+    if (!file) return store?.fileExpired?.(handle) === true ? expiredFile(store, idText(handle), dmChatId, open) : null;
+    if (!open && !inChat(file.errand, dmChatId)) return null;
     return file;
   }
 

@@ -81,7 +81,8 @@ import { createLookup } from './web/lookup.ts';
 import { createAdmin } from './admin.ts';
 import { createErrandClient } from './errands/client.ts';
 import { createErrandStores } from './errands/store.ts';
-import { groupsContext } from './memory/db/scope.ts';
+import { groupsContext, internalContext } from './memory/db/scope.ts';
+import { opensPrivate } from './memory/open-private.ts';
 import type { RetrievalInput } from './memory/retrieval-input.ts';
 import { createErrandService } from './errands/service.ts';
 import { SELF_PERSON, PERSONA_ID } from './memory/db/ids.ts';
@@ -961,7 +962,7 @@ async function buildCore(
     stores: taskStores,
     hot,
     memory: { recentLines: recentChannelLines },
-    // An errand's facts: a group read, because a runner never sees a private chat.
+    // An errand's facts: a group read, which `context.memory.openPrivate` opens to every audience.
     retrieve: (input) =>
       memoryDb.retrieve(memoryDb.issueContext({ kind: 'group', iface: currentIface() ?? identity.iface }), input, {
         sources: false,
@@ -1024,8 +1025,10 @@ async function buildCore(
     roleHealth,
     // The memory rows a turn's request carried go to the database.
     memoryReads: (args: Untyped) => memoryDb.recordTurnReads(args),
-    // A diary post's stored facts, read through the one retrieval service under the diary's context.
-    diaryFacts: (input: RetrievalInput) => memoryDb.retrieve(groupsContext(), input, { sources: false }),
+    // A diary post's stored facts, read through the one retrieval service under the diary's context: the groups, or
+    // every audience with `context.memory.openPrivate`.
+    diaryFacts: (input: RetrievalInput) =>
+      memoryDb.retrieve(opensPrivate(hot.config) ? internalContext() : groupsContext(), input, { sources: false }),
     journalDb: () => memoryDb.readHandle()?.db ?? null, // the records of <my_day> and <calls>, while the database is open
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec: Untyped) => memoryDb.issueContext({ iface: currentIface() ?? identity.iface, ...spec }),

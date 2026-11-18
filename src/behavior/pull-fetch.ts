@@ -5,6 +5,7 @@
 // places a read may name (src/behavior/readable-places.ts) and the search of the message history ask it. No read is
 // made here.
 
+import { opensPrivate } from '../memory/open-private.ts';
 import type { ChatInfo } from '../protocol/adapter.ts';
 import { isTooOld, pullSettings } from './pull.ts';
 import { audienceAllows, isReadable } from './snapshot.ts';
@@ -28,8 +29,8 @@ function readableRefusal(entry: ChatInfo): string | null {
 
 /**
  * The rails a pull must pass before anything is read, in this order, each with its kebab-case skip code: a
- * `destination` that is given is a chat of a root, or a private chat with its `partnerId`
- * (`private-chat` without one, whatever the audience rail says); the id is a chat of the snapshot
+ * `destination` that is given is a chat of a root, or a private chat with its `partnerId` (`private-chat` without
+ * one, whatever the audience rail says, unless `context.memory.openPrivate`); the id is a chat of the snapshot
  * (`not-found`); the chat is one the persona may read (`isReadable`, the rule neighbours obey too), the refusal
  * named `thread` or else `not-readable`; the audience rail toward
  * `destination` (see `audienceAllows`: in a private chat, the partner's view of it); and its newest message not older
@@ -50,7 +51,8 @@ export function checkPull({
   config: Config;
   now?: number;
 }): { channel: ChatInfo | null; skip: string | null } {
-  if (destination && destination.rootId === null && partnerId === null) return refused('private-chat');
+  if (destination && destination.rootId === null && partnerId === null && !opensPrivate(config))
+    return refused('private-chat');
   const entry = typeof placeId === 'string' && placeId ? (snapshot?.get(placeId) ?? null) : null;
   if (entry === null) return refused('not-found');
   const unreadable = readableRefusal(entry);

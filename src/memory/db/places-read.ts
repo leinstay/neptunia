@@ -242,3 +242,11 @@ export function placeDetail(
     records: recordsOf(db, context, placeId),
   };
 }
+
+/** The ids of every live direct chat place, in id order. */
+export function directChatPlaceIds(db: Db): Array<string> {
+  return db
+    .prepare("SELECT id FROM places WHERE (kind = 'dm' OR chat = 'dm') AND retired_at IS NULL ORDER BY id")
+    .all()
+    .map((row) => String(row.id));
+}

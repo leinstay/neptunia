@@ -292,12 +292,12 @@ export type ErrandServiceOptions = {
   privateDir?: string;
   client: Partial<ErrandClient>;
   stores: ErrandStores;
-  hot: Untyped;
+  hot: { readonly config?: unknown };
   memory?: {
     recentLines: (chatId: string, count: number) => Array<{ author?: unknown; text?: unknown }>;
   } | null;
 
-  /** The stored facts of an errand's goal through the one retrieval service, under a group context. */
+  /** The stored facts of an errand's goal through the one retrieval service, under a group context (open with `context.memory.openPrivate`). */
   retrieve?: RetrieveForErrand | null;
   onFinished?: ((errand: ErrandRecord) => unknown) | null;
   log?: Logger;
