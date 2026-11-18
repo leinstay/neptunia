@@ -179,9 +179,10 @@ test('normalizeMessage: a tenor gifv embed keeps its mp4 as animationUrl, in the
   });
   const m = normalizeMessage(raw, 'self');
   assert.equal(m.links[0].kind, 'gif');
-  assert.equal(m.links[0].animationUrl, 'https://images-ext-1.discordapp.net/external/v/x.mp4');
+  // The provider's own address first, on the ruling of 2026-11-18 (report gif-direct-address-lifetime).
+  assert.equal(m.links[0].animationUrl, 'https://media.tenor.com/x.mp4');
   assert.equal(m.forwarded[0].links[0].id, 'snap1#e0');
-  assert.equal(m.forwarded[0].links[0].animationUrl, 'https://images-ext-1.discordapp.net/external/v/x.mp4');
+  assert.equal(m.forwarded[0].links[0].animationUrl, 'https://media.tenor.com/x.mp4');
 });
 
 test('normalizeMessage: a GIF-picker post (a gifv embed of an unknown provider) reaches the library with the page to post and the video to watch', () => {
