@@ -6,7 +6,7 @@
 import { versionsNaming } from './entities-read.ts';
 import { checkLimit, contextBinding, keysetPage, positionOf } from './read-page.ts';
 import type { Page } from './read-page.ts';
-import { audienceWhere } from './scope.ts';
+import { audienceWhere, readsAll } from './scope.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
@@ -51,7 +51,7 @@ const textOrNull = (value: unknown): string | null => (typeof value === 'string'
 /** The SQL that says a place (`alias`) may be read in `context`: anything but a DM, or a DM among its audiences. */
 export function placeVisibleWhere(context: Context, alias: string): { sql: string; params: Array<string> } {
   const dm = audienceWhere(context, 'seen');
-  if (context.internal === true) return { sql: '1 = 1', params: [] };
+  if (readsAll(context)) return { sql: '1 = 1', params: [] };
   return {
     sql: `((${alias}.kind <> 'dm' AND ${alias}.chat IS NOT 'dm') OR EXISTS
       (SELECT 1 FROM (SELECT 'aud:dm:' || ${alias}.id AS audience_id) seen WHERE ${dm.sql}))`,
@@ -241,4 +241,22 @@ export function placeDetail(
     continuations,
     records: recordsOf(db, context, placeId),
   };
+}
+
+/** The ids of every live direct chat place, in id order. */
+/** The live direct chat place an interface names by its chat id, null for none. */
+export function directChatPlaceOf(db: Db, chatId: string): string | null {
+  const row = db
+    .prepare(
+      "SELECT id FROM places WHERE native_id = ? AND (kind = 'dm' OR chat = 'dm') AND retired_at IS NULL ORDER BY generation DESC"
+    )
+    .get(chatId);
+  return typeof row?.id === 'string' ? row.id : null;
+}
+
+export function directChatPlaceIds(db: Db): Array<string> {
+  return db
+    .prepare("SELECT id FROM places WHERE (kind = 'dm' OR chat = 'dm') AND retired_at IS NULL ORDER BY id")
+    .all()
+    .map((row) => String(row.id));
 }

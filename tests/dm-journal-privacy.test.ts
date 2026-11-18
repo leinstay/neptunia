@@ -124,8 +124,9 @@ function world() {
   const seed = openMemoryDb(path.join(dataDir, 'memory.db'));
   seedWorld(dbOf(seed));
   seed.close();
+  const hot = { config: { memoryDb: { session: { mode: 'off' } }, context: { memory: { openPrivate: false } } } };
   const memoryDb = createMemoryDb({
-    hot: { config: { memoryDb: { session: { mode: 'off' } } } },
+    hot,
     dataDir,
     log: quiet,
     worker: false,
@@ -146,7 +147,7 @@ function world() {
     partner: memoryDb.issueContext({ kind: 'dm', iface: 'discord', person: PARTNER_PERSON, place: DM }),
     stranger: memoryDb.issueContext({ kind: 'dm', iface: 'discord', person: STRANGER_PERSON, place: STRANGER_DM }),
   };
-  return { dataDir, memoryDb, read, journal, record, archive, vectors, store, contexts };
+  return { dataDir, hot, memoryDb, read, journal, record, archive, vectors, store, contexts };
 }
 type World = ReturnType<typeof world>;
 
@@ -330,6 +331,38 @@ test("another partner's search finds nothing of a DM", async () => {
   assert.equal(searched(w, w.contexts.other).includes(SECRET), false);
 });
 
+test('with context.memory.openPrivate on, a group, another partner and the diary find a DM line; off, none does', async () => {
+  // Bug: the switch is read once, or never reaches the issued context, so her reads stay split by place.
+  const w = world();
+  await w.record.append(DM, [lineSaid('m-dm')]);
+  await settled();
+  const diary = () => w.memoryDb.issueContext({ kind: 'group', destination: null });
+  const { hot } = w;
+  hot.config.context.memory.openPrivate = true;
+  const group = w.memoryDb.issueContext({ kind: 'group', iface: 'discord', destination: GROUP });
+  const other = w.memoryDb.issueContext({ kind: 'dm', iface: 'discord', person: OTHER_PERSON, place: OTHER_DM });
+  for (const ctx of [group, other, diary()]) assert.equal(searched(w, ctx).includes(SECRET), true);
+  hot.config.context.memory.openPrivate = false;
+  for (const ctx of [w.contexts.group, w.contexts.other, diary()])
+    assert.equal(searched(w, ctx).includes(SECRET), false);
+});
+
+test('with context.memory.openPrivate on, a DM line keeps the DM audience and a group line the group audience', async () => {
+  // Bug: the open mark leaks into a write, so a line said alone is stored where a group reads it as its own.
+  const w = world();
+  const { hot } = w;
+  hot.config.context.memory.openPrivate = true;
+  await w.record.append(DM, [lineSaid('m-dm')]);
+  await w.record.append(GROUP, [lineSaid('m-group', GROUP)]);
+  await settled();
+  const audiences = w
+    .read()
+    .prepare('SELECT DISTINCT audience_id FROM sources WHERE text LIKE ? ORDER BY audience_id')
+    .all(LIKE)
+    .map((row) => row.audience_id);
+  assert.deepEqual(audiences, [`aud:dm:${DM}`, 'aud:group:discord']);
+});
+
 test('a partner under another authority finds nothing of the DM of the same native id', async () => {
   // Bug: the record mapper writes the audience of `discord:dm:<native>`, the home authority partner's own audience.
   const w = world();
@@ -435,12 +468,16 @@ async function evictedPrivate(w: World, account = PARTNER_ACCOUNT) {
   return entry.itemId;
 }
 
-function recaller(w: World) {
+function recaller(w: World, { openPrivate = false }: { openPrivate?: boolean } = {}) {
   const group = channelInfo('c1', { name: 'general', viewers: { [PARTNER]: true } });
   const snapshot = snapshotOf('g1', { chats: [group], groups: [] });
   const asked: Array<string> = [];
   const hot = {
-    config: recallConfig({ llm: { analyzerTimeoutMs: 30000 }, recall: { archiveMonths: 6 } }),
+    config: recallConfig({
+      llm: { analyzerTimeoutMs: 30000 },
+      recall: { archiveMonths: 6 },
+      ...(openPrivate ? { context: { memory: { openPrivate: true } } } : {}),
+    }),
     prompts: { 'recall-summary': 'You are {{name}}; {{answerChars}}.', labels },
   };
   const none = () => Promise.resolve(null);
@@ -463,6 +500,7 @@ function recaller(w: World) {
       record: w.record,
       vectors: null,
       embed: null,
+      memoryDb: w.memoryDb,
     })
   );
   const dm = channelInfo(DM_CHAT, {
@@ -504,6 +542,15 @@ test("a group turn's recall reads no archived item of a DM", async () => {
   const r = recaller(w);
   await r.run({ placeId: GROUP, channel: r.group, partnerId: null });
   assert.equal(r.asked.join('\n').includes(SECRET), false);
+});
+
+test("with context.memory.openPrivate on, a group turn's recall reads an archived item of a DM", async () => {
+  // Bug: the switch opens her memory but the archive of a direct chat stays out of a group's recall.
+  const w = world();
+  await evictedPrivate(w);
+  const r = recaller(w, { openPrivate: true });
+  await r.run({ placeId: GROUP, channel: r.group, partnerId: null });
+  assert.equal(r.asked.join('\n').includes(SECRET), true);
 });
 
 test('a restored private item leaves its archive line under its DM, away from the persona', async () => {

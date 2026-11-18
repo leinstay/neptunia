@@ -4,6 +4,7 @@
 // createTurnRunner (src/behavior/turn.js) builds it once per runner with createJournalNotes over the runner's state;
 // the attempt, the calls, the act and the pulls call its functions.
 
+import { opensPrivate } from '../memory/open-private.ts';
 import type { Chat } from '../protocol/events.ts';
 import type { FactInput, FactsApi, Fact } from '../behavior/inner.ts';
 import { placeKey } from '../behavior/previous-think.ts';
@@ -312,7 +313,8 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     const picked = thinks.select(placeOf(channel), {
       now: clock(),
       minutes: PREVIOUS_THINK_MINUTES,
-      isDm,
+      // `context.memory.openPrivate` carries a direct chat's think into any chat, as a direct chat carries it.
+      isDm: isDm || opensPrivate(ctx.hot.config),
       count: previousThinksOf(ctx.hot.config),
     });
     const newest = picked.thinks.at(-1);

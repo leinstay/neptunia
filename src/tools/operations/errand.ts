@@ -18,6 +18,7 @@
 // shows it (src/errands/blocks.ts), `failed` with the errand's own code or `cancelled`, or, past `waitMs`,
 // `errand-wait-ended` with the errand still running and unread.
 
+import { opensPrivate } from '../../memory/open-private.ts';
 import { isOwnerCaller } from './grants.ts';
 import { oneLine } from '../../memory/clamp.ts';
 import { MINUTE_MS } from '../../time.ts';
@@ -75,9 +76,12 @@ const handlers = perEnv((env) => {
     return here ? env.directory.isDm(here) : false;
   }
 
-  /** Whether the caller may see `errand`: a group errand anyone; a private chat's only its requester or an owner. */
+  /**
+   * Whether the caller may see `errand`: a group errand anyone; a private chat's only its requester or an owner, and
+   * anyone with `context.memory.openPrivate`.
+   */
   function mayView(errand: ErrandRecord, context: OpContext): boolean {
-    if (errand.scope !== 'dm') return true;
+    if (errand.scope !== 'dm' || opensPrivate(hot.config)) return true;
     return (
       ownerCalls(context) || (Boolean(context?.accountId) && idText(context.accountId) === errand.requester?.accountId)
     );

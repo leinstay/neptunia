@@ -7,6 +7,7 @@
 // everything. Candidates from her lines are anchored, de-duplicated, capped and expire.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { wakeOfDue } from '../src/behavior/inner/queue.ts';
 import path from 'node:path';
 
 import { runOp as runOperation } from '../src/tools/operations/index.ts';
@@ -416,6 +417,33 @@ test("private chats: her intention in a DM is the DM's own -- never in a server 
     assert.equal((await runOp('intention.cancel', { id }, hers(env, 'T2'))).code, 'not-found');
     assert.equal((await runOp('intention.list', {}, hers(env, 'T2'))).summary, 'no open intentions');
     assert.equal((await runOp('intention.update', { id, due: '2h' }, dm())).status, 'ok', 'in its own chat it moves');
+  });
+});
+
+test('with context.memory.openPrivate on, her intention in a DM is seen and moved from a server channel and keeps its DM', async () => {
+  // Bug: the switch opens her memory but a private chat's intention stays hidden, or opening it moves where it lands.
+  const { env, hot, intentions } = makeEnv();
+  Object.assign(hot.config, { context: { memory: { openPrivate: true } } });
+  await withCapturedLogs(async () => {
+    const set = await runOp(
+      'intention.set',
+      { text: 'ρώτα την για τις εξετάσεις' },
+      hers(env, 'T1', { placeId: 'dm1', dmChat: true })
+    );
+    const { id } = set.data.intention;
+    assert.deepEqual(
+      intentions.view().map((r) => r.id),
+      [id]
+    );
+    assert.equal((await runOp('intention.update', { id, due: '2h' }, hers(env, 'T2'))).status, 'ok');
+    const record = present(present(intentions.store()).get(id));
+    assert.equal(record.provenance.scope, 'dm');
+    assert.equal(record.provenance.placeId, 'dm1');
+    // Its due turn still runs in the direct chat it was made in.
+    const wake = wakeOfDue({ intention: record, reason: 'due', at: 1 });
+    assert.deepEqual([wake.placeId, wake.dmChat], ['dm1', true]);
+    Object.assign(hot.config, { context: { memory: { openPrivate: false } } });
+    assert.deepEqual(intentions.view(), []);
   });
 });
 

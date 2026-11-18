@@ -100,7 +100,9 @@ export type TurnRunner = {
   runTurn: (params: TurnParams) => Promise<ReportedTurn>;
   seedTriggerLinks: (pairs: unknown) => void;
   /** Her calls from the journal at start; with their `placeId`, that place's `turn` records seed her previous thinks. */
-  seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown; placeId?: unknown } | null | undefined) => void;
+  seedCallMarks: (
+    marks: { calls?: unknown; postedFrom?: unknown; placeId?: unknown; dm?: boolean } | null | undefined
+  ) => void;
   waitingParts: (placeId: unknown, authorId: unknown) => Array<{ index: number; text: string }>;
   addToPart: (
     placeId: unknown,

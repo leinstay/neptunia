@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import { allowances, mindOf, mindSettingsOf } from '../src/memory/db/mind-read.ts';
 import type { Mind, MindSettings, PersonEntry, SeedMessage, Seeds } from '../src/memory/db/mind-read.ts';
 import { dmContext, groupContext } from '../src/memory/db/scope.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
 import type { Context } from '../src/memory/db/scope.ts';
 import {
   AT,
@@ -313,6 +314,39 @@ test("a direct chat's claim is present in that chat and in the chat of a linked 
   };
   const inLinked = claimsOfCounterpart(w, linked, telegramDm, 'telegram:p2', person);
   assert.deepEqual([inChat.includes('claim:secret'), inLinked.includes('claim:secret')], [true, true]);
+});
+
+test("under an open group context a direct chat's claim is present and the group's description of the person comes first", () => {
+  // Bug: the open context reads what he said alone but shows the character a direct chat wrote instead of the room's.
+  const w = world();
+  const { person, discordDm } = twoChats(w);
+  const describe = (id: string, text: string, scope: Record<string, string>) =>
+    insertRows(w.db, {
+      descriptions: [
+        { id, subject_kind: 'person', subject_id: person, field: 'character', current_version: `${id}:v1`, ...scope },
+      ],
+      description_versions: [
+        { id: `${id}:v1`, description_id: id, text, author: 'her', written_at: '2026-10-01T09:00:00.000Z', chars: 1 },
+      ],
+    });
+  describe('d:0', 'ΑΠΟ-ΙΔΙΩΤΙΚΗ', { scope_kind: 'dm', scope_iface: 'discord', scope_dm: person });
+  describe('d:1', 'ΑΠΟ-ΟΜΑΔΑ', { scope_kind: 'group', scope_iface: 'discord' });
+  const open: Context = { ...GROUP, open: true };
+  const trigger = message('src:c1', 'γεια', { authorAccount: 'discord:p1', placeId: w.room, trigger: true });
+  const entryUnder = (ctx: Context) =>
+    personIn(
+      mindOf(
+        w.db,
+        ctx,
+        seedsOf([trigger], { place: w.room, counterpart: { personId: person, accountId: 'discord:p1' } }),
+        SETTINGS,
+        NOW
+      ),
+      person
+    );
+  assert.ok(claimsOfCounterpart(w, open, w.room, 'discord:p1', person).includes('claim:secret'));
+  assert.equal(entryUnder(open)?.character, 'ΑΠΟ-ΟΜΑΔΑ');
+  assert.equal(entryUnder(dmContext(person, 'discord', discordDm))?.character, 'ΑΠΟ-ΙΔΙΩΤΙΚΗ');
 });
 
 test('two accounts of one person render one entry that names both', () => {

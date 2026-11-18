@@ -23,7 +23,7 @@ import { ownerAccountOfPlace } from './person-links.ts';
 import { placeChainInDb } from './place-tree.ts';
 import type { PlaceChainLink } from './place-tree.ts';
 import type { InterfaceNames } from '../../protocol/serve.ts';
-import { allowedAudience, audienceWhere, scopeWhere, whereFor } from './scope.ts';
+import { allowedAudience, audienceWhere, ownAudienceFirst, scopeWhere, whereFor } from './scope.ts';
 import { placeAudience } from './graph.ts';
 import { placeStatsOf } from './place-stats.ts';
 import type { PlaceStats } from './place-stats.ts';
@@ -42,6 +42,7 @@ import { placeLineNumbers } from './chat-lines.ts';
 import { heartbeatListsOf } from './heartbeat-lists.ts';
 import type { HeartbeatLists } from './heartbeat-lists.ts';
 import { ownIntentionsOf, pastActsOf } from './past-acts.ts';
+import { opensPrivate } from '../open-private.ts';
 import type { OwnIntention, PastAct } from './past-acts.ts';
 import { LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND, LINE_MOMENT } from './source-current.ts';
 import type { PlaceLineNumbers } from './chat-lines.ts';
@@ -539,18 +540,19 @@ const PLACE_CLAIMS = `SELECT c.id, c.subject_id, c.text, c.weight, c.first_seen_
   WHERE c.subject_kind = 'place' AND c.kind = ? AND c.retired_at IS NULL AND COALESCE(c.truth, 'current') <> 'historical'`;
 
 /**
- * The current stored fields of a place the context reads, by field name, a one-to-one chat's before a group's. The key
- * `injokes` holds the place's live in-jokes the context reads, in the order the notes stored them, joined with `; `.
+ * The current stored fields of a place the context reads, by field name, the context's own audience first
+ * (scope.ts#ownAudienceFirst). The key `injokes` holds the place's live in-jokes the context reads, in the order the notes stored them, joined with `; `.
  */
 export function placeFieldsOf(db: Db, ctx: Context, placeId: string): Record<string, string> {
   const where = whereFor(ctx, 'd');
+  const first = ownAudienceFirst(ctx, 'd');
   const rows = db
     .prepare(
       `SELECT d.field, v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
        WHERE d.subject_kind = 'place' AND d.subject_id = ? AND d.retired_at IS NULL AND ${where.sql}
-       ORDER BY d.field, d.scope_kind = 'dm' DESC, d.id`
+       ORDER BY d.field, ${first.sql} DESC, d.id`
     )
-    .all(placeId, ...where.params);
+    .all(placeId, ...where.params, ...first.params);
   const fields: Record<string, string> = {};
   for (const row of rows) {
     const field = text(row.field);
@@ -871,6 +873,6 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
       over<PlaceLineNumbers>({ count: 0, numbers: new Map() }, (db) => placeLineNumbers(db, placeId, newest)),
     heartbeatLists: (now) => over({ people: [], places: [] }, (db) => heartbeatListsOf(db, now)),
     ownIntentions: (limit) => over([], (db) => ownIntentionsOf(db, limit)),
-    pastActs: (input) => over([], (db) => pastActsOf(db, input)),
+    pastActs: (input) => over([], (db) => pastActsOf(db, { ...input, openPrivate: opensPrivate(configOf()) })),
   };
 }

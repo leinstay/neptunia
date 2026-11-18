@@ -151,6 +151,8 @@ export type StoredMemoryInput = {
   recent: Untyped;
   allowEntry: Untyped;
   privateAccountId: Untyped;
+  /** The direct chat places whose archive `context.memory.openPrivate` opens to this run; none when it is off. */
+  privatePlaces?: ReadonlyArray<string>;
   signal: AbortSignal;
   meaning?: Array<Untyped>;
   locator?: Untyped;
@@ -183,6 +185,8 @@ export type RecordWindowsForInput = {
   recent: Untyped;
   allowLine: Untyped;
   privateAccountId: Untyped;
+  /** The direct chat places whose record `context.memory.openPrivate` opens to this run; none when it is off. */
+  privatePlaces: ReadonlyArray<string>;
   ownIds: Untyped;
   selfName: string;
   signal: AbortSignal;
@@ -216,6 +220,8 @@ export type MeaningSearchInput = {
   lines: Untyped;
   server: Untyped;
   privateAccountId: Untyped;
+  /** The direct chat places whose vectors `context.memory.openPrivate` opens to this run; none when it is off. */
+  privatePlaces: ReadonlyArray<string>;
   sourceOf: Untyped;
   ownIds: Untyped;
   signal: AbortSignal;

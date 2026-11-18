@@ -4,6 +4,7 @@
 // persona may read or write, whether the audience of one covers another, and the audience in the shape the rail of
 // src/behavior/elsewhere.ts compares. No I/O but the one listing, no platform object.
 
+import { opensPrivate } from '../memory/open-private.ts';
 import type { Audience, ChatInfo, GroupInfo } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
 import { audienceCovers } from './elsewhere.ts';
@@ -99,7 +100,8 @@ export function isReadable(entry: ChatInfo): boolean {
  * one reader: the source must be a chat its `partnerId` can view, whatever `context.pull.sameAudience` says;
  * no partner never qualifies. Elsewhere, with `context.pull.sameAudience` (the live `config`; only `false` turns it
  * off) everyone who can view the destination must be able to view the source (`audienceCovers`, no shortcut for a
- * source everyone can view). A missing destination or a thread never qualifies while the rail is on.
+ * source everyone can view). A missing destination or a thread never qualifies while the rail is on. With
+ * `context.memory.openPrivate` a private chat lets in every source, its partner's view unchecked.
  */
 export function audienceAllows(
   destination: ChatInfo | null | undefined,
@@ -108,6 +110,7 @@ export function audienceAllows(
   { partnerId = null }: { partnerId?: string | null } = {}
 ): boolean {
   if (destination && destination.rootId === null) {
+    if (opensPrivate(config)) return true;
     return partnerId !== null && source?.rootId !== null && source?.viewers?.[partnerId] === true;
   }
   if (!pullSettings(config as object).sameAudience) return true;

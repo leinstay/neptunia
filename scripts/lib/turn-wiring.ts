@@ -26,6 +26,7 @@ import { createAppendStore } from '../../src/memory/append-store.ts';
 import { createVectors } from '../../src/memory/vectors.ts';
 import { createDescriber } from '../../src/memory/describe.ts';
 import { createSummarizer } from '../../src/behavior/summarize.ts';
+import { opensPrivate } from '../../src/memory/open-private.ts';
 import { issueContext } from '../../src/memory/db/scope.ts';
 import type { Context } from '../../src/memory/db/scope.ts';
 import { linkedDmScopes } from '../../src/memory/db/person-links.ts';
@@ -426,7 +427,8 @@ export function buildTurnRunner(input: WiringInput): Wired {
     async (text: string): Promise<ArrayLike<number> | null> =>
       (await input.embed([text], { config: hot.config as unknown, purpose }))[0] ?? null;
   const memoryContext = (spec: Parameters<typeof issueContext>[0] = {}): Context => {
-    const ctx = issueContext({ iface: identity.iface, ...spec, now });
+    // As the memory service issues it: `context.memory.openPrivate` opens every audience to a group or DM context.
+    const ctx = issueContext({ iface: identity.iface, ...spec, open: opensPrivate(hot.config), now });
     const read = db();
     return read === null || ctx.kind !== 'dm' || !ctx.person
       ? ctx

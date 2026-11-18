@@ -477,6 +477,54 @@ test('errands service: view lists the open tasks, then the unread finished ones;
   }
 });
 
+test('errands service: with context.memory.openPrivate on, a dm errand carries its recent lines and memory and shows in a group view', async () => {
+  // Bug: the switch opens her memory but an errand asked in a direct chat still runs blind and stays out of every group.
+  const rootDir = tempDir('nep-errands-service-');
+  const hot = {
+    config: {
+      errands: { maxOpen: 5 },
+      agents: { scout: { enabled: true, daily: { tasks: 10 } } },
+      context: { memory: { openPrivate: true } },
+    },
+  };
+  // The core finds a direct chat's place by its scope: a channel of the same id holds none of its lines.
+  const memory = {
+    recentLines: (chatId: string, _count: number, scope: string) =>
+      chatId === 'dm1' && scope === 'dm' ? [{ author: 'Ελένη', text: 'ιδιωτικό' }] : [],
+  };
+  const client = fakeClient();
+  const deferred: Array<() => void> = [];
+  const stores = createErrandStores({
+    memoryDb: memoryOf(path.join(rootDir, 'data')),
+    config: () => hot.config,
+    log: fakeLog(),
+  });
+  const errands = createErrandService({
+    // @ts-expect-error: the stand-in's result carries only the text; the real client adds sources and files
+    client,
+    stores,
+    hot,
+    memory,
+    retrieve: () =>
+      Promise.resolve({ assertions: [{ text: 'ΓΕΓΟΝΟΣ', state: 'current', polarity: 'positive' }] } as never),
+    log: fakeLog(),
+    defer: (fn) => deferred.push(fn),
+  });
+  errands.submit({ ...ask('scout'), origin: { placeId: 'dm1', messageId: null }, scope: 'dm' });
+  assert.equal(errands.view({}).length, 1);
+  for (const fn of deferred.splice(0)) fn();
+  await errands.idle();
+  const [dm] = client.runs as Array<{ context: { recent: unknown; memory?: Array<{ text: string }>; scope: string } }>;
+  assert.deepEqual(dm.context.recent, [{ author: 'Ελένη', text: 'ιδιωτικό' }]);
+  const { memory: facts } = dm.context;
+  assert.deepEqual(
+    facts?.map((fact) => fact.text),
+    ['ΓΕΓΟΝΟΣ']
+  );
+  assert.equal(dm.context.scope, 'dm');
+  fs.rmSync(rootDir, { recursive: true, force: true });
+});
+
 test("errands service: a private chat's unread result is in the view only in that chat; the unread list survives a restart of the store", async () => {
   const rootDir = tempDir('nep-errands-service-');
   const hot = { config: { errands: { maxOpen: 5 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } } };

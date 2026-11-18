@@ -179,6 +179,14 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
       'Check that every role allowed to view the place she speaks in can also view a place she reads. Also governs the windows of a search of the message history',
   },
   {
+    'key': 'context.memory.openPrivate',
+    'types': ['boolean'],
+    'reader': 'src/memory/open-private.ts',
+    'default': false,
+    'text':
+      'Let a turn in any place read what she remembers from every direct chat, as a heartbeat turn does. What she stores keeps the audience of the place it was said in',
+  },
+  {
     'key': 'context.vision.fetchTimeoutMs',
     'types': ['number'],
     'reader': 'src/media/fetch-image.ts',

@@ -80,6 +80,8 @@ export type FrameTurnSpec = {
   context?: Record<string, unknown>;
   /** The moments of more lines of hers in the garden `c2`, written before the turn. */
   gardenLines?: ReadonlyArray<number>;
+  /** Laid over the `context.memory` settings, `openPrivate` for instance. */
+  memorySettings?: Record<string, unknown>;
   /** The writer's answer. */
   answer?: string;
   /** Prompt files laid over the turn's own, `appearance` for instance. */
@@ -162,7 +164,7 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
         pull: { sameAudience: true },
         meanwhile: { messages: 8, around: 2 },
         recall: { extractChars: 1200, maxItems: 6 },
-        memory: { serviceMessages: 100, windowMessages: 100, maxHops: 2, budgetTokens: 10_000 },
+        memory: { serviceMessages: 100, windowMessages: 100, maxHops: 2, budgetTokens: 10_000, ...spec.memorySettings },
         ...spec.context,
       },
       llm: { maxRequestTokens: 100_000 },

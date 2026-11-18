@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { handleOfPerson } from '../src/memory/db/direct-chats.ts';
 import { formatTranscript } from '../src/format.ts';
-import { chatLines, recentGroupLines } from '../src/memory/db/chat-lines.ts';
+import { chatLines, recentPlaceLines } from '../src/memory/db/chat-lines.ts';
 import { domainDetail } from '../src/memory/db/domain-read.ts';
 import { dmContext, internalContext } from '../src/memory/db/scope.ts';
 import { batchOf, buildSessionRequest, scopesOf } from '../src/memory/db/session.ts';
@@ -113,7 +113,7 @@ for (const kind of KINDS) {
     test(`stored lines: a task's recent lines show a ${kind.name}, with its text form, ${presence}`, () =>
       withLine(kind, presence, (env) => {
         fillEnvAudiences(env);
-        const lines = recentGroupLines(env.db, GENERAL, 5) as Array<{ media?: Array<{ description: string | null }> }>;
+        const lines = recentPlaceLines(env.db, GENERAL, 5) as Array<{ media?: Array<{ description: string | null }> }>;
         assert.equal(lines.length >= 1, true, 'a line with no text is not dropped');
         assert.equal(JSON.stringify(lines[0].media ?? []).includes(kind.first.word), presence !== 'absent');
       }));
@@ -156,7 +156,7 @@ for (const kind of KINDS) {
       const found = await rig.recall.prefetch({ ...rig.args, lanes: [{ kind: 'message', text: words, words }] });
       assert.ok(!JSON.stringify(found).includes(word), 'the prefetch');
       assert.equal(domainDetail(env.db, { family: 'sources', id: source, context: group }).found, false, 'the browser');
-      assert.ok(!JSON.stringify(recentGroupLines(env.db, GENERAL, 5)).includes(word), 'a task reading a group');
+      assert.ok(!JSON.stringify(recentPlaceLines(env.db, GENERAL, 5)).includes(word), 'a task reading a group');
     } finally {
       env.done();
     }

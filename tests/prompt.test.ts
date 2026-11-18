@@ -1497,6 +1497,19 @@ test('buildRequest: <senses> carries senses.dmChat in a private chat, never sens
   }
 });
 
+test('buildRequest: with context.memory.openPrivate on, the private wording is the open one in a private chat and a group', () => {
+  // Bug: the switch opens her memory while the frame still orders her to keep each private chat out of every other place.
+  const open = { context: { memory: { openPrivate: true } } };
+  const prompts = fakePrompts({ private: 'PRIVATE_TASK', 'private-open': 'OPEN_PRIVATE_TASK' });
+  const dm = buildRequest(privateScene({ config: fakeConfig(open), prompts }));
+  const dmSenses = sensesOf(dm)!;
+  assert.ok(dmSenses.includes(labels.senses.dmChatOpen) && !dmSenses.includes(labels.senses.dmChat));
+  const task = userText(dm);
+  assert.ok(task.includes('OPEN_PRIVATE_TASK') && !/(^|[^_])PRIVATE_TASK/.test(task));
+  const group = sensesOf(buildRequest(baseInput({ config: fakeConfig({ ...open, dm: { enabled: true } }) })))!;
+  assert.ok(group.includes(labels.senses.privateAwareOpen) && !group.includes(labels.senses.privateAware));
+});
+
 test('buildRequest: <senses> carries senses.privateAware outside a private chat only when dm.enabled is true', () => {
   const on = sensesOf(buildRequest(baseInput({ config: fakeConfig({ dm: { enabled: true } }) })));
   assert.ok(on!.includes(labels.senses.privateAware));

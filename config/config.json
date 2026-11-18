@@ -136,6 +136,7 @@
       "emoji": false
     },
     "memory": {
+      "openPrivate": false,
       "windowMessages": 100,
       "serviceMessages": 100,
       "maxHops": 2,

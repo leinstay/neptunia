@@ -10,7 +10,7 @@ import { privateByPerson } from './private-read.ts';
 import type { PrivateAccount, PrivatePlace } from './private-read.ts';
 import { checkLimit, contextBinding, keysetPage, positionOf } from './read-page.ts';
 import type { Page } from './read-page.ts';
-import { audienceWhere } from './scope.ts';
+import { audienceWhere, readsAll } from './scope.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
@@ -84,7 +84,7 @@ const SEMANTIC_RECORD = `EXISTS (SELECT 1 FROM semantic_arguments g
 
 /** The SQL that says a context may know of the person `p`: a record of theirs it may read exists. */
 function personVisible(context: Context): { sql: string; params: Array<string> } {
-  if (context.internal === true) return { sql: '1 = 1', params: [] };
+  if (readsAll(context)) return { sql: '1 = 1', params: [] };
   const audience = audienceWhere(context, 't');
   const subjects = SUBJECT_TABLES.map(
     ({ table, where }) => `EXISTS (SELECT 1 FROM ${table} t WHERE ${where} = p.id AND ${audience.sql})`
@@ -108,7 +108,7 @@ function entriesSql(context: Context, filters: PersonFilters): { sql: string; pa
     account: [] as Array<unknown>,
     participant: [] as Array<unknown>,
   };
-  if (context.internal !== true) {
+  if (!readsAll(context)) {
     const dm = placeVisibleWhere(context, 'pl');
     conditions.account.push(`NOT EXISTS (SELECT 1 FROM places pl WHERE pl.partner_account = a.id AND NOT ${dm.sql})`);
     params.account.push(...dm.params);

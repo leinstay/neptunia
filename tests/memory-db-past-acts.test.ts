@@ -2,6 +2,7 @@
 // memory database built with the real schema (tests/fixtures/memory-db/mind-world.ts): her own lines by their stored
 // vectors with what people wrote after them, and her intentions with what the turns that carried them out sent.
 import { test } from 'node:test';
+import { frameReadsOver } from '../src/memory/db/frame-reads.ts';
 import assert from 'node:assert/strict';
 import { ownIntentionsOf, pastActsOf } from '../src/memory/db/past-acts.ts';
 import type { PastAct } from '../src/memory/db/past-acts.ts';
@@ -362,6 +363,36 @@ test('a line of a bot that answers hers is no answer', () => {
   const world = pastWorld();
   try {
     assert.equal(lineFollow(world, 'p7')?.answers, 2);
+  } finally {
+    world.close();
+  }
+});
+
+test('her near line in a direct chat keeps its text only with context.memory.openPrivate on', () => {
+  // Bug: the notice before an intention blanks what she said one-to-one after the owner opened her memory everywhere.
+  const world = pastWorld();
+  try {
+    addVector(world, 'r5-line', TURN_NOW - 8 * DAY, NEAR);
+    const textOf = (open: boolean) =>
+      frameReadsOver(
+        () => world.db,
+        () => ({ context: { memory: { openPrivate: open } } })
+      )
+        .pastActs?.({
+          vector: NEAR,
+          model: MODEL,
+          intentionScores: new Map(),
+          nearIntention: 0.65,
+          nearLine: 0.7,
+          limit: 10,
+          now: TURN_NOW,
+        })
+        .find((one) => one.kind === 'line' && one.id === 'r5-line');
+    const shut = textOf(false);
+    const open = textOf(true);
+    assert.ok(shut?.kind === 'line' && open?.kind === 'line');
+    assert.equal(shut.text, null);
+    assert.equal(open.text, 'ΓΡΑΜΜΗ-r5');
   } finally {
     world.close();
   }

@@ -69,6 +69,8 @@
 // it is memory about real people, kept under data/ only.
 
 // health: allow file-length until 2027-04-01 -- one runner over the recall sources, grown by the one dependency that names the loop watch
+import { opensPrivate } from '../memory/open-private.ts';
+import { directChatPlaceIds } from '../memory/db/places-read.ts';
 import { dmPlaceOfMember, personOfMember, placeOfChat, storedPersonOfMember } from '../memory/addresses.ts';
 import { log } from '../log.ts';
 import { createSummaryBuilder } from './summary-builder.ts';
@@ -118,7 +120,7 @@ import { factExcerpts, prefetchFacts, searchEpisodes, searchFacts } from './reca
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import { currentIface } from '../memory/db/current-iface.ts';
-import { isIssuedInternalContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
+import { isIssuedReadAllContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
 import {
   hasRecallContext,
   historyExclusions,
@@ -469,6 +471,18 @@ function traceLine(trace: RecallTrace, out: Untyped) {
 
 export type { RecallStretch } from './recall-run-types.ts';
 
+/** The private vector searches of a recall: each direct chat `context.memory.openPrivate` opens, then the partner's layer. */
+function privateSearches(
+  placeId: string,
+  privatePlaces: ReadonlyArray<string>,
+  privateAccountId: Untyped
+): Array<[string, { privateAccountId?: string }]> {
+  return [
+    ...privatePlaces.filter((dm) => dm !== placeId).map((dm): [string, object] => [dm, {}]),
+    ...(privateAccountId ? [[placeId, { privateAccountId: String(privateAccountId) }] as [string, object]] : []),
+  ];
+}
+
 /**
  * The recall runner for the turn (task R2 wires it beside the web search).
  */
@@ -609,6 +623,7 @@ export function createRecall({
     recent,
     allowEntry,
     privateAccountId,
+    privatePlaces = [],
     signal,
     meaning = [],
     locator = null,
@@ -636,7 +651,9 @@ export function createRecall({
       // Entries are recorded after what they observed: the months from `from` on, the private archive after the place's.
       const stream = (query: Untyped) =>
         (async function* (): AsyncGenerator<ArchiveEntry> {
-          yield* source.iterate(placeId, query);
+          // The place's archive and each direct chat `context.memory.openPrivate` opens, then the private one.
+          for (const place of [placeId, ...privatePlaces.filter((dm) => dm !== placeId)])
+            yield* source.iterate(place, query);
           if (privateAccountId) yield* source.iterate(placeId, { ...query, privateAccountId });
         })();
       let archived: Array<Untyped> = [];
@@ -716,6 +733,7 @@ export function createRecall({
     recent,
     allowLine,
     privateAccountId,
+    privatePlaces,
     ownIds,
     selfName,
     signal,
@@ -740,6 +758,8 @@ export function createRecall({
       const source = {
         async *iterate(id: Untyped, query: Untyped) {
           yield* record.iterate(id, query);
+          // Each direct chat `context.memory.openPrivate` opens, then the partner's private record.
+          for (const place of privatePlaces.filter((dm) => dm !== id)) yield* record.iterate(place, query);
           if (privateAccountId) yield* record.iterate(id, { ...query, privateAccountId });
         },
       };
@@ -788,6 +808,7 @@ export function createRecall({
     lines,
     server,
     privateAccountId,
+    privatePlaces,
     sourceOf,
     ownIds,
     signal,
@@ -850,8 +871,8 @@ export function createRecall({
     let rows;
     try {
       rows = await vectors.search(placeId, vector, { ...range, k, filter: shared });
-      if (privateAccountId)
-        rows = [...rows, ...(await vectors.search(placeId, vector, { ...range, k, filter: unseen, privateAccountId }))];
+      for (const [place, layer] of privateSearches(placeId, privatePlaces, privateAccountId))
+        rows = [...rows, ...(await vectors.search(place, vector, { ...range, k, filter: unseen, ...layer }))];
     } catch (err) {
       return failed('search', err);
     }
@@ -947,10 +968,16 @@ export function createRecall({
       return judged.get(id);
     };
     const privateAccountId = !inRoot(channel) && typeof partnerId === 'string' && partnerId ? partnerId : null;
+    const openPrivate = opensPrivate(config);
+    const db = openPrivate ? recallDatabase(memoryDb) : null;
+    const privatePlaces = db ? directChatPlaceIds(db as Db) : [];
     const allowScope = (scope: Untyped) => {
-      // A private item is its partner's: named by their id, or by the DM place this private turn stands in.
+      // A private item is its partner's: named by their id, or by the DM place this private turn stands in, and every
+      // one with `context.memory.openPrivate`.
       if (scope?.private === true)
-        return privateAccountId !== null && (scope.user === privateAccountId || scope.place === placeId);
+        return (
+          openPrivate || (privateAccountId !== null && (scope.user === privateAccountId || scope.place === placeId))
+        );
       return typeof scope?.channel !== 'string' || sourceOf(scope.channel) !== null;
     };
     const allowEntry = (entry: Untyped) => allowScope(entry?.scope);
@@ -958,7 +985,7 @@ export function createRecall({
       line?.scope?.private === true
         ? allowScope(line.scope)
         : typeof line?.scope?.channel === 'string' && allowScope(line.scope);
-    return { judged, sourceOf, privateAccountId, allowEntry, allowLine };
+    return { judged, sourceOf, privateAccountId, privatePlaces, allowEntry, allowLine };
   }
 
   function profilesFor(placeId: string | null): Array<Untyped> {
@@ -1004,7 +1031,7 @@ export function createRecall({
   }
 
   /**
-   * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal context spans every audience.
+   * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal or open context spans every audience.
    */
   function readContext({ channel, privateAccountId, asker, memoryContext = null }: ReadContextInput) {
     const spec = readContextSpec({
@@ -1021,7 +1048,7 @@ export function createRecall({
       typeof memoryContext === 'object' &&
       typeof memoryContext.id === 'string' &&
       memoryContext.id.length > 0 &&
-      (isIssuedInternalContext(memoryContext) ||
+      (isIssuedReadAllContext(memoryContext) ||
         (!memoryContext.internal &&
           (privateAccountId
             ? memoryContext.kind === 'dm' && spec.kind === 'dm' && memoryContext.person === spec.person
@@ -1350,7 +1377,7 @@ export function createRecall({
 
     // The pull rail toward this turn's channel and the private-owner rule (scopeOf).
     const scope = scopeOf({ config, snapshot, channel, partnerId, placeId });
-    const { judged, sourceOf, privateAccountId, allowEntry, allowLine } = scope;
+    const { judged, sourceOf, allowEntry, allowLine, ...privacy } = scope;
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
     // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
     const locator = locatorOf(server, settings);
@@ -1369,7 +1396,7 @@ export function createRecall({
       candidate,
       lines: chatLines,
       server,
-      privateAccountId,
+      ...privacy,
       sourceOf,
       ownIds,
       signal: searchSignal,
@@ -1397,7 +1424,7 @@ export function createRecall({
       server,
       recent,
       allowEntry,
-      privateAccountId,
+      ...privacy,
       signal,
       meaning: meaning?.archive ?? [],
       locator,
@@ -1451,7 +1478,7 @@ export function createRecall({
       people,
       recent,
       allowLine,
-      privateAccountId,
+      ...privacy,
       ownIds,
       selfName,
       signal,
@@ -2127,7 +2154,7 @@ export function createRecall({
       const controller = new AbortController();
       const signal = controller.signal;
       const scope = scopeOf({ config, snapshot, channel, partnerId, placeId });
-      const { sourceOf, privateAccountId, allowEntry, allowLine } = scope;
+      const { sourceOf, privateAccountId, privatePlaces, allowEntry, allowLine } = scope;
       const profiles = profilesFor(placeId);
       const nameOf = namesFor(placeId, profiles);
       const channelNameOf = (id: Untyped) => snapshot?.get(id)?.name ?? null;
@@ -2224,6 +2251,7 @@ export function createRecall({
                 recent: false,
                 allowEntry,
                 privateAccountId,
+                privatePlaces,
                 signal,
                 source: archiveShared,
               })

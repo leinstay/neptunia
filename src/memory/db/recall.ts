@@ -72,7 +72,7 @@ import { log } from '../../log.ts';
 import { foldText } from '../recent.ts';
 import { indexWords } from '../record-index.ts';
 import { namedIface as ifaceOf } from './live-iface.ts';
-import { canRead, scopeWhere, whereFor } from './scope.ts';
+import { canRead, readsAll, scopeWhere, whereFor } from './scope.ts';
 import { loadStemmer } from './stems.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Config, Db, Row } from './types.ts';
@@ -1087,7 +1087,7 @@ function readerOf(
     },
     channelNameOf: (placeId: unknown): string | null => {
       const place = placeOf(placeId);
-      if (!place || place.retired || (place.private && ctx.internal !== true)) return null;
+      if (!place || place.retired || (place.private && !readsAll(ctx))) return null;
       const own = place.iface === ctx.iface ? place.nativeId : null;
       if (own && marks) marks.places[placeId as string] = own;
       const given = own && typeof channelNameOf === 'function' ? str(channelNameOf(own)) : '';

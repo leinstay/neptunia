@@ -2,7 +2,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakeAdapter } from '../src/interface/fake.ts';
-import { bindPublicationPort, publicationRefusal, type PublicationBoundary } from '../src/tools/publication.ts';
+import {
+  bindPublicationPort,
+  publicationRefusal,
+  turnBoundary,
+  type PublicationBoundary,
+} from '../src/tools/publication.ts';
+import { issueContext } from '../src/memory/db/scope.ts';
 
 const boundary: PublicationBoundary = { kind: 'internal-turn', origin: { iface: 'fake', chatId: 'origin' } };
 
@@ -65,4 +71,16 @@ test('a bound port preserves the receiver and own members of an adapter subtype'
   assert.equal(bound.marker, 'receiver-731');
   assert.equal((await bound.send(boundary.origin, { text: 'private answer' })).status, 'ok');
   assert.equal(port.messagesIn('origin')[0].text, 'private answer');
+});
+
+test('a diary turn under an open context keeps no boundary, so its entry is a group row its mirrors take', () => {
+  // Bug: the open mark restricts the diary's entry as an internal turn's, and no mirror ever takes its copy.
+  const origin = { iface: 'discord', chatId: 'c1' };
+  const diaryDraft = (open: boolean) => ({
+    nowhere: true,
+    mode: 'diary',
+    memoryContext: issueContext({ kind: 'group', iface: 'discord', destination: null, open, now: () => 0 }),
+  });
+  assert.equal(turnBoundary(diaryDraft(true), origin), undefined);
+  assert.equal(turnBoundary(diaryDraft(false), origin), undefined);
 });

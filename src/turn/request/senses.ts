@@ -3,6 +3,7 @@
 // (src/behavior/prompt.js), her skill reads (src/tools/operations/skills.ts) and the tool round (src/turn/tool-round.ts)
 // call them.
 
+import { opensPrivate } from '../../memory/open-private.ts';
 import { isPlainObject } from '../../config.ts';
 import { fill } from '../../format.ts';
 import { gifWatchBlocker } from '../../memory/index.ts';
@@ -214,9 +215,11 @@ export function renderSenses(
   if (senses.diary && typeof diaryChannel === 'string' && diaryChannel)
     lines.push(fill(senses.diary, { channel: diaryChannel }));
   // Private chat: the one line for this chat (per turn), or -- on the
-  // server, with the feature on -- the rule about what was said in private.
-  if (dmChat) turnLines.push(senses.dmChat);
-  else if (config.dm?.enabled === true) lines.push(senses.privateAware);
+  // server, with the feature on -- the rule about what was said in private. `context.memory.openPrivate` takes the
+  // wording that states what she remembers from every place.
+  const open = opensPrivate(config);
+  if (dmChat) turnLines.push(open ? senses.dmChatOpen : senses.dmChat);
+  else if (config.dm?.enabled === true) lines.push(open ? senses.privateAwareOpen : senses.privateAware);
   return { stable: lines.filter(Boolean).join('\n'), turn: turnLines.filter(Boolean).join('\n') };
 }
 

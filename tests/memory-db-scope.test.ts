@@ -18,6 +18,7 @@ import {
   groupsContext,
   internalContext,
   isIssuedInternalContext,
+  isIssuedReadAllContext,
   issueContext,
   scopeColumns,
   whereFor,
@@ -322,6 +323,15 @@ test('the internal context validator refuses a primitive value without throwing'
 
 test('the internal context validator refuses an empty execution ID', () => {
   assert.equal(isIssuedInternalContext({ id: '', mode: 'internal', internal: true }), false);
+});
+
+test('a trusted caller reads everywhere with an issued open context and never with a forged one', () => {
+  // Bug: the open mark is honoured on any object, so a context the core did not issue opens every chat.
+  const issued = (open: boolean) => issueContext({ kind: 'group', iface: 'discord', open, now: () => 0 });
+  assert.equal(isIssuedReadAllContext(issued(true)), true);
+  assert.equal(isIssuedReadAllContext(issued(false)), false);
+  assert.equal(isIssuedReadAllContext({ kind: 'group', iface: 'discord', open: true }), false);
+  assert.equal(isIssuedReadAllContext(issueContext({ kind: 'internal', now: () => 0 })), true);
 });
 
 test('a DM context reads no DM its partner id spells when the caller names no place', () => {

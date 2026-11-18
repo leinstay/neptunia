@@ -1,6 +1,6 @@
 // Her day for `<inner>`: `<my_day>` with the events of her day and `<calls>` with her calls of today, each headed, in
 // the labels' words (`labels.myDay` and `labels.calls`), read from the engine's records with no model request and
-// under the turn's context through `whereFor`, so a group turn never reads what she did in a direct chat. A reply turn and a heartbeat read the events of the day `now` falls in by the server zone, a diary request
+// under the turn's context through `whereFor`, so a group turn reads what she did in a direct chat only under an open context. A reply turn and a heartbeat read the events of the day `now` falls in by the server zone, a diary request
 // those since her last stored entry. A place reads as the caller's namer gives it (the request's own naming of a
 // place), a person as the `@handle` the rest of the request uses. buildTurnRequest and plannerRequest
 // (src/turn/phases/request/build.ts) ask for both through the turn runner's `day` reader.

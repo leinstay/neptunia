@@ -3,6 +3,7 @@
 // check of a follow-up's own task. buildRequest (src/behavior/prompt.ts) and the request phase's facts
 // (src/turn/phases/request/facts.ts) call them.
 
+import { opensPrivate } from '../../memory/open-private.ts';
 import { kindOfRequest } from './frame.ts';
 import { fill, formatDuration } from '../../format.ts';
 import { fillPromptTemplate } from './text.ts';
@@ -198,10 +199,12 @@ export function taskOf(given: RequestInput & Base): Task {
     overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[mode] ?? '',
     taskValues
   );
-  // Private chat: prompts.private follows the mode prompt; a missing file adds nothing.
+  // Private chat: prompts.private follows the mode prompt, `private-open` with `context.memory.openPrivate`; a missing
+  // file adds nothing.
+  const privatePrompt = opensPrivate(given.config) ? prompts['private-open'] : prompts.private;
   const privateText =
-    dmChat && typeof prompts.private === 'string' && prompts.private.trim()
-      ? fillPromptTemplate(prompts.private, taskValues)
+    dmChat && typeof privatePrompt === 'string' && privatePrompt.trim()
+      ? fillPromptTemplate(privatePrompt, taskValues)
       : '';
   return { overheard, fittedTask: [baseTask, tasksText, privateText].filter(Boolean).join('\n\n') };
 }

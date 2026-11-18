@@ -142,6 +142,8 @@ export const labels = {
     draw: 'you can draw by calling draw.create; the picture is posted before your words',
     dmChat: 'this is a private chat with one person, it stays here',
     privateAware: 'some people write to you privately; never repeat any of it here',
+    dmChatOpen: 'one on one; you remember every place here',
+    privateAwareOpen: 'some people write to you privately; you remember those chats here too',
     customEmoji: 'this server has its own emoji, listed in <emoji>; write one as :name:',
     gifs: 'you can post one gif per turn from <gifs> by its handle',
     channels: 'you see only the channels shown here',
