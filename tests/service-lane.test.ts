@@ -94,9 +94,8 @@ function fakeHot() {
       persona: 'CARD',
       format: 'Use <msg> and <react> tags.',
       'turn/reply': 'Someone called you: {{author}}.',
-      heartbeat: 'HEARTBEAT',
-      diary: 'DIARY',
-      'diary-planner': 'PLANNER',
+      'heartbeat/task': 'HEARTBEAT',
+      'diary/task': 'DIARY',
       labels,
     },
   };

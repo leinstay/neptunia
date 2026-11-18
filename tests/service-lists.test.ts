@@ -9,18 +9,20 @@ import {
   NIKOS,
   TURN_NOW,
   YARD,
+  ZOE,
   addInterest,
   describeSubject,
   heartbeatWorld,
 } from './fixtures/service-turn.ts';
 import { addAttitude, addClaim, addLine } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
+import { groupContext, internalContext } from '../src/memory/db/scope.ts';
 
 test('reads every live chat, a group room and a direct chat, on the real schema of places', () => {
   // Bug: a scope clause names columns `places` does not have (`scope_iface`) and the read throws on a real database.
   const world = heartbeatWorld();
   try {
-    const { people, places } = serviceListsOf(world.db, TURN_NOW);
+    const { people, places } = serviceListsOf(world.db, TURN_NOW, internalContext());
     const ids = places.map((one) => one.placeId);
     assert.ok(ids.includes(YARD), ids.join(' '));
     assert.ok(ids.includes('fake:dm:5678'), ids.join(' '));
@@ -29,6 +31,32 @@ test('reads every live chat, a group room and a direct chat, on the real schema 
       people.some((one) => one.personId === NIKOS),
       people.map((one) => one.personId).join(' ')
     );
+  } finally {
+    world.close();
+  }
+});
+
+test('under a group context no direct chat is listed and nothing of a direct chat reaches a person', () => {
+  // Bug: a diary entry with private memory closed reads the collector as the persona, so a direct chat, a claim made
+  // there or a person's direct chat reach an entry its mirrors publish.
+  const world = heartbeatWorld();
+  addClaim(world.db, {
+    id: 'alias:z1',
+    person: ZOE,
+    kind: 'alias',
+    text: 'ΚΡΥΦΟ-ΨΕΥΔΩΝΥΜΟ',
+    audience: { dm: 'fake:dm:5678', iface: 'fake', person: ZOE },
+  });
+  addClaim(world.db, { id: 'alias:n9', person: NIKOS, kind: 'alias', text: 'Νικ', audience: { group: 'fake' } });
+  try {
+    const { people, places } = serviceListsOf(world.db, TURN_NOW, groupContext('fake'));
+    const ids = places.map((one) => one.placeId);
+    assert.ok(ids.includes(YARD), ids.join(' '));
+    assert.ok(!ids.includes('fake:dm:5678'), ids.join(' '));
+    const texts = people.flatMap((one) => one.claims.map((claim) => claim.text));
+    assert.ok(texts.includes('Νικ'), texts.join(' '));
+    assert.ok(!texts.includes('ΚΡΥΦΟ-ΨΕΥΔΩΝΥΜΟ'), texts.join(' '));
+    assert.ok(people.every((one) => one.dm === null && one.approach?.direct !== true));
   } finally {
     world.close();
   }
@@ -68,7 +96,7 @@ type LineSpec = {
 /** The lists of `world` at the turn's moment, the world closed after. */
 function listsOf(world: World): ReturnType<typeof serviceListsOf> {
   try {
-    return serviceListsOf(world.db, TURN_NOW);
+    return serviceListsOf(world.db, TURN_NOW, internalContext());
   } finally {
     world.close();
   }

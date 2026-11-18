@@ -40,7 +40,7 @@ import { coerceArgs, coversSpeech, toolResultText } from '../tools/tool-calls.ts
 import type { TurnCall } from '../skills/uses.ts';
 import type { NormalCall } from '../tools/tool-calls.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
-import { SERVICE_ERRAND_SKILLS, wakeGoesOn } from '../tools/wake-tools.ts';
+import { READ_SKILLS, SERVICE_ERRAND_SKILLS, wakeGoesOn } from '../tools/wake-tools.ts';
 import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
 import {
   CALL_STATUS_NAMES,
@@ -73,8 +73,13 @@ import { turnKindOf, waitsForErrand } from './request/frame.ts';
 import type { TriggerKind } from './triggers.ts';
 import type { Typing } from './typing.ts';
 
-/** What a diary post may call: its pictures, its voice message and an errand. */
-const DIARY_SKILLS: ReadonlyArray<string> = Object.freeze(['draw.create', 'voice.say', ...SERVICE_ERRAND_SKILLS]);
+/** What a diary entry may call: every tool that only looks, its pictures, its voice message and an errand. */
+const DIARY_SKILLS: ReadonlyArray<string> = Object.freeze([
+  ...READ_SKILLS,
+  'draw.create',
+  'voice.say',
+  ...SERVICE_ERRAND_SKILLS,
+]);
 
 /** Reactors read per reaction of her lines. Production value, config cut of 2026-10-31. */
 const REACTION_FETCH_USERS = 10;
@@ -1129,8 +1134,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * Why a call of a step cannot run, decided before it is planned: `{ code, reason, values? }`, or null when it can. A
    * call the transport could not read or no skill has is refused with its own code (`malformed-call`, `truncated-call`,
    * `unknown-skill`); a call past what the step allows (the final request's, the time's, the step's cap of calls) is
-   * `loop-cap` with `what` saying which; in a diary post anything but `draw.create`, `voice.say` and an errand is
-   * `diary-draw-only`. An inner turn's last answer still makes its terminal calls (`isTerminal`).
+   * `loop-cap` with `what` saying which; in a diary entry anything but a tool that only looks, `draw.create`,
+   * `voice.say` and an errand is `diary-draw-only`. An inner turn's last answer still makes its terminal calls (`isTerminal`).
    */
   function preRefusalOf(
     record: NormalCall,
@@ -1152,7 +1157,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
   ): CallRefusal | null {
     if (record.problem)
       return { code: record.problem, reason: record.problem === CODE.UNKNOWN_SKILL ? record.name : '' };
-    // A diary post makes pictures, may say one thing aloud and may hand off an errand and read it; nothing else.
+    // A diary entry looks, makes pictures, may say one thing aloud and may hand off an errand and read it; nothing else.
     if (diary && !DIARY_SKILLS.includes(record.name)) return { code: CODE.DIARY_DRAW_ONLY, reason: record.name };
     // A think tag never goes out, and nothing edits her words: the call is refused whole.
     if (record.name === 'message.create' && hasThinkTag(JSON.stringify(record.args?.text ?? '')))

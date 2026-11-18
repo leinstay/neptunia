@@ -414,8 +414,8 @@ const PROMPTS = {
   main: 'You are a regular member of this chat.',
   persona: 'You are friendly and terse.',
   format: 'Use <msg> and <react> tags.',
-  heartbeat: MARK.heartbeat,
   'turn/inner': MARK.inner,
+  'heartbeat/task': MARK.heartbeat,
   labels: shippedLabels,
 };
 const HEARTBEAT_GRANTED = ['conversation.read', 'memory.search', 'intention.set'];

@@ -151,7 +151,8 @@ test('model set, model add, model remove and keys check refuse a retired role as
     for (const name of ['model.set', 'model.add']) {
       const answer = await keys.run(name, { role, model: 'helpers/x/model' }, null);
       assert.equal(answer.status, 'invalid', `${name} ${role}`);
-      assert.match(answer.text, /the roles are core, .*linter, editor$/);
+      // Changed: the diary's role `director` ends the list of roles.
+      assert.match(answer.text, /the roles are core, .*linter, editor, director$/);
     }
     const removed = await keys.run('model.remove', { role, n: 1 }, null);
     assert.equal(removed.status, 'invalid', `model.remove ${role}`);

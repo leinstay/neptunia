@@ -1031,3 +1031,21 @@ test('retiredPromptFiles: names each deployment file under a retired key with th
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("retiredPromptFiles: a deployment's diary.md points at diary/task.md and its diary-seeds.md at one file per family", () => {
+  // Bug: the warning names a seeds file that does not exist, so a deployment copies its whole seeds file to one path.
+  const dir = makeRoot();
+  writeLocalPrompt(dir, 'diary', 'own diary');
+  writeLocalPrompt(dir, 'diary-seeds', '# place\na pier');
+  try {
+    assert.deepEqual(
+      retiredPromptFiles(path.join(dir, 'data', 'prompts')).sort((a, b) => a.file.localeCompare(b.file)),
+      [
+        { file: 'diary-seeds.md', use: 'diary/seeds/<family>.md' },
+        { file: 'diary.md', use: 'diary/task.md' },
+      ]
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

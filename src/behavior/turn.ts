@@ -495,9 +495,7 @@ export function createTurnRunner({
     store,
     llm,
     rng,
-    lookup,
     images,
-    journalOp,
     diaryFacts,
   });
   const mediaPick = createMediaPick({
@@ -520,8 +518,7 @@ export function createTurnRunner({
     schedule,
     ...inputs,
     lastPostAt,
-    diaryPictureGate: (config, channel, now) =>
-      diaryPictureGate(config as Parameters<typeof diaryPictureGate>[0], channel, now),
+    diaryPictureGate: (config, channel, now) => diaryPictureGate(config, channel, now),
     ...(describePicture ? { describePicture } : {}),
   });
   const { emojiLookup, renderPost, settleAuthor, settles, diaryChannelName } = createSends({

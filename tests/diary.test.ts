@@ -1,6 +1,5 @@
 // Tests for src/behavior/diary.ts (the diary scheduler's pure core: the day
-// plan, due slots, kind choice, plan validation, the <diary> / <kinds> /
-// <seeds> renderings, URL stripping, gists), the store's diary file and the
+// plan, due slots, kind choice, the <diary> rendering, the seed lines its entries took, URL stripping, gists), the store's diary file and the
 // scheduler's factory (createDiary) over fakes.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,12 +14,9 @@ import {
   isPictureKind,
   isSetKind,
   setSettings,
-  validatePlan,
   renderDiaryBlock,
-  renderKindsBlock,
   usedSeedLines,
   sceneOf,
-  renderSeedsBlock,
   gistOf,
   createDiary,
 } from '../src/behavior/diary.ts';
@@ -392,127 +388,6 @@ test('isPictureKind: listed kinds, the default list when none is given', () => {
   assert.equal(isPictureKind(null, undefined), false);
 });
 
-const kinds = { selfPicture: 3, thought: 2, news: 2, meme: 0 };
-const opts = { pictureAllowed: true, searchKinds: ['news', 'facts'] };
-
-test('validatePlan: accepts a well-formed answer', () => {
-  const plan = validatePlan(
-    { kind: 'news', brief: 'a find about trains', search: 'night trains', picture: false },
-    kinds,
-    opts,
-    () => 0.5
-  );
-  assert.deepEqual(plan, {
-    kind: 'news',
-    brief: 'a find about trains',
-    search: 'night trains',
-    picture: false,
-    fallback: false,
-  });
-  const drawn = validatePlan({ kind: 'selfPicture', brief: 'Ελένη on a pier', picture: true }, kinds, opts, () => 0.5);
-  assert.deepEqual(drawn, {
-    kind: 'selfPicture',
-    brief: 'Ελένη on a pier',
-    search: '',
-    picture: true,
-    fallback: false,
-  });
-});
-
-test('validatePlan: falls back to a weighted kind', () => {
-  for (const parsed of [null, 'garbage', { kind: 'nope', brief: 'x' }, { kind: 'meme', brief: 'x', search: 'y' }]) {
-    const plan = validatePlan(parsed, kinds, opts, () => 0);
-    assert.equal(plan.fallback, true);
-    assert.equal(plan.kind, 'selfPicture');
-    assert.equal(plan.brief, '');
-    assert.equal(plan.search, '');
-  }
-  assert.equal(validatePlan(null, { a: 0 }, opts, () => 0).kind, null);
-});
-
-test('validatePlan: a fallback picture kind draws when allowed', () => {
-  const plan = validatePlan(null, kinds, { ...opts, pictureKinds: ['selfPicture'] }, () => 0);
-  assert.equal(plan.kind, 'selfPicture');
-  assert.equal(plan.fallback, true);
-  assert.equal(plan.picture, true);
-  const capped = validatePlan(null, kinds, { ...opts, pictureAllowed: false, pictureKinds: ['selfPicture'] }, () => 0);
-  assert.equal(capped.picture, false);
-});
-
-test('validatePlan: a fallback text kind does not draw', () => {
-  const plan = validatePlan(
-    { kind: 'nope', picture: true },
-    kinds,
-    { ...opts, pictureKinds: ['selfPicture'] },
-    () => 0.99
-  );
-  assert.equal(plan.kind, 'news');
-  assert.equal(plan.fallback, true);
-  assert.equal(plan.picture, false);
-});
-
-test('validatePlan: a picture kind always draws when allowed', () => {
-  for (const picture of [false, undefined, 'no']) {
-    const plan = validatePlan(
-      { kind: 'selfPicture', brief: 'b', picture },
-      kinds,
-      { ...opts, pictureKinds: ['selfPicture'] },
-      () => 0.5
-    );
-    assert.equal(plan.picture, true);
-    assert.equal(plan.fallback, false);
-  }
-  const capped = validatePlan(
-    { kind: 'selfPicture', brief: 'b', picture: false },
-    kinds,
-    { ...opts, pictureAllowed: false, pictureKinds: ['selfPicture'] },
-    () => 0.5
-  );
-  assert.equal(capped.picture, false);
-  const text = validatePlan(
-    { kind: 'thought', brief: 'b', picture: true },
-    kinds,
-    { ...opts, pictureKinds: ['selfPicture'] },
-    () => 0.5
-  );
-  assert.equal(text.picture, true);
-  const quiet = validatePlan(
-    { kind: 'thought', brief: 'b', picture: false },
-    kinds,
-    { ...opts, pictureKinds: ['selfPicture'] },
-    () => 0.5
-  );
-  assert.equal(quiet.picture, false);
-});
-
-test('validatePlan: search is cleared for a kind outside searchKinds', () => {
-  const plan = validatePlan({ kind: 'thought', brief: 'b', search: 'q', picture: false }, kinds, opts, () => 0.5);
-  assert.equal(plan.search, '');
-  assert.equal(plan.fallback, false);
-});
-
-test('validatePlan: picture forced false when not allowed', () => {
-  const plan = validatePlan(
-    { kind: 'selfPicture', brief: 'b', picture: true },
-    kinds,
-    { ...opts, pictureAllowed: false },
-    () => 0.5
-  );
-  assert.equal(plan.picture, false);
-  assert.equal(validatePlan({ kind: 'thought', picture: 'yes' }, kinds, opts, () => 0.5).picture, false);
-});
-
-// The owner on 2026-11-16: a planner's brief is kept whole; the limit of 300 is gone.
-test('validatePlan: a long brief is kept whole on one line', () => {
-  const plan = validatePlan(
-    { kind: 'thought', brief: `line one\nline two ${'word '.repeat(100)}` },
-    kinds,
-    opts,
-    () => 0.5
-  );
-  assert.equal(plan.brief, `line one line two ${'word '.repeat(99)}word`);
-});
-
 test('renderDiaryBlock: newest first, at most max lines, picture suffix when present', () => {
   // newest first since 2026-11-14 (specs/2026-11-14-diary-in-her-own-words.md)
   const posts = [
@@ -590,10 +465,6 @@ test('renderDiaryBlock: a set renders its first scene with the picture count', (
   assert.equal(lines[1], '- 2026-03-02 selfPicture: alone [picture: a pier]', 'one picture keeps the plain suffix');
 });
 
-/** Past entries as the store keeps them, oldest first, one day apart: a `[kind, gist]` pair each. */
-const entriesOf = (...rows: Array<[string, string]>) =>
-  rows.map(([kind, gist], index) => ({ at: Date.UTC(2026, 2, 1 + index, 10), kind, gist, picture: null }));
-
 test('isSetKind: listed kinds, the default list when none is given', () => {
   assert.equal(isSetKind('tour', ['tour']), true);
   assert.equal(isSetKind('photoset', ['tour']), false);
@@ -604,36 +475,15 @@ test('isSetKind: listed kinds, the default list when none is given', () => {
 });
 
 test('setSettings: the configured values, whole and ordered; the defaults for missing or broken ones', () => {
-  assert.deepEqual(setSettings({ set: { pictures: [2, 3], minPosted: 1, seedSets: 4, maxMessageBytes: 1000 } }), {
+  // The expectation changed on purpose: the writer takes no seed sets of a set kind, so `seedSets` is no setting.
+  assert.deepEqual(setSettings({ set: { pictures: [2, 3], minPosted: 1, maxMessageBytes: 1000 } }), {
     pictures: [2, 3],
     minPosted: 1,
-    seedSets: 4,
     maxMessageBytes: 1000,
   });
   const fallback = setSettings({});
-  assert.deepEqual(
-    setSettings({ set: { pictures: 'x', minPosted: -1, seedSets: null, maxMessageBytes: 0 } }),
-    fallback
-  );
+  assert.deepEqual(setSettings({ set: { pictures: 'x', minPosted: -1, maxMessageBytes: 0 } }), fallback);
   assert.deepEqual(setSettings({ set: { pictures: [5, 2] } }).pictures, [5, 5], 'max never below min');
-});
-
-test('renderKindsBlock: counts uses among the last window posts', () => {
-  const posts = [{ kind: 'thought' }, { kind: 'thought' }, { kind: 'news' }, { kind: 'thought' }, { kind: null }];
-  const text = renderKindsBlock({ thought: 2, news: 1, meme: 0 }, posts, labels, { window: 3 });
-  assert.equal(
-    text,
-    [
-      'Post kinds and their recent use:',
-      'thought weight 2, used 1 of the last 3',
-      'news weight 1, used 1 of the last 3',
-    ].join('\n')
-  );
-  assert.equal(
-    renderKindsBlock({ thought: 2 }, [], labels, { window: 150 }),
-    'Post kinds and their recent use:\nthought weight 2, used 0 of the last 0'
-  );
-  assert.equal(renderKindsBlock({ meme: 0 }, posts, labels, { window: 3 }), '');
 });
 
 /** A past entry the planner planned: `seeds` the combinations offered, `seed` the 1-based one taken (0 for none). */
@@ -676,6 +526,15 @@ test('usedSeedLines: seed 0, a seed past the list and a post with no plan leave 
   assert.equal(usedSeedLines(posts, 10).size, 0);
 });
 
+test('usedSeedLines: the lines every scene of an entry kept, beside an entry stored with a plan', () => {
+  // Bug: an entry of the director's scenes leaves its kept lines in the next draw, or only its first scene counts.
+  const posts = [
+    planned(1, [['a pier', 'fog']], 1),
+    { at: 2, kind: 'randomSet', gist: 'g', picture: 'x', scenes: [{ used: ['a roof'] }, { used: ['rain', 'a bell'] }] },
+  ];
+  assert.deepEqual([...usedSeedLines(posts, 10)].sort(), ['a bell', 'a pier', 'a roof', 'fog', 'rain']);
+});
+
 test('sceneOf: the drawing prompt of a planned picture post comes first, over its brief', () => {
   // The expectation changed on purpose: the brief is the planner's wording, and the list of past entries remembers
   // what the persona drew. Bug: the brief shown in place of the drawing prompt.
@@ -709,20 +568,6 @@ test('sceneOf: without a plan the stored drawing prompt, even when the picture w
 test('sceneOf: with neither a plan nor a description, the stored drawing prompt', () => {
   // Bug: an old row loses its scene and shows nothing.
   assert.equal(sceneOf({ picture: 'a cafe interior, warm light' }), 'a cafe interior, warm light');
-});
-
-test('renderSeedsBlock: one line per set', () => {
-  assert.equal(
-    renderSeedsBlock(
-      [
-        ['a pier', 'rain'],
-        ['an alley', 'fog'],
-      ],
-      labels
-    ),
-    'Random seeds (place; setting; detail; activity; subject; twist):\n- a pier; rain\n- an alley; fog'
-  );
-  assert.equal(renderSeedsBlock([], labels), '');
 });
 
 // The owner on 2026-11-16: a diary gist is kept whole; the limit of 200 is gone.

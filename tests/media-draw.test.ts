@@ -18,7 +18,7 @@ import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { drawPicture, drawPromptOf } from '../src/media/draw.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
-import { planAnswerText } from './fixtures/plan-answer.ts';
+import { directorAnswer } from './fixtures/scene-answer.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
@@ -59,9 +59,10 @@ const PROMPTS = {
   persona: 'CARD_TEXT',
   format: 'FORMAT_TEXT',
   'turn/reply': 'Someone called you: {{author}}.',
-  diary: 'DIARY_TASK for {{name}}',
-  'diary-planner': 'PLAN_SYSTEM for {{name}}',
-  'diary-seeds': '# place\na pier\n# light\nfog',
+  'diary/task': 'DIARY_TASK for {{name}}',
+  'diary/scene': 'SCENE_TASK',
+  'diary/seeds/place': 'a pier',
+  'diary/seeds/setting': 'fog',
   draw: 'A drawing by {{name}}.\n\n{{appearance}}\n\n{{when}}\n\nScene: {{request}}',
   appearance: '{{name}} has silver hair and a green scarf.',
   labels: LABELS,
@@ -83,7 +84,7 @@ function hot() {
       models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { referenceMaxBytes: 4_000_000 },
-      diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      diary: { placeId: 'd1', world: false },
     },
     prompts: { ...PROMPTS },
   };
@@ -180,13 +181,13 @@ function store() {
   };
 }
 
-/** An LLM answering the diary plan with `plan` and every other request with `post`. */
-function llm(post: Untyped, plan = null) {
+/** An LLM answering the director with a scene and every other request with `post`. */
+function llm(post: Untyped) {
   let composed = 0;
   return {
-    complete: async (_messages: Record<string, Untyped>, opts: Record<string, Untyped>) => {
-      // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-      if (opts?.purpose === 'diary-planner') return { text: planAnswerText(plan, opts), usage: {}, estimated: 5 };
+    complete: async (messages: Record<string, Untyped>, opts: Record<string, Untyped>) => {
+      const scene = directorAnswer(messages, opts);
+      if (scene) return scene;
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;
       return completionOf(answer);
@@ -194,13 +195,13 @@ function llm(post: Untyped, plan = null) {
   };
 }
 
-function runner({ answer, plan = null, images, hotValue = hot(), dataDir = null }: Record<string, Untyped>) {
+function runner({ answer, images, hotValue = hot(), dataDir = null }: Record<string, Untyped>) {
   client();
   return createTurnRunner({
     hot: hotValue,
     dataDir,
     store: store(),
-    llm: llm(answer, plan),
+    llm: llm(answer),
     calibrator: { ratio: 1, apply: (n: Record<string, Untyped>) => n, observe: () => {} },
     images,
     imageFetcher: imageFetcher(),
@@ -240,7 +241,6 @@ test('diary set: appearance.png goes with the picture she is in, none with the o
   // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = recordingImages();
   const hotValue = hot();
-  const plan = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
   const answer = [
     toolAnswer('<msg>a walk</msg>', [
       call('draw.create', { people: [], text: 'me at the harbour gate', self: true }),
@@ -250,7 +250,7 @@ test('diary set: appearance.png goes with the picture she is in, none with the o
   ];
   const target = channel('d1', 'journal');
   const { result }: Record<string, Untyped> = await withCapturedLogs(() =>
-    runner({ answer, plan, images, hotValue, dataDir: dataFolder(true) }).runTurn({
+    runner({ answer, images, hotValue, dataDir: dataFolder(true) }).runTurn({
       channel: target,
       mode: 'diary',
       diary: { kind: 'photoset', forced: false },
@@ -526,17 +526,14 @@ test('diary: a staged picture is looked at once from its bytes and the descripti
   const { tools } = LABELS;
   const seenLabels = { ...LABELS, tools: { ...tools, result: { ...tools.result, seen: 'SEEN {description}' } } };
   const hotValue = { ...hot(), prompts: { ...PROMPTS, labels: seenLabels } };
-  const base = llm(
-    [
-      toolAnswer('<think>x</think>', [call('draw.create', { people: [], text: 'the pier in fog' })]),
-      '<msg>the pier</msg>',
-    ],
-    wrongly({ kind: 'picture', brief: 'the pier', search: '', picture: true })
-  );
+  const base = llm([
+    toolAnswer('<think>x</think>', [call('draw.create', { people: [], text: 'the pier in fog' })]),
+    '<msg>the pier</msg>',
+  ]);
   const requests: Array<Array<Record<string, Untyped>>> = [];
   const recording = {
     complete: (messages: Array<Record<string, Untyped>>, opts: Record<string, Untyped>) => {
-      if (opts?.purpose !== 'diary-planner') requests.push(messages);
+      if (opts?.purpose !== 'diary-scene') requests.push(messages);
       return base.complete(wrongly(messages), opts);
     },
   };

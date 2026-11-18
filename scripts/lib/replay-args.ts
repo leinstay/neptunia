@@ -6,6 +6,7 @@ import { ANSWERS_TIMEOUT_MIN } from './answers-dir.ts';
 import { CliError } from './cli.ts';
 import { DRAW_MODES, DEFAULT_LIVE_PICTURES, MAX_PICTURES, isDateKey } from './diary-day.ts';
 import type { Untyped } from '../../src/tools/types.ts';
+import { DIARY_KINDS } from '../../src/behavior/diary.ts';
 
 export const USAGE =
   'usage: node scripts/replay.ts <placeId> <triggerMessageId> [--before 40] [--samples 1] [--show-request] [--as-of-moment] [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--spend <usd>]\n' +
@@ -17,6 +18,7 @@ export const USAGE =
   '       node scripts/replay.ts --pair-transport (--triggers <file> | <placeId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --loop-triggers (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
+  '       node scripts/replay.ts --diary-day --diary-kind <kind> [--samples n] [--seed <text>] [--prompts <dir>] [--draw fake|live|none] [--max-pictures <n>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat> [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--seed <text>] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]... [--errand-answers <file>]\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-timeout-min 20]])';
 
@@ -74,6 +76,7 @@ export type ReplayArgs = {
   dry: boolean;
   pairPrompts: [string, string] | null;
   diaryDay: boolean;
+  diaryKind: string | null;
   seed: string | null;
   date: string | null;
   draw: string | null;
@@ -115,7 +118,9 @@ export type ReplayArgs = {
  * null when absent); no positionals. `--diary-day` sets `diaryDay` and takes only `--seed`
  * (`seed`, raw, null when absent), `--date` (`date`, a calendar `YYYY-MM-DD`), `--draw` (`draw`,
  * `fake` by default), `--max-pictures` (`maxPictures`, only with `--draw live`, DEFAULT_LIVE_PICTURES
- * by default there, null with `fake`), `--out` and `--spend`; those four take nothing else.
+ * by default there, null with `fake`), `--out` and `--spend`; those four take nothing else. `--diary-kind <kind>`
+ * (`diaryKind`, a key of DIARY_KINDS) goes with `--diary-day` alone and runs one entry of that kind `--samples` times
+ * (`samples`, 1 by default); it takes `--prompts <dir>` and `--draw none`, which the day does not, and no `--date`.
  */
 /** Whether `out` holds a flag only `--inner` takes: `--intention`, `--hide-channel`, `--hide-message`, `--errand-answers`. */
 function innerOnly(out: ReplayArgs): boolean {
@@ -125,6 +130,17 @@ function innerOnly(out: ReplayArgs): boolean {
     out.hideMessages.length > 0 ||
     (out.errandAnswers ?? null) !== null
   );
+}
+
+/** Whether `out` holds a flag only `--diary-day` takes: `--date`, `--draw`, `--max-pictures`, `--diary-kind`. */
+function dayFlags(out: ReplayArgs): boolean {
+  return out.date !== null || out.draw !== null || out.maxPictures !== null || out.diaryKind !== null;
+}
+
+/** Whether `out` holds a flag of `--diary-kind` without it (`--samples`, `--prompts`, `--draw none`), or `--date` with it. */
+function diaryKindMisused(out: ReplayArgs): boolean {
+  if (out.diaryKind !== null) return out.date !== null;
+  return out.samples !== null || out.prompts !== null || out.draw === 'none';
 }
 
 export function parseArgs(argv: Array<string>): ReplayArgs {
@@ -150,6 +166,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     dry: false,
     pairPrompts: null,
     diaryDay: false,
+    diaryKind: null,
     seed: null,
     date: null,
     draw: null,
@@ -203,7 +220,11 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     else if (arg === '--recall') out.recall = true;
     else if (arg === '--budget') out.budget = intFlag(argv[(i += 1)], 1, MAX_BUDGET_MS);
     else if (arg === '--diary-day') out.diaryDay = true;
-    else if (arg === '--inner') {
+    else if (arg === '--diary-kind') {
+      const kind = argv[(i += 1)];
+      if (!Object.hasOwn(DIARY_KINDS, kind ?? '')) throw new CliError(USAGE);
+      out.diaryKind = kind;
+    } else if (arg === '--inner') {
       const kind = argv[(i += 1)];
       if (!INNER_KINDS.includes(kind)) throw new CliError(USAGE);
       out.inner = kind;
@@ -271,9 +292,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       out.pairTransport ||
       out.loopTriggers ||
       out.transport !== null ||
-      out.date !== null ||
-      out.draw !== null ||
-      out.maxPictures !== null
+      dayFlags(out)
     ) {
       throw new CliError(USAGE);
     }
@@ -291,7 +310,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       out.triggers !== null ||
       out.split ||
       out.recall ||
-      out.samples !== null ||
+      diaryKindMisused(out) ||
       out.text !== null ||
       out.budget !== null ||
       out.hideSelfAll ||
@@ -299,7 +318,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       out.asOfMoment ||
       out.before !== null ||
       out.snapshot !== null ||
-      out.prompts !== null ||
       out.dry ||
       out.pairPrompts !== null ||
       out.coreTools ||
@@ -315,13 +333,12 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       ...out,
       draw,
       maxPictures: draw === 'live' ? (out.maxPictures ?? DEFAULT_LIVE_PICTURES) : null,
-      samples: 1,
+      samples: out.samples ?? 1,
       placeId: null,
       triggerId: null,
     };
   }
-  if (out.seed !== null || out.date !== null || out.draw !== null || out.maxPictures !== null)
-    throw new CliError(USAGE);
+  if (out.seed !== null || dayFlags(out)) throw new CliError(USAGE);
   if (out.skills !== null) {
     // The scenario file with the memory, output and prompt-layer flags, --spend and --dry only; no positionals.
     if (

@@ -9,8 +9,8 @@ import { JOBS, SKILL_DEFINITIONS } from './definitions.ts';
 
 /** The calls that change an intention: what a heartbeat acts with. */
 export const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intention.set', 'intention.update', 'intention.cancel']);
-/** Every tool whose definition declares `effects` `read`: what a heartbeat looks with. */
-const READ_SKILLS = Object.freeze(
+/** Every tool whose definition declares `effects` `read`: what a heartbeat and a diary entry look with. */
+export const READ_SKILLS = Object.freeze(
   SKILL_DEFINITIONS.filter((definition) => definition.effects === 'read').map((definition) => definition.name)
 );
 /** The errand calls a service turn takes, a heartbeat and a diary entry alike. */

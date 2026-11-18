@@ -80,7 +80,8 @@ export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds
             store,
             config: hot.config,
             now,
-            plan: diaryPrep.plan,
+            kind: diaryPrep.kind,
+            scenes: diaryPrep.scenes,
             held: {
               texts: held.flatMap((one) => one.texts),
               rendered: held.flatMap((one) => one.rendered),

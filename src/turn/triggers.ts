@@ -59,12 +59,11 @@ export type Lane = 'chat' | 'service';
 /** Her attention: per lane, the ids a turn runs under (src/behavior/attention.ts mirrors each as a lease). */
 export type Attention = Readonly<Record<Lane, Set<string>>>;
 
-/** The lane a turn of `kind` runs on: a service (the heartbeat, the diary and its planner) has its own. */
+/** The lane a turn of `kind` runs on: a service (the heartbeat and the diary) has its own. */
 export function laneOf(kind: TurnKind): Lane {
   switch (kind) {
     case 'heartbeat':
     case 'diary':
-    case 'diary_plan':
       return 'service';
     case 'reply':
     case 'intention':

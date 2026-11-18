@@ -288,7 +288,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     diaryIds: new Set(given.diaryChannelIds ?? []),
     lookups: given.lookups ?? [],
     meanwhileReads: given.meanwhileReads ?? null,
-    heartbeat: given.heartbeat ?? null,
+    serviceLists: given.serviceLists ?? null,
     chatItems: base.chatItems,
     chatStickers: chatStickersOf(given.history),
     mediaNameOf: given.mediaNameOf,

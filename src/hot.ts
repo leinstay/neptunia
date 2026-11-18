@@ -133,8 +133,9 @@ function retiredKeysOf(
 }
 
 /**
- * Prompt keys a deployment's own file may still sit under, each with the key read in its place. A file under one of
- * them is not read: the load warns of it and `neptunia doctor` reports it.
+ * Prompt keys a deployment's own file may still sit under, each with the key read in its place, or with a folder (a
+ * key ending in `/`) for a file split into one file per family there. A file under one of them is not read: the load
+ * warns of it and `neptunia doctor` reports it.
  */
 const RETIRED_PROMPT_KEYS: Readonly<Record<string, string>> = Object.freeze({
   'system-prompt': 'main',
@@ -169,6 +170,11 @@ const RETIRED_PROMPT_KEYS: Readonly<Record<string, string>> = Object.freeze({
   'media-pick': 'classify/pick',
   'humanizer-linter': 'humanizer/linter',
   'humanizer-writer': 'humanizer/editor',
+  diary: 'diary/task',
+  heartbeat: 'heartbeat/task',
+  'diary-scene': 'diary/scene',
+  'diary-seeds': 'diary/seeds/',
+  'heartbeat-seeds': 'heartbeat/seeds/',
 });
 
 /** Whether `name`, a prompt key, is one of RETIRED_PROMPT_KEYS. */
@@ -182,7 +188,11 @@ export function retiredPromptFiles(localPromptsDir: string): Array<{ file: strin
   return listPromptFiles(localPromptsDir)
     .map((file) => file.slice(0, -'.md'.length))
     .filter(isRetiredPrompt)
-    .map((name) => ({ file: `${name}.md`, use: `${RETIRED_PROMPT_KEYS[name]}.md` }));
+    .map((name) => {
+      const target = RETIRED_PROMPT_KEYS[name];
+      // A folder target takes the file's families, one file each.
+      return { file: `${name}.md`, use: target.endsWith('/') ? `${target}<family>.md` : `${target}.md` };
+    });
 }
 
 /**

@@ -14,7 +14,7 @@ import type { RecordedEntry } from './fixtures/diary-mirror.ts';
 import { FOUR_HOURS, OWNER, T0, mirrorScene } from './fixtures/mirror-scene.ts';
 import type { Scene } from './fixtures/mirror-scene.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
-import { planAnswerText } from './fixtures/plan-answer.ts';
+import { directorAnswer } from './fixtures/scene-answer.ts';
 
 const TEXT = 'ήσυχο βράδυ στο λιμάνι';
 const ROOT_PLACE = 'fake:root:g1';
@@ -29,12 +29,7 @@ function modelSaying(answer: string) {
     calls,
     complete: (messages: unknown, options?: { purpose?: string }) => {
       calls.push(structuredClone(messages));
-      const text =
-        options?.purpose === 'diary-planner'
-          ? // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-            planAnswerText({ kind: 'status', brief: 'a calm evening', search: '', picture: false }, options)
-          : answer;
-      return Promise.resolve({ text, usage: {}, estimated: 5 });
+      return Promise.resolve(directorAnswer(messages, options) ?? { text: answer, usage: {}, estimated: 5 });
     },
   };
 }

@@ -6,7 +6,7 @@
 import type { WakeKind } from '../../behavior/inner/types.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
 
-export type TurnKind = 'reply' | 'heartbeat' | 'intention' | 'feedback' | 'errand_result' | 'diary_plan' | 'diary';
+export type TurnKind = 'reply' | 'heartbeat' | 'intention' | 'feedback' | 'errand_result' | 'diary';
 
 export type AwakeReason = 'message' | 'wake' | 'errand' | 'diary';
 
@@ -103,16 +103,12 @@ const KIND_OF_WAKE: Readonly<Record<WakeKind, TurnKind>> = Object.freeze({
 
 const isWakeKind = (value: string): value is WakeKind => Object.hasOwn(KIND_OF_WAKE, value);
 
-/** The mode of the diary planner's request, which runs inside a diary turn before its writer. */
-export const PLANNER_MODE = 'diary-planner';
-
 /**
  * The kind of a turn from the fields the callers pass. `reply` and `interject` give a reply, and
  * an errand's trigger on any of them gives `errand_result`.
  */
 export function turnKindOf(mode: string, triggerKind: string | null, wakeKind: string | null): TurnKind {
   if (mode === 'diary') return 'diary';
-  if (mode === PLANNER_MODE) return 'diary_plan';
   if (mode === 'inner') {
     if (wakeKind !== null && isWakeKind(wakeKind)) return KIND_OF_WAKE[wakeKind];
     return triggerKind === 'errand' ? 'errand_result' : 'intention';
@@ -174,14 +170,13 @@ const HEARTBEAT: ReadonlyArray<BlockName> = Object.freeze([
   'task',
 ] as const);
 
+// A diary entry is a service turn built as the heartbeat's: its `<memory>` lists what the service collector holds, it
+// carries no fragments, and `<media>` names the custom emoji its past entries hold.
 const DIARY: ReadonlyArray<BlockName> = Object.freeze([
   'persona',
   'self',
   'memory',
-  'meanwhile',
   'media',
-  'recall',
-  'found',
   'inner',
   'spatial_awareness',
   'task',
@@ -198,14 +193,13 @@ export function blocksOf(kind: TurnKind, place: FramePlace | null): ReadonlyArra
       return place === null ? SERVICE : ORDINARY;
     case 'heartbeat':
       return HEARTBEAT;
-    case 'diary_plan':
     case 'diary':
       return DIARY;
   }
 }
 
 /** The kinds that are nowhere: whatever place their turn rides in on is transport. */
-const NOWHERE: ReadonlySet<TurnKind> = new Set<TurnKind>(['heartbeat', 'diary_plan', 'diary']);
+const NOWHERE: ReadonlySet<TurnKind> = new Set<TurnKind>(['heartbeat', 'diary']);
 
 function placeAndRoot(input: FrameInput, chain: ReadonlyArray<PlaceChainLink>): Pick<Frame, 'place' | 'root'> {
   const [here] = chain;
@@ -224,7 +218,7 @@ function placeAndRoot(input: FrameInput, chain: ReadonlyArray<PlaceChainLink>): 
 }
 
 function awakeOf(kind: TurnKind, wakeKind: string | null): AwakeReason {
-  if (kind === 'diary' || kind === 'diary_plan') return 'diary';
+  if (kind === 'diary') return 'diary';
   if (kind === 'errand_result') return 'errand';
   return wakeKind === null ? 'message' : 'wake';
 }
@@ -258,15 +252,14 @@ export function frameOf(input: FrameInput): Frame {
 
 /**
  * Whether a call that starts an errand in a turn of `kind` waits for its end and answers with its result: a service
- * turn, the heartbeat or a diary entry, which posts in no chat and holds no chat waiting. The diary's planner calls no
- * tool. Every other turn answers `queued` at once and gets the result in a turn of its own.
+ * turn, the heartbeat or a diary entry, which posts in no chat and holds no chat waiting. Every other turn answers
+ * `queued` at once and gets the result in a turn of its own.
  */
 export function waitsForErrand(kind: TurnKind): boolean {
   switch (kind) {
     case 'heartbeat':
     case 'diary':
       return true;
-    case 'diary_plan':
     case 'reply':
     case 'intention':
     case 'feedback':
@@ -282,7 +275,6 @@ const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
   'heartbeat',
   'intention',
   'feedback',
-  'diary_plan',
   'diary',
 ]);
 

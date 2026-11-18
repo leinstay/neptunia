@@ -1,0 +1,1 @@
+A post about one person from these places: something they did or said lately, what you think of it, how you feel toward them. Choose someone you want to write about, read what you remember of them and the exchange it rests on, and use their chat name. Skip when nobody stands out.

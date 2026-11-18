@@ -1,7 +1,6 @@
 // The last step of a turn's request: her tools for the turn, the request input with every block named, the request
 // built (twice for a heartbeat whose handles follow the request's own lines), the record of the memory rows it carried
-// and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last. Beside
-// it, the diary planner's request on the same frame (`plannerRequest`), which the setup step hands the plan.
+// and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last.
 
 import { accountOf, personOfMember, placeOfChat } from '../../../memory/addresses.ts';
 import { opensPrivate } from '../../../memory/open-private.ts';
@@ -26,9 +25,8 @@ import { portAt, portCustomEmoji, portMediaPick, portOperations } from '../../..
 import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
-import { PLANNER_MODE, frameOf, framedRequest } from '../../request/frame.ts';
+import { frameOf, framedRequest } from '../../request/frame.ts';
 import { entriesShownOf } from '../../request/diary.ts';
-import type { PlanParts } from '../../diary.ts';
 import type { PastEntry } from '../../../memory/db/diary-past.ts';
 import type { Frame, FrameParty } from '../../request/frame.ts';
 import { whereaboutsOfFrame } from '../../request/spatial.ts';
@@ -38,7 +36,8 @@ import type { Prepared } from '../request.ts';
 import type { Handles } from '../../handles.ts';
 import { shuffled } from '../../../behavior/random.ts';
 import { drawFragments } from '../../../behavior/seeds.ts';
-import type { HeartbeatInput } from '../../request/types.ts';
+import { promptsInFolder } from '../../../hot.ts';
+import type { ServiceListsInput } from '../../request/types.ts';
 import { messageSourceId, PERSONA_ID } from '../../../memory/db/ids.ts';
 import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
 import type { FrameReads, Lesson } from '../../../memory/db/frame-reads.ts';
@@ -240,9 +239,12 @@ type FramedInputs = {
   refLineOf: LineOf | null;
   isSourceRetired: SourceRetired | null;
   chatIdOf: ((placeId: string) => string | null) | null;
-  /** A heartbeat's lists and fragments; null on any other kind. */
-  heartbeat: HeartbeatInput | null;
+  /** A service turn's lists and a heartbeat's fragments; null on any other kind. */
+  serviceLists: ServiceListsInput | null;
 };
+
+/** The service turns whose `<memory>` lists the people and places of the service collector. */
+const LISTED_KINDS: ReadonlySet<string> = new Set(['heartbeat', 'diary']);
 
 const NO_FRAMED: FramedInputs = {
   mind: null,
@@ -254,7 +256,7 @@ const NO_FRAMED: FramedInputs = {
   refLineOf: null,
   isSourceRetired: null,
   chatIdOf: null,
-  heartbeat: null,
+  serviceLists: null,
 };
 
 /**
@@ -557,7 +559,7 @@ function framedInputsOf(
   const due = dueIntentionsOf(turn.wake ?? null);
   const place = frame.place;
   if (!framedRequest(frame)) return NO_FRAMED;
-  if (frame.kind === 'heartbeat') return heartbeatInputsOf(ctx, frame, draft, channel, now);
+  if (LISTED_KINDS.has(frame.kind)) return serviceListsInputsOf(ctx, frame, draft, channel, now);
   if (place === null) return serviceInputsOf(ctx, frame, draft, channel, now, due);
   // The place by the names of its chain from the interface down, kept with a lookup of hers (the journal's form).
   const names = frame.chain.flatMap((link) => (link.name === null ? [] : [link.name])).reverse();
@@ -623,7 +625,7 @@ function framedInputsOf(
     refLineOf,
     isSourceRetired,
     chatIdOf: chatIdReader(reads),
-    heartbeat: null,
+    serviceLists: null,
   };
 }
 
@@ -744,7 +746,7 @@ function serviceInputsOf(
     refLineOf,
     isSourceRetired: null,
     chatIdOf: chatIdReader(reads),
-    heartbeat: null,
+    serviceLists: null,
   };
 }
 
@@ -765,13 +767,14 @@ function drawnOf<T>(items: ReadonlyArray<T>, cap: number, rng: () => number): { 
 }
 
 /**
- * The inputs of a heartbeat: the people and the places of the service collector as `<memory>` (service-lists.ts), each
- * list in an order drawn with the turn's `rng` and cut to its cap, `SERVICE_DESCRIBED` of the people drawn to carry
- * their character and manner of speech, and its fragments drawn from `prompts['heartbeat-seeds']`, read
- * as herself. No `<meanwhile>`, no mind of the graph reader and no lookups. A failed read of the lists fails the turn,
- * as any broken read does.
+ * The inputs of a service turn, a heartbeat or a diary entry: the people and the places of the service collector as
+ * `<memory>` (service-lists.ts), read under the turn's context, each list in an order drawn with the turn's `rng` and
+ * cut to its cap, `SERVICE_DESCRIBED` of the people drawn to carry their character and manner of speech, and for a
+ * heartbeat its fragments drawn from the files of `prompts/heartbeat/seeds/`. A heartbeat reads as the persona; a diary entry reads
+ * under the audience of its mirrors unless `context.memory.openPrivate` opens it. No `<meanwhile>`, no mind of the graph
+ * reader and no lookups. A failed read of the lists fails the turn, as any broken read does.
  */
-function heartbeatInputsOf(
+function serviceListsInputsOf(
   ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf' | 'hot' | 'rng' | 'calibrator'>,
   frame: Frame,
   draft: Draft,
@@ -782,7 +785,7 @@ function heartbeatInputsOf(
   const { prompts } = ctx.hot;
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
   if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups: [] };
-  const lists = reads.serviceLists?.(now) ?? { people: [], places: [] };
+  const lists = reads.serviceLists?.(now, memoryContext) ?? { people: [], places: [] };
   const people = drawnOf(lists.people, SERVICE_PEOPLE, ctx.rng);
   const places = drawnOf(lists.places, SERVICE_PLACES, ctx.rng);
   // Drawn among the people who have either description, so a person with neither takes no place of one who has them.
@@ -804,11 +807,12 @@ function heartbeatInputsOf(
     attitudes: attitudesOfTurn(ctx, reads, frame, memoryContext),
     refLineOf,
     chatIdOf: chatIdReader(reads),
-    heartbeat: {
+    serviceLists: {
       people: people.kept.map((one) => (described.has(one) ? one : { ...one, character: null, style: null })),
       places: places.kept,
       leftOut: { people: people.leftOut, places: places.leftOut },
-      fragments: drawFragments(prompts?.['heartbeat-seeds'], ctx.rng),
+      fragments:
+        frame.kind === 'heartbeat' ? drawFragments(promptsInFolder(prompts ?? {}, 'heartbeat/seeds'), ctx.rng) : [],
     },
   };
 }
@@ -885,8 +889,8 @@ function dueIds(wake: { items?: ReadonlyArray<unknown> } | null | undefined): Ar
 }
 
 /**
- * Her newest diary entries the turn's context may read, as many as `entriesShownOf` says, oldest first, read
- * from memory alone (src/memory/db/diary-past.ts#readDiary). None without a reader or a context.
+ * The newest diary entries the turn's context may read, as many as `entriesShownOf` says (`diary.writerEntries`),
+ * oldest first, read from memory alone (src/memory/db/diary-past.ts#readDiary). None without a reader or a context.
  */
 function pastEntriesOf(
   ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf'>,
@@ -897,99 +901,6 @@ function pastEntriesOf(
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
   if (!memoryContext) return [];
   return ctx.frameReads?.diary?.(memoryContext, entriesShownOf(config)) ?? [];
-}
-
-/**
- * The diary planner's request on the turn frame: the kind `diary_plan`, nowhere, with the service
- * template's `<memory>`, `<meanwhile>` and `<my_day>`, her past entries and what it chooses from in `<inner>`,
- * and prompts/diary-planner.md as its task. Nothing of a chat: it answers nobody and offers no tool.
- */
-export function plannerRequest(
-  ctx: PhaseContext,
-  draft: Draft,
-  turn: Pick<Prepared, 'channel' | 'libraryPlace' | 'isDm' | 'config' | 'selfName' | 'selfId' | 'now'>,
-  parts: PlanParts
-): BuiltRequest {
-  const { channel, libraryPlace, isDm, config, selfName, selfId, now } = turn;
-  const prompts = ctx.hot.prompts;
-  const timezone = String(config.bot?.timezone ?? 'UTC');
-  const frame = frameOfTurn(ctx.store, {
-    channel,
-    isDm,
-    mode: PLANNER_MODE,
-    triggerKind: null,
-    wakeKind: null,
-    inner: false,
-    trigger: null,
-    now,
-    timezone,
-  });
-  const facts = { history: [], trigger: null, prefetch: null, labels: prompts?.labels, now, selfId: selfId ?? null };
-  const framed = framedInputsOf(ctx, frame, draft, channel, facts);
-  return requestOf(
-    turnRequestInput({
-      frame,
-      config,
-      prompts,
-      calibrator: ctx.calibrator,
-      mode: PLANNER_MODE,
-      now,
-      selfName,
-      selfId,
-      history: [],
-      trigger: null,
-      triggerKind: null,
-      taggedCall: null,
-      placeMemory: {},
-      interlocutor: null,
-      dmChat: null,
-      privateProfile: null,
-      otherProfiles: [],
-      candidateProfiles: [],
-      nameOf: null,
-      currentChannelId: null,
-      descriptions: null,
-      videos: null,
-      imageAnswers: null,
-      reads: null,
-      prefetch: null,
-      searchAvailable: false,
-      recallAvailable: false,
-      drawOn: false,
-      customEmoji: [],
-      mediaPickText: null,
-      // The cached descriptions and the stable names of the custom emoji its blocks name, for the legend `<media>`.
-      mediaCache: (key: string) => ctx.store.mediaEntry(libraryPlace, key),
-      mediaNameOf: ctx.store.mediaNameOf,
-      gifs: null,
-      tasks: null,
-      diaryChannel: null,
-      diaryChannelIds: [],
-      elsewhereDestination: null,
-      offPeriods: null,
-      diary: { entries: pastEntriesOf(ctx, draft, channel, config), ...parts },
-      skillsInventory: null,
-      toolsGranted: null,
-      toolsBlock: null,
-      toolsTokens: 0,
-      around: null,
-      errands: null,
-      intentions: '',
-      wake: null,
-      awake: null,
-      wakeKind: null,
-      previousThink: null,
-      callMarks: null,
-      // The owner's rules, read now: the diary's system message carries them as a turn's does.
-      rules: ctx.store.liveRules(),
-      stableFreeze: null,
-      // `<my_day>` since her last entry and `<calls>` of today (context.myDay.lines, context.calls.lines, read now).
-      ...dayParts(ctx, { draft, channel, config, prompts, now }, true),
-      whereabouts: whereaboutsOfFrame(frame),
-      ...framed,
-      ...namesInputOf(ctx.frameReads, ctx.store, frame.interface),
-    })
-  );
 }
 
 /** The budget's line of a request: one entry per section (src/llm/budget.ts). */
@@ -1164,14 +1075,15 @@ export async function buildTurnRequest(
     tasks: tasks.input,
     // `<senses>`: where the persona keeps its diary, when one is set.
     diaryChannel: diaryChannelName(placeId, config, snapshot, null),
-    // A diary post: its past entries from memory, its plan, what its search found and the mirrors.
+    // A diary entry: its past entries from memory, its kind, its scenes or its stored facts, the topic and the mirrors.
     diary: diaryPrep
       ? {
           posts: diaryPrep.posts,
           entries: pastEntriesOf(ctx, draft, channel, config),
-          plan: diaryPrep.plan,
-          found: diaryPrep.found,
-          seeds: diaryPrep.seeds ?? '',
+          kind: diaryPrep.kind,
+          scenes: diaryPrep.scenes.map((one) => one.scene),
+          topic: diaryPrep.topic,
+          facts: diaryPrep.facts,
           publicationPlaces: readMirrors(store, publicationPlaces, NO_PLACES),
         }
       : null,
@@ -1201,7 +1113,7 @@ export async function buildTurnRequest(
       : factsText || null,
     // Why an inner turn is awake, for `<spatial_awareness>`.
     awake: draft.inner ? awakeTextOf(wakeWords, frame, ctx.frameReads, prompts?.labels) : null,
-    // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
+    // An inner turn's wake kind: a heartbeat takes `prompts['heartbeat/task']` as its task text.
     wakeKind,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
     previousThink: earlierThinkFor({ channel, isDm, draft, mode: finalMode }),
@@ -1244,7 +1156,7 @@ export async function buildTurnRequest(
   // The people this request shows, so a read of the turn tells only of others (src/turn/in-turn-tools.ts). A
   // heartbeat's list shows each person by one line, so its first read of their lines tells what memory holds of them.
   draft.memoryPeople = new Set(
-    frame.kind === 'heartbeat' ? [] : allReads.filter((read) => read.kind === 'people').map((read) => read.id)
+    LISTED_KINDS.has(frame.kind) ? [] : allReads.filter((read) => read.kind === 'people').map((read) => read.id)
   );
   if (memoryReads && draft.started?.turnId && allReads.length > 0) {
     // One step: the steps of her tool loop add tool results to this request, never memory reads of their own.

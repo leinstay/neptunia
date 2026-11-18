@@ -13,7 +13,7 @@ import { routeName } from '../subharness/route-names.ts';
 import { createChainClient, createRouteChainOf } from './chain-client.ts';
 import type { ChainClient } from './chain-client.ts';
 import type { CompleteResult } from './openrouter.ts';
-import { HUMANIZER_WRITER_ROLE, roleModel } from './roles.ts';
+import { DIARY_DIRECTOR_ROLE, HUMANIZER_WRITER_ROLE, roleModel } from './roles.ts';
 import { harnessEffort, isRouteRole } from './route-text.ts';
 import type { RouteRole } from './route-text.ts';
 
@@ -39,8 +39,9 @@ export function createCoreRoutes(deps: { store: KeyStore; getConfig: () => unkno
     chain: createRouteChainOf(deps.getConfig, deps.now),
     executor: (role) => {
       if (clients === null) throw new Error('core: a model request came before the model clients were built');
-      // The humanizer's writer is a one-shot request with a system text, which the memory writer's client runs on a harness.
-      if (role === 'memory' || role === HUMANIZER_WRITER_ROLE) return clients.memory;
+      // The humanizer's writer and the diary's director are one-shot requests with a system text, which the memory
+      // writer's client runs on a harness.
+      if (role === 'memory' || role === HUMANIZER_WRITER_ROLE || role === DIARY_DIRECTOR_ROLE) return clients.memory;
       return role === 'core' ? clients.core : clients.direct;
     },
   });

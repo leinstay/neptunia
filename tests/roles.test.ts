@@ -57,8 +57,8 @@ test("roleModel: models.byPurpose for the purpose, else the role's first route, 
 });
 
 test('roles: the lookup purposes go out on the analyzer, each pinnable by itself', () => {
-  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  for (const purpose of ['recall-summary', 'diary-planner', 'web-search']) {
+  // Changed: `diary-planner` left the list with the planner, whose purpose no request names.
+  for (const purpose of ['recall-summary', 'web-search']) {
     assert.equal(purposeRoles[purpose], 'analyzer', purpose);
     assert.equal(
       roleModel(
@@ -371,4 +371,12 @@ test('a local chain over the tracked config turns that role on and leaves the ot
   assert.equal(roleOn(config, 'drawing'), true);
   assert.equal(roleModel(config, 'drawing'), 'openai/gpt-image-x');
   assert.deepEqual(offRoles(config), ['vision', 'video', 'speech']);
+});
+
+test("roleModel: the diary's director role takes the analyzer's model while it has no chain, and its own once it has one", () => {
+  // Catches: a scene role with no route left with no model, or kept on the analyzer's after it got its own.
+  const analyzer = on('analyzer', 'x/analyzer');
+  assert.equal(roleModel({ models: { routes: analyzer } }, 'director'), 'x/analyzer');
+  assert.equal(roleModel(undefined, 'director'), ROLE_DEFAULTS.analyzer);
+  assert.equal(roleModel({ models: { routes: { ...analyzer, ...on('director', 'x/scene') } } }, 'director'), 'x/scene');
 });

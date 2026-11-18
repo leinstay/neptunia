@@ -54,6 +54,8 @@
 //        [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD]
 //        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
+//   cd /opt/neptunia/app && node scripts/replay.ts --diary-day --diary-kind <kind> [--samples n] [--seed <text>]
+//        [--prompts <dir>] [--draw fake|live|none] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat>
 //        [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--seed <text>] [--prompts <dir>] [--out <file>]
 //        [--spend <usd>] [--answers-dir <dir>] [--errand-answers <file>]
@@ -76,7 +78,7 @@
 // heartbeat would carry now, and like the live one it runs nowhere (no chat). Takes no
 // `--intention`. Every `--inner` kind takes `--samples n` (n independent runs of
 // the same request, one after another, default 1), `--prompts <dir>` (a prompt layer laid over
-// the live prompts.local/ as `--skills --prompts` does: a directory holding only heartbeat.md
+// the live prompts.local/ as `--skills --prompts` does: a directory holding only heartbeat/task.md
 // replaces only that file, so a variant of the task text is tried without a deploy) and
 // `--out <file>` (the report as Markdown; not under data/). The JSON on stdout holds every
 // sample: the `<wake>` block, her `<think>`, her messages and calls with their arguments,
@@ -313,8 +315,8 @@
 // The turns draw from a second stream of the same seed. Then, slot by slot in order, the clock of the turn runner and
 // the image client set to the slot (and running on from there), the diary's own checks as the tick makes them (the
 // day's posts under `diary.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ placeId, mode: 'diary', diary: {
-// kind: null, forced: false } })` of the real turn runner with no chat: the plan request, its search, the
-// compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
+// kind: null, forced: false } })` of the real turn runner with no chat: the director's request for a kind that takes a
+// scene, the persona's requests, the pictures generated, and the entry recorded, which the slot reports as what its publication would
 // send. A post a slot made is kept in the in-memory diary and counters, so the next slot sees it as the live diary
 // would. What keeps the bot and its memory untouched: every Discord REST call but GET is refused; the turn acts through
 // an in-memory interface port only (src/interface/fake.ts); the store is the real one over an in-memory copy of its state that is never flushed,
@@ -329,17 +331,23 @@
 // `generate()` call is recorded at the client's boundary: `{ prompt, reference,
 // accountId }`, the reference as its media type, size and hash, never its bytes.
 // The spend gate: the plan is made first (no request), then the estimate --
-// 2 requests per slot (the plan and the compose) at ~USD_PER_ANSWER, plus with
+// 2 requests per slot (a scene and the entry, 4 for a `randomSet`) at ~USD_PER_ANSWER, plus with
 // `--draw live` `--max-pictures` pictures at ~0.025 USD -- and the refusal
 // without `--spend` covering it; the run also stops once what the provider
 // reports spent reaches `--spend`. A day with no slot sends nothing. Written to
 // `--out` (default ./replay-diary-day-<time>/, refused under data/ and when it
 // exists and is not empty), rewritten after each slot: `report.json` (`{ date,
 // timezone, seed, draw, quiet, plan: { slots, hunger }, slots: [{ n, at, local,
-// outcome, reason, plan, diary, messages, attachments, draws: [{ prompt,
+// outcome, reason, kind, scenes: [{ seeds, used, scene, failure }], answers: [{ text, calls }], messages, attachments, draws: [{ prompt,
 // reference, accountId, result, file }], requests, cost }], usage, stopped }`) and
 // `report.md`. stdout: the paths, the slot outcomes and the usage. Exit code 1
 // when a slot ended in `error` or the run was stopped.
+// `--diary-day --diary-kind <kind>`: one entry of that kind at this moment, forced as the owner's command forces it,
+// `--samples n` times (default 1), sample n drawing from the stream `sample-<n>` of `--seed`, so the same seed gives the
+// same scenes and the same seed lines. Each sample is a slot of the report: its scenes with the seed lines of the set the
+// director took and the lines it kept, the persona's answers with their calls, and the entry. It takes `--prompts <dir>`
+// as `--inner` does and `--draw none`: the fixture picture is generated at no cost, and the persona's look at it answers
+// that the picture was not drawn in this run, so a text is calibrated without the drawing model.
 //
 // `--snapshot <dir>`: the memory is read from a snapshot folder (a copy of the memory database taken from a backup,
 // or an unpacked stop-backup) instead of the live
@@ -529,7 +537,9 @@ import {
 } from './lib/cli.ts';
 import {
   diaryDayEstimate,
+  diaryKindSample,
   fixtureImagesFetch,
+  notDrawnLook,
   planDiaryDay,
   recordingImages,
   renderDiaryDayReport,
@@ -610,8 +620,9 @@ function storeMemoryFor(dataDir: string) {
 }
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (wakes.loop.maxSteps' default). */
 const INNER_REQUESTS = 5;
-/** A diary brief's requests: the plan (classifier model) and the compose (voice model). */
+/** A diary entry's requests: the director's scene and the persona's entry; a `randomSet` asks for three scenes. */
 const DIARY_REQUESTS_PER_BRIEF = 2;
+const RANDOM_SET_REQUESTS = 4;
 /** The estimate per model request this tool sends: about what a persona answer costs on the live key. */
 const USD_PER_ANSWER = 0.15;
 /** A recall run's requests at most: the classifier and the summary. */
@@ -2018,7 +2029,7 @@ export function diaryTurnRunner(
 }
 
 /** The roles a replay mode spends, one start line each. */
-const REPLAY_ROLES: ReadonlyArray<RouteRole> = ['core', 'analyzer', 'vision', 'video', 'embedding'];
+const REPLAY_ROLES: ReadonlyArray<RouteRole> = ['core', 'analyzer', 'vision', 'video', 'embedding', 'director'];
 
 /**
  * The routing of a replay mode (scripts/lib/script-routes.ts) over the live client `createLlm`: production's, with the
@@ -2924,19 +2935,22 @@ export function diaryDayGate(
   const timezone = config?.bot?.timezone || 'UTC';
   const date = args.date ?? localDayKey(nowMs, timezone);
   const seed = args.seed ?? randomBytes(6).toString('hex');
-  const day = planDiaryDay({
-    diaryCfg: config?.diary,
-    timezone,
-    date,
-    seed,
-    planDay,
-    zonedEpoch,
-  });
+  // `--diary-kind`: every sample is an entry at this moment, and no day is planned.
+  const day = args.diaryKind
+    ? {
+        day: date,
+        start: nowMs,
+        slots: Array.from({ length: args.samples ?? 1 }, () => nowMs),
+        quiet: false,
+        hunger: [],
+        quietStreak: 0,
+      }
+    : planDiaryDay({ diaryCfg: config?.diary, timezone, date, seed, planDay, zonedEpoch });
   const estimate = diaryDayEstimate({
     slots: day.slots.length,
     draw: args.draw,
     maxPictures: args.maxPictures ?? 0,
-    requestsPerSlot: DIARY_REQUESTS_PER_BRIEF,
+    requestsPerSlot: args.diaryKind === 'randomSet' ? RANDOM_SET_REQUESTS : DIARY_REQUESTS_PER_BRIEF,
     usdPerRequest: USD_PER_ANSWER,
   });
   const gate = spendGate({
@@ -2954,11 +2968,12 @@ export function diaryDayGate(
  * diary turn run to the end into an in-memory port, every drawing call recorded. Returns
  * `{ code, result }`.
  */
-async function runDiaryDay({ args, root, load, hot: liveHot, log, signal, answers, routes }: ModeCtx) {
+async function runDiaryDay({ args, root, load, hot: liveHot, createHot, log, signal, answers, routes }: ModeCtx) {
   const mods = await loadDiaryMods(load);
+  const { deepMerge } = await load('config.ts');
   const { localDayKey, planDay } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild, createFakeAdapter } = mods;
-  const { parseJsonObject, zonedEpoch } = mods;
+  const { zonedEpoch } = mods;
 
   // The day plan, before anything is read from Discord or sent: its slots are the estimate.
   const { timezone, date, seed, day, gate } = diaryDayGate(args, liveHot.config, {
@@ -3024,9 +3039,15 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal, answer
   }
   const discordToken = platformToken('discord', { rootDir: root });
 
-  let client = null;
+  let client: Untyped = null;
+  let layered: Untyped = null;
   try {
-    const hot = liveHot;
+    // `--prompts <dir>` (with `--diary-kind`): the directory laid over the live prompts, as `--inner` lays it.
+    if (args.prompts !== null) {
+      layered = overlayPromptsHot(createHot, root, args.prompts, { mergeJson: deepMerge });
+      log.info('replay-cli: diary prompt layers', { layers: diaryPromptLayers(root, args.prompts).length });
+    }
+    const hot = layered?.hot ?? liveHot;
     const config = hot.config;
 
     // The clock of the turn runner and the image client: the slot's instant, running on from there.
@@ -3087,19 +3108,25 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal, answer
       now,
       capabilities: { maxFileBytes: 64 * 1024 * 1024 },
     });
-    const turns = diaryTurnRunner(mods, {
-      hot,
-      store,
-      llm,
-      calibrator,
-      client,
-      self,
-      images,
-      state,
-      port,
-      rng: seededRng(seed, 'turns'),
-      now,
-    });
+    // `--draw none`: the persona is told the picture was not drawn, and nothing looks at the fixture.
+    const extra = args.draw === 'none' ? { describePicture: notDrawnLook } : {};
+    const runnerOf = (stream: string) =>
+      diaryTurnRunner(mods, {
+        hot,
+        store,
+        llm,
+        calibrator,
+        client,
+        self,
+        images,
+        state,
+        port,
+        rng: seededRng(seed, stream),
+        now,
+        extra,
+      });
+    // A day draws from one stream; each sample of `--diary-kind` from its own, so sample n is the same on every run.
+    const dayTurns = args.diaryKind ? null : runnerOf('turns');
     log.info('replay-cli: diary day ready', { placeId, date, slots: day.slots.length, draw: args.draw });
 
     const budget = gate.budget;
@@ -3129,25 +3156,17 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal, answer
       const fromDraws = images.calls.length;
       let result;
       try {
-        // As the live diary runs it: the diary wake, no chat.
+        // As the live diary runs it: the diary wake, no chat; a named kind is forced as the owner's command forces it.
+        const turns = dayTurns ?? runnerOf(`sample-${index + 1}`);
         result = await turns.runTurn({
           placeId,
           mode: 'diary',
-          diary: { kind: null, forced: false },
+          diary: args.diaryKind ? { kind: args.diaryKind, forced: true } : { kind: null, forced: false },
         });
       } catch (err: Untyped) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
       const mine = calls.slice(fromCalls);
-      const planCall = mine.filter((c) => c.purpose === 'diary-planner').pop() ?? null;
-      let plan = null;
-      if (planCall?.text) {
-        try {
-          plan = parseJsonObject(planCall.text);
-        } catch {
-          plan = null;
-        }
-      }
       const draws = images.calls.slice(fromDraws);
       const pictureCost = draws.reduce((sum, d) => sum + (Number.isFinite(d.result?.cost) ? d.result.cost : 0), 0);
       const before = report.usage;
@@ -3158,11 +3177,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal, answer
         pictures: before.pictures + draws.filter((d) => d.result && !d.result.error).length,
       };
       Object.assign(slot, {
-        outcome: result?.outcome ?? null,
-        ...(result?.reason ? { reason: result.reason } : {}),
-        plan,
-        ...(planCall?.error ? { planError: planCall.error } : {}),
-        diary: result?.diary ?? null,
+        ...diaryKindSample(result, mine),
         ...entrySends(result),
         draws,
         requests: mine.length,
@@ -3181,6 +3196,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal, answer
     const failed = report.slots.some((slot: Rec) => slot.outcome === 'error');
     return done(failed || report.stopped !== null ? 1 : 0);
   } finally {
+    layered?.hot?.close?.();
     if (client && typeof client.destroy === 'function') await Promise.resolve(client.destroy()).catch(() => {});
   }
 }
@@ -6400,7 +6416,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers, routes }:
   }
   if (args.diaryDay) {
     try {
-      return await runDiaryDay({ args, root, load, hot, log, signal, answers, routes });
+      return await runDiaryDay({ args, root, load, hot, createHot, log, signal, answers, routes });
     } finally {
       hot.close();
     }

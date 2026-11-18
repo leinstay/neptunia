@@ -1,0 +1,1 @@
+A longer reflection, a review or an opinion on something you care about: a question, a judgement or an association that matters to you. Read back what it rests on when it rests on an exchange or a source. Several sentences to a few short paragraphs, and it need not end in a moral.

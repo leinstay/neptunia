@@ -25,9 +25,8 @@ export function diaryToolHot({ maxPerDay }: { maxPerDay: number }): ReturnType<t
   });
   Object.assign(hot.prompts, {
     'turn/inner': 'Nobody wrote to you; read the wake block.',
-    diary: 'Write your diary.',
-    'diary-planner': 'Plan the entry.',
-    'diary-seeds': '# place\na pier',
+    'diary/task': 'Write your diary.',
+    'diary/seeds/place': 'a pier',
   });
   return hot;
 }

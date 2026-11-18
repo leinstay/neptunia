@@ -4,6 +4,7 @@
 // (src/turn/phases/request/facts.ts) call them.
 
 import { kindOfRequest } from './frame.ts';
+import { diaryTaskOf } from './diary.ts';
 import { fill, formatDuration } from '../../format.ts';
 import { fillPromptTemplate } from './text.ts';
 import type { Base } from './head.ts';
@@ -137,8 +138,11 @@ export function usesFollowUpTask({
   return triggerKind === 'followUp' || (triggerKind === 'reply' && taggedCall === false);
 }
 
-/** The prompt file of a mode's task under `turn/`; any other mode reads the file of its own name (`diary`). */
-const MODE_TASKS: Readonly<Record<string, string>> = { reply: 'turn/reply', inner: 'turn/inner' };
+/** The prompt file of a mode's task; any other mode reads the file of its own name. */
+const MODE_TASKS: Readonly<Record<string, string>> = { reply: 'turn/reply', inner: 'turn/inner', diary: 'diary/task' };
+
+/** The prompt file of the task of a wake that has its own, read in place of the mode's. */
+const WAKE_TASKS: Readonly<Record<string, string>> = { heartbeat: 'heartbeat/task' };
 
 /** A request's task: whether the trigger was overheard, and the task text. */
 export type Task = {
@@ -147,7 +151,8 @@ export type Task = {
 };
 
 /**
- * The task text of a turn: the mode's prompt file, or the overheard, errand, follow-up or heartbeat file in its place,
+ * The task text of a turn: the mode's prompt file (a diary entry's with its kind's section), or the overheard, errand,
+ * follow-up or heartbeat file in its place,
  * then what else the author waits for and the private chat's addition.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
@@ -170,10 +175,11 @@ export function taskOf(given: RequestInput & Base): Task {
     overheard && typeof prompts['turn/overheard'] === 'string' && prompts['turn/overheard'].trim()
       ? prompts['turn/overheard']
       : null;
-  // A heartbeat's inner turn has its own task text (prompts.heartbeat) INSTEAD of turn/inner.md; without it (missing or
+  // A heartbeat's inner turn has its own task text (prompts['heartbeat/task'], WAKE_TASKS) INSTEAD of turn/inner.md; without it (missing or
   // blank) turn/inner.md applies (degraded).
   const turnKind = kindOfRequest(given);
-  const ownWakeMd = turnKind === 'heartbeat' ? prompts.heartbeat : null;
+  const ownWakeKey = WAKE_TASKS[turnKind];
+  const ownWakeMd = ownWakeKey === undefined ? null : prompts[ownWakeKey];
   const ownWakeTask = typeof ownWakeMd === 'string' && ownWakeMd.trim() ? ownWakeMd : null;
   // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
   // the message is gone) has its own task text (prompts['turn/errand']) instead of the mode's. Missing or blank, the
@@ -199,8 +205,11 @@ export function taskOf(given: RequestInput & Base): Task {
     trigger: triggerLabel,
     target: chatTrigger ? `#${chatTrigger.index}` : '',
   };
+  // A diary entry's task is its mode's text followed by the file of its kind (prompts/diary/kinds/).
+  const modeText = prompts[MODE_TASKS[mode] ?? mode];
+  const modeTask = turnKind === 'diary' ? diaryTaskOf(modeText, prompts, given.diary?.kind) : modeText;
   const baseTask = fillPromptTemplate(
-    overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[MODE_TASKS[mode] ?? mode] ?? '',
+    overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? modeTask ?? '',
     taskValues
   );
   // Private chat: prompts['turn/private'] follows the mode prompt; a missing file adds nothing.

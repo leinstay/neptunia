@@ -25,10 +25,11 @@ import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
 import type { ListedPerson, ListedPlace } from '../../memory/db/service-lists.ts';
 
 /**
- * What a heartbeat lists and draws: the people and the places in their drawn order, each cut to its cap, how many of
- * each the cut left out, and its fragments in their drawn order.
+ * What a service turn lists from the service collector, a heartbeat and a diary entry alike: the people and the places
+ * in their drawn order, each cut to its cap, how many of each the cut left out, and a heartbeat's fragments in their
+ * drawn order (none for a diary entry).
  */
-export type HeartbeatInput = {
+export type ServiceListsInput = {
   readonly people: ReadonlyArray<ListedPerson>;
   readonly places: ReadonlyArray<ListedPlace>;
   readonly leftOut: { readonly people: number; readonly places: number };
@@ -211,7 +212,6 @@ export type RequestConfig = {
     readonly quickSearch?: { readonly enabled?: unknown };
   };
   readonly diary?: {
-    readonly entries?: number;
     readonly writerEntries?: number;
   };
   readonly media?: { readonly video?: { readonly sites?: ReadonlyArray<string> } };
@@ -430,8 +430,8 @@ export type RequestInput = {
   readonly lookups?: ReadonlyArray<RingLookup> | null;
   /** The reads of `<meanwhile>`: her lines elsewhere and the lines around them (src/turn/request/meanwhile.ts). */
   readonly meanwhileReads?: MeanwhileReads | null;
-  /** A heartbeat's lists of people and places and its fragments (src/turn/phases/request/build.ts); null on any other kind. */
-  readonly heartbeat?: HeartbeatInput | null;
+  /** A service turn's lists of people and places and its fragments (src/turn/phases/request/build.ts); null on any other kind. */
+  readonly serviceLists?: ServiceListsInput | null;
   /** The interface's text and the stored fields of the place and its root: `<surroundings>`. */
   readonly surroundings?: SurroundingsInput | null;
   /** Her lessons the turn's context may read, best first (frame-reads.ts#lessonsOf): `<lessons>` of `<self>`. */

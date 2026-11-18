@@ -1,6 +1,6 @@
 // The first step of a turn's request: the settings read for the attempt, the bar and its cancellation point, the typing
 // indicator while it prepares, the root's listing, the history with its reply parents, the memory prefetch and a
-// diary post's plan. The request phase (src/turn/phases/request.ts) runs it first; the later steps read what it made.
+// diary entry's preparation. The request phase (src/turn/phases/request.ts) runs it first; the later steps read what it made.
 
 import { opensPrivate } from '../../../memory/open-private.ts';
 import { accountOf, placeOfChat } from '../../../memory/addresses.ts';
@@ -16,7 +16,9 @@ import type { Context } from '../../../memory/db/scope.ts';
 import type { MemberInfo } from '../../../protocol/adapter.ts';
 import { transportOf } from '../../../tools/tool-calls.ts';
 import { replyOptionsOf } from '../../calls.ts';
-import type { Diary } from '../../diary.ts';
+import type { DiaryPrepared } from '../../diary.ts';
+import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/diary.ts';
+import { SKIP_NO_SCENE } from '../../journal.ts';
 import type { Draft } from '../../draft.ts';
 import { chatHead, chatHeadStepOf, numberLines, withReplyParents } from '../../history.ts';
 import type { StoredNumbers } from '../../history.ts';
@@ -28,7 +30,6 @@ import { askedFor, unhurried } from '../../triggers.ts';
 import type { BeforeBar, Ended, HistoryLine, PhaseConfig, PhaseContext, PhaseParams, TurnTrigger } from '../context.ts';
 import { kindOf } from '../preflight.ts';
 import type { Opened } from '../preflight.ts';
-import { plannerRequest } from './build.ts';
 
 /**
  * The cancellation point at `bar`: the work, or TOO_SLOW thrown once the bar is reached (none without a bar). A turn the owner
@@ -91,7 +92,8 @@ export type Setup = {
   servedSnapshot: Snapshot | null;
   candidate: TurnTrigger | null;
   prefetching: ReturnType<Lookup['startPrefetch']>;
-  diaryPending: Promise<{ value: Awaited<ReturnType<Diary['prepareDiary']>> } | { error: unknown }> | null;
+  /** What a diary entry's request is built from (prepareDiary); null on any other turn. */
+  diaryPrep: Extract<DiaryPrepared, { skipped: false }> | null;
 };
 
 /**
@@ -288,25 +290,18 @@ export async function setupRequest(
     journalStep: prepStep,
     wake: draft.inner?.wake ?? null,
   });
-  // A diary post plans itself first (prepareDiary), alongside the preparation below; settled
-  // into a value or an error so a refusal waits for its turn to be thrown.
-  const diaryPending =
+  // A diary entry's kind, and its scenes or stored facts, before its request (a request or token cap refuses the turn).
+  // An entry the director gave no scene ends here, before any request of hers.
+  const prepared =
     mode === 'diary'
-      ? prepareDiary({
-          config,
-          channel,
-          now,
-          params: diaryParams,
-          memoryOn,
-          // The planner's request on the turn frame, built when the plan has what it chooses from.
-          planMessages: (parts) =>
-            plannerRequest(ctx, draft, { channel, libraryPlace, isDm, config, selfName, selfId, now }, parts).messages,
-          draft,
-        }).then(
-          (value) => ({ value }),
-          (error: unknown) => ({ error })
-        )
+      ? await beforeBar(prepareDiary({ config, channel, now, params: diaryParams, memoryOn, draft }))
       : null;
+  if (prepared?.skipped)
+    return {
+      ended: { outcome: 'skip', mode, reason: SKIP_NO_SCENE, diary: { kind: prepared.kind, scenes: prepared.tried } },
+    };
+  // The entry's kind decides how many pictures it takes (drawTool, runSteps): a set kind several, any other one.
+  if (prepared) draft.diary = { set: isSetKind(prepared.kind, DEFAULT_SET_KINDS) };
   return {
     ended: null,
     config,
@@ -334,6 +329,6 @@ export async function setupRequest(
     servedSnapshot,
     candidate,
     prefetching,
-    diaryPending,
+    diaryPrep: prepared,
   };
 }

@@ -230,11 +230,11 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
    *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
    * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.diary]  With `mode: 'diary'`
-   *   (src/behavior/diary.ts, no trigger, nowhere): the post is planned first
-   *   (prepareDiary: the plan request, then the search it asks for; `kind` forces the kind --
+   *   (src/behavior/diary.ts, no trigger, nowhere): the entry is prepared first
+   *   (prepareDiary: the kind drawn, then the director's scenes or the stored facts; `kind` forces the kind --
    *   a picture kind while the post may not carry a picture is refused before any request,
    *   `{ outcome: 'refused', reason: 'pictures', limit }`, diaryPictureGate --
-   *   `topic` is the owner's topic for the planner and the plan), then composed with `prompts.diary` as
+   *   `topic` is the owner's topic), then written with `diary/task` and the kind's file as
    *   the task and the frame's diary blocks (src/turn/request/frame.ts). Its speech keeps only
    *   `<msg>` (every reply attribute dropped, links removed, at most `diary.maxMessages` (3), a
    *   message left empty not posted) and `<skip/>`; no reaction and no media pick. It runs on the

@@ -19,7 +19,6 @@
 // day plan in state.json and runs the post through the turn runner.
 
 import { fill, mediaMarkTags } from '../format.ts';
-import { strictJsonObject } from '../llm/parse.ts';
 import { log } from '../log.ts';
 import { oneLine, stripUrls } from '../memory/clamp.ts';
 import { parseSchedule, slotsOfDay } from '../service/schedule.ts';
@@ -55,17 +54,7 @@ export type Due = { slot: number | null; dropped: Array<number> };
 export type SetSettings = {
   pictures: [number, number];
   minPosted: number;
-  seedSets: number;
   maxMessageBytes: number;
-};
-
-/** The plan request's answer, normalised (validatePlan). */
-export type DiaryPlan = {
-  kind: string | null;
-  brief: string;
-  search: string;
-  picture: boolean;
-  fallback: boolean;
 };
 
 /** What createDiary's turns run: one diary turn, the diary wake. */
@@ -135,8 +124,9 @@ const DEFAULT_QUIET_CARRY = 0.25;
 const DEFAULT_HUNGER_BOOST = 0.5;
 const MIN_GAP_MINUTES = 90;
 export const DEFAULT_HISTORY_POSTS = 150;
-/** The weight of each kind of post the planner picks among. */
+/** The weight of each kind of diary entry the code draws among. */
 export const DIARY_KINDS: Readonly<Record<string, number>> = Object.freeze({
+  story: 3,
   selfPicture: 3,
   picture: 2,
   meme: 1,
@@ -148,9 +138,6 @@ export const DIARY_KINDS: Readonly<Record<string, number>> = Object.freeze({
   photoset: 1,
   randomSet: 1,
 });
-/** The seed sets a post's request carries. */
-export const SEED_SETS = 2;
-export const DEFAULT_SEARCH_KINDS: Array<string> = ['news', 'facts'];
 /** The messages one diary post sends at most. */
 export const DIARY_MAX_MESSAGES = 3;
 /** The kinds that mean a picture when `diary.pictureKinds` is not a list. */
@@ -159,7 +146,6 @@ export const DEFAULT_PICTURE_KINDS: Array<string> = ['selfPicture', 'picture', '
 export const DEFAULT_SET_KINDS: Array<string> = ['photoset', 'randomSet'];
 const DEFAULT_SET_PICTURES: [number, number] = [4, 6];
 const DEFAULT_SET_MIN_POSTED = 2;
-const DEFAULT_SET_SEED_SETS = 6;
 const DEFAULT_SET_MAX_MESSAGE_BYTES = 8000000;
 
 /**
@@ -491,8 +477,7 @@ export function isSetKind(kind: unknown, setKinds: unknown): boolean {
  * when missing or invalid: `pictures` `[min, max]` whole counts (max never
  * below min; the engine stages at most `max` draw.create pictures, `min` is for the
  * prompt), `minPosted` (fewer pictures generated and nothing is posted; at
- * least 1), `seedSets` (the compose request's seed combinations, 0 allowed)
- * and `maxMessageBytes` (the attachment bytes of one message, positive).
+ * least 1) and `maxMessageBytes` (the attachment bytes of one message, positive).
  */
 export function setSettings(diaryCfg: unknown): SetSettings {
   const set = sectionOf(diaryCfg, 'set');
@@ -505,7 +490,6 @@ export function setSettings(diaryCfg: unknown): SetSettings {
   return {
     pictures,
     minPosted: whole(set.minPosted, 1) ?? DEFAULT_SET_MIN_POSTED,
-    seedSets: whole(set.seedSets, 0) ?? DEFAULT_SET_SEED_SETS,
     maxMessageBytes: whole(set.maxMessageBytes, 1) ?? DEFAULT_SET_MAX_MESSAGE_BYTES,
   };
 }
@@ -518,93 +502,6 @@ export function setSettings(diaryCfg: unknown): SetSettings {
 export function withoutPictureKinds(kinds: unknown, pictureKinds: unknown): Record<string, unknown> {
   if (!kinds || typeof kinds !== 'object' || Array.isArray(kinds)) return {};
   return Object.fromEntries(Object.entries(objOf(kinds)).filter(([key]) => !isPictureKind(key, pictureKinds)));
-}
-
-/**
- * The plan request's answer `parsed` (the JSON the model answered, untrusted), normalised. `kind` must be a key of
- * `kinds` (diary.kinds) with
- * a positive weight, else the whole answer is replaced by a weighted random
- * kind (pickKind; null when no kind is weighted) with an empty brief and
- * search (`fallback: true`). Otherwise `brief` is one line, at most 300
- * characters; `search` is kept only for a kind in `searchKinds` (diary.searchKinds). With
- * `pictureAllowed`, a kind in `pictureKinds` (diary.pictureKinds) always draws (a picture kind
- * means a picture, whatever the answer said) and any other kind draws only
- * when the answer says `picture: true`; without it nothing draws.
- */
-export function validatePlan(
-  parsed: unknown,
-  kinds: unknown,
-  {
-    pictureAllowed = false,
-    searchKinds,
-    pictureKinds,
-  }: { pictureAllowed?: boolean; searchKinds?: unknown; pictureKinds?: unknown } = {},
-  rng: () => number
-): DiaryPlan {
-  const answer = objOf(parsed);
-  const named = typeof answer.kind === 'string' ? answer.kind : null;
-  const valid = weightedKinds(kinds).some(([key]) => key === named);
-  const drawable = listOr(pictureKinds, DEFAULT_PICTURE_KINDS);
-  if (!valid || named === null) {
-    const kind = pickKind(kinds, rng);
-    const picture = pictureAllowed === true && kind !== null && drawable.includes(kind);
-    return { kind, brief: '', search: '', picture, fallback: true };
-  }
-  const picture = pictureAllowed === true && (drawable.includes(named) || answer.picture === true);
-  const searchable = listOr(searchKinds, DEFAULT_SEARCH_KINDS);
-  const brief = typeof answer.brief === 'string' ? oneLine(answer.brief) : '';
-  const search = typeof answer.search === 'string' && searchable.includes(named) ? oneLine(answer.search) : '';
-  return { kind: named, brief, search, picture, fallback: false };
-}
-
-/**
- * The schema of the plan request's answer, handed to the client as `responseFormat`:
- * `{ "kind", "brief", "search", "picture", "seed" }`, with `kind` one of `kinds`, the kinds that request offered.
- */
-export function diaryPlanFormat(kinds: ReadonlyArray<string>): { name: string; schema: object } {
-  return {
-    name: 'diary-plan',
-    schema: {
-      type: 'object',
-      properties: {
-        kind: { type: 'string', enum: [...kinds] },
-        brief: { type: 'string' },
-        search: { type: 'string' },
-        picture: { type: 'boolean' },
-        seed: { type: 'integer' },
-      },
-      required: ['kind', 'brief', 'search', 'picture', 'seed'],
-      additionalProperties: false,
-    },
-  };
-}
-
-/**
- * The plan answer `text` read strictly: the object of diaryPlanFormat with `kind` one of `kinds`, a text
- * `brief` and `search`, a boolean `picture` and a whole-number `seed`. Null for anything else, which validatePlan
- * reads as a broken answer. Pure.
- */
-export function parsePlanAnswer(text: unknown, kinds: ReadonlyArray<string>): Record<string, unknown> | null {
-  const answer = strictJsonObject(text);
-  if (!answer) return null;
-  const { kind, brief, search, picture, seed } = answer;
-  const readable =
-    typeof kind === 'string' &&
-    kinds.includes(kind) &&
-    typeof brief === 'string' &&
-    typeof search === 'string' &&
-    typeof picture === 'boolean' &&
-    Number.isInteger(seed);
-  return readable ? answer : null;
-}
-
-/**
- * The number of the seed combination a plan answer `parsed` names as its `seed`: a whole number from 1 to `offered`
- * (the combinations its request carried), else 0, which stands for none.
- */
-export function planSeed(parsed: unknown, offered: number): number {
-  const seed = objOf(parsed).seed;
-  return typeof seed === 'number' && Number.isInteger(seed) && seed >= 1 && seed <= offered ? seed : 0;
 }
 
 /**
@@ -665,63 +562,26 @@ export function renderDiaryBlock(
 }
 
 /**
- * The body of the `<kinds>` block: `labels.diary.kinds`, then one
- * `labels.diary.kindLine` per kind of `kinds` (diary.kinds) with a positive weight (`{key}`,
- * `{weight}`, `{count}` its uses among the newest `window` (diary.historyPosts) of `posts` (oldest first), `{window}`
- * how many posts that is). '' when no kind is weighted.
- */
-export function renderKindsBlock(
-  kinds: unknown,
-  posts: unknown,
-  labels: unknown,
-  { window }: { window?: unknown } = {}
-): string {
-  const words = diaryWords(labels);
-  const entries = weightedKinds(kinds);
-  if (entries.length === 0) return '';
-  const limit = countOf(window ?? DEFAULT_HISTORY_POSTS);
-  const recent = limit > 0 && Array.isArray(posts) ? listOf(posts).slice(-limit) : [];
-  const lines = entries.map(([key, weight]) =>
-    fill(labelOf(words.kindLine), {
-      key,
-      weight,
-      count: recent.filter((post) => objOf(post).kind === key).length,
-      window: recent.length,
-    })
-  );
-  return [words.kinds, ...lines].filter(Boolean).join('\n');
-}
-
-/**
- * The seed lines the newest `max` (diary.historyPosts, 150) of `posts` (oldest first) took: the lines of the
- * combination each post's plan built on (`plan.seeds[plan.seed - 1]`). A post with no plan, `seed` 0 or a `seed` past
- * its combinations takes none.
+ * The seed lines the newest `max` (150) of `posts` (oldest first) took: the lines each scene of a post kept
+ * (`scenes[].used`), and for a post stored with a plan the lines of the combination it built on
+ * (`plan.seeds[plan.seed - 1]`). A plan with `seed` 0 or a `seed` past its combinations takes none.
  */
 export function usedSeedLines(posts: unknown, max?: unknown): Set<string> {
   const limit = countOf(max ?? DEFAULT_HISTORY_POSTS);
   const used = new Set<string>();
   if (limit === 0) return used;
+  const take = (lines: unknown): void => {
+    for (const line of listOf(lines)) if (typeof line === 'string') used.add(line);
+  };
   for (const post of listOf(posts).slice(-limit)) {
+    for (const scene of listOf(objOf(post).scenes)) take(objOf(scene).used);
     const plan = objOf(objOf(post).plan);
     const seeds = listOf(plan.seeds);
     const { seed } = plan;
     const taken = typeof seed === 'number' && Number.isInteger(seed) && seed >= 1 ? seeds[seed - 1] : undefined;
-    if (!Array.isArray(taken)) continue;
-    for (const line of taken) if (typeof line === 'string') used.add(line);
+    take(taken);
   }
   return used;
-}
-
-/**
- * The body of the `<seeds>` block: `labels.diary.seeds`, then one `- a; b; c`
- * line per combination of `sets` (seeds.ts#pickSeeds). '' when there is none.
- */
-export function renderSeedsBlock(sets: unknown, labels: unknown): string {
-  const lines = listOf(sets)
-    .filter((set): set is Array<unknown> => Array.isArray(set) && set.length > 0)
-    .map((set) => `- ${set.join('; ')}`);
-  if (lines.length === 0) return '';
-  return [diaryWords(labels).seeds, ...lines].filter(Boolean).join('\n');
 }
 
 /**
@@ -925,7 +785,6 @@ export function createDiary({
       messages: made.messages ?? 0,
       picture: made.picture ?? false,
       pictures: made.pictures ?? 0,
-      search: made.search ?? false,
       outcome: answer.outcome ?? null,
       ...(answer.reason ? { reason: answer.reason } : {}),
     });

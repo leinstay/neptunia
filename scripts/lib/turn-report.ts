@@ -4,7 +4,7 @@
 // lays a run out per step: the request's size, the call's milliseconds, her `<think>`, each tool call with its
 // arguments, each result's status and size, whether the calls of the step ran together. Then come her reply, the writes,
 // the total time from the first request to the reply, the counts and the reason the loop ended. A diary turn's report
-// adds the planner's answer and the messages of the post the turn recorded. `reportTable` is the
+// adds the director's scenes and the messages of the post the turn recorded. `reportTable` is the
 // short table for stderr: counts, sizes and names only, never her words.
 
 import { effectsOf } from '../../src/tools/definitions.ts';
@@ -147,33 +147,36 @@ export type TurnReport = {
   outcome: string | null;
   endedBecause: string | null;
   helperRequests: Array<{ purpose: string | null; ms: number | null }>;
-  /** A diary turn's plan and post; null for any other turn. */
-  diary: { plan: { kind: unknown; brief: unknown; seed: unknown } | null; messages: Array<string> } | null;
+  /** A diary turn's kind, its scenes as the turn's result names them, and its post; null for any other turn. */
+  diary: { kind: unknown; scenes: Array<DiaryScene>; messages: Array<string> } | null;
 };
 
-/** The planner's answer of a diary turn as its JSON names it, or null when it sent none or none that parses. */
-function planOf(requests: ReadonlyArray<KeptRequest>): { kind: unknown; brief: unknown; seed: unknown } | null {
-  const text = requests.find((request) => request.purpose === 'diary-planner')?.text;
-  if (typeof text !== 'string') return null;
-  try {
-    const answer = JSON.parse(text) as Rec | null;
-    return answer === null || typeof answer !== 'object'
-      ? null
-      : { kind: answer.kind, brief: answer.brief, seed: answer.seed };
-  } catch {
-    // A planner answer that is no JSON is one the diary falls back from: the report shows no plan.
-    return null;
-  }
+/** One scene of a diary turn: the seed lines of the set the director took, the lines it kept, its text or why none. */
+export type DiaryScene = { seeds: Array<string>; used: Array<string>; scene: string | null; failure: string | null };
+
+/** A scene as the diary's result holds it (src/behavior/diary-scene.ts#SceneResult), read as the report shows it. */
+export function sceneOf(value: unknown): DiaryScene {
+  const one = (value ?? {}) as { sets?: unknown; set?: unknown; used?: unknown; scene?: unknown; reason?: unknown };
+  const sets = Array.isArray(one.sets) ? (one.sets as Array<unknown>) : [];
+  const taken = typeof one.set === 'number' ? sets[one.set - 1] : undefined;
+  const lines = (list: unknown): Array<string> =>
+    Array.isArray(list) ? list.filter((line): line is string => typeof line === 'string') : [];
+  return {
+    seeds: lines(taken),
+    used: lines(one.used),
+    scene: typeof one.scene === 'string' ? one.scene : null,
+    failure: typeof one.reason === 'string' ? one.reason : null,
+  };
 }
 
-/** The diary part of a report (see `TurnReport.diary`). */
-function diaryOf(requests: ReadonlyArray<KeptRequest>, result: Rec | null): TurnReport['diary'] {
-  const made = result?.diary as { entry?: { messages?: unknown } } | undefined;
-  const planned = requests.some((request) => request.purpose === 'diary-planner');
-  if (made === undefined && !planned) return null;
-  const messages = made?.entry?.messages;
+/** The diary part of a report (see `TurnReport.diary`), read from the turn's result. */
+function diaryOf(result: Rec | null): TurnReport['diary'] {
+  const made = result?.diary as { kind?: unknown; scenes?: unknown; entry?: { messages?: unknown } } | undefined;
+  if (made === undefined) return null;
+  const messages = made.entry?.messages;
   return {
-    plan: planOf(requests),
+    kind: made.kind ?? null,
+    scenes: Array.isArray(made.scenes) ? made.scenes.map(sceneOf) : [],
     messages: Array.isArray(messages) ? messages.filter((one): one is string => typeof one === 'string') : [],
   };
 }
@@ -246,7 +249,7 @@ export function turnReport({
     helperRequests: requests
       .filter((request) => request.purpose !== 'reply')
       .map((request) => ({ purpose: request.purpose, ms: request.ms })),
-    diary: diaryOf(requests, result),
+    diary: diaryOf(result),
   };
 }
 
@@ -277,9 +280,7 @@ export function reportTable(report: TurnReport): string {
   }
   const { reply, diary } = report;
   if (diary !== null)
-    lines.push(
-      `  diary: kind ${shown(diary.plan?.kind)}, seed ${shown(diary.plan?.seed)}, ${diary.messages.length} messages`
-    );
+    lines.push(`  diary: kind ${shown(diary.kind)}, ${diary.scenes.length} scenes, ${diary.messages.length} messages`);
   lines.push(
     `  reply: ${reply.messages.length} messages, ${reply.reactions.length} reactions${
       reply.skipped ? ', skipped' : ''

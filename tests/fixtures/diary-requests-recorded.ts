@@ -15,7 +15,7 @@ import { openTestMemory } from './memory-db/service.ts';
 import { useIface, useSelf, world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
 import '../../src/tools/operations/index.ts';
-import { planAnswerText } from './plan-answer.ts';
+import { directorAnswer } from './scene-answer.ts';
 import { writeUnitUpdate } from './memory-db/unit-writes.ts';
 
 useIface('fake');
@@ -56,21 +56,22 @@ export function sceneHot(): { config: Record<string, unknown>; prompts: Record<s
       },
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      diary: { placeId: 'd1', world: true, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      diary: { placeId: 'd1', world: true },
     },
     prompts: {
       main: 'SYSTEM for {{name}}',
       persona: 'CARD_TEXT',
       format: 'FORMAT_TEXT',
-      diary: 'DIARY_TASK for {{name}}',
-      'diary-planner': 'PLAN_SYSTEM for {{name}}',
-      'diary-seeds': '# place\na pier\n# light\nfog',
+      'diary/task': 'DIARY_TASK for {{name}}',
+      'diary/scene': 'SCENE_TASK',
+      'diary/seeds/place': 'a pier',
+      'diary/seeds/setting': 'fog',
       labels,
     },
   };
 }
 
-/** A model that answers the plan request with a status plan and the writer request with one message; it keeps both. */
+/** A model that answers the director with a scene and the persona with one message; it keeps every request. */
 export function sceneLlm(): {
   calls: Array<unknown>;
   complete: (messages: unknown, options?: { purpose?: string }) => Promise<{ text: string; usage: object; estimated: number }>;
@@ -80,12 +81,9 @@ export function sceneLlm(): {
     calls,
     complete: (messages, options) => {
       calls.push(structuredClone(messages));
-      const text =
-        options?.purpose === 'diary-planner'
-          // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-          ? planAnswerText({ kind: 'status', brief: 'a calm evening', search: '', picture: false }, options)
-          : '<msg>ήσυχο βράδυ στο λιμάνι</msg>';
-      return Promise.resolve({ text, usage: {}, estimated: 5 });
+      return Promise.resolve(
+        directorAnswer(messages, options) ?? { text: '<msg>ήσυχο βράδυ στο λιμάνι</msg>', usage: {}, estimated: 5 }
+      );
     },
   };
 }

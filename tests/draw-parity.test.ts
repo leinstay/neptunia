@@ -18,7 +18,7 @@ import { labels as baseLabels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import type { Untyped } from '../src/tools/types.ts';
-import { planAnswerText } from './fixtures/plan-answer.ts';
+import { directorAnswer } from './fixtures/scene-answer.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
 import { noMediaNames } from './fixtures/media-namer.ts';
@@ -52,9 +52,10 @@ const PROMPTS = {
   persona: 'CARD_TEXT',
   format: 'FORMAT_TEXT',
   'turn/reply': 'Someone called you: {{author}}.',
-  diary: 'DIARY_TASK for {{name}}',
-  'diary-planner': 'PLAN_SYSTEM for {{name}}',
-  'diary-seeds': '# place\na pier\n# light\nfog',
+  'diary/task': 'DIARY_TASK for {{name}}',
+  'diary/scene': 'SCENE_TASK',
+  'diary/seeds/place': 'a pier',
+  'diary/seeds/setting': 'fog',
   draw: 'A drawing by {{name}}.\n\n{{appearance}}\n\n{{when}}\n\nScene: {{request}}',
   appearance: '{{name}} has silver hair and a green scarf.',
   labels: LABELS,
@@ -76,7 +77,7 @@ function hot() {
       models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { referenceMaxBytes: 4_000_000 },
-      diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      diary: { placeId: 'd1', world: false },
     },
     prompts: { ...PROMPTS },
   };
@@ -171,13 +172,13 @@ function store() {
   };
 }
 
-/** An LLM answering the diary plan with `plan` and every other request with `post`. */
-function llm(post: Untyped, plan: Record<string, unknown> | null = null) {
+/** An LLM answering the director with a scene and every other request with `post`. */
+function llm(post: Untyped) {
   let composed = 0;
   return {
-    complete: async (_messages: Untyped, opts: Untyped) => {
-      // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-      if (opts?.purpose === 'diary-planner') return { text: planAnswerText(plan, opts), usage: {}, estimated: 5 };
+    complete: async (messages: Untyped, opts: Untyped) => {
+      const scene = directorAnswer(messages, opts);
+      if (scene) return scene;
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;
       return completionOf(answer);
@@ -185,21 +186,13 @@ function llm(post: Untyped, plan: Record<string, unknown> | null = null) {
   };
 }
 
-function runner({
-  answer,
-  plan = null,
-  images,
-}: {
-  answer: Untyped;
-  plan?: Record<string, unknown> | null;
-  images: Untyped;
-}) {
+function runner({ answer, images }: { answer: Untyped; images: Untyped }) {
   client();
   return createTurnRunner({
     hot: hot(),
     dataDir: DATA_DIR,
     store: store(),
-    llm: llm(answer, plan),
+    llm: llm(answer),
     calibrator: { ratio: 1, apply: (n: Untyped) => n, observe: () => {} },
     images,
     imageFetcher: imageFetcher(),
@@ -256,12 +249,10 @@ test("draw parity: a reply turn's draw.create call asked by a member", async () 
 
 test("draw parity: a diary post's single self picture", async () => {
   const images = recordingImages();
-  const plan = { kind: 'selfPicture', brief: 'a pier at dawn', search: '', picture: true };
   const turns = runner({
     answer: toolAnswer('<msg>early start</msg>', [
       call('draw.create', { people: [], text: 'me on a pier at dawn, fog', self: true }),
     ]),
-    plan,
     images,
   });
   const { result } = await withCapturedLogs(() =>
@@ -284,14 +275,13 @@ test("draw parity: a diary post's single self picture", async () => {
 test("draw parity: a diary set's pictures, the persona in the first one only", async () => {
   // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = recordingImages();
-  const plan = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
   const answer = toolAnswer('<msg>a walk</msg>', [
     call('draw.create', { people: [], text: 'me at the harbour gate', self: true }),
     call('draw.create', { people: [], text: 'boats in the harbour' }),
     call('draw.create', { people: [], text: 'a café terrace' }),
     call('draw.create', { people: [], text: 'nets on the quay' }),
   ]);
-  const turns = runner({ answer, plan, images });
+  const turns = runner({ answer, images });
   const { result } = await withCapturedLogs(() =>
     turns.runTurn({
       channel: channel('d1', 'journal'),

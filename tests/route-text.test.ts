@@ -138,3 +138,17 @@ test('harnessEffort gives no effort for disabled on claude and low on codex, and
     assert.equal(harnessEffort(null, backend), null, backend);
   }
 });
+
+test("the diary's director role takes a harness route and an effort level like the humanizer's editor", () => {
+  // Catches: the scene role refused a harness, so its model cannot be a subscription model, or refused a level.
+  // Changed: the humanizer's writer is the role `editor` on main.
+  for (const role of ['editor', 'director']) {
+    assert.deepEqual(parseRouteText(role, 'harness:codex/gpt-6:low'), {
+      via: 'harness',
+      backend: 'codex',
+      model: 'gpt-6',
+      effort: 'low',
+    });
+    assert.equal(readCode(parseRouteText(role, 'helpers/vendor/model:high')), null, role);
+  }
+});

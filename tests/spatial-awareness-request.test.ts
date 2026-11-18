@@ -100,7 +100,7 @@ for (const wakeKind of ['heartbeat']) {
       baseInput({
         mode: 'inner',
         wakeKind,
-        prompts: fakePrompts({ 'turn/inner': 'INNER_TASK', heartbeat: 'HEARTBEAT_TASK' }),
+        prompts: fakePrompts({ 'turn/inner': 'INNER_TASK', 'heartbeat/task': 'HEARTBEAT_TASK' }),
         whereabouts: placeIn('general'),
       })
     );
@@ -115,7 +115,7 @@ test('a diary post never tells her she is in a virtual world of her own', () => 
   const request = buildRequest(
     baseInput({
       mode: 'diary',
-      prompts: fakePrompts({ diary: 'DIARY_TASK', labels: worldLabels }),
+      prompts: fakePrompts({ 'diary/task': 'DIARY_TASK', labels: worldLabels }),
       whereabouts: placeIn('general'),
     })
   );

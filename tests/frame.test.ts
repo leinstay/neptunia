@@ -4,7 +4,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FrameError,
-  blocksOf,
   frameOf,
   framedRequest,
   turnKindOf,
@@ -49,14 +48,13 @@ const SERVICE_LIST: ReadonlyArray<BlockName> = [
   'task',
 ];
 // The owner's decision of 2026-11-11 (cache layout): `<meanwhile>`, then the turn's own blocks. The world block went on 2026-11-16.
+// Changed: a diary entry is a service turn built as the heartbeat's, so `<meanwhile>`, `<recall>` and `<found>` left
+// its list on purpose.
 const DIARY_LIST: ReadonlyArray<BlockName> = [
   'persona',
   'self',
   'memory',
-  'meanwhile',
   'media',
-  'recall',
-  'found',
   'inner',
   'spatial_awareness',
   'task',
@@ -123,11 +121,6 @@ test('a diary post reads the service list after meanwhile', () => {
   const frame = frameOf(wakeInput(null, { mode: 'diary', triggerKind: null }));
   assert.equal(frame.kind, 'diary');
   assert.deepEqual(frame.blocks, DIARY_LIST);
-});
-
-test('the diary planner reads the same list as the writer', () => {
-  // Bug: the planner has no entry in the table, and slice 6 finds an undefined list.
-  assert.deepEqual(blocksOf('diary_plan', null), DIARY_LIST);
 });
 
 // ---- the place, the counterpart, why she is awake ----

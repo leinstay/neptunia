@@ -159,17 +159,26 @@ export function diaryPromptLayers(
  * private one of the same name, the rest stay. `mergeJson` (src/config.js#deepMerge) merges the
  * directory's labels.json / tools.json over the private ones as src/hot.js merges its layers
  * (`--skills --prompts` and `--pair-prompts`); without it they replace them whole (`--diary
- * --prompts`). The live data/prompts/ is only read. Returns `{ hot, dir }`: the caller closes
+ * --prompts`). `env` names the data folder (NEPTUNIA_DATA_DIR). The live data/prompts/ is only read. Returns `{ hot, dir }`: the caller closes
  * the view and removes `dir`.
  */
 export function overlayPromptsHot(
   createHot: (options: { rootDir: string }) => Hot,
   root: string,
   promptsDir: string,
-  { mergeJson = null, tmpDir }: { mergeJson?: ((...args: Array<Untyped>) => Untyped) | null; tmpDir?: string } = {}
+  {
+    mergeJson = null,
+    tmpDir,
+    env = process.env,
+  }: {
+    mergeJson?: ((...args: Array<Untyped>) => Untyped) | null;
+    tmpDir?: string;
+    env?: Record<string, string | undefined>;
+  } = {}
 ): { hot: Hot; dir: string } {
-  return promptLayersHot(createHot, root, diaryPromptLayers(root, promptsDir), {
+  return promptLayersHot(createHot, root, diaryPromptLayers(root, promptsDir, env), {
     mergeJson,
+    env,
     ...(tmpDir ? { tmpDir } : {}),
   });
 }

@@ -1,16 +1,14 @@
-// The first step of a diary post on its own (src/turn/diary.ts#createDiary), over fakes: a
-// store that holds only the given past posts, a planner model that answers a scripted plan or fails, and memory off,
-// so the plan request carries the kinds, the seeds and the history and nothing else. The tests of the drawn kind
-// (tests/diary-draw*.test.ts) read what the plan request offered in `<kinds>`, the plan that came back and
-// the `diary: planned` journal line. Synthetic data only.
+// The first step of a diary entry on its own (src/turn/diary.ts#createDiary), over fakes: a store that holds only the
+// given past posts, a director that answers a scripted scene or fails, and memory off. The tests of the drawn kind
+// (tests/diary-draw*.test.ts) read the kind that came back and the `diary: prepared` journal line, and the tests of the
+// scenes read the director's requests and the scenes. Synthetic data only.
 import { createDiary } from '../../src/turn/diary.ts';
 import type { DiaryPrepared } from '../../src/turn/diary.ts';
 import type { ChatInfo } from '../../src/protocol/adapter.ts';
-import { NO_OP } from '../../src/turn/journal.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import type { LogEntry } from './capture-logs.ts';
 import { labels } from './labels.ts';
-import { planAnswerText } from './plan-answer.ts';
+import { sceneAnswerText } from './scene-answer.ts';
 
 export const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
 const HOUR = 60 * 60 * 1000;
@@ -56,61 +54,46 @@ const CHANNEL: ChatInfo = {
 
 export type PrepareOptions = {
   rng: () => number;
-  posts?: Array<PastPost>;
-  /** The planner's answer; ignored when `failing`. */
-  answer?: Record<string, unknown>;
-  /** Whether the plan request throws, as a provider error does. */
+  posts?: Array<PastPost | Record<string, unknown>>;
+  /** The director's answer to a request's user text; the default builds on set 1 and keeps its first line. */
+  answer?: (user: string) => string;
+  /** Whether the director's request throws, as a provider error does. */
   failing?: boolean;
-  /** Whether the post may carry a picture: an image client and Attach Files. */
+  /** Whether the entry may carry a picture: an image client and Attach Files. */
   pictures?: boolean;
   /** The kind the owner's command forced, or null for none. */
   forcedKind?: string | null;
+  /** The seeds files the director draws from, by prompt key. */
+  seeds?: Record<string, string>;
 };
 
 export type PrepareRun = {
-  /** The plan the step returned. */
-  plan: DiaryPrepared['plan'];
-  /** The kind keys the plan request's `<kinds>` block offered, in its order; [] when no plan request went out. */
-  offered: Array<string>;
-  /** The `diary: planned` journal line. */
-  planned: LogEntry | undefined;
+  /** What the step returned. */
+  result: DiaryPrepared;
+  /** The kind the step chose. */
+  kind: string | null;
+  /** The user text of each director request, in the order sent. */
+  requests: Array<string>;
+  /** The `diary: prepared` journal line. */
+  prepared: LogEntry | undefined;
+  /** The `diary: skip` journal line. */
+  skipped: LogEntry | undefined;
 };
-
-/** The kind keys of the `<kinds>` block in a request's texts: each line that starts with a key and ` weight `. */
-function kindsOffered(messages: ReadonlyArray<{ content: unknown }>): Array<string> {
-  const text = messages.map((message) => (typeof message.content === 'string' ? message.content : '')).join('\n');
-  const start = text.indexOf('<kinds>');
-  const end = text.indexOf('</kinds>');
-  if (start < 0 || end < start) return [];
-  return text
-    .slice(start, end)
-    .split('\n')
-    .flatMap((line) => {
-      const found = /^(\S+) weight /.exec(line.trim());
-      return found?.[1] === undefined ? [] : [found[1]];
-    });
-}
 
 /** One run of prepareDiary over the fakes. */
 export async function prepare({
   rng,
   posts = [],
-  answer = { kind: 'news', brief: 'a planned scene', search: '', picture: false, seed: 1 },
+  answer = (user) => sceneAnswerText(user),
   failing = false,
   pictures = false,
   forcedKind = null,
+  seeds = { 'diary/seeds/place': 'a pier\na roof\na field', 'diary/seeds/setting': 'fog\nrain\ndusk' },
 }: PrepareOptions): Promise<PrepareRun> {
-  const requests: Array<ReadonlyArray<{ content: unknown }>> = [];
+  const requests: Array<string> = [];
+  const config = { bot: { timezone: 'UTC' }, llm: { maxRequestTokens: 50000 }, diary: {} };
   const diary = createDiary({
-    hot: {
-      prompts: {
-        'diary-planner': 'PLAN for {{name}}',
-        'diary-seeds': '# place\na pier\na roof\n# light\nfog\nrain',
-        labels,
-      },
-    },
-    // Slice 6: the store as a diary post reads it on the frame (getDiary, getPlace, listUserProfiles,
-    // state); the place reads of the old planner left with its <places>, <recent> and <lore>.
+    hot: { config, prompts: { 'diary/scene': 'SCENE_TASK', ...seeds, labels } },
     store: {
       getDiary: () => ({ posts }),
       getPlace: () => null,
@@ -118,47 +101,30 @@ export async function prepare({
       state: { data: {} },
     },
     llm: {
-      // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-      complete: (messages, options) => {
-        requests.push(structuredClone(messages));
+      complete: (messages) => {
+        const user = String(messages[1]?.content ?? '');
+        requests.push(user);
         if (failing) return Promise.reject(new Error('the provider answered 502'));
-        return Promise.resolve({ text: planAnswerText(answer, options), usage: {}, estimated: 5 });
+        return Promise.resolve({ text: answer(user), usage: {} });
       },
     },
     rng,
-    lookup: null,
     images: pictures ? { quota: () => null } : null,
-    journalOp: () => NO_OP,
   });
   const { result, logs } = await withCapturedLogs(() =>
     diary.prepareDiary({
-      config: { bot: { timezone: 'UTC' }, llm: { maxRequestTokens: 50000 }, diary: {} },
+      config,
       channel: CHANNEL,
       now: NOW,
       params: forcedKind === null ? { forced: false } : { kind: forcedKind, forced: true },
       memoryOn: false,
-      // Slice 6: the plan request is built on the turn frame by the request step and handed in. This stand-in carries
-      // what the step rendered, each part under its own tag, so `<kinds>` holds exactly what the step offered.
-      planMessages: (parts) => [
-        { role: 'system', content: 'PLAN for Nia' },
-        {
-          role: 'user',
-          content: [
-            `<kinds>\n${parts.kinds}\n</kinds>`,
-            `<seeds>\n${parts.seeds}\n</seeds>`,
-            parts.topic ? `<topic>\n${parts.topic}\n</topic>` : '',
-            parts.facts ? `<stored_facts>\n${parts.facts}\n</stored_facts>` : '',
-          ]
-            .filter(Boolean)
-            .join('\n'),
-        },
-      ],
     })
   );
-  const [first] = requests;
   return {
-    plan: result.plan,
-    offered: first === undefined ? [] : kindsOffered(first),
-    planned: logs.find((entry) => entry.msg === 'diary: planned'),
+    result,
+    kind: result.kind,
+    requests,
+    prepared: logs.find((entry) => entry.msg === 'diary: prepared'),
+    skipped: logs.find((entry) => entry.msg === 'diary: skip'),
   };
 }

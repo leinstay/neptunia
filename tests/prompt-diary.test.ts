@@ -1,6 +1,6 @@
 // Tests for the diary side of src/behavior/prompt.ts: the `{{when}}` line of the drawing
 // prompt, the diary channel in `<senses>`, the diary post's own blocks and
-// their budget, and the plan request. Fake prompts/config/labels only.
+// their budget, and the request of a diary entry. Fake prompts/config/labels only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildDrawPrompt, userText as textOf } from '../src/behavior/prompt.ts';
@@ -14,7 +14,7 @@ import {
   JOURNAL,
   MARK,
   PAGES,
-  PLAN,
+  SCENE,
   blockOf,
   frameTurn,
   inOrderOf,
@@ -39,8 +39,7 @@ function fakePrompts(overrides: Record<string, unknown> = {}) {
     format: 'FORMAT_TEXT',
     'turn/reply': 'REPLY_TASK',
     interject: 'INTERJECT_TASK',
-    diary: 'DIARY_TASK for {{name}}',
-    'diary-planner': 'PLAN_SYSTEM for {{name}}',
+    'diary/task': 'DIARY_TASK for {{name}}',
     labels,
     ...overrides,
   };
@@ -149,25 +148,44 @@ test('renderSenses: does not name the diary channel when unset', () => {
   }
 });
 
-test('buildRequest: no diary blocks outside diary mode, none without posts or a find', () => {
-  const diary = {
-    posts: [post(NOW - DAY, 'status', 'bonjour')],
-    plan: { kind: 'status', brief: 'x', picture: false },
-    found: 'y',
-  };
+test('buildRequest: no diary blocks outside diary mode, and no <diary> or <scene> without entries or scenes', () => {
+  const diary = { posts: [post(NOW - DAY, 'status', 'bonjour')], kind: 'story', scenes: ['A PIER'] };
   const reply = userText(buildRequest(baseInput({ mode: 'reply', diary })));
-  for (const tag of ['diary', 'plan', 'found']) assert.ok(!reply.includes(`<${tag}>`), tag);
+  for (const tag of ['diary', 'kind', 'scene']) assert.ok(!reply.includes(`<${tag}>`), tag);
 
-  const bare = userText(
-    buildRequest(
-      baseInput({
-        mode: 'diary',
-        diary: { posts: [], plan: { kind: 'status', brief: 'x', picture: false }, found: null },
-      })
-    )
+  const bare = userText(buildRequest(baseInput({ mode: 'diary', diary: { posts: [], kind: 'status', scenes: [] } })));
+  assert.ok(!bare.includes('<diary>') && !bare.includes('<scene>'));
+  assert.ok(bare.includes('<kind>\nstatus\n</kind>'), bare);
+});
+
+/** The `<task>` of a diary request of `kind` over the prompts `overrides` laid on the fake ones. */
+function diaryTask(kind: string, overrides: Record<string, unknown> = {}): string {
+  const text = userText(
+    buildRequest(baseInput({ mode: 'diary', prompts: fakePrompts(overrides), diary: { posts: [], kind, scenes: [] } }))
   );
-  assert.ok(!bare.includes('<diary>') && !bare.includes('<found>'));
-  assert.ok(bare.includes('<plan>'));
+  return /<task>\n([\s\S]*?)\n<\/task>/.exec(text)?.[1] ?? '';
+}
+
+const KIND_FILES = { 'diary/kinds/story': 'STORY_PART', 'diary/kinds/randomSet': 'RANDOM_SET_PART' };
+
+test('the task of a diary entry is the common text and then the file of its kind', () => {
+  // Bug: the persona reads every kind's instructions, or another kind's, or none.
+  assert.equal(diaryTask('story', KIND_FILES), 'DIARY_TASK for Nept\n\nSTORY_PART');
+  assert.equal(diaryTask('randomSet', KIND_FILES), 'DIARY_TASK for Nept\n\nRANDOM_SET_PART');
+});
+
+test("a deployment's own diary text replaces the common text and keeps the kind's file", () => {
+  assert.equal(diaryTask('story', { ...KIND_FILES, 'diary/task': 'OWN_TASK' }), 'OWN_TASK\n\nSTORY_PART');
+});
+
+test("a deployment's own kind file replaces only that kind's part", () => {
+  const own = { ...KIND_FILES, 'diary/kinds/story': 'OWN_STORY' };
+  assert.equal(diaryTask('story', own), 'DIARY_TASK for Nept\n\nOWN_STORY');
+  assert.equal(diaryTask('randomSet', own), 'DIARY_TASK for Nept\n\nRANDOM_SET_PART');
+});
+
+test('a kind whose file is emptied gets the common text alone', () => {
+  assert.equal(diaryTask('story', { ...KIND_FILES, 'diary/kinds/story': '  ' }), 'DIARY_TASK for Nept');
 });
 
 // The writer on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of 2026-11-07): the turn
@@ -183,18 +201,29 @@ test('the writer request holds the frame list, with no <chat>, <surroundings>, <
   const text = run.writer[0] ?? '';
   const tags = rootTags(text);
   assert.ok(inOrderOf(tags, WRITER_TAGS), tags.join(' '));
-  for (const tag of ['self', 'meanwhile', 'spatial_awareness', 'task']) assert.ok(tags.includes(tag), `holds <${tag}>`);
-  for (const tag of ['chat', 'surroundings', 'about_chat', 'places'])
+  for (const tag of ['self', 'inner', 'spatial_awareness', 'task']) assert.ok(tags.includes(tag), `holds <${tag}>`);
+  for (const tag of ['chat', 'surroundings', 'about_chat', 'places', 'meanwhile'])
     assert.ok(!tags.includes(tag), `no root <${tag}>`);
   assert.ok(blockOf(text, 'task').includes(MARK.writer), 'its own task');
 });
 
-test('the writer <plan> sits in <inner> as lines, with no JSON', async () => {
-  // Bug: the plan stays one JSON line, while nothing in a request is JSON.
-  const run = await frameTurn();
-  const plan = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'plan');
-  assert.ok(plan.includes(PLAN.brief), plan);
-  assert.ok(!plan.includes('{"'), plan);
+test('a story asks the director first, and its request holds <kind> and the scene in <inner>, and no <plan> or <seeds>', async () => {
+  // Bug: the persona writes a scene kind with no scene, or reads the planner's blocks that no longer exist.
+  const run = await frameTurn({ kind: 'story' });
+  assert.equal(run.director.length, 1, 'one director request');
+  const text = run.writer[0] ?? '';
+  const inner = blockOf(text, 'inner');
+  assert.equal(partOf(inner, 'kind'), 'story');
+  assert.equal(partOf(inner, 'scene'), SCENE);
+  for (const tag of ['plan', 'seeds', 'kinds']) assert.ok(!text.includes(`<${tag}>`), tag);
+});
+
+test('a status asks no director, and its request holds no <scene>', async () => {
+  // Bug: a kind with no scene waits on the director, or reads a scene meant for another kind.
+  const run = await frameTurn({ kind: 'status' });
+  assert.equal(run.director.length, 0);
+  assert.equal(partOf(blockOf(run.writer[0] ?? '', 'inner'), 'kind'), 'status');
+  assert.ok(!(run.writer[0] ?? '').includes('<scene>'));
 });
 
 test('<publication_places> is absent with one mirror', async () => {
@@ -214,46 +243,35 @@ test('<publication_places> in <inner> lists two mirrors, each on its own line wi
   assert.ok(!part.includes('fake:channel:c2'), part);
 });
 
-// The owner on 2026-11-17: the diary planner and the diary writer read her appearance beside the character card, in the
+// The owner on 2026-11-17: the diary's turn reads her appearance beside the character card, in the
 // system message. The appearance sentence is the test's own.
 const LOOKS = 'ΕΜΦΑΝΙΣΗ a tall figure in a mustard raincoat with a crooked umbrella';
 
-test('the planner and the writer read <appearance> in the system message, after the card', async () => {
+test('the diary turn reads <appearance> in the system message, after the card', async () => {
   // Bug: only the chat turns get the appearance, so her diary describes someone she does not look like.
+  // Changed: the planner's request went with the planner, so the turn's own request is the one checked.
   const run = await frameTurn({ prompts: { appearance: LOOKS } });
   const block = `<appearance>\n${LOOKS}\n</appearance>`;
-  for (const [who, text] of [
-    ['planner', run.planner[0] ?? ''],
-    ['writer', run.writer[0] ?? ''],
-  ] as const) {
-    const at = text.indexOf(block);
-    assert.ok(at > text.indexOf('CARD_TEXT'), `${who}: ${text.slice(0, 300)}`);
-    assert.ok(at < text.indexOf('<self>'), `${who}: in the system message, before the user message`);
-  }
+  const text = run.writer[0] ?? '';
+  const at = text.indexOf(block);
+  assert.ok(at > text.indexOf('CARD_TEXT'), text.slice(0, 300));
+  assert.ok(at < text.indexOf('<self>'), 'in the system message, before the user message');
 });
 
 // The owner on 2026-11-17: `world.md` and the virtual world are deleted and get no new home. The label is the test's.
-test('neither the planner nor the writer request tells her she is in a virtual world of her own', async () => {
-  // Bug: `<spatial_awareness>` of both diary requests says she is in her own virtual world, a removed concept.
+test('the diary turn does not tell her she is in a virtual world of her own', async () => {
+  // Bug: `<spatial_awareness>` of the diary's request says she is in her own virtual world, a removed concept.
   const labels = { ...shippedLabels, spatial: { ...shippedLabels.spatial, world: 'MARK-OWN-WORLD {when}' } };
   const run = await frameTurn({ prompts: { labels } });
-  assert.ok(run.planner.length > 0 && run.writer.length > 0, 'both requests ran');
-  for (const text of [...run.planner, ...run.writer]) assert.ok(!text.includes('MARK-OWN-WORLD'), text.slice(-600));
+  assert.ok(run.writer.length > 0, 'the request ran');
+  for (const text of run.writer) assert.ok(!text.includes('MARK-OWN-WORLD'), text.slice(-600));
 });
 
 // The owner on 2026-11-17: a custom emoji stands in every text under its stable name, and its description stands once
 // in the block `<media>` of the request that names it.
-test('the planner request whose <meanwhile> names a custom emoji holds <media> with its line', async () => {
-  // Bug: the planner is built with no media names, so `<meanwhile>` shows a bare `:e1:` and no `<media>` block.
-  const run = await frameTurn({ emoji: 'line' });
-  const text = run.planner[0] ?? '';
-  assert.ok(blockOf(text, 'meanwhile').includes(':e1:'), 'the line stands in <meanwhile>');
-  assert.ok(blockOf(text, 'media').includes(`:e1: ${EMOJI_NAME}`), text.slice(-1500));
-});
-
-test('a past entry that names a custom emoji gives the planner and the writer <media> with its line', async () => {
+test('a past entry that names a custom emoji gives the diary turn <media> with its line', async () => {
   // Bug: the legend covers `<chat>` and `<meanwhile>` alone, so an entry in `<diary>` keeps a bare code.
   const run = await frameTurn({ emoji: 'named', entries: 2, entryGist: (index) => `ΣΕΛΙΔΑ-${index} :e1:` });
-  for (const text of [run.planner[0] ?? '', run.writer[0] ?? ''])
-    assert.ok(blockOf(text, 'media').includes(`:e1: ${EMOJI_NAME}`), text.slice(-1500));
+  const text = run.writer[0] ?? '';
+  assert.ok(blockOf(text, 'media').includes(`:e1: ${EMOJI_NAME}`), text.slice(-1500));
 });

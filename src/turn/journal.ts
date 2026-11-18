@@ -19,6 +19,8 @@ import type { Handles } from './handles.ts';
  */
 export const SKIP_SILENCE = 'silence';
 export const SKIP_NOTHING_TO_DO = 'nothing-to-do';
+/** A diary entry of a scene kind for which the director gave no scene, so no turn of the persona ran. */
+export const SKIP_NO_SCENE = 'no-scene';
 /** Two answers in a row broke their `<think>`, so the turn ended with no message (src/turn/calls.ts#askUnleaked). */
 export const SKIP_THINK_LEAKED = 'think-leaked';
 /** Two answers in a row held text outside every tag and nothing else, so the turn ended with nothing posted. */
