@@ -209,7 +209,6 @@ const LOADS = {
   overheard: [...SYSTEM, 'turn/overheard'],
   errandResult: [...SYSTEM, 'turn/errand'],
   private: [...SYSTEM, 'turn/reply', 'turn/private'],
-  privateOpen: [...SYSTEM, 'turn/reply', 'private-open'],
   draw: ['draw', 'appearance'],
   diary: [...SYSTEM, 'diary'],
   inner: [...SYSTEM, 'turn/inner'],
@@ -991,7 +990,7 @@ test('buildRequest: a private chat fills turn/private.md after the reply task', 
   assert.ok(text.includes(LABELS.senses.dmChat), 'the private senses line');
 });
 
-test('buildRequest: a private chat with context.memory.openPrivate on fills private-open.md after the reply task', async () => {
+test('buildRequest: a private chat with context.memory.openPrivate on fills turn/private.md after the reply task', async () => {
   const dm = { id: 'dm1', name: null, category: null, topic: null };
   const history = normalize([
     rawMessage(dm, { ts: NOW - MINUTE_MS, author: PEOPLE[ANA], content: 'je peux te dire un secret ?' }),
@@ -1013,8 +1012,9 @@ test('buildRequest: a private chat with context.memory.openPrivate on fills priv
   );
   const text = assertFilled(
     request.messages,
-    { files: LOADS.privateOpen, blocks: ['senses', 'chat', 'task'] },
-    'private-open'
+    // Changed: one private prompt serves the switch on and off, so the open chat loads the files of any private chat.
+    { files: LOADS.private, blocks: ['senses', 'chat', 'task'] },
+    'private (open)'
   );
   assert.ok(text.includes(LABELS.senses.dmChatOpen), 'the open private senses line');
 });

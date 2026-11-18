@@ -1500,14 +1500,23 @@ test('buildRequest: <senses> carries senses.dmChat in a private chat, never sens
 test('buildRequest: with context.memory.openPrivate on, the private wording is the open one in a private chat and a group', () => {
   // Bug: the switch opens her memory while the frame still orders her to keep each private chat out of every other place.
   const open = { context: { memory: { openPrivate: true } } };
-  const prompts = fakePrompts({ 'turn/private': 'PRIVATE_TASK', 'private-open': 'OPEN_PRIVATE_TASK' });
-  const dm = buildRequest(privateScene({ config: fakeConfig(open), prompts }));
+  const dm = buildRequest(privateScene({ config: fakeConfig(open) }));
   const dmSenses = sensesOf(dm)!;
   assert.ok(dmSenses.includes(labels.senses.dmChatOpen) && !dmSenses.includes(labels.senses.dmChat));
-  const task = userText(dm);
-  assert.ok(task.includes('OPEN_PRIVATE_TASK') && !/(^|[^_])PRIVATE_TASK/.test(task));
+  // Changed: the task of a private chat is one prompt whatever the switch, so the open wording lives in the senses
+  // alone; the next test holds the task to `turn/private`.
   const group = sensesOf(buildRequest(baseInput({ config: fakeConfig({ ...open, dm: { enabled: true } }) })))!;
   assert.ok(group.includes(labels.senses.privateAwareOpen) && !group.includes(labels.senses.privateAware));
+});
+
+test('buildRequest: a private chat appends turn/private to its task with context.memory.openPrivate on and off', () => {
+  // Catches: the switch picking a second private file, so one setting gives a private chat two different tasks.
+  const prompts = fakePrompts({ 'turn/private': 'PRIVATE_TASK', 'private-open': 'OPEN_PRIVATE_TASK' });
+  for (const openPrivate of [true, false]) {
+    const config = fakeConfig({ context: { memory: { openPrivate } } });
+    const task = userText(buildRequest(privateScene({ config, prompts })));
+    assert.ok(task.includes('PRIVATE_TASK') && !task.includes('OPEN_PRIVATE_TASK'), `openPrivate ${openPrivate}`);
+  }
 });
 
 test('buildRequest: <senses> carries senses.privateAware outside a private chat only when dm.enabled is true', () => {
