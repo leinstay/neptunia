@@ -23,7 +23,7 @@ How prose is written in this repository: documentation, prompts, commit messages
 
 ## Claims and evidence
 
-- Every factual claim carries what supports it: a file and line, a number you measured, a command you ran and its output, the admin's words with their date. "Significantly faster" is not a claim; "the median request fell from 35k to 24k tokens on the 41-question set" is.
+- Every factual claim carries what supports it: a file and line, a number you measured, a command you ran and its output, the owner's words with their date. "Significantly faster" is not a claim; "the median request fell from 35k to 24k tokens on the 41-question set" is.
 - Say what you did not check. "Not run live" is a fact the reader needs; silence about it is a lie by omission.
 - State a claim at the certainty the evidence supports, with one qualifier at most. "May affect outcomes", not "could potentially possibly affect outcomes". Keep scope statements and real corrections; drop hedges that repair an earlier overstatement.
 - Never invent a number, a citation, a source, a quote or a date. If a detail is missing, ask or write the simpler sentence without it.
@@ -146,7 +146,7 @@ Applies to `prompts/` and `config/labels.json`.
 - A model mirrors the tone of its prompt. Write in a living voice, concrete and specific, as to a colleague who has to act on it; no officialese.
 - Every sentence carries an instruction or a fact the model needs. A sentence that only sets a mood goes.
 - A behaviour rule describes the behaviour and gives no sample line: the model repeats a sample until it becomes a tic.
-- Each fact has one home: the system prompt holds the craft, the character card who the persona is and how it talks, a task file the situation, the format file the protocol, the rules file the admin's corrections, `labels.json` the wording of what code inserts.
+- Each fact has one home: the system prompt holds the craft, the character card who the persona is and how it talks, a task file the situation, the format file the protocol, the rules file the owner's corrections, `labels.json` the wording of what code inserts.
 - Tracked prompts are English and character-neutral; a character's own material lives in the local layer and keeps its language.
 
 ## Commit messages and pull requests

@@ -42,7 +42,7 @@ The engine's words, for anyone naming something in the code, the database, a doc
 | `group` | The scope of a place people share. A place's scope is `group` or `dm`. |
 | `person` | One human as the persona knows them, across every interface. A person holds one or more accounts. |
 | `account` | One identity of a person on one interface, such as a Discord user or the account of the command line. |
-| `admin` | The main account of a deployment. The persona trusts it with every right. |
+| `owner` | The main account of a deployment. The persona trusts it with every right. |
 | `audience` | The people a memory row may be shown to: the members of a group or the two sides of a `dm`. |
 
 ### What the persona does
@@ -73,7 +73,7 @@ The engine's words, for anyone naming something in the code, the database, a doc
 | Word | Meaning |
 |---|---|
 | `memory` | What the persona keeps between turns. |
-| `labels` | The wording of what code inserts into a prompt, and the strings the admin sees. |
+| `labels` | The wording of what code inserts into a prompt, and the strings the owner sees. |
 | `lease` | A time-limited claim on a resource. |
 | `profile` | What memory holds about one account or person: names, claims and descriptions. |
 | `episode` | A remembered stretch of conversation, kept as one memory item with its messages. |
@@ -125,7 +125,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Concrete words. "The turn runner", not "the relevant component". The engine's words from the Glossary, one word per thing, no synonym.
 - Describe the present. No history in docs or comments ("now", "was", "no longer", "moved from"): the git log holds it. No chat context in a file.
 - Call the persona "the persona" or "it", never "she" or "he". Name it once in a paragraph, and do not repeat the word in every sentence.
-- No tracked file names or quotes the person behind a decision. A comment gives the reason, and the git log keeps who decided. The word "owner" is not used: the role is `admin`.
+- No tracked file names or quotes the person behind a decision. A comment gives the reason, and the git log keeps who decided. The word `owner` names the role of the main account and never a person.
 - A document or a comment holds no date and names no plan or spec. It reads as if the code had always been as it is.
 - Sentences carry one thought each and vary in length. Do not start consecutive sentences with the same word. No "Additionally", "Furthermore", "Moreover". Active voice when the actor matters. Positive form: "the variance was small", not "not large".
 - Punctuation: commas and full stops. No em dashes, no semicolons between clauses, no parenthetical asides, no "Label: explanation" rows, no slash lists ("and" or "or" instead).
@@ -180,7 +180,7 @@ Tests are written by agents, so the quality lives in the method, not in a review
 
 | Path | What goes there |
 |---|---|
-| `.agents/AGENTS.md` | The rules of this deployment: its server, its admin's decisions, what differs from this file. Read first when it exists. |
+| `.agents/AGENTS.md` | The rules of this deployment: its server, its decisions, what differs from this file. Read first when it exists. |
 | `.agents/memory/MEMORY.md` | The index of the agents' memory, one line per file; one fact per file beside it, with a frontmatter (`name`, `description`, `metadata.type`: user, feedback, project, reference). |
 | `.agents/docs/` | The deployment's documents. Its root holds the living ones kept current, named without a date, such as the changelog and the bug tracker. Plans go to `plans/`, the rest to `specs/`, `reports/`, `notes/` and `proposals/`, each file `<YYYY-MM-DD>-<topic>.md` and opening with a frontmatter of `date`, `title` and `status`: `draft` while it awaits the owner's word, `active` for the plan a working session carries out now (one per session), `done`, or `superseded` with `superseded_by` naming its replacement. |
 | `.agents/scratch/<YYYY-MM-DD>-<task>/` | Intermediate files of one task; deleted once the result is in a document. |
