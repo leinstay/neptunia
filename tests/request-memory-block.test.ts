@@ -436,10 +436,60 @@ const KNOWN = personEntry('222', 'Νίκος', {
   profileAccounts: [accountOf('fake', '222', described('ΓΑΤΑ'))],
 });
 
+// Every person listed carries their real name, aliases, accounts with their avatars, attitude and interests at every
+// detail, so a person the budget cuts to a name still reads as the person memory knows.
+const FACTS_LABELS: Labels = {
+  ...SEEN_LABELS,
+  memory: Object.assign({}, SEEN_MEMORY, { realName: 'REAL {value}', aliases: 'ALI {value}' }),
+};
+const factsOf = (person: PersonEntry): Array<string> =>
+  section(
+    memoryBlockOf(mindOfEntries({ people: [person] }), frameOf(frameInput({ author: null })), FACTS_LABELS, nameOf)
+      .text,
+    'people'
+  )
+    .trim()
+    .split('\n');
+const FULL_FACTS = {
+  ...KNOWN,
+  realName: 'Νικόλαος',
+  claims: [...KNOWN.claims, { id: 'claim:0', kind: 'alias', text: 'Νικ' }],
+  attitude: FOND,
+};
+
+for (const detail of ['compact', 'name'] as const)
+  test(`a person cut to ${detail}, neither answered nor kept, carries real name, aliases, attitude and interests`, () => {
+    // Bug: the cheap facts hang on the whole detail, so most people of a request read as a bare name with no attitude.
+    const lines = factsOf({ ...FULL_FACTS, detail });
+    const text = lines.join('\n');
+    assert.equal(lineOf(lines, 'REAL '), 'REAL Νικόλαος', text);
+    assert.equal(lineOf(lines, 'ALI '), 'ALI Νικ', text);
+    assert.equal(lineOf(lines, 'INT '), 'INT ΜΟΥΣΙΚΗ; ΣΚΑΚΙ', text);
+    for (const part of ['32', 'ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ', '2026-11-09', '2026-11-03']) assert.ok(text.includes(part), part);
+    for (const part of ['ΧΑΡΑΚΤΗΡΑΣ', 'ΤΡΟΠΟΣ', 'ΙΣΧΥΡΙΣΜΟΣ', 'USU ', 'SEEN '])
+      assert.equal(text.includes(part), false, `${part} stays with the whole entry: ${text}`);
+  });
+
+test('each account of a person cut to its name carries its own avatar on the line after it', () => {
+  // Bug: one avatar of the person is picked for the entry, so she cannot tell whose face it is when the person has two
+  // accounts, and a person cut to a name shows none.
+  const person = {
+    ...FULL_FACTS,
+    detail: 'name' as const,
+    profileAccounts: [accountOf('fake', '222', described('ΕΔΩ')), accountOf('other', '555', described('ΑΛΛΟ'))],
+  };
+  const lines = factsOf(person);
+  const after = (native: string): string => lines[lines.findIndex((line) => line.includes(native)) + 1] ?? '';
+  assert.equal(after('222'), 'AVA ΕΔΩ', lines.join(' | '));
+  assert.equal(after('555'), 'AVA ΑΛΛΟ', lines.join(' | '));
+});
+
 test('a full entry holds the interests, avatar, usual name and count after the manner of speech and before the claims', () => {
   // Bug: the lines are pushed after the claims or before the character, so the order of the entry differs from the spec.
+  // Changed on purpose: the interests and the avatar belong to every detail and stand with the accounts above the
+  // relation, so the order starts with the avatar under its account, then the interests; the usual name and the count stay after the manner of speech.
   const lines = seenLines(KNOWN);
-  const order = ['ΤΡΟΠΟΣ', 'INT ', 'AVA ', 'USU ', 'SEEN ', 'ΙΣΧΥΡΙΣΜΟΣ'].map((part) =>
+  const order = ['AVA ', 'INT ', 'ΤΡΟΠΟΣ', 'USU ', 'SEEN ', 'ΙΣΧΥΡΙΣΜΟΣ'].map((part) =>
     lines.findIndex((line) => line.includes(part))
   );
   assert.ok(
@@ -456,33 +506,37 @@ test('a full entry holds the interests, avatar, usual name and count after the m
   assert.ok(avatar.includes('ΓΑΤΑ') && usual.includes('Νικολάκης') && seen.includes('100'), lines.join(' | '));
 });
 
-test('an entry cut to compact holds none of the four lines', () => {
+test('an entry cut to compact holds the interests and the avatar and neither the usual name nor the count', () => {
   // Bug: the lines are printed for every detail, so the entry the budget cut down is as long as a whole one.
-  assert.deepEqual(markersIn(seenLines({ ...KNOWN, detail: 'compact' })), []);
+  // Changed on purpose: the interests and the avatar belong to every detail; the usual name and the count stay whole.
+  assert.deepEqual(markersIn(seenLines({ ...KNOWN, detail: 'compact' })), ['INT ', 'AVA ']);
 });
 
-test('an entry cut to its name holds none of the four lines', () => {
+test('an entry cut to its name holds the interests and the avatar and neither the usual name nor the count', () => {
   // Bug: the lines are printed for every detail, so the entry the budget cut down to a name is as long as a whole one.
-  assert.deepEqual(markersIn(seenLines({ ...KNOWN, detail: 'name' })), []);
+  // Changed on purpose: the interests and the avatar belong to every detail; the usual name and the count stay whole.
+  assert.deepEqual(markersIn(seenLines({ ...KNOWN, detail: 'name' })), ['INT ', 'AVA ']);
 });
 
 const FOND_NOW = { score: 31.6, reason: 'ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ', moves: [] };
 
-test('the person she answers cut to a name holds her attitude and none of the four lines', () => {
+test('the person she answers cut to a name holds her attitude, the interests and neither the usual name nor the count', () => {
   // Bug: the new lines are bound to the attitude condition, so a short entry of the counterpart grows with them.
+  // Changed on purpose: the interests belong to every detail; the usual name and the count stay with a whole entry.
   const { interests, usualName, messagesSeen } = KNOWN;
   const cut = { ...ELENI, detail: 'name' as const, attitude: FOND_NOW, interests, usualName, messagesSeen };
   const text = renderSeen(cut, AS_ELENI);
   assert.ok(text.includes('ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ'), text);
-  assert.deepEqual(markersIn(text.trim().split('\n')), []);
+  assert.deepEqual(markersIn(text.trim().split('\n')), ['INT ']);
 });
 
-test('a person the reader kept, cut to compact, holds her attitude and none of the four lines', () => {
+test('a person the reader kept, cut to compact, holds her attitude, interests and avatar and not the usual name or count', () => {
   // Bug: the entries that keep the attitude at a low detail also keep the lines of slice 2.
+  // Changed on purpose: the interests and the avatar belong to every detail; the usual name and the count stay whole.
   const kept = { ...KNOWN, detail: 'compact' as const, keep: true, attitude: FOND_NOW };
   const lines = seenLines(kept);
   assert.ok(lines.join('\n').includes('ΛΟΓΟΣ-ΤΕΛΕΥΤΑΙΑΣ'), lines.join(' | '));
-  assert.deepEqual(markersIn(lines), []);
+  assert.deepEqual(markersIn(lines), ['INT ', 'AVA ']);
 });
 
 test('a person with no interest, no avatar, no usual name and no count has none of the lines', () => {
@@ -522,18 +576,22 @@ test('a described avatar reads through memory.avatar with its text, never the st
   assert.doesNotMatch(lines.join('\n'), /h1|describedAt/);
 });
 
-test('the avatar of the account on the frame interface wins over the avatar of another account listed before it', () => {
+test('a person with two avatars carries both, each on the line after its own account', () => {
   // Bug: the first account of the person with an avatar is taken, so a person who wears another face elsewhere is
   // described by it in the place where she sees the face of this one.
+  // Changed on purpose: the avatar is stored per account and stands with its account, so no account wins.
   const person = {
     ...KNOWN,
     profileAccounts: [accountOf('other', '555', described('ΑΛΛΟ')), accountOf('fake', '222', described('ΕΔΩ'))],
   };
-  assert.equal(lineOf(seenLines(person), 'AVA '), 'AVA ΕΔΩ');
+  const lines = seenLines(person);
+  const after = (native: string): string => lines[lines.findIndex((line) => line.includes(native)) + 1] ?? '';
+  assert.deepEqual([after('555'), after('222')], ['AVA ΑΛΛΟ', 'AVA ΕΔΩ'], lines.join(' | '));
 });
 
-test('with no avatar on the account in this place the first account that has one is described', () => {
+test('with no avatar on the account in this place each other account that has one is described', () => {
   // Bug: the entry has no avatar line for a person whose face is stored on another account only.
+  // Changed on purpose: every account with an avatar carries its own, the first one no longer stands for the rest.
   const person = {
     ...KNOWN,
     profileAccounts: [
@@ -542,7 +600,8 @@ test('with no avatar on the account in this place the first account that has one
       accountOf('third', '777', described('ΔΕΥΤΕΡΟ')),
     ],
   };
-  assert.equal(lineOf(seenLines(person), 'AVA '), 'AVA ΠΡΩΤΟ');
+  const avatars = seenLines(person).filter((line) => line.startsWith('AVA '));
+  assert.deepEqual(avatars, ['AVA ΠΡΩΤΟ', 'AVA ΔΕΥΤΕΡΟ']);
 });
 
 test('an avatar field that is not a stored avatar gives no line and shows no raw text', () => {

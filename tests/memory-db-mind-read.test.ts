@@ -1113,6 +1113,41 @@ test('an entry of a person with interests needs more of the budget to stay whole
   assert.ok(interested > without, `${interested} > ${without}`);
 });
 
+test('a person raised in passing needs more of the budget to be listed at all when they have interests', () => {
+  // Bug: the text the budget weighs at the detail `name` leaves out the facts every entry prints, so a person cut to a
+  // name costs the request more than the reader counted. Two worlds that differ in the interest claims alone.
+  const smallestListed = (withInterests: boolean): number => {
+    const w = world();
+    const passer = 'person:discord:q1';
+    addPerson(w.db, {
+      id: passer,
+      accounts: [{ id: 'discord:q1', iface: 'discord', native: 'q1', names: ['Eleftheríou'] }],
+    });
+    addClaim(w.db, {
+      id: 'claim:alias:q1',
+      person: passer,
+      kind: 'alias',
+      text: 'Lefterákis',
+      audience: { group: 'discord' },
+    });
+    if (withInterests)
+      for (let at = 0; at < 5; at += 1)
+        addInterest(w, passer, `claim:i${at}`, `ΘΕΜΑ-${at} `.repeat(12).trim(), 9 - at, daysBefore(2));
+    const passing = strangerSays(w, 'src:m1', 'χθες ήρθε ο Lefterákis');
+    const trigger = strangerSays(w, 'src:m2', 'τι λες εσύ;', { trigger: true });
+    for (let budgetTokens = 0; budgetTokens <= 4000; budgetTokens += 10) {
+      const settings = { ...SETTINGS, budgetTokens, counterpartTokens: 0 };
+      const mind = mindOf(w.db, GROUP, seedsOf([passing, trigger], { place: w.room }), settings, NOW);
+      if (personIn(mind, passer) !== undefined) return budgetTokens;
+    }
+    return Number.POSITIVE_INFINITY;
+  };
+  const without = smallestListed(false);
+  const interested = smallestListed(true);
+  assert.ok(Number.isFinite(without), 'the person is listed at some budget');
+  assert.ok(interested > without, `${interested} > ${without}`);
+});
+
 test('an entry of a person with a described avatar needs more of the budget to stay whole than the same person without', () => {
   // Bug: the text the budget weighs leaves the avatar description out, so a long description pushes the entry past its
   // share on the request without a drop to `compact`. Two worlds that differ in the avatar of the account alone.

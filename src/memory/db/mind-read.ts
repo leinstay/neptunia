@@ -983,17 +983,27 @@ function attitudeOf(db: Db, walker: Walker, personId: string, settings: MindSett
 
 /** The text the budget weighs for a person's entry at `detail`: the heading, then what the detail adds. */
 function personRender(entry: PersonEntry, detail: Detail): string {
-  const head = [entry.name, entry.realName, ...entry.accounts].filter((one) => one !== null).join(' ');
+  // The facts every detail prints (src/turn/request/memory-block.ts#personText): names, accounts with their avatars,
+  // aliases, the attitude with its changes and the interests.
+  const avatars = entry.profileAccounts
+    .map((one) => storedAvatarOf(one.avatar))
+    .flatMap((one) => (one && 'text' in one ? [one.text] : []));
+  const felt = entry.attitude;
+  const attitude = felt === null ? [] : [felt.reason, ...felt.moves.map((move) => `${move.at} ${move.reason ?? ''}`)];
+  const head = [
+    [entry.name, entry.realName, ...entry.accounts].filter((one) => one !== null).join(' '),
+    ...entry.claims.filter((claim) => claim.kind === 'alias').map((claim) => claim.text),
+    ...attitude,
+    ...avatars,
+    entry.interests.join('; '),
+  ]
+    .filter((one) => one !== null && one !== '')
+    .join('\n');
   if (detail === 'name') return head;
   if (detail === 'compact') return [head, entry.relation].filter((one) => one !== null).join('\n');
-  const described = entry.profileAccounts.map((one) => storedAvatarOf(one.avatar)).find((one) => one && 'text' in one);
-  const fields = [
-    entry.interests.join('; '),
-    described && 'text' in described ? described.text : null,
-    entry.usualName,
-    entry.messagesSeen === null ? null : String(entry.messagesSeen),
-  ];
-  return [head, entry.relation, entry.character, entry.style, ...fields, ...entry.claims.map((claim) => claim.text)]
+  const fields = [entry.usualName, entry.messagesSeen === null ? null : String(entry.messagesSeen)];
+  const claims = entry.claims.filter((claim) => claim.kind !== 'alias').map((claim) => claim.text);
+  return [head, entry.relation, entry.character, entry.style, ...fields, ...claims]
     .filter((one) => one !== null && one !== '')
     .join('\n');
 }
