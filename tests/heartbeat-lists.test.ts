@@ -25,7 +25,9 @@ test('reads every live chat, a group room and a direct chat, on the real schema 
   }
 });
 
-const HOUR = 3_600_000;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 const ROOM = 'fake:channel:c1';
 const ELENI_DM = 'fake:dm:111';
 const iso = (ago: number): string => new Date(TURN_NOW - ago).toISOString();
@@ -72,7 +74,14 @@ test('a person she answered by a reply who answered her back reads as answered w
   lineOf(world, { id: 'a1', place: YARD, author: 'self', ago: 20 * HOUR, replyTo: 'y2' });
   lineOf(world, { id: 'a2', place: YARD, author: 'fake:222', ago: 10 * HOUR, replyTo: 'a1' });
   const nikos = personOf(listsOf(world), NIKOS);
-  assert.deepEqual(nikos?.approach, { placeId: YARD, at: TURN_NOW - 20 * HOUR, answeredAt: TURN_NOW - 10 * HOUR });
+  // Changed: the approach says whether their first line after hers answers it by reply and whether her line stands in
+  // their direct chat, so a line of theirs without a reply target reads apart from an answer.
+  assert.deepEqual(nikos?.approach, {
+    placeId: YARD,
+    at: TURN_NOW - 20 * HOUR,
+    direct: false,
+    after: { at: TURN_NOW - 10 * HOUR, reply: true },
+  });
 });
 
 test('a person who wrote nothing after her reply to them reads as no line recorded after it', () => {
@@ -81,7 +90,9 @@ test('a person who wrote nothing after her reply to them reads as no line record
   lineOf(world, { id: 'a1', place: YARD, author: 'self', ago: 20 * HOUR, replyTo: 'y2' });
   lineOf(world, { id: 'a2', place: YARD, author: 'fake:111', ago: 10 * HOUR, replyTo: 'a1' });
   const nikos = personOf(listsOf(world), NIKOS);
-  assert.deepEqual(nikos?.approach, { placeId: YARD, at: TURN_NOW - 20 * HOUR, answeredAt: null });
+  // Changed: the approach says whether their first line after hers answers it by reply and whether her line stands in
+  // their direct chat, so a line of theirs without a reply target reads apart from an answer.
+  assert.deepEqual(nikos?.approach, { placeId: YARD, at: TURN_NOW - 20 * HOUR, direct: false, after: null });
 });
 
 test('a person she only mentioned, who answered by a reply in a room they never wrote in, is found', () => {
@@ -90,7 +101,14 @@ test('a person she only mentioned, who answered by a reply in a room they never 
   lineOf(world, { id: 'a1', place: ROOM, author: 'self', ago: 5 * HOUR, mentions: ['222'] });
   lineOf(world, { id: 'a2', place: ROOM, author: 'fake:222', ago: 4 * HOUR, replyTo: 'a1' });
   const nikos = personOf(listsOf(world), NIKOS);
-  assert.deepEqual(nikos?.approach, { placeId: ROOM, at: TURN_NOW - 5 * HOUR, answeredAt: TURN_NOW - 4 * HOUR });
+  // Changed: the approach says whether their first line after hers answers it by reply and whether her line stands in
+  // their direct chat, so a line of theirs without a reply target reads apart from an answer.
+  assert.deepEqual(nikos?.approach, {
+    placeId: ROOM,
+    at: TURN_NOW - 5 * HOUR,
+    direct: false,
+    after: { at: TURN_NOW - 4 * HOUR, reply: true },
+  });
 });
 
 test('a person she never addressed has no approach', () => {
@@ -107,7 +125,41 @@ test('a line of hers in their direct chat followed by a line of theirs reads as 
   lineOf(world, { id: 'a1', place: ELENI_DM, author: 'self', ago: 6 * HOUR });
   lineOf(world, { id: 'a2', place: ELENI_DM, author: 'fake:111', ago: 2 * HOUR });
   const eleni = personOf(listsOf(world), ELENI);
-  assert.deepEqual(eleni?.approach, { placeId: ELENI_DM, at: TURN_NOW - 6 * HOUR, answeredAt: TURN_NOW - 2 * HOUR });
+  // Changed: the approach says whether their first line after hers answers it by reply and whether her line stands in
+  // their direct chat, so a line of theirs without a reply target reads apart from an answer.
+  assert.deepEqual(eleni?.approach, {
+    placeId: ELENI_DM,
+    at: TURN_NOW - 6 * HOUR,
+    direct: true,
+    after: { at: TURN_NOW - 2 * HOUR, reply: false },
+  });
+});
+
+test('a person who wrote in the same group place ten minutes later with no reply target wrote there after it', () => {
+  // Bug: only a reply counts as what followed, so a person who answered in plain lines reads as silent.
+  const world = heartbeatWorld();
+  lineOf(world, { id: 'a1', place: YARD, author: 'self', ago: 20 * HOUR, replyTo: 'y2' });
+  lineOf(world, { id: 'a2', place: YARD, author: 'fake:222', ago: 20 * HOUR - 10 * MINUTE });
+  const nikos = personOf(listsOf(world), NIKOS);
+  assert.deepEqual(nikos?.approach?.after, { at: TURN_NOW - 20 * HOUR + 10 * MINUTE, reply: false });
+});
+
+test('a person whose only later line in the group place came two days after hers has none within a day', () => {
+  // Bug: any later line of theirs in a busy room counts as what followed her line, however late.
+  const world = heartbeatWorld();
+  lineOf(world, { id: 'a1', place: ROOM, author: 'self', ago: 3 * DAY, mentions: ['222'] });
+  lineOf(world, { id: 'a2', place: ROOM, author: 'fake:222', ago: DAY });
+  const nikos = personOf(listsOf(world), NIKOS);
+  assert.equal(nikos?.approach?.after, null);
+});
+
+test('a person who answered her line by reply three days later answered it', () => {
+  // Bug: the day's window cuts off a reply that names her line, which answers it whenever it came.
+  const world = heartbeatWorld();
+  lineOf(world, { id: 'a1', place: ROOM, author: 'self', ago: 4 * DAY, mentions: ['222'] });
+  lineOf(world, { id: 'a2', place: ROOM, author: 'fake:222', ago: DAY, replyTo: 'a1' });
+  const nikos = personOf(listsOf(world), NIKOS);
+  assert.deepEqual(nikos?.approach?.after, { at: TURN_NOW - DAY, reply: true });
 });
 
 test('a group place counts the lines that answer her last line there', () => {

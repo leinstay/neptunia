@@ -347,8 +347,10 @@
       "ownLast": "you last wrote here {date}",
       "ownAnswers": "lines that answer your last line here: {count}",
       "approach": "your last line to them: {date} in {place}",
-      "approachAnswered": "they wrote to you after it {date}",
-      "approachNone": "no line of theirs is recorded after it",
+      "approachWrote": "they wrote there after it {date}",
+      "approachAnswered": "they answered it {date}",
+      "approachNone": "no line of theirs there is recorded within a day after it",
+      "approachNoneDirect": "they have not written there since",
       "notice": {
         "lead": "{id} lists related past activity, nearest first:",
         "line": "{date}, in {place}, you wrote: {text}",

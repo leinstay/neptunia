@@ -36,12 +36,12 @@ export type ListedPerson = {
   /** Every account of the person by interface and platform id, where a handle may mention them. */
   accounts: Array<{ iface: string; native: string }>;
   /**
-   * Her last line addressed to them in a listed chat, and the moment of their first line after it, null when none is
-   * recorded; null when she never addressed them. A line is addressed to them when it answers a line of theirs by
-   * `reply_to`, mentions one of their accounts, or stands in their direct chat. Their line after it answers hers by
-   * `reply_to`, or in their direct chat is any line of theirs after hers.
+   * Her last line addressed to them in a listed chat, whether it stands in their direct chat, and their first line
+   * after it with whether it answers hers by `reply_to` (followedOf), null when none is recorded; null when she never
+   * addressed them. A line is addressed to them when it answers a line of theirs by `reply_to`, mentions one of their
+   * accounts, or stands in their direct chat.
    */
-  approach: { placeId: string; at: number; answeredAt: number | null } | null;
+  approach: { placeId: string; at: number; direct: boolean; after: { at: number; reply: boolean } | null } | null;
 };
 
 /** A place as a heartbeat lists it. */
@@ -128,6 +128,9 @@ function ownLastByPlace(db: Db): Map<string, OwnLine> {
   }
   return out;
 }
+
+/** Their first line after hers and whether it answers hers by `reply_to`, null when none is recorded. */
+type Followed = { at: number; reply: boolean } | null;
 
 /** Her last line addressed to a person: where, when, its message id, and whether it stands in their direct chat. */
 type Addressed = OwnLine & { placeId: string; direct: boolean };
@@ -238,39 +241,41 @@ function userAccount(db: Db, accountId: string): boolean {
 }
 
 /**
- * The moment of each person's first line after her line addressed to them (`addressed`, by person id), null when none
- * is recorded: a line of theirs (`keysOf`, the person id and their account ids) that answers hers by `reply_to`, or in
- * their direct chat any line of theirs after it. One statement per place, over the range of `sources_place_time` from
- * the oldest of her lines there.
+ * Each person's first line after her line addressed to them (`addressed`, by person id), with whether it answers hers
+ * by `reply_to`, null when none is recorded. A line of theirs (`keysOf`, the person id and their account ids) counts in
+ * a group chat when it stands in the same place within `DAY_MS` after hers or answers hers by `reply_to` at any time,
+ * and in their direct chat at any time after hers. One statement per place over the range of `sources_place_time` from
+ * the oldest of her lines there returns the later lines of the people she addressed there.
  */
-function answeredAtOf(
+function followedOf(
   db: Db,
   addressed: ReadonlyMap<string, Addressed>,
   keysOf: (personId: string) => ReadonlySet<string>
-): Map<string, number | null> {
+): Map<string, Followed> {
   const read = db.prepare(
-    `SELECT s.reply_to, COALESCE(s.author_person, s.author_account) AS who, MIN(s.occurred_at) AS first
+    `SELECT s.reply_to, COALESCE(s.author_person, s.author_account) AS who, s.occurred_at
      FROM sources s
      WHERE s.place_id = ? AND s.occurred_at > ? AND s.kind = 'seen' AND s.retired_at IS NULL
-       AND (? = 1 OR s.reply_to IN (SELECT value FROM json_each(?)))
-     GROUP BY s.reply_to, who`
+       AND COALESCE(s.author_person, s.author_account) IN (SELECT value FROM json_each(?))`
   );
   const byPlace = new Map<string, Array<[string, Addressed]>>();
   for (const entry of addressed) byPlace.set(entry[1].placeId, [...(byPlace.get(entry[1].placeId) ?? []), entry]);
-  const out = new Map<string, number | null>();
+  const out = new Map<string, Followed>();
   for (const [placeId, lines] of byPlace) {
     const from = new Date(Math.min(...lines.map(([, line]) => line.at))).toISOString();
-    const direct = lines.some(([, line]) => line.direct);
-    const rows = read.all(placeId, from, direct ? 1 : 0, JSON.stringify(lines.map(([, line]) => line.nativeId)));
+    const authors = [...new Set(lines.flatMap(([personId]) => [...keysOf(personId)]))];
+    const rows = read.all(placeId, from, JSON.stringify(authors));
     for (const [personId, line] of lines) {
       const keys = keysOf(personId);
-      const moments = rows.flatMap((row) => {
-        const at = momentOf(row.first);
-        const theirs = typeof row.who === 'string' && keys.has(row.who);
-        const follows = line.direct ? at !== null && at > line.at : row.reply_to === line.nativeId;
-        return theirs && follows && at !== null ? [at] : [];
-      });
-      out.set(personId, moments.length > 0 ? Math.min(...moments) : null);
+      let first: Followed = null;
+      for (const row of rows) {
+        const at = momentOf(row.occurred_at);
+        if (at === null || at <= line.at || typeof row.who !== 'string' || !keys.has(row.who)) continue;
+        const reply = row.reply_to === line.nativeId;
+        if (!(reply || line.direct || at <= line.at + DAY_MS)) continue;
+        if (first === null || at < first.at || (at === first.at && reply)) first = { at, reply };
+      }
+      out.set(personId, first);
     }
   }
   return out;
@@ -329,7 +334,7 @@ export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
   const keys = new Map(
     listed.map(({ personId, accounts }) => [personId, new Set([personId, ...accounts.map((one) => one.id)])])
   );
-  const answered = answeredAtOf(db, addressed, (personId) => keys.get(personId) ?? new Set());
+  const followed = followedOf(db, addressed, (personId) => keys.get(personId) ?? new Set());
   const people = listed.map(({ personId, person, accounts, dm }): ListedPerson => {
     const seen = newest.get(personId) ?? null;
     const line = addressed.get(personId) ?? null;
@@ -343,7 +348,9 @@ export function heartbeatListsOf(db: Db, now: number): HeartbeatLists {
       dm: dm === null ? null : { placeId: dm.id, lastAt: newestLineAt(db, dm.id) },
       accounts: accounts.map((one) => ({ iface: one.iface, native: one.platformId })),
       approach:
-        line === null ? null : { placeId: line.placeId, at: line.at, answeredAt: answered.get(personId) ?? null },
+        line === null
+          ? null
+          : { placeId: line.placeId, at: line.at, direct: line.direct, after: followed.get(personId) ?? null },
     };
   });
   return { people, places };

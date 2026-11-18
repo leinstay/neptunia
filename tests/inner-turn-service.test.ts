@@ -309,7 +309,8 @@ test('a heartbeat says how her last approach to a person and her last line in a 
   const dm = dmLine.slice(0, dmLine.indexOf(':'));
   const eleni = lineWith(text, 'people', `@${handleOf(ELENI)}`);
   assert.ok(eleni.includes(fill(HB.approach ?? '', { date: '2026-11-02', place: dm })), eleni);
-  assert.ok(eleni.includes(fill(HB.approachAnswered ?? '', { date: '2026-11-02' })), eleni);
+  // Changed: a later line of theirs in their direct chat reads `approachWrote`; `approachAnswered` is for a reply.
+  assert.ok(eleni.includes(fill(HB.approachWrote ?? '', { date: '2026-11-02' })), eleni);
   const nikos = lineWith(text, 'people', `@${handleOf(NIKOS)}`);
   assert.ok(nikos.includes(HB.approachNone ?? 'none'), nikos);
   const yard = lineWith(text, 'places', 'αυλή');
