@@ -313,7 +313,8 @@ export const SEARCH_HANDLE_GAP = 20;
  * SEARCH_HANDLE_GAP, so the steps of the loop, which rebuild the transcript, keep them clear),
  * each resolving to its message (channel and id) for the turn and its loop steps. `next()` is the
  * next free number, `take(shown)` registers the quoted lines the result kept
- * (`{ n, id, placeId, authorId, self, message }`), a number already held keeping its first line.
+ * (`{ n, id, placeId, authorId, self, message }`), a number already held keeping its first line, and
+ * `shown(placeId, id)` is the line a read of the turn registered for that message of that place, null for none.
  */
 export function searchHandles(draft: {
   searchRefs?: SearchRefs;
@@ -323,6 +324,7 @@ export function searchHandles(draft: {
   next(): number;
   advance(n: number): void;
   take(shown: Iterable<SearchRef>): void;
+  shown(placeId: string, id: string): SearchRef | null;
 } {
   const registry = (): SearchRefs =>
     (draft.searchRefs ??= {
@@ -338,6 +340,10 @@ export function searchHandles(draft: {
       const refs = registry();
       refs.next = Math.max(refs.next, n);
     },
+    shown: (placeId, id) =>
+      [...registry().byNumber.values()].find(
+        (ref) => !ref.stored && String(ref.placeId) === placeId && String(ref.id) === id
+      ) ?? null,
     take: (shown) => {
       const refs = registry();
       for (const ref of shown) {

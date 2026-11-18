@@ -802,6 +802,7 @@ export type TranscriptOptions = {
   channels?: Map<string, { handle: string; name: string }>;
   messageNumbers?: boolean;
   lineNumbers?: boolean;
+  heldNumbers?: ReadonlyMap<string, number>;
   skip?: (message: Untyped) => boolean;
   /**
    * The store's read of a stable name (src/memory/store-media-names.ts): a transcript read outside the request's own
@@ -982,6 +983,8 @@ function contentWithHandles(
  * @param [options.lineNumbers]  Default false: a message's own `lineNumber` (src/turn/history.ts) is its number
  *   when it is a whole number above the number of the message before it, and every other message takes the number
  *   after the one before it. Without it the messages are numbered on from `indexOffset`.
+ * @param [options.heldNumbers]  A message whose id it holds takes that number, and the numbers on from `indexOffset` go
+ *   to the others: a read of a turn keeps the number it showed a line under before (src/tools/conversation-read.ts).
  * @param [options.skip]  A message it holds true for keeps its
  *   number (`#index`, reply markers and message links to it read as that number) but renders no
  *   item, and a gap marker is measured from the last line that does render: the request builder
@@ -1070,7 +1073,7 @@ export function formatTranscript(
   }
   // A call mark takes no number: the messages alone are numbered, in their order.
   const numbered = messages.filter((message) => message?.kind !== 'call');
-  const indexById = numbersOf(numbered, indexOffset, options.lineNumbers === true);
+  const indexById = numbersOf(numbered, indexOffset, options.lineNumbers === true, options.heldNumbers);
   // A message link to a line of this list reads as that line's number (chat mode, `messageNumbers`).
   const linkNumbers = mode === 'chat' && options.messageNumbers === true;
   const byId = new Map(messages.map((message) => [message.id, message]));
@@ -1218,13 +1221,24 @@ function withLegend(
 }
 
 /**
- * The number of each message by its id, on from `offset`: with `own`, a message's `lineNumber` when it is a whole number
- * above the number before it (formatTranscript's `lineNumbers`), else the number after the one before it.
+ * The number of each message by its id, on from `offset`: the number `held` gives its id (formatTranscript's
+ * `heldNumbers`), else with `own` a message's `lineNumber` when it is a whole number above the number before it
+ * (formatTranscript's `lineNumbers`), else the number after the one before it.
  */
-function numbersOf(messages: Array<Record<string, Untyped>>, offset: number, own: boolean): Map<unknown, number> {
+function numbersOf(
+  messages: Array<Record<string, Untyped>>,
+  offset: number,
+  own: boolean,
+  held: ReadonlyMap<string, number> | undefined
+): Map<unknown, number> {
   const out = new Map<unknown, number>();
   let last = offset;
   for (const message of messages) {
+    const kept = held?.get(String(message.id));
+    if (kept !== undefined) {
+      out.set(message.id, kept);
+      continue;
+    }
     const given: unknown = own ? message.lineNumber : undefined;
     last = typeof given === 'number' && Number.isInteger(given) && given > last ? given : last + 1;
     out.set(message.id, last);

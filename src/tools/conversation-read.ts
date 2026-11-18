@@ -55,6 +55,8 @@ type TranscriptItem = { id: unknown; index: number; ts: number; text: string };
 
 /** The handle registry of the turn: the next number, and where the lines shown are registered. */
 export type HandleRefs = { next(): number; take(shown: Iterable<SearchRef>): void };
+/** The handle registry as a read uses it: also the line of a place the turn has shown, by its message id, null for none. */
+export type ReadRefs = HandleRefs & { shown(placeId: string, id: string): SearchRef | null };
 /** The newest messages a read without `last` returns, and the most one read may return. */
 export const READ_LAST_DEFAULT = 20;
 export const READ_LAST_MAX = 60;
@@ -179,6 +181,27 @@ export function pickSpan(all: ReadonlyArray<ReadMessage>, selection: ReadSelecti
     case 'last':
       return { slice: list.slice(-n), enough: list.length >= n };
   }
+}
+
+/**
+ * The anchor of `selection` as a read of the turn showed it in `placeId`, its message and its time, both null for a
+ * selection with no anchor and an anchor no read of the turn showed.
+ */
+function shownAnchor(
+  refs: ReadRefs | null,
+  placeId: string,
+  selection: ReadSelection
+): { line: ReadMessage | null; at: number | null } {
+  const message: unknown = refs && selection.anchor ? refs.shown(placeId, selection.anchor)?.message : null;
+  return isObj(message) && Number.isFinite(message.ts)
+    ? { line: message as ReadMessage, at: Number(message.ts) }
+    : { line: null, at: null };
+}
+
+/** `all` with the shown anchor among them, when they lack it. */
+function withAnchor(all: Array<ReadMessage>, anchor: ReadMessage | null): Array<ReadMessage> {
+  if (anchor === null || all.some((message) => idText(message.id) === idText(anchor.id))) return all;
+  return mergeById([anchor], all);
 }
 
 /** Messages by id, the later list's copy winning, oldest first. */
@@ -369,8 +392,9 @@ function openingDate(
  * date of the first one (openingDate), `.handles` when the
  * lines are numbered, `.cut` (`{dropped}`) when the room (`maxChars`) kept fewer than the span,
  * then `.earlier` / `.later` (`{n}`: the handle of the first / last line shown) as the ways to
- * read on; `.none` when the span is empty. With `refs` (`{ next(), take(shown) }`, the turn's
- * handle registry) each line starts with its `#N` handle numbered on from `refs.next()` and the
+ * read on; `.none` when the span is empty. With `refs` (`{ next(), take(shown), shown(placeId, id) }`, the turn's
+ * handle registry) each line starts with its `#N` handle, the number the turn showed it under when it has one, else
+ * numbered on from `refs.next()`, and the
  * lines that stayed in the text are registered (`{ n, id, placeId, authorId, self, deleted,
  * message }`); a line cut away never is. Otherwise pure.
  */
@@ -407,7 +431,7 @@ export function chatText(
     channelName?: string;
     render: Render | ((slice: ReadonlyArray<ReadMessage>) => Render);
     maxChars?: number;
-    refs?: HandleRefs | null;
+    refs?: ReadRefs | null;
     earlier?: boolean;
     later?: boolean;
     keep?: 'newest' | 'oldest';
@@ -423,12 +447,21 @@ export function chatText(
     return lines.join('\n');
   }
   const offset = refs ? refs.next() - 1 : 0;
+  // A line the turn has shown keeps its number; the others are numbered on from the next free one.
+  const heldNumbers: ReadonlyMap<string, number> = new Map(
+    (slice as Array<ReadMessage>).flatMap((message) => {
+      const held = refs?.shown(idText(placeId), idText(message.id));
+      return held ? [[idText(message.id), held.n] as const] : [];
+    })
+  );
   const options = typeof render === 'function' ? render(slice) : render;
   // The legend stands before the kept items, so the transcript itself renders none: a cut could drop its first item.
   const { mediaNameOf, ...shownOptions } = options;
   const items = formatTranscript(
     slice as Array<ReadMessage>,
-    { ...shownOptions, mediaNameOf: noLegend, indexOffset: offset } as Parameters<typeof formatTranscript>[1]
+    { ...shownOptions, mediaNameOf: noLegend, indexOffset: offset, heldNumbers } as Parameters<
+      typeof formatTranscript
+    >[1]
   );
   const byId = new Map(slice.map((message) => [idText(message.id), message]));
   // The room: whole items, from the far end of the span (the newest are kept for a read of the newest lines).
@@ -585,7 +618,7 @@ async function withFind(
     labels: unknown;
     placeId: string;
     render: Parameters<typeof chatText>[1]['render'];
-    refs: HandleRefs | null;
+    refs: ReadRefs | null;
     maxChars: number;
     openDate: boolean;
   }
@@ -613,7 +646,7 @@ function matchLines(
     labels: unknown;
     placeId: string;
     render: Parameters<typeof chatText>[1]['render'];
-    refs: HandleRefs | null;
+    refs: ReadRefs | null;
     maxChars: number;
     openDate: boolean;
   }
@@ -675,7 +708,8 @@ function authorsOf(slice: ReadonlyArray<ReadMessage>): Array<string> {
  * One conversation.read. `args`: `placeId` (default the caller's `placeId`), `around`, `before`,
  * `after` (message ids or counts), `since`, `last`. The caller supplies what only it knows:
  * `allowed(id)` (the audience rule and her rights: false hides the channel), `readRecord({ placeId,
- * from, mode })` (recordMessages over the turn's record, `mode` the selection's), `fetchLive({ placeId, mode, anchor, limit,
+ * from, mode, at })` (recordMessages over the turn's record, `mode` the selection's, `at` the moment of an anchor a read of
+ * the turn showed, else null), `fetchLive({ placeId, mode, anchor, limit,
  * minTs })` (the interface's history: `around`, `before`, `after`, `since` or the newest, normalized,
  * oldest first; `{ failed }` with the interface's code when it failed) `channelNameOf(id)` (the channel's name for the source line) and `render` (formatTranscript's options, or a function of the span giving them). The record is read
  * first, back through READ_LADDER_DAYS (a `since` from that moment); when it does not hold the span
@@ -714,7 +748,13 @@ export async function runConversationRead({
   channelNameOf?: ((id: string) => string | null | undefined) | null;
   allowed?: ((id: string) => boolean) | null;
   readRecord?:
-    ((request: { placeId: string; from: number; mode: ReadSelection['mode'] }) => Promise<Array<ReadMessage>>) | null;
+    | ((request: {
+        placeId: string;
+        from: number;
+        mode: ReadSelection['mode'];
+        at: number | null;
+      }) => Promise<Array<ReadMessage>>)
+    | null;
   fetchLive?:
     | ((request: {
         placeId: string;
@@ -725,7 +765,7 @@ export async function runConversationRead({
       }) => Promise<LiveLines>)
     | null;
   render: Render | ((slice: ReadonlyArray<ReadMessage>) => Render);
-  refs?: HandleRefs | null;
+  refs?: ReadRefs | null;
   now?: number;
   timezone?: string;
   maxChars?: number;
@@ -741,6 +781,10 @@ export async function runConversationRead({
     const selection = readSelection(args, { now, timezone: tz });
     if ('error' in selection) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: selection.error };
     if (typeof allowed === 'function' && !allowed(target)) return { status: 'denied', code: CODE.CHANNEL_NOT_VISIBLE };
+    // The anchor as a read of the turn showed it: the record is read around its moment, and it stays the anchor when
+    // neither the record nor the interface gives it back (a line the interface gave and the record does not hold, after
+    // which the interface has nothing newer).
+    const anchorShown = shownAnchor(refs, target, selection);
     let all: Array<ReadMessage> = [];
     let picked: Span = { slice: [], enough: false };
     const rungs =
@@ -748,7 +792,10 @@ export async function runConversationRead({
     // The newest stored line the reads met, when the caller has no read of its own for it.
     let newestSeen: number | null = null;
     for (const from of rungs) {
-      all = typeof readRecord === 'function' ? await readRecord({ placeId: target, from, mode: selection.mode }) : [];
+      all =
+        typeof readRecord === 'function'
+          ? await readRecord({ placeId: target, from, mode: selection.mode, at: anchorShown.at })
+          : [];
       newestSeen = newestOf(all, newestSeen);
       picked = pickSpan(all, selection);
       if (picked.enough) break;
@@ -771,6 +818,8 @@ export async function runConversationRead({
       }
     }
     if (picked.slice.length === 0 && asked && !Array.isArray(live)) return failedRead(live);
+    all = withAnchor(all, anchorShown.line);
+    picked = pickSpan(all, selection);
     if (selection.anchor && !all.some((message) => idText(message.id) === selection.anchor))
       return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: `args.${selection.mode}` };
     const reachedStart =
