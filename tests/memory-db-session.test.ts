@@ -1490,8 +1490,11 @@ test('every person of a batch is a subject: the people are paged over requests o
     assert.doesNotMatch(one, /id: <@u-bob>/);
     assert.match(two, /id: <@u-bob>/);
     assert.doesNotMatch(two, /id: <@u-ada>/);
-    const batchOf2 = (text: string) => text.slice(text.indexOf('<batch>'));
+    // The block `<batch>` alone: `<stretches>` after it stands on the batch's first request only, so that a stretch
+    // gets one sentence however many pages its batch takes.
+    const batchOf2 = (text: string) => text.slice(text.indexOf('<batch>'), text.indexOf('</batch>'));
     assert.equal(batchOf2(one), batchOf2(two), 'the same lines in each request');
+    assert.ok(one.includes('<stretches>') && !two.includes('<stretches>'), 'her stretch is listed on the first page');
     assert.deepEqual(
       env.db
         .prepare('SELECT action FROM decisions ORDER BY id')

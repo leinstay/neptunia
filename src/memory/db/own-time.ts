@@ -130,8 +130,19 @@ export function finishedRuns(
   return out;
 }
 
-/** One line of her own time as a batch line of the session: its run's rowid, the id it is stored under if cited. */
-export type OwnLine = Row & { rowid: number; id: string; kind: string; text: string; at: number; opens: boolean };
+/**
+ * One line of her own time as a batch line of the session: its run's rowid, the id it is stored under if cited, and its
+ * run in `turn_id`, the stretch it belongs to.
+ */
+export type OwnLine = Row & {
+  rowid: number;
+  id: string;
+  kind: string;
+  text: string;
+  at: number;
+  opens: boolean;
+  turn_id: string;
+};
 
 /**
  * The lines of the finished heartbeat runs after `cursor`, run by run, until `maxLines` lines are reached (one run at
@@ -155,6 +166,7 @@ export function ownBatchOf(
         text,
         at: Number.isFinite(at) ? at : 0,
         opens: n === 0,
+        turn_id: run.id,
         place_id: null,
         author_account: null,
       })

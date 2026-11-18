@@ -1448,7 +1448,7 @@
         "complexity": 21
       },
       "applyMemoryWrite><anonymous>": {
-        "complexity": 45
+        "complexity": 43
       }
     },
     "src/memory/db/session.ts": {

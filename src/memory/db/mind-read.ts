@@ -1229,7 +1229,8 @@ function episodesOf(db: Db, walker: Walker, recent: Map<string, Raised>): Array<
   const out: Array<Built> = [];
   const where = walker.aud('e');
   const read = db.prepare(
-    `SELECT e.id, e.place_id, e.date, e.what, e.created_at FROM episodes e WHERE e.id = ? AND e.retired_at IS NULL AND ${where.sql}`
+    `SELECT e.id, e.place_id, e.date, e.what, e.created_at FROM episodes e
+       WHERE e.id = ? AND e.retired_at IS NULL AND e.kind IS NOT 'stretch' AND ${where.sql}`
   );
   for (const [id, raised] of recent) {
     const row = read.get(id, ...where.params);

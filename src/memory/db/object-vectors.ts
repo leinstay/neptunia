@@ -77,7 +77,10 @@ export function objectChunkKey(kind: ObjectKind, itemId: string, audienceId: str
 /** The text of an object from its two text columns: an episode's `what`, then its `quote` on its own line. */
 const textOf = (first: unknown, second: unknown): string => [first, second].filter(filled).join('\n');
 
-/** The live claim, description or episode a vector reads, with its text, audience and scope; null when it has none. */
+/**
+ * The live claim, description or episode a vector reads, with its text, audience and scope; null when it has none. A
+ * stretch's sentence (stretches.ts) is no episode a recall lists, so it has no vector.
+ */
 const CURRENT_SQL: Readonly<Record<Exclude<ObjectKind, 'names'>, string>> = {
   claim: `SELECT c.text AS first, NULL AS second, c.audience_id, c.scope_kind, c.scope_iface, c.scope_dm FROM claims c
     WHERE c.id = ? AND c.retired_at IS NULL AND c.superseded_by IS NULL AND c.kind IS NOT 'alias'
@@ -86,7 +89,7 @@ const CURRENT_SQL: Readonly<Record<Exclude<ObjectKind, 'names'>, string>> = {
     FROM descriptions d JOIN description_versions v ON v.id = d.current_version
     WHERE d.id = ? AND d.retired_at IS NULL AND d.subject_kind IN ${DESCRIBED}`,
   episode: `SELECT e.what AS first, e.quote AS second, e.audience_id, e.scope_kind, e.scope_iface, e.scope_dm
-    FROM episodes e WHERE e.id = ? AND e.retired_at IS NULL`,
+    FROM episodes e WHERE e.id = ? AND e.retired_at IS NULL AND e.kind IS NOT 'stretch'`,
 };
 
 type Current = { text: string; audienceId: string; scope: Row };
@@ -128,7 +131,7 @@ const PENDING_SQL = `
   UNION ALL
   SELECT 'episode', e.id, e.audience_id, e.what, e.quote, COALESCE(e.created_at, '')
     FROM episodes e
-   WHERE e.retired_at IS NULL AND trim(COALESCE(e.what, '') || COALESCE(e.quote, '')) <> ''
+   WHERE e.retired_at IS NULL AND e.kind IS NOT 'stretch' AND trim(COALESCE(e.what, '') || COALESCE(e.quote, '')) <> ''
      AND NOT EXISTS (SELECT 1 FROM vectors v WHERE v.chunk_key = 'episode:' || e.id || ':' || :model)
   UNION ALL
   SELECT 'names', n.node_id, n.audience_id, NULL, NULL, COALESCE(MIN(g.created_at), '')

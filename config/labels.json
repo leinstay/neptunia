@@ -383,6 +383,9 @@
       "redaction": "someone",
       "placeUnwritten": "[{handle}] fields not written yet: {fields}",
       "ownTime": "{time} your own time: nobody called you, and these are your thoughts and calls in order",
+      "stretch": "[{handle}] {place} from {first} to {last}, lines #{from} to #{to}",
+      "stretchOwn": "[{handle}] your own time at {first}, lines #{from} to #{to}",
+      "stretchStored": ". Its sentence so far: {what}",
       "origin": {
         "native": "named in the message you answer",
         "reply": "the message you answer replies to it",
@@ -569,7 +572,8 @@
       "heartbeatSetHidden": "you set an intention",
       "heartbeatNothing": "it ended with nothing set",
       "diary": "[{time}] you wrote a diary entry of the kind {kind}",
-      "diaryNoKind": "[{time}] you wrote a diary entry"
+      "diaryNoKind": "[{time}] you wrote a diary entry",
+      "about": ". What it was about: {what}"
     },
     "calls": {
       "header": "Your calls today ({date}), oldest first:",

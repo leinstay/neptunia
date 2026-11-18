@@ -93,6 +93,8 @@ type Seed = {
   request(turn: string, when: number, calls: ReadonlyArray<[string, Record<string, unknown>]>): void;
   /** A stored diary entry of `kind` at `when`, written by `turn`. */
   entry(id: string, kind: string, when: number, turn?: string): void;
+  /** The memory session's sentence `what` of a stretch from `from` to `to` held by the place or the run `holder`. */
+  sentence(holder: string, from: number, to: number, what: string): void;
 };
 
 let lineIds = 0;
@@ -251,6 +253,24 @@ function world(seed: (s: Seed) => void = () => {}) {
           }))
         )
       );
+    },
+    sentence(holder, from, to, what) {
+      const place = holder in CHAT ? holder : null;
+      insertRows(db, {
+        episodes: [
+          {
+            id: `stretch:${holder}:${from}`,
+            kind: 'stretch',
+            writer: 'stretch',
+            holder_id: holder,
+            place_id: place,
+            start_ms: from,
+            last_ms: to,
+            what,
+            ...(place ? scopeOf(place) : { scope_kind: 'group', scope_iface: 'discord', scope_dm: null }),
+          },
+        ],
+      });
     },
     entry(id, kind, when, turn) {
       insertRows(db, {
@@ -670,4 +690,47 @@ test('a thing made by the turn an entry names goes to that entry, however long a
   const lines = events(w.day());
   assert.equal(lines.length, 1, lines.join('\n'));
   assert.ok(lines[0]?.includes('selfie') && lines[0].includes(PICTURE), lines[0]);
+});
+
+test("a conversation's line and an own-time line end with the stored sentence, and a conversation with none reads as before", () => {
+  // Bug: the day reads as a timetable although memory holds what a stretch was about, or a sentence lands on another event.
+  const about = (what: string): string => fill(String(labels.myDay.about), { what });
+  const plain = world((s) => {
+    s.herLine(SALON, at(11, 0));
+  });
+  const [salonBefore = ''] = events(plain.day());
+  const w = world((s) => {
+    s.herLine(CAFE, at(10, 0));
+    s.herLine(CAFE, at(10, 20));
+    s.herLine(SALON, at(11, 0));
+    s.sentence(CAFE, at(9, 50), at(10, 20), 'ΓΙΑ-ΤΟΝ-ΚΑΦΕ');
+    s.sentence(SALON, at(9, 30), at(9, 40), 'ΠΑΛΙΑ');
+    s.wakeRun('hb-1', 'heartbeat', at(9, 0));
+    s.sentence('hb-1', at(9, 0), at(9, 0), 'ΒΡΗΚΑ-ΑΣΤΕΡΙΑ');
+  });
+  const lines = events(w.day());
+  const cafe = lines.find((line) => line.includes('café')) ?? '';
+  const salon = lines.find((line) => line.includes('salon')) ?? '';
+  const own = lines.find((line) => line.includes('09:00')) ?? '';
+  assert.ok(cafe.endsWith(about('ΓΙΑ-ΤΟΝ-ΚΑΦΕ')), cafe);
+  assert.ok(own.endsWith(about('ΒΡΗΚΑ-ΑΣΤΕΡΙΑ')), own);
+  assert.equal(salon, salonBefore, 'a sentence of an earlier stretch of the place is not this one');
+});
+
+test("an intention's line ends with the sentence of the stretch that holds the lines its turn sent, and one that sent none has none", () => {
+  // Bug: the intention's lines are left out of the conversations, so the sentence stored for them is told nowhere.
+  const about = fill(String(labels.myDay.about), { what: 'ΓΙΑ-ΤΗΝ-ΠΡΟΘΕΣΗ' });
+  const w = world((s) => {
+    s.intention('i-1', 'ΣΚΟΠΟΣ-ΕΝΑ');
+    s.wakeRun('w-int', 'intention_due', at(10, 42), ['i-1']);
+    s.herLine(CAFE, at(10, 42), 'w-int');
+    s.herLine(CAFE, at(10, 44));
+    s.sentence(CAFE, at(10, 42), at(10, 44), 'ΓΙΑ-ΤΗΝ-ΠΡΟΘΕΣΗ');
+    s.wakeRun('w-quiet', 'intention_due', at(10, 50), ['i-1']);
+  });
+  const lines = events(w.day());
+  const sent = lines.find((line) => line.includes('[10:42]')) ?? '';
+  const quiet = lines.find((line) => line.includes('[10:50]')) ?? '';
+  assert.ok(sent.endsWith(about), lines.join('\n'));
+  assert.ok(!quiet.includes('ΓΙΑ-ΤΗΝ-ΠΡΟΘΕΣΗ'), quiet);
 });
