@@ -54,7 +54,7 @@ The chain of routes each model role runs on, the one place a role's key, harness
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.routes` | map | `{}` | The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `search`, `humanizer.linter`, `humanizer.writer`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role's model is the model of its first route. A role with no entry has no route, and an optional role with no entry or an empty array is off. `/model set`, `/model add` and `/model remove` write it | `src/llm/route-chain.ts` |
+| `models.routes` | map | `{}` | The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `search`, `humanizer.linter`, `humanizer.writer`, `diary.scene`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role's model is the model of its first route. A role with no entry has no route, `diary.scene` with none takes the chain of `analyzer`, and an optional role with no entry or an empty array is off. `/model set`, `/model add` and `/model remove` write it | `src/llm/route-chain.ts` |
 
 ## llm
 

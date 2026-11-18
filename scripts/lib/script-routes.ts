@@ -5,8 +5,8 @@
 // subscription client of src/subharness/subscription-client.ts and the memory writer client of
 // src/subharness/memory-writer.ts. A flag `--<role> <route>` replaces one model role's whole chain for this run alone
 // and writes nothing to any file: `<key>/<model>[:<effort>]` sends the role on that key of keys.json with that model,
-// and `harness:<backend>/<model>[:<effort>]` sends `core` or `memory` through a connected `claude` or `codex`; the text
-// is read by src/llm/route-text.ts.
+// and `harness:<backend>/<model>[:<effort>]` sends `core`, `memory` or `diary.scene` through a connected `claude` or
+// `codex`; the text is read by src/llm/route-text.ts.
 // `--variant "<flags>"` runs the same inputs on several such setups in one run, and `sideBySide` and `sideBySideText`
 // lay their answers side by side per input. A refusal is a CliError of one line that names the tool and a code
 // (`route-malformed`, `route-unsupported`, `key-unknown`, `harness-not-connected`, `variant-unsupported`), raised before
@@ -24,7 +24,7 @@ import type { KeyRing } from '../../src/keys/ring.ts';
 import { createKeyStore } from '../../src/keys/store.ts';
 import { createChainClient, createRouteChainOf } from '../../src/llm/chain-client.ts';
 import type { CompleteResult } from '../../src/llm/openrouter.ts';
-import { roleModel, searchModel } from '../../src/llm/roles.ts';
+import { DIARY_SCENE_ROLE, roleModel, searchModel } from '../../src/llm/roles.ts';
 import { harnessEffort, isRefusal, parseRouteText } from '../../src/llm/route-text.ts';
 import type { Route, RouteEffort } from '../../src/llm/route-text.ts';
 import { MAX_FRAME_BYTES, wrapSocket } from '../../src/protocol/wire.ts';
@@ -54,6 +54,7 @@ export const ROUTE_ROLES = [
   'drawing',
   'embedding',
   'search',
+  'diary.scene',
 ] as const;
 export type RouteRole = (typeof ROUTE_ROLES)[number];
 
@@ -377,7 +378,8 @@ export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>)
       return { estimated: 0, ...done, text: typeof done.text === 'string' ? done.text : '', usage: done.usage ?? {} };
     },
   };
-  executor = (role) => (role === 'core' ? core : role === 'memory' ? memory : direct);
+  // The diary's scene helper is a one-shot request with a system text, which the memory writer's client runs on a harness.
+  executor = (role) => (role === 'core' ? core : role === 'memory' || role === DIARY_SCENE_ROLE ? memory : direct);
   const llm: Direct = { complete: (messages, options) => chain.complete(messages, options) };
   return { said, ring, keyOf: (role) => chain.keyOf(role), llm, memoryPath, routes, close: () => socket.close() };
 }

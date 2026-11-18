@@ -12,7 +12,7 @@
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, rewatch, split, media-pick, missed),
 //                plans a search and turns sources into notes (query-builder, recall-summary,
-//                search-summary, diary-planner) and builds a diary scene (diary-scene);
+//                search-summary, diary-planner);
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
@@ -53,6 +53,14 @@ export function searchModel(config: unknown): string | undefined {
 export const HUMANIZER_LINTER_ROLE = 'humanizer.linter';
 export const HUMANIZER_WRITER_ROLE = 'humanizer.writer';
 export const HUMANIZER_ROLES: ReadonlyArray<string> = Object.freeze([HUMANIZER_LINTER_ROLE, HUMANIZER_WRITER_ROLE]);
+
+/**
+ * The diary's scene helper (docs/diary.md), a role of its own whose chain is the analyzer's while it has no route of its
+ * own, so its model is the analyzer's until one is set.
+ */
+export const DIARY_SCENE_ROLE = 'diary.scene';
+/** The role whose chain and model the scene role takes while it has no route. */
+export const DIARY_SCENE_FALLBACK = 'analyzer';
 
 /** The model roles other than `core` that a turn calls, in display order. */
 export const NON_CORE_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'embedding', 'speech']);
@@ -124,7 +132,6 @@ export const PURPOSE_ROLES = Object.freeze({
   'query-builder': 'analyzer',
   'recall-summary': 'analyzer',
   'diary-planner': 'analyzer',
-  'diary-scene': 'analyzer',
   speech: 'analyzer',
   // Usage rows and `models.byPurpose` pins written before quick search took its own name still read as this.
   'web-search': 'analyzer',
@@ -170,6 +177,7 @@ export function roleModel(config: unknown, role: string, purpose?: string): stri
     if (typeof pinned === 'string' && pinned) return pinned;
   }
   if (HUMANIZER_ROLES.includes(role)) return chainModel(models, role);
+  if (role === DIARY_SCENE_ROLE) return chainModel(models, role) ?? roleModel(config, DIARY_SCENE_FALLBACK);
   if (!isModelRole(role)) return undefined;
   return chainModel(models, role) ?? (role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role]);
 }

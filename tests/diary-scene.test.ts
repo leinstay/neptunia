@@ -47,7 +47,7 @@ test('sends the prompt file as the system message and only the kind, the sets an
   const [call] = llm.calls;
   assert.equal(call.messages.length, 2);
   assert.deepEqual(call.messages[0], { role: 'system', content: PROMPT });
-  const user = call.messages[1].content;
+  const [, { content: user }] = call.messages;
   const tags = [...user.matchAll(/^<(\w+)>$/gm)].map((match) => match[1]);
   assert.deepEqual(tags, ['kind', 'sets', 'now']);
   assert.match(user, /<kind>\nstatus\n<\/kind>/);
@@ -55,16 +55,25 @@ test('sends the prompt file as the system message and only the kind, the sets an
   assert.match(user, /<now>\n.*Wednesday.*14:00/);
   assert.ok(!user.includes(CARD));
   assert.equal(call.options.purpose, 'diary-scene');
-  assert.equal(call.options.role, 'analyzer');
+  // Changed: the helper has a model role of its own, which takes the analyzer's chain while it has no route.
+  assert.equal(call.options.role, 'diary.scene');
   assert.equal(call.options.model, 'x/scene-model');
 });
 
-test('sends the request on the role it is given, so two models can be compared on one set', async () => {
-  // Bug: the role is fixed, and a run meant for the core model goes to the analyzer.
-  const llm = fakeLlm(JSON.stringify({ set: 1, used: ['a pier'], scene: 'A pier in fog.' }));
-  await buildScene({ hot, llm, kind: 'status', sets: SETS, now: NOW, timezone: 'UTC', role: 'core' });
-  assert.equal(llm.calls[0].options.role, 'core');
-  assert.equal(llm.calls[0].options.purpose, 'diary-scene');
+test("takes the analyzer's model while the scene role has no route, and its own once it has one", async () => {
+  // Bug: the scene role with no route goes out with no model, or keeps the analyzer's after it got its own.
+  const answer = JSON.stringify({ set: 1, used: ['a pier'], scene: 'A pier in fog.' });
+  const analyzer = [{ via: 'api', key: 'main', model: 'x/analyzer' }];
+  const own = [{ via: 'harness', backend: 'claude', model: 'scene-model' }];
+  const models = [];
+  for (const routes of [{ analyzer }, { analyzer, 'diary.scene': own }]) {
+    const llm = fakeLlm(answer);
+    const at = { config: { models: { routes } }, prompts: hot.prompts };
+    await buildScene({ hot: at, llm, kind: 'status', sets: SETS, now: NOW, timezone: 'UTC' });
+    const [{ options }] = llm.calls;
+    models.push(options.model);
+  }
+  assert.deepEqual(models, ['x/analyzer', 'scene-model']);
 });
 
 test('reads the answer of a model that wraps its JSON in a code fence', async () => {
@@ -79,15 +88,15 @@ test('reads the answer of a model that wraps its JSON in a code fence', async ()
 test('returns the set, the kept lines, the scene and the tokens of a valid answer', async () => {
   // Bug: the chosen set or its lines are lost, or the tokens are not read.
   const { result } = run(JSON.stringify({ set: 2, used: ['a roof', 'rain'], scene: ' A wet roof at noon. ' }));
-  const scene = await result;
-  assert.equal(scene.ok, true);
-  assert.deepEqual(scene.ok && { set: scene.set, used: scene.used, scene: scene.scene }, {
+  const got = await result;
+  assert.equal(got.ok, true);
+  assert.deepEqual(got.ok && { set: got.set, used: got.used, scene: got.scene }, {
     set: 2,
     used: ['a roof', 'rain'],
     scene: 'A wet roof at noon.',
   });
-  assert.deepEqual(scene.tokens, { in: 120, out: 40 });
-  assert.deepEqual(scene.sets, SETS);
+  assert.deepEqual(got.tokens, { in: 120, out: 40 });
+  assert.deepEqual(got.sets, SETS);
 });
 
 test('takes set 0 with no lines and an empty scene as no set working', async () => {

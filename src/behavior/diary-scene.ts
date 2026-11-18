@@ -1,4 +1,4 @@
-// The diary's scene helper: one `analyzer` request with the purpose `diary-scene` that builds a scene for one entry
+// The diary's scene helper: one request on the role `diary.scene` with the purpose `diary-scene` that builds a scene for one entry
 // from numbered seed sets, a place with its circumstances and nothing of what the persona does or feels. Its system
 // message is the task text `prompts/diary-scene.md`, never the persona, and its one user message holds `<kind>`,
 // `<sets>` and `<now>` alone. scripts/diary-scenes.ts runs it to calibrate the prompt; nothing in a turn calls it.
@@ -8,7 +8,7 @@ import { parseSeedFamilies, pickSeeds } from './seeds.ts';
 import { formatNow } from '../format.ts';
 import { DailyCapError, TokenLimitError, roleRequestOptions } from '../llm/openrouter.ts';
 import { parseJsonObject } from '../llm/parse.ts';
-import { roleModel } from '../llm/roles.ts';
+import { DIARY_SCENE_ROLE, roleModel } from '../llm/roles.ts';
 import { block } from '../turn/request/text.ts';
 
 /** The kinds of entry a scene is built for. */
@@ -84,8 +84,8 @@ const SCENE_FORMAT = {
 };
 
 /**
- * The JSON object of an answer, null when it holds none. A route with no strict response format, the core model through
- * a harness, wraps its JSON in a code fence, so the object is read out of the text around it.
+ * The JSON object of an answer, null when it holds none. A harness route takes no strict response format and may wrap
+ * its JSON in a code fence, so the object is read out of the text around it.
  */
 function answerObject(text: unknown): Record<string, unknown> | null {
   try {
@@ -134,14 +134,11 @@ function tokensOf(completion: Completion): SceneTokens {
 }
 
 /**
- * One scene for `kind` over `sets` (drawSceneSets) at the moment `now` in `timezone`: the request of the helper on
- * `role` (the `analyzer` unless the caller names the `core` to compare the two), its prompt `prompts['diary-scene']` and its settings read from `hot` at the moment of use. A request
- * or token cap throws; any other failure of the request is `request-failed`. Throws for a kind outside SCENE_KINDS.
+ * One scene for `kind` over `sets` (drawSceneSets) at the moment `now` in `timezone`: the request of the helper on the
+ * role `diary.scene`, which takes the analyzer's chain while it has no route, its prompt `prompts['diary-scene']` and
+ * its settings read from `hot` at the moment of use. A request or token cap throws; any other failure of the request is
+ * `request-failed`. Throws for a kind outside SCENE_KINDS.
  */
-/** The model roles a scene request may go out on. */
-export const SCENE_ROLES = ['analyzer', 'core'] as const;
-export type SceneRole = (typeof SCENE_ROLES)[number];
-
 export async function buildScene({
   hot,
   llm,
@@ -149,7 +146,6 @@ export async function buildScene({
   sets,
   now,
   timezone,
-  role = 'analyzer',
 }: {
   hot: { config: unknown; prompts: Record<string, unknown> | null | undefined };
   llm: SceneLlm;
@@ -157,7 +153,6 @@ export async function buildScene({
   sets: Array<Array<string>>;
   now: number;
   timezone: string;
-  role?: SceneRole;
 }): Promise<SceneResult> {
   if (!isSceneKind(kind))
     throw new Error(`diary scene: kind "${kind}" gets no scene; use one of ${SCENE_KINDS.join(', ')}`);
@@ -176,9 +171,9 @@ export async function buildScene({
         { role: 'user', content: user },
       ],
       {
-        model: roleModel(config, role, PURPOSE),
+        model: roleModel(config, DIARY_SCENE_ROLE, PURPOSE),
         ...roleRequestOptions(config, {
-          role,
+          role: DIARY_SCENE_ROLE,
           maxOutputTokens: MAX_OUTPUT_TOKENS,
           purpose: PURPOSE,
           timeoutMs: TIMEOUT_MS,

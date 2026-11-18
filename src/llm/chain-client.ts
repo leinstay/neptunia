@@ -120,7 +120,10 @@ export function createChainClient(deps: ChainClientDeps): ChainClient {
       // `disabled` reaches claude with no effort, so the run is told whether the effort asks for native thinking.
       const thinking = route.effort === null ? {} : { isThinking: route.effort !== 'disabled' };
       const chainRoute = { ...route, effort: harnessEffort(route.effort, route.backend), ...thinking };
-      return { ...asked, chainRoute, ...counting };
+      // A CLI run takes no response format, so the caller reads the JSON out of the text around it.
+      const sent: Rec = { ...asked, chainRoute, ...counting };
+      delete sent.responseFormat;
+      return sent;
     }
     const sent: Rec = { ...asked, chainRoute: route, ...counting };
     sent.routeKey = { name: route.key, value: deps.keys.valueOf(route.key) ?? '' };

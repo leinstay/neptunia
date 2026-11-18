@@ -410,6 +410,37 @@ test('a harness route on memory sends a memory request through the writer run an
   });
 });
 
+test("the diary's scene role goes out on the analyzer's key while it has no route", async () => {
+  // Catches: a scene request with no route of its own refused as a role with no key, so no diary scene is built.
+  const { deps, sent } = rig();
+  const routing = await scriptRouting('diary-scenes', deps({}, ['diary.scene']));
+  await routing.llm.complete(MESSAGES, { role: 'diary.scene', purpose: 'diary-scene', timeoutMs: 1000 });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].key, ANALYZER_KEY);
+});
+
+test("a flag on the diary's scene role sends it on a key or through a harness", async () => {
+  // Catches: the scene role refused a harness route, or its key flag left the request on the analyzer's key.
+  const onKeyRig = rig();
+  const keyed = await scriptRouting(
+    'diary-scenes',
+    onKeyRig.deps({ 'diary.scene': parseRoute('t', 'diary.scene', 'helpers/vendor/scene-model') }, ['diary.scene'])
+  );
+  await keyed.llm.complete(MESSAGES, { role: 'diary.scene', purpose: 'diary-scene', timeoutMs: 1000 });
+  const [keyedSent] = onKeyRig.sent;
+  assert.equal(keyedSent.key, HELPERS_KEY);
+  const onHarness = rig();
+  const harnessed = await scriptRouting(
+    'diary-scenes',
+    onHarness.deps({ 'diary.scene': parseRoute('t', 'diary.scene', 'harness:claude/claude-opus-4-8:low') }, [
+      'diary.scene',
+    ])
+  );
+  await harnessed.llm.complete(MESSAGES, { role: 'diary.scene', purpose: 'diary-scene', timeoutMs: 1000 });
+  assert.equal(onHarness.childRuns.length, 1);
+  assert.equal(onHarness.sent.length, 0);
+});
+
 test('the start lines name one role each with its key name or harness and model, never a key value', async () => {
   // Catches: a line that prints the key value, or a role the script spends left out of the lines.
   const { deps } = rig({ memory: { backend: 'codex', model: 'gpt-6.1-sol', effort: 'high' } });

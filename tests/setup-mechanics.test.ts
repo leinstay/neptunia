@@ -76,7 +76,8 @@ test('each question offers the value in force, so an empty answer keeps it', asy
   const r = rig({ heartbeat: { enabled: false } });
   r.answers = ['', 'off'];
   await mechanicsStep(r.options, r.deps);
-  assert.equal(r.asked[0]?.offered, 'off');
+  const [first] = r.asked;
+  assert.equal(first?.offered, 'off');
   assert.equal(local(r.options.privateDir).heartbeat?.enabled, false);
 });
 
@@ -88,4 +89,48 @@ test('a rerun that changes nothing is already done and leaves the file as it was
   const outcome = await mechanicsStep(r.options, r.deps);
   assert.equal(outcome.state, 'already');
   assert.equal(fs.readFileSync(configFile(r.options.privateDir), 'utf8'), before);
+});
+
+/** Writes a keys.json that names `names` to the rig's private folder. */
+const withKeys = (r: Rig, names: Array<string>): void =>
+  fs.writeFileSync(
+    path.join(r.options.privateDir, 'keys.json'),
+    JSON.stringify({ keys: Object.fromEntries(names.map((name) => [name, `sk-${name}-0001`])) })
+  );
+
+test("with the diary on, the step stores the route of the diary's scene role on a configured key", async () => {
+  // Catches: the diary's helper asked for its model and left on the analyzer, or a route stored with no switch.
+  const r = rig({ diary: { enabled: false } });
+  withKeys(r, ['helpers']);
+  r.answers = ['', 'on', '', 'helpers/vendor/scene-model:low'];
+  const outcome = await mechanicsStep(r.options, r.deps);
+  const config = local(r.options.privateDir);
+  assert.equal(outcome.state, 'done');
+  assert.equal(config.diary?.enabled, true);
+  const routes = (config.models as { routes?: Record<string, Array<Record<string, unknown>>> } | undefined)?.routes;
+  assert.deepEqual(routes?.['diary.scene'], [
+    { via: 'api', key: 'helpers', model: 'vendor/scene-model', effort: 'low' },
+  ]);
+  const sceneQuestion = r.asked[3];
+  assert.match(sceneQuestion?.question ?? '', /helpers/);
+});
+
+test("the scene role's route is refused on a key keys.json lacks or a harness that is not connected", async () => {
+  // Catches: a route stored that can never run, so every scene fails on a key or a login that is not there.
+  for (const answer of ['other/vendor/scene-model', 'harness:claude/some-model']) {
+    const r = rig({ diary: { enabled: true } });
+    withKeys(r, ['helpers']);
+    r.answers = ['', '', '', answer, answer, answer];
+    await mechanicsStep(r.options, r.deps);
+    assert.equal(local(r.options.privateDir).models, undefined, answer);
+  }
+});
+
+test("with the diary off, the step asks for no route of the diary's scene role", async () => {
+  // Catches: a model question for a mechanic the owner just switched off.
+  const r = rig({ diary: { enabled: true } });
+  withKeys(r, ['helpers']);
+  r.answers = ['', 'off', ''];
+  await mechanicsStep(r.options, r.deps);
+  assert.equal(r.asked.length, 3);
 });

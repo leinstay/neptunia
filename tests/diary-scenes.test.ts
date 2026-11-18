@@ -46,7 +46,8 @@ test('sends the prompt file as the system message and no character text, on the 
     await run(['--kinds', 'status', '--count', '1', '--seed', 'a']);
     const tracked = fs.readFileSync(path.join(ROOT, 'prompts', 'diary-scene.md'), 'utf8');
     const [call] = llm.calls;
-    assert.equal(call.messages[0].content, tracked.trim());
+    const [system] = call.messages;
+    assert.equal(system.content, tracked.trim());
     assert.ok(!call.messages.some((message) => message.content.includes(CARD)));
     assert.equal(call.options.origin, 'replay');
     assert.equal(call.options.countAgainstDailyCap, false);
@@ -59,8 +60,25 @@ test('asks for the model of the route a flag names, so two models can be compare
   // Bug: the flag replaces the route and the request still names the configured model, so the run tests the old one.
   const { llm, run, done } = setup();
   try {
-    await run(['--kinds', 'status', '--count', '1', '--seed', 'a', '--analyzer', 'helpers/vendor/other-model:medium']);
-    assert.equal(llm.calls[0].options.model, 'vendor/other-model');
+    // Changed: the helper's own role takes the flag, in place of the analyzer.
+    const flag = ['--diary.scene', 'helpers/vendor/other-model:medium'];
+    await run(['--kinds', 'status', '--count', '1', '--seed', 'a', ...flag]);
+    const [{ options }] = llm.calls;
+    assert.equal(options.role, 'diary.scene');
+    assert.equal(options.model, 'vendor/other-model');
+  } finally {
+    done();
+  }
+});
+
+test("takes a harness route for the helper's role, so a harness model can be compared on one seed", async () => {
+  // Bug: the role runs on a key only, and the tool refuses the flag of a harness model.
+  const { llm, run, done } = setup();
+  try {
+    await run(['--kinds', 'status', '--count', '1', '--seed', 'a', '--diary.scene', 'harness:claude/some-model:low']);
+    assert.equal(llm.calls.length, 1);
+    const [{ options }] = llm.calls;
+    assert.equal(options.role, 'diary.scene');
   } finally {
     done();
   }
@@ -104,7 +122,8 @@ test('lays a variant of the prompt from --prompts over the prompts', async () =>
     fs.mkdirSync(variant);
     fs.writeFileSync(path.join(variant, 'diary-scene.md'), 'A VARIANT OF THE TASK');
     await run(['--kinds', 'randomSet', '--count', '1', '--prompts', variant]);
-    assert.equal(llm.calls[0].messages[0].content, 'A VARIANT OF THE TASK');
+    const [{ messages }] = llm.calls;
+    assert.equal(messages[0].content, 'A VARIANT OF THE TASK');
   } finally {
     done();
   }
@@ -122,9 +141,10 @@ test('writes a report with the chosen set, its kept lines marked, the scene and 
     const [result] = printed.photoset;
     const kept = report.indexOf(`[x] ${result.used[0]}`);
     const scene = report.indexOf('A quiet scene.');
-    const passed = report.indexOf(result.sets[7].join('; '));
+    const { sets } = result;
+    const passed = report.indexOf(sets[7].join('; '));
     assert.ok(report.indexOf('photoset') < kept && kept < scene && scene < passed);
-    assert.ok(!report.includes(result.sets[0].join('; ')));
+    assert.ok(!report.includes(sets[0].join('; ')));
   } finally {
     done();
   }

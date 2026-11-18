@@ -366,3 +366,14 @@ test('a local chain over the tracked config turns that role on and leaves the ot
   assert.equal(roleModel(config, 'drawing'), 'openai/gpt-image-x');
   assert.deepEqual(offRoles(config), ['vision', 'video', 'speech']);
 });
+
+test("roleModel: the diary's scene role takes the analyzer's model while it has no chain, and its own once it has one", () => {
+  // Catches: a scene role with no route left with no model, or kept on the analyzer's after it got its own.
+  const analyzer = on('analyzer', 'x/analyzer');
+  assert.equal(roleModel({ models: { routes: analyzer } }, 'diary.scene'), 'x/analyzer');
+  assert.equal(roleModel(undefined, 'diary.scene'), ROLE_DEFAULTS.analyzer);
+  assert.equal(
+    roleModel({ models: { routes: { ...analyzer, ...on('diary.scene', 'x/scene') } } }, 'diary.scene'),
+    'x/scene'
+  );
+});

@@ -844,10 +844,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/setup-mechanics.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/setup-readiness.test.ts": {
       "deep": 1,
       "repeated": 0
