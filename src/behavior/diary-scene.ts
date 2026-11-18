@@ -1,4 +1,4 @@
-// The diary's scene helper: one request on the role `diary.director` with the purpose `diary-scene` that builds a scene for one entry
+// The diary's scene helper: one request on the role `director` with the purpose `diary-scene` that builds a scene for one entry
 // from numbered seed sets, a place with its circumstances and nothing of what the persona does or feels. Its system
 // message is the task text `prompts/diary-scene.md`, never the persona, and its one user message holds `<kind>`,
 // `<sets>` and `<now>` alone. scripts/diary-scenes.ts runs it to calibrate the prompt; nothing in a turn calls it.
@@ -135,7 +135,7 @@ function tokensOf(completion: Completion): SceneTokens {
 
 /**
  * One scene for `kind` over `sets` (drawSceneSets) at the moment `now` in `timezone`: the request of the helper on the
- * role `diary.director`, which takes the analyzer's chain while it has no route, its prompt `prompts['diary-scene']` and
+ * role `director`, which takes the analyzer's chain while it has no route, its prompt `prompts['diary-scene']` and
  * its settings read from `hot` at the moment of use. A request or token cap throws; any other failure of the request is
  * `request-failed`. Throws for a kind outside SCENE_KINDS.
  */

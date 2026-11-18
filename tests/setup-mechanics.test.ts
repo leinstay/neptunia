@@ -108,9 +108,7 @@ test("with the diary on, the step stores the route of the diary's director role 
   assert.equal(outcome.state, 'done');
   assert.equal(config.diary?.enabled, true);
   const routes = (config.models as { routes?: Record<string, Array<Record<string, unknown>>> } | undefined)?.routes;
-  assert.deepEqual(routes?.['diary.director'], [
-    { via: 'api', key: 'helpers', model: 'vendor/scene-model', effort: 'low' },
-  ]);
+  assert.deepEqual(routes?.['director'], [{ via: 'api', key: 'helpers', model: 'vendor/scene-model', effort: 'low' }]);
   const sceneQuestion = r.asked[3];
   assert.match(sceneQuestion?.question ?? '', /helpers/);
 });

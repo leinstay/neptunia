@@ -411,25 +411,25 @@ test("the diary's director role walks the analyzer's chain while it has no route
   // scene role got a route.
   const analyzer = [{ via: 'api', key: 'helpers', model: 'openai/gpt-6.1-sol' }];
   const fallback = rig({ models: { routes: { analyzer } } });
-  await fallback.client.complete(MESSAGES, { role: 'diary.director' });
+  await fallback.client.complete(MESSAGES, { role: 'director' });
   assert.deepEqual(optionsOf(fallback.asked, 0).routeKey, { name: 'helpers', value: KEYS.helpers });
   const own = rig({
-    models: { routes: { analyzer, 'diary.director': [{ via: 'api', key: 'spare', model: 'x/scene' }] } },
+    models: { routes: { analyzer, 'director': [{ via: 'api', key: 'spare', model: 'x/scene' }] } },
   });
-  await own.client.complete(MESSAGES, { role: 'diary.director' });
+  await own.client.complete(MESSAGES, { role: 'director' });
   assert.deepEqual(optionsOf(own.asked, 0).routeKey, { name: 'spare', value: KEYS.spare });
 });
 
 test('an API route sends the strict response format and a harness route sends none', async () => {
   // Catches: a harness run handed a response format it cannot enforce, or an API route that drops the schema.
   const format = { name: 'scene', schema: { type: 'object' } };
-  const onKey = rig({ models: { routes: { 'diary.director': [{ via: 'api', key: 'main', model: 'x/scene' }] } } });
-  await onKey.client.complete(MESSAGES, { role: 'diary.director', responseFormat: format });
+  const onKey = rig({ models: { routes: { 'director': [{ via: 'api', key: 'main', model: 'x/scene' }] } } });
+  await onKey.client.complete(MESSAGES, { role: 'director', responseFormat: format });
   assert.deepEqual(optionsOf(onKey.asked, 0).responseFormat, format);
   const onHarness = rig({
-    models: { routes: { 'diary.director': [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-8' }] } },
+    models: { routes: { 'director': [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-8' }] } },
   });
-  await onHarness.client.complete(MESSAGES, { role: 'diary.director', responseFormat: format });
+  await onHarness.client.complete(MESSAGES, { role: 'director', responseFormat: format });
   assert.equal(viaOf(onHarness.asked, 0), 'harness');
   assert.equal(Object.hasOwn(optionsOf(onHarness.asked, 0), 'responseFormat'), false);
 });

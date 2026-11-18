@@ -3,7 +3,7 @@
 // prints the scenes, so the wording of `prompts/diary-scene.md` is judged on real answers before any turn uses it.
 //
 //   NEPTUNIA_DATA_DIR=<data folder> node scripts/diary-scenes.ts [--kinds status,picture] [--count 3]
-//        [--seed <text>] [--prompts <dir>] [--out <report.md>] [--diary.director <route>]
+//        [--seed <text>] [--prompts <dir>] [--out <report.md>] [--director <route>]
 //
 // For each kind of `--kinds` (default the five of SCENE_KINDS) and each of `--count` runs (default 3) it draws eight
 // seed sets from `prompts/diary-seeds.md`, leaving out the lines the newest stored entries built on, and calls the
@@ -12,8 +12,8 @@
 // `scripts/replay.ts --prompts` does, so a variant of `diary-scene.md` is tried without touching the live one.
 //
 // The data folder gives the configuration, the keys and the stored entries, read only: nothing is written there.
-// Requests go out on the role `diary.director` as production sends it, on the analyzer's chain while the role has no route.
-// `--diary.director <key>/<model>[:<effort>]` or `--diary.director harness:<claude|codex>/<model>[:<effort>]` replaces it for
+// Requests go out on the role `director` as production sends it, on the analyzer's chain while the role has no route.
+// `--director <key>/<model>[:<effort>]` or `--director harness:<claude|codex>/<model>[:<effort>]` replaces it for
 // this run, to compare two models on the sets of one seed. They carry the origin `replay` and never count against
 // `llm.maxRequestsPerDay`. stdout holds
 // the JSON of every result by kind; `--out` writes a Markdown report beside it.
@@ -37,7 +37,7 @@ import type { Untyped } from '../src/tools/types.ts';
 
 const TOOL = 'diary-scenes';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const USAGE = `usage: node scripts/${TOOL}.ts [--kinds a,b] [--count n] [--seed text] [--prompts dir] [--out file] [--diary.director route]`;
+const USAGE = `usage: node scripts/${TOOL}.ts [--kinds a,b] [--count n] [--seed text] [--prompts dir] [--out file] [--director route]`;
 const DEFAULT_COUNT = 3;
 
 type Env = Record<string, string | undefined>;
@@ -103,7 +103,7 @@ function reportOf(results: Record<string, Array<Printed>>, seed: string): string
   return `${lines.join('\n')}\n`;
 }
 
-/** The real client: the `diary.director` route production gives the run, or the one `--diary.director` names. */
+/** The real client: the `director` route production gives the run, or the one `--director` names. */
 async function routedLlm(hot: Hot, env: Env, routes: ReturnType<typeof takeRoutes>['routes']): Promise<SceneLlm> {
   const { createLlm } = await import('../src/llm/openrouter.ts');
   const { createCalibrator } = await import('../src/llm/tokens.ts');
@@ -112,7 +112,7 @@ async function routedLlm(hot: Hot, env: Env, routes: ReturnType<typeof takeRoute
   const calibrator = createCalibrator(undefined);
   const routing = await scriptRouting(TOOL, {
     privateDir: privateDirOf(ROOT, env),
-    roles: ['diary.director'],
+    roles: ['director'],
     variant: routes,
     // The live config of the run, untyped as the client reads it.
     getConfig: (): Untyped => hot.config,

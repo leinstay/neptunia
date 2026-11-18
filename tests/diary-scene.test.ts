@@ -56,7 +56,7 @@ test('sends the prompt file as the system message and only the kind, the sets an
   assert.ok(!user.includes(CARD));
   assert.equal(call.options.purpose, 'diary-scene');
   // Changed: the helper has a model role of its own, which takes the analyzer's chain while it has no route.
-  assert.equal(call.options.role, 'diary.director');
+  assert.equal(call.options.role, 'director');
   assert.equal(call.options.model, 'x/scene-model');
 });
 
@@ -66,7 +66,7 @@ test("takes the analyzer's model while the scene role has no route, and its own 
   const analyzer = [{ via: 'api', key: 'main', model: 'x/analyzer' }];
   const own = [{ via: 'harness', backend: 'claude', model: 'scene-model' }];
   const models = [];
-  for (const routes of [{ analyzer }, { analyzer, 'diary.director': own }]) {
+  for (const routes of [{ analyzer }, { analyzer, 'director': own }]) {
     const llm = fakeLlm(answer);
     const at = { config: { models: { routes } }, prompts: hot.prompts };
     await buildScene({ hot: at, llm, kind: 'status', sets: SETS, now: NOW, timezone: 'UTC' });

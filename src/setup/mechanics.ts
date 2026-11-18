@@ -1,6 +1,6 @@
 // The mechanics step of `neptunia setup` (src/setup/run.ts, docs/setup.md): her two ticking mechanics, `heartbeat` and
 // `diary`, and the humanizer, each switched on or off at the terminal. Each question offers the value in force, so an empty answer
-// keeps it. With the diary on, the step then offers the route of the diary's director role `diary.director` from the named keys
+// keeps it. With the diary on, the step then offers the route of the diary's director role `director` from the named keys
 // of keys.json and the connected harnesses, and an empty answer keeps its chain, the analyzer's while it has none. The
 // answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when no answer
 // changes a value.

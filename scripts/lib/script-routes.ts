@@ -5,7 +5,7 @@
 // subscription client of src/subharness/subscription-client.ts and the memory writer client of
 // src/subharness/memory-writer.ts. A flag `--<role> <route>` replaces one model role's whole chain for this run alone
 // and writes nothing to any file: `<key>/<model>[:<effort>]` sends the role on that key of keys.json with that model,
-// and `harness:<backend>/<model>[:<effort>]` sends `core`, `memory` or `diary.director` through a connected `claude` or
+// and `harness:<backend>/<model>[:<effort>]` sends `core`, `memory` or `director` through a connected `claude` or
 // `codex`; the text is read by src/llm/route-text.ts.
 // `--variant "<flags>"` runs the same inputs on several such setups in one run, and `sideBySide` and `sideBySideText`
 // lay their answers side by side per input. A refusal is a CliError of one line that names the tool and a code
@@ -54,7 +54,7 @@ export const ROUTE_ROLES = [
   'drawing',
   'embedding',
   'search',
-  'diary.director',
+  'director',
 ] as const;
 export type RouteRole = (typeof ROUTE_ROLES)[number];
 

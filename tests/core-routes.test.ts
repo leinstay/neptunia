@@ -53,7 +53,7 @@ test('a request before the clients are handed over is refused', async () => {
 test("a request of the diary's director role goes to the memory writer's client, which runs it on a harness", async () => {
   // Catches: a scene route on claude sent to the direct client, which posts a harness model id to the API.
   const routes = routesOver({
-    models: { routes: { 'diary.director': [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-8' }] } },
+    models: { routes: { 'director': [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-8' }] } },
   });
   const reached: Array<string> = [];
   const client = (name: string) => ({
@@ -63,7 +63,7 @@ test("a request of the diary's director role goes to the memory writer's client,
     },
   });
   routes.serve({ core: client('core'), memory: client('memory'), direct: client('direct') });
-  await routes.client.complete([], { role: 'diary.director' });
+  await routes.client.complete([], { role: 'director' });
   assert.deepEqual(reached, ['memory']);
-  assert.equal(routes.harnessOf('diary.director'), 'claude');
+  assert.equal(routes.harnessOf('director'), 'claude');
 });

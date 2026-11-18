@@ -413,8 +413,8 @@ test('a harness route on memory sends a memory request through the writer run an
 test("the diary's director role goes out on the analyzer's key while it has no route", async () => {
   // Catches: a scene request with no route of its own refused as a role with no key, so no diary scene is built.
   const { deps, sent } = rig();
-  const routing = await scriptRouting('diary-scenes', deps({}, ['diary.director']));
-  await routing.llm.complete(MESSAGES, { role: 'diary.director', purpose: 'diary-scene', timeoutMs: 1000 });
+  const routing = await scriptRouting('diary-scenes', deps({}, ['director']));
+  await routing.llm.complete(MESSAGES, { role: 'director', purpose: 'diary-scene', timeoutMs: 1000 });
   assert.equal(sent.length, 1);
   assert.equal(sent[0].key, ANALYZER_KEY);
 });
@@ -424,21 +424,17 @@ test("a flag on the diary's director role sends it on a key or through a harness
   const onKeyRig = rig();
   const keyed = await scriptRouting(
     'diary-scenes',
-    onKeyRig.deps({ 'diary.director': parseRoute('t', 'diary.director', 'helpers/vendor/scene-model') }, [
-      'diary.director',
-    ])
+    onKeyRig.deps({ 'director': parseRoute('t', 'director', 'helpers/vendor/scene-model') }, ['director'])
   );
-  await keyed.llm.complete(MESSAGES, { role: 'diary.director', purpose: 'diary-scene', timeoutMs: 1000 });
+  await keyed.llm.complete(MESSAGES, { role: 'director', purpose: 'diary-scene', timeoutMs: 1000 });
   const [keyedSent] = onKeyRig.sent;
   assert.equal(keyedSent.key, HELPERS_KEY);
   const onHarness = rig();
   const harnessed = await scriptRouting(
     'diary-scenes',
-    onHarness.deps({ 'diary.director': parseRoute('t', 'diary.director', 'harness:claude/claude-opus-4-8:low') }, [
-      'diary.director',
-    ])
+    onHarness.deps({ 'director': parseRoute('t', 'director', 'harness:claude/claude-opus-4-8:low') }, ['director'])
   );
-  await harnessed.llm.complete(MESSAGES, { role: 'diary.director', purpose: 'diary-scene', timeoutMs: 1000 });
+  await harnessed.llm.complete(MESSAGES, { role: 'director', purpose: 'diary-scene', timeoutMs: 1000 });
   assert.equal(onHarness.childRuns.length, 1);
   assert.equal(onHarness.sent.length, 0);
 });
