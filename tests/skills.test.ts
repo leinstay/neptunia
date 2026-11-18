@@ -561,6 +561,15 @@ test('skills gateway: her own expressive operations need only her grant, whoever
 
 // ---- the gateway, check by check --------------------------------------------------------
 
+test('skills gateway: an intention takes a purpose that holds a link and a reason', () => {
+  const text = `Post https://example.org/${'a'.repeat(80)} where it fits. ${'Why it matters and what to say. '.repeat(10)}`;
+  assert.equal(text.length > 400 && text.length <= 600, true);
+  assert.deepEqual(check({ skill: 'intention.set', args: { text }, granted: ['intention.set'] }), { ok: true });
+  assert.deepEqual(check({ skill: 'intention.update', args: { id: 'i1', text }, granted: ['intention.update'] }), {
+    ok: true,
+  });
+});
+
 test('skills gateway: an unknown skill or a non-persona principal is refused; arguments are checked against the schema', () => {
   assert.equal(asRecord(check({ skill: 'message.pin' })).code, 'unknown-skill');
   const wrong = checkSkill({

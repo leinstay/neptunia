@@ -389,7 +389,7 @@
       "due": "A delay (30m, 0m for right away), a date, a clock time (21:00) or a weekday and time (mon 20:00).",
       "deadline": "How long to wait for the errand. Without errand, it waits on the errand this turn hands off.",
       "attend": "A place to listen to. New lines there wake you. due and every are refused with it.",
-      "text": "The purpose, up to 300 characters.",
+      "text": "The purpose, up to 600 characters.",
       "place": "Where it happens.",
       "every": "day, week, <n>h or <n>d.",
       "standing": "true: with every, it lasts until you cancel it.",

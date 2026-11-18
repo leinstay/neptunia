@@ -140,6 +140,9 @@ export function flag(value: unknown): boolean | null {
 /** Her argument `name`, or undefined when she did not give it. */
 const opt = (given: Given, name: string): unknown => val(given, name) ?? undefined;
 
+/** The longest purpose of an intention: room for a link and the reason beside what to do. */
+const PURPOSE_MAX = 600;
+
 /**
  * The arguments of each `intention.*` skill: only the fields its operation reads (src/tools/operations/intention.ts).
  * `set` takes a new intention or attention; `update` the fields of an open one (`reason` goes with
@@ -148,7 +151,7 @@ const opt = (given: Given, name: string): unknown => val(given, name) ?? undefin
  */
 export const INTENT_PARAMS = Object.freeze({
   set: obj({
-    text: str(300),
+    text: str(PURPOSE_MAX),
     due: str(40),
     every: str(10),
     standing: str(5),
@@ -170,7 +173,7 @@ export const INTENT_PARAMS = Object.freeze({
   }),
   update: obj({
     id: str(20),
-    text: str(300),
+    text: str(PURPOSE_MAX),
     state: oneOf(['pending', 'done', 'dropped']),
     reason: str(300),
     due: str(40),
