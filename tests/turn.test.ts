@@ -6547,5 +6547,64 @@ test('a cancelled internal turn cannot leave its read context on a subsequent or
   }
 });
 
+/** The snapshots the memory prefetch of one private turn got with no partner, `context.memory.openPrivate` at `open`. */
+async function partnerlessPrefetch(open: boolean): Promise<Array<unknown>> {
+  const { issueContext } = await import('../src/memory/db/scope.ts');
+  const snapshots: Array<unknown> = [];
+  const hot = paceHot();
+  const recall = {
+    available: () => true,
+    prefetch: (args: Record<string, unknown>) => {
+      snapshots.push(args.snapshot);
+      return Promise.resolve({ status: 'ok', excerpts: [], ms: 0 });
+    },
+  };
+  useIface('cli');
+  try {
+    freshWorld();
+    world().member('g1', { id: 'other', name: 'Other' });
+    hot.config.bot = { timezone: 'UTC', placeId: 'g1' };
+    // With likeServer off the turn has no partner, so only the switch serves the root.
+    hot.config.private = { enabled: true, likeServer: false, minAffinity: 0 };
+    hot.config.context = { ...hot.config.context, memory: { openPrivate: open } };
+    const raw = rawMessage({ id: 'partnerless', authorId: 'other', content: 'find the rabbit chat we had' });
+    const channel = fakeTurnChannel({
+      id: 'cli:dm:other',
+      dm: true,
+      partnerId: 'other',
+      placeId: null,
+      historyMessages: [raw],
+    });
+    const turns = createTurnRunner({
+      discord: DISCORD,
+      createPort: createDiscordAdapter,
+      hot,
+      store: fakeStore(),
+      llm: fakeLlm('<msg>ok</msg>'),
+      calibrator: identityCalibrator(),
+      client: fakeClient(),
+      lookup: fakeLookup(),
+      recall,
+      memoryContext: (spec: Parameters<typeof issueContext>[0]) => issueContext({ iface: 'cli', ...spec }),
+      now: () => NOW,
+    });
+    await withCapturedLogs(() =>
+      turns.runTurn({ channel, placeId: 'g1', mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' })
+    );
+  } finally {
+    useIface('discord');
+  }
+  return snapshots;
+}
+
+test('a private turn with no partner is served the root and its snapshot only with context.memory.openPrivate on', async () => {
+  // Bug: the switch opens her memory, but a private chat with no partner still gets no served place, so its
+  // memory prefetch never runs.
+  const on = await partnerlessPrefetch(true);
+  assert.equal(on.length, 1);
+  assert.notEqual(on[0], null);
+  assert.deepEqual(await partnerlessPrefetch(false), []);
+});
+
 // The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
 ownedBy(['u1']);

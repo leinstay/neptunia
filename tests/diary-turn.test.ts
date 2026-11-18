@@ -1367,6 +1367,29 @@ test('<meanwhile> of the writer holds her lines from the groups of two interface
   assert.ok(!meanwhile.includes(FRAME_TEXT.ownPrivate), 'no direct chat');
 });
 
+test('with context.memory.openPrivate on, the writer reads her direct chat line and the group entry reaches its mirror', async () => {
+  // Bug: the switch opens her memory, but the diary still reads the groups alone, or the open read leaks into the
+  // entry's audience and the publication boundary refuses the copy.
+  const scene = await mirrorScene({ start: FRAME_NOW, config: { context: { memory: { openPrivate: true } } } });
+  const run = await frameTurn({ memory: scene.memory, entries: 0, memorySettings: { openPrivate: true } });
+  assert.ok(blockOf(run.writer[0] ?? '', 'meanwhile').includes(FRAME_TEXT.ownPrivate));
+  const stored = scene.db.prepare('SELECT scope_kind, scope_dm FROM diary').all();
+  assert.deepEqual(
+    stored.map((row) => [row.scope_kind, row.scope_dm]),
+    [['group', null]]
+  );
+  const mirrors = scene.publisher();
+  await mirrors.publishEntry(entryOf(run.result));
+  await mirrors.drainQueued();
+  assert.deepEqual(scene.transport('fake').posted('d1'), [FRAME_TEXT.entry]);
+});
+
+test('with context.memory.openPrivate off, the writer reads no line of a direct chat', async () => {
+  // Bug: the diary reads every audience whatever the switch says.
+  const run = await frameTurn({ memorySettings: { openPrivate: false } });
+  assert.ok(!blockOf(run.writer[0] ?? '', 'meanwhile').includes(FRAME_TEXT.ownPrivate));
+});
+
 test('an entry recorded with chat null reaches every mirror', async () => {
   // Bug: with no chat the turn records nothing, or the entry only goes to the place the turn used to run in.
   const scene = await mirrorScene({ ifaces: ['fake', 'tele'], start: FRAME_NOW });

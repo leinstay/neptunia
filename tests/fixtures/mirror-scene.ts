@@ -143,10 +143,18 @@ export async function mirrorScene({
   reconcile = false,
   start = T0,
   sendTimeoutMs = LEASE,
-}: { ifaces?: ReadonlyArray<string>; reconcile?: boolean; start?: number; sendTimeoutMs?: number } = {}) {
+  config = {},
+}: {
+  ifaces?: ReadonlyArray<string>;
+  reconcile?: boolean;
+  start?: number;
+  sendTimeoutMs?: number;
+  /** The settings of the memory service, `context.memory.openPrivate` for instance. */
+  config?: Record<string, unknown>;
+} = {}) {
   let at = start;
   const now = (): number => at;
-  const memory = await openTestMemory({ now });
+  const memory = await openTestMemory({ now, config });
   OPEN.push(memory);
   const transports = new Map(ifaces.map((iface) => [iface, createTransport(iface, { now, reconcile })]));
   const connected = new Set(ifaces);
