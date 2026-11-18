@@ -372,7 +372,9 @@ function cacheDescriber(store: HistoryMemory['store']) {
 
 /** The writer's `<diary>` part of `<inner>` of a scene's model, its second request; '' when absent. */
 export function entriesPart(llm: ReturnType<typeof sceneLlm>): string {
-  const writer = llm.calls[1] as Array<{ role: string; content: unknown }> | undefined;
+  // The persona's request: the first one whose system message is not the director's task.
+  const requests = llm.calls as Array<Array<{ role: string; content: unknown }>>;
+  const writer = requests.find((messages) => messages[0]?.content !== 'SCENE_TASK');
   const user = writer?.find((message) => message.role === 'user')?.content;
   const texts = Array.isArray(user)
     ? (user as Array<{ text?: unknown }>).map((part) => (typeof part.text === 'string' ? part.text : ''))

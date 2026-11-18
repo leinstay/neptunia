@@ -9,7 +9,7 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/llm/embed.ts',
     'default': {},
     'text':
-      "Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `diary-planner`, `planner`, `summarize`, `web-search`, the `video` purposes `watch`, `gif`, `voice` and `rewatch`, and the like). A match on purpose wins over the role's model. Not probed by the status card",
+      "Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `planner`, `summarize`, `web-search`, the `video` purposes `watch`, `gif`, `voice` and `rewatch`, and the like). A match on purpose wins over the role's model. Not probed by the status card",
   },
   {
     'key': 'models.abilities',

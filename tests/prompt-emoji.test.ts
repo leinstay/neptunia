@@ -351,9 +351,10 @@ test('buildRequest: an intention whose text names an emoji gives <media> its lin
   );
 });
 
-test('buildRequest: a diary plan that names an emoji gives the diary request <media> its line', () => {
-  // Bug: the plan in `<inner>` keeps the stable name and the writer reads a bare code.
-  const diary = { posts: [], plan: { kind: 'status', brief: 'a calm day :e23:', picture: false }, found: null };
+test('buildRequest: a diary scene that names an emoji gives the diary request <media> its line', () => {
+  // Bug: the scene in `<inner>` keeps the stable name and the persona reads a bare code.
+  // Changed: the planner's plan went with the planner, so the scene stands where the plan stood.
+  const diary = { posts: [], kind: 'story', scenes: ['a calm day :e23:'] };
   const built = buildRequest(anyBlockInput({ mode: 'diary', diary }));
   assert.deepEqual(
     mediaBlocks(built).map((body) => kindLines(body, 'discord', 'emojis')),

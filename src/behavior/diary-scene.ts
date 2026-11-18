@@ -1,7 +1,8 @@
 // The diary's scene helper: one request on the role `director` with the purpose `diary-scene` that builds a scene for one entry
 // from numbered seed sets, a place with its circumstances and nothing of what the persona does or feels. Its system
 // message is the task text `prompts/diary-scene.md`, never the persona, and its one user message holds `<kind>`,
-// `<sets>` and `<now>` alone. scripts/diary-scenes.ts runs it to calibrate the prompt; nothing in a turn calls it.
+// `<sets>` and `<now>` alone. The diary's turn asks `entryScenes` before the persona's request (src/turn/diary.ts), and
+// scripts/diary-scenes.ts runs `buildScene` alone to calibrate the prompt.
 
 import { DEFAULT_HISTORY_POSTS, usedSeedLines } from './diary.ts';
 import { parseSeedFamilies, pickSeeds } from './seeds.ts';
@@ -18,8 +19,11 @@ export type SceneKind = (typeof SCENE_KINDS)[number];
 /** How many seed sets one request offers. */
 export const SCENE_SETS = 8;
 
+/** How many scenes an entry of `randomSet` asks for, one request each: its pictures come from several places. */
+const RANDOM_SET_SCENES = 3;
+
 const PURPOSE = 'diary-scene';
-// The planner's own defaults (`diary.planMaxOutputTokens`, `diary.planTimeoutMs`): a scene is shorter than a plan.
+// A scene answer is a few sentences in a small JSON object; a minute covers a slow route.
 const MAX_OUTPUT_TOKENS = 2000;
 const TIMEOUT_MS = 60000;
 
@@ -52,20 +56,23 @@ export function isSceneKind(kind: unknown): kind is SceneKind {
 }
 
 /**
- * The `SCENE_SETS` seed sets of one request, drawn with `rng` from the families of `seedsText` (prompts/diary-seeds.md),
- * leaving out the lines the newest `DEFAULT_HISTORY_POSTS` of `posts` (oldest first) built on, as the planner's draw does.
+ * `SCENE_SETS` seed sets for each of `requests` requests (1 by default), drawn with `rng` in one draw from the families of
+ * `seedsText` (prompts/diary-seeds.md), so no two sets share a line while a family has a line left for each, and leaving
+ * out the lines the newest `DEFAULT_HISTORY_POSTS` of `posts` (oldest first) kept.
  */
 export function drawSceneSets({
   seedsText,
   posts,
   rng,
+  requests = 1,
 }: {
   seedsText: unknown;
   posts: unknown;
   rng: () => number;
+  requests?: number;
 }): Array<Array<string>> {
   const used = usedSeedLines(posts, DEFAULT_HISTORY_POSTS);
-  return pickSeeds(parseSeedFamilies(seedsText), SCENE_SETS, rng, used).map((set) => set.map(String));
+  return pickSeeds(parseSeedFamilies(seedsText), SCENE_SETS * requests, rng, used).map((set) => set.map(String));
 }
 
 /** The schema of the answer, sent as the strict `response_format`. */
@@ -186,4 +193,34 @@ export async function buildScene({
     return { sets, tokens: none, ok: false, reason: 'request-failed' };
   }
   return { sets, tokens: tokensOf(completion), ...parseSceneAnswer(completion?.text, sets) };
+}
+
+/**
+ * The scenes of one entry of `kind`: one request of buildScene over fresh sets, and for `randomSet` `RANDOM_SET_SCENES`
+ * requests at once, whose sets come from one draw (drawSceneSets) and so share no line while the families allow it.
+ * Every result is returned, failed ones included, in the order of the requests.
+ */
+export async function entryScenes({
+  hot,
+  llm,
+  kind,
+  posts,
+  rng,
+  now,
+  timezone,
+}: {
+  hot: { config: unknown; prompts: Record<string, unknown> | null | undefined };
+  llm: SceneLlm;
+  kind: SceneKind;
+  posts: unknown;
+  rng: () => number;
+  now: number;
+  timezone: string;
+}): Promise<Array<SceneResult>> {
+  const requests = kind === 'randomSet' ? RANDOM_SET_SCENES : 1;
+  const sets = drawSceneSets({ seedsText: hot.prompts?.['diary-seeds'], posts, rng, requests });
+  const groups = Array.from({ length: requests }, (_, index) =>
+    sets.slice(index * SCENE_SETS, (index + 1) * SCENE_SETS)
+  );
+  return Promise.all(groups.map((group) => buildScene({ hot, llm, kind, sets: group, now, timezone })));
 }

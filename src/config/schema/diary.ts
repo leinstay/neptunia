@@ -39,18 +39,11 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'text': 'Chance of no posts for the whole day',
   },
   {
-    'key': 'diary.entries',
-    'types': ['number'],
-    'reader': 'src/turn/request/diary.ts',
-    'default': 150,
-    'text': 'How many of her newest stored entries `<diary>` shows the planner, newest first',
-  },
-  {
     'key': 'diary.writerEntries',
     'types': ['number'],
     'reader': 'src/turn/request/diary.ts',
     'default': 30,
-    'text': 'How many of her newest stored entries `<diary>` shows the writer, newest first',
+    'text': 'How many of the newest stored entries `<diary>` shows the diary turn, newest first',
   },
   {
     'key': 'diary.loop.maxSteps',
@@ -65,19 +58,5 @@ export const DIARY: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/turn/settings.ts',
     'default': 1000000,
     'text': 'How long calls and follow-ups may run',
-  },
-  {
-    'key': 'diary.planMaxOutputTokens',
-    'types': ['number'],
-    'reader': 'src/turn/diary.ts',
-    'default': 2000,
-    'text': 'Max output tokens for the plan request',
-  },
-  {
-    'key': 'diary.planTimeoutMs',
-    'types': ['number'],
-    'reader': 'src/turn/diary.ts',
-    'default': 60000,
-    'text': 'Timeout for the plan request (ms)',
   },
 ];

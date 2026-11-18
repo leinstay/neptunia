@@ -121,9 +121,10 @@ export function entryOf(result: unknown): RecordedEntry {
 /** The counts of a diary turn's outcome (`result.diary`) without the entry and the audience it names. */
 export function diaryCounts(result: unknown): Record<string, unknown> {
   // The turn runner is JS and answers an untyped result; `diary` is a plain object of counts, the entry and the audience.
-  const { entry, audience, ...counts } = (result as { diary: Record<string, unknown> }).diary;
+  const { entry, audience, scenes, ...counts } = (result as { diary: Record<string, unknown> }).diary;
   void entry;
   void audience;
+  void scenes;
   return counts;
 }
 

@@ -1,6 +1,6 @@
 // One diary turn on the turn frame (plan 2026-11-06-turn-frame, slice 6): the real turn runner with
 // `chat: null`, a real store over a real memory service, the graph reader and `<meanwhile>` reading that one
-// database, and a fake model that answers the planner with a fixed plan and the writer with the test's answer. The
+// database, and a fake model that answers the director with a scene and the persona with the test's answer. The
 // world of the memory database, with made-up names in Greek and accented Latin:
 //   interface `fake`, root `g1` "Αγορά", room `c2` "κήπος"; interface `tele`, root `t1` "Νησί", room `k1` "λιμάνι"
 //   Ελένη (`fake:111`), who wrote in `c2` right before her line there
@@ -14,7 +14,7 @@ import { insertRows } from '../../src/memory/db/rows.ts';
 import '../../src/tools/operations/index.ts';
 import { addDm, addLine, addPerson, addRoom, noteInterface, rootId } from './memory-db/mind-world.ts';
 import { openTestMemory } from './memory-db/service.ts';
-import { planAnswerText } from './plan-answer.ts';
+import { directorAnswer } from './scene-answer.ts';
 import { dbOf, seedMirror } from './diary-mirror.ts';
 import type { MemoryService } from './diary-mirror.ts';
 import { shippedLabels } from './shipped-labels.ts';
@@ -33,7 +33,7 @@ const DAY = 24 * 60 * MIN;
 const iso = (at: number): string => new Date(at).toISOString();
 
 /** Marker texts of the two prompt files, so a test reads which file framed a request without reading any wording. */
-export const MARK = { writer: 'MARK-DIARY-TASK', planner: 'MARK-DIARY-PLANNER' } as const;
+export const MARK = { writer: 'MARK-DIARY-TASK', director: 'MARK-DIARY-SCENE' } as const;
 
 /** The texts the world's lines and files carry, each unique so a test finds it in one block. */
 export const TEXT = {
@@ -51,8 +51,8 @@ export const TEXT = {
 /** The custom emoji `e1` of `FrameTurnSpec.emoji`: its platform name. */
 export const EMOJI_NAME = 'καραβάκι';
 
-/** The plan the planner answers. */
-export const PLAN = { kind: 'status', brief: 'ΗΣΥΧΟ-ΒΡΑΔΥ-ΣΤΟ-ΛΙΜΑΝΙ', search: '', picture: false } as const;
+/** The scene the director answers. */
+export const SCENE = 'ΗΣΥΧΟ-ΒΡΑΔΥ-ΣΤΟ-ΛΙΜΑΝΙ';
 
 /** A mirror of her diary: a group chat of an interface. */
 export type MirrorSpec = { iface: string; chatId: string; name: string };
@@ -74,7 +74,9 @@ export type FrameTurnSpec = {
   entryGist?: (index: number) => string;
   /** How many turns run one after the other over the same memory, 1 when absent. */
   turns?: number;
-  /** Laid over the `diary` settings, which set `entries` and the planner's limits. */
+  /** The kind the owner forces, `status` when absent. */
+  kind?: string;
+  /** Laid over the `diary` settings. */
   diary?: Record<string, unknown>;
   /** Laid over the `context` settings, such as `myDay`. */
   context?: Record<string, unknown>;
@@ -95,10 +97,10 @@ export type FrameTurnSpec = {
 
 export type FrameTurnRun = {
   result: unknown;
-  /** The text of every message of each writer request, joined. */
+  /** The text of every message of each request of the persona, joined. */
   writer: Array<string>;
-  /** The same of each planner request. */
-  planner: Array<string>;
+  /** The same of each director request. */
+  director: Array<string>;
   port: Fake;
 };
 
@@ -169,15 +171,14 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
       },
       llm: { maxRequestTokens: 100_000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
-      // Slice 6: the setting is `diary.entries`.
-      diary: { entries: 150, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...spec.diary },
+      diary: { ...spec.diary },
     },
     prompts: {
       'system-prompt': 'SYSTEM for {{name}}',
       'character-card': 'CARD_TEXT',
       format: 'FORMAT_TEXT',
       diary: MARK.writer,
-      'diary-planner': MARK.planner,
+      'diary-scene': MARK.director,
       'diary-seeds': '# place\na pier\n# light\nfog',
       draw: 'DRAW for {{name}}\n{{when}}\n{{request}}',
       labels: shippedLabels,
@@ -229,14 +230,14 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
       at: iso(FRAME_NOW - 45 * MIN),
     });
   const writer: Array<string> = [];
-  const planner: Array<string> = [];
+  const director: Array<string> = [];
   const llm = {
     complete: (messages: Array<{ content: unknown }>, options?: { purpose?: string }) => {
       const text = messages.map((message) => userText(message.content)).join('\n');
-      if (options?.purpose === 'diary-planner') {
-        planner.push(text);
-        // The planner answers in strict JSON (owner, 2026-11-06): her output here, never the request's.
-        return Promise.resolve({ text: planAnswerText(PLAN, options), usage: {}, estimated: 5 });
+      const scene = directorAnswer(messages, options, SCENE);
+      if (scene) {
+        director.push(text);
+        return Promise.resolve(scene);
       }
       writer.push(text);
       return Promise.resolve(completionOf(spec.answer ?? `<msg>${TEXT.entry}</msg>`));
@@ -259,11 +260,11 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
   const { result } = await withCapturedLogs(async () => {
     let last: unknown = null;
     for (let turn = 0; turn < (spec.turns ?? 1); turn += 1)
-      last = await turns.runTurn({ chat: null, mode: 'diary', diary: { kind: 'status', forced: true } });
+      last = await turns.runTurn({ chat: null, mode: 'diary', diary: { kind: spec.kind ?? 'status', forced: true } });
     return last;
   });
   await store.flushSettled({});
-  return { result, writer, planner, port: world().port };
+  return { result, writer, director, port: world().port };
 }
 
 /** The body of the subtag `<tag>` of a block's body, '' when absent. */

@@ -244,7 +244,7 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   mind: 'no graph reader runs in a replay: `<memory>` holds the person she answers alone (a live turn reads src/memory/db/mind-read.ts)',
   lookups: 'no earlier lookup in a replay: no <recall> block (a live turn keeps her lookups, src/turn/calls.ts)',
   meanwhileReads: 'no memory reads in a replay: no <meanwhile> block (a live turn reads her lines elsewhere)',
-  heartbeat: 'a heartbeat only: a replay builds no heartbeat, so no lists and no <fragments>',
+  serviceLists: 'a service turn only: a replay builds none, so no lists and no <fragments>',
   surroundings: 'no stored fields in a replay: <surroundings> names the place by its path alone',
   lessons:
     'no memory reads in a replay: no <lessons> block (a live turn reads her lessons, src/memory/db/frame-reads.ts)',
@@ -862,7 +862,7 @@ export function sandboxRequestInput({
     mind: null,
     lookups: null,
     meanwhileReads: null,
-    heartbeat: null,
+    serviceLists: null,
     surroundings: null,
     lessons: null,
     attitudes: null,

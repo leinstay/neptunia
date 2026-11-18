@@ -33,7 +33,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `diary-planner`, `planner`, `summarize`, `web-search`, the `video` purposes `watch`, `gif`, `voice` and `rewatch`, and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
+| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `planner`, `summarize`, `web-search`, the `video` purposes `watch`, `gif`, `voice` and `rewatch`, and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
 
 ## models.agents
 
@@ -377,12 +377,9 @@ The settings of the `diary` service. A deployment keeps its own values under the
 | `diary.schedule` | string, null | `null` | Exact UTC slots of the diary, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/diary.ts` |
 | `diary.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
 | `diary.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
-| `diary.entries` | number | `150` | How many of her newest stored entries `<diary>` shows the planner, newest first | `src/turn/request/diary.ts` |
-| `diary.writerEntries` | number | `30` | How many of her newest stored entries `<diary>` shows the writer, newest first | `src/turn/request/diary.ts` |
+| `diary.writerEntries` | number | `30` | How many of the newest stored entries `<diary>` shows the diary turn, newest first | `src/turn/request/diary.ts` |
 | `diary.loop.maxSteps` | number | `50` | Further requests one diary post makes | `src/turn/settings.ts` |
 | `diary.loop.timeBudgetMs` | number | `1000000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
-| `diary.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/diary.ts` |
-| `diary.planTimeoutMs` | number | `60000` | Timeout for the plan request (ms) | `src/turn/diary.ts` |
 
 ## mirrors
 

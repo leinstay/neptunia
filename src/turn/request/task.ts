@@ -5,6 +5,7 @@
 
 import { opensPrivate } from '../../memory/open-private.ts';
 import { kindOfRequest } from './frame.ts';
+import { diaryTaskOf } from './diary.ts';
 import { fill, formatDuration } from '../../format.ts';
 import { fillPromptTemplate } from './text.ts';
 import type { Base } from './head.ts';
@@ -145,7 +146,8 @@ export type Task = {
 };
 
 /**
- * The task text of a turn: the mode's prompt file, or the overheard, errand, follow-up or heartbeat file in its place,
+ * The task text of a turn: the mode's prompt file (a diary entry's with its kind's section), or the overheard, errand,
+ * follow-up or heartbeat file in its place,
  * then what else the author waits for and the private chat's addition.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
@@ -195,8 +197,10 @@ export function taskOf(given: RequestInput & Base): Task {
     trigger: triggerLabel,
     target: chatTrigger ? `#${chatTrigger.index}` : '',
   };
+  // A diary entry's task is the common text followed by the section of its kind (prompts/diary-kinds.md).
+  const modeTask = turnKind === 'diary' ? diaryTaskOf(prompts, given.diary?.kind) : prompts[mode];
   const baseTask = fillPromptTemplate(
-    overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[mode] ?? '',
+    overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? modeTask ?? '',
     taskValues
   );
   // Private chat: prompts.private follows the mode prompt, `private-open` with `context.memory.openPrivate`; a missing

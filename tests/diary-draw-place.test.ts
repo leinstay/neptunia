@@ -8,7 +8,7 @@ import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { LogEntry } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
-import { planAnswerText } from './fixtures/plan-answer.ts';
+import { directorAnswer } from './fixtures/scene-answer.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
 import '../src/tools/operations/index.ts';
 import { useIface, useSelf, world } from './fixtures/turn-world.ts';
@@ -18,7 +18,6 @@ useIface('fake');
 useSelf('self-id');
 
 const NOW = Date.UTC(2026, 9, 6, 19, 30, 0);
-const PLAN = { kind: 'selfPicture', brief: 'a pier', search: '', picture: true };
 
 type Appended = { post: Record<string, unknown>; opts: unknown };
 
@@ -45,15 +44,11 @@ const images = {
   generate: () => Promise.resolve({ buffer: Buffer.from('png'), mediaType: 'image/png', seconds: 1, cost: 0 }),
 };
 
-/** A model that answers the plan request with PLAN and every writer request with `answer`. */
+/** A model that answers the director with a scene and every request of the persona with `answer`. */
 function fakeLlm(answer: unknown) {
   return {
-    complete: (_messages: unknown, opts: { purpose?: string }) =>
-      Promise.resolve(
-        opts?.purpose === 'diary-planner'
-          ? { text: planAnswerText(PLAN, opts), usage: {}, estimated: 5 }
-          : completionOf(answer)
-      ),
+    complete: (messages: unknown, opts: { purpose?: string }) =>
+      Promise.resolve(directorAnswer(messages, opts) ?? completionOf(answer)),
   };
 }
 
@@ -70,14 +65,14 @@ const hot = {
     llm: { maxRequestTokens: 50000 },
     typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
     image: {},
-    diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+    diary: { placeId: 'd1', world: false },
   },
   prompts: {
     'system-prompt': 'SYSTEM for {{name}}',
     'character-card': 'CARD_TEXT',
     format: 'FORMAT_TEXT',
     diary: 'DIARY_TASK for {{name}}',
-    'diary-planner': 'PLAN_SYSTEM for {{name}}',
+    'diary-scene': 'SCENE_TASK',
     'diary-seeds': '# place\na pier\n# light\nfog',
     draw: 'DRAW for {{name}}\n{{when}}\n{{request}}',
     labels,

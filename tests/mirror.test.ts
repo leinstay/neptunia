@@ -21,7 +21,7 @@ import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import { worldTurnRunner } from './fixtures/world-runner.ts';
-import { planAnswerText } from './fixtures/plan-answer.ts';
+import { directorAnswer } from './fixtures/scene-answer.ts';
 
 const TEXT = 'ήσυχο βράδυ στο λιμάνι';
 
@@ -199,13 +199,8 @@ function setAndVoiceLlm() {
     calls,
     complete: (messages: unknown, options?: { purpose?: string }) => {
       calls.push(messages);
-      if (options?.purpose === 'diary-planner')
-        return Promise.resolve({
-          // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-          text: planAnswerText({ kind: 'photoset', brief: 'a walk', search: '', picture: true }, options),
-          usage: {},
-          estimated: 5,
-        });
+      const scene = directorAnswer(messages, options);
+      if (scene) return Promise.resolve(scene);
       written += 1;
       return Promise.resolve(
         written === 1

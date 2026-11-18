@@ -1,0 +1,1 @@
+Four to six pictures of one outing in the scene, with one to three messages. The frames differ in moment and angle. Each call uses `self` true and repeats the outfit, the hour and the lighting. The captions are short.

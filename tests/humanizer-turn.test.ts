@@ -9,7 +9,7 @@ import { createTurnRunner } from '../src/behavior/turn.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
 import { labels } from './fixtures/labels.ts';
 import { entryOf } from './fixtures/diary-mirror.ts';
-import { planAnswerText } from './fixtures/plan-answer.ts';
+import { directorAnswer } from './fixtures/scene-answer.ts';
 import { contentText, coreTurn, NOW, sequenceLlm } from './fixtures/turn-harness.ts';
 import type { ChatMessage } from './fixtures/turn-harness.ts';
 import { runSplitTurn, splitHot, splitLlm, SPLIT_PARTS } from './fixtures/turn-split.ts';
@@ -189,7 +189,7 @@ test("a diary post stores the writer's text as its entry", async () => {
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: {},
-      diary: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      diary: { placeId: 'd1', world: false },
       humanizer: { enabled: true },
       models: { routes: { 'humanizer.linter': route('l/m'), 'humanizer.writer': route('w/m') } },
     },
@@ -198,22 +198,21 @@ test("a diary post stores the writer's text as its entry", async () => {
       'character-card': 'CARD',
       format: 'FORMAT',
       diary: 'DIARY for {{name}}',
-      'diary-planner': 'PLAN for {{name}}',
+      'diary-scene': 'SCENE_TASK',
       'diary-seeds': '# place\na pier',
       labels,
       ...PROMPTS,
     },
   };
   const rest = {
-    complete: (_messages: Array<ChatMessage>, options: Record<string, unknown> = {}) =>
-      Promise.resolve({
-        text:
-          options.purpose === 'diary-planner'
-            ? planAnswerText({ kind: 'status', brief: 'x', search: '', picture: false }, options)
-            : `<msg>${LONG_A}</msg><msg>${LONG_B}</msg>`,
-        usage: {},
-        estimated: 5,
-      }),
+    complete: (messages: Array<ChatMessage>, options: Record<string, unknown> = {}) =>
+      Promise.resolve(
+        directorAnswer(messages, options) ?? {
+          text: `<msg>${LONG_A}</msg><msg>${LONG_B}</msg>`,
+          usage: {},
+          estimated: 5,
+        }
+      ),
   };
   const llm = humanizerLlm(rest, `<msg>${WRITTEN_A}</msg><msg>${WRITTEN_B}</msg>`);
   const store = {

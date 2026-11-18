@@ -109,7 +109,8 @@ test('a thousand draws give an overused kind less than its share and an unused k
 // ---- the first step of a post draws over the corrected weights ----------------------------------------------------
 
 const TEXT_KINDS = withoutPictureKinds(DIARY_KINDS, DEFAULT_PICTURE_KINDS);
-const MIDDLE = () => 0.5;
+// 0.6 rather than the middle: with the kind `story` in the weights, 0.5 lands on the same kind both ways.
+const MIDDLE = () => 0.6;
 // Ten status posts: status is held down and is the newest kind, so the middle of the draw moves off the raw weights.
 const STATUS_POSTS = postsOf(times('status', 10));
 
@@ -123,19 +124,6 @@ function middleDraw(): string {
 test('the first step of a post draws its kind over the corrected weights', async () => {
   // Bug: the step draws over the raw weights, and the correction for recent use never reaches a post.
   const drawn = middleDraw();
-  const other = Object.keys(TEXT_KINDS).find((kind) => kind !== drawn && kind !== pickKind(TEXT_KINDS, MIDDLE));
-  const run = await prepare({
-    rng: MIDDLE,
-    posts: STATUS_POSTS,
-    answer: { kind: other, brief: 'a planned scene', search: '', picture: false, seed: 1 },
-  });
-  assert.deepEqual(run.offered, [drawn]);
-  assert.equal(run.plan.kind, drawn);
-});
-
-test('a failed plan request posts the drawn kind', async () => {
-  // Bug: the fallback draws a second time over the raw weights, and a failure undoes the correction.
-  const drawn = middleDraw();
-  const run = await prepare({ rng: MIDDLE, posts: STATUS_POSTS, failing: true });
-  assert.equal(run.plan.kind, drawn);
+  const run = await prepare({ rng: MIDDLE, posts: STATUS_POSTS });
+  assert.equal(run.kind, drawn);
 });

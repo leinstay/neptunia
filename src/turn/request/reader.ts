@@ -65,7 +65,7 @@ import { ACTIVITY_DAYS } from '../../memory/db/service-lists.ts';
 import type {
   Fit,
   HandleTarget,
-  HeartbeatInput,
+  ServiceListsInput,
   Labels,
   MemoryRead,
   NameOf,
@@ -120,8 +120,8 @@ export type ReaderInput = {
   facts?: ReadonlyArray<StoredFact>;
   lookups: ReadonlyArray<Lookup>;
   meanwhileReads: MeanwhileReads | null;
-  /** A heartbeat's lists and fragments: its `<memory>` and `<fragments>`; null on any other kind. */
-  heartbeat?: HeartbeatInput | null;
+  /** A service turn's lists and fragments: its `<memory>` and `<fragments>`; null on any other kind. */
+  serviceLists?: ServiceListsInput | null;
   chatItems: Array<TranscriptItem>;
   /** The stickers of each line of the chat, by message id, for the legend `<media>`. */
   chatStickers: ReadonlyMap<string, ReadonlyArray<SeenSticker>>;
@@ -455,7 +455,7 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
     profiled: [
       ...(counterpartKey === null ? [] : [counterpartKey]),
       ...mind.people.map((person) => person.personId),
-      ...(given.heartbeat?.people ?? []).map((person) => person.personId),
+      ...(given.serviceLists?.people ?? []).map((person) => person.personId),
     ],
     inView: windows.flatMap((window) => window.lines.flatMap((line) => (line.authorKey ? [line.authorKey] : []))),
   });
@@ -468,7 +468,7 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
         ...windows.map((window) => chatIdOf(window.placeId)),
         ...lookupPlaces(given.lookups).map((id) => chatIdOf(id)),
         ...placeIdsIn(innerTexts(given.inner)).map((id) => chatIdOf(id)),
-        ...(given.heartbeat?.places ?? []).map((place) => chatIdOf(place.placeId)),
+        ...(given.serviceLists?.places ?? []).map((place) => chatIdOf(place.placeId)),
       ].filter((id): id is string => typeof id === 'string' && id !== ''),
     },
     CHANNEL_HANDLE_PREFIX
@@ -671,10 +671,10 @@ function offeredOf(given: ReaderInput): Offered {
   );
   const { windows } = names;
   const innerParts = innerNamed(given.inner, names.placeNamed);
-  const { heartbeat = null } = given;
-  const items = heartbeat
+  const { serviceLists = null } = given;
+  const items = serviceLists
     ? serviceItemsOf(
-        heartbeat,
+        serviceLists,
         frame,
         labels,
         given.nameOf,
@@ -706,7 +706,7 @@ function offeredOf(given: ReaderInput): Offered {
       directPartnerOf(given, names)
     ),
     memory: memory.items,
-    memoryLeftOut: heartbeat ? { ...memory.leftOut, ...heartbeat.leftOut } : memory.leftOut,
+    memoryLeftOut: serviceLists ? { ...memory.leftOut, ...serviceLists.leftOut } : memory.leftOut,
     recall: recallBlockOf(
       lookups,
       retired,
@@ -730,18 +730,18 @@ function offeredOf(given: ReaderInput): Offered {
       )
     ),
     inner: innerItems(innerParts),
-    fragments: fragmentsText(heartbeat, labels),
+    fragments: fragmentsText(serviceLists, labels),
     innerParts,
     resolveRef,
     names,
   };
 }
 
-/** The body of `<fragments>`: `heartbeat.fragments`, then each fragment as a line; '' with none. */
-const fragmentsText = (heartbeat: HeartbeatInput | null, labels: Labels): string =>
-  heartbeat === null || heartbeat.fragments.length === 0
+/** The body of `<fragments>`: `labels.heartbeat.fragments`, then each fragment as a line; '' with none. */
+const fragmentsText = (lists: ServiceListsInput | null, labels: Labels): string =>
+  lists === null || lists.fragments.length === 0
     ? ''
-    : [labels.heartbeat?.fragments ?? '', ...heartbeat.fragments.map((line) => `- ${line}`)].filter(Boolean).join('\n');
+    : [labels.heartbeat?.fragments ?? '', ...lists.fragments.map((line) => `- ${line}`)].filter(Boolean).join('\n');
 
 /** The body of `<inner>` from the parts the budget kept, the errand's result first. */
 function innerTextOf(given: ReaderInput, offered: Offered, fit: Fit): string {
@@ -842,7 +842,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     tail('recall', 'lookups', kept.recall?.[0] ?? '', 'recall'),
     tail('found', 'mind', bodies.found, 'found'),
     tail('inner', 'inner', bodies.inner, 'inner'),
-    tail('fragments', 'heartbeat', offered.fragments),
+    tail('fragments', 'serviceLists', offered.fragments),
     tail('spatial_awareness', 'spatial', offered.spatial),
     tail('task', 'task', given.task),
   ];

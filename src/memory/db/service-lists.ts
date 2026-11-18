@@ -2,8 +2,9 @@
 // every person memory holds something about who has an account, and every live chat the persona can write in that is no
 // mirror of the diary. A person carries the facts every entry of `<people>` prints (src/turn/request/memory-block.ts),
 // their stored character and manner of speech, and what only this collector reads; a place carries what its line says. A place's activity counts people's lines of the last `ACTIVITY_DAYS` days, one statement per
-// place over the range of `sources_place_time`, so no read walks a place. A heartbeat runs nowhere and reads as herself
-// (`internal`, src/turn/inputs.ts#turnContextOf), so these reads apply no scope: every row is hers to read. A person's
+// place over the range of `sources_place_time`, so no read walks a place. Every read takes the turn's context: a
+// heartbeat reads as the persona (`internal`, src/turn/inputs.ts#turnContextOf) and every row is its to read, while a
+// diary entry under a group context lists no direct chat and reads only rows that context may show. A person's
 // approach is her last line addressed to them and a place's answers count the lines that answer her last line there,
 // what followed each read as the notice reads it (src/memory/db/past-acts.ts#followOf). Read only; it makes no model
 // request.
@@ -16,7 +17,8 @@ import { namesIn } from './names.ts';
 import { mirrorPlaces } from './mirrors.ts';
 import { PERSONA_ID } from './ids.ts';
 import { followOf } from './past-acts.ts';
-import { audienceWhere, internalContext } from './scope.ts';
+import { audienceWhere, readsAll } from './scope.ts';
+import type { Context } from './scope.ts';
 import type { Db } from './types.ts';
 
 /** How many days back a place's activity counts. */
@@ -85,15 +87,16 @@ const momentOf = (value: unknown): number | null => {
   return Number.isFinite(at) ? at : null;
 };
 
-/** The current text of one field of every subject of a kind, a direct chat's version before a group's. */
-function fieldTexts(db: Db, kind: string, field: string): Map<string, string> {
+/** The current text of one field of every subject of a kind `ctx` may read, a direct chat's version before a group's. */
+function fieldTexts(db: Db, kind: string, field: string, ctx: Context): Map<string, string> {
+  const scope = audienceWhere(ctx, 'd');
   const rows = db
     .prepare(
       `SELECT d.subject_id, v.text FROM descriptions d JOIN description_versions v ON v.id = d.current_version
-       WHERE d.subject_kind = ? AND d.field = ? AND d.retired_at IS NULL
+       WHERE d.subject_kind = ? AND d.field = ? AND d.retired_at IS NULL AND ${scope.sql}
        ORDER BY d.subject_id, d.scope_kind = 'dm' DESC, d.id`
     )
-    .all(kind, field);
+    .all(kind, field, ...scope.params);
   const out = new Map<string, string>();
   for (const row of rows) {
     const value = text(row.text);
@@ -208,8 +211,8 @@ function newestLineAt(db: Db, placeId: string): number | null {
   return momentOf(row?.occurred_at);
 }
 
-/** The live chats, mirrors of her diary aside, by id, each with whether it is a group chat. */
-function chatsOf(db: Db): Array<{ id: string; group: boolean }> {
+/** The live chats, mirrors of her diary aside, by id, each with whether it is a group chat; group chats alone unless `withDms`. */
+function chatsOf(db: Db, withDms: boolean): Array<{ id: string; group: boolean }> {
   const mirrors = new Set(mirrorPlaces(db).map((one) => one.placeId));
   return db
     .prepare(
@@ -220,21 +223,24 @@ function chatsOf(db: Db): Array<{ id: string; group: boolean }> {
     .all()
     .flatMap((row) => {
       const id = text(row.id);
-      return id === null || mirrors.has(id) ? [] : [{ id, group: row.chat === 'group' }];
+      const group = row.chat === 'group';
+      return id === null || mirrors.has(id) || (!group && !withDms) ? [] : [{ id, group }];
     });
 }
 
-/** The people memory holds a description, a claim or an attitude change of, she aside. */
-function knownPersonIds(db: Db): Array<string> {
+/** The people memory holds a description, a claim or an attitude change of that `ctx` may read, she aside. */
+function knownPersonIds(db: Db, ctx: Context): Array<string> {
+  const [d, c, e] = [audienceWhere(ctx, 'd'), audienceWhere(ctx, 'c'), audienceWhere(ctx, 'e')];
   return db
     .prepare(
       `SELECT d.subject_id AS id FROM descriptions d
-         WHERE d.subject_kind = 'person' AND d.retired_at IS NULL AND d.current_version IS NOT NULL
-       UNION SELECT c.subject_id FROM claims c WHERE c.subject_kind = 'person' AND c.retired_at IS NULL
-       UNION SELECT e.person_id FROM affinity_events e WHERE e.person_id IS NOT NULL AND e.retired_at IS NULL
+         WHERE d.subject_kind = 'person' AND d.retired_at IS NULL AND d.current_version IS NOT NULL AND ${d.sql}
+       UNION SELECT c.subject_id FROM claims c WHERE c.subject_kind = 'person' AND c.retired_at IS NULL AND ${c.sql}
+       UNION SELECT e.person_id FROM affinity_events e
+         WHERE e.person_id IS NOT NULL AND e.retired_at IS NULL AND ${e.sql}
        ORDER BY id`
     )
-    .all()
+    .all(...d.params, ...c.params, ...e.params)
     .flatMap((row) => {
       const id = text(row.id);
       return id === null || id === PERSONA_ID ? [] : [id];
@@ -301,15 +307,19 @@ function followedOf(
   return out;
 }
 
-/** The people and the places of a service turn at `now`, in id order. */
-export function serviceListsOf(db: Db, now: number): ServiceLists {
+/**
+ * The people and the places of a service turn at `now` under `ctx`, in id order. A context that does not read every
+ * audience lists no direct chat and gives no person a direct chat or a line of hers there.
+ */
+export function serviceListsOf(db: Db, now: number, ctx: Context): ServiceLists {
+  const withDms = readsAll(ctx);
   const since = new Date(now - ACTIVITY_DAYS * DAY_MS).toISOString();
-  const purposes = fieldTexts(db, 'place', 'purpose');
-  const topics = fieldTexts(db, 'place', 'topics');
+  const purposes = fieldTexts(db, 'place', 'purpose', ctx);
+  const topics = fieldTexts(db, 'place', 'topics', ctx);
   const own = ownLastByPlace(db);
   // Each person's newest line of the window and its place, from the same reads that count the places.
   const newest = new Map<string, { at: number; placeId: string }>();
-  const chats = chatsOf(db);
+  const chats = chatsOf(db, withDms);
   const places = chats.map(({ id: placeId, group }): ListedPlace => {
     const writers = writersOf(db, placeId, since);
     const last = own.get(placeId) ?? null;
@@ -331,16 +341,16 @@ export function serviceListsOf(db: Db, now: number): ServiceLists {
           : null,
     };
   });
-  const relations = fieldTexts(db, 'person', 'relationship');
-  const characters = fieldTexts(db, 'person', 'character');
-  const styles = fieldTexts(db, 'person', 'style');
-  const ids = knownPersonIds(db);
+  const relations = fieldTexts(db, 'person', 'relationship', ctx);
+  const characters = fieldTexts(db, 'person', 'character', ctx);
+  const styles = fieldTexts(db, 'person', 'style', ctx);
+  const ids = knownPersonIds(db, ctx);
   const names = personNamesOf(db, ids);
   const listed = ids.flatMap((personId) => {
     const person = livePerson(db, personId);
     const accounts = profileAccountsOf(db, personId).filter((one) => userAccount(db, one.id));
     if (person === null || accounts.length === 0) return [];
-    const dm = accounts.map((one) => dmOfAccount(db, one.id)).find((one) => one !== null) ?? null;
+    const dm = withDms ? (accounts.map((one) => dmOfAccount(db, one.id)).find((one) => one !== null) ?? null) : null;
     return [{ personId, person, accounts, dm }];
   });
   // Each listed person by every key a line of hers may name them with: an account id and a mentioned platform id.
@@ -365,12 +375,12 @@ export function serviceListsOf(db: Db, now: number): ServiceLists {
       personId,
       name: names[personId] ?? null,
       realName: person.realName,
-      claims: aliasClaimsOf(db, audienceWhere(internalContext(), 'c'), personId),
+      claims: aliasClaimsOf(db, audienceWhere(ctx, 'c'), personId),
       profileAccounts: accounts,
       relation: relations.get(personId) ?? null,
       character: characters.get(personId) ?? null,
       style: styles.get(personId) ?? null,
-      attitude: attitudeOf(db, audienceWhere(internalContext(), 'e'), personId, ATTITUDE_MOVES),
+      attitude: attitudeOf(db, audienceWhere(ctx, 'e'), personId, ATTITUDE_MOVES),
       lastSeenAt: seen?.at ?? person.lastSeenAt,
       lastPlaceId: seen?.placeId ?? null,
       dm: dm === null ? null : { placeId: dm.id, lastAt: newestLineAt(db, dm.id) },
@@ -378,9 +388,7 @@ export function serviceListsOf(db: Db, now: number): ServiceLists {
         line === null
           ? null
           : { placeId: line.placeId, at: line.at, direct: line.direct, after: followed.get(personId) ?? null },
-      interests: interestClaimsOf(db, audienceWhere(internalContext(), 'c'), personId, LISTED_INTERESTS).map(
-        (one) => one.text
-      ),
+      interests: interestClaimsOf(db, audienceWhere(ctx, 'c'), personId, LISTED_INTERESTS).map((one) => one.text),
     };
   });
   return { people, places };

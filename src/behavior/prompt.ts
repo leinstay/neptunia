@@ -111,7 +111,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   // Her own time is at the command line of her own server (the owner's word of 2026-11-06), whatever place the turn rode
   // in on. A diary post states no place: its block holds the bare clock.
   const turnPlace = input.whereabouts ?? null;
-  const diaryTurn = turnKind === 'diary' || turnKind === 'diary_plan';
+  const diaryTurn = turnKind === 'diary';
   const whereabouts = diaryTurn ? null : turnPlace && ownTime ? { kind: 'server' as const } : turnPlace;
   const { currentChannelId = null } = input;
   // Every input, named once: the block builders of src/turn/request/ read theirs from it.
@@ -184,7 +184,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     memberKeyOf: input.memberKeyOf,
     accountKeyOf: input.accountKeyOf,
     placePathOf: input.placePathOf,
-    heartbeat: input.heartbeat,
+    serviceLists: input.serviceLists,
   };
   // Each builder reads the input and what the builders before it gave, under the names they give it.
   const frame = input.frame;

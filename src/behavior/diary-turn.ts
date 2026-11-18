@@ -114,23 +114,20 @@ export type DiaryStore = {
   state: { data: Record<string, unknown>; markDirty(): void };
 };
 
-/** The plan of a diary post as recordEntry reads it: its kind, search and brief, and the seeding its planner answered. */
-export type EntryPlan = {
-  kind: string | null;
-  search?: string | null;
-  brief?: string;
-  seeding?: { seeds: Array<Array<string>>; seed: number };
-};
+/** A scene of the director an entry was written in: the sets offered, the lines it kept and its text. */
+export type EntrySceneUsed = { sets: Array<Array<string>>; used: Array<string>; scene: string };
 
 /**
- * The post of the place's diary an entry is (recordEntry): its gist and its first picture's scene on one line, her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`),
- * with a voice message the text as voiced and its length, and with a planner's answer its `plan` (`brief`, the `seeds`
- * offered, the `seed` taken), which the memory database keeps in the entry's `extra`.
+ * The post of the place's diary an entry is (recordEntry): its gist and its first picture's scene on one line, the full
+ * text, the entry's id as its `itemId`, how it is sent (`send`), with a voice message the text as voiced and its length,
+ * and for an entry written in scenes the lines each scene kept (`scenes: [{ used }]`), which the memory database keeps
+ * in the entry's `extra`.
  */
 function diaryPostOf({
   config,
   at,
-  plan,
+  kind,
+  scenes,
   held,
   staged,
   set,
@@ -139,7 +136,8 @@ function diaryPostOf({
 }: {
   config: Config;
   at: number;
-  plan: EntryPlan;
+  kind: string | null;
+  scenes: ReadonlyArray<EntrySceneUsed>;
   held: HeldSpeech;
   staged: ReadonlyArray<StagedPicture>;
   set: boolean;
@@ -158,15 +156,14 @@ function diaryPostOf({
   };
   const post = {
     at,
-    kind: plan.kind,
+    kind,
     gist: gistOf(held.texts.join(' ')),
     picture: first ? gistOf(first.text) : null,
     ...(set ? { pictures: staged.length } : {}),
-    search: plan.search || null,
     text: held.texts.join('\n'),
     itemId: id,
     ...(voice ? { voice: { text: voice.text, durationSec: voice.durationSecs } } : {}),
-    ...(plan.seeding ? { plan: { brief: plan.brief ?? '', seeds: plan.seeding.seeds, seed: plan.seeding.seed } } : {}),
+    ...(scenes.length > 0 ? { scenes: scenes.map((one) => ({ used: [...one.used] })) } : {}),
     // How the entry goes out, kept so a publication sent after a restart sends it whole (src/behavior/mirror.ts).
     send: { ...rendered, maxMessageBytes },
   };
@@ -180,18 +177,19 @@ const publicationAudienceOf = (choice: AudienceChoice) =>
 /**
  * A diary post recorded before anything is sent: one post in the place's diary (`store.appendDiaryPost`, the newest
  * `diary.historyPosts` (150) kept) with its gist and its first picture's scene on one line, her
- * full text, the entry's id as its `itemId`, its search query, how it is sent (`send`: her messages as sent and the
+ * full text, the entry's id as its `itemId`, the lines its scenes kept, how it is sent (`send`: her messages as sent and the
  * set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
  * counted. Every picture was counted when it was generated. `audience` is what her `<audience>` tags came to: the post
  * keeps it as `publicationAudience`, and a failed choice is kept as a value that publishes nowhere
  * (src/memory/db/diary-audience.ts). `turnId`, the turn that wrote it, is kept as the post's `turnId`. Returns
- * the outcome's `diary` field: the counts, the audience and the entry the mirrors publish.
+ * the outcome's `diary` field: the kind, the counts, the audience, the scenes and the entry the mirrors publish.
  */
 export function recordEntry({
   store,
   config,
   now,
-  plan,
+  kind,
+  scenes,
   held,
   staged,
   set,
@@ -205,7 +203,8 @@ export function recordEntry({
   config: Config;
 
   now: number;
-  plan: EntryPlan;
+  kind: string | null;
+  scenes: ReadonlyArray<EntrySceneUsed>;
   held: HeldSpeech;
   staged: ReadonlyArray<StagedPicture>;
   set: boolean;
@@ -217,17 +216,18 @@ export function recordEntry({
 }): {
   kind: string | null;
   picture: boolean;
-  search: boolean;
   messages: number;
   pictures: number;
   audience: AudienceChoice;
+  scenes: ReadonlyArray<EntrySceneUsed>;
   entry: DiaryEntry;
 } {
   const id = newId();
   const { post, rendered, maxMessageBytes } = diaryPostOf({
     config,
     at: now,
-    plan,
+    kind,
+    scenes,
     held,
     staged,
     set,
@@ -251,12 +251,12 @@ export function recordEntry({
     maxMessageBytes,
   };
   return {
-    kind: plan.kind,
+    kind,
     picture: staged.length > 0,
-    search: Boolean(plan.search),
     messages: held.texts.length,
     pictures: staged.length,
     audience,
+    scenes,
     entry,
   };
 }

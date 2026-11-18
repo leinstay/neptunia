@@ -793,8 +793,8 @@ export type FrameReads = {
   affinityChanges?(ctx: Context, personId: string, limit: number): Array<AffinityChange>;
   /** A place's count of lines and the numbers of its newest `newest` lines (chat-lines.ts#placeLineNumbers). */
   placeLines?(placeId: string, newest: number): PlaceLineNumbers;
-  /** The people and the places a heartbeat lists (service-lists.ts#serviceListsOf). */
-  serviceLists?(now: number): ServiceLists;
+  /** The people and the places a service turn lists under `ctx` (service-lists.ts#serviceListsOf). */
+  serviceLists?(now: number, ctx: Context): ServiceLists;
   /** Her newest intentions, open and archived (past-acts.ts#ownIntentionsOf). */
   ownIntentions?(limit: number): Array<OwnIntention>;
   /** Her lines and intentions near a purpose's vector (past-acts.ts#pastActsOf). */
@@ -871,7 +871,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     affinityChanges: (ctx, personId, limit) => over([], (db) => affinityChangesOf(db, ctx, { personId, limit })),
     placeLines: (placeId, newest) =>
       over<PlaceLineNumbers>({ count: 0, numbers: new Map() }, (db) => placeLineNumbers(db, placeId, newest)),
-    serviceLists: (now) => over({ people: [], places: [] }, (db) => serviceListsOf(db, now)),
+    serviceLists: (now, ctx) => over({ people: [], places: [] }, (db) => serviceListsOf(db, now, ctx)),
     ownIntentions: (limit) => over([], (db) => ownIntentionsOf(db, limit)),
     pastActs: (input) => over([], (db) => pastActsOf(db, { ...input, openPrivate: opensPrivate(configOf()) })),
   };

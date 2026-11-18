@@ -13,7 +13,7 @@ import type { Whereabouts } from '../turn/request/spatial.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { CallMark } from './lines.ts';
 import type { PlacePathView, Prompts, RequestConfig, RequestInput } from '../turn/request/types.ts';
-import type { HeartbeatInput, RequestRefs } from '../turn/request/types.ts';
+import type { RequestRefs, ServiceListsInput } from '../turn/request/types.ts';
 import type { sectionCost } from '../llm/budget.ts';
 
 export type ClassifierTranscriptArg2 = {
@@ -118,8 +118,8 @@ export type BuildRequestInput = {
   lookups?: ReadonlyArray<RingLookup> | null;
   /** The reads of `<meanwhile>`: her lines elsewhere and the lines around them (src/turn/request/meanwhile.ts). */
   meanwhileReads?: MeanwhileReads | null;
-  /** A heartbeat's lists of people and places and its fragments; null on any other kind. */
-  heartbeat?: HeartbeatInput | null;
+  /** A service turn's lists of people and places and its fragments; null on any other kind. */
+  serviceLists?: ServiceListsInput | null;
   /** The interface's text and the stored fields of the place and its root: `<surroundings>`. */
   surroundings?: SurroundingsInput | null;
   /** Her lessons the turn's context may read, best first (frame-reads.ts#lessonsOf): `<lessons>` of `<self>`. */

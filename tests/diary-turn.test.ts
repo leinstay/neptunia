@@ -1,5 +1,5 @@
-// Tests for the diary turn of src/behavior/turn.ts (mode `diary`): the plan
-// request on the classifier model, the search it asks for, the compose request
+// Tests for the diary turn of src/behavior/turn.ts (mode `diary`): the director's
+// request for a kind that takes a scene, the persona's request
 // with the character card, the output rules of a diary post (no reactions, no
 // GIF, no reply, no links, a message cap), the picture sets and the record in
 // diary.json. Fake discord.js-shaped channel, fake LLM,
@@ -8,7 +8,6 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chunkPictures, createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { ImageGenError } from '../src/llm/images.ts';
-import { DIARY_KINDS } from '../src/behavior/diary.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
 import { fill, formatNow } from '../src/format.ts';
 import { userText } from '../src/behavior/prompt.ts';
@@ -23,13 +22,12 @@ import { attachmentCount, onWorld, useIface, useSelf, world } from './fixtures/t
 import type { Channel } from './fixtures/turn-world.ts';
 import { appendedPost, diaryCounts, entryOf, publishTo } from './fixtures/diary-mirror.ts';
 import type { Untyped } from '../src/tools/types.ts';
-import { planAnswerText } from './fixtures/plan-answer.ts';
+import { directorAnswer, setsOf } from './fixtures/scene-answer.ts';
 import { mirrorScene } from './fixtures/mirror-scene.ts';
 import {
   FRAME_NOW,
   JOURNAL,
   PAGES,
-  PLAN as FRAME_PLAN,
   TEXT as FRAME_TEXT,
   blockOf,
   frameTurn,
@@ -130,8 +128,12 @@ function ownRaw(id: string, ts: number, content: string) {
   };
 }
 
-/** An LLM that answers the plan request with `plan` (an object, or raw text), then the post with `post` (a list: one answer per request, the last repeated). */
-function fakeLlm(plan: Untyped, post: Untyped) {
+/**
+ * An LLM that answers the director with `scene` (a scene's text, an Error it throws, or `{ raw }` sent as it is), then
+ * the persona's requests with `post` (a list: one answer per request, the last repeated). `calls` holds every request,
+ * the director's first.
+ */
+function fakeLlm(scene: string | Error | { raw: string } | null, post: Untyped) {
   const calls: Array<Untyped> = [];
   const options: Array<Untyped> = [];
   let composed = 0;
@@ -141,10 +143,10 @@ function fakeLlm(plan: Untyped, post: Untyped) {
     complete: async (messages: Untyped, opts: Untyped) => {
       calls.push(messages);
       options.push(opts);
-      if (opts?.purpose === 'diary-planner') {
-        if (plan instanceof Error) throw plan;
-        // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-        return { text: planAnswerText(plan, opts), usage: {}, estimated: 5 };
+      if (opts?.purpose === 'diary-scene') {
+        if (scene instanceof Error) throw scene;
+        if (scene !== null && typeof scene === 'object') return { text: scene.raw, usage: {}, estimated: 5 };
+        return directorAnswer(messages, opts, typeof scene === 'string' ? scene : undefined);
       }
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;
@@ -235,8 +237,6 @@ function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Unty
       diary: {
         placeId: 'd1',
         world: false,
-        planMaxOutputTokens: 250,
-        planTimeoutMs: 15000,
         ...diary,
       },
     },
@@ -245,7 +245,9 @@ function fakeHot({ diary = {}, prompts = {} }: { diary?: Untyped; prompts?: Unty
       'character-card': 'CARD_TEXT',
       format: 'FORMAT_TEXT',
       diary: 'DIARY_TASK for {{name}}',
-      'diary-planner': 'PLAN_SYSTEM for {{name}}',
+      'diary-scene': 'SCENE_TASK',
+      'diary-kind-status': 'STATUS_TASK',
+      'diary-kind-story': 'STORY_TASK',
       'diary-seeds': '# place\na pier\n# light\nfog',
       draw: 'DRAW for {{name}}\n{{when}}\n{{request}}',
       labels,
@@ -288,297 +290,186 @@ function runner({
 // The whole user text, every cache part: the stable part always carries the static senses lines.
 const userOf = (messages: Untyped) => userText(messages[1].content);
 
-/** The writer's `<plan>` body for `plan` as lines: the intro, the kind, the brief, the picture and the owner's topic. */
-const planLines = (plan: { kind: string; brief: string; picture: boolean; topic?: string }): string =>
-  [
-    labels.diary.plan,
-    fill(labels.diary.planKind, { value: plan.kind }),
-    fill(labels.diary.planBrief, { value: plan.brief }),
-    plan.picture ? labels.diary.planPicture : labels.diary.planNoPicture,
-    ...(plan.topic === undefined ? [] : [fill(labels.diary.planTopic, { value: plan.topic })]),
-  ].join('\n');
-
-test('diary turn: plans on the analyzer model, then composes with the card', async () => {
-  // The lead: the code draws the diary's kind (owner, 2026-11-06).
-  const posts = [
-    { at: NOW - DAY, kind: 'status', gist: 'une journée grise', picture: null, messageIds: ['m0'], search: null },
-  ];
-  const llm = fakeLlm({ kind: 'status', brief: 'tired of rain', search: '', picture: false }, '<msg>ennui</msg>');
-  const hot = fakeHot({ diary: { world: true } });
-  const turns = runner({ hot, store: fakeStore({ posts }), llm });
+test('diary turn: a story asks the director on its role, then writes with the card and the scene', async () => {
+  // Bug: the persona writes a scene kind with no scene, or the director runs on the persona's own role.
+  const llm = fakeLlm('A FOGGY PIER AT DUSK.', '<msg>ennui</msg>');
+  const turns = runner({ hot: fakeHot({ diary: { world: true } }), llm });
 
   const result = await turns.runTurn({
     channel: diaryChannel(),
     mode: 'diary',
-    diary: { kind: 'status', forced: false },
+    diary: { kind: 'story', forced: false },
   });
 
   assert.equal(loose(result).outcome, 'spoke');
   assert.equal(llm.calls.length, 2);
-  const [plan, compose] = llm.calls;
-  // Slice 6: the planner is a frame request: the persona is its system message and the planner prompt its `<task>`,
-  // the time is in `<spatial_awareness>`, the kinds and the seeds in `<inner>`.
-  assert.ok(String(plan[0].content).includes('CARD_TEXT'), 'the planner is the persona');
-  const planUser = userOf(plan);
-  for (const tag of ['spatial_awareness', 'inner', 'kinds', 'seeds'])
-    assert.ok(planUser.includes(`<${tag}>`), `plan request: <${tag}>`);
-  assert.ok(planUser.includes('<task>\nPLAN_SYSTEM for Bot\n</task>'), 'the planner prompt is the task');
-  assert.ok(planUser.includes('- a pier; fog'), 'one seed line per family');
-  assert.equal(llm.options[0].role, 'analyzer');
-  assert.equal(llm.options[0].purpose, 'diary-planner');
-  assert.equal(llm.options[0].maxOutputTokens, 250);
-  assert.equal(llm.options[0].timeoutMs, 15000);
-  assert.equal(llm.options[0].countAgainstDailyCap, true);
-
-  assert.ok(compose[0].content.includes('CARD_TEXT'), 'the post is composed with the card');
-  const composeUser = userOf(compose);
-  // Slice 6: the plan is lines in `<inner>`, no JSON.
-  // Her past entries come from memory, which this fake store has not: '<diary> holds the newest 150 of 200
-  // stored entries newest first' below checks that they reach the writer. The writer is nowhere, so no diary channel
-  // is named in its senses.
-  assert.ok(
-    composeUser.includes(`<plan>\n${planLines({ kind: 'status', brief: 'tired of rain', picture: false })}\n</plan>`),
-    composeUser
-  );
-  assert.ok(composeUser.includes('<task>\nDIARY_TASK for Bot\n</task>'));
+  assert.equal(llm.options[0].purpose, 'diary-scene');
+  assert.equal(llm.options[0].role, 'director');
+  assert.ok(String(llm.calls[1][0].content).includes('CARD_TEXT'), 'the entry is written with the card');
+  const composeUser = userOf(llm.calls[1]);
+  const inner = blockOf(composeUser, 'inner');
+  assert.equal(partOf(inner, 'kind'), 'story');
+  assert.equal(partOf(inner, 'scene'), 'A FOGGY PIER AT DUSK.');
+  assert.ok(composeUser.includes('<task>\nDIARY_TASK for Bot\n\nSTORY_TASK\n</task>'), composeUser.slice(-400));
+  for (const tag of ['plan', 'seeds', 'kinds', 'meanwhile']) assert.ok(!composeUser.includes(`<${tag}>`), tag);
 });
 
-test('diary turn: a hedged plan request is limited by diary.planTimeoutMs, an unhedged one carries no hedge', async () => {
-  const hedged = fakeHot({ diary: { planTimeoutMs: 120000 } });
-  loose(hedged.config.llm).hedge = { roles: ['analyzer'], afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 };
-  const llmHedged = fakeLlm({ kind: 'status', brief: 'b', search: '', picture: false }, '<msg>x</msg>');
-  await runner({ hot: hedged, llm: llmHedged }).runTurn({
-    channel: diaryChannel(),
-    mode: 'diary',
-    diary: {},
-  });
-  assert.equal(llmHedged.options[0].purpose, 'diary-planner');
-  assert.deepEqual(llmHedged.options[0].hedge, { afterMs: 2500, timeoutMs: 120000 });
-
-  const unhedged = fakeHot({ diary: { planTimeoutMs: 120000 } });
-  loose(unhedged.config.llm).hedge = { roles: [], afterMs: 2500, timeoutMs: 8000, longTimeoutMs: 20000 };
-  const llmPlain = fakeLlm({ kind: 'status', brief: 'b', search: '', picture: false }, '<msg>x</msg>');
-  await runner({ hot: unhedged, llm: llmPlain }).runTurn({
-    channel: diaryChannel(),
-    mode: 'diary',
-    diary: {},
-  });
-  assert.equal(llmPlain.options[0].purpose, 'diary-planner');
-  assert.equal('hedge' in llmPlain.options[0], false);
+test('diary turn: a status asks no director and its request holds no <scene>', async () => {
+  // Bug: a kind with no scene waits on the director, or reads a scene.
+  const llm = fakeLlm(null, '<msg>ennui</msg>');
+  await runner({ llm }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: { kind: 'status', forced: false } });
+  assert.equal(llm.calls.length, 1, 'the persona alone');
+  const user = userOf(llm.calls[0]);
+  assert.equal(partOf(blockOf(user, 'inner'), 'kind'), 'status');
+  assert.ok(!user.includes('<scene>'));
+  assert.ok(user.includes('<task>\nDIARY_TASK for Bot\n\nSTATUS_TASK\n</task>'));
 });
 
-test('diary turn: a broken plan answer falls back to a weighted kind', async () => {
-  const llm = fakeLlm('not json at all', '<msg>ennui</msg>');
+test('diary turn: a randomSet asks for three scenes whose sets share no line', async () => {
+  // Bug: the three places of a random set come from one request, or repeat a line, so its pictures look alike.
+  const seeds = ['# place', ...Array.from({ length: 30 }, (_, i) => `place ${i}`)].join('\n');
+  const llm = fakeLlm(null, '<msg>trois endroits</msg>');
+  const hot = fakeHot({ prompts: { 'diary-seeds': seeds } });
+  await runner({ hot, llm }).runTurn({
+    channel: diaryChannel(),
+    mode: 'diary',
+    diary: { kind: 'randomSet', forced: false },
+  });
+  const asked = llm.calls.filter((_, i) => llm.options[i].purpose === 'diary-scene');
+  assert.equal(asked.length, 3);
+  const lines = asked.flatMap((messages: Untyped) => setsOf(String(messages[1].content)).flat());
+  assert.equal(new Set(lines).size, lines.length, 'no line in two sets');
+  const scene = partOf(blockOf(userOf(llm.calls[3]), 'inner'), 'scene');
+  assert.equal(scene.split('A STILL HARBOUR AT DUSK.').length - 1, 3, scene);
+});
+
+test('diary turn: a randomSet with one scene of three runs', async () => {
+  // Bug: one failed request of three drops the whole entry.
+  let asked = 0;
+  const llm = fakeLlm(null, withDraws('<msg>un endroit</msg>', 3));
+  const complete = llm.complete;
+  llm.complete = (messages: Untyped, opts: Untyped) => {
+    if (opts?.purpose === 'diary-scene' && (asked += 1) > 1)
+      return Promise.resolve({ text: 'no json', usage: {}, estimated: 5 });
+    return complete(messages, opts);
+  };
   const store = fakeStore();
-  const { logs } = await withCapturedLogs(() =>
-    runner({ llm, store }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} })
-  );
-  assert.ok(logs.some((l) => l.msg === 'diary: plan failed' && l.reason === 'unparsed'));
-  // PR 7d: the kinds are DIARY_KINDS of src/behavior/diary.ts.
-  assert.ok(Object.keys(DIARY_KINDS).includes(store.appended[0].post.kind));
+  const result = await runner({ llm, store }).runTurn({
+    channel: diaryChannel(),
+    mode: 'diary',
+    diary: { kind: 'randomSet', forced: false },
+  });
+  assert.equal(loose(result).outcome, 'spoke');
+  assert.equal(store.appended[0].post.scenes.length, 1);
 });
 
-test('diary turn: a request cap on the plan refuses the turn', async () => {
+test('diary turn: with no scene no turn runs and the slot ends skip no-scene', async () => {
+  // Bug: the persona writes a scene kind with no scene and makes one up, or the failure goes unlogged.
+  for (const scene of [new Error('down'), { raw: 'not json' }]) {
+    const llm = fakeLlm(scene, '<msg>x</msg>');
+    const store = fakeStore();
+    const { result, logs } = await withCapturedLogs(() =>
+      runner({ llm, store }).runTurn({
+        channel: diaryChannel(),
+        mode: 'diary',
+        diary: { kind: 'story', forced: false },
+      })
+    );
+    assert.equal(loose(result).outcome, 'skip');
+    assert.equal(loose(result).reason, 'no-scene');
+    assert.equal(llm.calls.length, 1, 'the director alone');
+    assert.equal(store.appended.length, 0);
+    const line = logs.find((entry) => entry.msg === 'diary: skip');
+    assert.deepEqual(loose(line).failures, [scene instanceof Error ? 'request-failed' : 'not-json']);
+  }
+});
+
+test('diary turn: a request cap on the director refuses the turn', async () => {
   const llm = fakeLlm(new DailyCapError('daily cap'), '<msg>x</msg>');
   const channel = diaryChannel();
-  const result = await runner({ llm }).runTurn({ channel, mode: 'diary', diary: {} });
+  const result = await runner({ llm }).runTurn({ channel, mode: 'diary', diary: { kind: 'story', forced: false } });
   assert.equal(loose(result).outcome, 'refused');
   assert.equal(llm.calls.length, 1);
   assert.equal(channel.sent.length, 0);
 });
 
-test("diary turn: a forced kind skips the planner's choice", async () => {
-  const llm = fakeLlm({ kind: 'status', brief: 'a pier in the fog', search: '', picture: false }, '<msg>brume</msg>');
+test('diary turn: a forced kind replaces the draw and is recorded', async () => {
+  const llm = fakeLlm(null, '<msg>brume</msg>');
   const store = fakeStore();
   await runner({ llm, store }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
-    diary: { kind: 'selfPicture', forced: true },
+    diary: { kind: 'thought', forced: true },
   });
-  const planUser = userOf(llm.calls[0]);
-  assert.ok(planUser.includes(fill(labels.diary.kindLine, { key: 'selfPicture', weight: 1, count: 0, window: 0 })));
-  assert.ok(
-    !planUser.includes(fill(labels.diary.kindLine, { key: 'status', weight: 1, count: 0, window: 0 })),
-    'the only kind offered'
-  );
-  // Slice 6: the writer's plan is lines, no JSON.
-  assert.ok(
-    userOf(llm.calls[1]).includes(planLines({ kind: 'selfPicture', brief: 'a pier in the fog', picture: true })),
-    'the brief is kept'
-  );
-  assert.equal(store.appended[0].post.kind, 'selfPicture');
+  assert.equal(partOf(blockOf(userOf(llm.calls[0]), 'inner'), 'kind'), 'thought');
+  assert.equal(store.appended[0].post.kind, 'thought');
 });
 
-test('diary turn: a topic becomes a <topic> block in the plan request and a field of <plan>', async () => {
-  // The lead: the code draws the diary's kind (owner, 2026-11-06).
-  const llm = fakeLlm({ kind: 'status', brief: 'harbour at dusk', search: '', picture: false }, '<msg>brume</msg>');
+test('diary turn: a topic becomes a <topic> part of <inner>', async () => {
+  const llm = fakeLlm(null, '<msg>brume</msg>');
   await runner({ llm }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
     diary: { kind: 'status', topic: '  le vieux  port\n ', forced: true },
   });
-  const planUser = userOf(llm.calls[0]);
-  const topicBlock = `<topic>\n${labels.diary.topic}\nle vieux port\n</topic>`;
-  assert.ok(planUser.includes(topicBlock), 'the plan request carries the topic block');
-  assert.ok(planUser.indexOf('<seeds>') < planUser.indexOf('<topic>'), 'the topic follows the seeds');
-  // Slice 6: the topic is a part of `<inner>`, the last one with memory off (no `<stored_facts>`), and the request goes
-  // on with the frame's later blocks.
-  assert.ok(blockOf(planUser, 'inner').trimEnd().endsWith('</topic>'), 'the topic is the last part of <inner>');
-  const composeUser = userOf(llm.calls[1]);
-  // Slice 6: the writer's plan is lines, the owner's topic one of them.
-  assert.ok(
-    composeUser.includes(
-      `<plan>\n${planLines({ kind: 'status', brief: 'harbour at dusk', picture: false, topic: 'le vieux port' })}\n</plan>`
-    ),
-    'the plan carries the topic'
-  );
+  const inner = blockOf(userOf(llm.calls[0]), 'inner');
+  assert.equal(partOf(inner, 'topic'), `${labels.diary.topic}\nle vieux port`);
 });
 
 test('diary turn: no topic leaves the requests unchanged', async () => {
-  const answer = { kind: 'status', brief: 'harbour at dusk', search: '', picture: false };
-  const plain = fakeLlm(answer, '<msg>brume</msg>');
+  const plain = fakeLlm(null, '<msg>brume</msg>');
   await runner({ llm: plain }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
-    diary: { kind: null, forced: true },
+    diary: { kind: 'status', forced: true },
   });
   for (const topic of [undefined, null, '', '   ']) {
-    const llm = fakeLlm(answer, '<msg>brume</msg>');
+    const llm = fakeLlm(null, '<msg>brume</msg>');
     await runner({ llm }).runTurn({
       channel: diaryChannel(),
       mode: 'diary',
-      diary: { kind: null, topic, forced: true },
+      diary: { kind: 'status', topic, forced: true },
     });
     assert.deepEqual(llm.calls, plain.calls, `topic ${JSON.stringify(topic)}: byte-identical requests`);
   }
   assert.ok(!userOf(plain.calls[0]).includes('<topic>'));
-  // Slice 6: the plan is lines, so no topic means no topic line (the JSON key it looked for is gone).
-  assert.ok(!userOf(plain.calls[1]).includes(fill(labels.diary.planTopic, { value: '' }).trim()));
 });
 
-test('diary turn: searches when the plan asks and passes the summary as found', async () => {
-  // The lead: the code draws the diary's kind (owner, 2026-11-06).
-  const llm = fakeLlm(
-    { kind: 'news', brief: 'a comet', search: 'comet tonight', picture: false },
-    '<msg>une comète</msg>'
-  );
-  const lookup = fakeLookup({ query: 'comet tonight', text: 'A comet is visible tonight.', sources: [] });
-  const store = fakeStore();
-  const result = await runner({ llm, lookup, store }).runTurn({
-    channel: diaryChannel(),
-    mode: 'diary',
-    diary: { kind: 'news', forced: false },
-  });
-  // Her diary searches under the persona: it belongs to no server.
-  assert.deepEqual(lookup.calls, [{ placeId: 'persona:local', query: 'comet tonight' }]);
-  // Slice 6: what the search found is the last group of lines of `<plan>` in `<inner>`, no block of its own.
-  const plan = partOf(blockOf(userOf(llm.calls[1]), 'inner'), 'plan');
-  assert.ok(plan.endsWith(`${labels.diary.found}\nA comet is visible tonight.`), plan);
-  assert.equal(store.appended[0].post.search, 'comet tonight');
-  assert.equal(loose(result).diary.search, true);
-});
-
-test('diary turn: a failed search posts without a find and logs it', async () => {
-  // The lead: the code draws the diary's kind (owner, 2026-11-06).
-  for (const outcome of [null, new Error('boom')]) {
-    const llm = fakeLlm(
-      { kind: 'news', brief: 'a comet', search: 'comet tonight', picture: false },
-      '<msg>une comète</msg>'
-    );
-    const { logs } = await withCapturedLogs(() =>
-      runner({ llm, lookup: fakeLookup(outcome) }).runTurn({
-        channel: diaryChannel(),
-        mode: 'diary',
-        diary: { kind: 'news', forced: false },
-      })
-    );
-    // Slice 6: a find rides at the end of `<plan>`, so no find means no find label there (`<found>` is gone).
-    assert.ok(!userOf(llm.calls[1]).includes(labels.diary.found));
-    assert.ok(
-      logs.some((l) => l.msg === 'diary: search failed'),
-      String(outcome)
-    );
-  }
-});
-
-test('diary turn: search is not asked for a kind outside searchKinds', async () => {
-  const llm = fakeLlm({ kind: 'status', brief: 'x', search: 'comet tonight', picture: false }, '<msg>x</msg>');
-  const lookup = fakeLookup({ text: 'found' });
+test('diary turn: news asks for no search of the code', async () => {
+  // Bug: the code still searches for the persona before the turn, so the entry rides on a search it did not choose.
+  const llm = fakeLlm(null, '<msg>une comète</msg>');
+  const lookup = fakeLookup({ text: 'found', sources: [] });
   await runner({ llm, lookup }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
-    diary: {},
+    diary: { kind: 'news', forced: true },
   });
   assert.equal(lookup.calls.length, 0);
 });
 
-test('diary turn: a picture kind draws even when the planner said no picture', async () => {
-  // The lead: the code draws the diary's kind (owner, 2026-11-06).
-  const llm = fakeLlm(
-    { kind: 'selfPicture', brief: 'a pier', search: '', picture: false },
-    drawAnswer('<msg>brume</msg>', 1, true)
-  );
-  const images = fakeImages();
-  const store = fakeStore();
-  const result = await runner({ llm, store, images }).runTurn({
-    channel: diaryChannel(),
-    mode: 'diary',
-    diary: { kind: 'selfPicture', forced: false },
-  });
-  const compose = userOf(llm.calls[1]);
-  // Slice 6: the writer's plan is lines, no JSON.
-  assert.ok(
-    compose.includes(planLines({ kind: 'selfPicture', brief: 'a pier', picture: true })),
-    'the plan says picture'
-  );
-  assert.equal(images.prompts.length, 1, 'the picture is drawn');
-  assert.equal(loose(result).diary.picture, true);
-});
-
-/** The `<kinds>` line of `key` with `weight` and no history. */
-const kindLine = (key: string, weight: Untyped) => fill(labels.diary.kindLine, { key, weight, count: 0, window: 0 });
-
 // PR 7d: the kinds and their weights are DIARY_KINDS of src/behavior/diary.ts, and the daily caps that turned the
 // pictures off are gone: no image client is what turns them off here.
-test('diary turn: with pictures off only text kinds are offered and the fallback picks one', async () => {
-  // The lead: the code draws the diary's kind (owner, 2026-11-06).
-  const cases = [{ name: 'no image client', store: fakeStore(), images: null, channel: diaryChannel() }];
-  for (const { name, store, images, channel } of cases) {
-    for (const answer of ['not json at all', { kind: 'selfPicture', brief: 'a pier', search: '', picture: true }]) {
-      const llm = fakeLlm(answer, '<msg>brume</msg>');
-      const { logs } = await withCapturedLogs(() =>
-        runner({ llm, store, images }).runTurn({ channel, mode: 'diary', diary: {} })
-      );
-      const planUser = userOf(llm.calls[0]);
-      assert.ok(!planUser.includes(kindLine('selfPicture', 3)), `${name}: no picture kind offered`);
-      const planned = logs.find((l) => l.msg === 'diary: planned');
-      assert.ok(['thought', 'people', 'news', 'facts', 'status'].includes(loose(planned).kind), `${name}: a text kind`);
-      assert.ok(planUser.includes(kindLine(String(loose(planned).kind), 1)), `${name}: the drawn text kind offered`);
-      assert.equal(loose(planned).fallback, answer === 'not json at all');
-      assert.equal(loose(planned).picture, false);
-      assert.equal(loose(planned).picturesOff, true, `${name}: the log says why`);
-    }
-    assert.ok(
-      store.appended.every(({ post }) => post.kind !== 'selfPicture'),
-      `${name}: no picture kind recorded`
+test('diary turn: with pictures off only a text kind is drawn', async () => {
+  for (const roll of [0, 0.3, 0.6, 0.99]) {
+    const llm = fakeLlm(null, '<msg>brume</msg>');
+    const { logs } = await withCapturedLogs(() =>
+      runner({ llm, images: null, rng: () => roll }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} })
     );
+    const prepared = logs.find((entry) => entry.msg === 'diary: prepared');
+    assert.ok(['story', 'thought', 'people', 'news', 'facts', 'status'].includes(loose(prepared).kind), String(roll));
+    assert.equal(loose(prepared).picturesOff, true, 'the log says why');
   }
 });
 
-// PR 7d: the weights are DIARY_KINDS of src/behavior/diary.ts.
-test('diary turn: with pictures allowed the picture kinds are offered as before', async () => {
-  // The lead: the code draws the diary's kind (owner, 2026-11-06).
-  const llm = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, '<msg>brume</msg>');
+test('diary turn: with pictures allowed a picture kind may be drawn', async () => {
+  // The lowest roll takes the first kind after `story`, a picture kind, once pictures are allowed.
+  const llm = fakeLlm(null, drawAnswer('<msg>brume</msg>', 1, true));
   const { logs } = await withCapturedLogs(() =>
-    runner({ llm, rng: () => 0 }).runTurn({
-      channel: diaryChannel(),
-      mode: 'diary',
-      diary: {},
-    })
+    runner({ llm, rng: () => 0.2 }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} })
   );
-  const planUser = userOf(llm.calls[0]);
-  assert.ok(planUser.includes(kindLine('selfPicture', 1)), 'the drawn picture kind offered');
-  assert.equal(loose(logs.find((l) => l.msg === 'diary: planned')).picturesOff, undefined);
+  const prepared = logs.find((entry) => entry.msg === 'diary: prepared');
+  assert.equal(loose(prepared).kind, 'selfPicture');
+  assert.equal(loose(prepared).picturesOff, undefined);
 });
 
 test('diary turn: a forced picture kind with pictures off is refused before any request', async () => {
@@ -593,7 +484,7 @@ test('diary turn: a forced picture kind with pictures off is refused before any 
     },
   ];
   for (const { name, store, images, channel, limit } of cases) {
-    const llm = fakeLlm({ kind: 'selfPicture', brief: 'x', search: '', picture: true }, '<msg>brume</msg>');
+    const llm = fakeLlm(null, '<msg>brume</msg>');
     const result = await runner({ llm, store, images }).runTurn({
       channel,
       mode: 'diary',
@@ -608,7 +499,7 @@ test('diary turn: a forced picture kind with pictures off is refused before any 
 
 test('diary turn: a forced text kind still posts with pictures off', async () => {
   const store = fakeStore();
-  const llm = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, '<msg>brume</msg>');
+  const llm = fakeLlm(null, '<msg>brume</msg>');
   const result = await runner({ llm, store, images: null }).runTurn({
     channel: diaryChannel(),
     mode: 'diary',
@@ -621,7 +512,7 @@ test('diary turn: a forced text kind still posts with pictures off', async () =>
 test('diary turn: reactions and gifs are dropped, reply attributes ignored, urls stripped', async () => {
   const history = [ownRaw('m1', NOW - DAY, 'hier')];
   const llm = fakeLlm(
-    { kind: 'status', brief: 'x', search: '', picture: false },
+    null,
     '<react to="#1">👍</react><msg reply="#1">see https://example.org/a now</msg><msg>https://example.org/b</msg><msg>deux</msg><msg>trois</msg><gif>g1</gif>'
   );
   const channel = diaryChannel({ historyMessages: history });
@@ -643,7 +534,7 @@ test('diary turn: reactions and gifs are dropped, reply attributes ignored, urls
 });
 
 test('diary turn: a skip posts nothing and records nothing', async () => {
-  const llm = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, '<skip/>');
+  const llm = fakeLlm(null, '<skip/>');
   const store = fakeStore();
   const channel = diaryChannel();
   const result = await runner({ llm, store }).runTurn({ channel, mode: 'diary', diary: {} });
@@ -655,7 +546,7 @@ test('diary turn: a skip posts nothing and records nothing', async () => {
 test('diary turn: records the post with gists and message ids', async () => {
   // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const llm = fakeLlm(
-    { kind: 'selfPicture', brief: 'a pier', search: '', picture: true },
+    null,
     toolAnswer('<msg>un quai dans la brume, très calme ce soir</msg>', [
       call('draw.create', { people: [], text: 'the persona on a foggy pier at night, lanterns', self: true }),
     ])
@@ -672,7 +563,6 @@ test('diary turn: records the post with gists and message ids', async () => {
   assert.deepEqual(diaryCounts(result), {
     kind: 'selfPicture',
     picture: true,
-    search: false,
     messages: 1,
     pictures: 1,
   });
@@ -689,7 +579,7 @@ test('diary turn: records the post with gists and message ids', async () => {
       kind: post.kind,
       gist: post.gist,
       picture: post.picture,
-      search: post.search,
+      scenes: post.scenes,
       text: post.text,
       itemId: post.itemId,
     },
@@ -698,7 +588,8 @@ test('diary turn: records the post with gists and message ids', async () => {
       kind: 'selfPicture',
       gist: 'un quai dans la brume, très calme ce soir',
       picture: 'the persona on a foggy pier at night, lanterns',
-      search: null,
+      // The line of its scene the director kept, so the next draws leave it out.
+      scenes: [{ used: ['a pier'] }],
       text: 'un quai dans la brume, très calme ce soir',
       itemId: entry.id,
     }
@@ -710,10 +601,7 @@ test('diary turn: records the post with gists and message ids', async () => {
 });
 
 test('diary turn: a voice message is kept in the post: its id among messageIds and a voice field with the text as voiced', async () => {
-  const llm = fakeLlm(
-    { kind: 'status', brief: 'a quiet evening', search: '', picture: false },
-    toolAnswer('<msg>soir calme</msg>', [call('voice.say', { text: '[tired] soir calme' })])
-  );
+  const llm = fakeLlm(null, toolAnswer('<msg>soir calme</msg>', [call('voice.say', { text: '[tired] soir calme' })]));
   const store = fakeStore();
   const voiced = '[sighs] soir calme';
   const runOwnOp = async (op: Untyped) => ({
@@ -748,7 +636,7 @@ test('diary turn: a voice message is kept in the post: its id among messageIds a
 
 test('diary turn: an audience named beside a call holds when her messages come in a later answer', async () => {
   // Catches: only the last answer's tag being read, so the restriction she named first falls open to unrestricted.
-  const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, [
+  const llm = fakeLlm(null, [
     drawAnswer('<audience>interface:nowhere</audience><msg>brume</msg>'),
     '<msg>brume sans image</msg>',
   ]);
@@ -763,10 +651,7 @@ test('diary turn: an audience named beside a call holds when her messages come i
 });
 
 test('diary turn: a failed drawing is a result she reads before anything is posted; the post goes out without the picture', async () => {
-  const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, [
-    drawAnswer('<msg>brume</msg>'),
-    '<msg>brume sans image</msg>',
-  ]);
+  const llm = fakeLlm(null, [drawAnswer('<msg>brume</msg>'), '<msg>brume sans image</msg>']);
   const store = fakeStore();
   const images = fakeImages({ fail: new ImageGenError('error') });
   const channel = diaryChannel();
@@ -775,7 +660,8 @@ test('diary turn: a failed drawing is a result she reads before anything is post
   );
   assert.equal(loose(result).outcome, 'spoke');
   assert.equal(loose(result).drawFailed, undefined);
-  assert.equal(llm.calls.length, 3, 'the plan, the post with the draw, the post after the result');
+  // Changed: the kind drawn here takes no scene and the planner is gone, so no request comes before the persona's.
+  assert.equal(llm.calls.length, 2, 'the request with the draw, the request after the result');
   assert.deepEqual(calledOf(logs), ['draw.create:failed/image-error']);
   assert.ok(logs.some((l) => l.msg === 'turn: speech held'));
   // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
@@ -789,7 +675,7 @@ test('diary turn: a failed drawing is a result she reads before anything is post
 });
 
 test('diary turn: the drawing prompt carries the local time', async () => {
-  const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, drawAnswer(''));
+  const llm = fakeLlm(null, drawAnswer(''));
   const images = fakeImages();
   await runner({ llm, images }).runTurn({
     channel: diaryChannel(),
@@ -831,7 +717,7 @@ test("diary turn: an ordinary turn's draw.create carries the local time too", as
 });
 
 test('diary turn: a post of a picture alone is a spoken turn', async () => {
-  const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, drawAnswer('', 1, true));
+  const llm = fakeLlm(null, drawAnswer('', 1, true));
   const store = fakeStore();
   const channel = diaryChannel();
   const result = await runner({ llm, store }).runTurn({ channel, mode: 'diary', diary: {} });
@@ -877,7 +763,6 @@ function eventChannel(events: Untyped) {
 
 // PR 7d: the set kinds and their settings are constants of src/behavior/diary.ts: `photoset` is a set kind of 4 to 6
 // pictures, at least 2 posted, 6 seed sets, at most 8 000 000 bytes in one message.
-const TOUR_PLAN = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
 
 test('diary: a single picture is staged while the post is composed, then posted after its messages', async () => {
   // The lead: the code draws the diary's kind (owner, 2026-11-06).
@@ -885,10 +770,7 @@ test('diary: a single picture is staged while the post is composed, then posted 
   const images = fakeSetImages([10], events);
   const store = fakeStore();
   const channel = eventChannel(events);
-  const llm = fakeLlm(
-    { kind: 'selfPicture', brief: 'a pier', search: '', picture: true },
-    drawAnswer('<msg>un quai</msg>', 1, true)
-  );
+  const llm = fakeLlm(null, drawAnswer('<msg>un quai</msg>', 1, true));
   const { result, logs } = await withCapturedLogs(() =>
     runner({ llm, store, images }).runTurn({
       channel,
@@ -901,13 +783,13 @@ test('diary: a single picture is staged while the post is composed, then posted 
   await published(result, channel);
   assert.deepEqual(events, ['generate 1', 'msg', 'files 1'], 'generated first, posted after the message');
   assert.deepEqual(calledOf(logs), ['draw.create:ok/staged']);
-  assert.equal(llm.calls.length, 2, 'the plan and one post request');
+  assert.equal(llm.calls.length, 2, 'the director and one request of the persona');
   assert.equal(loose(channel.sent.at(-1)).files.length, 1);
   // Stage 3 design, section 3 item 6: the outcome names the entry it recorded; the entry itself is checked by its publication.
   assert.deepEqual(loose(result).diary, {
     kind: 'selfPicture',
     picture: true,
-    search: false,
+    scenes: loose(result).diary.scenes,
     messages: 1,
     pictures: 1,
     // The outcome also names her audience (plan section 5): no tag in the answer reads as unrestricted.
@@ -924,7 +806,7 @@ test('diary set: six draw.create calls in one answer are generated before anythi
   const images = fakeSetImages([3_200_000, 3_200_000, 3_200_000, 7_200_000, 800_000, 400_000], events);
   const store = fakeStore();
   const channel = eventChannel(events);
-  const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>une promenade</msg><msg>au port</msg>', 6, true));
+  const llm = fakeLlm(null, withDraws('<msg>une promenade</msg><msg>au port</msg>', 6, true));
   const { result, logs } = await withCapturedLogs(() =>
     runner({ llm, store, images }).runTurn({
       channel,
@@ -970,7 +852,7 @@ test('diary set: six draw.create calls in one answer are generated before anythi
   assert.deepEqual(loose(result).diary, {
     kind: 'photoset',
     picture: true,
-    search: false,
+    scenes: loose(result).diary.scenes,
     messages: 2,
     pictures: 6,
     // The outcome also names her audience (plan section 5): no tag in the answer reads as unrestricted.
@@ -1015,7 +897,7 @@ function limitedRunner({
 test('diary set: the adapter that allows two files per message gets the six pictures in messages of two files', async () => {
   // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = fakeSetImages([10, 10, 10, 10, 10, 10]);
-  const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>une promenade</msg>', 6, true));
+  const llm = fakeLlm(null, withDraws('<msg>une promenade</msg>', 6, true));
   const { turns, adapter } = limitedRunner({ hot: fakeHot(), llm, images, limits: { maxFiles: 2 } });
   const result = await turns.runTurn({
     channel: diaryChannel(),
@@ -1036,7 +918,7 @@ test('diary set: the adapter that allows two files per message gets the six pict
 test('diary set: an adapter that allows twelve files per message gets the same six pictures in one message', async () => {
   // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = fakeSetImages([10, 10, 10, 10, 10, 10]);
-  const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>une promenade</msg>', 6, true));
+  const llm = fakeLlm(null, withDraws('<msg>une promenade</msg>', 6, true));
   const { turns, adapter } = limitedRunner({ hot: fakeHot(), llm, images, limits: { maxFiles: 12 } });
   const result = await turns.runTurn({
     channel: diaryChannel(),
@@ -1057,7 +939,7 @@ test('diary set: calls past diary.set.pictures[1] in one answer are loop-cap res
   // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = fakeSetImages([]);
   const channel = diaryChannel();
-  const llm = fakeLlm(TOUR_PLAN, [withDraws('<msg>x</msg>', 8), '<msg>y</msg>']);
+  const llm = fakeLlm(null, [withDraws('<msg>x</msg>', 8), '<msg>y</msg>']);
   const { result, logs } = await withCapturedLogs(() =>
     runner({ llm, images }).runTurn({
       channel,
@@ -1094,7 +976,7 @@ test('diary set: one failure in a set holds the speech and the staged pictures; 
   const images = fakeSetImages([10, 10, new ImageGenError('error'), 10, 10, 10]);
   const store = fakeStore();
   const channel = diaryChannel();
-  const llm = fakeLlm(TOUR_PLAN, [withDraws('<msg>une promenade</msg>', 6), '<msg>cinq images sur six</msg>']);
+  const llm = fakeLlm(null, [withDraws('<msg>une promenade</msg>', 6), '<msg>cinq images sur six</msg>']);
   const { result, logs } = await withCapturedLogs(() =>
     runner({ llm, store, images }).runTurn({
       channel,
@@ -1134,7 +1016,7 @@ test('diary set: fewer than diary.set.minPosted pictures staged posts nothing an
   const images = fakeSetImages([10, new ImageGenError('error'), new ImageGenError('error')]);
   const store = fakeStore();
   const channel = diaryChannel();
-  const llm = fakeLlm(TOUR_PLAN, [withDraws('<msg>une promenade</msg>', 3), '<msg>une promenade quand même</msg>']);
+  const llm = fakeLlm(null, [withDraws('<msg>une promenade</msg>', 3), '<msg>une promenade quand même</msg>']);
   const { result, logs } = await withCapturedLogs(() =>
     runner({ llm, store, images }).runTurn({
       channel,
@@ -1152,7 +1034,7 @@ test('diary set: fewer than diary.set.minPosted pictures staged posts nothing an
 
   // Every call worked, but she made fewer than the set needs.
   const few = await runner({
-    llm: fakeLlm(TOUR_PLAN, withDraws('<msg>x</msg>', 1)),
+    llm: fakeLlm(null, withDraws('<msg>x</msg>', 1)),
     store: fakeStore(),
     images: fakeSetImages([]),
   }).runTurn({
@@ -1163,7 +1045,7 @@ test('diary set: fewer than diary.set.minPosted pictures staged posts nothing an
   assert.deepEqual([loose(few).outcome, loose(few).reason], ['refused', 'set-short']);
   // A set answered without any picture is short too.
   const bare = await runner({
-    llm: fakeLlm(TOUR_PLAN, '<msg>sans image</msg>'),
+    llm: fakeLlm(null, '<msg>sans image</msg>'),
     store: fakeStore(),
     images: fakeSetImages([]),
   }).runTurn({
@@ -1177,7 +1059,7 @@ test('diary set: fewer than diary.set.minPosted pictures staged posts nothing an
 test('diary: a call other than draw.create is refused diary-draw-only and never runs; the picture beside it does', async () => {
   const images = fakeSetImages([10]);
   const channel = diaryChannel();
-  const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, [
+  const llm = fakeLlm(null, [
     toolAnswer('<msg>x</msg>', [
       call('message.create', { text: 'hello' }),
       call('draw.create', { people: [], text: 'a pier' }),
@@ -1202,9 +1084,10 @@ test('diary: a call other than draw.create is refused diary-draw-only and never 
     channel.sent.filter((payload) => payload.content).map((payload) => payload.content),
     ['y']
   );
-  assert.equal(llm.calls.length, 3, 'the refusal is a result she reads');
+  // Changed: the kind drawn here takes no scene and the planner is gone, so the persona's requests are the only ones.
+  assert.equal(llm.calls.length, 2, 'the refusal is a result she reads');
   assert.ok(
-    contentText(llm.calls[2].find((message: Untyped) => message.role === 'tool').content).includes(
+    contentText(llm.calls[1].find((message: Untyped) => message.role === 'tool').content).includes(
       labels.tools.result.reasons['diary-draw-only']
     )
   );
@@ -1221,55 +1104,58 @@ test('diary: an errand is accepted, waits for its end and its result is read in 
     return { status: 'ok', code: 'ok', summary: text, data: { text, task: { id: 'e1' }, waited: true } };
   };
   const errands = { budget: () => ({ spent: false, key: null, code: null }), view: () => [] };
-  const llm = fakeLlm({ kind: 'status', brief: 'a pier', search: '', picture: false }, [
-    toolAnswer('', [call('errand.scout', { goal: 'find the pier' })]),
-    '<msg>y</msg>',
-  ]);
+  const llm = fakeLlm(null, [toolAnswer('', [call('errand.scout', { goal: 'find the pier' })]), '<msg>y</msg>']);
   const { logs } = await withCapturedLogs(() =>
     runner({ hot, llm, extra: { runOp, errands } }).runTurn({ channel: diaryChannel(), mode: 'diary', diary: {} })
   );
   assert.deepEqual(calledOf(logs), ['errand.scout:ok']);
   assert.ok(Number(waits[0]) > 0, 'the call carries the time it may wait');
-  assert.equal(llm.calls.length, 3, 'the planner, the writer and the request that reads the result');
-  assert.ok(JSON.stringify(llm.calls[2]).includes('ΤΟ ΑΠΟΤΕΛΕΣΜΑ ΤΟΥ ΗΜΕΡΟΛΟΓΙΟΥ'));
+  // Changed: the kind drawn here takes no scene and the planner is gone, so the persona's requests are the only ones.
+  assert.equal(llm.calls.length, 2, 'the request with the call and the request that reads the result');
+  assert.ok(JSON.stringify(llm.calls[1]).includes('ΤΟ ΑΠΟΤΕΛΕΣΜΑ ΤΟΥ ΗΜΕΡΟΛΟΓΙΟΥ'));
+});
+
+test('diary: a call that only looks runs, the picture runs, and a post is refused diary-draw-only', async () => {
+  // Bug caught: the diary turn refuses a search or a read of memory, so the persona cannot look anything up for news.
+  const hot = fakeHot();
+  Object.assign(hot.config.bot, { access: { 'lore.list': { everyone: false, roles: [], users: ['self-id'] } } });
+  const ran: Array<string> = [];
+  const runOp = (op: string) => {
+    ran.push(op);
+    return { status: 'ok', code: 'ok', summary: 'ΤΟ ΛΗΜΜΑ', data: { text: 'ΤΟ ΛΗΜΜΑ' } };
+  };
+  const llm = fakeLlm(null, [
+    toolAnswer('', [
+      call('lore.list', {}),
+      call('draw.create', { people: [], text: 'a pier' }),
+      call('message.create', { text: 'hello' }),
+    ]),
+    '<msg>y</msg>',
+  ]);
+  const { logs } = await withCapturedLogs(() =>
+    runner({ hot, llm, extra: { runOp } }).runTurn({
+      channel: diaryChannel(),
+      mode: 'diary',
+      diary: { kind: 'picture', forced: true },
+    })
+  );
+  assert.deepEqual(
+    calledOf(logs).sort(),
+    ['draw.create:ok/staged', 'lore.list:ok', 'message.create:denied/diary-draw-only'],
+    'the read and the picture ran, the post did not'
+  );
 });
 
 test('diary: a single-picture kind stages one picture; a second call is a loop-cap result', async () => {
   const images = fakeSetImages([]);
   const channel = diaryChannel();
-  const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, [
-    withDraws('<msg>x</msg>', 3),
-    '<msg>y</msg>',
-  ]);
+  const llm = fakeLlm(null, [withDraws('<msg>x</msg>', 3), '<msg>y</msg>']);
   const result = await runner({ llm, images }).runTurn({ channel, mode: 'diary', diary: {} });
   assert.equal(images.prompts.length, 1);
   // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
   await published(result, channel);
   assert.equal(loose(channel.sent.at(-1)).files.length, 1);
   assert.equal(loose(result).diary.pictures, 1);
-});
-
-test('diary set: the compose request carries diary.set.seedSets seeds for a set kind, none for another kind', async () => {
-  // The lead: the code draws the diary's kind (owner, 2026-11-06).
-  const seedLines = (text: string) =>
-    (/<seeds>\n([\s\S]*?)\n<\/seeds>/.exec(text)?.[1] ?? '').split('\n').filter((line) => line.startsWith('- '));
-  const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>x</msg>', 3));
-  await runner({ llm, images: fakeSetImages([]) }).runTurn({
-    channel: diaryChannel(),
-    mode: 'diary',
-    diary: { kind: 'photoset', forced: false },
-  });
-  // PR 7d: the plan's seed sets (2) and a set's (6) are constants of src/behavior/diary.ts.
-  assert.equal(seedLines(userOf(llm.calls[0])).length, 2, 'the plan request keeps diary.seedSets');
-  assert.equal(seedLines(userOf(llm.calls[1])).length, 6, 'the compose request takes diary.set.seedSets');
-
-  const text = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, '<msg>x</msg>');
-  await runner({ llm: text }).runTurn({
-    channel: diaryChannel(),
-    mode: 'diary',
-    diary: { kind: 'status', forced: false },
-  });
-  assert.ok(!userOf(text.calls[1]).includes('<seeds>'));
 });
 
 // The diary turn on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of
@@ -1282,13 +1168,12 @@ test('diary set: the compose request carries diary.set.seedSets seeds for a set 
 const gistsAt = (text: string, from: number, to: number): Array<number> =>
   Array.from({ length: to - from + 1 }, (_, i) => text.indexOf(gistOf(from + i)));
 
-test("the planner's <diary> holds the newest 150 of 200 stored entries newest first", async () => {
+test('the <diary> holds the newest diary.writerEntries of 200 stored entries newest first', async () => {
   // Bug: the block keeps the old history cut, reads the first mirror's messages, or renders oldest first.
-  // Slice 6: the setting is `diary.entries`.
-  // newest first since 2026-11-14 (specs/2026-11-14-diary-in-her-own-words.md); the writer's count is
-  // `diary.writerEntries` now, so this reads the planner's request, which keeps `diary.entries`.
-  const run = await frameTurn({ entries: 200, diary: { entries: 150 } });
-  const text = run.planner[0] ?? '';
+  // Changed: the planner's request, which read `diary.entries`, went with the planner, so this reads the turn's own
+  // request under `diary.writerEntries`.
+  const run = await frameTurn({ entries: 200, diary: { writerEntries: 150 } });
+  const text = run.writer[0] ?? '';
   const block = partOf(blockOf(text, 'inner'), 'diary');
   const kept = gistsAt(block, 50, 199);
   assert.ok(
@@ -1304,8 +1189,6 @@ test("the planner's <diary> holds the newest 150 of 200 stored entries newest fi
     gistsAt(block, 0, 49).every((at) => at < 0),
     'the 50 oldest are left out'
   );
-  // Changed: the assertion that `<diary>` is absent went with the rename of selfreflection to diary, because the
-  // block itself is `<diary>` now and `partOf(..., 'diary')` above reads it.
 });
 
 test('<diary> reads no mirror place', async () => {
@@ -1319,22 +1202,9 @@ test('<diary> reads no mirror place', async () => {
   assert.deepEqual(reads, []);
 });
 
-test("the planner's <diary> is cut at diary.entries", async () => {
-  // Bug: the new setting is not read and the block keeps a constant 150.
-  // Slice 6: the setting is `diary.entries`, not a flat `diaryEntries`.
-  // The writer's cut is `diary.writerEntries` since 2026-11-14 (specs/2026-11-14-diary-in-her-own-words.md),
-  // so this reads the planner's request.
-  const run = await frameTurn({ entries: 5, diary: { entries: 2 } });
-  const block = partOf(blockOf(run.planner[0] ?? '', 'inner'), 'diary');
-  assert.deepEqual(
-    gistsAt(block, 0, 4).map((at) => at >= 0),
-    [false, false, false, true, true]
-  );
-});
-
-test("the writer's <diary> is cut at diary.writerEntries, whatever diary.entries is", async () => {
-  // Bug: the writer keeps the planner's 150 and ships twenty thousand characters of her own past on every entry.
-  const run = await frameTurn({ entries: 8, diary: { entries: 6, writerEntries: 3 } });
+test("the diary turn's <diary> is cut at diary.writerEntries", async () => {
+  // Bug: the turn keeps 150 entries and ships twenty thousand characters of her own past on every entry.
+  const run = await frameTurn({ entries: 8, diary: { writerEntries: 3 } });
   const block = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'diary');
   assert.deepEqual(
     gistsAt(block, 0, 7).map((at) => at >= 0),
@@ -1342,37 +1212,35 @@ test("the writer's <diary> is cut at diary.writerEntries, whatever diary.entries
   );
 });
 
-test('two compose requests with nothing stored between them hold the same <plan> and <diary>', async () => {
-  // Bug: something per request (a clock, a draw, an unordered set) enters the plan or the list and breaks the cache.
+test('two diary requests with nothing stored between them hold the same <kind> and <diary>', async () => {
+  // Bug: something per request (a clock, a draw, an unordered set) enters the list and breaks the cache.
   // Her answer skips, so the first turn stores nothing for the second to read.
-  // `<plan>` holds no list of openings, so the plan is checked for its brief.
   const run = await frameTurn({ entries: 6, answer: '<skip/>', turns: 2 });
-  assert.equal(run.writer.length, 2, 'one compose request per turn');
+  assert.equal(run.writer.length, 2, 'one request per turn');
   const [first = '', second = ''] = run.writer.map((text) => blockOf(text, 'inner'));
-  assert.ok(
-    partOf(first, 'plan').includes(FRAME_PLAN.brief),
-    'the plan holds the brief, so the comparison means something'
-  );
-  assert.equal(partOf(second, 'plan'), partOf(first, 'plan'));
+  assert.equal(partOf(first, 'kind'), 'status');
+  assert.equal(partOf(second, 'kind'), partOf(first, 'kind'));
   assert.notEqual(partOf(first, 'diary'), '');
   assert.equal(partOf(second, 'diary'), partOf(first, 'diary'));
 });
 
-test('<meanwhile> of the writer holds her lines from the groups of two interfaces and none from a direct chat', async () => {
-  // Bug: the writer keeps the first mirror's chat as what happened lately, reads one interface, or lets a private chat in.
-  const run = await frameTurn();
-  const meanwhile = blockOf(run.writer[0] ?? '', 'meanwhile');
-  assert.ok(meanwhile.includes(FRAME_TEXT.ownGarden), 'the room of the first interface');
-  assert.ok(meanwhile.includes(FRAME_TEXT.ownHarbour), 'the room of the second interface');
-  assert.ok(!meanwhile.includes(FRAME_TEXT.ownPrivate), 'no direct chat');
+test('the diary turn lists the group rooms of two interfaces in <memory>, no direct chat, and holds no <meanwhile>', async () => {
+  // Bug: the diary keeps the chat turns' `<meanwhile>`, reads one interface, or lets a private chat in.
+  const run = await frameTurn({ memorySettings: { openPrivate: false } });
+  const text = run.writer[0] ?? '';
+  const memory = blockOf(text, 'memory');
+  assert.ok(memory.includes('"κήπος"'), memory);
+  assert.ok(memory.includes('"λιμάνι"'), memory);
+  assert.ok(!memory.includes('dm with'), memory);
+  assert.equal(blockOf(text, 'meanwhile'), '');
 });
 
-test('with context.memory.openPrivate on, the writer reads her direct chat line and the group entry reaches its mirror', async () => {
+test('with context.memory.openPrivate on, the diary turn lists the direct chat and the group entry reaches its mirror', async () => {
   // Bug: the switch opens her memory, but the diary still reads the groups alone, or the open read leaks into the
   // entry's audience and the publication boundary refuses the copy.
   const scene = await mirrorScene({ start: FRAME_NOW, config: { context: { memory: { openPrivate: true } } } });
   const run = await frameTurn({ memory: scene.memory, entries: 0, memorySettings: { openPrivate: true } });
-  assert.ok(blockOf(run.writer[0] ?? '', 'meanwhile').includes(FRAME_TEXT.ownPrivate));
+  assert.ok(blockOf(run.writer[0] ?? '', 'memory').includes('dm with'));
   const stored = scene.db.prepare('SELECT scope_kind, scope_dm FROM diary').all();
   assert.deepEqual(
     stored.map((row) => [row.scope_kind, row.scope_dm]),
@@ -1382,12 +1250,6 @@ test('with context.memory.openPrivate on, the writer reads her direct chat line 
   await mirrors.publishEntry(entryOf(run.result));
   await mirrors.drainQueued();
   assert.deepEqual(scene.transport('fake').posted('d1'), [FRAME_TEXT.entry]);
-});
-
-test('with context.memory.openPrivate off, the writer reads no line of a direct chat', async () => {
-  // Bug: the diary reads every audience whatever the switch says.
-  const run = await frameTurn({ memorySettings: { openPrivate: false } });
-  assert.ok(!blockOf(run.writer[0] ?? '', 'meanwhile').includes(FRAME_TEXT.ownPrivate));
 });
 
 test('an entry recorded with chat null reaches every mirror', async () => {
@@ -1474,7 +1336,6 @@ test('the diary requests are the same bytes with a heartbeat seeds file beside t
   // Bug: the heartbeat's fragments or its lists leak into a diary request, which shares the heartbeat's path nowhere.
   const plain = await frameTurn();
   const seeded = await frameTurn({ prompts: { 'heartbeat-seeds': '# one\nΘΡΑΥΣΜΑ-ΕΝΑ\n# two\nΘΡΑΥΣΜΑ-ΔΥΟ' } });
-  assert.equal(seeded.planner[0], plain.planner[0]);
   assert.equal(seeded.writer[0], plain.writer[0]);
   assert.ok(!(seeded.writer[0] ?? '').includes('ΘΡΑΥΣΜΑ'));
 });

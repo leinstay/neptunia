@@ -404,14 +404,11 @@
       }
     ],
     "quietDayChance": 0.3,
-    "entries": 150,
     "writerEntries": 30,
     "loop": {
       "maxSteps": 50,
       "timeBudgetMs": 1000000
-    },
-    "planMaxOutputTokens": 2000,
-    "planTimeoutMs": 60000
+    }
   },
   "mirrors": {
     "claimLeaseMs": 600000,

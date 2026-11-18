@@ -1,0 +1,1 @@
+Something you found on the internet that the people here would care about. Look for it in this turn: search, open what looks worth it, and check what it really says and when it happened. Tell the part that interests you, several sentences. Skip when the search gives nothing worth telling.

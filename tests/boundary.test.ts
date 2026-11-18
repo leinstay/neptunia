@@ -19,7 +19,7 @@ import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/tu
 import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './fixtures/boundary.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 import { createStore } from '../src/memory/store.ts';
-import { planAnswerText } from './fixtures/plan-answer.ts';
+import { directorAnswer } from './fixtures/scene-answer.ts';
 import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { noMediaNames } from './fixtures/media-namer.ts';
 
@@ -116,25 +116,19 @@ describe('inner turns with no interface', () => {
           historyPosts: 40,
           gistChars: 60,
           seedSets: 1,
-          planMaxOutputTokens: 250,
-          planTimeoutMs: 15000,
         },
       },
     });
     Object.assign(hot.prompts, {
       diary: 'Write your diary.',
-      'diary-planner': 'Plan the entry.',
+      'diary-scene': 'SCENE_TASK',
       'diary-seeds': '# place\na pier',
     });
-    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-    const plan = { kind: 'status', brief: 'a quiet day', search: '', picture: false };
     const llm = {
-      complete: (_messages: unknown, options: { purpose?: string }) =>
-        Promise.resolve({
-          text: options?.purpose === 'diary-planner' ? planAnswerText(plan, options) : '<msg>μια ήσυχη μέρα</msg>',
-          usage: {},
-          estimated: 5,
-        }),
+      complete: (messages: unknown, options: { purpose?: string }) =>
+        Promise.resolve(
+          directorAnswer(messages, options) ?? { text: '<msg>μια ήσυχη μέρα</msg>', usage: {}, estimated: 5 }
+        ),
     };
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START });
     // Changed: the diary turn runs as the diary's post runs it, since diary.force is gone.
