@@ -9,7 +9,8 @@
 // The database is copied first (VACUUM INTO, a consistent copy) into a temporary directory under TMPDIR, and the copy
 // is the one written to: the given file is only read, and the copy is removed at the end (`--keep` names a file to
 // leave it in). The session runs in `shadow` whatever the config says: every proposal is a `decisions` row of the
-// copy, nothing touches a claim. The scope keys are `group:<iface>` and `dm:<iface>:<person id>`; without `--scope`
+// copy, nothing touches a claim. The scope keys are `group:<iface>`, `dm:<iface>:<person id>` and `own:<iface>`, her
+// own time, which runs only when it is named; without `--scope`
 // every scope with new lines is run, one request each, one after the other. `--limit` caps the lines in a request
 // (default `memoryDb.session.maxMessages`). The first sweep on a copy reads from its first line (or from
 // `memoryDb.session.since`).
@@ -766,6 +767,8 @@ async function sessionRun(
         error() {},
       },
       selfName: input.selfName ?? live.bot?.name ?? '',
+      // The scope of her own time is swept for the interface its key names (`own:<iface>`).
+      ...(input.scope?.startsWith('own:') ? { iface: input.scope.slice('own:'.length) } : {}),
     };
 
     const result: Untyped = await sweep(ctx, { scope: input.scope, limit: input.limit, ignoreSweepCap: true });
