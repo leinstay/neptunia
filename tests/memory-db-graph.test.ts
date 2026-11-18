@@ -921,8 +921,9 @@ test('graph: a channel written before its guild and a membership before its acco
 // Diagnosis 2026-11-18, graph orphans: a projection of a row that is gone wrote nothing, so the row's node and its own
 // witness stayed; and the version of an archive entry of an episode was linked to a claim node no row holds.
 
-const nodesOf = (db: UntypedDb, node: string) => count(db, 'SELECT COUNT(*) AS n FROM graph_nodes WHERE id = ?', node);
-const witnessesOf = (db: UntypedDb, node: string) =>
+const nodesOf = (db: UntypedDb, node: string): number =>
+  count(db, 'SELECT COUNT(*) AS n FROM graph_nodes WHERE id = ?', node);
+const witnessesOf = (db: UntypedDb, node: string): number =>
   count(db, 'SELECT COUNT(*) AS n FROM node_access WHERE node_id = ?', node);
 
 test('a projection of a media row that is gone removes its node and its witness', () => {
@@ -955,7 +956,7 @@ test('a projection of a row that is gone keeps its node while an edge names it a
     projectRow(handle, 'claims', { id: 'clm:new' }, { at: at(0) });
     projectRow(handle, 'claims', { id: 'clm:old' }, { at: at(0) });
     const node = graphNodeId('claim', 'clm:new');
-    const own = (n: string) =>
+    const own = (n: string): number =>
       count(db, 'SELECT COUNT(*) AS n FROM node_access WHERE node_id = ? AND evidence_id = ?', n, n);
     assert.equal(own(node), 1);
     const byEdge = witnessesOf(db, node) - own(node);
@@ -971,7 +972,7 @@ test('a projection of a row that is gone keeps its node while an edge names it a
 });
 
 /** The node the `version_of` edge of the claim version `id` ends at. */
-const versionTarget = (db: UntypedDb, id: string) =>
+const versionTarget = (db: UntypedDb, id: string): unknown =>
   db
     .prepare("SELECT dst FROM graph_edges WHERE src = ? AND predicate = 'version_of'")
     .get(graphNodeId('claim_version', id))?.dst;
