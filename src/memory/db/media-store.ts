@@ -512,7 +512,8 @@ function writeText(
   db.prepare(
     "UPDATE media SET description = ?, described_at = ?, availability = 'present', extra = ?, stems = ? WHERE id = ?"
   ).run(text, iso(at), JSON.stringify(next), stampOf(db, { kind: row.kind, description: text, extra: next }), row.id);
-  db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(row.id));
+  // A vector stays valid while the text it was made from stays.
+  if (row.description !== text) db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(row.id));
   return true;
 }
 
@@ -1233,27 +1234,45 @@ export function keepItemFields(db: Db, rows: ReadonlyArray<Row>): void {
 }
 
 /**
- * The GIF library's row `id` and every other row of its item (the same reference on the same interface) become one: the
- * library's row takes their links and their text, and they go. An observation made such a row before the library held
- * the item, and an entry that moved to a new key leaves its old row behind (gif-library.ts).
+ * The GIF library's row `id` and every other row of its item (one of its references on the same interface) become one:
+ * the library's row takes their links, their text with its vector, and the describer's cache, and they go. An
+ * observation made such a row before the library held the item, an entry that moved to a new key leaves its old row
+ * behind, and an entry joined into another by content hash leaves its own (gif-library.ts).
  */
 export function adoptSameItem(db: Db, id: string, at: unknown): void {
-  const row = db.prepare('SELECT id, native_ref, scope_iface FROM media WHERE id = ?').get(id);
+  const row = db.prepare('SELECT id, native_ref, scope_iface, extra FROM media WHERE id = ?').get(id);
   if (!row || row.native_ref === null) return;
+  const listed = parsedObject(row.extra).nativeIds;
+  const refs = [...new Set([row.native_ref, ...(Array.isArray(listed) ? listed.filter(filled) : [])])];
   for (const other of db
-    .prepare('SELECT * FROM media WHERE native_ref = ? AND scope_iface IS ? AND id <> ?')
-    .all(row.native_ref, row.scope_iface, row.id)) {
+    .prepare(
+      `SELECT * FROM media WHERE native_ref IN (${refs.map(() => '?').join(', ')}) AND scope_iface IS ? AND id <> ?`
+    )
+    .all(...refs, row.scope_iface, row.id)) {
     db.prepare('UPDATE OR IGNORE media_links SET media_id = ? WHERE media_id = ?').run(row.id, other.id);
     // An owner that linked both rows keeps its link to the library's row.
     db.prepare('DELETE FROM media_links WHERE media_id = ?').run(other.id);
+    const otherExtra = parsedObject(other.extra);
     if (filled(other.description)) {
       const held = db.prepare('SELECT * FROM media WHERE id = ?').get(row.id) as Row;
       writeText(db, held, {
         text: other.description,
-        origin: (parsedObject(other.extra).textOrigin as MediaOrigin | undefined) ?? 'retelling',
+        origin: (otherExtra.textOrigin as MediaOrigin | undefined) ?? 'retelling',
         at,
       });
     }
+    const held = db.prepare('SELECT description, extra FROM media WHERE id = ?').get(row.id) as Row;
+    const heldExtra = parsedObject(held.extra);
+    const cache = { ...cacheOf(otherExtra), ...cacheOf(heldExtra) };
+    if (Object.keys(cache).length > 0)
+      db.prepare('UPDATE media SET extra = ? WHERE id = ?').run(JSON.stringify({ ...heldExtra, cache }), row.id);
+    // The other row's vector was made from the text the library's row holds now: it moves, unless the row has its own.
+    if (filled(other.description) && held.description === other.description)
+      db.prepare('UPDATE OR IGNORE vectors SET chunk_key = ?, item_id = ? WHERE chunk_key = ?').run(
+        vectorKey(row.id),
+        row.id,
+        vectorKey(other.id)
+      );
     db.prepare('DELETE FROM vectors WHERE chunk_key = ?').run(vectorKey(other.id));
     db.prepare('DELETE FROM media WHERE id = ?').run(other.id);
   }
