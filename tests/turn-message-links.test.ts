@@ -81,10 +81,10 @@ function fakeHot() {
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
     },
     prompts: {
-      'system-prompt': 'You are a regular member of this chat, not an assistant.',
-      'character-card': 'You are friendly and terse.',
+      main: 'You are a regular member of this chat, not an assistant.',
+      persona: 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
-      reply: 'Someone called you: {{author}}.',
+      'turn/reply': 'Someone called you: {{author}}.',
       labels,
     },
   };

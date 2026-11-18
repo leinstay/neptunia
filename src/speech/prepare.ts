@@ -1,5 +1,5 @@
 // The preparation pass of a voice message: her text goes through the analyzer once
-// (prompts/speech-prepare.md) to get dropped letters back, stress marks on ambiguous words and
+// (prompts/speech.md) to get dropped letters back, stress marks on ambiguous words and
 // her bracketed directions as short audio tags. The pass may add marks and rewrite what sits in
 // brackets, never touch a word: `sameWords` compares the answer with the original and any
 // difference is a failed pass (`prepared: false`, the original returned) and the caller fails the
@@ -40,7 +40,7 @@ const isAbort = (err: unknown): boolean => {
 /**
  * Prepare `text` for synthesis. Never throws: any failure returns the original.
  * @param args.complete The llm client's `complete`.
- * @param args.prompt prompts/speech-prepare.md.
+ * @param args.prompt prompts/speech.md.
  * @param args.model The analyzer's model, from `roleModel`.
  */
 export async function prepareSpeech({

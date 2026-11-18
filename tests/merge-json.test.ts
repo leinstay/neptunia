@@ -54,7 +54,7 @@ async function hold(text: string) {
     models: { routes: chainsOf({ analyzer: 'small/analyzer' }) },
     llm: { maxRequestTokens: 50000, maxRequestsPerDay: 100, timeoutMs: 1000 },
   };
-  const hot = { config, prompts: { labels, merge: 'Choose an item or new for {{name}}.' } };
+  const hot = { config, prompts: { labels, 'classify/merge': 'Choose an item or new for {{name}}.' } };
   const queue = createPendingQueue({ hot, now: () => NOW, turns, missed: null, pending, followUpMuted: () => null });
   const { holdCall } = createMerge({
     hot,

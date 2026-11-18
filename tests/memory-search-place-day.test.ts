@@ -194,7 +194,7 @@ function toolRig(env: Env, { secret: secretId = SECRET }: { secret?: string } = 
     iface: 'discord',
     mediaNameOf: noMediaNames,
     reads,
-    hot: { config, prompts: { 'recall-summary': 'x', labels: toolLabels } },
+    hot: { config, prompts: { 'summarize/recall': 'x', labels: toolLabels } },
     store,
     llm,
     now: () => NOW,

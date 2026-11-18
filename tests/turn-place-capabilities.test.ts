@@ -103,7 +103,7 @@ async function runScene({ place, cliPick = null, reply = '<msg>ναι, έλα</m
       models: { routes: chainsOf({ analyzer: 'cheap/classifier' }) },
     }
   );
-  Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.', labels });
+  Object.assign(hot.prompts, { 'classify/pick': 'Pick for {{name}}.', labels });
   const store = Object.assign(fakeStore(), {
     getGifs: () => null,
     getEmojiRails: () => null,

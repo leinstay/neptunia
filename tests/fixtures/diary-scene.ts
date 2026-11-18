@@ -37,8 +37,8 @@ export function sceneHot(): { config: Record<string, unknown>; prompts: Record<s
       diary: { placeId: 'd1', world: true },
     },
     prompts: {
-      'system-prompt': 'SYSTEM for {{name}}',
-      'character-card': 'CARD_TEXT',
+      main: 'SYSTEM for {{name}}',
+      persona: 'CARD_TEXT',
       format: 'FORMAT_TEXT',
       'diary/task': 'DIARY_TASK for {{name}}',
       'diary/scene': 'SCENE_TASK',

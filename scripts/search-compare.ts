@@ -217,7 +217,8 @@ export async function main(
     givenHot ?? (await import('../src/hot.ts')).createHot({ rootDir, privateDir: privateDirOf(rootDir, env) });
 
   try {
-    if (!hot.prompts?.['search-summary']) throw new CliError('search-compare: prompts.search-summary is missing');
+    if (!hot.prompts?.['summarize/search'])
+      throw new CliError('search-compare: prompts["summarize/search"] is missing');
     const keys = serviceKeys({ env });
 
     /**

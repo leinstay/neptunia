@@ -429,14 +429,14 @@ export function fakeChannelWithHistory(
 
 export function fakeAddressPrompts(): Rec {
   return {
-    'system-prompt': 'system',
-    'character-card': 'card',
+    main: 'system',
+    persona: 'card',
     format: 'format',
-    reply: 'Someone called you: {{author}}.',
+    'turn/reply': 'Someone called you: {{author}}.',
     interject: 'interject',
     initiate: 'initiate',
     memory: 'memory',
-    address: 'You are {{name}}. Is the candidate message addressed to you? Answer yes or no.',
+    'classify/address': 'You are {{name}}. Is the candidate message addressed to you? Answer yes or no.',
     labels,
   };
 }

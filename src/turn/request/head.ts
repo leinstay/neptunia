@@ -222,8 +222,8 @@ export function requestHead(given: RequestInput): Base {
   const nameFill = (text: unknown) => fillPromptTemplate(text, { name: selfName });
   const formatFill = nameFill;
   const system = [
-    nameFill(prompts['system-prompt']),
-    nameFill(prompts['character-card']),
+    nameFill(prompts['main']),
+    nameFill(prompts['persona']),
     // Her appearance stands beside the card in the cached system message; a blank file gives no block.
     block('appearance', nameFill(prompts.appearance).trim()),
     nameFill(rulesPromptOf(prompts.rules, given.rules ?? [], labels)),

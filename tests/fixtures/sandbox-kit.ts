@@ -86,10 +86,10 @@ export function fakeHot(featureOverrides: Record<string, unknown> = {}): {
   return {
     config: fakeConfig(featureOverrides),
     prompts: {
-      'system-prompt': 'SYSTEM_MARKER: you are a regular member of this chat.',
-      'character-card': 'You are friendly and terse.',
+      main: 'SYSTEM_MARKER: you are a regular member of this chat.',
+      persona: 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
-      reply: 'Someone called you: {{author}}.',
+      'turn/reply': 'Someone called you: {{author}}.',
       memory: 'Summarize what happened.',
       labels,
     },

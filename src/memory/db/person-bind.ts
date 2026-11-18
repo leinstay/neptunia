@@ -10,7 +10,7 @@
 //     in `person_accounts`, `author_person` of their lines follows, and the person who went stays as an alias
 //     (`people_merges`, `status` `merged_into:<target>`, `meta` 0). The target keeps its own `people` row, its affinity
 //     score included. Where both hold a current description of one field in one audience, the memory model joins the two
-//     texts before anything is written (prompts/description-merge.md, purpose `description-merge`), the target's text
+//     texts before anything is written (prompts/memory/merge.md, purpose `description-merge`), the target's text
 //     first. The joined text becomes the target's current version and the other description stays with the alias as
 //     history. A description only the person who went holds moves to the target as it is.
 //
@@ -33,6 +33,8 @@ import { liveRules } from './rules.ts';
 import type { Config, Db, MemoryHandle, Row } from './types.ts';
 
 export const MERGE_PURPOSE = 'description-merge';
+// The prompt file of the merge call, keyed by its path under prompts/.
+const MERGE_PROMPT = 'memory/merge';
 
 /** A person as the question names it: the id and the name she knows them by, null when she knows none. */
 export type BindTarget = { id: string; name: string | null };
@@ -175,7 +177,7 @@ async function joinPair(deps: BindDeps, pair: Pair): Promise<Joined> {
   if (pair.intoText.trim() === '') return { ...base, text: pair.fromText, reason: null };
   const prompts = deps.hot.prompts;
   if (deps.llm === null) throw coded('not_configured');
-  if (typeof prompts?.[MERGE_PURPOSE] !== 'string' || prompts[MERGE_PURPOSE].trim() === '') throw coded('no_prompt');
+  if (typeof prompts?.[MERGE_PROMPT] !== 'string' || prompts[MERGE_PROMPT].trim() === '') throw coded('no_prompt');
   // The model's side loads when a merge needs it: session.ts reads the service, which loads this writer.
   const [{ askMemoryModel, fieldCap, parseDescriptionAnswer }, { sessionSettings, systemTextOf }] = await Promise.all([
     import('./describe.ts'),
@@ -188,7 +190,7 @@ async function joinPair(deps: BindDeps, pair: Pair): Promise<Joined> {
     [
       {
         role: 'system',
-        content: systemTextOf(prompts, deps.selfName ?? '', prompts[MERGE_PURPOSE], liveRules(deps.db)),
+        content: systemTextOf(prompts, deps.selfName ?? '', prompts[MERGE_PROMPT], liveRules(deps.db)),
       },
       { role: 'user', content: user },
     ],
@@ -222,7 +224,7 @@ export async function bindAccount(deps: BindDeps, input: BindInput, confirm: Bin
     const descriptions: Array<Joined> = [];
     for (const pair of pairsOf(deps.db, plan.removed, plan.into)) descriptions.push(await joinPair(deps, pair));
     const model = roleModel(hot.config, MEMORY_ROLE) ?? null;
-    const prompt = shortHash(hot.prompts?.[MERGE_PURPOSE]);
+    const prompt = shortHash(hot.prompts?.[MERGE_PROMPT]);
     await deps.write({ kind: 'person-bind', ...input, from: plan.removed, descriptions, model, prompt, now });
     return { status: 'merged', person: plan.into, removed: plan.removed };
   } catch (error) {

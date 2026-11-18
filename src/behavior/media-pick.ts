@@ -1,5 +1,5 @@
 // The media pick: after the reply is written, its first message, when short, goes with its context to a cheap classifier
-// (prompts/media-pick.md) with the candidates the engine found for it: GIFs of the shared library and the custom emoji
+// (prompts/classify/pick.md) with the candidates the engine found for it: GIFs of the shared library and the custom emoji
 // the place uses most. The classifier chooses one or answers `none`, which is the normal result. A chosen GIF is posted
 // in place of that message, an emoji appended to it or posted in its place, and the rest follow as written (src/turn/act.ts).
 // Whether the pick runs at all, and which of the forms, is what the interface declares (src/interface/capabilities.ts).
@@ -486,7 +486,7 @@ export function createMediaPick({
 
   async function pickNow(args: MediaPickArgs): Promise<MediaPickResult> {
     const { placeId, capability, messages, selfName } = args;
-    const prompt = hot.prompts?.['media-pick'];
+    const prompt = hot.prompts?.['classify/pick'];
     const labels = hot.prompts?.labels as PickLabels | undefined;
     const first = messages[0];
     if (!capability || typeof prompt !== 'string' || prompt.trim() === '' || !labels) return NONE;

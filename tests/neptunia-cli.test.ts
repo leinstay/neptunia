@@ -308,6 +308,19 @@ test('doctor counts a key store that holds only former extra keys as holding key
   assert.equal(checksOf(run.stdout).get('keys'), 'ok');
 });
 
+test('doctor warns in local-layer of a deployment prompt file at a retired path, naming the path that replaces it', async () => {
+  // Catches: a deployment's own character card at its old path, which the engine does not read, left unreported.
+  const { dirs } = coreDown();
+  mkdirSync(join(dirs.privateDir, 'prompts'), { recursive: true });
+  writeFileSync(join(dirs.privateDir, 'prompts', 'character-card.md'), 'own card\n');
+  const run = await runCli(dirs, ['doctor', '--json']);
+  const parsed = JSON.parse(run.stdout) as { checks: Array<{ name: string; status: string; detail: string }> };
+  const layer = parsed.checks.find((check) => check.name === 'local-layer');
+  assert.equal(layer?.status, 'warn');
+  assert.ok(layer?.detail.includes('prompts/character-card.md'), layer?.detail);
+  assert.ok(layer?.detail.includes('prompts/persona.md'), layer?.detail);
+});
+
 // Case 4 of PR D, the error path.
 test('doctor reports a database that is not one as failed and leaves the file as it was', async () => {
   const { dirs, db } = coreDown();

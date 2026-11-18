@@ -100,7 +100,7 @@ for (const wakeKind of ['heartbeat']) {
       baseInput({
         mode: 'inner',
         wakeKind,
-        prompts: fakePrompts({ inner: 'INNER_TASK', 'heartbeat/task': 'HEARTBEAT_TASK' }),
+        prompts: fakePrompts({ 'turn/inner': 'INNER_TASK', 'heartbeat/task': 'HEARTBEAT_TASK' }),
         whereabouts: placeIn('general'),
       })
     );
@@ -135,7 +135,7 @@ test('an inner turn of another kind keeps the place it runs in', () => {
     baseInput({
       mode: 'inner',
       wakeKind: 'intention_due',
-      prompts: fakePrompts({ inner: 'INNER_TASK' }),
+      prompts: fakePrompts({ 'turn/inner': 'INNER_TASK' }),
       whereabouts: placeIn('general'),
     })
   );

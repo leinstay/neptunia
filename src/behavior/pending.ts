@@ -166,7 +166,7 @@ export function foldInto(
 }
 
 /**
- * The merge classifier's answer (prompts/merge.md), parsed strictly: the text
+ * The merge classifier's answer (prompts/classify/merge.md), parsed strictly: the text
  * is the JSON object `{ "item": ... }`. A whole number 1..`count` -> `item`
  * with its 1-based `index`; null -> `new`. A blank answer is `empty`, a whole
  * number outside the items `out-of-range`, anything else `unparsed` (text that

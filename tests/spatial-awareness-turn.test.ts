@@ -67,7 +67,7 @@ test('an inner turn that runs in a channel names that place', async () => {
       budgets: { chain: { used: 0, cap: 3, left: 3 } },
     },
     config: { wakes: { mode: 'live', chatMessages: 2 } },
-    prompts: { inner: 'Do what the wake says.' },
+    prompts: { 'turn/inner': 'Do what the wake says.' },
   });
   const body = spatialOf(requestText(run.llm, 0));
   assert.ok(body?.startsWith('SPATIAL-PLACE channel general < server'), String(body));

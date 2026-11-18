@@ -451,12 +451,12 @@ const FIXED: Record<string, string> = {
   merge: '{"item":null}',
   lookup: 'none',
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  'query-builder': '{"web":null,"history":null,"who":null,"when":null,"when_role":null,"recent":null,"skills":null}',
+  'classify/query': '{"web":null,"history":null,"who":null,"when":null,"when_role":null,"recent":null,"skills":null}',
   'route-channel': 'none',
   'participation-pick': 'none',
   'elsewhere-pick': '{"place":null,"earlier":false,"episodes":[]}',
   'gif-pick': 'none',
-  'media-pick': '{"pick":"none","name":null}',
+  'classify/pick': '{"pick":"none","name":null}',
   // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
   missed: '{"verdicts":[{"n":1,"verdict":"uncertain"}]}',
 };
@@ -803,7 +803,7 @@ function findScene(world: World) {
   const io = rig();
   io.fake.seedChat(channel('c7'));
   io.fake.seedChat(channel('c8'));
-  const hot = { config: FIND_CONFIG, prompts: { 'recall-summary': 'x', labels: FIND_LABELS } };
+  const hot = { config: FIND_CONFIG, prompts: { 'summarize/recall': 'x', labels: FIND_LABELS } };
   const data = {};
   const store = {
     state: {

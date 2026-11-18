@@ -140,7 +140,7 @@ test('an entity description review reads the assertions that name the entity, un
     },
     capLeft: () => 10,
   };
-  const prompts = { labels, 'description-draft': 'x {{name}}', 'description-check': 'y' };
+  const prompts = { labels, 'memory/draft': 'x {{name}}', 'memory/check': 'y' };
   await reviewDescription(world.db, { kind: 'entity', id: lumen.entityId }, 'purpose', {
     ctx: wrongly({
       db: world.db,

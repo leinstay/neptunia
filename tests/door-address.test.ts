@@ -1,4 +1,4 @@
-// The door: on every interface the address classifier (prompts/address.md) decides each line of a group place, DMs and
+// The door: on every interface the address classifier (prompts/classify/address.md) decides each line of a group place, DMs and
 // the core CLI never ask it, and two neutral rails bound its cost and the turns one author starts.
 // Contract, plan 2026-11-04-cli-and-memory B1:
 //   settings `address.attentionMinutes` and `address.maxTurnsPerAuthor`, read at the moment of use
@@ -121,7 +121,7 @@ function door(options: DoorOptions = {}) {
         maxTurnsPerAuthor: options.maxTurnsPerAuthor ?? 100,
       },
     }),
-    prompts: { address: ADDRESS_PROMPT, labels, ...options.prompts },
+    prompts: { 'classify/address': ADDRESS_PROMPT, labels, ...options.prompts },
   };
   const handler = createMessageHandler(
     wrongly<Parameters<typeof createMessageHandler>[0]>({

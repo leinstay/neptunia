@@ -76,7 +76,7 @@ export function splitHot({ features = {}, split = {}, labels: ownLabels }: { fea
       pace: { prepareMs: 5000, prepareSearchMs: 5000, dropAfterMs: 60000 },
     }
   );
-  hot.prompts.split = SPLIT_SYSTEM;
+  hot.prompts['classify/split'] = SPLIT_SYSTEM;
   if (ownLabels) hot.prompts.labels = ownLabels;
   return hot;
 }

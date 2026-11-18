@@ -2,7 +2,7 @@
 // person would: "about this I think that", "this one I will do now", "and the
 // meme is funny". This module is the pure side of it: the settings, the cheap
 // pre-filter that keeps an ordinary message from costing any request, and the
-// strict parse of the splitter's JSON answer (prompts/split.md). The request itself
+// strict parse of the splitter's JSON answer (prompts/classify/split.md). The request itself
 // and the chain of turns live in src/behavior/turn.ts.
 
 import { isPlainObject } from '../config.ts';
@@ -119,7 +119,7 @@ export function foldShortParts(parts: Array<string>, minPartChars: number): Arra
 }
 
 /**
- * The splitter's answer (prompts/split.md), parsed strictly: the text is the
+ * The splitter's answer (prompts/classify/split.md), parsed strictly: the text is the
  * JSON object `{ "parts": [...] }` and every part is a text that is not blank.
  * An empty list or one part -> `one`, one request; two or more -> the parts
  * (whitespace collapsed), cut to `maxTasks`; a blank answer -> `empty`;

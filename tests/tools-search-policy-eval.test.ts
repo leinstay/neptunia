@@ -72,7 +72,7 @@ function hotFixture(overrides = {}) {
       ...overrides,
     },
     prompts: {
-      'query-builder': 'Today is {{today}}. You are {{name}}.{{skills}}',
+      'classify/query': 'Today is {{today}}. You are {{name}}.{{skills}}',
       labels,
     },
   };

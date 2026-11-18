@@ -93,7 +93,7 @@ async function turnWith(args: Record<string, string>, { innerTurn = true }: { in
       ? {
           inner: wake,
           config: { wakes: { mode: 'live', chatMessages: 2 } },
-          prompts: { inner: 'Do what the wake says.' },
+          prompts: { 'turn/inner': 'Do what the wake says.' },
         }
       : {}),
   });

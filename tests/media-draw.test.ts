@@ -55,10 +55,10 @@ function dataFolder(withLook: boolean): string {
 const LABELS = { ...baseLabels, draw: { ...baseLabels.draw, when: 'At {when}.' } };
 
 const PROMPTS = {
-  'system-prompt': 'SYSTEM for {{name}}',
-  'character-card': 'CARD_TEXT',
+  main: 'SYSTEM for {{name}}',
+  persona: 'CARD_TEXT',
   format: 'FORMAT_TEXT',
-  reply: 'Someone called you: {{author}}.',
+  'turn/reply': 'Someone called you: {{author}}.',
   'diary/task': 'DIARY_TASK for {{name}}',
   'diary/scene': 'SCENE_TASK',
   'diary/seeds/place': 'a pier',

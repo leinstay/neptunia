@@ -181,7 +181,7 @@ import type { Hello } from './protocol/serve.ts';
 import type { ErrandRecord, ErrandScope } from './errands/types.ts';
 import type { ErrandDoneEvent } from './errands/turns.ts';
 
-const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply'];
+const REQUIRED_PROMPTS = ['main', 'persona', 'format', 'turn/reply'];
 
 /** The first name a stored profile holds (the store hands a profile out as a plain object). */
 const firstName = (profile: object | null): string | undefined =>

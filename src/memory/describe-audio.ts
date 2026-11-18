@@ -1,5 +1,5 @@
 // How the describer (src/memory/describe.ts) tells a voice message, an audio file and a text file: the first two heard on the
-// `video` role through `describe-audio`, the third from its own words with no model. What it comes to is a transcript, in the
+// `video` role through `describe/audio`, the third from its own words with no model. What it comes to is a transcript, in the
 // language spoken: quoted speech, so the script check of a picture's description does not apply.
 
 /** A voice message or an audio file, or a text file, as the collectors list them. */

@@ -180,7 +180,7 @@ function rig({ answer = '{"pick":"none","name":null}', pickConfig = {}, gifs = {
           },
         },
       },
-      prompts: { labels, 'media-pick': 'Pick for {{name}}.' },
+      prompts: { labels, 'classify/pick': 'Pick for {{name}}.' },
     },
     store: {
       mediaNameOf: noMediaNames,

@@ -106,7 +106,7 @@ function writeLayer(one: Omit<Instance, 'child'>): void {
   mkdirSync(join(one.privateDir, 'config'), { recursive: true });
   mkdirSync(join(one.privateDir, 'prompts'), { recursive: true });
   writeFileSync(join(one.privateDir, 'config', 'config.json'), JSON.stringify(settings(`g-${one.name}`)));
-  writeFileSync(join(one.privateDir, 'prompts', 'character-card.md'), `${one.persona}. You are a quiet guest.\n`);
+  writeFileSync(join(one.privateDir, 'prompts', 'persona.md'), `${one.persona}. You are a quiet guest.\n`);
 }
 
 type Pending = Map<number, (reply: InstanceReply) => void>;

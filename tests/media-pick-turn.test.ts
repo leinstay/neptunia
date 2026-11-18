@@ -86,7 +86,7 @@ async function runScene({
   );
   // The old prompt stays beside the new one: a picker that still reads it, or that runs on an interface without the
   // capability, shows up as a pick request.
-  Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.', 'gif-pick': 'Pick for {{name}}.', labels });
+  Object.assign(hot.prompts, { 'classify/pick': 'Pick for {{name}}.', 'gif-pick': 'Pick for {{name}}.', labels });
   const library = sharedLibrary(texts);
   const known = { key: 'k1', ...library.entries.k1 };
   const store = Object.assign(fakeStore({ mediaCache: { 'item-1': { text: 'ναι φυσικά γνέφει' } } }), {

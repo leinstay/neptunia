@@ -457,11 +457,11 @@ test('buildRequest: a reactor on her line gets a handle and an entry in <people>
     framed({
       config: config(features),
       prompts: {
-        'system-prompt': 'SYSTEM',
-        'character-card': 'CARD',
+        main: 'SYSTEM',
+        persona: 'CARD',
         rules: 'RULES',
         format: 'FORMAT',
-        reply: 'REPLY',
+        'turn/reply': 'REPLY',
         interject: 'INTERJECT',
         labels,
       },

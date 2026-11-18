@@ -161,7 +161,7 @@ async function humanize({
   try {
     const answer = await llm.complete(
       [
-        { role: 'system', content: fillPromptTemplate(prompts['humanizer-linter'], { name }) },
+        { role: 'system', content: fillPromptTemplate(prompts['humanizer/linter'], { name }) },
         { role: 'user', content: draft },
       ],
       {
@@ -199,7 +199,7 @@ async function humanize({
   try {
     const answer = await llm.complete(
       [
-        { role: 'system', content: fillPromptTemplate(prompts['humanizer-writer'], { name }) },
+        { role: 'system', content: fillPromptTemplate(prompts['humanizer/editor'], { name }) },
         {
           role: 'user',
           content: [

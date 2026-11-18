@@ -14,7 +14,7 @@ type Call = { messages: Array<{ role: string; content: string }>; options: Recor
 /** A summarizer over a fake model that records its calls and answers `answer`, or throws when `answer` is an Error. */
 function setup(
   answer: unknown,
-  prompts: Record<string, unknown> = { 'summarize-media': MEDIA_PROMPT, 'summarize-text': TEXT_PROMPT }
+  prompts: Record<string, unknown> = { 'summarize/media': MEDIA_PROMPT, 'summarize/text': TEXT_PROMPT }
 ) {
   const calls: Array<Call> = [];
   const config = { models: { byPurpose: { summarize: SUMMARY_MODEL } } };
@@ -94,7 +94,7 @@ test('returns the original text whole when the answer is empty', async () => {
 });
 
 test('returns the original text whole and sends no request when the prompt is missing', async () => {
-  const { summarize, calls } = setup('gist', { 'summarize-text': TEXT_PROMPT });
+  const { summarize, calls } = setup('gist', { 'summarize/text': TEXT_PROMPT });
   const text = 'a red bicycle leaning on a wall';
   const result = await summarize(text, { maxChars: 10, kind: 'picture' });
   assert.equal(result, text);

@@ -593,7 +593,7 @@ const TWO_PICTURES = new Map([
 ]);
 const LOOK_PROMPTS = {
   rewatch: 'Pick a second look for {{name}}.',
-  'rewatch-answer': 'Answer {{question}} in {{maxChars}}.',
+  'describe/rewatch': 'Answer {{question}} in {{maxChars}}.',
 };
 const fakePictures = {
   fetchAsDataUrl: async () => ({ dataUrl: 'data:image/webp;base64,ZmFrZQ==', bytes: 4, contentType: 'image/webp' }),
@@ -921,7 +921,7 @@ test('draw.create on a turn nobody asked (her own initiative): the picture is ch
     images,
     inner: wake,
     config: { ...DRAW_CONFIG, wakes: { mode: 'live', chatMessages: 2 } },
-    prompts: { ...DRAW_PROMPTS, inner: 'Do what the wake says.' },
+    prompts: { ...DRAW_PROMPTS, 'turn/inner': 'Do what the wake says.' },
   });
   assert.equal(images.calls.length, 1, JSON.stringify(run.logs.filter((l) => /skill/.test(l.msg))));
   assert.equal(asRecord(images.calls[0]).accountId, null, "nobody's rail");

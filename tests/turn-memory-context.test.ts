@@ -161,7 +161,7 @@ for (const replacement of ['author', 'shorter'] as const) {
         models: { routes: chainsOf({ analyzer: 'test/analyzer' }) },
         llm: { maxRequestTokens: 50000, maxRequestsPerDay: 100, timeoutMs: 1000 },
       },
-      prompts: { labels, merge: 'Choose an item or new. {{items}} {{message}}' },
+      prompts: { labels, 'classify/merge': 'Choose an item or new. {{items}} {{message}}' },
     };
     const queue = createPendingQueue({
       hot,
@@ -249,7 +249,7 @@ test('a triggerless private inner turn writes its completed turn only to its par
       uuid: () => `private-turn-${++id}`,
     });
     const hot = splitHot();
-    hot.prompts.inner = 'Respond to the private wake.';
+    hot.prompts['turn/inner'] = 'Respond to the private wake.';
     const llm = splitLlm({ talk: '<msg>private inner answer</msg>' });
     const turns = createTurnRunner({
       discord: DISCORD,

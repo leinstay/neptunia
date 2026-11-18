@@ -29,7 +29,7 @@ test('a transcript with no quotation marks stays as heard: one request and no ma
         models: { routes: chainsOf({ vision: 'x/vision', video: 'x/flash' }) },
         media: { maxOutputTokens: 120 },
       },
-      prompts: { describe: 'Describe.', 'describe-audio': 'Retell in up to {{maxChars}} characters.' },
+      prompts: { 'describe/picture': 'Describe.', 'describe/audio': 'Retell in up to {{maxChars}} characters.' },
     },
     store,
     llm,

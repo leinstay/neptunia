@@ -1,6 +1,6 @@
 // Avatar descriptions, the queue: the persona knows what every profiled
 // member's avatar looks like, so a joke about one lands. Each avatar version is described ONCE by
-// the vision model (prompts/avatar.md, purpose `avatar`) and stored as the member's current
+// the vision model (prompts/describe/avatar.md, purpose `avatar`) and stored as the member's current
 // `avatar` field (src/memory/avatars.ts; a platform's default avatar is stored without any request).
 //
 // Who is offered: the served place's members that already have a profile, never the
@@ -79,7 +79,7 @@ function buildAvatarQueue({
 
   /** Whether the feature works under the live config and prompts: the switch exactly true and the prompt there. */
   function on() {
-    return Boolean(hot.prompts?.avatar);
+    return Boolean(hot.prompts?.['describe/avatar']);
   }
 
   /**
@@ -189,7 +189,7 @@ function buildAvatarQueue({
    */
   async function describe(item: AvatarItem): Promise<'described' | 'failed'> {
     const config = hot.config ?? {};
-    const promptText = hot.prompts?.avatar;
+    const promptText = hot.prompts?.['describe/avatar'];
     const descriptionChars = DESCRIPTION_CHARS;
     const fail = (reason: string, extra = {}): 'failed' => {
       failed.set(item.accountId, item.hash);

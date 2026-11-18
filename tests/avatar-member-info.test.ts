@@ -29,7 +29,7 @@ function setup(options: { reads?: ReadonlyArray<string>; profiles?: Array<Profil
         media: { maxOutputTokens: 300 },
         models: { routes: chainsOf({ vision: 'v/model' }) },
       },
-      prompts: { avatar: 'Describe the avatar in at most {{maxChars}} characters.' },
+      prompts: { 'describe/avatar': 'Describe the avatar in at most {{maxChars}} characters.' },
     },
     store: {
       getUser: (id: string) => profiles.get(id) ?? null,

@@ -15,7 +15,7 @@ function speechWith(complete: () => Promise<{ text?: string }>) {
   // `state` is a stale option of an earlier client; the options variable keeps it out of the excess property check.
   const options = {
     getConfig: () => ({ speech: { maxPerDay: 5 } }),
-    getPrompts: () => ({ 'speech-prepare': 'prepare it' }),
+    getPrompts: () => ({ speech: 'prepare it' }),
     apiKey: 'k',
     llm: { complete },
     state,

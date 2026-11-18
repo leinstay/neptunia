@@ -68,8 +68,8 @@ const hot = {
     diary: { placeId: 'd1', world: false },
   },
   prompts: {
-    'system-prompt': 'SYSTEM for {{name}}',
-    'character-card': 'CARD_TEXT',
+    main: 'SYSTEM for {{name}}',
+    persona: 'CARD_TEXT',
     format: 'FORMAT_TEXT',
     'diary/task': 'DIARY_TASK for {{name}}',
     'diary/scene': 'SCENE_TASK',

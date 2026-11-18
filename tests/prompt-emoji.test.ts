@@ -37,11 +37,11 @@ function baseInput(overrides = {}) {
   const input = {
     config: fakeConfig(),
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       rules: 'RULES',
       format: 'FORMAT',
-      reply: 'REPLY_TASK',
+      'turn/reply': 'REPLY_TASK',
       labels,
     },
     calibrator: { ratio: 1, apply: (n: number) => n },
@@ -208,11 +208,11 @@ function rowOf(name: string): Row | null {
 function legendInput(history: Array<unknown>, descriptions: Map<string, string>) {
   return baseInput({
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       rules: 'RULES',
       format: 'FORMAT',
-      reply: 'REPLY_TASK',
+      'turn/reply': 'REPLY_TASK',
       labels: LEGEND_LABELS,
     },
     history,
@@ -313,11 +313,11 @@ const CAT = ':e23: pogcat: a surprised cat face';
 function anyBlockInput(overrides: Record<string, unknown>) {
   return baseInput({
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       rules: 'RULES',
       format: 'FORMAT',
-      reply: 'REPLY_TASK',
+      'turn/reply': 'REPLY_TASK',
       'diary/task': 'DIARY_TASK',
       labels: LEGEND_LABELS,
     },

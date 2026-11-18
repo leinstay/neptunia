@@ -178,7 +178,7 @@ async function setup({
         ...recall,
       },
     }),
-    prompts: { labels, 'recall-summary': 'Synthetic summary prompt' },
+    prompts: { labels, 'summarize/recall': 'Synthetic summary prompt' },
   };
   const service = createMemoryDb({
     iface: () => 'discord',

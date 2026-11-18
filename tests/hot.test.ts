@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { createHot, promptsInFolder } from '../src/hot.ts';
+import { createHot, promptsInFolder, retiredPromptFiles } from '../src/hot.ts';
 import type { Hot } from '../src/hot.ts';
 import { composePreamble } from '../src/errands/preambles.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
@@ -954,6 +954,98 @@ test('watch: a folder created after the start reloads on its own event', async (
     assert.equal(hot.prompts['heartbeat/seeds/a'], 'moved in');
   } finally {
     hot.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** The warnings of `logs` about a deployment prompt file under a retired key. */
+const retiredPromptWarnings = (logs: Array<Record<string, Untyped>>) =>
+  logs.filter((entry) => entry.level === 'warn' && entry.msg === 'prompts: a file is no longer read');
+
+test('createHot: a deployment file under a retired key warns once with its path and the new one, and is not read', async () => {
+  // Catches: a deployment's own character card left at its old path, loaded under a key nobody reads, so the persona
+  // runs on the tracked text with no word to the owner.
+  const dir = makeRoot({ prompts: { persona: 'tracked card' } });
+  writeLocalPrompt(dir, 'character-card', 'own card');
+  let hot = wrongly<Hot>(undefined);
+  try {
+    const { logs } = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+      hot.reloadPrompts();
+    });
+    assert.deepEqual(
+      retiredPromptWarnings(logs).map((entry) => [String(entry.file), String(entry.use)]),
+      [['character-card.md', 'persona.md']]
+    );
+    assert.equal(hot.prompts.persona, 'tracked card');
+    assert.equal(Object.hasOwn(hot.prompts, 'character-card'), false, 'the old path is not read');
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: a deployment file under a key that moved into a folder warns with the folder path', async () => {
+  const dir = makeRoot();
+  writeLocalPrompt(dir, 'humanizer-linter', 'own linter');
+  let hot = wrongly<Hot>(undefined);
+  try {
+    const { logs } = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+    });
+    assert.deepEqual(
+      retiredPromptWarnings(logs).map((entry) => [String(entry.file), String(entry.use)]),
+      [['humanizer-linter.md', 'humanizer/linter.md']]
+    );
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('createHot: a deployment file under the new key replaces the tracked one and warns nothing', async () => {
+  const dir = makeRoot({ prompts: { persona: 'tracked card' } });
+  writeLocalPrompt(dir, 'persona', 'own card');
+  let hot = wrongly<Hot>(undefined);
+  try {
+    const { logs } = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+    });
+    assert.equal(hot.prompts.persona, 'own card');
+    assert.deepEqual(retiredPromptWarnings(logs), []);
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('retiredPromptFiles: names each deployment file under a retired key with the path that replaces it', () => {
+  const dir = makeRoot();
+  writeLocalPrompt(dir, 'character-card', 'own card');
+  writeLocalPrompt(dir, 'persona', 'own card');
+  try {
+    assert.deepEqual(retiredPromptFiles(path.join(dir, 'data', 'prompts')), [
+      { file: 'character-card.md', use: 'persona.md' },
+    ]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("retiredPromptFiles: a deployment's diary.md points at diary/task.md and its diary-seeds.md at one file per family", () => {
+  // Bug: the warning names a seeds file that does not exist, so a deployment copies its whole seeds file to one path.
+  const dir = makeRoot();
+  writeLocalPrompt(dir, 'diary', 'own diary');
+  writeLocalPrompt(dir, 'diary-seeds', '# place\na pier');
+  try {
+    assert.deepEqual(
+      retiredPromptFiles(path.join(dir, 'data', 'prompts')).sort((a, b) => a.file.localeCompare(b.file)),
+      [
+        { file: 'diary-seeds.md', use: 'diary/seeds/<family>.md' },
+        { file: 'diary.md', use: 'diary/task.md' },
+      ]
+    );
+  } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

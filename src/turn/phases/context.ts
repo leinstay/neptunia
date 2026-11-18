@@ -69,8 +69,8 @@ export type PhaseLabels = {
 /** The prompt files a turn reads at the moment of use. */
 export type PhasePrompts = {
   labels?: PhaseLabels;
-  split?: string;
-  'follow-up'?: unknown;
+  'classify/split'?: string;
+  'turn/follow'?: unknown;
   tools?: unknown;
   [key: string]: unknown;
 } | null;
@@ -143,7 +143,7 @@ export type PhaseContext = {
   getSelfName: (placeId: string) => string;
   // The channels known to be private chats (a deferred call names only its channel).
   dmChannels: Set<string>;
-  // Whether the last turn that wanted prompts['follow-up'] found it missing or blank.
+  // Whether the last turn that wanted prompts['turn/follow'] found it missing or blank.
   promptState: { followUpMissing: boolean };
   notifyIdle: (lane: Lane) => void;
   facts: Facts['facts'];

@@ -76,7 +76,7 @@ test('refusals: off, no key, no prompt; the key state names a key, never a value
   assert.equal(refusalOf(baseConfig(), null, prompts, null), CODES.NOT_CONFIGURED);
   assert.equal(refusalOf(baseConfig({ mode: 'apply' }), null, prompts, ring), null);
   assert.equal(refusalOf(baseConfig({ mode: 'shadow' }), null, prompts, ring), null);
-  assert.equal(refusalOf(baseConfig(), null, { ...prompts, 'memory-session': '' }, ring), CODES.NO_PROMPT);
+  assert.equal(refusalOf(baseConfig(), null, { ...prompts, 'memory/session': '' }, ring), CODES.NO_PROMPT);
   assert.deepEqual(memoryKeyState(baseConfig(), null, ring), { ok: true, name: 'memory-key' });
   assert.equal(sessionSettings({}).mode, 'off');
   assert.equal(sessionSettings({ memoryDb: { session: { mode: 'bogus' } } }).mode, 'off');
@@ -172,7 +172,7 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     assert.match(people, /\[k[0-9a-z]{4,}\] interest: likes café mornings/);
     assert.match(userText, /\[k[0-9a-z]{4,}\] 2026-10-10 Ada: Ada helped with the move \(warm\)/);
     assert.match(userText, /open|pending: ask Ada about the move|pending: ask Ada/);
-    // The intended request difference of this slice: the top of the tree is named `server:` in `prompts/memory-session.md`.
+    // The intended request difference of this slice: the top of the tree is named `server:` in `prompts/memory/session.md`.
     assert.match(userText, /<place>\nscope: group\n\[p1\] channel: general - chat\n\[p2\] server: Server/);
     assert.deepEqual(
       [...built.maps.places.entries()],

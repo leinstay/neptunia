@@ -174,8 +174,8 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
       diary: { ...spec.diary },
     },
     prompts: {
-      'system-prompt': 'SYSTEM for {{name}}',
-      'character-card': 'CARD_TEXT',
+      main: 'SYSTEM for {{name}}',
+      persona: 'CARD_TEXT',
       format: 'FORMAT_TEXT',
       'diary/task': MARK.writer,
       'diary/scene': MARK.director,

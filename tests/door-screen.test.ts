@@ -29,7 +29,7 @@ function rig(verdict: (event: MessageEvent) => 'pass' | 'observe' | 'drop'): Rig
     wrongly<Parameters<typeof createMessageHandler>[0]>({
       hot: {
         config: baseConfig({ bot: { timezone: 'UTC' }, address: { attentionMinutes: 30, maxTurnsPerAuthor: 100 } }),
-        prompts: { address: 'Is it said to {{name}}?', labels },
+        prompts: { 'classify/address': 'Is it said to {{name}}?', labels },
       },
       store: { state: { data: {}, markDirty() {} }, getUser: () => ({ names: ['Member'], affinity: { score: 0 } }) },
       reads,

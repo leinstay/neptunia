@@ -411,11 +411,11 @@ test('innerSampleRng: the same seed and sample give the same draws, another seed
 // The heartbeat the replay runs is the core's own: the same fixture world as the core's heartbeat test
 // (tests/fixtures/service-turn.ts, tests/inner-turn-service.test.ts), written to a data folder the replay reads.
 const PROMPTS = {
-  'system-prompt': 'You are a regular member of this chat.',
-  'character-card': 'You are friendly and terse.',
+  main: 'You are a regular member of this chat.',
+  persona: 'You are friendly and terse.',
   format: 'Use <msg> and <react> tags.',
+  'turn/inner': MARK.inner,
   'heartbeat/task': MARK.heartbeat,
-  inner: MARK.inner,
   labels: shippedLabels,
 };
 const HEARTBEAT_GRANTED = ['conversation.read', 'memory.search', 'intention.set'];
@@ -572,7 +572,7 @@ test('a replayed heartbeat searches memory when a line it quotes holds a custom 
       intentions: { expiresDays: 14, maxOpen: 20 },
     },
     // The search runs only with its summary prompt present.
-    prompts: { ...PROMPTS, 'recall-summary': 'Say what the lines answer.' },
+    prompts: { ...PROMPTS, 'summarize/recall': 'Say what the lines answer.' },
   };
   const { wired } = innerTurnRunner({
     root: process.cwd(),
@@ -830,7 +830,7 @@ test('a replayed heartbeat looks again at a picture whose address lapsed after i
       wakes: { mode: 'shadow', loop: { maxSteps: 4 } },
       intentions: { expiresDays: 14, maxOpen: 20 },
     },
-    prompts: { ...PROMPTS, 'rewatch-answer': 'Answer the question about the picture.' },
+    prompts: { ...PROMPTS, 'describe/rewatch': 'Answer the question about the picture.' },
   };
   const realFetch = globalThis.fetch;
   const fetched: Array<string> = [];

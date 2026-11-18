@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { CODES, memoryKeyState, refusalOf, sweep } from '../src/memory/db/session.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import { CHECK_PURPOSE, DRAFT_PURPOSE, reviewRefusal } from '../src/memory/db/describe.ts';
+import { reviewRefusal } from '../src/memory/db/describe.ts';
 import type { KeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
 import { chainRing } from './fixtures/keys-rig.ts';
@@ -26,7 +26,7 @@ function ringWith(fill: (store: ReturnType<typeof createKeyStore>) => void, keys
   return { ...ring, names: () => [], states: () => [], bound: () => [] };
 }
 
-const reviewPrompts = { ...prompts, [DRAFT_PURPOSE]: 'DRAFT', [CHECK_PURPOSE]: 'CHECK' };
+const reviewPrompts = { ...prompts, 'memory/draft': 'DRAFT', 'memory/check': 'CHECK' };
 
 test('with a key store and no memory variable in .env, the memory session runs on the core key in use', () => {
   // Catches: the session stays not_configured after the deploy because it still looks for llm.keyByRole.memory in .env.

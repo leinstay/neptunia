@@ -52,7 +52,7 @@ function door(
           private: { minAffinity: 0 },
           address: { attentionMinutes: 30, maxTurnsPerAuthor: options.maxTurnsPerAuthor ?? 100 },
         }),
-        prompts: { address: 'Is it said to {{name}}?', labels },
+        prompts: { 'classify/address': 'Is it said to {{name}}?', labels },
       },
       store: { state: { data: {}, markDirty() {} }, getUser: () => ({ names: ['Member'], affinity: { score: 0 } }) },
       reads,

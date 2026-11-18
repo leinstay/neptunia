@@ -90,10 +90,10 @@ function fakeHot() {
       diary: { world: false },
     },
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       format: 'Use <msg> and <react> tags.',
-      reply: 'Someone called you: {{author}}.',
+      'turn/reply': 'Someone called you: {{author}}.',
       'heartbeat/task': 'HEARTBEAT',
       'diary/task': 'DIARY',
       labels,

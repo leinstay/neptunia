@@ -100,8 +100,8 @@ async function sample(kind: string, look: (() => Promise<string>) | null) {
         diary: { placeId: 'd1' },
       },
       prompts: {
-        'system-prompt': 'SYSTEM',
-        'character-card': 'CARD',
+        main: 'SYSTEM',
+        persona: 'CARD',
         format: 'FORMAT',
         'diary/task': 'DIARY_TASK',
         'diary/scene': 'SCENE_TASK',

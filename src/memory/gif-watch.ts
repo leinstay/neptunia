@@ -4,11 +4,11 @@
 // right now and which prompt a watch uses.
 
 /** The prompt files a GIF watch can use, the dedicated one first. */
-const GIF_PROMPTS = ['describe-gif', 'describe-video'];
+const GIF_PROMPTS = ['describe/gif', 'describe/video'];
 
 /**
- * The prompt a GIF watch uses under the live prompts: `describe-gif` when it
- * is there, else `describe-video`; null when neither is.
+ * The prompt a GIF watch uses under the live prompts: `describe/gif` when it
+ * is there, else `describe/video`; null when neither is.
  * @param [prompts]  hot.prompts.
  */
 export function gifWatchPrompt(prompts?: Record<string, unknown>): { name: string; text: string } | null {
@@ -20,8 +20,8 @@ export function gifWatchPrompt(prompts?: Record<string, unknown>): { name: strin
 }
 
 /**
- * Why GIFs are not watched under the live prompts, or null when they are: `no-prompt` (neither describe-gif nor
- * describe-video).
+ * Why GIFs are not watched under the live prompts, or null when they are: `no-prompt` (neither describe/gif nor
+ * describe/video).
  * @param [prompts]  hot.prompts.
  */
 export function gifWatchBlocker(prompts?: Record<string, unknown>): 'no-prompt' | null {

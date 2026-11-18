@@ -42,11 +42,11 @@ function baseInput(overrides: Record<string, unknown> = {}) {
   const input = {
     config: fakeConfig(),
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       rules: 'RULES',
       format: 'FORMAT',
-      reply: 'REPLY_TASK',
+      'turn/reply': 'REPLY_TASK',
       labels,
     },
     calibrator: { ratio: 1, apply: (n: number) => n },

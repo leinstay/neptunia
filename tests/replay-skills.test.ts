@@ -513,10 +513,10 @@ async function playSequence(
   const hot = {
     config,
     prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
+      main: 'SYSTEM',
+      persona: 'CARD',
       format: 'FORMAT',
-      reply: 'REPLY {{author}}',
+      'turn/reply': 'REPLY {{author}}',
       labels,
     },
   };

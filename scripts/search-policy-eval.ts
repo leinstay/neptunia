@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Operations tool: measure the search classifier (prompts['query-builder'], purpose `query-builder`) against a
+// Operations tool: measure the search classifier (prompts['classify/query'], purpose `query-builder`) against a
 // labelled sheet of questions, so a change to the search policy is judged by numbers -- the
 // confusion matrix of the owner's tier against the classifier's decision, the agreement, the
 // disagreements, latency and cost -- instead of by a few live turns.
@@ -14,8 +14,8 @@
 // Each row is asked as a live turn asks it (src/behavior/turn.ts#maybeLookup): the user message
 // is src/behavior/turn.ts#lookupClassifierInput over the row's `context` lines (one minute apart
 // before now; a line by the persona's name is hers) and the question as the trigger (by the row's
-// `author`, else `-`), under the live config and labels; the system prompt is prompts['query-builder']
-// (tracked, or the deployment's data/prompts/query-builder.md through the usual loader, src/hot.ts)
+// `author`, else `-`), under the live config and labels; the system prompt is prompts['classify/query']
+// (tracked, or the deployment's data/prompts/classify/query.md through the usual loader, src/hot.ts)
 // with `{{today}}` = today in `bot.timezone`, `{{name}}` = the persona's name (`--self-name`,
 // else `bot`) and `{{skills}}` = the skills index when discovery
 // is on (src/tools/discovery.ts), as the turn fills them. One completion on the `analyzer` role
@@ -190,7 +190,8 @@ export async function main(
   };
 
   try {
-    if (!hot.prompts?.['query-builder']) throw new CliError('search-policy-eval: prompts.query-builder is missing');
+    if (!hot.prompts?.['classify/query'])
+      throw new CliError('search-policy-eval: prompts["classify/query"] is missing');
     if (!hot.prompts?.labels) throw new CliError('search-policy-eval: prompts.labels is missing');
     const selfName = flags['--self-name'] ?? 'bot';
 
@@ -200,7 +201,7 @@ export async function main(
       const { history, trigger } = rowChat(row, { now: now(), selfName });
       const { user } = lookupClassifierInput({ config, labels: hot.prompts.labels, selfName, history, trigger });
       const discovery = { index: skillsIndex(skillRegistry(), hot.prompts?.tools), names: [...skillRegistry().keys()] };
-      const system = fillPromptTemplate(hot.prompts['query-builder'], {
+      const system = fillPromptTemplate(hot.prompts['classify/query'], {
         today: zonedDay(now(), config.bot?.timezone),
         name: selfName,
         skills: discovery.index,

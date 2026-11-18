@@ -123,7 +123,7 @@ export function followUpPreFilter(
 const ADDRESS_ANSWERS: ReadonlySet<unknown> = new Set(['yes', 'overheard', 'no']);
 
 /**
- * The address classifier's answer (prompts/address.md): the text is the JSON
+ * The address classifier's answer (prompts/classify/address.md): the text is the JSON
  * object `{ "answer": ... }` and its `answer` is `yes`, `overheard` or `no`,
  * exactly. Anything else is null: text that is not JSON (a bare word or a
  * code fence included), JSON that is not an object, an object without

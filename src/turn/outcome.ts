@@ -185,7 +185,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   (with `params.inner`).
    * @param {{ wake: import('../behavior/inner/types.ts').WakeInfo, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
-   *   request is the turn frame's (src/turn/request/frame.ts), its task `prompts.inner` or the service's own, its
+   *   request is the turn frame's (src/turn/request/frame.ts), its task `prompts['turn/inner']` or the service's own, its
    *   history the last `wakes.chatMessages` lines of `channel` when it has one, its prefetch searches the
    *   purposes of the intentions it woke for, no planner runs. What she writes in tags (a `<msg>`,
    *   a `<react to>`) is lowered into the calls they stand for, in the current channel
@@ -230,11 +230,11 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
    *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
    * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.diary]  With `mode: 'diary'`
-   *   (src/behavior/diary.ts, no trigger, nowhere): the post is planned first
-   *   (prepareDiary: the plan request, then the search it asks for; `kind` forces the kind --
+   *   (src/behavior/diary.ts, no trigger, nowhere): the entry is prepared first
+   *   (prepareDiary: the kind drawn, then the director's scenes or the stored facts; `kind` forces the kind --
    *   a picture kind while the post may not carry a picture is refused before any request,
    *   `{ outcome: 'refused', reason: 'pictures', limit }`, diaryPictureGate --
-   *   `topic` is the owner's topic for the planner and the plan), then composed with `prompts.diary` as
+   *   `topic` is the owner's topic), then written with `diary/task` and the kind's file as
    *   the task and the frame's diary blocks (src/turn/request/frame.ts). Its speech keeps only
    *   `<msg>` (every reply attribute dropped, links removed, at most `diary.maxMessages` (3), a
    *   message left empty not posted) and `<skip/>`; no reaction and no media pick. It runs on the

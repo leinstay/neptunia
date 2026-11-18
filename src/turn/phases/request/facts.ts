@@ -144,10 +144,10 @@ export async function tellFacts(ctx: PhaseContext, params: PhaseParams, draft: D
       dmChat: isDm,
     })
   ) {
-    const followUpPrompt = prompts?.['follow-up'];
+    const followUpPrompt = prompts?.['turn/follow'];
     const missing = !(typeof followUpPrompt === 'string' && followUpPrompt.trim());
     if (missing && !promptState.followUpMissing)
-      log.warn('turn: prompt missing', { name: 'follow-up', reason: 'no-prompt', channel: channel.id });
+      log.warn('turn: prompt missing', { name: 'turn/follow', reason: 'no-prompt', channel: channel.id });
     promptState.followUpMissing = missing;
   }
   // `<now>`: the persona's recent time away (the journal's pauses and stops).

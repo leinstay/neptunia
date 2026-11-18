@@ -30,11 +30,11 @@ export const CHANNEL = channelPlaceOf('c1');
 export const SELF_ACCOUNT = 'discord:u-self';
 
 export const prompts = {
-  'system-prompt': 'SYSTEM {{name}}',
-  'character-card': 'CARD {{name}}',
+  main: 'SYSTEM {{name}}',
+  persona: 'CARD {{name}}',
   rules: 'RULES',
   format: 'FORMAT',
-  'memory-session': 'SESSION {{name}}',
+  'memory/session': 'SESSION {{name}}',
   labels,
 };
 export const baseConfig = (session: Rec = {}, extra: Rec = {}): Rec => ({

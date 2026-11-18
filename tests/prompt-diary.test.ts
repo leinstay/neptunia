@@ -33,11 +33,11 @@ function identityCalibrator() {
 
 function fakePrompts(overrides: Record<string, unknown> = {}) {
   return {
-    'system-prompt': 'SYSTEM_TEXT for {{name}}',
-    'character-card': 'CARD_TEXT',
+    main: 'SYSTEM_TEXT for {{name}}',
+    persona: 'CARD_TEXT',
     rules: 'RULES_TEXT',
     format: 'FORMAT_TEXT',
-    reply: 'REPLY_TASK',
+    'turn/reply': 'REPLY_TASK',
     interject: 'INTERJECT_TASK',
     'diary/task': 'DIARY_TASK for {{name}}',
     labels,

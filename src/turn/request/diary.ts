@@ -126,11 +126,10 @@ export function diaryFramedOf(given: RequestInput & { labels: Labels }): DiaryFr
 }
 
 /**
- * The task text of a diary entry of `kind`: the common text `prompts['diary/task']`, then the kind's own file
- * `prompts['diary/kinds/<kind>']`, each read as the hot prompts hold it.
+ * The task text of a diary entry of `kind`: the common text `task` (the mode's file, `diary/task`), then the kind's
+ * own file `prompts['diary/kinds/<kind>']`, each read as the hot prompts hold it.
  */
-export function diaryTaskOf(prompts: Readonly<Record<string, unknown>>, kind: unknown): string {
-  const task = prompts['diary/task'];
+export function diaryTaskOf(task: unknown, prompts: Readonly<Record<string, unknown>>, kind: unknown): string {
   const common = typeof task === 'string' ? task.trim() : '';
   const own = typeof kind === 'string' ? prompts[`diary/kinds/${kind}`] : undefined;
   // A kind whose file a deployment emptied or left out gets the common text alone.
