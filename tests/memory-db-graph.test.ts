@@ -916,3 +916,97 @@ test('graph: a channel written before its guild and a membership before its acco
     handle.close();
   }
 });
+
+// ---------- the graph follows its rows ----------
+// Diagnosis 2026-11-18, graph orphans: a projection of a row that is gone wrote nothing, so the row's node and its own
+// witness stayed; and the version of an archive entry of an episode was linked to a claim node no row holds.
+
+const nodesOf = (db: UntypedDb, node: string): number =>
+  count(db, 'SELECT COUNT(*) AS n FROM graph_nodes WHERE id = ?', node);
+const witnessesOf = (db: UntypedDb, node: string): number =>
+  count(db, 'SELECT COUNT(*) AS n FROM node_access WHERE node_id = ?', node);
+
+test('a projection of a media row that is gone removes its node and its witness', () => {
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  try {
+    db.prepare(
+      "INSERT INTO media (id, kind, native_ref, scope_iface) VALUES ('media:fake:q1', 'image', 'q1', 'fake')"
+    ).run();
+    projectRow(handle, 'media', { id: 'media:fake:q1' }, { at: at(0) });
+    const node = graphNodeId('media', 'media:fake:q1');
+    assert.equal(witnessesOf(db, node), 1);
+    db.prepare("DELETE FROM media WHERE id = 'media:fake:q1'").run();
+    projectRow(handle, 'media', { id: 'media:fake:q1' }, { at: at(1) });
+    assert.equal(nodesOf(db, node), 0);
+    assert.equal(witnessesOf(db, node), 0);
+  } finally {
+    handle.close();
+  }
+});
+
+// An account has no witness of its own (its producer writes none), so a claim is the kind here: it has its own witness,
+// and the supersedes edge of the claim it replaced names it and witnesses it too.
+test('a projection of a row that is gone keeps its node while an edge names it and drops only its own witness', () => {
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  try {
+    db.prepare("INSERT INTO claims (id, created_at) VALUES ('clm:new', ?)").run(at(0));
+    db.prepare("INSERT INTO claims (id, created_at, superseded_by) VALUES ('clm:old', ?, 'clm:new')").run(at(0));
+    projectRow(handle, 'claims', { id: 'clm:new' }, { at: at(0) });
+    projectRow(handle, 'claims', { id: 'clm:old' }, { at: at(0) });
+    const node = graphNodeId('claim', 'clm:new');
+    const own = (n: string): number =>
+      count(db, 'SELECT COUNT(*) AS n FROM node_access WHERE node_id = ? AND evidence_id = ?', n, n);
+    assert.equal(own(node), 1);
+    const byEdge = witnessesOf(db, node) - own(node);
+    assert.ok(byEdge > 0);
+    db.prepare("DELETE FROM claims WHERE id = 'clm:new'").run();
+    projectRow(handle, 'claims', { id: 'clm:new' }, { at: at(1) });
+    assert.equal(nodesOf(db, node), 1);
+    assert.equal(own(node), 0);
+    assert.equal(witnessesOf(db, node), byEdge);
+  } finally {
+    handle.close();
+  }
+});
+
+/** The node the `version_of` edge of the claim version `id` ends at. */
+const versionTarget = (db: UntypedDb, id: string): unknown =>
+  db
+    .prepare("SELECT dst FROM graph_edges WHERE src = ? AND predicate = 'version_of'")
+    .get(graphNodeId('claim_version', id))?.dst;
+
+test('the version of an archive entry of an episode is linked to the episode and makes no claim node', () => {
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  try {
+    db.prepare("INSERT INTO episodes (id, kind, what, created_at) VALUES ('ep:p1', 'participation', 'a walk', ?)").run(
+      at(0)
+    );
+    projectRow(handle, 'episodes', { id: 'ep:p1' }, { at: at(0) });
+    db.prepare(
+      "INSERT INTO claim_versions (id, claim_id, text, recorded_at) VALUES ('cv:p1', 'ep:p1', 'a walk', ?)"
+    ).run(at(1));
+    projectRow(handle, 'claim_versions', { id: 'cv:p1', claim_id: 'ep:p1' }, { at: at(1) });
+    assert.equal(versionTarget(db, 'cv:p1'), graphNodeId('episode', 'ep:p1'));
+    assert.equal(nodesOf(db, graphNodeId('claim', 'ep:p1')), 0);
+  } finally {
+    handle.close();
+  }
+});
+
+test('the version of a claim is linked to the claim', () => {
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  try {
+    db.prepare("INSERT INTO claims (id, created_at) VALUES ('clm:k1', ?)").run(at(0));
+    db.prepare(
+      "INSERT INTO claim_versions (id, claim_id, text, recorded_at) VALUES ('cv:k1', 'clm:k1', 'likes tea', ?)"
+    ).run(at(1));
+    projectRow(handle, 'claims', { id: 'clm:k1' }, { at: at(1) });
+    assert.equal(versionTarget(db, 'cv:k1'), graphNodeId('claim', 'clm:k1'));
+  } finally {
+    handle.close();
+  }
+});

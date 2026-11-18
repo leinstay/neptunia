@@ -2,12 +2,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  adoptSameItem,
   mediaItemsOf,
   pendingMediaEmbeds,
   sourceLine,
+  writeEntryFiles,
   writeLineMedia,
   writeMediaEntry,
 } from '../src/memory/db/media-store.ts';
+import type { EntryFile, MediaItem } from '../src/memory/db/media-store.ts';
+import { graphNodeId, projectRow } from '../src/memory/db/graph.ts';
 import { writeGifLibrary } from '../src/memory/db/gif-library.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { freshMemoryDb } from './fixtures/memory-db-copy.ts';
@@ -61,4 +65,112 @@ test('a described library row that no line links waits for its media vector', ()
   } finally {
     handle.close();
   }
+});
+
+// ---------- the graph follows a media row that goes ----------
+// Diagnosis 2026-11-18, graph orphans: a site that deletes a media row or changes its id left the row's node and its
+// own `node_access` witness behind, because no projection ran for the old id and a projection of a missing row wrote
+// nothing.
+
+const MEDIA_LINE =
+  "INSERT INTO sources (id, kind, iface, native_id, revision, place_id, occurred_at, text, scope_iface) VALUES (?, 'seen', 'discord', ?, 1, ?, ?, 'look', 'discord')";
+
+/** How many graph nodes and own witnesses the media row `id` holds, as `[nodes, witnesses]`. */
+function graphOf(db: Db, id: string): [number, number] {
+  const node = graphNodeId('media', id);
+  const nodes = db.prepare('SELECT COUNT(*) AS n FROM graph_nodes WHERE id = ?').get(node)?.n;
+  const witnesses = db.prepare('SELECT COUNT(*) AS n FROM node_access WHERE node_id = ?').get(node)?.n;
+  return [Number(nodes), Number(witnesses)];
+}
+
+const imageItem = (nativeRef: string | null): MediaItem => ({
+  kind: 'image',
+  nativeRef,
+  availability: 'unknown',
+  description: null,
+  origin: null,
+  extra: {},
+});
+
+test('a placeholder renamed to its item leaves no node under its old id and the item has its node', (t) => {
+  const handle = openMemoryDb(':memory:');
+  t.after(() => handle.close());
+  const db = handle.db as Db;
+  db.prepare(MEDIA_LINE).run('s7', 'n7', PLACE, AT);
+  const line = sourceLine(db, 's7');
+  if (line === undefined) throw new Error('the line was not stored');
+  writeLineMedia(db, line, [imageItem(null)], { at: AT });
+  const bare = String(db.prepare("SELECT media_id FROM media_links WHERE owner_id = 's7'").get()?.media_id);
+  projectRow(db, 'media', { id: bare }, { at: AT });
+  assert.deepEqual(graphOf(db, bare), [1, 1]);
+  writeLineMedia(db, line, [imageItem('att71')], { at: AT });
+  const renamed = String(db.prepare("SELECT media_id FROM media_links WHERE owner_id = 's7'").get()?.media_id);
+  assert.notEqual(renamed, bare);
+  assert.deepEqual(graphOf(db, bare), [0, 0]);
+  assert.equal(graphOf(db, renamed)[0], 1);
+});
+
+test('a placeholder that gives way to an item the reference already names leaves no node behind', (t) => {
+  const handle = openMemoryDb(':memory:');
+  t.after(() => handle.close());
+  const db = handle.db as Db;
+  db.prepare(MEDIA_LINE).run('s8', 'n8', PLACE, AT);
+  const line = sourceLine(db, 's8');
+  if (line === undefined) throw new Error('the line was not stored');
+  writeLineMedia(db, line, [imageItem(null)], { at: AT });
+  const bare = String(db.prepare("SELECT media_id FROM media_links WHERE owner_id = 's8'").get()?.media_id);
+  projectRow(db, 'media', { id: bare }, { at: AT });
+  db.prepare(
+    "INSERT INTO media (id, kind, native_ref, scope_iface) VALUES ('media:discord:att81', 'image', 'att81', 'discord')"
+  ).run();
+  writeLineMedia(db, line, [imageItem('att81')], { at: AT });
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM media WHERE id = ?').get(bare)?.n, 0);
+  assert.deepEqual(graphOf(db, bare), [0, 0]);
+});
+
+test('a diary picture dropped as the twin of the attachment it became leaves no node behind', (t) => {
+  const handle = openMemoryDb(':memory:');
+  t.after(() => handle.close());
+  const db = handle.db as Db;
+  const entry = { id: 'diary:e5', scope_iface: 'discord' };
+  const file = (id: string, attachmentId: string | null): EntryFile => ({
+    id,
+    position: 0,
+    path: 'media/p5.png',
+    attachmentId,
+    messageId: null,
+    url: null,
+    description: null,
+    sha1: 'h5',
+    bytes: 10,
+    mime: 'image/png',
+    extra: {},
+  });
+  writeEntryFiles(db, entry, [file('media:diary:e5:0', null)], AT);
+  assert.deepEqual(graphOf(db, 'media:diary:e5:0'), [1, 1]);
+  db.prepare(
+    `INSERT INTO media (id, kind, native_ref, path, sha1, scope_iface)
+     VALUES ('media:discord:att55', 'image', 'att55', 'media/p5.png', 'h5', 'discord')`
+  ).run();
+  writeEntryFiles(db, entry, [file('media:diary:e5:0', 'att55')], AT);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM media WHERE id = 'media:diary:e5:0'").get()?.n, 0);
+  assert.deepEqual(graphOf(db, 'media:diary:e5:0'), [0, 0]);
+  assert.equal(graphOf(db, 'media:discord:att55')[0], 1);
+});
+
+test('a row adopted into the library row of the same item leaves no node behind and the library row keeps its own', (t) => {
+  const handle = openMemoryDb(':memory:');
+  t.after(() => handle.close());
+  const db = handle.db as Db;
+  const insert = db.prepare(
+    "INSERT INTO media (id, kind, native_ref, scope_iface) VALUES (?, 'gif', 'g61', 'discord')"
+  );
+  insert.run('media:gif:keep');
+  insert.run('media:discord:g61');
+  projectRow(db, 'media', { id: 'media:gif:keep' }, { at: AT });
+  projectRow(db, 'media', { id: 'media:discord:g61' }, { at: AT });
+  adoptSameItem(db, 'media:gif:keep', AT);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM media WHERE id = 'media:discord:g61'").get()?.n, 0);
+  assert.deepEqual(graphOf(db, 'media:discord:g61'), [0, 0]);
+  assert.deepEqual(graphOf(db, 'media:gif:keep'), [1, 1]);
 });

@@ -27,7 +27,7 @@ import type { OldScope } from './scope-parts.ts';
 import { scopeFrom, scopeInto } from './scope-parts.ts';
 import { resolveMessageFamily } from './message-families.ts';
 import { familyError, hasMessageFamilies } from './message-family-catalog.ts';
-import { observedSourceId } from './observe.ts';
+import { accountOf, observedSourceId } from './observe.ts';
 import { writtenRowOf } from './source-current.ts';
 import { storeHeld } from './media-stems.ts';
 import { recordFieldsOf, takeRecordMedia, writeRecordMedia } from './media-store.ts';
@@ -366,11 +366,21 @@ function adoptedRecord(source: Row, found: Row): Row {
 const ownedBy = (row: Row, owner: LineOwner): boolean =>
   row.writer === owner.writer && row.holder_id === owner.holder_id && row.period === owner.period;
 
+/** The account of a line's author, written as the live observation writes it, with the platform id alone: a line names no one. */
+function writeAuthor(db: Db, iface: string | null, line: Row, at: string): void {
+  if (iface === null || !filled(line.by)) return;
+  // An account stored with no native key of its own (the command line's owner) is held under the id it would mint.
+  const held = db.prepare('SELECT 1 AS ok FROM accounts WHERE id = ?').get(mintedAccount(iface, line.by));
+  if (held === undefined)
+    accountOf(db, iface, { authority: nativeAuthorityOf(iface), key: line.by }, line.occurredAt ?? null, at);
+}
+
 /** One line of a day's write at `position`; what it wrote and whether the day's next position moves. */
 function writeLine(db: Db, day: DayWrite, line: Row, position: number, at: string) {
   const identity = recordIdentity(db, day, line);
   // The unit's subject names the interface; the persona's, which names none, takes the reference's or the write's.
   const iface = day.ctx.iface ?? identity?.iface ?? day.iface;
+  writeAuthor(db, iface, line, at);
   let source: Row = {
     ...recordSourceRow(line, { ...day.ctx, iface }, identity),
     ...lineColumns(day.owner),

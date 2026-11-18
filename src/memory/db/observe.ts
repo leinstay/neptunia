@@ -439,7 +439,7 @@ function linkedPersonOf(db: Db, accountId: unknown): unknown {
  * account's kind: a new account takes it (`user` when none is given), a stored one is updated to it. Returns
  * `{ id, person_id }`.
  */
-function accountOf(
+export function accountOf(
   db: Db,
   iface: string,
   {
