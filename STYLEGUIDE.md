@@ -205,7 +205,7 @@ throw new Error(`unknown wake kind "${kind}"; use one of ${WAKE_KINDS.join(', ')
 - An empty `catch` needs a comment saying why the error is ignored.
 - Fail loudly at a boundary. A wrong event, config key or tool call gets refused with a reason.
 - Skip checks for what the types already rule out.
-- A property chain reads at most three segments deep. Past that, the owner of the data gets a named method or the caller a named variable. Settings paths under `hot.config` are exempt. A property name never repeats in a row, as in `extra.extra`.
+- A property chain reads at most three segments deep. Past that, the object that holds the data gets a named method or the caller a named variable. Settings paths under `hot.config` are exempt. A property name never repeats in a row, as in `extra.extra`.
 
 ## Naming
 
@@ -232,8 +232,7 @@ The engine's words are in the Glossary of [`AGENTS.md`](AGENTS.md#glossary). An 
 
 - Say why. The header paragraph already says what the file does, so a comment never repeats what the next line does.
 - Leave history to the git log, and delete commented-out code.
-- A `TODO` names the plan it belongs to.
-- Say where a constant's value came from: a measurement, a platform limit, or a decision with its date.
+- Say where a constant's value came from: a measurement or a platform limit.
 
 ```ts
 // Discord rejects a message over 2000 characters.
@@ -241,7 +240,8 @@ const MESSAGE_LIMIT = 2000;
 ```
 
 - Put JSDoc on an exported function only when its signature does not say enough. Everywhere else, use `//` lines.
-- In comments and logs, write "the persona", never a character's name.
+- In comments and logs, write "the persona" or "it", never a character's name, "she" or "her".
+- A comment never names or quotes a person. It says the reason.
 
 ## Tests
 

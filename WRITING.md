@@ -13,7 +13,7 @@ How prose is written in this repository: documentation, prompts, commit messages
 
 - One thought per sentence. Break a sentence when the reader has to hold more than one open clause; keep a long one when its parts belong together. Vary the length; a text of equal sentences reads like a machine.
 - Active voice when the actor matters. "The door drops a duplicate event", not "duplicate events are dropped". Passive is fine when the actor is unknown or irrelevant.
-- Positive form. "The variance was small", not "the variance was not large". "She waits for the errand", not "she does not act before the errand ends".
+- Positive form. "The variance was small", not "the variance was not large". "The persona waits for the errand", not "it does not act before the errand ends".
 - Concrete words where a concrete word exists. "The turn runner", not "the relevant component"; "the 2,000-character limit", not "platform constraints".
 - No needless words. "It is important to note that", "in order to", "the fact that", "serves to", "as a means of" go.
 - Coordinate ideas in the same form: "the pipeline cleans the data, extracts the features and trains the model", not "cleaning, feature extraction, and then it trains".
@@ -23,7 +23,7 @@ How prose is written in this repository: documentation, prompts, commit messages
 
 ## Claims and evidence
 
-- Every factual claim carries what supports it: a file and line, a number you measured, a command you ran and its output, the owner's words with their date. "Significantly faster" is not a claim; "the median request fell from 35k to 24k tokens on the 41-question set" is.
+- Every factual claim carries what supports it: a file and line, a number you measured, a command you ran and its output, the admin's words with their date. "Significantly faster" is not a claim; "the median request fell from 35k to 24k tokens on the 41-question set" is.
 - Say what you did not check. "Not run live" is a fact the reader needs; silence about it is a lie by omission.
 - State a claim at the certainty the evidence supports, with one qualifier at most. "May affect outcomes", not "could potentially possibly affect outcomes". Keep scope statements and real corrections; drop hedges that repair an earlier overstatement.
 - Never invent a number, a citation, a source, a quote or a date. If a detail is missing, ask or write the simpler sentence without it.
@@ -103,7 +103,7 @@ A language model writes what is most likely next, so by default it makes the cho
 - **Chat residue.** "Great question", "Certainly!", "I hope this helps", "let me know if", "want me to...?". Remove the wrapper, keep the content.
 - **Writing about the document instead of its subject.** "This section is organized by owner", "the table below compares", "this file says how", "generated from the sources". Describe the subject; the reader can see the layout. A document says what it is for in one line and then is it.
 - **History in a document.** "Now", "was", "no longer", "moved from", "previously", "was added to replace". The git log holds history; a document describes the present. Change logs and migration notes are the exception, because change is their subject.
-- **The owner's chat in a file.** "As discussed", "as you said", the diagnosis the reader already has. A file is read by someone who never saw the conversation.
+- **The chat in a file.** "As discussed", "as you said", the diagnosis the reader already has. A file is read by someone who never saw the conversation.
 - **A TODO with no plan.** A `TODO` names the plan it belongs to or does not exist.
 - **Knowledge-limit disclaimers and guesses.** "As of my last update", "while details are limited, it appears that". State what the sources do not show, or cut the sentence; never fill a gap with a plausible guess.
 
@@ -146,7 +146,7 @@ Applies to `prompts/` and `config/labels.json`.
 - A model mirrors the tone of its prompt. Write in a living voice, concrete and specific, as to a colleague who has to act on it; no officialese.
 - Every sentence carries an instruction or a fact the model needs. A sentence that only sets a mood goes.
 - A behaviour rule describes the behaviour and gives no sample line: the model repeats a sample until it becomes a tic.
-- Each fact has one home: the system prompt holds the craft, the character card who the persona is and how it talks, a task file the situation, the format file the protocol, the rules file the owner's corrections, `labels.json` the wording of what code inserts.
+- Each fact has one home: the system prompt holds the craft, the character card who the persona is and how it talks, a task file the situation, the format file the protocol, the rules file the admin's corrections, `labels.json` the wording of what code inserts.
 - Tracked prompts are English and character-neutral; a character's own material lives in the local layer and keeps its language.
 
 ## Commit messages and pull requests
@@ -170,7 +170,7 @@ Applies to `prompts/` and `config/labels.json`.
 
 ## Accepted examples
 
-Corrections the owner made on 2026-10-25 to this repository's own files. Each pair shows a habit and its fix.
+Corrections to this repository's own files. Each pair shows a habit and its fix.
 
 ```text
 Avoid
