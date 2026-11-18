@@ -474,6 +474,9 @@ export function mediaLabelFor(
 ): Label {
   switch (item.kind) {
     case 'image': {
+      // A picture whose answer the provider cut short twice (its reason the cached miss's code, src/memory/describe.ts).
+      if (!description && video?.state === 'error')
+        return { key: 'imageNotSeen', values: { reason: String(video.reason ?? '') } };
       const base: LabelTag = description
         ? { key: 'imageDescribed', values: { text: description } }
         : { key: 'image', values: {} };

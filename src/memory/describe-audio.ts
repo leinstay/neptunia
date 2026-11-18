@@ -16,6 +16,8 @@ type VideoSettings = {
 };
 type Clip = { ok: true; dataUrl: string; seconds: number; bytes: number } | { ok: false; reason: string };
 export type Completion = { text?: unknown; usage?: unknown; estimated?: unknown };
+/** A request's answer, or why the provider cut it short twice (`filter`, `cut`). */
+export type Asked = { answer: Completion } | { cut: string };
 
 /** What the describer gives this module, read at the moment of use. */
 export type AudioDeps = {
@@ -25,7 +27,8 @@ export type AudioDeps = {
   fill: (template: string, values: Record<string, unknown>) => string;
   fetchAudio: (url: string, options: Record<string, unknown>) => Promise<Clip>;
   fetchText: (url: string) => Promise<{ ok: boolean; text?: string; reason?: string }>;
-  complete: (messages: Array<unknown>, options: unknown) => Promise<Completion>;
+  /** One request of `kind`, asked once more when the provider cut its answer short. */
+  ask: (kind: string, messages: Array<unknown>, options: unknown) => Promise<Asked>;
   requestOptions: (settings: VideoSettings, seconds: number, model: unknown) => object;
   failureReason: (error: unknown) => string;
   /** Shortens a heard text or a text file over `maxChars` (src/behavior/summarize.ts); the text is kept whole by what it returns. */
@@ -64,9 +67,10 @@ export async function hearAudio(
   if (!clip.ok) return deps.miss(item, clip.reason);
   const maxChars = settings.summaryChars;
   const model = deps.model();
-  let completion: Completion;
+  let asked: Asked;
   try {
-    completion = await deps.complete(
+    asked = await deps.ask(
+      item.kind,
       [
         { role: 'system', content: deps.fill(promptText, { maxChars }) },
         { role: 'user', content: [audioPart(clip.dataUrl)] },
@@ -78,6 +82,8 @@ export async function hearAudio(
     // A refusal by the daily cap says nothing about the file: heard after the reset.
     return reason === 'daily-cap' ? null : deps.miss(item, reason);
   }
+  if ('cut' in asked) return deps.miss(item, asked.cut);
+  const completion = asked.answer;
   const heard = typeof completion.text === 'string' ? completion.text : '';
   if (!heard.trim()) return deps.miss(item, 'empty');
   const text = await deps.summarize(heard.trim(), maxChars);

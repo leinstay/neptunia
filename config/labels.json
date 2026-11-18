@@ -84,6 +84,7 @@
       "videoWatchedPart": "[video: {name}, {duration} — watched first {watched} ({reason}): {text}]",
       "videoNotWatched": "[video: {name}, {duration} — not watched: {reason}]",
       "gifNotWatched": "[GIF: {name}, not watched: {reason}]",
+      "imageNotSeen": "[picture, not seen: {reason}]",
       "videoNotWatchedFrame": "[video: {name}, {duration} — not watched: {reason} — still frame: {text}]",
       "videoAnswered": "[looked more closely at the video for {question}: {text}]",
       "imageAnswered": "[looked more closely at the picture for {question}: {text}]",
@@ -103,7 +104,9 @@
         "tool": "could not convert",
         "llm": "the viewer failed",
         "empty": "the viewer said nothing",
-        "interrupted": "the viewing was interrupted"
+        "interrupted": "the viewing was interrupted",
+        "filter": "the provider's filter stopped the answer",
+        "cut": "the answer was cut off before its end"
       },
       "voice": "[voice message, {duration}]",
       "voiceDescribed": "[voice message, {duration}: {text}]",

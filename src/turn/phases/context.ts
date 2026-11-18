@@ -188,7 +188,7 @@ export type PhaseDescriber = {
     options: { maxNew: number }
   ) => Promise<{ videos?: Map<string, VideoState> } | null | undefined>;
   cachedVideos?: (placeId: string, candidates: Array<object>) => Promise<Map<string, VideoState> | undefined>;
-  failedGifs?: (placeId: string, candidates: Array<object>) => Map<string, VideoState>;
+  failedMedia?: (placeId: string, candidates: Array<object>) => Map<string, VideoState>;
   rewatchVideo?: unknown;
   relookImage?: unknown;
   rewatchGif?: unknown;

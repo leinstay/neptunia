@@ -1182,11 +1182,21 @@ export type CompleteResult = {
   usage: object;
   estimated: number;
   finishReason?: unknown;
+  /** The upstream provider's own finish reason (`choices[0].native_finish_reason`), when the response has one. */
+  nativeFinishReason?: unknown;
   provider?: unknown;
   promptTokens?: number | null;
   annotations?: Array<unknown>;
   toolCalls?: Array<unknown>;
 };
+
+/** An answer's finish reason, verbatim, and the upstream provider's own one when the response has it. */
+function finishOf(choice: Rec): { finishReason: unknown; nativeFinishReason?: unknown } {
+  const finishReason = choice.finish_reason ?? undefined;
+  return choice.native_finish_reason == null
+    ? { finishReason }
+    : { finishReason, nativeFinishReason: choice.native_finish_reason };
+}
 
 /** The `reasoning` of a body: the call's own object, which the chain client sets from its route's effort. */
 function reasoningField(options: { reasoning?: unknown }): { reasoning?: Rec } {
@@ -1654,7 +1664,6 @@ export function createLlm({
       // The message's `url_citation` annotations (OpenRouter's web plugin); only a non-empty array is passed on.
       const annotations = message.annotations;
       const usage = objOf(json.usage);
-      const finishReason = choice.finish_reason ?? undefined;
       // The whole prompt as the provider counted it, its cached part included (see fullPromptTokens).
       const promptTokens = fullPromptTokens(usage);
       if (options.skipCalibration !== true && promptTokens !== null)
@@ -1683,7 +1692,7 @@ export function createLlm({
         text: typeof text === 'string' ? text : '',
         usage,
         estimated,
-        finishReason,
+        ...finishOf(choice),
         ...servedBy(json),
         promptTokens,
         ...(Array.isArray(annotations) && annotations.length ? { annotations } : {}),

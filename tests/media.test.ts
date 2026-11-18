@@ -256,6 +256,14 @@ test('mediaLabelFor: a GIF whose watch failed renders gifNotWatched with its nam
   });
 });
 
+// The owner on 2026-11-18: a picture that could not be seen shows it, with its reason.
+test('mediaLabelFor: a picture whose description failed renders imageNotSeen with its reason', () => {
+  assert.deepEqual(mediaLabelFor({ kind: 'image' }, { video: { state: 'error', reason: 'filter' } }), {
+    key: 'imageNotSeen',
+    values: { reason: 'filter' },
+  });
+});
+
 test('mediaLabelFor: video blind/described carry name + duration, described adds text', () => {
   assert.deepEqual(mediaLabelFor({ kind: 'video', name: 'clip.mp4', durationSec: 65 }), {
     key: 'video',

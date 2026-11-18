@@ -1372,7 +1372,7 @@
     },
     "src/llm/openrouter.ts": {
       "createLlm": {
-        "function-length": 609
+        "function-length": 608
       },
       "createLlm>complete": {
         "complexity": 41

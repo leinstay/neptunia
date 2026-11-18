@@ -218,3 +218,24 @@ test('createLlm: a request on the main key leaves the key field out of the usage
   const { logs } = await ask();
   assert.ok(!('key' in (logs.find((line) => line.msg === 'llm: usage') ?? {})));
 });
+
+// The owner on 2026-11-18: the describer logs the native reason of an answer the provider cut short.
+test('complete: an answer carries choices[0].native_finish_reason as nativeFinishReason', async () => {
+  const choice = {
+    message: { content: 'A woman holds' },
+    finish_reason: 'content_filter',
+    native_finish_reason: 'BLOCKED',
+  };
+  const llm = createLlm({
+    apiKey: 'k',
+    getConfig: () => baseConfig(),
+    calibrator: fakeCalibrator(),
+    state: fakeState(),
+    fetchImpl: () =>
+      Promise.resolve(
+        wrongly<Response>({ ok: true, status: 200, json: () => Promise.resolve({ choices: [choice], usage: {} }) })
+      ),
+  });
+  const result = await llm.complete([{ role: 'user', content: 'hi' }]);
+  assert.equal(wrongly<Record<string, unknown>>(result).nativeFinishReason, 'BLOCKED');
+});

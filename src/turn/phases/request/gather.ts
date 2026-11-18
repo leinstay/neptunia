@@ -103,9 +103,9 @@ export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: Gathe
         : videoStage
           ? (lateVideoStates(videoCandidates, await videosSoFar(), VIDEOS_PER_TURN) as Map<string, VideoState>)
           : undefined;
-  // A GIF whose watch failed renders not watched, through the same states.
-  const failedGifs = ctx.describer?.failedGifs?.(placeId, captionCandidates);
-  const videos = failedGifs?.size ? new Map([...(videoStates ?? []), ...failedGifs]) : videoStates;
+  // A GIF whose watch failed renders not watched and a picture the provider cut short renders not seen, through the same states.
+  const failedMedia = ctx.describer?.failedMedia?.(placeId, captionCandidates);
+  const videos = failedMedia?.size ? new Map([...(videoStates ?? []), ...failedMedia]) : videoStates;
   // What the request shows as not ready, for the steps that follow (lateMediaTeller): the videos rendered
   // `pending`, and whether the captions were late.
   const pendingMedia = {
