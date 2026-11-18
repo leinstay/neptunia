@@ -39,6 +39,7 @@ import { MARK, SERVICE_CONTEXT, TURN_NOW, blockOf, serviceWake, serviceWorld } f
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { chainsOnDefaults } from './fixtures/chains.ts';
 import { completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { sampleFacts, turnEndOf } from '../scripts/lib/inner-summary.ts';
 import { parseErrandAnswers } from '../scripts/lib/errand-answers.ts';
@@ -655,4 +656,153 @@ test('an errand call that finds no answer for its agent ends unresolved with err
   assert.ok(!requests.join('\n').includes(ERRAND_MARK), 'no answer of another agent is read');
   assert.deepEqual(facts.end, { kind: 'unresolved', code: 'errand-unanswered' });
   assert.deepEqual(facts.errands, [{ agent: 'scout', answered: false }]);
+});
+
+/** A one-pixel PNG, the picture every download in the look test below gets. */
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+  'base64'
+);
+
+// The address of an attachment lapses: the platform signs it for a while and hands a new one when the message is read
+// again. The core reads the message again before each download (src/core.ts `freshAddress`).
+const LAPSING = 'https://cdn.example/flowers.png?signed=old';
+const FRESH = 'https://cdn.example/flowers.png?signed=new';
+
+test('a replayed heartbeat looks again at a picture whose address lapsed after it read the message', async () => {
+  const dataDir = await heartbeatDataDir();
+  const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => TURN_NOW });
+  const chat = { id: 'c2', kind: 'channel' as const, rootId: 'g1', name: 'κήπος' };
+  port.seedChat({
+    iface: 'fake',
+    ...chat,
+    topic: null,
+    permissions: { read: true, send: true, attach: true, react: true },
+    owner: null,
+    lastMessageAt: null,
+    voice: false,
+    public: true,
+  });
+  const picture = (url: string) =>
+    port.seedEvent({
+      kind: 'message.received',
+      iface: 'fake',
+      at: TURN_NOW - 10 * 60_000,
+      id: 'fake:message:p1',
+      chat,
+      message: {
+        id: 'p1',
+        author: { id: '111', name: 'Ελένη', self: false, bot: false },
+        content: 'κοίτα τα λουλούδια',
+        sourceText: 'κοίτα τα λουλούδια',
+        system: false,
+        at: TURN_NOW - 10 * 60_000,
+        replyToId: null,
+        replyPingAccountId: null,
+        forwardedFrom: null,
+        attachments: [{ id: 'a1', kind: 'image', name: 'flowers.png', url, contentType: 'image/png' }],
+        links: [],
+        forwarded: [],
+        stickers: [],
+        emojis: [],
+        reactions: [],
+      },
+      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
+    } as unknown as Parameters<typeof port.seedEvent>[0]);
+  picture(LAPSING);
+  const looks: Array<string> = [];
+  const results: Array<string> = [];
+  let step = 0;
+  const llm = {
+    complete: (messages: Array<{ role?: string; content: unknown }>) => {
+      const parts = messages.flatMap((message): Array<unknown> =>
+        Array.isArray(message.content) ? message.content : []
+      );
+      if (parts.some((part) => asRecord(part).type === 'image_url')) {
+        looks.push('vision');
+        return Promise.resolve(completionOf('ΚΟΚΚΙΝΑ-ΤΡΙΑΝΤΑΦΥΛΛΑ'));
+      }
+      step += 1;
+      const text = messages.map((message) => userText(message.content)).join('\n');
+      results.push(text);
+      if (step === 1) {
+        const garden = blockOf(text, 'memory')
+          .split('\n')
+          .find((line) => line.includes('κήπος'));
+        const handle = /^(#[A-Za-z0-9_-]+):/.exec(garden ?? '')?.[1] ?? '#none';
+        return Promise.resolve(toolAnswer('', [toolCall('conversation.read', { place: handle })]));
+      }
+      if (step === 2) {
+        const line = text.split('\n').find((one) => one.includes('κοίτα τα λουλούδια')) ?? '';
+        const number = /(#\d+)/.exec(line)?.[1] ?? '#none';
+        picture(FRESH);
+        return Promise.resolve(
+          toolAnswer('', [toolCall('media.look', { message: number, question: 'τι λουλούδια;' })])
+        );
+      }
+      return Promise.resolve(completionOf('<skip/>'));
+    },
+  };
+  const granted = [...HEARTBEAT_GRANTED, 'media.look'];
+  const hot = {
+    config: {
+      bot: {
+        timezone: 'UTC',
+        access: Object.fromEntries(granted.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])),
+      },
+      context: SERVICE_CONTEXT,
+      features: { mediaDescriptions: true },
+      models: { routes: chainsOnDefaults({ core: 'x/core', analyzer: 'x/text', vision: 'x/vision' }) },
+      llm: { maxRequestTokens: 60000 },
+      tools: { transport: 'native', resultMaxChars: 2000, callTimeoutMs: 120000 },
+      wakes: { mode: 'shadow', loop: { maxSteps: 4 } },
+      intentions: { expiresDays: 14, maxOpen: 20 },
+    },
+    prompts: { ...PROMPTS, 'rewatch-answer': 'Answer the question about the picture.' },
+  };
+  const realFetch = globalThis.fetch;
+  const fetched: Array<string> = [];
+  globalThis.fetch = (input: string | URL | Request) => {
+    const url = input instanceof Request ? input.url : String(input);
+    fetched.push(url);
+    return Promise.resolve(
+      url === FRESH
+        ? new Response(PIXEL, { status: 200, headers: { 'content-type': 'image/png' } })
+        : new Response(null, { status: 404 })
+    );
+  };
+  let result: Untyped;
+  try {
+    const { wired } = innerTurnRunner({
+      root: process.cwd(),
+      dataDir,
+      hot,
+      port,
+      llm,
+      embed: (texts: Array<string>) => Promise.resolve(texts.map(() => null)),
+      rng: () => 0.5,
+      now: () => TURN_NOW,
+      turnId: 't-inner-look',
+    });
+    try {
+      result = await wired.under(() =>
+        wired.runner.runTurn({
+          chat: null,
+          mode: 'inner',
+          triggerKind: 'inner',
+          inner: { wake: serviceWake('heartbeat'), currentChannel: null, shadow: true, mayAct: () => false },
+        })
+      );
+    } finally {
+      wired.close();
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const look = ((result as Rec).inner as { actions: Array<Rec> }).actions.find(
+    (action) => action.skill === 'media.look'
+  );
+  assert.equal(`${String(look?.status)}:${String(look?.result)}`, 'executed:ok', JSON.stringify(look));
+  assert.deepEqual(looks, ['vision']);
+  assert.deepEqual(fetched, [FRESH]);
 });
