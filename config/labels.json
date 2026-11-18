@@ -374,7 +374,9 @@
           "dropped": "let go"
         },
         "run": "the turn that carried it out on {date} sent lines: {sent}, in {places}",
+        "runs": "the {count} turns that carried it out on {date} each sent lines: {sent}, in {places}",
         "runSilent": "the turn that carried it out on {date} sent nothing",
+        "runsSilent": "the {count} turns that carried it out on {date} sent nothing",
         "notRun": "no turn has carried it out yet",
         "noRunRecorded": "the record holds no turn for it",
         "ways": "Three ways on: save it unchanged with intention.set and confirm {id}, which needs no reason; change it and call intention.set with the changed intention; or leave it, with <skip/> or with no further call."
@@ -562,6 +564,19 @@
       },
       "madeCount": "{count} {things}",
       "madeTail": ", and made {made}",
+      "acts": {
+        "message.edit": "edited a message",
+        "message.delete": "deleted a message",
+        "message.react.add": "reacted to a message",
+        "message.react.remove": "took back a reaction"
+      },
+      "actsMany": {
+        "message.edit": "edited {count} messages",
+        "message.delete": "deleted {count} messages",
+        "message.react.add": "reacted {count} times",
+        "message.react.remove": "took back {count} reactions"
+      },
+      "actedTail": ", and you {acted}",
       "intention": "[{time}] you carried out your intention \"{purpose}\" in {places}",
       "intentionDue": "[{time}] your intention \"{purpose}\" came due",
       "intentionSilent": "[{time}] your intention \"{purpose}\" came due and nothing went out",

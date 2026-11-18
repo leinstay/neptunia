@@ -48,7 +48,7 @@ const handle = (person: string): string => `@${handleOf(person)}`;
 /** The native chat id a turn writes its journal lines with. */
 const CHAT: Record<string, string> = { [CAFE]: 'room-1', [SALON]: 'room-2', [DM]: 'dm-chat-n1' };
 
-const { things, thingsMany } = labels.myDay;
+const { things, thingsMany, acts } = labels.myDay;
 const PICTURE = things['draw.create'];
 const PICTURES = thingsMany['draw.create'];
 const LABELS = { myDay: labels.myDay, calls: labels.calls, locale: labels.locale };
@@ -681,6 +681,22 @@ test("an intention's turn that made a thing and sent no line says it came due an
     !line.includes(fill(String(labels.myDay.intentionSilent), { time: '11:30', purpose: 'ΣΚΟΠΟΣ-ΤΡΙΑ' })),
     line
   );
+});
+
+test("an intention's turn that only edited a message says it edited one and not that nothing went out", async () => {
+  // Bug: an edit sends no new line, so the turn that corrected her message reads as one that did nothing.
+  const w = world((s) => {
+    s.intention('i-4', 'ΣΚΟΠΟΣ-ΤΕΣΣΕΡΑ');
+    s.wakeRun('w-edit', 'intention_due', at(11, 30), ['i-4']);
+    s.wakeRun('w-idle', 'intention_due', at(10, 30), ['i-4']);
+  });
+  await w.act(SALON, 'skill', at(11, 31), 'message.edit', 'w-edit');
+  const [idle = '', edited = ''] = events(w.day());
+  const silent = (time: string, purpose: string): string =>
+    fill(String(labels.myDay.intentionSilent), { time, purpose });
+  assert.ok(edited.includes(acts['message.edit']), edited);
+  assert.ok(!edited.includes(silent('11:30', 'ΣΚΟΠΟΣ-ΤΕΣΣΕΡΑ')), edited);
+  assert.ok(idle.includes(silent('10:30', 'ΣΚΟΠΟΣ-ΤΕΣΣΕΡΑ')), idle);
 });
 
 test('a thing made by the turn an entry names goes to that entry, however long after its moment', async () => {

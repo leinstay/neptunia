@@ -25,7 +25,7 @@ import { whereFor } from '../../memory/db/scope.ts';
 import type { Context } from '../../memory/db/scope.ts';
 import type { Db } from '../../memory/db/types.ts';
 import { zonedDay, zonedEpoch } from '../../time.ts';
-import { bodyOf, currentToolName, skillNameOfApi } from '../../tools/definitions.ts';
+import { SKILL_DEFINITIONS, bodyOf, currentToolName, skillNameOfApi } from '../../tools/definitions.ts';
 import { readDiary } from '../../memory/db/diary-past.ts';
 import { survivorOf } from '../../memory/db/ids.ts';
 import { accountOfMember, firstChannelOf, mintedAccount, placeOfChannel } from '../../memory/db/native-rows.ts';
@@ -40,6 +40,22 @@ const ENTRY_REACH_MS = 30 * 60_000;
 
 /** The operations of the journal a call line is written for. */
 const LISTED_OPS: ReadonlySet<string> = new Set(['post', 'skill', 'gif', 'react']);
+
+/**
+ * The skills that change what people see in a chat without posting a line of hers: her own acts in a chat (the traits
+ * `self` and `here`) that do not post (no `posts`), an edit, a deletion and a reaction.
+ */
+const REACHING: ReadonlySet<string> = new Set(
+  SKILL_DEFINITIONS.filter(
+    ({ traits }) => traits.includes('self') && traits.includes('here') && !traits.includes('posts')
+  ).map(({ name }) => name)
+);
+
+/** The reaching skill a call is, null for any other: a `react` operation is her `<react>` tag, `message.react.add`. */
+const reachingOf = (one: Done): string | null => {
+  const skill = one.op === 'react' ? 'message.react.add' : one.skill;
+  return skill !== null && REACHING.has(skill) ? skill : null;
+};
 
 /** One call of hers: when it closed, its operation, its skill and the place it acted in. */
 type Call = { at: number; op: string; skill: string | null; placeId: string | null };
@@ -62,6 +78,8 @@ type DayEvent =
       purpose: string;
       placeIds: Array<string>;
       made: Made;
+      /** What else its turn did that people see, an edit, a deletion or a reaction, counted by skill. */
+      acted: Made;
       /** The lines its turn sent, each by its place and moment. */
       sent: Array<{ placeId: string; at: number }>;
       what: string | null;
@@ -469,6 +487,7 @@ function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { d
   const { starterOf, diary } = startsOf(db, rows);
   const events: Array<DayEvent> = [];
   const byRun = new Map<string, Made>();
+  const actedBy = new Map<string, Made>();
   const runs = runsOf(db, from, now);
   for (const run of runs) {
     if (run.kind === 'heartbeat') {
@@ -487,16 +506,19 @@ function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { d
     }
     const sent = sentLinesOf(db, run.id, run.at).filter((line) => visible(db, ctx, line.placeId));
     const made: Made = {};
+    const acted: Made = {};
     for (const id of carriedIntentions(run.inputs)) {
       const purpose = purposeOf(db, id, where);
       if (purpose === null || byRun.has(run.id)) continue;
       byRun.set(run.id, made);
+      actedBy.set(run.id, acted);
       events.push({
         kind: 'intention',
         at: run.at,
         purpose,
         placeIds: [...new Set(sent.map((line) => line.placeId))],
         made,
+        acted,
         sent: sent.map((line) => ({ placeId: line.placeId, at: line.at })),
         what: null,
       });
@@ -515,6 +537,9 @@ function dayRecordsOf(db: Db, ctx: Context, window: DayWindow): DayRecords & { d
       (diary.has(turn) ? entries.findLast((entry) => entry.at <= at && at - entry.at <= ENTRY_REACH_MS) : undefined)
     )?.made;
   for (const one of done) {
+    const reaching = one.at >= from ? reachingOf(one) : null;
+    const acted = reaching ? actedBy.get(one.turnId ?? '') : undefined;
+    if (reaching && acted) count(acted, reaching);
     if (one.at < from || !one.skill || !window.made.has(one.skill)) continue;
     const turn = one.turnId ?? '';
     const into = byRun.get(turn) ?? entryOf(turn, one.at);
@@ -590,6 +615,16 @@ function madeTail(made: Made, labels: DayLabels): string {
   return parts.length > 0 ? fill(wordOf(labels, 'madeTail'), { made: parts.join(wordOf(labels, 'join')) }) : '';
 }
 
+/** What else a turn did that people see as the tail of its event's line (`actedTail`), counts by kind; '' for nothing. */
+function actedTail(acted: Made, labels: DayLabels): string {
+  const one = objectOf(labels.acts);
+  const many = objectOf(labels.actsMany);
+  const parts = Object.entries(acted).map(([skill, n]) =>
+    fill(textOf(n === 1 ? one[skill] : many[skill]) ?? skill, { count: n })
+  );
+  return parts.length > 0 ? fill(wordOf(labels, 'actedTail'), { acted: parts.join(wordOf(labels, 'join')) }) : '';
+}
+
 /** What a stretch was about as the tail of its event's line (`about`); '' when no sentence is stored. */
 const aboutTail = (what: string | null, labels: DayLabels): string =>
   what === null ? '' : fill(wordOf(labels, 'about'), { what });
@@ -630,10 +665,10 @@ function eventLine(
       const line =
         event.placeIds.length > 0
           ? fill(wordOf(labels, 'intention'), { time, purpose: event.purpose, places: list(event.placeIds.map(named)) })
-          : Object.keys(event.made).length > 0
+          : Object.keys(event.made).length > 0 || Object.keys(event.acted).length > 0
             ? fill(wordOf(labels, 'intentionDue'), { time, purpose: event.purpose })
             : fill(wordOf(labels, 'intentionSilent'), { time, purpose: event.purpose });
-      return line + madeTail(event.made, labels) + aboutTail(event.what, labels);
+      return line + madeTail(event.made, labels) + actedTail(event.acted, labels) + aboutTail(event.what, labels);
     }
     case 'heartbeat': {
       const parts = [

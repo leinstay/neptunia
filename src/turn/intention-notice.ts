@@ -6,7 +6,7 @@
 // notices on its draft. Every vector a turn embedded is kept in its memo, so a changed purpose embeds itself alone.
 
 import { fill, formatDay } from '../format.ts';
-import type { Follow, OwnIntention, PastAct } from '../memory/db/past-acts.ts';
+import type { Follow, OwnIntention, PastAct, PastRun } from '../memory/db/past-acts.ts';
 import { objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 
@@ -210,15 +210,26 @@ function actLine(act: PastAct, words: Obj, { timezone, names }: { timezone: stri
   }
   const states = objOf(words.states);
   const state = typeof states[act.status] === 'string' ? states[act.status] : act.status;
-  const runs = act.runs.map((run) =>
-    run.after === null
-      ? fill(word(words, 'runSilent'), { date: formatDay(run.at, timezone) })
-      : `${fill(word(words, 'run'), {
-          date: formatDay(run.at, timezone),
-          sent: run.sent,
-          places: run.placeIds.map(placeName).join(', '),
-        })}; ${followText(run.after, words, names)}`
-  );
+  // Runs that read alike are one clause with how many turns they were, in the order of the first of them.
+  const alike = new Map<string, { run: PastRun; count: number }>();
+  for (const run of act.runs) {
+    const key = JSON.stringify([formatDay(run.at, timezone), run.sent, run.placeIds, run.after]);
+    const seen = alike.get(key);
+    if (seen) seen.count += 1;
+    else alike.set(key, { run, count: 1 });
+  }
+  const runs = [...alike.values()].map(({ run, count }) => {
+    const many = count > 1;
+    const day = formatDay(run.at, timezone);
+    if (run.after === null) return fill(word(words, many ? 'runsSilent' : 'runSilent'), { date: day, count });
+    const sent = fill(word(words, many ? 'runs' : 'run'), {
+      date: day,
+      count,
+      sent: run.sent,
+      places: run.placeIds.map(placeName).join(', '),
+    });
+    return `${sent}; ${followText(run.after, words, names)}`;
+  });
   const intention = fill(word(words, 'intention'), { date, state, purpose: act.purpose });
   // A closed intention no run names is older than the record of runs, or ended without one: the record says no more.
   const none = word(words, OPEN_STATES.includes(act.status) ? 'notRun' : 'noRunRecorded');
@@ -228,7 +239,7 @@ function actLine(act: PastAct, words: Obj, { timezone, names }: { timezone: stri
 /**
  * The notice of `acts`: the lead with its id, one line per act and the ways on, from `labels.heartbeat.notice`
  * (`lead`, `line`, `linePrivate`, `answers`, `answersUnnamed`, `noAnswer`, `dayLines`, `dayQuiet`, `followedDirect`,
- * `noReplyDirect`, `intention`, `states`, `run`, `runSilent`, `notRun`, `noRunRecorded`, `ways`).
+ * `noReplyDirect`, `intention`, `states`, `run`, `runs`, `runSilent`, `runsSilent`, `notRun`, `noRunRecorded`, `ways`).
  */
 export function noticeText(
   acts: ReadonlyArray<PastAct>,
