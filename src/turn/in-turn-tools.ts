@@ -546,11 +546,15 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     // The stored name of the author, else the name of a member the core has been told of.
     const authorNameOf = (line: FrameLine): string =>
       line.authorName ?? (line.authorId === null ? null : memberOf(placeId, line.authorId)?.name) ?? '-';
-    /** The stored lines a read takes: from the moment on for `since`, else the newest; the newest line noted either way. */
-    const storedLines = (from: number, mode: string): Array<FrameLine> => {
+    /**
+     * The stored lines a read takes: from the moment on for `since`, around the anchor's moment `at` for a line the turn
+     * showed, else the newest; the newest line noted either way.
+     */
+    const storedLines = (from: number, mode: string, at: number | null): Array<FrameLine> => {
       const newestLines = placeReads.around(context, placeId, clock(), mode === 'since' ? 0 : PLACE_READ_LINES);
       for (const line of newestLines) if (newest === null || line.at > newest) newest = line.at;
-      return mode === 'since' ? (placeReads.since?.(context, placeId, from, PLACE_READ_LINES) ?? []) : newestLines;
+      if (mode === 'since') return placeReads.since?.(context, placeId, from, PLACE_READ_LINES) ?? [];
+      return at === null ? newestLines : placeReads.around(context, placeId, at, PLACE_READ_LINES);
     };
     const answer = await runConversationRead({
       args: { ...args, placeId },
@@ -560,9 +564,9 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       // The source line names the place as the request does, by its handle and path, on whatever interface it is.
       channelNameOf: (id) => placeNamed(draft, id, placeReads.placeName?.(id) ?? null),
       allowed: (id) => isIssuedReadAllContext(context) || Boolean(placeReads.placeReadable?.(context, id)),
-      readRecord: ({ from, mode }) =>
+      readRecord: ({ from, mode, at }) =>
         Promise.resolve(
-          storedLines(from, mode).flatMap((line) => {
+          storedLines(from, mode, at).flatMap((line) => {
             sources.set(line.id, line.sourceId);
             return line.at < from
               ? []

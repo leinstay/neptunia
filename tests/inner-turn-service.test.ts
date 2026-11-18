@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
-import { useIface } from './fixtures/turn-world.ts';
+import { seedExisting, useIface } from './fixtures/turn-world.ts';
 import { addLine } from './fixtures/memory-db/mind-world.ts';
 import {
   ELENI,
@@ -40,6 +40,7 @@ useIface('fake');
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
+const MIN = 60_000;
 const THINK = '<think>STEP 4. So: nothing.</think>';
 
 /** The service list without `persona`, which is the system message and no root tag of the user text. */
@@ -375,4 +376,102 @@ test('a turn with no place that is no heartbeat draws nothing from the rng and l
   assert.equal(one.requests[0], two.requests[0]);
   assert.ok(rootTags(one.requests[0] ?? '').includes('meanwhile'));
   assert.ok(!rootTags(one.requests[0] ?? '').includes('fragments'));
+});
+
+/** The `#N` numbers the last tool result of a request put before its lines, in order. */
+const shownNumbers = (request: string): Array<number> =>
+  [...request.slice(request.lastIndexOf('Call succeeded')).matchAll(/^#(\d+) /gm)].map((match) => Number(match[1]));
+
+/** The texts of the lines the last tool result of a request showed. */
+const shownTexts = (request: string): Array<string> =>
+  [...request.slice(request.lastIndexOf('Call ')).matchAll(/ΠΑΛΙΑ-(\d+)/g)].map((match) => match[0]);
+
+/** The handle of the room `γενικά` in a heartbeat request. */
+const roomHandle = (request: string): string => /#c[0-9a-z]+(?=: "γενικά")/.exec(request)?.[0] ?? '';
+
+/**
+ * A heartbeat over the heartbeat world whose room `γενικά` holds `long` more stored lines `ΠΑΛΙΑ-0` to `ΠΑΛΙΑ-<long-1>`,
+ * an hour apart and before Ελένη's line there; each step calls conversation.read with the arguments `steps` give, a
+ * function of the request it answers.
+ */
+const LONG = 90;
+async function readingHeartbeat(steps: ReadonlyArray<(request: string) => Record<string, unknown>>, long = LONG) {
+  const world = heartbeatWorld();
+  for (let i = 0; i < long; i += 1)
+    addLine(world.db, {
+      id: `p${i}`,
+      iface: 'fake',
+      place: 'fake:channel:c1',
+      author: 'fake:111',
+      text: `ΠΑΛΙΑ-${i}`,
+      at: new Date(TURN_NOW - (long - i) * HOUR).toISOString(),
+    });
+  return serviceTurn({
+    wake: serviceWake('heartbeat'),
+    answers: [
+      ...steps.map((args) => (request: string) => toolAnswer(THINK, [call('conversation.read', args(request))])),
+      '<skip/>',
+    ],
+    chat: null,
+    world,
+  });
+}
+
+test('a heartbeat reads on after the last line a read showed when the chat holds newer lines', async () => {
+  // Bug: the read of the room gave its last line a number and said to read on after it, and `after` of that number was
+  // refused unknown-message: a stored place was read from its newest lines only, so a line older than those was no anchor.
+  const run = await readingHeartbeat([
+    (request) => ({ place: roomHandle(request), since: '2026-10-30' }),
+    (request) => ({ place: roomHandle(request), after: `#${shownNumbers(request).at(-1)}` }),
+  ]);
+  assert.deepEqual(run.actions.slice(0, 2), ['conversation.read:executed:ok', 'conversation.read:executed:ok']);
+  assert.equal(shownTexts(run.requests[1] ?? '').at(-1), 'ΠΑΛΙΑ-25');
+  assert.equal(shownTexts(run.requests[2] ?? '')[0], 'ΠΑΛΙΑ-26');
+});
+
+test('a heartbeat reads on before the first line a read showed', async () => {
+  // Bug: `before` of the first number a read of a stored place gave was refused when that line was older than its newest lines.
+  const run = await readingHeartbeat([
+    (request) => ({ place: roomHandle(request), since: '2026-10-30' }),
+    (request) => ({ place: roomHandle(request), before: `#${shownNumbers(request)[0]}` }),
+  ]);
+  assert.equal(run.actions[1], 'conversation.read:executed:ok');
+  assert.equal(shownTexts(run.requests[1] ?? '')[0], 'ΠΑΛΙΑ-6');
+  assert.deepEqual(shownTexts(run.requests[2] ?? ''), [
+    'ΠΑΛΙΑ-0',
+    'ΠΑΛΙΑ-1',
+    'ΠΑΛΙΑ-2',
+    'ΠΑΛΙΑ-3',
+    'ΠΑΛΙΑ-4',
+    'ΠΑΛΙΑ-5',
+  ]);
+});
+
+test('two reads of the same lines in one heartbeat show each line under one number', async () => {
+  // Bug: every read numbered its lines on from the next free number, so a line read again took a new number.
+  const run = await readingHeartbeat([
+    (request) => ({ place: roomHandle(request), last: 3 }),
+    (request) => ({ place: roomHandle(request), last: 2 }),
+  ]);
+  const first = shownNumbers(run.requests[1] ?? '');
+  assert.equal(first.length, 3);
+  assert.deepEqual(shownNumbers(run.requests[2] ?? ''), first.slice(1));
+});
+
+test('a heartbeat read after the newest line of a chat succeeds and shows no line', async () => {
+  // Bug: `after` of the number of the chat's newest line was refused as an invalid call when the interface gave that line
+  // and the record does not hold it yet: the interface has nothing after it and the record has no such anchor.
+  const run = await readingHeartbeat(
+    [
+      (request) => {
+        seedExisting('c1', 'r2', { authorId: '111', ts: TURN_NOW - MIN });
+        return { place: roomHandle(request), last: 5 };
+      },
+      (request) => ({ place: roomHandle(request), after: `#${shownNumbers(request).at(-1)}` }),
+    ],
+    0
+  );
+  assert.equal(shownNumbers(run.requests[1] ?? '').length, 2, 'the stored line and the one only the interface gave');
+  assert.deepEqual(run.actions.slice(0, 2), ['conversation.read:executed:ok', 'conversation.read:executed:ok']);
+  assert.deepEqual(shownNumbers(run.requests[2] ?? ''), []);
 });

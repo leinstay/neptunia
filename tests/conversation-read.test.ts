@@ -99,7 +99,12 @@ function render() {
 
 function registry() {
   const taken: Array<{ n: number; id: string; placeId: string }> = [];
-  return { taken, next: () => 40 + taken.length, take: (shown: typeof taken) => taken.push(...shown) };
+  return {
+    taken,
+    next: () => 40 + taken.length,
+    take: (shown: typeof taken) => taken.push(...shown),
+    shown: () => null,
+  };
 }
 
 // The text of a read's data; the data is typed unknown, and the tests read the text of the one that has it.
