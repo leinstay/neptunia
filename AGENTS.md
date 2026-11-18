@@ -104,7 +104,7 @@ Never start the engine (`src/index.ts`) from a checkout that points at a running
 - The model's output is data. Only the tags of the output contract are acted on.
 - Memory has one writer. Every change to the memory database goes through it; interfaces never open the database.
 - Settings are read at the moment of use (`hot.config`, `hot.prompts`), never cached in a long-lived variable.
-- Add a setting only when two deployments need different values. Use a constant for a value that is the same everywhere. Fix a wrong behaviour in the code, and do not add a setting that turns it off.
+- A value that the owner of another deployment would choose differently is a setting. This covers a chance, a rate, a count, a limit on what the persona does, and the switch of an optional part. Use a constant only for a value that the code needs and no owner chooses, such as a size fixed by a protocol. Fix a wrong behaviour in the code, and do not add a setting that turns it off.
 - Change the code that already does the job. Add a second path only when the two jobs differ, and say in the pull request how they differ.
 - A change removes everything it leaves unused, in the same pull request: functions, exports, files, settings, labels, tests and sentences of a document.
 - Add nothing without a caller in the same change. This covers an export, an option, a parameter and a branch.
