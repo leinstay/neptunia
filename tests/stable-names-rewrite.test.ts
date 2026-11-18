@@ -14,6 +14,7 @@ import { applyMediaNamesWrite, mediaNameRows } from '../src/memory/db/media-name
 import { planStableNamesRewrite } from '../src/memory/db/stable-names-rewrite.ts';
 import type { StableNamesPlan } from '../src/memory/db/stable-names-rewrite.ts';
 import { fillStems, loadStemmer, stemsOf, stemsPending } from '../src/memory/db/stems.ts';
+import { graphNodeId, projectRow } from '../src/memory/db/graph.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Config, Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { applyReembed, reembedTouched } from '../src/memory/db/index-policy.ts';
@@ -554,4 +555,22 @@ test('evicts the vectors of the lines the plan is given as rewritten before', ()
   apply(handle, planStableNamesRewrite(db, { rewritten: ['l9'] }));
   assert.deepEqual(vectorState(db, 'l9'), { live: false, evicted: true });
   assert.deepEqual(vectorState(db, 'l8'), { live: true, evicted: false });
+});
+
+// Diagnosis 2026-11-18, graph orphans: the rewrite deleted a twin's row and left its node and witness in the graph.
+test('a twin the rewrite deletes leaves no node in the graph', () => {
+  const { handle, db } = openTemp();
+  const file = db.prepare(
+    "INSERT INTO media (id, kind, path, sha1, scope_iface) VALUES (?, 'image', 'media/t1.png', 'h1', 'fake')"
+  );
+  file.run('m-kept');
+  file.run('m-twin');
+  line(db, 'l1', 'a picture');
+  link(db, 'l1', 0, 'm-kept');
+  projectRow(handle, 'media', { id: 'm-twin' }, { at: T0 });
+  apply(handle, planStableNamesRewrite(db));
+  const node = graphNodeId('media', 'm-twin');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM media WHERE id = 'm-twin'").get()?.n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM graph_nodes WHERE id = ?').get(node)?.n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM node_access WHERE node_id = ?').get(node)?.n, 0);
 });

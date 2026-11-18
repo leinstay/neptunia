@@ -190,3 +190,32 @@ test('a record line of a message with a custom emoji and a sticker links both by
     await memory.close();
   }
 });
+
+// Diagnosis 2026-11-18, graph orphans: a stored line named an author account no row held, so its `authored_by` edge
+// ended at nothing and its author resolved to no one. The live observation writes the account of a line's author; a
+// record line carries the author's platform id alone (`by`), so the row holds that id and no name.
+test('a line by an author memory does not know writes that author account with the platform id the line carries', () => {
+  const dir = tempDataDir();
+  const handle = openMemoryDb(path.join(dir, 'memory.db'));
+  try {
+    const db = dbOf(handle);
+    addChannelPlace(db, { id: 'place:4c11', iface: 'synthetic', authority: 'synthetic/global', native: 'room-a' });
+    const line = seen('u1', 'm40', DAY2, { by: 'stranger-7', participants: ['stranger-7'] });
+    applyMemoryWrite(handle, {
+      kind: 'record-lines',
+      placeId: 'place:4c11',
+      lines: [line],
+      iface: 'synthetic',
+      now: NOW,
+    });
+    const author = db.prepare('SELECT author_account FROM sources WHERE native_id = ?').get('m40')?.author_account;
+    const account = db.prepare('SELECT iface, native_id FROM accounts WHERE id = ?').get(author);
+    assert.deepEqual(
+      { iface: account?.iface, native: account?.native_id },
+      { iface: 'synthetic', native: 'stranger-7' }
+    );
+  } finally {
+    handle.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -916,3 +916,91 @@ test('graph: a channel written before its guild and a membership before its acco
     handle.close();
   }
 });
+
+// ---------- the graph follows its rows ----------
+// Diagnosis 2026-11-18, graph orphans: a projection of a row that is gone wrote nothing, so the row's node and its own
+// witness stayed; and the version of an archive entry of an episode was linked to a claim node no row holds.
+
+const nodesOf = (db: UntypedDb, node: string) => count(db, 'SELECT COUNT(*) AS n FROM graph_nodes WHERE id = ?', node);
+const witnessesOf = (db: UntypedDb, node: string) =>
+  count(db, 'SELECT COUNT(*) AS n FROM node_access WHERE node_id = ?', node);
+
+test('a projection of a media row that is gone removes its node and its witness', () => {
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  try {
+    db.prepare(
+      "INSERT INTO media (id, kind, native_ref, scope_iface) VALUES ('media:fake:q1', 'image', 'q1', 'fake')"
+    ).run();
+    projectRow(handle, 'media', { id: 'media:fake:q1' }, { at: at(0) });
+    const node = graphNodeId('media', 'media:fake:q1');
+    assert.equal(witnessesOf(db, node), 1);
+    db.prepare("DELETE FROM media WHERE id = 'media:fake:q1'").run();
+    projectRow(handle, 'media', { id: 'media:fake:q1' }, { at: at(1) });
+    assert.equal(nodesOf(db, node), 0);
+    assert.equal(witnessesOf(db, node), 0);
+  } finally {
+    handle.close();
+  }
+});
+
+test('a projection of a row that is gone keeps its node while an edge names it and drops its witness', () => {
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  try {
+    db.prepare("INSERT INTO accounts (id, iface, native_id) VALUES ('acc:fake:w1', 'fake', 'w1')").run();
+    projectRow(handle, 'accounts', { id: 'acc:fake:w1' }, { at: at(0) });
+    db.prepare(
+      "INSERT INTO sources (id, kind, iface, native_id, revision, author_account, text) VALUES ('src:w1', 'seen', 'fake', 'n1', 1, 'acc:fake:w1', 'hello')"
+    ).run();
+    projectRow(handle, 'sources', { id: 'src:w1' }, { at: at(0) });
+    const node = graphNodeId('account', 'acc:fake:w1');
+    assert.equal(witnessesOf(db, node), 1);
+    db.prepare("DELETE FROM accounts WHERE id = 'acc:fake:w1'").run();
+    projectRow(handle, 'accounts', { id: 'acc:fake:w1' }, { at: at(1) });
+    assert.equal(nodesOf(db, node), 1);
+    assert.equal(witnessesOf(db, node), 0);
+  } finally {
+    handle.close();
+  }
+});
+
+/** The node the `version_of` edge of the claim version `id` ends at. */
+const versionTarget = (db: UntypedDb, id: string) =>
+  db
+    .prepare("SELECT dst FROM graph_edges WHERE src = ? AND predicate = 'version_of'")
+    .get(graphNodeId('claim_version', id))?.dst;
+
+test('the version of an archive entry of an episode is linked to the episode and makes no claim node', () => {
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  try {
+    db.prepare("INSERT INTO episodes (id, kind, what, created_at) VALUES ('ep:p1', 'participation', 'a walk', ?)").run(
+      at(0)
+    );
+    projectRow(handle, 'episodes', { id: 'ep:p1' }, { at: at(0) });
+    db.prepare(
+      "INSERT INTO claim_versions (id, claim_id, text, recorded_at) VALUES ('cv:p1', 'ep:p1', 'a walk', ?)"
+    ).run(at(1));
+    projectRow(handle, 'claim_versions', { id: 'cv:p1', claim_id: 'ep:p1' }, { at: at(1) });
+    assert.equal(versionTarget(db, 'cv:p1'), graphNodeId('episode', 'ep:p1'));
+    assert.equal(nodesOf(db, graphNodeId('claim', 'ep:p1')), 0);
+  } finally {
+    handle.close();
+  }
+});
+
+test('the version of a claim is linked to the claim', () => {
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  try {
+    db.prepare("INSERT INTO claims (id, created_at) VALUES ('clm:k1', ?)").run(at(0));
+    db.prepare(
+      "INSERT INTO claim_versions (id, claim_id, text, recorded_at) VALUES ('cv:k1', 'clm:k1', 'likes tea', ?)"
+    ).run(at(1));
+    projectRow(handle, 'claims', { id: 'clm:k1' }, { at: at(1) });
+    assert.equal(versionTarget(db, 'cv:k1'), graphNodeId('claim', 'clm:k1'));
+  } finally {
+    handle.close();
+  }
+});
