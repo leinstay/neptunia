@@ -879,19 +879,29 @@ function sourceForAnchor(db: Db, ctx: Context, raw: unknown, resolved?: Resolved
     const locator = resolved.locator;
     if (!locator || !locatorText(locator.iface) || !locatorText(locator.chatId) || !locatorText(locator.messageId))
       return null;
-    const candidates = db
+    // Two reads instead of one `OR`, so that `sources_iface_native` and `sources_message_locator` each bound the read
+    // beyond the interface. The locator read repeats the index expressions exactly. Its chat equality loses no line the
+    // filter below keeps: a line with a `$messageLocator` passes `nativeLocatorOf` only through that marker, whose chat
+    // is the same `chatId`, else `conversationId`, the index stores.
+    const byNative = db
+      .prepare(`SELECT ${SOURCE_METADATA} FROM sources s WHERE s.iface = ? AND s.native_id = ? AND ${CURRENT_SOURCE}`)
+      .all(locator.iface, locator.messageId);
+    const byLocator = db
       .prepare(
         `SELECT ${SOURCE_METADATA} FROM sources s WHERE s.iface = ?
-      AND (s.native_id = ? OR CASE WHEN json_valid(s.extra)
-        THEN json_extract(s.extra, '$."$messageLocator".messageId') END = ?) AND ${CURRENT_SOURCE}`
+      AND CASE WHEN json_valid(s.extra) THEN COALESCE(json_extract(s.extra, '$."$messageLocator".chatId'),
+        json_extract(s.extra, '$."$messageLocator".conversationId')) END = ?
+      AND CASE WHEN json_valid(s.extra) THEN json_extract(s.extra, '$."$messageLocator".messageId') END = ?
+      AND ${CURRENT_SOURCE}`
       )
-      .all(locator.iface, locator.messageId, locator.messageId)
-      .filter((row) => {
-        const native = nativeLocatorOf(row, (parseJson(row.extra) ?? {}) as Row, (id) => channelOfPlace(db, id));
-        return (
-          native?.iface === locator.iface && native.chatId === locator.chatId && native.messageId === locator.messageId
-        );
-      });
+      .all(locator.iface, locator.chatId, locator.messageId);
+    const seen = new Set(byNative.map((row) => row.rowid));
+    const candidates = [...byNative, ...byLocator.filter((row) => !seen.has(row.rowid))].filter((row) => {
+      const native = nativeLocatorOf(row, (parseJson(row.extra) ?? {}) as Row, (id) => channelOfPlace(db, id));
+      return (
+        native?.iface === locator.iface && native.chatId === locator.chatId && native.messageId === locator.messageId
+      );
+    });
     return readableSource(db, ctx, candidates);
   }
   const id = asText(raw ?? '').trim();

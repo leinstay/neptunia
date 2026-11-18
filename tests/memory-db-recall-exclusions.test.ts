@@ -20,6 +20,7 @@ import { lineEvent } from './fixtures/core-over-fake.ts';
 import { labels } from './fixtures/labels.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import { noMediaNames } from './fixtures/media-namer.ts';
+import type { Db, Statement } from '../src/memory/db/types.ts';
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -632,6 +633,153 @@ test('lookup prefetch forwards trusted CLI history identity into the real SQLite
     const found = await pending.pending;
     assert.equal(JSON.stringify(found).includes('lookup-own-731'), false);
     assert.ok(JSON.stringify(found).includes('lookup-foreign-842'));
+  } finally {
+    env.done();
+  }
+});
+
+/**
+ * A line of the channel `room` on `fake` saying `το κουνέλι <marker>`, stored under the platform key `key` with the
+ * message id `messageId` in its locator, at `revision`.
+ */
+function lineWithLocator(
+  env: ReturnType<typeof fixture>,
+  {
+    room,
+    key,
+    messageId,
+    marker,
+    revision = 1,
+  }: { room: string; key: string; messageId: string; marker: string; revision?: number }
+): string {
+  const event = lineEvent({
+    id: messageId,
+    chatId: room,
+    authorId: 'owner-42',
+    text: `το κουνέλι ${marker}`,
+    at: NOW - DAY,
+  });
+  event.iface = 'fake';
+  event.chat = { id: room, kind: 'channel', rootId: 'g1', name: room };
+  const envelope = observationOf(event);
+  if (!envelope) throw new Error('valid line fixture was refused');
+  envelope.native = { ...envelope.native, key, revision };
+  envelope.authority = `fake/${room}`;
+  envelope.place.authority = `fake/${room}`;
+  const result = observe(env.handle, envelope, { now: () => NOW });
+  assert.equal(result.ok, true);
+  if (typeof result.sourceId !== 'string') throw new Error('line source identity missing');
+  return result.sourceId;
+}
+
+/** `db` with every statement it runs kept as its SQL and parameters. */
+function planRecording(db: Db): { db: Db; ran: Array<{ sql: string; params: Array<unknown> }> } {
+  const ran: Array<{ sql: string; params: Array<unknown> }> = [];
+  const prepare = (sql: string): Statement => {
+    const statement = db.prepare(sql);
+    const note = (params: Array<unknown>): void => {
+      ran.push({ sql, params });
+    };
+    return {
+      get: (...params) => (note(params), statement.get(...params)),
+      all: (...params) => (note(params), statement.all(...params)),
+      run: (...params) => (note(params), statement.run(...params)),
+      iterate: (...params) => (note(params), statement.iterate(...params)),
+    };
+  };
+  return { db: { prepare, exec: (sql) => db.exec(sql) }, ran };
+}
+
+/** A read of `sources` that SQLite narrows by the interface alone, or a walk of the whole table. */
+const WHOLE_INTERFACE = /^SEARCH s USING (COVERING )?INDEX \w+ \(iface=\?\)$|^SCAN s\b/;
+
+test('a native exclusion is resolved through an index bounded by more than the interface', () => {
+  // Catches: a lookup by native id or locator that SQLite narrows by interface only, reading and parsing every line of
+  // the interface once per excluded history line.
+  const env = fixture();
+  try {
+    const own = exclusionSource(env, { room: 'current-room', marker: 'own' });
+    const nearby = exclusionSource(env, { room: 'different-room', marker: 'different' });
+    env.stem();
+    const { db, ran } = planRecording(env.db);
+    const found = search(db, {
+      ctx: groupContext('fake'),
+      plan: plan(['κουνέλι']),
+      now: NOW,
+      exclusions: [{ kind: 'native', locator: own.native }],
+    });
+    assert.deepEqual(
+      found.hits.map((hit) => hit.id),
+      [nearby.sourceId]
+    );
+    const wide = ran.flatMap(({ sql, params }) =>
+      env.db
+        .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+        .all(...params)
+        .map((row) => String(row.detail))
+        .filter((line) => WHOLE_INTERFACE.test(line))
+    );
+    assert.deepEqual(wide, []);
+  } finally {
+    env.done();
+  }
+});
+
+test('a native exclusion removes a line whose locator names the message id under a different platform key', () => {
+  // Catches: a lookup that reads only `native_id` and misses a line found by the message id stored in its locator.
+  const env = fixture();
+  try {
+    lineWithLocator(env, { room: 'current-room', key: 'platform-key-1', messageId: 'shared-visible', marker: 'own' });
+    const nearby = exclusionSource(env, { room: 'different-room', marker: 'different' });
+    env.stem();
+    const found = run(
+      env,
+      ['κουνέλι'],
+      {
+        exclusions: [
+          { kind: 'native', locator: { iface: 'fake', chatId: 'current-room', messageId: 'shared-visible' } },
+        ],
+      },
+      groupContext('fake')
+    );
+    assert.deepEqual(
+      found.hits.map((hit) => hit.id),
+      [nearby.sourceId]
+    );
+  } finally {
+    env.done();
+  }
+});
+
+test('a native exclusion of an edited line removes its newest revision', () => {
+  // Catches: a lookup that drops the current-revision filter, finds both revisions, takes neither as unique and keeps the
+  // excluded line in the results.
+  const env = fixture();
+  try {
+    exclusionSource(env, { room: 'current-room', marker: 'old' });
+    lineWithLocator(env, {
+      room: 'current-room',
+      key: 'shared-visible',
+      messageId: 'shared-visible',
+      marker: 'new',
+      revision: 2,
+    });
+    const nearby = exclusionSource(env, { room: 'different-room', marker: 'different' });
+    env.stem();
+    const found = run(
+      env,
+      ['κουνέλι'],
+      {
+        exclusions: [
+          { kind: 'native', locator: { iface: 'fake', chatId: 'current-room', messageId: 'shared-visible' } },
+        ],
+      },
+      groupContext('fake')
+    );
+    assert.deepEqual(
+      found.hits.map((hit) => hit.id),
+      [nearby.sourceId]
+    );
   } finally {
     env.done();
   }
