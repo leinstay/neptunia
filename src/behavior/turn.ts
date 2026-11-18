@@ -338,8 +338,9 @@ export function createTurnRunner({
     ? (context, now, timezone, options) => {
         const db = journalDb() as JournalReader | null;
         if (!db) return { events: [], calls: [] };
-        // A place with a stored name is a place token the request builder names (src/turn/request/text.ts#placeToken).
-        const placed = (id: string): string | null => (placeChainInDb(db, id)[0]?.name ? placeToken(id) : null);
+        // A stored place is a place token the request builder names as the request names it, by its handle where the
+        // request holds one (src/turn/request/text.ts#placeToken); the reader passes only places the context may read.
+        const placed = (id: string): string | null => (placeChainInDb(db, id).length > 0 ? placeToken(id) : null);
         return dayOf(db, context, placed, now, timezone, options);
       }
     : null;

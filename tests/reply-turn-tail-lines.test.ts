@@ -6,10 +6,12 @@
 // config/labels.json, never their wording.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { handleOf } from '../src/behavior/handles.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
+import { finishRun, startRun } from '../src/memory/db/wakes.ts';
 import { addLine } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
-import { TURN_NOW, blockOf, replyRun, serviceTurn, serviceWake, serviceWorld } from './fixtures/service-turn.ts';
+import { ELENI, TURN_NOW, blockOf, replyRun, serviceTurn, serviceWake, serviceWorld } from './fixtures/service-turn.ts';
 import type { ReplyStep, ServiceTurnSpec } from './fixtures/service-turn.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 import { useIface } from './fixtures/turn-world.ts';
@@ -308,6 +310,73 @@ test('a reply turn holds her day of today in <my_day> and no evening of yesterda
     assert.ok(day.includes('11:10'), day);
     assert.ok(!day.includes('22:00'), day);
     assert.ok(request.includes('</my_day>\n<calls>\n'), blockOf(request, 'inner'));
+  } finally {
+    world.close();
+  }
+});
+
+/** The heartbeat `hb-0` of an hour ago that read Ελένη's direct chat, its read written in her own place as one is. */
+function readOfDm(world: World): void {
+  const at = TURN_NOW - HOUR;
+  startRun(world.handle, {
+    id: 'hb-0',
+    kind: 'heartbeat',
+    startedAt: at,
+    inputs: { wakes: [], intentions: [], facts: [] },
+  });
+  finishRun(world.handle, { id: 'hb-0', status: 'succeeded', outcome: 'skip', finishedAt: at + 2 * MIN });
+  const own = { place_id: 'persona:local', scope_kind: 'none' };
+  const started = { opId: 'o-dm', name: 'skill', phase: 'started', input: { skill: 'conversation.read' } };
+  insertRows(world.db, {
+    day: [
+      {
+        id: 'hb-0-s',
+        at: iso(at + MIN),
+        what: 'action',
+        turn_id: 'hb-0',
+        extra: JSON.stringify({ ...started, target: { channel: 'fake:dm:111' } }),
+        ...own,
+      },
+      {
+        id: 'hb-0-e',
+        at: iso(at + MIN + 1000),
+        what: 'action',
+        turn_id: 'hb-0',
+        extra: JSON.stringify({ opId: 'o-dm', name: 'skill', phase: 'succeeded' }),
+        ...own,
+      },
+    ],
+  });
+}
+
+test('a heartbeat names a direct chat it read by the handle its <places> gives it, in <my_day> and in <calls>', async () => {
+  // Bug: the namer knows only places with a stored name, so a direct chat reads as a place with no name in <my_day>
+  // and as no place in <calls>, while <places> of the same request lists it under a handle.
+  const world = dayWorld();
+  try {
+    readOfDm(world);
+    const run = await serviceTurn({
+      world,
+      wake: serviceWake('heartbeat'),
+      answers: ['<skip/>'],
+      chat: null,
+      context: { myDay: { lines: 12 }, calls: { lines: 12 } },
+    });
+    const request = run.requests[0] ?? '';
+    const places = /<places>\n?([\s\S]*?)\n?<\/places>/.exec(blockOf(request, 'memory'))?.[1] ?? '';
+    const entry = places.split('\n').find((one) => one.includes(`@${handleOf(ELENI)}`)) ?? '';
+    const dm = /^#c[0-9a-z]+/.exec(entry)?.[0] ?? '';
+    assert.match(dm, /^#c[0-9a-z]+$/, places);
+    const day = bodyOf(request, 'my_day');
+    const calls = bodyOf(request, 'calls');
+    assert.ok(
+      day.split('\n').some((line) => line.includes(dm)),
+      day
+    );
+    assert.ok(
+      calls.split('\n').some((line) => line.includes(dm)),
+      calls
+    );
   } finally {
     world.close();
   }
