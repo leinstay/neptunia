@@ -250,36 +250,31 @@ a miniature painting desk
 a card game table
 a puzzle on the floor
 a mailbox
-a community center foyer
-a public drinking fountain alcove
+a drinking fountain
 a covered pedestrian passage
-a shared apartment courtyard
+an apartment courtyard
 a sheltered market loading area
-a municipal service waiting room
 a repair cafe workbench
-a public library return desk
-a community kitchen
+a library return desk
 a neighborhood noticeboard corner
 a charity shop sorting room
 a shoe repair counter
 a tailor's fitting area
 a bakery collection hatch
-a public toilet entrance
 a recycling collection point
 a bottle-return machine alcove
 a tram terminus shelter
 a pedestrian ferry landing
 a station footbridge
 a bicycle parking courtyard
-a public picnic shelter
+a picnic shelter
 a reservoir observation platform
 a canal towpath
-a community orchard
+an old orchard
 a flood embankment path
 a village meeting hall
 a visitor center porch
 a decommissioned pumping station
-a maintenance shed open for a public visit
 
 # setting
 a small town
@@ -378,13 +373,12 @@ a site beside ongoing demolition
 a place that is being renovated
 a place that just opened
 a place about to close
-a residential block with shared ground-floor facilities
 a mixed-use street with apartments above shops
 a neighborhood beside a railway embankment
 a district of courtyards linked by passages
 a pedestrian shopping district
 a town center with covered walkways
-a neighborhood around a public hospital
+a neighborhood around a hospital
 a district around a ferry terminal
 a market district with service alleys
 a residential area beside a canal
@@ -396,16 +390,12 @@ a district divided by a ring road
 a suburb beside allotment gardens
 a town where several bus routes terminate
 a district with many workshops and small warehouses
-a public building with several shared services
-a housing complex with communal indoor rooms
 a transport interchange with shops on its lower level
 a shopping arcade beneath apartments
-a municipal recreation complex
-a former industrial site with public access
+a former industrial site turned into a park
 a riverside district with working moorings
 a coastal district behind a sea wall
-a rural crossroads with a few public services
-a reservoir district with marked public paths
+a reservoir with footpaths around it
 a forest recreation area with maintained facilities
 a hillside park bordering ordinary residential streets
 
@@ -536,7 +526,7 @@ with a strip of sunlight across worn tiles
 with fluorescent tubes humming overhead
 with a sharp smell of disinfectant near the doorway
 with warm air rising from a pavement grille
-with a damp ring beneath a public water dispenser
+with a damp ring under a water dispenser
 with grit gathered along the skirting
 with fresh wheel tracks through a dusty patch
 with a handrail polished smooth in the middle
@@ -546,7 +536,7 @@ with a row of numbered hooks and one missing number
 with a faint vibration through the floor
 with rainwater spilling from a blocked gutter
 with a bell audible beyond the next building
-with a public clock stopped between two numbers
+with a street clock stopped between two numbers
 with an insect trapped between two panes of glass
 with the smell of frying onions from a nearby kitchen
 with detergent foam caught beside a drain
@@ -754,28 +744,25 @@ setting up a new phone
 reorganizing a desk
 rearranging a room
 decorating for a holiday
-borrowing a board game from a public shelf
-using a public telescope
+borrowing a board game from a cafe shelf
+looking through a coin telescope
 checking a local walking map
 trying a mechanical exhibit
 listening at an oral-history station
-browsing a community book exchange
+browsing a book exchange shelf
 sorting objects at a volunteer collection table
-using a public sewing machine
 repairing a puncture at a bicycle stand
-filling a bottle at a public tap
+filling a bottle at a street tap
 comparing samples at a materials counter
 testing a musical instrument in a practice booth
 joining an open craft demonstration
-using a communal workbench
 reading notices on a neighborhood board
 following a marked nature trail
 watching boats pass through a lock
 using a birdwatching hide
 examining objects in a handling collection
-trying a public table-tennis table
+playing at an outdoor table-tennis table
 using a coin-operated massage chair
-browsing unclaimed items at a public sale
 assembling a paper model from a supplied template
 trying a hand-operated printing press
 listening to a street performance
@@ -999,15 +986,15 @@ a gardener beside a wheelbarrow
 a security guard at a side entrance
 a maintenance crew behind temporary barriers
 a group of visitors beside a guide map
-two neighbors at a shared noticeboard
-a dog walker beside a public water bowl
+two neighbors at a noticeboard
+a dog walker beside a water bowl
 a pigeon with nesting material in its beak
 a dog tethered beside a shop entrance
 a snail on a damp handrail
 a nest beneath a roof overhang
 a moth resting on a payment terminal
 a dropped shopping list
-a pair of gloves on a public radiator
+a pair of gloves left on a radiator
 a child's drawing taped to a service window
 a parcel with a torn address label
 a row of repaired umbrellas
