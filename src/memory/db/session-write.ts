@@ -157,7 +157,6 @@ import { applyGifLibraryWrite } from './gif-library.ts';
 import { applyMediaNamesWrite } from './media-names.ts';
 import { applyRulesWrite } from './rules.ts';
 import { applyStableNamesRewrite } from './stable-names-rewrite.ts';
-import { applyGifVectorWrite } from './gif-vectors.ts';
 import { applyErrandWrite } from './errand-write.ts';
 import { applyParticipationWrite } from './participation-episodes.ts';
 import { applyRecentLinesWrite } from './recent-lines.ts';
@@ -1092,9 +1091,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['diary-entries', applyDiaryWrite],
   // One entry of the describer's cache, put on its row or dropped (media-store.ts).
   ['media-entry', applyMediaEntryWrite],
-  // The entries of the GIF library and their description vectors (gif-library.ts, gif-vectors.ts).
+  // The entries of the GIF library (gif-library.ts).
   ['gif-library', applyGifLibraryWrite],
-  ['gif-vector', applyGifVectorWrite],
   // The stable names of custom emoji and stickers (media-names.ts).
   ['media-names', applyMediaNamesWrite],
   // The owner's rules, added and removed (rules.ts).

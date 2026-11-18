@@ -1355,14 +1355,14 @@ const vectorKey = (mediaId: unknown): string => `media:${asText(mediaId)}`;
 /** The `kind` of a media row's vector. */
 const VECTOR_KIND = 'media';
 
-/** The linked items with a text form and no vector yet, oldest first. */
+/** The items with a text form and no vector yet that a line links or the GIF library holds, oldest first. */
 export function pendingMediaEmbeds(db: Db, limit = 50): Array<Row> {
   return db
     .prepare(
       `SELECT m.id AS id, m.description AS description, m.scope_kind AS scope_kind, m.scope_iface AS scope_iface,
          m.scope_dm AS scope_dm, m.audience_id AS audience_id, m.described_at AS described_at
        FROM media m WHERE m.description IS NOT NULL AND m.description <> '' AND m.retired_at IS NULL
-         AND EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = m.id)
+         AND (m.writer = 'gifs' OR EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = m.id))
          AND NOT EXISTS (SELECT 1 FROM vectors v WHERE v.chunk_key = 'media:' || m.id)
        ORDER BY m.rowid LIMIT ?`
     )

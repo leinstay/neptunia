@@ -6,13 +6,15 @@
 // An entry's `file` is the row's `path` when it is a file under `media/`, its `itemId` the `native_ref`, and its
 // `description` the row's text form, the GIF's one text, which the describer's cache writes and a library write never
 // does; every other field sits in `extra`. An entry that is not an object is kept whole as `{ $raw: value }`. The scope is the group scope
-// of the interface the write came from, as for the entry's description vector (gif-vectors.ts).
+// of the interface the write came from. A row's vector is the ordinary media vector of its text form (media-store.ts),
+// which `gifMediaVectors` reads by the entry's item id.
 //
 // The writer (session-write.ts, write kind `gif-library`) takes the entries a change put and the keys it dropped, never
 // the whole library: a put row is revived and projected, and takes over a row an observation made for the same item
 // (media-store.ts#adoptSameItem); a dropped row is retired unless a line links it. `gifLibraryValue` reads the library
 // back in the order its rows were made.
 
+import { dequantize } from '../vectors.ts';
 import { projectRow } from './graph.ts';
 import { adoptSameItem, keepItemFields } from './media-store.ts';
 import { PERSONA_ID } from './ids.ts';
@@ -187,4 +189,29 @@ export function applyGifLibraryWrite(handle: MemoryHandle, update: Row): { writt
   const at = isFiniteNumber(update.now) ? update.now : Date.now();
   const iface = namedIface(update);
   return handle.transaction(() => writeGifLibrary(dbOf(handle), write, { iface, at }));
+}
+
+/**
+ * The media vectors of the library's rows by item id. With `model` named, a vector of that model or of no recorded
+ * model, as recall's media search compares them with a query's embedding (media-store.ts#meaningRows).
+ */
+export function gifMediaVectors(db: Db, model: string | null): Map<string, Float32Array> {
+  const modelSql = filled(model) ? ' AND (v.model IS NULL OR v.model = ?)' : '';
+  const rows = db
+    .prepare(
+      `SELECT m.native_ref AS item_id, v.scale AS scale, v.bytes AS bytes
+       FROM media m JOIN vectors v ON v.chunk_key = 'media:' || m.id
+       WHERE m.writer = 'gifs' AND m.holder_id = ? AND m.retired_at IS NULL AND m.native_ref IS NOT NULL
+         AND v.kind = 'media' AND v.bytes IS NOT NULL${modelSql}`
+    )
+    .all(GIF_LIBRARY_HOLDER, ...(filled(model) ? [model] : []));
+  const found = new Map<string, Float32Array>();
+  for (const row of rows) {
+    const raw = row.bytes as Uint8Array;
+    found.set(
+      String(row.item_id),
+      dequantize(new Int8Array(raw.buffer, raw.byteOffset, raw.byteLength), Number(row.scale))
+    );
+  }
+  return found;
 }

@@ -324,10 +324,6 @@
       "deep": 6,
       "repeated": 0
     },
-    "tests/gif-keeper.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/gif-library-store.test.ts": {
       "deep": 3,
       "repeated": 0

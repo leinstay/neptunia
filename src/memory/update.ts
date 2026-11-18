@@ -212,16 +212,7 @@ export function slimMessage(normalized: Partial<NormalizedMessage>, direct: bool
   };
 }
 
-function buildMemoryUpdater({
-  hot,
-  store,
-  gifKeeper = null,
-}: {
-  hot: Pick<Hot, 'config'>;
-  store: StoreView;
-  /** The keeper of the GIF library (src/memory/gif-keeper.ts), absent in a run without one. */
-  gifKeeper?: { keep: (placeId: string, message: StoredRecord) => unknown } | null;
-}) {
+function buildMemoryUpdater({ hot, store }: { hot: Pick<Hot, 'config'>; store: StoreView }) {
   /**
    * One observed message: the counters (`touchMemory`), the GIF library, the emoji usage and the address counts.
    * `direct` marks a message addressed to the persona. Never throws on a store that cannot be read: the count is
@@ -243,10 +234,7 @@ function buildMemoryUpdater({
     });
     // The GIF library (src/memory/gifs.ts) is fed here: it needs the GIF's URL, which no slim message keeps.
     const gifs = store.recordGifs(placeId, [normalized], gifOpts());
-    if (gifs > 0) {
-      log.info('memory: gifs recorded', { placeId, gifs });
-      void gifKeeper?.keep(placeId, normalized);
-    }
+    if (gifs > 0) log.info('memory: gifs recorded', { placeId, gifs });
     const slim = slimMessage(normalized, direct);
     try {
       store.recordEmojiUsage(placeId, [slim], emojiUsageOpts());

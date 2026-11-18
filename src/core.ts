@@ -33,7 +33,6 @@ import {
   createMemoryUpdater,
   createEmojiBackfill,
   createGifBackfill,
-  createGifKeeper,
   createDescriber,
   createAvatarQueue,
   startYoutubeCheck,
@@ -57,7 +56,6 @@ import { createGifFetcher } from './media/gif-files.ts';
 import { createImageGen } from './llm/images.ts';
 import { createSpeech } from './speech/index.ts';
 import { ffmpegAvailable } from './speech/convert.ts';
-import { gifVectorModel } from './behavior/media-pick.ts';
 import { createTurnRunner } from './behavior/turn.ts';
 import { createSummarizer } from './behavior/summarize.ts';
 import { createActivity } from './behavior/activity.ts';
@@ -989,16 +987,8 @@ async function buildCore(
     (purpose: string) =>
     async (text: string): Promise<ArrayLike<number> | null> =>
       (await embedder.embed([text], { config: hot.config, purpose }))[0] ?? null;
-  // The GIF library's descriptions, vectors and cached files (src/memory/gif-keeper.ts).
-  const gifKeeper = createGifKeeper({
-    store,
-    dataDir,
-    fetchBytes: createGifFetcher({ fetchImpl: imageStaging.fetch }),
-    embed: embedOne('media-pick'),
-    embedModel: () => gifVectorModel(hot.config),
-    describer,
-    log,
-  });
+  // The download of a library GIF's file from its direct media address (src/media/gif-files.ts).
+  const fetchGifBytes = createGifFetcher({ fetchImpl: imageStaging.fetch });
   // The memory's learned stemmer, read at each use: the alias gate and the places a read call names match with it.
   const learnedStemmer = () => {
     const handle = memoryDb.readHandle();
@@ -1084,7 +1074,7 @@ async function buildCore(
   // diary's mirrors. The diary's posts are rows of the memory database already: no backfill from the channel.
   const diary = createDiary({ hot, store, reads, turns, mirrors });
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
-  const memory = createMemoryUpdater({ hot, store, gifKeeper });
+  const memory = createMemoryUpdater({ hot, store });
   // The turn an errand's end opens, through the lease and a cooldown per chat.
   const taskTurns = createErrandTurns({
     hot,
@@ -1204,13 +1194,15 @@ async function buildCore(
   });
   // The custom emoji ranking read from history (the interface's reads only, no model call): once at startup.
   const emojiBackfill = createEmojiBackfill({ store, reads, iface: () => identity.iface, log });
-  // The GIF library read from history (the interface's reads; the describer describes the top ones): once at startup.
+  // The GIF library read from history (the interface's reads; the describer describes every GIF it finds and its file
+  // is downloaded): once at startup.
   const gifBackfill = createGifBackfill({
     store,
     reads,
     iface: () => identity.iface,
     describer,
-    keeper: gifKeeper,
+    dataDir,
+    fetchBytes: fetchGifBytes,
     log,
   });
 
@@ -1234,7 +1226,8 @@ async function buildCore(
   hellos.attach(rootJoining);
   const onMessage = createMessageHandler({
     screen: personLinks,
-    gifKeeper,
+    dataDir,
+    fetchGifBytes,
     isServedRoot,
     rootsOf: (name: string) => rootRoutes.rootsOf(name),
     hot,
@@ -1931,8 +1924,6 @@ async function buildCore(
 
   // The GIF library from history, once (no backfill stamp in gifs.json). Fire-and-forget: never blocks the persona, logs its errors.
   await startupStep('gifBackfill.startIfNeeded', () => eachServed(gifBackfill.startIfNeeded));
-  // What the library's entries lack that needs no message: their captions, vectors and files, in the background.
-  await startupStep('gifKeeper.settle', () => eachServed(gifKeeper.settle));
 
   // Affinity decay: once now (catches up the days the process was down), then hourly (above).
   await startupStep('affinity decay', sweepAffinityDecay, { wait: true });

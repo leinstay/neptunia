@@ -12,7 +12,6 @@ import {
   rankGifs,
   resetGifCounts,
   searchGifs,
-  withGifDescribed,
   withGifFile,
 } from '../src/memory/gifs.ts';
 
@@ -286,16 +285,4 @@ test('an empty query or a cap of 0 finds nothing', () => {
   const gifs = captioned([{ caption: 'γάτα', vector: [1, 0] }]);
   assert.deepEqual(searchGifs(gifs, { words: ' ', vector: null, cap: 5 }), []);
   assert.deepEqual(searchGifs(gifs, { words: 'γάτα', vector: null, cap: 0 }), []);
-});
-
-test('a description and its vector written on an entry make it findable, and an unknown key changes nothing', () => {
-  const gifs = library([linkMessage('m1', A, T0)]);
-  const key = Object.keys(normalizeGifs(gifs).entries)[0];
-  const described = withGifDescribed(gifs, key, { description: 'γάτα χορεύει', vector: [1, 0] });
-  assert.equal(searchGifs(described, { words: 'γάτα', vector: null, cap: 5 }).length, 1);
-  assert.equal(searchGifs(described, { words: 'χαρά', vector: [1, 0], cap: 5 }).length, 1);
-  assert.deepEqual(
-    normalizeGifs(withGifDescribed(gifs, 'nobody', { description: 'x', vector: null })),
-    normalizeGifs(gifs)
-  );
 });

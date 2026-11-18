@@ -289,7 +289,7 @@ function recentGifLines(
 /** The store as the pick reads it. */
 type PickStore = {
   getGifs?: () => unknown;
-  getGifVectors?: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
+  gifMediaVectors?: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
   getEmojiRails?: (placeId: string) => unknown;
   setEmojiRails?: (placeId: string, state: EmojiRails) => unknown;
   mediaNameOf: (name: string) => MediaName | null;
@@ -425,7 +425,7 @@ export function createMediaPick({
       words: query,
       vector: await queryVector(query, args.placeId),
       cap: settings.candidates,
-      vectors: store.getGifVectors?.(gifVectorModel(hot.config)) ?? null,
+      vectors: store.gifMediaVectors?.(gifVectorModel(hot.config)) ?? null,
       accept: (entry) => gifPostForm(entry, forms) !== null,
     });
     return { library, candidates: found.map(({ entry }) => entry) };

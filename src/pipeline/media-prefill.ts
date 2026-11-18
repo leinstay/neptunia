@@ -1,6 +1,7 @@
 // The media prefill of an observed line: its pictures captioned, its first videos watched and its first readable link
-// read ahead of time, each fire-and-forget, so a turn finds them in the cache; and the cached captions the address and
-// room classifiers show. createMessageHandler (src/behavior/pipeline.ts) builds it once with createMediaPrefill.
+// read ahead of time, each fire-and-forget, so a turn finds them in the cache; the file of each library GIF it shows
+// downloaded once (src/media/gif-files.ts#fileGifs); and the cached captions the address and room classifiers show.
+// createMessageHandler (src/behavior/pipeline.ts) builds it once with createMediaPrefill.
 
 import { log } from '../log.ts';
 import {
@@ -12,6 +13,9 @@ import {
   collectVideos,
   isDescribable,
 } from '../media/classify.ts';
+import { fileGifs } from '../media/gif-files.ts';
+import { collectGifItems } from '../memory/gifs.ts';
+import type { GifBytes } from '../media/gif-files.ts';
 import type { formatTranscript } from '../format.ts';
 import type { PipelineHot } from './types.ts';
 
@@ -48,6 +52,10 @@ export type MediaPrefillContext = {
     | null
     | undefined;
   now: () => number;
+  /** The library the GIF files are filed on (src/memory/store.ts); absent with `dataDir` and `fetchBytes`: none filed. */
+  store?: Parameters<typeof fileGifs>[0]['store'] | null;
+  dataDir?: string | null;
+  fetchBytes?: ((url: string) => Promise<GifBytes>) | null;
 };
 
 export type MediaPrefill = {
@@ -60,7 +68,14 @@ export type MediaPrefill = {
   ) => Promise<CachedMedia>;
 };
 
-export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillContext): MediaPrefill {
+export function createMediaPrefill({
+  hot,
+  describer,
+  lookup,
+  store = null,
+  dataDir = null,
+  fetchBytes = null,
+}: MediaPrefillContext): MediaPrefill {
   /**
    * Fire-and-forget: the message path never waits on it (see
    * createMessageHandler). A no-op when the feature is off or no describer was wired in, so
@@ -71,6 +86,7 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
    */
   function warmMediaCache(placeId: string, normalized: MediaLine): Promise<void> | null {
     warmLinkCache(placeId, normalized);
+    warmGifFiles(normalized);
     if (!describer) return null;
     warmVideoCache(placeId, normalized);
     // Per real-time message, not per batch, so it stays small.
@@ -155,6 +171,19 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
     Promise.resolve()
       .then(() => lookup.readLinks?.(placeId, links, { maxNew: links.length }))
       .catch((err: unknown) => log.warn('events: link prefill failed', { error: err }));
+  }
+
+  /**
+   * Fire-and-forget like warmMediaCache: the files of the message's library GIFs. It starts after the caller's tick,
+   * since the memory updater counts the GIF into the library right after this prefill starts (handle-message.ts).
+   */
+  function warmGifFiles(normalized: MediaLine): void {
+    if (!store || !dataDir || !fetchBytes) return;
+    const itemIds = collectGifItems(normalized as Parameters<typeof collectGifItems>[0]).map((item) => item.itemId);
+    if (itemIds.length === 0) return;
+    Promise.resolve()
+      .then(() => fileGifs({ store, dataDir, fetchBytes, itemIds }))
+      .catch((err: unknown) => log.warn('events: gif file prefill failed', { error: err }));
   }
 
   return { warmMediaCache, cachedFollowUpMedia };

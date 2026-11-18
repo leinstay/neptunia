@@ -1137,7 +1137,7 @@ function wordScore(q: string, d: string): number {
   return 0;
 }
 
-/** A query's embedding and the GIF descriptions' vectors of the same model, by item id (src/memory/db/gif-vectors.ts). */
+/** A query's embedding and the media vectors of the library rows of the same model, by item id (src/memory/db/gif-library.ts). */
 export type GifMeaning = { vector: ArrayLike<number>; vectors: ReadonlyMap<string, ArrayLike<number>> };
 
 /** The cosine of two vectors of one length; null for another length or a zero vector. */
@@ -1251,7 +1251,7 @@ export function mediaFindText(
 type MediaFindStore = {
   getGifs?: () => unknown;
   mediaEntries?: (placeId: string, keys?: Iterable<string>) => unknown;
-  getGifVectors?: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
+  gifMediaVectors?: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
 } | null;
 type MediaFindInput = {
   store: MediaFindStore;
@@ -1325,12 +1325,12 @@ export async function mediaFind(
     const { query, given, gifs, mediaCache } = checked;
     let found = gifMatches(gifs, mediaCache, query, { n: given });
     const { store, findMeaning, labels, config } = input;
-    if (!found.hasEveryWord && findMeaning && typeof store?.getGifVectors === 'function') {
+    if (!found.hasEveryWord && findMeaning && typeof store?.gifMediaVectors === 'function') {
       const meant = await findMeaning.fetch(query);
       if (meant?.vector)
         found = gifMatches(gifs, mediaCache, query, {
           n: given,
-          meaning: { vector: meant.vector, vectors: store.getGifVectors(meant.model) },
+          meaning: { vector: meant.vector, vectors: store.gifMediaVectors(meant.model) },
         });
     }
     return { status: 'ok', data: { text: mediaFindText(found.entries, { query, labels, mediaCache, config }) } };
