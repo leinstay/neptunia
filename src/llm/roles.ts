@@ -47,7 +47,7 @@ export const HUMANIZER_WRITER_ROLE = 'editor';
 export const HUMANIZER_ROLES: ReadonlyArray<string> = Object.freeze([HUMANIZER_LINTER_ROLE, HUMANIZER_WRITER_ROLE]);
 
 /**
- * The diary's scene helper (docs/diary.md), a role of its own whose chain is the analyzer's while it has no route of its
+ * The diary's director (docs/diary.md), a role of its own whose chain is the analyzer's while it has no route of its
  * own, so its model is the analyzer's until one is set.
  */
 export const DIARY_DIRECTOR_ROLE = 'director';

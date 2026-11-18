@@ -1,4 +1,4 @@
-// The diary's scene helper: one request on the role `director` with the purpose `diary-scene` that builds a scene for one entry
+// The diary's director: one request on the role `director` with the purpose `diary-scene` that builds a scene for one entry
 // from numbered seed sets, a place with its circumstances and nothing of what the persona does or feels. Its system
 // message is the task text `prompts/diary/scene.md`, never the persona, and its one user message holds `<kind>`,
 // `<sets>` and `<now>` alone. The diary's turn asks `entryScenes` before the persona's request (src/turn/diary.ts), and
@@ -41,12 +41,12 @@ export type SceneFailure =
 /** The tokens one request spent, 0 when the answer reports none. */
 export type SceneTokens = { in: number; out: number };
 
-/** One run of the helper: the sets offered, then the scene or why there is none. */
+/** One run of the director: the sets offered, then the scene or why there is none. */
 export type SceneResult = { sets: Array<Array<string>>; tokens: SceneTokens } & (
   { ok: true; set: number; used: Array<string>; scene: string } | { ok: false; reason: SceneFailure }
 );
 
-/** The part of the llm client the helper calls. */
+/** The part of the llm client the director calls. */
 export type SceneLlm = {
   complete(messages: Array<{ role: string; content: string }>, options: object): Promise<unknown>;
 };
@@ -137,7 +137,7 @@ function parseSceneAnswer(
   return { ok: true, set: number, used: lines, scene: told.trim() };
 }
 
-/** An answer of the client as the helper reads it: its text and the provider's `usage`. */
+/** An answer of the client as the director reads it: its text and the provider's `usage`. */
 type Completion = { text?: unknown; usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } } | null;
 
 /** The tokens of an answer's `usage`, as the provider reports them. */
@@ -147,7 +147,7 @@ function tokensOf(completion: Completion): SceneTokens {
 }
 
 /**
- * One scene for `kind` over `sets` (drawSceneSets) at the moment `now` in `timezone`: the request of the helper on the
+ * One scene for `kind` over `sets` (drawSceneSets) at the moment `now` in `timezone`: the request of the director on the
  * role `director`, which takes the analyzer's chain while it has no route, its prompt `prompts['diary/scene']` and
  * its settings read from `hot` at the moment of use. A request or token cap throws; any other failure of the request is
  * `request-failed`. Throws for a kind outside SCENE_KINDS.

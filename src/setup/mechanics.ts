@@ -59,7 +59,7 @@ async function askSceneRoute(ask: Ask, privateDir: string, inForce: string | nul
   const keys = Object.keys(readKeys(privateDir).keys);
   const harnesses = (await availableSources(privateDir)).filter((one) => HARNESS_BACKENDS.some((name) => name === one));
   const question = [
-    `diary director: the model of the diary's director, the helper that builds its scenes, <key>/<model>[:<effort>] or harness:<claude|codex>/<model>[:<effort>].`,
+    `diary director: the model of the diary's director, which builds its scenes, <key>/<model>[:<effort>] or harness:<claude|codex>/<model>[:<effort>].`,
     `Keys: ${keys.join(', ') || 'none'}. Harnesses: ${harnesses.join(', ') || 'none'}.`,
     `Empty keeps ${inForce ?? "the analyzer's route"}:`,
   ].join(' ');

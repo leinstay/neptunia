@@ -353,7 +353,7 @@ export function memoryWriterClient(deps: {
   }
   return {
     complete(messages, options) {
-      // The humanizer's writer and the diary's scene helper run here too (src/llm/core-routes.ts): their runs are counted
+      // The humanizer's writer and the diary's director run here too (src/llm/core-routes.ts): their runs are counted
       // under their own roles, and only a memory run moves the memory probe and the memory login state.
       const role = typeof options.role === 'string' ? options.role : 'memory';
       const forMemory = role === 'memory';
