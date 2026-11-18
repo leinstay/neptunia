@@ -25,6 +25,9 @@ import { createArchive } from '../../src/memory/archive.ts';
 import { createAppendStore } from '../../src/memory/append-store.ts';
 import { createVectors } from '../../src/memory/vectors.ts';
 import { createDescriber } from '../../src/memory/describe.ts';
+import type { AttachedItem } from '../../src/memory/describe.ts';
+import { chatOfPlace } from '../../src/memory/addresses.ts';
+import { freshAttachmentUrl } from '../../src/media/gif-post.ts';
 import { createSummarizer } from '../../src/behavior/summarize.ts';
 import { opensPrivate } from '../../src/memory/open-private.ts';
 import { issueContext } from '../../src/memory/db/scope.ts';
@@ -391,6 +394,14 @@ export function buildTurnRunner(input: WiringInput): Wired {
     youtubeApiKey: serviceKey('youtube', { dataDir }),
     proxy: () => (proxySettings(hot.config).enabled ? serviceKey('proxy', { dataDir }) : null),
     summarize,
+    // An attachment's address lapses: its message is read again for a fresh one before each download, as the core
+    // does (src/core.ts). `reads` is defined below and read at each call.
+    freshAddress: (item: AttachedItem) =>
+      freshAttachmentUrl({
+        reads,
+        channel: { iface: identity.iface, chatId: chatOfPlace(namesStore, item.placeId) ?? item.placeId },
+        entry: { messageId: item.messageId, itemId: item.itemId },
+      }),
   } as unknown as Parameters<typeof createDescriber>[0]);
   const lookup = createLookup({
     hot,

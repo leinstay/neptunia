@@ -980,6 +980,14 @@ const LOOKS: Readonly<
   gif: { method: 'rewatchGif', role: 'video' },
 });
 
+/**
+ * `item` with the place of the message that holds it, where the describer reads a fresh address of an attachment: a
+ * turn of the persona's own stands in no chat, so the turn's place does not name the message's.
+ */
+function placedItem(item: LookItem, message: Obj): LookItem {
+  return typeof message.placeId === 'string' && message.placeId ? { ...item, placeId: message.placeId } : item;
+}
+
 /** The look on its route: through `onRoute` when the caller routes, else on the role's own model. */
 function lookOnRoute(
   onRoute: OnRoute | null,
@@ -1083,7 +1091,8 @@ export async function runMediaLook({
       const chosen = media[n - 1];
       if (!Number.isInteger(n) || n < 1 || chosen === undefined)
         return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.item:range' };
-      ({ kind, item } = chosen);
+      kind = chosen.kind;
+      item = placedItem(chosen.item, message);
     }
     const look = LOOKS[kind];
     if (typeof describer?.[look.method] !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };

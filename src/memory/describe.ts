@@ -534,8 +534,8 @@ type DescriberDeps = {
   /** Shortens an answer over `maxChars` (src/behavior/summarize.ts); none keeps every answer whole. */
   summarize?: (text: string, options: { maxChars: number; kind: SummaryKind }) => Promise<string>;
   /**
-   * A fresh address of an attachment, read from its message again (`item.placeId` the place it is described in);
-   * null, or no dependency, fetches the stored address.
+   * A fresh address of an attachment, read from its message again (`item.placeId` the place of that message when the
+   * item names one, else the place it is described in); null, or no dependency, fetches the stored address.
    */
   freshAddress?: (item: AttachedItem) => Promise<string | null>;
 };
@@ -752,7 +752,7 @@ function buildDescriber({
    */
   async function addressed(placeId: string, item: MediaItem): Promise<MediaItem> {
     if (item.source !== 'attachment' || !item.messageId || !freshAddress) return item;
-    const fresh = await freshAddress({ ...item, placeId });
+    const fresh = await freshAddress({ placeId, ...item });
     return fresh ? { ...item, url: fresh, previewUrl: null } : item;
   }
 
