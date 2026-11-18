@@ -106,7 +106,16 @@ import { wholeThinks } from '../../llm/parse.ts';
 import { applyOwnerNameWrite } from './owner-names.ts';
 import { applyProjectWrite } from './projection-job.ts';
 
-import { CORE_AUTHORITY, SELF_PERSON, linkId, newPersonId, otherSourceId, shortHash, survivorOf } from './ids.ts';
+import {
+  CORE_AUTHORITY,
+  OWN_TIME_KIND,
+  SELF_PERSON,
+  linkId,
+  newPersonId,
+  otherSourceId,
+  shortHash,
+  survivorOf,
+} from './ids.ts';
 import {
   audienceOf,
   audienceParts,
@@ -314,6 +323,9 @@ function insertRun(
   mode: unknown,
   { applied, answerSource }: { applied: unknown; answerSource: unknown }
 ): void {
+  // A scope whose audience holds no row yet, as her own time before any group line of its interface.
+  const audienceId = typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null);
+  ensureAudience(db, { audience_id: audienceId });
   db.prepare(
     `INSERT OR REPLACE INTO session_runs (id, sweep_id, scope_key, scope_kind, scope_iface, scope_dm, mode, started_at, finished_at,
        cursor_from, cursor_to, sources_n, tokens_prompt, tokens_completion, model, outcome, counts, errors, batch_key, applied, result, answer_source, audience_id, page, parts)
@@ -340,7 +352,7 @@ function insertRun(
     run.batchKey ?? null,
     applied ? 1 : 0,
     answerSource ?? null,
-    typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null),
+    audienceId,
     Number.isInteger(run.page) ? run.page : null,
     Number.isInteger(run.parts) ? run.parts : null
   );
@@ -414,6 +426,41 @@ function addSources(db: Db, table: string, key: string, id: string, sources: Rea
     have.add(source);
     insert.run(id, source, position);
     position += 1;
+  }
+}
+
+/**
+ * Her own time's lines as `sources` rows of kind `own_time` (own-time.ts): authored by her, of no place, under the
+ * run's scope and its audience, so a write that cites one is narrowed to the group and the line can be read back.
+ */
+function insertOwnLines(db: Db, given: unknown, run: SessionRunRow, applied: boolean): void {
+  // Only a run of her own time carries lines, and only an applied plan stores them.
+  if (!applied || !Array.isArray(given)) return;
+  const lines = given as Array<Row>;
+  const scope = run.scope ?? SCOPE_INTERNAL;
+  const audienceId = audienceIdOf(db, scope);
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO sources (id, kind, native_id, revision, occurred_at, recorded_at, text, direct, scope_kind, scope_iface,
+       scope_dm, origin, audience_id, authority_id, author_kind, observed_at)
+     VALUES (?, ?, ?, 1, ?, ?, ?, 0, ?, ?, ?, 'memory', ?, ?, 'self', ?)`
+  );
+  for (const line of lines) {
+    const at = iso(Number(line.at));
+    const done = insert.run(
+      line.id,
+      OWN_TIME_KIND,
+      line.id,
+      at,
+      at,
+      asText(line.text),
+      scope.scope_kind,
+      scope.scope_iface,
+      scope.scope_dm,
+      audienceId,
+      CORE_AUTHORITY,
+      at
+    );
+    if (Number(done.changes) > 0) projectRow(db, 'sources', { id: line.id }, { at });
   }
 }
 
@@ -1075,7 +1122,11 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
           })
         : null;
     const applied = run != null && mode === 'apply' && plan != null && run.outcome === 'ok';
-    if (run) insertRun(db, run, mode, { applied, answerSource });
+    if (run) {
+      insertRun(db, run, mode, { applied, answerSource });
+      // The lines of her own time the run read, before the plan that may cite them.
+      insertOwnLines(db, update.ownLines, run, applied);
+    }
     // What the request rendered (the read-set of the run), in the run's context.
     let contextId = '';
     if (run && update.context) contextId = insertContext(db, update.context as Row) ?? '';

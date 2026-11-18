@@ -216,6 +216,8 @@ export const messageSourceId = (iface: unknown, messageId: unknown, revision: un
 /** Her answer in a turn: `src:turn:<turnId>:<step>`. */
 export const answerSourceId = (turnId: unknown, step: unknown): string => `src:turn:${text(turnId)}:${text(step)}`;
 /** Any other kind of source: `src:<kind>:<its id>`. */
+/** The kind of the `sources` rows that hold her own time's lines (own-time.ts), stored so a session write can cite them. */
+export const OWN_TIME_KIND = 'own_time';
 export const otherSourceId = (kind: unknown, id: unknown): string => `src:${text(kind)}:${text(id)}`;
 
 /** The first 16 hex digits of the SHA-1 of the parts joined by a NUL. */

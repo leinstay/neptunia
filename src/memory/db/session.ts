@@ -4,7 +4,8 @@
 //
 // sweep(ctx) -> { status, code?, runs[] }
 //   A sweep is one pass over the scopes with new lines: the public channels of an interface together (`group:<iface>`),
-//   each private chat alone (`dm:<iface>:<person>`). Each scope has a cursor in `meta`
+//   each private chat alone (`dm:<iface>:<person>`), and her own time on the live interface (`own:<iface>`, own-time.ts:
+//   her finished heartbeat runs, a cursor of `wake_runs.rowid`, read and written under the group). Each scope has a cursor in `meta`
 //   (`memory_session.cursor.<mode>.<scope>`, a `sources.rowid`), so a line is read once. At most `sweepsPerScopePerDay`
 //   sweeps of one scope a UTC day (stage W3; the old `sweepsPerDay` is read when the new key is missing); a sweep whose
 //   every scope with work is at its cap is refused (`sweep_cap`). A quiet scope's media pass counts toward its own
@@ -52,14 +53,15 @@ import type { Rule } from './rules.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { accountProfileValue } from './account-profile.ts';
 import { accountCollection } from './unit-keys.ts';
-import { SELF_PERSON, shortHash } from './ids.ts';
+import { OWN_TIME_KIND, SELF_PERSON, shortHash } from './ids.ts';
 import { storedMediaTags } from '../../format.ts';
 import { legendBlock } from '../../turn/request/legend.ts';
 import { mediaNameRows } from './media-names.ts';
 import type { MediaNameRow } from './media-names.ts';
 import { LINE_HOLDS_TOLD_MEDIA, lineMedia, mediaMessageParts } from './media-store.ts';
 import { contextRow, internalContext, issueContext, scopeWhere } from './scope.ts';
-import { runColumns, scopesOf } from './session-scopes.ts';
+import { ownScopeOf, runColumns, scopesOf } from './session-scopes.ts';
+import { ownBatchOf } from './own-time.ts';
 import type { RunColumns, SweepScope } from './session-scopes.ts';
 import { columnsOf } from './rows.ts';
 import { OF_FIRST_REVISION } from './source-current.ts';
@@ -516,6 +518,12 @@ function lineText(
   return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${who}${asText(author)}: ${body}`;
 }
 
+/** A line of her own time, `#n [time] text`, led by the line that says it was her own time when it opens a run. */
+function ownLineText(line: BatchLine, n: number, head: string, timezone: unknown): Array<string> {
+  const at = stamp(line.at, timezone);
+  return [...(line.opens ? [head.replace('{time}', at)] : []), `#${n} [${at}] ${asText(line.text)}`];
+}
+
 function claimLine(label: unknown, row: Row): string {
   const text = asText(row.text ?? '')
     .replace(/\s+/g, ' ')
@@ -705,6 +713,7 @@ export function buildSessionRequest({
     batch.map((line) => asText(line.id)),
     internalContext()
   );
+  const ownTimeHead = asText((labels.memory as Row | undefined)?.ownTime ?? '');
   // Each shown line as a normalized message, for the legend of its custom emoji and stickers.
   const shownMessages: Array<Row> = [];
   for (const line of batch) {
@@ -715,6 +724,10 @@ export function buildSessionRequest({
     n += 1;
     maps.sources.set(`#${n}`, line.id as string);
     read('source_id', line.id, 'batch');
+    if (line.kind === OWN_TIME_KIND) {
+      rendered.push(...ownLineText(line, n, ownTimeHead, timezone));
+      continue;
+    }
     rendered.push(
       lineText(line, n, {
         accounts: touched.accounts,
@@ -1315,6 +1328,8 @@ export type SessionContext = {
   /** The event loop watch's `track` (src/loop-watch.ts); batch reads and request builds are named operations. */
   track?: Track;
   embed?: Parameters<typeof sessionEmbedding>[1]; // the embedding client, for the batch query (sessionEmbedding)
+  /** The live interface of the service: the scope of her own time (`own:<iface>`) is swept for it. */
+  iface?: string | null;
 };
 
 // The media pass's runs count toward `mediaPassPerDay`, never toward the ordinary cap.
@@ -1352,9 +1367,11 @@ export async function sweep(
   const runs: Array<SweepRun> = [];
   let ran = 0;
   let capped = 0;
+  const wanted = (scopeKey: string): boolean =>
+    (!options.scope || options.scope === scopeKey) &&
+    (!(options.scopes instanceof Set) || options.scopes.has(scopeKey));
   for (const swept of scopesOf(db, { audienceColumn: true })) {
-    if (options.scope && options.scope !== swept.key) continue;
-    if (options.scopes instanceof Set && !options.scopes.has(swept.key)) continue;
+    if (!wanted(swept.key)) continue;
     const add = (...done: Array<SweepRun>) => runs.push(...done.map((run) => ({ ...run, ...runColumns(swept) })));
     const key = cursorKey(settings.mode, swept.key);
     const cursor = Number(metaOf(db, key) ?? 0);
@@ -1401,6 +1418,29 @@ export async function sweep(
     }
     ran += 1;
     add(...(await runBatch(ctx, { scope: swept, batch, cursor, key, sweepId, settings })));
+  }
+  // Her own time: the finished heartbeat runs after the scope's cursor, under the same caps as a chat scope.
+  // Her own time: the finished heartbeat runs after the scope's cursor, under the caps of a chat scope.
+  const own = typeof ctx.iface === 'string' && ctx.iface ? ownScopeOf(ctx.iface) : null;
+  if (own && wanted(own.key)) {
+    const add = (...done: Array<SweepRun>) => runs.push(...done.map((run) => ({ ...run, ...runColumns(own) })));
+    const key = cursorKey(settings.mode, own.key);
+    const cursor = Number(metaOf(db, key) ?? 0);
+    const { lines, cursorTo } = ownBatchOf(db, { cursor, maxLines: maxMessages, since: settings.since });
+    const capReached =
+      !options.ignoreSweepCap && scopeSweepsToday(db, own.key, started, settings.mode) >= settings.sweepsPerScopePerDay;
+    // With no finished run waiting the scope is no run of the sweep, like a chat scope with no line.
+    const waiting = cursorTo !== cursor;
+    if (waiting && capReached) {
+      capped += 1;
+      add({ scope: own.key, outcome: 'capped', lines: lines.length });
+    } else if (waiting && lines.length === 0) {
+      // Runs with no step: only the cursor moves.
+      add(await moveCursor(ctx, { scopeKey: own.key, key, cursor, cursorTo, settings }));
+    } else if (waiting) {
+      ran += 1;
+      add(...(await runBatch(ctx, { scope: own, batch: lines, cursor, key, sweepId, settings })));
+    }
   }
   // Every scope with work is at its daily cap: the sweep did nothing.
   if (ran === 0 && capped > 0) return { status: 'refused', code: CODES.SWEEP_CAP, runs };
@@ -1493,24 +1533,8 @@ async function runBatch(
     if (isFiniteNumber(earlier) && earlier !== cursorTo) {
       batch = batch.filter((line) => line.rowid <= earlier);
       cursorTo = earlier;
-      if (batch.length === 0) {
-        // Every line of the old batch is gone (retired since): only the cursor is left to move.
-        try {
-          await ctx.write({
-            kind: 'session',
-            mode: settings.mode,
-            run: null,
-            plan: null,
-            advance: { key, value: cursorTo, expect: cursor },
-            pending: { key: holdKey, value: null },
-            now: (ctx.now ?? Date.now)(),
-          });
-          return [{ scope: swept.key, outcome: 'applied_before', lines: 0 }];
-        } catch (error) {
-          ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
-          return [{ scope: swept.key, outcome: 'write_failed', lines: 0, errors: [`write:${codeOf(error)}`] }];
-        }
-      }
+      // Every line of the old batch is gone (retired since): only the cursor is left to move.
+      if (batch.length === 0) return [await moveCursor(ctx, { scopeKey: swept.key, key, cursor, cursorTo, settings })];
     }
   }
   // The request must fit the request cap (`llm.maxRequestTokens`): a batch whose largest page would not is cut to its
@@ -1597,6 +1621,34 @@ async function runBatch(
     }
   }
   return results;
+}
+
+/** A write that only moves a scope's cursor and clears its pending mark: `applied_before`, or `write_failed`. */
+async function moveCursor(
+  ctx: SessionContext,
+  {
+    scopeKey,
+    key,
+    cursor,
+    cursorTo,
+    settings,
+  }: { scopeKey: string; key: string; cursor: number; cursorTo: number; settings: SessionSettings }
+): Promise<SweepRun> {
+  try {
+    await ctx.write({
+      kind: 'session',
+      mode: settings.mode,
+      run: null,
+      plan: null,
+      advance: { key, value: cursorTo, expect: cursor },
+      pending: { key: pendingKey(settings.mode, scopeKey), value: null },
+      now: (ctx.now ?? Date.now)(),
+    });
+    return { scope: scopeKey, outcome: 'applied_before', lines: 0 };
+  } catch (error) {
+    ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
+    return { scope: scopeKey, outcome: 'write_failed', lines: 0, errors: [`write:${codeOf(error)}`] };
+  }
 }
 
 /** Whether a batch key was applied in an earlier try (never outside `apply`). */
@@ -1793,6 +1845,8 @@ async function runScope(
         answer: extra.answer ? { text: extra.answer } : null,
         // The accounts the batch came across, told once by the batch's last write (service.ts#onSessionAccounts).
         ...(last ? { met: metOf(db, batch) } : {}),
+        // Her own time's lines, stored with the plan so that what it keeps can cite them (session-write.ts).
+        ...(swept.own ? { ownLines: batch.map((line) => ({ id: line.id, text: line.text, at: line.at })) } : {}),
         maxDelta: RELATIONSHIP_LIMITS.maxDeltaPerUpdate,
         now: now(),
         ...(readSet ? { reads: readSet.rows, readStep: String(page), context: readSet.context } : {}),

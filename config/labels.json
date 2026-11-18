@@ -376,6 +376,7 @@
       "privateChannel": "private chat",
       "redaction": "someone",
       "placeUnwritten": "[{handle}] fields not written yet: {fields}",
+      "ownTime": "{time} your own time: nobody called you, and these are your thoughts and calls in order",
       "origin": {
         "native": "named in the message you answer",
         "reply": "the message you answer replies to it",

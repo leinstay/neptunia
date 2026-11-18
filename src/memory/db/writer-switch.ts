@@ -2,7 +2,7 @@
 // schedule the service runs with `memoryDb.session.mode` `apply`, and the effective models the service names at its
 // start. Reads only; every write goes through the service's writer.
 //
-//   dueScopes(db, config, now, { log }) -> [{ key, lines, full }]
+//   dueScopes(db, config, now, { log, iface }) -> [{ key, lines, full }]
 //     The scopes a sweep should take now: at least `minMessages` settled lines after the scope's cursor, and either
 //     `everyMinutes` since the scope's last run (no run yet counts as long ago) or `maxMessages` lines waiting (`full`),
 //     and fewer than `sweepsPerScopePerDay` ordinary sweeps of the scope today (UTC). The lines are counted the way the
@@ -10,6 +10,8 @@
 //     scope is due for its media pass while the pass has old lines left, under `mediaPassPerDay`, and `everyMinutes`
 //     after the scope's last run of any kind: a media pass is never `full`. A scope left out at a daily cap is logged
 //     `memory session: capped` once per scope, cap and day.
+//     With `iface`, the scope of her own time (`own:<iface>`) is due when a finished heartbeat run lies after its
+//     cursor, under `sweepsPerScopePerDay` and `everyMinutes` as a chat scope; `lines` counts its runs.
 //   openFlags(db, config, { skip, selfName }) -> [{ key, at, subject, field, readCtx }]
 //     The description flags her session runs raised (`decisions` rows `flag:description`, `by` her) whose description
 //     has no accepted review (`origin` `review`) written since the flag, one per description (its oldest open flag: a
@@ -43,7 +45,9 @@ import type { Context } from './scope.ts';
 import { SELF_PERSON } from './ids.ts';
 import { closePeople } from './focus.ts';
 import type { SessionSettings } from './session.ts';
+import { ownScopeOf } from './session-scopes.ts';
 import type { SweepScope } from './session-scopes.ts';
+import { finishedRuns } from './own-time.ts';
 import type { Config, Db, Log, Row } from './types.ts';
 
 const MINUTE = 60_000;
@@ -93,7 +97,7 @@ export function dueScopes(
   db: Db,
   config: Config,
   now: number,
-  { log }: { log?: Partial<Log> } = {}
+  { log, iface = null }: { log?: Partial<Log>; iface?: string | null } = {}
 ): Array<{ key: string; lines: number; full: boolean }> {
   const settings = sessionSettings(config);
   const out: Array<{ key: string; lines: number; full: boolean }> = [];
@@ -127,7 +131,38 @@ export function dueScopes(
     if (!full && Number.isFinite(lastMs) && now - lastMs < settings.everyMinutes * MINUTE) continue;
     out.push({ key: sweepScope.key, lines, full });
   }
-  return out;
+  const own = iface ? ownTimeDue(db, settings, iface, now, log) : null;
+  return own ? [...out, own] : out;
+}
+
+/**
+ * The scope of her own time when it is due: a finished heartbeat run after its cursor, fewer than
+ * `sweepsPerScopePerDay` sweeps today and `everyMinutes` since its last run. Never `full`.
+ */
+function ownTimeDue(
+  db: Db,
+  settings: SessionSettings,
+  iface: string,
+  now: number,
+  log: Partial<Log> | undefined
+): { key: string; lines: number; full: boolean } | null {
+  const key = ownScopeOf(iface).key;
+  const cursor = Number(
+    db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey(settings.mode, key))?.value ?? 0
+  );
+  const runs = finishedRuns(db, { after: cursor, limit: settings.maxMessages, since: settings.since }).length;
+  if (runs === 0) return null;
+  const count = scopeSweepsToday(db, key, now, settings.mode);
+  if (count >= settings.sweepsPerScopePerDay) {
+    sayCapped(db, log, { scope: key, cap: 'sweepsPerScopePerDay', count, now });
+    return null;
+  }
+  const last = db
+    .prepare('SELECT MAX(started_at) AS at FROM session_runs WHERE scope_key = ? AND mode = ?')
+    .get(key, settings.mode)?.at;
+  const lastMs = typeof last === 'string' ? Date.parse(last) : NaN;
+  if (Number.isFinite(lastMs) && now - lastMs < settings.everyMinutes * MINUTE) return null;
+  return { key, lines: runs, full: false };
 }
 
 /** The accepted description reviews written on the UTC day of `now`. */
