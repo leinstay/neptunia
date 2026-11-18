@@ -56,7 +56,7 @@ const momentOf = (value: unknown): number | null => {
 };
 
 /** A stored record's fields the window reads, null for a record without an id or a purpose. */
-function ownOf(raw: unknown): OwnIntention | null {
+export function ownOf(raw: unknown): OwnIntention | null {
   let record: Record<string, unknown>;
   try {
     record = JSON.parse(String(raw)) as Record<string, unknown>;
@@ -185,41 +185,53 @@ function storedIntention(db: Db, id: string): OwnIntention | null {
   return row === undefined ? null : ownOf(row.record);
 }
 
+/** The ids of the intentions a wake run's `inputs` say its view carried, [] for a run that carried none. */
+export function carriedIntentions(inputs: unknown): Array<string> {
+  let carried: Array<unknown> = [];
+  try {
+    const parsed = JSON.parse(typeof inputs === 'string' ? inputs : 'null') as { intentions?: unknown } | null;
+    carried = Array.isArray(parsed?.intentions) ? parsed.intentions : [];
+  } catch {
+    // `inputs` is written as JSON by the wake writer (wakes.ts#startRun); a row of an older writer may hold none.
+    return [];
+  }
+  return carried.map((one) => (one as { id?: unknown } | null)?.id).filter((id) => typeof id === 'string');
+}
+
+/** The lines of hers the turn `turnId` wrote, oldest first, over `sources_turn`; a line with no moment takes `fallback`. */
+export function sentLinesOf(
+  db: Db,
+  turnId: string,
+  fallback: number
+): Array<{ placeId: string; nativeId: string; at: number }> {
+  return db
+    .prepare(
+      "SELECT place_id, native_id, occurred_at FROM sources WHERE turn_id = ? AND kind = 'said' AND retired_at IS NULL"
+    )
+    .all(turnId)
+    .map((line) => ({
+      placeId: String(line.place_id),
+      nativeId: String(line.native_id),
+      at: momentOf(line.occurred_at) ?? fallback,
+    }))
+    .sort((a, b) => a.at - b.at);
+}
+
 /**
  * The ended wake runs since `since` by the intentions their view carried (`inputs.intentions`), each with the lines of
  * hers its turn wrote. The runs are read over `wake_runs_status` (`status`, `started_at`), the lines over `sources_turn`.
  */
 function runsSince(db: Db, since: number, now: number): Map<string, Array<PastRun>> {
   const out = new Map<string, Array<PastRun>>();
-  const sent = db.prepare(
-    "SELECT place_id, native_id, occurred_at FROM sources WHERE turn_id = ? AND kind = 'said' AND retired_at IS NULL"
-  );
   for (const row of db
     .prepare(
       `SELECT id, status, started_at, inputs FROM wake_runs
        WHERE status IN ('succeeded', 'failed', 'interrupted') AND started_at >= ? ORDER BY started_at`
     )
     .all(new Date(since).toISOString())) {
-    let carried: Array<unknown> = [];
-    try {
-      const inputs = JSON.parse(typeof row.inputs === 'string' ? row.inputs : 'null') as {
-        intentions?: unknown;
-      } | null;
-      carried = Array.isArray(inputs?.intentions) ? inputs.intentions : [];
-    } catch {
-      // `inputs` is written as JSON by the wake writer (wakes.ts#startRun); a row of an older writer may hold none.
-      continue;
-    }
-    const ids = carried.map((one) => (one as { id?: unknown } | null)?.id).filter((id) => typeof id === 'string');
+    const ids = carriedIntentions(row.inputs);
     if (ids.length === 0) continue;
-    const lines = sent
-      .all(String(row.id))
-      .map((line) => ({
-        placeId: String(line.place_id),
-        nativeId: String(line.native_id),
-        at: momentOf(line.occurred_at) ?? since,
-      }))
-      .sort((a, b) => a.at - b.at);
+    const lines = sentLinesOf(db, String(row.id), since);
     const last = lines.at(-1);
     const pastRun: PastRun = {
       at: momentOf(row.started_at) ?? since,

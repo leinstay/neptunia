@@ -54,15 +54,15 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'types': ['number'],
     'reader': 'src/turn/phases/request/build.ts',
     'default': 12,
-    'text': 'How many of her actions of today `<my_day>` lists, the newest kept. `0` leaves the block out',
+    'text':
+      'How many events of her day `<my_day>` lists, the newest kept and the header saying how many older ones it leaves out. `0` leaves the block out',
   },
   {
-    'key': 'context.myDay.people',
+    'key': 'context.calls.lines',
     'types': ['number'],
     'reader': 'src/turn/phases/request/build.ts',
-    'default': 3,
-    'text':
-      'How many people other than the one she answers `<my_day>` names a line for, the ones she made the most for today first. `0` names none; her own day line stays',
+    'default': 12,
+    'text': 'How many of her calls of today `<calls>` lists, the newest kept. `0` leaves the block out',
   },
   {
     'key': 'context.lessons.budgetTokens',

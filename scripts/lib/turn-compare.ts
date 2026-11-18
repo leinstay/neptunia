@@ -61,6 +61,7 @@ export const BLOCK_TAGS = [
   'recall',
   'inner',
   'my_day',
+  'calls',
   'intentions',
   'meanwhile',
   'spatial_awareness',

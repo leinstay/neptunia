@@ -35,7 +35,8 @@ export type InputsConfig = {
   context?: {
     caps?: { intentions?: number } | null;
     places?: unknown;
-    myDay?: { lines?: number; people?: number } | null;
+    myDay?: { lines?: number } | null;
+    calls?: { lines?: number } | null;
   } | null;
 };
 

@@ -369,8 +369,10 @@ function thinkTextsOf(think: NonNullable<InnerParts['previousThink']>): string {
 /** `<inner>`'s parts as single items, so the budget can keep the first of them. */
 function innerItems(parts: InnerParts): Array<{ key: keyof InnerParts; text: string }> {
   const out: Array<{ key: keyof InnerParts; text: string }> = [];
-  const myDay = parts.myDay.filter(Boolean).join('\n');
-  if (myDay) out.push({ key: 'myDay', text: myDay });
+  for (const key of ['myDay', 'calls'] as const) {
+    const text = parts[key].filter(Boolean).join('\n');
+    if (text) out.push({ key, text });
+  }
   for (const key of ['intentions', 'errands', 'feedback'] as const) {
     const text = parts[key];
     if (typeof text === 'string' && text.trim()) out.push({ key, text });
@@ -419,14 +421,15 @@ function keyedWindows(given: ReaderInput, windows: ReadonlyArray<MeanwhileWindow
   }));
 }
 
-/** The texts of `<inner>` that hold place tokens: the lines of `<my_day>` and the body of `<intentions>`. */
-const innerTexts = (inner: InnerParts): Array<string | null> => [...inner.myDay, inner.intentions];
+/** The texts of `<inner>` that hold place tokens: the lines of `<my_day>` and `<calls>` and the body of `<intentions>`. */
+const innerTexts = (inner: InnerParts): Array<string | null> => [...inner.myDay, ...inner.calls, inner.intentions];
 
-/** `<inner>`'s parts with each place token of `<my_day>` and `<intentions>` named by `named`. */
+/** `<inner>`'s parts with each place token of `<my_day>`, `<calls>` and `<intentions>` named by `named`. */
 function innerNamed(inner: InnerParts, named: (placeId: string) => string): InnerParts {
   return {
     ...inner,
     myDay: inner.myDay.map((line) => withPlaces(line, named)),
+    calls: inner.calls.map((line) => withPlaces(line, named)),
     intentions: inner.intentions === null ? null : withPlaces(inner.intentions, named),
   };
 }
@@ -745,6 +748,7 @@ function innerTextOf(given: ReaderInput, offered: Offered, fit: Fit): string {
   const { innerParts: inner } = offered;
   const parts: InnerParts = {
     myDay: kept.has('myDay') ? inner.myDay : [],
+    calls: kept.has('calls') ? inner.calls : [],
     intentions: kept.has('intentions') ? inner.intentions : null,
     errands: kept.has('errands') ? inner.errands : null,
     feedback: kept.has('feedback') ? inner.feedback : null,

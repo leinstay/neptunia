@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { ROOT } from './fixtures/source-tree.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
-import { MARK, blockOf, frameTurn, gistOf, inOrderOf, partOf, rootTags } from './fixtures/diary-frame.ts';
+import { FRAME_NOW, MARK, blockOf, frameTurn, gistOf, inOrderOf, partOf, rootTags } from './fixtures/diary-frame.ts';
 
 const PLANNER = 'diary-planner';
 
@@ -53,4 +53,16 @@ test('the planner <inner> holds <kinds>, <seeds> and <diary>, and the request no
   assert.notEqual(partOf(inner, 'seeds'), '', inner);
   assert.ok(partOf(inner, 'diary').includes(gistOf(2)), inner);
   assert.ok(!text.includes('<plan>'), 'no plan');
+});
+
+test('the planner <my_day> holds an evening of yesterday that lies after her last entry', async () => {
+  // Bug: the planner reads today's events alone, so what she did after her last entry and before midnight never
+  // reaches an entry. Her last entry is a day before FRAME_NOW (12:00), the line of hers at 22:00 the evening before.
+  const run = await frameTurn({
+    entries: 3,
+    context: { myDay: { lines: 12 }, calls: { lines: 12 } },
+    gardenLines: [FRAME_NOW - 14 * 3_600_000],
+  });
+  const day = partOf(blockOf(run.planner[0] ?? '', 'inner'), 'my_day');
+  assert.ok(day.includes('22:00'), day);
 });

@@ -30,8 +30,8 @@ const MACHINE_SERVER: ReadonlySet<string> = new Set([
   'model.wake.feedback.codes.proxy-down',
   'model.tools.result.reasons.http',
   // Changed: the agent that reads the machine is `server`, and its tool `errand.server`.
-  'model.myDay.kinds.errand.server',
-  'model.myDay.kindsOne.errand.server',
+  'model.myDay.things.errand.server',
+  'model.myDay.thingsMany.errand.server',
   'model.tools.result.reasons.diary-draw-only',
 ]);
 

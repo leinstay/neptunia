@@ -236,6 +236,7 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   previousThink:
     'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.ts)',
   myDay: 'no journal in a replay: no <my_day> block (a live turn reads her day, src/turn/request/my-day.ts)',
+  calls: 'no journal in a replay: no <calls> block (a live turn reads her calls, src/turn/request/my-day.ts)',
   callMarks:
     "no earlier call in a replay: no call mark in <chat> (a skill scenario hands in its earlier steps' calls: `callMarks`)",
   stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> renders from memory as it stands',
@@ -844,8 +845,9 @@ export function sandboxRequestInput({
     awake: null,
     wakeKind: null,
     previousThink: null,
-    // No journal (SANDBOX_OMITS): no <my_day> block.
+    // No journal (SANDBOX_OMITS): no <my_day> or <calls> block.
     myDay: null,
+    calls: null,
     // A skill scenario's earlier calls, put among the chat's lines by time; none otherwise (SANDBOX_OMITS).
     callMarks,
     // The owner's rules in the store the scenario runs on, as a live turn reads them.

@@ -27,7 +27,7 @@ import type { Rewatch, VideoState } from '../rewatch.ts';
 import type { Sends, SendsConfig } from '../sends.ts';
 import type { StepCompletion, ToolRound, ToolRoundConfig } from '../tool-round.ts';
 import type { Attention, Lane, TriggerKind } from '../triggers.ts';
-import type { MyDayReader } from '../request/my-day.ts';
+import type { DayReader } from '../request/my-day.ts';
 import type { FrameReads } from '../../memory/db/frame-reads.ts';
 import type { LookupRing } from '../calls.ts';
 import type { SeedRing } from '../seed-ring.ts';
@@ -127,8 +127,8 @@ export type PhaseContext = {
   activeSkills?: (() => Promise<ReadonlyArray<ActiveSkill>>) | null;
   recordSkillUses?: ((uses: Array<SkillUse>) => Promise<unknown>) | null;
   memoryReads: ((args: Record<string, unknown>) => void) | null;
-  /** What she did today under a turn's context (src/turn/request/my-day.ts#myDayOf over the memory); null: none. */
-  myDay: MyDayReader | null;
+  /** Her day under a turn's context (src/turn/request/my-day.ts#dayOf over the memory); null: none. */
+  day: DayReader | null;
   /** The reads of a framed request over the memory (src/memory/db/frame-reads.ts); null: none. */
   frameReads: FrameReads | null;
   /** The owner's account on the interface of a place, the reader a command line turn reads its channels as. */

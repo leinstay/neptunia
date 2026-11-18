@@ -58,6 +58,7 @@ const valueAtKey = (config: Untyped, key: string): unknown =>
  * the errand agents' models, which their routes hold in `models.agents.model`, and `board.*` the
  * board's own operations and reaper, so nothing reads them. The diary's settings are `diary.*`, and a
  * `selfreflection` key is not read (an ignored `selfreflection.enabled` leaves the diary on by its default).
+ * `context.myDay.people` named the people of the counts of what she made, which no request holds.
  */
 const RETIRED_CONFIG_KEYS = Object.freeze(
   [
@@ -88,6 +89,7 @@ const RETIRED_CONFIG_KEYS = Object.freeze(
     { key: 'selfreflection', use: 'diary' },
     { key: 'diary.openingsShown', use: null },
     { key: 'diary.openingWords', use: null },
+    { key: 'context.myDay.people', use: null },
   ].map(({ key, use }) => ({ key, use, read: (config: Untyped) => valueAtKey(config, key) }))
 );
 

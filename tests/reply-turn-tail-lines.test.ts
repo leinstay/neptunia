@@ -6,9 +6,12 @@
 // config/labels.json, never their wording.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { handleOf } from '../src/behavior/handles.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
+import { finishRun, startRun } from '../src/memory/db/wakes.ts';
+import { addLine } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
-import { TURN_NOW, blockOf, replyRun, serviceTurn, serviceWake, serviceWorld } from './fixtures/service-turn.ts';
+import { ELENI, TURN_NOW, blockOf, replyRun, serviceTurn, serviceWake, serviceWorld } from './fixtures/service-turn.ts';
 import type { ReplyStep, ServiceTurnSpec } from './fixtures/service-turn.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 import { useIface } from './fixtures/turn-world.ts';
@@ -117,7 +120,7 @@ async function afterPostInGarden(
     insertRows(world.db, { day: postInGarden(TURN_NOW - 30 * MIN) });
     const run = await replyRun({
       world,
-      context: { myDay: { lines: 12, people: 3 } },
+      context: { myDay: { lines: 12 }, calls: { lines: 12 } },
       steps,
       ...(seed === undefined ? {} : { seed }),
     });
@@ -133,7 +136,9 @@ test('a line of <my_day> names the garden by the handle its entry of <places> op
   const [request = ''] = await afterPostInGarden([turn('r2', 1)]);
   const handle = gardenHandle(request);
   assert.match(handle, /^#c[0-9a-z]+$/, 'the garden has an entry of <places> with a handle');
-  const lines = bodyOf(request, 'my_day').split('\n');
+  // Changed: the journal's post line stands in `<calls>`, the block of her calls, since `<my_day>` holds her day as
+  // events (maintainer, 2026-11-18); the place in it reads the same way.
+  const lines = bodyOf(request, 'calls').split('\n');
   const line = lines.find((one) => one.startsWith('[')) ?? '';
   assert.ok(line.includes(handle), line);
   assert.ok(!line.includes(EMOJI) && !line.includes('κήπος'), line);
@@ -146,11 +151,14 @@ test('two requests with nothing stored between them hold the same bytes in <my_d
     service.set({ purpose: 'ΣΚΟΠΟΣ-ΣΤΟ-ΔΩΜΑΤΙΟ', dueAt: TURN_NOW + 5 * HOUR, destination: 'c1', by: 'persona' });
   };
   const [first = '', second = ''] = await afterPostInGarden([turn('r2', 3), turn('r3', 1)], seed);
-  const day = bodyOf(first, 'my_day');
+  // Changed: the journal's post line stands in `<calls>`, the block of her calls, since `<my_day>` holds her day as
+  // events (maintainer, 2026-11-18); the place in it reads the same way.
+  const day = bodyOf(first, 'calls');
   const intentions = bodyOf(first, 'intentions');
   assert.ok(intentions.includes('ΣΚΟΠΟΣ-ΣΤΟ-ΔΩΜΑΤΙΟ'), 'the intention stands in <intentions>');
   assert.ok(day.includes(gardenHandle(first)), day);
-  assert.equal(bodyOf(second, 'my_day'), day);
+  assert.equal(bodyOf(second, 'calls'), day);
+  assert.equal(bodyOf(second, 'my_day'), bodyOf(first, 'my_day'));
   assert.equal(bodyOf(second, 'intentions'), intentions);
 });
 
@@ -235,7 +243,7 @@ async function heartbeatRequest(): Promise<string> {
       wake: serviceWake('heartbeat'),
       answers: ['<skip/>'],
       chat: null,
-      context: { myDay: { lines: 12, people: 3 } },
+      context: { myDay: { lines: 12 }, calls: { lines: 12 } },
       seed: (service) => {
         service.set({ purpose: PURPOSE, dueAt: TURN_NOW + 5 * HOUR, destination: 'c2', by: 'persona' });
       },
@@ -273,9 +281,103 @@ test('a place named in <my_day> or <intentions> reads as its handle in a reply, 
     assert.match(handle, /^#c[0-9a-z]+$/, `${kind}: the garden has an entry of <places> with a handle`);
     const intention = intentionLine(request);
     assert.ok(intention.includes(handle), `${kind}: ${intention}`);
-    const lines = bodyOf(request, 'my_day').split('\n');
+    // Changed: the journal's post line stands in `<calls>`, the block of her calls, since `<my_day>` holds her day as
+    // events (maintainer, 2026-11-18); the place in it reads the same way.
+    const lines = bodyOf(request, 'calls').split('\n');
     const day = lines.find((one) => one.startsWith('[')) ?? '';
     if (kind !== 'due') assert.ok(day.includes(handle), `${kind}: ${day}`);
     assert.ok(!day.includes(EMOJI), `${kind}: ${day}`);
+  }
+});
+
+/** A line of hers in the garden at `at`. */
+const addOwnLine = (world: World, id: string, at: number): void => {
+  addLine(world.db, { id, iface: 'fake', place: GARDEN, author: 'self', text: 'ΓΡΑΜΜΗ-ΤΗΣ', at: iso(at) });
+};
+
+test('a reply turn holds her day of today in <my_day> and no evening of yesterday, with <calls> right after it', async () => {
+  // Bug: a reply turn reads the diary's window across midnight, or the calls stand apart from her day.
+  const world = dayWorld();
+  try {
+    addOwnLine(world, 'y1', TURN_NOW - 14 * HOUR);
+    const run = await replyRun({
+      world,
+      context: { myDay: { lines: 12 }, calls: { lines: 12 } },
+      steps: [turn('r2', 1)],
+    });
+    const [[request = ''] = []] = run.requests;
+    const day = bodyOf(request, 'my_day');
+    assert.ok(day.includes('11:10'), day);
+    assert.ok(!day.includes('22:00'), day);
+    assert.ok(request.includes('</my_day>\n<calls>\n'), blockOf(request, 'inner'));
+  } finally {
+    world.close();
+  }
+});
+
+/** The heartbeat `hb-0` of an hour ago that read Ελένη's direct chat, its read written in her own place as one is. */
+function readOfDm(world: World): void {
+  const at = TURN_NOW - HOUR;
+  startRun(world.handle, {
+    id: 'hb-0',
+    kind: 'heartbeat',
+    startedAt: at,
+    inputs: { wakes: [], intentions: [], facts: [] },
+  });
+  finishRun(world.handle, { id: 'hb-0', status: 'succeeded', outcome: 'skip', finishedAt: at + 2 * MIN });
+  const own = { place_id: 'persona:local', scope_kind: 'none' };
+  const started = { opId: 'o-dm', name: 'skill', phase: 'started', input: { skill: 'conversation.read' } };
+  insertRows(world.db, {
+    day: [
+      {
+        id: 'hb-0-s',
+        at: iso(at + MIN),
+        what: 'action',
+        turn_id: 'hb-0',
+        extra: JSON.stringify({ ...started, target: { channel: 'fake:dm:111' } }),
+        ...own,
+      },
+      {
+        id: 'hb-0-e',
+        at: iso(at + MIN + 1000),
+        what: 'action',
+        turn_id: 'hb-0',
+        extra: JSON.stringify({ opId: 'o-dm', name: 'skill', phase: 'succeeded' }),
+        ...own,
+      },
+    ],
+  });
+}
+
+test('a heartbeat names a direct chat it read by the handle its <places> gives it, in <my_day> and in <calls>', async () => {
+  // Bug: the namer knows only places with a stored name, so a direct chat reads as a place with no name in <my_day>
+  // and as no place in <calls>, while <places> of the same request lists it under a handle.
+  const world = dayWorld();
+  try {
+    readOfDm(world);
+    const run = await serviceTurn({
+      world,
+      wake: serviceWake('heartbeat'),
+      answers: ['<skip/>'],
+      chat: null,
+      context: { myDay: { lines: 12 }, calls: { lines: 12 } },
+    });
+    const request = run.requests[0] ?? '';
+    const places = /<places>\n?([\s\S]*?)\n?<\/places>/.exec(blockOf(request, 'memory'))?.[1] ?? '';
+    const entry = places.split('\n').find((one) => one.includes(`@${handleOf(ELENI)}`)) ?? '';
+    const dm = /^#c[0-9a-z]+/.exec(entry)?.[0] ?? '';
+    assert.match(dm, /^#c[0-9a-z]+$/, places);
+    const day = bodyOf(request, 'my_day');
+    const calls = bodyOf(request, 'calls');
+    assert.ok(
+      day.split('\n').some((line) => line.includes(dm)),
+      day
+    );
+    assert.ok(
+      calls.split('\n').some((line) => line.includes(dm)),
+      calls
+    );
+  } finally {
+    world.close();
   }
 });

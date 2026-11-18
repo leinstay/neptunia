@@ -851,6 +851,11 @@ export function apiNameOf(name: string): string | null {
   return BY_NAME.get(name)?.api ?? null;
 }
 
+/** The argument that carries the text of a call of skill `name` (its definition's `body`), or null. */
+export function bodyOf(name: string): string | null {
+  return BY_NAME.get(name)?.body ?? null;
+}
+
 /** The effect class skill `name` declares, or null. */
 export function effectsOf(name: string): EffectClass | null {
   return BY_NAME.get(name)?.effects ?? null;

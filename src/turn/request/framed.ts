@@ -296,6 +296,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     tempoText,
     inner: {
       myDay: own.myDayText ? [own.myDayText] : [],
+      calls: own.callsText ? [own.callsText] : [],
       intentions: own.intentionsText || null,
       errands: own.errandsText.list || null,
       feedback: feedbackOf(own.wakeText, diary),

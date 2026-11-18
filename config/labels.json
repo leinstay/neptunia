@@ -525,18 +525,29 @@
       "attendPeople": "people: {people}"
     },
     "myDay": {
-      "header": "What you did today ({date}), oldest first:",
-      "line": "[{time}] {action} in {place}",
-      "lineNoPlace": "[{time}] {action}",
-      "post": "you wrote a message",
-      "react": "you reacted to a message",
-      "gif": "you sent a GIF",
-      "skill": "you called {skill}",
-      "madeFor": "Today you made for {who}: {made}. They wrote to you {lines} times.",
-      "madeWeek": "In the last seven days you made for them: {made}.",
-      "madeItem": "{count} {kind}",
-      "madeJoin": ", ",
-      "kinds": {
+      "header": "Your day so far ({date}), oldest first:",
+      "headerSince": "Your days since your last diary entry ({date}, {time}), oldest first:",
+      "dropped": "{count} earlier events are not shown.",
+      "unnamed": "a place with no name",
+      "join": ", ",
+      "partsJoin": "; ",
+      "span": "{time} to {end}",
+      "conversation": "[{when}] you talked in {place}: {lines}, answering {people}",
+      "conversationAlone": "[{when}] you talked in {place}: {lines}",
+      "oneMessage": "one message of yours",
+      "messages": "{count} of your messages",
+      "peopleMore": "{people} and {more} more",
+      "madeFor": "[{time}] you made {thing} for {who}",
+      "madeOwn": "[{time}] you made {thing} of your own accord",
+      "things": {
+        "draw.create": "a picture",
+        "media.find": "a GIF search",
+        "voice.say": "a voice line",
+        "errand.server": "a server errand",
+        "errand.scout": "a scout errand",
+        "errand.code": "a code errand"
+      },
+      "thingsMany": {
         "draw.create": "pictures",
         "media.find": "GIF searches",
         "voice.say": "voice lines",
@@ -544,16 +555,32 @@
         "errand.scout": "scout errands",
         "errand.code": "code errands"
       },
-      "kindsOne": {
-        "draw.create": "picture",
-        "media.find": "GIF search",
-        "voice.say": "voice line",
-        "errand.server": "server errand",
-        "errand.scout": "scout errand",
-        "errand.code": "code errand"
-      },
-      "madeDay": "Made today in all because someone asked: {forOthers}. Made of your own accord: {own}."
+      "madeCount": "{count} {things}",
+      "madeTail": ", and made {made}",
+      "intention": "[{time}] you carried out your intention \"{purpose}\" in {places}",
+      "intentionDue": "[{time}] your intention \"{purpose}\" came due",
+      "intentionSilent": "[{time}] your intention \"{purpose}\" came due and nothing went out",
+      "heartbeat": "[{time}] your own time: {what}",
+      "heartbeatRead": "you read {places}",
+      "heartbeatSearched": "you searched the web for {queries}",
+      "heartbeatRecalled": "you looked in your memory for {queries}",
+      "query": "\"{query}\"",
+      "heartbeatSet": "you set the intention \"{purpose}\"",
+      "heartbeatSetHidden": "you set an intention",
+      "heartbeatNothing": "it ended with nothing set",
+      "diary": "[{time}] you wrote a diary entry of the kind {kind}",
+      "diaryNoKind": "[{time}] you wrote a diary entry"
     },
+    "calls": {
+      "header": "Your calls today ({date}), oldest first:",
+      "line": "[{time}] {action} in {place}",
+      "lineNoPlace": "[{time}] {action}",
+      "post": "you wrote a message",
+      "react": "you reacted to a message",
+      "gif": "you sent a GIF",
+      "skill": "you called {skill}"
+    },
+
     "previousThink": {
       "note": "This is your own reasoning from earlier, kept so you know what you were doing and why. Each piece stands under a line that says when you thought it. It may be out of date or wrong: the current messages and results win. Do not quote it, retell it or show it to anyone.",
       "earlier": "(an earlier turn here, {ago} ago)"

@@ -76,6 +76,10 @@ export type FrameTurnSpec = {
   turns?: number;
   /** Laid over the `diary` settings, which set `entries` and the planner's limits. */
   diary?: Record<string, unknown>;
+  /** Laid over the `context` settings, such as `myDay`. */
+  context?: Record<string, unknown>;
+  /** The moments of more lines of hers in the garden `c2`, written before the turn. */
+  gardenLines?: ReadonlyArray<number>;
   /** The writer's answer. */
   answer?: string;
   /** Prompt files laid over the turn's own, `appearance` for instance. */
@@ -159,6 +163,7 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
         meanwhile: { messages: 8, around: 2 },
         recall: { extractChars: 1200, maxItems: 6 },
         memory: { serviceMessages: 100, windowMessages: 100, maxHops: 2, budgetTokens: 10_000 },
+        ...spec.context,
       },
       llm: { maxRequestTokens: 100_000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
@@ -201,6 +206,15 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
     at: iso(FRAME_NOW - 3 * DAY),
   });
   seedEntries(memoryDb, spec.entries ?? 3, spec.entryGist);
+  for (const [index, at] of (spec.gardenLines ?? []).entries())
+    addLine(dbOf(memoryDb), {
+      id: `g-more-${index}`,
+      iface: 'fake',
+      place: 'fake:channel:c2',
+      author: 'self',
+      text: TEXT.ownGarden,
+      at: iso(at),
+    });
   const store = createStore({ dataDir, memoryDb });
   if (spec.emoji) store.nameMedia('fake', 'emoji', [{ nativeId: '7301', platformName: EMOJI_NAME, animated: false }]);
   if (spec.emoji === 'line')

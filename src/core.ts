@@ -1026,7 +1026,7 @@ async function buildCore(
     memoryReads: (args: Untyped) => memoryDb.recordTurnReads(args),
     // A diary post's stored facts, read through the one retrieval service under the diary's context.
     diaryFacts: (input: RetrievalInput) => memoryDb.retrieve(groupsContext(), input, { sources: false }),
-    journalDb: () => memoryDb.readHandle()?.db ?? null, // the journal's rows for <my_day>, while the database is open
+    journalDb: () => memoryDb.readHandle()?.db ?? null, // the records of <my_day> and <calls>, while the database is open
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec: Untyped) => memoryDb.issueContext({ iface: currentIface() ?? identity.iface, ...spec }),
     // Her attention, each lane mirrored as leases in the memory database (attention.ts).

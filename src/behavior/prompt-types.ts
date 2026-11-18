@@ -105,6 +105,7 @@ export type BuildRequestInput = {
     earlier?: ReadonlyArray<{ text: string; ageMs: number }>;
   } | null;
   myDay?: ReadonlyArray<string> | null;
+  calls?: ReadonlyArray<string> | null;
   callMarks?: ReadonlyArray<CallMark> | null;
   rules?: RequestInput['rules'];
   stableFreeze?: Map<string, Untyped> | null;
