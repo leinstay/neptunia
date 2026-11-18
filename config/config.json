@@ -121,8 +121,10 @@
       "minMinutes": 5
     },
     "myDay": {
-      "lines": 12,
-      "people": 3
+      "lines": 12
+    },
+    "calls": {
+      "lines": 12
     },
     "lessons": {
       "budgetTokens": 1200

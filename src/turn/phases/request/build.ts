@@ -156,22 +156,14 @@ function frameOfTurn(
   });
 }
 
-/** The person the turn answers, by the memory's account row of the trigger's author; null when it answers nobody. */
-function answeringPersonOf(ctx: Pick<PhaseContext, 'frameReads'>, frame: Frame): string | null {
-  const reads = ctx.frameReads;
-  const author = frame.answers?.authorId ?? null;
-  if (!reads || !author) return null;
-  const account = reads.account(frame.interface, author);
-  return account === null ? null : reads.person(account);
-}
-
 /**
- * What she did today under the turn's context, in the labels' words (`labels.myDay`), at most `context.myDay.lines`
- * read now; null on an inner turn, without a reader, a context or a positive number of lines, and on a failed read
- * (logged).
+ * Her day under the turn's context in the labels' words (`labels.myDay`, `labels.calls`): the bodies of `<my_day>`,
+ * at most `context.myDay.lines` events, and of `<calls>`, at most `context.calls.lines` calls, read now. The events
+ * start at her last diary entry when `sinceLastEntry`, else at the start of the day. Each is null when empty, and both
+ * without a reader or a context and on a failed read (logged).
  */
-function myDayLines(
-  ctx: Pick<PhaseContext, 'myDay' | 'turnContextOf'>,
+function dayParts(
+  ctx: Pick<PhaseContext, 'day' | 'turnContextOf'>,
   turn: {
     draft: Draft;
     channel: Prepared['channel'];
@@ -179,25 +171,28 @@ function myDayLines(
     prompts: Prepared['prompts'];
     now: number;
   },
-  answering: string | null
-): Array<string> | null {
+  sinceLastEntry: boolean
+): { myDay: Array<string> | null; calls: Array<string> | null } {
   const { draft, channel, config, prompts, now } = turn;
   const settings = config.context;
-  const lines = settings?.myDay?.lines;
   const memoryContext = ctx.turnContextOf(draft, channel);
-  if (!ctx.myDay || !memoryContext || typeof lines !== 'number' || lines <= 0) return null;
+  if (!ctx.day || !memoryContext) return { myDay: null, calls: null };
   const labels = prompts?.labels;
   try {
-    const listed = ctx.myDay(memoryContext, now, String(config.bot?.timezone ?? 'UTC'), {
-      lines,
-      labels: (labels?.myDay as Readonly<Record<string, unknown>> | undefined) ?? null,
-      answering,
-      people: typeof settings?.myDay?.people === 'number' ? settings.myDay.people : 3,
+    const day = ctx.day(memoryContext, now, String(config.bot?.timezone ?? 'UTC'), {
+      events: settings?.myDay?.lines ?? 0,
+      calls: settings?.calls?.lines ?? 0,
+      sinceLastEntry,
+      labels: {
+        myDay: (labels?.myDay as Readonly<Record<string, unknown>> | undefined) ?? null,
+        calls: (labels?.calls as Readonly<Record<string, unknown>> | undefined) ?? null,
+        locale: typeof labels?.locale === 'string' ? labels.locale : undefined,
+      },
     });
-    return listed.length > 0 ? listed : null;
+    return { myDay: day.events.length > 0 ? day.events : null, calls: day.calls.length > 0 ? day.calls : null };
   } catch (error) {
     log.warn('turn: my day not read', { channel: channel.id, error });
-    return null;
+    return { myDay: null, calls: null };
   }
 }
 
@@ -971,7 +966,8 @@ export function plannerRequest(
       // The owner's rules, read now: the diary's system message carries them as a turn's does.
       rules: ctx.store.liveRules(),
       stableFreeze: null,
-      myDay: myDayLines(ctx, { draft, channel, config, prompts, now }, null),
+      // `<my_day>` since her last entry and `<calls>` of today (context.myDay.lines, context.calls.lines, read now).
+      ...dayParts(ctx, { draft, channel, config, prompts, now }, true),
       whereabouts: whereaboutsOfFrame(frame),
       ...framed,
       ...namesInputOf(ctx.frameReads, ctx.store, frame.interface),
@@ -1192,8 +1188,8 @@ export async function buildTurnRequest(
     wakeKind,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
     previousThink: earlierThinkFor({ channel, isDm, draft, mode: finalMode }),
-    // `<my_day>`: what she did today, read under this turn's context (context.myDay.lines, read now).
-    myDay: myDayLines(ctx, { draft, channel, config, prompts, now }, answeringPersonOf(ctx, frame)),
+    // `<my_day>` and `<calls>`: her day under this turn's context, a diary post's since her last entry.
+    ...dayParts(ctx, { draft, channel, config, prompts, now }, finalMode === 'diary'),
     // Her call marks, put among the lines of `<chat>` by time.
     callMarks,
     // The owner's rules, read now (src/memory/store-rules.ts).

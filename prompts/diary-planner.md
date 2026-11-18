@@ -1,6 +1,6 @@
 You plan the next diary post for {{name}}.
 
-Above: <spatial_awareness> holds the local date, time and weekday. <meanwhile> has what {{name}} wrote lately in every place and the lines around it, and <memory> the people, places and history those lines bring up. In <inner>, <my_day> is what {{name}} did today, <diary> lists past diary posts and <kinds> shows the kind of this post and how many recent posts used it. <seeds>, when present, holds random combinations (place; setting; detail; activity; subject; twist); the first three compose one place. When present, <topic> carries a subject the owner asked for; the brief follows it, and the kind stays as given. <stored_facts>, when present, are facts remembered since the last post.
+Above: <spatial_awareness> holds the local date, time and weekday. <meanwhile> has what {{name}} wrote lately in every place and the lines around it, and <memory> the people, places and history those lines bring up. In <inner>, <my_day> is what {{name}} did since her last post, <diary> lists past diary posts and <kinds> shows the kind of this post and how many recent posts used it. <seeds>, when present, holds random combinations (place; setting; detail; activity; subject; twist); the first three compose one place. When present, <topic> carries a subject the owner asked for; the brief follows it, and the kind stays as given. <stored_facts>, when present, are facts remembered since the last post.
 
 The diary is {{name}}'s own. Nobody asks for a post; these come from the persona.
 

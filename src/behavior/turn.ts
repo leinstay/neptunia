@@ -28,8 +28,8 @@ import type { Lane } from '../turn/triggers.ts';
 import { lookupClassifierInput } from '../turn/lookup-input.ts';
 import { mentionDirectory, pickOtherProfiles, resolveMentions, untaggedNote } from '../turn/mentions.ts';
 import { continuationHistory } from '../turn/history.ts';
-import { myDayOf } from '../turn/request/my-day.ts';
-import type { JournalReader, MyDayReader } from '../turn/request/my-day.ts';
+import { dayOf } from '../turn/request/my-day.ts';
+import type { DayReader, JournalReader } from '../turn/request/my-day.ts';
 import { placeToken } from '../turn/request/text.ts';
 import { placeChainInDb } from '../memory/db/place-tree.ts';
 import { createAct } from '../turn/act.ts';
@@ -319,7 +319,7 @@ export function createTurnRunner({
   // The memory rows a request carried (src/memory/db/service.js#recordTurnReads) and a turn's execution context (#issueContext, `(spec) => ctx`); null: none.
   memoryReads = null,
   diaryFacts = null,
-  // The memory's read handle while it is open, for `<my_day>` (src/turn/request/my-day.ts); null: no block.
+  // The memory's read handle while it is open, for `<my_day>` and `<calls>` (src/turn/request/my-day.ts); null: no block.
   journalDb = null,
   ownerAccount = null,
   personLinks = null,
@@ -333,14 +333,14 @@ export function createTurnRunner({
   noteProgress = () => {},
 }: CreateTurnRunnerInput): TurnRunner {
   const ifaceReads: Reads = readsDep;
-  // What she did today under a turn's context, read from the journal's rows; `[]` while the database is closed.
-  const myDay: MyDayReader | null = journalDb
+  // Her day under a turn's context, read from the memory's records; empty while the database is closed.
+  const day: DayReader | null = journalDb
     ? (context, now, timezone, options) => {
         const db = journalDb() as JournalReader | null;
-        if (!db) return [];
+        if (!db) return { events: [], calls: [] };
         // A place with a stored name is a place token the request builder names (src/turn/request/text.ts#placeToken).
         const placed = (id: string): string | null => (placeChainInDb(db, id)[0]?.name ? placeToken(id) : null);
-        return myDayOf(db, context, placed, now, timezone, options);
+        return dayOf(db, context, placed, now, timezone, options);
       }
     : null;
   // The reads of a framed request beside her day: the graph reader, her lines elsewhere, a line by its identity.
@@ -712,7 +712,7 @@ export function createTurnRunner({
     skills,
     ...{ activeSkills, recordSkillUses },
     memoryReads,
-    myDay,
+    day,
     frameReads,
     ownerAccount: ownerAccount ?? ((placeId: string) => frameReads?.ownerAccount?.(placeId) ?? null),
     lookupRing,

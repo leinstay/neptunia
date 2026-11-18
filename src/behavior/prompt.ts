@@ -166,6 +166,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     wakeKind: input.wakeKind,
     previousThink: input.previousThink,
     myDay: input.myDay,
+    calls: input.calls,
     callMarks: input.callMarks,
     rules: input.rules,
     stableFreeze: input.stableFreeze,

@@ -116,6 +116,7 @@ export type Labels = {
   readonly elsewhere?: LabelGroup;
   readonly previousThink?: LabelGroup;
   readonly myDay?: { readonly [key: string]: string | Readonly<Record<string, string>> };
+  readonly calls?: LabelGroup;
   readonly draw?: LabelGroup;
   readonly spatial?: SpatialLabels;
   readonly memory?: MemoryLabels;
@@ -410,8 +411,10 @@ export type RequestInput = {
   readonly awake?: string | null;
   readonly wakeKind?: string | null;
   readonly previousThink?: PreviousThink | null;
-  /** What she did today, one line each (src/turn/request/my-day.ts#myDayOf): the body of `<my_day>`. */
+  /** Her day as events, its header first (src/turn/request/my-day.ts#dayOf): the body of `<my_day>`. */
   readonly myDay?: ReadonlyArray<string> | null;
+  /** Her calls of today, their header first (src/turn/request/my-day.ts#dayOf): the body of `<calls>`. */
+  readonly calls?: ReadonlyArray<string> | null;
   /** The owner's live rules (src/memory/store-rules.ts), listed under the rules prompt in the system message. */
   readonly rules?: ReadonlyArray<{ text: string }>;
   /** Her call marks (src/turn/journal-notes.ts#callMarksOf), put among the lines of `<chat>` by time. */

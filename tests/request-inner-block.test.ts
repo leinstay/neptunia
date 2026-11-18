@@ -1,6 +1,6 @@
 // src/turn/request/inner-block.ts: `<inner>`, her own state that lasts between turns (plan 2026-11-06-turn-frame,
 // slice 4 (a)). Contract:
-//   innerBlockOf({ myDay: Array<string>, intentions: string | null, errands: string | null, feedback: string | null,
+//   innerBlockOf({ myDay: Array<string>, calls: Array<string>, intentions: string | null, errands: string | null, feedback: string | null,
 //     previousThink: { text; ageMs?: number } | null }, labels: Labels,
 //     resolveRef: (text: string) => string): string
 // Every stored text in it passes through `resolveRef` (src/turn/request/refs.ts), so a line's identity never reaches
@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { innerBlockOf } from '../src/turn/request/inner-block.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 
-const EMPTY = { myDay: [], intentions: null, errands: null, feedback: null, previousThink: null };
+const EMPTY = { myDay: [], calls: [], intentions: null, errands: null, feedback: null, previousThink: null };
 const resolveRef = (text: string): string => text.replaceAll('src:fake:m77:1', '#12');
 
 test('an intention renders through resolveRef, with no identity left raw', () => {
