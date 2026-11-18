@@ -111,3 +111,102 @@ test('nothing runs while paused', async () => {
   await keeper.keep(PLACE, message);
   assert.deepEqual(described, []);
 });
+
+// The start-up pass over a library with dead links (report 2026-11-18-gif-vectors): an entry whose file cannot be fetched
+// still gets its vector, the pass's budget of 50 counts work done, and a failed file waits before it is fetched again.
+const MINUTE = 60_000;
+
+type Kind = 'dead-vector' | 'dead-bare' | 'live-bare';
+
+/** One library entry of `kind` per id, ranked as the keeper ranks them on production: dead entries with a vector seen
+ *  twice and later, the rest once and earlier. Each has its description in the cache; `dead-vector` also has its vector. */
+function library(kinds: Array<[string, Kind]>) {
+  const fetched: Array<string> = [];
+  const embedded: Array<string> = [];
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
+  const urlOf = (id: string) => `https://cdn.example/${id}.gif`;
+  const dead = new Set(kinds.filter(([, kind]) => kind !== 'live-bare').map(([id]) => urlOf(id)));
+  kinds.forEach(([id, kind], index) => {
+    const ts = kind === 'dead-vector' ? T0 + index * MINUTE : T0 - 30 * 24 * 60 * MINUTE + index * MINUTE;
+    const message = (n: number) => ({
+      id: `m-${id}-${n}`,
+      placeId: PLACE,
+      ts: ts + n,
+      links: [],
+      attachments: [{ id, kind: 'gif', name: `${id}.gif`, url: urlOf(id), contentType: 'image/gif' }],
+    });
+    store.recordGifs(PLACE, kind === 'dead-vector' ? [message(0), message(1)] : [message(0)]);
+    store.putMediaEntry(PLACE, id, { text: `about ${id}`, ts: T0 });
+    if (kind === 'dead-vector') store.setGifDescribed(id, { description: `about ${id}`, vector: [0.6, 0.8] });
+  });
+  /** A new start of the engine at `at`: a fresh keeper over the same store. */
+  const start = (at: number) =>
+    createGifKeeper({
+      store,
+      dataDir: dir,
+      now: () => at,
+      fetchBytes: (url: string): Promise<GifBytes> => {
+        fetched.push(url);
+        if (dead.has(url)) return Promise.reject(new Error('http-404'));
+        return Promise.resolve({ bytes: new Uint8Array([...BYTES, ...Buffer.from(url)]), contentType: 'image/gif' });
+      },
+      embed: (text: string) => {
+        embedded.push(text);
+        return Promise.resolve(new Float32Array([0.6, 0.8]));
+      },
+      log: SILENT,
+    });
+  const lacking = () => kinds.filter(([id]) => !store.getGifVectors().has(id)).map(([id]) => id);
+  return { store, start, fetched, embedded, lacking, urlOf };
+}
+
+const many = (prefix: string, count: number, kind: Kind): Array<[string, Kind]> =>
+  Array.from({ length: count }, (_, n): [string, Kind] => [`${prefix}${n}`, kind]);
+
+test('settle gives a vector to an entry with a dead file when fifty dead entries with vectors rank above it', async () => {
+  const { start, lacking } = library([...many('dv', 50, 'dead-vector'), ['bare', 'dead-bare']]);
+  await start(T0).settle(PLACE);
+  assert.deepEqual(lacking(), []);
+});
+
+test('settle fetches the file of an entry that has its vector and no file', async () => {
+  const { store, start, fetched, urlOf } = library([['lv', 'live-bare']]);
+  store.setGifDescribed('lv', { description: 'about lv', vector: [0.6, 0.8] });
+  await start(T0).settle(PLACE);
+  assert.deepEqual(fetched, [urlOf('lv')]);
+  assert.ok(Object.values(store.getGifs().entries)[0].file);
+});
+
+test('repeated starts give every entry its vector over a library larger than the budget, never past it in one start', async () => {
+  const kinds = [...many('dv', 60, 'dead-vector'), ...many('db', 40, 'dead-bare'), ...many('lb', 30, 'live-bare')];
+  const { start, fetched, embedded, lacking } = library(kinds);
+  for (let run = 0; run < 6; run += 1) {
+    fetched.length = 0;
+    embedded.length = 0;
+    await start(T0 + run * MINUTE).settle(PLACE);
+    const worked = new Set([
+      ...fetched.map((url) => url.replace(/^.*\/|\.gif$/g, '')),
+      ...embedded.map((text) => text.slice(6)),
+    ]);
+    assert.ok(worked.size <= 50, `start ${run} worked on ${worked.size} entries`);
+  }
+  assert.deepEqual(lacking(), []);
+});
+
+test('a start soon after a failed download does not fetch that file again', async () => {
+  const { start, fetched, urlOf } = library([['dead', 'dead-bare']]);
+  await start(T0).settle(PLACE);
+  assert.deepEqual(fetched, [urlOf('dead')]);
+  fetched.length = 0;
+  await start(T0 + 60 * MINUTE).settle(PLACE);
+  assert.deepEqual(fetched, []);
+});
+
+test('a start long after a failed download fetches that file again', async () => {
+  const { start, fetched, urlOf } = library([['dead', 'dead-bare']]);
+  await start(T0).settle(PLACE);
+  fetched.length = 0;
+  await start(T0 + 30 * 24 * 60 * MINUTE).settle(PLACE);
+  assert.deepEqual(fetched, [urlOf('dead')]);
+});
