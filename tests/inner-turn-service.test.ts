@@ -171,6 +171,30 @@ test('a tool that takes a place is refused in a heartbeat with no chat when she 
   assert.ok(code !== undefined && code !== '' && code !== 'ok', action);
 });
 
+test('a heartbeat reads the direct chat of a person she names by handle', async () => {
+  // Bug: the read with `person` counts as naming no place and is refused PLACE_REQUIRED in a turn with no place,
+  // though the same chat read by its place handle passes.
+  const run = await serviceTurn({
+    wake: serviceWake('heartbeat'),
+    answers: [toolAnswer(THINK, [call('conversation.read', { person: `@${handleOf(ZOE)}`, last: 5 })]), '<skip/>'],
+    chat: null,
+  });
+  assert.equal(run.actions[0], 'conversation.read:executed:ok');
+  assert.ok((run.requests[1] ?? '').includes(TEXT.ownPrivate), 'the line of her direct chat');
+});
+
+test('a heartbeat read of a person with no direct chat answers PLACE_NOT_FOUND', async () => {
+  // Bug: the person read is refused PLACE_REQUIRED before it looks for the person's direct chat.
+  const run = await serviceTurn({
+    wake: serviceWake('heartbeat'),
+    answers: [toolAnswer(THINK, [call('conversation.read', { person: `@${handleOf(NIKOS)}`, last: 5 })]), '<skip/>'],
+    chat: null,
+    world: heartbeatWorld(),
+  });
+  const [action = ''] = run.actions;
+  assert.equal(action.split(':')[2], 'PLACE_NOT_FOUND', action);
+});
+
 test('a <msg> in a heartbeat carries heartbeat-only', async () => {
   // Bug: a message with no destination goes to a stand-in or to the room the wake rode on.
   // Changed: the expectation was destination-required. The heartbeat's own limit answers before a tag's refusal, so a
