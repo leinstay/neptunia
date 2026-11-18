@@ -185,6 +185,8 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     '  drawing: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
     '  linter: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     '  editor: perplexity/sonar-x -> llm.provider (ignore some-provider, fallbacks: on)',
+    // Changed: the diary's role `director` joins the routing, and with no route it reads the analyzer's chain.
+    '  director: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
     // Changed: the role `search` is gone from the routing, and the fixture gives its chain to `editor`.
     // Changed: the section lists every role the routing knows (src/llm/route-text.ts#ROUTE_ROLES), so memory and
     // the humanizer's roles get a line, each with its model read the way its requests read it.
