@@ -16,7 +16,6 @@ import {
   isModelRole,
   roleModel,
   roleOn,
-  searchModel,
   OPTIONAL_ROLES,
   offRoles,
 } from '../src/llm/roles.ts';
@@ -270,18 +269,25 @@ test('call sites: every request role is one of the roles, every purpose goes out
       pairs += 1;
     }
   }
-  // Changed: quick search's two requests name SEARCH_ROLE, which this pattern does not read, so two sites count less.
   assert.ok(pairs >= 28, `found ${pairs} role/purpose pairs`);
 });
 
-test('quick search takes the model of the first route of its chain, and web.quickSearch.model is not read', () => {
-  // Catches: quick search answering with the retired setting's model after its chain was set, or with no chain.
+test('quick search takes the analyzer model, and neither web.quickSearch.model nor a search chain is read', () => {
+  // Changed: quick search has no chain of its own, so its purposes resolve on the analyzer.
+  // Catches: quick search answering with a retired setting's model, or with no model while the analyzer has one.
   const config = {
-    models: { routes: { search: [{ via: 'api', key: 'helpers', model: 'perplexity/sonar-pro' }] } },
+    models: {
+      routes: {
+        analyzer: [{ via: 'api', key: 'helpers', model: 'x/analyzer' }],
+        search: [{ via: 'api', key: 'helpers', model: 'perplexity/sonar-pro' }],
+      },
+    },
     web: { quickSearch: { model: 'perplexity/sonar' } },
   };
-  assert.equal(searchModel(config), 'perplexity/sonar-pro');
-  assert.equal(searchModel({ web: { quickSearch: { model: 'perplexity/sonar' } } }), undefined);
+  for (const purpose of ['search-summary', 'quick-search']) {
+    assert.equal(PURPOSE_ROLES[purpose as keyof typeof PURPOSE_ROLES], 'analyzer', purpose);
+    assert.equal(roleModel(config, 'analyzer', purpose), 'x/analyzer', purpose);
+  }
 });
 
 // Tests for the on and off state of the optional model roles (src/llm/roles.ts#roleOn and #offRoles, the

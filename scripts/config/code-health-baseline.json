@@ -925,7 +925,7 @@
       "repeated": 0
     },
     "tests/summary-builder.test.ts": {
-      "deep": 5,
+      "deep": 3,
       "repeated": 0
     },
     "tests/text-preview.test.ts": {
@@ -1611,7 +1611,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 492
+        "function-length": 488
       }
     },
     "src/web/readable.ts": {

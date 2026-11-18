@@ -104,14 +104,15 @@ test('/config check names an unknown key and a key of the wrong type, and fails'
 });
 
 test('/config check names a chain and a provider route of a model role that does not exist, and fails', async () => {
-  // Catches: a chain under the retired role `humanizer.linter` or a provider route `<model>@humanizer.writer` sits in
-  // a map the schema leaves free, so the check passes a route that no request reads.
+  // Catches: a chain under the retired role `humanizer.linter` or a provider route `<model>@humanizer.writer` or
+  // `<model>@search` sits in a map the schema leaves free, so the check passes a route that no request reads.
   const chain = [{ via: 'api', key: 'k', model: 'x/m', effort: null }];
   const local = {
     models: { routes: { 'humanizer.linter': chain, linter: chain, editor: chain } },
     llm: {
       providerByModel: {
         'x/@humanizer.writer': { only: ['p'] },
+        'x/@search': { only: ['p'] },
         'x/@editor': { only: ['p'] },
         'x/': { only: ['p'] },
       },
@@ -122,6 +123,7 @@ test('/config check names a chain and a provider route of a model role that does
   assert.deepEqual(answer.text.split('\n'), [
     'models.routes.humanizer.linter: unknown key',
     'llm.providerByModel.x/@humanizer.writer: unknown key',
+    'llm.providerByModel.x/@search: unknown key',
   ]);
 });
 

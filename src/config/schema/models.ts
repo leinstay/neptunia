@@ -9,7 +9,7 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/llm/embed.ts',
     'default': {},
     'text':
-      "Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `diary-planner`, `planner`, `summarize`, `web-search`, the `video` purposes `watch`, `gif`, `voice` and `rewatch`, and the like). A match on purpose wins over the role's model. Not probed by the status card",
+      "Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `search-summary`, `quick-search`, `diary-planner`, `planner`, `summarize`, `web-search`, the `video` purposes `watch`, `gif`, `voice` and `rewatch`, and the like). A match on purpose wins over the role's model. Not probed by the status card",
   },
   {
     'key': 'models.abilities',
@@ -77,6 +77,6 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/llm/route-chain.ts',
     'default': {},
     'text':
-      'The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `search`, `linter`, `editor`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role\'s model is the model of its first route. A role with no entry has no route, and an optional role with no entry or an empty array is off. `/model set`, `/model add` and `/model remove` write it',
+      'The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `linter`, `editor`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role\'s model is the model of its first route. A role with no entry has no route, and an optional role with no entry or an empty array is off. `/model set`, `/model add` and `/model remove` write it',
   },
 ];

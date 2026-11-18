@@ -1,6 +1,6 @@
 // The `routes` check of `neptunia doctor`: every part of Neptunia checked for real on every route of its chain
 // (src/llm/route-chain.ts), and every connection that is set up but used by nothing. A route on a key (`core`,
-// `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech` and quick search on `openrouter`) gets one minimal
+// `memory`, `analyzer`, `vision`, `video`, `embedding` and `speech`) gets one minimal
 // request of `checkRole` (src/keys/check.ts) on that key with that model. One model on one key is asked once. `drawing`
 // is named and never asked, since one request bills a picture. A route or an agent on a harness gets the vendor's own
 // status command (`sourceState`, src/subharness/sources.ts). A key no route uses gets the free read of its record
@@ -19,7 +19,7 @@ import { createKeyStore } from '../keys/store.ts';
 import { routesOf } from '../llm/route-chain.ts';
 import { ignoredEffort } from '../llm/route-text.ts';
 import type { RouteRole } from '../llm/route-text.ts';
-import { roleModel, searchModel } from '../llm/roles.ts';
+import { roleModel } from '../llm/roles.ts';
 import { routeName } from '../subharness/route-names.ts';
 import { readRouting } from '../subharness/routing.ts';
 import { availableSources, sourceProblem, sourceState } from '../subharness/sources.ts';
@@ -99,7 +99,7 @@ async function onKey(run: Run, part: string, role: string, model: string, keyNam
 /** One line per route of the chain of `role`; a role whose every route failed keeps its badness, else it warns. */
 async function chainLines(run: Run, role: RouteRole): Promise<Array<Line>> {
   const chain = routesOf(run.deps.config, role);
-  const model = role === 'search' ? searchModel(run.deps.config) : roleModel(run.deps.config, role);
+  const model = roleModel(run.deps.config, role);
   if (chain.length === 0)
     return [
       model === undefined || model === ''
@@ -137,8 +137,12 @@ function ignoredLines(run: Run, role: RouteRole): Array<Line> {
 
 function searchLines(run: Run): Promise<Array<Line>> {
   const engine = text(rec(rec(rec(run.deps.config).web).quickSearch).engine);
-  if (engine === 'openrouter') return chainLines(run, 'search');
-  const said = engine === '' ? 'off' : `${engine} · not asked: its service key is its own`;
+  const said =
+    engine === ''
+      ? 'off'
+      : engine === 'openrouter'
+        ? `${engine} · on the analyzer's routes, checked above`
+        : `${engine} · not asked: its service key is its own`;
   return Promise.resolve([{ text: `search: ${said}`, bad: null }]);
 }
 

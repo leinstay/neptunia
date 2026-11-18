@@ -3,6 +3,7 @@
 // the operation's `ctx` as the command context.
 
 import { IMAGE_ROLE } from '../../llm/images.ts';
+import { roleModel } from '../../llm/roles.ts';
 import { ROUTE_ROLES } from '../../llm/route-text.ts';
 import { matchRoute } from '../../llm/openrouter.ts';
 import {
@@ -11,7 +12,6 @@ import {
   reloadNote,
   readLocalConfig,
   PROVIDER_SLUG_RE,
-  modelForRole,
   describeProviders,
   fallbacksText,
   byokText,
@@ -61,7 +61,7 @@ const handlers = perEnv((env) => {
 
   /** One by-role line of `route.list`: the model and the routing it gets now. */
   function routeRoleLine(role: string, cfg: Untyped, byModel: Obj): string {
-    const model = modelForRole(role, cfg);
+    const model = roleModel(cfg, role);
     if (!model) return `  ${role}: (no model configured)`;
     const match = matchRoute(model, byModel, role);
     const fallbackName = role === IMAGE_ROLE ? 'image.provider' : 'llm.provider';
