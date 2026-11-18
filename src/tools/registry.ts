@@ -208,6 +208,19 @@ function textOf(texts: unknown, name: string, key: string): string {
 }
 
 /**
+ * The skills layer (`texts`: `hot.prompts.tools`) as `context.memory.openPrivate` reads it: each entry's
+ * `whenToUseOpen` laid over its `whenToUse` and the key itself dropped. The callers apply it only with the setting on.
+ */
+export function openToolTexts(texts: unknown): unknown {
+  return Object.fromEntries(
+    Object.entries(objOf(texts)).map(([name, entry]) => {
+      const { whenToUseOpen, ...rest } = objOf(entry);
+      return [name, typeof whenToUseOpen === 'string' ? { ...rest, whenToUse: whenToUseOpen } : rest];
+    })
+  );
+}
+
+/**
  * `skill` with its wording from the skills layer (`texts`: `hot.prompts.tools`, read by the
  * caller at the moment of use): `title`, `whenToUse`, `whenNotToUse`, each '' when missing.
  */

@@ -437,7 +437,8 @@
   },
   "intention.list": {
     "title": "List intentions",
-    "whenToUse": "Reads your open intentions with their ids, states, times, repeats and places. An intention made in a private chat is listed wherever you remember that chat.\nUSE FOR: the ids of your intentions, or the whole list.\nRULES:\n- Your open intentions already show in your request.",
+    "whenToUse": "Reads your open intentions with their ids, states, times, repeats and places. In a private chat it lists only that chat's.\nUSE FOR: the ids of your intentions, or the whole list.\nRULES:\n- Your open intentions already show in your request.",
+    "whenToUseOpen": "Reads your open intentions with their ids, states, times, repeats and places. It lists those of every chat, a private chat's included.\nUSE FOR: the ids of your intentions, or the whole list.\nRULES:\n- Your open intentions already show in your request.",
     "whenNotToUse": "DO NOT USE FOR (use these instead):\n- A change to one -> intention.update"
   },
   "places.list": {

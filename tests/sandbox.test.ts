@@ -1968,3 +1968,21 @@ test('answerSkillScenario drops the fragment of a message cut at the output cap'
   assert.deepEqual(answer.messages, []);
   assert.equal(answer.skip, true);
 });
+
+test('sandboxToolset: a tool with an open wording describes itself by it when context.memory.openPrivate is on, else by its closed one', () => {
+  const toolsOf = (openPrivate: boolean): string => {
+    const config: unknown = sandbox.personaGrantsConfig(
+      { ...fakeHot().config, context: { memory: { openPrivate } } },
+      SELF_ID,
+      ['intention.list']
+    );
+    const tools = { 'intention.list': { title: 'T', whenToUse: 'CLOSED_TEXT', whenToUseOpen: 'OPEN_TEXT' } };
+    const view = liveView({ hot: { config, prompts: { tools } }, store: fakeStore(), placeId: 'g1' });
+    return JSON.stringify(sandbox.sandboxToolset({ view, selfId: SELF_ID }).tools);
+  };
+  const open = toolsOf(true);
+  const closed = toolsOf(false);
+  assert.ok(open.includes('OPEN_TEXT') && !open.includes('CLOSED_TEXT'));
+  assert.ok(closed.includes('CLOSED_TEXT') && !closed.includes('OPEN_TEXT'));
+  assert.ok(!open.includes('whenToUseOpen') && !closed.includes('whenToUseOpen'));
+});

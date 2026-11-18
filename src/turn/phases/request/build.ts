@@ -4,6 +4,8 @@
 // it, the diary planner's request on the same frame (`plannerRequest`), which the setup step hands the plan.
 
 import { accountOf, personOfMember, placeOfChat } from '../../../memory/addresses.ts';
+import { opensPrivate } from '../../../memory/open-private.ts';
+import { openToolTexts } from '../../../tools/registry.ts';
 import { reactorIdsOf } from '../../../format.ts';
 import { handleOf } from '../../../behavior/handles.ts';
 import type { InterfaceNames } from '../../../protocol/serve.ts';
@@ -1062,7 +1064,7 @@ export async function buildTurnRequest(
     toolNames.filter((name) => name !== READ_TOOL),
     {
       registry,
-      texts: prompts?.tools,
+      texts: opensPrivate(config) ? openToolTexts(prompts?.tools) : prompts?.tools,
       skills: offered,
       procedure: procedureSentence(prompts?.labels),
     }
