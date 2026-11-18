@@ -12,7 +12,8 @@
 // Pure; the texts are `hot.prompts.tools`, read by the caller at the moment of use.
 
 import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn } from './access.ts';
-import { describeSkill, skillNames } from './registry.ts';
+import { describeSkill, openToolTexts, skillNames } from './registry.ts';
+import { opensPrivate } from '../memory/open-private.ts';
 import { CODE } from './codes.ts';
 import { objOf } from './types.ts';
 import { roleOn } from '../llm/roles.ts';
@@ -361,7 +362,7 @@ export function describeRows({
   const granted = new Set(grantedSkillNames({ config, selfId, registry }));
   const skills = [...(registry as ReadonlyMap<string, Skill>).values()];
   const row = (skill: Skill, withArgs: boolean): DescribedRow => ({
-    ...describeSkill(skill, texts),
+    ...describeSkill(skill, opensPrivate(config) ? openToolTexts(texts) : texts),
     args: withArgs ? skillArgs(skill) : [],
     allowed: true,
     reason: granted.has(skill.name) ? 'allowed' : 'not-allowed',

@@ -94,7 +94,8 @@ import { exposedSkillNames, proposalVerdicts, proposedRows } from '../tools/disc
 import { outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
 import { coerceArgs, toolResultText, transportOf } from '../tools/tool-calls.ts';
 import { buildTools } from '../tools/tools-json.ts';
-import { skillRegistry } from '../tools/registry.ts';
+import { openToolTexts, skillRegistry } from '../tools/registry.ts';
+import { opensPrivate } from '../memory/open-private.ts';
 import { toolsBlockText } from '../llm/tool-text.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
@@ -889,10 +890,8 @@ export function sandboxToolset({
   const config = view.config;
   const transport = transportOf(config);
   const names = exposedSkillNames({ config, selfId, registry });
-  const tools = buildTools(names, {
-    registry,
-    texts: view.prompts?.tools,
-  });
+  const texts: unknown = view.prompts?.tools;
+  const tools = buildTools(names, { registry, texts: opensPrivate(config) ? openToolTexts(texts) : texts });
   const calibrator = view.calibrator ?? IDENTITY_CALIBRATOR;
   const block = transport === 'text' && tools.length > 0 ? toolsBlockText(tools, view.prompts?.labels) : null;
   const tokens = transport === 'native' && tools.length > 0 ? estimateTools(tools) : 0;
