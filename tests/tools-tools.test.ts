@@ -772,6 +772,22 @@ test('runMediaLook url: a video link has the turn cap the message looks have, th
   assert.deepEqual(await run({ describer: fakeDescriber({ answer: null }) }), ['failed', 'error']);
 });
 
+// The owner on 2026-11-18: a second look the provider cut twice tells her why instead of handing her half an answer.
+test('runMediaLook: a second look that came back failed "filter" is the error failure with the reason "filter"', async () => {
+  const describer = {
+    relookImage: (placeId: string, item: Untyped, question: string) => Promise.resolve({ question, failed: 'filter' }),
+  };
+  const result = await runMediaLook({
+    describer,
+    config: LOOK_ON,
+    labels,
+    placeId: 'g1',
+    args: { message: 'm7', question: 'τι γράφει;' },
+    mediaOf: (id: string) => (id === 'm7' ? mediaMessage() : null),
+  } as unknown as Parameters<typeof runMediaLook>[0]);
+  assert.deepEqual([result.status, result.code, result.reason], ['failed', 'error', 'filter']);
+});
+
 test('runMediaLook: a placeholder of a deleted message is refused as unknown-message with the reason message-deleted', async () => {
   const result = await runMediaLook({
     describer: {},

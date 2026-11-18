@@ -1482,6 +1482,29 @@ test('formatTranscript: a GIF whose watch failed renders transcript.gifNotWatche
   assert.ok(text.endsWith('<gif anim.gif missed: could not download>'), text);
 });
 
+// The owner on 2026-11-18: a picture that could not be seen shows it, with its reason worded by transcript.videoReason.
+test('formatTranscript: a picture whose description failed renders transcript.imageNotSeen with its reason in words', () => {
+  const standIn = {
+    ...labels,
+    transcript: {
+      ...labels.transcript,
+      imageNotSeen: '<image unseen: {reason}>',
+      videoReason: { ...labels.transcript.videoReason, filter: 'stopped by a filter' },
+    },
+  };
+  const message = msg('m1', GIF_T, { content: '', attachments: [{ id: 'p1', kind: 'image', name: 'p.png' }] });
+  const [{ text }] = formatTranscript([message], {
+    mediaNameOf: noMediaNames,
+    timezone: TZ,
+    gapMinutes: 20,
+    maxChars: 800,
+    selfName: 'Nept',
+    labels: standIn,
+    videos: new Map([['p1', { state: 'error', reason: 'filter' }]]),
+  });
+  assert.ok(text.endsWith('<image unseen: stopped by a filter>'), text);
+});
+
 // --- the turn trigger of the persona's own lines -------------------------
 
 test('formatTranscript: a plain line of the persona names the message that started its turn', () => {

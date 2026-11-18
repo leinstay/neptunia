@@ -3622,3 +3622,204 @@ test('describe: a GIF longer than the watching limit is told the clip length and
   await run.describer.describe('g1', gifEmbedItem());
   assert.equal(systemOf(run.llm), 'Loop of 15 s.\n\nCUT 15 OF 42.5');
 });
+
+// --- an answer the provider cut short is no description -------------------------------
+
+// The owner on 2026-11-18: an answer whose finish reason is not a normal stop is asked once more; a second cut is a
+// miss with `filter` (the content filter) or `cut` (the output cap or any other abnormal finish).
+type Answer = { text: string; finishReason: string; nativeFinishReason?: string };
+const FILTERED: Answer = {
+  text: 'A woman holds a sign that',
+  finishReason: 'content_filter',
+  nativeFinishReason: 'PROHIBITED_CONTENT',
+};
+const CAPPED: Answer = { text: 'Three cats on a roof, the second', finishReason: 'length' };
+const whole = (text: string): Answer => ({ text, finishReason: 'stop' });
+
+test('describe: a picture answer the filter cut is asked once more and the second, whole answer is stored', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm([FILTERED, whole('A grey cat on a couch.')]);
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
+  const result = await describer.describe('g1', pictureItem('a1'));
+  const [first, second] = llm.calls;
+  assert.equal(llm.calls.length, 2);
+  assert.deepEqual(second.messages, first.messages, 'the same request');
+  assert.equal(loose(result).text, 'A grey cat on a couch.');
+  assert.equal(loose(cacheView(store, 'g1')).a1.text, 'A grey cat on a couch.');
+});
+
+test('describe: a picture answer the filter cut twice is a miss with reason "filter" and no third request', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm([FILTERED, FILTERED, whole('never asked')]);
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
+  assert.equal(await describer.describe('g1', pictureItem('a1')), null);
+  assert.equal(llm.calls.length, 2);
+  const entry = loose(cacheView(store, 'g1')).a1;
+  assert.deepEqual([entry.miss, entry.reason, entry.text], [true, 'filter', undefined]);
+});
+
+test('describe: a picture answer the output cap cut twice is a miss with reason "cut"', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm([CAPPED, CAPPED]);
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
+  assert.equal(await describer.describe('g1', pictureItem('a1')), null);
+  const entry = loose(cacheView(store, 'g1')).a1;
+  assert.deepEqual([entry.miss, entry.reason, entry.text], [true, 'cut', undefined]);
+});
+
+test('describe: a stale picture whose new answers are cut twice keeps its older description', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const cache = loose(cacheView(store, 'g1'));
+  cache.a1 = { text: 'an old photo of a harbour', ts: 1 };
+  const llm = fakeLlm([FILTERED, FILTERED]);
+  const hot = fakeHot({ config: { media: { maxOutputTokens: 120, recacheBefore: CUTOFF_ISO } } });
+  const describer = createDescriber({ hot, store, llm, imageFetcher: fakeImageFetcher(), now: () => CUTOFF + HOUR });
+  const result = await describer.describe('g1', pictureItem('a1'));
+  assert.equal(llm.calls.length, 2);
+  assert.equal(loose(result).text, 'an old photo of a harbour');
+  assert.equal(cache.a1.text, 'an old photo of a harbour');
+});
+
+test('describe: a picture answer that ends normally is stored after one request', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm([whole('A red bicycle.'), whole('never asked')]);
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
+  assert.equal(loose(await describer.describe('g1', pictureItem('a1'))).text, 'A red bicycle.');
+  assert.equal(llm.calls.length, 1);
+});
+
+test('describe: a still sticker whose answer the filter cut is asked once more and the second answer is stored', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm([FILTERED, whole('A fox waving.')]);
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
+  await describer.describe('g1', pictureItem('sticker:s1', { kind: 'sticker' }));
+  assert.equal(llm.calls.length, 2);
+  assert.equal(loose(cacheView(store, 'g1'))['sticker:s1'].text, 'A fox waving.');
+});
+
+test('describe: a cut picture answer logs its kind and both finish reasons, never its text', async () => {
+  const store = createStore(memoryAt(tmpDataDir()));
+  const llm = fakeLlm([FILTERED, FILTERED]);
+  const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
+  const { logs } = await withCapturedLogs(() => describer.describe('g1', pictureItem('a1')));
+  const cuts = logs.filter((entry) => entry.msg === 'describe: cut');
+  assert.equal(cuts.length, 2, 'one line per cut answer');
+  assert.deepEqual(
+    [cuts[0].kind, cuts[0].finishReason, cuts[0].nativeFinishReason],
+    ['image', 'content_filter', 'PROHIBITED_CONTENT']
+  );
+  assert.ok(!JSON.stringify(logs).includes('holds a sign'), 'no text of the answer in any log line');
+});
+
+test('describeDataUrl: a caption the filter cut twice is null after two requests', async () => {
+  const llm = fakeLlm([FILTERED, FILTERED, whole('never asked')]);
+  const describer = createDescriber({
+    hot: fakeHot(),
+    store: createStore(memoryAt(tmpDataDir())),
+    llm,
+    imageFetcher: fakeImageFetcher(),
+  });
+  assert.equal(await describer.describeDataUrl('g1', SUCCESSFUL_DOWNLOAD.dataUrl), null);
+  assert.equal(llm.calls.length, 2);
+});
+
+test('describeDataUrl: a caption the filter cut is asked once more and the second answer is returned', async () => {
+  const llm = fakeLlm([FILTERED, whole('A drawn lighthouse at dusk.')]);
+  const describer = createDescriber({
+    hot: fakeHot(),
+    store: createStore(memoryAt(tmpDataDir())),
+    llm,
+    imageFetcher: fakeImageFetcher(),
+  });
+  assert.equal(await describer.describeDataUrl('g1', SUCCESSFUL_DOWNLOAD.dataUrl), 'A drawn lighthouse at dusk.');
+});
+
+test('describe: a GIF watch answer the filter cut is asked once more and the second answer is stored', async () => {
+  const { describer, llm } = gifDescriber({ llm: fakeLlm([FILTERED, whole('A man runs for a train.')]) });
+  assert.equal(loose(await describer.describe('g1', gifEmbedItem())).text, 'A man runs for a train.');
+  assert.equal(llm.calls.length, 2);
+});
+
+test('describe: a GIF watch answer the filter cut twice is a miss with reason "filter"', async () => {
+  const run = gifDescriber({ llm: fakeLlm([FILTERED, FILTERED, whole('never asked')]) });
+  const { describer, llm } = run;
+  assert.equal(await describer.describe('g1', gifEmbedItem()), null);
+  assert.equal(llm.calls.length, 2);
+  assertGifMiss(run, 'm1#e0', 'filter');
+});
+
+test('describeVideo: a summary the filter cut is asked once more and the second summary is stored', async () => {
+  const { describer, store, llm } = videoDescriber({ llm: fakeLlm([FILTERED, whole('Two people dance.')]) });
+  const result = await describer.describeVideo('g1', videoAttachment());
+  assert.equal(loose(result).text, 'Two people dance.');
+  assert.equal(llm.calls.length, 2);
+  assert.equal(loose(cacheView(store, 'g1'))['video:v1'].text, 'Two people dance.');
+});
+
+test('describeVideo: a summary cut by the output cap twice is an error with reason "cut" and no text', async () => {
+  const { describer, store, llm } = videoDescriber({ llm: fakeLlm([CAPPED, CAPPED, whole('never asked')]) });
+  assert.deepEqual(await describer.describeVideo('g1', videoAttachment()), { state: 'error', reason: 'cut' });
+  assert.equal(llm.calls.length, 2);
+  assert.equal(loose(cacheView(store, 'g1'))['video:v1'].text, undefined);
+});
+
+test('relookImage: an answer the filter cut is asked once more and the second answer is returned', async () => {
+  const { describer, llm } = relookDescriber({ llm: fakeLlm([FILTERED, whole('The sign says open.')]), now: clock() });
+  const result = await describer.relookImage('g1', pictureItem('a1'), 'What does the sign say?');
+  assert.deepEqual(result, { question: 'What does the sign say?', text: 'The sign says open.' });
+  assert.equal(llm.calls.length, 2);
+});
+
+test('relookImage: an answer the filter cut twice comes back failed "filter" with no text and nothing cached', async () => {
+  const { describer, store, llm } = relookDescriber({ llm: fakeLlm([FILTERED, FILTERED]), now: clock() });
+  const result = await describer.relookImage('g1', pictureItem('a1'), 'What does the sign say?');
+  assert.deepEqual(result, { question: 'What does the sign say?', failed: 'filter' });
+  assert.equal(llm.calls.length, 2);
+  assert.deepEqual(Object.keys(cacheView(store, 'g1')), []);
+});
+
+test('rewatchVideo: an answer the output cap cut twice comes back failed "cut" with no text', async () => {
+  const { describer, llm } = videoDescriber({ hot: rewatchHot(), llm: fakeLlm([CAPPED, CAPPED]), now: clock() });
+  const result = await describer.rewatchVideo('g1', videoAttachment(), 'Which colour is the car?');
+  assert.deepEqual(result, { question: 'Which colour is the car?', failed: 'cut' });
+  assert.equal(llm.calls.length, 2);
+});
+
+test('rewatchVideo: an answer the filter cut is asked once more and the second answer is returned', async () => {
+  const { describer } = videoDescriber({ hot: rewatchHot(), llm: fakeLlm([FILTERED, whole('red')]), now: clock() });
+  const result = await describer.rewatchVideo('g1', videoAttachment(), 'Which colour is the car?');
+  assert.deepEqual(result, { question: 'Which colour is the car?', text: 'red' });
+});
+
+test('rewatchGif: an answer the filter cut twice comes back failed "filter" with no text', async () => {
+  const { describer, llm } = gifDescriber({ hot: gifRewatchHot(), llm: fakeLlm([FILTERED, FILTERED]) });
+  const result = await describer.rewatchGif('g1', gifEmbedItem(), 'Who is in the mirror?');
+  assert.deepEqual(result, { question: 'Who is in the mirror?', failed: 'filter' });
+  assert.equal(llm.calls.length, 2);
+});
+
+test('rewatchGif: an answer the filter cut is asked once more and the second answer is returned', async () => {
+  const run = gifDescriber({ hot: gifRewatchHot(), llm: fakeLlm([FILTERED, whole('a second woman')]) });
+  const result = await run.describer.rewatchGif('g1', gifEmbedItem(), 'Who is in the mirror?');
+  assert.deepEqual(result, { question: 'Who is in the mirror?', text: 'a second woman' });
+});
+
+// The owner on 2026-11-18: a picture that could not be seen shows it with its reason, as a failed GIF does.
+test('failedMedia: a picture miss and a GIF miss map to their error states, a described picture is left out', () => {
+  const run = gifDescriber();
+  const cache = loose(cacheView(run.store, 'g1'));
+  cache.a1 = { miss: true, ts: 1, reason: 'filter' };
+  cache.a2 = { text: 'a cat', ts: 1 };
+  cache['m1#e0'] = { miss: true, ts: 1, reason: 'download' };
+  const failedMedia = loose(run.describer).failedMedia as (
+    placeId: string,
+    items: Array<object>
+  ) => Map<string, object>;
+  assert.deepEqual(
+    failedMedia('g1', [pictureItem('a1'), pictureItem('a2'), gifEmbedItem()]),
+    new Map([
+      ['a1', { state: 'error', reason: 'filter' }],
+      ['m1#e0', { state: 'error', reason: 'download' }],
+    ])
+  );
+});

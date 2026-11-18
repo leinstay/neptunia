@@ -129,6 +129,23 @@ for (const kind of ['voice', 'audio']) {
     assert.equal(fetchedUrls.length, 2);
   });
 
+  // The owner on 2026-11-18: an answer the provider cut short is asked once more, a second cut is a miss.
+  test(`a ${kind} whose answer the filter cut twice stays undescribed with the reason "filter"`, async () => {
+    const cut = { text: 'she says "грибы', finishReason: 'content_filter' };
+    const { describer, store, llm } = audioRig({ answer: [cut, cut, { text: HEARD, finishReason: 'stop' }] });
+    const { descriptions } = await describer.describeMany('g1', [voiceItem(kind)]);
+    assert.equal(descriptions.size, 0);
+    assert.equal(llm.calls.length, 2);
+    assert.equal(store.mediaEntry('g1', `${kind}-1`)?.reason, 'filter');
+  });
+
+  test(`a ${kind} whose first answer the filter cut is kept from the second answer`, async () => {
+    const cut = { text: 'she says "грибы', finishReason: 'content_filter' };
+    const { describer, store } = audioRig({ answer: [cut, { text: HEARD, finishReason: 'stop' }] });
+    await describer.describeMany('g1', [voiceItem(kind)]);
+    assert.equal(store.mediaEntry('g1', `${kind}-1`)?.text, HEARD);
+  });
+
   test(`${kind} is a kind the describer can tell`, () => {
     assert.equal(isDescribable({ kind }), true);
   });
