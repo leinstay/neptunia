@@ -49,9 +49,12 @@ export function searchModel(config: unknown): string | undefined {
   return chainModel(objOf(config).models, SEARCH_ROLE) ?? undefined;
 }
 
-/** The humanizer's roles (docs/humanizer.md); like `search` they have no built-in model, only their chains'. */
-export const HUMANIZER_LINTER_ROLE = 'humanizer.linter';
-export const HUMANIZER_WRITER_ROLE = 'humanizer.writer';
+/**
+ * The humanizer's roles (docs/humanizer.md): `linter` for its linter and `editor` for its writer. Like `search` they
+ * have no built-in model, only their chains'.
+ */
+export const HUMANIZER_LINTER_ROLE = 'linter';
+export const HUMANIZER_WRITER_ROLE = 'editor';
 export const HUMANIZER_ROLES: ReadonlyArray<string> = Object.freeze([HUMANIZER_LINTER_ROLE, HUMANIZER_WRITER_ROLE]);
 
 /** The model roles other than `core` that a turn calls, in display order. */

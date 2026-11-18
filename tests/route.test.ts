@@ -145,7 +145,7 @@ function hotForRoutes(rootDir: string) {
       embedding: 'openai/text-embedding-x',
       drawing: 'openai/gpt-image-x',
       search: 'perplexity/sonar-x',
-      'humanizer.linter': 'google/gemini-3.8-flash',
+      'linter': 'google/gemini-3.8-flash',
     }),
   };
   hot.config.image = { provider: { only: ['openai'] } };
@@ -183,8 +183,8 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
     `  speech: ${ROLE_DEFAULTS.speech} -> llm.provider (ignore some-provider, fallbacks: on)`,
     '  drawing: openai/gpt-image-x -> image.provider (only openai, fallbacks: on)',
     '  search: perplexity/sonar-x -> llm.provider (ignore some-provider, fallbacks: on)',
-    '  humanizer.linter: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
-    '  humanizer.writer: (no model configured)',
+    '  linter: google/gemini-3.8-flash -> google/ (only google-vertex, fallbacks: off)',
+    '  editor: (no model configured)',
     // Changed: the section lists every role the routing knows (src/llm/route-text.ts#ROUTE_ROLES), so memory, search
     // and the humanizer's roles get a line, each with its model read the way its requests read it.
     // Changed: the development roles `thinker` and `dev` are gone (maintainer, 2026-11-16), and the errand agents
@@ -192,23 +192,21 @@ test('run: route.list renders every route (prefix, role or any, providers, fallb
   ]);
 });
 
-test('run: route.set takes the roles search and humanizer.linter, the by-role line obeys it, route.remove takes it back', async () => {
+test('run: route.set takes the roles search and linter, the by-role line obeys it, route.remove takes it back', async () => {
   // Catches: a role the routing knows is refused as unknown by route.set, or its by-role line is missing.
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: hotForRoutes(rootDir) });
 
-  await admin.run('route.set', { model: 'google/', providers: 'google-vertex', role: 'humanizer.linter' }, {});
+  await admin.run('route.set', { model: 'google/', providers: 'google-vertex', role: 'linter' }, {});
   await admin.run('route.set', { model: 'perplexity/', providers: 'perplexity', role: 'search' }, {});
 
   assert.deepEqual(routesOf(rootDir), {
-    'google/@humanizer.linter': { only: ['google-vertex'], allow_fallbacks: false },
+    'google/@linter': { only: ['google-vertex'], allow_fallbacks: false },
     'perplexity/@search': { only: ['perplexity'], allow_fallbacks: false },
   });
   const lines = (await runText(admin, 'route.list', {})).split('\n');
   assert.ok(
-    lines.includes(
-      '  humanizer.linter: google/gemini-3.8-flash -> google/@humanizer.linter (only google-vertex, fallbacks: off)'
-    ),
+    lines.includes('  linter: google/gemini-3.8-flash -> google/@linter (only google-vertex, fallbacks: off)'),
     lines.join('\n')
   );
   assert.ok(
@@ -216,7 +214,7 @@ test('run: route.set takes the roles search and humanizer.linter, the by-role li
     lines.join('\n')
   );
 
-  await admin.run('route.remove', { model: 'google/', role: 'humanizer.linter' }, {});
+  await admin.run('route.remove', { model: 'google/', role: 'linter' }, {});
   await admin.run('route.remove', { model: 'perplexity/', role: 'search' }, {});
   assert.deepEqual(readLocal(rootDir), {});
 });

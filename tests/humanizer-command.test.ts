@@ -36,9 +36,9 @@ test('disable then status says the humanizer is off', () => {
 test('status names the route of a role and the command for a role with no route', () => {
   // Catches: a role with no route reads as ready, and the owner never learns the humanizer skips every text.
   const route = { via: 'harness', backend: 'claude', model: 'opus', effort: null };
-  const dir = privateDir({ models: { routes: { 'humanizer.writer': [route] } } });
+  const dir = privateDir({ models: { routes: { 'editor': [route] } } });
   assert.deepEqual(statusOf(dir).split('\n').slice(1), [
-    'humanizer.linter: no route; /model set humanizer.linter <route>',
-    'humanizer.writer: harness:claude/opus',
+    'linter: no route; /model set linter <route>',
+    'editor: harness:claude/opus',
   ]);
 });

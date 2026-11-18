@@ -530,6 +530,41 @@ test('createHot: a config that still sets models.errands warns once, naming the 
   }
 });
 
+test('createHot: a chain under a retired humanizer role warns once per role with the role that replaces it, and the new roles warn nothing', async () => {
+  // Catches: the dotted role names `humanizer.linter` and `humanizer.writer` are looked up segment by segment, so a
+  // deployment that still holds them is never told, or a chain under the new role `linter` is taken for one of them.
+  const chain = [{ via: 'api', key: 'k', model: 'x/old-model', effort: null }];
+  const dir = makeRoot(
+    wrongly({ config: { models: { routes: { 'humanizer.linter': chain, 'humanizer.writer': chain } } } })
+  );
+  const retired = (logs: Record<string, Untyped>) =>
+    logs.filter((entry: Record<string, Untyped>) => /^config: models\.routes\.humanizer/.test(String(entry.msg)));
+  let hot = wrongly<Hot>(undefined);
+  try {
+    const started = await withCapturedLogs(() => {
+      hot = createHot({ rootDir: dir });
+      hot.reloadConfig();
+    });
+    assert.deepEqual(
+      retired(started.logs).map((entry: Record<string, Untyped>) => [entry.msg, entry.use]),
+      [
+        ['config: models.routes.humanizer.linter is no longer read', 'models.routes.linter'],
+        ['config: models.routes.humanizer.writer is no longer read', 'models.routes.editor'],
+      ]
+    );
+    assert.ok(!JSON.stringify(started.logs).includes('x/old-model'), 'the key, never its value');
+
+    const renamed = { models: { routes: { linter: chain, editor: chain } } };
+    const clean = makeRoot(wrongly({ config: renamed }));
+    const quiet = await withCapturedLogs(() => createHot({ rootDir: clean }).close());
+    assert.equal(retired(quiet.logs).length, 0);
+    fs.rmSync(clean, { recursive: true, force: true });
+  } finally {
+    hot?.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('createHot: an agent entry that still sets its socket warns once, whatever agent it names', async () => {
   // Catches: a deployment keeps `agents.<name>.socket` from the per-agent units, nothing reads it, and the owner believes
   // the runner listens there.

@@ -1722,7 +1722,7 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
 test('humanizeSpeech: the linter and the writer requests fill humanizer-linter.md and humanizer-writer.md', async () => {
   const hot = shippedHot({
     humanizer: { enabled: true },
-    models: { routes: chainsOf({ 'humanizer.linter': 'x/linter', 'humanizer.writer': 'x/writer' }) },
+    models: { routes: chainsOf({ 'linter': 'x/linter', 'editor': 'x/writer' }) },
   });
   const calls: Array<{ messages: unknown; purpose: unknown }> = [];
   // Twenty words: a rewrite is posted only when it keeps at least half the words of the draft.

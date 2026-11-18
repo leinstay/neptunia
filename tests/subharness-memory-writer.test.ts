@@ -687,7 +687,7 @@ test("the bind merge's description join runs through claude on the harness path"
 // the humanizer's writer: another role's one-shot request on the same client (src/llm/core-routes.ts)
 
 const WRITER_OPTIONS = {
-  role: 'humanizer.writer',
+  role: 'editor',
   purpose: 'humanizer-writer',
   model: 'claude-opus-5-5',
   chainRoute: { via: 'harness', backend: 'claude', model: 'claude-opus-5-5', effort: null },
@@ -705,7 +705,7 @@ test('a run of another role is counted under that role and says nothing of the m
   await llm.complete(SESSION_MESSAGES, WRITER_OPTIONS);
   assert.deepEqual(
     recorded.map((entry) => entry.role),
-    ['humanizer.writer']
+    ['editor']
   );
   assert.deepEqual(outcomes, []);
 });
