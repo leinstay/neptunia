@@ -944,22 +944,27 @@ test('a projection of a media row that is gone removes its node and its witness'
   }
 });
 
-test('a projection of a row that is gone keeps its node while an edge names it and drops its witness', () => {
+// An account has no witness of its own (its producer writes none), so a claim is the kind here: it has its own witness,
+// and the supersedes edge of the claim it replaced names it and witnesses it too.
+test('a projection of a row that is gone keeps its node while an edge names it and drops only its own witness', () => {
   const handle = openMemoryDb(':memory:');
   const db = sqlOf(handle);
   try {
-    db.prepare("INSERT INTO accounts (id, iface, native_id) VALUES ('acc:fake:w1', 'fake', 'w1')").run();
-    projectRow(handle, 'accounts', { id: 'acc:fake:w1' }, { at: at(0) });
-    db.prepare(
-      "INSERT INTO sources (id, kind, iface, native_id, revision, author_account, text) VALUES ('src:w1', 'seen', 'fake', 'n1', 1, 'acc:fake:w1', 'hello')"
-    ).run();
-    projectRow(handle, 'sources', { id: 'src:w1' }, { at: at(0) });
-    const node = graphNodeId('account', 'acc:fake:w1');
-    assert.equal(witnessesOf(db, node), 1);
-    db.prepare("DELETE FROM accounts WHERE id = 'acc:fake:w1'").run();
-    projectRow(handle, 'accounts', { id: 'acc:fake:w1' }, { at: at(1) });
+    db.prepare("INSERT INTO claims (id, created_at) VALUES ('clm:new', ?)").run(at(0));
+    db.prepare("INSERT INTO claims (id, created_at, superseded_by) VALUES ('clm:old', ?, 'clm:new')").run(at(0));
+    projectRow(handle, 'claims', { id: 'clm:new' }, { at: at(0) });
+    projectRow(handle, 'claims', { id: 'clm:old' }, { at: at(0) });
+    const node = graphNodeId('claim', 'clm:new');
+    const own = (n: string) =>
+      count(db, 'SELECT COUNT(*) AS n FROM node_access WHERE node_id = ? AND evidence_id = ?', n, n);
+    assert.equal(own(node), 1);
+    const byEdge = witnessesOf(db, node) - own(node);
+    assert.ok(byEdge > 0);
+    db.prepare("DELETE FROM claims WHERE id = 'clm:new'").run();
+    projectRow(handle, 'claims', { id: 'clm:new' }, { at: at(1) });
     assert.equal(nodesOf(db, node), 1);
-    assert.equal(witnessesOf(db, node), 0);
+    assert.equal(own(node), 0);
+    assert.equal(witnessesOf(db, node), byEdge);
   } finally {
     handle.close();
   }
