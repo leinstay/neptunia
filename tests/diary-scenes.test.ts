@@ -43,7 +43,7 @@ test('sends the prompt file as the system message and no character text, on the 
   // Bug: the helper gets the persona as its system message, or the tool's requests count against the day's cap.
   const { llm, run, done } = setup();
   try {
-    await run(['--kinds', 'status', '--count', '1', '--seed', 'a']);
+    await run(['--kinds', 'story', '--count', '1', '--seed', 'a']);
     const tracked = fs.readFileSync(path.join(ROOT, 'prompts', 'diary-scene.md'), 'utf8');
     const [call] = llm.calls;
     const [system] = call.messages;
@@ -62,7 +62,7 @@ test('asks for the model of the route a flag names, so two models can be compare
   try {
     // Changed: the helper's own role takes the flag, in place of the analyzer.
     const flag = ['--director', 'helpers/vendor/other-model:medium'];
-    await run(['--kinds', 'status', '--count', '1', '--seed', 'a', ...flag]);
+    await run(['--kinds', 'story', '--count', '1', '--seed', 'a', ...flag]);
     const [{ options }] = llm.calls;
     assert.equal(options.role, 'director');
     assert.equal(options.model, 'vendor/other-model');
@@ -75,7 +75,7 @@ test("takes a harness route for the helper's role, so a harness model can be com
   // Bug: the role runs on a key only, and the tool refuses the flag of a harness model.
   const { llm, run, done } = setup();
   try {
-    await run(['--kinds', 'status', '--count', '1', '--seed', 'a', '--director', 'harness:claude/some-model:low']);
+    await run(['--kinds', 'story', '--count', '1', '--seed', 'a', '--director', 'harness:claude/some-model:low']);
     assert.equal(llm.calls.length, 1);
     const [{ options }] = llm.calls;
     assert.equal(options.role, 'director');
@@ -88,11 +88,11 @@ test('prints count results per kind, each with eight sets, and the same sets for
   // Bug: a kind or a run goes missing, or the seed does not fix the draw.
   const { run, done } = setup();
   try {
-    const argv = ['--kinds', 'status,picture', '--count', '2', '--seed', 'same'];
+    const argv = ['--kinds', 'story,picture', '--count', '2', '--seed', 'same'];
     const first = JSON.parse(await run(argv)) as Printed;
-    assert.deepEqual(Object.keys(first), ['status', 'picture']);
+    assert.deepEqual(Object.keys(first), ['story', 'picture']);
     assert.ok(Object.values(first).every((results) => results.length === 2));
-    assert.ok(first.status.every((result) => result.sets.length === 8 && result.set === 1));
+    assert.ok(first.story.every((result) => result.sets.length === 8 && result.set === 1));
     const second = JSON.parse(await run(argv)) as Printed;
     assert.deepEqual(
       second.picture.map((result) => result.sets),
@@ -107,7 +107,8 @@ test('refuses a kind outside the five before any request', async () => {
   // Bug: a text kind reaches the helper and spends a request.
   const { llm, run, done } = setup();
   try {
-    await assert.rejects(run(['--kinds', 'status,thought']), /thought/);
+    // A status is a line of the real day and gets no scene, as any kind outside the five.
+    await assert.rejects(run(['--kinds', 'story,status']), /status/);
     assert.equal(llm.calls.length, 0);
   } finally {
     done();

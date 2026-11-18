@@ -35,7 +35,7 @@ const hot = {
 // 2026-11-18 14:00 UTC, a Wednesday.
 const NOW = Date.UTC(2026, 10, 18, 14, 0);
 
-function run(text: string, kind = 'status') {
+function run(text: string, kind = 'story') {
   const llm = fakeLlm(text);
   return { llm, result: buildScene({ hot, llm, kind, sets: SETS, now: NOW, timezone: 'UTC' }) };
 }
@@ -50,7 +50,7 @@ test('sends the prompt file as the system message and only the kind, the sets an
   const [, { content: user }] = call.messages;
   const tags = [...user.matchAll(/^<(\w+)>$/gm)].map((match) => match[1]);
   assert.deepEqual(tags, ['kind', 'sets', 'now']);
-  assert.match(user, /<kind>\nstatus\n<\/kind>/);
+  assert.match(user, /<kind>\nstory\n<\/kind>/);
   assert.match(user, /1\.\na pier\nfog\na rusted bell\nfishing\ngulls\na power cut/);
   assert.match(user, /<now>\n.*Wednesday.*14:00/);
   assert.ok(!user.includes(CARD));
@@ -69,7 +69,7 @@ test("takes the analyzer's model while the scene role has no route, and its own 
   for (const routes of [{ analyzer }, { analyzer, 'director': own }]) {
     const llm = fakeLlm(answer);
     const at = { config: { models: { routes } }, prompts: hot.prompts };
-    await buildScene({ hot: at, llm, kind: 'status', sets: SETS, now: NOW, timezone: 'UTC' });
+    await buildScene({ hot: at, llm, kind: 'story', sets: SETS, now: NOW, timezone: 'UTC' });
     const [{ options }] = llm.calls;
     models.push(options.model);
   }

@@ -12,7 +12,7 @@ import { DIARY_DIRECTOR_ROLE, roleModel } from '../llm/roles.ts';
 import { block } from '../turn/request/text.ts';
 
 /** The kinds of entry a scene is built for. */
-export const SCENE_KINDS = ['status', 'selfPicture', 'picture', 'photoset', 'randomSet'] as const;
+export const SCENE_KINDS = ['story', 'selfPicture', 'picture', 'photoset', 'randomSet'] as const;
 export type SceneKind = (typeof SCENE_KINDS)[number];
 
 /** How many seed sets one request offers. */

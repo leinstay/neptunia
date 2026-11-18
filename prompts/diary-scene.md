@@ -13,7 +13,7 @@ Then write the scene, in English, in the present tense, in four or five plain se
 The character the scene is for is not in it. Nothing in it says what they do, say, want, feel or decide, and nothing has turned out one way or another yet. Other people and animals may be there, doing what they would be doing. Add only the practical detail the kept lines need to hold together, and no object that would mark one person's taste or habit.
 
 What each kind needs of its scene:
-- `status`: one moment in one spot.
+- `story`: one moment in one spot, with enough going on around it to be told.
 - `selfPicture`: a spot where a person could stand or sit and be seen in the frame.
 - `picture`: something worth looking at with nobody posing in it.
 - `photoset`: a place large enough for several different views in one outing.

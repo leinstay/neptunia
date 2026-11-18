@@ -2,7 +2,7 @@
 // Calibration tool of the diary's scene helper (src/behavior/diary-scene.ts): runs the helper on fresh seed sets and
 // prints the scenes, so the wording of `prompts/diary-scene.md` is judged on real answers before any turn uses it.
 //
-//   NEPTUNIA_DATA_DIR=<data folder> node scripts/diary-scenes.ts [--kinds status,picture] [--count 3]
+//   NEPTUNIA_DATA_DIR=<data folder> node scripts/diary-scenes.ts [--kinds story,picture] [--count 3]
 //        [--seed <text>] [--prompts <dir>] [--out <report.md>] [--director <route>]
 //
 // For each kind of `--kinds` (default the five of SCENE_KINDS) and each of `--count` runs (default 3) it draws eight
