@@ -19,7 +19,14 @@ import type { Built } from './fixtures/built-request.ts';
 import { DM, DM_CHAIN, PARTNER, ROOM_CHAIN, frameInput } from './fixtures/frame-input.ts';
 import { line, meanwhileReads } from './fixtures/meanwhile-reads.ts';
 import type { FakePlace } from './fixtures/meanwhile-reads.ts';
-import { claimEntry, excerptEntry, mindOfEntries, personEntry, placeEntry } from './fixtures/mind-entries.ts';
+import {
+  claimEntry,
+  episodeEntry,
+  excerptEntry,
+  mindOfEntries,
+  personEntry,
+  placeEntry,
+} from './fixtures/mind-entries.ts';
 import { MIN, NOW, baseInput, exactly, fakeConfig, fakePrompts, makeMessage } from './fixtures/prompt-rig.ts';
 import { shippedLabels } from './fixtures/shipped-labels.ts';
 import { handleOf } from '../src/behavior/handles.ts';
@@ -759,4 +766,25 @@ test('a looked-up stretch that names an emoji puts its line in the root <media> 
 test('a stretch read by a tool outside her request keeps its own <media> legend before its line', () => {
   // Bug: the fix of `<recall>` strips the legend from the tool result too, and the result names a bare code.
   assert.match(LANTERN_STRETCH, /^<media>\n[\s\S]*:e5: φαναράκι[\s\S]*<\/media>\n\[10:00\] Ελένη: ΦΑΝΟΣ :e5:$/);
+});
+
+test('each line of <recent> names the person its episode is about by their handle in <people>, a place episode no one', () => {
+  // Bug: the episodes of two people stand one after another with no name, and the persona reads the other person's
+  // episode as one more of the person it answers.
+  const nikos = personEntry('222', 'Νίκος', { evidence: 'author' });
+  const about = (person: PersonEntry) => ({ subjectId: person.personId, subjectName: person.name });
+  const recent = [
+    episodeEntry('episode:e', 'place:club', 'ΣΤΙΓΜΗ-ΕΛΕΝΗΣ', about(ELENI)),
+    episodeEntry('episode:n', 'place:club', 'ΣΤΙΓΜΗ-ΝΙΚΟΥ', about(nikos)),
+    episodeEntry('episode:p', 'place:club', 'ΣΤΙΓΜΗ-ΛΕΣΧΗΣ'),
+  ];
+  const memory = block(request({ mind: mindOfEntries({ people: [ELENI, nikos], recent }) }), 'memory');
+  const handleIn = (name: string): string => new RegExp(`(@\\w+): ${name}`).exec(memory)?.[1] ?? '';
+  const eleni = handleIn('Ελένη');
+  const other = handleIn('Νίκος');
+  assert.ok(eleni !== '' && other !== '' && eleni !== other, memory);
+  const lineOf = (word: string): string => memory.split('\n').find((one) => one.includes(word)) ?? '';
+  assert.ok(lineOf('ΣΤΙΓΜΗ-ΕΛΕΝΗΣ').includes(eleni) && !lineOf('ΣΤΙΓΜΗ-ΕΛΕΝΗΣ').includes(other), memory);
+  assert.ok(lineOf('ΣΤΙΓΜΗ-ΝΙΚΟΥ').includes(other) && !lineOf('ΣΤΙΓΜΗ-ΝΙΚΟΥ').includes(eleni), memory);
+  assert.doesNotMatch(lineOf('ΣΤΙΓΜΗ-ΛΕΣΧΗΣ'), /@/);
 });

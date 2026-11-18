@@ -428,6 +428,7 @@
       "live": "right now: {value}",
       "ownLines": "you wrote {count} or more messages here, the last on {date}",
       "episode": "{date}: {what}",
+      "episodeWith": "{date}, with {who}: {what}",
       "warmer": "{date}: you grew warmer toward them by {amount}",
       "cooler": "{date}: you grew cooler toward them by {amount}",
       "changeReason": "{change}: {reason}",
@@ -898,7 +899,8 @@
           "facts": "Stored facts, in your own words:",
           "fact": "- ({state}) {text}",
           "factsCut": "More stored facts exist. Narrow with entity, predicate or as_of.",
-          "episode": "- remembered moment ({date}): {text}"
+          "episode": "- remembered moment ({date}): {text}",
+          "episodeWith": "- remembered moment ({date}, with {who}): {text}"
         },
         "describe": {
           "closest": "No skill by that name. The closest: {names}."

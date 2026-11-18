@@ -3,6 +3,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { factExcerpts, prefetchInput, searchEpisodes } from '../src/behavior/recall-facts.ts';
+import { handleOf } from '../src/behavior/handles.ts';
 import { pendingObjectEmbeds } from '../src/memory/db/object-vectors.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { dmContext, groupContext } from '../src/memory/db/scope.ts';
@@ -81,7 +82,13 @@ after(() => {
 
 /** A world with one person, their direct chat, and the episodes given, each with its vector. */
 function episodeWorld(
-  episodes: ReadonlyArray<{ id: string; what: string; vector: ReadonlyArray<number>; dm?: boolean }>
+  episodes: ReadonlyArray<{
+    id: string;
+    what: string;
+    vector: ReadonlyArray<number>;
+    dm?: boolean;
+    subject?: string | null;
+  }>
 ): { w: World; dm: string } {
   const w = openWorld();
   worlds.push(w);
@@ -97,7 +104,7 @@ function episodeWorld(
         {
           id: one.id,
           kind: 'episode',
-          subject_id: PERSON,
+          subject_id: one.subject === undefined ? PERSON : one.subject,
           date: '2026-10-30',
           what: one.what,
           created_at: AT,
@@ -133,7 +140,10 @@ test('an English search finds a Greek episode by its vector, with its date, and 
     model: EMBEDDER,
     config: config(3),
   });
-  assert.deepEqual(found, [{ id: 'ep:near', date: '2026-10-30', text: 'Χόρεψε στη γιορτή' }]);
+  // The episode carries the handle of the person it is about, so a result of several people says whose each moment is.
+  assert.deepEqual(found, [
+    { id: 'ep:near', date: '2026-10-30', text: 'Χόρεψε στη γιορτή', who: `@${handleOf(PERSON)}` },
+  ]);
 });
 
 test('a DM episode never answers a group search and does answer in its own chat', () => {
@@ -160,4 +170,22 @@ test('the episodes stop at memoryDb.retrieval.episodes, and none come without a 
   );
   assert.deepEqual(searchEpisodes({ db: w.db, ctx, vector: [1, 0, 0], model: EMBEDDER, config: config(0) }), []);
   assert.deepEqual(searchEpisodes({ db: w.db, ctx, vector: null, model: EMBEDDER, config: config(3) }), []);
+});
+
+test("a found episode names its person by the handle a search gives that person's lines, and a place's names no one", () => {
+  // Bug: memory.search lists the moments of several people with no name, and one reads as another person's.
+  const { w } = episodeWorld([
+    { id: 'ep:person', what: 'Χόρεψε', vector: [1, 0, 0] },
+    { id: 'ep:place', what: 'Γιορτή', vector: [0.9, 0.1, 0], subject: null },
+  ]);
+  const found = searchEpisodes({
+    db: w.db,
+    ctx: groupContext('discord'),
+    vector: [1, 0, 0],
+    model: EMBEDDER,
+    config: config(3),
+  });
+  const whoOf = (id: string) => found.find((one) => one.id === id)?.who;
+  assert.equal(whoOf('ep:person'), `@${handleOf(PERSON)}`);
+  assert.equal(whoOf('ep:place'), null);
 });

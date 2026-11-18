@@ -751,3 +751,15 @@ test('an entry with no moment of a last line holds no such line', () => {
   // since 1970.
   assert.deepEqual(wroteLines(personEntry('333', 'Θάλεια', { lastSeenAt: null })), []);
 });
+
+test('a request without handles names the person of each episode of <recent> by their stored name', () => {
+  // Bug: the diary's request lists the episodes of two people with no name, and an episode reads as the other's.
+  const recent = [
+    episodeEntry('episode:e', 'place:club', 'ΣΤΙΓΜΗ-ΕΛΕΝΗΣ', { subjectId: ELENI.personId, subjectName: 'Ελένη' }),
+    episodeEntry('episode:n', 'place:club', 'ΣΤΙΓΜΗ-ΝΙΚΟΥ', { subjectId: NIKOS.personId, subjectName: 'Νίκος' }),
+  ];
+  const lines = section(render(mindOfEntries({ recent }), null), 'recent').split('\n');
+  const lineOf = (word: string): string => lines.find((one) => one.includes(word)) ?? '';
+  assert.ok(lineOf('ΣΤΙΓΜΗ-ΕΛΕΝΗΣ').includes('Ελένη') && !lineOf('ΣΤΙΓΜΗ-ΕΛΕΝΗΣ').includes('Νίκος'), lines.join('\n'));
+  assert.ok(lineOf('ΣΤΙΓΜΗ-ΝΙΚΟΥ').includes('Νίκος') && !lineOf('ΣΤΙΓΜΗ-ΝΙΚΟΥ').includes('Ελένη'), lines.join('\n'));
+});

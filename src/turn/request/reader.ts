@@ -526,6 +526,7 @@ function namesOf(given: ReaderInput, rawWindows: ReadonlyArray<MeanwhileWindow>)
           ? placeRefText(labels, null, { ...fallback, keepEmoji })
           : escapeStored(labels.spatial?.unnamed ?? '')),
       partnerOf: (placeId) => partner(given.placePathOf?.(placeId)?.partnerKey),
+      person: (key) => `@${people.handleOf(key)}`,
       counterpartKey,
     },
     meanwhileRefs: { handleOf: (key) => people.handleOf(key), mention },

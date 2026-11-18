@@ -34,7 +34,7 @@ import { estimateTokens } from '../../llm/tokens.ts';
 import { indexWords } from '../record-index.ts';
 import { graphNodeId } from './graph.ts';
 import { SELF_PERSON } from './ids.ts';
-import { profileAccountsOf } from './meta-person.ts';
+import { personNamesOf, profileAccountsOf } from './meta-person.ts';
 import { interestClaimsOf, storedAvatarOf, usualNameOf } from './person-fields.ts';
 import type { PersonAccount, ProfileAccount } from './meta-person.ts';
 import { IS_WRITTEN_ROW, LINE_AUTHOR_ACCOUNT, LINE_AUTHOR_KIND } from './source-current.ts';
@@ -126,7 +126,15 @@ export type PlaceEntry = EntryBase & {
 };
 export type InterfaceEntry = EntryBase & { iface: string; name: string | null };
 export type ClaimEntry = EntryBase & { claimId: string; subjectId: string; kind: string; text: string };
-export type EpisodeEntry = EntryBase & { episodeId: string; placeId: string | null; date: string | null; what: string };
+/** A remembered moment: `subjectId` the person it is about and `subjectName` their stored name, both null for a place's. */
+export type EpisodeEntry = EntryBase & {
+  episodeId: string;
+  placeId: string | null;
+  subjectId: string | null;
+  subjectName: string | null;
+  date: string | null;
+  what: string;
+};
 export type ExcerptEntry = EntryBase & {
   sourceId: string;
   placeId: string | null;
@@ -1239,21 +1247,29 @@ function episodesOf(db: Db, walker: Walker, recent: Map<string, Raised>): Array<
   const out: Array<Built> = [];
   const where = walker.aud('e');
   const read = db.prepare(
-    `SELECT e.id, e.place_id, e.date, e.what, e.created_at FROM episodes e
+    `SELECT e.id, e.subject_id, e.place_id, e.date, e.what, e.created_at FROM episodes e
        WHERE e.id = ? AND e.retired_at IS NULL AND e.kind IS NOT 'stretch' AND ${where.sql}`
   );
   for (const [id, raised] of recent) {
     const row = read.get(id, ...where.params);
     if (!row || text(row.what) === null) continue;
+    const subjectId = text(row.subject_id);
     const entry: EpisodeEntry = {
       ...baseOf(raised),
       episodeId: id,
       placeId: text(row.place_id),
+      subjectId,
+      subjectName: subjectId === null ? null : (personNamesOf(db, [subjectId])[subjectId] ?? null),
       date: text(row.date) ?? text(row.created_at),
       what: String(row.what),
       sources: [{ table: 'episodes', id, version: null }],
     };
-    out.push({ subtag: 'recent', raised, entry, render: () => `${entry.date ?? ''} ${entry.what}` });
+    out.push({
+      subtag: 'recent',
+      raised,
+      entry,
+      render: () => [entry.date, entry.subjectName, entry.what].filter(Boolean).join(' '),
+    });
   }
   return out.sort((a, b) =>
     String((b.entry as EpisodeEntry).date).localeCompare(String((a.entry as EpisodeEntry).date))

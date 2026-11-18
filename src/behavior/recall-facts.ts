@@ -2,6 +2,7 @@
 // now, and the excerpts its facts become in the prefetch. recall-run.ts is the caller; the wording is the request's.
 
 import { log } from '../log.ts';
+import { handleOf } from './handles.ts';
 import { RECALL_DEFAULTS } from './recall.ts';
 import { objectMeaning } from '../memory/db/object-vectors.ts';
 import { dbSettings } from '../memory/db/recall.ts';
@@ -54,8 +55,11 @@ export async function memoryPage(given: {
   }
 }
 
-/** An episode a search found by meaning: its id, its date when it has one, and what happened. */
-export type FoundEpisode = { id: string; date: string | null; text: string };
+/**
+ * An episode a search found by meaning: its id, its date when it has one, what happened, and `who`, the handle of the
+ * person it is about as the search names that person's lines (null for a place's episode).
+ */
+export type FoundEpisode = { id: string; date: string | null; text: string; who: string | null };
 /** `memoryDb.retrieval.episodes` when missing or broken: config.json's value. */
 const EPISODES_FALLBACK = 3;
 
@@ -87,13 +91,20 @@ export function searchEpisodes(given: {
   const floor = pathOf(given.config, ['recall', 'db', 'minMeaning']);
   const minMeaning = typeof floor === 'number' ? floor : RECALL_DEFAULTS.db.minMeaning;
   const db = given.db as Db;
-  const read = db.prepare('SELECT id, date, what, quote FROM episodes WHERE id = ? AND retired_at IS NULL');
+  const read = db.prepare('SELECT id, subject_id, date, what, quote FROM episodes WHERE id = ? AND retired_at IS NULL');
   const hits = objectMeaning(db, given.ctx as Context, { vector, model: given.model, kinds: ['episode'], minMeaning });
   return hits.slice(0, limit).flatMap((hit) => {
     const row = read.get(hit.itemId);
     const text = [row?.what, row?.quote].find((one) => typeof one === 'string' && one.trim() !== '');
     return row && typeof text === 'string'
-      ? [{ id: hit.itemId, date: typeof row.date === 'string' ? row.date : null, text }]
+      ? [
+          {
+            id: hit.itemId,
+            date: typeof row.date === 'string' ? row.date : null,
+            text,
+            who: typeof row.subject_id === 'string' ? `@${handleOf(row.subject_id)}` : null,
+          },
+        ]
       : [];
   });
 }

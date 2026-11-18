@@ -1271,3 +1271,34 @@ test('a person with no line has no moment of a last line', async () => {
   });
   assert.equal(seen, null);
 });
+
+test("an episode of <recent> carries the person it is about and that person's stored name", () => {
+  // Bug: the reader drops the subject of an episode, and its request line cannot say whose moment it is.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, { id: person, accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }] });
+  insertRows(w.db, {
+    episodes: [
+      {
+        id: 'episode:p1',
+        kind: 'episode',
+        subject_id: person,
+        date: '2026-10-30',
+        what: 'ΣΤΙΓΜΗ',
+        created_at: AT,
+        scope_kind: 'group',
+        scope_iface: 'discord',
+      },
+    ],
+  });
+  const trigger = message('src:c1', 'γεια', { authorAccount: 'discord:p1', placeId: w.room, trigger: true });
+  const mind = mindOf(
+    w.db,
+    GROUP,
+    seedsOf([trigger], { place: w.room, counterpart: { personId: person, accountId: 'discord:p1' } }),
+    SETTINGS,
+    NOW
+  );
+  const episode = mind.recent.find((one) => one.episodeId === 'episode:p1');
+  assert.deepEqual([episode?.subjectId, episode?.subjectName], [person, 'Pétros']);
+});

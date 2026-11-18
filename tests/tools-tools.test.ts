@@ -1018,3 +1018,35 @@ test('runMemorySearch lists each episode the search found under its date, after 
   assert.ok(fact >= 0, 'the fact is listed');
   assert.equal(lines[fact + 1], '- moment of 2026-10-30: danced at the party');
 });
+
+test('memory.search names the person of each found episode that has one', async () => {
+  // Bug: the moments of two people stand one after another with no name, and one reads as the other's.
+  const shipped = labels.tools;
+  const memory = { episode: '- {date}: {text}', episodeWith: '- {date} {who}: {text}' };
+  const root = { id: 'g1' };
+  const result = await runMemorySearch({
+    recall: recallAnswering({
+      ...NO_STRETCH,
+      quotes: [STRETCH],
+      episodes: [
+        { id: 'ep:1', date: '2026-10-30', text: 'ΧΟΡΟΣ', who: '@ua' },
+        { id: 'ep:2', date: '2026-10-31', text: 'ΤΡΑΓΟΥΔΙ', who: '@ub' },
+        { id: 'ep:3', date: '2026-11-01', text: 'ΓΙΟΡΤΗ', who: null },
+      ],
+      outcome: { kind: 'searched' },
+    }),
+    store: { listUserProfiles: () => [] },
+    config: { bot: { timezone: 'UTC' }, features: { recall: true }, recall: { maxForms: 4 } },
+    labels: { ...labels, tools: { ...shipped, tools: { ...shipped.tools, memory } } },
+    root,
+    placeId: 'g1',
+    channel: { id: 'c1', rootId: 'g1', root },
+    args: { question: 'what happened at the party', terms: 'party' },
+    now: NOW,
+  } as unknown as Parameters<typeof runMemorySearch>[0]);
+  const lines = (result.data?.text ?? '').split('\n');
+  const lineOf = (word: string): string => lines.find((one) => one.includes(word)) ?? '';
+  assert.ok(lineOf('ΧΟΡΟΣ').includes('@ua') && !lineOf('ΧΟΡΟΣ').includes('@ub'), lines.join('\n'));
+  assert.ok(lineOf('ΤΡΑΓΟΥΔΙ').includes('@ub') && !lineOf('ΤΡΑΓΟΥΔΙ').includes('@ua'), lines.join('\n'));
+  assert.doesNotMatch(lineOf('ΓΙΟΡΤΗ'), /@/);
+});
