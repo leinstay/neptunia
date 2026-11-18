@@ -420,6 +420,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
   const recall = createRecall({
     hot,
     store,
+    mediaNameOf: namesStore.mediaNameOf,
     llm,
     reads,
     memberName: (_placeId: string, accountId: string) =>
